@@ -1,0 +1,577 @@
+"use client";
+
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import useSWR from "swr";
+
+import type { ChatGptReasoningEffort } from "@/lib/ai/chatgpt-model-preferences";
+import { isTakeoffApiError } from "@/lib/takeoff/client-http";
+import { ITEM_AGGREGATE_STATES } from "@/lib/takeoff/item-answer-aggregation";
+import { ITEM_LINE_DECISIONS, type ItemSetAsideReason, type ItemTableScope } from "@/lib/takeoff/item-table";
+import {
+  fetchFrozenItemSelection,
+  fetchItemTable,
+  itemReviewStaleLines,
+  previewItemRemeasure,
+  sendItemRemeasure,
+  sendItemReviewCommand,
+} from "@/lib/takeoff/item-table-client";
+import {
+  ITEM_REVIEW_COMMAND_VERSION,
+  ITEM_TABLE_PAGE_SIZES,
+  type ItemRemeasurePreview,
+  type ItemReviewCommand,
+  type ItemReviewResult,
+  type ItemTableResponseLine,
+} from "@/lib/takeoff/item-table-contracts";
+import {
+  formatItemCount,
+  formatItemPercent,
+  formatItemQuantity,
+  ITEM_DECISION_LABELS,
+  ITEM_INELIGIBILITY_LABELS,
+  ITEM_STATE_LABELS,
+  itemReasonLabel,
+} from "@/lib/takeoff/item-table-labels";
+import { itemTableAddressParams, readItemTableAddress, withItemTableParams, type ItemTableAddress } from "@/lib/takeoff/item-table-query";
+import {
+  emptyItemSelection,
+  itemSelectionCounts,
+  itemSelectionStorageKey,
+  parseStoredItemSelection,
+  selectedTargets,
+  toggleItemSelection,
+  withFrozenSelection,
+  type ItemSelection,
+} from "@/lib/takeoff/item-table-selection";
+import type { QuantityEntry } from "@/lib/takeoff/quantity-entry";
+import { JourneyPanel } from "@/components/journey/JourneyPage";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { NativeSelect } from "@/components/ui/native-select";
+
+import {
+  AcceptMeasuredDialog,
+  EntryDialog,
+  ReinstateDialog,
+  RemeasureDialog,
+  SetAsideDialog,
+} from "./ItemTableGestureDialogs";
+import { ItemTableLineDetail } from "./ItemTableLineDetail";
+
+/**
+ * The table of items of an affaire's takeoff: a line per item of the list, with its state, its observed quantity, the
+ * quantity retained or entered apart, its DPGF reference and gap, its coverage, its reasons and its plans; the decisions
+ * to take first. Any reader sees it; an operator ticks lines (on several pages, or every result of a filter), and the
+ * selection, the values typed and the focus stay when a plan's result arrives and after a reload. The server decides
+ * every gesture on the selection it froze.
+ */
+
+const PREFIX = "poste";
+type Gesture = "accept" | "set_aside" | "reinstate" | "entry" | "remeasure";
+type Draft = { quantity: string; unit: string };
+type Notice = { tone: "success" | "info" | "danger"; text: string };
+
+const fetchTable = ([, , projectId, address]: readonly [string, string, string, ItemTableAddress]) => fetchItemTable(projectId, address);
+
+function scopeLabel(scope: ItemTableScope, plans: Array<{ key: string; name: string }>) {
+  if (scope.kind === "affaire") return "Portée : toute l’affaire";
+  return `Portée : plan « ${plans.find(({ key }) => key === scope.planKey)?.name ?? "choisi"} »`;
+}
+
+function readStoredSelection(key: string, scope: ItemTableScope) {
+  try {
+    return parseStoredItemSelection(window.sessionStorage.getItem(key), scope);
+  } catch {
+    return null;
+  }
+}
+
+function storeSelection(key: string, selection: ItemSelection) {
+  try {
+    if (Object.keys(selection.items).length) window.sessionStorage.setItem(key, JSON.stringify(selection));
+    else window.sessionStorage.removeItem(key);
+  } catch {
+    /* storage unavailable: the selection lives as long as the page */
+  }
+}
+
+function parseDecimal(text: string) {
+  const value = Number(text.trim().replace(/\s/g, "").replace(",", "."));
+  return text.trim() && Number.isFinite(value) && value > 0 ? value : null;
+}
+
+const newIntent = () => crypto.randomUUID();
+
+function resultNotice(result: ItemReviewResult, done: string): Notice {
+  const applied = formatItemCount(result.applied.length, `poste ${done}`, `postes ${done}s`);
+  if (!result.skipped.length) return { tone: "success", text: `${applied}.` };
+  const left = result.skipped.slice(0, 5).map(({ label, reason }) => `${label} (${ITEM_INELIGIBILITY_LABELS[reason]})`).join(", ");
+  return { tone: result.applied.length ? "success" : "info",
+    text: `${applied}. Laissés : ${left}${result.skipped.length > 5 ? ` et ${result.skipped.length - 5} autres` : ""}.` };
+}
+
+export function TakeoffItemTable({ projectId, viewerKey, signature }: {
+  projectId: string;
+  /** The member and their tenant: the table's reads and its stored selection belong to them alone. */
+  viewerKey: string;
+  /** Changes when a plan's reading moves (the page's one poll): the table is read again then, never on its own interval. */
+  signature?: string;
+}) {
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const pathname = usePathname();
+  const address = useMemo(() => readItemTableAddress(searchParams, PREFIX), [searchParams]);
+  const scopeKey = JSON.stringify(address.scope);
+  const key = ["item-table", viewerKey, projectId, address] as const;
+  const { data, error, isLoading, mutate } = useSWR(key, fetchTable, {
+    keepPreviousData: true, revalidateOnFocus: true, shouldRetryOnError: false,
+  });
+
+  const seenSignature = useRef(signature);
+  useEffect(() => {
+    if (signature === undefined || seenSignature.current === signature) return;
+    seenSignature.current = signature;
+    void mutate();
+  }, [signature, mutate]);
+
+  const storageKey = itemSelectionStorageKey(viewerKey, projectId);
+  const [selection, setSelection] = useState<ItemSelection>(() => emptyItemSelection(address.scope));
+  // The tab's selection is read back after the first render (the server's render has none), for the scope shown.
+  useEffect(() => {
+    setSelection(readStoredSelection(storageKey, address.scope) ?? emptyItemSelection(address.scope));
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- read once per scope
+  }, [storageKey, scopeKey]);
+  const updateSelection = useCallback((next: ItemSelection) => {
+    setSelection(next);
+    storeSelection(storageKey, next);
+  }, [storageKey]);
+
+  const [drafts, setDrafts] = useState<Record<string, Draft & { line: ItemTableResponseLine }>>({});
+  // A value typed belongs to the scope it was typed in.
+  useEffect(() => setDrafts({}), [scopeKey]);
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const [dialog, setDialog] = useState<null | { gesture: Gesture; intentKey: string }>(null);
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState<Notice | null>(null);
+  const [preview, setPreview] = useState<{ value: ItemRemeasurePreview | null; error: string | null }>({ value: null, error: null });
+
+  const navigate = useCallback((partial: Partial<ItemTableAddress>) => {
+    const next = withItemTableParams(searchParams.toString(), itemTableAddressParams(partial, PREFIX));
+    const query = next.toString();
+    router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
+  }, [searchParams, router, pathname]);
+
+  // The focused line is brought into view once per focus, when its page is shown.
+  const scrolledFocus = useRef<string | null>(null);
+  const focusId = address.focusItemId;
+  const lines = data?.page.lines;
+  useEffect(() => {
+    if (!focusId || scrolledFocus.current === focusId || !lines?.some(({ itemId }) => itemId === focusId)) return;
+    scrolledFocus.current = focusId;
+    document.getElementById(`poste-ligne-${focusId}`)?.scrollIntoView?.({ block: "center" });
+  }, [focusId, lines]);
+
+  const counts = itemSelectionCounts(selection);
+  const canReview = data?.canReview === true;
+  const plans = data?.plans ?? [];
+  const label = scopeLabel(address.scope, plans);
+  const entryValues = Object.entries(drafts).flatMap(([itemId, draft]) => {
+    const quantity = parseDecimal(draft.quantity);
+    return quantity !== null && draft.unit.trim() ? [{ itemId, label: draft.line.label, quantity, unit: draft.unit.trim(),
+      target: draft.line.targets }] : [];
+  });
+
+  const refreshSelection = useCallback(async (current: ItemSelection) => {
+    const ids = Object.keys(current.items);
+    if (!ids.length) return;
+    const frozen = await fetchFrozenItemSelection(projectId, current.scope, { kind: "items", itemIds: ids });
+    updateSelection(withFrozenSelection(current, frozen));
+  }, [projectId, updateSelection]);
+
+  const failure = useCallback(async (caught: unknown, current: ItemSelection) => {
+    const stale = itemReviewStaleLines(caught);
+    if (stale) {
+      const names = stale.slice(0, 5).map(({ label: name }) => name ?? "un poste retiré").join(", ");
+      const verb = stale.length > 1 ? "ont changé" : "a changé";
+      setNotice({ tone: "danger", text: `Rien n’a été appliqué : ${names}${stale.length > 5 ? ` et ${stale.length - 5} autres` : ""} ${verb} depuis la sélection. La sélection a été rafraîchie : vérifiez-la, puis confirmez de nouveau.` });
+      await refreshSelection(current).catch(() => undefined);
+      void mutate();
+      return;
+    }
+    setNotice({ tone: "danger", text: isTakeoffApiError(caught) ? caught.message : "Impossible d’enregistrer la décision sur les postes." });
+  }, [refreshSelection, mutate]);
+
+  const runCommand = useCallback(async (command: ItemReviewCommand, done: string, onApplied?: (result: ItemReviewResult) => void) => {
+    setBusy(true);
+    try {
+      const result = await sendItemReviewCommand(projectId, command);
+      setNotice(resultNotice(result, done));
+      onApplied?.(result);
+      setDialog(null);
+      void mutate();
+    } catch (caught) {
+      setDialog(null);
+      await failure(caught, selection);
+    } finally {
+      setBusy(false);
+    }
+  }, [projectId, mutate, failure, selection]);
+
+  const dropApplied = useCallback((result: ItemReviewResult) => {
+    const items = { ...selection.items };
+    for (const { itemId } of result.applied) delete items[itemId];
+    updateSelection({ ...selection, items });
+  }, [selection, updateSelection]);
+
+  const base = (intentKey: string) => ({ command_version: ITEM_REVIEW_COMMAND_VERSION, intent_key: intentKey, scope: selection.scope,
+    targets: selectedTargets(selection) });
+
+  const openRemeasure = useCallback(async () => {
+    setDialog({ gesture: "remeasure", intentKey: newIntent() });
+    setPreview({ value: null, error: null });
+    try {
+      setPreview({ value: await previewItemRemeasure(projectId, selection.scope, Object.keys(selection.items)), error: null });
+    } catch (caught) {
+      setPreview({ value: null, error: isTakeoffApiError(caught) ? caught.message : "Impossible de préparer la nouvelle mesure." });
+    }
+  }, [projectId, selection]);
+
+  const confirmRemeasure = useCallback(async (effort: ChatGptReasoningEffort | null) => {
+    if (!dialog || !preview.value) return;
+    setBusy(true);
+    try {
+      const result = await sendItemRemeasure(projectId, { command_version: ITEM_REVIEW_COMMAND_VERSION, intent_key: dialog.intentKey,
+        scope: selection.scope, item_ids: preview.value.items.map(({ itemId }) => itemId),
+        plan_keys: preview.value.plans.map(({ key: planKey }) => planKey),
+        setting: effort ? { reasoning_effort: effort } : null, preview_digest: preview.value.previewDigest });
+      setNotice(result.outcome === "already_running"
+        ? { tone: "info", text: "Une analyse de l’affaire est en cours : la sélection reste prête pour la nouvelle mesure." }
+        : { tone: "success", text: "Nouvelle mesure demandée : les postes seront lus de nouveau sur votre forfait." });
+      if (result.outcome !== "already_running") updateSelection(emptyItemSelection(selection.scope));
+      setDialog(null);
+    } catch (caught) {
+      setDialog(null);
+      await failure(caught, selection);
+    } finally {
+      setBusy(false);
+    }
+  }, [dialog, preview.value, projectId, selection, updateSelection, failure]);
+
+  const selectFilter = useCallback(async () => {
+    try {
+      const frozen = await fetchFrozenItemSelection(projectId, address.scope, { kind: "filter", filter: address.filter });
+      updateSelection(withFrozenSelection(emptyItemSelection(address.scope), frozen));
+      setNotice({ tone: "info", text: `${formatItemCount(frozen.count, "poste sélectionné", "postes sélectionnés")}, sur toutes les pages du filtre.` });
+    } catch (caught) {
+      setNotice({ tone: "danger", text: isTakeoffApiError(caught) ? caught.message : "Impossible de sélectionner les résultats du filtre." });
+    }
+  }, [projectId, address.scope, address.filter, updateSelection]);
+
+  const setDraft = (line: ItemTableResponseLine, change: Partial<Draft>) => setDrafts((current) => {
+    const previous = current[line.itemId] ?? { quantity: "", unit: line.expectedUnit ?? "", line };
+    const next = { ...previous, ...change };
+    const copy = { ...current };
+    if (!next.quantity.trim()) delete copy[line.itemId];
+    else copy[line.itemId] = next;
+    return copy;
+  });
+
+  const filterSelect = (id: string, labelText: string, value: string, options: Array<{ value: string; label: string }>,
+    onChange: (value: string) => void) => (
+    <div className="flex min-w-0 flex-col gap-1.5">
+      <label htmlFor={id} className="text-xs font-semibold text-muted-foreground">{labelText}</label>
+      <NativeSelect id={id} size="sm" className="h-11 w-full min-w-0 sm:h-9" value={value} onChange={(event) => onChange(event.target.value)}>
+        {options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+      </NativeSelect>
+    </div>
+  );
+
+  const pageLines = data?.page.lines ?? [];
+  const allOnPage = pageLines.length > 0 && pageLines.every(({ itemId }) => itemId in selection.items);
+  const hasFilter = Object.keys(address.filter).length > 0 || address.scope.kind === "plan";
+  const columns = canReview ? 11 : 10;
+
+  return (
+    <JourneyPanel headingId="postes-du-metre" title="Postes du métré">
+      <div className="journey-panel-body space-y-3">
+        <p className="sr-only" role="status">{notice?.text ?? ""}</p>
+        {error && !data ? (
+          <div className="flex flex-wrap items-center gap-3">
+            <p className="text-sm text-danger">{isTakeoffApiError(error) ? error.message : "Impossible de lire les postes du métré."}</p>
+            <Button variant="outline" size="sm" onClick={() => void mutate()}>Réessayer</Button>
+          </div>
+        ) : !data ? (
+          <p className="text-sm text-muted-foreground">{isLoading ? "Chargement des postes…" : ""}</p>
+        ) : !data.list ? (
+          <p className="text-sm">
+            La liste des postes n’est pas encore enregistrée : acceptez-la dans « Postes à mesurer » pour suivre ici la mesure de
+            chaque poste.
+          </p>
+        ) : (
+          <>
+            <div className="journey-filters" role="group" aria-label="Filtres des postes">
+              {filterSelect("poste-filtre-plan", "Plan", address.scope.kind === "plan" ? address.scope.planKey : "all",
+                [{ value: "all", label: "Tous les plans" }, ...data.facets.plans.map(({ key: planKey, name, count }) =>
+                  ({ value: planKey, label: `${name} (${count})` }))],
+                (value) => navigate({ scope: value === "all" ? { kind: "affaire" } : { kind: "plan", planKey: value }, offset: 0 }))}
+              {filterSelect("poste-filtre-etat", "État", address.filter.states?.[0] ?? "all",
+                [{ value: "all", label: "Tous les états" }, ...ITEM_AGGREGATE_STATES.map((state) =>
+                  ({ value: state, label: `${ITEM_STATE_LABELS[state]} (${data.facets.states[state] ?? 0})` }))],
+                (value) => navigate({ filter: { ...address.filter, states: value === "all" ? undefined : [value as typeof ITEM_AGGREGATE_STATES[number]] }, offset: 0 }))}
+              {filterSelect("poste-filtre-famille", "Famille", address.filter.families?.[0] ?? "all",
+                [{ value: "all", label: "Toutes les familles" }, ...data.facets.families.map(({ value, count }) =>
+                  ({ value, label: `${value} (${count})` }))],
+                (value) => navigate({ filter: { ...address.filter, families: value === "all" ? undefined : [value] }, offset: 0 }))}
+              {filterSelect("poste-filtre-lieu", "Localisation", address.filter.locations?.[0] ?? "all",
+                [{ value: "all", label: "Toutes les localisations" }, ...data.facets.locations.map(({ value, label: text, count }) =>
+                  ({ value, label: `${text} (${count})` }))],
+                (value) => navigate({ filter: { ...address.filter, locations: value === "all" ? undefined : [value] }, offset: 0 }))}
+              {filterSelect("poste-filtre-decision", "Décision", address.filter.decisions?.[0] ?? "all",
+                [{ value: "all", label: "Toutes les décisions" }, ...ITEM_LINE_DECISIONS.map((decision) =>
+                  ({ value: decision, label: `${ITEM_DECISION_LABELS[decision]} (${data.facets.decisions[decision] ?? 0})` }))],
+                (value) => navigate({ filter: { ...address.filter, decisions: value === "all" ? undefined : [value as typeof ITEM_LINE_DECISIONS[number]] }, offset: 0 }))}
+              {hasFilter ? (
+                <div className="flex items-end">
+                  <Button variant="ghost" size="sm" onClick={() => navigate({ scope: { kind: "affaire" }, filter: {}, offset: 0 })}>
+                    Réinitialiser
+                  </Button>
+                </div>
+              ) : null}
+            </div>
+
+            {canReview ? (
+              <div className="flex flex-wrap items-center gap-2" role="toolbar" aria-label="Gestes sur la sélection">
+                <span className="text-sm" data-testid="poste-selection-count">
+                  {formatItemCount(counts.total, "poste sélectionné", "postes sélectionnés")} · {label}
+                </span>
+                {data.page.total > 0 ? (
+                  <Button variant="ghost" size="sm" onClick={() => void selectFilter()}>
+                    Sélectionner les {formatItemCount(data.page.total, "résultat", "résultats")} du filtre
+                  </Button>
+                ) : null}
+                {counts.total > 0 ? (
+                  <Button variant="ghost" size="sm" onClick={() => updateSelection(emptyItemSelection(address.scope))}>
+                    Vider la sélection
+                  </Button>
+                ) : null}
+                <Button size="sm" disabled={counts.accept_measured === 0 || busy}
+                  onClick={() => setDialog({ gesture: "accept", intentKey: newIntent() })}>
+                  Accepter les mesurés sans anomalie ({counts.accept_measured})
+                </Button>
+                <Button size="sm" variant="outline" disabled={counts.set_aside === 0 || busy}
+                  onClick={() => setDialog({ gesture: "set_aside", intentKey: newIntent() })}>
+                  Écarter la sélection ({counts.set_aside})
+                </Button>
+                <Button size="sm" variant="outline" disabled={counts.remeasure === 0 || busy} onClick={() => void openRemeasure()}>
+                  Demander une nouvelle mesure ({counts.remeasure})
+                </Button>
+                {counts.reinstate > 0 ? (
+                  <Button size="sm" variant="ghost" disabled={busy} onClick={() => setDialog({ gesture: "reinstate", intentKey: newIntent() })}>
+                    Réintégrer ({counts.reinstate})
+                  </Button>
+                ) : null}
+                {entryValues.length > 0 ? (
+                  <Button size="sm" variant="secondary" disabled={busy} onClick={() => setDialog({ gesture: "entry", intentKey: newIntent() })}>
+                    Enregistrer les saisies ({entryValues.length})
+                  </Button>
+                ) : null}
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground">Un opérateur du métré de l’affaire peut revoir ces postes.</p>
+            )}
+
+            {notice ? (
+              <p className={`text-sm ${notice.tone === "danger" ? "text-danger" : notice.tone === "success" ? "text-success" : ""}`}
+                data-testid="poste-notice">
+                {notice.text}
+              </p>
+            ) : null}
+
+            {data.page.total === 0 ? (
+              <p className="text-sm">
+                {hasFilter ? "Aucun poste ne correspond à ces filtres." : "La liste des postes est vide."}
+              </p>
+            ) : (
+              <div className="table-scroll" role="region" aria-label="Tableau des postes" tabIndex={0}>
+                <table className="data-table w-full" aria-label="Postes du métré">
+                  <thead>
+                    <tr>
+                      {canReview ? (
+                        <th scope="col">
+                          <input type="checkbox" aria-label="Sélectionner les postes de la page" checked={allOnPage}
+                            onChange={(event) => {
+                              let next = selection;
+                              for (const line of pageLines) next = toggleItemSelection(next, line, event.target.checked);
+                              updateSelection(next);
+                            }} />
+                        </th>
+                      ) : null}
+                      <th scope="col">Poste</th>
+                      <th scope="col">Unité</th>
+                      <th scope="col">État</th>
+                      <th scope="col">Observé</th>
+                      <th scope="col">Retenu ou saisi</th>
+                      <th scope="col">DPGF et écart</th>
+                      <th scope="col">Couverture</th>
+                      <th scope="col">Motifs</th>
+                      <th scope="col">Décision</th>
+                      <th scope="col"><span className="sr-only">Détail</span></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {pageLines.map((line) => {
+                      const draft = drafts[line.itemId];
+                      const focused = line.itemId === focusId;
+                      const open = expanded[line.itemId] === true;
+                      return (
+                        <Fragment key={line.itemId}>
+                          <tr id={`poste-ligne-${line.itemId}`} data-testid={`poste-${line.itemId}`} aria-current={focused ? "true" : undefined}
+                            className={focused ? "bg-primary/5" : undefined}>
+                            {canReview ? (
+                              <td>
+                                <input type="checkbox" aria-label={`Sélectionner le poste « ${line.label} »`}
+                                  checked={line.itemId in selection.items}
+                                  onChange={(event) => updateSelection(toggleItemSelection(selection, line, event.target.checked))} />
+                              </td>
+                            ) : null}
+                            <th scope="row" className="bg-inherit text-left font-medium">
+                              <button type="button" className="text-left underline-offset-2 hover:underline"
+                                onClick={() => navigate({ focusItemId: line.itemId })}>
+                                {line.label}
+                              </button>
+                              {line.family ? <span className="block text-xs text-muted-foreground">{line.family}</span> : null}
+                            </th>
+                            <td>{line.expectedUnit ?? "À préciser"}</td>
+                            <td>{ITEM_STATE_LABELS[line.state]}</td>
+                            <td>
+                              {line.observed ? (
+                                <>{formatItemQuantity(line.observed.quantity, line.observed.unit)}
+                                  {line.observed.partial ? <span className="block text-xs text-muted-foreground">partiel</span> : null}</>
+                              ) : "—"}
+                            </td>
+                            <td>
+                              {canReview && line.eligibility.enter_quantity.eligible ? (
+                                <div className="flex items-center gap-1">
+                                  <Input size="sm" inputMode="decimal" className="w-20" aria-label={`Quantité saisie pour « ${line.label} »`}
+                                    value={draft?.quantity ?? ""} onChange={(event) => setDraft(line, { quantity: event.target.value })} />
+                                  <Input size="sm" className="w-14" aria-label={`Unité saisie pour « ${line.label} »`}
+                                    value={draft?.unit ?? line.expectedUnit ?? ""} maxLength={16}
+                                    onChange={(event) => setDraft(line, { unit: event.target.value })} />
+                                </div>
+                              ) : null}
+                              {line.retained ? (
+                                <span className="block">
+                                  {formatItemQuantity(line.retained.quantity, line.retained.unit)}
+                                  <span className="block text-xs text-muted-foreground">
+                                    {line.retained.source === "entered" ? "saisi" : line.retained.source === "mixed" ? "mesuré et saisi" : "retenu"}
+                                    {line.retained.partial ? ", partiel" : ""}
+                                  </span>
+                                </span>
+                              ) : !(canReview && line.eligibility.enter_quantity.eligible) ? "—" : null}
+                            </td>
+                            <td>
+                              {line.reference ? (
+                                <>{formatItemQuantity(line.reference.quantity, line.expectedUnit)}
+                                  {line.reference.dpgfReference ? <span className="block text-xs text-muted-foreground">Réf. {line.reference.dpgfReference}</span> : null}
+                                  {line.gap?.percent !== null && line.gap?.percent !== undefined ? (
+                                    <span className={`block text-xs ${line.gap.requiresReview ? "text-danger" : "text-muted-foreground"}`}>
+                                      Écart {formatItemPercent(line.gap.percent)}
+                                    </span>
+                                  ) : null}</>
+                              ) : "—"}
+                            </td>
+                            <td>
+                              {line.coverage.expected === 0 ? "Aucun plan lu"
+                                : `${line.coverage.answered}/${formatItemCount(line.coverage.expected, "plan", "plans")}`}
+                            </td>
+                            <td className="text-xs">{line.reasons.length ? [...new Set(line.reasons.map(itemReasonLabel))].join(" · ") : "—"}</td>
+                            <td>{ITEM_DECISION_LABELS[line.decision]}</td>
+                            <td>
+                              <Button variant="ghost" size="xs" aria-expanded={open} aria-controls={`poste-detail-ligne-${line.itemId}`}
+                                onClick={() => setExpanded((current) => ({ ...current, [line.itemId]: !open }))}>
+                                {open ? "Masquer" : "Détail"}
+                              </Button>
+                            </td>
+                          </tr>
+                          {open ? (
+                            <tr id={`poste-detail-ligne-${line.itemId}`}>
+                              <td colSpan={columns}>
+                                <ItemTableLineDetail line={line} projectId={projectId} names={data.names} canReview={canReview} busy={busy}
+                                  onIncludeEntry={(target) => void runCommand({ command_version: ITEM_REVIEW_COMMAND_VERSION,
+                                    intent_key: newIntent(), scope: address.scope, gesture: "include_entry", targets: [target.targets] }, "inclus")} />
+                              </td>
+                            </tr>
+                          ) : null}
+                        </Fragment>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {data.page.total > 0 ? (
+              <nav aria-label="Pagination des postes" className="flex flex-wrap items-center gap-4 text-sm">
+                <span>
+                  {data.page.offset + 1}–{Math.min(data.page.offset + data.page.limit, data.page.total)} sur{" "}
+                  {formatItemCount(data.page.total, "poste", "postes")}
+                </span>
+                {data.page.offset > 0 ? (
+                  <Button variant="ghost" size="sm" onClick={() => navigate({ offset: Math.max(0, data.page.offset - data.page.limit), focusItemId: null })}>
+                    Page précédente
+                  </Button>
+                ) : null}
+                {data.page.offset + data.page.limit < data.page.total ? (
+                  <Button variant="ghost" size="sm" onClick={() => navigate({ offset: data.page.offset + data.page.limit, focusItemId: null })}>
+                    Page suivante
+                  </Button>
+                ) : null}
+                <label className="flex items-center gap-2 whitespace-nowrap">
+                  Postes par page
+                  <NativeSelect size="sm" className="w-20" value={String(address.limit)}
+                    onChange={(event) => navigate({ limit: Number(event.target.value) as ItemTableAddress["limit"], offset: 0 })}>
+                    {ITEM_TABLE_PAGE_SIZES.map((size) => <option key={size} value={size}>{size}</option>)}
+                  </NativeSelect>
+                </label>
+              </nav>
+            ) : null}
+          </>
+        )}
+      </div>
+
+      {dialog?.gesture === "accept" ? (
+        <AcceptMeasuredDialog scopeLabel={label} busy={busy} total={counts.total} eligible={counts.accept_measured}
+          onClose={() => setDialog(null)}
+          onConfirm={() => void runCommand({ ...base(dialog.intentKey), gesture: "accept_measured" }, "accepté", dropApplied)} />
+      ) : null}
+      {dialog?.gesture === "set_aside" ? (
+        <SetAsideDialog scopeLabel={label} busy={busy} total={counts.total} eligible={counts.set_aside}
+          answers={Object.values(selection.items).filter(({ eligible }) => eligible.includes("set_aside"))
+            .reduce((total, { target }) => total + target.answers.length, 0)}
+          onClose={() => setDialog(null)}
+          onConfirm={(reason: ItemSetAsideReason, note: string | null) => void runCommand({ ...base(dialog.intentKey), gesture: "set_aside",
+            reason, ...(note ? { note } : {}) }, "écarté", dropApplied)} />
+      ) : null}
+      {dialog?.gesture === "reinstate" ? (
+        <ReinstateDialog scopeLabel={label} busy={busy} eligible={counts.reinstate} onClose={() => setDialog(null)}
+          onConfirm={() => void runCommand({ ...base(dialog.intentKey), gesture: "reinstate" }, "réintégré", dropApplied)} />
+      ) : null}
+      {dialog?.gesture === "entry" ? (
+        <EntryDialog scopeLabel={label} busy={busy} values={entryValues} onClose={() => setDialog(null)}
+          onConfirm={(entry: QuantityEntry) => void runCommand({ command_version: ITEM_REVIEW_COMMAND_VERSION, intent_key: dialog.intentKey,
+            scope: address.scope, gesture: "enter_quantity", targets: entryValues.map(({ target }) => target),
+            values: entryValues.map(({ itemId, quantity, unit }) => ({ item_id: itemId, quantity, unit })), entry }, "saisi",
+          (result) => setDrafts((current) => {
+            const copy = { ...current };
+            for (const { itemId } of result.applied) delete copy[itemId];
+            return copy;
+          }))} />
+      ) : null}
+      {dialog?.gesture === "remeasure" ? (
+        <RemeasureDialog scopeLabel={label} busy={busy} preview={preview.value} loadError={preview.error}
+          onClose={() => setDialog(null)} onConfirm={(effort) => void confirmRemeasure(effort)} />
+      ) : null}
+    </JourneyPanel>
+  );
+}

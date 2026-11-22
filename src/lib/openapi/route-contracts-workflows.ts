@@ -2,6 +2,20 @@ import { takeoffItemBatchPatchResponseSchema } from "@/lib/takeoff/item-response
 import { takeoffItemBatchPatchSchema as takeoffItemsPatchSchema } from "@/lib/takeoff/item-patch-preparation";
 import { takeoffActivityCenterResponseSchema } from "@/lib/takeoff/activity-center-contracts";
 import { TAKEOFF_REQUEST_ACTIVITY_VIEWS, takeoffRequestActivityResponseSchema } from "@/lib/takeoff/request-activity-contracts";
+import { ITEM_AGGREGATE_STATES } from "@/lib/takeoff/item-answer-aggregation";
+import { ITEM_LINE_DECISIONS } from "@/lib/takeoff/item-table";
+import {
+  ITEM_TABLE_PAGE_SIZES,
+  itemRemeasureCommandSchema,
+  itemRemeasurePreviewRequestSchema,
+  itemRemeasurePreviewSchema,
+  itemRemeasureResultSchema,
+  itemReviewCommandSchema,
+  itemReviewResultSchema,
+  itemSelectionRequestSchema,
+  itemSelectionResponseSchema,
+  itemTableResponseSchema,
+} from "@/lib/takeoff/item-table-contracts";
 import { takeoffJobActionResponseSchema } from "@/lib/takeoff/job-response-contracts";
 import {
   duplicateSectionResponseSchema, importEstimateSectionsResponseSchema,
@@ -610,6 +624,88 @@ const takeoffOperationsContracts: RouteContract[] = [
     success: [{ status: "200", description: "Demandes de l’affaire, leurs unités et ce que le membre peut faire de chaque analyse.", schema: {
       schemaName: "ApiTakeoffRequestActivityResponse", schema: z.object({ ok: z.literal(true), data: takeoffRequestActivityResponseSchema }), io: "output",
     } }],
+  },
+  {
+    id: "get-affaire-takeoff-items",
+    method: "get",
+    path: "/api/affaires/{projectId}/takeoff/items",
+    summary: "Lire le tableau des postes du métré d’une affaire",
+    description: "Lecteurs de l’affaire. Une ligne par poste de la révision enregistrée de la liste : état (à mesurer, en lecture, lecture incomplète, échec, mesuré, incertain, non trouvé), quantité observée (partielle tant qu’un plan reste à lire), quantité retenue ou saisie à part, référence et écart DPGF, couverture, motifs, nombre de plans et décision ; les décisions à prendre d’abord, l’ordre de la liste ensuite. La portée est l’affaire ou un plan ; chaque ligne porte les révisions qu’une commande doit nommer et ce que chaque geste peut en faire, décidés par le serveur. canReview dit si le membre est opérateur du métré de l’affaire. Aucun prix n’est lu.",
+    tags: ["Takeoff"],
+    pathParameters: [{ name: "projectId", schema: uuidSchema, description: "Affaire cible." }],
+    queryParameters: [
+      { name: "plan", schema: z.string().max(200), description: "Portée d’un plan (son identité logique) ; sans valeur, toute l’affaire." },
+      { name: "state", schema: z.enum(ITEM_AGGREGATE_STATES), description: "États à garder (répétable ou séparé par des virgules)." },
+      { name: "family", schema: z.string().max(4000), description: "Chemins de sections à garder (répétable)." },
+      { name: "location", schema: z.string().max(200), description: "Localisations de plans à garder (répétable)." },
+      { name: "decision", schema: z.enum(ITEM_LINE_DECISIONS), description: "Décisions à garder (répétable)." },
+      { name: "offset", schema: z.number().int().min(0), description: "Décalage de la page." },
+      { name: "limit", schema: z.number().int().refine((value) => (ITEM_TABLE_PAGE_SIZES as readonly number[]).includes(value)), description: "25, 50 (défaut) ou 100 postes par page." },
+      { name: "focus", schema: uuidSchema, description: "Poste à montrer : la page qui le contient est rendue." },
+    ],
+    success: [{ status: "200", description: "Une page du tableau des postes, ses filtres et ses plans.", schema: {
+      schemaName: "ApiTakeoffItemTableResponse", schema: z.object({ ok: z.literal(true), data: itemTableResponseSchema }), io: "output",
+    } }],
+  },
+  {
+    id: "freeze-affaire-takeoff-item-selection",
+    method: "post",
+    path: "/api/affaires/{projectId}/takeoff/items/selection",
+    summary: "Figer une sélection de postes",
+    description: "Lecteurs de l’affaire. Tous les résultats d’un filtre, au-delà de la page affichée, ou les postes cochés : chacun avec les révisions qu’une commande nommera et les gestes qui s’y appliquent, leur nombre et les postes qui ne sont plus dans la portée. Au-delà de 1 000 postes la sélection est refusée (422), jamais tronquée. N’écrit rien.",
+    tags: ["Takeoff"],
+    pathParameters: [{ name: "projectId", schema: uuidSchema, description: "Affaire cible." }],
+    body: { schema: itemSelectionRequestSchema, description: "Portée, et filtre ou identifiants des postes." },
+    success: [{ status: "200", description: "Sélection figée.", schema: {
+      schemaName: "ApiTakeoffItemSelectionResponse", schema: z.object({ ok: z.literal(true), data: itemSelectionResponseSchema }), io: "output",
+    } }],
+  },
+  {
+    id: "review-affaire-takeoff-items",
+    method: "post",
+    path: "/api/affaires/{projectId}/takeoff/items/review",
+    summary: "Décider d’une sélection de postes",
+    description: "Opérateur du métré de l’affaire. Accepter les postes mesurés sans anomalie, écarter la sélection (un motif choisi une fois, note obligatoire pour « Autre »), réintégrer, enregistrer les quantités saisies (une valeur et une unité par poste, une catégorie pour la sélection, note d’hypothèse obligatoire) ou inclure une hypothèse saisie. Le serveur reconstruit le tableau : une sélection périmée (réponse lue de nouveau, décision ou saisie intervenue) est refusée en 409 avec les postes concernés et rien n’est appliqué ; seuls les postes admissibles sont écrits, les autres sont rendus avec leur motif. Aucun forçage. La même clé d’intention rend la même réponse.",
+    tags: ["Takeoff"],
+    pathParameters: [{ name: "projectId", schema: uuidSchema, description: "Affaire cible." }],
+    body: { schema: itemReviewCommandSchema, description: "Commande versionnée : geste, portée, cibles avec leurs révisions et clé d’intention." },
+    success: [{ status: "200", description: "Postes décidés et postes laissés.", schema: {
+      schemaName: "ApiTakeoffItemReviewResponse", schema: z.object({ ok: z.literal(true), data: itemReviewResultSchema }), io: "output",
+    } }],
+    extraErrors: [
+      { status: "409", description: "Sélection périmée : les postes qui ont changé sont nommés, rien n’est appliqué." },
+      { status: "503", description: "Les décisions de revue ne peuvent pas encore être enregistrées : rien n’est écrit." },
+    ],
+  },
+  {
+    id: "preview-affaire-takeoff-item-remeasure",
+    method: "post",
+    path: "/api/affaires/{projectId}/takeoff/items/remeasure/preview",
+    summary: "Préparer la nouvelle mesure d’une sélection de postes",
+    description: "Opérateur du métré de l’affaire. Ce que la nouvelle mesure demanderait : le membre qui confirme comme payeur, son forfait ChatGPT et le réglage de Mon profil (ou pourquoi il ne peut pas payer), les plans et les postes, ceux qui ne seraient pas repris et si une analyse de l’affaire est en cours. N’écrit rien et ne lance rien.",
+    tags: ["Takeoff"],
+    pathParameters: [{ name: "projectId", schema: uuidSchema, description: "Affaire cible." }],
+    body: { schema: itemRemeasurePreviewRequestSchema, description: "Portée et postes sélectionnés (un seul suffit)." },
+    success: [{ status: "200", description: "Aperçu de la demande.", schema: {
+      schemaName: "ApiTakeoffItemRemeasurePreviewResponse", schema: z.object({ ok: z.literal(true), data: itemRemeasurePreviewSchema }), io: "output",
+    } }],
+  },
+  {
+    id: "remeasure-affaire-takeoff-items",
+    method: "post",
+    path: "/api/affaires/{projectId}/takeoff/items/remeasure",
+    summary: "Demander la nouvelle mesure d’une sélection de postes",
+    description: "Opérateur du métré de l’affaire, sur son propre forfait ChatGPT : une nouvelle demande manuelle pour les postes et les plans de l’aperçu confirmé, avec un réglage ponctuel jamais enregistré dans Mon profil. 409 si le payeur, le réglage, les plans ou les postes ont changé depuis l’aperçu ; 422 si le forfait ne peut pas payer. La même clé d’intention rend la même réponse.",
+    tags: ["Takeoff"],
+    pathParameters: [{ name: "projectId", schema: uuidSchema, description: "Affaire cible." }],
+    body: { schema: itemRemeasureCommandSchema, description: "Postes, plans, réglage ponctuel, empreinte de l’aperçu et clé d’intention." },
+    success: [{ status: "200", description: "Demande admise, rejouée, ou analyse déjà en cours.", schema: {
+      schemaName: "ApiTakeoffItemRemeasureResponse", schema: z.object({ ok: z.literal(true), data: itemRemeasureResultSchema }), io: "output",
+    } }],
+    extraErrors: [
+      { status: "409", description: "Aperçu périmé : rien n’est lancé." },
+      { status: "503", description: "La nouvelle mesure d’une sélection ne peut pas encore être lancée : rien n’est lancé ni dépensé." },
+    ],
   },
   {
     id: "get-takeoff-health",

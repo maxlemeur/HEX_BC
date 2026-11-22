@@ -147,6 +147,58 @@ leurs métadonnées.
 Lire la liste, la compléter ou publier le gabarit ne lance aucune analyse et ne crée
 aucun devis.
 
+### Tableau des postes
+
+La page **Métrés** montre sous l’avancement des plans un tableau des postes : une
+ligne par poste de la révision enregistrée, avec son unité, son état, la quantité
+observée, la quantité retenue ou saisie à part, la référence et l’écart DPGF, la
+couverture (plans lus sur plans demandés), ses motifs et sa décision. Les postes qui
+attendent une décision viennent d’abord, puis l’ordre de la liste. La portée est
+l’affaire, ou un plan choisi dans le filtre « Plan » ; les filtres État, Famille,
+Localisation et Décision s’ajoutent, et l’adresse de la page les garde avec le poste
+en vue. Une adresse choisit une vue, jamais un geste, un payeur ni un droit.
+
+**États.** « À mesurer » : aucun plan n’a été interrogé sur ce poste, par exemple un
+poste ajouté après le lancement. « En lecture », « Lecture incomplète » et « Échec de
+lecture » décrivent un travail sans verdict : la quantité observée reste partielle et
+aucune absence n’est certifiée sur l’affaire tant qu’un plan reste à lire. Quand tous
+les plans demandés ont répondu, une réponse incertaine rend le poste « Incertain » ;
+sinon une quantité mesurée le rend « Mesuré » ; sinon il est « Non trouvé », sans
+quantité (jamais 0). Les quantités de deux plans s’additionnent dans une même unité,
+jamais deux unités entre elles ; la valeur candidate d’une réponse incertaine n’est
+jamais une mesure. L’écart à la DPGF est jugé sur un total complet, à vérifier au-delà
+de 1 %.
+
+**Gestes.** Un lecteur voit le tableau ; l’opérateur du métré coche des postes, sur
+plusieurs pages ou tous les résultats d’un filtre, que le serveur fige avec leurs
+révisions (1 000 postes au plus par geste, jamais tronqués). La sélection, les valeurs
+en cours de saisie et le poste en vue restent quand un plan répond et après un
+rechargement de l’onglet. Chaque geste dit sa portée et combien de postes il touche
+avant confirmation ; le serveur refait le tableau et, si un poste a changé depuis la
+sélection, n’applique rien et le nomme.
+
+- **Accepter les mesurés sans anomalie** : seulement les postes mesurés à couverture
+  complète, sans hypothèse, source à choisir, contrôle en échec, alerte à trancher,
+  écart DPGF ou décision de page en attente. Un poste incertain ne devient pas mesuré.
+  Rien n’est envoyé au devis.
+- **Écarter la sélection** : un motif choisi une fois (hors périmètre, doublon, erreur
+  de lecture, autre avec une note), écrit sur chaque lecture concernée, y compris sans
+  quantité. Un poste qu’aucun plan n’a lu n’a rien à écarter. Une réintégration garde
+  la trace.
+- **Demander à l’IA de mesurer de nouveau** : un aperçu nomme le membre qui confirme,
+  qui paie sur son propre forfait ChatGPT, le réglage de Mon profil, les plans et les
+  postes ; un effort ponctuel peut être choisi sans changer le profil. Un seul poste
+  suffit, et un poste jamais mesuré l’est sur les plans de l’affaire. Pendant une
+  analyse de l’affaire, la sélection reste prête.
+- **Saisie complémentaire** : dans les cellules des postes non trouvés ou incertains,
+  une valeur et une unité par poste, puis une seule catégorie pour la sélection, avec
+  la note obligatoire d’une hypothèse. Le résultat de la lecture reste consultable ; une
+  hypothèse saisie ne compte qu’une fois incluse, poste par poste. Aucun forçage.
+
+Le détail d’un poste montre chaque plan, ses pages cherchées et illisibles, ses sources,
+ses motifs, la décision et son auteur, et mène à la revue ciblée existante pour la
+preuve et la correction.
+
 ## Contrat actuel de contrôle ciblé — TI-681
 
 Les avertissements de quantité, y compris une confiance faible, recommandent un

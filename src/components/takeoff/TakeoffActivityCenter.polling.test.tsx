@@ -26,6 +26,8 @@ vi.mock("next/navigation", () => ({
 vi.mock("@/components/affaires/LaunchMetreDialog", () => ({ LaunchMetreDialog: () => null }));
 vi.mock("./TakeoffExceptionsTab", () => ({ default: () => null }));
 vi.mock("./TakeoffApplicationHistoryTab", () => ({ default: () => null }));
+// The table of items has its own tests (item-table/TakeoffItemTable.test.tsx).
+vi.mock("./item-table/TakeoffItemTable", () => ({ TakeoffItemTable: () => null }));
 
 import TakeoffActivityCenter from "./TakeoffActivityCenter";
 

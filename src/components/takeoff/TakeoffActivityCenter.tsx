@@ -34,6 +34,7 @@ import {
 
 import TakeoffJobsTable from "./TakeoffJobsTable";
 import { TakeoffRequestActivity } from "./TakeoffRequestActivity";
+import { TakeoffItemTable } from "./item-table/TakeoffItemTable";
 import { isTakeoffReadRefusal, isTakeoffRequestActivityKey, useTakeoffRequestActivity } from "./useTakeoffRequestActivity";
 import TakeoffExceptionsTab from "./TakeoffExceptionsTab";
 import TakeoffApplicationHistoryTab from "./TakeoffApplicationHistoryTab";
@@ -512,6 +513,9 @@ function TakeoffActivityCenterView({
         onShowLatest={() => updateParams({ request: null, job: null, offset: null })}
         onChanged={refreshEverything}
       />
+
+      {/* The affaire's items, read again when a plan's reading moves (the signature of the poll above). */}
+      <TakeoffItemTable projectId={projectId} viewerKey={viewerKey} signature={refused ? undefined : activitySignature} />
 
       {showTracking ? (
         <section className="journey-panel" aria-labelledby="takeoff-tracking-heading">
