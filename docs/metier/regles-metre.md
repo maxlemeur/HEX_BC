@@ -1069,23 +1069,26 @@ est vérifié d'abord : sans lui, le membre lit le motif et rien d'autre du mét
 - **Regroupement.** Seuls les apports d'un même poste et d'une même identité quantitative (une unité
   normalisée par le référentiel des unités, une base, un réseau, une matière, un diamètre)
   s'additionnent ; les bases se comparent comme la lecture les compare, sans casse, accents ni
-  ponctuation. Un apport déjà au devis garde son identité : si le poste a changé de diamètre ou de
-  base depuis, la ligne n'est pas alimentée. Une autre lecture d'un objet déjà compté (PDF ou vecteur,
+  ponctuation, un diamètre tel qu'il est écrit (« 1/2" » n'est pas « 1.2" »). Un apport déjà au devis
+  garde son identité : si le poste a changé de diamètre ou de base depuis, la ligne n'est pas
+  alimentée. Une autre lecture d'un objet déjà compté (PDF ou vecteur,
   page de recouvrement, plan de détail) est gardée et jamais ajoutée. Une longueur est arrondie une
-  fois, sur la somme de sa ligne : 1,2 m déjà envoyés et 1,3 m font 3 m, jamais 2 + 2. Une quantité
-  que le devis du moteur 3 ne peut pas porter telle quelle (plus de trois décimales, au-delà de son
-  plafond) est à trancher : elle n'est jamais arrondie en silence.
+  fois, sur la somme de sa ligne : 1,2 m déjà envoyés et 1,3 m font 3 m, jamais 2 + 2. Chaque quantité
+  est vérifiée telle qu'elle est saisie ou lue, avant tout arrondi : nulle, plus fine que le millième
+  ou au-delà du plafond du devis du moteur 3, elle est à trancher, jamais arrondie en silence.
 - **Découpage.** Sans DPGF : « Ensemble » par défaut, « Par niveau », « Par bâtiment ». Les sections
   suivent la liste (lot puis famille), chacune par son identité, jamais par son titre : une section
   du même nom faite à la main n'est pas reprise. Le compartiment d'un plan vient de sa localisation
   (lot 3), seulement quand un opérateur l'a confirmée ou saisie ; inconnue, proposée ou multiple, la
   part va dans « Non réparti ». Deux niveaux homonymes de deux bâtiments restent deux compartiments ;
-  « Par niveau », un niveau sans bâtiment n'est un compartiment que si aucune localisation confirmée
-  de l'affaire ne nomme de bâtiment. Un même poste ne mélange pas deux découpages dans un devis.
+  « Par niveau », un niveau sans bâtiment n'est un compartiment que si aucun bâtiment confirmé de
+  l'affaire (une valeur qu'un opérateur a saisie) n'existe. Un même poste ne mélange pas deux
+  découpages dans un devis.
 - **DPGF et saisies.** Avec une DPGF, sa ligne est alimentée à sa place, prouvée par la ligne brute de
   son import, telle que la base la garde (une ligne mappée remplacée par un remappage garde sa
-  filiation) ; sans preuve, aucune cible automatique. Une ligne alimentée pour un autre poste n'est
-  ni la cible de celui-ci ni proposée. Une ligne introuvable, multiple ou d'un import antérieur sans
+  filiation), lue en entier ; sans preuve complète, aucune cible automatique. Une ligne alimentée
+  pour un autre poste n'est ni la cible de celui-ci ni proposée, quel que soit le chemin ; seule une
+  ligne encore au devis est une cible, jamais une ligne supprimée. Une ligne introuvable, multiple ou d'un import antérieur sans
   filiation prouvée demande un choix parmi les lignes présentées, et seule la ligne choisie reçoit le
   métré. Les postes hors DPGF vont dans la section « Compléments du métré hors DPGF », même pour un
   plan interrogé sur ces seuls postes. La quantité retenue et l'écart sont ceux de la politique DPGF
@@ -1097,9 +1100,10 @@ est vérifié d'abord : sans lui, le membre lit le motif et rien d'autre du mét
 - **Pages.** Les postes d'une page partagent un seul apport de page. Une page déjà au devis par une
   autre analyse ne compte pas deux fois, comparée sur le fichier, son empreinte et la référence du
   plan que donne la préparation (deux révisions d'un même plan sont un même document) : ses apports
-  attendent sa décision, et l'aperçu montre les lignes du devis déjà sur la page. Une saisie pour ce
-  plan est la part de ce plan : elle se tient sur ses pages et attend de même, jamais ajoutée à ce
-  qu'une lecture du même plan a déjà apporté.
+  attendent sa décision, et l'aperçu montre les lignes du devis déjà sur la page. La part d'un plan
+  pour un poste est une : ce qu'un envoi antérieur du même plan a apporté à la ligne est remplacé,
+  jamais additionné (l'aperçu montre l'avant et l'après). Une saisie pour ce plan se tient sur toutes
+  les pages de son unité, pour la garde comme pour son apport de page.
 - **Règles et prix.** Une seule projection des règles de correspondance
   (`src/lib/takeoff/item-send-rules.ts`) : « Fixer le prix » est sans effet et dit tel, sans passer
   à la règle suivante ; « Remplacer par un ouvrage » garde la quantité du poste et nomme l'ouvrage.
@@ -1107,9 +1111,11 @@ est vérifié d'abord : sans lui, le membre lit le motif et rien d'autre du mét
   du moteur 3 reçoit cet envoi.
 - **Empreinte.** L'aperçu donne l'empreinte de son plan d'écriture, sous une seule écriture (clés et
   ensembles ordonnés, une écriture par nombre) : réponses, décisions et saisies, règles appliquées ou
-  qui ont écarté un poste (identifiant et version), apports déjà au devis et leurs sources, lignes
-  et pages lues, imports du DPGF, réglages du premier brouillon et contexte d'envoi du lot 3. La
-  confirmation sera refusée quand l'un d'eux a changé.
+  qui ont écarté un poste (identifiant et version), apports déjà au devis avec leurs sources et leur
+  identité, lignes et pages lues, état du brouillon de destination (version, statut, date de
+  modification), état revu du DPGF (son dernier mappage et l'empreinte de ses lignes), réglages du
+  premier brouillon et contexte d'envoi du lot 3 ; l'ordre de lecture des observations n'y change
+  rien. La confirmation sera refusée quand l'un d'eux a changé.
 
 ## Entrées
 

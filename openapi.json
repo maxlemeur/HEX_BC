@@ -95090,6 +95090,9 @@
                     "earlier": {
                       "type": "number"
                     },
+                    "replaced": {
+                      "type": "number"
+                    },
                     "added": {
                       "type": "number"
                     },
@@ -95197,6 +95200,7 @@
                     "reference",
                     "entered",
                     "earlier",
+                    "replaced",
                     "added",
                     "measured",
                     "retained",

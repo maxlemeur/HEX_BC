@@ -57,44 +57,67 @@ const ASSEMBLY = "ffffffff-ffff-4fff-8fff-fffffffffff1";
 type Row = Record<string, unknown>;
 type Calls = { reads: Array<{ client: string; table: string; select: string }>; writes: string[]; rpcs: string[] };
 
-const READ_FUNCTIONS = ["read_estimate_dpgf_raw_rows", "takeoff_rule_job_stamp", "takeoff_send_peers_stamp", "read_takeoff_send_context"];
+/** The read functions granted to the service role only: a member's session may call none of them. */
+const SERVICE_READ_FUNCTIONS = ["read_estimate_dpgf_raw_rows", "takeoff_rule_job_stamp", "takeoff_send_peers_stamp", "read_takeoff_send_context",
+  "dpgf_import_review_state"];
+/** What the API gives at most per answer when no range is asked (PostgREST's max-rows). */
+const MAX_ROWS = 1000;
 
 const valueOf = (row: Row, column: string) => column.split(".").reduce<unknown>((value, key) => (value && typeof value === "object"
   ? (value as Row)[key] : undefined), row);
 
+/** Rows read through every filter, in the order asked, cut at the API's ceiling when no range is asked. */
+function query(source: () => Row[], record: (columns: string) => void, refuse: (call: string) => never) {
+  const filters: Array<(row: Row) => boolean> = [];
+  const orders: string[] = [];
+  let slice: [number, number] | null = null;
+  let limit: number | null = null;
+  const result = () => {
+    const rows = source().filter((row) => filters.every((filter) => filter(row)));
+    const sorted = orders.length === 0 ? rows : [...rows].sort((left, right) => {
+      for (const column of orders) {
+        const [a, b] = [String(valueOf(left, column) ?? ""), String(valueOf(right, column) ?? "")];
+        if (a !== b) return a < b ? -1 : 1;
+      }
+      return 0;
+    });
+    const shown = slice ? sorted.slice(slice[0], Math.min(slice[1] + 1, slice[0] + MAX_ROWS))
+      : sorted.slice(0, Math.min(limit ?? MAX_ROWS, MAX_ROWS));
+    return { data: shown, error: null, count: rows.length };
+  };
+  const builder = {
+    select: (columns: string) => { record(columns); return builder; },
+    eq: (column: string, value: unknown) => { filters.push((row) => valueOf(row, column) === value); return builder; },
+    in: (column: string, values: unknown[]) => { filters.push((row) => values.includes(valueOf(row, column))); return builder; },
+    order: (column: string) => { orders.push(column); return builder; },
+    limit: (count: number) => { limit = count; return builder; },
+    range: (from: number, to: number) => { slice = [from, to]; return builder; },
+    maybeSingle: async () => ({ data: result().data[0] ?? null, error: null }),
+    then: (resolve: (value: ReturnType<typeof result>) => unknown) => Promise.resolve(result()).then(resolve),
+    insert: () => refuse("insert"), update: () => refuse("update"), upsert: () => refuse("upsert"), delete: () => refuse("delete"),
+  };
+  return builder;
+}
+
 /** A client over in-memory tables: every filter applies (a dotted column reads the joined row), every write is refused. */
-function fakeClient(name: string, tables: Record<string, Row[]>, functions: Record<string, (args: Row) => unknown>, calls: Calls) {
+function fakeClient(name: string, tables: Record<string, Row[]>, functions: Record<string, (args: Row) => Row[] | unknown>, calls: Calls,
+  allowed: readonly string[]) {
   return {
-    rpc: async (fn: string, args: Row) => {
+    rpc: (fn: string, args: Row) => {
       calls.rpcs.push(`${name}:${fn}`);
-      if (!READ_FUNCTIONS.includes(fn) || !functions[fn]) {
+      if (!allowed.includes(fn) || !functions[fn]) {
         calls.writes.push(`${name}:rpc:${fn}`);
         throw new Error(`${name}: rpc ${fn} refusé dans un aperçu`);
       }
-      return { data: functions[fn](args), error: null };
+      const answer = functions[fn](args);
+      if (!Array.isArray(answer)) return Promise.resolve({ data: answer, error: null });
+      return query(() => answer as Row[], () => undefined, (call) => { throw new Error(`${name}: ${call} refusé`); });
     },
     from(table: string) {
-      const filters: Array<(row: Row) => boolean> = [];
-      let slice: [number, number] | null = null;
-      let limit: number | null = null;
-      const refuse = (call: string) => { calls.writes.push(`${name}:${call}:${table}`); throw new Error(`${name}: ${call} refusé`); };
-      const result = () => {
-        const rows = (tables[table] ?? []).filter((row) => filters.every((filter) => filter(row)));
-        const shown = slice ? rows.slice(slice[0], slice[1] + 1) : limit !== null ? rows.slice(0, limit) : rows;
-        return { data: shown, error: null, count: rows.length };
-      };
-      const builder = {
-        select: (columns: string) => { calls.reads.push({ client: name, table, select: columns }); return builder; },
-        eq: (column: string, value: unknown) => { filters.push((row) => valueOf(row, column) === value); return builder; },
-        in: (column: string, values: unknown[]) => { filters.push((row) => values.includes(valueOf(row, column))); return builder; },
-        order: () => builder,
-        limit: (count: number) => { limit = count; return builder; },
-        range: (from: number, to: number) => { slice = [from, to]; return builder; },
-        maybeSingle: async () => ({ data: result().data[0] ?? null, error: null }),
-        then: (resolve: (value: ReturnType<typeof result>) => unknown) => Promise.resolve(result()).then(resolve),
-        insert: () => refuse("insert"), update: () => refuse("update"), upsert: () => refuse("upsert"), delete: () => refuse("delete"),
-      };
-      return builder;
+      return query(() => tables[table] ?? [], (columns) => calls.reads.push({ client: name, table, select: columns }), (call) => {
+        calls.writes.push(`${name}:${call}:${table}`);
+        throw new Error(`${name}: ${call} refusé`);
+      });
     },
   };
 }
@@ -109,7 +132,7 @@ const dpgfLavabo = { ...lavabo, id: DPGF_ITEM, sections: [{ id: "lot", title: "P
 
 function reading(item: typeof lavabo | typeof dpgfLavabo = lavabo, answer: Partial<ItemSendReading["answers"][number]> = {}): ItemSendReading {
   return { items: [item], scope: [item.id], affaireEntries: [], answers: [{ itemId: item.id, answerId: ANSWER, revision: "r1",
-    outcome: "measured", decision: { kind: "accepted", revision: 1 }, entry: null, pages: [2],
+    outcome: "measured", decision: { kind: "accepted", revision: 1 }, entry: null,
     observations: [{ observationId: "obs-1", role: "contribution", source: "model", quantity: 3, unit: "u", page: 2, measurementBasis: null }],
     ...answer }] };
 }
@@ -133,7 +156,7 @@ const dpgfRow = (id: string, mapped: string, overrides: Row = {}) => ({ id, tena
 
 let calls: Calls;
 function setUp(input: { manifest?: unknown; versions?: Row[]; items?: Row[]; role?: string; lineage?: Row[]; mapped?: Row[];
-  sources?: unknown }) {
+  sources?: unknown; locations?: Row[] }) {
   calls = { reads: [], writes: [], rpcs: [] };
   const shared: Record<string, Row[]> = {
     takeoff_launch_requests: [{ id: REQUEST, tenant_id: TENANT, manifest: input.manifest ?? manifest("item_list") },
@@ -146,12 +169,13 @@ function setUp(input: { manifest?: unknown; versions?: Row[]; items?: Row[]; rol
       dpgfRow(FOREIGN_LINE, MAPPED_OLD, { version_id: OTHER_VERSION })],
     dpgf_rows_mapped: input.mapped ?? [],
     dpgf_imports: [{ id: IMPORT, tenant_id: TENANT, project_id: PROJECT, updated_at: "2026-11-22T07:00:00.000Z", status: "done", row_count: 3 }],
-    takeoff_plan_locations: [],
+    takeoff_plan_locations: input.locations ?? [],
     estimate_assemblies: [{ id: ASSEMBLY, tenant_id: TENANT, name: "Ouvrage lavabo complet" },
       { id: ASSEMBLY, tenant_id: OTHER_TENANT, name: "Ouvrage d’un autre" }],
   };
   const functions: Record<string, (args: Row) => unknown> = {
     read_estimate_dpgf_raw_rows: (args) => (args.p_tenant_id === TENANT && args.p_version_id === VERSION ? input.lineage ?? [] : []),
+    dpgf_import_review_state: (args) => (args.p_tenant_id === TENANT ? [{ mapping_id: "mapping-1", column_mapping: {}, rows_sha256: "r".repeat(64) }] : []),
     takeoff_rule_job_stamp: () => "job-stamp",
     takeoff_send_peers_stamp: () => "peers-stamp",
     read_takeoff_send_context: () => ({ peers: [], plans: [], stamps: { peers: "p", locations: "l" }, display: null }),
@@ -159,10 +183,10 @@ function setUp(input: { manifest?: unknown; versions?: Row[]; items?: Row[]; rol
   const member = fakeClient("member", { ...shared, takeoff_jobs: [{ id: JOB, tenant_id: TENANT, project_id: PROJECT, estimate_version_id: null,
     status: "completed", launch_request_id: REQUEST, launch_unit_key: "unit-1", sources: input.sources ?? null },
   { id: JOB, tenant_id: OTHER_TENANT, project_id: OTHER_PROJECT, estimate_version_id: null, status: "completed",
-    launch_request_id: REQUEST, launch_unit_key: "unit-1", sources: null }] }, functions, calls);
+    launch_request_id: REQUEST, launch_unit_key: "unit-1", sources: null }] }, functions, calls, []);
   vi.mocked(getAuthenticatedTakeoffContext).mockResolvedValue({ supabase: member, tenantId: TENANT, userId: MEMBER,
     tenantRole: input.role ?? "admin" } as never);
-  vi.mocked(createServiceRoleClient).mockReturnValue(fakeClient("service", shared, functions, calls) as never);
+  vi.mocked(createServiceRoleClient).mockReturnValue(fakeClient("service", shared, functions, calls, SERVICE_READ_FUNCTIONS) as never);
 }
 
 async function refusal(promise: Promise<unknown>) {
@@ -258,6 +282,8 @@ describe("previewTakeoffItemSend", () => {
       quantity_after: 4, reference: 4, measured: 3 })]);
     expect(preview.focus_item_id).toBe(LINE);
     expect(preview.sections).toEqual([]);
+    expect(calls.writes).toEqual([]);
+    expect(calls.rpcs.every((call) => call.startsWith("service:"))).toBe(true);
 
     setUp({ versions: [version(VERSION, 3)], items: [dpgfRow(LINE, MAPPED_OLD)], lineage: [] });
     const unproven = await previewTakeoffItemSend(JOB, {});
@@ -281,7 +307,7 @@ describe("previewTakeoffItemSend", () => {
   it("compares the plan's pages with its preparation's plan reference, and always, an entry included (fixes 2 and 3)", async () => {
     setUp({ versions: [version(VERSION, 3)], sources: [{ document_id: PLAN_FILE, logical_document_id: "REF-PLAN-1", kind: "plan" }] });
     vi.mocked(readItemSendFacts).mockResolvedValue({ state: "stored", reading: reading(lavabo, { outcome: "uncertain", decision: null,
-      observations: [], pages: [], entry: { revision: 1, quantity: 2, unit: "u", category: "site_survey", included: true } }) });
+      observations: [], entry: { revision: 1, quantity: 2, unit: "u", category: "site_survey", included: true } }) });
     await previewTakeoffItemSend(JOB, {});
     expect(readPlanPagesAlreadyInEstimate).toHaveBeenCalledWith(expect.anything(), { jobId: JOB, versionId: VERSION, pages: [1, 2, 3, 4],
       document: { plan_file_id: PLAN_FILE, content_hash: "d".repeat(64), logical_document_id: "REF-PLAN-1", file_name: "Plan RDC" } });
@@ -297,5 +323,39 @@ describe("previewTakeoffItemSend", () => {
     expect(preview.rules).toEqual([expect.objectContaining({ effect: "assembly_indicated",
       assembly: { id: ASSEMBLY, name: "Ouvrage lavabo complet" } })]);
     expect(preview.lines).toEqual([expect.objectContaining({ quantity_after: 3 })]);
+  });
+
+  it("reads every row of the DPGF lineage: a proof cut at the API's ceiling never chooses a target (closing 3)", async () => {
+    const second = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb3";
+    const filler = (index: number) => ({ estimate_item_id: `00000000-0000-4000-8000-${String(index).padStart(12, "0")}`, import_id: IMPORT,
+      mapped_row_id: MAPPED_NEW, raw_row_id: `raw-${index}` });
+    setUp({ versions: [version(VERSION, 3)], items: [dpgfRow(LINE, MAPPED_OLD), dpgfRow(second, MAPPED_OLD)],
+      lineage: [{ estimate_item_id: LINE, import_id: IMPORT, mapped_row_id: MAPPED_OLD, raw_row_id: RAW },
+        ...Array.from({ length: 999 }, (_, index) => filler(index)),
+        { estimate_item_id: second, import_id: IMPORT, mapped_row_id: MAPPED_OLD, raw_row_id: RAW }] });
+    vi.mocked(readItemSendFacts).mockResolvedValue({ state: "stored", reading: reading(dpgfLavabo) });
+    const preview = await previewTakeoffItemSend(JOB, {});
+    expect(preview.lines).toEqual([]);
+    expect(preview.to_resolve).toEqual([expect.objectContaining({ kind: "target_multiple", item_id: DPGF_ITEM,
+      options: [expect.objectContaining({ estimate_item_id: LINE }), expect.objectContaining({ estimate_item_id: second }), { kind: "leave_out" }] })]);
+  });
+
+  it("counts only confirmed buildings: a field left to its reading names none (closing 6)", async () => {
+    setUp({ locations: [{ id: "loc-1", tenant_id: TENANT, project_id: PROJECT, building_choice: "reading" }] });
+    vi.mocked(readTakeoffJobPlanLocations).mockResolvedValue({ plans: [{ plan_file_id: PLAN_FILE, annotation: { revision: 2 },
+      location: { building: { value: null, state: "unknown" }, level: { value: "RDC", state: "corrected" } } }] } as never);
+    const preview = await previewTakeoffItemSend(JOB, { breakdown: "by_level" });
+    expect(preview.lines).toEqual([expect.objectContaining({ compartment: expect.objectContaining({ label: "RDC", reason: null }) })]);
+    setUp({ locations: [{ id: "loc-1", tenant_id: TENANT, project_id: PROJECT, building_choice: "value" }] });
+    const named = await previewTakeoffItemSend(JOB, { breakdown: "by_level" });
+    expect(named.lines).toEqual([expect.objectContaining({ compartment: expect.objectContaining({ key: "unallocated" }) })]);
+  });
+
+  it("puts the destination draft's own state in the digest (closing 8)", async () => {
+    setUp({ versions: [version(VERSION, 3)] });
+    const first = await previewTakeoffItemSend(JOB, {});
+    expect(first.plan_digest).toMatch(/^[0-9a-f]{64}$/);
+    setUp({ versions: [{ ...version(VERSION, 3), updated_at: "2026-11-22T09:30:00.000Z" }] });
+    expect((await previewTakeoffItemSend(JOB, {})).plan_digest).not.toBe(first.plan_digest);
   });
 });

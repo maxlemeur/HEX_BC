@@ -205,11 +205,7 @@ async function readDraft(ctx: Context, service: Service, projectId: string, vers
     .eq("tenant_id", ctx.tenantId).eq("version_id", versionId), { pageSize: 1000 });
   if (error) failed(error as { message?: string }, "Impossible de lire le brouillon de devis.", jobId);
   const rows = (data ?? []) as unknown as DraftRow[];
-  const { data: lineage, error: lineageError } = await service.rpc("read_estimate_dpgf_raw_rows" as never,
-    { p_tenant_id: ctx.tenantId, p_version_id: versionId } as never);
-  if (lineageError) failed(lineageError, "Impossible de lire la provenance des lignes du DPGF.", jobId);
-  const proven = new Map(((lineage ?? []) as Array<{ estimate_item_id: string; import_id: string; mapped_row_id: string; raw_row_id: string }>)
-    .map((row) => [row.estimate_item_id, row]));
+  const proven = new Map((await readLineage(service, ctx.tenantId, versionId, jobId)).map((row) => [row.estimate_item_id, row]));
   const mappedIds = [...new Set(rows.flatMap((row) => (row.item_type === "line" && row.source_provider === "dpgf" && row.mapped_row_id
     && (row.dpgf_source_quantity === undefined || row.dpgf_source_quantity === null) ? [row.mapped_row_id] : [])))];
   const facts = mappedIds.length > 0
@@ -232,7 +228,8 @@ async function readDraft(ctx: Context, service: Service, projectId: string, vers
       } : null,
     };
   });
-  // The generation of the DPGF imports the draft's lines come from: a change of one refuses the confirmation.
+  // The DPGF imports the draft's lines come from, each as the database identifies its reviewed generation (its latest
+  // mapping and the digest of its rows): a change of one refuses the confirmation.
   const importIds = [...new Set(lines.flatMap((line) => (line.dpgf?.importId ? [line.dpgf.importId] : [])))];
   const dpgf: Array<ItemSendStamps["dpgf"][number]> = [];
   if (importIds.length > 0) {
@@ -240,10 +237,45 @@ async function readDraft(ctx: Context, service: Service, projectId: string, vers
       .select("id, updated_at, status, row_count", { count: "exact" }).eq("tenant_id", ctx.tenantId).eq("project_id", projectId).in("id", chunk));
     if (importsError) failed(importsError as { message?: string }, "Impossible de lire les imports du DPGF.", jobId);
     for (const row of (imports ?? []) as Array<{ id: string; updated_at: string; status: string; row_count: number }>) {
-      dpgf.push({ importId: row.id, updatedAt: row.updated_at, status: row.status, rowCount: row.row_count });
+      const { data: review, error: reviewError } = await service.rpc("dpgf_import_review_state" as never,
+        { p_tenant_id: ctx.tenantId, p_import_id: row.id } as never);
+      if (reviewError) failed(reviewError, "Impossible de lire l’état revu du DPGF.", jobId);
+      const state = ((review ?? []) as Array<{ mapping_id: string | null; rows_sha256: string | null }>)[0] ?? null;
+      dpgf.push({ importId: row.id, mappingId: state?.mapping_id ?? null, rowsSha256: state?.rows_sha256 ?? null, updatedAt: row.updated_at,
+        status: row.status, rowCount: row.row_count });
     }
   }
   return { sections, lines, dpgf };
+}
+
+type LineageRow = { estimate_item_id: string; import_id: string; mapped_row_id: string; raw_row_id: string };
+const LINEAGE_PAGE = 1000;
+
+/**
+ * Every row of the DPGF lineage of a version (public.read_estimate_dpgf_raw_rows), page by page in a stable order and
+ * checked against its exact count: a proof read in part never chooses a target (the API cuts an answer at 1,000 rows).
+ */
+async function readLineage(service: Service, tenantId: string, versionId: string, jobId: string): Promise<LineageRow[]> {
+  const rows: LineageRow[] = [];
+  let expected: number | null = null;
+  const incomplete = () => new TakeoffError({ status: 503, code: TakeoffErrorCode.INTERNAL_ERROR, retryable: true, jobId,
+    message: "La provenance des lignes du DPGF a changé pendant sa lecture : rouvrez l’aperçu.", details: { guard: "item_send_lineage_incomplete" } });
+  for (;;) {
+    const { data, error, count } = await (service.rpc("read_estimate_dpgf_raw_rows" as never,
+      { p_tenant_id: tenantId, p_version_id: versionId } as never, { count: "exact" } as never) as unknown as {
+      order: (column: string) => { order: (column: string) => { range: (from: number, to: number) => PromiseLike<{
+        data: LineageRow[] | null; error: { message?: string } | null; count: number | null }> } };
+    }).order("estimate_item_id").order("mapped_row_id").range(rows.length, rows.length + LINEAGE_PAGE - 1);
+    if (error) failed(error, "Impossible de lire la provenance des lignes du DPGF.", jobId);
+    if (count === null || (expected !== null && count !== expected)) throw incomplete();
+    expected = count;
+    rows.push(...(data ?? []));
+    if (rows.length >= expected || (data ?? []).length === 0) break;
+  }
+  if (rows.length !== expected || new Set(rows.map((row) => `${row.estimate_item_id}|${row.mapped_row_id}`)).size !== rows.length) {
+    throw incomplete();
+  }
+  return rows;
 }
 
 const LOCATION_STATES = new Set<ItemSendLocationField["state"]>(["proposed", "confirmed", "corrected", "unknown", "multiple"]);
@@ -259,13 +291,12 @@ async function readPlanLocation(jobId: string, planFileId: string): Promise<Item
 }
 
 /**
- * Whether some location of the affaire an operator confirmed names a building (lot 3's stored corrections). A building
- * an operator kept from a plan's reading is counted too: the reading's value is not stored, so « Par niveau » errs toward
- * « Non réparti » rather than toward a level without its building.
+ * Whether some location of the affaire an operator confirmed names a building: a building lot 3 stores as a value
+ * (`building_choice = 'value'`). A field left to its reading follows an unconfirmed reading and names none.
  */
 async function affaireNamesBuilding(ctx: Context, projectId: string, jobId: string) {
   const { data, error } = await ctx.supabase.from("takeoff_plan_locations").select("id").eq("tenant_id", ctx.tenantId)
-    .eq("project_id", projectId).in("building_choice", ["value", "reading"]).limit(1);
+    .eq("project_id", projectId).eq("building_choice", "value").limit(1);
   if (error) failed(error, "Impossible de lire les localisations de l’affaire.", jobId);
   return (data ?? []).length > 0;
 }
@@ -342,12 +373,15 @@ async function computeItemSendPreview(ctx: Context, jobId: string, request: Item
   const reading = facts.reading;
   const jobFacts = { id: jobId, status: job.status, sent: job.status === "applied" || job.estimate_version_id !== null, canEdit };
   const scopeItems = reading.items.filter((item) => reading.scope.includes(item.id));
+  // The pages the plan's unit reads (all of them when it names none): where an entry of this plan stands.
+  const unitPages = unit.pages.length > 0 ? [...unit.pages]
+    : unit.page_count ? Array.from({ length: unit.page_count }, (_, index) => index + 1) : [];
   const base: Omit<ItemSendInput, "destination"> = {
-    job: jobFacts, plan: { key: plan.logical_id, name: plan.name, location: null },
+    job: jobFacts, plan: { key: plan.logical_id, name: plan.name, pages: unitPages, location: null },
     list: { revisionId: list.revision_id, revision: list.revision }, items: reading.items, scope: reading.scope, answers: reading.answers,
     affaireEntries: reading.affaireEntries, earlier: { targets: [], sections: [] }, pagesInEstimate: [], rules: new Map(),
     breakdown: request.breakdown ?? "together", affaireNamesBuilding: false,
-    stamps: { job: null, peers: null, context: null, dpgf: [], firstDraftSettings: null },
+    stamps: { job: null, peers: null, context: null, dpgf: [], firstDraftSettings: null, destination: null },
     resolutions: (request.resolutions ?? []).map((resolution) => ({ key: resolution.key, choice: toChoice(resolution.choice) })),
   };
   const shown = { plan: { key: plan.logical_id, name: plan.name }, list: { revision_id: list.revision_id, revision: list.revision },
@@ -407,15 +441,13 @@ async function computeItemSendPreview(ctx: Context, jobId: string, request: Item
     const draft = await readDraft(ctx, service, job.project_id, version.id, jobId);
     destination = { kind: "existing_draft", versionId: version.id, engine, maxSectionDepth: version.max_section_depth,
       sections: draft.sections, lines: draft.lines };
-    stamps = { ...stamps, dpgf: draft.dpgf };
+    stamps = { ...stamps, dpgf: draft.dpgf, destination: { versionId: version.id, status: version.status, updatedAt: version.updated_at } };
     if (itemSendEngineFits(engine)) {
       earlier = await readItemSendEarlierState(ctx, { projectId: job.project_id, versionId: version.id });
-      // Every page of the plan the answers stand on (an entry stands on the plan's own pages), always read: a page an
-      // earlier analysis brought holds any part of this plan.
-      const unitPages = unit.pages.length > 0 ? unit.pages
-        : unit.page_count ? Array.from({ length: unit.page_count }, (_, index) => index + 1) : [];
-      const pages = [...new Set([...unitPages, ...reading.answers.flatMap((answer) => [...answer.pages,
-        ...answer.observations.flatMap((observation) => (observation.page === null ? [] : [observation.page]))])])].sort((left, right) => left - right);
+      // Every page of the plan's unit (an entry stands on all of them) and every page a measure names, always read: a page
+      // an earlier analysis brought holds any part of this plan.
+      const pages = [...new Set([...unitPages, ...reading.answers.flatMap((answer) =>
+        answer.observations.flatMap((observation) => (observation.page === null ? [] : [observation.page])))])].sort((left, right) => left - right);
       const found = await readPlanPagesAlreadyInEstimate(ctx, { jobId, versionId: version.id, pages: pages.length > 0 ? pages : [null],
         document: planDocument(job, plan) });
       pagesInEstimate = found.map((page) => ({ page: page.page, earlierJobIds: page.earlier.map((entry) => entry.job_id),
@@ -470,7 +502,8 @@ function respond(jobId: string, shown: { plan: { key: string; name: string }; li
       compartment: target.compartment,
       unit: target.unit,
       quantity_before: target.quantity.before, quantity_after: target.quantity.after, reference: target.quantity.reference,
-      entered: target.quantity.entered, earlier: target.quantity.earlier, added: target.quantity.added, measured: target.quantity.measured,
+      entered: target.quantity.entered, earlier: target.quantity.earlier, replaced: target.quantity.replaced, added: target.quantity.added,
+      measured: target.quantity.measured,
       retained: target.quantity.retained, rounded_from: target.quantity.roundedFrom,
       gap: target.quantity.gap ? { absolute: target.quantity.gap.absolute, percent: target.quantity.gap.percent,
         requires_review: target.quantity.gap.requiresReview } : null,

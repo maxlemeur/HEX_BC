@@ -82,6 +82,8 @@ export const itemSendPreviewResponseSchema = z.object({
     reference: z.number().nullable(),
     entered: z.number().nullable(),
     earlier: z.number(),
+    /** What this plan had already brought to the line: replaced by this send (a revision of the plan's part), never added to. */
+    replaced: z.number(),
     added: z.number(),
     measured: z.number(),
     retained: z.number(),

@@ -82,8 +82,6 @@ export type ItemSendAnswer = {
   revision: string;
   outcome: "measured" | "uncertain" | "not_found";
   observations: readonly ItemSendObservation[];
-  /** The plan's pages the answer covers (searched and unreadable): where an entry of this plan stands. */
-  pages: readonly number[];
   /** Taken on this very revision of the answer; the reader gives none taken on an earlier one. */
   decision: { kind: "accepted" | "set_aside"; revision: number } | null;
   /** A quantity a member entered for this plan; an hypothesis counts only once included by its own decision. */
@@ -158,8 +156,15 @@ export type ItemSendStamps = {
   job: string | null;
   peers: string | null;
   context: { peers: string; locations: string } | null;
-  dpgf: ReadonlyArray<{ importId: string; updatedAt: string; status: string; rowCount: number }>;
+  /**
+   * The DPGF imports the draft's lines come from, each as the database identifies its reviewed generation (its latest
+   * mapping and the digest of its rows, public.dpgf_import_review_state), with the import's own row.
+   */
+  dpgf: ReadonlyArray<{ importId: string; mappingId: string | null; rowsSha256: string | null; updatedAt: string; status: string;
+    rowCount: number }>;
   firstDraftSettings: Readonly<Record<string, unknown>> | null;
+  /** The destination draft as today's send's expected state holds it; null for a first draft. */
+  destination: { versionId: string; status: string; updatedAt: string } | null;
 };
 
 export type ItemSendChoice =
@@ -173,7 +178,11 @@ export type ItemSendResolution = { key: string; choice: ItemSendChoice };
 
 export type ItemSendInput = {
   job: { id: string; status: string; sent: boolean; canEdit: boolean };
-  plan: { key: string; name: string; location: ItemSendPlanLocation | null };
+  /**
+   * The plan read: its logical key (the same across its revisions), its name, the pages its unit reads (empty when
+   * unknown: then it stands on every page) and its location.
+   */
+  plan: { key: string; name: string; pages: readonly number[]; location: ItemSendPlanLocation | null };
   list: { revisionId: string; revision: number };
   /** The sealed list revision, in document order. */
   items: readonly ItemSendListItem[];
@@ -239,6 +248,8 @@ export type ItemSendQuantity = {
   after: number;
   /** The value before a length's rounding, when rounding moves it. */
   roundedFrom: number | null;
+  /** What this plan's earlier part on the line was: replaced by this plan's part, never added to. */
+  replaced: number;
   /** The DPGF policy's cumulative gap to the reference (printed gaps included, no compensation), and its check. */
   gap: ItemSendGap | null;
   keptEntry: boolean;
@@ -256,6 +267,8 @@ export type ItemSendTarget = {
   contributions: ItemSendContribution[];
   rule: ItemSendRuleEffect | null;
   resolution: ItemSendChoice["kind"] | null;
+  /** The earlier parts of this same plan this send replaces (a revision of the plan's part, confirmed with the send). */
+  replaces: Array<{ jobId: string; answerId: string | null; observationIds: string[]; quantity: number }>;
 };
 
 export type ItemSendNotSentReason = "set_aside" | "not_accepted" | "not_found" | "uncertain" | "empty" | "unit_incompatible"
@@ -339,12 +352,13 @@ export type ItemSendWritePlan = {
       | { kind: "new_line"; section_key: string; section_id: string | null; title: string; unit_code: string; order: number };
     unit_code: string;
     quantity_after: number;
-    quantity: { reference: number | null; entered: number | null; earlier: number; added: number; measured: number; retained: number;
-      rounded_from: number | null; gap: { absolute: number; percent: number | null; requires_review: boolean } | null; kept_entry: boolean };
+    quantity: { reference: number | null; entered: number | null; earlier: number; replaced: number; added: number; measured: number;
+      retained: number; rounded_from: number | null; gap: { absolute: number; percent: number | null; requires_review: boolean } | null; kept_entry: boolean };
     rule: { rule_id: string | null; rule_version: string | null; action: ItemSendRuleAction; effect: ItemSendRuleEffectKind;
       category_id: string | null; assembly_id: string | null } | null;
     contributions: Array<{ answer_id: string; answer_revision: string; kind: "measured" | "entered"; observation_ids: string[];
       quantity: number; unit: string; pages: number[]; identity: SnakeIdentity }>;
+    replaces: Array<{ job_id: string; answer_id: string | null; observation_ids: string[]; quantity: number }>;
   }>;
   page_contributions: Array<{ page: number; item_ids: string[]; target_keys: string[]; observation_ids: string[] }>;
   left_out: Array<{ item_id: string; reason: ItemSendNotSentReason; rule_id: string | null; rule_version: string | null }>;
@@ -356,6 +370,7 @@ export type ItemSendWritePlan = {
     affaire_entries: Array<{ item_id: string; revision: number }>;
     rules: Array<{ item_id: string; rule_id: string; rule_version: string | null; action: ItemSendRuleAction; effect: ItemSendRuleEffectKind }>;
     location_generation: number | null;
+    plan_pages: number[];
     earlier_targets: Array<{ estimate_item_id: string; item_id: string; compartment_key: string; breakdown: ItemSendBreakdown;
       parts: Array<{ job_id: string; answer_id: string | null; observation_ids: string[]; quantity: number; pages: number[];
         plan_key: string | null; identity: SnakeIdentity }> }>;
@@ -363,8 +378,10 @@ export type ItemSendWritePlan = {
       reference: number | null } | null }>;
     pages_in_estimate: Array<{ page: number | null; earlier_job_ids: string[]; estimate_item_ids: string[] }>;
     stamps: { job: string | null; peers: string | null; context: { peers: string; locations: string } | null;
-      dpgf: Array<{ import_id: string; updated_at: string; status: string; row_count: number }>;
-      first_draft_settings: Readonly<Record<string, unknown>> | null };
+      dpgf: Array<{ import_id: string; mapping_id: string | null; rows_sha256: string | null; updated_at: string; status: string;
+        row_count: number }>;
+      first_draft_settings: Readonly<Record<string, unknown>> | null;
+      destination: { version_id: string; status: string; updated_at: string } | null };
     resolutions: Array<{ key: string; choice: ItemSendChoice }>;
   };
 };
@@ -398,10 +415,25 @@ const folded = (value: string | null | undefined) => {
 const byText = (left: string, right: string) => (left < right ? -1 : left > right ? 1 : 0);
 const KNOWN = new Set(["confirmed", "corrected"]);
 
-/** Whether engine 3 can hold this quantity as it is shown: three decimals at most, within its ceiling. */
+/** The decimal places a number states as written (its shortest spelling, exponent included). */
+function decimalPlaces(value: number) {
+  const [mantissa, exponent] = String(value).toLowerCase().split("e");
+  return Math.max(0, (mantissa.split(".")[1]?.length ?? 0) - Number(exponent ?? 0));
+}
+
+/**
+ * The quantity in thousandths when engine 3 can hold it exactly as given: positive, three decimals at most, within its
+ * ceiling; null otherwise. Read from the value as entered, before any rounding.
+ */
+export function itemSendThousandths(value: number): number | null {
+  if (!Number.isFinite(value) || value <= 0 || value > ITEM_SEND_QUANTITY_LIMITS.max
+    || decimalPlaces(value) > ITEM_SEND_QUANTITY_LIMITS.decimals) return null;
+  return Math.round(value * 10 ** ITEM_SEND_QUANTITY_LIMITS.decimals);
+}
+
+/** Whether engine 3 can hold a quantity this plan computed (a sum, a maximum, a length rounded up) as shown. */
 export function itemSendQuantityWritable(value: number) {
-  const scaled = value * 10 ** ITEM_SEND_QUANTITY_LIMITS.decimals;
-  return Number.isFinite(value) && value >= 0 && value <= ITEM_SEND_QUANTITY_LIMITS.max && Math.abs(scaled - Math.round(scaled)) < 1e-6;
+  return itemSendThousandths(value) !== null;
 }
 
 type Located = { known: true; value: string; key: string } | { known: false; reason: ItemSendUnallocatedReason };
@@ -454,6 +486,9 @@ type Part = {
 
 type SectionStep = { key: string; title: string };
 
+/** What a line already holds of an item: the parts kept (other plans'), all of them, and those this plan replaces. */
+type Earlier = { kept: DpgfContribution[]; all: DpgfContribution[]; replaces: ItemSendTarget["replaces"] };
+
 function sectionPath(item: ItemSendListItem, compartment: ItemSendCompartment, withDpgf: boolean): SectionStep[] {
   let path: SectionStep[];
   if (withDpgf) {
@@ -485,9 +520,11 @@ function gapOf(reference: number | null, composed: ReturnType<typeof composeDpgf
     requiresReview: absolute > reference * QUANTITY_REVIEW_PERCENT / 100 + 1e-9 };
 }
 
-const identityOf = (unit: string, basis: string | null, qualifiers: Pick<PosteQualifiers, "network" | "material" | "diameter">)
-  : ItemSendIdentity => ({ unit, basis: folded(basis), network: folded(qualifiers.network), material: folded(qualifiers.material),
-  diameter: folded(qualifiers.diameter) });
+/** A diameter as it is written (« 1/2" » is not « 1.2" »): only its case and its spaces are not compared. */
+const diameterOf = (value: string | null | undefined) => (value?.trim() ? fold(value) : null);
+const identityOf = (unit: string, basis: string | null, qualifiers: Pick<PosteQualifiers, "network" | "material" | "diameter"> | null | undefined)
+  : ItemSendIdentity => ({ unit, basis: folded(basis), network: folded(qualifiers?.network), material: folded(qualifiers?.material),
+  diameter: diameterOf(qualifiers?.diameter) });
 const sameIdentity = (left: ItemSendIdentity, right: ItemSendIdentity) => left.unit === right.unit && left.basis === right.basis
   && left.network === right.network && left.material === right.material && left.diameter === right.diameter;
 const snakeIdentity = (identity: ItemSendIdentity): SnakeIdentity => ({ ...identity });
@@ -594,16 +631,18 @@ export function planTakeoffItemSend(input: ItemSendInput): ItemSendPlan {
       && observation.quantity !== null && Number.isFinite(observation.quantity) && observation.quantity > 0).map((observation) => ({
       kind: "measured", answer, observationIds: [observation.observationId], quantity: observation.quantity!, unit: observation.unit,
       basis: observation.measurementBasis, pages: observation.page === null ? [] : [observation.page] }));
-    if (rule?.effect === "skipped") { notSent(item, "rule_skip", measuredParts()); continue; }
-    if (input.affaireEntries.some((entry) => entry.itemId === item.id)) { notSent(item, "affaire_entry", measuredParts()); continue; }
-    if (answer.decision?.kind === "set_aside") { notSent(item, "set_aside", measuredParts()); continue; }
+    // An entry is this plan's part for the item: it stands on every page the plan's unit reads, whatever pages the
+    // answer searched, for the page guard as for its page contribution.
+    const entered: Part | null = answer.entry ? { kind: "entered", answer, observationIds: [], quantity: answer.entry.quantity,
+      unit: answer.entry.unit, basis: null, pages: [...new Set(input.plan.pages)].sort((left, right) => left - right) } : null;
+    const answerParts = () => (entered ? [entered] : measuredParts());
+    if (rule?.effect === "skipped") { notSent(item, "rule_skip", answerParts()); continue; }
+    if (input.affaireEntries.some((entry) => entry.itemId === item.id)) { notSent(item, "affaire_entry", answerParts()); continue; }
+    if (answer.decision?.kind === "set_aside") { notSent(item, "set_aside", answerParts()); continue; }
 
     let parts: Part[];
-    if (answer.entry) {
-      // An entry is this plan's part for the item: it stands on the plan's pages, as any part of this plan does.
-      const entered: Part = { kind: "entered", answer, observationIds: [], quantity: answer.entry.quantity, unit: answer.entry.unit, basis: null,
-        pages: [...new Set(answer.pages)].sort((left, right) => left - right) };
-      if (!answer.entry.included) { notSent(item, "hypothesis_not_included", [entered]); continue; }
+    if (entered) {
+      if (!answer.entry!.included) { notSent(item, "hypothesis_not_included", [entered]); continue; }
       parts = [entered];
     } else if (answer.outcome === "not_found") {
       notSent(item, "not_found"); continue;
@@ -620,6 +659,16 @@ export function planTakeoffItemSend(input: ItemSendInput): ItemSendPlan {
       // Only what was retained is sent: a measure nobody accepted waits for its acceptance in the table of items.
       if (answer.decision?.kind !== "accepted") { notSent(item, "not_accepted", parts); continue; }
       if (parts.length === 0) { notSent(item, "empty"); continue; }
+    }
+
+    // Every part as given, exactly: engine 3 holds three decimals at most, within its ceiling; nothing is rounded first.
+    if (parts.some((part) => itemSendThousandths(part.quantity) === null)) {
+      const key = `quantity:${item.id}`;
+      if (offered(key, [{ kind: "leave_out" }])) { notSent(item, "left_out", parts); continue; }
+      const raw = parts.reduce((sum, part) => sum + part.quantity, 0);
+      ask({ key, kind: "quantity_unwritable", itemId: item.id, label: item.label, compartmentKey: null, options: [{ kind: "leave_out" }],
+        facts: { reference: null, entered: entered ? entered.quantity : null, measured: raw, retained: raw } });
+      continue;
     }
 
     // One quantitative identity: one normalised unit (the item's expected one when it has one) and one basis, both
@@ -657,7 +706,8 @@ export function planTakeoffItemSend(input: ItemSendInput): ItemSendPlan {
       }
       continue;
     }
-    const added = round4(sendable.reduce((sum, part) => sum + part.quantity, 0));
+    // Summed in thousandths: the parts are exact at that scale, so the sum is.
+    const added = sendable.reduce((sum, part) => sum + itemSendThousandths(part.quantity)!, 0) / 1000;
     const contributions: ItemSendContribution[] = sendable.map((part) => ({ answerId: answer.answerId, answerRevision: answer.revision,
       kind: part.kind, observationIds: part.observationIds, quantity: part.quantity, unit, pages: part.pages, identity }));
     const leaveOut = () => notSent(item, "left_out", sendable);
@@ -683,15 +733,20 @@ export function planTakeoffItemSend(input: ItemSendInput): ItemSendPlan {
       ask({ key, kind: "identity_conflict", itemId: item.id, label: item.label, compartmentKey: compartment.key, options: [{ kind: "leave_out" }] });
     };
 
-    /** A line that already exists: its quantity typed by hand is protected, the rest is the policy's. */
+    /**
+     * A line that already exists: its quantity typed by hand is protected, the rest is the policy's. What the line held
+     * of this same plan (by its key) is replaced by this plan's part, never added to: the line's quantity before is the
+     * one all its earlier parts wrote, the quantity after holds the others' and this plan's.
+     */
     const feedExisting = (line: ItemSendDraftLine, kind: "dpgf_line" | "earlier_line", resolution: ItemSendChoice["kind"] | null,
-      earlier: DpgfContribution[], reference: number | null) => {
+      earlier: Earlier, reference: number | null) => {
       if (unitCode(line.unitCode) !== unit) { identityConflict(); return; }
       const factor = lengthFactor({ unit_code: line.unitCode, description: null });
       const composed = (all: DpgfContribution[]) => composeDpgfTarget(reference, all);
-      const expectedBefore = earlier.length > 0 ? roundedMeasure(composed(earlier).priced, factor) : reference;
+      const expectedBefore = earlier.all.length > 0 ? roundedMeasure(composed(earlier.all).priced, factor) : reference;
       const typed = expectedBefore === null ? line.quantity !== 0 : !same(line.quantity, expectedBefore);
-      const total = composed([...earlier, { job_id: input.job.id, item_ids: [answer.answerId], quantity: added, protective: 0, printed_gap: 0 }]);
+      const total = composed([...earlier.kept, { job_id: input.job.id, item_ids: [answer.answerId], quantity: added, protective: 0,
+        printed_gap: 0 }]);
       const retainedRaw = round4(total.priced);
       const retained = round4(roundedMeasure(retainedRaw, factor));
       let after = retained;
@@ -716,10 +771,11 @@ export function planTakeoffItemSend(input: ItemSendInput): ItemSendPlan {
         choice = picked.kind;
       }
       if (!writable(after, { reference, entered: typed ? line.quantity : null, measured: total.measured, retained })) return;
-      result.targets.push({ ...base, resolution: choice,
+      result.targets.push({ ...base, resolution: choice, replaces: earlier.replaces,
         line: { kind, estimateItemId: line.id, title: line.title, expectedUpdatedAt: line.updatedAt, expectedQuantity: line.quantity },
         quantity: { before: line.quantity, reference, entered: typed ? line.quantity : null,
-          earlier: round4(earlier.reduce((sum, part) => sum + part.quantity, 0)), added, measured: total.measured, retained, after,
+          earlier: round4(earlier.kept.reduce((sum, part) => sum + part.quantity, 0)),
+          replaced: round4(earlier.replaces.reduce((sum, part) => sum + part.quantity, 0)), added, measured: total.measured, retained, after,
           roundedFrom: retained !== retainedRaw ? retainedRaw : null, gap: gapOf(reference, total), keptEntry } });
     };
 
@@ -753,18 +809,26 @@ export function planTakeoffItemSend(input: ItemSendInput): ItemSendPlan {
         parent = { key: step.key, existingId: null };
       }
       const sectionKey = path.at(-1)!.key;
-      result.targets.push({ ...base, resolution,
+      result.targets.push({ ...base, resolution, replaces: [],
         line: { kind: "new_line", sectionKey, sectionId: earlierSections.get(sectionKey) ?? null, title: rule?.designation ?? item.label },
-        quantity: { before: null, reference: null, entered: null, earlier: 0, added, measured: added, retained: after, after,
+        quantity: { before: null, reference: null, entered: null, earlier: 0, replaced: 0, added, measured: added, retained: after, after,
           roundedFrom: after !== added ? added : null, gap: null, keptEntry: false } });
     };
 
-    /** This item's earlier parts on a line, refused (null) when one has another quantitative identity. */
-    const earlierOf = (target: ItemSendEarlierTarget): DpgfContribution[] | null => {
-      const identities = target.parts.map((part) => identityOf(unitCode(part.unit) ?? "", part.basis, part.qualifiers));
-      if (!identities.every((other) => sameIdentity(other, identity))) return null;
-      return target.parts.map((part) => ({ job_id: part.jobId, item_ids: [part.answerId ?? part.jobId], quantity: part.quantity, protective: 0,
-        printed_gap: 0 }));
+    /**
+     * This item's earlier parts on a line: those of other plans, kept (refused, null, when one has another quantitative
+     * identity), and those of this very plan, which this plan's part replaces.
+     */
+    const earlierOf = (targets: readonly ItemSendEarlierTarget[], stored: readonly DpgfContribution[] = []): Earlier | null => {
+      const parts = targets.flatMap((target) => target.parts);
+      const ofThisPlan = (part: ItemSendEarlierTarget["parts"][number]) => part.planKey !== null && part.planKey === input.plan.key;
+      const kept = parts.filter((part) => !ofThisPlan(part));
+      if (!kept.every((part) => sameIdentity(identityOf(unitCode(part.unit) ?? "", part.basis, part.qualifiers), identity))) return null;
+      const contribution = (part: ItemSendEarlierTarget["parts"][number]): DpgfContribution => ({ job_id: part.jobId,
+        item_ids: [part.answerId ?? part.jobId], quantity: part.quantity, protective: 0, printed_gap: 0 });
+      return { kept: [...stored, ...kept.map(contribution)], all: [...stored, ...parts.map(contribution)],
+        replaces: parts.filter(ofThisPlan).map((part) => ({ jobId: part.jobId, answerId: part.answerId,
+          observationIds: [...part.observationIds].sort(byText), quantity: part.quantity })) };
     };
 
     if (dpgfItem) {
@@ -790,10 +854,10 @@ export function planTakeoffItemSend(input: ItemSendInput): ItemSendPlan {
       }
       const targetLine = line;
       // Only this item's earlier parts accumulate (the claims already keep a line of another item out of reach).
-      const own = input.earlier.targets.filter((target) => target.estimateItemId === targetLine.id && target.itemId === item.id).map(earlierOf);
-      if (own.some((entry) => entry === null)) { identityConflict(); continue; }
-      feedExisting(targetLine, "dpgf_line", resolution, [...storedParts(targetLine.dpgf!.composition, input.job.id),
-        ...own.flatMap((entry) => entry ?? [])], targetLine.dpgf!.reference);
+      const own = earlierOf(input.earlier.targets.filter((target) => target.estimateItemId === targetLine.id && target.itemId === item.id),
+        storedParts(targetLine.dpgf!.composition, input.job.id));
+      if (!own) { identityConflict(); continue; }
+      feedExisting(targetLine, "dpgf_line", resolution, own, targetLine.dpgf!.reference);
       continue;
     }
 
@@ -804,10 +868,11 @@ export function planTakeoffItemSend(input: ItemSendInput): ItemSendPlan {
       ask({ key, kind: "breakdown_mixed", itemId: item.id, label: item.label, compartmentKey: compartment.key, options: [{ kind: "leave_out" }] });
       continue;
     }
-    const earlier = ofItem.find((target) => target.compartmentKey === compartment.key);
-    if (!earlier) { createLine(null); continue; }
-    const line = draftLines.find((candidate) => candidate.id === earlier.estimateItemId);
-    if (!line) {
+    const inCompartment = ofItem.filter((target) => target.compartmentKey === compartment.key);
+    if (inCompartment.length === 0) { createLine(null); continue; }
+    // The live target: one whose line is still in the draft, never a deleted one before it.
+    const live = inCompartment.filter((target) => draftLines.some((candidate) => candidate.id === target.estimateItemId));
+    if (live.length === 0) {
       // The line an earlier send fed is gone (deleted in the editor): its parts left with it; a new line only by choice.
       const key = `target:${targetKey}`;
       const options: ItemSendOption[] = [{ kind: "new_line" }, { kind: "leave_out" }];
@@ -817,9 +882,32 @@ export function planTakeoffItemSend(input: ItemSendInput): ItemSendPlan {
       ask({ key, kind: "target_missing", itemId: item.id, label: item.label, compartmentKey: compartment.key, options });
       continue;
     }
-    const earlierParts = earlierOf(earlier);
+    let chosen = live.length === 1 ? live[0] : null;
+    let resolution: ItemSendChoice["kind"] | null = null;
+    if (!chosen) {
+      const key = `target:${targetKey}`;
+      const options: ItemSendOption[] = [...live.map((target) => ({ kind: "line" as const, estimateItemId: target.estimateItemId,
+        title: draftLines.find((candidate) => candidate.id === target.estimateItemId)?.title ?? null })), { kind: "leave_out" }];
+      const picked = offered(key, options);
+      if (picked?.kind === "leave_out") { leaveOut(); continue; }
+      if (picked?.kind !== "line") {
+        ask({ key, kind: "target_multiple", itemId: item.id, label: item.label, compartmentKey: compartment.key, options });
+        continue;
+      }
+      chosen = live.find((target) => target.estimateItemId.toLowerCase() === picked.estimateItemId.toLowerCase())!;
+      resolution = "line";
+    }
+    const line = draftLines.find((candidate) => candidate.id === chosen!.estimateItemId)!;
+    // One claim rule on every path: a line another item also holds feeds neither.
+    if (!free(line.id, item.id)) {
+      const key = `target:${targetKey}`;
+      if (offered(key, [{ kind: "leave_out" }])) { leaveOut(); continue; }
+      ask({ key, kind: "target_missing", itemId: item.id, label: item.label, compartmentKey: compartment.key, options: [{ kind: "leave_out" }] });
+      continue;
+    }
+    const earlierParts = earlierOf(inCompartment.filter((target) => target.estimateItemId === line.id));
     if (!earlierParts) { identityConflict(); continue; }
-    feedExisting(line, "earlier_line", null, earlierParts, null);
+    feedExisting(line, "earlier_line", resolution, earlierParts, null);
   }
 
   // A page already in the estimate: replacing its earlier parts or keeping both is decided with the confirmation; here
@@ -891,7 +979,7 @@ function writePlanOf(input: ItemSendInput, plan: ItemSendPlan, destination: Excl
         unit_code: target.unit,
         quantity_after: target.quantity.after,
         quantity: { reference: target.quantity.reference, entered: target.quantity.entered, earlier: target.quantity.earlier,
-          added: target.quantity.added, measured: target.quantity.measured, retained: target.quantity.retained,
+          replaced: target.quantity.replaced, added: target.quantity.added, measured: target.quantity.measured, retained: target.quantity.retained,
           rounded_from: target.quantity.roundedFrom,
           gap: target.quantity.gap ? { absolute: target.quantity.gap.absolute, percent: target.quantity.gap.percent,
             requires_review: target.quantity.gap.requiresReview } : null,
@@ -899,9 +987,13 @@ function writePlanOf(input: ItemSendInput, plan: ItemSendPlan, destination: Excl
         rule: target.rule && target.rule.effect !== "none" ? { rule_id: target.rule.ruleId, rule_version: target.rule.ruleVersion,
           action: target.rule.action, effect: target.rule.effect, category_id: line.kind === "new_line" ? target.rule.categoryId : null,
           assembly_id: target.rule.assemblyId } : null,
+        // In a canonical order: the order the observations were read in never changes the plan.
         contributions: target.contributions.map((contribution) => ({ answer_id: contribution.answerId, answer_revision: contribution.answerRevision,
           kind: contribution.kind, observation_ids: [...contribution.observationIds].sort(byText), quantity: contribution.quantity,
-          unit: contribution.unit, pages: contribution.pages, identity: snakeIdentity(contribution.identity) })),
+          unit: contribution.unit, pages: [...contribution.pages].sort((left, right) => left - right), identity: snakeIdentity(contribution.identity) }))
+          .sort((left, right) => byText(canonical([left.kind, left.observation_ids, left.pages]), canonical([right.kind, right.observation_ids, right.pages]))),
+        replaces: target.replaces.map((part) => ({ job_id: part.jobId, answer_id: part.answerId, observation_ids: part.observationIds,
+          quantity: part.quantity })).sort((left, right) => byText(canonical(left), canonical(right))),
       };
     }),
     page_contributions: plan.pageContributions.map((page) => ({ page: page.page, item_ids: page.itemIds, target_keys: page.targetKeys,
@@ -910,8 +1002,9 @@ function writePlanOf(input: ItemSendInput, plan: ItemSendPlan, destination: Excl
       const rule = entry.reason === "rule_skip" ? input.rules.get(entry.itemId) ?? null : null;
       return { item_id: entry.itemId, reason: entry.reason, rule_id: rule?.ruleId ?? null, rule_version: rule?.ruleVersion ?? null };
     }),
-    parts_not_sent: plan.partsNotSent.map((part) => ({ item_id: part.itemId, kind: part.kind, observation_ids: part.observationIds,
-      pages: part.pages, quantity: part.quantity, unit: part.unit, reason: part.reason })),
+    parts_not_sent: plan.partsNotSent.map((part) => ({ item_id: part.itemId, kind: part.kind, observation_ids: [...part.observationIds].sort(byText),
+      pages: part.pages, quantity: part.quantity, unit: part.unit, reason: part.reason }))
+      .sort((left, right) => byText(canonical(left), canonical(right))),
     dependencies: {
       answers: [...input.answers].sort((left, right) => byText(left.itemId, right.itemId)).map((answer) => ({ item_id: answer.itemId,
         answer_id: answer.answerId, revision: answer.revision, decision_revision: answer.decision?.revision ?? null,
@@ -924,6 +1017,7 @@ function writePlanOf(input: ItemSendInput, plan: ItemSendPlan, destination: Excl
           effect: rule.effect }] : [];
       }),
       location_generation: input.plan.location?.generation ?? null,
+      plan_pages: [...new Set(input.plan.pages)].sort((left, right) => left - right),
       earlier_targets: [...input.earlier.targets].sort((left, right) => byText(left.estimateItemId, right.estimateItemId)
         || byText(left.itemId, right.itemId) || byText(left.compartmentKey, right.compartmentKey)).map((target) => ({
         estimate_item_id: target.estimateItemId, item_id: target.itemId, compartment_key: target.compartmentKey, breakdown: target.breakdown,
@@ -940,8 +1034,11 @@ function writePlanOf(input: ItemSendInput, plan: ItemSendPlan, destination: Excl
         page: page.page, earlier_job_ids: [...page.earlierJobIds].sort(byText), estimate_item_ids: [...page.estimateItemIds].sort(byText) })),
       stamps: { job: input.stamps.job, peers: input.stamps.peers, context: input.stamps.context,
         dpgf: [...input.stamps.dpgf].sort((left, right) => byText(left.importId, right.importId)).map((entry) => ({ import_id: entry.importId,
-          updated_at: entry.updatedAt, status: entry.status, row_count: entry.rowCount })),
-        first_draft_settings: input.stamps.firstDraftSettings },
+          mapping_id: entry.mappingId, rows_sha256: entry.rowsSha256, updated_at: entry.updatedAt, status: entry.status,
+          row_count: entry.rowCount })),
+        first_draft_settings: input.stamps.firstDraftSettings,
+        destination: input.stamps.destination ? { version_id: input.stamps.destination.versionId, status: input.stamps.destination.status,
+          updated_at: input.stamps.destination.updatedAt } : null },
       resolutions: input.resolutions.filter((resolution) => resolved.has(resolution.key))
         .sort((left, right) => byText(left.key, right.key)),
     },

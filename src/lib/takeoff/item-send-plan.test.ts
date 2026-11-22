@@ -51,7 +51,6 @@ function measured(item: ItemSendListItem, parts: Array<{ quantity: number; unit?
   return {
     itemId: item.id, answerId: id("70000000", Number(item.id.slice(-4))), revision: "r1", outcome: "measured",
     decision: { kind: "accepted", revision: 1 }, entry: null,
-    pages: [...new Set(parts.map((part) => part.page))].sort((left, right) => left - right),
     observations: parts.map((part) => ({ observationId: `obs-${++observationCount}`, role: part.role ?? "contribution", source: "model",
       quantity: part.quantity, unit: part.unit ?? item.expectedUnit ?? "u", page: part.page, measurementBasis: part.basis ?? null })),
     ...extra,
@@ -68,15 +67,17 @@ const located = (building: string | null, level: string | null): ItemSendPlanLoc
 type EarlierPart = ItemSendEarlierTarget["parts"][number];
 function part(overrides: Partial<EarlierPart> = {}): EarlierPart {
   return { jobId: OTHER_JOB, answerId: "answer-a", observationIds: ["obs-a"], quantity: 3, unit: "u", basis: null, qualifiers: {},
-    pages: [1], planKey: "plan-a", ...overrides };
+    pages: [1], planKey: "plan-earlier", ...overrides };
 }
 
-function input(overrides: Partial<ItemSendInput> & Pick<ItemSendInput, "items" | "answers">): ItemSendInput {
+function input(overrides: Omit<Partial<ItemSendInput>, "plan"> & Pick<ItemSendInput, "items" | "answers">
+  & { plan?: Omit<ItemSendInput["plan"], "pages"> & { pages?: number[] } }): ItemSendInput {
+  const { plan, ...rest } = overrides;
   return {
     affaireNamesBuilding: false,
-    stamps: { job: "job-stamp", peers: null, context: null, dpgf: [], firstDraftSettings: null },
+    stamps: { job: "job-stamp", peers: null, context: null, dpgf: [], firstDraftSettings: null, destination: null },
     job: { id: JOB, status: "completed", sent: false, canEdit: true },
-    plan: { key: "plan-a", name: "Plan A — RDC", location: located("A", "RDC") },
+    plan: { key: "plan-a", name: "Plan A — RDC", location: located("A", "RDC"), pages: [1, 2, 3, 4], ...plan },
     list: { revisionId: id("80000000", 1), revision: 3 },
     scope: overrides.items.map((item) => item.id),
     affaireEntries: [],
@@ -86,7 +87,7 @@ function input(overrides: Partial<ItemSendInput> & Pick<ItemSendInput, "items" |
     rules: new Map(),
     breakdown: "together",
     resolutions: [],
-    ...overrides,
+    ...rest,
   };
 }
 
@@ -137,8 +138,9 @@ describe("planTakeoffItemSend — the unit of a send is the retained lines of th
 
   it("sends an included entry as the plan's quantity, kept apart from the raw reading", () => {
     const douche = templateItem(3, "Receveur de douche", "u");
-    const plan = planTakeoffItemSend(input({ items: [douche], answers: [{ ...measured(douche, []), outcome: "not_found", decision: null, pages: [1, 2],
-      entry: { revision: 2, quantity: 2, unit: "u", category: "site_survey", included: true } }] }));
+    const plan = planTakeoffItemSend(input({ items: [douche], plan: { key: "plan-a", name: "Plan A", pages: [1, 2], location: null },
+      answers: [{ ...measured(douche, []), outcome: "not_found", decision: null,
+        entry: { revision: 2, quantity: 2, unit: "u", category: "site_survey", included: true } }] }));
     expect(plan.targets[0].contributions).toEqual([expect.objectContaining({ kind: "entered", quantity: 2, pages: [1, 2] })]);
     expect(plan.targets[0].quantity.after).toBe(2);
   });
@@ -502,8 +504,8 @@ describe("planTakeoffItemSend — fix round 1", () => {
   it("puts an entry on its plan's pages: a page another analysis brought holds it, never 3 + 3 (fix 2)", () => {
     const douche = templateItem(3, "Receveur de douche", "u");
     const earlierLine = line(1, { title: "Receveur de douche", quantity: 3 });
-    const plan = planTakeoffItemSend(input({ items: [douche],
-      answers: [{ ...measured(douche, []), outcome: "uncertain", decision: null, pages: [1],
+    const plan = planTakeoffItemSend(input({ items: [douche], plan: { key: "plan-a", name: "Plan A", pages: [1], location: null },
+      answers: [{ ...measured(douche, []), outcome: "uncertain", decision: null,
         entry: { revision: 1, quantity: 3, unit: "u", category: "site_survey", included: true } }],
       destination: draft([earlierLine]),
       earlier: { targets: [{ itemId: douche.id, breakdown: "together", compartmentKey: "together", estimateItemId: earlierLine.id,
@@ -518,8 +520,9 @@ describe("planTakeoffItemSend — fix round 1", () => {
 
   it("gives a sent entry its plan's pages as its page contribution (fix 2)", () => {
     const douche = templateItem(3, "Receveur de douche", "u");
-    const plan = planTakeoffItemSend(input({ items: [douche], answers: [{ ...measured(douche, []), outcome: "not_found", decision: null,
-      pages: [1, 2], entry: { revision: 1, quantity: 2, unit: "u", category: "site_survey", included: true } }] }));
+    const plan = planTakeoffItemSend(input({ items: [douche], plan: { key: "plan-a", name: "Plan A", pages: [1, 2], location: null },
+      answers: [{ ...measured(douche, []), outcome: "not_found", decision: null,
+        entry: { revision: 1, quantity: 2, unit: "u", category: "site_survey", included: true } }] }));
     expect(plan.pageContributions.map((page) => [page.page, page.itemIds])).toEqual([[1, [douche.id]], [2, [douche.id]]]);
   });
 
@@ -545,11 +548,15 @@ describe("planTakeoffItemSend — fix round 1", () => {
     expect(plan.toResolve).toEqual([expect.objectContaining({ kind: "target_missing", itemId: ef.id, options: [{ kind: "leave_out" }] })]);
   });
 
-  it("adds only the same item's earlier parts on a DPGF line (fix 4)", () => {
+  it("adds only the same item's earlier parts on a DPGF line, another item's parts elsewhere never (fix 4)", () => {
     const fed = dpgfLine(30, "mapped-30", "raw-30", 4);
-    const plan = planTakeoffItemSend(input({ items: [ef], answers: [measured(ef, [{ quantity: 2, page: 1 }])], destination: draft([fed]),
-      earlier: { targets: [{ itemId: ef.id, breakdown: "together", compartmentKey: "dpgf", estimateItemId: fed.id, parts: [part({ quantity: 3 })] }],
-        sections: [] } }));
+    const elsewhere = dpgfLine(31, "mapped-31", "raw-31", 4);
+    const plan = planTakeoffItemSend(input({ items: [ef, other], scope: [ef.id], answers: [measured(ef, [{ quantity: 2, page: 1 }])],
+      destination: draft([fed, elsewhere]),
+      earlier: { targets: [{ itemId: ef.id, breakdown: "together", compartmentKey: "dpgf", estimateItemId: fed.id, parts: [part({ quantity: 3 })] },
+        { itemId: other.id, breakdown: "together", compartmentKey: "dpgf", estimateItemId: elsewhere.id, parts: [part({ quantity: 9 })] }],
+      sections: [] } }));
+    expect(plan.targets).toHaveLength(1);
     expect(plan.targets[0].quantity).toEqual(expect.objectContaining({ earlier: 3, added: 2, measured: 5, after: 5 }));
   });
 
@@ -610,7 +617,11 @@ describe("planTakeoffItemSend — fix round 1", () => {
         false).key, estimateItemId: lineId(1), parts: [part()] }], sections: [] } }));
     expect(plan.toResolve.length).toBeGreaterThan(0);
     for (const entry of plan.toResolve) expect(entry.key.length).toBeLessThanOrEqual(400);
-    expect(plan.targets.every((target) => target.key.length <= 400)).toBe(true);
+    const sent = planTakeoffItemSend(input({ items: [lavabo], answers: [measured(lavabo, [{ quantity: 1, page: 1 }])], breakdown: "by_level",
+      plan: { key: "p", name: "P", pages: [1], location: located("y".repeat(40), "z".repeat(40)) } }));
+    expect(sent.targets).toHaveLength(1);
+    expect(sent.targets[0].key.length).toBeLessThanOrEqual(400);
+    expect(sent.sections.every((section) => section.key.length <= 400)).toBe(true);
   });
 
   it("allocates a level without building only when no confirmed location of the affaire names a building (fix 9)", () => {
@@ -621,7 +632,7 @@ describe("planTakeoffItemSend — fix round 1", () => {
 
   it("asks to resolve a quantity engine 3 cannot write, never rounds it silently (fix 10)", () => {
     const floor = templateItem(10, "Chape", "m2", [LOT, RESEAUX]);
-    const precise = planTakeoffItemSend(input({ items: [floor], answers: [{ ...measured(floor, []), outcome: "not_found", decision: null, pages: [1],
+    const precise = planTakeoffItemSend(input({ items: [floor], answers: [{ ...measured(floor, []), outcome: "not_found", decision: null,
       entry: { revision: 1, quantity: 1.2345, unit: "m2", category: "site_survey", included: true } }] }));
     expect(precise.targets).toEqual([]);
     expect(precise.toResolve).toEqual([expect.objectContaining({ kind: "quantity_unwritable", itemId: floor.id })]);
@@ -643,9 +654,9 @@ describe("itemSendPlanCanonical — what the confirmation compares (fix 11)", ()
   const baignoire = templateItem(4, "Baignoire", "u");
   const answers = [measured(lavabo, [{ quantity: 3, page: 1 }]), measured(wc, [{ quantity: 2, page: 1 }]),
     measured(baignoire, [{ quantity: 1, page: 1 }])];
-  const base = (overrides: Partial<ItemSendInput> = {}) => input({ items: [lavabo, wc, baignoire], answers,
+  const base = (overrides: Omit<Partial<ItemSendInput>, "plan"> = {}) => input({ items: [lavabo, wc, baignoire], answers,
     rules: projectItemSendRules([lavabo, wc, baignoire], [skip("11111111-1111-4111-8111-111111111111")]), ...overrides });
-  const canonical = (overrides: Partial<ItemSendInput> = {}) => itemSendPlanCanonical(planTakeoffItemSend(base(overrides)).writePlan!);
+  const canonical = (overrides: Omit<Partial<ItemSendInput>, "plan"> = {}) => itemSendPlanCanonical(planTakeoffItemSend(base(overrides)).writePlan!);
 
   it("is the same whatever the order of the answers read", () => {
     expect(canonical({ answers: [...answers].reverse() })).toBe(canonical());
@@ -657,12 +668,137 @@ describe("itemSendPlanCanonical — what the confirmation compares (fix 11)", ()
     const withEarlier = (observationIds: string[]) => canonical({ destination: draft([earlierLine]), earlier: { targets: [{ itemId: lavabo.id,
       breakdown: "together", compartmentKey: "together", estimateItemId: earlierLine.id, parts: [part({ observationIds })] }], sections: [] } });
     expect(withEarlier(["obs-a"])).not.toBe(withEarlier(["obs-b"]));
-    const stamps = { job: "job-stamp", peers: null, context: null, dpgf: [], firstDraftSettings: null };
+    const stamps = { job: "job-stamp", peers: null, context: null, dpgf: [], firstDraftSettings: null, destination: null };
     expect(canonical({ stamps: { ...stamps, context: { peers: "p1", locations: "l1" } } }))
       .not.toBe(canonical({ stamps: { ...stamps, context: { peers: "p2", locations: "l1" } } }));
     expect(canonical({ stamps: { ...stamps, firstDraftSettings: { sale_coefficient_fo: 1.3 } } }))
       .not.toBe(canonical({ stamps: { ...stamps, firstDraftSettings: { sale_coefficient_fo: 1.25 } } }));
-    expect(canonical({ stamps: { ...stamps, dpgf: [{ importId: IMPORT, updatedAt: "2026-11-22T08:00:00.000Z", status: "done", rowCount: 3 }] } }))
-      .not.toBe(canonical({ stamps: { ...stamps, dpgf: [{ importId: IMPORT, updatedAt: "2026-11-22T09:00:00.000Z", status: "done", rowCount: 3 }] } }));
+    expect(canonical({ stamps: { ...stamps, dpgf: [{ importId: IMPORT, mappingId: "mapping-1", rowsSha256: "a".repeat(64), updatedAt: "2026-11-22T08:00:00.000Z", status: "done",
+      rowCount: 3 }] } }))
+      .not.toBe(canonical({ stamps: { ...stamps, dpgf: [{ importId: IMPORT, mappingId: "mapping-1", rowsSha256: "a".repeat(64), updatedAt: "2026-11-22T09:00:00.000Z",
+      status: "done", rowCount: 3 }] } }));
+  });
+});
+
+describe("planTakeoffItemSend — closing changes", () => {
+  const douche = templateItem(3, "Receveur de douche", "u");
+  const entered = (quantity: number, extra: Partial<ItemSendAnswer> = {}): ItemSendAnswer => ({ ...measured(douche, []), outcome: "uncertain",
+    decision: null, entry: { revision: 1, quantity, unit: "u", category: "site_survey", included: true }, ...extra });
+
+  it("replaces this plan's own earlier part with its entry, never adds to it (closing 1)", () => {
+    const earlierLine = line(1, { title: "Receveur de douche", quantity: 3 });
+    const plan = planTakeoffItemSend(input({ items: [douche], answers: [entered(3)], destination: draft([earlierLine]),
+      plan: { key: "plan-a", name: "Plan A", pages: [1], location: located("A", "RDC") },
+      earlier: { targets: [{ itemId: douche.id, breakdown: "together", compartmentKey: "together", estimateItemId: earlierLine.id,
+        parts: [part({ planKey: "plan-a" })] }], sections: [] } }));
+    expect(plan.targets).toHaveLength(1);
+    expect(plan.targets[0].quantity).toEqual(expect.objectContaining({ before: 3, earlier: 0, replaced: 3, added: 3, after: 3 }));
+    expect(plan.targets[0].replaces).toEqual([{ jobId: OTHER_JOB, answerId: "answer-a", observationIds: ["obs-a"], quantity: 3 }]);
+    expect(plan.writePlan!.targets[0].replaces).toEqual([{ job_id: OTHER_JOB, answer_id: "answer-a", observation_ids: ["obs-a"], quantity: 3 }]);
+  });
+
+  it("keeps another plan's earlier part and adds to it (closing 1)", () => {
+    const earlierLine = line(1, { title: "Receveur de douche", quantity: 3 });
+    const plan = planTakeoffItemSend(input({ items: [douche], answers: [entered(2)], destination: draft([earlierLine]),
+      earlier: { targets: [{ itemId: douche.id, breakdown: "together", compartmentKey: "together", estimateItemId: earlierLine.id,
+        parts: [part({ planKey: "plan-other" })] }], sections: [] } }));
+    expect(plan.targets[0].quantity).toEqual(expect.objectContaining({ earlier: 3, replaced: 0, added: 2, after: 5 }));
+  });
+
+  it("stands an entry on every page of the unit, whatever pages the answer searched (closing 1)", () => {
+    const sent = planTakeoffItemSend(input({ items: [douche], answers: [entered(2)],
+      plan: { key: "plan-a", name: "Plan A", pages: [1, 2, 3], location: null } }));
+    expect(sent.pageContributions.map((page) => page.page)).toEqual([1, 2, 3]);
+    const held = planTakeoffItemSend(input({ items: [douche], answers: [entered(2)], destination: draft([]),
+      plan: { key: "plan-a", name: "Plan A", pages: [1, 2], location: null },
+      pagesInEstimate: [{ page: 1, earlierJobIds: [OTHER_JOB], estimateItemIds: [] }] }));
+    expect(held.targets).toEqual([]);
+    expect(held.toResolve).toEqual([expect.objectContaining({ kind: "page_decision", page: 1, heldItemIds: [douche.id] })]);
+  });
+
+  it("applies one claim rule on every path: a line live for two items feeds neither (closing 2)", () => {
+    const disputed = line(1, { title: "Lavabo", quantity: 5 });
+    const plan = planTakeoffItemSend(input({ items: [lavabo, wc], scope: [lavabo.id], answers: [measured(lavabo, [{ quantity: 2, page: 1 }])],
+      destination: draft([disputed]),
+      earlier: { targets: [{ itemId: lavabo.id, breakdown: "together", compartmentKey: "together", estimateItemId: disputed.id, parts: [part()] },
+        { itemId: wc.id, breakdown: "together", compartmentKey: "together", estimateItemId: disputed.id, parts: [part({ quantity: 2 })] }],
+      sections: [] } }));
+    expect(plan.targets).toEqual([]);
+    expect(plan.toResolve).toEqual([expect.objectContaining({ kind: "target_missing", itemId: lavabo.id, options: [{ kind: "leave_out" }] })]);
+  });
+
+  it("feeds the live target, never a deleted one before it (closing 2)", () => {
+    const live = line(2, { title: "Lavabo", quantity: 3 });
+    const plan = planTakeoffItemSend(input({ items: [lavabo], answers: [measured(lavabo, [{ quantity: 2, page: 1 }])], destination: draft([live]),
+      earlier: { targets: [{ itemId: lavabo.id, breakdown: "together", compartmentKey: "together", estimateItemId: lineId(9), parts: [part()] },
+        { itemId: lavabo.id, breakdown: "together", compartmentKey: "together", estimateItemId: live.id, parts: [part()] }], sections: [] } }));
+    expect(plan.targets.map((target) => [target.line.kind, "estimateItemId" in target.line ? target.line.estimateItemId : null,
+      target.quantity.after])).toEqual([["earlier_line", live.id, 5]]);
+  });
+
+  it("compares a diameter as it is written, never with its separators removed, and reads a part without qualifiers (closing 4)", () => {
+    const pipe = templateItem(13, "Tube cuivre", "ml", [LOT, RESEAUX], { qualifiers: { diameter: "1/2\"" } });
+    const earlierLine = line(13, { title: "Tube cuivre", unitCode: "ml", quantity: 3 });
+    const at = (qualifiers: EarlierPart["qualifiers"]) => planTakeoffItemSend(input({ items: [pipe], answers: [measured(pipe, [{ quantity: 2, page: 1 }])],
+      destination: draft([earlierLine]), earlier: { targets: [{ itemId: pipe.id, breakdown: "together", compartmentKey: "together",
+        estimateItemId: earlierLine.id, parts: [part({ unit: "ml", qualifiers })] }], sections: [] } }));
+    expect(at({ diameter: "1.2\"" }).toResolve).toEqual([expect.objectContaining({ kind: "identity_conflict", itemId: pipe.id })]);
+    expect(at({ diameter: "1/2\"" }).targets.map((target) => target.quantity.after)).toEqual([5]);
+    const bare = { ...part({ unit: "ml" }), qualifiers: undefined } as unknown as EarlierPart;
+    expect(() => planTakeoffItemSend(input({ items: [pipe], answers: [measured(pipe, [{ quantity: 2, page: 1 }])], destination: draft([earlierLine]),
+      earlier: { targets: [{ itemId: pipe.id, breakdown: "together", compartmentKey: "together", estimateItemId: earlierLine.id,
+        parts: [bare] }], sections: [] } }))).not.toThrow();
+  });
+
+  it("lists an entry's part not sent when an affaire-wide entry or a skip rule leaves it out (closing 5)", () => {
+    const byAffaire = planTakeoffItemSend(input({ items: [douche], answers: [entered(2)], plan: { key: "plan-a", name: "Plan A", pages: [1],
+      location: null }, affaireEntries: [{ itemId: douche.id, revision: 1 }] }));
+    expect(byAffaire.partsNotSent).toEqual([{ itemId: douche.id, kind: "entered", observationIds: [], pages: [1], quantity: 2, unit: "u",
+      reason: "affaire_entry" }]);
+    const skipped = planTakeoffItemSend(input({ items: [douche], answers: [entered(2)], plan: { key: "plan-a", name: "Plan A", pages: [1],
+      location: null }, rules: projectItemSendRules([douche], [{ id: "rule-skip", tenant_id: "t", created_at: "2026-01-01T00:00:00.000Z",
+        updated_at: "2026-01-01T00:00:00.000Z", created_by: "u", name: "Hors lot", match_pattern: "douche", match_type: "contains",
+        action: "skip", action_params: {}, priority: 1, is_active: true } as TakeoffMappingRule]) }));
+    expect(skipped.partsNotSent).toEqual([expect.objectContaining({ kind: "entered", quantity: 2, reason: "rule_skip" })]);
+  });
+
+  it("checks a quantity as entered, exactly, before any rounding (closing 7)", () => {
+    const at = (quantity: number) => planTakeoffItemSend(input({ items: [douche], answers: [entered(quantity)] }));
+    expect(at(1.23401).toResolve).toEqual([expect.objectContaining({ kind: "quantity_unwritable", itemId: douche.id })]);
+    expect(at(1.23401).targets).toEqual([]);
+    expect(at(0.00001).toResolve).toEqual([expect.objectContaining({ kind: "quantity_unwritable" })]);
+    expect(at(0).toResolve).toEqual([expect.objectContaining({ kind: "quantity_unwritable" })]);
+    expect(at(33554432.001).targets.map((target) => target.quantity.after)).toEqual([33554432.001]);
+    const summed = planTakeoffItemSend(input({ items: [lavabo], answers: [measured(lavabo, [{ quantity: 0.1, page: 1 }, { quantity: 0.2, page: 2 }])] }));
+    expect(summed.targets.map((target) => target.quantity.after)).toEqual([0.3]);
+  });
+});
+
+describe("itemSendPlanCanonical — closing changes (closing 8)", () => {
+  const stamps = { job: "job-stamp", peers: null, context: null, dpgf: [], firstDraftSettings: null, destination: null };
+  const earlierLine = line(1, { title: "Lavabo", quantity: 3 });
+  const answer = measured(lavabo, [{ quantity: 1, page: 1 }, { quantity: 2, page: 2 }]);
+  const canonical = (overrides: Omit<Partial<ItemSendInput>, "plan"> = {}) => itemSendPlanCanonical(planTakeoffItemSend(input({ items: [lavabo],
+    answers: [answer], destination: draft([earlierLine]), earlier: { targets: [{ itemId: lavabo.id, breakdown: "together",
+      compartmentKey: "together", estimateItemId: earlierLine.id, parts: [part()] }], sections: [] }, stamps, ...overrides })).writePlan!);
+
+  it("changes with the destination's own state and with the DPGF review state", () => {
+    const draftState = (updatedAt: string) => ({ ...stamps, destination: { versionId: VERSION, status: "draft", updatedAt } });
+    expect(canonical({ stamps: draftState("2026-11-22T08:00:00.000Z") })).not.toBe(canonical({ stamps: draftState("2026-11-22T09:00:00.000Z") }));
+    const review = (rowsSha256: string) => ({ ...stamps, dpgf: [{ importId: IMPORT, mappingId: "mapping-1", rowsSha256, updatedAt: "t", status: "done",
+      rowCount: 3 }] });
+    expect(canonical({ stamps: review("a".repeat(64)) })).not.toBe(canonical({ stamps: review("b".repeat(64)) }));
+  });
+
+  it("is the same whatever the order of the observations read", () => {
+    expect(canonical({ answers: [{ ...answer, observations: [...answer.observations].reverse() }] })).toBe(canonical());
+  });
+
+  it("tells two diameters apart that differ by their separators", () => {
+    const pipe = templateItem(13, "Tube cuivre", "ml", [LOT, RESEAUX], { qualifiers: { diameter: "1/2\"" } });
+    const other = templateItem(13, "Tube cuivre", "ml", [LOT, RESEAUX], { qualifiers: { diameter: "1.2\"" } });
+    const pipeAnswer = measured(pipe, [{ quantity: 2, page: 1 }]);
+    const of = (item: ItemSendListItem) => itemSendPlanCanonical(planTakeoffItemSend(input({ items: [item], answers: [pipeAnswer], stamps })).writePlan!);
+    expect(of(pipe)).not.toBe(of(other));
   });
 });
