@@ -14,7 +14,7 @@ import {
 } from "./count-marks";
 
 // The derivation of an answer's marks, as private.takeoff_count_mark_summary computes it
-// (20261122114433_takeoff_count_marks.sql); the same cases as its pgTAP file. Fictional values.
+// (20261122144104_takeoff_count_marks.sql); the same cases as its pgTAP file. Fictional values.
 const facts = (page: number, values: Partial<TakeoffCountMarkPageFacts> = {}): TakeoffCountMarkPageFacts => ({
   page, proposed: 0, toAttribute: 0, retained: 0, removed: 0, pending: 0, changedRevision: 0, verifiedRevision: null, ...values,
 });

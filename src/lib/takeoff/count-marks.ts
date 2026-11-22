@@ -2,7 +2,7 @@ import { isTakeoffCountUnit } from "@/lib/takeoff/units";
 import { asFiniteNumber, asRecord } from "@/lib/value-guards";
 
 /**
- * The counted marks of an item on a page (lot 5, migration 20261122114433_takeoff_count_marks.sql): one physical object
+ * The counted marks of an item on a page (lot 5, migration 20261122144104_takeoff_count_marks.sql): one physical object
  * on an original page of a plan's bytes, its source proposals, its attribution to the answer of an item of a sealed list
  * (lot 4's stored answers), and, per answer, a marks revision and a journal. The database is the one judge of a command
  * (public.edit_takeoff_count_marks, public.publish_takeoff_count_marks) and gives the server-side count

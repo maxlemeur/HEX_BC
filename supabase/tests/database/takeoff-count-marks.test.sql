@@ -1,4 +1,4 @@
--- Lot 5, A (20261122114433_takeoff_count_marks.sql): the counted marks of an item on a page, stored, and their commands.
+-- Lot 5, A (20261122144104_takeoff_count_marks.sql): the counted marks of an item on a page, stored, and their commands.
 -- 1. Who may read and write: the readers of the affaire read the marks; the worker publishes; an operator of the affaire
 --    edits through the command; nobody writes a mark, an attribution, a derived value or the journal directly.
 -- 2. The worker's publication of a machine generation, by the attempt that published the job's answers: an attempt that

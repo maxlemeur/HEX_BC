@@ -1,4 +1,4 @@
--- Lot 5, A (20261122114433_takeoff_count_marks.sql): the marks of an item across sessions.
+-- Lot 5, A (20261122144104_takeoff_count_marks.sql): the marks of an item across sessions.
 -- 1. Two operators edit the same answer from the same revision: the second waits for the answer's marks state, then is
 --    refused (TAKEOFF_MARKS_REVISION_CONFLICT); nothing of it is written.
 -- 2. Two operators retain one object for two competing items at once: the second waits for the mark, then is refused
