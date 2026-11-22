@@ -9,6 +9,7 @@ import { pricedSurfaceQuantity, surfaceWording, VECTOR_ITEM_CONFIDENCE } from "@
 import type { NetworkRun } from "@/lib/takeoff/vectors/measure";
 import type { VectorPageReading } from "@/lib/takeoff/vectors/pipeline";
 import { OTHER_CLASSES, printedSize, type SizeNotation } from "@/lib/takeoff/vectors/vocabulary";
+import { cutToCodeUnits } from "@/lib/text-cut";
 
 // What the takeoff worker persists of a vector reading (TI-662, TI-664 §0 input
 // contract), versioned and bounded like its tables (takeoff_vector_pages
@@ -155,6 +156,9 @@ function round(value: number, digits = 3) {
   return Math.round(value * factor) / factor;
 }
 
+/** A text cut on whole characters to its bound (its JavaScript length), none kept none. */
+const cutOrNull = (value: string | null | undefined, units: number) => value === null || value === undefined ? null : cutToCodeUnits(value, units);
+
 /**
  * The page row of a reading, bounded: the classified groups (a class or legend candidates) first, then the longest;
  * with the summary of its Decisions classification when given.
@@ -166,20 +170,20 @@ export function vectorPageRecord(reading: VectorPageReading, location: VectorPag
     schema_version: VECTOR_PERSISTENCE_SCHEMA_VERSION, reading_version: reading.version, mode: reading.mode, size_pt: reading.size_pt,
     rotate: reading.rotate, location,
     scale: {
-      status: reading.scale.status, reason: reading.scale.reason?.slice(0, 64) ?? null, denominator: reading.scale.denominator,
+      status: reading.scale.status, reason: cutOrNull(reading.scale.reason, 64), denominator: reading.scale.denominator,
       // Texts are cut to their bounds: a long scale note never fails the page (the extraction keeps up to 500 characters).
-      cartouche: reading.scale.cartouche === null ? null : { ...reading.scale.cartouche, text: reading.scale.cartouche.text.slice(0, 120) },
-      format: { cartouche: reading.scale.format.cartouche?.slice(0, 40) ?? null, page_mm: reading.scale.format.page_mm, matches: reading.scale.format.matches },
+      cartouche: reading.scale.cartouche === null ? null : { ...reading.scale.cartouche, text: cutToCodeUnits(reading.scale.cartouche.text, 120) },
+      format: { cartouche: cutOrNull(reading.scale.format.cartouche, 40), page_mm: reading.scale.format.page_mm, matches: reading.scale.format.matches },
       cotes: reading.scale.cotes.slice(0, VECTOR_PAGE_LIMITS.cotes).map((cote) => ({
-        text: cote.text.slice(0, 40), value_m: cote.value_m, measured_m: cote.measured_m, consistent: cote.consistent })),
-      calibration: reading.scale.calibration === null ? null : { ...reading.scale.calibration, source: reading.scale.calibration.source.slice(0, 500) },
+        text: cutToCodeUnits(cote.text, 40), value_m: cote.value_m, measured_m: cote.measured_m, consistent: cote.consistent })),
+      calibration: reading.scale.calibration === null ? null : { ...reading.scale.calibration, source: cutToCodeUnits(reading.scale.calibration.source, 500) },
     },
     legend: [...new Set(reading.legend.entries.map((entry) => entry.network))].slice(0, VECTOR_PAGE_LIMITS.codes),
     detection: reading.detection,
     groups: groups.slice(0, VECTOR_PAGE_LIMITS.groups).map((group) => ({
-      id: group.id.slice(0, 120), class: group.class, source: group.source, confidence: group.confidence, candidates: group.candidates.slice(0, 8),
+      id: cutToCodeUnits(group.id, 120), class: group.class, source: group.source, confidence: group.confidence, candidates: group.candidates.slice(0, 8),
       length_pt: round(group.length_pt, 1), near_white: group.nearWhite, colors: group.colors.slice(0, 4),
-      ...(group.proposal ? { proposal: group.proposal.slice(0, 120) } : {}),
+      ...(group.proposal ? { proposal: cutToCodeUnits(group.proposal, 120) } : {}),
     })),
     groups_total: reading.groups.length,
     to_review: reading.counts.to_review,
@@ -188,8 +192,8 @@ export function vectorPageRecord(reading: VectorPageReading, location: VectorPag
       superposed: reading.networks.labels.superposed, incomplete: reading.networks.labels.incomplete,
     } : null,
     surfaces: reading.surfaces.slice(0, VECTOR_PAGE_LIMITS.surfaces).map((surface) => ({
-      room: surface.room.slice(0, 120), printed_m2: surface.printed_m2, polygon_m2: surface.polygon_m2, deviation: surface.deviation })),
-    ...(decisions ? { decisions: { ...decisions, stop: decisions.stop === null ? null : { ...decisions.stop, message: decisions.stop.message.slice(0, 300) } } } : {}),
+      room: cutToCodeUnits(surface.room, 120), printed_m2: surface.printed_m2, polygon_m2: surface.polygon_m2, deviation: surface.deviation })),
+    ...(decisions ? { decisions: { ...decisions, stop: decisions.stop === null ? null : { ...decisions.stop, message: cutToCodeUnits(decisions.stop.message, 300) } } } : {}),
   });
 }
 
@@ -258,7 +262,7 @@ export function vectorItemRecords(reading: VectorPageReading, location: VectorPa
   const groupsOf = (network: NetworkCode) => reading.groups
     .filter((group) => (group.class === network && isMeasuredNetwork(group)) || group.candidates.includes(network))
     .sort((left, right) => decisionsFirst(left) - decisionsFirst(right))
-    .map((group) => group.id.slice(0, 120)).slice(0, 64);
+    .map((group) => cutToCodeUnits(group.id, 120)).slice(0, 64);
   const records: VectorItemRecord[] = [];
   for (const total of reading.networks?.totals ?? []) {
     if (total.length_m === null || total.length_m < 0.01) continue;
@@ -308,13 +312,13 @@ export function vectorItemRecords(reading: VectorPageReading, location: VectorPa
       .filter((hole) => hole.length <= 2 * VECTOR_GEOMETRY_LIMITS.holePoints).map((hole) => hole.map(metres)) : [];
     records.push({
       item: {
-        designation: `Surface « ${surface.room.slice(0, 120)} »`, quantity: pricedSurfaceQuantity(surface)!, unit: "m2", ...surfaceWording(surface, scale),
+        designation: `Surface « ${cutToCodeUnits(surface.room, 120)} »`, quantity: pricedSurfaceQuantity(surface)!, unit: "m2", ...surfaceWording(surface, scale),
         confidence: VECTOR_ITEM_CONFIDENCE.labelled,
       },
       geometry: VectorItemGeometrySchema.parse({ schema_version: 1, kind: "surface", network: null, material: null, dn: null,
-        zone: location.zone, level: location.level, groups: [surface.outline.group.slice(0, 120)], segments_m: [], polygon_m: polygon,
+        zone: location.zone, level: location.level, groups: [cutToCodeUnits(surface.outline.group, 120)], segments_m: [], polygon_m: polygon,
         ...(holes.length > 0 ? { holes_m: holes } : {}), length_m: null, area_m2: surface.polygon_m2, transform: null }),
-      room: { label: surface.room.slice(0, 120), printed_m2: surface.printed_m2 },
+      room: { label: cutToCodeUnits(surface.room, 120), printed_m2: surface.printed_m2 },
     });
   }
   return records;

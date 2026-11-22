@@ -57,6 +57,14 @@ export function posteStoredQuantity(value: number) {
   return shift(Math.round(shift(value, POSTE_EXCHANGE_LIMITS.quantityDecimals)), -POSTE_EXCHANGE_LIMITS.quantityDecimals);
 }
 
+/**
+ * A confidence at the stored precision (four decimals, as takeoff_items.confidence keeps it, numeric(5,4)): its text, as
+ * JSON and the database write it, is never longer than « 0.0001 ».
+ */
+export function posteStoredConfidence(value: number) {
+  return Math.round(value * 10_000) / 10_000;
+}
+
 /** How an observation counts: a distinct object or zone, or another reading of one already observed on its page. */
 export const POSTE_OBSERVATION_COUNTS = ["distinct", "same_object"] as const;
 

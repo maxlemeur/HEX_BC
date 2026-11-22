@@ -269,7 +269,7 @@ describe("buildTakeoffRequestActivity: what each member sees and may do", () => 
       request: request({ state: "blocked", admitted_at: null, units_expected: null, reason_code: "PLAN_SET_TOO_LARGE",
         reason_details: { pieces: [{ id: PLAN_B, name: "B — Étage 1.pdf" }],
           reading_bounds: { items: 1_700, plans: 1, reading_calls: 43, classifier_calls: 0, minutes: 65, max_request_calls: 480,
-            max_plan_calls: 40 } } }),
+            max_plan_calls: 40, max_plan_pages: 154 } } }),
       units: null, manifest: null, jobs: [], viewer: reader, now: NOW, visible: "all",
     });
     expect(view.reason?.message).toContain("« B — Étage 1.pdf » dépassent les limites d’une lecture contre la liste des postes");
