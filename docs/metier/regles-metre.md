@@ -325,6 +325,27 @@ observation), même après la suppression de l’analyse ; seul un opérateur de
 les modifie, et son droit est vérifié de nouveau après chaque attente ; une lecture
 remplacée garde ses repères en lecture seule.
 
+**Les repères à l’écran.** Le détail d’un poste sur son plan dessine les repères de la
+page affichée à leur place, quels que soient le zoom et le déplacement, chacun avec sa
+forme et son signe (retenu ✓, proposé ?, à attribuer !, nouvelle lecture N) ; un repère
+retiré ne se voit que dans la liste des retirés et dans l’historique, un repère retenu
+pour un autre poste de la même lecture est signalé. Seuls les repères de la partie
+visible sont dessinés ; le total du serveur est affiché à part du nombre chargé. Le
+compte montre trois nombres distincts, calculés par le serveur : proposés, relus (retenus
+sur les pages vérifiées) et quantité retenue. Les mêmes repères forment une liste au
+clavier (↑ ↓ pour changer de repère et le centrer, R retenir, Suppr retirer avec un
+motif, T rétablir, D déplacer, A affecter à un autre poste, N ajouter, P déclarer la page
+vérifiée ; sur le plan, les flèches déplacent le réticule d’un point, Maj de dix, Entrée
+pose, Échap quitte). Les gestes s’accumulent puis s’enregistrent en une seule commande,
+sous la révision affichée ; si un autre membre a modifié les repères entre-temps, ils sont
+relus, l’écran dit ce qui a changé et garde chaque geste pour l’enregistrer de nouveau.
+Les gestes non enregistrés restent dans l’onglet pour ce membre et ce poste. À côté d’un
+repère retenu, l’écran demande « Même objet » ou « Objet distinct » et ne décide jamais
+seul. Un lecteur, un plan déjà envoyé au devis et une lecture remplacée montrent les
+repères, le compte et l’historique, sans geste. Tant qu’un envoi ne vérifie pas la
+révision des repères, une quantité comptée sur le plan est montrée et n’est jamais
+envoyée : le tableau des postes et l’envoi gardent la quantité qu’ils retiennent.
+
 Une ligne de devis créée depuis un import garde dans sa provenance l’import et la
 ligne mappée. La ligne mappée nomme la ligne brute dont elle vient ; quand une
 nouvelle correspondance la supprime, la base garde ce lien. La ligne de devis et ses

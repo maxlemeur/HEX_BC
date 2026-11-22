@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent,
+  type ReactNode } from "react";
 import { ChevronLeft, ChevronRight, Maximize2, Minus, Plus } from "lucide-react";
 
-import { usePdfPage, type PdfPageSource } from "@/components/takeoff/review/usePdfPage";
+import { usePdfPage, type PdfPageGeometry, type PdfPageSource } from "@/components/takeoff/review/usePdfPage";
 import { Button } from "@/components/ui/button";
 import { NativeSelect } from "@/components/ui/native-select";
 import { Spinner } from "@/components/ui/spinner";
@@ -13,7 +14,7 @@ import {
   ITEM_DETAIL_PLAN_UNAVAILABLE_LABELS,
   formatItemDetailDate,
 } from "@/lib/takeoff/item-detail-labels";
-import { zoomedBy } from "@/lib/takeoff/pdf-page-geometry";
+import { zoomedBy, type PdfPageSize, type PdfPoint } from "@/lib/takeoff/pdf-page-geometry";
 
 /**
  * The centre of the detail of an item: its plan's page, drawn by the review's page reader from the bytes the server
@@ -32,6 +33,20 @@ export type ItemDetailPlanResolution =
 type View = { zoom: number; offset: { x: number; y: number } };
 const FITTED: View = { zoom: 1, offset: { x: 0, y: 0 } };
 
+/**
+ * The page drawn, for what a caller lays over it (the counted marks): its size at scale 1 and its geometry, the screen's
+ * scale and pan, the frame's size, and how to bring a point of the visible page (normalised) to the frame's centre.
+ */
+export type ItemDetailPageFrame = {
+  page: number;
+  size: PdfPageSize;
+  geometry: PdfPageGeometry | null;
+  scale: number;
+  offset: PdfPoint;
+  frame: { width: number; height: number };
+  centre: (point: PdfPoint) => void;
+};
+
 /** opening: the bytes are asked; served: the route served them (the attested route checks their digest); failed. */
 export type ItemDetailDocumentState = "opening" | "served" | "failed" | null;
 
@@ -44,7 +59,8 @@ function pdfSourceOf(view: ItemDetailPlanView | null): { key: string; href: stri
   return null;
 }
 
-export function ItemDetailPlanPane({ resolution, page, requestedMissing, pagesOfInterest, onPage, onDocumentState, emptyMessage }: {
+export function ItemDetailPlanPane({ resolution, page, requestedMissing, pagesOfInterest, onPage, onDocumentState, emptyMessage,
+  tools, layer }: {
   resolution: ItemDetailPlanResolution;
   page: number;
   requestedMissing: boolean;
@@ -52,6 +68,10 @@ export function ItemDetailPlanPane({ resolution, page, requestedMissing, pagesOf
   onPage: (page: number) => void;
   onDocumentState?: (state: ItemDetailDocumentState) => void;
   emptyMessage: string;
+  /** Commands of the caller in the plan's toolbar, after the zoom. */
+  tools?: ReactNode;
+  /** What the caller draws over the page, once it is drawn, in the page's own frame (it zooms and pans with it). */
+  layer?: (frame: ItemDetailPageFrame) => ReactNode;
 }) {
   const view = resolution.state === "ready" ? resolution.view : null;
   const bytes = pdfSourceOf(view);
@@ -63,7 +83,8 @@ export function ItemDetailPlanPane({ resolution, page, requestedMissing, pagesOf
   const canvas = useRef<HTMLCanvasElement>(null);
   const frame = useRef<HTMLDivElement>(null);
   const drag = useRef<{ x: number; y: number } | null>(null);
-  const [frameWidth, setFrameWidth] = useState(0);
+  const [frameSize, setFrameSize] = useState({ width: 0, height: 0 });
+  const frameWidth = frameSize.width;
   // One view per page shown: a new page or a new plan opens fitted.
   const viewKey = `${source?.key ?? ""}:${page}`;
   const [shownView, setShownView] = useState<{ key: string; view: View }>({ key: viewKey, view: FITTED });
@@ -73,9 +94,11 @@ export function ItemDetailPlanPane({ resolution, page, requestedMissing, pagesOf
   useLayoutEffect(() => {
     const element = frame.current;
     if (!element) return;
-    setFrameWidth(element.clientWidth);
+    const measure = () => setFrameSize((value) => value.width === element.clientWidth && value.height === element.clientHeight ? value
+      : { width: element.clientWidth, height: element.clientHeight });
+    measure();
     if (typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(() => setFrameWidth(element.clientWidth));
+    const observer = new ResizeObserver(measure);
     observer.observe(element);
     return () => observer.disconnect();
   }, []);
@@ -83,7 +106,8 @@ export function ItemDetailPlanPane({ resolution, page, requestedMissing, pagesOf
   // The plan's size is known once its page is read; until then the canvas is not drawn.
   const [size, setSize] = useState<{ key: string; width: number } | null>(null);
   const fit = size && size.key === viewKey ? (frameWidth > 0 ? frameWidth / size.width : 0.25) : 0;
-  const reader = usePdfPage({ source, page: source ? page : null, scale: fit * current.zoom, canvas });
+  const scale = fit * current.zoom;
+  const reader = usePdfPage({ source, page: source ? page : null, scale, canvas });
   if (reader.size && (size?.key !== viewKey || size.width !== reader.size.width)) setSize({ key: viewKey, width: reader.size.width });
   const documentState: ItemDetailDocumentState = !source ? null
     : reader.failure === "unavailable" || reader.failure === "load_failed" ? "failed"
@@ -109,6 +133,15 @@ export function ItemDetailPlanPane({ resolution, page, requestedMissing, pagesOf
   const pageChoices = [...new Set([...pagesOfInterest, page])].sort((left, right) => left - right);
   const unavailable = view?.document.kind === "unavailable" ? ITEM_DETAIL_PLAN_UNAVAILABLE_LABELS[view.document.reason] : null;
   const failure = reader.failure ? ITEM_DETAIL_PAGE_FAILURE_LABELS[reader.failure] : null;
+  const pageSize = reader.size;
+  const centre = useCallback((point: PdfPoint) => {
+    if (!pageSize || !(scale > 0)) return;
+    const offset = { x: frameSize.width / 2 - point.x * pageSize.width * scale, y: frameSize.height / 2 - point.y * pageSize.height * scale };
+    setShownView((value) => ({ key: viewKey, view: { ...(value.key === viewKey ? value.view : FITTED), offset } }));
+  }, [frameSize, pageSize, scale, viewKey]);
+  const pageFrame = useMemo<ItemDetailPageFrame | null>(() => (pageSize && scale > 0 && !reader.failure
+    ? { page, size: pageSize, geometry: reader.geometry, scale, offset: current.offset, frame: frameSize, centre } : null),
+  [centre, current.offset, frameSize, page, pageSize, reader.failure, reader.geometry, scale]);
   const onPointerDown = (event: ReactPointerEvent) => {
     drag.current = { x: event.clientX - current.offset.x, y: event.clientY - current.offset.y };
   };
@@ -150,6 +183,7 @@ export function ItemDetailPlanPane({ resolution, page, requestedMissing, pagesOf
             <Plus className="size-4" />
           </Button>
           <Button size="xs" variant="ghost" onClick={() => change(() => FITTED)}><Maximize2 className="mr-1 size-4" />Ajuster</Button>
+          {tools}
           {reader.loading || reader.rendering ? <Spinner aria-label="Rendu du plan" className="ml-1 size-4" /> : null}
         </div>
       </div>
@@ -163,6 +197,7 @@ export function ItemDetailPlanPane({ resolution, page, requestedMissing, pagesOf
         onPointerLeave={() => { drag.current = null; }}>
         <div className="absolute left-0 top-0" style={{ transform: `translate(${current.offset.x}px, ${current.offset.y}px)` }}>
           <canvas ref={canvas} aria-label={view ? `${view.plan.name}, page ${page}` : undefined} role="img" className="block bg-white shadow-sm" />
+          {layer && pageFrame ? layer(pageFrame) : null}
         </div>
         {resolution.state === "none" || resolution.state === "error" || unavailable || failure ? (
           <div className="absolute inset-0 flex items-start justify-center p-6">

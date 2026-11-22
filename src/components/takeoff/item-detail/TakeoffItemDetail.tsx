@@ -3,6 +3,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { ArrowLeft, ListTree } from "lucide-react";
 
+import { CountMarksLayer } from "@/components/takeoff/count-marks/CountMarksLayer";
+import { CountMarksPanel } from "@/components/takeoff/count-marks/CountMarksPanel";
+import { CountMarksScope, type CountMarksAnswer } from "@/components/takeoff/count-marks/CountMarksScope";
+import { CountMarksTools } from "@/components/takeoff/count-marks/CountMarksTools";
 import { ItemDetailEvidencePane } from "@/components/takeoff/item-detail/ItemDetailEvidencePane";
 import {
   ItemDetailPlanPane,
@@ -286,6 +290,17 @@ function ItemDetailView({ projectId, address, reader, tableQuery, onBack, onGest
   // The queue as read so far (`revision` follows its pages), the item outside the filter first.
   const shownLines = revision >= 0 ? [...(outside && outside.line.itemId === itemId && !found ? [outside.line] : []), ...(context?.lines ?? [])] : [];
 
+  // The counted marks of the reading shown (lot 5): its answer, the items of the queue by their label, and the items of
+  // the same reading a mark may be given to.
+  const reading = choice.kind === "reading" ? choice.reading : null;
+  const marksAnswer = useMemo<CountMarksAnswer | null>(() => (reading?.answer ? { answerId: reading.answer.answerId,
+    jobId: reading.answer.jobId, scopePages: [...new Set([...reading.answer.searchedPages, ...reading.answer.unreadablePages])] }
+    : null), [reading]);
+  const itemLabels = Object.fromEntries(shownLines.map((entry) => [entry.itemId, entry.label]));
+  const marksTargets = marksAnswer ? shownLines.flatMap((entry) => entry.itemId === itemId ? [] : entry.readings
+    .filter((other) => other.planKey === reading?.planKey && other.answer?.jobId === marksAnswer.jobId)
+    .map((other) => ({ answerId: other.answer!.answerId, itemId: entry.itemId, label: entry.label }))) : [];
+
   return (
     <div className="flex min-h-[36rem] flex-col rounded-lg border border-border bg-surface-subtle" data-testid="poste-detail">
       <header className="flex min-h-11 shrink-0 flex-wrap items-center gap-2 border-b border-border bg-surface px-3 py-1.5">
@@ -336,9 +351,15 @@ function ItemDetailView({ projectId, address, reader, tableQuery, onBack, onGest
               ↑ ↓ poste · Entrée preuve · Échap tableau{canReview ? " · V accepter · E écarter · I inclure · F2 saisir" : ""}
             </p>
           </aside>
-          <ItemDetailPlanPane resolution={line ? resolution : { state: "loading" }} page={opening.page} requestedMissing={opening.requestedMissing}
-            pagesOfInterest={pagesOfInterest} onPage={(page) => go({ page })} onDocumentState={setDocumentState}
-            emptyMessage="Aucun plan n’est associé à ce poste pour le moment." />
+          <CountMarksScope projectId={projectId} answer={marksAnswer} page={opening.page} itemLabels={itemLabels} targets={marksTargets}>
+            <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+              <ItemDetailPlanPane resolution={line ? resolution : { state: "loading" }} page={opening.page} requestedMissing={opening.requestedMissing}
+                pagesOfInterest={pagesOfInterest} onPage={(page) => go({ page })} onDocumentState={setDocumentState}
+                emptyMessage="Aucun plan n’est associé à ce poste pour le moment."
+                tools={<CountMarksTools />} layer={(frame) => <CountMarksLayer frame={frame} />} />
+              <CountMarksPanel />
+            </div>
+          </CountMarksScope>
           <div data-testid="poste-detail-evidence-panel" data-narrow-collapsed={String(!panels.evidence)}
             className={cn("w-[24rem] shrink-0 border-l border-border max-lg:w-full max-lg:border-l-0 max-lg:border-t", !panels.evidence && "max-lg:hidden")}>
             {line ? (
