@@ -112,7 +112,7 @@ function changedFacts(change: { previous: Poste; current: Poste; moved: boolean;
   const reference = (value: number | null) => (value === null ? "aucune" : referenceFormat.format(value));
   compare("Référence quantitative", reference(previous.referenceQuantity), reference(current.referenceQuantity));
   compare("Section", sectionPath(previous) || "Sans section", sectionPath(current) || "Sans section");
-  compare("Repère de la DPGF", dpgf(previous)?.reference ?? "aucun", dpgf(current)?.reference ?? "aucun");
+  compare("Référence de la ligne DPGF", dpgf(previous)?.reference ?? "aucun", dpgf(current)?.reference ?? "aucun");
   if (change.measurementChanged && facts.length === 0 && previous.label === current.label) {
     facts.push("Notes de la ligne de la DPGF modifiées");
   }
