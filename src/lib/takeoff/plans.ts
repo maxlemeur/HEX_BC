@@ -56,12 +56,18 @@ export type PlanSetResourceBudget = {
     | "total_size"
     | "page_count"
     | "total_pages"
+    | "file_pages"
     | null;
 };
 
+/**
+ * The plan budget of what one analysis reads: its files' number and sizes, and its pages within `maxPages`, together
+ * (`pagesPer: "set"`, a grouped job reads them all) or each file on its own (`"file"`: a request read plan by plan, each
+ * plan read by its own job).
+ */
 export function inspectPlanSetResourceBudget(
   files: PlanSetResourceBudgetFile[],
-  input?: { maxPages?: number | null }
+  input?: { maxPages?: number | null; pagesPer?: "set" | "file" }
 ): PlanSetResourceBudget {
   let totalSizeBytes = 0;
   let knownPageCount = 0;
@@ -100,13 +106,12 @@ export function inspectPlanSetResourceBudget(
   }
 
   const maxPages = input?.maxPages;
-  if (
-    typeof maxPages === "number" &&
-    Number.isSafeInteger(maxPages) &&
-    maxPages > 0 &&
-    knownPageCount > maxPages
-  ) {
-    violation ??= "total_pages";
+  if (typeof maxPages === "number" && Number.isSafeInteger(maxPages) && maxPages > 0) {
+    if (input?.pagesPer === "file") {
+      if (files.some((file) => typeof file.page_count === "number" && file.page_count > maxPages)) violation ??= "file_pages";
+    } else if (knownPageCount > maxPages) {
+      violation ??= "total_pages";
+    }
   }
 
   return {

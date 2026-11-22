@@ -341,9 +341,10 @@ describe("processItemListLevelC", () => {
   it("stops before any paid call when its own plan passes its share of the budget", async () => {
     const call = controlledPosteCall();
     const readVectors = vi.fn(async () => vectorOutcomes());
+    // What the request has left is ample: only the share the request sealed for this plan stops it.
     vi.mocked(prepareLevelCReading).mockResolvedValueOnce({ pageCount: 4, config: { thresholdPages: 1, chunkSizePages: 2, overlapPages: 1,
-      maxPdfPages: 200, timeoutMs: 300_000, maxTotalTokens: 30_000, maxCostCents: 2_500 },
-      requestBudget: { remainingTokens: 30_000, remainingCostCents: 2_500 } });
+      maxPdfPages: 200, timeoutMs: 300_000, maxTotalTokens: 400_000, maxCostCents: 2_500 },
+      requestBudget: { remainingTokens: 400_000, remainingCostCents: 2_500 } });
     const share = { tokens: 30_000, cost_cents: 2_500 };
     const thin = job({ preparation_snapshot: { launch_unit: { request_id: REQUEST, key: `plan:${PLAN}`, ordinal: 1, vector_pages: 4,
       budget: share } } });

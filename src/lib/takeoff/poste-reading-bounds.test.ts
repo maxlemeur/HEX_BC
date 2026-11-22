@@ -158,6 +158,39 @@ function sized(plans: number, pages: number, items: number) {
   return { manifest: result.manifest, bounds: result.bounds! };
 }
 
+/**
+ * The ledger's start rule (reserve_takeoff_launch_call over takeoff_launch_job_balance, migration
+ * 20261121231238_takeoff_plan_dispatcher.sql), played over a request: its plans one after the other on the Mac, each plan's
+ * reading calls one at a time, then its classifier's four at a time. A call starts while its plan's share and the request
+ * keep a positive balance after what was charged and what is still reserved; it reserves the largest call of its branch
+ * charged so far, at least the estimate; once answered it is charged `cost`. Returns the calls of each plan that started.
+ */
+function ledgerStarts(units: ReadonlyArray<{ share: number; readingCalls: number; classifierCalls: number }>, envelope: number,
+  cost: number, estimate = TAKEOFF_PAID_CALL_ESTIMATE_TOKENS) {
+  let requestCharged = 0;
+  const largest = { pdf: 0, vector_group: 0 };
+  return units.map((unit) => {
+    let charged = 0;
+    let started = 0;
+    const wave = (branch: "pdf" | "vector_group", size: number) => {
+      const reserved: number[] = [];
+      for (let index = 0; index < size; index += 1) {
+        const held = reserved.reduce((sum, tokens) => sum + tokens, 0);
+        if (unit.share - charged - held <= 0 || envelope - requestCharged - held <= 0) break;
+        reserved.push(Math.max(estimate, largest[branch]));
+      }
+      started += reserved.length;
+      charged += reserved.length * cost;
+      requestCharged += reserved.length * cost;
+      if (reserved.length) largest[branch] = Math.max(largest[branch], cost);
+      return reserved.length === size;
+    };
+    for (let call = 0; call < unit.readingCalls; call += 1) if (!wave("pdf", 1)) return started;
+    for (let left = unit.classifierCalls; left > 0; left -= 4) if (!wave("vector_group", Math.min(4, left))) return started;
+    return started;
+  });
+}
+
 // Budget task (owner, 2026-11-22): the budget of a request that reads against the list is sized from the calls it is
 // admitted for; the ceilings of its calls are the guard.
 describe("sizePosteReadingManifest", () => {
@@ -173,10 +206,14 @@ describe("sizePosteReadingManifest", () => {
     expect(admitted.budget.tokens).toBe(28_800_000);
     expect(admitted.units.reduce((total, unit) => total + unit.budget.tokens, 0)).toBe(admitted.budget.tokens);
     expect(bounds.tokens).toBe(14_400_000);
-    // Each plan starts its last call even when every call before it cost twice the ledger's estimate.
-    admitted.units.forEach((unit, index) => {
-      expect((bounds.units[index].calls - 1) * 2 * TAKEOFF_PAID_CALL_ESTIMATE_TOKENS).toBeLessThan(unit.budget.tokens);
-    });
+    // By the ledger's own rule, every admitted call of every plan starts even when each call costs twice the estimate; at
+    // the estimate alone (no margin), the third plan's classifier would be stopped short.
+    const played = admitted.units.map((unit, index) => ({ share: unit.budget.tokens, readingCalls: bounds.units[index].readingCalls,
+      classifierCalls: bounds.units[index].classifierCalls }));
+    expect(ledgerStarts(played, admitted.budget.tokens, 2 * TAKEOFF_PAID_CALL_ESTIMATE_TOKENS)).toEqual(bounds.units.map((unit) => unit.calls));
+    const unmargined = played.map((unit) => ({ ...unit, share: unit.share / 2 }));
+    expect(ledgerStarts(unmargined, admitted.budget.tokens / 2, 2 * TAKEOFF_PAID_CALL_ESTIMATE_TOKENS))
+      .not.toEqual(bounds.units.map((unit) => unit.calls));
     // Its cost envelope is the tenant's, split by pages as for the free extraction: the local reader's calls cost no cent.
     expect(admitted.budget.cost_cents).toBe(2_500);
     expect(admitted.units.map((unit) => unit.budget.cost_cents)).toEqual(planRequest(15, 20, 300).units.map((unit) => unit.budget.cost_cents));
@@ -209,8 +246,11 @@ describe("sizePosteReadingManifest", () => {
 
   it("leaves the free extraction's manifest as it sealed it", () => {
     const free = splitTakeoffLaunchManifest(manifest([{ count: 20 }, { count: 6 }], { kind: "free_extraction", version: 1, list: null }));
+    const before = structuredClone(free);
     const result = sizePosteReadingManifest(free, CHUNKING, TAKEOFF_PAID_CALL_ESTIMATE_TOKENS, [], CLASSIFIER);
-    expect(result).toEqual({ manifest: free, bounds: null });
+    // Compared with a copy taken before: a change made in place would show.
+    expect(result).toEqual({ manifest: before, bounds: null });
+    expect(free).toEqual(before);
   });
 
   // What a plan's publication carries and a request's answers can never refuse what the ceilings of their calls admit.

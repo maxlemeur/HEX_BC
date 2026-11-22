@@ -351,7 +351,9 @@ async function sealAutomaticSnapshot(service: Service, input: {
       .map((id) => ({ id, name: named.get(id) ?? id })) };
   }
   try {
-    sealed.assertReadPlans(resolved, { maxPages: await getPlanSetMaxPdfPages({ supabase: service, tenantId: input.tenantId, level: "C" }) });
+    // Read plan by plan, the page limit of a reading is each plan's; a grouped analysis reads all the pages in one job.
+    sealed.assertReadPlans(resolved, { maxPages: await getPlanSetMaxPdfPages({ supabase: service, tenantId: input.tenantId, level: "C" }),
+      perPlan: input.perPlan });
   } catch (error) {
     return planRefusal(error);
   }
@@ -369,7 +371,8 @@ async function sealAutomaticSnapshot(service: Service, input: {
   let sourceFile: Sealed["sourceFile"];
   try {
     sourceFile = await resolvePlanSetSourceFile({ supabase: service, tenantId: input.tenantId, planSetId: input.planSet.id,
-      jobId: input.jobId, maxPages: config.maxPdfPages, selectedFileIds: plans.map((source) => source.document_id) });
+      jobId: input.jobId, maxPages: config.maxPdfPages, selectedFileIds: plans.map((source) => source.document_id),
+      pagesPerPlan: input.perPlan });
   } catch (error) {
     if (error instanceof TakeoffError && error.code === TakeoffErrorCode.TAKEOFF_FILE_TOO_LARGE) {
       return { state: "blocked", reason: "PLAN_SET_TOO_LARGE", pieces: plans.map((source) => ({ id: source.document_id, name: source.document_name })) };
@@ -934,10 +937,12 @@ async function launchTakeoffPlanCommand(service: Service, input: RelaunchInput,
     }
     throw error;
   }
-  // The dossier's limits on every plan the command reads, before its units (each is checked again on its own).
+  // The dossier's limits on every plan the command reads, before its units (each is checked again on its own): read plan
+  // by plan, the page limit is each plan's.
   const jobKey = `takeoff-request-command:${input.projectId}:${input.intentKey}`;
   await resolvePlanSetSourceFile({ supabase: service, tenantId: context.tenantId, planSetId: input.planSetId,
-    jobId: deriveDeterministicJobId(context.tenantId, `${jobKey}:scope`), maxPages: config.maxPdfPages, selectedFileIds: scope });
+    jobId: deriveDeterministicJobId(context.tenantId, `${jobKey}:scope`), maxPages: config.maxPdfPages, selectedFileIds: scope,
+    pagesPerPlan: true });
   // Not read by this command: the plan set's copies set aside, and the plans an earlier analysis read (they stay its),
   // except the plans it reads again, at any copy (a plan of the dossier replaced since is read at its new copy).
   // A plan read before is one of the plan set now (a plan whose copy and piece left it is not left out by this command,

@@ -57,7 +57,9 @@ function fixture() {
       "affaire-intake": ({ paths }) => ({ data: new Blob([Uint8Array.from(intakeContents.get(paths[0]) ?? Buffer.from(CCTP_TEXT))]), error: null }),
     },
   });
-  const server = createSupabaseFake({ tables: {
+  // Lot 3's activation of one analysis per plan, read by the confirmation (not active unless a case says).
+  let planDispatch = false;
+  const server = createSupabaseFake({ rpc: { takeoff_plan_dispatch_is_active: () => ({ data: planDispatch, error: null }) }, tables: {
     takeoff_preparations: (query) => {
       const expected = filterValue(query, "revision");
       if ((query.operation === "insert" && record) || (query.operation === "update" && record?.revision !== expected)) {
@@ -77,6 +79,7 @@ function fixture() {
   return {
     user, server, context, file, files, contents, intakeContents, ready, content, intake, getRecord: () => record,
     seedRecord: (row: PreparationRecordRow) => { record = row; },
+    setPlanDispatch: (active: boolean) => { planDispatch = active; },
     setTargetProject: (id: string) => { targetProjectId = id; },
     setMissingMigration: () => { missingMigration = true; },
     onDownload: (callback: () => void) => { onDownload = callback; },
@@ -740,6 +743,34 @@ describe("the sealing of a member's confirmation", () => {
     await expect(confirmPlanSet(M3_PLAN_SET_ID)).rejects.toMatchObject({ status: 422, code: "TAKEOFF_FILE_TOO_LARGE",
       message: expect.stringMatching(/« Plan fictif\.pdf ».*« Plan étage\.pdf »|« Plan étage\.pdf ».*« Plan fictif\.pdf »/) });
     expect(f.getRecord()?.confirmed_snapshot).toBeNull();
+  });
+
+  // Budget fix round: once one analysis per plan is active, each plan is read by its own job: the page limit is each plan's.
+  it("confirms plans whose real pages pass the budget only together once each plan is read alone, and names a plan past it", async () => {
+    const f = fixture();
+    f.setPlanDispatch(true);
+    f.file.page_count = null;
+    f.contents.set(f.file.file_path, await pdfOfPages(101));
+    f.file.file_size_bytes = f.contents.get(f.file.file_path)!.byteLength;
+    const second = { ...f.file, id: "88888888-8888-4888-8888-888888888888", file_name: "Plan étage.pdf", file_path: `${M3_TENANT_ID}/plan-etage.pdf` };
+    f.files.push(second);
+    f.contents.set(second.file_path, Buffer.concat([await pdfOfPages(101), Buffer.from("\n% etage\n")]));
+    second.file_size_bytes = f.contents.get(second.file_path)!.byteLength;
+    await confirmPlanSet(M3_PLAN_SET_ID);
+    expect(f.getRecord()?.confirmed_snapshot).not.toBeNull();
+
+    const g = fixture();
+    g.setPlanDispatch(true);
+    g.file.page_count = null;
+    g.contents.set(g.file.file_path, await pdfOfPages(201));
+    g.file.file_size_bytes = g.contents.get(g.file.file_path)!.byteLength;
+    const small = { ...g.file, id: "88888888-8888-4888-8888-888888888888", file_name: "Plan étage.pdf", file_path: `${M3_TENANT_ID}/plan-etage.pdf` };
+    g.files.push(small);
+    g.contents.set(small.file_path, Buffer.concat([await pdfOfPages(20), Buffer.from("\n% etage\n")]));
+    small.file_size_bytes = g.contents.get(small.file_path)!.byteLength;
+    await expect(confirmPlanSet(M3_PLAN_SET_ID)).rejects.toMatchObject({ status: 422, code: "TAKEOFF_FILE_TOO_LARGE",
+      message: "Le plan « Plan fictif.pdf » dépasse les limites d’une analyse. Retirez-le des pièces retenues ou réduisez-le avant de confirmer." });
+    expect(g.getRecord()?.confirmed_snapshot).toBeNull();
   });
 
   it("refuses, naming it, a single retained plan whose real pages pass the analysis's budget", async () => {
