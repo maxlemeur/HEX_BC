@@ -87,16 +87,20 @@ describe("Gabarit de postes de l’entreprise", () => {
     // A change of unit alone is told before it is accepted, its value before and after.
     await expect(proposal.getByText("Modifié : Évacuation eaux usées PVC Ø 40 mm", { exact: true })).toBeVisible();
     await expect(proposal.getByText("Unité : m → u", { exact: true })).toBeVisible();
-    // Without an answer from the server, the form is released with a French message and the choice kept; the next
-    // click sends the same gesture.
+    // The server records the acceptance but its answer never arrives: the form is released with a French message and
+    // the choice kept; the next click sends the same gesture, answered by its receipt (never a second revision).
     const revisionsRoute = `**/api/affaires/${existing}/takeoff/item-list/revisions`;
-    await browser.route(revisionsRoute, (route) => route.abort());
+    await browser.route(revisionsRoute, async (route) => {
+      await route.fetch();
+      await route.abort();
+    });
     await proposal.getByRole("button", "Accepter la révision proposée", { exact: true }).click();
     await expect(proposal.getByText("La réponse du serveur n’est pas arrivée. Vérifiez votre connexion puis réessayez : la "
       + "révision ne sera pas enregistrée deux fois.", { exact: true })).toBeVisible();
     await expect(proposal.getByRole("button", "Accepter la révision proposée", { exact: true })).toBeEnabled();
     await browser.unroute(revisionsRoute);
-    expect(await rows(`select revision from public.takeoff_list_revisions where project_id = '${existing}'`)).toEqual([{ revision: 1 }]);
+    expect(await rows(`select revision from public.takeoff_list_revisions where project_id = '${existing}' order by revision`))
+      .toEqual([{ revision: 1 }, { revision: 2 }]);
     await proposal.getByRole("button", "Accepter la révision proposée", { exact: true }).click();
     await expect(screen.getByText("Liste enregistrée · révision 2 · 23 postes", { exact: false })).toBeVisible();
     const corrected = table.getByRole("row", /^Lavabo sur colonne Plomberie/);
@@ -197,8 +201,9 @@ describe("Gabarit de postes de l’entreprise", () => {
       await expect(screen.getByText(recorded, { exact: false })).toBeVisible();
     };
 
-    // Before any analysis: the first list is recorded with the item. Its first click gets no answer from the server: the
-    // form is released with a French message and what was typed stays; the next click adds it, once.
+    // Before any analysis: the first list is recorded with the item. The server records its first click but the answer
+    // never arrives: the form is released with a French message and what was typed stays; the next click sends the same
+    // gesture, answered by its receipt (the item is added once).
     await app.open(`/dashboard/affaires/${projectId}/takeoff?postes=liste`);
     await waitForHydration(browser);
     await screen.getByText("Ajouter un poste", { exact: true }).click();
@@ -206,14 +211,18 @@ describe("Gabarit de postes de l’entreprise", () => {
     await form.getByRole("textbox", "Désignation", { exact: true }).fill("Robinet de puisage");
     await form.getByRole("textbox", "Unité (vide : à préciser)", { exact: true }).fill("u");
     const additions = `**/api/affaires/${projectId}/takeoff/item-list/items`;
-    await browser.route(additions, (route) => route.abort());
+    await browser.route(additions, async (route) => {
+      await route.fetch();
+      await route.abort();
+    });
     await form.getByRole("button", "Ajouter le poste", { exact: true }).click();
     await expect(form.getByText("La réponse du serveur n’est pas arrivée. Vérifiez votre connexion puis réessayez : le poste ne "
       + "sera pas ajouté deux fois.", { exact: true })).toBeVisible();
     await expect(form.getByRole("button", "Ajouter le poste", { exact: true })).toBeEnabled();
     await expect(form.getByRole("textbox", "Désignation", { exact: true })).toHaveValue("Robinet de puisage");
     await browser.unroute(additions);
-    expect(await rows(`select revision from public.takeoff_list_revisions where project_id = '${projectId}'`)).toEqual([]);
+    expect(await rows(`select revision from public.takeoff_list_revisions where project_id = '${projectId}' order by revision`))
+      .toEqual([{ revision: 1 }, { revision: 2 }]);
     await form.getByRole("button", "Ajouter le poste", { exact: true }).click();
     await expect(screen.getByText("Liste enregistrée · révision 2 · 24 postes", { exact: false })).toBeVisible();
     // During an analysis: a job of the affaire's estimate is running (fixture rows, no worker, no model).
