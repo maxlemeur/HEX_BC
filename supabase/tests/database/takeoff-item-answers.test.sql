@@ -415,6 +415,23 @@ select throws_ok($$select * from pg_temp.publish(pg_temp.job(20, 1), 901,
 select throws_ok($$select * from pg_temp.publish(pg_temp.job(20, 1), 901, pg_temp.valid(),
   pg_temp.rows_(1) || jsonb_build_array(pg_temp.row_(899, 1, 2)))$$,
   '22023', 'TAKEOFF_ANSWERS_OBSERVATION_INVALID', 'a row of the result that is no contribution''s is refused');
+-- A contribution is counted by today's readers only if its row is: an excluded row (given so, or excluded on insert as
+-- an estimate by the hypothesis rule) would be a measure nobody counts.
+select throws_ok($$select * from pg_temp.publish(pg_temp.job(20, 1), 901, pg_temp.valid(),
+  jsonb_set(jsonb_set(pg_temp.rows_(1), '{0,is_excluded}', 'true'), '{0,exclusion_reason}', '"Écartée (fictif)."'))$$,
+  '22023', 'TAKEOFF_ANSWERS_OBSERVATION_INVALID', 'a contribution whose row is excluded is refused');
+select throws_ok($$select * from pg_temp.publish(pg_temp.job(20, 1), 901, pg_temp.valid(),
+  jsonb_set(pg_temp.rows_(1), '{0,metadata}', '{"quantity_nature": "estimated"}'))$$,
+  '22023', 'TAKEOFF_ANSWERS_OBSERVATION_INVALID', 'a contribution whose row the hypothesis rule would exclude is refused');
+-- The row as the writer stores it decides, not the JSON as given: a boolean written as a string is still excluded, and
+-- a category the writer does not store does not save an estimate from the hypothesis rule.
+select throws_ok($$select * from pg_temp.publish(pg_temp.job(20, 1), 901, pg_temp.valid(),
+  jsonb_set(jsonb_set(pg_temp.rows_(1), '{0,is_excluded}', '"true"'), '{0,exclusion_reason}', '"Écartée (fictif)."'))$$,
+  '22023', 'TAKEOFF_ANSWERS_OBSERVATION_INVALID', 'a contribution whose row is excluded by a string flag is refused');
+select throws_ok($$select * from pg_temp.publish(pg_temp.job(20, 1), 901, pg_temp.valid(),
+  jsonb_set(jsonb_set(pg_temp.rows_(1), '{0,metadata}', '{"quantity_nature": "estimated"}'), '{0,quantity_entry_category}',
+    '"site_survey"'))$$,
+  '22023', 'TAKEOFF_ANSWERS_OBSERVATION_INVALID', 'an estimate with a category the writer does not store is refused');
 select throws_ok($$select * from pg_temp.publish(pg_temp.job(20, 1), 901, pg_temp.valid(),
   jsonb_set(pg_temp.rows_(1), '{1,quantity}', '2'))$$,
   '22023', 'TAKEOFF_ANSWERS_OBSERVATION_INVALID', 'a row with another quantity than its contribution is refused');
