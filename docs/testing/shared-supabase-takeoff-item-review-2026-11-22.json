@@ -1,0 +1,49 @@
+{
+  "date_utc": "2026-11-22",
+  "status": "stopped_before_apply",
+  "pr": 471,
+  "source_commit": "28e114e9d35d196918626d9147195d997245cae9",
+  "file": "20261122125722_takeoff_item_review_decisions.sql",
+  "bytes": 73749,
+  "sha256": "5a07546488d92fc9288ff526f570f2658cfb674b83921d365763b054e5e3b299",
+  "apply_attempts": 0,
+  "remote_version": null,
+  "history": {
+    "before": 428,
+    "final_observation": 428,
+    "last": {
+      "version": "20261122135550",
+      "name": "20261122113611_takeoff_item_answers_before_activation"
+    },
+    "matches_previous_receipt": true
+  },
+  "precheck": {
+    "tables_taken": 0,
+    "functions_taken": 0,
+    "b1_states_missing": 0,
+    "utc": "2026-11-22 14:42:53.917472+00",
+    "processing": 0,
+    "answers": 0,
+    "items": 0,
+    "audit_rows": 46772,
+    "locks": 0,
+    "prior_reading_states_md5": "5d0825ac5c143ce338a993927d37247a",
+    "health": {
+      "version": "0.7.0",
+      "http": 200,
+      "db": "up"
+    }
+  },
+  "activation_rows": {
+    "completion": 0,
+    "launch": 0,
+    "item_list_order": 0,
+    "plan_dispatch": 0
+  },
+  "activated": false,
+  "deployed": false,
+  "flags_changed": false,
+  "stop_reason": "La condition de l’autorisation permanente concernant les droits sur les données existantes demande une décision du propriétaire.",
+  "post_apply_checks": "sans objet",
+  "new_security_advisor_findings": null
+}
