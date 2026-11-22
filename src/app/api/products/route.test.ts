@@ -251,6 +251,30 @@ describe("POST /api/products", () => {
     );
   });
 
+  // Sale packagings carry their article's unit (foreign key ON UPDATE RESTRICT). Failure mode: changing the unit of an
+  // article that has packagings reaches the office as a raw foreign key error, or as « Impossible de mettre à jour ».
+  it("says to remove the packagings before changing the unit of an article that has some", async () => {
+    const { supabase } = createProductsSupabase({
+      updateResult: {
+        data: null,
+        error: {
+          code: "23503",
+          message: 'update or delete on table "products" violates foreign key constraint "product_packagings_article_unit_fkey" on table "product_packagings"',
+        },
+      },
+    });
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    const response = await POST(postRequest({ action: "update", id: PRODUCT_ID, item: { unit: "kg" } }));
+
+    expect(response.status).toBe(409);
+    const body = await response.json();
+    expect(body.error.code).toBe("PRODUCT_UNIT_HAS_PACKAGINGS");
+    expect(body.error.message).toBe(
+      "Retirez les conditionnements de vente avant de changer l’unité de l’article : leurs quantités sont exprimées dans l’unité actuelle."
+    );
+  });
+
   it("refuses a supply type that is not in the tenant's referential", async () => {
     const { supabase } = createProductsSupabase({
       updateResult: { data: null, error: { code: "23514", message: "PRODUCT_SUPPLY_TYPE_INVALID" } },

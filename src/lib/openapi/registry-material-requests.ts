@@ -67,6 +67,11 @@ import {
 } from "@/lib/material-requests/order-contracts";
 import type { SupplyTypeListItem } from "@/lib/catalogue/supply-types";
 import {
+  createProductPackagingSchema,
+  updateProductPackagingSchema,
+  type ProductPackagings,
+} from "@/lib/catalogue/packagings";
+import {
   confirmPurchaseOrderSchema,
   purchaseOrderPricePerSchema,
   receivePurchaseOrderSchema,
@@ -264,6 +269,7 @@ const fileId = pathParameter({ name: "fileId", description: "Original ou fichier
 const quoteId = pathParameter({ name: "quoteId", description: "Devis de cette demande.", schemaName: "MaterialRequestQuoteId", schema: uuid });
 const productId = pathParameter({ name: "productId", description: "Article du tenant actif.", schemaName: "MaterialRequestProductId", schema: uuid });
 const aliasId = pathParameter({ name: "aliasId", description: "Nom usuel de cet article.", schemaName: "ProductAliasId", schema: uuid });
+const packagingId = pathParameter({ name: "packagingId", description: "Conditionnement de vente de cet article.", schemaName: "ProductPackagingId", schema: uuid });
 const supplyTypeId = pathParameter({ name: "supplyTypeId", description: "Type de fourniture du tenant actif.", schemaName: "SupplyTypeId", schema: uuid });
 const technicianId = pathParameter({ name: "technicianId", description: "Technicien du tenant actif.", schemaName: "MaterialRequestTechnicianId", schema: uuid });
 
@@ -304,6 +310,13 @@ const quoteBusy = "MATERIAL_REQUEST_QUOTE_BUSY : une autre modification était e
 const quoteReadOnly = refusal("MATERIAL_REQUEST_QUOTE_READ_ONLY : le devis est retenu ou clos ; il ne se modifie plus, ses fichiers compris. details.status.");
 const lineOrdered = "MATERIAL_REQUEST_LINE_ORDERED : la ligne est dans un bon de commande qui n'est pas annulé ; elle ne revient pas en brouillon, ni rouverte ni par une modification de ce qu'elle dit (zone, imputation, mots du technicien) : « La ligne N est dans le bon C-… : elle ne peut plus être rouverte. » Rien n'est écrit, même dans une sélection. details : line_ids, positions, references.";
 const draftRule = "Modifier ce que dit une ligne validée (tout sauf duplicate_acknowledged et supplier_id, le fournisseur d'achat choisi par le bureau) la ramène en brouillon ; renvoyer les mêmes valeurs ne change rien.";
+// Sale packagings of an article (src/lib/catalogue/packagings.ts): informative, never read by a quantity or a price.
+const productPackagings: z.ZodType<ProductPackagings> = z.object({
+  items: z.array(z.object({ id: uuid, label: z.string(), quantity: z.number().positive(), is_usual: z.boolean(), unit: z.string() })),
+  can_edit: z.boolean(),
+});
+const packagingRule = "Un conditionnement est un libellé (1 à 80 caractères, espaces retirés) et une quantité strictement positive, trois décimales au plus, exprimée dans l'unité de l'article (« Barre » et 6 pour une barre de 6 m d'un article au mètre linéaire), que le conditionnement garde (unit) : l'unité d'un article qui a des conditionnements ne change plus tant qu'ils existent (PRODUCT_UNIT_HAS_PACKAGINGS à la modification de l'article). Purement informatif : aucune quantité, aucun prix, devis, bon ni demande ne le lit. Droits : ceux de la modification de l'article, dans le tenant actif. La réponse est la liste entière, dans l'ordre d'ajout.";
+const packagingDuplicate = "CONFLICT : « Ce conditionnement existe déjà pour cet article. » (même libellé, casse et accents ignorés, et même quantité), ou un autre conditionnement a été marqué usuel au même moment ; rien n'est écrit.";
 const catalogueEditorRefusals = {
   "403": refusal("FORBIDDEN : réservé aux administrateurs et aux ingénieurs ; un ingénieur ne modifie que les articles qu'il a ajoutés, sauf si un administrateur a ouvert la base commune (TI-689)."),
   "404": refusal("NOT_FOUND : article ou fournisseur d'un autre tenant, ou inconnu."),
@@ -685,6 +698,49 @@ export const materialRequestOperations: OpenApiOperationDefinition[] = [
       "200": success("ApiProductAliasDeleted", "Nom usuel retiré.", deleted),
       "403": refusal("FORBIDDEN : ni administrateur, ni auteur du nom usuel."),
       "404": refusal("NOT_FOUND : article ou nom usuel d'un autre tenant, ou d'un autre article."),
+    },
+  },
+  {
+    tags: ["Catalogue"], method: "get", path: "/api/products/{productId}/packagings", summary: "Lister les conditionnements de vente d'un article",
+    description: "Conditionnements de l'article dans l'ordre d'ajout, quantité exprimée dans l'unité de l'article, au plus un usuel (is_usual). can_edit dit si l'appelant peut les modifier (droits de la modification de l'article, TI-689). Lisible par tout membre du tenant actif.",
+    parameters: [productId],
+    responses: {
+      "200": success("ApiProductPackagings", "Conditionnements de l'article et droit de l'appelant.", productPackagings),
+      "404": refusal("NOT_FOUND : article d'un autre tenant ou inconnu."),
+    },
+  },
+  {
+    tags: ["Catalogue"], method: "post", path: "/api/products/{productId}/packagings", summary: "Ajouter un conditionnement de vente à un article",
+    description: `${packagingRule} is_usual à true le rend usuel et retire la mention de celui qui l'avait.`,
+    parameters: [productId],
+    requestBody: jsonBody({ name: "ProductPackagingCreate", description: "Libellé, quantité et, au besoin, mention usuelle.", schema: createProductPackagingSchema }),
+    responses: {
+      "201": success("ApiProductPackagingCreated", "Conditionnement ajouté ; liste entière de l'article.", productPackagings),
+      ...catalogueEditorRefusals,
+      "409": refusal(`${packagingDuplicate} PRODUCT_PACKAGING_UNIT_CHANGED : l'unité de l'article a changé pendant l'ajout ; rien n'est écrit, recharger l'article.`),
+      "422": refusal("PRODUCT_PACKAGING_UNIT_REQUIRED : l'article n'a pas d'unité (brouillon) ; rien n'est écrit."),
+    },
+  },
+  {
+    tags: ["Catalogue"], method: "patch", path: "/api/products/{productId}/packagings/{packagingId}", summary: "Modifier un conditionnement de vente",
+    description: `${packagingRule} Clé par clé : omise, la valeur enregistrée est gardée. is_usual à true déplace la mention usuelle sur ce conditionnement ; false la retire.`,
+    parameters: [productId, packagingId],
+    requestBody: jsonBody({ name: "ProductPackagingUpdate", description: "Au moins un champ.", schema: updateProductPackagingSchema }),
+    responses: {
+      "200": success("ApiProductPackagingUpdated", "Conditionnement modifié ; liste entière de l'article.", productPackagings),
+      "403": catalogueEditorRefusals["403"],
+      "404": refusal("NOT_FOUND : article ou conditionnement d'un autre tenant, ou d'un autre article."),
+      "409": refusal(packagingDuplicate),
+    },
+  },
+  {
+    tags: ["Catalogue"], method: "delete", path: "/api/products/{productId}/packagings/{packagingId}", summary: "Retirer un conditionnement de vente",
+    description: "Supprime le conditionnement. Droits : ceux de la modification de l'article. La réponse est la liste restante.",
+    parameters: [productId, packagingId],
+    responses: {
+      "200": success("ApiProductPackagingDeleted", "Conditionnement retiré ; liste restante de l'article.", productPackagings),
+      "403": catalogueEditorRefusals["403"],
+      "404": refusal("NOT_FOUND : article ou conditionnement d'un autre tenant, ou d'un autre article."),
     },
   },
   {
