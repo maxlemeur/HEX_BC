@@ -5850,6 +5850,107 @@
         }
       }
     },
+    "/api/affaires/{projectId}/takeoff/count-marks/targets": {
+      "get": {
+        "tags": [
+          "Takeoff"
+        ],
+        "summary": "Lire les postes auxquels affecter un repère",
+        "description": "Lecteurs de l’affaire. Les autres postes de la même lecture (son analyse, sur son plan) dont la réponse n’a pas été remplacée par une lecture plus récente, dans l’ordre de la liste lue, quel que soit le tableau des postes affiché : les destinations d’une affectation de repère, que la commande de correction vérifie de nouveau.",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "description": "Affaire cible.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/GetAffaireTakeoffCountMarksTargetsProjectIdParameter"
+            }
+          },
+          {
+            "name": "reponse",
+            "in": "query",
+            "description": "Réponse dont un repère est affecté.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/GetAffaireTakeoffCountMarksTargetsReponseParameter"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Les postes de la même lecture qui peuvent recevoir un repère.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiTakeoffCountMarkTargetsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requete invalide ou payload non conforme.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentification requise.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Acces interdit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Ressource introuvable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflit metier ou de concurrence.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Erreur interne serveur.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/affaires/{projectId}/takeoff/item-detail/plan": {
       "get": {
         "tags": [
@@ -45904,6 +46005,82 @@
         ],
         "additionalProperties": false
       },
+      "GetAffaireTakeoffCountMarksTargetsProjectIdParameter": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      },
+      "GetAffaireTakeoffCountMarksTargetsReponseParameter": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      },
+      "ApiTakeoffCountMarkTargetsResponse": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "answerId": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "targets": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "answerId": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "itemId": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "label": {
+                      "type": "string"
+                    },
+                    "scopePages": {
+                      "type": "array",
+                      "items": {
+                        "type": "integer",
+                        "exclusiveMinimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      "description": "Pages cherchées et illisibles de la réponse de destination."
+                    }
+                  },
+                  "required": [
+                    "answerId",
+                    "itemId",
+                    "label",
+                    "scopePages"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": [
+              "answerId",
+              "targets"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "ok",
+          "data"
+        ],
+        "additionalProperties": false
+      },
       "GetAffaireTakeoffItemDetailPlanProjectIdParameter": {
         "type": "string",
         "format": "uuid",
@@ -46035,6 +46212,31 @@
                           "string",
                           "null"
                         ]
+                      },
+                      "answer": {
+                        "description": "La réponse que cette analyse a donnée pour le poste sur ce plan (lot 5).",
+                        "type": "object",
+                        "properties": {
+                          "answerId": {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                          },
+                          "scopePages": {
+                            "type": "array",
+                            "items": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0,
+                              "maximum": 9007199254740991
+                            },
+                            "description": "Pages cherchées et illisibles de la réponse : la portée de ses repères."
+                          }
+                        },
+                        "required": [
+                          "answerId",
+                          "scopePages"
+                        ],
+                        "additionalProperties": false
                       }
                     },
                     "required": [

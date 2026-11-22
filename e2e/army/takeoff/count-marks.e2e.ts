@@ -57,6 +57,15 @@ describe("Repères comptés d’un poste", () => {
       const [lav1, lav2, lav3] = [...first.body.data.marks].sort((a, b) => a.x - b.x);
       // The third object is also proposed for the valve, in the same reading.
       expect(lav3!.others).toEqual([expect.objectContaining({ answerId: valve, state: "proposed" })]);
+      // A mark of one item may be given to the other items of the same reading, by their label in its list, whatever the
+      // table of items shows (lot 5 follow-ups), each with the pages its answer read (both measured on pages 2 and 7).
+      const destinations = await apiRequest<Envelope<{ answerId: string; targets: unknown[] }>>(ui.browser, "GET",
+        `${base}/targets?reponse=${basin}`);
+      expect(destinations.status).toBe(200);
+      expect(destinations.body.data).toEqual({ answerId: basin, targets: [{ answerId: valve, itemId: seeded.valve, label: "Vanne",
+        scopePages: [2, 7] }] });
+      expect((await apiRequest<Envelope<{ targets: unknown[] }>>(ui.browser, "GET", `${base}/targets?reponse=${valve}`)).body.data.targets)
+        .toEqual([{ answerId: basin, itemId: seeded.basin, label: "Lavabo", scopePages: [2, 7] }]);
 
       // What the table of items and the send read, before any correction.
       // The table of items as its readers see it: every line of its page (observed, retained, decision, gestures) and its facets.
@@ -166,10 +175,15 @@ describe("Repères comptés d’un poste", () => {
         await setJobSent(seeded.jobId, false);
       }
 
-      // A page the reading did not cover, an answer of no affaire of the member: not found.
+      // A page the reading did not cover, an answer of no affaire of the member, an answer of another of the member's
+      // affaires asked under this one: not found.
       expect(await read(basin, 5)).toMatchObject({ status: 404, body: { error: { code: "TAKEOFF_MARKS_ANSWER_NOT_FOUND" } } });
       expect((await read(randomUUID(), 2)).status).toBe(404);
-      expect((await apiRequest(ui.browser, "GET", `${base}/history?reponse=${randomUUID()}`)).status).toBe(404);
+      const elsewhere = await seedCountMarks(owner, `${army.runPrefix}-REPERES-AUTRE`);
+      const foreign = (await readCountAnswers(elsewhere.projectId))[elsewhere.basin]!;
+      expect((await read(foreign, 2)).status).toBe(404);
+      expect((await apiRequest(ui.browser, "GET", `${base}/history?reponse=${foreign}`)).status).toBe(404);
+      expect((await apiRequest(ui.browser, "GET", `${base}/targets?reponse=${foreign}`)).status).toBe(404);
 
       await recordEvidence(army, "REPERES01", { projectId: seeded.projectId, summary: verified.body.data.summaries[basin],
         sendPreviews: { plan: before.planSend, items: before.itemSend },

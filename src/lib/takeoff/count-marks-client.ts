@@ -3,6 +3,7 @@ import type { z } from "zod";
 import { TakeoffApiError, TAKEOFF_READ_REQUEST_TIMEOUT_MS, TAKEOFF_WRITE_REQUEST_TIMEOUT_MS } from "@/lib/takeoff/client-http";
 import type { TakeoffCountMarkState } from "@/lib/takeoff/count-marks";
 import {
+  countMarkTargetsSchema,
   countMarksEditResultSchema,
   countMarksHistorySchema,
   countMarksViewSchema,
@@ -56,6 +57,11 @@ export function createCountMarksReader(projectId: string) {
     edit(command: CountMarksEditRequest) {
       return call(base, { method: "POST", body: JSON.stringify(command) }, countMarksEditResultSchema, WRITE_FAILURE,
         TAKEOFF_WRITE_REQUEST_TIMEOUT_MS);
+    },
+    /** The items a mark of an answer may be given to: the other items of the same reading, whatever the table shows. */
+    readTargets(input: { answerId: string }) {
+      const query = new URLSearchParams({ reponse: input.answerId });
+      return call(`${base}/targets?${query}`, { method: "GET" }, countMarkTargetsSchema, READ_FAILURE, TAKEOFF_READ_REQUEST_TIMEOUT_MS);
     },
     /** A page of the journal of an answer's marks, after the position given. */
     readHistory(input: { answerId: string; after: { revision: number; ordinal: number } | null; limit?: number }) {

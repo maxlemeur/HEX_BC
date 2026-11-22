@@ -10,8 +10,16 @@ import { useCallback, useEffect, useLayoutEffect, useRef } from "react";
  * names one, the reading. It may always update what it was for (that item's kept line, the right the reply carries for
  * this member) while its screen is the one that started it. It touches what is shown now (forms, dialogs, notices, a
  * withdrawal, what the evidence says) only if what is shown is still what started it. A failure obeys the same rule as a
- * success. Nothing started for one item cancels or overrides what started for another.
+ * success, but for a refusal of the member's right (isRightRefusal): that one withdraws the screen at once while it is
+ * still the screen that started it (`ownScreen()`), whatever item is shown now; for a previous member or scope it stays
+ * discarded. Nothing started for one item cancels or overrides what started for another.
  */
+
+/** A refusal of the member's right (401: no session; 403: no right): the screen's, whatever item is shown now. */
+export function isRightRefusal(caught: unknown) {
+  const status = typeof caught === "object" && caught !== null ? (caught as { status?: unknown }).status : undefined;
+  return status === 401 || status === 403;
+}
 
 /** What a completion is for: the screen (member and scope), the item, and the reading when it names one. */
 export type CompletionTarget = { screen: string; item: string | null; reading?: string | null };

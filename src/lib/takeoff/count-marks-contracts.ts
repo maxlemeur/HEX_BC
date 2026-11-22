@@ -77,6 +77,25 @@ export const countMarksQuerySchema = z.object({
   limite: z.coerce.number().int().min(1).max(COUNT_MARKS_PAGE_LIMIT.max).optional(),
 }).strict();
 
+/** The answer whose marks are given to another item: its reading's destinations are read for it (lot 5 follow-ups). */
+export const countMarkTargetsQuerySchema = z.object({ reponse: uuid }).strict();
+
+/**
+ * The items a mark of an answer may be given to: the other items the same reading (its job, on its plan) answered, whose
+ * answer no later reading replaced, of the same expected unit, in the order of that reading's list; whatever the table of
+ * items shows. Each with the pages its answer read: a mark goes to it only from one of them.
+ */
+export const countMarkTargetsSchema = z.object({
+  answerId: uuid,
+  targets: z.array(z.object({
+    answerId: uuid,
+    itemId: uuid,
+    label: z.string(),
+    scopePages: z.array(z.number().int().positive()).describe("Pages cherchées et illisibles de la réponse de destination."),
+  }).strict()),
+}).strict();
+export type CountMarkTargets = z.infer<typeof countMarkTargetsSchema>;
+
 export const countMarksHistoryQuerySchema = z.object({
   reponse: uuid,
   apresRevision: z.coerce.number().int().min(0).max(1_000_000).optional(),

@@ -255,11 +255,32 @@ function RefusedQuestionDialog({ marks, numbers }: { marks: CountMarksContextVal
   // Each mark by its number in the list and its place on the page, so that two neighbours are told apart; one not loaded
   // yet is being read (the scope reads the page's next lots for it).
   const loaded = (markId: string) => marks.shown.find((mark) => mark.markId === markId) ?? null;
+  // A reattribution's target retains the marks named: read from its page, named by its item and their place.
+  const targetLabel = marks.targets.find((target) => target.answerId === asked.answerId)?.label ?? "l’autre poste";
+  // A neighbour read for the question (another answer's, or another page's than the one shown), else one of the page shown.
+  const neighbour = (markId: string) => marks.refusedNeighbours[markId] ?? null;
+  const onOtherPage = (markId: string) => {
+    const other = neighbour(markId);
+    return other && other.page !== marks.page ? `, page ${other.page}` : "";
+  };
   const named = (markId: string) => {
     if (isDraftMarkId(markId)) return "votre ajout non enregistré";
+    const other = neighbour(markId);
+    if (other) {
+      return asked.answerId !== marks.answer?.answerId
+        ? `le repère retenu de « ${targetLabel} » (${countMarkPlace(other)})${onOtherPage(markId)}`
+        : `le repère retenu (${countMarkPlace(other)})${onOtherPage(markId)}`;
+    }
     const mark = loaded(markId);
     return mark && numbers[markId] ? `le repère ${numbers[markId]} (${countMarkPlace(mark)})` : "un repère retenu hors de la liste chargée";
   };
+  // Choosing one brings it to the centre, its page's sheet shown first.
+  const show = (markId: string) => {
+    const other = neighbour(markId);
+    if (other) marks.centreOn(other.page, other);
+    else marks.select(markId, { announce: false });
+  };
+  const inspectable = (markId: string) => !isDraftMarkId(markId) && (neighbour(markId) !== null || loaded(markId) !== null);
   const asThat = (markId: string) => { const text = named(markId); return text.startsWith("un ") ? `qu’${text}` : `que ${text}`; };
   const sameLabel = (markId: string) => isDraftMarkId(markId) ? "Même objet que votre ajout non enregistré : retirer l’ajout"
     : decides ? `Même objet ${asThat(markId)}`
@@ -278,12 +299,20 @@ function RefusedQuestionDialog({ marks, numbers }: { marks: CountMarksContextVal
           </DialogDescription>
         </DialogHeader>
         <div className="flex flex-col gap-2" data-testid="reperes-question-refus">
+          {/* Every neighbour named can be inspected, whatever the answer offered below. */}
+          <ul aria-label="Repères retenus nommés" className="flex flex-col gap-1">
+            {neighbours.filter(inspectable).map((markId) => (
+              <li key={markId}>
+                <Button size="xs" variant="ghost" onClick={() => show(markId)}>Voir {named(markId)}</Button>
+              </li>
+            ))}
+          </ul>
           {/* A non-decision gesture onto a known object is withdrawn once (whatever the neighbour). */}
           {(decides ? neighbours : neighbours.slice(0, 1)).map((markId) => (
             // Choosing one (by the keyboard or the pointer) centres it on the plan.
-            <Button key={markId} variant="outline" onFocus={() => marks.select(markId, { announce: false })}
+            <Button key={markId} variant="outline" onFocus={() => show(markId)}
               onClick={() => {
-                marks.select(markId, { announce: false });
+                show(markId);
                 marks.answerRefused({ object: "same", sameAs: markId });
               }}>
               {sameLabel(markId)}

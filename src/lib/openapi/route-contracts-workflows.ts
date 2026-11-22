@@ -32,6 +32,7 @@ import {
   countMarksEditRequestSchema,
   countMarksEditResultSchema,
   countMarksHistorySchema,
+  countMarkTargetsSchema,
   countMarksViewSchema,
 } from "@/lib/takeoff/count-marks-contracts";
 import {
@@ -688,6 +689,21 @@ const takeoffOperationsContracts: RouteContract[] = [
     ],
     success: [{ status: "200", description: "Une page du journal et la position de la suivante.", schema: {
       schemaName: "ApiTakeoffCountMarksHistoryResponse", schema: z.object({ ok: z.literal(true), data: countMarksHistorySchema }), io: "output",
+    } }],
+  },
+  {
+    id: "get-affaire-takeoff-count-marks-targets",
+    method: "get",
+    path: "/api/affaires/{projectId}/takeoff/count-marks/targets",
+    summary: "Lire les postes auxquels affecter un repère",
+    description: "Lecteurs de l’affaire. Les autres postes de la même lecture (son analyse, sur son plan) dont la réponse n’a pas été remplacée par une lecture plus récente, dans l’ordre de la liste lue, quel que soit le tableau des postes affiché : les destinations d’une affectation de repère, que la commande de correction vérifie de nouveau.",
+    tags: ["Takeoff"],
+    pathParameters: [{ name: "projectId", schema: uuidSchema, description: "Affaire cible." }],
+    queryParameters: [
+      { name: "reponse", schema: uuidSchema, description: "Réponse dont un repère est affecté.", required: true },
+    ],
+    success: [{ status: "200", description: "Les postes de la même lecture qui peuvent recevoir un repère.", schema: {
+      schemaName: "ApiTakeoffCountMarkTargetsResponse", schema: z.object({ ok: z.literal(true), data: countMarkTargetsSchema }), io: "output",
     } }],
   },
   {

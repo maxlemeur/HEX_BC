@@ -347,15 +347,40 @@ ouvert entre-temps, un autre poste garde sa page et ses gestes. Si un autre memb
 les repères entre-temps, ils sont relus, l’écran dit ce qui a changé et garde chaque geste
 pour l’enregistrer de nouveau ; la page, ses repères retirés, l’historique et le compte sont
 toujours montrés à une seule révision, sinon l’écran les relit. Les gestes non enregistrés
-restent dans l’onglet pour ce membre et ce poste. Un ajout non enregistré ne s’affecte pas
-à un autre poste : il s’enregistre d’abord. À côté d’un repère retenu, l’écran demande
-« Même objet » ou « Objet distinct » et ne décide jamais seul, y compris pour un repère
-retenu que seul l’enregistrement trouve : chaque choix nomme son repère par son numéro et sa
-place, le charge s’il ne l’est pas encore et le centre quand il est choisi.
+restent dans l’onglet pour ce membre et ce poste. Un repère rétabli depuis la liste des
+retirés est dessiné et listé aussitôt, avant l’enregistrement, et se décide comme les
+autres ; une page ne se déclare pas vérifiée tant qu’un repère rétabli y reste à décider, et
+un repère à décider ne se rétablit pas sur une page que la session déclare vérifiée : l’écran
+le dit ; annuler un geste qui laisse la page à décider retire aussi sa déclaration de page
+vérifiée, et l’écran le dit. Un repère s’affecte à tout autre poste de la même lecture (son
+analyse, sur son plan) dont la réponse n’a pas été remplacée, de la même unité attendue, et
+qui a lu la page du repère, quel que soit le tableau des postes affiché : exactement ce que
+la commande accepte, restreint à la même analyse ; un repère qu’un autre poste retient déjà
+ne s’affecte pas. Une page ne se déclare vérifiée, et sa déclaration ne s’enregistre, que si
+aucun de ses repères ne reste à décider, ceux au-delà des lots lus compris (le compte du
+serveur pour cette page, à la révision envoyée). Un
+ajout non enregistré ne s’affecte pas à un autre poste : il s’enregistre d’abord. À côté
+d’un repère retenu, l’écran demande « Même objet » ou « Objet distinct » et ne décide jamais
+seul, y compris pour un repère retenu que seul l’enregistrement trouve : chaque choix nomme
+son repère par son numéro et sa place, le charge s’il ne l’est pas encore et le centre quand
+il est choisi ; pour une affectation, ce sont les repères retenus du poste qui reçoit le
+repère, lus sur la page du geste refusé, à une seule révision : la page est montrée avant
+d’être centrée, et chaque repère nommé se consulte. Un refus du droit du membre (session
+perdue, droit retiré) qui revient pour cet écran le retire aussitôt — le détail avec ses
+repères, ses données et ses décisions —, quel que soit le poste affiché ; un refus revenu
+pour un membre ou une portée précédents reste sans effet. Un enregistrement refusé pour une
+session perdue retire l’écran ; refusé pour le droit, il arrête aussitôt toute correction (aucun
+chemin n’ajoute plus de geste), et la dernière lecture dit ensuite ce que le membre peut
+voir et corriger, dans un sens comme dans l’autre.
 Un lecteur, un plan déjà envoyé au devis et une lecture remplacée montrent les repères, le
 compte et l’historique, sans geste ; la commande refuse elle-même une modification d’un
 plan envoyé, sous ses verrous (un envoi et une modification s’excluent). Ouvert sur une
-lecture plus ancienne, le détail ne montre pas de repères et mène à la lecture actuelle. Tant qu’un envoi ne vérifie pas la
+lecture plus ancienne, le détail montre ses propres repères en lecture seule, sur sa propre
+copie du plan, tels que le serveur les donne (jamais des gestes de l’onglet non
+enregistrés), une fois que le serveur a prouvé la réponse que cette analyse a donnée pour le
+poste sur ce plan, et mène à la lecture actuelle. Le retour du navigateur depuis le détail
+rend le clavier au « Détail » de la ligne qui l’a ouvert, pour le membre qui l’a ouvert,
+sauf si le membre a lui-même donné le clavier à une autre ligne. Tant qu’un envoi ne vérifie pas la
 révision des repères, une quantité comptée sur le plan est montrée et n’est jamais
 envoyée : le tableau des postes et l’envoi gardent la quantité qu’ils retiennent.
 

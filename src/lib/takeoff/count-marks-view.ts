@@ -70,6 +70,11 @@ export type CountMarkDraftEntry = {
   gesture: TakeoffCountMarkGesture;
   /** The marks revision of every other answer the gesture changes (the others that hold a moved mark, a reattribution's target). */
   others: Record<string, number>;
+  /**
+   * The mark as read, for a mark the page's lots do not hold (a removed mark restored from the removed list): the screen
+   * shows it from it, operable like the others, until the session is saved.
+   */
+  mark?: TakeoffCountMark;
 };
 
 export type CountMarkDraft = {
@@ -134,7 +139,8 @@ export type CountMarkObjectAnswer = { object: "same"; sameAs: string } | { objec
 
 /** A removed mark restored to the state it had, or a proposed one retained, with the member's word when one is needed. */
 export function draftDecide(draft: CountMarkDraft, input: { id: string; op: "restore" | "retain"; markId: string; page: number;
-  state: CountMarkShownState; restoredTo: CountMarkShownState; word: CountMarkObjectAnswer }, intentKey: string): CountMarkDraft {
+  state: CountMarkShownState; restoredTo: CountMarkShownState; word: CountMarkObjectAnswer; mark?: TakeoffCountMark | null },
+  intentKey: string): CountMarkDraft {
   // A mark not saved yet has no identity the database knows: it is never named in a stored field, decided or as the same.
   if (isDraftMarkId(input.markId)) throw new Error("Un repère non enregistré se décide une fois enregistré.");
   if (input.word?.object === "same" && isDraftMarkId(input.word.sameAs)) {
@@ -145,7 +151,7 @@ export function draftDecide(draft: CountMarkDraft, input: { id: string; op: "res
   const gesture = { op: input.op, answer_id: draft.answerId, mark_id: input.markId, ...word } as TakeoffCountMarkGesture;
   const to: CountMarkShownState = input.word?.object === "same" ? "withdrawn" : input.op === "retain" ? "retained" : input.restoredTo;
   return withEntries(draft, [...draft.entries, { id: input.id, page: input.page, markId: input.markId, from: input.state, to,
-    gesture, others: {} }], intentKey);
+    gesture, others: {}, ...(input.mark ? { mark: input.mark } : {}) }], intentKey);
 }
 
 /** A mark given to another item of the same reading, whose answer then retains it: a mark the database knows only. */
@@ -255,6 +261,12 @@ export function shownCountMarks(marks: readonly TakeoffCountMark[], draft: Count
         origin: "manual", mark: null, unsaved: true });
       continue;
     }
+    // A removed mark restored from the removed list: shown from the mark as read, in the state it is restored to.
+    if (entry.mark && entry.markId && !shown.has(entry.markId)) {
+      shown.set(entry.markId, { markId: entry.markId, x: entry.mark.x, y: entry.mark.y, state: entry.to, origin: entry.mark.origin,
+        mark: entry.mark, unsaved: true });
+      continue;
+    }
     const target = entry.markId ? shown.get(entry.markId) : undefined;
     if (!target) continue;
     if (gesture.op === "move") shown.set(target.markId, { ...target, x: gesture.x, y: gesture.y, unsaved: true });
@@ -356,6 +368,8 @@ export function staleDraftEntries(draft: CountMarkDraft | null, marks: readonly 
     // Only the first gesture on a mark was made on the state read; the next ones on the state it left.
     seen.add(entry.markId);
     const mark = byId.get(entry.markId);
+    // A mark the lots never hold (a removed one, restored) is judged when its list is read, not by its absence here.
+    if (!mark && entry.mark) continue;
     if (!mark || (entry.from !== null && entry.from !== mark.state)) stale.add(entry.id);
   }
   return stale;
