@@ -23,6 +23,9 @@ import { DEFAULT_CONSULTATION_TEMPLATE } from "@/lib/material-requests/consultat
  *  7. where the templates are not installed yet, the sections offer a save that can only fail, without a word;
  *  8. a member without a template of their own freezes a copy of the company's by saving the editor unchanged;
  *  9. the preview hides that a line like « {livraison} merci » disappears when the delivery place is unknown.
+ * TI-690/TI-691 (owner, 2026-11-22):
+ * 10. {conditionnement} cannot be inserted, is not explained, or the preview has no line sold by a usual packaging to
+ *     show it (« 3 barres de 6 ml »), in both variants.
  */
 
 type Reply = { status?: number; data?: unknown; error?: { code: string; message: string } };
@@ -223,5 +226,25 @@ describe("review of PR #463", () => {
     expect(previews.some((text) => text.endsWith("Livraison : chantier merci"))).toBe(true);
     expect(previews.some((text) => !text.includes("merci"))).toBe(true);
     expect(screen.getByText(/lieu de livraison inconnu/)).toBeVisible();
+  });
+
+  it("inserts {conditionnement}, explains it and previews it in both variants (10)", async () => {
+    mockApi({ [READ]: { data: { personal: null, company: null, can_edit_company: false, available: true } } });
+    const user = userEvent.setup();
+    render(<ConsultationTemplateSettings />);
+    const line = await screen.findByRole("textbox", { name: /Modèle de chaque ligne/ });
+    await user.clear(line);
+    await user.type(line, "- {{quantité} {{désignation}");
+    await user.click(screen.getByRole("button", { name: "Insérer dans la ligne : Conditionnement" }));
+    expect(line).toHaveValue("- {quantité} {désignation}{conditionnement}");
+    await user.clear(line);
+    await user.type(line, "- {{quantité} {{désignation}[[ ({{conditionnement})]");
+    expect(screen.queryByText(/Champ inconnu/)).not.toBeInTheDocument();
+    expect(screen.getByText(/« 3 barres de 6 ml »/)).toBeVisible();
+    for (const name of [/fournisseur habituel/, /en concurrence/]) {
+      const text = screen.getByRole("figure", { name }).querySelector("pre")?.textContent ?? "";
+      expect(text).toMatch(/- 18 ml Tube cuivre, Ø 22 \(3 barres de 6 ml\)/);
+      expect(text).toMatch(/- 4 u Té égal, DN 50, Inox 316L\n/);
+    }
   });
 });

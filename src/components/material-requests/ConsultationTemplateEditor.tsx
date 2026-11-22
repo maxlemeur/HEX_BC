@@ -35,6 +35,7 @@ const LINE_FIELDS = [
   { token: "{désignation}", label: "Désignation" },
   { token: "{référence}", label: "Référence" },
   { token: "{ligne}", label: "N° de ligne" },
+  { token: "{conditionnement}", label: "Conditionnement" },
 ] as const;
 
 function sample(partial: Partial<ConsultationLine>): ConsultationLine {
@@ -44,11 +45,15 @@ function sample(partial: Partial<ConsultationLine>): ConsultationLine {
   };
 }
 
-/** Invented lines: a reference known at the supplier, one unknown, one without a quantity. */
+/**
+ * Invented lines: a reference known at the supplier, one unknown, one without a quantity, and one whose article is
+ * sold by a usual packaging it is a whole number of (TI-690, {conditionnement}).
+ */
 const SAMPLE_LINES: ConsultationLine[] = [
   sample({ position: 1, quantity: 10, designation: "Coude 90°", dimension: "DN 50", material: "Inox 316L", supplierSku: "CD-50-316" }),
   sample({ position: 2, quantity: 4, designation: "Té égal", dimension: "DN 50", material: "Inox 316L" }),
   sample({ position: 3, quantity: null, unit: null, designation: "Collier isophonique", dimension: "Ø 22" }),
+  sample({ position: 4, quantity: 18, unit: "ml", designation: "Tube cuivre", dimension: "Ø 22", usualPackaging: { label: "Barre", quantity: 6, unit: "ml" } }),
 ];
 const SAMPLE = { affaireName: "Résidence des Tilleuls", deliveryPlace: "site" as const, lines: SAMPLE_LINES };
 
@@ -195,6 +200,11 @@ export function ConsultationTemplateEditor({
         <p>
           Une ligne dont les champs sont vides disparaît (la livraison quand elle n’est pas connue). En concurrence, la
           référence reste toujours vide.
+        </p>
+        <p>
+          {"{conditionnement}"} écrit les conditionnements usuels de l’article quand la quantité en est un nombre entier
+          (« 3 barres de 6 ml »), en concurrence aussi ; sinon il est vide :{" "}
+          <code className="text-foreground">[ ({"{conditionnement}"})]</code>.
         </p>
       </div>
 

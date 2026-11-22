@@ -1,6 +1,7 @@
 import { formatDecimalInput } from "@/lib/numeric-input/parsers";
 
 import type { MaterialRequest, MaterialRequestDeliveryPlace, MaterialRequestLine } from "./contracts";
+import type { MaterialRequestUsualPackaging } from "./usual-packaging";
 
 /**
  * The message the office copies into WhatsApp to ask a supplier for a price (TI-691, lot 2 « l'achat »,
@@ -31,6 +32,11 @@ export type ConsultationLine = {
   reference: string | null;
   /** The article's reference at the supplier the message is for. Never written without references. */
   supplierSku: string | null;
+  /**
+   * The usual packaging of the line's article (TI-690), whatever its unit: only a template's {conditionnement} reads
+   * it (usual-packaging.ts decides whether it applies). Today's message never writes it.
+   */
+  usualPackaging?: MaterialRequestUsualPackaging | null;
 };
 
 const DELIVERY: Record<MaterialRequestDeliveryPlace, string> = {
@@ -194,6 +200,8 @@ export function consultationLineOf(
   context: {
     request: Pick<MaterialRequest, "presumed_material" | "material_confirmed">;
     supplierSku: string | null;
+    /** The usual packaging of the line's article, when it has one. */
+    usualPackaging?: MaterialRequestUsualPackaging | null;
   },
 ): ConsultationLine {
   const own = text(line.material);
@@ -210,5 +218,6 @@ export function consultationLineOf(
     originalText: text(line.original_text),
     reference: text(line.reference),
     supplierSku: text(context.supplierSku),
+    ...(context.usualPackaging ? { usualPackaging: context.usualPackaging } : {}),
   };
 }

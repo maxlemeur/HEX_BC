@@ -34676,6 +34676,34 @@
                         "string",
                         "null"
                       ]
+                    },
+                    "usual_packaging": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "label": {
+                              "type": "string"
+                            },
+                            "quantity": {
+                              "type": "number",
+                              "exclusiveMinimum": 0
+                            },
+                            "unit": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "label",
+                            "quantity",
+                            "unit"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
                     }
                   },
                   "required": [
@@ -34688,7 +34716,8 @@
                     "unit",
                     "catalogue_status",
                     "created_from_material_request",
-                    "supply_type_name"
+                    "supply_type_name",
+                    "usual_packaging"
                   ],
                   "additionalProperties": false
                 }
@@ -35259,6 +35288,34 @@
                         "string",
                         "null"
                       ]
+                    },
+                    "usual_packaging": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "label": {
+                              "type": "string"
+                            },
+                            "quantity": {
+                              "type": "number",
+                              "exclusiveMinimum": 0
+                            },
+                            "unit": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "label",
+                            "quantity",
+                            "unit"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
                     }
                   },
                   "required": [
@@ -35271,7 +35328,8 @@
                     "unit",
                     "catalogue_status",
                     "created_from_material_request",
-                    "supply_type_name"
+                    "supply_type_name",
+                    "usual_packaging"
                   ],
                   "additionalProperties": false
                 }
@@ -35697,6 +35755,34 @@
                               "string",
                               "null"
                             ]
+                          },
+                          "usual_packaging": {
+                            "anyOf": [
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "label": {
+                                    "type": "string"
+                                  },
+                                  "quantity": {
+                                    "type": "number",
+                                    "exclusiveMinimum": 0
+                                  },
+                                  "unit": {
+                                    "type": "string"
+                                  }
+                                },
+                                "required": [
+                                  "label",
+                                  "quantity",
+                                  "unit"
+                                ],
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
                           }
                         },
                         "required": [
@@ -35709,7 +35795,8 @@
                           "unit",
                           "catalogue_status",
                           "created_from_material_request",
-                          "supply_type_name"
+                          "supply_type_name",
+                          "usual_packaging"
                         ],
                         "additionalProperties": false
                       },
@@ -37784,6 +37871,34 @@
                       "string",
                       "null"
                     ]
+                  },
+                  "usual_packaging": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "label": {
+                            "type": "string"
+                          },
+                          "quantity": {
+                            "type": "number",
+                            "exclusiveMinimum": 0
+                          },
+                          "unit": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "label",
+                          "quantity",
+                          "unit"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
                   }
                 },
                 "required": [
@@ -37796,7 +37911,8 @@
                   "unit",
                   "catalogue_status",
                   "created_from_material_request",
-                  "supply_type_name"
+                  "supply_type_name",
+                  "usual_packaging"
                 ],
                 "additionalProperties": false
               },
@@ -38229,6 +38345,34 @@
                       "string",
                       "null"
                     ]
+                  },
+                  "usual_packaging": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "label": {
+                            "type": "string"
+                          },
+                          "quantity": {
+                            "type": "number",
+                            "exclusiveMinimum": 0
+                          },
+                          "unit": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "label",
+                          "quantity",
+                          "unit"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
                   }
                 },
                 "required": [
@@ -38241,7 +38385,8 @@
                   "unit",
                   "catalogue_status",
                   "created_from_material_request",
-                  "supply_type_name"
+                  "supply_type_name",
+                  "usual_packaging"
                 ],
                 "additionalProperties": false
               },
@@ -38593,6 +38738,34 @@
                             "string",
                             "null"
                           ]
+                        },
+                        "usual_packaging": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "label": {
+                                  "type": "string"
+                                },
+                                "quantity": {
+                                  "type": "number",
+                                  "exclusiveMinimum": 0
+                                },
+                                "unit": {
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "label",
+                                "quantity",
+                                "unit"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
                         }
                       },
                       "required": [
@@ -38605,7 +38778,8 @@
                         "unit",
                         "catalogue_status",
                         "created_from_material_request",
-                        "supply_type_name"
+                        "supply_type_name",
+                        "usual_packaging"
                       ],
                       "additionalProperties": false
                     },

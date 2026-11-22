@@ -511,6 +511,8 @@ function SupplierGroupCard({
       consultationLineOf(line, {
         request: data.request,
         supplierSku: withReferences ? (editor.supplierReferenceOf(line.id)?.supplier_sku ?? null) : null,
+        // TI-690: what a template's {conditionnement} writes, in both variants (it names no reference).
+        usualPackaging: line.product_id ? (editor.articles[line.product_id]?.usual_packaging ?? null) : null,
       }),
     );
   const message = (withReferences: boolean, supplierName: string) =>

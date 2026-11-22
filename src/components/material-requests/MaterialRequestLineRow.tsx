@@ -4,6 +4,7 @@ import { useState, type ReactNode } from "react";
 import { Check, Trash2, TriangleAlert } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { describePackaging, packagingUnitLabel } from "@/lib/catalogue/packagings";
 import { effectiveLineMaterial, type MaterialRequestLineAlert } from "@/lib/material-requests/alerts";
 import type { MaterialRequestOrderLink, MaterialRequestSupplierOption } from "@/lib/material-requests/client";
 import {
@@ -17,6 +18,12 @@ import {
   type MaterialRequestLineInput,
 } from "@/lib/material-requests/contracts";
 import type { LineSupplierProposal, LineSupplierReference } from "@/lib/material-requests/supplier-contracts";
+import {
+  applicableUsualPackaging,
+  packagingRounding,
+  pluralPackagingLabel,
+} from "@/lib/material-requests/usual-packaging";
+import { formatDecimalInput } from "@/lib/numeric-input/parsers";
 import { cn } from "@/lib/utils";
 
 import {
@@ -272,6 +279,88 @@ function Field({
           ))}
           {hint}
         </div>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * TI-690 (owner, 2026-11-22): the usual packaging of the line's article, beside its quantity, when the line is in the
+ * packaging's unit, and the rounding up to whole packagings, which only the office's click writes (the line's
+ * quantity, as typed by hand: same rights, locks and holds). `locked`: the quantity cannot change here (a priced or
+ * ordered line), so nothing is offered. The quantity asked before a rounding is kept in sight, on this screen only,
+ * while the line still holds the rounded one: one click asks for it again.
+ */
+function UsualPackaging({
+  line,
+  article,
+  locked,
+  onSave,
+}: Readonly<{
+  line: MaterialRequestLine;
+  article: MaterialRequestArticleSummary | null;
+  locked: boolean;
+  onSave: (patch: MaterialRequestLineInput) => Promise<SaveResult>;
+}>) {
+  const [roundedFrom, setRoundedFrom] = useState<{ from: number; to: number } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const packaging = applicableUsualPackaging(line, article?.usual_packaging);
+  if (!packaging) return null;
+  const n = line.position;
+  const unit = packagingUnitLabel(packaging.unit);
+  const amount = (quantity: number) => `${formatDecimalInput(quantity)}${unit ? ` ${unit}` : ""}`;
+  const rounding = locked ? null : packagingRounding(line.quantity, packaging);
+  const undo = !locked && roundedFrom && line.quantity === roundedFrom.to ? roundedFrom : null;
+  const write = async (quantity: number, after: (ok: boolean) => void) => {
+    setBusy(true);
+    const result = await onSave({ quantity });
+    setBusy(false);
+    after(result.ok);
+  };
+  const roundText = rounding
+    ? `Arrondir à ${rounding.count} ${pluralPackagingLabel(packaging.label, rounding.count)} (${amount(rounding.quantity)})`
+    : null;
+
+  return (
+    <div
+      className={cn(
+        "flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground sheet:pb-1.5",
+        CARD.asked,
+        CELL_PAD,
+      )}
+    >
+      <span>Usuel : {describePackaging(packaging, packaging.unit)}</span>
+      {rounding && roundText ? (
+        <Button
+          type="button"
+          variant="link"
+          size="xs"
+          disabled={busy}
+          aria-label={`${roundText}, ligne ${n}`}
+          onClick={() => {
+            const from = line.quantity;
+            void write(rounding.quantity, (ok) => {
+              if (ok && from !== null) setRoundedFrom({ from, to: rounding.quantity });
+            });
+          }}
+        >
+          {roundText}
+        </Button>
+      ) : null}
+      {undo ? (
+        <>
+          <span>· {amount(undo.from)} demandés avant l’arrondi</span>
+          <Button
+            type="button"
+            variant="link"
+            size="xs"
+            disabled={busy}
+            aria-label={`Revenir à ${amount(undo.from)}, ligne ${n}`}
+            onClick={() => void write(undo.from, (ok) => ok && setRoundedFrom(null))}
+          >
+            Revenir à {amount(undo.from)}
+          </Button>
+        </>
       ) : null}
     </div>
   );
@@ -589,12 +678,23 @@ export function MaterialRequestLineRow(props: LineRowProps) {
         </div>
       </div>
 
-      {/* What an action of the line could not do is said whether the line is folded or not. */}
-      {error ? (
-        <p role="alert" className={cn("text-xs font-medium text-danger sheet:pb-2", CARD.failure, CELL_PAD, AT.failure)}>
-          {error}
-        </p>
-      ) : null}
+      {/*
+        Under the fields in the sheet, whether the line is folded or not: the usual packaging of its article (in a card,
+        right under the quantity), then what an action of the line could not do.
+      */}
+      <div className={cn("max-sheet:contents sheet:min-w-0", AT.failure)}>
+        <UsualPackaging
+          line={line}
+          article={props.article}
+          locked={line.price_quote_id !== null || Boolean(props.ordered)}
+          onSave={(patch) => act(() => onSave(patch))}
+        />
+        {error ? (
+          <p role="alert" className={cn("text-xs font-medium text-danger sheet:pb-2", CARD.failure, CELL_PAD)}>
+            {error}
+          </p>
+        ) : null}
+      </div>
 
       <Sourcing {...props} expanded={moreOpen} />
       {/* Last in the line, as in its last column: the keyboard reaches the state and its actions after the fields. */}

@@ -75,6 +75,9 @@ const euros = (cents: number) => formatEUR(cents).replace(/\s/g, " ");
  * 26. where the templates are not installed yet (migration not applied), the devis step offers no message at all;
  * 27. « Modifier mon modèle » leaves the page and drops the retouches without a word;
  * 28. the competition warning is not tied to the text it is about, or misses a reference retyped « NA 4471 ».
+ * 29. (TI-690/TI-691, owner 2026-11-22) a template's {conditionnement} does not write the whole usual packagings of a
+ *     line's article, in the usual supplier's message and a competitor's alike, or writes something for a line whose
+ *     article has no usual packaging.
  */
 
 const { storageFromMock, uploadToSignedUrlMock } = vi.hoisted(() => ({
@@ -191,6 +194,7 @@ function article(partial: Partial<MaterialRequestArticleSummary> = {}): Material
     catalogue_status: "validated",
     created_from_material_request: false,
     supply_type_name: "Inox",
+    usual_packaging: null,
     ...partial,
   };
 }
@@ -272,13 +276,18 @@ function mockApi(routes: Record<string, Route>) {
   );
 }
 
-function detail(options: { lines: MaterialRequestLine[]; request?: Partial<MaterialRequest>; canWrite?: boolean }) {
+function detail(options: {
+  lines: MaterialRequestLine[];
+  request?: Partial<MaterialRequest>;
+  canWrite?: boolean;
+  firstArticle?: Partial<MaterialRequestArticleSummary>;
+}) {
   return {
     request: request(options.request),
     technician: null,
     files: [],
     lines: options.lines,
-    articles: { [ARTICLE_1]: article(), [ARTICLE_2]: article({ id: ARTICLE_2, reference: "TE-I316-50", designation: "Té égal inox 316L DN 50", product_type: "Té égal" }) },
+    articles: { [ARTICLE_1]: article(options.firstArticle), [ARTICLE_2]: article({ id: ARTICLE_2, reference: "TE-I316-50", designation: "Té égal inox 316L DN 50", product_type: "Té égal" }) },
     canWrite: options.canWrite ?? true,
     materialOptions: ["Inox 316L"],
     supplierOptions: SUPPLIERS,
@@ -1657,6 +1666,23 @@ describe("the member's message template and the retouch before copying (TI-691)"
       with_references: false,
       message: "Bonjour Comptoir Bêta :\n- 20 u Coude 90°, DN 50, Inox 316L (comme le 471205 et na-4471)",
     });
+  });
+
+  it("writes the usual packagings of a line's article where the template asks for {conditionnement} (29)", async () => {
+    const user = await openEditor({
+      [TEMPLATES]: { data: { personal: { message_template: "Bonjour {fournisseur},\n{lignes}", line_template: "{ligne}. {quantité} {désignation}[ ({conditionnement})]" }, company: null, can_edit_company: false, available: true } },
+      [`GET ${BASE}`]: { data: detail({ lines: [line(), line(TEE)], firstArticle: { usual_packaging: { label: "Carton", quantity: 10, unit: "u" } } }) },
+      [`GET ${PROPOSALS}`]: references({ [LINE_A]: null, [LINE_B]: null }),
+      [`GET ${QUOTES}`]: { data: { items: [] } },
+    });
+    expect(await screen.findByRole("textbox", { name: "Message pour Négoce Alpha" })).toHaveValue(
+      ["Bonjour Négoce Alpha,", "1. 20 u Coude 90°, DN 50, Inox 316L (2 cartons de 10 u)", "2. 4 u Té égal, DN 50, Inox 316L"].join("\n"),
+    );
+    await user.click(screen.getByRole("button", { name: "Mettre en concurrence les lignes de Négoce Alpha" }));
+    await addCompetitor(user, "Comptoir Bêta");
+    expect(screen.getByRole("textbox", { name: "Message pour Comptoir Bêta" })).toHaveValue(
+      ["Bonjour Comptoir Bêta,", "1. 20 u Coude 90°, DN 50, Inox 316L (2 cartons de 10 u)", "2. 4 u Té égal, DN 50, Inox 316L"].join("\n"),
+    );
   });
 
   it("refuses to copy or record an empty text and says why; the generated text comes back (21, 22)", async () => {

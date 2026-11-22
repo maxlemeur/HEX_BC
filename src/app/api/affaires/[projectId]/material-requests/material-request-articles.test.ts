@@ -59,6 +59,8 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
  * 16. (TI-691, the owner's walk of 2026-11-14) a link teaches the technician's words to the whole tenant
  *     without the office choosing it: a name is learned when the link does not ask for it (`learn_alias`
  *     absent or false, as the bulk link sends it), or the choice is refused by the contract.
+ * 18. (TI-690, the owner's request of 2026-11-22) the detail of a request, a link or a proposal does not carry the
+ *     usual packaging of each linked article, carries one that is not marked usual, or one of another tenant.
  */
 
 const TENANT = "10000000-0000-4000-8000-000000000001";
@@ -123,6 +125,13 @@ function article(id: string, extra: FakeRow = {}): FakeRow {
   };
 }
 
+function packaging(id: string, productId: string, extra: FakeRow = {}): FakeRow {
+  return {
+    id, tenant_id: TENANT, product_id: productId, label: "Carton", label_key: "carton", quantity: 10, unit: "u",
+    is_usual: false, position: 1, created_at: "2026-10-01T09:00:00.000Z", updated_at: "2026-10-01T09:00:00.000Z", ...extra,
+  };
+}
+
 /** The flange line's own words, remembered when it was linked. */
 const FLANGE_LINE_WORDING = {
   product_type: "bride collerette", material: null, material_precision: null, dimension: "DN50", no_dimension: false,
@@ -166,6 +175,11 @@ function seed(
       supplier_catalog_items: [
         { id: "b0000000-0000-4000-8000-000000000001", tenant_id: TENANT, product_id: FLANGE, supplier_id: "40000000-0000-4000-8000-000000000001", supplier_sku: "BP-5050", is_active: true, reference_needs_review: false },
         { id: "b0000000-0000-4000-8000-000000000009", tenant_id: OTHER_TENANT, product_id: FOREIGN_ARTICLE, supplier_id: "40000000-0000-4000-8000-000000000009", supplier_sku: "CX-9050", is_active: true, reference_needs_review: false },
+      ],
+      product_packagings: [
+        packaging("d0000000-0000-4000-8000-000000000001", FLANGE, { label: "Lot", quantity: 5, is_usual: false, position: 1 }),
+        packaging("d0000000-0000-4000-8000-000000000002", FLANGE, { label: "Carton", quantity: 10, is_usual: true, position: 2 }),
+        packaging("d0000000-0000-4000-8000-000000000003", ELBOW, { label: "Sachet", quantity: 2.5, is_usual: true }),
       ],
       product_aliases: [
         { id: "c0000000-0000-4000-8000-000000000001", tenant_id: TENANT, product_id: TEE, alias: "piquage", alias_key: "piquage", created_by: OWNER, created_at: "2026-11-01T09:00:00.000Z" },
@@ -317,6 +331,7 @@ describe("linking a line to an article", () => {
       id: ELBOW, reference: "ART-000101", designation: "Coude 90° inox 304L DN 50", product_type: "Coude 90°",
       material: "Inox 304L", dimensions: "DN 50", unit: "u", catalogue_status: "validated",
       created_from_material_request: false, supply_type_name: "Raccords",
+      usual_packaging: { label: "Sachet", quantity: 2.5, unit: "u" },
     } satisfies MaterialRequestArticleSummary);
     expect(result.alias_learned).toBe("coude 90");
     expect(fake.tables.product_aliases.filter((alias) => alias.product_id === ELBOW)).toEqual([
@@ -568,6 +583,45 @@ describe("linking a line to an article", () => {
     expect(Object.keys(articles)).toEqual([FLANGE]);
     expect(articles[FLANGE]).toMatchObject({ designation: "Bride plate inox DN 50", supply_type_name: "Raccords" });
     expect(lines.find((row) => row.id === LINE_LINKED)).toMatchObject({ product_id: FLANGE, product_match: "manual" });
+  });
+});
+
+describe("the usual packaging of a line's article (TI-690)", () => {
+  it("the detail of a request gives the usual packaging of each linked article, and only the usual one", async () => {
+    const fake = seed(OWNER, "engineer");
+    const detail = await call(requestRoute.GET, "GET", inRequest);
+    expect(detail.status).toBe(200);
+    const { articles } = detail.data as { articles: Record<string, MaterialRequestArticleSummary> };
+    expect(articles[FLANGE].usual_packaging).toEqual({ label: "Carton", quantity: 10, unit: "u" });
+    expect(fake.reads.filter((table) => table === "product_packagings")).toHaveLength(1);
+  });
+
+  it("gives none for an article without a usual packaging, and never another tenant's", async () => {
+    seed(OWNER, "engineer", {
+      tables: {
+        product_packagings: [
+          packaging("d0000000-0000-4000-8000-000000000001", FLANGE, { label: "Lot", quantity: 5, is_usual: false }),
+          packaging("d0000000-0000-4000-8000-000000000009", FLANGE, { tenant_id: OTHER_TENANT, label: "Palette", quantity: 40, is_usual: true }),
+        ],
+      },
+    });
+    const detail = await call(requestRoute.GET, "GET", inRequest);
+    const { articles } = detail.data as { articles: Record<string, MaterialRequestArticleSummary> };
+    expect(articles[FLANGE].usual_packaging).toBeNull();
+  });
+
+  it("a link answers the article with its usual packaging, and so do the proposals", async () => {
+    seed(OWNER, "engineer");
+    const linked = await call(lineArticleRoute.PUT, "PUT", onLine(LINE_TEE), { product_id: ELBOW, via: "manual" });
+    expect(linked.status).toBe(200);
+    expect((linked.data as MaterialRequestLineArticleResult).article.usual_packaging).toEqual({ label: "Sachet", quantity: 2.5, unit: "u" });
+
+    const proposed = await call(requestCandidatesRoute.GET, "GET", inRequest);
+    const { lines } = proposed.data as { lines: Record<string, MaterialRequestArticleCandidate[]> };
+    const elbow = lines[LINE_ELBOW].find((candidate) => candidate.article.id === ELBOW);
+    expect(elbow?.article.usual_packaging).toEqual({ label: "Sachet", quantity: 2.5, unit: "u" });
+    const galvanized = lines[LINE_GALVANIZED].find((candidate) => candidate.article.id === GALVANIZED_ELBOW);
+    expect(galvanized?.article.usual_packaging).toBeNull();
   });
 });
 

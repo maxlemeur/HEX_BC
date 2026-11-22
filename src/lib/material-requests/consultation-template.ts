@@ -7,6 +7,7 @@ import {
   consultationText,
   type ConsultationLine,
 } from "./consultation-message";
+import { usualPackagingConditionnement } from "./usual-packaging";
 
 /**
  * A member's own layout of the consultation message (TI-691: « paramétrer le texte pour l’envoi fournisseur,
@@ -15,8 +16,10 @@ import {
  *
  * Syntax, the same for both templates:
  *  - `{champ}` writes a field. Message fields: {affaire}, {fournisseur}, {lignes}, {livraison}. Line fields, written
- *    for each line in {lignes}: {quantité} (with its unit), {désignation}, {référence}, {ligne} (its number). With or
- *    without accents, in any case. Anything else between braces is left as typed (the editor flags it).
+ *    for each line in {lignes}: {quantité} (with its unit), {désignation}, {référence}, {ligne} (its number),
+ *    {conditionnement} (TI-690: « 3 barres de 6 ml » when the quantity is a whole number of its article's usual
+ *    packaging, in that packaging's unit; empty otherwise, see usual-packaging.ts). With or without accents, in any
+ *    case. Anything else between braces is left as typed (the editor flags it).
  *  - `[ … ]` on one line is an optional part: it disappears when one of its fields is empty, else it is written
  *    without its brackets (« [ — réf. {référence}] »). Brackets around no known field are left as typed.
  *  - A line of the template whose fields outside brackets are all empty disappears (« {livraison} » when the place is
@@ -26,7 +29,8 @@ import {
  *
  * The competition rule holds whatever the template says: without references, {référence} is always empty and
  * {désignation} is the reference-free designation (« Article à préciser (ligne N) » when nothing else names the
- * article). Only what the member typed in the template can say anything else. With references, {désignation} is
+ * article). Only what the member typed in the template can say anything else. {conditionnement} names no reference:
+ * it is written in both variants. With references, {désignation} is
  * the short name only on a line that actually writes its reference (today's rule: the reference names the article):
  * {référence} outside brackets, or in an optional part whose fields are all filled on that line. Otherwise it is the
  * full designation, size and material included.
@@ -51,7 +55,7 @@ export const CONSULTATION_MESSAGE_TEMPLATE_MAX = 2000;
 export const CONSULTATION_LINE_TEMPLATE_MAX = 300;
 
 export const CONSULTATION_MESSAGE_FIELDS = ["affaire", "fournisseur", "lignes", "livraison"] as const;
-export const CONSULTATION_LINE_FIELDS = ["quantité", "désignation", "référence", "ligne"] as const;
+export const CONSULTATION_LINE_FIELDS = ["quantité", "désignation", "référence", "ligne", "conditionnement"] as const;
 export type ConsultationMessageField = (typeof CONSULTATION_MESSAGE_FIELDS)[number];
 export type ConsultationLineField = (typeof CONSULTATION_LINE_FIELDS)[number];
 type TemplateKind = "message" | "line";
@@ -192,6 +196,7 @@ export function renderConsultationMessage(input: {
           ["désignation", parts.designation],
           ["référence", parts.reference ?? ""],
           ["ligne", String(line.position)],
+          ["conditionnement", usualPackagingConditionnement(line, line.usualPackaging) ?? ""],
         ]);
       };
       // The full designation first; the short one only where this very line writes the reference.
