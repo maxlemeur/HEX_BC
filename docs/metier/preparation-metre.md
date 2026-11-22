@@ -792,7 +792,10 @@ plan (voir le dernier point). La base en décide (migration
 - **Une demande, un job par plan.** Le même scellement (préparation, empreintes,
   manifeste) est admis comme une unité par plan retenu, chacune avec son job,
   dans la transaction qui scelle la demande. Un plan sans empreinte est refusé au
-  scellement, comme son travailleur le refuserait. Un PDF de plusieurs feuilles ou
+  scellement, comme son travailleur le refuserait. L’ordre de métré scellé est
+  celui des deux formats (lot 4) : l’extraction libre, ou, une fois le second ordre
+  activé, la liste des postes de l’affaire dans sa dernière révision, qu’une
+  commande par plan scelle comme une analyse groupée. Un PDF de plusieurs feuilles ou
   niveaux reste une unité. Chaque job atteste la projection de son unité : son
   plan, ses pages d’origine retenues (les pages 2 et 7 restent 2 et 7 dans le
   résultat ; le travailleur les lit dans l’ordre du manifeste, croissant, quel que

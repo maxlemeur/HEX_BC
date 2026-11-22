@@ -30,6 +30,7 @@ import { fictionalPlanPdf } from "@/lib/takeoff/preparation.test-utils";
 import { buildDeducedTakeoffPreparation } from "@/lib/takeoff/preparation-from-dossier";
 import { toPreparationIntakeSource } from "@/lib/takeoff/preparation-sources";
 import { assertConfirmedTakeoffPreparation, loadPreparation } from "@/lib/takeoff/preparation-server";
+import { sealedMeasuringOrder } from "@/lib/takeoff/item-list-seal-server";
 
 // The automatic start on the authorised Mac: the loop that evaluates and admits a request has no member's session (a
 // request would fail here: next/headers throws), reads the payer's subscription on this Mac, and names what stops it.
@@ -62,6 +63,12 @@ vi.mock("@/lib/takeoff/job-read-server", async (importOriginal) => ({
 vi.mock("@/lib/ai/chatgpt-takeoff", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/ai/chatgpt-takeoff")>()), getConfirmedTakeoffExecutionOwner: vi.fn() }));
 vi.mock("@/lib/pdf/page-render-server", () => ({ renderPdfPages: vi.fn().mockResolvedValue({ pages: [{ regionText: "" }] }) }));
+// The measuring order a command seals (lot 4): the real reading (the second order not active, the free extraction) unless a
+// case answers otherwise.
+vi.mock("@/lib/takeoff/item-list-seal-server", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/takeoff/item-list-seal-server")>();
+  return { ...actual, sealedMeasuringOrder: vi.fn(actual.sealedMeasuringOrder) };
+});
 // The member's own subscription and the plan set's source, as a manual launch reads them: real unless a test names them.
 vi.mock("@/lib/ai/chatgpt-takeoff", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/ai/chatgpt-takeoff")>();
@@ -976,6 +983,22 @@ describe("launchTakeoffRelaunch", () => {
   });
 
   // Counterexample: an affaire without any analysis may start its first one by a command (« initial »).
+  // A command of one analysis per plan seals the measuring order as a grouped one does (lot 4, #447): the affaire's list of
+  // items once the second order is active, or a refusal while that list is to prepare; the free extraction before it.
+  it("seals the list of items in a command of plans once the second order is active, and refuses it while the list is to prepare", async () => {
+    const list = { kind: "item_list" as const, version: 2 as const, list: { revision_id: "aaaaaaaa-0000-4000-8000-0000000000f1",
+      revision: 3, content_sha256: "e".repeat(64), item_count: 12 } };
+    vi.mocked(sealedMeasuringOrder).mockResolvedValueOnce({ order: list });
+    const sealed = planCommand({ a: 3, b: 3 });
+    await expect(sealed.run([PLAN_FILE])).resolves.toMatchObject({ outcome: "admitted" });
+    expect(sealed.launched[0].p_manifest).toMatchObject({ format_version: 2, order: list });
+    vi.mocked(sealedMeasuringOrder).mockResolvedValueOnce({ blocked: "ITEM_LIST_TO_PREPARE" });
+    const blocked = planCommand({ a: 3, b: 3 });
+    await expect(blocked.run([PLAN_FILE])).rejects.toMatchObject({ status: 409,
+      message: "La liste des postes est à préparer : importez ou choisissez la DPGF de l’affaire, puis relancez." });
+    expect(blocked.launched).toEqual([]);
+  });
+
   it("lets a command start the first analysis of an affaire that has none", async () => {
     const { run, launched } = planCommand({ a: 3, b: 3 }, null, undefined, null);
     expect(await run([PLAN_FILE])).toMatchObject({ outcome: "admitted" });
