@@ -19,7 +19,7 @@ export type TenantMembershipRow = Pick<
 >;
 export type ImportRow = Pick<
   Database["public"]["Tables"]["dpgf_imports"]["Row"],
-  "id" | "tenant_id" | "user_id" | "project_id" | "filename"
+  "id" | "tenant_id" | "user_id" | "project_id" | "filename" | "row_count"
 >;
 export type VersionComputationContext = {
   version_id: string | null;
@@ -115,7 +115,7 @@ export async function getImportOrThrow(input: {
 }): Promise<ImportRow> {
   let query = input.supabase
     .from("dpgf_imports")
-    .select("id, tenant_id, user_id, project_id, filename")
+    .select("id, tenant_id, user_id, project_id, filename, row_count")
     .eq("id", input.importId)
     .eq("tenant_id", input.tenantId);
 
@@ -264,14 +264,14 @@ export async function fetchMappedRowsForImport(input: {
   tenantId: string;
 }) {
   const pageSize = 500;
-  const rows: Array<{ id: string; payload: Json }> = [];
+  const rows: Array<{ id: string; raw_row_id: string | null; status: string; payload: Json }> = [];
   const ids = new Set<string>();
   let expectedCount: number | null = null;
 
   for (let offset = 0; ; offset += pageSize) {
     const { data, error, count } = await input.supabase
       .from("dpgf_rows_mapped")
-      .select("id, payload", { count: "exact" })
+      .select("id, raw_row_id, status, payload", { count: "exact" })
       .eq("tenant_id", input.tenantId)
       .eq("import_id", input.importId)
       .order("created_at", { ascending: true })
@@ -292,7 +292,7 @@ export async function fetchMappedRowsForImport(input: {
         throw new Error("Les lignes mappées ont changé. Rechargez l'import avant de continuer.");
       }
       ids.add(row.id);
-      rows.push({ id: row.id, payload: row.payload });
+      rows.push({ id: row.id, raw_row_id: row.raw_row_id, status: row.status, payload: row.payload });
     }
     if (batch.length < pageSize) {
       if (rows.length !== expectedCount) {
@@ -303,26 +303,13 @@ export async function fetchMappedRowsForImport(input: {
   }
 }
 
-export async function fetchLatestMappingId(input: {
-  supabase: Supabase;
-  importId: string;
-  tenantId: string;
-}): Promise<string | null> {
-  const { data, error } = await input.supabase
-    .from("dpgf_mappings")
-    .select("id")
-    .eq("tenant_id", input.tenantId)
-    .eq("import_id", input.importId)
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
+/** What the member reads when the rows of the import are no longer those of the mapping they reviewed. */
+export const IMPORT_MAPPING_CHANGED_MESSAGE =
+  "Le mappage a changé dans un autre onglet : rechargez-le et vérifiez-le avant de confirmer.";
 
-  if (error) {
-    throw new Error("Impossible de charger le mapping.");
-  }
-
-  return data?.id ?? null;
-}
+/** What the member reads when a mapping-only confirmation's decisions were not recorded. */
+export const IMPORT_DECISIONS_NOT_RECORDED_MESSAGE =
+  "Le mappage est enregistré, mais pas les choix de structure de l’import : confirmez de nouveau pour les enregistrer.";
 
 export function toRpcImportLines(lines: ValidImportFlowLine[]): RpcImportLinesPayload[] {
   return lines.map((line) => ({

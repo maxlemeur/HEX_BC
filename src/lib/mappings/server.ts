@@ -17,6 +17,7 @@ import {
   readImportRowStructure,
 } from "@/lib/imports/payload";
 import { detectImportProfile } from "@/lib/imports/optima-profile";
+import { readDpgfImportReviewState } from "@/lib/imports/rows-digest-server";
 import { analyzeImportStructure } from "@/lib/imports/structure";
 import {
   isMajorationHeaderWords,
@@ -26,6 +27,7 @@ import {
 import {
   REQUIRED_MAPPING_TARGET_FIELDS,
   filterMappingToSourceColumns,
+  mappingRecordSchema,
   mappingTargetFieldSchema,
   type MappingTargetField,
   type SourceToTargetMapping,
@@ -615,6 +617,11 @@ function extractSampleValues(
   }
 
   return result;
+}
+
+function sameMapping(left: SourceToTargetMapping, right: SourceToTargetMapping) {
+  const entries = Object.entries(left);
+  return entries.length === Object.keys(right).length && entries.every(([source, target]) => right[source] === target);
 }
 
 function applyMappingToPayload(payload: JsonRecord, mapping: SourceToTargetMapping): JsonRecord {
@@ -1488,21 +1495,41 @@ export async function previewImportStructure(input: {
     isTenantAdmin,
   });
 
+  // The import's latest mapping and the digest of its rows, read together, after the access check above.
+  const review = await readDpgfImportReviewState({ tenantId, importId: input.import_id });
   const rows = await loadAllImportRows(supabase, input.import_id, tenantId);
   const sourceColumns = toSourceColumns(rows);
-  const scopedMapping = filterMappingToSourceColumns(input.mapping, sourceColumns);
+  const storedColumns = mappingRecordSchema.safeParse(review.columnMapping);
+  const storedMapping = review.mappingId && storedColumns.success
+    ? filterMappingToSourceColumns(storedColumns.data, sourceColumns) : null;
+  // The mapping the member chose, which the confirmation writes; without one, the import's latest mapping, which the
+  // confirmation keeps.
+  const requestedMapping = filterMappingToSourceColumns(input.mapping, sourceColumns);
+  const scopedMapping = Object.keys(requestedMapping).length > 0 ? requestedMapping : storedMapping ?? {};
+  const { data: importRecord, error: importError } = await supabase.from("dpgf_imports").select("sheet_first_row")
+    .eq("id", input.import_id).eq("tenant_id", tenantId).maybeSingle();
+  if (importError) throw mapSupabaseError(importError, "Impossible de charger l'import.");
 
-  return analyzeImportStructure(
-    rows.map((row) => {
-      const rawRow = asRecord(row.payload) ?? {};
-      return {
-        id: row.id,
-        rowIndex: row.row_index,
-        rawRow,
-        mappedRow: applyMappingToPayload(rawRow, scopedMapping),
-      };
-    })
-  );
+  return {
+    ...analyzeImportStructure(
+      rows.map((row) => {
+        const rawRow = asRecord(row.payload) ?? {};
+        return {
+          id: row.id,
+          rowIndex: row.row_index,
+          rawRow,
+          mappedRow: applyMappingToPayload(rawRow, scopedMapping),
+        };
+      })
+    ),
+    // The worksheet row where the table starts, for the review to name a row as the item list does.
+    sheet_first_row: importRecord?.sheet_first_row ?? null,
+    // The digest of the import's stored rows and the latest mapping, read together: a confirmation that keeps that
+    // mapping records only these rows, under it. The mapping is named only when this structure was built from its
+    // columns (one that writes the member's mapping binds the rows it writes).
+    rows_digest: review.rowsDigest,
+    rows_mapping_id: storedMapping && sameMapping(scopedMapping, storedMapping) ? review.mappingId : null,
+  };
 }
 
 export type MappedImportRowPreview = {
@@ -1878,14 +1905,18 @@ export async function createMapping(input: {
     throw mapSupabaseError(deleteMappedRowsError, "Impossible de rafraîchir les lignes mappées.");
   }
 
+  // The identifiers of the rows this mapping wrote: an import confirmation that writes its mapping records these rows
+  // and no other (another tab's writer may still be inserting its own).
+  const mappedRowIds: string[] = [];
   if (mappedRowsPayload.length > 0) {
     const pageSize = 500;
     try {
       for (let index = 0; index < mappedRowsPayload.length; index += pageSize) {
         const batch = mappedRowsPayload.slice(index, index + pageSize);
-        const { error: insertMappedRowsError } = await supabase
+        const { data: insertedRows, error: insertMappedRowsError } = await supabase
           .from("dpgf_rows_mapped")
-          .insert(batch);
+          .insert(batch)
+          .select("id");
 
         if (insertMappedRowsError) {
           throw mapSupabaseError(
@@ -1893,6 +1924,10 @@ export async function createMapping(input: {
             "Impossible d'enregistrer les lignes mappées."
           );
         }
+        if ((insertedRows ?? []).length !== batch.length) {
+          throw internalError("Impossible d'enregistrer les lignes mappées.");
+        }
+        mappedRowIds.push(...(insertedRows ?? []).map((row) => row.id));
       }
     } catch (insertError) {
       // T-10: Insert failed after delete. Log the error with details for recovery.
@@ -1912,6 +1947,7 @@ export async function createMapping(input: {
     duplicates,
     template: savedTemplate,
     mapped_rows_count: mappedRowsPayload.length,
+    mapped_row_ids: mappedRowIds,
   };
 }
 

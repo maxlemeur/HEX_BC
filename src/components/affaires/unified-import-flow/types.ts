@@ -86,7 +86,15 @@ export type MappingStepResult = {
 };
 
 export type StructureDecision = ImportStructureDecision;
-export type StructurePreviewData = ImportStructurePreview;
+/**
+ * The structure preview of the import (/api/mappings « structure-preview »), with the worksheet row where its table
+ * starts and the digest of the rows the member reviews, which the confirmation sends back (lot 4).
+ */
+export type StructurePreviewData = ImportStructurePreview & {
+  sheet_first_row?: number | null;
+  rows_digest?: string;
+  rows_mapping_id?: string | null;
+};
 
 export type PreviewStepResult = {
   rows: MappingPreviewRow[];

@@ -8,6 +8,7 @@ import {
   ChartLineIcon,
   CoinsIcon,
   FlagIcon,
+  ListChecksIcon,
   MonitorIcon,
   ShieldAlertIcon,
   SlidersHorizontalIcon,
@@ -155,6 +156,13 @@ export default async function AdminHubPage() {
               icon={<ArrowDownUpIcon strokeWidth={1.75} />}
               title="Règles de métrés"
               description="Correspondances utilisées pendant l'analyse des plans"
+            />
+            <HubCard
+              href="/dashboard/admin/takeoff/item-template"
+              className="lg:col-span-2"
+              icon={<ListChecksIcon strokeWidth={1.75} />}
+              title="Gabarit de postes"
+              description="Postes de plomberie proposés aux affaires sans DPGF"
             />
             <HubCard
               href="/dashboard/admin/takeoff/metrics"

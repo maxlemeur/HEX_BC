@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { normalizeRowsFromJson } from "@/lib/imports/parser";
 import { projectDpgfPostes, type MappedDpgfPosteRow } from "./poste-list-dpgf";
 
-const scope = { importId: "import", mappingId: "mapping", columnMapping: {} };
+const scope = { importId: "import", mappingId: "mapping", columnMapping: {}, notesKey: "a".repeat(64) };
 
 function standaloneRow(id: string, rowIndex: number, sourcePage: number | null = null) {
   return { id, rowIndex, sheetName: null, sourceRowNumber: null, sourcePage, tableIndex: null, documentId: null };

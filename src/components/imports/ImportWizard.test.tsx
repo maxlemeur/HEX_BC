@@ -46,6 +46,7 @@ vi.mock("xlsx", () => ({
 }));
 
 import { ImportWizard } from "@/components/imports/ImportWizard";
+import { ImportWizardFileStageSection } from "@/components/imports/ImportWizardFileStageSection";
 
 function createFlowState(overrides?: Partial<{
   imports: ImportListItem[];
@@ -119,7 +120,7 @@ describe("ImportWizard", () => {
 
     await waitFor(
       () => {
-        expect(screen.getByText(/ligne 2/i)).toBeInTheDocument();
+        expect(screen.getByText(/ligne du tableau 2/i)).toBeInTheDocument();
       },
       { timeout: 3000 }
     );
@@ -168,7 +169,7 @@ describe("ImportWizard", () => {
 
     await waitFor(
       () => {
-        expect(screen.getByText(/ligne 2/i)).toBeInTheDocument();
+        expect(screen.getByText(/ligne du tableau 2/i)).toBeInTheDocument();
       },
       { timeout: 3000 }
     );
@@ -184,5 +185,24 @@ describe("ImportWizard", () => {
         screen.getByRole("link", { name: /mapper les colonnes/i })
       ).toHaveAttribute("href", "/dashboard/mappings?import_id=import-2");
     });
+  });
+});
+
+describe("the header row of a workbook", () => {
+  it("numbers it as the item list and the structure review do: the row of the table read", () => {
+    const noop = () => undefined;
+    render(
+      <ImportWizardFileStageSection
+        approvedPdfTables={[]} clearSelectedFile={noop} detectedHeaderRow={null} detectedHeaders={[]}
+        fileInputRef={{ current: null }} fileStage="header_needed" formatError={null} handleDragLeave={noop}
+        handleDragOver={noop} handleDrop={noop} handleFileSelection={noop} handleFormSubmit={async () => undefined}
+        handleHeaderRowInputChange={noop} handlePdfReviewSubmit={async () => undefined} handleTogglePdfTable={noop}
+        headerRowError={null} headerRowInput="" isDragOver={false} isSubmitting={false} lastMode={null} modeMessage={null}
+        pdfReview={null} pdfReviewError={null} selectedFile={new File(["x"], "dpgf.xlsx")} submitError={null}
+        workerError={null}
+      />,
+    );
+    expect(screen.getByLabelText("Ligne d’en-tête (ligne du tableau)")).toBeInTheDocument();
+    expect(screen.getByText(/numéro de la ligne du tableau qui contient les noms de colonnes/)).toBeInTheDocument();
   });
 });

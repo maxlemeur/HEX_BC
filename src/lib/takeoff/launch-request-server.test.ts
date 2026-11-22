@@ -151,6 +151,8 @@ function dossier(input: { classification?: string; copy?: "same" | "older" | "le
       record_takeoff_launch_evaluation: (args) => { recorded.push(args); return { data: "blocked", error: null }; },
       record_takeoff_launch_evaluation_failure: () => ({ data: "evaluating", error: null }),
       takeoff_plan_dispatch_is_active: () => ({ data: input.perPlan === true, error: null }),
+      // Lot 4: the second measuring order is not activated; the request seals the free extraction, as before.
+      takeoff_item_list_order_is_active: () => ({ data: false, error: null }),
       admit_takeoff_launch_request: (args) => {
         admitted.push(args);
         const job = (args as { p_job: { id: string } | Array<{ id: string }> }).p_job;
@@ -651,6 +653,7 @@ function gesture(input: { launchActive?: boolean; reply?: Record<string, unknown
   const row = { request_id: REQUEST, state: "evaluating", reason_code: null, payer_id: PAYER, ...input.reply };
   const fake = createSupabaseFake({ rpc: {
     takeoff_launch_is_active: () => ({ data: input.launchActive !== false, error: null }),
+    takeoff_item_list_order_is_active: () => ({ data: false, error: null }),
     // The one payer rule (the database's): the member of `member()` may pay unless a reader.
     takeoff_payer_may_launch: (args) => ({ data: (args as { p_user_id: string }).p_user_id === PAYER && input.mayPay !== false, error: null }),
     takeoff_launch_request_action: () => ({ data: input.action ?? "none", error: null }),
@@ -889,6 +892,8 @@ describe("launchTakeoffRelaunch", () => {
       rpc: {
         replay_manual_takeoff_plan_request: () => ({ data: [], error: null }),
         takeoff_plan_dispatch_is_active: () => ({ data: true, error: null }),
+        // Lot 4: the second measuring order is not activated: the free extraction.
+        takeoff_item_list_order_is_active: () => ({ data: false, error: null }),
         read_takeoff_launch_request_units: () => ({ data: previousUnits, error: null }),
         launch_manual_takeoff_plan_request: (args) => {
           launched.push(args as Record<string, unknown>);
@@ -1025,6 +1030,8 @@ describe("launchTakeoffRelaunch", () => {
       takeoff_plan_dispatch_is_active: () => ({ data: false, error: null }),
       // The receipt, read first under either identity of the command: none.
       replay_manual_takeoff_plan_request: () => ({ data: [], error: null }),
+      // Lot 4: the command reads whether the second measuring order is active (it is not: the free extraction).
+      takeoff_item_list_order_is_active: () => ({ data: false, error: null }),
       launch_manual_takeoff_request: () => { calls.push("launch"); return { data: answer.data ?? null, error: answer.error ?? null }; },
     }, tables: {
       // The analysis a relaunch replaces: a grouped one, read for the plans its receipt may name.

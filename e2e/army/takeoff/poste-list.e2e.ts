@@ -1,10 +1,14 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 
+import { createClient } from "@supabase/supabase-js";
 import ExcelJS from "exceljs";
 import { PDFDocument, StandardFonts } from "pdf-lib";
 import * as XLSX from "xlsx";
 
 import { recordEvidence } from "../critical/fixtures";
+import { waitForHydration } from "../critical/hydration-support";
+import { querySql } from "../local/calculation-gate-support";
+import { signUpDedicatedOwner } from "../local/dedicated-owner";
 import { describe, expect, fixtureFile, localClient, nativeTest as test, type NativeUi } from "./native-ui";
 
 const options = { session: "army", trace: "off" as const, tags: ["critical", "local", "import-formats"], timeout: 180_000 };
@@ -108,6 +112,8 @@ async function openImportConfirmation(ui: NativeUi, projectId: string, format: F
     for (const label of ["Bâtiment A", "Bâtiment B"]) {
       await screen.getByRole("combobox", `Type de ${label}`, { exact: true }).selectOption({ value: "section" });
     }
+    // A decision the reading of the rows alone would not take: « Bâtiment B » under « Bâtiment A ».
+    await screen.getByRole("combobox", "Niveau de Bâtiment B", { exact: true }).selectOption({ value: "2" });
   }
   await screen.getByRole("button", "Suivant : Confirmation", { exact: true }).click();
 }
@@ -129,6 +135,9 @@ async function recordConfirmedEstimate(ui: NativeUi, format: Format, file: strin
   expect(lines.map(({ source_metadata }) => source_metadata)).toEqual(lines.map(() =>
     expect.objectContaining({ import_id: stored.mappings[0].import_id, mapped_row_id: expect.any(String) })
   ));
+  // The confirmation that created the estimate recorded its structure decisions in the same transaction.
+  await ui.app.open(`/dashboard/affaires/${projectId}/takeoff?postes=liste`);
+  await expect(screen.getByText("Choix de structure de la confirmation de l’import appliqués.", { exact: true })).toBeVisible();
   await recordEvidence(army, `POSTE-devis-${format}`, { ...stored, estimate: items.data });
 }
 
@@ -140,13 +149,121 @@ describe("Aperçu des postes à mesurer", () => {
     await screen.getByRole("link", "Ouvrir les métrés", { exact: true }).click();
     const table = screen.getByRole("table", "Postes à mesurer", { exact: true });
 
-    await expect(screen.getByText("Gabarit indicatif de plomberie · 23 postes")).toBeVisible();
+    await expect(screen.getByText("Gabarit indicatif de plomberie · 23 postes, non enregistrée", { exact: true })).toBeVisible();
+    await expect(screen.getByText("Gabarit Plomberie · version 1 livrée avec l’application", { exact: true })).toBeVisible();
     for (const family of ["Réseaux", "Appareils sanitaires", "Robinetterie", "Calorifuge"]) {
       await expect(table.getByRole("cell", `Plomberie / ${family}`, { exact: true }).first()).toBeVisible();
     }
+    // Reading the page stores nothing: the operator records the proposed list.
+    const revisions = () => client.from("takeoff_list_revisions").select("revision, cause, item_count")
+      .eq("project_id", projectId).order("revision");
+    expect((await revisions()).data).toEqual([]);
+    // A row is named by its cells: the designation first (« Mitigeur de lavabo » is another row).
+    const lavabo = table.getByRole("row", /^Lavabo Plomberie/);
+    const proposedId = await lavabo.getAttribute("id");
+    await waitForHydration(ui.browser);
+    await screen.getByRole("button", "Enregistrer la liste proposée", { exact: true }).click();
+    await expect(screen.getByText("Liste enregistrée · révision 1 · 23 postes", { exact: false })).toBeVisible();
+    expect(await lavabo.getAttribute("id")).toBe(proposedId);
+
+    // An item added by hand, without quantity or price, filed under « Postes ajoutés ».
+    await screen.getByText("Ajouter un poste", { exact: true }).click();
+    const form = screen.getByRole("form", "Ajouter un poste", { exact: true });
+    await form.getByRole("textbox", "Désignation", { exact: true }).fill("Siphon de sol");
+    await form.getByRole("textbox", "Unité (vide : à préciser)", { exact: true }).fill("u");
+    await form.getByRole("button", "Ajouter le poste", { exact: true }).click();
+    await expect(screen.getByText("Liste enregistrée · révision 2 · 24 postes", { exact: false })).toBeVisible();
+    // The same gesture sent twice (a lost answer, a double click) adds nothing more; another content under its key refuses.
+    const gesture = { expected_revision: 2, intent_key: randomUUID(), label: "Clapet anti-retour", expected_unit: "u" };
+    const first = await ui.request.post(`/api/affaires/${projectId}/takeoff/item-list/items`, { data: gesture });
+    const again = await ui.request.post(`/api/affaires/${projectId}/takeoff/item-list/items`, { data: gesture });
+    expect([first.status(), again.status()]).toEqual([200, 200]);
+    expect((await again.json() as { data: unknown }).data).toEqual({ ...(await first.json() as { data: object }).data, replayed: true });
+    const other = await ui.request.post(`/api/affaires/${projectId}/takeoff/item-list/items`,
+      { data: { ...gesture, label: "Autre poste" }, failOnStatusCode: false });
+    expect(other.status()).toBe(409);
+    // The same definition in another section is another gesture too: its key never returns the first one's receipt.
+    const elsewhere = await ui.request.post(`/api/affaires/${projectId}/takeoff/item-list/items`,
+      { data: { ...gesture, section_of_item_id: proposedId!.replace(/^poste-/, "") }, failOnStatusCode: false });
+    expect(elsewhere.status()).toBe(409);
+    expect((await elsewhere.json() as { error: { code: string } }).error.code).toBe("TAKEOFF_ITEM_LIST_INTENT_CONFLICT");
+    await ui.browser.reload();
+    await expect(screen.getByText("Liste enregistrée · révision 3 · 25 postes", { exact: false })).toBeVisible();
+    const added = table.getByRole("row", /^Siphon de sol /);
+    await expect(added).toContainText("Postes ajoutés");
+    await expect(added).toContainText("Ajouté");
+    const addedId = await added.getAttribute("id");
+    await ui.browser.reload();
+    await expect(added).toHaveCount(1);
+    expect([await lavabo.getAttribute("id"), await added.getAttribute("id")]).toEqual([proposedId, addedId]);
+    expect((await revisions()).data).toEqual([
+      { revision: 1, cause: "initial", item_count: 23 }, { revision: 2, cause: "item_added", item_count: 24 },
+      { revision: 3, cause: "item_added", item_count: 25 },
+    ]);
     const versions = await client.from("estimate_versions").select("id").eq("project_id", projectId);
     expect(versions.data).toEqual([]);
-    await recordEvidence(army, "POSTE-gabarit", { projectId, versions: versions.data, posts: 23 });
+    await recordEvidence(army, "POSTE-gabarit", { projectId, versions: versions.data, posts: 25, ids: [proposedId, addedId] });
+  });
+
+  test("POSTE ne révèle à un directeur aucune note d’un import qu’il ne lit pas", options, async ({ ui }) => {
+    const { app, browser, army } = ui;
+    const notes = "PU négocié 85 € HT";
+    const disclosed = /négocié|85 €/;
+    await app.open("/dashboard/affaires");
+    const admin = await signUpDedicatedOwner(browser, app.baseUrl!, army.runPrefix, { tag: "NOTEA" });
+    const projectId = randomUUID();
+    await querySql(`insert into public.estimate_projects (id, tenant_id, user_id, name)
+      values ('${projectId}', '${admin.tenantId}', '${admin.userId}', '${army.runPrefix} notes d’import');`);
+    // The administrator's direct import, mapped: one line whose notes carry a negotiated price.
+    const created = await ui.request.post("/api/imports", { data: {
+      filename: "notes-fictives.csv", sourceFormat: "csv", projectId,
+      rows: [{ Designation: "Lavabo en céramique", Unite: "u", Qte: "2", Notes: notes }],
+    } });
+    expect(created.status()).toBe(201);
+    const importId = (await created.json() as { data: { id: string } }).data.id;
+    const mapping = await ui.request.post("/api/mappings", { data: { action: "create", import_id: importId,
+      mapping: { Designation: "designation", Unite: "unit", Qte: "quantity", Notes: "notes" } } });
+    expect(mapping.status()).toBe(201);
+    // The notes did reach the import's mapped row: what follows would prove nothing otherwise.
+    expect(await querySql(`select payload #>> '{mapped_row,notes}' from public.dpgf_rows_mapped
+      where import_id = '${importId}';`)).toContain(notes);
+
+    // The administrator records the list the import gives: its entries hold no text of the notes.
+    const read = async () => {
+      const response = await ui.request.get(`/api/affaires/${projectId}/takeoff/item-list`);
+      expect(response.status()).toBe(200);
+      return { text: await response.text(), view: (await response.json() as {
+        data: { proposal: { digest: string; items: Array<{ label: string }> } | null; current: { items: Array<{ label: string }> } | null };
+      }).data };
+    };
+    const proposed = await read();
+    expect(proposed.view.proposal?.items.map(({ label }) => label)).toEqual(["Lavabo en céramique"]);
+    expect(proposed.text).not.toMatch(disclosed);
+    const recorded = await ui.request.post(`/api/affaires/${projectId}/takeoff/item-list/revisions`, { data: {
+      expected_revision: 0, proposal_digest: proposed.view.proposal!.digest, intent_key: randomUUID(), continuities: [],
+    } });
+    expect(recorded.status()).toBe(200);
+    const entries = await querySql(`select coalesce(jsonb_agg(to_jsonb(e) order by e.position), '[]'::jsonb)::text
+      from public.takeoff_list_revision_entries e join public.takeoff_list_revisions r on r.id = e.revision_id
+      where r.project_id = '${projectId}';`);
+    expect(entries.join("\n")).toContain("Lavabo en céramique");
+    expect(entries.join("\n")).not.toMatch(disclosed);
+
+    // A director of the tenant reads the affaire, never the import: the list answers without the notes.
+    const password = `Army-${randomUUID()}-D1!`;
+    const director = await signUpDedicatedOwner(browser, app.baseUrl!, army.runPrefix, { tag: "NOTED", password });
+    await querySql(`update public.tenant_memberships set is_default = false where user_id = '${director.userId}';
+      insert into public.tenant_memberships (tenant_id, user_id, role, is_default)
+      values ('${admin.tenantId}', '${director.userId}', 'director', true);`);
+    const session = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      { auth: { persistSession: false, autoRefreshToken: false } });
+    expect((await session.auth.signInWithPassword({ email: director.email, password })).error).toBeNull();
+    const hidden = await session.from("dpgf_imports").select("id").eq("id", importId);
+    expect(hidden).toMatchObject({ error: null, data: [] });
+    const answer = await read();
+    expect(answer.view.current?.items.map(({ label }) => label)).toEqual(["Lavabo en céramique"]);
+    expect(answer.text).not.toMatch(disclosed);
+    await recordEvidence(army, "POSTE-notes", { projectId, importId, entries: entries.length });
   });
 
   test("POSTE demande de préparer la DPGF importée sans correspondances", options, async ({ ui }) => {
@@ -161,7 +278,7 @@ describe("Aperçu des postes à mesurer", () => {
     expect(upload.ok()).toBe(true);
 
     await app.open(href);
-    await expect(screen.getByText("DPGF à préparer.", { exact: false })).toBeVisible();
+    await expect(screen.getByText("DPGF à préparer : choisissez les colonnes de l’import.", { exact: false })).toBeVisible();
     await expect(screen.getByRole("table", "Postes à mesurer", { exact: true })).toHaveCount(0);
   });
 
@@ -190,20 +307,24 @@ describe("Aperçu des postes à mesurer", () => {
 
       await app.open(href);
       const table = screen.getByRole("table", "Postes à mesurer", { exact: true });
-      await expect(screen.getByText("Liste indicative. Les choix faits à la confirmation de l’import ne sont pas encore reflétés.", { exact: true })).toBeVisible();
-      await expect(screen.getByText("DPGF à préparer.", { exact: false })).toHaveCount(0);
+      // The structure decisions of the confirmation are stored with their proof, and the list applies them.
+      await expect(screen.getByText("Choix de structure de la confirmation de l’import appliqués.", { exact: true })).toBeVisible();
+      await expect(screen.getByText("DPGF à préparer", { exact: false })).toHaveCount(0);
       const homonyms = table.getByRole("row").filter({ hasText: "Lavabo en céramique" });
       await expect(homonyms).toHaveCount(2);
+      // A workbook gives the row Excel shows, then the row of the table: the XLSX table starts on sheet row 3.
       const sourceLocations = format === "pdf" ? ["Page 1", "Page 2"]
         : format === "csv" ? ["Enregistrement importé 2", "Enregistrement importé 4"]
-          : ["Ligne du tableau 3", "Ligne du tableau 5"];
+          : format === "xlsx" ? ["Ligne 5 de la feuille (ligne du tableau 3)", "Ligne 7 de la feuille (ligne du tableau 5)"]
+            : ["Ligne 3 de la feuille (ligne du tableau 3)", "Ligne 5 de la feuille (ligne du tableau 5)"];
       await expect(homonyms.nth(0)).toContainText(sourceLocations[0]);
       await expect(homonyms.nth(1)).toContainText(sourceLocations[1]);
       await expect(homonyms.nth(0).getByRole("cell", "2", { exact: true })).toBeVisible();
       await expect(homonyms.nth(1).getByRole("cell", "3", { exact: true })).toBeVisible();
       if (format !== "pdf") {
-        await expect(homonyms.nth(0)).toContainText("Bâtiment A");
-        await expect(homonyms.nth(1)).toContainText("Bâtiment B");
+        await expect(homonyms.nth(0).getByRole("cell", "Bâtiment A", { exact: true })).toBeVisible();
+        // Read alone, « Bâtiment B » would start a section of its own: the decision of the confirmation nests it.
+        await expect(homonyms.nth(1).getByRole("cell", "Bâtiment A / Bâtiment B", { exact: true })).toBeVisible();
         await expect(table.getByRole("row").filter({ hasText: "Attente de raccordement" })
           .getByRole("cell", "—", { exact: true })).toBeVisible();
       }
@@ -224,6 +345,11 @@ describe("Aperçu des postes à mesurer", () => {
       expect(ids[0]).not.toBe(ids[1]);
       await browser.reload();
       await expect(homonyms).toHaveCount(2);
+      expect([await homonyms.nth(0).getAttribute("id"), await homonyms.nth(1).getAttribute("id")]).toEqual(ids);
+      // Recorded, the list keeps the identities it proposed; the import's own rows stay as they were.
+      await waitForHydration(browser);
+      await screen.getByRole("button", "Enregistrer la liste proposée", { exact: true }).click();
+      await expect(screen.getByText("Liste enregistrée · révision 1", { exact: false })).toBeVisible();
       expect([await homonyms.nth(0).getAttribute("id"), await homonyms.nth(1).getAttribute("id")]).toEqual(ids);
       const versions = await client.from("estimate_versions").select("id").eq("project_id", projectId);
       expect(versions.data).toEqual([]);

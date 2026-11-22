@@ -4,7 +4,7 @@ import { notFound, redirect } from "next/navigation";
 import { JourneyPageHeader } from "@/components/journey/JourneyPage";
 import { NavigationLink as Link } from "@/components/navigation/NavigationFeedback";
 import { buttonVariants } from "@/components/ui/button";
-import { PosteListPreviewPanel } from "@/components/takeoff/PosteListPreviewPanel";
+import { TakeoffItemListPanel } from "@/components/takeoff/TakeoffItemListPanel";
 import TakeoffActivityCenter from "@/components/takeoff/TakeoffActivityCenter";
 import { TakeoffFlowHierarchyPanel } from "@/components/takeoff/TakeoffFlowHierarchyPanel";
 import { getUserContext } from "@/lib/auth/server";
@@ -124,9 +124,11 @@ export default async function AffaireTakeoffPage({ params, searchParams }: Props
               <Link href={`${takeoffZoneHref}#metre`} className={buttonVariants({ variant: "outline", size: "sm" })}>État du métré</Link>
             </p>
           ) : null}
-          {versionsResult.status === "fulfilled" && versions.length === 0 && (
+          {versionsResult.status === "fulfilled" && (
             <Suspense>
-              <PosteListPreviewPanel projectId={projectId} query={query} />
+              {/* The affaire's list of items, with or without an estimate: whole before the first estimate, one line
+                  with a link to it after. */}
+              <TakeoffItemListPanel projectId={projectId} query={query} compact={versions.length > 0} />
             </Suspense>
           )}
         </>

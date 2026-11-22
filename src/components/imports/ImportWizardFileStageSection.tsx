@@ -303,7 +303,7 @@ export function ImportWizardFileStageSection({
                   <p className="text-success">
                     En-tête détectée
                     {detectedHeaderRow && detectedHeaderRow > 1
-                      ? ` (ligne ${detectedHeaderRow})`
+                      ? ` (ligne du tableau ${detectedHeaderRow})`
                       : ""}
                     {" "}— {detectedHeaders.length} colonnes trouvées
                   </p>
@@ -363,8 +363,9 @@ export function ImportWizardFileStageSection({
             >
               <div className="mt-3 border-t border-warning-border pt-3">
                 <p id="header-row-hint" className="mb-2 text-xs text-foreground-secondary">
-                  Indiquez le numéro de la ligne contenant les noms de colonnes, ou laissez vide pour
-                  laisser le serveur détecter.
+                  Indiquez le numéro de la ligne du tableau qui contient les noms de colonnes, compté depuis la
+                  première ligne lue (la première ligne remplie de la feuille), ou laissez vide pour laisser le
+                  serveur détecter.
                 </p>
                 <div className="flex flex-wrap items-end gap-3">
                   <div className="w-32">
@@ -372,7 +373,7 @@ export function ImportWizardFileStageSection({
                       htmlFor="header-row-input"
                       className="mb-1 block text-xs font-medium text-foreground-secondary"
                     >
-                      Ligne d’en-tête
+                      Ligne d’en-tête (ligne du tableau)
                     </label>
                     <Input
                       id="header-row-input"

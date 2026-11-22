@@ -9,10 +9,18 @@ vi.mock("@/lib/supabase/server", () => ({
   createSupabaseServerClient: vi.fn(),
 }));
 
+const serviceRpc = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/supabase/service-role", () => ({
+  createServiceRoleClient: () => ({ rpc: serviceRpc }),
+}));
+
 import { parseImportFile } from "@/lib/imports/parser";
 import { normalizeHeaderValue } from "@/lib/imports/tabular-normalization";
 import { parseWorkbook } from "@/workers/xlsx-parser.worker";
-import { findPerUnitDurationsMappedToLineHours, guessTargetFieldFromColumn, previewMapping, suggestMapping, validateMapping } from "@/lib/mappings/server";
+import {
+  findPerUnitDurationsMappedToLineHours, guessTargetFieldFromColumn, previewImportStructure, previewMapping, suggestMapping,
+  validateMapping,
+} from "@/lib/mappings/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 const USER_ID = "11111111-1111-4111-8111-111111111111";
@@ -796,5 +804,44 @@ describe("2.3 percent-formatted cells through both upload parsers", () => {
     for (const row of [server.rows[0], worker[0]]) {
       expect(Object.fromEntries(Object.keys(expected).map((key) => [key, row?.[key]]))).toEqual(expected);
     }
+  });
+});
+
+// Lot 4: the structure the member reviews and what the confirmation that keeps the latest mapping is bound to come from
+// one read of the database (the latest mapping and the digest of the import's rows).
+describe("the structure preview of an import", () => {
+  const STORED_MAPPING_ID = "77777777-7777-4777-8777-777777777777";
+  const DIGEST = "c".repeat(64);
+
+  function previewStub() {
+    const supabase = createSupabaseMock({ rawRows: [
+      { row_index: 0, payload: { Libelle: "Lavabo", Qte: "2" } },
+      { row_index: 1, payload: { Libelle: "Total HT" } },
+    ] });
+    const tables = supabase.from;
+    const imports = { eq: vi.fn(), single: vi.fn(), maybeSingle: vi.fn() };
+    imports.eq.mockReturnValue(imports);
+    imports.single.mockResolvedValue({ data: { id: IMPORT_ID, row_count: 2 }, error: null });
+    imports.maybeSingle.mockResolvedValue({ data: { sheet_first_row: null }, error: null });
+    supabase.from = vi.fn((table: string) => table === "dpgf_imports" ? { select: vi.fn(() => imports) } : tables(table));
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+    serviceRpc.mockReset();
+    serviceRpc.mockResolvedValue({ data: [{ mapping_id: STORED_MAPPING_ID,
+      column_mapping: { Libelle: "designation", Qte: "quantity" }, rows_sha256: DIGEST }], error: null });
+  }
+
+  it("without a mapping, shows the import's latest mapping, read with the digest it hands to the form", async () => {
+    previewStub();
+    const preview = await previewImportStructure({ import_id: IMPORT_ID, mapping: {} });
+    expect(serviceRpc).toHaveBeenCalledWith("dpgf_import_review_state", { p_tenant_id: TENANT_ID, p_import_id: IMPORT_ID });
+    expect(preview.footer_row_indexes).toEqual([1]);
+    expect(preview).toMatchObject({ rows_digest: DIGEST, rows_mapping_id: STORED_MAPPING_ID });
+  });
+
+  it("with the member's own mapping, shows it and names no stored mapping", async () => {
+    previewStub();
+    const preview = await previewImportStructure({ import_id: IMPORT_ID, mapping: { Libelle: "notes" } });
+    expect(preview.footer_row_indexes).toEqual([]);
+    expect(preview).toMatchObject({ rows_digest: DIGEST, rows_mapping_id: null });
   });
 });

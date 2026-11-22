@@ -22,7 +22,9 @@ export const TAKEOFF_LAUNCH_MANDATE_REASONS = [
   "EVALUATION_FAILED",
 ] as const;
 /** The Mac of the mandate tries again on its own. */
-export const TAKEOFF_LAUNCH_TRANSIENT_REASONS = ["ADMISSION_LIMIT", "SOURCE_UNREADABLE", "ANOTHER_ANALYSIS_RUNNING", "TAKEOFF_DISABLED"] as const;
+export const TAKEOFF_LAUNCH_TRANSIENT_REASONS = ["ADMISSION_LIMIT", "SOURCE_UNREADABLE", "ANOTHER_ANALYSIS_RUNNING", "TAKEOFF_DISABLED",
+  // Lot 4: the list of items cannot be sealed yet (a DPGF to prepare or to choose), once the second order is activated.
+  "ITEM_LIST_TO_PREPARE"] as const;
 
 /**
  * Why a request ended without its units ending normally: its budget spent, set aside by a relaunch (its state), or the
@@ -95,11 +97,21 @@ export function decideTakeoffLaunch(facts: {
 /** The unit key lot 2 seals: one grouped unit holding the affaire's retained plans (lot 3 seals one unit per plan). */
 export const TAKEOFF_GROUPED_UNIT_KEY = "grouped";
 
+/**
+ * The measuring order of a manifest: the free extraction (version 1), or the affaire's list of items sealed at admission
+ * (version 2, lot 4: its stored revision, its number, the database's digest of its entries and its size), behind its own
+ * activation (migration 20261121230719_takeoff_item_lists.sql).
+ */
+export type TakeoffLaunchOrder =
+  | { kind: "free_extraction"; version: 1; list: null }
+  | { kind: "item_list"; version: 2; list: { revision_id: string; revision: number; content_sha256: string; item_count: number } };
+
+export const TAKEOFF_FREE_EXTRACTION_ORDER: TakeoffLaunchOrder = { kind: "free_extraction", version: 1, list: null };
+
 export type TakeoffLaunchManifest = {
   format_version: 1;
   intent: "initial" | "reread_plans";
-  /** The measuring order: free extraction today; a sealed list of items later (its identity, revision and digest). */
-  order: { kind: "free_extraction"; version: 1; list: null };
+  order: TakeoffLaunchOrder;
   units: Array<{ key: string; plans: string[] }>;
   plans: Array<{
     /** The entry's key in this manifest: the plan copy's identifier. */
@@ -146,13 +158,15 @@ type TakeoffLaunchManifestInput = {
   omittedReferences: TakeoffLaunchManifest["coverage"]["references_omitted"];
   preparationRevision: number;
   budget: TakeoffLaunchManifest["budget"];
+  /** The free extraction unless the second order is activated (lot 4). */
+  order?: TakeoffLaunchOrder;
 };
 
 /** The manifest of the grouped unit, from the snapshot the request seals (its active plans and references). */
 export function buildTakeoffLaunchManifest(input: TakeoffLaunchManifestInput): TakeoffLaunchManifest {
   const { plans, references } = sealedManifestEntries(input);
   return {
-    format_version: 1, intent: input.intent, order: { kind: "free_extraction", version: 1, list: null },
+    format_version: 1, intent: input.intent, order: input.order ?? TAKEOFF_FREE_EXTRACTION_ORDER,
     units: [{ key: TAKEOFF_GROUPED_UNIT_KEY, plans: plans.map((plan) => plan.entry_key) }],
     plans, references,
     coverage: { plans_retained: plans.length, plans_omitted: input.omittedPlans, references_omitted: input.omittedReferences },
@@ -344,6 +358,7 @@ export function describeTakeoffLaunchReason(reason: TakeoffLaunchReason, pieces:
     case "ADMISSION_LIMIT": return "Métré en attente — trop d’analyses en cours ou récentes sur ce forfait. Il démarrera dès que possible.";
     case "SOURCE_UNREADABLE": return "Métré en attente — une pièce du dossier n’a pas pu être lue. Nouvelle tentative automatique.";
     case "ANOTHER_ANALYSIS_RUNNING": return "Métré en attente — une autre analyse de l’affaire est en cours.";
+    case "ITEM_LIST_TO_PREPARE": return "Métré en attente — la liste des postes est à préparer : importez ou choisissez la DPGF de l’affaire. Nouvelle tentative automatique.";
     case "EVALUATION_FAILED": return "Métré non démarré — la vérification du dossier a échoué plusieurs fois. Reprenez avec votre forfait pour réessayer.";
     case "SUPERSEDED": return "Métré automatique remplacé par une relance de l’analyse : une nouvelle analyse se lance depuis les options du métré.";
     case "BUDGET_EXHAUSTED": return "Métré arrêté — le budget de cette analyse est épuisé. Une nouvelle analyse se lance depuis les options du métré.";

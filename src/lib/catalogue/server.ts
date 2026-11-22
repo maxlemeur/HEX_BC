@@ -1303,6 +1303,8 @@ export async function linkMappedRowsToCatalogue(input: LinkMappedRowsInput) {
           const currentPayload = payloadByRowId.get(link.mapped_row_id);
           if (!currentPayload) return;
 
+          // These four keys, written only here, are left out of an import confirmation's digest
+          // (public.dpgf_import_rows_sha256): a link does not unsettle the import's structure. Change both together.
           const nextPayload = {
             ...currentPayload,
             product_id: link.product_id,

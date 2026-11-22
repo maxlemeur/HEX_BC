@@ -7,6 +7,14 @@ import type {
   StructurePreviewData,
 } from "./types";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { workbookRowLabel, worksheetRow } from "@/lib/imports/row-location";
+
+/** A candidate's row, worded as the item list words it (« Ligne 5 de la feuille (ligne du tableau 3) »). */
+function candidateRowLabel(candidate: StructurePreviewData["candidates"][number], sheetFirstRow: number | null | undefined) {
+  return candidate.source_row_number
+    ? workbookRowLabel(candidate.source_row_number, worksheetRow(candidate.source_row_number, sheetFirstRow))
+    : `Ligne importée ${candidate.row_index + 1}`;
+}
 
 type StructureReviewProps = {
   preview: StructurePreviewData | null;
@@ -47,7 +55,8 @@ export function getStructureReviewError(
   for (const candidate of preview.candidates) {
     const decision = decisionsByRow.get(candidate.row_index);
     if (!decision) {
-      return `La ligne ${candidate.source_row_number ?? candidate.row_index + 1} doit être qualifiée.`;
+      const label = candidateRowLabel(candidate, preview.sheet_first_row);
+      return `La ${label.charAt(0).toLowerCase()}${label.slice(1)} doit être qualifiée.`;
     }
 
     if (decision.kind === "section" && decision.level === 2 && !hasLevelOneSection) {
@@ -136,12 +145,7 @@ export function StructureReview({
             const decision = decisionsByRow.get(candidate.row_index);
             if (!decision) return null;
 
-            const sourceLabel = [
-              candidate.sheet_name,
-              candidate.source_row_number
-                ? `ligne ${candidate.source_row_number}`
-                : null,
-            ]
+            const sourceLabel = [candidate.sheet_name, candidateRowLabel(candidate, preview.sheet_first_row)]
               .filter(Boolean)
               .join(" · ");
             const isIndented =

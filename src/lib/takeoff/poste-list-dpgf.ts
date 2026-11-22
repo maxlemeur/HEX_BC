@@ -1,13 +1,31 @@
+import { createHmac } from "node:crypto";
+
 import type { ImportRowStructure } from "@/lib/imports/payload";
+import type { ImportStructureDecision } from "@/lib/imports/structure";
 import { resolveImportRowTitle } from "@/lib/imports/structure";
 import { parseQuantity } from "@/lib/numeric-input/parsers";
 import { normalizeMeasurementUnit } from "@/lib/units/normalize";
+import { stripAccents } from "@/lib/text/fold";
 import { digestPosteFacts, type DpgfPosteOrigin, type PosteDraft, type PosteSection } from "./poste-list";
 import { createDpgfPosteClassifier, isEmptyDpgfCell } from "./poste-list-dpgf-structure";
 
 export type RawDpgfPosteRow = Pick<DpgfPosteOrigin,
-  "rowIndex" | "sheetName" | "sourceRowNumber" | "sourcePage" | "tableIndex" | "documentId"
+  "rowIndex" | "sheetName" | "sourceRowNumber" | "sheetRowNumber" | "sourcePage" | "tableIndex" | "documentId"
 > & { id: string; structure?: ImportRowStructure | null };
+
+/** A row the confirmation of the import left out, with the import's own reason (its normalization, never a price). */
+export type DpgfStructuralExclusion = { rowIndex: number; reason: "footer" | "user_ignored" | "parameters" };
+
+/**
+ * The text of a row's notes, folded, as a digest keyed by the tenant's notes key (public.takeoff_item_list_notes_key):
+ * what tells two rows apart without disclosing the notes, even to a reader who tries every likely text.
+ */
+export function dpgfNotesDigest(notes: string | null, notesKey: string) {
+  if (!/^[0-9a-f]{64}$/.test(notesKey)) throw new Error("The tenant's notes key is required to digest an import's notes.");
+  if (!notes) return null;
+  return createHmac("sha256", Buffer.from(notesKey, "hex"))
+    .update(`dpgf-notes-v2:${stripAccents(notes).toLowerCase().trim().replace(/\s+/g, " ")}`).digest("hex");
+}
 
 export type MappedDpgfPosteRow = {
   id: string;
@@ -26,9 +44,10 @@ type RowIssue = {
   rowIndex: number | null;
   sheetName?: string | null;
   sourceRowNumber?: number | null;
+  sheetRowNumber?: number | null;
   sourcePage?: number | null;
   reason: "missing_mapping" | "multiple_mappings" | "unattested_mapping" | "invalid_quantity" |
-    "ambiguous" | "section" | "footer" | "empty" | "header" | "unreadable_designation";
+    "ambiguous" | "section" | "footer" | "empty" | "header" | "unreadable_designation" | "ignored" | "parameters";
   title?: string;
 };
 
@@ -43,9 +62,36 @@ export function projectDpgfPostes(input: {
   rawRows: readonly RawDpgfPosteRow[];
   mappedRows: readonly MappedDpgfPosteRow[];
   columnMapping: Readonly<Record<string, unknown>>;
+  /** The tenant's notes key: a row's notes reach the list only as a digest under it. */
+  notesKey: string;
+  /**
+   * The structure decisions recorded at the confirmation of the import, when its proof still holds: a row made a
+   * section and its level, kept as a line, or ignored. They decide over the reading of a row that could be either;
+   * a total, an empty, unreadable or repeated header row is never an item, whatever was decided.
+   */
+  decisions?: readonly ImportStructureDecision[];
+  /**
+   * The rows the confirmation left out with the import's own reason (a total and the options after it, workbook
+   * parameters, a row ignored): never an item, whatever their reading.
+   */
+  exclusions?: readonly DpgfStructuralExclusion[];
 }) {
   const { importId, mappingId } = input;
-  const classifyRow = createDpgfPosteClassifier(input.columnMapping);
+  const read = createDpgfPosteClassifier(input.columnMapping);
+  const decided = new Map((input.decisions ?? []).map((decision) => [decision.rowIndex, decision]));
+  const excluded = new Map((input.exclusions ?? []).map((exclusion) => [exclusion.rowIndex, exclusion.reason]));
+  const classifyRow = (row: Parameters<typeof read>[0], structure: Parameters<typeof read>[1], rowIndex: number) => {
+    const exclusion = excluded.get(rowIndex);
+    if (exclusion) {
+      return { kind: exclusion === "user_ignored" ? "ignored" : exclusion === "parameters" ? "parameters" : "footer" } as const;
+    }
+    const classification = read(row, structure);
+    const decision = decided.get(rowIndex);
+    if (!decision || !["line", "section", "ambiguous"].includes(classification.kind)) return classification;
+    if (decision.kind === "ignore") return { kind: "ignored" } as const;
+    if (decision.kind === "section") return { kind: "section", level: decision.level } as const;
+    return { kind: "line" } as const;
+  };
   const items: (PosteDraft & { origin: DpgfPosteOrigin })[] = [];
   const unattestedMappingIds: string[] = [];
   const rawIds = new Set(input.rawRows.map(({ id }) => id));
@@ -74,7 +120,8 @@ export function projectDpgfPostes(input: {
     const row = matches.length === 1 ? matches[0] : null;
     const issue = {
       rawRowId, mappedRowId: row?.id ?? null, rowIndex: source.rowIndex,
-      sheetName: source.sheetName, sourceRowNumber: source.sourceRowNumber, sourcePage: source.sourcePage,
+      sheetName: source.sheetName, sourceRowNumber: source.sourceRowNumber, sheetRowNumber: source.sheetRowNumber ?? null,
+      sourcePage: source.sourcePage,
     };
     if (!row) {
       if (matches.length) {
@@ -87,7 +134,7 @@ export function projectDpgfPostes(input: {
       continue;
     }
 
-    const classification = classifyRow(row, structure);
+    const classification = classifyRow(row, structure, source.rowIndex);
     const title = resolveImportRowTitle(row);
     if (classification.kind === "ambiguous") {
       counts.ambiguous++;
@@ -115,7 +162,7 @@ export function projectDpgfPostes(input: {
     }
     const unit = mappedText(row.unit);
     const reference = mappedText(row.reference) ?? mappedText(row.hex_code);
-    const measurementNotes = mappedText(row.notes);
+    const measurementNotesDigest = dpgfNotesDigest(mappedText(row.notes), input.notesKey);
     const expectedUnit = unit ? normalizeMeasurementUnit(unit).unitCode : null;
     counts.useful++;
     items.push({
@@ -126,8 +173,9 @@ export function projectDpgfPostes(input: {
       qualifiers: {},
       sections,
       origin: {
-        kind: "dpgf", importId, mappingId, rawRowId, mappedRowId: row.id, reference, sourceUnit: unit, measurementNotes, ...source,
-        factsDigest: digestPosteFacts([classification, title, reference, unit, row.quantity ?? null, measurementNotes]),
+        kind: "dpgf", importId, mappingId, rawRowId, mappedRowId: row.id, reference, sourceUnit: unit, measurementNotesDigest,
+        ...source, sheetRowNumber: source.sheetRowNumber ?? null,
+        factsDigest: digestPosteFacts([classification, title, reference, unit, row.quantity ?? null, measurementNotesDigest]),
       },
     });
   }
