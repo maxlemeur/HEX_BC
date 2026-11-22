@@ -391,7 +391,7 @@ describe("the send of one plan: the other plans read and the operator's level", 
     const evaluated = await evaluateTakeoffRulesForDestination({ tenantId: "t", projectId: "p", jobId: A, destinationVersionId: null,
       supabase: fake.client as never });
     return { overlap: evaluated.results.get(lines[0].id)?.find((result) => result.rule === "zone_overlap") ?? null,
-      writes: evaluated.writes.map((write) => write.id), context: evaluated.context };
+      writes: evaluated.writes.map((write) => write.id), context: evaluated.context, contradictions: evaluated.levelContradictions };
   }
 
   it("compares the plan with another plan of the affaire already read, finds their duplicate, and writes only its own lines", async () => {
@@ -417,10 +417,20 @@ describe("the send of one plan: the other plans read and the operator's level", 
     expect((await evaluatePlan({ peers: true, readingLevel: null })).overlap).toBeNull();
   });
 
-  it("keeps a page's own level over the operator's", async () => {
-    // The pages read « R+1 »; an operator set « R+2 » on one plan: its pages keep their reading, the duplicate stays.
-    expect((await evaluatePlan({ peers: true, readingLevel: "R+1", operatorLevels: { a: "R+2", b: null } })).overlap)
-      .toMatchObject({ status: "fail", code: "ZONE_OVERLAP_DUPLICATE" });
+  it("keeps a page's own level over the operator's, and names the contradiction for the plan sent", async () => {
+    // The pages read « R+1 »; an operator set « R+2 » on the plan sent: its pages keep their reading, the duplicate stays,
+    // and the preview is told which page contradicts the level set (fix round 1, point 8).
+    const contradicted = await evaluatePlan({ peers: true, readingLevel: "R+1", operatorLevels: { a: "R+2", b: null } });
+    expect(contradicted.overlap).toMatchObject({ status: "fail", code: "ZONE_OVERLAP_DUPLICATE" });
+    expect(contradicted.contradictions).toEqual([{ source_file_name: `${PLAN_A}.pdf`, source_page: 1, read_level: "R+1",
+      operator_level: "R+2" }]);
+  });
+
+  it("names no contradiction when the levels agree, when a page has none, or for another plan's page", async () => {
+    expect((await evaluatePlan({ peers: true, readingLevel: "R+1", operatorLevels: { a: "R+1", b: null } })).contradictions).toEqual([]);
+    expect((await evaluatePlan({ peers: true, readingLevel: null, operatorLevels: { a: "R+2", b: "R+2" } })).contradictions).toEqual([]);
+    // Only the plan sent is the member's to check here: a peer's page that contradicts its own plan's level is not named.
+    expect((await evaluatePlan({ peers: true, readingLevel: "R+1", operatorLevels: { a: null, b: "R+2" } })).contradictions).toEqual([]);
   });
 });
 
