@@ -72,6 +72,8 @@ import type {
  *     quantity, or the rounding to whole packagings is not offered, rounds by itself, writes another quantity than
  *     the whole packagings, or is offered where it cannot or must not apply: a line in another unit, an exact
  *     multiple, a validated or priced line, a reader; or the quantity asked before the rounding cannot be found again.
+ * 28. (review of PR #478) the rounding overwrites a quantity just typed, whether its save is on its way or was refused;
+ *     or the focus falls to the page once the rounding or the way back is done, and nothing says the new quantity.
  */
 
 const { routerPushMock, splitSourceTextMock, storageFromMock, uploadToSignedUrlMock } = vi.hoisted(() => ({
@@ -2074,6 +2076,61 @@ describe("the usual packaging of a line's article (TI-690) (27)", () => {
     expect(writes()[1].body).toEqual({ quantity: 14 });
     await waitFor(() => expect(screen.getByLabelText("Quantité, ligne 1")).toHaveValue("14"));
     expect(within(row).getByRole("button", { name: "Arrondir à 3 barres (18 ml), ligne 1" })).toBeVisible();
+  });
+
+  it("does not round over a quantity typed while its save is on its way (28)", async () => {
+    let release: (reply: { data: unknown }) => void = () => undefined;
+    const user = await openEditor({
+      [`GET ${BASE}`]: { data: detail({ lines: [tubeLine()], articles: { [TUBE]: tube } }) },
+      [`PATCH ${BASE}/lines/${LINE_A}`]: () => new Promise((resolve) => { release = resolve; }),
+    });
+
+    const quantity = screen.getByLabelText("Quantité, ligne 1");
+    await user.clear(quantity);
+    await user.type(quantity, "20");
+    // Still in the cell: the click blurs it, which commits 20; the rounding must not follow it.
+    await user.click(screen.getByRole("button", { name: "Arrondir à 3 barres (18 ml), ligne 1" }));
+    await waitFor(() => expect(writes()).toHaveLength(1));
+    expect(writes()[0].body).toEqual({ quantity: 20 });
+    expect(screen.getByRole("button", { name: "Arrondir à 3 barres (18 ml), ligne 1" })).toHaveAttribute("aria-disabled", "true");
+
+    release({ data: { line: tubeLine({ quantity: 20 }) } });
+    expect(await screen.findByRole("button", { name: "Arrondir à 4 barres (24 ml), ligne 1" })).not.toHaveAttribute("aria-disabled", "true");
+    expect(writes()).toHaveLength(1);
+  });
+
+  it("does not round under a typed quantity whose save was refused (28)", async () => {
+    const user = await openEditor({
+      [`GET ${BASE}`]: { data: detail({ lines: [tubeLine()], articles: { [TUBE]: tube } }) },
+      [`PATCH ${BASE}/lines/${LINE_A}`]: { status: 500, error: { code: "INTERNAL", message: "Enregistrement impossible pour le moment." } },
+    });
+
+    const quantity = screen.getByLabelText("Quantité, ligne 1");
+    await user.clear(quantity);
+    await user.type(quantity, "20");
+    await user.tab();
+    expect(await screen.findByRole("alert")).toHaveTextContent("Enregistrement impossible pour le moment.");
+    const round = screen.getByRole("button", { name: "Arrondir à 3 barres (18 ml), ligne 1" });
+    expect(round).toHaveAttribute("aria-disabled", "true");
+    await user.click(round);
+    expect(writes()).toHaveLength(1);
+    expect(screen.getByLabelText("Quantité, ligne 1")).toHaveValue("20");
+  });
+
+  it("keeps the focus on the next gesture and says the new quantity (28)", async () => {
+    const user = await openEditor({
+      [`GET ${BASE}`]: { data: detail({ lines: [tubeLine()], articles: { [TUBE]: tube } }) },
+      [`PATCH ${BASE}/lines/${LINE_A}`]: (body) => ({ data: { line: tubeLine(body as Partial<MaterialRequestLine>) } }),
+    });
+    const row = screen.getByRole("listitem", { name: "Ligne 1" });
+
+    await user.click(within(row).getByRole("button", { name: "Arrondir à 3 barres (18 ml), ligne 1" }));
+    await waitFor(() => expect(within(row).getByRole("button", { name: "Revenir à 14 ml, ligne 1" })).toHaveFocus());
+    expect(within(row).getByText("Quantité arrondie à 18 ml.")).toHaveAttribute("aria-live", "polite");
+
+    await user.click(within(row).getByRole("button", { name: "Revenir à 14 ml, ligne 1" }));
+    await waitFor(() => expect(within(row).getByRole("button", { name: "Arrondir à 3 barres (18 ml), ligne 1" })).toHaveFocus());
+    expect(within(row).getByText("Quantité remise à 14 ml.")).toHaveAttribute("aria-live", "polite");
   });
 
   it("offers no rounding for an exact multiple, and shows nothing for a line in another unit", async () => {

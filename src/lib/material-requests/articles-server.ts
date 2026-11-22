@@ -115,7 +115,15 @@ function usualPackagingsOf(rows: readonly UsualPackagingRow[]): Map<string, Mate
 }
 
 const USUAL_PACKAGING_COLUMNS = "id, product_id, label, quantity, unit";
-const USUAL_PACKAGINGS_FAILED = "Impossible de charger les conditionnements usuels des articles.";
+
+/**
+ * The usual packaging is only shown (review of PR #478): a read of the packagings that fails is logged here and the
+ * articles go without one, rather than taking the request, its proposals or a link down with it.
+ */
+function withoutUsualPackagings(error: unknown): Map<string, MaterialRequestUsualPackaging> {
+  console.error("The usual packagings of the articles could not be read; the articles are shown without them", { error });
+  return new Map();
+}
 
 /** The usual packaging of each article named, by article id; an article without one is absent. */
 async function readUsualPackagings(
@@ -129,7 +137,7 @@ async function readUsualPackagings(
     .eq("tenant_id", context.tenantId)
     .eq("is_usual", true)
     .in("product_id", chunk));
-  if (error) throw mapSupabaseError(error, USUAL_PACKAGINGS_FAILED);
+  if (error) return withoutUsualPackagings(error);
   return usualPackagingsOf((data ?? []) as UsualPackagingRow[]);
 }
 
@@ -198,8 +206,9 @@ async function loadCatalogue(context: MaterialRequestContext): Promise<LoadedCat
   if (skus.error) throw mapSupabaseError(skus.error, "Impossible de charger les références fournisseurs.");
   if (aliases.error) throw mapSupabaseError(aliases.error, "Impossible de charger les noms usuels.");
   if (supplyTypes.error) throw mapSupabaseError(supplyTypes.error, "Impossible de charger les types de fourniture.");
-  if (packagings.error) throw mapSupabaseError(packagings.error, USUAL_PACKAGINGS_FAILED);
-  const usual = usualPackagingsOf((packagings.data ?? []) as UsualPackagingRow[]);
+  const usual = packagings.error
+    ? withoutUsualPackagings(packagings.error)
+    : usualPackagingsOf((packagings.data ?? []) as UsualPackagingRow[]);
 
   const skusOf = new Map<string, string[]>();
   for (const item of skus.data ?? []) {

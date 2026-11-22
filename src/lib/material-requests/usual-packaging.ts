@@ -30,7 +30,7 @@ export type PackagingRounding = {
   quantity: number;
 };
 
-/** The largest quantity a request line accepts (materialRequestLineInputSchema, numeric(12,3)). */
+/** The largest quantity a request line accepts: the `.max(1_000_000)` of the line quantity in contracts.ts. */
 const LINE_QUANTITY_MAX_THOUSANDTHS = BigInt(1_000_000_000);
 const ZERO = BigInt(0);
 const ONE = BigInt(1);

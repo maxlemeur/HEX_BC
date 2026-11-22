@@ -61,6 +61,8 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
  *     absent or false, as the bulk link sends it), or the choice is refused by the contract.
  * 18. (TI-690, the owner's request of 2026-11-22) the detail of a request, a link or a proposal does not carry the
  *     usual packaging of each linked article, carries one that is not marked usual, or one of another tenant.
+ * 19. (review of PR #478) a read of the packagings that fails takes the request detail, the proposals or a link down
+ *     with it, although the usual packaging is only shown.
  */
 
 const TENANT = "10000000-0000-4000-8000-000000000001";
@@ -145,6 +147,7 @@ function seed(
     tables?: Record<string, FakeRow[]>;
     refuseInsert?: (table: string, values: unknown) => string | false;
     beforeUpdate?: (table: string, values: FakeRow, tables: Record<string, FakeRow[]>) => void;
+    failRead?: (table: string) => { code: string; message: string } | false;
   } = {},
 ) {
   const fake = createFakeSupabase({
@@ -152,6 +155,7 @@ function seed(
     rpc: { material_request_material_options: ["Inox 304L"] },
     refuseInsert: overrides.refuseInsert,
     beforeUpdate: overrides.beforeUpdate,
+    failRead: overrides.failRead,
     tables: {
       tenant_memberships: [fakeMembership(actor, actor === OUTSIDER ? OTHER_TENANT : TENANT, role)],
       estimate_projects: [
@@ -608,6 +612,26 @@ describe("the usual packaging of a line's article (TI-690)", () => {
     const detail = await call(requestRoute.GET, "GET", inRequest);
     const { articles } = detail.data as { articles: Record<string, MaterialRequestArticleSummary> };
     expect(articles[FLANGE].usual_packaging).toBeNull();
+  });
+
+  it("a failed read of the packagings leaves the detail, the proposals and a link standing, without usual packaging (19)", async () => {
+    const logged = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    seed(OWNER, "engineer", {
+      failRead: (table) => table === "product_packagings" && { code: "57014", message: "canceling statement due to statement timeout" },
+    });
+    const detail = await call(requestRoute.GET, "GET", inRequest);
+    expect(detail.status).toBe(200);
+    expect((detail.data as { articles: Record<string, MaterialRequestArticleSummary> }).articles[FLANGE].usual_packaging).toBeNull();
+
+    const proposed = await call(requestCandidatesRoute.GET, "GET", inRequest);
+    expect(proposed.status).toBe(200);
+    const { lines } = proposed.data as { lines: Record<string, MaterialRequestArticleCandidate[]> };
+    expect(lines[LINE_ELBOW].find((candidate) => candidate.article.id === ELBOW)?.article.usual_packaging).toBeNull();
+
+    const linked = await call(lineArticleRoute.PUT, "PUT", onLine(LINE_TEE), { product_id: ELBOW, via: "manual" });
+    expect(linked.status).toBe(200);
+    expect((linked.data as MaterialRequestLineArticleResult).article.usual_packaging).toBeNull();
+    expect(logged).toHaveBeenCalled();
   });
 
   it("a link answers the article with its usual packaging, and so do the proposals", async () => {
