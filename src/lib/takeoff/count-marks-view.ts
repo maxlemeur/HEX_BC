@@ -135,6 +135,10 @@ export type CountMarkObjectAnswer = { object: "same"; sameAs: string } | { objec
 /** A removed mark restored to the state it had, or a proposed one retained, with the member's word when one is needed. */
 export function draftDecide(draft: CountMarkDraft, input: { id: string; op: "restore" | "retain"; markId: string; page: number;
   state: CountMarkShownState; restoredTo: CountMarkShownState; word: CountMarkObjectAnswer }, intentKey: string): CountMarkDraft {
+  // A mark not saved yet has no identity the database knows: it is never named in a stored field.
+  if (input.word?.object === "same" && isDraftMarkId(input.word.sameAs)) {
+    throw new Error("Un repère non enregistré ne peut pas être nommé comme le même objet.");
+  }
   const word = input.word?.object === "same" ? { object: "same" as const, same_as: input.word.sameAs }
     : input.word?.object === "distinct" ? { object: "distinct" as const } : {};
   const gesture = { op: input.op, answer_id: draft.answerId, mark_id: input.markId, ...word } as TakeoffCountMarkGesture;

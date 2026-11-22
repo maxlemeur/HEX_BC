@@ -32,6 +32,7 @@ import {
   draftVerify,
   draftWithout,
   emptyCountMarkDraft,
+  isDraftMarkId,
   rebaseCountMarkDraft,
   retainedNeighbours,
   sameCountPage,
@@ -59,6 +60,9 @@ import type { PdfPageRotation } from "@/lib/takeoff/pdf-page-geometry";
  */
 
 const PAGE_LOTS_WITHOUT_ASKING = 5;
+/** The states of the marks a member reviews on the page: a newer reading's marks (pending) are retained from there. */
+const REVIEWED_STATES = ["proposed", "to_attribute", "retained", "pending"] as const;
+const SAVING_NOTICE = "Enregistrement en cours : attendez sa fin avant de modifier les repères.";
 
 export type CountMarksAnswer = {
   answerId: string;
@@ -276,14 +280,15 @@ export function CountMarksScope({ projectId, answer, page, itemLabels, targets, 
     for (let attempt = 0; ; attempt += 1) {
       const start = attempt === 0 ? from : null;
       const bound = start ? start.lots + 1 : PAGE_LOTS_WITHOUT_ASKING;
-      let view = await reader.readPage({ answerId: target.answerId, page: target.page, after: start?.nextAfter ?? null });
+      let view = await reader.readPage({ answerId: target.answerId, page: target.page, after: start?.nextAfter ?? null,
+        states: REVIEWED_STATES });
       const revision = start?.view.revision ?? view.revision;
       const marks = [...(start?.marks ?? []), ...view.marks];
       const names = { ...(start?.view.names ?? {}), ...view.names };
       let lots = (start?.lots ?? 0) + 1;
       let mixed = view.revision !== revision;
       while (!mixed && view.nextAfter && lots < bound) {
-        view = await reader.readPage({ answerId: target.answerId, page: target.page, after: view.nextAfter });
+        view = await reader.readPage({ answerId: target.answerId, page: target.page, after: view.nextAfter, states: REVIEWED_STATES });
         marks.push(...view.marks);
         Object.assign(names, view.names);
         lots += 1;
@@ -361,7 +366,13 @@ export function CountMarksScope({ projectId, answer, page, itemLabels, targets, 
   const current = loaded && loaded.answerId === answerId && loaded.page === page ? loaded : null;
   const draft = session && session.draft.answerId === answerId ? session.draft : null;
 
-  const updateDraft = useCallback((change: (draft: CountMarkDraft) => CountMarkDraft) => {
+  // While a save is on its way, the session it sent is not changed: a gesture then is refused and said, never lost.
+  const savingRef = useRef(false);
+  const updateDraft = useCallback((change: (draft: CountMarkDraft) => CountMarkDraft, options: { bySave?: boolean } = {}) => {
+    if (savingRef.current && !options.bySave) {
+      setNotice(SAVING_NOTICE);
+      return;
+    }
     setSession((value) => {
       if (!value) return value;
       // A session begins on the revision read last: an empty one never carries an older one.
@@ -422,6 +433,10 @@ export function CountMarksScope({ projectId, answer, page, itemLabels, targets, 
 
   const refuseGesture = useCallback(() => {
     if (!current) return true;
+    if (savingRef.current) {
+      setNotice(SAVING_NOTICE);
+      return true;
+    }
     if (!canEdit) {
       setNotice(current.view.edit.reason === "sent" ? TAKEOFF_COUNT_MARKS_PLAN_SENT_MESSAGE
         : current.view.edit.reason === "replaced" ? "Une lecture plus récente de ce poste sur ce plan a remplacé celle-ci : ses repères se consultent seulement."
@@ -529,8 +544,20 @@ export function CountMarksScope({ projectId, answer, page, itemLabels, targets, 
       setAnnouncement("Même objet qu’un repère retenu : rien n’est ajouté.");
       return;
     }
+    // The same object as an addition not saved yet: the addition is withdrawn and the mark retained stands for the object
+    // (an unsaved mark has no identity the command could name). Another retained neighbour still asks its own word.
+    if (word?.object === "same" && isDraftMarkId(word.sameAs)) {
+      const addition = word.sameAs;
+      updateDraft((value) => draftRemove(value, { id: newKey(), markId: addition, page, state: "retained", reason: "duplicate",
+        note: null }, newKey()));
+      const others = asked.neighbours.filter((neighbour) => neighbour.markId !== addition);
+      if (others.length) setQuestion({ ...asked, neighbours: others });
+      else commit(asked.kind, asked.mark, asked.point, null);
+      setAnnouncement("Même objet que votre ajout non enregistré : l’ajout est retiré.");
+      return;
+    }
     commit(asked.kind, asked.mark, asked.point, word);
-  }, [commit, question]);
+  }, [commit, page, question, updateDraft]);
 
   const remove = useCallback((markId: string, reason: TakeoffCountMarkRemovalReason, note: string | null) => {
     if (refuseGesture()) return;
@@ -602,6 +629,10 @@ export function CountMarksScope({ projectId, answer, page, itemLabels, targets, 
       setNotice("Ce repère est déjà retiré.");
       return;
     }
+    if (mark.state === "pending") {
+      setNotice("Ce repère d’une nouvelle lecture n’est encore à aucun poste : retenez-le d’abord.");
+      return;
+    }
     if (kind === "reattribute" && !targets.length) {
       setNotice("Aucun autre poste de cette lecture ne peut recevoir ce repère.");
       return;
@@ -635,17 +666,22 @@ export function CountMarksScope({ projectId, answer, page, itemLabels, targets, 
         // The other answer is not read again: the command names it as before and refuses it if it changed.
       }
     }
-    updateDraft((draftValue) => rebaseCountMarkDraft(draftValue, { revision: next.view.revision, others: revisions }, newKey()));
+    updateDraft((draftValue) => rebaseCountMarkDraft(draftValue, { revision: next.view.revision, others: revisions }, newKey()),
+      { bySave: true });
   }, [page, reader, updateDraft]);
 
   const save = useCallback(async () => {
-    if (!draft?.entries.length || saving || refuseGesture()) return;
+    if (!draft?.entries.length || savingRef.current || refuseGesture()) return;
+    savingRef.current = true;
     setSaving(true);
     setAskWords(false);
     try {
       const result = await reader.edit(draftCommand(draft));
       const answerSummary = result.summaries[draft.answerId];
-      updateDraft(() => emptyCountMarkDraft(draft.answerId, result.revisions[draft.answerId] ?? draft.revision, newKey()));
+      // Only what was sent is cleared, on the revision the command gave.
+      const sent = new Set(draft.entries.map(({ id }) => id));
+      updateDraft((value) => ({ ...value, revision: result.revisions[draft.answerId] ?? value.revision, intentKey: newKey(),
+        entries: value.entries.filter(({ id }) => !sent.has(id)) }), { bySave: true });
       setNotice(`${draft.entries.length > 1 ? `${draft.entries.length} modifications enregistrées` : "Modification enregistrée"}.`);
       setAnnouncement(answerSummary ? `Enregistré : ${answerSummary.retained} repère${answerSummary.retained > 1 ? "s" : ""} retenu${answerSummary.retained > 1 ? "s" : ""}.`
         : "Enregistré.");
@@ -662,16 +698,17 @@ export function CountMarksScope({ projectId, answer, page, itemLabels, targets, 
         return;
       }
       if (code === "TAKEOFF_MARKS_OBJECT_DUPLICATE") setAskWords(true);
-      if (code === "TAKEOFF_MARKS_INTENT_CONFLICT") updateDraft((value) => ({ ...value, intentKey: newKey() }));
+      if (code === "TAKEOFF_MARKS_INTENT_CONFLICT") updateDraft((value) => ({ ...value, intentKey: newKey() }), { bySave: true });
       setNotice(refusalSentence(error));
       if (isTakeoffApiError(error) && [401, 403, 404, 409].includes(error.status) && code !== "TAKEOFF_MARKS_OBJECT_DUPLICATE") {
         // A right lost, an answer replaced, a plan sent meanwhile: what the member may do is read again.
         await reload();
       }
     } finally {
+      savingRef.current = false;
       setSaving(false);
     }
-  }, [draft, rebase, refuseGesture, reader, reload, saving, updateDraft]);
+  }, [draft, rebase, refuseGesture, reader, reload, updateDraft]);
 
   const loadMore = useCallback(() => {
     if (!current?.nextAfter || !answerId) return;

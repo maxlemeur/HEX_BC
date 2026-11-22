@@ -201,6 +201,68 @@ describe("the list and its keys", () => {
   });
 });
 
+describe("review of #485", () => {
+  it("keeps every gesture a member makes while a save is pending: refused and said, never lost", async () => {
+    const served = double(view([mark(1, { x: 0.2 }), mark(2, { x: 0.6 })]));
+    let finish = () => {};
+    served.edit = () => new Promise((resolve) => {
+      finish = () => resolve({ replayed: false, commandId: id(900), revisions: { [ANSWER]: 4 }, added: [], summaries: {} });
+    });
+    mount(served.reader);
+    const grid = await screen.findByTestId("reperes-liste");
+    key(grid, "ArrowDown");
+    key(grid, "r");
+    fireEvent.click(screen.getByRole("button", { name: "Enregistrer (1)" }));
+    // The save is on its way: a gesture now is refused, and the member is told.
+    key(grid, "ArrowDown");
+    key(grid, "r");
+    expect(screen.getByTestId("reperes-avis")).toHaveTextContent("Enregistrement en cours");
+    await act(async () => finish());
+    await waitFor(() => expect(screen.queryByTestId("reperes-session")).toBeNull());
+    expect(served.edits).toHaveLength(1);
+    expect(served.edits[0]!.gestures).toEqual([{ op: "retain", answer_id: ANSWER, mark_id: id(1) }]);
+  });
+
+  it("asks for the marks of a newer reading in every lot, and shows them to retain", async () => {
+    const served = double(view([mark(1), mark(2, { x: 0.8, state: "pending" })], { nextAfter: id(2) }));
+    mount(served.reader);
+    const grid = await screen.findByTestId("reperes-liste");
+    const lots = vi.mocked(served.reader.readPage).mock.calls.map(([input]) => input).filter((input) => !input.states?.includes("removed"));
+    expect(lots.length).toBeGreaterThanOrEqual(2);
+    for (const input of lots) expect(input.states).toEqual(["proposed", "to_attribute", "retained", "pending"]);
+    expect(within(grid).getByText("Nouvelle lecture à examiner")).toBeInTheDocument();
+    key(grid, "End");
+    key(grid, "r");
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Enregistrer (1)" }));
+    });
+    expect(served.edits[0]!.gestures).toEqual([{ op: "retain", answer_id: ANSWER, mark_id: id(2) }]);
+  });
+
+  it("never sends the identifier of a mark not saved yet: the same object as an unsaved addition drops the addition", async () => {
+    // A proposal at the centre of the page; the member adds a mark on it (distinct), then retains the proposal and says
+    // it is the same object as the addition.
+    const served = double(view([mark(1, { x: 0.5, y: 0.5 })]));
+    mount(served.reader);
+    const layer = await screen.findByTestId("reperes-calque");
+    key(layer, "n");
+    key(layer, "Enter");
+    expect(screen.queryByTestId("reperes-question")).toBeNull();
+    const grid = list();
+    key(grid, "Home");
+    expect(grid).toHaveAttribute("aria-activedescendant", `repere-${id(1)}`);
+    key(grid, "r");
+    const question = await screen.findByTestId("reperes-question");
+    fireEvent.click(within(question).getByRole("button", { name: /Même objet que votre ajout non enregistré/ }));
+    expect(screen.getByTestId("reperes-session")).toHaveTextContent("1 modification non enregistrée");
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Enregistrer (1)" }));
+    });
+    expect(JSON.stringify(served.edits)).not.toContain("draft:");
+    expect(served.edits[0]!.gestures).toEqual([{ op: "retain", answer_id: ANSWER, mark_id: id(1) }]);
+  });
+});
+
 describe("one object or two", () => {
   it("asks the member's word beside a retained mark, and sends it", async () => {
     // Mark 2 is 3 points across from the retained mark 1.

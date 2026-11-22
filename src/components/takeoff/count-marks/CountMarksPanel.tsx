@@ -35,6 +35,7 @@ import {
   countMarksListKey,
   draftCountPreview,
   draftEntryAsksWord,
+  isDraftMarkId,
   type CountMarkDraftEntry,
   type CountMarkShown,
 } from "@/lib/takeoff/count-marks-view";
@@ -225,7 +226,8 @@ function QuestionDialog({ marks, numbers }: { marks: CountMarksContextValue; num
           ) : null}
           {!pointing ? question.neighbours.map((neighbour) => (
             <Button key={neighbour.markId} variant="outline" onClick={() => marks.answerQuestion({ object: "same", sameAs: neighbour.markId })}>
-              Même objet que {numbers[neighbour.markId] ? `le repère ${numbers[neighbour.markId]}` : "le repère retenu"}
+              {isDraftMarkId(neighbour.markId) ? "Même objet que votre ajout non enregistré : retirer l’ajout"
+                : `Même objet que ${numbers[neighbour.markId] ? `le repère ${numbers[neighbour.markId]}` : "le repère retenu"}`}
             </Button>
           )) : null}
           <Button onClick={() => marks.answerQuestion({ object: "distinct" })}>

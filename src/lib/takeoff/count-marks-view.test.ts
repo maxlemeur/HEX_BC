@@ -133,6 +133,11 @@ describe("a correction session", () => {
     expect(draftEntryAsksWord(answered.entries[1]!)).toBe(false);
   });
 
+  it("never puts the identifier of a mark not saved yet in a stored field", () => {
+    expect(() => draftDecide(start(), { id: keys(), op: "retain", markId: id(2), page: 2, state: "proposed", restoredTo: "retained",
+      word: { object: "same", sameAs: draftMarkId(id(50)) } }, keys())).toThrow();
+  });
+
   it("is made again on the marks read since, its gestures kept as typed", () => {
     const draft = draftReattribute(draftRemove(start(), { id: keys(), markId: id(1), page: 2, state: "retained", reason: "other",
       note: "à garder" }, keys()), { id: keys(), markId: id(2), page: 2, state: "retained", toAnswerId: OTHER, toRevision: 3,
