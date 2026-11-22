@@ -5344,6 +5344,154 @@
         }
       }
     },
+    "/api/affaires/{projectId}/takeoff/item-detail/plan": {
+      "get": {
+        "tags": [
+          "Takeoff"
+        ],
+        "summary": "Résoudre le plan affiché par le détail d’un poste",
+        "description": "Lecteurs de l’affaire. Une résolution par plan et par lecture, jamais par poste ni par repère. Avec une lecture (une analyse de cette affaire que le membre lit), la copie que cette analyse a scellée pour ce plan, son empreinte et ses pages, même remplacée depuis : ses octets sont ceux qu’elle a attestés (vérifiés à chaque demande), sinon l’original est dit indisponible, jamais remplacé par une copie plus récente. Sans lecture, le plan retenu au dossier : l’unique copie actuelle de sa pièce, telle que le lecteur de localisation la décide pour le membre, signée pour lui par la lecture du centre de plans au moment de la demande ; une génération nommée doit l’être encore. Mêmes droits que les routes qui servent les octets : module Métré actif pour le tenant, et une copie que ces routes ne serviraient pas à ce membre (sa ligne, sa signature) est dite « non accessible », à part de « aucune copie » ; des octets absents du stockage sont dits absents. Les copies du dossier sont celles que les sources enregistrées pour l’affaire désignent : une copie d’une pièce d’une autre affaire est introuvable, par la copie comme par la pièce. source ne nomme qu’une pièce du dossier. Une analyse d’une autre affaire, un plan que cette lecture n’a pas lu, un plan étranger au dossier ou une pièce supprimée est introuvable. Rien n’est gardé : chaque ouverture d’un plan le résout de nouveau. N’écrit rien, ne lance rien.",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "description": "Affaire cible.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/GetAffaireTakeoffItemDetailPlanProjectIdParameter"
+            }
+          },
+          {
+            "name": "plan",
+            "in": "query",
+            "description": "Identité logique du plan (pièce du dossier, ou copie déposée dans le jeu de plans).",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/GetAffaireTakeoffItemDetailPlanPlanParameter"
+            }
+          },
+          {
+            "name": "lecture",
+            "in": "query",
+            "description": "Analyse dont la copie scellée est montrée ; demande le plan.",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/GetAffaireTakeoffItemDetailPlanLectureParameter"
+            }
+          },
+          {
+            "name": "source",
+            "in": "query",
+            "description": "Pièce du dossier d’un plan qu’aucune analyse n’a scellé, seule, sans plan ni lecture.",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/GetAffaireTakeoffItemDetailPlanSourceParameter"
+            }
+          },
+          {
+            "name": "generation",
+            "in": "query",
+            "description": "Génération de la pièce nommée par source.",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/GetAffaireTakeoffItemDetailPlanGenerationParameter"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Le plan, la lecture et la manière d’en obtenir les octets, ou pourquoi ils sont indisponibles.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiTakeoffItemDetailPlanResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requete invalide ou payload non conforme.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentification requise.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Acces interdit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Ressource introuvable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflit metier ou de concurrence.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Combinaison de paramètres qui ne désigne pas un plan.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiGenericErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Erreur interne serveur.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Le stockage n’a pas répondu à la signature du plan : réessayer.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiGenericErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/affaires/{projectId}/takeoff/item-list": {
       "get": {
         "tags": [
@@ -22659,7 +22807,7 @@
           "Catalogue"
         ],
         "summary": "Creer ou mettre a jour un produit",
-        "description": "Cree un article du referentiel ou met a jour ses champs, y compris l'archivage.",
+        "description": "Cree un article du referentiel ou met a jour ses champs, y compris l'archivage. L'unite d'un article qui a des conditionnements de vente ne change pas : 409 PRODUCT_UNIT_HAS_PACKAGINGS, retirer d'abord ses conditionnements.",
         "requestBody": {
           "description": "Action produit discriminee.",
           "required": true,
@@ -22917,6 +23065,420 @@
           },
           "404": {
             "description": "NOT_FOUND : article ou nom usuel d'un autre tenant, ou d'un autre article.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiMaterialRequestError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflit metier ou de concurrence.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Erreur interne serveur.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/products/{productId}/packagings": {
+      "get": {
+        "tags": [
+          "Catalogue"
+        ],
+        "summary": "Lister les conditionnements de vente d'un article",
+        "description": "Conditionnements de l'article dans l'ordre d'ajout, quantité exprimée dans l'unité de l'article, au plus un usuel (is_usual). can_edit dit si l'appelant peut les modifier (droits de la modification de l'article, TI-689). Lisible par tout membre du tenant actif.",
+        "parameters": [
+          {
+            "name": "productId",
+            "in": "path",
+            "description": "Article du tenant actif.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/MaterialRequestProductId"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Conditionnements de l'article et droit de l'appelant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProductPackagings"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requete invalide ou payload non conforme.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentification requise.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Acces interdit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NOT_FOUND : article d'un autre tenant ou inconnu.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiMaterialRequestError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflit metier ou de concurrence.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Erreur interne serveur.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Catalogue"
+        ],
+        "summary": "Ajouter un conditionnement de vente à un article",
+        "description": "Un conditionnement est un libellé (1 à 80 caractères, espaces retirés) et une quantité strictement positive, trois décimales au plus, exprimée dans l'unité de l'article (« Barre » et 6 pour une barre de 6 m d'un article au mètre linéaire), que le conditionnement garde (unit) : l'unité d'un article qui a des conditionnements ne change plus tant qu'ils existent (PRODUCT_UNIT_HAS_PACKAGINGS à la modification de l'article). Purement informatif : aucune quantité, aucun prix, devis, bon ni demande ne le lit. Droits : ceux de la modification de l'article, dans le tenant actif. La réponse est la liste entière, dans l'ordre d'ajout. is_usual à true le rend usuel et retire la mention de celui qui l'avait.",
+        "parameters": [
+          {
+            "name": "productId",
+            "in": "path",
+            "description": "Article du tenant actif.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/MaterialRequestProductId"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "Libellé, quantité et, au besoin, mention usuelle.",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProductPackagingCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Conditionnement ajouté ; liste entière de l'article.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProductPackagingCreated"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requete invalide ou payload non conforme.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentification requise.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "FORBIDDEN : réservé aux administrateurs et aux ingénieurs ; un ingénieur ne modifie que les articles qu'il a ajoutés, sauf si un administrateur a ouvert la base commune (TI-689).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiMaterialRequestError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NOT_FOUND : article ou fournisseur d'un autre tenant, ou inconnu.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiMaterialRequestError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "CONFLICT : « Ce conditionnement existe déjà pour cet article. » (même libellé, casse et accents ignorés, et même quantité), ou un autre conditionnement a été marqué usuel au même moment ; rien n'est écrit. PRODUCT_PACKAGING_UNIT_CHANGED : l'unité de l'article a changé pendant l'ajout ; rien n'est écrit, recharger l'article.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiMaterialRequestError"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "PRODUCT_PACKAGING_UNIT_REQUIRED : l'article n'a pas d'unité (brouillon) ; rien n'est écrit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiMaterialRequestError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Erreur interne serveur.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/products/{productId}/packagings/{packagingId}": {
+      "patch": {
+        "tags": [
+          "Catalogue"
+        ],
+        "summary": "Modifier un conditionnement de vente",
+        "description": "Un conditionnement est un libellé (1 à 80 caractères, espaces retirés) et une quantité strictement positive, trois décimales au plus, exprimée dans l'unité de l'article (« Barre » et 6 pour une barre de 6 m d'un article au mètre linéaire), que le conditionnement garde (unit) : l'unité d'un article qui a des conditionnements ne change plus tant qu'ils existent (PRODUCT_UNIT_HAS_PACKAGINGS à la modification de l'article). Purement informatif : aucune quantité, aucun prix, devis, bon ni demande ne le lit. Droits : ceux de la modification de l'article, dans le tenant actif. La réponse est la liste entière, dans l'ordre d'ajout. Clé par clé : omise, la valeur enregistrée est gardée. is_usual à true déplace la mention usuelle sur ce conditionnement ; false la retire.",
+        "parameters": [
+          {
+            "name": "productId",
+            "in": "path",
+            "description": "Article du tenant actif.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/MaterialRequestProductId"
+            }
+          },
+          {
+            "name": "packagingId",
+            "in": "path",
+            "description": "Conditionnement de vente de cet article.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/ProductPackagingId"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "Au moins un champ.",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProductPackagingUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Conditionnement modifié ; liste entière de l'article.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProductPackagingUpdated"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requete invalide ou payload non conforme.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentification requise.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "FORBIDDEN : réservé aux administrateurs et aux ingénieurs ; un ingénieur ne modifie que les articles qu'il a ajoutés, sauf si un administrateur a ouvert la base commune (TI-689).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiMaterialRequestError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NOT_FOUND : article ou conditionnement d'un autre tenant, ou d'un autre article.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiMaterialRequestError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "CONFLICT : « Ce conditionnement existe déjà pour cet article. » (même libellé, casse et accents ignorés, et même quantité), ou un autre conditionnement a été marqué usuel au même moment ; rien n'est écrit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiMaterialRequestError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Erreur interne serveur.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Catalogue"
+        ],
+        "summary": "Retirer un conditionnement de vente",
+        "description": "Supprime le conditionnement. Droits : ceux de la modification de l'article. La réponse est la liste restante.",
+        "parameters": [
+          {
+            "name": "productId",
+            "in": "path",
+            "description": "Article du tenant actif.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/MaterialRequestProductId"
+            }
+          },
+          {
+            "name": "packagingId",
+            "in": "path",
+            "description": "Conditionnement de vente de cet article.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/ProductPackagingId"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Conditionnement retiré ; liste restante de l'article.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiProductPackagingDeleted"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requete invalide ou payload non conforme.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentification requise.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "FORBIDDEN : réservé aux administrateurs et aux ingénieurs ; un ingénieur ne modifie que les articles qu'il a ajoutés, sauf si un administrateur a ouvert la base commune (TI-689).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiMaterialRequestError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NOT_FOUND : article ou conditionnement d'un autre tenant, ou d'un autre article.",
             "content": {
               "application/json": {
                 "schema": {
@@ -26491,6 +27053,119 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ApiTakeoffDpgfManualLinkResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requete invalide ou payload non conforme.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiTakeoffFailureResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentification requise.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiTakeoffFailureResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Acces interdit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiTakeoffFailureResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Job takeoff introuvable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiTakeoffFailureResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflit metier ou de concurrence.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiTakeoffFailureResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation metier echouee.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiTakeoffFailureResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Erreur interne serveur.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiTakeoffFailureResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/takeoff/jobs/{jobId}/item-send/preview": {
+      "post": {
+        "tags": [
+          "Takeoff"
+        ],
+        "summary": "Apercu de l'envoi par poste des reponses d'un plan",
+        "description": "Lecture seule (lot 4) : pour l'analyse d'un plan lue contre la liste des postes, ce que deviendrait le devis : premier brouillon a creer, sections (lot puis famille de la liste, compartiment du decoupage), lignes creees ou alimentees (ligne du DPGF a sa place, ligne d'un envoi anterieur du meme poste), quantites avant et apres, reference, saisie, mesure et quantite retenue, lignes non envoyees et leur motif, points a trancher et leurs choix, lectures non additionnees, apports de page et regles sans effet sur les prix. Moteur 3 seul. N'ecrit rien. Tant que les reponses par poste ne sont pas enregistrees, repond 409.",
+        "parameters": [
+          {
+            "name": "jobId",
+            "in": "path",
+            "description": "Identifiant UUID du job takeoff.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/TakeoffJobIdPathParameter"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "Destination, decoupage (ensemble, par niveau, par batiment) et choix explicites du membre, chacun par la cle du point a trancher que l'apercu a donnee ; absents, ceux que l'apercu propose.",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TakeoffItemSendPreviewRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Apercu de l'envoi par poste.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiTakeoffItemSendPreviewResponse"
                 }
               }
             }
@@ -41544,6 +42219,241 @@
         ],
         "additionalProperties": false
       },
+      "GetAffaireTakeoffItemDetailPlanProjectIdParameter": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      },
+      "GetAffaireTakeoffItemDetailPlanPlanParameter": {
+        "type": "string",
+        "maxLength": 200
+      },
+      "GetAffaireTakeoffItemDetailPlanLectureParameter": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      },
+      "GetAffaireTakeoffItemDetailPlanSourceParameter": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      },
+      "GetAffaireTakeoffItemDetailPlanGenerationParameter": {
+        "type": "string",
+        "maxLength": 200
+      },
+      "ApiTakeoffItemDetailPlanResponse": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "plan": {
+                "type": "object",
+                "properties": {
+                  "key": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200,
+                    "description": "Identité logique du plan : sa pièce du dossier, ou la copie déposée dans le jeu de plans."
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "planFileId": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "La copie montrée : celle que la lecture a scellée, ou la copie actuelle du dossier."
+                  },
+                  "generation": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "contentSha256": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "pattern": "^[0-9a-f]{64}$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "pageCount": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "pagesRead": {
+                    "type": "array",
+                    "items": {
+                      "type": "integer",
+                      "exclusiveMinimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "description": "Pages originales lues par l’analyse (vide : tout le plan, ou aucune lecture)."
+                  }
+                },
+                "required": [
+                  "key",
+                  "name",
+                  "planFileId",
+                  "generation",
+                  "contentSha256",
+                  "pageCount",
+                  "pagesRead"
+                ],
+                "additionalProperties": false
+              },
+              "reading": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "jobId": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                      },
+                      "status": {
+                        "type": "string"
+                      },
+                      "finishedAt": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "jobId",
+                      "status",
+                      "finishedAt"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "document": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "const": "attested"
+                      },
+                      "href": {
+                        "type": "string",
+                        "pattern": "^\\/api\\/.*"
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "href"
+                    ],
+                    "additionalProperties": false,
+                    "description": "Les octets que la lecture a attestés, vérifiés par le serveur à chaque demande."
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "const": "dossier"
+                      },
+                      "planSetId": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                      },
+                      "planFileId": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                      },
+                      "url": {
+                        "type": "string",
+                        "format": "uri"
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "planSetId",
+                      "planFileId",
+                      "url"
+                    ],
+                    "additionalProperties": false,
+                    "description": "La copie actuelle du dossier au moment de la demande, signée pour le membre par la lecture du centre de plans (durée courte)."
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "const": "unavailable"
+                      },
+                      "reason": {
+                        "type": "string",
+                        "enum": [
+                          "original_unavailable",
+                          "no_current_copy",
+                          "several_copies",
+                          "generation_replaced",
+                          "not_available_to_you",
+                          "copy_missing"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "reason"
+                    ],
+                    "additionalProperties": false
+                  }
+                ]
+              }
+            },
+            "required": [
+              "plan",
+              "reading",
+              "document"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "ok",
+          "data"
+        ],
+        "additionalProperties": false
+      },
+      "ApiGenericErrorResponse": {},
       "GetAffaireTakeoffItemListProjectIdParameter": {
         "type": "string",
         "format": "uuid",
@@ -41835,7 +42745,6 @@
         "maximum": 200
       },
       "ApiGenericJsonResponse": {},
-      "ApiGenericErrorResponse": {},
       "ListCatalogueViewParameter": {
         "type": "string",
         "const": "page"
@@ -83512,6 +84421,293 @@
         ],
         "additionalProperties": false
       },
+      "ApiProductPackagings": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "items": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "label": {
+                      "type": "string"
+                    },
+                    "quantity": {
+                      "type": "number",
+                      "exclusiveMinimum": 0
+                    },
+                    "is_usual": {
+                      "type": "boolean"
+                    },
+                    "unit": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "label",
+                    "quantity",
+                    "is_usual",
+                    "unit"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "can_edit": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "items",
+              "can_edit"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "ok",
+          "data"
+        ],
+        "additionalProperties": false
+      },
+      "ProductPackagingCreate": {
+        "type": "object",
+        "properties": {
+          "label": {
+            "type": "string"
+          },
+          "quantity": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "maximum": 99999999999.999
+          },
+          "is_usual": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "label",
+          "quantity"
+        ],
+        "additionalProperties": false
+      },
+      "ApiProductPackagingCreated": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "items": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "label": {
+                      "type": "string"
+                    },
+                    "quantity": {
+                      "type": "number",
+                      "exclusiveMinimum": 0
+                    },
+                    "is_usual": {
+                      "type": "boolean"
+                    },
+                    "unit": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "label",
+                    "quantity",
+                    "is_usual",
+                    "unit"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "can_edit": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "items",
+              "can_edit"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "ok",
+          "data"
+        ],
+        "additionalProperties": false
+      },
+      "ProductPackagingId": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      },
+      "ProductPackagingUpdate": {
+        "type": "object",
+        "properties": {
+          "label": {
+            "type": "string"
+          },
+          "quantity": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "maximum": 99999999999.999
+          },
+          "is_usual": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      },
+      "ApiProductPackagingUpdated": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "items": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "label": {
+                      "type": "string"
+                    },
+                    "quantity": {
+                      "type": "number",
+                      "exclusiveMinimum": 0
+                    },
+                    "is_usual": {
+                      "type": "boolean"
+                    },
+                    "unit": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "label",
+                    "quantity",
+                    "is_usual",
+                    "unit"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "can_edit": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "items",
+              "can_edit"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "ok",
+          "data"
+        ],
+        "additionalProperties": false
+      },
+      "ApiProductPackagingDeleted": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "items": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "label": {
+                      "type": "string"
+                    },
+                    "quantity": {
+                      "type": "number",
+                      "exclusiveMinimum": 0
+                    },
+                    "is_usual": {
+                      "type": "boolean"
+                    },
+                    "unit": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "label",
+                    "quantity",
+                    "is_usual",
+                    "unit"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "can_edit": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "items",
+              "can_edit"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "ok",
+          "data"
+        ],
+        "additionalProperties": false
+      },
       "ProductPreferredSupplier": {
         "type": "object",
         "properties": {
@@ -95063,6 +96259,1250 @@
             },
             "required": [
               "links"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "ok",
+          "data"
+        ],
+        "additionalProperties": false
+      },
+      "TakeoffItemSendPreviewRequest": {
+        "type": "object",
+        "properties": {
+          "destination": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "const": "first_draft"
+                  }
+                },
+                "required": [
+                  "kind"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "const": "existing_draft"
+                  },
+                  "version_id": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "version_id"
+                ],
+                "additionalProperties": false
+              }
+            ]
+          },
+          "breakdown": {
+            "type": "string",
+            "enum": [
+              "together",
+              "by_level",
+              "by_building"
+            ]
+          },
+          "resolutions": {
+            "maxItems": 2000,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "key": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 400
+                },
+                "choice": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "kind": {
+                          "type": "string",
+                          "const": "line"
+                        },
+                        "estimate_item_id": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        }
+                      },
+                      "required": [
+                        "kind",
+                        "estimate_item_id"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "kind": {
+                          "type": "string",
+                          "const": "new_line"
+                        }
+                      },
+                      "required": [
+                        "kind"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "kind": {
+                          "type": "string",
+                          "const": "keep_entry"
+                        }
+                      },
+                      "required": [
+                        "kind"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "kind": {
+                          "type": "string",
+                          "const": "use_retained"
+                        }
+                      },
+                      "required": [
+                        "kind"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "kind": {
+                          "type": "string",
+                          "const": "leave_out"
+                        }
+                      },
+                      "required": [
+                        "kind"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "key",
+                "choice"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "ApiTakeoffItemSendPreviewResponse": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "job_id": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "plan": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "key": {
+                        "type": "string"
+                      },
+                      "name": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "key",
+                      "name"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "list": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "revision_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                      },
+                      "revision": {
+                        "type": "integer",
+                        "exclusiveMinimum": 0,
+                        "maximum": 9007199254740991
+                      }
+                    },
+                    "required": [
+                      "revision_id",
+                      "revision"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "destinations": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "destination": {
+                      "anyOf": [
+                        {
+                          "oneOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "kind": {
+                                  "type": "string",
+                                  "const": "first_draft"
+                                }
+                              },
+                              "required": [
+                                "kind"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "kind": {
+                                  "type": "string",
+                                  "const": "existing_draft"
+                                },
+                                "version_id": {
+                                  "type": "string",
+                                  "format": "uuid",
+                                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                }
+                              },
+                              "required": [
+                                "kind",
+                                "version_id"
+                              ],
+                              "additionalProperties": false
+                            }
+                          ]
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "label": {
+                      "type": "string"
+                    },
+                    "blocked": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "enum": [
+                            "not_completed",
+                            "already_sent",
+                            "read_only",
+                            "choose_destination",
+                            "issued_only",
+                            "engine_not_v3",
+                            "engine_policy_v2",
+                            "dpgf_import_required",
+                            "no_line"
+                          ]
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "destination",
+                    "label",
+                    "blocked"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "destination": {
+                "anyOf": [
+                  {
+                    "oneOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "const": "first_draft"
+                          }
+                        },
+                        "required": [
+                          "kind"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "const": "existing_draft"
+                          },
+                          "version_id": {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                          }
+                        },
+                        "required": [
+                          "kind",
+                          "version_id"
+                        ],
+                        "additionalProperties": false
+                      }
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "destination_label": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "version_created": {
+                "type": "boolean"
+              },
+              "engine": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "breakdown": {
+                "type": "string",
+                "enum": [
+                  "together",
+                  "by_level",
+                  "by_building"
+                ]
+              },
+              "blocked": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "reason": {
+                        "type": "string",
+                        "enum": [
+                          "not_completed",
+                          "already_sent",
+                          "read_only",
+                          "choose_destination",
+                          "issued_only",
+                          "engine_not_v3",
+                          "engine_policy_v2",
+                          "dpgf_import_required",
+                          "no_line"
+                        ]
+                      },
+                      "message": {
+                        "type": "string"
+                      },
+                      "href": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "reason",
+                      "message",
+                      "href"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "sections": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "key": {
+                      "type": "string"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "parent_key": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "depth": {
+                      "type": "integer",
+                      "exclusiveMinimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "homonym_in_draft": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "key",
+                    "title",
+                    "parent_key",
+                    "depth",
+                    "homonym_in_draft"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "lines": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "key": {
+                      "type": "string"
+                    },
+                    "item_id": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "label": {
+                      "type": "string"
+                    },
+                    "change": {
+                      "type": "string",
+                      "enum": [
+                        "created",
+                        "fed"
+                      ]
+                    },
+                    "target": {
+                      "type": "string",
+                      "enum": [
+                        "dpgf_line",
+                        "earlier_line",
+                        "new_line"
+                      ]
+                    },
+                    "estimate_item_id": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "title": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "section_key": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "compartment": {
+                      "type": "object",
+                      "properties": {
+                        "key": {
+                          "type": "string"
+                        },
+                        "label": {
+                          "type": "string"
+                        },
+                        "reason": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "location_unknown",
+                                "location_multiple",
+                                "location_to_confirm"
+                              ]
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      },
+                      "required": [
+                        "key",
+                        "label",
+                        "reason"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "unit": {
+                      "type": "string"
+                    },
+                    "quantity_before": {
+                      "type": [
+                        "number",
+                        "null"
+                      ]
+                    },
+                    "quantity_after": {
+                      "type": "number"
+                    },
+                    "reference": {
+                      "type": [
+                        "number",
+                        "null"
+                      ]
+                    },
+                    "entered": {
+                      "type": [
+                        "number",
+                        "null"
+                      ]
+                    },
+                    "earlier": {
+                      "type": "number"
+                    },
+                    "replaced": {
+                      "type": "number"
+                    },
+                    "added": {
+                      "type": "number"
+                    },
+                    "measured": {
+                      "type": "number"
+                    },
+                    "retained": {
+                      "type": "number"
+                    },
+                    "rounded_from": {
+                      "type": [
+                        "number",
+                        "null"
+                      ]
+                    },
+                    "gap": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "absolute": {
+                              "type": "number"
+                            },
+                            "percent": {
+                              "type": [
+                                "number",
+                                "null"
+                              ]
+                            },
+                            "requires_review": {
+                              "type": "boolean"
+                            }
+                          },
+                          "required": [
+                            "absolute",
+                            "percent",
+                            "requires_review"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "kept_entry": {
+                      "type": "boolean"
+                    },
+                    "pages": {
+                      "type": "array",
+                      "items": {
+                        "type": "integer",
+                        "exclusiveMinimum": 0,
+                        "maximum": 9007199254740991
+                      }
+                    },
+                    "rule": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "name": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "effect": {
+                              "type": "string",
+                              "enum": [
+                                "none",
+                                "renamed",
+                                "categorized",
+                                "skipped",
+                                "price_ignored",
+                                "assembly_indicated"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "name",
+                            "effect"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "key",
+                    "item_id",
+                    "label",
+                    "change",
+                    "target",
+                    "estimate_item_id",
+                    "title",
+                    "section_key",
+                    "compartment",
+                    "unit",
+                    "quantity_before",
+                    "quantity_after",
+                    "reference",
+                    "entered",
+                    "earlier",
+                    "replaced",
+                    "added",
+                    "measured",
+                    "retained",
+                    "rounded_from",
+                    "gap",
+                    "kept_entry",
+                    "pages",
+                    "rule"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "not_sent": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "item_id": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "label": {
+                      "type": "string"
+                    },
+                    "reason": {
+                      "type": "string",
+                      "enum": [
+                        "set_aside",
+                        "not_accepted",
+                        "not_found",
+                        "uncertain",
+                        "empty",
+                        "unit_incompatible",
+                        "hypothesis_not_included",
+                        "rule_skip",
+                        "affaire_entry",
+                        "no_answer",
+                        "left_out",
+                        "entry_suspended"
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "item_id",
+                    "label",
+                    "reason",
+                    "message"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "parts_not_sent": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "item_id": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "kind": {
+                      "type": "string",
+                      "enum": [
+                        "measured",
+                        "entered"
+                      ]
+                    },
+                    "observation_ids": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "pages": {
+                      "type": "array",
+                      "items": {
+                        "type": "integer",
+                        "exclusiveMinimum": 0,
+                        "maximum": 9007199254740991
+                      }
+                    },
+                    "quantity": {
+                      "type": "number"
+                    },
+                    "unit": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "reason": {
+                      "type": "string",
+                      "enum": [
+                        "page_held",
+                        "set_aside",
+                        "not_accepted",
+                        "not_found",
+                        "uncertain",
+                        "empty",
+                        "unit_incompatible",
+                        "hypothesis_not_included",
+                        "rule_skip",
+                        "affaire_entry",
+                        "no_answer",
+                        "left_out",
+                        "entry_suspended"
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "item_id",
+                    "kind",
+                    "observation_ids",
+                    "pages",
+                    "quantity",
+                    "unit",
+                    "reason",
+                    "message"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "to_resolve": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "key": {
+                      "type": "string"
+                    },
+                    "kind": {
+                      "type": "string",
+                      "enum": [
+                        "target_missing",
+                        "target_multiple",
+                        "identity_conflict",
+                        "entered_quantity",
+                        "breakdown_mixed",
+                        "page_decision",
+                        "section_depth",
+                        "quantity_unwritable"
+                      ]
+                    },
+                    "item_id": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "label": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "page": {
+                      "anyOf": [
+                        {
+                          "type": "integer",
+                          "exclusiveMinimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "held_item_ids": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                      }
+                    },
+                    "earlier_lines": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "estimate_item_id": {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                          },
+                          "title": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "quantity": {
+                            "type": "number"
+                          }
+                        },
+                        "required": [
+                          "estimate_item_id",
+                          "title",
+                          "quantity"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "options": {
+                      "type": "array",
+                      "items": {
+                        "oneOf": [
+                          {
+                            "type": "object",
+                            "properties": {
+                              "kind": {
+                                "type": "string",
+                                "const": "line"
+                              },
+                              "estimate_item_id": {
+                                "type": "string",
+                                "format": "uuid",
+                                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                              },
+                              "title": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              }
+                            },
+                            "required": [
+                              "kind",
+                              "estimate_item_id",
+                              "title"
+                            ],
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "kind": {
+                                "type": "string",
+                                "const": "new_line"
+                              }
+                            },
+                            "required": [
+                              "kind"
+                            ],
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "kind": {
+                                "type": "string",
+                                "const": "keep_entry"
+                              }
+                            },
+                            "required": [
+                              "kind"
+                            ],
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "kind": {
+                                "type": "string",
+                                "const": "use_retained"
+                              }
+                            },
+                            "required": [
+                              "kind"
+                            ],
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "kind": {
+                                "type": "string",
+                                "const": "leave_out"
+                              }
+                            },
+                            "required": [
+                              "kind"
+                            ],
+                            "additionalProperties": false
+                          }
+                        ]
+                      }
+                    },
+                    "facts": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "reference": {
+                              "type": [
+                                "number",
+                                "null"
+                              ]
+                            },
+                            "entered": {
+                              "type": [
+                                "number",
+                                "null"
+                              ]
+                            },
+                            "measured": {
+                              "type": "number"
+                            },
+                            "retained": {
+                              "type": "number"
+                            }
+                          },
+                          "required": [
+                            "reference",
+                            "entered",
+                            "measured",
+                            "retained"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "key",
+                    "kind",
+                    "item_id",
+                    "label",
+                    "page",
+                    "held_item_ids",
+                    "earlier_lines",
+                    "message",
+                    "options",
+                    "facts"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "not_added": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "item_id": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "role": {
+                      "type": "string",
+                      "enum": [
+                        "alternative",
+                        "candidate"
+                      ]
+                    },
+                    "quantity": {
+                      "type": [
+                        "number",
+                        "null"
+                      ]
+                    },
+                    "unit": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "page": {
+                      "anyOf": [
+                        {
+                          "type": "integer",
+                          "exclusiveMinimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "item_id",
+                    "role",
+                    "quantity",
+                    "unit",
+                    "page"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "page_contributions": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "page": {
+                      "type": "integer",
+                      "exclusiveMinimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "item_ids": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                      }
+                    }
+                  },
+                  "required": [
+                    "page",
+                    "item_ids"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "rules": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "item_id": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "label": {
+                      "type": "string"
+                    },
+                    "rule_name": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "action": {
+                      "type": "string",
+                      "enum": [
+                        "none",
+                        "rename",
+                        "set_category",
+                        "skip",
+                        "set_price",
+                        "apply_assembly"
+                      ]
+                    },
+                    "effect": {
+                      "type": "string",
+                      "enum": [
+                        "none",
+                        "renamed",
+                        "categorized",
+                        "skipped",
+                        "price_ignored",
+                        "assembly_indicated"
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "assembly": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                            },
+                            "name": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "name"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "item_id",
+                    "label",
+                    "rule_name",
+                    "action",
+                    "effect",
+                    "message",
+                    "assembly"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "confirmable": {
+                "type": "boolean"
+              },
+              "focus_item_id": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "plan_digest": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{64}$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "job_id",
+              "plan",
+              "list",
+              "destinations",
+              "destination",
+              "destination_label",
+              "version_created",
+              "engine",
+              "breakdown",
+              "blocked",
+              "sections",
+              "lines",
+              "not_sent",
+              "parts_not_sent",
+              "to_resolve",
+              "not_added",
+              "page_contributions",
+              "rules",
+              "confirmable",
+              "focus_item_id",
+              "plan_digest"
             ],
             "additionalProperties": false
           }

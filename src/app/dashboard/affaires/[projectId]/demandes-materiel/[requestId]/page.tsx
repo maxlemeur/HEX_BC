@@ -36,6 +36,7 @@ export default async function AffaireMaterialRequestPage({ params }: Props) {
         requestId={requestId}
         affaireName={project.name}
         canEditCatalogue={project.canEditCatalogue}
+        canCreateSupplyType={project.canCreateSupplyType}
       />
     </div>
   );

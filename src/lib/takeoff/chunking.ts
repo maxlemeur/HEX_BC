@@ -138,6 +138,19 @@ export function buildPdfChunks(
   return chunks;
 }
 
+/**
+ * The pages each fragment owns (lot 4, the reading against a list of items): every page of the PDF has exactly one
+ * owner, the last fragment that starts at or before it. The pages a fragment shares with the next one are owned by the
+ * next and are only context for it: a page read twice is counted once, by its owner.
+ */
+export function ownedChunkPages(chunks: readonly TakeoffPdfChunk[]): number[][] {
+  return chunks.map((chunk, index) => {
+    const next = chunks[index + 1];
+    const last = next ? Math.min(chunk.endPage, next.startPage - 1) : chunk.endPage;
+    return Array.from({ length: Math.max(0, last - chunk.startPage + 1) }, (_, offset) => chunk.startPage + offset);
+  });
+}
+
 export async function createPdfChunkBytes(input: {
   bytes: ArrayBuffer;
   chunk: TakeoffPdfChunk;

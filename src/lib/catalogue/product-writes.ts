@@ -11,6 +11,11 @@ import type { Database } from "@/types/database";
 import { getCatalogueWriterClient } from "./access-server";
 import type { CreateProductInput, UpdateProductInput } from "./directory-schemas";
 import {
+  PRODUCT_UNIT_HAS_PACKAGINGS,
+  PRODUCT_UNIT_HAS_PACKAGINGS_MESSAGE,
+  isProductUnitHeldByPackagings,
+} from "./packagings";
+import {
   PRODUCT_SUPPLY_TYPE_INVALID,
   PRODUCT_VALIDATION_INCOMPLETE,
   productValidationFieldsFromDetail,
@@ -134,6 +139,9 @@ export async function updateProduct(input: UpdateProductInput) {
   if (error) {
     if (error.code === "23505") {
       throw conflict("Cette référence interne existe déjà. Choisissez une autre référence.");
+    }
+    if (isProductUnitHeldByPackagings(error)) {
+      throw conflict(PRODUCT_UNIT_HAS_PACKAGINGS_MESSAGE, undefined, PRODUCT_UNIT_HAS_PACKAGINGS);
     }
     if (error.message.includes("REFERENCE_PRICE_VALIDATION_REQUIRED")) {
       throw conflict("Le prix de référence doit être validé depuis « Examiner le prix ». Une référence validée ne peut pas changer d’unité sans nouvelle validation.");

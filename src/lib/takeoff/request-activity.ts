@@ -1,4 +1,5 @@
 import { TAKEOFF_PLAN_PUBLIC_FAILURE_CODES, TAKEOFF_PUBLIC_FAILURE_CODES } from "@/lib/takeoff/completion-outcome";
+import { readPosteReadingBoundsFacts } from "@/lib/takeoff/poste-reading-bounds-text";
 import {
   describeTakeoffLaunchReason,
   isTakeoffLaunchReason,
@@ -295,7 +296,8 @@ export function buildTakeoffRequestActivity(input: {
   const { request, manifest, visible } = input;
   const reason = isTakeoffLaunchReason(request.reason_code)
     ? { code: request.reason_code,
-      message: describeTakeoffLaunchReason(request.reason_code, maskTakeoffPieces(toPieces(request.reason_details), visible)) }
+      message: describeTakeoffLaunchReason(request.reason_code, maskTakeoffPieces(toPieces(request.reason_details), visible),
+        readPosteReadingBoundsFacts(isRecord(request.reason_details) ? request.reason_details.reading_bounds : null)) }
     : request.state === "superseded"
       ? { code: "SUPERSEDED", message: describeTakeoffLaunchReason("SUPERSEDED") }
       : null;

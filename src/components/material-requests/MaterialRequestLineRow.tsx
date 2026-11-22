@@ -38,6 +38,7 @@ import type {
   ArticleNotice,
   LineChangeState,
   LineProposals,
+  MaterialRequestEditorApi,
   RetainResult,
   SaveResult,
 } from "./useMaterialRequestEditor";
@@ -92,6 +93,7 @@ export type LineRowProps = Readonly<{
   /** May complete a linked article's sheet (admins and engineers). */
   canEditCatalogue: boolean;
   onRetainSupplier: (supplierId: string) => Promise<RetainResult>;
+  onCreateSupplier: MaterialRequestEditorApi["createSupplier"];
   /** The purchase order the line went into (TI-691, delivery 3a); null while it is not ordered. */
   ordered?: MaterialRequestOrderLink | null;
 }>;
@@ -319,6 +321,7 @@ function Sourcing(props: LineRowProps & { expanded: boolean }) {
           onChooseTypeSupplier={props.onChooseTypeSupplier}
           onSave={props.onSave}
           onRetain={props.onRetainSupplier}
+          onCreateSupplier={props.onCreateSupplier}
         />
       </div>
     </div>

@@ -115,12 +115,25 @@ la base en garantit l’unicité et l’admission (migration
 - **Qui paie.** Le membre enregistré comme ayant confirmé le brief, s’il peut
   lancer un métré sur l’affaire (administrateur, ou ingénieur propriétaire de
   l’affaire). Il en est averti dans la confirmation : « Une fois les plans prêts,
-  le métré utilisera votre forfait ChatGPT et les réglages de Mon profil. » Le
-  mandat n’est payable que si la confirmation porte cette mention telle qu’elle a
-  été montrée (ce membre, ce forfait et ces réglages, cette activation) ; un
-  formulaire ouvert avant l’activation ou montré sans la mention confirme le brief
-  et n’engage personne (« Métré non démarré — la confirmation du dossier n’a
-  engagé aucun forfait ChatGPT »). Le mandat porte sur cette demande, cette
+  le métré utilisera votre forfait ChatGPT et les réglages de Mon profil. » La
+  fenêtre « Confirmer ce brief ? » lit cette mention à son ouverture, pour ce
+  membre et le brief tel qu’il est alors (la même règle pour tout appelant :
+  seulement un brief à confirmer, un membre qui peut payer, l’activation en
+  place), et non sur la page affichée avant l’arrivée du brief. L’analyse d’un
+  lot de pièces classe les pièces, écrit le brief, puis enregistre la fin du
+  lot (le statut final de son dépôt) : la lecture du dossier lit les lots en
+  cours avant le brief, et les relectures de la page continuent tant qu’un lot
+  de l’affaire est en cours, en plus de leurs conditions habituelles. Un membre
+  resté sur l’affaire pendant l’analyse voit donc le brief arriver, le confirme
+  et voit la mention. Pendant la lecture,
+  la fenêtre l’indique et « Oui, confirmer » attend. Si la lecture échoue, elle
+  dit qu’elle n’a pas pu vérifier le forfait, propose « Réessayer » et laisse
+  confirmer sans démarrer d’analyse. Le mandat n’est payable que si la
+  confirmation porte cette mention telle que cette fenêtre l’a montrée (ce membre,
+  ce forfait et ces réglages, cette activation) ; une fenêtre ouverte avant
+  l’activation, montrée sans la mention ou dont la lecture a échoué confirme le
+  brief et n’engage personne (« Métré non démarré — la confirmation du dossier
+  n’a engagé aucun forfait ChatGPT »). Le mandat porte sur cette demande, cette
   affaire, ce membre, la sélection de son profil, la connexion ChatGPT en cours et
   le Mac du geste ; une déconnexion ou une reconnexion le retire (« partage
   révoqué ») quel que soit l’état du dossier, jusqu’au geste du payeur. Un lecteur qui confirme ne paie pas : « Métré non
@@ -536,7 +549,15 @@ n’arrête rien. Les plans lus, une fois les choix d’indices appliqués, doiv
 tenir ensemble dans le budget de plans du traitement (nombre, taille et pages
 réelles, au niveau de l’analyse) : une copie de travail du dossier n’enregistre
 pas son nombre de pages, il est compté sur le fichier. Sinon la confirmation et
-le démarrage automatique s’arrêtent en nommant les plans. Le cartouche d’un plan
+le démarrage automatique s’arrêtent en nommant les plans. Une fois l’analyse par
+plan active, chaque plan est lu par sa propre analyse : la limite de pages d’une
+lecture vaut pour chaque plan, non pour leur somme (seul le plan qui la dépasse
+est nommé) ; la confirmation, le démarrage automatique et les commandes de plans
+l’appliquent ainsi, chacun sur les pages de chaque plan comptées sur son fichier
+quand sa ligne n’en enregistre pas, et une analyse groupée la garde sur tous ses
+plans ensemble. La confirmation ne lit l’activation que lorsque les plans dépassent
+la limite ensemble ; si elle ne peut pas la lire, elle garde la règle d’une analyse
+groupée. Le nombre de plans et leur taille restent bornés ensemble. Le cartouche d’un plan
 du dossier donne son indice ; une page que le rendu ne peut pas dessiner laisse
 cet indice non lu (le dossier ou le nom du fichier le donnent alors), sans
 écarter le plan : le traitement lit le plan sans son cartouche.

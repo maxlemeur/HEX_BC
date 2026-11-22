@@ -138,6 +138,127 @@ n’est pas posée, une demande scelle l’extraction libre, comme avant. Une fo
 activée, une DPGF à préparer suspend l’admission avec un motif. Le Mac du mandat
 réessaie alors seul.
 
+**Lecture d’un plan contre la liste.** Avec le second ordre de mesure, chaque plan
+d’une analyse plan par plan est lu contre la liste que sa demande a scellée. Tant
+que l’analyse plan par plan n’est pas activée, une demande reste groupée et scelle
+l’extraction libre, quelle que soit l’activation du second ordre : une liste n’est
+jamais scellée sur une analyse groupée. Un job qui lirait plusieurs plans contre
+une liste s’arrêterait d’ailleurs avant tout appel, sans rien dépenser.
+
+Le second ordre de mesure ne peut pas être activé avant la livraison de la
+publication des réponses par poste : jusque-là, un job du second ordre s’arrête dès
+sa prise en charge, avant de lire son plan et avant tout appel, sans rien dépenser.
+Les règles qui suivent décrivent la lecture telle qu’elle s’appliquera alors.
+
+Le serveur découpe le
+plan comme la lecture détaillée (au-delà de 15 pages, des fragments de 10 pages
+dont 2 en recouvrement) et la liste en lots d’au plus 40 postes et 64 Kio : chaque
+appel joint un fragment et demande un lot. Le modèle reçoit pour chaque poste une clé
+opaque (`P0001`…), son libellé, son unité attendue, sa base de mesure, ses précisions
+(réseau, matière, diamètre) et ses sections, en entier : ce qui distingue deux postes
+n’est jamais coupé, un poste très long est demandé seul. Il ne reçoit jamais un
+identifiant, un prix, la quantité de référence de la DPGF ni une quantité du devis.
+Du cadrage, il reçoit seulement ce qui dit comment mesurer : l’objectif, le
+périmètre et ses restrictions, l’unité, la base et les déductions, les questions des
+réserves et leurs réponses telles que les membres les ont écrites ; jamais un
+identifiant, une personne ni la référence d’une pièce. Seul le CCTP est joint comme
+pièce de référence : la DPGF décrit déjà les postes, et son chiffre ne prouve pas la
+lecture du plan. Une liste sans aucun poste (une DPGF faite seulement de lignes de
+structure) ne demande rien : la demande scelle l’extraction libre.
+
+Chaque poste reçoit une réponse par plan :
+
+- **Mesuré** : au moins une observation chiffrée sur une page du plan ; la quantité
+  est la somme de ses apports.
+- **Incertain** : un motif (indice ambigu, quantité partielle, échelle manquante,
+  diamètre illisible, estimation…), avec si possible une page candidate et une valeur
+  candidate, qui ne comptent jamais comme une mesure.
+- **Non trouvé** : toutes les pages cherchées sans indice ; la quantité reste vide
+  (« — »), jamais 0.
+
+Une réponse manquante, un poste qui n’était pas demandé, deux réponses pour un même
+poste, une page hors du fragment joint ou une page ni cherchée ni déclarée illisible
+arrêtent l’analyse du plan (« Extraction incomplète sur ce document. ») : rien n’est
+compté comme non trouvé à sa place. Une quantité est conservée à trois décimales,
+comme le métré la garde ; une valeur qui n’est plus positive une fois arrondie n’est
+pas une mesure. Chaque observation dit si elle compte un objet ou une zone distincts, ou
+si elle relit un objet déjà relevé sur la même page, et si elle est sur la base
+demandée : seules les observations que le modèle déclare distinctes s’additionnent ;
+deux lectures que rien ne distingue (même page, même indice, même valeur) rendent la
+réponse incertaine et ne s’additionnent jamais. Une mesure déclarée hors de la base
+demandée par le poste, ou dont la base écrite en est une autre, une mesure à l’échelle
+sans base écrite, ou des mesures sur deux bases différentes rendent la réponse
+incertaine ; sa valeur candidate n’additionne alors que les lectures sur la base
+demandée, ou n’en donne aucune. La lecture se fie à ces déclarations du modèle : deux
+observations d’un même poste sur une page, d’indices ou de valeurs différents,
+déclarées distinctes, s’additionnent (deux pièces de 12 m² comme une pièce lue deux
+fois), et une mesure déclarée sur la base demandée est prise comme telle ; aucune
+règle de la fusion ne les distingue. C’est la justesse de la lecture, que le
+chiffreur contrôle dans le tableau des postes. Chaque page appartient à un seul
+fragment : la lecture d’une page de recouvrement par l’autre fragment n’est jamais
+ajoutée, et si le total qu’il y lit diffère de celui du fragment propriétaire (de plus
+de 1 % pour une longueur ou une surface, de quoi que ce soit pour toute autre unité),
+la réponse devient incertaine. Une page illisible rend la réponse incertaine : elle ne
+prouve ni une absence ni un total. Une unité lue différente de celle du poste, ou un
+comptage non entier d’un poste compté à l’unité (sur la valeur lue, avant tout
+arrondi), rend aussi la réponse incertaine. La lecture vectorielle d’un réseau se
+rattache au poste de même réseau, matière et diamètre : elle confirme la mesure (écart
+d’au plus 1 %) ou rend la réponse incertaine. Celle de la surface d’un local se
+rattache au poste mesuré en m² dont le libellé nomme ce local ; comme elle ne dit pas
+ce que le poste mesure (une faïence murale n’est pas le sol de la pièce), elle ne
+change jamais une réponse mesurée et lui reste jointe pour le chiffreur. L’une comme
+l’autre reste une indication à vérifier quand le modèle n’a rien trouvé, et un simple
+candidat quand plusieurs postes peuvent la revendiquer. Elle ne s’ajoute jamais à la
+mesure. Un ouvrage du plan absent de la liste est signalé
+avec le résultat (« POSTE_HORS_LISTE »), sans créer de poste.
+
+Sur l’affaire, tant qu’un plan attendu n’est pas lu, le total d’un poste reste
+partiel et son absence n’est jamais certifiée. Quand tous ses plans sont lus, un
+plan incertain le rend « À vérifier », sinon une mesure le rend « Mesuré », et
+seulement des plans tous cherchés sans indice le rendent « Non trouvé ».
+
+**Bornes d’une lecture contre la liste.** Avant son admission, la demande entière
+est bornée par le nombre de ses appels de lecture (fragments × lots) : 40 au plus par
+plan, 480 par demande, soit les 20 plans qu’une demande peut sceller, de 20 pages
+chacun, lus contre 300 postes. La classification des groupes vectoriels, quand elle est
+active, garde ses propres limites (25 demandes par page, 40 par plan, sur les 60 pages
+vectorielles du dossier). Le budget d’une telle demande n’est pas celui de la lecture
+détaillée de l’extraction libre (qui reste le réglage du tenant) : il est fixé à
+l’admission d’après les appels admis. Chaque appel payant, de lecture ou de
+classification, réserve 30 000 jetons ; la part de chaque plan vaut deux fois les
+réservations de ses appels, et l’enveloppe de la demande la somme des parts. Un appel
+ne démarre que si la part de son plan et la demande gardent un solde positif : le
+dernier appel admis démarre même si chacun des précédents a coûté le double de
+l’estimation. Le plafond de coût reste celui du tenant, réparti par pages (le forfait
+ChatGPT ne coûte aucun centime par appel). Par exemple, 15 plans de 20 pages lus
+contre 300 postes, classification active, font 360 appels de lecture et 120 de
+classification au plus, 14,4 millions de jetons réservés pour une enveloppe de 28,8
+millions, environ 9 h 30 sur un Mac (1 min 30 par appel de lecture, 15 s par appel
+de classification, estimations à mesurer). Avant son premier appel payant, le job
+refait ce compte sur la demande entière, avec les réglages qu’il utilisera
+réellement, et dépense dans ce que la part de son plan garde : au-delà, il s’arrête
+sans rien dépenser. Au-delà d’un plafond, la demande n’est pas admise : « Métré non
+démarré — les plans … dépassent les limites d’une lecture contre la liste des postes »,
+avec les appels prévus, leur durée sur un Mac et les plafonds. Rien n’est
+échantillonné ; réduire les plans ou les pages lus permet de la relancer.
+
+**Réponses enregistrées et leur publication.** Les réponses d’un plan sont enregistrées
+(`supabase/migrations/20261122080845_takeoff_item_answers.sql`) avec les pages cherchées
+et celles qui n’ont pas pu être lues, qui couvrent ensemble toutes les pages lues du
+plan, leurs motifs dans l’ordre (le premier est le motif principal) et le plan tel que
+la demande l’a scellé (sa copie, son identité, sa génération, l’empreinte de son
+fichier). Une réponse non trouvée n’a aucune observation. Chaque observation garde son
+rôle : un apport (compté), un candidat ou une alternative (jamais additionnée). Chaque
+apport d’une réponse mesurée est une ligne de la revue des quantités, et seuls les
+apports le sont ; une lecture vectorielle n’est jamais un apport. Le Mac publie les
+réponses d’un plan en une fois, sous son bail, avec le résultat et la fin de
+l’analyse : une réponse qui manque, un poste étranger, une page hors du plan, une
+quantité qui n’est pas la somme de ses apports sont refusés et rien n’est écrit ;
+l’analyse ne peut pas se terminer en succès autrement. Une nouvelle lecture du même
+poste sur le même plan remplace la précédente, qui reste consultable. Tous les lecteurs
+de l’affaire lisent les réponses, et voient « en lecture » un poste dont le plan est en
+cours d’analyse ; personne ne les modifie. La revue de ces réponses s’enregistre à part.
+
 Une ligne de devis créée depuis un import garde dans sa provenance l’import et la
 ligne mappée. La ligne mappée nomme la ligne brute dont elle vient ; quand une
 nouvelle correspondance la supprime, la base garde ce lien. La ligne de devis et ses
@@ -953,7 +1074,78 @@ suit s'y ajoute (migration `20261122030312_takeoff_partial_send.sql`,
   plan ne sert qu'une fois l'analyse par plan activée.
 - **Lignes DPGF.** Un brouillon qui tient une ligne DPGF reste refusé pour l'envoi d'un métré
   d'affaire. L'exemple d'envoi par plan est démontré sur une ligne ordinaire ; les cibles DPGF
-  (l'envoi v3 et la redistribution vers une ligne DPGF rapprochée) viendront avec le lot 5.
+  viennent avec l'envoi par poste (lot 4, ci-dessous), la redistribution vers une ligne DPGF
+  rapprochée ensuite.
+
+## Envoyer les postes d'un plan : l'aperçu (lot 4)
+
+Une analyse lue contre la liste des postes donne une réponse par poste et par plan. Son envoi au
+devis part de ces réponses, pas des lignes du métré : l'aperçu
+(`POST /api/takeoff/jobs/{jobId}/item-send/preview`, `src/lib/takeoff/item-send-plan.ts`) montre
+ce que deviendrait le devis et n'écrit rien, ni version, ni section, ni ligne, ni reçu. Sa
+confirmation et son écrivain viennent avec une prochaine version ; tant que les réponses par poste
+ne sont pas enregistrées, l'aperçu répond qu'elles ne le sont pas. L'envoi des métrés d'aujourd'hui
+(une analyse groupée, hors demande ou par plan sans liste) est inchangé. Le droit d'écrire l'affaire
+est vérifié d'abord : sans lui, le membre lit le motif et rien d'autre du métré.
+
+- **Unité d'envoi.** Ce qui est retenu de ce plan, confirmé pour ce seul job : une mesure acceptée
+  dans le tableau des postes, ou une saisie retenue. Une mesure que personne n'a acceptée, avec ou
+  sans anomalie, n'est pas envoyée (« à accepter dans le tableau des postes »). Chaque poste de la
+  liste scellée du plan est envoyé, non envoyé avec son motif (écarté, à accepter, non trouvé,
+  incertain, sans mesure, unité ou base incompatible, hypothèse non retenue, ignoré par une règle,
+  quantité saisie pour toute l'affaire), ou à trancher par un choix explicite. Chaque part non
+  envoyée est montrée avec ses observations, ses pages et sa quantité, aussi quand son poste part en
+  partie.
+- **Regroupement.** Seuls les apports d'un même poste et d'une même identité quantitative (une unité
+  normalisée par le référentiel des unités, une base, un réseau, une matière, un diamètre)
+  s'additionnent ; les bases se comparent comme la lecture les compare, sans casse, accents ni
+  ponctuation, un diamètre tel qu'il est écrit (« 1/2" » n'est pas « 1.2" »). Un apport déjà au devis
+  garde son identité : si le poste a changé de diamètre ou de base depuis, la ligne n'est pas
+  alimentée. Une autre lecture d'un objet déjà compté (PDF ou vecteur,
+  page de recouvrement, plan de détail) est gardée et jamais ajoutée. Une longueur est arrondie une
+  fois, sur la somme de sa ligne : 1,2 m déjà envoyés et 1,3 m font 3 m, jamais 2 + 2. Chaque quantité
+  est vérifiée telle qu'elle est saisie ou lue, avant tout arrondi : nulle, plus fine que le millième
+  ou au-delà du plafond du devis du moteur 3, elle est à trancher, jamais arrondie en silence.
+- **Découpage.** Sans DPGF : « Ensemble » par défaut, « Par niveau », « Par bâtiment ». Les sections
+  suivent la liste (lot puis famille), chacune par son identité, jamais par son titre : une section
+  du même nom faite à la main n'est pas reprise. Le compartiment d'un plan vient de sa localisation
+  (lot 3), seulement quand un opérateur l'a confirmée ou saisie ; inconnue, proposée ou multiple, la
+  part va dans « Non réparti ». Deux niveaux homonymes de deux bâtiments restent deux compartiments ;
+  « Par niveau », un niveau sans bâtiment n'est un compartiment que si aucun bâtiment confirmé de
+  l'affaire (une valeur qu'un opérateur a saisie) n'existe. Un même poste ne mélange pas deux
+  découpages dans un devis.
+- **DPGF et saisies.** Avec une DPGF, sa ligne est alimentée à sa place, prouvée par la ligne brute de
+  son import, telle que la base la garde (une ligne mappée remplacée par un remappage garde sa
+  filiation), lue en entier ; sans preuve complète, aucune cible automatique. Une ligne alimentée
+  pour un autre poste n'est ni la cible de celui-ci ni proposée, quel que soit le chemin ; seule une
+  ligne encore au devis est une cible, jamais une ligne supprimée. Une ligne introuvable, multiple ou d'un import antérieur sans
+  filiation prouvée demande un choix parmi les lignes présentées, et seule la ligne choisie reçoit le
+  métré. Les postes hors DPGF vont dans la section « Compléments du métré hors DPGF », même pour un
+  plan interrogé sur ces seuls postes. La quantité retenue et l'écart sont ceux de la politique DPGF
+  d'aujourd'hui (le maximum protecteur, l'écart cumulé avec les écarts imprimés, la vérification
+  au-delà de 1 %). Une quantité saisie à la main sur la ligne est gardée à part de la référence, de
+  la mesure et de la quantité retenue : elle n'est jamais remplacée sans choix ; la conserver sous la
+  quantité retenue suspend la ligne. Une DPGF dont aucune ligne n'est dans le brouillon renvoie à
+  l'import confirmé : l'aperçu n'importe rien.
+- **Pages.** Les postes d'une page partagent un seul apport de page. Une page déjà au devis par une
+  autre analyse ne compte pas deux fois, comparée sur le fichier, son empreinte et la référence du
+  plan que donne la préparation (deux révisions d'un même plan sont un même document) : ses apports
+  attendent sa décision, et l'aperçu montre les lignes du devis déjà sur la page. La part d'un plan
+  pour un poste est une : ce qu'un envoi antérieur du même plan a apporté à la ligne est remplacé,
+  jamais additionné (l'aperçu montre l'avant et l'après). Une saisie pour ce plan se tient sur toutes
+  les pages de son unité, pour la garde comme pour son apport de page.
+- **Règles et prix.** Une seule projection des règles de correspondance
+  (`src/lib/takeoff/item-send-rules.ts`) : « Fixer le prix » est sans effet et dit tel, sans passer
+  à la règle suivante ; « Remplacer par un ouvrage » garde la quantité du poste et nomme l'ouvrage.
+  Une ligne existante ne change que de quantité ; une ligne créée n'a aucun prix. Seul un brouillon
+  du moteur 3 reçoit cet envoi.
+- **Empreinte.** L'aperçu donne l'empreinte de son plan d'écriture, sous une seule écriture (clés et
+  ensembles ordonnés, une écriture par nombre) : réponses, décisions et saisies, règles appliquées ou
+  qui ont écarté un poste (identifiant et version), apports déjà au devis avec leurs sources et leur
+  identité, lignes et pages lues, état du brouillon de destination (version, statut, date de
+  modification), état revu du DPGF (son dernier mappage et l'empreinte de ses lignes), réglages du
+  premier brouillon et contexte d'envoi du lot 3 ; l'ordre de lecture des observations n'y change
+  rien. La confirmation sera refusée quand l'un d'eux a changé.
 
 ## Entrées
 
@@ -1859,6 +2051,25 @@ elle lit toutes les lignes retenues : une ligne que le plan de mapping sautera r
   au centre le plan et sa lecture vectorielle, la ligne en évidence ; à droite ses raisons
   et ses décisions. La revue complète y renvoie (« Revue ciblée · N lignes »), comme le
   panneau des lignes bloquées de l'écran « Envoyer au tableau de chiffrage ».
+- **Plan d'un poste** (lot 5, détail d'un poste ; aucun écran ne l'ouvre encore) : le plan
+  montré est résolu par le serveur dans l'affaire que le membre lit
+  (`GET /api/affaires/<affaire>/takeoff/item-detail/plan`), avec les droits des routes qui
+  en servent les octets (module Métré actif pour le tenant, règle du centre de plans). Pour
+  une lecture, c'est la copie que cette analyse a scellée, même remplacée depuis, servie par
+  ses octets attestés (empreinte vérifiée à chaque demande) ; une analyse lancée sur une
+  version et jamais envoyée n'a rien attesté, une copie scellée disparue ne l'est plus :
+  « Plan d'origine indisponible », jamais la copie actuelle à sa place. Sans lecture, c'est
+  l'unique copie actuelle de la pièce du dossier, signée pour le membre au moment où le plan
+  s'ouvre ; plusieurs copies actuelles, aucune, ou une génération remplacée sont dites, sans
+  rien dessiner, et une copie que le centre de plans ne sert pas à ce membre (sa ligne, sa
+  signature) est « non accessible avec vos droits », à part de « aucune copie » ; des octets
+  absents du stockage sont dits absents, une signature sans réponse est à réessayer. Les
+  copies du dossier sont celles que les sources enregistrées pour l'affaire désignent : une
+  copie d'une pièce d'une autre affaire est introuvable, par la copie comme par la pièce.
+  Rien n'est gardé d'une ouverture à l'autre. Une analyse d'une autre affaire, un plan que la
+  lecture n'a pas lu, un plan étranger au dossier ou une pièce supprimée est introuvable ;
+  `source` ne nomme qu'une pièce du dossier. « Vérifiés » ne se dit qu'une fois les octets servis. La page s'affiche
+  avec ou sans lecture vectorielle (plan scanné).
 - **Filtres** (TI-701, D13), lus sur les lignes de la revue ciblée
   ([`targeted-review-filters.ts`](../../src/lib/takeoff/targeted-review-filters.ts)) :
   - **vue**, un seul choix : « À revoir » (toutes), « Blocages » (les lignes que le garde

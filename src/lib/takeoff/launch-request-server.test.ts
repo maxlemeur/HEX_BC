@@ -19,7 +19,7 @@ import { getConfirmedTakeoffExecutionOwner } from "@/lib/ai/chatgpt-takeoff";
 import { resolvePlanSetSourceFile } from "@/lib/takeoff/job-creation-repository";
 import {
   assumeTakeoffLaunchRequest, confirmAffaireBriefWithTakeoff, describeDossierChangeSinceAnalysis, evaluateTakeoffLaunchRequests,
-  launchTakeoffRelaunch, readAutomaticTakeoffPayerNotice, readDossierChangeSinceAnalysis,
+  launchTakeoffRelaunch, readAutomaticTakeoffPayerNotice, readBriefConfirmationPayerNotice, readDossierChangeSinceAnalysis,
 } from "@/lib/takeoff/launch-request-server";
 import { runLocalTakeoffAttempts } from "@/lib/takeoff/local-dispatch";
 import type { AnyTakeoffLaunchManifest } from "@/lib/takeoff/launch-request";
@@ -48,7 +48,8 @@ vi.mock("@/lib/takeoff/preparation-repository", () => ({ assertPreparationProjec
 vi.mock("@/lib/ai/chatgpt-local-store", () => ({ getChatGptHostId: vi.fn().mockResolvedValue("urn:uuid:aaaaaaaa-0000-4000-8000-000000000099"), readChatGptStore: vi.fn() }));
 vi.mock("@/lib/takeoff/feature-flags", () => ({
   takeoffModuleDefault: vi.fn(() => true),
-  getTakeoffLevelCProcessingConfigForTenant: vi.fn().mockResolvedValue({ maxPdfPages: 200, maxTotalTokens: 400000, maxCostCents: 2500 }),
+  getTakeoffLevelCProcessingConfigForTenant: vi.fn().mockResolvedValue({ maxPdfPages: 200, maxTotalTokens: 400000, maxCostCents: 2500,
+    thresholdPages: 15, chunkSizePages: 10, overlapPages: 2 }),
 }));
 vi.mock("@/lib/takeoff/local-dispatch", () => ({ runLocalTakeoffAttempts: vi.fn().mockResolvedValue(undefined) }));
 // The preparation as the dossier gives it is fixed here; its sealing is the real one a confirmation uses.
@@ -62,7 +63,8 @@ vi.mock("@/lib/takeoff/job-read-server", async (importOriginal) => ({
 // A command reads its member's subscription as pinned at the confirmation (its own tests: chatgpt-takeoff.test.ts).
 vi.mock("@/lib/ai/chatgpt-takeoff", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/ai/chatgpt-takeoff")>()), getConfirmedTakeoffExecutionOwner: vi.fn() }));
-vi.mock("@/lib/pdf/page-render-server", () => ({ renderPdfPages: vi.fn().mockResolvedValue({ pages: [{ regionText: "" }] }) }));
+vi.mock("@/lib/pdf/page-render-server", async (importOriginal) => ({ ...await importOriginal<typeof import("@/lib/pdf/page-render-server")>(),
+  renderPdfPages: vi.fn().mockResolvedValue({ pages: [{ regionText: "" }] }) }));
 // The measuring order a command seals (lot 4): the real reading (the second order not active, the free extraction) unless a
 // case answers otherwise.
 vi.mock("@/lib/takeoff/item-list-seal-server", async (importOriginal) => {
@@ -104,6 +106,8 @@ function dossier(input: { classification?: string; copy?: "same" | "older" | "le
   references?: DossierReference[];
   /** The owner activated one analysis per plan. */
   perPlan?: boolean;
+  /** The owner activated the second measuring order (lot 4). */
+  listActive?: boolean;
   /** The plan copy's bytes, and the page count its row stores (null: not counted yet). */
   bytes?: Uint8Array; storedPageCount?: number | null } = {}) {
   const planBytes = input.bytes ?? BYTES;
@@ -162,7 +166,7 @@ function dossier(input: { classification?: string; copy?: "same" | "older" | "le
       record_takeoff_launch_evaluation_failure: () => ({ data: "evaluating", error: null }),
       takeoff_plan_dispatch_is_active: () => ({ data: input.perPlan === true, error: null }),
       // Lot 4: the second measuring order is not activated; the request seals the free extraction, as before.
-      takeoff_item_list_order_is_active: () => ({ data: false, error: null }),
+      takeoff_item_list_order_is_active: () => ({ data: input.listActive === true, error: null }),
       admit_takeoff_launch_request: (args) => {
         admitted.push(args);
         const job = (args as { p_job: { id: string } | Array<{ id: string }> }).p_job;
@@ -183,6 +187,20 @@ function dossier(input: { classification?: string; copy?: "same" | "older" | "le
     availableSources: [source, ...references],
   } as never);
   return { fake, admitted, recorded, document, copy };
+}
+
+/** The list of items a request seals once the second measuring order is active (lot 4), of `items` items. */
+function itemListOrder(items: number) {
+  return { kind: "item_list" as const, version: 2 as const, list: { revision_id: "aaaaaaaa-0000-4000-8000-0000000000f1", revision: 3,
+    content_sha256: "e".repeat(64), item_count: items } };
+}
+
+/** The seal of such a list: its order and its items, as `sealedMeasuringOrder` hands them to the bounds. */
+function itemListSeal(items: number) {
+  return { order: itemListOrder(items), items: Array.from({ length: items }, (_, index) => ({
+    id: `bbbbbbbb-0000-4000-8000-${String(index).padStart(12, "0")}`, label: `Poste fictif ${index}`, expectedUnit: "u",
+    measurementBasis: null, qualifiers: {}, sections: [], synonyms: [], referenceQuantity: null,
+    origin: { kind: "manual" as const, intentId: `i-${index}`, addedBy: PAYER, addedAt: "2026-11-22T08:00:00.000Z", addedInRevision: 1 } })) };
 }
 
 beforeEach(() => {
@@ -265,7 +283,8 @@ describe("evaluateTakeoffLaunchRequests", () => {
   });
 
   // Lot 3: once the owner activated one analysis per plan, the same seal is admitted as one unit per plan, each with its
-  // own job identified by the request and its unit, and the Mac's dispatcher is handed them.
+  // own job identified by the request and its unit, and the Mac's dispatcher is handed them. Budget task: a request of the
+  // free extraction keeps the tenant's envelope and its split by pages, as before the list's budget was sized.
   it("admits one unit per plan with its job once one analysis per plan is active", async () => {
     const { admitted } = dossier({ perPlan: true });
     const [result] = await evaluateTakeoffLaunchRequests();
@@ -278,6 +297,45 @@ describe("evaluateTakeoffLaunchRequests", () => {
       execution_host_id: HOST, id: expect.stringMatching(/^[0-9a-f-]{36}$/) })]);
     expect(result.jobId).toBe(call.p_job[0].id);
     expect(runLocalTakeoffAttempts).toHaveBeenCalledWith(expect.objectContaining({ jobId: call.p_job[0].id }));
+  });
+
+  // Lot 4: a request that reads its plans against a list of items is bounded on the whole request before its admission:
+  // 1,700 items in batches of 40 make 43 calls on a one-page plan, more than one plan's reading may make. The member is
+  // asked to reduce the scope; nothing is admitted, nothing is sampled.
+  it("refuses, naming the plan, a request whose reading against the list passes its bounds, and admits nothing", async () => {
+    const { admitted, recorded } = dossier({ perPlan: true });
+    vi.mocked(sealedMeasuringOrder).mockResolvedValueOnce(itemListSeal(1_700));
+    const [result] = await evaluateTakeoffLaunchRequests();
+    expect(result).toMatchObject({ requestId: REQUEST, outcome: "blocked", reason: "PLAN_SET_TOO_LARGE", jobId: null });
+    expect(admitted).toEqual([]);
+    expect(recorded).toEqual([expect.objectContaining({ p_state: "blocked", p_reason: "PLAN_SET_TOO_LARGE", p_details: {
+      pieces: [{ id: PLAN_FILE, name: "Plan RDC.pdf" }],
+      reading_bounds: { items: 1_700, plans: 1, reading_calls: 43, classifier_calls: 0, minutes: 65, max_request_calls: 480,
+        max_plan_calls: 40 } } })]);
+  });
+
+  // Budget task: the budget of a reading against the list is sized from the calls it is admitted for, twice their
+  // reservations: 120 items on a one-page plan are 3 calls, a share and an envelope of 180,000 tokens (the tenant's
+  // 400,000 would be the first format's); the cost envelope stays the tenant's.
+  it("admits a request whose reading against the list stays within its bounds, its list and its sized budget sealed", async () => {
+    const { admitted } = dossier({ perPlan: true });
+    vi.mocked(sealedMeasuringOrder).mockResolvedValueOnce(itemListSeal(120));
+    const [result] = await evaluateTakeoffLaunchRequests();
+    expect(result).toMatchObject({ outcome: "admitted" });
+    expect((admitted[0] as { p_manifest: unknown }).p_manifest).toMatchObject({ format_version: 2, order: itemListOrder(120),
+      units: [{ key: `plan:${PLAN_FILE}`, budget: { tokens: 180_000, cost_cents: 2500 } }], budget: { tokens: 180_000, cost_cents: 2500 } });
+    expect(sealedMeasuringOrder).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ perPlan: true }));
+  });
+
+  // The second order is active, one analysis per plan is not: the automatic request is grouped and seals the free extraction.
+  it("seals the free extraction of a grouped request, whatever the second order's activation says", async () => {
+    const { admitted, fake } = dossier({ perPlan: false, listActive: true });
+    const [result] = await evaluateTakeoffLaunchRequests();
+    expect(result).toMatchObject({ outcome: "admitted" });
+    expect((admitted[0] as { p_manifest: unknown }).p_manifest).toMatchObject({ format_version: 1,
+      order: { kind: "free_extraction", version: 1, list: null } });
+    expect(sealedMeasuringOrder).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ perPlan: false }));
+    expect(fake.rpcCalls.map((call) => call.fn)).not.toContain("takeoff_item_list_order_is_active");
   });
 
   // A whole plan whose stored page count is unknown: the sealing counts its pages on its bytes, and its unit gets them.
@@ -771,6 +829,41 @@ describe("readAutomaticTakeoffPayerNotice", () => {
     expect(await readAutomaticTakeoffPayerNotice(member("director"), { id: PROJECT })).toBeNull();
     expect(readChatGptStore).not.toHaveBeenCalled();
   });
+
+  // The dialog reads the notice when it opens: a read that fails must be told apart from a notice there is none of.
+  it("fails, instead of answering « no notice », when the database cannot read it", async () => {
+    vi.mocked(createServiceRoleClient).mockReturnValue(createSupabaseFake({ rpc: {
+      takeoff_payer_may_launch: () => ({ data: true, error: null }),
+      takeoff_payer_notice: () => ({ data: null, error: { code: "57014", message: "canceling statement due to statement timeout" } }),
+    } }).client as never);
+    await expect(readAutomaticTakeoffPayerNotice(member("engineer"), { id: PROJECT }, "127.0.0.1:3000")).rejects.toThrow();
+  });
+});
+
+describe("readBriefConfirmationPayerNotice", () => {
+  // The member's own session reads the brief as it is now: the notice is for a brief to confirm, as the page's render had it.
+  const reader = (brief: { data: unknown; error: unknown }) => ({ userId: PAYER, tenantId: TENANT, tenantRole: "engineer",
+    supabase: createSupabaseFake({ tables: { affaire_briefs: () => brief } }).client }) as never;
+
+  it("gives the notice for a brief to confirm, read now", async () => {
+    const { calls } = gesture();
+    expect(await readBriefConfirmationPayerNotice(reader({ data: { status: "a_confirmer" }, error: null }), { id: PROJECT }, "127.0.0.1:3000"))
+      .toEqual({ message: "Une fois les plans prêts, le métré utilisera votre forfait ChatGPT et les réglages de Mon profil.", digest: NOTICE });
+    expect(calls("notice")).toEqual([expect.objectContaining({ p_actor: PAYER, p_project_id: PROJECT })]);
+  });
+
+  it.each([["already confirmed", { status: "confirme" }], ["not written yet", null]])("gives none for a brief %s", async (_case, row) => {
+    const { calls } = gesture();
+    expect(await readBriefConfirmationPayerNotice(reader({ data: row, error: null }), { id: PROJECT }, "127.0.0.1:3000")).toBeNull();
+    expect(calls("notice")).toEqual([]);
+  });
+
+  it("fails when the brief cannot be read", async () => {
+    const { calls } = gesture();
+    await expect(readBriefConfirmationPayerNotice(reader({ data: null, error: { code: "08006", message: "connection failure" } }),
+      { id: PROJECT }, "127.0.0.1:3000")).rejects.toThrow();
+    expect(calls("notice")).toEqual([]);
+  });
 });
 
 const takeOn = () => assumeTakeoffLaunchRequest({ context: member("engineer"), projectId: PROJECT, requestId: REQUEST, seenRevision: 1,
@@ -1010,15 +1103,28 @@ describe("launchTakeoffRelaunch", () => {
   it("seals the list of items in a command of plans once the second order is active, and refuses it while the list is to prepare", async () => {
     const list = { kind: "item_list" as const, version: 2 as const, list: { revision_id: "aaaaaaaa-0000-4000-8000-0000000000f1",
       revision: 3, content_sha256: "e".repeat(64), item_count: 12 } };
-    vi.mocked(sealedMeasuringOrder).mockResolvedValueOnce({ order: list });
+    vi.mocked(sealedMeasuringOrder).mockResolvedValueOnce({ order: list, items: itemListSeal(12).items });
     const sealed = planCommand({ a: 3, b: 3 });
     await expect(sealed.run([PLAN_FILE])).resolves.toMatchObject({ outcome: "admitted" });
-    expect(sealed.launched[0].p_manifest).toMatchObject({ format_version: 2, order: list });
+    // One call (a 3-page plan, 12 items): its share and the envelope sized from it.
+    expect(sealed.launched[0].p_manifest).toMatchObject({ format_version: 2, order: list,
+      units: [{ budget: { tokens: 60_000 } }], budget: { tokens: 60_000 } });
+    expect(sealedMeasuringOrder).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ perPlan: true }));
     vi.mocked(sealedMeasuringOrder).mockResolvedValueOnce({ blocked: "ITEM_LIST_TO_PREPARE" });
     const blocked = planCommand({ a: 3, b: 3 });
     await expect(blocked.run([PLAN_FILE])).rejects.toMatchObject({ status: 409,
       message: "La liste des postes est à préparer : importez ou choisissez la DPGF de l’affaire, puis relancez." });
     expect(blocked.launched).toEqual([]);
+  });
+
+  it("refuses a command of plans whose reading against the list passes its bounds, before any unit is admitted", async () => {
+    vi.mocked(sealedMeasuringOrder).mockResolvedValueOnce(itemListSeal(1_700));
+    const sealed = planCommand({ a: 3, b: 3 });
+    await expect(sealed.run([PLAN_FILE])).rejects.toMatchObject({ status: 422, message: "Métré non démarré — les plans « plan-a.pdf » "
+      + "dépassent les limites d’une lecture contre la liste des postes. Lecture de 1\u202f700 postes sur 1 plan : 43 appels de "
+      + "lecture, environ 1 h 05 sur un Mac. Au plus 480 appels de lecture par demande et 40 par plan : réduisez les plans ou les "
+      + "pages à lire." });
+    expect(sealed.launched).toEqual([]);
   });
 
   it("lets a command start the first analysis of an affaire that has none", async () => {
@@ -1036,9 +1142,27 @@ describe("launchTakeoffRelaunch", () => {
       .toEqual([expect.objectContaining({ page_count: 12, vector_pages: 12 })]);
   });
 
-  it("refuses a command whose plans together exceed the plan set's limits, before any unit is admitted", async () => {
-    const { run, launched } = planCommand({ a: 150, b: 150 });
-    await expect(run([PLAN_FILE, PLAN_B])).rejects.toMatchObject({ code: "TAKEOFF_FILE_TOO_LARGE" });
+  // Budget fix round: a command of one analysis per plan reads each plan in its own job: the page limit of a reading is
+  // each plan's, never the plans' together.
+  it("refuses a command one of whose plans exceeds the limit of a reading, before any unit is admitted", async () => {
+    const { run, launched } = planCommand({ a: 201, b: 3 });
+    // Budget closing round: the plan is named.
+    await expect(run([PLAN_FILE, PLAN_B])).rejects.toMatchObject({ code: "TAKEOFF_FILE_TOO_LARGE",
+      message: expect.stringContaining("« plan-a.pdf »") });
+    expect(launched).toEqual([]);
+    const together = planCommand({ a: 150, b: 150 });
+    await expect(together.run([PLAN_FILE, PLAN_B])).resolves.toMatchObject({ outcome: "admitted" });
+    expect(together.launched).toHaveLength(1);
+  });
+
+  // Budget closing round: a plan whose row stores no count is counted on its bytes, and that count is checked against the
+  // current limit of a reading, the plan named; a count the confirmation once admitted at a higher limit does not stand.
+  it("refuses, naming it, a plan whose pages counted on its bytes exceed the current limit of a reading", async () => {
+    const document = await PDFDocument.create();
+    for (let page = 0; page < 201; page += 1) document.addPage([20, 20]);
+    const { run, launched } = planCommand({ a: null, b: 3 }, null, await document.save());
+    await expect(run([PLAN_FILE])).rejects.toMatchObject({ code: "TAKEOFF_FILE_TOO_LARGE",
+      message: expect.stringContaining("« plan-a.pdf »") });
     expect(launched).toEqual([]);
   });
 
@@ -1603,16 +1727,21 @@ describe("launchTakeoffRelaunch", () => {
   });
 
   // Past the replay: the member's confirmed preparation sealed, then the database's command decides.
-  function command(answer: { data?: unknown; error?: { code: string; message: string } }) {
+  function command(answer: { data?: unknown; error?: { code: string; message: string } }, options: { listActive?: boolean } = {}) {
     const calls: string[] = [];
+    const launched: Array<Record<string, unknown>> = [];
     const service = createSupabaseFake({ rpc: {
       // One analysis per plan not activated: the grouped command (lot 3's command of plans has its own cases above).
       takeoff_plan_dispatch_is_active: () => ({ data: false, error: null }),
       // The receipt, read first under either identity of the command: none.
       replay_manual_takeoff_plan_request: () => ({ data: [], error: null }),
-      // Lot 4: the command reads whether the second measuring order is active (it is not: the free extraction).
-      takeoff_item_list_order_is_active: () => ({ data: false, error: null }),
-      launch_manual_takeoff_request: () => { calls.push("launch"); return { data: answer.data ?? null, error: answer.error ?? null }; },
+      // Lot 4: the second measuring order, not active unless a case says so.
+      takeoff_item_list_order_is_active: () => ({ data: options.listActive === true, error: null }),
+      launch_manual_takeoff_request: (args) => {
+        calls.push("launch");
+        launched.push(args as Record<string, unknown>);
+        return { data: answer.data ?? null, error: answer.error ?? null };
+      },
     }, tables: {
       // The analysis a relaunch replaces: a grouped one, read for the plans its receipt may name.
       takeoff_jobs: () => ({ data: { launch_unit_key: "grouped", preparation_snapshot: null }, error: null }),
@@ -1630,7 +1759,7 @@ describe("launchTakeoffRelaunch", () => {
     const launch = (predecessorJobId: string | null) => launchTakeoffRelaunch({ context: { userId: PAYER, tenantId: TENANT,
       tenantRole: "engineer", supabase: session.client } as never, projectId: PROJECT, planSetId: PLAN_SET, preparationRevision: 2,
       intentKey: "aaaaaaaa-0000-4000-8000-0000000000aa", predecessorJobId });
-    return { launch, calls };
+    return { launch, calls, launched };
   }
 
   // The database refuses a manual launch while the affaire's automatic start can still begin (it is taken on from the
@@ -1656,6 +1785,17 @@ describe("launchTakeoffRelaunch", () => {
         message: "Le métré de l’affaire est occupé par une autre opération. Réessayez dans un instant." });
     });
 
+  // Lot 4: a grouped command (one analysis per plan not active) seals the free extraction, whatever the second order's
+  // activation says: the list is answered plan by plan.
+  it("seals the free extraction in a grouped command, whatever the second order's activation says", async () => {
+    const { launch, calls, launched } = command({ data: [{ outcome: "admitted", request_id: REQUEST, job_id: "aaaaaaaa-0000-4000-8000-0000000000ee" }] },
+      { listActive: true });
+    await expect(launch("aaaaaaaa-0000-4000-8000-0000000000bb")).resolves.toMatchObject({ outcome: "admitted" });
+    expect(calls).toEqual(["launch"]);
+    expect(launched[0].p_manifest).toMatchObject({ format_version: 1, order: { kind: "free_extraction", version: 1, list: null } });
+    expect(sealedMeasuringOrder).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ perPlan: false }));
+  });
+
   // An analysis launched outside any request that has not ended: the command is answered with it, without a request.
   it("answers with the analysis outside any request that still runs, and starts nothing", async () => {
     const legacy = "aaaaaaaa-0000-4000-8000-0000000000dd";
@@ -1672,4 +1812,177 @@ describe("launchTakeoffRelaunch", () => {
       p_plan_file_ids: null, p_plans_named: false })]);
   });
 
+});
+
+// Budget fix round: a request read plan by plan, whichever its measuring order, holds the page limit of a reading on each
+// plan (what one job reads), never on the dossier's pages together; a grouped request, one job, keeps the aggregate check.
+describe("the page limit of a request read plan by plan", () => {
+  const planId = (index: number) => `aaaaaaaa-0000-4000-8000-${String(0x500 + index).padStart(12, "0")}`;
+  const documentId = (index: number) => `aaaaaaaa-0000-4000-8000-${String(0x600 + index).padStart(12, "0")}`;
+  const planName = (index: number) => `Plan zone ${String(index + 1).padStart(2, "0")}.pdf`;
+  /** A plan's PDF of `pages` pages, its bytes its own (no two plans are copies of each other). */
+  async function planPdf(pages: number, index: number) {
+    const document = await PDFDocument.create();
+    document.setTitle(`Plan fictif ${index + 1}`);
+    for (let page = 0; page < pages; page += 1) document.addPage([20 + index, 20]);
+    return document.save();
+  }
+
+  /** The dossier of an automatic start with one plan copy per entry of `pages`, each counted on its stored row. */
+  async function plansDossier(pages: number[], input: { perPlan: boolean }) {
+    const bytes = await Promise.all(pages.map((count, index) => planPdf(count, index)));
+    const documents = pages.map((_, index) => ({
+      id: documentId(index), tenant_id: TENANT, project_id: PROJECT, upload_id: UPLOAD, created_by: PAYER,
+      storage_path: `${TENANT}/${PROJECT}/${UPLOAD}/${documentId(index)}/plan-${index + 1}.pdf`, deletion_token: null,
+      plan_copy_generation: "generation-2", file_name: planName(index), mime_type: "application/pdf", size_bytes: bytes[index].byteLength,
+      upload_status: "uploaded", rejection_reason: null, classification_status: "classified", document_kind: "plans",
+      document_priority: "primary", confidence: 0.92, issues: [], extracted_metadata: {}, classification_source: "heuristic",
+      classified_by: null, classified_at: "2026-11-21T08:00:00Z", manually_overridden_at: null, source_provider: null }));
+    const copies = pages.map((count, index) => ({ id: planId(index), tenant_id: TENANT, plan_set_id: PLAN_SET,
+      file_path: `${TENANT}/${PLAN_SET}/${planId(index)}/plan-${index + 1}.pdf`,
+      file_name: `plan-${index + 1}.pdf`, file_size_bytes: bytes[index].byteLength, file_type: "application/pdf", page_count: count,
+      metadata: { source: "affaire-intake", intake_document_id: documentId(index), intake_storage_path: documents[index].storage_path,
+        intake_generation: "generation-2" } }));
+    const admitted: unknown[] = [];
+    const recorded: unknown[] = [];
+    const fake = createSupabaseFake({
+      tables: {
+        takeoff_launch_requests: () => ({ data: [], error: null }),
+        affaire_briefs: () => ({ data: { status: "confirme" }, error: null }),
+        affaire_intake_documents: () => ({ data: documents, error: null, count: documents.length }),
+        plan_sets: () => ({ data: [{ id: PLAN_SET, estimate_version_id: null, name: "Plans import", metadata: AFFAIRE_INTAKE_PLAN_SET_METADATA,
+          updated_at: "2026-11-21T08:00:00Z", plan_files: [{ count: copies.length }] }], error: null, count: 1 }),
+        plan_files: (query: FakeQuery) => filterValue(query, "plan_set_id") === PLAN_SET ? servedRows(copies, query)
+          : { data: [], error: null, count: 0 },
+        tenant_memberships: () => ({ data: { role: "engineer" }, error: null }),
+        estimate_projects: () => ({ data: { user_id: PAYER, is_archived: false }, error: null }),
+        takeoff_plan_location_sources: (query: FakeQuery) => servedRows(copies.map((copy, index) => ({ plan_file_id: copy.id,
+          plan_set_id: PLAN_SET, tenant_id: TENANT, source_kind: "intake_document", source_id: documentId(index) })), query),
+      },
+      storage: {
+        [PLAN_FILES_BUCKET]: ({ paths }) => {
+          const index = copies.findIndex((copy) => copy.file_path === paths[0]);
+          return index >= 0 ? { data: new Blob([Uint8Array.from(bytes[index])]), error: null }
+            : { data: null, error: { message: "Object not found", statusCode: "404" } };
+        },
+      },
+      rpc: {
+        claim_takeoff_launch_evaluations: () => ({ data: [{ request_id: REQUEST, tenant_id: TENANT, project_id: PROJECT, origin: "automatic",
+          payer_id: PAYER, mark: 7, mandate_selection: SELECTION, payer_eligible: true }], error: null }),
+        record_takeoff_launch_evaluation: (args) => { recorded.push(args); return { data: "blocked", error: null }; },
+        record_takeoff_launch_evaluation_failure: () => ({ data: "evaluating", error: null }),
+        takeoff_plan_dispatch_is_active: () => ({ data: input.perPlan, error: null }),
+        takeoff_item_list_order_is_active: () => ({ data: false, error: null }),
+        admit_takeoff_launch_request: (args) => {
+          admitted.push(args);
+          const job = (args as { p_job: { id: string } | Array<{ id: string }> }).p_job;
+          return { data: [{ outcome: "admitted", job_id: Array.isArray(job) ? job[0].id : job.id, reason_code: null }], error: null };
+        },
+      },
+    });
+    vi.mocked(createServiceRoleClient).mockReturnValue(fake.client as never);
+    const sources = copies.map((copy, index) => takeoffPreparationSourceSchema.parse({ document_id: copy.id, document_name: planName(index),
+      kind: "plan", revision: null, source_version: `fixture-version-${index}`, pages: [], active: true, confirmed: false,
+      plan_set_id: PLAN_SET, file_path: copy.file_path, page_count: copy.page_count, source_updated_at: "2026-11-21T08:00:00Z",
+      mime_type: "application/pdf" }));
+    vi.mocked(loadPreparation).mockResolvedValue({ draft: buildDeducedTakeoffPreparation({ sources, planSetId: PLAN_SET }), revision: null,
+      availableSources: sources } as never);
+    return { admitted, recorded, pieces: copies.map((copy, index) => ({ id: copy.id, name: planName(index) })) };
+  }
+
+  /** A member's command naming every plan of a confirmed preparation of one plan copy per entry of `pages`. */
+  function plansCommand(pages: number[]) {
+    const launched: Array<Record<string, unknown>> = [];
+    const rows = pages.map((count, index) => ({ id: planId(index), tenant_id: TENANT, plan_set_id: PLAN_SET,
+      file_path: `${TENANT}/${PLAN_SET}/${planId(index)}/plan-${index + 1}.pdf`, file_name: `plan-${index + 1}.pdf`,
+      file_type: "application/pdf", file_size_bytes: 8, page_count: count, metadata: {}, created_at: "2026-11-21T08:00:00Z" }));
+    const fake = createSupabaseFake({
+      tables: { plan_files: (query: FakeQuery) => servedRows(rows, query),
+        takeoff_launch_requests: (query: FakeQuery) => servedRows([], query),
+        takeoff_plan_location_sources: (query: FakeQuery) => servedRows(rows.map((row) => ({ plan_file_id: row.id, plan_set_id: PLAN_SET,
+          tenant_id: TENANT, source_kind: "plan_file", source_id: row.id })), query),
+        takeoff_jobs: () => ({ data: null, error: null }) },
+      rpc: {
+        replay_manual_takeoff_plan_request: () => ({ data: [], error: null }),
+        takeoff_plan_dispatch_is_active: () => ({ data: true, error: null }),
+        takeoff_item_list_order_is_active: () => ({ data: false, error: null }),
+        launch_manual_takeoff_plan_request: (args) => {
+          launched.push(args as Record<string, unknown>);
+          return { data: [{ outcome: "admitted", request_id: REQUEST, job_id: (args as { p_jobs: Array<{ id: string }> }).p_jobs[0].id }], error: null };
+        },
+      },
+    });
+    vi.mocked(createServiceRoleClient).mockReturnValue(fake.client as never);
+    const sources = rows.map((row, index) => takeoffPreparationSourceSchema.parse({ document_id: row.id, document_name: planName(index),
+      kind: "plan", revision: null, source_version: "fixture-version", pages: [], active: true, confirmed: true, plan_set_id: PLAN_SET,
+      file_path: row.file_path, page_count: row.page_count, source_updated_at: "2026-11-21T08:00:00Z", mime_type: "application/pdf",
+      content_hash: createHash("sha256").update(row.id).digest("hex") }));
+    vi.mocked(assertConfirmedTakeoffPreparation).mockResolvedValue(createTakeoffPreparationSnapshot({
+      preparation: buildDeducedTakeoffPreparation({ sources, planSetId: PLAN_SET }), confirmedBy: PAYER,
+      confirmedAt: "2026-11-21T08:00:00Z", revision: 2, executionSelection: SELECTION }) as never);
+    vi.mocked(getConfirmedTakeoffExecutionOwner).mockResolvedValue({ execution_host_id: HOST } as never);
+    const context = { userId: PAYER, tenantId: TENANT, tenantRole: "engineer", supabase: fake.client } as never;
+    const run = () => launchTakeoffRelaunch({ context, projectId: PROJECT, planSetId: PLAN_SET, preparationRevision: 2,
+      intentKey: "aaaaaaaa-0000-4000-8000-0000000000ad", planFileIds: rows.map((row) => row.id), predecessorJobId: null });
+    return { run, launched };
+  }
+
+  // The reference dossier of the second order: 15 plans of 20 pages (300 in all), 300 items, the vector classifier on.
+  const reference = () => Array.from({ length: 15 }, () => 20);
+  /** Its shares: twice its calls' reservations (64 calls on the 3 plans that get the dossier's vector pages, 24 on the others). */
+  const referenceShares = [...Array.from({ length: 3 }, () => 64 * 60_000), ...Array.from({ length: 12 }, () => 24 * 60_000)];
+  const withClassifier = () => {
+    vi.stubEnv("MERGEONE_TAKEOFF_VECTORS", "1");
+    vi.stubEnv("MERGEONE_TAKEOFF_DECISIONS", "1");
+  };
+
+  it("admits the reference dossier at the automatic start, its 300 pages read plan by plan, its budget sized", async () => {
+    withClassifier();
+    const { admitted, recorded } = await plansDossier(reference(), { perPlan: true });
+    vi.mocked(sealedMeasuringOrder).mockResolvedValueOnce(itemListSeal(300));
+    const [result] = await evaluateTakeoffLaunchRequests();
+    vi.unstubAllEnvs();
+    expect(recorded).toEqual([]);
+    expect(result).toMatchObject({ outcome: "admitted" });
+    const manifest = (admitted[0] as { p_manifest: { units: Array<{ budget: { tokens: number }; vector_pages: number }>; budget: unknown } }).p_manifest;
+    expect(manifest.units.map((unit) => unit.budget.tokens)).toEqual(referenceShares);
+    expect(manifest.units.map((unit) => unit.vector_pages)).toEqual([20, 20, 20, ...Array.from({ length: 12 }, () => 0)]);
+    expect(manifest.budget).toEqual({ tokens: 28_800_000, cost_cents: 2500 });
+  });
+
+  it("admits the reference dossier by a member's command naming its plans, its budget sized", async () => {
+    withClassifier();
+    const { run, launched } = plansCommand(reference());
+    vi.mocked(sealedMeasuringOrder).mockResolvedValueOnce(itemListSeal(300));
+    await expect(run()).resolves.toMatchObject({ outcome: "admitted" });
+    vi.unstubAllEnvs();
+    const manifest = launched[0].p_manifest as { units: Array<{ budget: { tokens: number } }>; budget: unknown };
+    expect(manifest.units.map((unit) => unit.budget.tokens)).toEqual(referenceShares);
+    expect(manifest.budget).toEqual({ tokens: 28_800_000, cost_cents: 2500 });
+  });
+
+  // The free extraction read plan by plan gets the same rule: behind the same activation, nothing changes for a released request.
+  it("admits a request of the free extraction read plan by plan whose pages together pass the limit, its budget the tenant's", async () => {
+    const { admitted } = await plansDossier(reference(), { perPlan: true });
+    const [result] = await evaluateTakeoffLaunchRequests();
+    expect(result).toMatchObject({ outcome: "admitted" });
+    expect((admitted[0] as { p_manifest: unknown }).p_manifest).toMatchObject({ format_version: 2,
+      order: { kind: "free_extraction" }, budget: { tokens: 400000, cost_cents: 2500 } });
+  });
+
+  it("refuses, naming it, the one plan whose own pages pass the limit of a reading", async () => {
+    const { admitted, recorded, pieces } = await plansDossier([201, 20], { perPlan: true });
+    const [result] = await evaluateTakeoffLaunchRequests();
+    expect(result).toMatchObject({ outcome: "blocked", reason: "PLAN_SET_TOO_LARGE" });
+    expect(admitted).toEqual([]);
+    expect(recorded).toEqual([expect.objectContaining({ p_reason: "PLAN_SET_TOO_LARGE", p_details: { pieces: [pieces[0]] } })]);
+  });
+
+  it("refuses a grouped request of 300 pages as before: one job reads them all", async () => {
+    const { admitted, recorded, pieces } = await plansDossier(reference(), { perPlan: false });
+    const [result] = await evaluateTakeoffLaunchRequests();
+    expect(result).toMatchObject({ outcome: "blocked", reason: "PLAN_SET_TOO_LARGE" });
+    expect(admitted).toEqual([]);
+    expect(recorded).toEqual([expect.objectContaining({ p_reason: "PLAN_SET_TOO_LARGE", p_details: { pieces } })]);
+  });
 });

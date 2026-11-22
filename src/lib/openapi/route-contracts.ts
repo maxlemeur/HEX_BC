@@ -991,7 +991,7 @@ const directoryAndOrdersContracts: RouteContract[] = [
     path: "/api/products",
     summary: "Creer ou mettre a jour un produit",
     description:
-      "Cree un article du referentiel ou met a jour ses champs, y compris l'archivage.",
+      "Cree un article du referentiel ou met a jour ses champs, y compris l'archivage. L'unite d'un article qui a des conditionnements de vente ne change pas : 409 PRODUCT_UNIT_HAS_PACKAGINGS, retirer d'abord ses conditionnements.",
     tags: ["Catalogue"],
     body: { schema: productActionSchema, description: "Action produit discriminee." },
     success: [

@@ -8,6 +8,7 @@ import {
   listEstimateImportSectionsResultSchema, listEstimateImportSourcesResultSchema,
 } from "@/lib/estimates/section-copy-contracts";
 import { importLinkedDpgfSourceResponseSchema } from "@/lib/estimates/linked-dpgf-contracts";
+import { itemDetailPlanViewSchema } from "@/lib/takeoff/item-detail-contracts";
 import {
   priceReuseApplyInputSchema, priceReuseApplySchema, priceReuseArbitrationInputSchema, priceReuseArbitrationSchema,
   priceReusePreviewInputSchema, priceReusePreviewSchema,
@@ -588,6 +589,25 @@ const takeoffOperationsContracts: RouteContract[] = [
     success: [{ status: "200", description: "Analyses de l’affaire, leurs compteurs et leurs décisions de reprise.", schema: {
       schemaName: "ApiTakeoffActivityCenterResponse", schema: z.object({ ok: z.literal(true), data: takeoffActivityCenterResponseSchema }), io: "output",
     } }],
+  },
+  {
+    id: "get-affaire-takeoff-item-detail-plan",
+    method: "get",
+    path: "/api/affaires/{projectId}/takeoff/item-detail/plan",
+    summary: "Résoudre le plan affiché par le détail d’un poste",
+    description: "Lecteurs de l’affaire. Une résolution par plan et par lecture, jamais par poste ni par repère. Avec une lecture (une analyse de cette affaire que le membre lit), la copie que cette analyse a scellée pour ce plan, son empreinte et ses pages, même remplacée depuis : ses octets sont ceux qu’elle a attestés (vérifiés à chaque demande), sinon l’original est dit indisponible, jamais remplacé par une copie plus récente. Sans lecture, le plan retenu au dossier : l’unique copie actuelle de sa pièce, telle que le lecteur de localisation la décide pour le membre, signée pour lui par la lecture du centre de plans au moment de la demande ; une génération nommée doit l’être encore. Mêmes droits que les routes qui servent les octets : module Métré actif pour le tenant, et une copie que ces routes ne serviraient pas à ce membre (sa ligne, sa signature) est dite « non accessible », à part de « aucune copie » ; des octets absents du stockage sont dits absents. Les copies du dossier sont celles que les sources enregistrées pour l’affaire désignent : une copie d’une pièce d’une autre affaire est introuvable, par la copie comme par la pièce. source ne nomme qu’une pièce du dossier. Une analyse d’une autre affaire, un plan que cette lecture n’a pas lu, un plan étranger au dossier ou une pièce supprimée est introuvable. Rien n’est gardé : chaque ouverture d’un plan le résout de nouveau. N’écrit rien, ne lance rien.",
+    tags: ["Takeoff"],
+    pathParameters: [{ name: "projectId", schema: uuidSchema, description: "Affaire cible." }],
+    queryParameters: [
+      { name: "plan", schema: z.string().max(200), description: "Identité logique du plan (pièce du dossier, ou copie déposée dans le jeu de plans)." },
+      { name: "lecture", schema: uuidSchema, description: "Analyse dont la copie scellée est montrée ; demande le plan." },
+      { name: "source", schema: uuidSchema, description: "Pièce du dossier d’un plan qu’aucune analyse n’a scellé, seule, sans plan ni lecture." },
+      { name: "generation", schema: z.string().max(200), description: "Génération de la pièce nommée par source." },
+    ],
+    success: [{ status: "200", description: "Le plan, la lecture et la manière d’en obtenir les octets, ou pourquoi ils sont indisponibles.", schema: {
+      schemaName: "ApiTakeoffItemDetailPlanResponse", schema: z.object({ ok: z.literal(true), data: itemDetailPlanViewSchema }), io: "output",
+    } }],
+    extraErrors: [{ status: "422", description: "Combinaison de paramètres qui ne désigne pas un plan." }, { status: "503", description: "Le stockage n’a pas répondu à la signature du plan : réessayer." }],
   },
   {
     id: "get-takeoff-activity-center-requests",

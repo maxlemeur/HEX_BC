@@ -1,12 +1,15 @@
 import { randomUUID } from "node:crypto";
 
+import { packagingKey } from "@/lib/catalogue/packagings";
+
 /**
  * A small in-memory stand-in for the Supabase client the material request routes receive. It applies
  * the filters it is given and no RLS: a route that forgets to filter on the tenant or the affaire
  * therefore leaks in these tests, which is the point. Every write is recorded as it was sent.
  *
  * Of the database it reproduces only what the routes observe and pgTAP proves: defaults and scope on
- * insert, validation stamps, the unique keys of technicians, usual names and product references, the stored mark refused without bytes of the announced size, and the return to draft of the lines
+ * insert, validation stamps, the unique keys of technicians, usual names, packagings and product references,
+ * the single usual packaging of an article, the stored mark refused without bytes of the announced size, and the return to draft of the lines
  * that relied on a presumed material the request withdraws. The browser's own upload to a signed URL is
  * played by the test, which puts bytes in `objects`.
  */
@@ -47,8 +50,11 @@ export type FakeSupabaseOptions = {
   failSign?: (path: string) => boolean;
   /** Updates the database refuses, as a CHECK or a trigger would (SQLSTATE 23514): the message it raises. */
   refuseUpdate?: (table: string, values: FakeRow) => string | false;
-  /** Inserts the database refuses, as a trigger would (SQLSTATE 23514): the message it raises. */
-  refuseInsert?: (table: string, values: unknown) => string | false;
+  /**
+   * Inserts the database refuses: the message a trigger raises (SQLSTATE 23514), or another SQLSTATE with its
+   * message (a foreign key, 23503).
+   */
+  refuseInsert?: (table: string, values: unknown) => string | { code: string; message: string } | false;
   /**
    * The download stream delivers its bytes but its cancellation never settles, as the runtime's response
    * body does once it has been read to its end.
@@ -79,6 +85,7 @@ const UNIQUE_KEYS: Record<string, (row: FakeRow) => string | null> = {
   material_request_technicians: TECHNICIAN_NAME_KEY,
   material_request_message_templates: (row) => `${row.tenant_id}|${row.user_id}`,
   product_aliases: (row) => `${row.tenant_id}|${row.product_id}|${row.alias_key}`,
+  product_packagings: (row) => `${row.product_id}|${packagingKey(String(row.label), Number(row.quantity))}`,
   products: (row) => (row.reference ? `${row.tenant_id}|${String(row.reference).trim().toLowerCase()}` : null),
 };
 
@@ -142,6 +149,19 @@ export function createFakeSupabase(options: FakeSupabaseOptions) {
       const product = parentOf("products", row.product_id);
       return { ...row, tenant_id: product?.tenant_id ?? null, created_by: options.userId };
     }
+    if (table === "product_packagings") {
+      // The packaging trigger: the article's tenant and unit, the caller as author, the label trimmed, the next
+      // position of the article.
+      const product = parentOf("products", row.product_id);
+      const positions = (tables.product_packagings ?? [])
+        .filter((other) => other.product_id === row.product_id)
+        .map((other) => Number(other.position) || 0);
+      return {
+        is_usual: false, updated_at: row.created_at, ...row, tenant_id: product?.tenant_id ?? null,
+        unit: product?.unit ?? null, label: String(row.label).replace(/\s+/g, " ").trim(),
+        position: Math.max(0, ...positions) + 1, created_by: options.userId,
+      };
+    }
     if (table === "material_request_files") {
       const parent = parentOf("material_requests", row.request_id);
       // Like the database: a new original is not stored yet, whatever the client sends.
@@ -187,6 +207,16 @@ export function createFakeSupabase(options: FakeSupabaseOptions) {
     );
   }
 
+  /** The packaging trigger: a packaging marked usual takes the mark from the other packagings of its article. */
+  function moveUsualMark(table: string, written: FakeRow[]) {
+    if (table !== "product_packagings") return;
+    for (const row of written.filter((candidate) => candidate.is_usual === true)) {
+      tables[table] = tables[table].map((other) =>
+        other.product_id === row.product_id && other.id !== row.id && other.is_usual === true ? { ...other, is_usual: false } : other,
+      );
+    }
+  }
+
   function uniqueViolation(table: string, candidate: FakeRow): QueryError | null {
     const key = UNIQUE_KEYS[table];
     if (!key || key(candidate) === null) return null;
@@ -215,7 +245,8 @@ export function createFakeSupabase(options: FakeSupabaseOptions) {
         const refusal = options.refuseInsert?.(table, payload);
         if (refusal) {
           events.push(`refused insert ${table}`);
-          return { data: null, error: { code: "23514", message: refusal, details: null, hint: null } };
+          const { code, message } = typeof refusal === "string" ? { code: "23514", message: refusal } : refusal;
+          return { data: null, error: { code, message, details: null, hint: null } };
         }
         const inserted = (Array.isArray(payload) ? payload : [payload]).map((values) =>
           completeInsert(table, values as FakeRow),
@@ -224,6 +255,7 @@ export function createFakeSupabase(options: FakeSupabaseOptions) {
           const violation = uniqueViolation(table, row);
           if (violation) return { data: null, error: violation };
         }
+        moveUsualMark(table, inserted);
         tables[table].push(...inserted);
         events.push(`insert ${table}`);
         writes.push({ table, operation, values: payload, ids: inserted.map((row) => String(row.id)) });
@@ -250,6 +282,7 @@ export function createFakeSupabase(options: FakeSupabaseOptions) {
           const violation = uniqueViolation(table, row);
           if (violation) return { data: null, error: violation };
         }
+        moveUsualMark(table, updated);
         for (const row of updated) tables[table][tables[table].findIndex((existing) => existing.id === row.id)] = row;
         if (table === "material_requests") matching.forEach((before, index) => reopenLinesOf(before, updated[index]));
         events.push(`update ${table}`);

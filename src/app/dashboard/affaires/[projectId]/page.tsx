@@ -43,7 +43,7 @@ import { fetchVersionZeroDraftSummary } from "@/lib/estimates/version-zero-draft
 import { isEstimateAiDraftEnabled } from "@/lib/estimates/ai-draft-availability";
 import { fetchCockpitCommandPreferences } from "@/lib/cockpit/preferences";
 import { isTakeoffEnabled } from "@/lib/takeoff/feature-flags";
-import { isTakeoffLaunchActive, readAffaireAutomaticTakeoffPayerNotice } from "@/lib/takeoff/launch-request-server";
+import { isTakeoffLaunchActive } from "@/lib/takeoff/launch-request-server";
 import { readAffaireTakeoffZone } from "@/lib/takeoff/affaire-takeoff-zone-server";
 import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
 import { computeCockpitSuggestions } from "@/lib/cockpit/suggestions";
@@ -386,9 +386,6 @@ export default async function AffaireHubPage({ params, searchParams }: Props) {
     preferences: effectiveCockpitPreferences,
   });
 
-  // The payer notice only for a brief to confirm, the one dialog that shows it.
-  const automaticTakeoffPayerNotice = devHubScenario || intakeWorkspace?.briefDraft?.status !== "a_confirmer" ? null
-    : await readAffaireAutomaticTakeoffPayerNotice(projectId);
   const takeoffZone = await takeoffZonePromise;
   // Former launch links (`/takeoff?launch=1`, an old bookmark) open the options of the takeoff's zone: opening launches nothing.
   const takeoffOptionsPlanSetId = typeof search.launchPlanSet === "string" && /^[0-9a-f-]{36}$/i.test(search.launchPlanSet)
@@ -423,7 +420,6 @@ export default async function AffaireHubPage({ params, searchParams }: Props) {
       cockpitPreferences={effectiveCockpitPreferences}
       liveDossier={devHubScenario === null}
       viewerProfileId={profile?.id ?? null}
-      automaticTakeoffPayerNotice={automaticTakeoffPayerNotice}
       takeoffZone={takeoffZone}
       takeoffOptionsRequested={search.metreOptions === "1"}
       takeoffOptionsPlanSetId={takeoffOptionsPlanSetId}

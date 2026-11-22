@@ -979,6 +979,7 @@
         "src/lib/mappings/**",
         "src/lib/takeoff/poste-list*.ts",
         "src/lib/takeoff/item-list*.ts",
+        "src/lib/takeoff/item-answers*.ts",
         "src/lib/takeoff/item-template*.ts",
         "src/lib/takeoff/plumbing-template.ts",
         "src/lib/estimates/canonical-v2-creation.ts"
