@@ -36,12 +36,15 @@ les lignes que l’import a écartées, avec leur raison : un total et les optio
 suivent, les paramètres du classeur, une ligne ignorée. La liste ne fait jamais un
 poste de ces lignes. La confirmation porte sur les lignes qu’elle consomme, entières,
 telles que la base les garde : toutes les lignes de l’import, rejetées comprises, dans
-l’ordre où le serveur les lit, chacune avec sa ligne brute. La base seule en calcule
-l’empreinte, sur le texte enregistré (un nombre tel qu’il a été écrit : 1,50 n’est pas
-1,5). Quand la confirmation garde la dernière correspondance de l’import, c’est
-l’empreinte que l’aperçu de la structure a lue et que le formulaire renvoie. Quand elle
-écrit la correspondance du membre, ce sont les lignes qu’elle vient d’écrire et aucune
-autre, avec l’empreinte que la base en donne aussitôt après. La base la recalcule sous
+l’ordre où le serveur les lit, chacune avec sa ligne brute, sauf les quatre clés que
+seule la liaison au catalogue écrit. La base seule en calcule l’empreinte, sur le texte
+enregistré (un nombre tel qu’il a été écrit : 1,50 n’est pas 1,5). Quand la confirmation
+garde la dernière correspondance de l’import, l’aperçu lit cette correspondance et
+l’empreinte d’une seule lecture, montre la structure de cette correspondance, et le
+formulaire renvoie les deux. Quand elle écrit la correspondance du membre, ce sont les
+lignes qu’elle vient d’écrire et aucune autre, avec l’empreinte que la base en donne
+aussitôt après : ce que le membre a vu découle des lignes brutes et de la correspondance
+choisie. La base la recalcule sous
 le verrou de l’import, dans la lecture même qui vérifie les lignes, et l’enregistre comme
 preuve. Des lignes écrites par la correspondance d’un autre onglet, encore en cours
 d’écriture, ou une valeur modifiée la refusent ; le formulaire affiche alors « Le mappage
@@ -51,8 +54,8 @@ charge, restent acceptées. Les choix s’enregistrent dans la transaction du de
 Sans devis, ils s’enregistrent juste après la correspondance, qui s’écrit en plusieurs
 requêtes et ne peut pas partager leur transaction : la confirmation ne réussit pas sans
 eux, le formulaire le dit, et confirmer de nouveau les enregistre. Si une ligne de
-l’import change ensuite (une nouvelle correspondance, une valeur réécrite, une liaison
-au catalogue ajoutée à sa charge), la preuve ne correspond plus. Si un devis est créé
+l’import change ensuite (une nouvelle correspondance, ses colonnes modifiées, une valeur
+réécrite), la preuve ne correspond plus ; lier l’import au catalogue ne la change pas. Si un devis est créé
 depuis l’import après la confirmation sans enregistrer de choix (une version antérieure
 de l’application), les choix ne sont plus établis. Chaque création retient elle-même,
 avant de rendre la main, le devis qu’elle vient d’écrire (jamais un devis existant) et
