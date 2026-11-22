@@ -268,11 +268,12 @@ describe("buildTakeoffRequestActivity: what each member sees and may do", () => 
     const view = buildTakeoffRequestActivity({
       request: request({ state: "blocked", admitted_at: null, units_expected: null, reason_code: "PLAN_SET_TOO_LARGE",
         reason_details: { pieces: [{ id: PLAN_B, name: "B — Étage 1.pdf" }],
-          reading_bounds: { items: 1_700, plans: 1, calls: 43, tokens: 1_290_000, request_budget_tokens: 400_000 } } }),
+          reading_bounds: { items: 1_700, plans: 1, reading_calls: 43, classifier_calls: 0, minutes: 65, max_request_calls: 480,
+            max_plan_calls: 40 } } }),
       units: null, manifest: null, jobs: [], viewer: reader, now: NOW, visible: "all",
     });
     expect(view.reason?.message).toContain("« B — Étage 1.pdf » dépassent les limites d’une lecture contre la liste des postes");
-    expect(view.reason?.message).toContain("43 appels prévus");
+    expect(view.reason?.message).toContain("43 appels de lecture, environ 1 h 05 sur un Mac. Au plus 480 appels de lecture par demande");
   });
 
   it("names the relaunch that set an automatic start aside", () => {

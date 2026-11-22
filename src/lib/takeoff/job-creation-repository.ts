@@ -78,6 +78,8 @@ export async function resolvePlanSetSourceFile(input: {
   jobId: string;
   maxPages: number;
   selectedFileIds?: string[];
+  /** A request read plan by plan: the page limit is each plan's (each is read by its own job), not the selection's. */
+  pagesPerPlan?: boolean;
 }) {
   const { data, error } = await readAllRows(() => {
     let query = input.supabase
@@ -129,6 +131,7 @@ export async function resolvePlanSetSourceFile(input: {
 
   const resourceBudget = inspectPlanSetResourceBudget(planFiles, {
     maxPages: input.maxPages,
+    pagesPer: input.pagesPerPlan ? "file" : "set",
   });
   if (resourceBudget.violation) {
     throw new TakeoffError({

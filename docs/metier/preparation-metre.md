@@ -549,7 +549,15 @@ n’arrête rien. Les plans lus, une fois les choix d’indices appliqués, doiv
 tenir ensemble dans le budget de plans du traitement (nombre, taille et pages
 réelles, au niveau de l’analyse) : une copie de travail du dossier n’enregistre
 pas son nombre de pages, il est compté sur le fichier. Sinon la confirmation et
-le démarrage automatique s’arrêtent en nommant les plans. Le cartouche d’un plan
+le démarrage automatique s’arrêtent en nommant les plans. Une fois l’analyse par
+plan active, chaque plan est lu par sa propre analyse : la limite de pages d’une
+lecture vaut pour chaque plan, non pour leur somme (seul le plan qui la dépasse
+est nommé) ; la confirmation, le démarrage automatique et les commandes de plans
+l’appliquent ainsi, chacun sur les pages de chaque plan comptées sur son fichier
+quand sa ligne n’en enregistre pas, et une analyse groupée la garde sur tous ses
+plans ensemble. La confirmation ne lit l’activation que lorsque les plans dépassent
+la limite ensemble ; si elle ne peut pas la lire, elle garde la règle d’une analyse
+groupée. Le nombre de plans et leur taille restent bornés ensemble. Le cartouche d’un plan
 du dossier donne son indice ; une page que le rendu ne peut pas dessiner laisse
 cet indice non lu (le dossier ou le nom du fichier le donnent alors), sans
 écarter le plan : le traitement lit le plan sans son cartouche.

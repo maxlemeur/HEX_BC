@@ -213,16 +213,29 @@ plan incertain le rend « À vérifier », sinon une mesure le rend « Mesuré �
 seulement des plans tous cherchés sans indice le rendent « Non trouvé ».
 
 **Bornes d’une lecture contre la liste.** Avant son admission, la demande entière
-est bornée : les appels prévus (fragments × lots, plus ceux de la classification des
-groupes vectoriels quand elle est active, 40 au plus par plan et 200 par demande),
-la taille de leurs réponses et le budget. Chaque appel réserve 30 000 jetons et ne
-démarre que si la part de son plan et la demande gardent un solde positif. Avant son
-premier appel payant, le job refait ce compte sur la demande entière, avec les
-réglages qu’il utilisera réellement : au-delà, il s’arrête avec la même raison, sans
-rien dépenser. Au-delà, la demande n’est pas admise : « Métré non démarré — les plans …
-dépassent les limites d’une lecture contre la liste des postes », avec les appels
-prévus et le budget. Rien n’est échantillonné ; réduire les plans ou les pages lus
-permet de la relancer.
+est bornée par le nombre de ses appels de lecture (fragments × lots) : 40 au plus par
+plan, 480 par demande, soit les 20 plans qu’une demande peut sceller, de 20 pages
+chacun, lus contre 300 postes. La classification des groupes vectoriels, quand elle est
+active, garde ses propres limites (25 demandes par page, 40 par plan, sur les 60 pages
+vectorielles du dossier). Le budget d’une telle demande n’est pas celui de la lecture
+détaillée de l’extraction libre (qui reste le réglage du tenant) : il est fixé à
+l’admission d’après les appels admis. Chaque appel payant, de lecture ou de
+classification, réserve 30 000 jetons ; la part de chaque plan vaut deux fois les
+réservations de ses appels, et l’enveloppe de la demande la somme des parts. Un appel
+ne démarre que si la part de son plan et la demande gardent un solde positif : le
+dernier appel admis démarre même si chacun des précédents a coûté le double de
+l’estimation. Le plafond de coût reste celui du tenant, réparti par pages (le forfait
+ChatGPT ne coûte aucun centime par appel). Par exemple, 15 plans de 20 pages lus
+contre 300 postes, classification active, font 360 appels de lecture et 120 de
+classification au plus, 14,4 millions de jetons réservés pour une enveloppe de 28,8
+millions, environ 9 h 30 sur un Mac (1 min 30 par appel de lecture, 15 s par appel
+de classification, estimations à mesurer). Avant son premier appel payant, le job
+refait ce compte sur la demande entière, avec les réglages qu’il utilisera
+réellement, et dépense dans ce que la part de son plan garde : au-delà, il s’arrête
+sans rien dépenser. Au-delà d’un plafond, la demande n’est pas admise : « Métré non
+démarré — les plans … dépassent les limites d’une lecture contre la liste des postes »,
+avec les appels prévus, leur durée sur un Mac et les plafonds. Rien n’est
+échantillonné ; réduire les plans ou les pages lus permet de la relancer.
 
 **Réponses enregistrées et leur publication.** Les réponses d’un plan sont enregistrées
 (`supabase/migrations/20261122080845_takeoff_item_answers.sql`) avec les pages cherchées

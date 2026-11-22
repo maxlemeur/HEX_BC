@@ -3,11 +3,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/takeoff/level-c-reading", async (importOriginal) => ({
   ...await importOriginal<typeof import("@/lib/takeoff/level-c-reading")>(),
-  // The first format's checks before a paid call (tested with it): here the page count and the detailed configuration.
+  // The first format's checks before a paid call (tested with it): here the page count, the detailed configuration within
+  // what the request has left, and what the request has left.
   prepareLevelCReading: vi.fn(async (input: { sourceFile: { bytes: ArrayBuffer } }) => ({
     pageCount: (await PDFDocument.load(input.sourceFile.bytes)).getPageCount(),
     config: { thresholdPages: 15, chunkSizePages: 10, overlapPages: 2, maxPdfPages: 200, timeoutMs: 300_000, maxTotalTokens: 400_000,
-      maxCostCents: 2_500 } })),
+      maxCostCents: 2_500 }, requestBudget: { remainingTokens: 400_000, remainingCostCents: 2_500 } })),
 }));
 vi.mock("@/lib/takeoff/processing-audit", () => ({ logCompletedAuditEvent: vi.fn() }));
 // The vector classifier's calls as its own bound counts them (its conditions are environment flags): none unless a case says.
@@ -391,25 +392,65 @@ describe("processItemListLevelC", () => {
   it("stops before any paid call when its own plan passes its share of the budget", async () => {
     const call = controlledPosteCall();
     const readVectors = vi.fn(async () => vectorOutcomes());
+    // What the request has left is ample: only the share the request sealed for this plan stops it.
     vi.mocked(prepareLevelCReading).mockResolvedValueOnce({ pageCount: 4, config: { thresholdPages: 1, chunkSizePages: 2, overlapPages: 1,
-      maxPdfPages: 200, timeoutMs: 300_000, maxTotalTokens: 400_000, maxCostCents: 2_500 } });
+      maxPdfPages: 200, timeoutMs: 300_000, maxTotalTokens: 400_000, maxCostCents: 2_500 },
+      requestBudget: { remainingTokens: 400_000, remainingCostCents: 2_500 } });
     const share = { tokens: 30_000, cost_cents: 2_500 };
     const thin = job({ preparation_snapshot: { launch_unit: { request_id: REQUEST, key: `plan:${PLAN}`, ordinal: 1, vector_pages: 4,
       budget: share } } });
     const manifest = planManifest([{ id: PLAN, pages: [3, 4, 5, 6], pageCount: 6, vectorPages: 4, budget: share }]);
     await expect(run({ call, job: thin, readVectors, order: { ...SEALED, manifest } })).rejects.toMatchObject({ code: TakeoffErrorCode.TAKEOFF_LEVEL_C_BUDGET_EXCEEDED,
-      retryable: false, message: expect.stringContaining("Lecture de 4 postes sur 1 plan : 3 appels prévus") });
+      retryable: false, message: expect.stringContaining("Lecture de 4 postes sur 1 plan : 3 appels de lecture, environ 5 min sur un Mac.") });
     expect(call.received).toEqual([]);
     expect(readVectors).not.toHaveBeenCalled();
     expect(publishTakeoffItemAnswers).not.toHaveBeenCalled();
   });
 
-  it("counts its vector classifier's calls against the ceiling of a plan", async () => {
+  // Budget task: the classifier's calls count in its plan's budget (and its duration); its own limits bound them.
+  it("counts its vector classifier's calls in its plan's budget", async () => {
     const call = controlledPosteCall();
     vi.mocked(takeoffVectorGroupCallsBound).mockReturnValueOnce(40);
-    await expect(run({ call })).rejects.toMatchObject({ code: TakeoffErrorCode.TAKEOFF_FILE_TOO_LARGE,
-      message: expect.stringContaining("41 appels prévus") });
+    await expect(run({ call })).rejects.toMatchObject({ code: TakeoffErrorCode.TAKEOFF_LEVEL_C_BUDGET_EXCEEDED,
+      message: expect.stringContaining("1 appel de lecture et 40 de classification vectorielle au plus") });
     expect(vi.mocked(takeoffVectorGroupCallsBound)).toHaveBeenCalledWith(4);
+    expect(call.received).toEqual([]);
+  });
+
+  // Budget task: the attempt of a reading against the list spends from the share its request sealed for it, sized from its
+  // admitted calls, never within the first format's per-job budget (400,000 tokens: 14 calls).
+  it("plans its reading within the share its request sealed for it, past the first format's per-job budget", async () => {
+    const call = controlledPosteCall();
+    const items = Array.from({ length: 600 }, (_, index) => poste(100 + index, `Robinet ${index + 1}`));
+    // One fragment of the 4-page plan times 15 batches: 15 calls, a share of 900,000 tokens, the request's whole envelope.
+    const share = { tokens: 15 * 30_000 * 2, cost_cents: 2_500 };
+    const manifest = planManifest([{ id: PLAN, pages: [3, 4, 5, 6], pageCount: 6, budget: share }], share,
+      { ...ORDER, list: { ...ORDER.list, item_count: 600 } });
+    vi.mocked(prepareLevelCReading).mockResolvedValueOnce({ pageCount: 4, config: { thresholdPages: 15, chunkSizePages: 10,
+      overlapPages: 2, maxPdfPages: 200, timeoutMs: 300_000, maxTotalTokens: 400_000, maxCostCents: 2_500 },
+      requestBudget: { remainingTokens: 900_000, remainingCostCents: 2_500 } });
+    const own = job({ preparation_snapshot: { launch_unit: { request_id: REQUEST, key: `plan:${PLAN}`, ordinal: 1, vector_pages: 0,
+      budget: share } } });
+    await run({ call, job: own, supabase: database({ items }).client as never, order: { ...SEALED, itemCount: 600, manifest } });
+    expect(call.received).toHaveLength(15);
+    expect(publishTakeoffItemAnswers).toHaveBeenCalledTimes(1);
+  });
+
+  it("stops before any paid call when what its request has left cannot start its plan's calls", async () => {
+    const call = controlledPosteCall();
+    const items = Array.from({ length: 600 }, (_, index) => poste(100 + index, `Robinet ${index + 1}`));
+    const share = { tokens: 15 * 30_000 * 2, cost_cents: 2_500 };
+    const manifest = planManifest([{ id: PLAN, pages: [3, 4, 5, 6], pageCount: 6, budget: share }], share,
+      { ...ORDER, list: { ...ORDER.list, item_count: 600 } });
+    // An earlier attempt spent 500,000 tokens of the share: the 15th call would find nothing left.
+    vi.mocked(prepareLevelCReading).mockResolvedValueOnce({ pageCount: 4, config: { thresholdPages: 15, chunkSizePages: 10,
+      overlapPages: 2, maxPdfPages: 200, timeoutMs: 300_000, maxTotalTokens: 400_000, maxCostCents: 2_500 },
+      requestBudget: { remainingTokens: 400_000, remainingCostCents: 2_500 } });
+    const own = job({ preparation_snapshot: { launch_unit: { request_id: REQUEST, key: `plan:${PLAN}`, ordinal: 1, vector_pages: 0,
+      budget: share } } });
+    await expect(run({ call, job: own, supabase: database({ items }).client as never, order: { ...SEALED, itemCount: 600, manifest } }))
+      .rejects.toMatchObject({ code: TakeoffErrorCode.TAKEOFF_LEVEL_C_BUDGET_EXCEEDED, retryable: false,
+        message: expect.stringContaining("Le budget qui reste à cette analyse ne permet plus ses appels") });
     expect(call.received).toEqual([]);
   });
 
@@ -417,21 +458,22 @@ describe("processItemListLevelC", () => {
   // never its own plan only.
   it("stops before any paid call when the whole request, planned with today's settings, passes its ceiling", async () => {
     const call = controlledPosteCall();
-    const items = Array.from({ length: 80 }, (_, index) => poste(100 + index, `Robinet ${index + 1}`));
-    const plans = [PLAN, ...Array.from({ length: 9 }, (_, index) => `aaaaaaaa-0000-4000-8000-0000000002${String(index).padStart(2, "0")}`)];
-    // 7M tokens, 700,000 a plan. Admitted on one fragment of each 12-page plan times two batches: 20 calls. Today's settings
-    // make 11 fragments of a 12-page plan: 22 calls a plan, within its ceiling and its share, 220 for the request.
-    const share = { tokens: 700_000, cost_cents: 250 };
-    const manifest = planManifest(plans.map((id) => ({ id, pageCount: 12, budget: share })), { tokens: 7_000_000, cost_cents: 2_500 },
-      { ...ORDER, list: { ...ORDER.list, item_count: 80 } });
-    vi.mocked(prepareLevelCReading).mockResolvedValueOnce({ pageCount: 12, config: { thresholdPages: 1, chunkSizePages: 2, overlapPages: 1,
-      maxPdfPages: 200, timeoutMs: 300_000, maxTotalTokens: 7_000_000, maxCostCents: 2_500 } });
+    const items = Array.from({ length: 200 }, (_, index) => poste(100 + index, `Robinet ${index + 1}`));
+    const plans = [PLAN, ...Array.from({ length: 19 }, (_, index) => `aaaaaaaa-0000-4000-8000-0000000002${String(index).padStart(2, "0")}`)];
+    // 2M tokens a plan. Admitted on one fragment of each 12-page plan times five batches: 100 calls. Today's settings make
+    // 5 fragments of a 12-page plan: 25 calls a plan, within its ceiling and its share, 500 for the request.
+    const share = { tokens: 2_000_000, cost_cents: 125 };
+    const manifest = planManifest(plans.map((id) => ({ id, pageCount: 12, budget: share })), { tokens: 40_000_000, cost_cents: 2_500 },
+      { ...ORDER, list: { ...ORDER.list, item_count: 200 } });
+    vi.mocked(prepareLevelCReading).mockResolvedValueOnce({ pageCount: 12, config: { thresholdPages: 1, chunkSizePages: 4, overlapPages: 2,
+      maxPdfPages: 200, timeoutMs: 300_000, maxTotalTokens: 400_000, maxCostCents: 125 },
+      requestBudget: { remainingTokens: 2_000_000, remainingCostCents: 125 } });
     const twelve = { ...(await sourceFile()), bytes: await pdf(12), sourcePageNumbersByPage: Array.from({ length: 12 }, (_, page) => page + 1) };
     const own = job({ preparation_snapshot: { launch_unit: { request_id: REQUEST, key: `plan:${PLAN}`, ordinal: 1, vector_pages: 0,
       budget: share } } });
     await expect(run({ call, job: own, sourceFile: twelve, supabase: database({ items }).client as never,
-      order: { ...SEALED, itemCount: 80, manifest } })).rejects.toMatchObject({ code: TakeoffErrorCode.TAKEOFF_FILE_TOO_LARGE,
-      retryable: false, message: expect.stringContaining("Lecture de 80 postes sur 10 plans : 220 appels prévus") });
+      order: { ...SEALED, itemCount: 200, manifest } })).rejects.toMatchObject({ code: TakeoffErrorCode.TAKEOFF_FILE_TOO_LARGE,
+      retryable: false, message: expect.stringContaining("Lecture de 200 postes sur 20 plans : 500 appels de lecture") });
     expect(call.received).toEqual([]);
     expect(publishTakeoffItemAnswers).not.toHaveBeenCalled();
   });
