@@ -55,7 +55,8 @@ from unnest(array[
   'persist_dpgf_import_estimate_atomic(uuid, uuid, uuid, jsonb, jsonb, jsonb, uuid, uuid, jsonb, jsonb, uuid[], text)',
   'read_dpgf_import_confirmation(uuid, uuid)', 'read_estimate_dpgf_raw_rows(uuid, uuid)',
   'takeoff_item_list_order_is_active()', 'takeoff_item_list_may_write(uuid, uuid, uuid)',
-  'record_estimate_version_creation(uuid)', 'takeoff_item_list_notes_key(uuid)', 'dpgf_import_rows_sha256(uuid, uuid)']) as fn;
+  'record_estimate_version_creation(uuid)', 'takeoff_item_list_notes_key(uuid)', 'dpgf_import_rows_sha256(uuid, uuid)',
+  'dpgf_import_review_state(uuid, uuid)']) as fn;
 select is(has_table_privilege('authenticated', 'private.dpgf_mapped_row_lineage', 'SELECT'), false,
   'members do not read the lineage');
 
@@ -75,6 +76,15 @@ insert into public.tenant_memberships(tenant_id, user_id, role, is_default, crea
 insert into public.estimate_projects(id, tenant_id, user_id, name) values
   (pg_temp.fx(20), pg_temp.fx(10), pg_temp.fx(1), 'Liste de postes (fictive)'),
   (pg_temp.fx(21), pg_temp.fx(10), pg_temp.fx(2), 'Autre affaire (fictive)');
+
+-- The two answers the server's screens ask for: who may write an affaire's list, and whether the second measuring order
+-- is active.
+set local role service_role;
+select results_eq($$ select public.takeoff_item_list_may_write(pg_temp.fx(10), pg_temp.fx(20), pg_temp.fx(n))
+  from unnest(array[1, 5, 2, 3]) n $$, $$ values (true), (true), (false), (false) $$,
+  'the affaire''s owner and an administrator may write its list; another engineer and a director may not');
+select is(public.takeoff_item_list_order_is_active(), false, 'the second measuring order is not active by default');
+reset role;
 
 -- 2. Templates. The shipped definition is named by the server: here its lines « lavabo » and « baignoire ».
 create function pg_temp.lines(variadic ids text[]) returns jsonb language sql immutable as $$
@@ -436,6 +446,13 @@ select is((select proof_current from public.read_dpgf_import_confirmation(pg_tem
   'the same facts again: proven again');
 update public.dpgf_rows_mapped set payload = payload - array['product_id', 'catalogue_item_id', 'product_match_type',
   'catalogue_match_type'] where id = pg_temp.fx(72);
+-- The mapping's columns changed in place under the same identifier: the decisions are no longer proven.
+update public.dpgf_mappings set column_mapping = '{"Designation":"designation"}' where id = pg_temp.fx(70);
+select is((select proof_current from public.read_dpgf_import_confirmation(pg_temp.fx(10), pg_temp.fx(60))), false,
+  'the mapping''s columns changed under its identifier: the decisions are no longer proven');
+update public.dpgf_mappings set column_mapping = '{"Designation":"designation","Qte":"quantity"}' where id = pg_temp.fx(70);
+select is((select proof_current from public.read_dpgf_import_confirmation(pg_temp.fx(10), pg_temp.fx(60))), true,
+  'the same columns again: proven again');
 -- A confirmation of the previous version with a mapping: a new mapping and new mapped rows, no decision recorded.
 insert into public.dpgf_mappings (id, tenant_id, import_id, status, column_mapping)
 values (pg_temp.fx(73), pg_temp.fx(10), pg_temp.fx(60), 'validated', '{"Designation":"designation","Qte":"quantity"}');
@@ -560,6 +577,75 @@ select results_eq($$ select estimate_version_id, decisions, exclusions, supersed
   from public.read_dpgf_import_confirmation(pg_temp.fx(10), pg_temp.fx(60)) $$,
   $$ values (pg_temp.fx(83), '[{"rowIndex":0,"kind":"section","level":1}]'::jsonb, '[{"rowIndex":1,"reason":"footer"}]'::jsonb,
     false) $$, 'and the confirmation that created it records its structure and names it');
+
+-- Rejected rows whose payload is a JSON null, a string or an array: the digest hashes them as stored, and the preview's
+-- read and both confirmation paths succeed.
+insert into public.dpgf_imports (id, tenant_id, user_id, filename, source_format, status, row_count, parse_mode)
+values (pg_temp.fx(240), pg_temp.fx(10), pg_temp.fx(5), 'charges-scalaires.csv', 'csv', 'completed', 1, 'server');
+insert into public.dpgf_rows_raw (id, tenant_id, import_id, row_index, payload)
+values (pg_temp.fx(241), pg_temp.fx(10), pg_temp.fx(240), 0, '{"Designation":"Lavabo","Qte":"2"}');
+insert into public.dpgf_mappings (id, tenant_id, import_id, status, column_mapping)
+values (pg_temp.fx(242), pg_temp.fx(10), pg_temp.fx(240), 'validated', '{"Designation":"designation","Qte":"quantity"}');
+insert into public.dpgf_rows_mapped (id, tenant_id, import_id, raw_row_id, payload, status, created_at) values
+  (pg_temp.fx(243), pg_temp.fx(10), pg_temp.fx(240), pg_temp.fx(241),
+    '{"row_index":0,"mapped_row":{"designation":"Lavabo","quantity":"2"}}', 'mapped', '2026-11-21 09:00:00+00'),
+  (pg_temp.fx(244), pg_temp.fx(10), pg_temp.fx(240), null, 'null', 'rejected', '2026-11-21 09:00:01+00'),
+  (pg_temp.fx(245), pg_temp.fx(10), pg_temp.fx(240), null, '"texte libre"', 'rejected', '2026-11-21 09:00:02+00'),
+  (pg_temp.fx(246), pg_temp.fx(10), pg_temp.fx(240), null, '["Lavabo", 2]', 'rejected', '2026-11-21 09:00:03+00');
+select lives_ok($$ select public.dpgf_import_rows_sha256(pg_temp.fx(10), pg_temp.fx(240)) $$,
+  'the digest of rows holding a JSON null, a string and an array');
+select lives_ok($$ select public.record_dpgf_import_confirmation(pg_temp.fx(10), pg_temp.fx(5), pg_temp.fx(240),
+  pg_temp.fx(242), null, null, '[]', '[]', array[pg_temp.fx(243), pg_temp.fx(244), pg_temp.fx(245), pg_temp.fx(246)],
+  public.dpgf_import_rows_sha256(pg_temp.fx(10), pg_temp.fx(240))) $$, 'their mapping-only confirmation is recorded');
+set local role service_role;
+select lives_ok($$ select public.persist_dpgf_import_estimate_atomic(pg_temp.fx(10), pg_temp.fx(5), pg_temp.fx(20), null,
+  pg_temp.version_payload(247), '[]'::jsonb, pg_temp.fx(240), pg_temp.fx(242), '[]'::jsonb, '[]'::jsonb,
+  array[pg_temp.fx(243), pg_temp.fx(244), pg_temp.fx(245), pg_temp.fx(246)],
+  public.dpgf_import_rows_sha256(pg_temp.fx(10), pg_temp.fx(240))) $$, 'and their confirmation that creates the estimate');
+reset role;
+-- A legacy import: two flat rows with the same index, both totals, and a rejected row holding an array that names a
+-- catalogue key. The array is hashed as stored; both exclusions of the same position are accepted and kept.
+insert into public.dpgf_imports (id, tenant_id, user_id, filename, source_format, status, row_count, parse_mode)
+values (pg_temp.fx(250), pg_temp.fx(10), pg_temp.fx(5), 'ancien-format.csv', 'csv', 'completed', 3, 'server');
+insert into public.dpgf_mappings (id, tenant_id, import_id, status, column_mapping, created_at)
+values (pg_temp.fx(255), pg_temp.fx(10), pg_temp.fx(250), 'validated', '{"Designation":"designation","Qte":"quantity"}',
+  now() - interval '1 minute');
+insert into public.dpgf_rows_mapped (id, tenant_id, import_id, raw_row_id, payload, status, created_at) values
+  (pg_temp.fx(251), pg_temp.fx(10), pg_temp.fx(250), null, '{"row_index":0,"designation":"Lavabo","quantity":2}', 'mapped',
+    '2026-11-21 10:00:00+00'),
+  (pg_temp.fx(252), pg_temp.fx(10), pg_temp.fx(250), null, '{"row_index":3,"designation":"Total HT"}', 'mapped',
+    '2026-11-21 10:00:01+00'),
+  (pg_temp.fx(253), pg_temp.fx(10), pg_temp.fx(250), null, '{"row_index":3,"designation":"Total HT"}', 'mapped',
+    '2026-11-21 10:00:02+00'),
+  (pg_temp.fx(254), pg_temp.fx(10), pg_temp.fx(250), null, '["product_id", "Lavabo"]', 'rejected', '2026-11-21 10:00:03+00');
+create temp table array_digest as select public.dpgf_import_rows_sha256(pg_temp.fx(10), pg_temp.fx(250)) as digest;
+update public.dpgf_rows_mapped set payload = '["Lavabo"]' where id = pg_temp.fx(254);
+select isnt(public.dpgf_import_rows_sha256(pg_temp.fx(10), pg_temp.fx(250)), (select digest from array_digest),
+  'an array payload is hashed as stored: a string equal to a catalogue key stays in it');
+update public.dpgf_rows_mapped set payload = '["product_id", "Lavabo"]' where id = pg_temp.fx(254);
+select lives_ok($$ select public.record_dpgf_import_confirmation(pg_temp.fx(10), pg_temp.fx(5), pg_temp.fx(250),
+  pg_temp.fx(255), null, null, '[]', '[{"rowIndex":3,"reason":"footer"},{"rowIndex":3,"reason":"footer"}]',
+  array[pg_temp.fx(251), pg_temp.fx(252), pg_temp.fx(253), pg_temp.fx(254)],
+  public.dpgf_import_rows_sha256(pg_temp.fx(10), pg_temp.fx(250))) $$,
+  'two rows of a legacy import excluded at the same position: the confirmation is recorded');
+select is((select jsonb_array_length(exclusions) from public.read_dpgf_import_confirmation(pg_temp.fx(10),
+  pg_temp.fx(250))), 2, 'and keeps both exclusions');
+-- The preview reads the latest mapping and the digest of its rows in one read; a remap finishing after that read refuses
+-- the confirmation made with them, whichever rows it then names.
+select lives_ok($$ create temp table review_pair as
+  select * from public.dpgf_import_review_state(pg_temp.fx(10), pg_temp.fx(250)) $$, 'the preview''s one read');
+select results_eq($$ select mapping_id, column_mapping, rows_sha256 = public.dpgf_import_rows_sha256(pg_temp.fx(10),
+  pg_temp.fx(250)) from review_pair $$, $$ values (pg_temp.fx(255), '{"Designation":"designation","Qte":"quantity"}'::jsonb,
+  true) $$, 'it is the latest mapping, its columns and its rows'' digest');
+insert into public.dpgf_mappings (id, tenant_id, import_id, status, column_mapping)
+values (pg_temp.fx(256), pg_temp.fx(10), pg_temp.fx(250), 'validated', '{"Designation":"designation"}');
+delete from public.dpgf_rows_mapped where import_id = pg_temp.fx(250);
+insert into public.dpgf_rows_mapped (id, tenant_id, import_id, raw_row_id, payload, status)
+values (pg_temp.fx(257), pg_temp.fx(10), pg_temp.fx(250), null, '{"row_index":0,"designation":"Lavabo"}', 'mapped');
+select throws_ok(format($$ select public.record_dpgf_import_confirmation(%L, %L, %L, %L, null, null, '[]', '[]',
+  array[%L]::uuid[], %L) $$, pg_temp.fx(10), pg_temp.fx(5), pg_temp.fx(250), (select mapping_id from review_pair),
+  pg_temp.fx(257), (select rows_sha256 from review_pair)), '40001', 'DPGF_IMPORT_CONFIRMATION_STALE',
+  'a remap after the preview''s read refuses the confirmation made with it');
 
 -- 6. Two writers at once, and an admission against a writer (before this session activates the second order).
 create temp table race_connection as select format('host=%s port=%s dbname=%s user=postgres password=postgres',
@@ -926,6 +1012,9 @@ select is(private.assert_takeoff_launch_order(pg_temp.request(),
 select throws_ok($$ select private.assert_takeoff_launch_order(pg_temp.request(), pg_temp.order_manifest(5)) $$,
   '22023', 'TAKEOFF_LAUNCH_SEAL_INVALID', 'before its activation, the second order is refused as before the migration');
 insert into private.takeoff_item_list_order_activation (active_from) values (now() - interval '1 minute');
+set local role service_role;
+select is(public.takeoff_item_list_order_is_active(), true, 'once its activation has started, the server reads it active');
+reset role;
 select is(private.assert_takeoff_launch_order(pg_temp.request(), pg_temp.order_manifest(5)),
   (select id from public.takeoff_list_revisions where project_id = pg_temp.fx(20) and revision = 5),
   'once activated, the affaire''s revision is sealed');

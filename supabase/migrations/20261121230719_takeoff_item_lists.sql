@@ -1631,6 +1631,8 @@ create table public.dpgf_import_confirmations (
   exclusions jsonb not null check (jsonb_typeof(exclusions) = 'array' and jsonb_array_length(exclusions) <= 100000),
   row_count integer not null check (row_count >= 0),
   proof_sha256 text not null check (proof_sha256 ~ '^[0-9a-f]{64}$'),
+  -- The columns of its mapping when it was recorded: a mapping changed in place under its identifier leaves it unproven.
+  column_mapping jsonb not null,
   confirmed_by uuid not null,
   confirmed_at timestamptz not null default pg_catalog.clock_timestamp(),
   constraint dpgf_import_confirmations_import_fkey foreign key (import_id, tenant_id)
@@ -1683,8 +1685,11 @@ returns text language sql stable security invoker set search_path = '' as $$
       select pg_catalog.row_number() over (order by m.created_at, m.id) as position, m.id, m.status,
         -- The keys only the catalogue linker writes (src/lib/catalogue/server.ts, update_payload), after a confirmation:
         -- a link to the catalogue is not a change of the rows the confirmation consumed (the estimate's normaliser does
-        -- not read them from an import's rows).
-        m.payload - array['product_id', 'catalogue_item_id', 'product_match_type', 'catalogue_match_type'] as payload,
+        -- not read them from an import's rows). Only an object has keys: any other payload (a JSON null, a string, an
+        -- array, a number) is hashed as stored.
+        case when pg_catalog.jsonb_typeof(m.payload) = 'object'
+          then m.payload - array['product_id', 'catalogue_item_id', 'product_match_type', 'catalogue_match_type']
+          else m.payload end as payload,
         m.raw_row_id, r.row_index as raw_row_index, r.payload as raw_payload
       from public.dpgf_rows_mapped m
       left join public.dpgf_rows_raw r on r.id = m.raw_row_id
@@ -1703,6 +1708,20 @@ returns uuid language sql stable security definer set search_path = '' as $$
 $$;
 revoke all on function private.latest_dpgf_mapping_id(uuid, uuid) from public, anon, authenticated, service_role;
 
+-- What the structure preview reviews, read at once (one statement, one snapshot): the import's latest mapping, its
+-- columns (the preview's structure when the confirmation keeps that mapping) and the digest of the import's rows. The
+-- confirmation sends the mapping and the digest back; its record checks both. The server's role, after its own access
+-- check.
+create function public.dpgf_import_review_state(p_tenant_id uuid, p_import_id uuid)
+returns table (mapping_id uuid, column_mapping jsonb, rows_sha256 text)
+language sql stable security definer set search_path = '' as $$
+  select l.id, (select g.column_mapping from public.dpgf_mappings g where g.id = l.id),
+    public.dpgf_import_rows_sha256(p_tenant_id, p_import_id)
+  from (select private.latest_dpgf_mapping_id(p_tenant_id, p_import_id) as id) l
+$$;
+revoke all on function public.dpgf_import_review_state(uuid, uuid) from public, anon, authenticated;
+grant execute on function public.dpgf_import_review_state(uuid, uuid) to service_role;
+
 -- Record a confirmation of an import: its structure, bound to the latest mapping and to the exact mapped rows the
 -- server read and checked against it (p_mapped_row_ids). The import's row is locked first (the creation of an estimate
 -- from it locks it the same way); rows written meanwhile from another tab refuse the record, nothing is written.
@@ -1716,6 +1735,7 @@ declare
   v_rows_reviewed boolean;
   v_proof_sha256 text;
   v_proof_rows integer;
+  v_column_mapping jsonb;
   created uuid;
 begin
   if p_actor is null or p_mapped_row_ids is null or coalesce(p_rows_sha256, '') !~ '^[0-9a-f]{64}$'
@@ -1734,8 +1754,7 @@ begin
       where jsonb_typeof(e.value) <> 'object' or (e.value - array['rowIndex', 'reason']) <> '{}'::jsonb
         or jsonb_typeof(e.value -> 'rowIndex') <> 'number' or (e.value ->> 'rowIndex') !~ '^[0-9]{1,9}$'
         or (e.value ->> 'reason') is null or (e.value ->> 'reason') not in ('footer', 'user_ignored', 'parameters')
-    ) or (select count(distinct e.value ->> 'rowIndex') from jsonb_array_elements(p_exclusions) e(value))
-      <> jsonb_array_length(p_exclusions) then
+    ) then
     raise exception 'DPGF_IMPORT_CONFIRMATION_INVALID' using errcode = '22023';
   end if;
   perform 1 from public.dpgf_imports i where i.id = p_import_id and i.tenant_id = p_tenant_id for update;
@@ -1755,16 +1774,17 @@ begin
         where m.id = x.id and m.tenant_id = p_tenant_id and m.import_id = p_import_id))
       and d.rows_sha256 = p_rows_sha256,
     d.rows_sha256,
-    (select count(*)::integer from public.dpgf_rows_mapped m where m.tenant_id = p_tenant_id and m.import_id = p_import_id)
-  into v_rows_reviewed, v_proof_sha256, v_proof_rows
+    (select count(*)::integer from public.dpgf_rows_mapped m where m.tenant_id = p_tenant_id and m.import_id = p_import_id),
+    (select g.column_mapping from public.dpgf_mappings g where g.id = p_mapping_id)
+  into v_rows_reviewed, v_proof_sha256, v_proof_rows, v_column_mapping
   from (select public.dpgf_import_rows_sha256(p_tenant_id, p_import_id) as rows_sha256 offset 0) d;
   if not coalesce(v_rows_reviewed, false) then
     raise exception 'DPGF_IMPORT_CONFIRMATION_ROWS_CHANGED' using errcode = '40001';
   end if;
   insert into public.dpgf_import_confirmations (tenant_id, import_id, mapping_id, project_id, estimate_version_id, decisions,
-    exclusions, row_count, proof_sha256, confirmed_by)
+    exclusions, row_count, proof_sha256, column_mapping, confirmed_by)
   values (p_tenant_id, p_import_id, p_mapping_id, p_project_id, p_estimate_version_id, p_decisions, p_exclusions,
-    v_proof_rows, v_proof_sha256, p_actor)
+    v_proof_rows, v_proof_sha256, v_column_mapping, p_actor)
   returning id into created;
   return created;
 end;
@@ -1800,12 +1820,12 @@ revoke all on function public.persist_dpgf_import_estimate_atomic(uuid, uuid, uu
 grant execute on function public.persist_dpgf_import_estimate_atomic(uuid, uuid, uuid, jsonb, jsonb, jsonb, uuid, uuid, jsonb, jsonb, uuid[], text)
   to service_role;
 
--- The latest confirmation of an import and whether its structure is established: its mapping is still the latest and
--- the import's rows are still those it consumed, the digest of its proof (proof_current), and no estimate was created
--- from the import after it by a path that recorded nothing (superseded: a version of the affaire a creation made since,
--- by the clock of its insert, not created by a recorded confirmation, whose lines came from this import as that
--- creation recorded at its commit; a copy of an earlier version is not a creation, and a later edit of the estimate's
--- lines changes nothing).
+-- The latest confirmation of an import and whether its structure is established: its mapping is still the latest, with
+-- the columns it had, and the import's rows are still those it consumed, the digest of its proof (proof_current); and
+-- no estimate was created from the import after it by a path that recorded nothing (superseded: a version of the affaire
+-- a creation made since, by the clock of its insert, not created by a recorded confirmation, whose lines came from this
+-- import as that creation recorded at its commit; a copy of an earlier version is not a creation, and a later edit of the
+-- estimate's lines changes nothing).
 -- No row: the import was never confirmed by this version.
 create function public.read_dpgf_import_confirmation(p_tenant_id uuid, p_import_id uuid)
 returns table (confirmation_id uuid, mapping_id uuid, estimate_version_id uuid, decisions jsonb, exclusions jsonb,
@@ -1813,6 +1833,7 @@ returns table (confirmation_id uuid, mapping_id uuid, estimate_version_id uuid, 
 language sql stable security definer set search_path = '' as $$
   select c.id, c.mapping_id, c.estimate_version_id, c.decisions, c.exclusions, c.row_count, c.confirmed_at,
     c.mapping_id = private.latest_dpgf_mapping_id(c.tenant_id, c.import_id)
+      and c.column_mapping = (select g.column_mapping from public.dpgf_mappings g where g.id = c.mapping_id)
       and c.proof_sha256 = public.dpgf_import_rows_sha256(c.tenant_id, c.import_id),
     exists (
       select 1 from public.dpgf_imports i

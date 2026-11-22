@@ -303,28 +303,6 @@ export async function fetchMappedRowsForImport(input: {
   }
 }
 
-export async function fetchLatestMapping(input: {
-  supabase: Supabase;
-  importId: string;
-  tenantId: string;
-}): Promise<{ id: string; columnMapping: unknown } | null> {
-  const { data, error } = await input.supabase
-    .from("dpgf_mappings")
-    .select("id, column_mapping")
-    .eq("tenant_id", input.tenantId)
-    .eq("import_id", input.importId)
-    .order("created_at", { ascending: false })
-    .order("id", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  if (error) {
-    throw new Error("Impossible de charger le mapping.");
-  }
-
-  return data ? { id: data.id, columnMapping: data.column_mapping } : null;
-}
-
 /** What the member reads when the rows of the import are no longer those of the mapping they reviewed. */
 export const IMPORT_MAPPING_CHANGED_MESSAGE =
   "Le mappage a changé dans un autre onglet : rechargez-le et vérifiez-le avant de confirmer.";

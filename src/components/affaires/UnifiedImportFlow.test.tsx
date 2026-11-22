@@ -152,6 +152,7 @@ describe("UnifiedImportFlow", () => {
     currentLastImportId = "11111111-1111-4111-8111-111111111111";
     structurePreviewResponse = {
       rows_digest: "d".repeat(64),
+      rows_mapping_id: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
       candidates: [],
       footer_row_indexes: [],
       summary: {
@@ -345,7 +346,8 @@ describe("UnifiedImportFlow", () => {
     await user.click(await screen.findByRole("button", { name: /Créer le chiffrage/i }));
 
     expect(await screen.findByText(message)).toBeInTheDocument();
-    expect(confirmUnifiedImportFlowMock).toHaveBeenCalledWith(expect.objectContaining({ rowsDigest: "d".repeat(64) }));
+    expect(confirmUnifiedImportFlowMock).toHaveBeenCalledWith(expect.objectContaining({ rowsDigest: "d".repeat(64),
+      reviewedMappingId: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee" }));
     expect(screen.queryByText("Devis créé")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Créer le chiffrage/i })).toBeEnabled();
   });

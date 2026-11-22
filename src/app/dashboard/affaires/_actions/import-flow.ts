@@ -24,7 +24,6 @@ import {
   IMPORT_MAPPING_CHANGED_MESSAGE,
   assertProjectAccessOrThrow,
   ensureImportProjectLink,
-  fetchLatestMapping,
   fetchMappedRowsForImport,
   fetchProjectOwnerLaborRoles,
   fetchVersionComputationContext,
@@ -38,7 +37,7 @@ import {
 } from "@/lib/affaires/import-engine-server";
 import { persistCanonicalEstimateV2 } from "@/lib/estimates/canonical-v2-creation";
 import { IMPORT_CONTROL_TOLERANCE_CENTS } from "@/lib/imports/optima-profile";
-import { readDpgfImportRowsDigest } from "@/lib/imports/rows-digest-server";
+import { readDpgfImportReviewState } from "@/lib/imports/rows-digest-server";
 import {
   createMapping,
   findPerUnitDurationsMappedToLineHours,
@@ -102,9 +101,11 @@ const confirmUnifiedImportFlowSchema = z.object({
   versionTitle: z.string().trim().max(200).nullable().optional(),
   sectionTitle: z.string().trim().max(200).nullable().optional(),
   structurePlan: z.object({ decisions: z.array(structureDecisionSchema).max(10_000) }).optional(),
-  // The database's digest of the import's rows when the member reviewed them (the structure preview's rows_digest): a
-  // confirmation that keeps the import's latest mapping records only those rows (lot 4).
+  // The database's digest of the import's rows when the member reviewed them, and the latest mapping it read with it
+  // (the structure preview's rows_digest and rows_mapping_id): a confirmation that keeps the import's latest mapping
+  // records only those rows, under that mapping (lot 4).
   rowsDigest: z.string().regex(/^[0-9a-f]{64}$/, "rowsDigest invalide."),
+  reviewedMappingId: z.string().uuid("reviewedMappingId invalide.").nullable().optional(),
   // Labour role of the imported hours chosen at the preview (E17). Omitted: the workbook rate
   // decides; null: the explicit « no role » choice (MO valued at 0 €/h, warned in the preview).
   laborRoleId: z.string().uuid("laborRoleId invalide.").nullable().optional(),
@@ -395,36 +396,36 @@ export async function confirmUnifiedImportFlow(
   }
 
   const normalizedMapping = mappingRecordSchema.parse(parsed.data.mapping ?? {});
-  let mapping: { id: string; columnMapping: unknown } | null = null;
   // The rows this confirmation wrote, when it writes its mapping (the member's, applied to the import's raw rows).
   let writtenRowIds: ReadonlySet<string> | null = null;
-
+  let mappingId: string | null;
+  // The digest the confirmation's record checks with the mapping, the database's own, read with it and recomputed under
+  // the import's lock with the rows it records. When the confirmation writes the member's mapping: the rows it has just
+  // written, read before they are read below, the rows the member previewed following from the raw rows and that
+  // mapping. When it keeps the latest mapping: the mapping and the rows the member reviewed, read together by the
+  // preview. Anything else is refused before anything is created.
+  let rowsDigest: string;
   if (Object.keys(normalizedMapping).length > 0) {
     const createMappingResult = await createMapping({
       import_id: parsed.data.importId,
       mapping: normalizedMapping,
       save_template: false,
     });
-    mapping = { id: createMappingResult.mapping.id, columnMapping: createMappingResult.mapping.column_mapping };
+    mappingId = createMappingResult.mapping.id;
     writtenRowIds = new Set(createMappingResult.mapped_row_ids);
+    const written = await readDpgfImportReviewState({ tenantId: membership.tenant_id, importId: parsed.data.importId });
+    if (written.mappingId !== mappingId) return refusal(parsed.data.importId, "mapping_changed");
+    rowsDigest = written.rowsDigest;
+  } else {
+    const current = await readDpgfImportReviewState({ tenantId: membership.tenant_id, importId: parsed.data.importId });
+    if (current.mappingId !== (parsed.data.reviewedMappingId ?? null) || current.rowsDigest !== parsed.data.rowsDigest) {
+      return refusal(parsed.data.importId, "mapping_changed");
+    }
+    mappingId = current.mappingId;
+    rowsDigest = parsed.data.rowsDigest;
   }
-
-  if (!mapping) {
-    mapping = await fetchLatestMapping({
-      supabase,
-      importId: parsed.data.importId,
-      tenantId: membership.tenant_id,
-    });
-  }
-  const mappingId = mapping?.id ?? null;
 
   const effectiveProjectId = requestedProjectId ?? importRow.project_id ?? null;
-  // The digest the confirmation's record checks, the database's own, recomputed under the import's lock with the rows
-  // it records: the rows the member reviewed when the confirmation keeps the latest mapping; else the rows it has just
-  // written, read before they are read below (a value changed since refuses the record).
-  const rowsDigest = writtenRowIds
-    ? await readDpgfImportRowsDigest({ tenantId: membership.tenant_id, importId: parsed.data.importId })
-    : parsed.data.rowsDigest;
   const mappedRows = await fetchMappedRowsForImport({
     supabase,
     importId: parsed.data.importId,

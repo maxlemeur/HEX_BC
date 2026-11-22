@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("next/cache", () => ({
@@ -36,6 +38,13 @@ const VERSION_ID = "66666666-6666-4666-8666-666666666666";
 // the database gives of the rows a confirmation has just written. The server never computes one.
 const PREVIEW_DIGEST = "a".repeat(64);
 const WRITTEN_DIGEST = "b".repeat(64);
+const LATEST_MAPPING_ID = "99999999-9999-4999-8999-999999999999";
+// The answer of public.dpgf_import_review_state: the latest mapping and the digest of the import's rows, read together.
+const reviewState = (mappingId: string | null, digest: string) =>
+  ({ data: [{ mapping_id: mappingId, column_mapping: {}, rows_sha256: digest }], error: null });
+// A stand-in for the database's digest of the stored rows (any value that changes with them): the server never
+// computes one, the tests only need the database's answer to follow its rows.
+const storedRowsDigest = (rows: unknown[]) => createHash("sha256").update(JSON.stringify(rows)).digest("hex");
 
 function createMembershipBuilder(role: "engineer" | "admin" = "engineer") {
   const builder = {
@@ -283,6 +292,8 @@ const ORIGINAL_ROWS = [
 describe("confirmUnifiedImportFlow", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    serviceRpc.mockImplementation(async (name: string) => name === "dpgf_import_review_state"
+      ? reviewState(LATEST_MAPPING_ID, PREVIEW_DIGEST) : { data: null, error: null });
     vi.mocked(createMapping).mockResolvedValue({
       mapping: {
         id: "mapping-created",
@@ -323,6 +334,7 @@ describe("confirmUnifiedImportFlow", () => {
         createEstimate: true,
         previewSourceVersionId,
         rowsDigest: PREVIEW_DIGEST,
+        reviewedMappingId: LATEST_MAPPING_ID,
       })
     ).rejects.toThrow(
       "La version source du carry-over takeoff a change. Rechargez la confirmation avant de créer le chiffrage."
@@ -375,6 +387,7 @@ describe("confirmUnifiedImportFlow", () => {
       createEstimate: true,
       previewSourceVersionId: sourceVersionId,
       rowsDigest: PREVIEW_DIGEST,
+      reviewedMappingId: LATEST_MAPPING_ID,
     });
 
     if (result.mode === "refused") throw new Error(`unexpected refusal: ${result.message}`);
@@ -431,7 +444,7 @@ describe("confirmUnifiedImportFlow — the rows and decisions a confirmation rec
   const WRITTEN_IDS = ["mapped-0", "mapped-1", "mapped-2", "mapped-3"];
   const mappingCreated = { mapping: { id: "mapping-created", column_mapping: COLUMNS }, mapped_row_ids: WRITTEN_IDS };
   const recordCalls = () => serviceRpc.mock.calls.filter(([name]) => name === "record_dpgf_import_confirmation");
-  const digestCalls = () => serviceRpc.mock.calls.filter(([name]) => name === "dpgf_import_rows_sha256");
+  const reviewCalls = () => serviceRpc.mock.calls.filter(([name]) => name === "dpgf_import_review_state");
 
   function stub(rows: ReturnType<typeof storedRow>[], options: { rowCount?: number; latest?: boolean } = {}) {
     const mappedRowsBuilder = createMappedRowsBuilder(rows);
@@ -450,6 +463,27 @@ describe("confirmUnifiedImportFlow — the rows and decisions a confirmation rec
     importId: IMPORT_ID, projectId: PROJECT_ID, mapping: { ...COLUMNS }, createEstimate,
     structurePlan: { decisions: [] }, rowsDigest: PREVIEW_DIGEST,
   });
+  // A confirmation that keeps the import's latest mapping, with what the preview read: that mapping and the digest.
+  const keepLatest = (rowsDigest = PREVIEW_DIGEST, reviewedMappingId: string | null = LATEST_MAPPING_ID) =>
+    confirmUnifiedImportFlow({ importId: IMPORT_ID, projectId: PROJECT_ID, createEstimate: true,
+      structurePlan: { decisions: [] }, rowsDigest, reviewedMappingId });
+  // The import's stored rows, read when the action reads them; the database's answer follows them.
+  function liveStub(store: ReturnType<typeof storedRow>[]) {
+    const builder = { select: vi.fn(), eq: vi.fn(), order: vi.fn(), range: vi.fn() };
+    builder.select.mockReturnValue(builder);
+    builder.eq.mockReturnValue(builder);
+    builder.order.mockReturnValue(builder);
+    builder.range.mockImplementation(async (from: number, to: number) =>
+      ({ data: store.slice(from, to + 1), error: null, count: store.length }));
+    const supabase = createSupabaseStub({
+      membershipBuilder: createMembershipBuilder(),
+      importBuilder: createImportSelectBuilder(PROJECT_ID, store.length),
+      projectBuilder: createProjectSelectBuilder(true),
+      mappedRowsBuilder: builder as never,
+      versionContextBuilder: createVersionContextBuilder(null, 1, 2000),
+    });
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+  }
   const MAPPING_CHANGED = {
     mode: "refused", reason: "mapping_changed", importId: IMPORT_ID,
     message: "Le mappage a changé dans un autre onglet : rechargez-le et vérifiez-le avant de confirmer.",
@@ -462,8 +496,8 @@ describe("confirmUnifiedImportFlow — the rows and decisions a confirmation rec
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(createMapping).mockResolvedValue(mappingCreated as never);
-    serviceRpc.mockImplementation(async (name: string) => name === "dpgf_import_rows_sha256"
-      ? { data: WRITTEN_DIGEST, error: null } : { data: "confirmation-1", error: null });
+    serviceRpc.mockImplementation(async (name: string) => name === "dpgf_import_review_state"
+      ? reviewState("mapping-created", WRITTEN_DIGEST) : { data: "confirmation-1", error: null });
     vi.mocked(persistCanonicalEstimateV2).mockResolvedValue({
       project: { id: PROJECT_ID },
       version: { id: VERSION_ID, total_ht_cents: 12000, total_tax_cents: 2400, total_ttc_cents: 14400 },
@@ -488,12 +522,20 @@ describe("confirmUnifiedImportFlow — the rows and decisions a confirmation rec
     expect(recordCalls()).toEqual([]);
   });
 
+  it("refuses when another tab's mapping is already the latest right after its own write", async () => {
+    stub(FOOTER_SHEET.map((raw, index) => storedRow(index, raw)));
+    serviceRpc.mockImplementation(async (name: string) => name === "dpgf_import_review_state"
+      ? reviewState("tab-b-mapping", WRITTEN_DIGEST) : { data: "confirmation-1", error: null });
+    await expect(confirm(true)).resolves.toEqual(MAPPING_CHANGED);
+    expect(persistCanonicalEstimateV2).not.toHaveBeenCalled();
+  });
+
   it("binds its record to the database's digest of the rows it wrote, read before it reads them", async () => {
     const { mappedRowsBuilder } = stub(FOOTER_SHEET.map((raw, index) => storedRow(index, raw)));
     await confirm(true);
-    expect(digestCalls()).toEqual([["dpgf_import_rows_sha256", { p_tenant_id: TENANT_ID, p_import_id: IMPORT_ID }]]);
+    expect(reviewCalls()).toEqual([["dpgf_import_review_state", { p_tenant_id: TENANT_ID, p_import_id: IMPORT_ID }]]);
     const digestRead = serviceRpc.mock.invocationCallOrder[serviceRpc.mock.calls.findIndex(([name]) =>
-      name === "dpgf_import_rows_sha256")];
+      name === "dpgf_import_review_state")];
     expect(digestRead).toBeLessThan(Math.min(...mappedRowsBuilder.range.mock.invocationCallOrder));
     expect(vi.mocked(createMapping).mock.invocationCallOrder[0]).toBeLessThan(digestRead);
     expect(vi.mocked(persistCanonicalEstimateV2).mock.calls[0]?.[0].importConfirmation?.rowsDigest).toBe(WRITTEN_DIGEST);
@@ -521,22 +563,21 @@ describe("confirmUnifiedImportFlow — the rows and decisions a confirmation rec
     });
   });
 
-  it("keeps the latest mapping: records the rows the member reviewed, by the preview's digest", async () => {
+  it("keeps the latest mapping: records the rows the member reviewed, by the preview's mapping and digest", async () => {
     // An older mapping writer stored the mapped fields at the payload's top level, without its raw row.
     const flat = FOOTER_SHEET.map((raw, index) => ({
       id: `mapped-${index}`, raw_row_id: `raw-${index}`,
       payload: { row_index: index, designation: raw.Designation, quantity: raw.Qte, unit: raw.U, unit_price_ht: raw.PU },
     }));
-    stub(flat as never, { latest: true });
-    const result = await confirmUnifiedImportFlow({
-      importId: IMPORT_ID, projectId: PROJECT_ID, createEstimate: true, structurePlan: { decisions: [] },
-      rowsDigest: PREVIEW_DIGEST,
-    });
+    stub(flat as never);
+    serviceRpc.mockImplementation(async (name: string) => name === "dpgf_import_review_state"
+      ? reviewState(LATEST_MAPPING_ID, PREVIEW_DIGEST) : { data: "confirmation-1", error: null });
+    const result = await keepLatest();
     expect(result.mode).toBe("version_created");
     expect(createMapping).not.toHaveBeenCalled();
-    expect(digestCalls()).toEqual([]);
+    expect(reviewCalls()).toHaveLength(1);
     expect(vi.mocked(persistCanonicalEstimateV2).mock.calls[0]?.[0].importConfirmation).toMatchObject({
-      mappingId: "mapping-latest", mappedRowIds: ["mapped-0", "mapped-1", "mapped-2", "mapped-3"],
+      mappingId: LATEST_MAPPING_ID, mappedRowIds: ["mapped-0", "mapped-1", "mapped-2", "mapped-3"],
       exclusions: [
         { rowIndex: 1, reason: "footer" }, { rowIndex: 2, reason: "footer" }, { rowIndex: 3, reason: "footer" },
       ],
@@ -546,7 +587,7 @@ describe("confirmUnifiedImportFlow — the rows and decisions a confirmation rec
 
   it("does not report a mapping-only confirmation whose decisions were refused after the mapping committed", async () => {
     stub(FOOTER_SHEET.map((raw, index) => storedRow(index, raw)));
-    serviceRpc.mockImplementationOnce(async () => ({ data: WRITTEN_DIGEST, error: null }))
+    serviceRpc.mockImplementationOnce(async () => reviewState("mapping-created", WRITTEN_DIGEST))
       .mockImplementationOnce(async () => ({ data: null, error: { code: "57014", message: "canceling statement" } }));
     await expect(confirm(false)).resolves.toEqual(NOT_RECORDED);
     expect(createMapping).toHaveBeenCalledTimes(1);
@@ -569,8 +610,71 @@ describe("confirmUnifiedImportFlow — the rows and decisions a confirmation rec
 
   it("does not report a mapping-only confirmation when the service client throws after the mapping committed", async () => {
     stub(FOOTER_SHEET.map((raw, index) => storedRow(index, raw)));
-    serviceRpc.mockImplementationOnce(async () => ({ data: WRITTEN_DIGEST, error: null }))
+    serviceRpc.mockImplementationOnce(async () => reviewState("mapping-created", WRITTEN_DIGEST))
       .mockRejectedValueOnce(new TypeError("fetch failed"));
     await expect(confirm(false)).resolves.toEqual(NOT_RECORDED);
+  });
+
+  it("keeps the latest mapping: a remap after the preview refuses before anything is created", async () => {
+    stub(FOOTER_SHEET.map((raw, index) => storedRow(index, raw)));
+    // The preview read mapping A and its rows; a remap finished since: the latest mapping is B, its rows others.
+    serviceRpc.mockImplementation(async (name: string) => name === "dpgf_import_review_state"
+      ? reviewState("88888888-8888-4888-8888-888888888888", WRITTEN_DIGEST) : { data: "confirmation-1", error: null });
+    await expect(keepLatest()).resolves.toEqual(MAPPING_CHANGED);
+    expect(persistCanonicalEstimateV2).not.toHaveBeenCalled();
+    expect(recordCalls()).toEqual([]);
+  });
+
+  it("keeps the latest mapping: a quantity changed after the preview refuses the confirmation", async () => {
+    const store = FOOTER_SHEET.map((raw, index) => storedRow(index, raw));
+    liveStub(store);
+    serviceRpc.mockImplementation(async (name: string) => name === "dpgf_import_review_state"
+      ? reviewState(LATEST_MAPPING_ID, storedRowsDigest(store)) : { data: "confirmation-1", error: null });
+    const previewed = storedRowsDigest(store);
+    // Another tab changes the first row's mapped quantity under its identifier after the member's preview.
+    store[0] = { ...store[0], payload: { ...store[0].payload, mapped_row: { ...store[0].payload.mapped_row, quantity: 13 } } };
+    await expect(keepLatest(previewed)).resolves.toEqual(MAPPING_CHANGED);
+    expect(persistCanonicalEstimateV2).not.toHaveBeenCalled();
+  });
+
+  it("writes the member's mapping: a quantity edited after the preview gives way to the rows it writes", async () => {
+    const SHEET = [{ Designation: "Tube acier", Qte: 12, U: "ml", PU: 10 }, { Designation: "Coude", Qte: 4, U: "u", PU: 3 }];
+    const store = SHEET.map((raw, index) => storedRow(index, raw));
+    // Edited by identifier after the member's preview: the elbow's mapped quantity, 9 instead of the raw 4.
+    store[1] = { ...store[1], payload: { ...store[1].payload, mapped_row: { ...store[1].payload.mapped_row, quantity: 9 } } };
+    liveStub(store);
+    vi.mocked(createMapping).mockImplementation(async () => {
+      // The writer replaces every row of the import with the mapping applied to the raw rows.
+      store.splice(0, store.length, ...SHEET.map((raw, index) => ({ ...storedRow(index, raw), id: `written-${index}` })));
+      return { mapping: { id: "mapping-created", column_mapping: COLUMNS }, mapped_row_ids: ["written-0", "written-1"] } as never;
+    });
+    serviceRpc.mockImplementation(async (name: string) => name === "dpgf_import_review_state"
+      ? reviewState("mapping-created", storedRowsDigest(store)) : { data: "confirmation-1", error: null });
+    const result = await confirm(true);
+    expect(result.mode).toBe("version_created");
+    const created = vi.mocked(persistCanonicalEstimateV2).mock.calls[0]?.[0];
+    const items = (created?.source as { items: Array<{ title?: string; quantity?: unknown }> }).items;
+    expect(items.find((item) => item.title === "Coude")?.quantity).toBe(4);
+    expect(created?.importConfirmation).toMatchObject({
+      mappedRowIds: ["written-0", "written-1"], rowsDigest: storedRowsDigest(store),
+    });
+  });
+
+  it("confirms a legacy import whose two excluded rows share a position, keeping both exclusions", async () => {
+    // An older writer's flat rows: two totals at the same row index.
+    const legacy = [
+      { id: "mapped-0", raw_row_id: null, payload: { row_index: 0, designation: "Tube acier", quantity: 12, unit: "ml",
+        unit_price_ht: 10 } },
+      { id: "mapped-1", raw_row_id: null, payload: { row_index: 3, designation: "Total HT", unit_price_ht: 120 } },
+      { id: "mapped-2", raw_row_id: null, payload: { row_index: 3, designation: "Total HT", unit_price_ht: 120 } },
+    ];
+    stub(legacy as never);
+    serviceRpc.mockImplementation(async (name: string) => name === "dpgf_import_review_state"
+      ? reviewState(LATEST_MAPPING_ID, PREVIEW_DIGEST) : { data: "confirmation-1", error: null });
+    const result = await keepLatest();
+    expect(result.mode).toBe("version_created");
+    expect(vi.mocked(persistCanonicalEstimateV2).mock.calls[0]?.[0].importConfirmation?.exclusions).toEqual([
+      { rowIndex: 3, reason: "footer" }, { rowIndex: 3, reason: "footer" },
+    ]);
   });
 });

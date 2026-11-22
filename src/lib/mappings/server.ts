@@ -17,7 +17,7 @@ import {
   readImportRowStructure,
 } from "@/lib/imports/payload";
 import { detectImportProfile } from "@/lib/imports/optima-profile";
-import { readDpgfImportRowsDigest } from "@/lib/imports/rows-digest-server";
+import { readDpgfImportReviewState } from "@/lib/imports/rows-digest-server";
 import { analyzeImportStructure } from "@/lib/imports/structure";
 import {
   isMajorationHeaderWords,
@@ -27,6 +27,7 @@ import {
 import {
   REQUIRED_MAPPING_TARGET_FIELDS,
   filterMappingToSourceColumns,
+  mappingRecordSchema,
   mappingTargetFieldSchema,
   type MappingTargetField,
   type SourceToTargetMapping,
@@ -616,6 +617,11 @@ function extractSampleValues(
   }
 
   return result;
+}
+
+function sameMapping(left: SourceToTargetMapping, right: SourceToTargetMapping) {
+  const entries = Object.entries(left);
+  return entries.length === Object.keys(right).length && entries.every(([source, target]) => right[source] === target);
 }
 
 function applyMappingToPayload(payload: JsonRecord, mapping: SourceToTargetMapping): JsonRecord {
@@ -1489,9 +1495,17 @@ export async function previewImportStructure(input: {
     isTenantAdmin,
   });
 
+  // The import's latest mapping and the digest of its rows, read together, after the access check above.
+  const review = await readDpgfImportReviewState({ tenantId, importId: input.import_id });
   const rows = await loadAllImportRows(supabase, input.import_id, tenantId);
   const sourceColumns = toSourceColumns(rows);
-  const scopedMapping = filterMappingToSourceColumns(input.mapping, sourceColumns);
+  const storedColumns = mappingRecordSchema.safeParse(review.columnMapping);
+  const storedMapping = review.mappingId && storedColumns.success
+    ? filterMappingToSourceColumns(storedColumns.data, sourceColumns) : null;
+  // The mapping the member chose, which the confirmation writes; without one, the import's latest mapping, which the
+  // confirmation keeps.
+  const requestedMapping = filterMappingToSourceColumns(input.mapping, sourceColumns);
+  const scopedMapping = Object.keys(requestedMapping).length > 0 ? requestedMapping : storedMapping ?? {};
   const { data: importRecord, error: importError } = await supabase.from("dpgf_imports").select("sheet_first_row")
     .eq("id", input.import_id).eq("tenant_id", tenantId).maybeSingle();
   if (importError) throw mapSupabaseError(importError, "Impossible de charger l'import.");
@@ -1510,9 +1524,11 @@ export async function previewImportStructure(input: {
     ),
     // The worksheet row where the table starts, for the review to name a row as the item list does.
     sheet_first_row: importRecord?.sheet_first_row ?? null,
-    // The database's digest of the import's stored rows, after the access check above: a confirmation that keeps the
-    // import's latest mapping records only these rows (one that writes its mapping binds the rows it writes).
-    rows_digest: await readDpgfImportRowsDigest({ tenantId, importId: input.import_id }),
+    // The digest of the import's stored rows and the latest mapping, read together: a confirmation that keeps that
+    // mapping records only these rows, under it. The mapping is named only when this structure was built from its
+    // columns (one that writes the member's mapping binds the rows it writes).
+    rows_digest: review.rowsDigest,
+    rows_mapping_id: storedMapping && sameMapping(scopedMapping, storedMapping) ? review.mappingId : null,
   };
 }
 
