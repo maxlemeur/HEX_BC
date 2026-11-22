@@ -408,13 +408,16 @@ function ItemDetailView({ projectId, address, reader, tableQuery, onBack, onGest
   const marksTargets = marksAnswer ? shownLines.flatMap((entry) => entry.itemId === itemId ? [] : entry.readings
     .filter((other) => other.planKey === reading?.planKey && other.answer?.jobId === marksAnswer.jobId)
     .map((other) => ({ answerId: other.answer!.answerId, itemId: entry.itemId, label: entry.label }))) : [];
-  // The item of each answer whose marks were shown here: a save names its answer, maybe once another item is shown, and
-  // that answer's item is read again (a reattribution changes its target's item too, which the member reads on opening it).
+  // The item of each answer the detail knows (the answer shown, the targets of a reattribution, every reading of the queue
+  // loaded): a save names every answer its command changed, maybe once another item is shown, and each one's item is read
+  // again — the saved answer's, and a reattribution's or a move's other items, whose acceptance it reopens too.
   const answerItems = useRef<Record<string, string>>({});
+  for (const entry of shownLines) for (const other of entry.readings) if (other.answer) answerItems.current[other.answer.answerId] = entry.itemId;
+  for (const target of marksTargets) answerItems.current[target.answerId] = target.itemId;
   if (marksAnswer) answerItems.current[marksAnswer.answerId] = itemId;
-  const marksSaved = useCallback((answerId: string) => {
-    const target = answerItems.current[answerId];
-    if (target) rereadItem(target);
+  const marksSaved = useCallback((answerIds: readonly string[]) => {
+    const items = new Set(answerIds.flatMap((answerId) => answerItems.current[answerId] ?? []));
+    for (const target of items) rereadItem(target);
   }, [rereadItem]);
 
   return (

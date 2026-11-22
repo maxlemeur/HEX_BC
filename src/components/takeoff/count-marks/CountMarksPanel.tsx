@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type RefObject } from "react";
 
 import { useCountMarks, type CountMarksContextValue, type CountMarksTarget } from "@/components/takeoff/count-marks/CountMarksScope";
 import { CountMarksHistory } from "@/components/takeoff/count-marks/CountMarksHistory";
@@ -424,13 +424,12 @@ function RemovedList({ marks }: { marks: CountMarksContextValue }) {
   );
 }
 
-function DraftBar({ marks, numbers, focused }: { marks: CountMarksContextValue; numbers: Record<string, number>;
-  focused: { current: boolean } }) {
+function DraftBar({ marks, numbers, bar, onSave }: { marks: CountMarksContextValue; numbers: Record<string, number>;
+  bar: RefObject<HTMLDivElement | null>; onSave: () => void }) {
   const entries = marks.draft?.entries ?? [];
   if (!entries.length) return null;
   return (
-    <div className="flex flex-col gap-1 border-t border-border bg-surface px-3 py-2 text-xs" data-testid="reperes-session"
-      onFocus={() => { focused.current = true; }} onBlur={() => { focused.current = false; }}>
+    <div ref={bar} className="flex flex-col gap-1 border-t border-border bg-surface px-3 py-2 text-xs" data-testid="reperes-session">
       <p className="font-medium text-foreground">{plural(entries.length, "modification non enregistrée", "modifications non enregistrées")}</p>
       <ul className="flex flex-col gap-1">
         {entries.map((entry) => (
@@ -448,7 +447,7 @@ function DraftBar({ marks, numbers, focused }: { marks: CountMarksContextValue; 
         ))}
       </ul>
       <div className="flex gap-2">
-        <Button size="xs" disabled={!marks.canEdit || marks.saving} onClick={() => void marks.save()}>
+        <Button size="xs" disabled={!marks.canEdit || marks.saving} onClick={onSave}>
           {marks.saving ? <Spinner aria-label="Enregistrement" className="mr-1 size-3" /> : null}Enregistrer ({entries.length})
         </Button>
         <Button size="xs" variant="outline" disabled={marks.saving} onClick={marks.discard}>Abandonner</Button>
@@ -464,17 +463,22 @@ export function CountMarksPanel() {
   const refusal = useRef<HTMLParagraphElement>(null);
   const panel = useRef<HTMLElement>(null);
   const heading = useRef<HTMLHeadingElement>(null);
-  // « Enregistrer » goes once its gestures are saved (the session bar with it): a keyboard that was in the bar goes where
-  // the member continues, the list's current row (the grid holds it), else the panel's heading, never to the document.
-  const barFocused = useRef(false);
-  const hasBar = Boolean(marks?.draft?.entries.length);
-  useLayoutEffect(() => {
-    if (hasBar || !barFocused.current) return;
-    barFocused.current = false;
-    if (document.activeElement && document.activeElement !== document.body) return;
-    const grid = panel.current?.querySelector<HTMLElement>("[data-testid='reperes-liste']");
-    (grid ?? heading.current)?.focus({ preventScroll: true });
-  }, [hasBar]);
+  // « Enregistrer » is disabled while its save runs (a browser takes the focus off it then) and goes with the session bar
+  // once its gestures are saved. When the save ends — whichever came first, the focus dropped or the bar unmounted — a
+  // keyboard left on the bar or on the document goes where the member continues: the list's current row (the grid holds
+  // it), else the panel's heading. A focus the member moved elsewhere meanwhile stays where it is.
+  const bar = useRef<HTMLDivElement>(null);
+  const save = marks?.save;
+  const saveFromBar = useCallback(() => {
+    if (!save) return;
+    void save().then(() => {
+      const focused = document.activeElement;
+      const lost = !focused || focused === document.body || !focused.isConnected || Boolean(bar.current?.contains(focused));
+      if (!lost) return;
+      const grid = panel.current?.querySelector<HTMLElement>("[data-testid='reperes-liste']");
+      (grid ?? heading.current)?.focus({ preventScroll: true });
+    });
+  }, [save]);
   const status = marks?.status;
   useEffect(() => {
     if (status === "refused") refusal.current?.focus();
@@ -548,7 +552,7 @@ export function CountMarksPanel() {
               </>
             ) : <CountMarksHistory markNumbers={numbers} />}
           </div>
-          <DraftBar marks={marks} numbers={numbers} focused={barFocused} />
+          <DraftBar marks={marks} numbers={numbers} bar={bar} onSave={saveFromBar} />
           <p className="shrink-0 border-t border-border px-3 py-1.5 text-[11px] text-muted-foreground" data-testid="reperes-touches">
             {marks.canEdit ? `${COUNT_MARKS_LIST_KEYS_HELP} · ${COUNT_MARKS_PLAN_KEYS_HELP}` : "↑ ↓ repère · Début Fin"}
           </p>

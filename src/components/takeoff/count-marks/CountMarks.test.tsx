@@ -439,6 +439,31 @@ describe("closing review of #485", () => {
     expect(document.activeElement).toBe(list());
   });
 
+  // CI of b7e8df9d: the button disabled while its save runs loses the focus (a browser's focus fixup, a blur in jsdom)
+  // before the session bar unmounts; the keyboard came back only when the unmount came first.
+  it.each([
+    { order: "the focus dropped by the disabled button before the bar unmounts", drop: true },
+    { order: "the bar unmounting with the focus still on its button", drop: false },
+  ])("gives the keyboard back to the list after a save, $order", async ({ drop }) => {
+    const served = double(view([mark(1)]));
+    let release = () => {};
+    served.edit = () => new Promise((resolve) => {
+      release = () => resolve({ replayed: false, commandId: id(900), revisions: { [ANSWER]: 4 }, added: [], summaries: {} });
+    });
+    mount(served.reader);
+    const grid = await screen.findByTestId("reperes-liste");
+    key(grid, "Home");
+    key(grid, "r");
+    const button = screen.getByRole("button", { name: "Enregistrer (1)" });
+    button.focus();
+    fireEvent.click(button);
+    expect(button).toBeDisabled();
+    if (drop) act(() => button.blur());
+    await act(async () => release());
+    expect(screen.queryByRole("button", { name: /Enregistrer/ })).toBeNull();
+    expect(document.activeElement).toBe(list());
+  });
+
   it("declares a page verified only once its sheet is drawn", async () => {
     const served = double(view([mark(1, { state: "retained" })]));
     mount(served.reader, { frame: frame({ painted: false }) });

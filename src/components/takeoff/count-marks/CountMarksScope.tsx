@@ -274,10 +274,11 @@ export function CountMarksScope({ projectId, answer, page, itemLabels, targets, 
   /** The readers to use; by default the affaire's routes. */
   reader?: CountMarksReader;
   /**
-   * Called once a save changed an answer's marks, with that answer (maybe no longer the one shown): what reads them (its
-   * item's decision, its quantities) reads again.
+   * Called once a save changed answers' marks, with every answer its command named (the one saved, maybe no longer the
+   * one shown, and the others a move or a reattribution changed): what reads them (their items' decisions, their
+   * quantities) reads again.
    */
-  onSaved?: (answerId: string) => void;
+  onSaved?: (answerIds: string[]) => void;
   children: ReactNode;
 }) {
   const reader = useMemo(() => given ?? createCountMarksReader(projectId), [given, projectId]);
@@ -896,14 +897,16 @@ export function CountMarksScope({ projectId, answer, page, itemLabels, targets, 
     setSaving(true);
     setAskWords(false);
     setRefusedQuestion(null);
+    const command = draftCommand(draft);
     try {
-      const result = await reader.edit(draftCommand(draft));
+      const result = await reader.edit(command);
       const answerSummary = result.summaries[savedAnswer];
       // Only what was sent is cleared, on the revision the command gave: a gesture made meanwhile stays to be saved.
       settle((value) => ({ ...value, revision: result.revisions[savedAnswer] ?? value.revision, intentKey: newKey(),
         entries: value.entries.filter(({ id }) => !sent.has(id)) }));
-      // What reads the saved answer's marks reads again, for its item, while this is the screen that saved.
-      if (done.ownScreen()) onSaved?.(savedAnswer);
+      // What reads the marks of every answer the command named reads again, for their items, while this is the screen
+      // that saved: a reattribution reopens its target's acceptance too.
+      if (done.ownScreen()) onSaved?.(Object.keys(command.revisions));
       if (!done.current()) return;
       setNotice(`${draft.entries.length > 1 ? `${draft.entries.length} modifications enregistrées` : "Modification enregistrée"}.`);
       setAnnouncement(answerSummary ? `Enregistré : ${answerSummary.retained} repère${answerSummary.retained > 1 ? "s" : ""} retenu${answerSummary.retained > 1 ? "s" : ""}.`
