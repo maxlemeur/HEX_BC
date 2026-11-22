@@ -187,7 +187,9 @@ export type ItemListProposalView = {
   added: ItemListViewPoste[];
   removed: ItemListViewPoste[];
   changes: Array<{ previous: ItemListViewPoste; current: ItemListViewPoste; moved: boolean; measurementChanged: boolean;
-    referenceChanged: boolean; targetChanged: boolean }>;
+    referenceChanged: boolean; targetChanged: boolean;
+    /** The notes of the DPGF row changed: their digests differ (neither digest nor text is sent to readers). */
+    notesChanged: boolean }>;
   continuities: Array<{ previousItemId: string; nextItemId: string; ambiguous: boolean }>;
 };
 
@@ -224,7 +226,8 @@ function proposalView(proposal: ReturnType<typeof proposeItemListRevision>, base
     changes: proposal.comparison.changes.filter((change) => change.moved || change.measurementChanged || change.referenceChanged
       || change.targetChanged).map(({ previous, current, moved, measurementChanged, referenceChanged, targetChanged }) =>
       ({ previous: forReaders(previous), current: forReaders(current), moved, measurementChanged, referenceChanged,
-        targetChanged })),
+        targetChanged, notesChanged: previous.origin.kind === "dpgf" && current.origin.kind === "dpgf"
+          && previous.origin.measurementNotesDigest !== current.origin.measurementNotesDigest })),
     continuities: proposal.comparison.continuities,
   };
 }
@@ -442,6 +445,10 @@ export async function acceptItemListProposal(projectId: string, input: {
   const drafts = sourceDrafts(sources);
   const current = stored?.revision ?? null;
   if ((stored?.row.revision ?? 0) !== input.expectedRevision || !drafts) {
+    // The list moved since the gesture's receipt was looked for: this very gesture, recorded meanwhile by a concurrent
+    // call (a double click), is the answer; any other change is a conflict.
+    const concurrent = await recordedByIntent(service, scope, input.intentKey, gestureSha256);
+    if (concurrent) return concurrent;
     throw conflict("La liste des postes a changé depuis votre lecture : rechargez-la.", undefined, "TAKEOFF_ITEM_LIST_STALE");
   }
   const proposal = proposeItemListRevision({ scope, current, sourceDrafts: drafts, registeredKeys: stored?.registeredKeys });
@@ -493,6 +500,10 @@ export async function addItemListPoste(projectId: string, input: ItemListAdditio
   const ownFirst = input.expectedRevision === 0 && stored?.history.some(({ intent_key }) =>
     intent_key === derivedIntent(input.intentKey, "initial"));
   if ((stored?.row.revision ?? 0) !== input.expectedRevision && !ownFirst) {
+    // The list moved since the receipt was looked for: this very gesture, recorded meanwhile by a concurrent call (a
+    // double click), is the answer; any other change is a conflict.
+    const concurrent = await replayedAddition();
+    if (concurrent) return concurrent;
     throw conflict("La liste des postes a changé depuis votre lecture : rechargez-la.", undefined, "TAKEOFF_ITEM_LIST_STALE");
   }
   if (!stored) {

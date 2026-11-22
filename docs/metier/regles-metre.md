@@ -88,8 +88,8 @@ postes ajoutés, retirés, modifiés et rapprochements possibles. Tous les chang
 s’ouvrent avant d’accepter. Un poste modifié nomme chaque fait qui change, avec sa
 valeur avant et après : unité (celle de la DPGF quand aucune n’est donnée), base de
 mesure, chaque discriminant, référence quantitative, section, référence de la ligne
-DPGF ; un changement des notes de la ligne est signalé sans leur texte, un changement
-de place aussi. Un rapprochement montre, des deux côtés, ce qui distingue
+DPGF ; un changement des notes de la ligne est signalé, avec les autres, sans leur
+texte, un changement de place aussi. Un rapprochement montre, des deux côtés, ce qui distingue
 deux homonymes : la section et l’origine (ligne, page, référence, version du
 gabarit). Aucun rapprochement n’est coché d’avance. Rien n’est appliqué sans
 « Accepter la révision proposée ». Le serveur recalcule la proposition et refuse
@@ -105,8 +105,9 @@ par la première demande d’analyse qui la scelle.
 ou après une analyse, et après un premier envoi. L’opérateur donne une désignation,
 une unité ou « à préciser », une base de mesure, des discriminants (réseau, matière,
 diamètre) et une section. Il ne saisit ni quantité ni prix. L’auteur et la date sont
-ceux du serveur. Un double clic ne crée qu’un poste, y compris le premier ajout d’une
-affaire sans liste : le second clic rend le reçu du premier. Le même geste rejoué rend
+ceux du serveur. Un double clic ne crée qu’un poste, et une acceptation qu’une
+révision, que l’affaire ait déjà une liste ou non : le second clic rend le reçu du
+premier. Le même geste rejoué rend
 son reçu ; un autre contenu sous la même clé (une autre section, une autre sélection de
 rapprochements) est refusé. Quand la réponse du serveur n’arrive pas, l’ajout et
 l’acceptation d’une révision le disent, rendent le bouton et gardent ce qui a été

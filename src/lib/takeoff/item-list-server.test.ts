@@ -9,6 +9,7 @@ import { createHash } from "node:crypto";
 import { requireAffaireAccess } from "@/lib/affaires/access-server";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { acceptItemListProposal, addItemListPoste, loadAffaireItemList } from "./item-list-server";
+import { posteOriginKey } from "./poste-list";
 
 
 /** A client whose tables and functions answer only when named: any other read throws (it was not expected). */
@@ -44,7 +45,7 @@ const OWNER = "aaaaaaaa-0000-4000-8000-000000000001";
  * the first call that reaches that point (the list's write function, or a read of its stored revisions) waits there
  * until `release`; `held` resolves when it arrives.
  */
-function listDatabase(hold: "record" | "history") {
+function listDatabase(hold: "record" | "history", options: { armed?: boolean } = {}) {
   type Revision = { id: string; revision: number; cause: string; sources: unknown; item_count: number; content_sha256: string;
     created_by: string; created_at: string; intent_key: string; gesture_sha256: string };
   const revisions: Revision[] = [];
@@ -55,7 +56,8 @@ function listDatabase(hold: "record" | "history") {
   const held = new Promise<void>((resolve) => { reached = resolve; });
   let release!: () => void;
   const released = new Promise<void>((resolve) => { release = resolve; });
-  let waited = false;
+  // Unarmed, nothing waits until `arm` (the list's earlier revisions are recorded first).
+  let waited = options.armed === false;
   const wait = async (point: typeof hold) => {
     if (point !== hold || waited) return;
     waited = true;
@@ -68,6 +70,7 @@ function listDatabase(hold: "record" | "history") {
         .sort((left, right) => right.revision - left.revision);
       case "takeoff_list_revision_entries": return entries.get(filters.revision_id as string) ?? [];
       case "takeoff_list_item_sources": return registry;
+      case "profiles": return [];
       // No DPGF and no published template: the list comes from the template shipped with the application.
       case "dpgf_imports": case "affaire_intake_documents": case "takeoff_item_template_versions": return [];
       default: throw new Error(`Unexpected read of ${table}.`);
@@ -118,7 +121,7 @@ function listDatabase(hold: "record" | "history") {
     }
     return { data: [{ revision_id: row.id, revision: row.revision, content_sha256: row.content_sha256, replayed: false }], error: null };
   };
-  return { client: { from, rpc } as never, revisions, held, release };
+  return { client: { from, rpc } as never, revisions, held, release, arm: () => { waited = false; } };
 }
 
 const importRow = { id: "import-a", filename: "plomberie.csv", source_format: "csv", status: "completed", row_count: 1 };
@@ -166,6 +169,40 @@ describe("the item list of an affaire", () => {
     vi.mocked(createServiceRoleClient).mockReturnValue(service.client);
     const list = await loadAffaireItemList("project");
     expect(list.proposal?.items.map(({ label }) => label)).toEqual(["Lavabo"]);
+    expect(JSON.stringify(list)).not.toMatch(/measurementNotesDigest|factsDigest|négocié/);
+  });
+
+  // A change of the DPGF row's notes is told on its own, even beside another change, never by its digest or its text.
+  it.each([
+    ["the notes and the unit change", "PU négocié 85 € HT", true],
+    ["only the unit changes", null, false],
+  ] as const)("tells a reader whether a row's notes changed when %s", async (_case, notes, notesChanged) => {
+    const read = async (stored: { unit: string; origin: Record<string, unknown> } | null) => {
+      const entry = stored && { item_id: "aaaaaaaa-0000-4000-8000-0000000000c1", source_key: posteOriginKey(stored.origin as never),
+        label: "Lavabo", expected_unit: stored.unit, measurement_basis: null, qualifiers: {}, sections: [], synonyms: [],
+        origin: stored.origin, reference_quantity: 2 };
+      const member = client({ takeoff_list_revisions: entry ? [{ id: "rev-1", revision: 1, cause: "initial", item_count: 1,
+        content_sha256: "c".repeat(64), created_by: "engineer", created_at: stamped, intent_key: "8f7c1d9e-0000-4000-8000-000000000003",
+        sources: { kind: "dpgf", importId: "import-a", mappingId: "mapping", sourceFormat: "csv", decisions: "missing" } }] : [],
+        takeoff_list_revision_entries: entry ? [entry] : [], takeoff_list_item_sources: [], profiles: [] });
+      const service = client({
+        dpgf_imports: [importRow], affaire_intake_documents: [],
+        dpgf_mappings: [{ id: "mapping", status: "validated", column_mapping: {}, created_at: stamped, updated_at: stamped }],
+        dpgf_rows_raw: [{ id: "raw", row_index: 0, structure: null, provenance: null }],
+        dpgf_rows_mapped: [{ id: "mapped", raw_row_id: "raw", designation: "Lavabo", unit: "u", quantity: 2, notes }],
+      }, { read_dpgf_import_confirmation: [], takeoff_item_list_notes_key: "a".repeat(64), takeoff_item_list_may_write: false });
+      vi.mocked(requireAffaireAccess).mockResolvedValue({
+        context: { userId: "engineer", tenantId: "tenant", tenantRole: "engineer", supabase: member.client },
+        project: { id: "project", user_id: "engineer" },
+      } as never);
+      vi.mocked(createServiceRoleClient).mockReturnValue(service.client);
+      return loadAffaireItemList("project");
+    };
+    // The row as the sources give it now; the stored list had it in metres and without notes.
+    const [item] = (await read(null)).proposal!.items;
+    const list = await read({ unit: "ml", origin: { ...item!.origin, measurementNotesDigest: null, factsDigest: "f".repeat(64) } });
+    expect(list.proposal?.changes).toEqual([expect.objectContaining({ measurementChanged: true, notesChanged,
+      previous: expect.objectContaining({ expectedUnit: "ml" }), current: expect.objectContaining({ expectedUnit: "u" }) })]);
     expect(JSON.stringify(list)).not.toMatch(/measurementNotesDigest|factsDigest|négocié/);
   });
 
@@ -219,6 +256,50 @@ describe("the item list of an affaire", () => {
       await expect(second).resolves.toEqual({ ...first, replayed: true });
       expect(database.revisions.map(({ revision, cause }) => [revision, cause])).toEqual([[1, "initial"], [2, "item_added"]]);
     });
+
+  // The same on a list that has revisions: the second reads the list once the first recorded its revision, and gets its
+  // receipt, never « La liste des postes a changé depuis votre lecture » (the gesture is the same).
+  it("answers the second of two identical additions to an existing list with the first one's receipt", async () => {
+    const database = listDatabase("history", { armed: false });
+    vi.mocked(requireAffaireAccess).mockResolvedValue({
+      context: { userId: OWNER, tenantId: "tenant", tenantRole: "engineer", supabase: database.client },
+      project: { id: "project", user_id: OWNER },
+    } as never);
+    vi.mocked(createServiceRoleClient).mockReturnValue(database.client);
+    const addition = (expectedRevision: number, intentKey: string, label: string) => ({ expectedRevision, intentKey, label,
+      expectedUnit: "u", measurementBasis: null, qualifiers: {}, sectionOfItemId: null });
+    await addItemListPoste("project", addition(0, "8f7c1d9e-0000-4000-8000-0000000000a2", "Clapet anti-retour"));
+    database.arm();
+    const gesture = addition(2, "8f7c1d9e-0000-4000-8000-0000000000a3", "Purgeur automatique");
+    const second = addItemListPoste("project", gesture);
+    await database.held;
+    const first = await addItemListPoste("project", gesture);
+    database.release();
+    expect(first).toMatchObject({ revision: 3, replayed: false });
+    await expect(second).resolves.toEqual({ ...first, replayed: true });
+    expect(database.revisions.map(({ revision }) => revision)).toEqual([1, 2, 3]);
+  });
+
+  // Two identical acceptances of the proposed first list: the second gets the first one's receipt.
+  it("answers the second of two identical acceptances with the first one's receipt", async () => {
+    const database = listDatabase("history", { armed: false });
+    vi.mocked(requireAffaireAccess).mockResolvedValue({
+      context: { userId: OWNER, tenantId: "tenant", tenantRole: "engineer", supabase: database.client },
+      project: { id: "project", user_id: OWNER },
+    } as never);
+    vi.mocked(createServiceRoleClient).mockReturnValue(database.client);
+    const { proposal } = await loadAffaireItemList("project");
+    database.arm();
+    const gesture = { expectedRevision: 0, proposalDigest: proposal!.digest, intentKey: "8f7c1d9e-0000-4000-8000-0000000000a4",
+      continuities: [] };
+    const second = acceptItemListProposal("project", gesture);
+    await database.held;
+    const first = await acceptItemListProposal("project", gesture);
+    database.release();
+    expect(first).toMatchObject({ revision: 1, replayed: false });
+    await expect(second).resolves.toEqual({ ...first, replayed: true });
+    expect(database.revisions.map(({ revision, cause }) => [revision, cause])).toEqual([[1, "initial"]]);
+  });
 
   it("refuses a member who may not write the list before reading any earlier gesture", async () => {
     const service = client({}, { takeoff_item_list_may_write: false });
