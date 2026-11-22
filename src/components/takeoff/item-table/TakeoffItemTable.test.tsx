@@ -258,7 +258,7 @@ describe("TakeoffItemTable", () => {
     expect(screen.getByTestId("poste-selection-count")).toHaveTextContent("2 postes sélectionnés");
   });
 
-  // « Tous les résultats du filtre » and the remeasure's preview follow the same rule.
+  // « Tous les résultats du filtre » follows the same rule.
   it("keeps a selection the member changed while « tous les résultats du filtre » was on its way", async () => {
     renderTable();
     await screen.findByRole("row", { name: /WC/ });
@@ -273,6 +273,7 @@ describe("TakeoffItemTable", () => {
     expect(screen.getByTestId("poste-selection-count")).toHaveTextContent("1 poste sélectionné");
   });
 
+  // The remeasure's preview follows the same rule.
   it("shows a remeasure's preview only in the dialog it was asked for", async () => {
     let release: (value: Awaited<ReturnType<typeof client.previewItemRemeasure>>) => void = () => {};
     client.previewItemRemeasure.mockImplementationOnce(() => new Promise((resolve) => { release = resolve; }));

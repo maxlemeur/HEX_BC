@@ -259,13 +259,13 @@ export function TakeoffItemTable({ projectId, viewerKey, signature }: {
   const [preview, setPreview] = useState<{ value: ItemRemeasurePreview | null; error: string | null }>({ value: null, error: null });
 
   // The table's completions (useCompletions, the detail's one rule): each is addressed to what started it — the screen (the
-  // member, the affaire, the scope) and the selection held, or the dialog opened, or the selection with its filter — and
-  // changes what is shown only if that is still what is shown; a selection cleared or changed meanwhile stays as the
-  // member left it.
+  // member, the affaire, the scope) and the selection held, or the selection with its filter — and changes what is shown
+  // only if that is still what is shown; a selection cleared or changed meanwhile stays as the member left it.
   const screenKey = `${viewerKey}|${projectId}|${scopeKey}`;
   const filterKey = JSON.stringify(address.filter);
   const forSelection = useCompletions({ screen: screenKey, item: selectionToken(selection) });
   const forFilter = useCompletions({ screen: screenKey, item: selectionToken(selection), reading: filterKey });
+  // The remeasure's dialog (lot 4 PR 4b): its preview is shown only in the dialog it was asked for.
   const forDialog = useCompletions({ screen: screenKey, item: dialog?.intentKey ?? null });
 
   const navigate = useCallback((partial: Partial<ItemTableAddress>) => {
