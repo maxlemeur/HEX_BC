@@ -350,17 +350,21 @@ create index takeoff_count_mark_events_mark_idx on public.takeoff_count_mark_eve
 
 -- 8b. The possible duplicates: a mark a machine generation made for an answer within 4 points of a mark already known for
 --     that answer on the same page (attributed to it, or proposed for it), recorded both ways. A fact for the readers,
---     never a merge: the member says which it is when retaining one (« same object » or « distinct object »).
+--     never a merge: the member says which it is when retaining one (« same object » or « distinct object »). A member's
+--     « distinct object » (on an add, a move, a retain, a restore or a reattribution) records the pairs it separates too.
 create table public.takeoff_count_mark_twins (
   answer_id uuid not null,
   mark_id uuid not null references public.takeoff_count_marks (id) on delete cascade,
   twin_mark_id uuid not null references public.takeoff_count_marks (id) on delete cascade,
   tenant_id uuid not null,
   project_id uuid not null,
-  generation integer not null check (generation between 1 and 1000),
+  -- The machine generation that found the pair, or the member who said « distinct object ».
+  generation integer check (generation between 1 and 1000),
+  recorded_by uuid,
   created_at timestamptz not null default pg_catalog.clock_timestamp(),
   primary key (answer_id, mark_id, twin_mark_id),
   constraint takeoff_count_mark_twins_pair_check check (mark_id <> twin_mark_id),
+  constraint takeoff_count_mark_twins_origin_check check ((generation is null) <> (recorded_by is null)),
   constraint takeoff_count_mark_twins_answer_fkey foreign key (answer_id, tenant_id, project_id)
     references public.takeoff_item_answers (id, tenant_id, project_id) on delete cascade
 );
@@ -550,13 +554,35 @@ returns boolean language sql stable security definer set search_path = '' as $$
     from public.takeoff_count_pages g where g.id = p_page_id), false)
 $$;
 
+-- The marks retained for the answer on the same object as a point of a page (within 4 points), but the mark given.
+create function private.takeoff_count_retained_twins(p_page_id uuid, p_x numeric, p_y numeric, p_answer_id uuid,
+  p_except uuid)
+returns uuid[] language sql stable security definer set search_path = '' as $$
+  select coalesce(array(select t.mark_id from public.takeoff_count_mark_attributions t
+    join public.takeoff_count_marks k on k.id = t.mark_id
+    where t.answer_id = p_answer_id and t.state = 'retained' and t.page_id = p_page_id
+      and t.mark_id is distinct from p_except
+      and private.takeoff_count_same_object(p_page_id, k.x, k.y, p_x, p_y)
+    order by t.mark_id), '{}')
+$$;
+
 -- Whether another mark retained for the answer stands on the same object as this one.
 create function private.takeoff_count_mark_has_twin(p_mark public.takeoff_count_marks, p_answer_id uuid)
 returns boolean language sql stable security definer set search_path = '' as $$
-  select exists (select 1 from public.takeoff_count_mark_attributions t
-    join public.takeoff_count_marks k on k.id = t.mark_id
-    where t.answer_id = p_answer_id and t.state = 'retained' and t.page_id = p_mark.page_id and t.mark_id <> p_mark.id
-      and private.takeoff_count_same_object(p_mark.page_id, k.x, k.y, p_mark.x, p_mark.y))
+  select pg_catalog.cardinality(private.takeoff_count_retained_twins(p_mark.page_id, p_mark.x, p_mark.y, p_answer_id,
+    p_mark.id)) > 0
+$$;
+
+-- The pairs a member's « distinct object » separates: the mark and each retained mark of the answer on its object, both
+-- ways, recorded with the member (a pair already recorded stays as it was).
+create function private.takeoff_count_record_distinct(p_answer public.takeoff_item_answers, p_mark_id uuid, p_twins uuid[],
+  p_actor uuid)
+returns void language sql security definer set search_path = '' as $$
+  insert into public.takeoff_count_mark_twins (answer_id, mark_id, twin_mark_id, tenant_id, project_id, recorded_by)
+  select p_answer.id, pair.mark_id, pair.twin_mark_id, p_answer.tenant_id, p_answer.project_id, p_actor
+  from pg_catalog.unnest(p_twins) t(twin)
+  cross join lateral (values (p_mark_id, t.twin), (t.twin, p_mark_id)) pair(mark_id, twin_mark_id)
+  on conflict do nothing
 $$;
 
 -- Whether the mark a « same object » decision names is a retained mark of the answer on the same object (within 4 points).
@@ -1064,9 +1090,10 @@ $$;
 -- 13. An operator's edit, with the member's session.
 --     p_revisions: {"<answer_id>": expected marks revision} for every answer the edit changes; an answer it would change
 --     without being named there is a conflict. p_gestures, 1 to 500, in order, every verify after every other gesture:
---       {op: add, answer_id, key, page, x, y, box?, geometry?}: a new mark on that page of the answer's plan, retained
+--       {op: add, answer_id, key, page, x, y, box?, geometry?, object?}: a new mark on that page of the answer's plan, retained
 --         for the answer (key: the caller's identifier for it, answered with the mark's own);
---       {op: move, mark_id, x, y, box?}: the same mark elsewhere on its page; every answer it is attributed to changes;
+--       {op: move, mark_id, x, y, box?, object?}: the same mark elsewhere on its page; every answer it is attributed to
+--         changes;
 --       {op: remove, answer_id, mark_id, reason, note?}: out of the answer's view, with its reason (a note for other);
 --       {op: restore, answer_id, mark_id, object?, same_as?}: back to the state it had before its removal;
 --       {op: retain, answer_id, mark_id, object?, same_as?}: kept for the answer (one proposed, one to attribute, or one of a
@@ -1081,9 +1108,10 @@ $$;
 --         them may stay undecided (proposed or to attribute) for it.
 --     The right: an operator of the affaire (its admin, or the engineer who owns it), checked again after every wait. The
 --     answers: current readings of the affaire (a replaced reading's marks are history).
---     A gesture that makes a mark retained (retain, restore to retained, reattribute) beside another mark retained for that
---     answer within 4 points needs the member's word: « same object » or « distinct object » (a reattribution takes only
---     « distinct »); without it, it is refused. The right is checked again after the receipt's own wait too.
+--     A gesture that would leave a retained mark beside another mark retained for the same answer within 4 points (an
+--     add, a move for each answer that retains the mark, a retain, a restore to retained, a reattribution) needs the
+--     member's word: « same object » (retain and restore only) or « distinct object » (any of them, and it records the
+--     pairs it separates); without it, it is refused. The right is checked again after the receipt's own wait too.
 --     Answers {replayed, command_id, revisions: {"<answer_id>": new revision}, added: [{key, mark_id}],
 --     summaries: {"<answer_id>": summary}}, the counts as the command committed them; the same intention key with the
 --     same content answers that receipt, replayed, writing nothing. Refuses, with nothing written: TAKEOFF_MARKS_INVALID,
@@ -1120,14 +1148,16 @@ begin
       return false;
     end if;
     verifying := op = 'verify';
-    if (op = 'add' and ((gesture - array['op', 'answer_id', 'key', 'page', 'x', 'y', 'box', 'geometry']) <> '{}'::jsonb
+    if (op = 'add' and ((gesture - array['op', 'answer_id', 'key', 'page', 'x', 'y', 'box', 'geometry', 'object']) <> '{}'::jsonb
+        or coalesce(gesture ->> 'object', 'distinct') <> 'distinct'
         or not private.takeoff_item_answer_is_uuid(gesture -> 'key')
         or not private.takeoff_item_answer_is_number(gesture -> 'page', 1, 100000, true)
         or not private.takeoff_item_answer_is_number(gesture -> 'x', 0, 1, false)
         or not private.takeoff_item_answer_is_number(gesture -> 'y', 0, 1, false)
         or (gesture ? 'box' and private.takeoff_count_mark_box(gesture -> 'box') is null)
         or (gesture ? 'geometry' and not exists (select 1 from private.takeoff_count_page_geometry(gesture -> 'geometry')))))
-      or (op = 'move' and ((gesture - array['op', 'mark_id', 'x', 'y', 'box']) <> '{}'::jsonb
+      or (op = 'move' and ((gesture - array['op', 'mark_id', 'x', 'y', 'box', 'object']) <> '{}'::jsonb
+        or coalesce(gesture ->> 'object', 'distinct') <> 'distinct'
         or not private.takeoff_item_answer_is_number(gesture -> 'x', 0, 1, false)
         or not private.takeoff_item_answer_is_number(gesture -> 'y', 0, 1, false)
         or (gesture ? 'box' and private.takeoff_count_mark_box(gesture -> 'box') is null)))
@@ -1188,6 +1218,7 @@ declare
   next_revision integer;
   answers_revisions jsonb;
   receipt jsonb;
+  twins uuid[];
 begin
   -- The answers' identifiers as the database writes them (a client may send capitals).
   expected := case when pg_catalog.jsonb_typeof(p_revisions) = 'object' then (select pg_catalog.jsonb_object_agg(lower(r.key),
@@ -1304,6 +1335,13 @@ begin
       this_page := private.takeoff_count_page_for(this_answer, page_number, this_gesture -> 'geometry');
       new_mark := pg_catalog.gen_random_uuid();
       new_box := private.takeoff_count_mark_box(this_gesture -> 'box');
+      -- A new retained mark on the same object as a retained one of the answer (within 4 points, this edit's earlier adds
+      -- included) needs « distinct object »: adding the same object again is not adding.
+      twins := private.takeoff_count_retained_twins(this_page, (this_gesture ->> 'x')::numeric, (this_gesture ->> 'y')::numeric,
+        this_answer.id, null);
+      if pg_catalog.cardinality(twins) > 0 and this_gesture ->> 'object' is distinct from 'distinct' then
+        raise exception 'TAKEOFF_MARKS_OBJECT_DUPLICATE' using errcode = '23505';
+      end if;
       insert into public.takeoff_count_marks (id, tenant_id, project_id, page_id, origin, x, y, box, position_revision,
         created_by)
       values (new_mark, p_tenant_id, p_project_id, this_page, 'manual', (this_gesture ->> 'x')::numeric,
@@ -1311,12 +1349,15 @@ begin
       insert into public.takeoff_count_mark_attributions (mark_id, answer_id, tenant_id, project_id, page_id, state,
         decided_by, decided_at)
       values (new_mark, this_answer.id, p_tenant_id, p_project_id, this_page, 'retained', actor, pg_catalog.clock_timestamp());
+      perform private.takeoff_count_record_distinct(this_answer, new_mark, twins, actor);
       added := added || pg_catalog.jsonb_build_array(pg_catalog.jsonb_build_object('key', lower(this_gesture ->> 'key'),
         'mark_id', new_mark));
       changed := changed || pg_catalog.jsonb_build_object(this_answer.id::text, true);
       perform private.takeoff_count_mark_event(this_command, p_tenant_id, p_project_id, this_answer.id, next_revision, 'add',
         new_mark, page_number, null, pg_catalog.jsonb_build_object('state', 'retained', 'x', (this_gesture ->> 'x')::numeric,
-          'y', (this_gesture ->> 'y')::numeric, 'box', pg_catalog.to_jsonb(new_box)), null, null, actor);
+          'y', (this_gesture ->> 'y')::numeric, 'box', pg_catalog.to_jsonb(new_box))
+          || case when this_gesture ? 'object' then pg_catalog.jsonb_build_object('object', this_gesture ->> 'object')
+            else '{}'::jsonb end, null, null, actor);
     elsif op = 'move' then
       new_box := private.takeoff_count_mark_box(this_gesture -> 'box');
       -- Every answer the mark is attributed to changes: each must be named (and is then current). A mark no answer holds
@@ -1328,6 +1369,14 @@ begin
           and not expected ? t.answer_id::text) then
         raise exception 'TAKEOFF_MARKS_REVISION_CONFLICT' using errcode = '40001';
       end if;
+      -- At its new place, the mark must not stand on the object of another retained mark of any answer that retains it,
+      -- without « distinct object ».
+      if this_gesture ->> 'object' is distinct from 'distinct' and exists (select 1
+          from public.takeoff_count_mark_attributions t where t.mark_id = this_mark.id and t.state = 'retained'
+            and pg_catalog.cardinality(private.takeoff_count_retained_twins(this_mark.page_id, (this_gesture ->> 'x')::numeric,
+              (this_gesture ->> 'y')::numeric, t.answer_id, this_mark.id)) > 0) then
+        raise exception 'TAKEOFF_MARKS_OBJECT_DUPLICATE' using errcode = '23505';
+      end if;
       update public.takeoff_count_marks m set x = (this_gesture ->> 'x')::numeric, y = (this_gesture ->> 'y')::numeric,
         box = new_box, position_revision = m.position_revision + 1, moved_by = actor, moved_at = pg_catalog.clock_timestamp()
       where m.id = this_mark.id;
@@ -1335,11 +1384,19 @@ begin
         order by t.answer_id
       loop
         changed := changed || pg_catalog.jsonb_build_object(touched::text, true);
+        if exists (select 1 from public.takeoff_count_mark_attributions t where t.mark_id = this_mark.id
+            and t.answer_id = touched and t.state = 'retained') then
+          select a.* into target_answer from public.takeoff_item_answers a where a.id = touched;
+          perform private.takeoff_count_record_distinct(target_answer, this_mark.id, private.takeoff_count_retained_twins(
+            this_mark.page_id, (this_gesture ->> 'x')::numeric, (this_gesture ->> 'y')::numeric, touched, this_mark.id), actor);
+        end if;
         perform private.takeoff_count_mark_event(this_command, p_tenant_id, p_project_id, touched,
           (held ->> touched::text)::integer + 1, 'move', this_mark.id, page_number,
           pg_catalog.jsonb_build_object('x', this_mark.x, 'y', this_mark.y, 'box', pg_catalog.to_jsonb(this_mark.box)),
           pg_catalog.jsonb_build_object('x', (this_gesture ->> 'x')::numeric, 'y', (this_gesture ->> 'y')::numeric,
-            'box', pg_catalog.to_jsonb(new_box)), null, null, actor);
+            'box', pg_catalog.to_jsonb(new_box))
+            || case when this_gesture ? 'object' then pg_catalog.jsonb_build_object('object', this_gesture ->> 'object')
+              else '{}'::jsonb end, null, null, actor);
       end loop;
     elsif op = 'remove' then
       if this_attribution.state not in ('proposed', 'to_attribute', 'retained') then
@@ -1388,6 +1445,10 @@ begin
         update public.takeoff_count_mark_attributions t set state = this_attribution.prior_state, prior_state = null,
           reason_code = null, reason_text = null, decided_by = actor, decided_at = pg_catalog.clock_timestamp()
         where t.mark_id = this_mark.id and t.answer_id = this_answer.id;
+        if this_attribution.prior_state = 'retained' then
+          perform private.takeoff_count_record_distinct(this_answer, this_mark.id, private.takeoff_count_retained_twins(
+            this_mark.page_id, this_mark.x, this_mark.y, this_answer.id, this_mark.id), actor);
+        end if;
         changed := changed || pg_catalog.jsonb_build_object(this_answer.id::text, true);
         perform private.takeoff_count_mark_event(this_command, p_tenant_id, p_project_id, this_answer.id, next_revision,
           'restore', this_mark.id, page_number,
@@ -1435,6 +1496,8 @@ begin
           pg_catalog.clock_timestamp())
         on conflict (mark_id, answer_id) do update set state = 'retained', decided_by = excluded.decided_by,
           decided_at = excluded.decided_at;
+        perform private.takeoff_count_record_distinct(this_answer, this_mark.id, private.takeoff_count_retained_twins(
+          this_mark.page_id, this_mark.x, this_mark.y, this_answer.id, this_mark.id), actor);
         changed := changed || pg_catalog.jsonb_build_object(this_answer.id::text, true);
         perform private.takeoff_count_mark_event(this_command, p_tenant_id, p_project_id, this_answer.id, next_revision,
           'retain', this_mark.id, page_number,
@@ -1480,6 +1543,8 @@ begin
         pg_catalog.clock_timestamp())
       on conflict (mark_id, answer_id) do update set state = 'retained', prior_state = null, reason_code = null,
         reason_text = null, decided_by = excluded.decided_by, decided_at = excluded.decided_at;
+      perform private.takeoff_count_record_distinct(target_answer, this_mark.id, private.takeoff_count_retained_twins(
+        this_mark.page_id, this_mark.x, this_mark.y, target_answer.id, this_mark.id), actor);
       changed := changed || pg_catalog.jsonb_build_object(this_answer.id::text, true, target_answer.id::text, true);
       perform private.takeoff_count_mark_event(this_command, p_tenant_id, p_project_id, this_answer.id, next_revision,
         'reattribute_out', this_mark.id, page_number, pg_catalog.jsonb_build_object('state', this_attribution.state),
@@ -1686,6 +1751,8 @@ begin
     'private.takeoff_count_unit_counts(text)', 'private.takeoff_count_same_object(uuid, numeric, numeric, numeric, numeric)',
     'private.takeoff_count_mark_has_twin(public.takeoff_count_marks, uuid)', 'private.takeoff_count_mark_evidence(uuid)',
     'private.takeoff_count_mark_is_twin_of(public.takeoff_count_marks, uuid, uuid)',
+    'private.takeoff_count_retained_twins(uuid, numeric, numeric, uuid, uuid)',
+    'private.takeoff_count_record_distinct(public.takeoff_item_answers, uuid, uuid[], uuid)',
     'private.takeoff_count_mark_summary(uuid)', 'private.takeoff_count_marks_revision(uuid)',
     'private.lock_takeoff_count_marks_revision(uuid)',
     'private.takeoff_count_mark_publication_well_formed(jsonb, jsonb)',

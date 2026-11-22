@@ -65,9 +65,10 @@ export const TAKEOFF_COUNT_MARK_REASON_LABELS: Record<TakeoffCountMarkRemovalRea
 };
 
 /**
- * The member's word when a mark would be retained beside a retained mark of the same answer within 4 points (a possible
- * duplicate): « same » (with same_as, the retained mark: the proposals join it, this mark is withdrawn for the answer) or
- * « distinct » (both stand). The machine never decides it.
+ * The member's word when a gesture would leave a retained mark beside another retained mark of the same answer within 4
+ * points (a possible duplicate): « same » (retain and restore only, with same_as, the retained mark: the proposals join
+ * it, this mark is withdrawn for the answer) or « distinct » (any gesture: add, move, retain, restore, reattribute; both
+ * stand, and the pair is recorded). The machine never decides it.
  */
 export const TAKEOFF_COUNT_MARK_OBJECT_WORDS = { same: "Même objet", distinct: "Objet distinct" } as const;
 export type TakeoffCountMarkObjectWord = keyof typeof TAKEOFF_COUNT_MARK_OBJECT_WORDS;
@@ -90,8 +91,8 @@ export type TakeoffCountMarkObjectDecision =
   | { object: "same"; same_as: string };
 export type TakeoffCountMarkGesture =
   | { op: "add"; answer_id: string; key: string; page: number; x: number; y: number; box?: TakeoffCountMarkBox;
-    geometry?: TakeoffCountPageGeometry }
-  | { op: "move"; mark_id: string; x: number; y: number; box?: TakeoffCountMarkBox }
+    geometry?: TakeoffCountPageGeometry; object?: "distinct" }
+  | { op: "move"; mark_id: string; x: number; y: number; box?: TakeoffCountMarkBox; object?: "distinct" }
   | { op: "remove"; answer_id: string; mark_id: string; reason: TakeoffCountMarkRemovalReason; note?: string }
   | ({ op: "restore"; answer_id: string; mark_id: string } & TakeoffCountMarkObjectDecision)
   | ({ op: "retain"; answer_id: string; mark_id: string } & TakeoffCountMarkObjectDecision)

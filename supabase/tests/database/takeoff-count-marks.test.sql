@@ -857,6 +857,51 @@ select results_eq($$select r #>> array['summaries', pg_temp.baignoire()::text, '
   $$values ('verified'::text, false, 1, 'null'::jsonb)$$, 'a verified mark of a surface item gives no quantity');
 reset role;
 
+-- An add or a move that would leave two retained marks of one answer on one object (within 4 points) needs the member's
+-- « distinct object »: two marks on one spot cannot even be told apart on a screen.
+create function pg_temp.add_at(key integer, answer uuid, page integer, x numeric, y numeric, word text default null)
+returns jsonb language sql immutable as $$
+  select pg_temp.g('add', jsonb_build_object('answer_id', answer, 'key', pg_temp.f(key), 'page', page, 'x', x, 'y', y)
+    || case when word is null then '{}'::jsonb else jsonb_build_object('object', word) end)
+$$;
+select pg_temp.sign_in(1);
+set local role authenticated;
+select throws_ok($$select pg_temp.edit(620, pg_temp.at(pg_temp.lavabo(), 13), jsonb_build_array(
+  pg_temp.add_at(706, pg_temp.lavabo(), 7, 0.70, 0.30), pg_temp.add_at(707, pg_temp.lavabo(), 7, 0.7001, 0.3001)))$$, '23505',
+  'TAKEOFF_MARKS_OBJECT_DUPLICATE', 'two adds on one object in one edit are refused without the member''s word');
+create temp table distinct_adds as select (pg_temp.edit(621, pg_temp.at(pg_temp.lavabo(), 13), jsonb_build_array(
+  pg_temp.add_at(706, pg_temp.lavabo(), 7, 0.70, 0.30), pg_temp.add_at(707, pg_temp.lavabo(), 7, 0.7001, 0.3001, 'distinct'))))
+  as answer;
+select is((select answer #>> array['summaries', pg_temp.lavabo()::text, 'revision'] from distinct_adds), '14',
+  '« distinct object »: both are added');
+select throws_ok($$select pg_temp.edit(622, pg_temp.at(pg_temp.lavabo(), 14), jsonb_build_array(
+  pg_temp.add_at(708, pg_temp.lavabo(), 7, 0.7002, 0.30)))$$, '23505', 'TAKEOFF_MARKS_OBJECT_DUPLICATE',
+  'an add in a later edit on a retained object is refused without the word too');
+select is((pg_temp.edit(623, pg_temp.at(pg_temp.lavabo(), 14), jsonb_build_array(
+  pg_temp.add_at(708, pg_temp.lavabo(), 7, 0.7002, 0.30, 'distinct'))) #>> array['revisions', pg_temp.lavabo()::text]), '15',
+  'and accepted with it');
+-- A move is checked for every answer the mark is attributed to: the first lavabo is retained for the valve (removed for
+-- the lavabo); moving it onto a mark the valve retained is the same case.
+select is((pg_temp.edit(624, pg_temp.at(pg_temp.vanne(), 3), jsonb_build_array(
+  pg_temp.add_at(709, pg_temp.vanne(), 2, 0.65, 0.65))) #>> array['revisions', pg_temp.vanne()::text]), '4',
+  'the valve retains a mark of its own');
+select throws_ok($$select pg_temp.edit(625, pg_temp.at(pg_temp.lavabo(), 15) || pg_temp.at(pg_temp.vanne(), 4), jsonb_build_array(
+  pg_temp.g('move', jsonb_build_object('mark_id', pg_temp.m('lav-1'), 'x', 0.6501, 'y', 0.6501))))$$, '23505',
+  'TAKEOFF_MARKS_OBJECT_DUPLICATE', 'moving a mark onto another retained mark of an answer that retains it is refused without the word');
+select is((pg_temp.edit(626, pg_temp.at(pg_temp.lavabo(), 15) || pg_temp.at(pg_temp.vanne(), 4), jsonb_build_array(
+  pg_temp.g('move', jsonb_build_object('mark_id', pg_temp.m('lav-1'), 'x', 0.6501, 'y', 0.6501, 'object', 'distinct'))))
+  -> 'revisions'), pg_temp.at(pg_temp.lavabo(), 16) || pg_temp.at(pg_temp.vanne(), 5), 'and accepted with it');
+reset role;
+select results_eq($$select e.revision, e.gesture, e.after ->> 'object', e.actor_id from public.takeoff_count_mark_events e
+  where (e.answer_id = pg_temp.lavabo() and e.revision in (14, 15) or e.answer_id = pg_temp.vanne() and e.revision = 5)
+    and e.after ->> 'object' is not null order by e.answer_id = pg_temp.vanne(), e.revision$$,
+  $$values (14, 'add'::text, 'distinct'::text, pg_temp.f(1)), (15, 'add', 'distinct', pg_temp.f(1)), (5, 'move', 'distinct', pg_temp.f(1))$$,
+  'each « distinct object » is journaled with the member who said it');
+select results_eq($$select t.answer_id = pg_temp.vanne(), count(*)::integer from public.takeoff_count_mark_twins t
+  where t.answer_id in (pg_temp.lavabo(), pg_temp.vanne()) and t.recorded_by = pg_temp.f(1)
+  group by 1 order by 1$$, $$values (false, 6), (true, 2)$$,
+  'each pair a « distinct object » separates is recorded both ways, by that member: three for the lavabo, one for the valve');
+
 -- 6. A replaced reading's marks are history. A second order (revision 312: the lavabo, the valve and a skirting, no
 -- wall covering) reads the plan again.
 set local session_replication_role = replica;

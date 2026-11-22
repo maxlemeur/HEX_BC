@@ -274,8 +274,10 @@ seul poste à la fois, et une seule fois. Une nouvelle lecture machine ne rejoin
 repère connu que par la même clé de source ; tout autre repère, même tout proche, reste
 le sien, en attente, signalé comme doublon possible d’un repère du même poste à moins de
 4 points sur la page à l’échelle 1. La machine ne fusionne jamais deux repères : pour en
-retenir ou en rétablir un à côté d’un repère retenu, le membre dit « même objet » (sa
-proposition rejoint le repère retenu) ou « objet distinct » (les deux restent). Le compte d’un poste sur un plan n’existe que pour un poste compté
+retenir ou en rétablir un à côté d’un repère retenu du même poste, le membre dit « même
+objet » (sa proposition rejoint le repère retenu) ou « objet distinct » (les deux
+restent) ; ajouter ou déplacer un repère sur un objet déjà retenu demande « objet
+distinct », car deux repères au même endroit ne se distinguent pas à l’écran. Le compte d’un poste sur un plan n’existe que pour un poste compté
 à l’unité (son unité scellée : u, pce, ens, lot…), quand toutes les pages lues pour lui
 sont vérifiées et qu’un repère au moins est retenu : c’est le nombre de repères retenus,
 jamais additionné au compte groupé par page de la lecture. Pour une longueur ou une
