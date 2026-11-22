@@ -646,7 +646,13 @@ begin;
 delete from public.estimate_projects where id = 'b3100000-0000-4000-8000-000000000120';
 do $clean$
 declare
-  target uuid := 'b3100000-0000-4000-8000-000000000110';
+  -- Include the personal tenants created by the race users' signup trigger.
+  targets uuid[] := array(
+    select id from public.tenants
+    where id = 'b3100000-0000-4000-8000-000000000110'
+      or (created_by in ('b3100000-0000-4000-8000-000000000101', 'b3100000-0000-4000-8000-000000000102')
+        and slug = 'signup-' || created_by::text)
+  );
   entry record;
 begin
   for entry in
@@ -656,10 +662,13 @@ begin
       on tables.table_schema = columns.table_schema and tables.table_name = columns.table_name
     where columns.table_schema in ('public', 'private') and columns.column_name = 'tenant_id'
       and tables.table_type = 'BASE TABLE' and not (columns.table_schema = 'public' and columns.table_name = 'tenants')
+      and not (columns.table_schema = 'public' and columns.table_name = 'audit_logs')
   loop
-    execute format('delete from %I.%I where tenant_id = $1', entry.table_schema, entry.table_name) using target;
+    execute format('delete from %I.%I where tenant_id = any($1)', entry.table_schema, entry.table_name) using targets;
   end loop;
-  delete from public.tenants where id = target;
+  -- Tenant data deletes can write audit entries, so clear them after the loop.
+  delete from public.audit_logs where tenant_id = any(targets);
+  delete from public.tenants where id = any(targets);
 end
 $clean$;
 delete from public.profiles where id in ('b3100000-0000-4000-8000-000000000101', 'b3100000-0000-4000-8000-000000000102');
