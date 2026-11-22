@@ -6,7 +6,6 @@ vi.mock("@/lib/supabase/service-role", () => ({ createServiceRoleClient: vi.fn()
 vi.mock("@/lib/takeoff/item-send-facts-server", () => ({ readItemSendFacts: vi.fn(), readItemSendEarlierState: vi.fn() }));
 vi.mock("@/lib/takeoff/mapping-rules-server", () => ({ listActiveTakeoffMappingRules: vi.fn() }));
 vi.mock("@/lib/takeoff/plan-location-server", () => ({ readTakeoffJobPlanLocations: vi.fn() }));
-vi.mock("@/lib/takeoff/page-contributions-server", () => ({ readPlanPagesAlreadyInEstimate: vi.fn() }));
 vi.mock("@/lib/estimates/calc-policy-server", () => ({ readTenantCalcPolicy: vi.fn(), ABSENT_TENANT_CALC_POLICY: {
   engine: 3, defaultSaleCoefficientFo: null, defaultSaleCoefficientMo: null, allowedTaxRatesBp: [2000] } }));
 vi.mock("@/lib/estimates/canonical-v2-creation", () => ({ prepareCanonicalEstimateCreation: vi.fn() }));
@@ -19,18 +18,19 @@ import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { readDpgfMappedFacts } from "@/lib/takeoff/dpgf-comparison-repository";
 import { TakeoffError } from "@/lib/takeoff/errors";
 import { itemSendPreviewResponseSchema } from "@/lib/takeoff/item-send-contracts";
+import { confirmTakeoffItemSend, mapItemSendRpcError } from "@/lib/takeoff/item-send-confirm-server";
 import { readItemSendEarlierState, readItemSendFacts, type ItemSendReading } from "@/lib/takeoff/item-send-facts-server";
-import { previewTakeoffItemSend } from "@/lib/takeoff/item-send-preview-server";
+import { computeItemSendState, previewTakeoffItemSend } from "@/lib/takeoff/item-send-preview-server";
 import { getAuthenticatedTakeoffContext } from "@/lib/takeoff/job-read-server";
 import { listActiveTakeoffMappingRules } from "@/lib/takeoff/mapping-rules-server";
-import { readPlanPagesAlreadyInEstimate } from "@/lib/takeoff/page-contributions-server";
 import { readTakeoffJobPlanLocations } from "@/lib/takeoff/plan-location-server";
 import type { TakeoffMappingRule } from "@/lib/takeoff/types";
 
-// Lot 4, PR 5a: the read-only preview of a send by item, written before it existed. The clients read in-memory tables
-// through every filter (a joined column included), refuse every write and every call but the named read functions, and
-// record what they read. A second tenant, a second affaire and a second version hold rows the preview must never read.
-// Fictional affaire, plan and quantities.
+// Lot 4, PR 5a/5b: the read-only preview of a send by item and its confirmation. The clients read in-memory tables
+// through every filter (a joined column included), refuse every write and every call but the named read functions (and,
+// for the server's client only, the writer the confirmation calls), and record what they read and call. A second
+// tenant, a second affaire and a second version hold rows the preview must never read. Fictional affaire, plan and
+// quantities.
 
 const TENANT = "11111111-1111-4111-8111-111111111111";
 const OTHER_TENANT = "11111111-1111-4111-8111-111111111112";
@@ -59,7 +59,9 @@ type Calls = { reads: Array<{ client: string; table: string; select: string }>; 
 
 /** The read functions granted to the service role only: a member's session may call none of them. */
 const SERVICE_READ_FUNCTIONS = ["read_estimate_dpgf_raw_rows", "takeoff_rule_job_stamp", "takeoff_send_peers_stamp", "read_takeoff_send_context",
-  "dpgf_import_review_state"];
+  "dpgf_import_review_state", "takeoff_mapping_rules_stamp"];
+/** The writer: the service role's only (public.send_takeoff_item_plan), never a member's session. */
+const WRITER = "send_takeoff_item_plan";
 /** What the API gives at most per answer when no range is asked (PostgREST's max-rows). */
 const MAX_ROWS = 1000;
 
@@ -152,11 +154,13 @@ const version = (id: string, engine: number, project = PROJECT, tenant = TENANT)
 
 const dpgfRow = (id: string, mapped: string, overrides: Row = {}) => ({ id, tenant_id: TENANT, version_id: VERSION, parent_id: null,
   item_type: "line", position: 1, title: "Lavabo", unit_code: "u", pricing_status: "priced", quantity: 4, updated_at: "2026-11-22T08:00:00.000Z",
-  source_provider: "dpgf", mapped_row_id: mapped, dpgf_source_quantity: 4, quantity_policy: null, ...overrides });
+  source_provider: "dpgf", mapped_row_id: mapped, import_id: IMPORT, dpgf_source_quantity: 4, quantity_policy: null, ...overrides });
 
 let calls: Calls;
+let written: Row[];
 function setUp(input: { manifest?: unknown; versions?: Row[]; items?: Row[]; role?: string; lineage?: Row[]; mapped?: Row[];
-  sources?: unknown; locations?: Row[] }) {
+  sources?: unknown; locations?: Row[]; receipts?: Row[]; writer?: (args: Row) => unknown }) {
+  written = [];
   calls = { reads: [], writes: [], rpcs: [] };
   const shared: Record<string, Row[]> = {
     takeoff_launch_requests: [{ id: REQUEST, tenant_id: TENANT, manifest: input.manifest ?? manifest("item_list") },
@@ -179,14 +183,22 @@ function setUp(input: { manifest?: unknown; versions?: Row[]; items?: Row[]; rol
     takeoff_rule_job_stamp: () => "job-stamp",
     takeoff_send_peers_stamp: () => "peers-stamp",
     read_takeoff_send_context: () => ({ peers: [], plans: [], stamps: { peers: "p", locations: "l" }, display: null }),
+    takeoff_mapping_rules_stamp: () => "mapping-stamp",
+    [WRITER]: (args) => {
+      written.push(args);
+      if (input.writer) return input.writer(args);
+      return { receipt_id: "abababab-abab-4bab-8bab-abababababab", replayed: false, format: "takeoff_item_send", format_version: 1,
+        job_id: JOB, version_id: VERSION, version_created: true, sections_created: [], lines: [], lines_written: 1, parts_written: 1,
+        parts_replaced: 0, page_decisions: [], focus_item_id: LINE, override: null, rules: [] };
+    },
   };
-  const member = fakeClient("member", { ...shared, takeoff_jobs: [{ id: JOB, tenant_id: TENANT, project_id: PROJECT, estimate_version_id: null,
+  const member = fakeClient("member", { ...shared, takeoff_item_send_receipts: input.receipts ?? [], takeoff_jobs: [{ id: JOB, tenant_id: TENANT, project_id: PROJECT, estimate_version_id: null,
     status: "completed", launch_request_id: REQUEST, launch_unit_key: "unit-1", sources: input.sources ?? null },
   { id: JOB, tenant_id: OTHER_TENANT, project_id: OTHER_PROJECT, estimate_version_id: null, status: "completed",
     launch_request_id: REQUEST, launch_unit_key: "unit-1", sources: null }] }, functions, calls, []);
   vi.mocked(getAuthenticatedTakeoffContext).mockResolvedValue({ supabase: member, tenantId: TENANT, userId: MEMBER,
     tenantRole: input.role ?? "admin" } as never);
-  vi.mocked(createServiceRoleClient).mockReturnValue(fakeClient("service", shared, functions, calls, SERVICE_READ_FUNCTIONS) as never);
+  vi.mocked(createServiceRoleClient).mockReturnValue(fakeClient("service", shared, functions, calls, [...SERVICE_READ_FUNCTIONS, WRITER]) as never);
 }
 
 async function refusal(promise: Promise<unknown>) {
@@ -200,9 +212,8 @@ const readTables = () => [...new Set(calls.reads.map((read) => `${read.client}:$
 beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(readItemSendFacts).mockResolvedValue({ state: "stored", reading: reading() });
-  vi.mocked(readItemSendEarlierState).mockResolvedValue({ targets: [], sections: [] });
+  vi.mocked(readItemSendEarlierState).mockResolvedValue({ targets: [], sections: [], displaced: [], pagesInEstimate: [] });
   vi.mocked(listActiveTakeoffMappingRules).mockResolvedValue([]);
-  vi.mocked(readPlanPagesAlreadyInEstimate).mockResolvedValue([]);
   vi.mocked(readTenantCalcPolicy).mockResolvedValue({ engine: 3, defaultSaleCoefficientFo: null, defaultSaleCoefficientMo: null,
     allowedTaxRatesBp: [2000] } as never);
   vi.mocked(prepareCanonicalEstimateCreation).mockResolvedValue({ versionPayload: { calc_engine_version: 3, max_section_depth: 3,
@@ -299,18 +310,24 @@ describe("previewTakeoffItemSend", () => {
     const preview = await previewTakeoffItemSend(JOB, {});
     expect(preview.blocked?.reason).toBe("read_only");
     expect([preview.plan, preview.list, preview.destinations, preview.lines]).toEqual([null, null, [], []]);
-    expect(readTables()).toEqual(["member:takeoff_jobs", "service:estimate_projects"]);
+    // The affaire's owner and archive flag are read with the member's session, never the service role's, before the right.
+    expect(readTables()).toEqual(["member:estimate_projects", "member:takeoff_jobs"]);
     expect(readItemSendFacts).not.toHaveBeenCalled();
     expect(listActiveTakeoffMappingRules).not.toHaveBeenCalled();
   });
 
-  it("compares the plan's pages with its preparation's plan reference, and always, an entry included (fixes 2 and 3)", async () => {
+  it("reads the pages held as the writer's page guard reads them, for this job, an entry included (fixes 2 and 3)", async () => {
+    // The plan's document and its pages (an entry: every page of the unit) are the database's: the writer's page guard
+    // (public.read_takeoff_item_send_draft, the same function the writer reads under its locks).
     setUp({ versions: [version(VERSION, 3)], sources: [{ document_id: PLAN_FILE, logical_document_id: "REF-PLAN-1", kind: "plan" }] });
     vi.mocked(readItemSendFacts).mockResolvedValue({ state: "stored", reading: reading(lavabo, { outcome: "uncertain", decision: null,
       observations: [], entry: { revision: 1, quantity: 2, unit: "u", category: "site_survey", included: true } }) });
-    await previewTakeoffItemSend(JOB, {});
-    expect(readPlanPagesAlreadyInEstimate).toHaveBeenCalledWith(expect.anything(), { jobId: JOB, versionId: VERSION, pages: [1, 2, 3, 4],
-      document: { plan_file_id: PLAN_FILE, content_hash: "d".repeat(64), logical_document_id: "REF-PLAN-1", file_name: "Plan RDC" } });
+    vi.mocked(readItemSendEarlierState).mockResolvedValue({ targets: [], sections: [], displaced: [],
+      pagesInEstimate: [{ page: 3, earlierJobIds: ["job-earlier"], estimateItemIds: [LINE], today: true, todayEstimateItemIds: [LINE], parts: [] }] });
+    const preview = await previewTakeoffItemSend(JOB, {});
+    expect(readItemSendEarlierState).toHaveBeenCalledWith(expect.anything(), { projectId: PROJECT, versionId: VERSION, jobId: JOB });
+    expect(preview.to_resolve).toEqual([expect.objectContaining({ kind: "page_decision", page: 3, held_item_ids: [LAVABO] })]);
+    expect(preview.parts_not_sent).toEqual([expect.objectContaining({ item_id: LAVABO, kind: "entered", pages: [1, 2, 3, 4], reason: "page_held" })]);
   });
 
   it("names the ouvrage a rule points to, by its id and its name in this tenant (fix 14)", async () => {
@@ -357,5 +374,157 @@ describe("previewTakeoffItemSend", () => {
     expect(first.plan_digest).toMatch(/^[0-9a-f]{64}$/);
     setUp({ versions: [{ ...version(VERSION, 3), updated_at: "2026-11-22T09:30:00.000Z" }] });
     expect((await previewTakeoffItemSend(JOB, {})).plan_digest).not.toBe(first.plan_digest);
+  });
+
+  it("sends a held page's parts once the member decides it, and names a decision the writer would refuse", async () => {
+    setUp({ versions: [version(VERSION, 3)] });
+    vi.mocked(readItemSendEarlierState).mockResolvedValue({ targets: [], sections: [], displaced: [],
+      pagesInEstimate: [{ page: 2, earlierJobIds: ["job-earlier"], estimateItemIds: [LINE], today: true, todayEstimateItemIds: [LINE], parts: [] }] });
+    const decided = await previewTakeoffItemSend(JOB, { page_decisions: [{ page: 2, decision: "keep_both", reason_code: "other_zone" }] });
+    expect(decided.lines).toEqual([expect.objectContaining({ item_id: LAVABO, quantity_after: 3, pages: [2] })]);
+    expect(decided.confirmable).toBe(true);
+    const replaced = await previewTakeoffItemSend(JOB, { page_decisions: [{ page: 2, decision: "replace" }] });
+    expect(replaced.invalid_page_decisions).toEqual([{ page: 2, reason: "replace_not_cuttable", message: expect.stringContaining("Remplacer") }]);
+    expect([replaced.confirmable, replaced.plan_digest]).toEqual([false, null]);
+    const unheld = await previewTakeoffItemSend(JOB, { page_decisions: [{ page: 2, decision: "keep_both", reason_code: "other_zone" },
+      { page: 4, decision: "replace" }] });
+    expect(unheld.invalid_page_decisions).toEqual([expect.objectContaining({ page: 4, reason: "page_not_held" })]);
+    expect(calls.writes).toEqual([]);
+  });
+});
+
+describe("confirmTakeoffItemSend", () => {
+  const REQUEST_ID = "cdcdcdcd-cdcd-4dcd-8dcd-cdcdcdcdcdcd";
+
+  it("calls the writer with the server's role, the member as the actor and the server's own first-draft payload", async () => {
+    setUp({});
+    const preview = await previewTakeoffItemSend(JOB, {});
+    const answer = await confirmTakeoffItemSend(JOB, { request_id: REQUEST_ID, plan_digest: preview.plan_digest });
+    expect(answer).toEqual(expect.objectContaining({ replayed: false, version_created: true, lines_written: 1, focus_item_id: LINE }));
+    expect(calls.rpcs.filter((call) => call.endsWith(`:${WRITER}`))).toEqual([`service:${WRITER}`]);
+    expect(written).toEqual([expect.objectContaining({ p_tenant_id: TENANT, p_actor_id: MEMBER, p_module_default: false,
+      p_request: expect.objectContaining({ request_id: REQUEST_ID, version_payload: { calc_engine_version: 3, max_section_depth: 3,
+        sale_coefficient_fo: 1.3 } }) })]);
+    const sent = (written[0].p_request as { plan: { dependencies: { stamps: { mapping: string; first_draft_settings: Row } } } }).plan;
+    expect(sent.dependencies.stamps).toEqual(expect.objectContaining({ mapping: "mapping-stamp",
+      first_draft_settings: expect.objectContaining({ sale_coefficient_fo: 1.3 }) }));
+    expect(calls.writes).toEqual([]);
+  });
+
+  it("never lets a member's values reach the writer: no payload, setting, quantity or plan is accepted in the request (point 12)", async () => {
+    setUp({});
+    const preview = await previewTakeoffItemSend(JOB, {});
+    for (const extra of [{ version_payload: { calc_engine_version: 3, sale_coefficient_fo: 9, discount_bp: 5000 } },
+      { first_draft_settings: { discount_bp: 5000 } }, { plan: { targets: [] } }, { quantity_after: 99 }, { override: true }]) {
+      const error = await confirmTakeoffItemSend(JOB, { request_id: REQUEST_ID, plan_digest: preview.plan_digest, ...extra })
+        .then(() => null, (caught: unknown) => caught);
+      expect(error).toMatchObject({ status: 422 });
+    }
+    expect(written).toEqual([]);
+  });
+
+  it("never confirms an item under an active « Ignorer » rule: zero estimate writes (point 6)", async () => {
+    setUp({});
+    vi.mocked(listActiveTakeoffMappingRules).mockResolvedValue([{ id: "13131313-1313-4313-8313-131313131313", tenant_id: TENANT,
+      created_at: "2026-01-01T00:00:00.000Z", updated_at: "2026-01-01T00:00:00.000Z", created_by: MEMBER, name: "Ignorer les lavabos",
+      match_pattern: "lavabo", match_type: "contains", action: "skip", action_params: {}, priority: 1, is_active: true } as TakeoffMappingRule]);
+    const preview = await previewTakeoffItemSend(JOB, {});
+    expect([preview.lines, preview.confirmable, preview.plan_digest]).toEqual([[], false, null]);
+    expect(preview.not_sent).toEqual([expect.objectContaining({ item_id: LAVABO, reason: "rule_skip" })]);
+    const error = await refusal(confirmTakeoffItemSend(JOB, { request_id: REQUEST_ID, plan_digest: "a".repeat(64) }));
+    // Nothing to send now where a confirmation was asked: a preview to read again (closing of #484), nothing written.
+    expect([error.status, (error.details as { guard?: string }).guard]).toEqual([409, "item_send_preview_stale"]);
+    expect(written).toEqual([]);
+    expect(calls.writes).toEqual([]);
+  });
+
+  it("writes only the plan the member saw: another plan computed now is asked again, nothing written", async () => {
+    setUp({});
+    const error = await refusal(confirmTakeoffItemSend(JOB, { request_id: REQUEST_ID, plan_digest: "a".repeat(64) }));
+    expect([error.status, (error.details as { guard?: string }).guard]).toEqual([409, "item_send_preview_stale"]);
+    expect(written).toEqual([]);
+  });
+
+  /** A receipt of this intention key, as committed for the plan the preview showed (its author, its affaire). */
+  async function committedReceipt(overrides: Row = {}) {
+    setUp({});
+    const preview = await previewTakeoffItemSend(JOB, {});
+    const state = await computeItemSendState({ ...(await getAuthenticatedTakeoffContext()), tenantRole: "admin" } as never, JOB, {});
+    return { preview, receipt: { id: "efefefef-efef-4fef-8fef-efefefefefef", tenant_id: TENANT, request_id: REQUEST_ID, job_id: JOB,
+      project_id: PROJECT, actor_id: MEMBER, write_plan: JSON.parse(JSON.stringify(state.writePlan)), result: { job_id: JOB,
+        version_id: VERSION, version_created: true, lines_written: 1, parts_written: 1, parts_replaced: 0, focus_item_id: LINE },
+      ...overrides } };
+  }
+
+  it("answers a key's receipt for the same plan, and a conflict for another one, without calling the writer", async () => {
+    const { preview, receipt } = await committedReceipt();
+    setUp({ receipts: [receipt] });
+    expect(await confirmTakeoffItemSend(JOB, { request_id: REQUEST_ID, plan_digest: preview.plan_digest }))
+      .toEqual(expect.objectContaining({ receipt_id: "efefefef-efef-4fef-8fef-efefefefefef", replayed: true }));
+    const error = await refusal(confirmTakeoffItemSend(JOB, { request_id: REQUEST_ID, plan_digest: "b".repeat(64) }));
+    expect([error.status, (error.details as { guard?: string }).guard]).toEqual([409, "item_send_request_conflict"]);
+    expect(written).toEqual([]);
+  });
+
+  it("replays only the same choices, of the same author, still allowed to write (closing 9)", async () => {
+    const { preview, receipt } = await committedReceipt();
+    setUp({ receipts: [receipt] });
+    const changed = await refusal(confirmTakeoffItemSend(JOB, { request_id: REQUEST_ID, plan_digest: preview.plan_digest,
+      breakdown: "by_level" }));
+    expect([changed.status, (changed.details as { guard?: string }).guard]).toEqual([409, "item_send_request_conflict"]);
+    setUp({ receipts: [{ ...receipt, actor_id: "22222222-2222-4222-8222-222222222223" }] });
+    const another = await refusal(confirmTakeoffItemSend(JOB, { request_id: REQUEST_ID, plan_digest: preview.plan_digest }));
+    expect([another.status, (another.details as { guard?: string }).guard]).toEqual([409, "item_send_request_conflict"]);
+    setUp({ receipts: [receipt], role: "viewer" });
+    const demoted = await refusal(confirmTakeoffItemSend(JOB, { request_id: REQUEST_ID, plan_digest: preview.plan_digest }));
+    expect([demoted.status, (demoted.details as { guard?: string }).guard]).toEqual([403, "item_send_project_not_writable"]);
+    expect(written).toEqual([]);
+  });
+
+  it("answers stale when the only accepted item was set aside after the preview (closing, small)", async () => {
+    setUp({});
+    const preview = await previewTakeoffItemSend(JOB, {});
+    vi.mocked(readItemSendFacts).mockResolvedValue({ state: "stored", reading: reading(lavabo, { decision: { kind: "set_aside", revision: 2 } }) });
+    const error = await refusal(confirmTakeoffItemSend(JOB, { request_id: REQUEST_ID, plan_digest: preview.plan_digest }));
+    expect([error.status, (error.details as { guard?: string }).guard]).toEqual([409, "item_send_preview_stale"]);
+    expect(written).toEqual([]);
+  });
+
+  it("gives the member what to do for a refusal of the guard of the applied job, never the generic failure", () => {
+    const error = mapItemSendRpcError({ message: "TAKEOFF_APPLY_LOCK_REQUIRED", code: "P0001" }, JOB);
+    expect(error.message).not.toContain("a échoué");
+    expect(error.message).toMatch(/[a-zàâçéèêëîïôûùüÿœ]/);
+  });
+
+  it("tells the member, in French, every refusal of the writer; nothing was written", () => {
+    const cases: Array<[string, string | null, string | null, number]> = [
+      ["TAKEOFF_ITEM_SEND_PREVIEW_STALE", "40001", '{"reason": "mapping_changed"}', 409],
+      ["TAKEOFF_ITEM_SEND_PREVIEW_STALE", "40001", '{"reason": "dpgf_changed"}', 409],
+      ["TAKEOFF_ITEM_SEND_PREVIEW_STALE", "40001", '{"reason": "creation_policy_changed"}', 409],
+      ["ESTIMATE_CALC_POLICY_CONTEXT_CHANGED", "40001", null, 409],
+      ["TAKEOFF_ITEM_SEND_REQUEST_CONFLICT", "40001", null, 409],
+      ["TAKEOFF_ITEM_SEND_ALREADY_SENT", "40001", null, 409],
+      ["TAKEOFF_ITEM_SEND_PROJECT_NOT_WRITABLE", "42501", null, 403],
+      ["TAKEOFF_ITEM_SEND_MODULE_DISABLED", "55000", null, 403],
+      ["TAKEOFF_ITEM_SEND_DRAFT_LOCKED", "55P03", null, 409],
+      ["TAKEOFF_ITEM_SEND_DRAFT_LOCK_REQUIRED", "55P03", null, 409],
+      ["TAKEOFF_ITEM_SEND_COPY_UNREAD", "22023", null, 422],
+      ["TAKEOFF_ITEM_SEND_DPGF_IMPORT_REQUIRED", "22023", null, 422],
+      ["TAKEOFF_ITEM_SEND_PAGE_DECISION_REQUIRED", "22023", '{"reason": "page_held"}', 422],
+      ["TAKEOFF_ITEM_SEND_PAGE_DECISION_INVALID", "22023", '{"reason": "keep_both_same_line", "page": 2}', 422],
+      ["TAKEOFF_ITEM_SEND_QUANTITY_UNWRITABLE", "22023", null, 422],
+      ["TAKEOFF_ITEM_SEND_ENGINE_NOT_V3", "22023", null, 422],
+      ["TAKEOFF_ITEM_SEND_NOT_ITEM_LIST", "22023", null, 409],
+      ["TAKEOFF_ITEM_SEND_JOB_NOT_READY", "40001", null, 409],
+      ["TAKEOFF_ITEM_SEND_INVALID", "22023", null, 500],
+    ];
+    for (const [message, code, details, status] of cases) {
+      const error = mapItemSendRpcError({ message, code: code ?? undefined, details: details ?? undefined }, JOB);
+      expect([message, error.status]).toEqual([message, status]);
+      expect(error.message).toMatch(/[a-zàâçéèêëîïôûùüÿœ]/);
+      expect(error.message).not.toContain("TAKEOFF_");
+    }
+    expect(mapItemSendRpcError({ message: "TAKEOFF_ITEM_SEND_PAGE_DECISION_INVALID", code: "22023",
+      details: '{"reason": "keep_both_same_line", "page": 2}' }, JOB).message).toContain("Garder les deux");
   });
 });

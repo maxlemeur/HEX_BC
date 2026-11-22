@@ -1,22 +1,30 @@
 import "server-only";
 
+import { z } from "zod";
+
+import { mapSupabaseError } from "@/lib/http/api-response";
+import { TakeoffError, TakeoffErrorCode, toTakeoffError } from "@/lib/takeoff/errors";
+import { readSealedItemListItems } from "@/lib/takeoff/item-list-server";
 import type { AuthenticatedTakeoffContext } from "@/lib/takeoff/job-read-server";
 import type {
   ItemSendAnswer,
+  ItemSendDisplacedTarget,
   ItemSendEarlierSection,
   ItemSendEarlierTarget,
   ItemSendListItem,
+  ItemSendPageInEstimate,
 } from "@/lib/takeoff/item-send-plan";
 
 /**
- * Lot 4, PR 5a: the one reader of what the send by item needs that other pull requests store — the stored answers of a
- * plan (lot 4 PR 3a, migration B1), their review decisions and the entries (PR 4, migration B2), and the targets and
- * sections earlier sends by item wrote in a draft (the writer's migration C). Every read of them goes through this
- * module, so that the pull request that stores each replaces its inside and nothing else.
+ * Lot 4, PR 5a/5b: the one reader of what the send by item needs that other pull requests store — the stored answers of a
+ * plan (lot 4 PR 3a, migration B1), their effective review decisions and the entries (PR 4, migration B2), and what earlier
+ * sends by item wrote in a draft (migration C). It reads them through the database's readers, the ones the writer reads
+ * again under its locks (public.read_takeoff_item_send_facts, public.read_takeoff_item_send_draft), so that the plan the
+ * server computes and the one the writer checks are computed from the same facts. The effective decision is B2's
+ * (private.takeoff_item_table_pairs.decision_effective), read there once.
  *
- * Until those relations exist on `main`, it reads none: a plan's answers are « not stored » (the preview says so and
- * writes nothing) and a draft holds no earlier target nor section of a send by item. Read with the member's session, so
- * that each fact follows its own policy.
+ * Read with the member's session: each reader checks the member's access to the affaire, and the sealed list's entries
+ * follow their own policy.
  */
 
 type Member = Pick<AuthenticatedTakeoffContext, "supabase" | "tenantId" | "userId">;
@@ -25,9 +33,9 @@ type Member = Pick<AuthenticatedTakeoffContext, "supabase" | "tenantId" | "userI
 export type ItemSendReading = {
   /** The sealed list revision, in document order. */
   items: ItemSendListItem[];
-  /** The items this plan was asked about: the sealed order of its unit. */
+  /** The items this plan was asked about: those its reading answered, in the sealed order. */
   scope: string[];
-  /** One answer per item of the scope, each with its decision (taken on this revision) and the entry of this plan. */
+  /** One answer per item of the scope, each with its effective decision and the entry of this plan. */
   answers: ItemSendAnswer[];
   /** Quantities entered for an item on the whole affaire. */
   affaireEntries: Array<{ itemId: string; revision: number }>;
@@ -35,22 +43,152 @@ export type ItemSendReading = {
 
 export type ItemSendFacts = { state: "not_stored" } | { state: "stored"; reading: ItemSendReading };
 
+const uuid = z.string().uuid();
+const page = z.number().int().positive();
+
+const factsSchema = z.discriminatedUnion("state", [
+  z.object({ state: z.literal("not_stored") }),
+  z.object({
+    state: z.literal("stored"),
+    list_revision_id: uuid,
+    unit_pages: z.array(page),
+    answers: z.array(z.object({
+      item_id: uuid,
+      answer_id: uuid,
+      revision: z.string(),
+      outcome: z.enum(["measured", "uncertain", "not_found"]),
+      current: z.boolean(),
+      searched_pages: z.array(page),
+      observations: z.array(z.object({
+        observation_id: uuid,
+        role: z.enum(["contribution", "candidate", "alternative"]),
+        source: z.string(),
+        quantity: z.number().nullable(),
+        unit: z.string().nullable(),
+        page: page.nullable(),
+        measurement_basis: z.string().nullable(),
+      })),
+      decision: z.object({ kind: z.enum(["accepted", "set_aside"]), revision: z.number().int().positive() }).nullable(),
+      entry: z.object({ revision: z.number().int().positive(), quantity: z.number(), unit: z.string(), category: z.string(),
+        included: z.boolean() }).nullable(),
+    })),
+    affaire_entries: z.array(z.object({ item_id: uuid, revision: z.number().int().positive() })),
+  }),
+]);
+
+const identitySchema = z.object({ unit: z.string(), basis: z.string().nullable(), network: z.string().nullable(),
+  material: z.string().nullable(), diameter: z.string().nullable() });
+const partSchema = z.object({
+  job_id: uuid,
+  answer_id: uuid.nullable(),
+  observation_ids: z.array(uuid),
+  quantity: z.number(),
+  pages: z.array(page),
+  plan_key: uuid.nullable(),
+  identity: identitySchema,
+});
+const breakdownSchema = z.enum(["together", "by_level", "by_building", "dpgf"]);
+
+const draftSchema = z.object({
+  earlier_targets: z.array(z.object({ estimate_item_id: uuid, item_id: uuid, compartment_key: z.string(), breakdown: breakdownSchema,
+    parts: z.array(partSchema) })),
+  displaced_targets: z.array(z.object({ item_id: uuid, compartment_key: z.string(), breakdown: breakdownSchema,
+    parts: z.array(partSchema) })),
+  sections: z.array(z.object({ key: z.string(), estimate_item_id: uuid })),
+  pages_in_estimate: z.array(z.object({
+    page: page.nullable(),
+    earlier_job_ids: z.array(z.string()),
+    estimate_item_ids: z.array(z.string()),
+    today: z.boolean(),
+    today_estimate_item_ids: z.array(z.string()),
+    parts: z.array(z.object({ part_id: uuid, job_id: uuid, item_id: uuid, plan_key: uuid, pages: z.array(page),
+      estimate_item_id: uuid, answer_id: uuid, observation_ids: z.array(uuid) })),
+  })),
+});
+
+function failed(error: { message?: string } | null, message: string, jobId: string): never {
+  throw toTakeoffError(mapSupabaseError(error as never, message), { fallbackCode: TakeoffErrorCode.INTERNAL_ERROR, retryable: false, jobId });
+}
+
+function unreadable(jobId: string, message: string): never {
+  throw new TakeoffError({ status: 500, code: TakeoffErrorCode.INTERNAL_ERROR, retryable: false, jobId, message,
+    details: { guard: "item_send_facts_unreadable" } });
+}
+
+/** A part as the planner reads it: its stored quantitative identity is the one compared, never re-derived. */
+function partOf(part: z.infer<typeof partSchema>): ItemSendEarlierTarget["parts"][number] {
+  return { jobId: part.job_id, answerId: part.answer_id, observationIds: part.observation_ids, quantity: part.quantity,
+    unit: part.identity.unit, basis: part.identity.basis,
+    qualifiers: { network: part.identity.network ?? undefined, material: part.identity.material ?? undefined,
+      diameter: part.identity.diameter ?? undefined },
+    pages: part.pages, planKey: part.plan_key, identity: part.identity };
+}
+
+/** The breakdown of a target (a DPGF line's is « dpgf »): the planner compares a draft's breakdown with the send's. */
+const breakdownOf = (value: z.infer<typeof breakdownSchema>) => value as ItemSendEarlierTarget["breakdown"];
+
 export async function readItemSendFacts(member: Member, input: {
   jobId: string;
   projectId: string;
   list: { revisionId: string; revision: number; itemCount: number };
 }): Promise<ItemSendFacts> {
-  void member;
-  void input;
-  return { state: "not_stored" };
+  const { data, error } = await member.supabase.rpc("read_takeoff_item_send_facts" as never,
+    { p_tenant_id: member.tenantId, p_project_id: input.projectId, p_job_id: input.jobId } as never);
+  if (error) failed(error, "Impossible de lire les réponses par poste de ce plan.", input.jobId);
+  const parsed = factsSchema.safeParse(data);
+  if (!parsed.success) unreadable(input.jobId, "Les réponses par poste de ce plan sont illisibles.");
+  if (parsed.data.state === "not_stored") return { state: "not_stored" };
+  const facts = parsed.data;
+  if (facts.list_revision_id.toLowerCase() !== input.list.revisionId.toLowerCase()) {
+    unreadable(input.jobId, "Ce plan a été lu contre une autre liste que celle de sa demande.");
+  }
+  const items: ItemSendListItem[] = await readSealedItemListItems(member.supabase as never, { tenantId: member.tenantId,
+    projectId: input.projectId, revisionId: input.list.revisionId, itemCount: input.list.itemCount });
+  const answered = new Set(facts.answers.map((answer) => answer.item_id.toLowerCase()));
+  const answers: ItemSendAnswer[] = facts.answers.map((answer) => ({
+    itemId: answer.item_id,
+    answerId: answer.answer_id,
+    revision: answer.revision,
+    outcome: answer.outcome,
+    current: answer.current,
+    searchedPages: answer.searched_pages,
+    observations: answer.observations.map((observation) => ({ observationId: observation.observation_id, role: observation.role,
+      source: observation.source === "vector" ? "vector" : "model", quantity: observation.quantity, unit: observation.unit,
+      page: observation.page, measurementBasis: observation.measurement_basis })),
+    decision: answer.decision,
+    entry: answer.entry,
+  }));
+  return { state: "stored", reading: {
+    items,
+    scope: items.filter((item) => answered.has(item.id.toLowerCase())).map((item) => item.id),
+    answers,
+    affaireEntries: facts.affaire_entries.map((entry) => ({ itemId: entry.item_id, revision: entry.revision })),
+  } };
 }
 
-/** The targets and sections earlier sends by item wrote in this draft, with the live parts each target holds. */
-export async function readItemSendEarlierState(member: Member, input: { projectId: string; versionId: string }): Promise<{
-  targets: ItemSendEarlierTarget[];
-  sections: ItemSendEarlierSection[];
-}> {
-  void member;
-  void input;
-  return { targets: [], sections: [] };
+/**
+ * What earlier sends by item wrote in this draft, read for this job's send: the live targets with their live parts, the
+ * targets whose line the editor deleted (their parts still live), the sections they created, and the pages of the job's
+ * plan the draft already holds from another analysis (the writer's page guard, on the same pages).
+ */
+export async function readItemSendEarlierState(member: Member, input: { projectId: string; versionId: string; jobId: string }):
+  Promise<{ targets: ItemSendEarlierTarget[]; displaced: ItemSendDisplacedTarget[]; sections: ItemSendEarlierSection[];
+    pagesInEstimate: ItemSendPageInEstimate[] }> {
+  const { data, error } = await member.supabase.rpc("read_takeoff_item_send_draft" as never, { p_tenant_id: member.tenantId,
+    p_project_id: input.projectId, p_version_id: input.versionId, p_job_id: input.jobId } as never);
+  if (error) failed(error, "Impossible de lire ce que le brouillon tient des envois par poste.", input.jobId);
+  const parsed = draftSchema.safeParse(data);
+  if (!parsed.success) unreadable(input.jobId, "Ce que le brouillon tient des envois par poste est illisible.");
+  const draft = parsed.data;
+  return {
+    targets: draft.earlier_targets.map((target) => ({ itemId: target.item_id, breakdown: breakdownOf(target.breakdown),
+      compartmentKey: target.compartment_key, estimateItemId: target.estimate_item_id, parts: target.parts.map(partOf) })),
+    displaced: draft.displaced_targets.map((target) => ({ itemId: target.item_id, breakdown: breakdownOf(target.breakdown),
+      compartmentKey: target.compartment_key, parts: target.parts.map(partOf) })),
+    sections: draft.sections.map((section) => ({ key: section.key, estimateItemId: section.estimate_item_id })),
+    pagesInEstimate: draft.pages_in_estimate.map((entry) => ({ page: entry.page, earlierJobIds: entry.earlier_job_ids,
+      estimateItemIds: entry.estimate_item_ids, today: entry.today, todayEstimateItemIds: entry.today_estimate_item_ids,
+      parts: entry.parts.map((part) => ({ partId: part.part_id, jobId: part.job_id, itemId: part.item_id, planKey: part.plan_key,
+        pages: part.pages, estimateItemId: part.estimate_item_id, answerId: part.answer_id, observationIds: part.observation_ids })) })),
+  };
 }

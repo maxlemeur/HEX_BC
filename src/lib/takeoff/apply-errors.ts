@@ -407,6 +407,17 @@ export function mapApplyTakeoffRpcError(
       details: { ...guardDetails, guard: "page_decision" }, retryable: false, jobId: input.jobId });
   }
 
+  if (error.message === "TAKEOFF_APPLY_ITEM_SEND_VERSION") {
+    // Lot 4, migration C: a version fed item by item (a live target of the send by item) is never written by today's
+    // writers — the grouped send, the send of one plan for today's formats, the legacy DPGF apply — whose lines would be
+    // counted beside the parts the send by item keeps per item.
+    return new TakeoffError({ status: 409, code: TakeoffErrorCode.CONFLICT,
+      message: "Ce devis a été alimenté poste par poste depuis la liste des postes : une analyse d’un format antérieur ne peut "
+        + "plus y être envoyée, ses lignes compteraient deux fois. Envoyez-la vers un autre brouillon, ou relancez l’analyse de "
+        + "ce plan contre la liste des postes. Rien n’a été écrit.",
+      details: { ...details, guard: "item_send_version" }, retryable: false, jobId: input.jobId });
+  }
+
   if (error.message === "TAKEOFF_APPLY_ORDINARY_LINE_CONFLICT") {
     // Lot 2 M2: the writer refuses, under the version's lock, what the screen refused before sending (merge-overwrites.ts).
     const line = parseOrdinaryLine(error.details);

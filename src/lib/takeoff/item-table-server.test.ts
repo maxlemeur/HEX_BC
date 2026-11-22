@@ -54,6 +54,8 @@ let tableRows: Array<Record<string, unknown>> = [];
 let takeoffRows: Array<Record<string, unknown>> = [];
 let events: Array<Record<string, unknown>> = [];
 let jobRows: Array<Record<string, unknown>> = [];
+/** The answers' counted marks states (lot 5), as a member reads them. */
+let marksStates: Array<{ answer_id: string; revision: number }> = [];
 const ranges: Array<[number, number]> = [];
 
 function memberClient() {
@@ -63,6 +65,7 @@ function memberClient() {
       : table === "takeoff_list_revisions" ? [{ id: "44444444-4444-4444-8444-444444444444", revision: 2, item_count: 2 }]
         : table === "takeoff_item_review_events" ? events
           : table === "takeoff_jobs" ? jobRows
+          : table === "takeoff_count_answer_states" ? marksStates
           : table === "profiles" ? [{ id: MEMBER, full_name: " Léa Martin " }] : (() => { throw new Error(`Unexpected read of ${table}.`); })();
     const builder: Record<string, unknown> = {};
     // The journal is read as PostgREST reads it: its filters, its order and its range (both ends included).
@@ -118,6 +121,7 @@ beforeEach(() => {
   ranges.length = 0;
   events = [];
   jobRows = [];
+  marksStates = [];
   tableRows = [tableRow(0), tableRow(1)];
   takeoffRows = [{ id: rowId(0), quantity: 3, unit: "u", is_verified: false, is_excluded: false, rules_stale: false, rule_results: [], confidence: 0.4, evidence: "Symboles",
     source_page: 1, metadata: {}, quantity_entry_category: null }];
@@ -155,7 +159,7 @@ describe("readAffaireItemTable", () => {
   it("reads a bounded number of statements for a page, whatever the length of the list", async () => {
     await readAffaireItemTable(PROJECT, { ...query, scope: { kind: "affaire" }, filter: {}, focusItemId: null });
     expect(calls.map(({ name }) => name).sort()).toEqual(["count_takeoff_item_table", "read_takeoff_item_table"]);
-    expect(reads.sort()).toEqual(["takeoff_items", "takeoff_list_revisions"]);
+    expect(reads.sort()).toEqual(["takeoff_count_answer_states", "takeoff_items", "takeoff_list_revisions"]);
   });
 
   it("reads the first page when the address names a page past the end", async () => {
@@ -224,9 +228,13 @@ describe("freezeAffaireItemSelection", () => {
 
   it("freezes the items named, and names those no longer in the list", async () => {
     tableRows = [tableRow(1)];
+    // Lot 5: the answer's counted marks are at revision 3; the selection carries it, for an acceptance to compare.
+    marksStates = [{ answer_id: "00000000-0000-4000-b000-000000000001", revision: 3 }];
     const frozen = await freezeAffaireItemSelection(PROJECT, { scope: { kind: "affaire" },
       selection: { kind: "items", itemIds: [itemId(1), itemId(9)] } });
     expect(frozen).toMatchObject({ count: 1, missing: [itemId(9)], items: [{ itemId: itemId(1), label: "Poste 1" }] });
+    expect(frozen.items[0]!.target.answers).toEqual([expect.objectContaining({ answerId: "00000000-0000-4000-b000-000000000001",
+      marksRevision: 3 })]);
     expect(calls.find(({ name }) => name === "read_takeoff_item_table")?.args).toMatchObject({ p_item_ids: [itemId(1), itemId(9)],
       p_limit: ITEM_REVIEW_LIMITS.items + 1 });
   });

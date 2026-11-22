@@ -105,12 +105,16 @@ describe("Détail du poste", () => {
       await expect(ui.locator(`[data-testid="poste-${item(3)}"]`)).toHaveAttribute("aria-current", "true");
       await expect(detailLink(LABELS[3])).toBeFocused();
 
-      // 6. Opened again, the browser's back closes it.
+      // 6. Opened again from another line (the address still names the item of step 5), the browser's back closes it
+      // and gives the keyboard back to the « Détail » it was opened from, not to the line the address named.
+      expect((await search()).get("posteFocus")).toBe(item(3));
       await detailLink(LABELS[2]).click();
       await expect(detail).toBeVisible();
       await ui.browser.back();
       await expect(table).toBeVisible();
       await expect(detail).toHaveCount(0);
+      await expect(detailLink(LABELS[2])).toBeFocused();
+      await expect.poll(async () => (await search()).get("posteFocus")).toBe(item(2));
 
       // 7. A plan already sent to the estimate: read in the detail, no decision offered. (The send is another pull
       // request's: the state it leaves on the analysis is written here, its job marked applied.)

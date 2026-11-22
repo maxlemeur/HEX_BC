@@ -295,7 +295,49 @@ describe("TakeoffItemDetailScreen, the member's rights", () => {
   });
 });
 
+// Follow-ups of lot 5, written before the fix: a command refused for the member's right once another item was shown was
+// discarded, the member keeping the detail until the next read.
+describe("TakeoffItemDetailScreen, a refusal of the member's right", () => {
+  it("withdraws the screen at once when this screen's command is refused, whatever item is shown", async () => {
+    let refuse: (error: unknown) => void = () => undefined;
+    client.sendItemReviewCommand.mockImplementation(() => new Promise((_, reject) => { refuse = reject; }));
+    open(ITEMS.homonym, PLAN_R1, JOB_R1);
+    await settle();
+    fireEvent.click(evidence().getByRole("button", { name: "Accepter" }));
+    fireEvent.click(dialog().getByRole("button", { name: "Accepter 1 poste" }));
+    await settle();
+    // Another item's address arrives (the browser's history) while the command is on its way, in the same scope.
+    act(() => {
+      const url = new URL(takeoffItemDetailHref({ projectId: DETAIL_PROJECT, itemId: ITEMS.notFound, planKey: PLAN_RDC,
+        jobId: JOB_RDC, from: TABLE }), "https://app.test");
+      window.history.replaceState(null, "", `${url.pathname}${url.search}`);
+    });
+    await settle();
+    expect(screen.getByText("Siphon de sol", { selector: "h2" })).toBeTruthy();
+    expect(screen.queryByTestId("poste-detail-refus")).toBeNull();
+    await act(async () => refuse(new TakeoffApiError("Accès refusé.", 403, null, "FORBIDDEN")));
+    await settle();
+    expect(screen.getByTestId("poste-detail-refus")).toBeInTheDocument();
+  });
+});
+
 describe("TakeoffItemDetailScreen, the way back", () => {
+  // Follow-ups of lot 5: the line whose « Détail » opened the detail, for the browser's back (ItemDetailOpenerFocus).
+  it("remembers the line it was opened from for the table's address, and « Revenir aux postes » forgets it", async () => {
+    const { takeItemDetailOpener } = await import("@/components/takeoff/item-detail/ItemDetailOpenerFocus");
+    open(ITEMS.notFound, PLAN_RDC, JOB_RDC);
+    await settle();
+    fireEvent.keyDown(screen.getByRole("listbox", { name: "Postes" }), { key: "ArrowDown" });
+    await settle();
+    // The opener is the item first shown, whatever item the member moved to since.
+    expect(takeItemDetailOpener(DETAIL_PROJECT, "tenant:member", TABLE)).toBe(ITEMS.notFound);
+    cleanup();
+    open(ITEMS.notFound, PLAN_RDC, JOB_RDC);
+    await settle();
+    fireEvent.click(screen.getByRole("button", { name: "Revenir aux postes" }));
+    expect(takeItemDetailOpener(DETAIL_PROJECT, "tenant:member", TABLE)).toBeNull();
+  });
+
   it("comes back to the table by the router, the table's filter kept and the item in focus", async () => {
     open(ITEMS.notFound, PLAN_RDC, JOB_RDC);
     await settle();
@@ -303,7 +345,10 @@ describe("TakeoffItemDetailScreen, the way back", () => {
     expect(replace).toHaveBeenCalledWith(
       `/dashboard/affaires/${DETAIL_PROJECT}/takeoff?posteState=measured&posteState=not_found&tab=jobs&posteFocus=${ITEMS.notFound}`,
       { scroll: false });
-    expect(plansAsked.every((path) => path.startsWith(`/api/affaires/${DETAIL_PROJECT}/takeoff/item-detail/plan?`))).toBe(true);
+    // The plans through the detail's route, and the counted marks of the reading shown (lot 5) through theirs: nothing else.
+    expect(plansAsked.every((path) => path.startsWith(`/api/affaires/${DETAIL_PROJECT}/takeoff/item-detail/plan?`)
+      || path.startsWith(`/api/affaires/${DETAIL_PROJECT}/takeoff/count-marks?`))).toBe(true);
+    expect(plansAsked.some((path) => path.startsWith(`/api/affaires/${DETAIL_PROJECT}/takeoff/item-detail/plan?`))).toBe(true);
   });
 });
 

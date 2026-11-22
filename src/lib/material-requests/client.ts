@@ -43,6 +43,11 @@ import type {
   RetainLineSuppliersInput,
   RetainLineSuppliersResult,
 } from "./supplier-contracts";
+import {
+  MATERIAL_REQUEST_PHOTO_ANALYSIS_UNAVAILABLE,
+  type MaterialRequestPhotoAnalysis,
+  type MaterialRequestPhotoAnalysisAvailability,
+} from "./photo-analysis";
 import type { AffaireSupplyCost } from "./supply-cost-contracts";
 import type { ConsultationTemplateRecord, ConsultationTemplates } from "./consultation-template-contracts";
 
@@ -64,6 +69,8 @@ export type MaterialRequestEditorData = MaterialRequestDetail & {
   canWrite: boolean;
   materialOptions: string[];
   supplierOptions: MaterialRequestSupplierOption[];
+  /** Whether the AI reading of the photos may be offered; null for a reader. */
+  photoAnalysis: MaterialRequestPhotoAnalysisAvailability | null;
 };
 
 export type MaterialRequestHistoryEntry = {
@@ -288,6 +295,28 @@ export async function deleteMaterialRequestFile(projectId: string, requestId: st
     undefined,
     "La photo n’a pas pu être retirée.",
   );
+}
+
+/**
+ * The AI reading of one photo: draft lines, not written. A reading takes up to three minutes; `signal` gives it up
+ * when the office closes the photos.
+ */
+export function analyzeMaterialRequestPhoto(
+  projectId: string,
+  requestId: string,
+  fileId: string,
+  signal?: AbortSignal,
+): Promise<MaterialRequestPhotoAnalysis> {
+  return requestJsonUncoordinated<MaterialRequestPhotoAnalysis>(
+    requestsPath(projectId, requestId, "files", fileId, "analysis"),
+    { method: "POST", signal },
+    "La photo n’a pas pu être lue par l’IA.",
+  );
+}
+
+/** The reading cannot run for this member here: the next photos would meet the same refusal. */
+export function isPhotoAnalysisUnavailable(error: unknown): boolean {
+  return isEstimateApiError(error) && error.code === MATERIAL_REQUEST_PHOTO_ANALYSIS_UNAVAILABLE;
 }
 
 export async function createMaterialRequestLines(

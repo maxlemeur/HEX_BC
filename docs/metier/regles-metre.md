@@ -325,6 +325,80 @@ observation), même après la suppression de l’analyse ; seul un opérateur de
 les modifie, et son droit est vérifié de nouveau après chaque attente ; une lecture
 remplacée garde ses repères en lecture seule.
 
+**Les repères à l’écran.** Le détail d’un poste sur son plan dessine les repères de la
+page affichée à leur place, quels que soient le zoom et le déplacement, chacun avec sa
+forme et son signe (retenu ✓, proposé ?, à attribuer !, nouvelle lecture N) ; un repère
+retiré ne se voit que dans la liste des retirés et dans l’historique, un repère retenu
+pour un autre poste de la même lecture est signalé. Seuls les repères de la partie
+visible sont dessinés ; le total du serveur est affiché à part du nombre chargé. Le
+compte montre trois nombres distincts, calculés par le serveur : proposés, relus (retenus
+sur les pages vérifiées) et quantité retenue. Les mêmes repères forment une liste au
+clavier (↑ ↓ pour changer de repère et le centrer, R retenir, Suppr retirer avec un
+motif, T rétablir, D déplacer, A affecter à un autre poste, N ajouter, P déclarer la page
+vérifiée ; sur le plan, les flèches déplacent le réticule d’un point, Maj de dix, Entrée
+pose, Échap quitte ; le réticule part du centre de la partie visible du plan). Un repère ne
+se pose au clavier que sur une partie de la page visible dans le cadre ; sinon l’écran le
+dit. Une page ne se déclare vérifiée que sur son plan affiché et dessiné. Les gestes
+s’accumulent puis s’enregistrent en une seule commande, sous la révision affichée ; pendant
+un enregistrement, le membre continue, seuls les gestes envoyés sont retirés de la liste une
+fois enregistrés, et aucun chemin (touche, dialogue, question) ne modifie un geste en cours
+d’envoi. La réponse d’un enregistrement appartient au membre et au poste qui l’ont lancé :
+ouvert entre-temps, un autre poste garde sa page et ses gestes. Si un autre membre a modifié
+les repères entre-temps, ils sont relus, l’écran dit ce qui a changé et garde chaque geste
+pour l’enregistrer de nouveau ; la page, ses repères retirés, l’historique et le compte sont
+toujours montrés à une seule révision, sinon l’écran les relit. Les gestes non enregistrés
+restent dans l’onglet pour ce membre et ce poste. Un repère rétabli depuis la liste des
+retirés est dessiné et listé aussitôt, avant l’enregistrement, et se décide comme les
+autres ; une page ne se déclare pas vérifiée tant qu’un repère rétabli y reste à décider, et
+un repère à décider ne se rétablit pas sur une page que la session déclare vérifiée : l’écran
+le dit ; annuler un geste qui laisse la page à décider retire aussi sa déclaration de page
+vérifiée, et l’écran le dit. Un repère s’affecte à tout autre poste de la même lecture (son
+analyse, sur son plan) dont la réponse n’a pas été remplacée, de la même unité attendue, et
+qui a lu la page du repère, quel que soit le tableau des postes affiché : exactement ce que
+la commande accepte, restreint à la même analyse ; un repère qu’un autre poste retient déjà
+ne s’affecte pas. Une page ne se déclare vérifiée, et sa déclaration ne s’enregistre, que si
+aucun de ses repères ne reste à décider, ceux au-delà des lots lus compris (le compte du
+serveur pour cette page, à la révision envoyée). Un
+ajout non enregistré ne s’affecte pas à un autre poste : il s’enregistre d’abord. À côté
+d’un repère retenu, l’écran demande « Même objet » ou « Objet distinct » et ne décide jamais
+seul, y compris pour un repère retenu que seul l’enregistrement trouve : chaque choix nomme
+son repère par son numéro et sa place, le charge s’il ne l’est pas encore et le centre quand
+il est choisi ; pour une affectation, ce sont les repères retenus du poste qui reçoit le
+repère, lus sur la page du geste refusé, à une seule révision : la page est montrée avant
+d’être centrée, et chaque repère nommé se consulte. Un refus du droit du membre (session
+perdue, droit retiré) qui revient pour cet écran le retire aussitôt — le détail avec ses
+repères, ses données et ses décisions —, quel que soit le poste affiché ; un refus revenu
+pour un membre ou une portée précédents reste sans effet. Un enregistrement refusé pour une
+session perdue retire l’écran ; refusé pour le droit, il arrête aussitôt toute correction (aucun
+chemin n’ajoute plus de geste), et la dernière lecture dit ensuite ce que le membre peut
+voir et corriger, dans un sens comme dans l’autre.
+Un lecteur, un plan déjà envoyé au devis et une lecture remplacée montrent les repères, le
+compte et l’historique, sans geste ; la commande refuse elle-même une modification d’un
+plan envoyé, sous ses verrous (un envoi et une modification s’excluent). Ouvert sur une
+lecture plus ancienne, le détail montre ses propres repères en lecture seule, sur sa propre
+copie du plan, tels que le serveur les donne (jamais des gestes de l’onglet non
+enregistrés), une fois que le serveur a prouvé la réponse que cette analyse a donnée pour le
+poste sur ce plan, et mène à la lecture actuelle. Le retour du navigateur depuis le détail
+rend le clavier au « Détail » de la ligne qui l’a ouvert, pour le membre qui l’a ouvert,
+sauf si le membre a lui-même donné le clavier à une autre ligne. Tant qu’un envoi ne vérifie pas la
+révision des repères, une quantité comptée sur le plan est montrée et n’est jamais
+envoyée : le tableau des postes et l’envoi gardent la quantité qu’ils retiennent.
+
+Une acceptance du tableau des postes retient aussi la révision des repères de la réponse
+acceptée, et compare celle que la sélection a vue : des repères modifiés depuis rendent la
+sélection périmée, rien n’est accepté. Écarter, réintégrer, saisir une quantité ou inclure
+une saisie ne certifient aucun compte : des repères modifiés depuis la sélection ne les
+rendent pas périmés, ni pour le serveur ni pour la base, qui jugent sur la même règle. Une
+sélection que le serveur trouve périmée part à la base avec tous ses postes à appliquer,
+jamais avec aucun : la base rend la réponse de la même commande déjà enregistrée, refuse la
+sélection périmée, ou applique toute la sélection qu’elle trouve actuelle et admissible ;
+elle n’enregistre jamais une commande qui n’a rien fait sur une sélection périmée. Si les repères changent ensuite (un repère ajouté, déplacé, retiré, rétabli,
+retenu, affecté à un autre poste, une page vérifiée, une nouvelle lecture machine), même à
+nombre égal, l’acceptance n’est plus une décision : le poste redevient « à décider » dans
+le tableau, ses compteurs et la commande, et s’accepte de nouveau sur les repères actuels.
+Écarter puis réintégrer un poste rend l’acceptance telle qu’elle était, liée aux repères
+sur lesquels elle avait été prise. Une réponse sans repères garde son acceptance.
+
 Une ligne de devis créée depuis un import garde dans sa provenance l’import et la
 ligne mappée. La ligne mappée nomme la ligne brute dont elle vient ; quand une
 nouvelle correspondance la supprime, la base garde ce lien. La ligne de devis et ses
@@ -394,10 +468,16 @@ l’affaire `takeoff-item-review:<affaire>` (que seule cette commande prend), pu
 règles des analyses dont elle écrit les lignes positives, comme l’enregistrement d’une ligne
 de la revue ciblée les prend : la clé `takeoff-rules:<version>` de chaque version avant les
 clés `takeoff-job-rules:<analyse>` puis `takeoff-job:<analyse>` de chaque analyse sans
-version, chacune dans l’ordre des identifiants ; enfin les lignes (`takeoff_items`) et ses
-propres relations. Elle relit les postes visés une fois ces clés tenues : ce qu’elle compare
-et juge est ce qui est enregistré à ce moment. Les lectures du tableau ne prennent aucun
-verrou.
+version, chacune dans l’ordre des identifiants ; pour une acceptance, l’état des repères
+de chaque réponse visée (`FOR SHARE`, dans l’ordre des identifiants), après ces clés et
+avant les lignes ; enfin les lignes (`takeoff_items`) et ses propres relations. Elle relit
+les postes visés une fois ces clés tenues : ce qu’elle compare et juge est ce qui est
+enregistré à ce moment. La commande de correction des repères
+(`public.edit_takeoff_count_marks`) prend, après la ligne de l’affaire, les lignes des
+analyses des réponses qu’elle nomme (`FOR SHARE`), puis ces réponses (`FOR KEY SHARE`), leur
+état des repères et les repères qu’elle nomme (`FOR UPDATE`), chaque fois dans l’ordre des
+identifiants : un envoi, ou tout autre écrivain de la ligne d’une de ces analyses, attend la
+fin de sa transaction, jamais davantage. Les lectures du tableau ne prennent aucun verrou.
 
 L’admission d’une nouvelle mesure (`public.launch_takeoff_item_remeasure`) prend, dans cet
 ordre : la ligne de l’affaire (`FOR SHARE`, attendue, comme tout lancement ; une affaire
@@ -1348,16 +1428,56 @@ suit s'y ajoute (migration `20261122030312_takeoff_partial_send.sql`,
   viennent avec l'envoi par poste (lot 4, ci-dessous), la redistribution vers une ligne DPGF
   rapprochée ensuite.
 
-## Envoyer les postes d'un plan : l'aperçu (lot 4)
+## Envoyer les postes d'un plan : l'aperçu et la confirmation (lot 4)
 
 Une analyse lue contre la liste des postes donne une réponse par poste et par plan. Son envoi au
 devis part de ces réponses, pas des lignes du métré : l'aperçu
 (`POST /api/takeoff/jobs/{jobId}/item-send/preview`, `src/lib/takeoff/item-send-plan.ts`) montre
-ce que deviendrait le devis et n'écrit rien, ni version, ni section, ni ligne, ni reçu. Sa
-confirmation et son écrivain viennent avec une prochaine version ; tant que les réponses par poste
-ne sont pas enregistrées, l'aperçu répond qu'elles ne le sont pas. L'envoi des métrés d'aujourd'hui
-(une analyse groupée, hors demande ou par plan sans liste) est inchangé. Le droit d'écrire l'affaire
-est vérifié d'abord : sans lui, le membre lit le motif et rien d'autre du métré.
+ce que deviendrait le devis et n'écrit rien, ni version, ni section, ni ligne, ni reçu ; tant que les
+réponses par poste ne sont pas enregistrées, il répond qu'elles ne le sont pas. Le droit d'écrire
+l'affaire est vérifié d'abord : sans lui, le membre lit le motif et rien d'autre du métré.
+
+La confirmation (`POST /api/takeoff/jobs/{jobId}/item-send/confirm`,
+`src/lib/takeoff/item-send-confirm-server.ts`) envoie la même demande, les décisions de pages, une
+clé d'intention et l'empreinte du plan montré. Le serveur recalcule le plan depuis les faits
+enregistrés, lus par les lecteurs de la base que l'écrivain relit (`read_takeoff_item_send_facts`,
+`read_takeoff_item_send_draft`) ; un autre plan que celui montré est refusé, rien n'est écrit, l'aperçu
+est à rouvrir. L'écrivain (`public.send_takeoff_item_plan`) est celui du serveur : seul le rôle de
+service l'appelle, avec le membre authentifié en paramètre ; après ses attentes, il relit le droit du
+membre sur l'affaire (son propriétaire ingénieur ou un administrateur, l'affaire non archivée), que
+l'entreprise est toujours celle où le membre travaille (comme l'application la résout, entreprise
+active), l'admission du module et le bail du brouillon à l'heure qu'il est, puis écrit en une
+transaction. La même clé rend le même reçu seulement à son auteur, toujours en droit d'écrire, pour
+les mêmes choix et le même plan ; autrement c'est un conflit ou un refus. Un aperçu qui ne peut plus
+être confirmé (un poste écarté depuis) est à rouvrir. Chaque refus dit au membre pourquoi.
+
+**Frontière de confiance.** La base ne prend du plan rien qui change un montant : chaque part, sa
+quantité, son unité et ses pages, l'identité quantitative, ce qui est remplacé, l'effet des
+décisions de pages et les pages écrites sont relus ou recalculés depuis les réponses, décisions,
+saisies, lignes, cibles et parts enregistrées — les pages d'une part laissée de côté comprises, la
+quantité ajoutée prise des parts enregistrées, chacune nommée une seule fois, et le résumé de chaque
+page (ses postes, ses cibles, ses observations) comparé en entier. Le plan a une
+seule forme, celle que le planificateur écrit : une clé manquante ou inconnue le refuse, et les plans
+du planificateur passent par la vérification de la base dans les tests. L'identité se compare sous
+une seule forme des deux côtés, quelle que soit la langue de la base (décomposition de compatibilité,
+casse, signes diacritiques de toutes les écritures retirés). Ce que seul le serveur calcule, elle le lie par
+comparaison : la projection des règles de correspondance (le plan nomme la règle appliquée à chaque
+poste ; l'état des règles et la version de chaque règle nommée sont comparés, une règle « Ignorer »
+n'écrit jamais, le titre et la catégorie d'une ligne créée sont vérifiés), et les réglages du premier
+brouillon : il est créé comme « Créer un devis » le crée, sous la politique de l'entreprise (son
+moteur, son contrat de création), depuis les réglages canoniques du serveur
+(`prepareCanonicalEstimateCreation`, comme l'envoi d'aujourd'hui) — coefficients et remise compris,
+jamais une valeur de la demande — et ses réglages créés sont comparés à ceux que l'aperçu a montrés.
+
+L'envoi des métrés d'aujourd'hui (une analyse groupée, hors demande ou par plan sans liste) est
+inchangé, sauf vers un devis alimenté poste par poste : l'envoi groupé, l'envoi d'un plan aux formats
+d'aujourd'hui et l'application héritée (avec sa composition DPGF) refusent une version qui tient une
+cible de l'envoi par poste — avec sa ligne, ou avec une part vivante quand le même envoi a d'abord
+vidé la section (« Remplacer la section ») —, car leurs lignes compteraient à côté des parts gardées
+par poste. Une analyse lue contre la liste ne part que poste par poste : l'envoi d'aujourd'hui la
+refuse, à l'aperçu comme à la confirmation, et le membre lit « Ce métré a été lu contre la liste des
+postes : il s’envoie poste par poste. Rien n’a été écrit. » (`send_item_list_job`) ; la base refuse
+de même de la rattacher à une version hors de l'envoi par poste.
 
 - **Unité d'envoi.** Ce qui est retenu de ce plan, confirmé pour ce seul job : une mesure acceptée
   dans le tableau des postes, ou une saisie retenue. Une mesure que personne n'a acceptée, avec ou
@@ -1389,9 +1509,12 @@ est vérifié d'abord : sans lui, le membre lit le motif et rien d'autre du mét
   son import, telle que la base la garde (une ligne mappée remplacée par un remappage garde sa
   filiation), lue en entier ; sans preuve complète, aucune cible automatique. Une ligne alimentée
   pour un autre poste n'est ni la cible de celui-ci ni proposée, quel que soit le chemin ; seule une
-  ligne encore au devis est une cible, jamais une ligne supprimée. Une ligne introuvable, multiple ou d'un import antérieur sans
-  filiation prouvée demande un choix parmi les lignes présentées, et seule la ligne choisie reçoit le
-  métré. Les postes hors DPGF vont dans la section « Compléments du métré hors DPGF », même pour un
+  ligne encore au devis est une cible, jamais une ligne supprimée. Un poste fait à la main n'alimente
+  jamais une ligne du DPGF ; un poste d'un import n'alimente qu'une ligne de cet import, jamais une
+  ligne nouvelle tant que le brouillon en tient une. Une ligne introuvable ou multiple de son import
+  demande un choix parmi les lignes présentées, et seule la ligne choisie reçoit le métré. Une liste
+  qui tient des postes d'un DPGF ne part que vers un brouillon qui tient une ligne de cet import. Les
+  postes hors DPGF vont dans la section « Compléments du métré hors DPGF », même pour un
   plan interrogé sur ces seuls postes. La quantité retenue et l'écart sont ceux de la politique DPGF
   d'aujourd'hui (le maximum protecteur, l'écart cumulé avec les écarts imprimés, la vérification
   au-delà de 1 %). Une quantité saisie à la main sur la ligne est gardée à part de la référence, de
@@ -1401,10 +1524,25 @@ est vérifié d'abord : sans lui, le membre lit le motif et rien d'autre du mét
 - **Pages.** Les postes d'une page partagent un seul apport de page. Une page déjà au devis par une
   autre analyse ne compte pas deux fois, comparée sur le fichier, son empreinte et la référence du
   plan que donne la préparation (deux révisions d'un même plan sont un même document) : ses apports
-  attendent sa décision, et l'aperçu montre les lignes du devis déjà sur la page. La part d'un plan
-  pour un poste est une : ce qu'un envoi antérieur du même plan a apporté à la ligne est remplacé,
-  jamais additionné (l'aperçu montre l'avant et l'après). Une saisie pour ce plan se tient sur toutes
-  les pages de son unité, pour la garde comme pour son apport de page.
+  attendent sa décision, et l'aperçu montre les lignes du devis déjà sur la page. La décision se
+  prend à la confirmation : « Remplacer » retire de la ligne les parts antérieures des postes que ce
+  plan y envoie, jamais sur une page d'un envoi d'aujourd'hui (lue sans part par poste) ; « Garder les
+  deux », avec sa raison (un périmètre complémentaire dit pourquoi dans une note), jamais sur une ligne
+  qui tient déjà cette page d'une autre lecture ; une part qui porte aussi sur une page non remplacée
+  n'est pas coupée. Sans décision, la page reste en attente, ou ses apports sont laissés de côté.
+- **Couverture d'une confirmation.** Une confirmation remplace les parts antérieures du même poste et
+  du même plan sur les pages qu'elle couvre : celles que sa réponse a cherchées et qu'elle envoie (une
+  page cherchée sans rien trouvé est couverte : ce qu'elle avait apporté est retiré) et une page
+  tenue qu'elle remplace. Une part antérieure sur une page qu'elle ne couvre pas (tenue sans décision,
+  laissée de côté) reste vivante : 2 unités déjà envoyées depuis la page 2 et une nouvelle lecture de
+  la seule page 7 font 3, jamais 1. Une saisie pour ce plan couvre toutes les pages de son unité, pour
+  la garde comme pour son apport de page. L'identité se compare avec les parts qui restent, jamais avec
+  celles remplacées. Une réponse qu'une lecture plus récente du plan a remplacée n'envoie rien.
+- **Ligne supprimée.** Après la suppression dans l'éditeur de la ligne qu'un envoi par poste
+  alimentait, un nouvel envoi recrée la ligne seulement par choix, et retire dans la même transaction
+  les parts restées vivantes de l'ancienne cible, qui gardent leur historique. Une ligne du DPGF
+  supprimée dont la ligne brute est désormais sur une autre ligne de l'import : l'envoi vers cette
+  ligne retire de même les parts de l'ancienne cible.
 - **Règles et prix.** Une seule projection des règles de correspondance
   (`src/lib/takeoff/item-send-rules.ts`) : « Fixer le prix » est sans effet et dit tel, sans passer
   à la règle suivante ; « Remplacer par un ouvrage » garde la quantité du poste et nomme l'ouvrage.
@@ -1415,8 +1553,8 @@ est vérifié d'abord : sans lui, le membre lit le motif et rien d'autre du mét
   qui ont écarté un poste (identifiant et version), apports déjà au devis avec leurs sources et leur
   identité, lignes et pages lues, état du brouillon de destination (version, statut, date de
   modification), état revu du DPGF (son dernier mappage et l'empreinte de ses lignes), réglages du
-  premier brouillon et contexte d'envoi du lot 3 ; l'ordre de lecture des observations n'y change
-  rien. La confirmation sera refusée quand l'un d'eux a changé.
+  premier brouillon, état des règles de correspondance et contexte d'envoi du lot 3 ; l'ordre de
+  lecture des observations n'y change rien. La confirmation est refusée quand l'un d'eux a changé.
 
 ## Entrées
 

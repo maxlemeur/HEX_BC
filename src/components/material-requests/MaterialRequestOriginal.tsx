@@ -1,14 +1,20 @@
 "use client";
 
 import { useEffect, useId, useRef, useState } from "react";
-import { ChevronLeft, ChevronRight, ImagePlus, Maximize2, RotateCcw, RotateCw, Scissors, Trash2 } from "lucide-react";
+import Link from "next/link";
+import { ChevronLeft, ChevronRight, ImagePlus, Maximize2, RotateCcw, RotateCw, Scissors, Sparkles, Trash2 } from "lucide-react";
 
 import { useToast } from "@/components/feedback/toast-provider";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
-import { fetchMaterialRequestFileBlob } from "@/lib/material-requests/client";
+import {
+  analyzeMaterialRequestPhoto,
+  fetchMaterialRequestFileBlob,
+  isPhotoAnalysisUnavailable,
+  materialRequestErrorMessage,
+} from "@/lib/material-requests/client";
 import {
   MATERIAL_REQUEST_PICKER_ACCEPT,
   MATERIAL_REQUEST_MAX_FILES,
@@ -16,6 +22,7 @@ import {
   MATERIAL_REQUEST_SOURCE_TEXT_MAX,
   type MaterialRequestFile,
   type MaterialRequestFileRotation,
+  type MaterialRequestLineInput,
 } from "@/lib/material-requests/contracts";
 import { splitSourceText } from "@/lib/material-requests/source-text";
 
@@ -190,11 +197,257 @@ function Photos({ editor }: Readonly<{ editor: MaterialRequestEditorApi }>) {
           <p role="status" className="text-sm text-muted-foreground">
             {progress ? photoUploadStepLabel(progress) : null}
           </p>
+          <PhotoAnalysis editor={editor} />
         </>
       ) : null}
       {error ? (
         <Alert variant="danger">
           <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      ) : null}
+    </div>
+  );
+}
+
+type PhotoAnalysisRun = { step: "reading"; position: number; total: number } | { step: "writing" };
+
+const PROFILE_HREF = "/dashboard/profile";
+const READ_KEPT = "Les photos déjà lues ne seront pas relues.";
+
+/**
+ * The AI reading of the photos: each original is read in turn, on the ChatGPT plan of the member who asks, and what
+ * was read becomes draft lines, as the splitting of the pasted message does. It decides nothing: the office reads
+ * every line against the photo. Nothing is created unless every photo was read; a photo already read is not read
+ * again when the reading is taken up after a failure or a stop. Lines that are all drafts no quote holds may be
+ * replaced instead of added to, on the office's choice, and only if they are still the ones it saw when it chose.
+ */
+function PhotoAnalysis({ editor }: Readonly<{ editor: MaterialRequestEditorApi }>) {
+  const toast = useToast();
+  const hintId = useId();
+  const { data, projectId, requestId } = editor;
+  const availability = data.photoAnalysis ?? null;
+  const files = data.files;
+  const lines = data.lines;
+  const [run, setRun] = useState<PhotoAnalysisRun | null>(null);
+  const [choosing, setChoosing] = useState(false);
+  const [error, setError] = useState<{ message: string; profile: boolean } | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  /** What each photo gave, by photo and angle, until lines are created from it. */
+  const read = useRef(new Map<string, MaterialRequestLineInput[]>());
+  const reading = useRef<AbortController | null>(null);
+  /** How many lines the screen shows now, for the room left under the cap: a reading takes minutes. */
+  const shown = useRef(lines.length);
+  useEffect(() => {
+    shown.current = lines.length;
+  }, [lines.length]);
+  useEffect(() => () => reading.current?.abort(), []);
+  /** The control that held the focus is gone (the choice, « Arrêter »): the focus goes back to the reading's button. */
+  const trigger = useRef<HTMLButtonElement>(null);
+  const [refocus, setRefocus] = useState(false);
+  useEffect(() => {
+    if (!refocus) return;
+    setRefocus(false);
+    trigger.current?.focus();
+  }, [refocus]);
+
+  // Nothing is offered where no reading can ever run (an instance without AI), nor without a photo to read.
+  if (!availability || availability.status === "disabled" || files.length === 0) return null;
+
+  const kept = lines.filter((line) => line.status !== "draft" || line.price_quote_id !== null).length;
+  const replaceable = lines.length > 0 && kept === 0;
+  const several = files.length > 1;
+
+  const start = async (mode: "add" | "replace") => {
+    if (run) return;
+    // What the office saw when it chose: the drafts, and everything typed on them.
+    const expected = lines.map((line) => line.id);
+    const seen = JSON.stringify(lines);
+    const controller = new AbortController();
+    reading.current = controller;
+    setChoosing(false);
+    setError(null);
+    setNotice(null);
+    const drafts: MaterialRequestLineInput[] = [];
+    const empty: number[] = [];
+    let position = 0;
+    try {
+      for (const file of files) {
+        position += 1;
+        const key = `${file.id}:${file.rotation}`;
+        let found = read.current.get(key);
+        if (!found) {
+          setRun({ step: "reading", position, total: files.length });
+          found = (await analyzeMaterialRequestPhoto(projectId, requestId, file.id, controller.signal)).lines;
+          read.current.set(key, found);
+        }
+        if (found.length === 0) empty.push(position);
+        drafts.push(...found);
+      }
+    } catch (cause) {
+      setRun(null);
+      if (controller.signal.aborted) {
+        setNotice(`Lecture arrêtée : aucune ligne n’a été créée. ${READ_KEPT}`);
+        setRefocus(true);
+        return;
+      }
+      const message = materialRequestErrorMessage(cause, "La photo n’a pas pu être lue par l’IA.");
+      setError({
+        message: `${several ? `Photo ${position} sur ${files.length} : ` : ""}${message} Aucune ligne n’a été créée.${position > 1 ? ` ${READ_KEPT}` : ""}`,
+        profile: isPhotoAnalysisUnavailable(cause),
+      });
+      return;
+    }
+
+    if (drafts.length === 0) {
+      setRun(null);
+      read.current.clear();
+      setNotice(`Aucun article lu sur ${several ? "les photos" : "la photo"} : saisissez les lignes à la main.`);
+      return;
+    }
+    const room = mode === "replace" ? MATERIAL_REQUEST_MAX_LINES : MATERIAL_REQUEST_MAX_LINES - shown.current;
+    const created = drafts.slice(0, Math.max(room, 0));
+    if (created.length === 0) {
+      setRun(null);
+      setError({ message: `La demande compte déjà ${MATERIAL_REQUEST_MAX_LINES} lignes, le plus qu’elle accepte : aucune ligne lue n’a été ajoutée. ${READ_KEPT}`, profile: false });
+      return;
+    }
+    setRun({ step: "writing" });
+    // A replacement holds for the drafts as the office saw them when it chose: a line added, removed, corrected or
+    // linked during the reading, or a correction not saved, refuses it (the editor checks at the write's own turn,
+    // the server the ids), and nothing the office did meanwhile is thrown away.
+    const result = mode === "replace"
+      ? await editor.replaceLines(created, { ids: expected, content: seen })
+      : await editor.addLines(created);
+    setRun(null);
+    if (!result.ok) {
+      setError({ message: `${result.message} ${READ_KEPT}`, profile: false });
+      return;
+    }
+    read.current.clear();
+    const doubtful = created.filter((line) => line.quantity_doubtful).length;
+    toast.success({
+      title: mode === "replace"
+        ? `${plural(created.length, "ligne", "lignes")} en brouillon, à la place ${expected.length > 1 ? `des ${expected.length} précédentes` : "de la précédente"}`
+        : `${plural(created.length, "ligne créée", "lignes créées")} en brouillon`,
+      description: doubtful > 0
+        ? `Lues par l’IA : relisez chaque ligne face à la photo avant de valider. ${plural(doubtful, "quantité est", "quantités sont")} à vérifier sur l’original.`
+        : "Lues par l’IA : relisez chaque ligne face à la photo avant de valider.",
+    });
+    const remarks: string[] = [];
+    if (drafts.length > created.length) {
+      remarks.push(`${drafts.length} lignes lues sur les photos, ${created.length} créées : une demande en compte ${MATERIAL_REQUEST_MAX_LINES} au plus. Les suivantes sont à reprendre à la main.`);
+    }
+    if (empty.length > 0) {
+      remarks.push(empty.length > 1 ? `Aucun article lu sur les photos ${empty.join(", ")}.` : `Aucun article lu sur la photo ${empty[0]}.`);
+    }
+    setNotice(remarks.length > 0 ? remarks.join(" ") : null);
+  };
+
+  const ready = availability.status === "available";
+  return (
+    <div className="space-y-2 border-t border-border pt-3">
+      {!choosing ? (
+        // Kept while the photos are read, so that the focus has somewhere to stay.
+        <Button
+          ref={trigger}
+          type="button"
+          variant="outline"
+          size="sm"
+          loading={run !== null}
+          disabled={!ready}
+          aria-describedby={run === null ? hintId : undefined}
+          onClick={() => {
+            // Adding is never a loss; replacing drafts is the office's choice.
+            if (replaceable) setChoosing(true);
+            else void start("add");
+          }}
+        >
+          <Sparkles aria-hidden="true" />
+          {several ? "Analyser les photos avec l’IA" : "Analyser la photo avec l’IA"}
+        </Button>
+      ) : null}
+      {run !== null ? (
+        <div className="flex flex-wrap items-center gap-2">
+          <p role="status" className="text-sm text-foreground">
+            {run.step === "writing"
+              ? "Création des lignes…"
+              : run.total > 1
+                ? `Lecture de la photo ${run.position} sur ${run.total}… Une photo demande jusqu’à trois minutes.`
+                : "Lecture de la photo… Elle demande jusqu’à trois minutes."}
+          </p>
+          {run.step === "reading" ? (
+            <Button type="button" variant="ghost" size="sm" onClick={() => reading.current?.abort()}>
+              Arrêter
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
+      {run === null && !choosing ? (
+        <p id={hintId} className="text-xs text-muted-foreground">
+          {ready ? (
+            `L’IA lit ${several ? "chaque photo" : "la photo"} avec votre forfait ChatGPT et propose des lignes en brouillon${lines.length > 0 && !replaceable ? ", ajoutées à la suite des lignes existantes" : ""}. Elle ne valide rien : chaque ligne se relit face à l’original.`
+          ) : (
+            <>
+              {availability.message}{" "}
+              <Link href={PROFILE_HREF} className="underline underline-offset-2">
+                Ouvrir Mon profil
+              </Link>
+            </>
+          )}
+        </p>
+      ) : null}
+      {choosing ? (
+        <Alert variant="warning">
+          <AlertDescription>
+            <p>
+              {lines.length > 1
+                ? `La demande compte ${lines.length} lignes en brouillon. Les lignes lues sur ${several ? "les photos" : "la photo"} peuvent s’ajouter à la suite, ou les remplacer avec ce qui y a été saisi : articles, fournisseurs, corrections.`
+                : `La demande compte une ligne en brouillon. Les lignes lues sur ${several ? "les photos" : "la photo"} peuvent s’ajouter à la suite, ou la remplacer avec ce qui y a été saisi : article, fournisseur, corrections.`}
+            </p>
+            <div className="mt-2 flex flex-wrap gap-2">
+              <Button type="button" size="sm" autoFocus onClick={() => void start("add")}>
+                Ajouter à la suite
+              </Button>
+              {/* A change still on its way, or refused, would be refused again after the whole reading. */}
+              <Button type="button" variant="danger" size="sm" disabled={editor.lineChanges.size > 0} onClick={() => void start("replace")}>
+                {lines.length > 1 ? `Remplacer les ${lines.length} lignes` : "Remplacer la ligne"}
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  setChoosing(false);
+                  setRefocus(true);
+                }}
+              >
+                Annuler
+              </Button>
+            </div>
+            {editor.lineChanges.size > 0 ? (
+              <p className="mt-2">
+                Une modification de ligne n’est pas enregistrée : le remplacement attend qu’elle le soit, ou qu’elle soit
+                abandonnée.
+              </p>
+            ) : null}
+          </AlertDescription>
+        </Alert>
+      ) : null}
+      {notice ? (
+        <p role="status" className="text-sm text-foreground">
+          {notice}
+        </p>
+      ) : null}
+      {error ? (
+        <Alert variant="danger">
+          <AlertDescription>
+            <p>{error.message}</p>
+            {error.profile ? (
+              <Link href={PROFILE_HREF} className="mt-1 inline-block underline underline-offset-2">
+                Ouvrir Mon profil
+              </Link>
+            ) : null}
+          </AlertDescription>
         </Alert>
       ) : null}
     </div>

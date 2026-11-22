@@ -115,23 +115,58 @@ describe("runItemReviewCommand", () => {
     expect(args).toEqual({ p_tenant_id: TENANT, p_project_id: PROJECT, p_command: {
       command_version: 1, intent_key: INTENT, gesture: "accept_measured", scope: { kind: "affaire" },
       targets: targetsOf([1, 2]).map((target) => ({ item_id: target.itemId, entry_revision: 0,
-        answers: target.answers.map((answer) => ({ answer_id: answer.answerId, decision_revision: 0, entry_revision: 0 })) })),
+        answers: target.answers.map((answer) => ({ answer_id: answer.answerId, decision_revision: 0, entry_revision: 0,
+          marks_revision: 0 })) })),
       apply: [fixtureItemId(1)], skipped: [{ item_id: fixtureItemId(2), label: "Baignoire", reason: "not_measured" }] } });
     expect(result).toEqual({ outcome: "applied", applied: [{ itemId: fixtureItemId(1), label: "WC", answers: 1 }],
       skipped: [{ itemId: fixtureItemId(2), label: "Baignoire", reason: "not_measured" }] });
   });
 
-  it("still asks the database when the selection looks stale here: a replay of the same command answers what it answered", async () => {
-    const seen = targetsOf([1]);
+  // Review of #485: a selection stale here went to the database with nothing to apply, which the database, finding it
+  // current, recorded as done (nothing done, and its intention replaying that).
+  it("still asks the database when the selection looks stale here, with every item to apply, never with none", async () => {
+    const seen = targetsOf([1, 2]);
     lines = buildItemLines(rows().map((row) => row.item.id === fixtureItemId(1)
       ? { ...row, decision: "accepted", readings: row.readings.map((reading) => ({ ...reading,
         decision: { kind: "accepted", revision: 1, actorId: MEMBER, at: "2026-11-22T09:00:00Z" }, decisionRevision: 1 })) } : row),
     { plans: FIXTURE_PLANS, scope: { kind: "affaire" } });
+    // A replay of the same command answers what it answered.
     review.mockResolvedValue({ data: { outcome: "applied", applied: [{ item_id: fixtureItemId(1), answers: 1 }], skipped: [],
       replayed: true }, error: null });
     const result = await runItemReviewCommand(PROJECT, command("accept_measured", seen));
-    expect(review.mock.calls[0][1].p_command).toMatchObject({ apply: [], skipped: [] });
+    expect(review.mock.calls[0][1].p_command).toMatchObject({ apply: [fixtureItemId(1), fixtureItemId(2)], skipped: [] });
     expect(result.outcome).toBe("replayed");
+    // Otherwise the database refuses it as stale, or applies the whole selection it finds current and eligible: either
+    // way the command it records is never one that applied nothing on a stale selection.
+    review.mockResolvedValue({ data: { outcome: "stale", stale: [fixtureItemId(1)] }, error: null });
+    expect(await refusal(runItemReviewCommand(PROJECT, command("accept_measured", seen))))
+      .toMatchObject({ status: 409, code: "TAKEOFF_ITEM_REVIEW_STALE" });
+    expect(review.mock.calls[1][1].p_command).toMatchObject({ apply: [fixtureItemId(1), fixtureItemId(2)], skipped: [] });
+  });
+
+  it("plans a set aside or a reinstatement on its items whatever the marks did since the selection (an acceptance only certifies them)", async () => {
+    const frozen = targetsOf([1]).map((target) => ({ ...target, answers: target.answers.map((answer) => ({ ...answer, marksRevision: 3 })) }));
+    lines = buildItemLines(rows().map((row) => row.item.id === fixtureItemId(1)
+      ? { ...row, readings: row.readings.map((reading) => ({ ...reading, marksRevision: 4 })) } : row),
+    { plans: FIXTURE_PLANS, scope: { kind: "affaire" } });
+    review.mockResolvedValue({ data: { outcome: "applied", applied: [{ item_id: fixtureItemId(1), answers: 1 }], skipped: [],
+      replayed: false }, error: null });
+    const result = await runItemReviewCommand(PROJECT, command("set_aside", frozen, { reason: "duplicate" }));
+    expect(review.mock.calls[0][1].p_command).toMatchObject({ apply: [fixtureItemId(1)], skipped: [] });
+    expect(result).toMatchObject({ outcome: "applied", applied: [{ itemId: fixtureItemId(1), label: "WC", answers: 1 }] });
+    // An acceptance on the same selection is stale: all its items go, the database judges.
+    await runItemReviewCommand(PROJECT, command("accept_measured", frozen));
+    expect(review.mock.calls[1][1].p_command).toMatchObject({ apply: [fixtureItemId(1)], skipped: [] });
+  });
+
+  it("sends the identifiers of a selection as the database writes them, in lower case, so that what it applies names its targets", async () => {
+    const upper = targetsOf([1]).map((target) => ({ ...target, itemId: target.itemId.toUpperCase(),
+      answers: target.answers.map((answer) => ({ ...answer, answerId: answer.answerId.toUpperCase() })) }));
+    await runItemReviewCommand(PROJECT, command("set_aside", upper, { reason: "duplicate" }));
+    const sent = review.mock.calls[0][1].p_command;
+    expect(sent.targets).toEqual(targetsOf([1]).map((target) => expect.objectContaining({ item_id: target.itemId,
+      answers: target.answers.map((answer) => expect.objectContaining({ answer_id: answer.answerId })) })));
+    expect(sent).toMatchObject({ apply: [fixtureItemId(1)], skipped: [] });
   });
 
   it("refuses a stale selection the database found, naming its lines: nothing applied", async () => {

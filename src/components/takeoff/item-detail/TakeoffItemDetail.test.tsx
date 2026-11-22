@@ -38,6 +38,8 @@ const rendered: Array<{ url: string; page: number }> = [];
 const failing = new Set<string>();
 /** Bytes whose load never answers during the test (a slow route). */
 const held = new Set<string>();
+/** Bytes whose pages never finish drawing during the test (a slow render: the page's size is known, its sheet is not). */
+const heldRenders = new Set<string>();
 getDocument.mockImplementation(({ url }: { url: string }) => {
   loads.push(url);
   return {
@@ -47,7 +49,7 @@ getDocument.mockImplementation(({ url }: { url: string }) => {
         getViewport: ({ scale }: { scale: number }) => ({ width: 1190.55 * scale, height: 841.89 * scale }),
         render: () => {
           rendered.push({ url, page: number });
-          return { promise: Promise.resolve(), cancel: () => undefined };
+          return { promise: heldRenders.has(url) ? new Promise<void>(() => undefined) : Promise.resolve(), cancel: () => undefined };
         },
       })),
     }),
@@ -92,8 +94,10 @@ async function settle() {
   for (let index = 0; index < 6; index += 1) await act(async () => { await new Promise((resolve) => setTimeout(resolve, 10)); });
 }
 
-function open(initial: ItemDetailAddress, options: Parameters<typeof fixtureItemDetailReader>[0] = {}) {
+function open(initial: ItemDetailAddress, options: Parameters<typeof fixtureItemDetailReader>[0] = {},
+  prepare?: (reader: ItemDetailReader) => void) {
   const { reader, calls } = fixtureItemDetailReader(options);
+  prepare?.(reader);
   const onBack = vi.fn();
   const onGesture = vi.fn();
   const onRefused = vi.fn(() => true);
@@ -141,6 +145,7 @@ afterEach(() => {
   fetches.length = 0;
   failing.clear();
   held.clear();
+  heldRenders.clear();
   vi.unstubAllGlobals();
 });
 
@@ -657,6 +662,313 @@ describe("TakeoffItemDetail, the keyboard of the list", () => {
     fireEvent.keyDown(list(), { key: "v" });
     expect(reader.onGesture).not.toHaveBeenCalled();
     expect(screen.getByTestId("poste-detail-notice").textContent).toBe("Un opérateur du métré de l’affaire peut revoir ce poste.");
+  });
+});
+
+// Review of #485, written before the fixes: the counted marks of an earlier reading read the current answer's over the
+// earlier plan; a save that reopens the item's acceptance left its decision shown.
+describe("the counted marks of the item", () => {
+  // Follow-ups of lot 5: an earlier reading showed no marks. Once the server proves the answer that job gave for the item
+  // on that plan, its own marks are shown on its own copy, read only, with the way to the current reading.
+  it("show an earlier reading's own marks, read only, on its own copy, and the way to the current one", async () => {
+    const earlierAnswer = "a0000000-0000-4000-8000-0000000000e1";
+    const viewer = "c0000000-0000-4000-8000-000000000010";
+    const views = planViews();
+    const key = `${JOB_EARLIER}:${PLAN_RDC}`;
+    views[key] = { ...views[key]!, reading: { ...views[key]!.reading!, answer: { answerId: earlierAnswer, scopePages: [2] } } };
+    const asked: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (url: unknown) => {
+      const read = new URL(String(url), "https://app.test");
+      asked.push(`${read.pathname}?${read.searchParams}`);
+      const answerId = read.searchParams.get("reponse") ?? "";
+      return new Response(JSON.stringify({ ok: true, data: { answerId, page: 2, revision: 4, geometry: null, total: 1, loaded: 1,
+        nextAfter: null, marks: [{ markId: "d0000000-0000-4000-8000-0000000000e2", x: 0.3, y: 0.3, box: null, origin: "machine",
+          positionRevision: 0, createdBy: null, createdJobId: JOB_EARLIER, createdAt: "2026-11-20T09:00:00Z", movedBy: null,
+          movedAt: null, state: "retained", priorState: null, reasonCode: null, reasonText: null, decidedBy: viewer, decidedAt: null,
+          possibleDuplicates: [], others: [], proposals: [] }],
+        summary: { revision: 4, unit: "u", counted: true, proposed: 0, toAttribute: 0, retained: 1, removed: 0, pending: 0, reread: 0,
+          scopePages: 1, verifiedPages: 0, quantity: null, state: "to_check", pages: [] },
+        edit: { allowed: false, reason: "replaced" }, viewerId: viewer, names: {} } }), { status: 200 });
+    }));
+    const { calls } = open(address({ planKey: PLAN_RDC, jobId: JOB_EARLIER, page: 2 }), { views });
+    await settle();
+    expect(calls.plans[0]?.jobId).toBe(JOB_EARLIER);
+    // Its own answer's marks, never the current reading's.
+    expect(asked.filter((path) => path.includes("count-marks")).every((path) => path.includes(`reponse=${earlierAnswer}`))).toBe(true);
+    expect(asked.some((path) => path.includes("count-marks"))).toBe(true);
+    expect(within(screen.getByTestId("reperes-liste")).getAllByTestId("repere-ligne")).toHaveLength(1);
+    // The layer over its copy (jsdom gives the frame no size: nothing of the page is visible to draw).
+    expect(screen.getByTestId("reperes-calque")).toBeInTheDocument();
+    // Read only: no gesture, the reason said; the way to the current reading.
+    expect(screen.getByTestId("reperes-lecture-seule")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Ajouter/ })).toBeNull();
+    fireEvent.keyDown(screen.getByTestId("reperes-liste"), { key: "n" });
+    expect(screen.queryByTestId("reperes-reticule")).toBeNull();
+    expect(screen.getByTestId("reperes-lecture-ancienne")).toHaveTextContent("lecture plus ancienne");
+    fireEvent.click(screen.getByRole("button", { name: "Ouvrir la lecture actuelle" }));
+    await settle();
+    expect(readItemDetailAddress(new URLSearchParams(window.location.search))).toMatchObject({ kind: "detail",
+      address: { jobId: basinLine.readings[0]!.answer!.jobId } });
+  });
+
+  it("show no marks for an earlier reading whose answer the server does not name", async () => {
+    const fetch = vi.fn<(url: RequestInfo | URL) => Promise<Response>>(async () => new Response(null, { status: 404 }));
+    vi.stubGlobal("fetch", fetch);
+    open(address({ planKey: PLAN_RDC, jobId: JOB_EARLIER, page: 2 }));
+    await settle();
+    expect(fetch.mock.calls.map((call) => String(call[0])).filter((url) => url.includes("count-marks"))).toEqual([]);
+    expect(screen.getByTestId("reperes-lecture-ancienne")).toHaveTextContent("ceux de la lecture actuelle");
+  });
+
+  it("read the item again after a save of its marks, keeping the focus on the marks", async () => {
+    const answerId = basinLine.readings[0]!.answer!.answerId;
+    const markId = "d0000000-0000-4000-8000-000000000010";
+    const viewer = "c0000000-0000-4000-8000-000000000010";
+    let revision = 1;
+    const summary = () => ({ revision, unit: "u", counted: true, proposed: 0, toAttribute: 0, retained: 1, removed: 0, pending: 0,
+      reread: 0, scopePages: 2, verifiedPages: 0, quantity: null, state: "to_check", pages: [] });
+    const ok = (data: unknown) => new Response(JSON.stringify({ ok: true, data }), { status: 200 });
+    vi.stubGlobal("fetch", vi.fn(async (_url: unknown, init?: RequestInit) => {
+      if (init?.method === "POST") {
+        revision += 1;
+        return ok({ replayed: false, commandId: markId, revisions: { [answerId]: revision }, added: [], summaries: { [answerId]: summary() } });
+      }
+      return ok({ answerId, page: 2, revision, geometry: null, total: 1, loaded: 1, nextAfter: null, marks: [{ markId, x: 0.2, y: 0.2,
+        box: null, origin: "manual", positionRevision: 0, createdBy: viewer, createdJobId: null, createdAt: "2026-11-22T09:00:00Z",
+        movedBy: null, movedAt: null, state: "retained", priorState: null, reasonCode: null, reasonText: null, decidedBy: viewer,
+        decidedAt: null, possibleDuplicates: [], others: [], proposals: [] }], summary: summary(), edit: { allowed: true, reason: null },
+        viewerId: viewer, names: {} });
+    }));
+    const { calls } = open(address({ planKey: PLAN_RDC, jobId: JOB_RDC, page: 2 }));
+    await settle();
+    const grid = screen.getByTestId("reperes-liste");
+    grid.focus();
+    fireEvent.keyDown(grid, { key: "p" });
+    const linesRead = calls.lines.length;
+    fireEvent.click(screen.getByRole("button", { name: "Enregistrer (1)" }));
+    await settle();
+    expect(revision).toBe(2);
+    expect(calls.lines.length).toBeGreaterThan(linesRead);
+    expect(calls.lines.at(-1)).toBe(ITEMS.basin);
+  });
+
+  // Closing review of #485, written before the fixes: a save on another item replaced the line read again after the first
+  // one's save (only the last item read again was kept); the keyboard fell to the document once « Enregistrer » went; a
+  // page was declared verified while its sheet was still drawing.
+  const marksRoutes = (viewer: string, marksOf: (answerId: string) => unknown[] = () => [],
+    targetsOf: (answerId: string) => Array<{ answerId: string; itemId: string; label: string; scopePages: number[] }> = () => []) => {
+    const revisions: Record<string, number> = {};
+    const ok = (data: unknown) => new Response(JSON.stringify({ ok: true, data }), { status: 200 });
+    const summary = (answerId: string) => ({ revision: revisions[answerId] ?? 1, unit: "u", counted: true, proposed: 0, toAttribute: 0,
+      retained: 0, removed: 0, pending: 0, reread: 0, scopePages: 2, verifiedPages: 0, quantity: null, state: "to_check", pages: [] });
+    vi.stubGlobal("fetch", vi.fn(async (url: unknown, init?: RequestInit) => {
+      if (init?.method === "POST") {
+        const named = Object.keys((JSON.parse(String(init.body)) as { revisions: Record<string, number> }).revisions);
+        for (const answerId of named) revisions[answerId] = (revisions[answerId] ?? 1) + 1;
+        return ok({ replayed: false, commandId: "d0000000-0000-4000-8000-000000000099",
+          revisions: Object.fromEntries(named.map((answerId) => [answerId, revisions[answerId]])), added: [],
+          summaries: Object.fromEntries(named.map((answerId) => [answerId, summary(answerId)])) });
+      }
+      const read = new URL(String(url), "https://app.test");
+      const answerId = read.searchParams.get("reponse") ?? "";
+      // The other items of the reading, served by their own route.
+      if (read.pathname.endsWith("/count-marks/targets")) return ok({ answerId, targets: targetsOf(answerId) });
+      const marks = read.searchParams.get("etats")?.includes("removed") ? [] : marksOf(answerId);
+      return ok({ answerId, page: Number(read.searchParams.get("page")), revision: revisions[answerId] ?? 1, geometry: null,
+        total: marks.length, loaded: marks.length, nextAfter: null, marks, summary: summary(answerId), edit: { allowed: true, reason: null },
+        viewerId: viewer, names: {} });
+    }));
+    return revisions;
+  };
+
+  it("keeps each item's line read again after a save of its marks, and the keyboard on the marks once « Enregistrer » goes", async () => {
+    const revisions = marksRoutes("c0000000-0000-4000-8000-000000000010");
+    const { reader } = open(address({ planKey: PLAN_RDC, jobId: JOB_RDC, page: 2 }));
+    // The database reopens the acceptance of an answer whose marks a save changed: its item, read again, is to decide.
+    const original = reader.readLine;
+    reader.readLine = async (itemId) => {
+      const read = await original(itemId);
+      if (!read?.line) return read;
+      return { ...read, line: { ...read.line, decision: "pending" as const,
+        readings: read.line.readings.map((value) => ({ ...value, decision: null })) } };
+    };
+    await settle();
+    expect(evidence().queryAllByText(/^Accepté/).length).toBeGreaterThan(0);
+    const verifyAndSave = async () => {
+      fireEvent.keyDown(screen.getByTestId("reperes-liste"), { key: "p" });
+      const save = screen.getByRole("button", { name: "Enregistrer (1)" });
+      save.focus();
+      fireEvent.click(save);
+      await settle();
+    };
+    await verifyAndSave();
+    expect(revisions[basinLine.readings[0]!.answer!.answerId]).toBe(2);
+    expect(evidence().queryAllByText(/^Accepté/)).toEqual([]);
+    expect(document.activeElement).toBe(screen.getByTestId("reperes-liste"));
+    // Another item, saved too; then back to the first one: its line read again after its save stands.
+    fireEvent.click(within(list()).getByRole("option", { name: /Siphon de sol/ }));
+    await settle();
+    await verifyAndSave();
+    expect(revisions[notFoundLine.readings[0]!.answer!.answerId]).toBe(2);
+    fireEvent.click(within(list()).getAllByRole("option", { name: /Lavabo céramique/ })[0]!);
+    await settle();
+    expect(evidence().queryAllByText(/^Accepté/)).toEqual([]);
+  });
+
+  // Automated review of b7e8df9d: a save giving a mark of A to an accepted item B raises both answers' marks revisions and
+  // reopens B's acceptance, but only A's item was read again: B, opened from the loaded queue, still showed « Accepté ».
+  it("reads again every item whose answer a save changed: a mark given to an accepted item reopens it there too", async () => {
+    const viewer = "c0000000-0000-4000-8000-000000000010";
+    const basin = basinLine.readings[0]!.answer!.answerId;
+    const siphon = notFoundLine.readings[0]!.answer!.answerId;
+    const markId = "d0000000-0000-4000-8000-000000000011";
+    const revisions = marksRoutes(viewer, (answerId) => answerId !== basin ? [] : [{ markId, x: 0.2, y: 0.2, box: null, origin: "manual",
+      positionRevision: 0, createdBy: viewer, createdJobId: null, createdAt: "2026-11-22T09:00:00Z", movedBy: null, movedAt: null,
+      state: "retained", priorState: null, reasonCode: null, reasonText: null, decidedBy: viewer, decidedAt: null,
+      possibleDuplicates: [], others: [], proposals: [] }],
+    (answerId) => answerId === basin ? [{ answerId: siphon, itemId: ITEMS.notFound, label: "Siphon de sol", scopePages: [2] }] : []);
+    // The siphon's reading of the same plan, by the same job, accepted: the item a mark of the basin is given to.
+    const readings = DETAIL_READINGS.map((value) => value.itemId === ITEMS.notFound && value.planKey === PLAN_RDC
+      ? { ...value, decision: { kind: "accepted" as const, revision: 1, actorId: viewer, at: "2026-11-21T10:00:00.000Z" }, decisionRevision: 1 }
+      : value);
+    const { reader, calls } = open(address({ planKey: PLAN_RDC, jobId: JOB_RDC, page: 2 }), { readings });
+    // The database reopens the acceptance of every answer whose marks the save changed.
+    const original = reader.readLine;
+    reader.readLine = async (itemId) => {
+      const read = await original(itemId);
+      if (!read?.line) return read;
+      return { ...read, line: { ...read.line, decision: "pending" as const,
+        readings: read.line.readings.map((value) => ({ ...value, decision: null })) } };
+    };
+    await settle();
+    const grid = screen.getByTestId("reperes-liste");
+    fireEvent.keyDown(grid, { key: "Home" });
+    fireEvent.keyDown(grid, { key: "a" });
+    fireEvent.click(await screen.findByRole("radio", { name: "Siphon de sol" }));
+    fireEvent.click(screen.getByRole("button", { name: "Affecter" }));
+    await settle();
+    fireEvent.click(screen.getByRole("button", { name: "Enregistrer (1)" }));
+    await settle();
+    expect(revisions).toMatchObject({ [basin]: 2, [siphon]: 2 });
+    expect(calls.lines).toEqual(expect.arrayContaining([ITEMS.basin, ITEMS.notFound]));
+    fireEvent.click(within(list()).getByRole("option", { name: /Siphon de sol/ }));
+    await settle();
+    expect(evidence().queryAllByText(/^Accepté/)).toEqual([]);
+  });
+
+  it("declares a page verified only once its sheet is drawn, never while it is still drawing", async () => {
+    marksRoutes("c0000000-0000-4000-8000-000000000010");
+    heldRenders.add(attested(JOB_RDC, COPY_RDC));
+    open(address({ planKey: PLAN_RDC, jobId: JOB_RDC, page: 2 }));
+    await settle();
+    expect(screen.getByLabelText("Rendu du plan")).toBeInTheDocument();
+    fireEvent.keyDown(screen.getByTestId("reperes-liste"), { key: "p" });
+    expect(screen.queryByTestId("reperes-session")).toBeNull();
+    expect(screen.getByTestId("reperes-avis")).toHaveTextContent("Le plan de cette page n’est pas encore dessiné");
+  });
+});
+
+// Follow-ups of lot 5, written before the fix: a refusal of the member's right that came back for a completion of this
+// screen, once another item was shown, was discarded: the member kept what was shown until the next read.
+describe("TakeoffItemDetail, a refusal of the member's right", () => {
+  const holdFirstPlan = (held: { refuse: (error: unknown) => void }) => (reader: ItemDetailReader) => {
+    const original = reader.resolvePlan.bind(reader);
+    let first = true;
+    reader.resolvePlan = (request) => {
+      if (!first) return original(request);
+      first = false;
+      return new Promise((_, reject) => { held.refuse = reject; });
+    };
+  };
+
+  it("withdraws the screen at once, whatever item is shown, when this screen's completion is refused", async () => {
+    const held = { refuse: (error: unknown) => { void error; } };
+    const { onRefused } = open(address({ planKey: PLAN_RDC, jobId: JOB_RDC }), {}, holdFirstPlan(held));
+    await settle();
+    fireEvent.click(within(list()).getByRole("option", { name: /Siphon de sol/ }));
+    await settle();
+    expect(onRefused).not.toHaveBeenCalled();
+    await act(async () => held.refuse(new ItemDetailPlanError("FORBIDDEN", 403)));
+    expect(onRefused).toHaveBeenCalledTimes(1);
+  });
+
+  it("discards it for a screen no longer shown (another member or scope remounts the detail)", async () => {
+    const held = { refuse: (error: unknown) => { void error; } };
+    const { onRefused, unmount } = open(address({ planKey: PLAN_RDC, jobId: JOB_RDC }), {}, holdFirstPlan(held));
+    await settle();
+    unmount();
+    await act(async () => held.refuse(new ItemDetailPlanError("FORBIDDEN", 403)));
+    expect(onRefused).not.toHaveBeenCalled();
+  });
+
+  it("still discards a failure that is not a refusal of the right, once another item is shown", async () => {
+    const held = { refuse: (error: unknown) => { void error; } };
+    const { onRefused } = open(address({ planKey: PLAN_RDC, jobId: JOB_RDC }), {}, holdFirstPlan(held));
+    await settle();
+    fireEvent.click(within(list()).getByRole("option", { name: /Siphon de sol/ }));
+    await settle();
+    await act(async () => held.refuse(new ItemDetailPlanError(null, 500)));
+    expect(onRefused).not.toHaveBeenCalled();
+  });
+});
+
+// The independent reading of #496, written before the fixes: the first journal request of an item, refused for the right
+// once the member moved on, reached nobody (its observer had unmounted); the same request, shared by a new reader of the
+// same item, gave that reader the previous one's refusal; a marks read refused for the right withdrew the marks only.
+describe("TakeoffItemDetail, review of #496", () => {
+  const forbidden = () => new Response(JSON.stringify({ ok: false, error: { code: "FORBIDDEN", message: "Refus" } }), { status: 403 });
+  /** The journal of an item held: its first page answers when the test says. */
+  function holdJournal(itemId: string) {
+    const regular = globalThis.fetch;
+    const held: { complete: (value: Response) => void } = { complete: () => undefined };
+    let first = true;
+    vi.stubGlobal("fetch", vi.fn(async (url: unknown, init?: RequestInit) => {
+      if (first && String(url).includes(`/items/${itemId}/history`)) {
+        first = false;
+        return new Promise<Response>((resolve) => { held.complete = resolve; });
+      }
+      return regular(url as RequestInfo, init);
+    }));
+    return held;
+  }
+
+  it("withdraws the detail when the first journal read of an item left is refused for the right", async () => {
+    const held = holdJournal(ITEMS.basin);
+    const { onRefused } = open(address({}));
+    await settle();
+    fireEvent.keyDown(list(), { key: "ArrowDown" });
+    await settle();
+    expect(selected()).not.toContain("Lavabo céramique");
+    await act(async () => held.complete(forbidden()));
+    await settle();
+    expect(onRefused).toHaveBeenCalledWith(expect.objectContaining({ status: 403 }));
+  });
+
+  it("gives a new reader of the same item its own journal, never the previous reader's refusal", async () => {
+    const held = holdJournal(ITEMS.basin);
+    const refuse = vi.fn(() => true);
+    const cache = new Map();
+    const page = (reader: ItemDetailReader) => (
+      <SWRConfig value={{ provider: () => cache, dedupingInterval: 0 }}>
+        <Page initial={address({})} reader={reader} onBack={vi.fn()} onRefused={refuse} />
+      </SWRConfig>
+    );
+    const shown = render(page(fixtureItemDetailReader({}).reader));
+    await settle();
+    shown.rerender(page(fixtureItemDetailReader({}).reader));
+    await settle();
+    await act(async () => held.complete(forbidden()));
+    await settle();
+    expect(refuse).not.toHaveBeenCalled();
+  });
+
+  it("withdraws the detail, not only its marks, when a read of the marks is refused for the right", async () => {
+    const regular = globalThis.fetch;
+    vi.stubGlobal("fetch", vi.fn(async (url: unknown, init?: RequestInit) => (String(url).includes("count-marks")
+      ? forbidden() : regular(url as RequestInfo, init))));
+    const { onRefused } = open(address({ planKey: PLAN_RDC, jobId: JOB_RDC, page: 2 }));
+    await settle();
+    expect(onRefused).toHaveBeenCalledWith(expect.objectContaining({ status: 403 }));
   });
 });
 
