@@ -1,0 +1,280 @@
+{
+  "date_utc": "2026-11-22",
+  "source_commit": "344760ae59be3571ddf1eecf3f03ee577a268743",
+  "applied_and_verified": 1,
+  "applied": {
+    "file": "20261122030312_takeoff_partial_send.sql",
+    "pr": 451,
+    "remote_version": "20261122084903",
+    "applied_at_utc": "2026-11-22T08:49:03Z",
+    "attempts": 1,
+    "bytes": 98334,
+    "sha256": "7893a5f2523e6fdc6a39740918aabb6e963124d0cc78edf1bf167e40f16d36e9",
+    "stored_form": "full_file_including_final_lf",
+    "stored_sql_sha256": "7893a5f2523e6fdc6a39740918aabb6e963124d0cc78edf1bf167e40f16d36e9"
+  },
+  "history": {
+    "before": 423,
+    "after": 424,
+    "prior_423_rows_identical": true,
+    "first_407_sha256": "8a37267e2f68e79acd5d4f1a3e6c5834d230ff71db9a12fbec90397c17d5debb",
+    "row_408_sql_sha256": "eb1b0c1ceee7ac0ae0a6f909c83ed924dc512217b9bfa2d8403add8bbcd8ca84"
+  },
+  "precheck": {
+    "pr": {
+      "dispatch_activation_rows": 0,
+      "versioned_plan_jobs": 0,
+      "check_table_exists": false
+    },
+    "objects": {
+      "existing_new_functions": 0,
+      "replacements": 3,
+      "table_absent": true
+    },
+    "activity": {
+      "db_utc": "2026-11-22 08:48:56.420244+00",
+      "jobs": 0,
+      "processing": 0,
+      "admitted": 0,
+      "audit_rows": 46772,
+      "receipts": 0
+    },
+    "production": {
+      "at": "2026-11-22T08:48:58.229Z",
+      "http": 200,
+      "ok": true,
+      "version": "0.7.0",
+      "db": "up"
+    }
+  },
+  "table": {
+    "name": "private.takeoff_plan_send_checks",
+    "owner": "postgres",
+    "rls": false,
+    "forced": false,
+    "acl": "{postgres=arwdDxtm/postgres}",
+    "columns": [
+      [
+        "job_id",
+        "uuid",
+        true,
+        null,
+        null
+      ],
+      [
+        "stamps",
+        "jsonb",
+        true,
+        null,
+        null
+      ],
+      [
+        "xact",
+        "xid8",
+        true,
+        "pg_current_xact_id()",
+        null
+      ]
+    ],
+    "constraints": [
+      "PRIMARY KEY (job_id)"
+    ],
+    "validated": true,
+    "indexes": [
+      "CREATE UNIQUE INDEX takeoff_plan_send_checks_pkey ON private.takeoff_plan_send_checks USING btree (job_id)"
+    ],
+    "indexes_valid": true,
+    "policies": 0,
+    "triggers": 0,
+    "rows": 0
+  },
+  "functions": [
+    {
+      "operation": "create",
+      "sig": "private.takeoff_job_is_plan_unit(uuid)",
+      "owner": "postgres",
+      "body_md5": "8380de0fb534ac0c9b6e7d9151f1c7e6",
+      "security_definer": false,
+      "volatility": "s",
+      "settings": [
+        "search_path=\"\""
+      ],
+      "acl": "{postgres=X/postgres}",
+      "returns": "boolean",
+      "language": "sql"
+    },
+    {
+      "operation": "create",
+      "sig": "private.takeoff_send_revision_state(uuid,uuid,uuid,text)",
+      "owner": "postgres",
+      "body_md5": "318f0915cd0d34b657941d9ce1c0c8cf",
+      "security_definer": false,
+      "volatility": "s",
+      "settings": [
+        "search_path=\"\""
+      ],
+      "acl": "{postgres=X/postgres}",
+      "returns": "jsonb",
+      "language": "sql"
+    },
+    {
+      "operation": "create",
+      "sig": "private.takeoff_send_context(uuid,uuid,uuid,uuid)",
+      "owner": "postgres",
+      "body_md5": "e9e3a5c1bfc4955b8984b0ac2b4d246e",
+      "security_definer": false,
+      "volatility": "s",
+      "settings": [
+        "search_path=\"\""
+      ],
+      "acl": "{postgres=X/postgres}",
+      "returns": "jsonb",
+      "language": "sql"
+    },
+    {
+      "operation": "create",
+      "sig": "private.takeoff_send_context_stamps(jsonb)",
+      "owner": "postgres",
+      "body_md5": "310dc782b31d0950677c45b2df23d22f",
+      "security_definer": false,
+      "volatility": "i",
+      "settings": [
+        "search_path=\"\""
+      ],
+      "acl": "{postgres=X/postgres}",
+      "returns": "jsonb",
+      "language": "sql"
+    },
+    {
+      "operation": "create",
+      "sig": "private.takeoff_send_plan_name(jsonb)",
+      "owner": "postgres",
+      "body_md5": "dfdb9393c7f8b369a98919f28f9e14fb",
+      "security_definer": false,
+      "volatility": "i",
+      "settings": [
+        "search_path=\"\""
+      ],
+      "acl": "{postgres=X/postgres}",
+      "returns": "text",
+      "language": "sql"
+    },
+    {
+      "operation": "create",
+      "sig": "public.read_takeoff_send_context(uuid,uuid,uuid,uuid)",
+      "owner": "postgres",
+      "body_md5": "e85f71c899860f4d0a65e7e6e40bf4a4",
+      "security_definer": true,
+      "volatility": "s",
+      "settings": [
+        "search_path=\"\""
+      ],
+      "acl": "{postgres=X/postgres,service_role=X/postgres}",
+      "returns": "jsonb",
+      "language": "sql"
+    },
+    {
+      "operation": "replace",
+      "sig": "private.guard_takeoff_plan_unit_send()",
+      "owner": "postgres",
+      "body_md5": "55bba21cab4f379082c443a4739de614",
+      "security_definer": true,
+      "volatility": "v",
+      "settings": [
+        "search_path=\"\""
+      ],
+      "acl": "{postgres=X/postgres}",
+      "returns": "trigger",
+      "language": "plpgsql"
+    },
+    {
+      "operation": "replace",
+      "sig": "private.takeoff_send_execute(uuid,uuid,public.tenant_role,uuid,jsonb,boolean)",
+      "owner": "postgres",
+      "body_md5": "6426491969d831cf4fa7203a7120e1cb",
+      "security_definer": false,
+      "volatility": "v",
+      "settings": [
+        "search_path=\"\""
+      ],
+      "acl": "{postgres=X/postgres}",
+      "returns": "jsonb",
+      "language": "plpgsql"
+    },
+    {
+      "operation": "create",
+      "sig": "public.read_takeoff_send_drift(uuid,uuid,uuid)",
+      "owner": "postgres",
+      "body_md5": "21e6d5210f3dc2694f9700ef1149692f",
+      "security_definer": true,
+      "volatility": "s",
+      "settings": [
+        "search_path=\"\""
+      ],
+      "acl": "{postgres=X/postgres,service_role=X/postgres}",
+      "returns": "jsonb",
+      "language": "sql"
+    },
+    {
+      "operation": "replace",
+      "sig": "private.launch_manual_takeoff_command(uuid,uuid,uuid,uuid,text,uuid,text,jsonb,jsonb,jsonb,jsonb,uuid,integer,boolean,text,boolean)",
+      "owner": "postgres",
+      "body_md5": "cfed5146fffa8b41500a1213774b4f0f",
+      "security_definer": true,
+      "volatility": "v",
+      "settings": [
+        "search_path=\"\""
+      ],
+      "acl": "{postgres=X/postgres}",
+      "returns": "TABLE(outcome text, request_id uuid, job_id uuid)",
+      "language": "plpgsql"
+    }
+  ],
+  "triggers": {
+    "before": 2925,
+    "after": 2925,
+    "ordered_definitions_md5_before": "665602ad94372e0af3290d4d535bdacc",
+    "ordered_definitions_md5_after": "665602ad94372e0af3290d4d535bdacc",
+    "takeoff_jobs_order_unchanged": true,
+    "takeoff_jobs_names": [
+      "aa0_guard_takeoff_plan_unit_send",
+      "aa1_require_takeoff_host_slot",
+      "aaa_enforce_takeoff_execution_owner",
+      "aaa_enforce_takeoff_job_identity_immutable",
+      "aab_enforce_takeoff_job_retry_state",
+      "aab_guard_open_takeoff_launch_job_delete",
+      "aab_guard_takeoff_job_launch_request",
+      "aac_assign_takeoff_job_scope",
+      "aac_enforce_authenticated_takeoff_job_fields",
+      "aac_guard_takeoff_job_outside_request",
+      "aad_enforce_takeoff_job_preparation",
+      "aad_guard_takeoff_job_restart_outside_request",
+      "aae_enforce_takeoff_job_preparation_processing",
+      "enforce_takeoff_apply_security",
+      "enforce_takeoff_job_admission",
+      "enforce_takeoff_job_reactivation",
+      "enforce_takeoff_processing_admission",
+      "record_prepared_takeoff_job_creation",
+      "set_takeoff_jobs_updated_at",
+      "stale_takeoff_rule_lines_on_completion",
+      "stale_takeoff_rule_peers_after_apply",
+      "takeoff_analysis_completion",
+      "takeoff_job_lease_follow",
+      "takeoff_launch_request_settlement",
+      "z_takeoff_analysis_outcome"
+    ]
+  },
+  "activation_rows": {
+    "completion": 0,
+    "launch": 0,
+    "item_list_order": 0,
+    "plan_dispatch": 0
+  },
+  "security_advisors": {
+    "added": [],
+    "removed": []
+  },
+  "activated": false,
+  "deployed": false,
+  "flags_changed": false
+}
