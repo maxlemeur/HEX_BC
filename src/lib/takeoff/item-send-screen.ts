@@ -42,10 +42,21 @@ export function itemSendPageDecisionComplete(decision: ItemSendPendingPageDecisi
   return decision.reasonCode !== "complementary_scope" || (decision.note ?? "").trim().length >= ITEM_SEND_KEEP_BOTH_NOTE_MIN;
 }
 
-/** The member's choice for one point (null withdraws it). */
+/**
+ * What a question about a quantity typed by hand showed when the member answered it: the line it names and its quantities.
+ * The choice is bound to them from that moment, never to the first preview that applies it.
+ */
+function madeOnOf(point: ToResolve): ItemSendAppliedOn | undefined {
+  if (point.kind !== "entered_quantity" || !point.facts || point.earlier_lines.length !== 1) return undefined;
+  return { estimateItemId: point.earlier_lines[0].estimate_item_id, entered: point.facts.entered, measured: point.facts.measured,
+    retained: point.facts.retained };
+}
+
+/** The member's choice for one point (null withdraws it), bound to what its question showed. */
 export function withItemSendResolution(choices: ItemSendScreenChoices, point: ToResolve, choice: ItemSendChoice | null): ItemSendScreenChoices {
   const resolutions = new Map(choices.resolutions);
-  if (choice) resolutions.set(point.key, { choice, point });
+  const appliedOn = choice ? madeOnOf(point) : undefined;
+  if (choice) resolutions.set(point.key, appliedOn ? { choice, point, appliedOn } : { choice, point });
   else resolutions.delete(point.key);
   return { ...choices, resolutions };
 }
@@ -59,12 +70,18 @@ export function withItemSendPageDecision(choices: ItemSendScreenChoices,
   return { ...choices, pageDecisions };
 }
 
-/** The preview's request: the destination and breakdown asked, each choice made, each page decision complete. */
+/**
+ * The preview's request: the destination and breakdown asked, each choice made, each page decision complete, in one
+ * canonical order (choices by key, decisions by page), as the server reads them: the same choices made in another order
+ * are the same request, and the same intention key.
+ */
 export function itemSendRequestOf(input: { destination?: ItemSendPreviewRequest["destination"]; breakdown?: ItemSendBreakdown;
   choices: ItemSendScreenChoices }): ItemSendPreviewRequest {
-  const resolutions = [...input.choices.resolutions.entries()].map(([key, { choice }]) => ({ key,
-    choice: choice.kind === "line" ? { kind: "line" as const, estimate_item_id: choice.estimateItemId } : choice }));
-  const decisions = [...input.choices.pageDecisions.values()].filter(itemSendPageDecisionComplete).map((decision) =>
+  const resolutions = [...input.choices.resolutions.entries()].sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
+    .map(([key, { choice }]) => ({ key,
+      choice: choice.kind === "line" ? { kind: "line" as const, estimate_item_id: choice.estimateItemId } : choice }));
+  const decisions = [...input.choices.pageDecisions.values()].filter(itemSendPageDecisionComplete)
+    .sort((left, right) => (left.page ?? Number.MAX_SAFE_INTEGER) - (right.page ?? Number.MAX_SAFE_INTEGER)).map((decision) =>
     decision.decision === "replace" ? { page: decision.page, decision: "replace" as const }
       : { page: decision.page, decision: "keep_both" as const, reason_code: decision.reasonCode!,
         note: decision.note?.trim() ? decision.note.trim() : null });

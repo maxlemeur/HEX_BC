@@ -75,6 +75,22 @@ type Command = { jobId: string; kind: "resubmit" | "cancel" };
 type SendTarget = { jobId: string; name: string };
 
 /**
+ * Whether a read says this member sends a plan read against the list at all: a plan of such a request, read to its end and
+ * not sent, is sendable exactly when the member writes the affaire's list (the rule `canSendItems` applies). Null when the
+ * read holds no such plan.
+ */
+function takeoffItemSendRight(read: TakeoffRequestActivityResponse): boolean | null {
+  for (const request of [read.current, ...read.history]) {
+    if (request?.order !== "item_list") continue;
+    for (const job of request.jobs) {
+      const unit = request.units?.units.find((candidate) => candidate.jobId === job.jobId);
+      if (unit?.state === "succeeded" && !job.applied && job.estimateVersionId === null) return job.canSendItems;
+    }
+  }
+  return null;
+}
+
+/**
  * The plans of one request, in the recorded order: each one's state, its last transition, why it stopped and what the
  * member may do (by the one resume policy), « Revoir [plan] » as soon as it is read, and its building and level.
  */
@@ -344,9 +360,18 @@ export function TakeoffRequestActivity({ projectId, viewerKey, live, linked, onS
   }
 
   const coverage = current ? describeTakeoffRequestActivityCoverage(current) : null;
-  // The send stays open only while a fresh read still lets this member send that plan: a right withdrawn withdraws it.
-  const sendable = sending !== null && [current, ...olders].some((request) => request?.jobs
-    .some((job) => job.jobId === sending.jobId && job.canSendItems));
+  // The send stays open only while the freshest read that concerns it still lets this member send that plan: the freshest
+  // read naming the plan, and the freshest one saying whether the member sends at all (the current read and the history
+  // are read apart, each at its own time).
+  const reads = [live.data, linked || history.refused ? undefined : history.data]
+    .filter((read): read is TakeoffRequestActivityResponse => read !== undefined)
+    .sort((left, right) => right.observedAt.localeCompare(left.observedAt));
+  const sendable = sending !== null && (() => {
+    const named = reads.map((read) => [read.current, ...read.history].flatMap((request) => request?.jobs ?? [])
+      .find((job) => job.jobId === sending.jobId)).find((job) => job !== undefined);
+    const right = reads.map(takeoffItemSendRight).find((value) => value !== null) ?? null;
+    return named?.canSendItems === true && right !== false;
+  })();
   const observedAt = live.data?.observedAt;
   const failedRead = Boolean(live.error) && Boolean(live.data);
 

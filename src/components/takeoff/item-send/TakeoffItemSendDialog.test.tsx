@@ -8,12 +8,12 @@ import { beforeEach, expect, it, vi } from "vitest";
 
 const network = vi.hoisted(() => ({
   preview: vi.fn(), confirm: vi.fn(), renew: vi.fn(), acquire: vi.fn(), release: vi.fn(),
-  toast: vi.fn(), push: vi.fn(), table: vi.fn(),
+  toast: vi.fn(), toastError: vi.fn(), push: vi.fn(), table: vi.fn(), history: vi.fn(),
 }));
 let searchParams = new URLSearchParams();
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: network.push }),
   usePathname: () => "/dashboard/affaires/fiction/takeoff", useSearchParams: () => searchParams }));
-vi.mock("@/components/feedback/toast-provider", () => ({ useToast: () => ({ success: network.toast }) }));
+vi.mock("@/components/feedback/toast-provider", () => ({ useToast: () => ({ success: network.toast, error: network.toastError }) }));
 vi.mock("@/lib/estimates/client-locks", () => ({
   releaseEstimateDraftLock: network.release, renewEstimateDraftLock: network.renew, acquireEstimateDraftLock: network.acquire,
 }));
@@ -231,7 +231,7 @@ it("keeps the edited page note through another gesture before the debounce fires
   const noteBefore = "The original fictional note";
   const noteAfter = "The corrected fictional note";
   network.preview.mockImplementation(async (_job: string, request: ItemSendPreviewRequest) =>
-    request.page_decisions?.length ? response({ breakdown: request.breakdown ?? "together" })
+    request.page_decisions?.length ? response({ breakdown: request.breakdown ?? "together", lines: [{ ...line(), quantity_before: 3 }] })
       : response({ lines: [], confirmable: false, plan_digest: null, to_resolve: [heldPage] }));
   render(view());
   fireEvent.click(await screen.findByRole("radio", { name: /^Garder les deux/ }));
@@ -263,7 +263,7 @@ it("reuses the lost confirmation's intention key after leaving and reopening the
 
 vi.mock("@/components/takeoff/useTakeoffRequestActivity", () => ({
   isTakeoffReadRefusal: () => false,
-  useTakeoffRequestActivity: () => ({ data: undefined, refused: false, mutate: () => undefined }),
+  useTakeoffRequestActivity: () => ({ data: network.history(), refused: false, mutate: () => undefined }),
 }));
 vi.mock("@/components/takeoff/TakeoffPlanLocationDialog", () => ({ TakeoffPlanLocationDialog: () => null }));
 vi.mock("@/app/dashboard/affaires/_actions/takeoff", () => ({ assumeTakeoffLaunchRequestAction: vi.fn() }));
@@ -334,4 +334,191 @@ it("keeps the table on plan B when an earlier confirmation for plan A resolves a
   await waitFor(() => expect(network.table.mock.calls.at(-1)?.[1].scope.planKey).toBe(plans[1]));
   await act(async () => confirmation.resolve(confirmResponse));
   expect(network.push).not.toHaveBeenCalled();
+});
+
+// Review of #499, round two: finer cases, each reproduced on `c8455a3e` first.
+
+const lineAt = (id: string, title: string) => [{ estimate_item_id: id, title, quantity: 4 }];
+
+it("binds a choice to the line its question named: another line asking the same is asked again", async () => {
+  let shownOn = lineA;
+  network.preview.mockImplementation(async (_job: string, request: ItemSendPreviewRequest) => {
+    if (!request.resolutions?.length) return response({ lines: [], confirmable: false, plan_digest: null,
+      to_resolve: [{ ...entry, earlier_lines: lineAt(shownOn, shownOn === lineA ? "Ligne A" : "Ligne B") }] });
+    // Line A was replaced by a proven line B, typed and retained alike, before the first preview carrying the choice.
+    shownOn = lineB;
+    return response({ lines: [line(lineB)], focus_item_id: lineB });
+  });
+  render(view());
+  fireEvent.click(await screen.findByRole("radio", { name: /^Retenir le métré/ }));
+  await waitFor(() => expect(screen.getByTestId("item-send-point-entered_quantity")).toHaveTextContent("Ligne B"));
+  expect({ checked: radio(/^Retenir le métré/).checked, confirmable: !sendButton().disabled }).toEqual({ checked: false, confirmable: false });
+  // Chosen again on the line now named: it applies.
+  fireEvent.click(radio(/^Retenir le métré/));
+  await waitFor(() => expect(sendButton()).toBeEnabled());
+});
+
+it("never confirms on two reads that describe different holders of a decided page", async () => {
+  network.preview.mockImplementation(async (_job: string, request: ItemSendPreviewRequest) =>
+    request.page_decisions?.length
+      ? response({ lines: [{ ...line(lineA, 2), quantity_before: 8, replaced: 8 }], plan_digest: "c".repeat(64) })
+      : response({ lines: [], confirmable: false, plan_digest: null,
+        to_resolve: [{ ...heldPage, earlier_lines: [{ estimate_item_id: lineA, title: "Ancien apport", quantity: 3 }] }] }));
+  render(view());
+  fireEvent.click(await screen.findByRole("radio", { name: /^Remplacer/ }));
+  await screen.findByTestId("item-send-read-disagree");
+  expect(screen.getByTestId("item-send-page-2")).toHaveTextContent("Ancien apport");
+  expect(sendButton()).toBeDisabled();
+  // Read again a bounded number of times, never in a loop.
+  const reads = network.preview.mock.calls.length;
+  await new Promise((done) => setTimeout(done, 50));
+  expect(network.preview.mock.calls.length).toBe(reads);
+});
+
+it("never lets an unfinished « garder les deux » note overwrite a switch to « Remplacer »", async () => {
+  network.preview.mockImplementation(async (_job: string, request: ItemSendPreviewRequest) =>
+    // Both reads describe line A as the draft holds it (3): the read with the decision and the one without agree.
+    request.page_decisions?.length ? response({ lines: [{ ...line(), quantity_before: 3 }] })
+      : response({ lines: [], confirmable: false, plan_digest: null, to_resolve: [heldPage] }));
+  render(view());
+  fireEvent.click(await screen.findByRole("radio", { name: /^Garder les deux/ }));
+  fireEvent.click(await screen.findByRole("radio", { name: "Périmètre complémentaire" }));
+  fireEvent.change(await screen.findByRole("textbox"), { target: { value: "A distinct fictional scope" } });
+  fireEvent.click(radio(/^Remplacer/));
+  await waitFor(() => expect(sendButton()).toBeEnabled());
+  expect(network.preview.mock.calls.filter(([, request]) => request.page_decisions?.length).at(-1)?.[1].page_decisions)
+    .toEqual([{ page: 2, decision: "replace" }]);
+});
+
+it("keeps the lease until the confirmation settles, then releases it and says a refusal where the member is", async () => {
+  const arrived = deferred<true>();
+  let serverLease = false;
+  network.renew.mockRejectedValue(new EstimateApiError("Aucun bail.", 404, null, null));
+  network.acquire.mockImplementation(async () => { serverLease = true; return { acquired: true, lock: { isOwnedByCurrentUser: true } }; });
+  network.release.mockImplementation(async () => { serverLease = false; return { released: true }; });
+  const leaseAtCommit = vi.fn();
+  network.confirm.mockImplementation(async () => {
+    await arrived.promise;
+    leaseAtCommit(serverLease);
+    throw stale();
+  });
+  const rendered = render(view());
+  await waitFor(() => expect(sendButton()).toBeEnabled());
+  fireEvent.click(sendButton());
+  await waitFor(() => expect(network.confirm).toHaveBeenCalledTimes(1));
+  rendered.unmount();
+  expect(serverLease).toBe(true);
+  await act(async () => arrived.resolve(true));
+  await waitFor(() => expect(serverLease).toBe(false));
+  expect(leaseAtCommit).toHaveBeenCalledWith(true);
+  expect(network.toastError).toHaveBeenCalledWith(expect.objectContaining({ description: expect.stringContaining("Aperçu périmé") }));
+});
+
+it("withdraws the table's send when a fresh read of the table shows its plan sent", async () => {
+  let sent = false;
+  const plan = "plan-rdc";
+  network.table.mockImplementation(async (_project: string, address: Parameters<typeof fixtureItemTable>[0]) =>
+    fixtureItemTable({ items: [fixturePoste(0, "Lavabo")], scope: address.scope,
+      readings: [{ ...fixtureReading(0, plan, fixtureAnswer("measured", 3, { jobId: job })), sent }] }));
+  const table = (signature: string) => <SWRConfig value={{ provider: () => new Map() }}>
+    <TakeoffItemTable projectId={FIXTURE_ITEM_PROJECT} viewerKey="tenant:actor" signature={signature} />
+  </SWRConfig>;
+  searchParams = new URLSearchParams({ postePlan: plan });
+  const rendered = render(table("first"));
+  fireEvent.click(await screen.findByRole("button", { name: "Envoyer ce plan au devis" }));
+  await waitFor(() => expect(sendButton()).toBeEnabled());
+  sent = true;
+  rendered.rerender(table("second"));
+  await screen.findByTestId("poste-plan-sent");
+  expect(screen.queryByRole("dialog")).toBeNull();
+});
+
+it("withdraws an earlier request's send when the freshest read says the member no longer sends", async () => {
+  const old = fixtureThreePlans({ bDone: true });
+  old.order = "item_list";
+  old.jobs[0].canSendItems = true;
+  const latest = (allowed: boolean) => {
+    const now = fixtureThreePlans({ reader: !allowed, bDone: true });
+    now.id = replacementJob;
+    now.order = "item_list";
+    now.jobs[0].jobId = replacementJob;
+    now.jobs[0].canSendItems = allowed;
+    now.units!.units[0].jobId = replacementJob;
+    now.units!.units[0].name = "Current plan";
+    return <TakeoffRequestActivity projectId={FIXTURE_PROJECT} viewerKey="tenant:actor"
+      live={{ data: { ...fixtureActivityResponse(now), observedAt: allowed ? "2026-11-22T10:00:00.000Z" : "2026-11-22T10:05:00.000Z" },
+        error: undefined, refused: false, refreshMs: 0, refresh: vi.fn(), isLoading: false }}
+      linked={null} onChanged={vi.fn()} onShowLatest={vi.fn()} />;
+  };
+  network.history.mockReturnValue({ ...fixtureActivityResponse(null, { view: "history", history: [old] }), observedAt: "2026-11-22T10:00:00.000Z" });
+  const rendered = render(latest(true));
+  const history = screen.getByTestId("takeoff-request-history");
+  (history.querySelector("details") as HTMLDetailsElement).open = true;
+  fireEvent.click(await screen.findByRole("button", { name: /Envoyer ce plan au devis : « Plan A/ }));
+  await waitFor(() => expect(sendButton()).toBeEnabled());
+  rendered.rerender(latest(false));
+  expect(screen.queryByRole("dialog")).toBeNull();
+});
+
+it("reopens a plan sent while its answer was lost as sent, with the way to the line it wrote", async () => {
+  const jobId = "00000000-0000-4000-8000-000000000031";
+  const landing = `/dashboard/estimates/${version}/edit?focusItemId=${lineA}`;
+  let committed = false;
+  network.preview.mockImplementation(async () => !committed ? response({ destination: firstDraft }) : response({
+    blocked: { reason: "already_sent", message: "Les postes de ce plan ont déjà été envoyés au devis.", href: landing },
+    lines: [], confirmable: false, plan_digest: null,
+  }));
+  network.confirm.mockImplementationOnce(async () => { committed = true; throw new TypeError("Response lost"); });
+  const first = render(view(vi.fn(), jobId));
+  const create = await screen.findByRole("button", { name: "Créer le devis et y envoyer « Plan A »" });
+  await waitFor(() => expect(create).toBeEnabled());
+  fireEvent.click(create);
+  await screen.findByText("Response lost");
+  first.unmount();
+  render(view(vi.fn(), jobId));
+  await screen.findByText("Les postes de ce plan ont déjà été envoyés au devis.");
+  expect(screen.getByRole("link", { name: "Ouvrir le devis sur la ligne écrite" })).toHaveAttribute("href", landing);
+});
+
+it("gives a send that ends after the member left the way to the line it wrote", async () => {
+  const confirmation = deferred<typeof confirmResponse>();
+  network.confirm.mockReturnValue(confirmation.promise);
+  const rendered = render(view());
+  await waitFor(() => expect(sendButton()).toBeEnabled());
+  fireEvent.click(sendButton());
+  await waitFor(() => expect(network.confirm).toHaveBeenCalledTimes(1));
+  rendered.unmount();
+  await act(async () => confirmation.resolve(confirmResponse));
+  expect(network.toast).toHaveBeenCalledWith(expect.objectContaining({ action: { label: "Ouvrir le devis sur la ligne écrite",
+    href: `/dashboard/estimates/${version}/edit?focusItemId=${lineA}` } }));
+  expect(network.push).not.toHaveBeenCalled();
+});
+
+it("keeps one intention key for the same choices made in another order", async () => {
+  const secondItem = replacementJob;
+  const secondEntry = { ...entry, key: `entry:${secondItem}|together`, item_id: secondItem, label: "Douche" };
+  const secondLine = { ...line(lineB), key: `${secondItem}|together`, item_id: secondItem, label: "Douche" };
+  const jobId = "00000000-0000-4000-8000-000000000032";
+  network.preview.mockImplementation(async (_job: string, request: ItemSendPreviewRequest) => {
+    const picked = new Set(request.resolutions?.map(({ key }) => key));
+    const to_resolve = [entry, secondEntry].filter(({ key }) => !picked.has(key));
+    return response({ lines: [line(), secondLine].filter(({ key }) => picked.has(`entry:${key}`)), to_resolve,
+      confirmable: to_resolve.length === 0, plan_digest: to_resolve.length ? null : "d".repeat(64) });
+  });
+  network.confirm.mockRejectedValue(new TypeError("Response lost"));
+  const chooseInOrder = async (labels: string[]) => {
+    for (const label of labels) {
+      const group = await screen.findByRole("group", { name: new RegExp(label) });
+      fireEvent.click(Array.from(group.querySelectorAll("input")).at(1)!);
+    }
+    await waitFor(() => expect(sendButton()).toBeEnabled());
+    fireEvent.click(sendButton());
+    await screen.findByText("Response lost");
+  };
+  const first = render(view(vi.fn(), jobId));
+  await chooseInOrder(["Lavabo", "Douche"]);
+  first.unmount();
+  render(view(vi.fn(), jobId));
+  await chooseInOrder(["Douche", "Lavabo"]);
+  expect(network.confirm.mock.calls[1][1].request_id).toBe(network.confirm.mock.calls[0][1].request_id);
 });

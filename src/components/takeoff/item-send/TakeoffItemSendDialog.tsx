@@ -55,6 +55,7 @@ type Ask = { destination?: Destination; breakdown?: ItemSendBreakdown; choices: 
 type Notice = { text: string; changes: string[] };
 
 export const TAKEOFF_ITEM_SEND_TITLE = "Envoyer ce plan au devis";
+export const ITEM_SEND_LANDING_LABEL = "Ouvrir le devis sur la ligne écrite";
 
 type Props = {
   open: boolean;
@@ -86,7 +87,7 @@ function TakeoffItemSendScreen({ open, jobId, planName, viewerKey, onOpenChange,
   const toast = useToast();
   const router = useRouter();
   const [ask, setAsk] = useState<Ask>({ choices: EMPTY_ITEM_SEND_CHOICES, read: 0 });
-  const [preview, setPreview] = useState<{ read: number; data: Preview | null; error: string | null } | null>(null);
+  const [preview, setPreview] = useState<{ read: number; data: Preview | null; error: string | null; disagree?: boolean } | null>(null);
   const [heldPoints, setHeldPoints] = useState<ReadonlyMap<string, Point>>(new Map());
   const [notice, setNotice] = useState<Notice | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -104,9 +105,15 @@ function TakeoffItemSendScreen({ open, jobId, planName, viewerKey, onOpenChange,
   // The leases this send took, a lost answer's included: released after each confirmation and when the screen goes; a lease
   // the member already held is only renewed, never released.
   const leases = useRef(new Set<string>());
+  // The leases a confirmation under way relies on: released only once it settled, whatever the screen does meanwhile.
+  const inFlight = useRef(new Set<string>());
   useEffect(() => () => {
-    for (const versionId of leases.current) void releaseEstimateDraftLock(versionId).catch(() => false);
+    for (const versionId of leases.current) {
+      if (!inFlight.current.has(versionId)) void releaseEstimateDraftLock(versionId).catch(() => false);
+    }
   }, []);
+  // The reads of a decided page that disagree, read again a bounded number of times before the member is asked to.
+  const disagreements = useRef(0);
   // A preview found stale: the one shown before it, and the choices dropped since, said with the next one.
   const stale = useRef<{ from: Preview; dropped: string[] } | null>(null);
   const start = useCompletions({ screen, item: String(ask.read) });
@@ -138,6 +145,14 @@ function TakeoffItemSendScreen({ open, jobId, planName, viewerKey, onOpenChange,
         const now = fresh.find((point) => itemSendPageKey(point.page) === key);
         return before !== undefined && now !== undefined && itemSendPageHolderChanged(before, now);
       });
+      // What the page shows and what the confirmation would do must be one state: a line a decided page holds stands in the
+      // decided read at the quantity the read without decisions gives it. Otherwise nothing is confirmable, and both are
+      // read again.
+      const decided = (point: Point) => ask.choices.pageDecisions.has(itemSendPageKey(point.page));
+      const disagree = movedPages.length === 0 && fresh.some((point) => decided(point) && point.earlier_lines.some((held) => {
+        const fed = data.lines.find((candidate) => candidate.estimate_item_id?.toLowerCase() === held.estimate_item_id.toLowerCase());
+        return fed !== undefined && fed.quantity_before !== null && fed.quantity_before !== held.quantity;
+      }));
       if (fresh.length > 0) {
         setHeldPoints((currentPoints) => {
           const next = new Map(currentPoints);
@@ -145,6 +160,16 @@ function TakeoffItemSendScreen({ open, jobId, planName, viewerKey, onOpenChange,
           return next;
         });
       }
+      if (disagree) {
+        if (disagreements.current < 2) {
+          disagreements.current += 1;
+          setAsk((currentAsk) => (currentAsk.read === read ? { ...currentAsk, read: read + 1 } : currentAsk));
+        } else {
+          setPreview({ read, data, error: null, disagree: true });
+        }
+        return;
+      }
+      disagreements.current = 0;
       // The choices the new preview still applies; a dropped one is said, and the preview read again without it.
       const reconciled = reconcileItemSendChoices(ask.choices, data);
       const dropped = [...reconciled.dropped, ...movedPages.map((key) => `${pageName(heldPoints.get(key)?.page ?? null)} : ce qu’elle `
@@ -210,6 +235,15 @@ function TakeoffItemSendScreen({ open, jobId, planName, viewerKey, onOpenChange,
     setNotice(null);
     update((currentAsk) => ({ ...currentAsk, choices: withItemSendResolution(currentAsk.choices, point, choice) }));
   }, [update]);
+  /** A note typed and not yet committed: written only onto the same « garder les deux » it was typed for, if still current. */
+  const flushNote = useCallback((page: number | null, decidedOn: Extract<ItemSendPendingPageDecision, { decision: "keep_both" }>,
+    note: string) => update((currentAsk) => {
+    const now = currentAsk.choices.pageDecisions.get(itemSendPageKey(page));
+    if (!now || now.decision !== "keep_both" || now.reasonCode !== decidedOn.reasonCode || (now.note ?? "") !== (decidedOn.note ?? "")) {
+      return currentAsk;
+    }
+    return { ...currentAsk, choices: withItemSendPageDecision(currentAsk.choices, { ...now, note: note || null }) };
+  }), [update]);
   const decidePage = useCallback((point: Point, decision: ItemSendPendingPageDecision | null) => {
     setNotice(null);
     update((currentAsk) => ({ ...currentAsk, choices: withItemSendPageDecision(currentAsk.choices,
@@ -229,7 +263,7 @@ function TakeoffItemSendScreen({ open, jobId, planName, viewerKey, onOpenChange,
     || !pagePoints.some((point) => point.page === entry.page));
 
   const confirmable = !!data && data.confirmable && data.plan_digest !== null && data.invalid_page_decisions.length === 0
-    && !submitting && !loading && !sent && typing.size === 0;
+    && !submitting && !loading && !sent && typing.size === 0 && !current?.disagree;
   const noteTyping = useCallback((page: number | null, pendingNote: boolean) => setTyping((current) => {
     const key = itemSendPageKey(page);
     if (current.has(key) === pendingNote) return current;
@@ -267,11 +301,13 @@ function TakeoffItemSendScreen({ open, jobId, planName, viewerKey, onOpenChange,
         }
         // The member left this send while the lease was taken: nothing is posted.
         if (!completion.ownScreen()) return;
+        inFlight.current.add(lockVersionId);
       }
       response = await confirmTakeoffItemSend(jobId, { ...request, request_id: key.id, plan_digest: digest });
     } catch (error) {
       failure = error;
     } finally {
+      if (lockVersionId) inFlight.current.delete(lockVersionId);
       if (lockVersionId && leases.current.has(lockVersionId)) {
         const released = await releaseEstimateDraftLock(lockVersionId).then(() => true, () => false);
         if (released) leases.current.delete(lockVersionId);
@@ -292,15 +328,25 @@ function TakeoffItemSendScreen({ open, jobId, planName, viewerKey, onOpenChange,
       const title = `Plan « ${shownPlan} » envoyé au devis`;
       const description = `${plural(response.lines_written, "ligne écrite", "lignes écrites")}`
         + `${response.version_created ? ", premier brouillon créé" : ""}.`;
+      const landing = takeoffItemSendLandingHref(response.version_id,
+        { lines_written: response.focus_item_id ? [response.focus_item_id] : [], sections_created: [] });
       if (completion.ownScreen()) {
-        router.push(takeoffItemSendLandingHref(response.version_id,
-          { lines_written: response.focus_item_id ? [response.focus_item_id] : [], sections_created: [] }));
+        router.push(landing);
         toast.success({ title, description });
         onSent?.(response);
       } else {
-        // Written while the member was elsewhere: said where they are, without moving them nor touching the screen they left.
-        toast.success({ title, description: `${description} Le devis n’a pas été ouvert : vous aviez quitté cet envoi.` });
+        // Written while the member was elsewhere: said where they are, with the way to it, without moving them nor touching
+        // the screen they left.
+        toast.success({ title, description: `${description} Le devis n’a pas été ouvert : vous aviez quitté cet envoi.`,
+          action: { label: ITEM_SEND_LANDING_LABEL, href: landing } });
       }
+      return;
+    }
+    if (failure && !completion.ownScreen()) {
+      // Refused, or its answer lost, while the member was elsewhere: said where they are.
+      const said = isTakeoffApiError(failure) || failure instanceof Error ? failure.message : "L’envoi des postes de ce plan a échoué.";
+      toast.error({ title: `Plan « ${shownPlan} » : envoi non confirmé`, description: lost
+        ? `${said} La réponse n’est pas arrivée : rouvrez l’envoi de ce plan pour savoir s’il est écrit.` : said });
       return;
     }
     if (!failure || !completion.ownScreen()) return;
@@ -356,6 +402,18 @@ function TakeoffItemSendScreen({ open, jobId, planName, viewerKey, onOpenChange,
               </Alert>
             ) : null}
             {loading ? <Alert variant="info">Calcul de l’aperçu de l’envoi…</Alert> : null}
+            {current?.disagree ? (
+              <Alert variant="warning" data-testid="item-send-read-disagree">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <p className="min-w-0">
+                    Le devis a changé pendant la lecture de l’aperçu : ce que montrent ses pages et ce que ferait l’envoi ne concordent pas.
+                    Rien ne peut être confirmé avant une nouvelle lecture.
+                  </p>
+                  <Button type="button" variant="outline" size="sm"
+                    onClick={() => { disagreements.current = 0; update((currentAsk) => currentAsk, true); }}>Relire l’aperçu</Button>
+                </div>
+              </Alert>
+            ) : null}
             {current?.error ? (
               <Alert variant="danger">
                 <div className="flex flex-wrap items-center justify-between gap-3">
@@ -392,6 +450,7 @@ function TakeoffItemSendScreen({ open, jobId, planName, viewerKey, onOpenChange,
                         decision={ask.choices.pageDecisions.get(itemSendPageKey(point.page)) ?? null}
                         leftOut={ask.choices.resolutions.get(point.key)?.choice.kind === "leave_out"}
                         invalid={invalidFor(point.page)} onNoteTyping={noteTyping}
+                        onFlushNote={(decidedOn, note) => flushNote(point.page, decidedOn, note)}
                         onDecide={(decision) => decidePage(point, decision)}
                         onLeaveOut={(leave) => choose(point, leave ? { kind: "leave_out" } : null)} />
                     ))}

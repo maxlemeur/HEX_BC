@@ -159,7 +159,7 @@ const dpgfRow = (id: string, mapped: string, overrides: Row = {}) => ({ id, tena
 let calls: Calls;
 let written: Row[];
 function setUp(input: { manifest?: unknown; versions?: Row[]; items?: Row[]; role?: string; lineage?: Row[]; mapped?: Row[];
-  sources?: unknown; locations?: Row[]; receipts?: Row[]; writer?: (args: Row) => unknown }) {
+  sources?: unknown; locations?: Row[]; receipts?: Row[]; writer?: (args: Row) => unknown; sent?: boolean }) {
   written = [];
   calls = { reads: [], writes: [], rpcs: [] };
   const shared: Record<string, Row[]> = {
@@ -192,8 +192,9 @@ function setUp(input: { manifest?: unknown; versions?: Row[]; items?: Row[]; rol
         parts_replaced: 0, page_decisions: [], focus_item_id: LINE, override: null, rules: [] };
     },
   };
-  const member = fakeClient("member", { ...shared, takeoff_item_send_receipts: input.receipts ?? [], takeoff_jobs: [{ id: JOB, tenant_id: TENANT, project_id: PROJECT, estimate_version_id: null,
-    status: "completed", launch_request_id: REQUEST, launch_unit_key: "unit-1", sources: input.sources ?? null },
+  const member = fakeClient("member", { ...shared, takeoff_item_send_receipts: input.receipts ?? [], takeoff_jobs: [{ id: JOB, tenant_id: TENANT, project_id: PROJECT,
+    estimate_version_id: input.sent ? VERSION : null, status: input.sent ? "applied" : "completed", launch_request_id: REQUEST,
+    launch_unit_key: "unit-1", sources: input.sources ?? null },
   { id: JOB, tenant_id: OTHER_TENANT, project_id: OTHER_PROJECT, estimate_version_id: null, status: "completed",
     launch_request_id: REQUEST, launch_unit_key: "unit-1", sources: null }] }, functions, calls, []);
   vi.mocked(getAuthenticatedTakeoffContext).mockResolvedValue({ supabase: member, tenantId: TENANT, userId: MEMBER,
@@ -451,7 +452,7 @@ describe("confirmTakeoffItemSend", () => {
     const preview = await previewTakeoffItemSend(JOB, {});
     const state = await computeItemSendState({ ...(await getAuthenticatedTakeoffContext()), tenantRole: "admin" } as never, JOB, {});
     return { preview, receipt: { id: "efefefef-efef-4fef-8fef-efefefefefef", tenant_id: TENANT, request_id: REQUEST_ID, job_id: JOB,
-      project_id: PROJECT, actor_id: MEMBER, write_plan: JSON.parse(JSON.stringify(state.writePlan)), result: { job_id: JOB,
+      project_id: PROJECT, version_id: VERSION, actor_id: MEMBER, write_plan: JSON.parse(JSON.stringify(state.writePlan)), result: { job_id: JOB,
         version_id: VERSION, version_created: true, lines_written: 1, parts_written: 1, parts_replaced: 0, focus_item_id: LINE },
       ...overrides } };
   }
@@ -463,6 +464,17 @@ describe("confirmTakeoffItemSend", () => {
       .toEqual(expect.objectContaining({ receipt_id: "efefefef-efef-4fef-8fef-efefefefefef", replayed: true }));
     const error = await refusal(confirmTakeoffItemSend(JOB, { request_id: REQUEST_ID, plan_digest: "b".repeat(64) }));
     expect([error.status, (error.details as { guard?: string }).guard]).toEqual([409, "item_send_request_conflict"]);
+    expect(written).toEqual([]);
+  });
+
+  // Review of #499, round two, point 6: a send committed while its answer was lost is reopened as sent, with the way to
+  // what it wrote, whatever intention key the screen holds now.
+  it("previews a plan already sent with the way to the line it wrote", async () => {
+    const { receipt } = await committedReceipt();
+    setUp({ receipts: [receipt], sent: true });
+    const preview = await previewTakeoffItemSend(JOB, {});
+    expect(preview.blocked).toEqual({ reason: "already_sent", message: "Les postes de ce plan ont déjà été envoyés au devis.",
+      href: `/dashboard/estimates/${VERSION}/edit?focusItemId=${LINE}` });
     expect(written).toEqual([]);
   });
 

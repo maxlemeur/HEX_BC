@@ -125,7 +125,9 @@ export function ItemSendBlocked({ blocked }: { blocked: NonNullable<Preview["blo
       <p>{blocked.message}</p>
       {blocked.href ? (
         <p className="mt-2">
-          <Link className="font-medium underline underline-offset-2" href={blocked.href}>Confirmer l’import du DPGF</Link>
+          <Link className="font-medium underline underline-offset-2" href={blocked.href}>
+            {blocked.reason === "already_sent" ? "Ouvrir le devis sur la ligne écrite" : "Confirmer l’import du DPGF"}
+          </Link>
         </p>
       ) : null}
     </Alert>

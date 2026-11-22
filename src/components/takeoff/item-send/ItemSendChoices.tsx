@@ -54,6 +54,12 @@ export function ItemSendPoint({ point, choice, disabled, onChoose }: {
     <fieldset className="space-y-2 rounded-lg border border-border p-3" data-testid={`item-send-point-${point.kind}`}>
       <legend className="px-1 text-sm font-medium text-foreground">{point.label ?? "Point à trancher"}</legend>
       <p className="text-sm text-foreground-secondary">{point.message}</p>
+      {/* The line the question is about: the choice is bound to it, and asked again if another line stands there. */}
+      {point.kind === "entered_quantity" && point.earlier_lines.length > 0 ? (
+        <p className="text-xs text-muted-foreground">
+          Ligne du devis : {point.earlier_lines.map((line) => `« ${line.title ?? "Sans titre"} »`).join(", ")}
+        </p>
+      ) : null}
       {point.facts ? (
         <p className="text-xs text-muted-foreground tabular-nums">
           {[point.facts.reference !== null ? `DPGF ${formatItemSendQuantity(point.facts.reference)}` : null,
@@ -87,7 +93,10 @@ type PageChoice = "replace" | "keep_both" | "leave_out" | null;
  * A page another analysis already brought into the estimate: what holds it, and its decision. « Garder les deux » is
  * asked with its reason (a complementary scope with its note): until it is complete, the page's parts wait.
  */
-export function ItemSendPageDecision({ point, decision, leftOut, invalid, labels, disabled, onDecide, onLeaveOut, onNoteTyping }: {
+type KeepBoth = Extract<ItemSendPendingPageDecision, { decision: "keep_both" }>;
+
+export function ItemSendPageDecision({ point, decision, leftOut, invalid, labels, disabled, onDecide, onLeaveOut, onNoteTyping,
+  onFlushNote }: {
   point: Point;
   decision: ItemSendPendingPageDecision | null;
   leftOut: boolean;
@@ -98,6 +107,11 @@ export function ItemSendPageDecision({ point, decision, leftOut, invalid, labels
   onLeaveOut: (leave: boolean) => void;
   /** Whether a note typed here has not reached the preview yet: the confirmation waits for it. */
   onNoteTyping?: (page: number | null, typing: boolean) => void;
+  /**
+   * A note typed for a « garder les deux », written only onto that same decision if it is still the page's (never over a
+   * « Remplacer » chosen since, nor back onto a decision cleared meanwhile).
+   */
+  onFlushNote: (decidedOn: KeepBoth, note: string) => void;
 }) {
   const name = useId();
   const noteId = useId();
@@ -107,13 +121,13 @@ export function ItemSendPageDecision({ point, decision, leftOut, invalid, labels
   const [note, setNote] = useState(keepBoth?.note ?? "");
   const noteTyped = keepBoth !== null && (keepBoth.note ?? "") !== note;
   // A note typed and not committed yet when this card goes (another gesture reads the preview again): committed then.
-  const unsaved = useRef<{ keepBoth: typeof keepBoth; note: string; onDecide: typeof onDecide }>({ keepBoth, note, onDecide });
+  const unsaved = useRef<{ keepBoth: typeof keepBoth; note: string; flush: typeof onFlushNote }>({ keepBoth, note, flush: onFlushNote });
   useEffect(() => {
-    unsaved.current = { keepBoth, note, onDecide };
+    unsaved.current = { keepBoth, note, flush: onFlushNote };
   });
   useEffect(() => () => {
-    const { keepBoth: decided, note: typed, onDecide: decide } = unsaved.current;
-    if (decided && (decided.note ?? "") !== typed) decide({ ...decided, note: typed || null });
+    const { keepBoth: decided, note: typed, flush } = unsaved.current;
+    if (decided && (decided.note ?? "") !== typed) flush(decided, typed);
   }, []);
   const page = point.page;
   useEffect(() => {
@@ -122,9 +136,9 @@ export function ItemSendPageDecision({ point, decision, leftOut, invalid, labels
   useEffect(() => () => onNoteTyping?.(page, false), [page, onNoteTyping]);
   useEffect(() => {
     if (!keepBoth || (keepBoth.note ?? "") === note) return;
-    const timer = setTimeout(() => onDecide({ ...keepBoth, note }), 500);
+    const timer = setTimeout(() => onFlushNote(keepBoth, note), 500);
     return () => clearTimeout(timer);
-  }, [note, keepBoth, onDecide]);
+  }, [note, keepBoth, onFlushNote]);
   const pageName = point.page === null ? "Toutes les pages" : `Page ${point.page}`;
   const choose = (next: PageChoice) => {
     if (next === "leave_out") { onDecide(null); onLeaveOut(true); return; }

@@ -129,6 +129,26 @@ describe("the member's choices on the send of one plan", () => {
     }
   });
 
+  // Review of #499, round two, point 1: bound when made, not when first applied.
+  it("binds a choice to the line its question named when the member made it", () => {
+    const named = { ...entryPoint(), earlier_lines: [{ estimate_item_id: LINE, title: "Lavabo", quantity: 4 }] };
+    const choices = withItemSendResolution(EMPTY_ITEM_SEND_CHOICES, named, { kind: "use_retained" });
+    expect(choices.resolutions.get(named.key)?.appliedOn).toEqual({ estimateItemId: LINE, entered: 4, measured: 5, retained: 5 });
+    // The first preview applying it shows another proven line with the same quantities: asked again.
+    const next = reconcileItemSendChoices(choices, preview({ lines: [line({ estimate_item_id: OTHER_LINE, entered: 4, quantity_before: 4 })] }));
+    expect([next.choices.resolutions.size, next.dropped]).toEqual([0,
+      ["« Lavabo » : la ligne ou les quantités sur lesquelles vous aviez choisi ont changé, choisissez de nouveau."]]);
+  });
+
+  it("builds one request for the same choices made in another order", () => {
+    const wc = { ...entryPoint(`entry:${WC}|together`), item_id: WC, label: "WC" };
+    const one = withItemSendResolution(withItemSendResolution(EMPTY_ITEM_SEND_CHOICES, entryPoint(), { kind: "use_retained" }), wc,
+      { kind: "keep_entry" });
+    const other = withItemSendResolution(withItemSendResolution(EMPTY_ITEM_SEND_CHOICES, wc, { kind: "keep_entry" }), entryPoint(),
+      { kind: "use_retained" });
+    expect(JSON.stringify(itemSendRequestOf({ choices: one }))).toBe(JSON.stringify(itemSendRequestOf({ choices: other })));
+  });
+
   it("says a page holder changed when its lines, their quantities or the items held moved", () => {
     const page = { ...entryPoint("page:2"), kind: "page_decision" as const, label: null, item_id: null, facts: null, page: 2,
       held_item_ids: [LAVABO], earlier_lines: [{ estimate_item_id: LINE, title: "Ancien apport", quantity: 3 }], options: [] };

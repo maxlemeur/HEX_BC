@@ -771,7 +771,8 @@ export function TakeoffItemTable({ projectId, viewerKey, signature }: {
             return copy;
           }))} />
       ) : null}
-      {sending && sending.scope === scopeKey && canReview ? (
+      {/* Withdrawn on the freshest read of the table: another scope, the right gone, or its plan now sent. */}
+      {sending && sending.scope === scopeKey && canReview && !sends.some((send) => send.jobId === sending.jobId && send.sent) ? (
         <TakeoffItemSendDialog open jobId={sending.jobId} planName={sending.planName} viewerKey={viewerKey}
           onOpenChange={(open) => { if (!open) setSending(null); }} onSent={() => void refresh()} />
       ) : null}
