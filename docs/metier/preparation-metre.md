@@ -908,11 +908,14 @@ plan (voir le dernier point). La base en décide (migration
   relit à sa copie actuelle, retrouvée par la pièce du dossier que la base a notée
   pour chaque copie et garde après sa suppression. Une copie déposée dans le jeu est
   son propre plan, quelles que soient ses métadonnées. Quand un plan de l’analyse
-  n’a plus de copie de travail (sorti du dossier, ou copie manquante ou illisible
-  pour l’instant), l’analyse ne se relance pas telle quelle et rien n’est
-  enregistré : la fenêtre le dit, en nommant le plan, et propose de choisir parmi
-  ses autres plans ceux à relire (aucun coché d’avance), par une commande qui les
-  nomme ; sans autre plan, la commande est refusée en le disant ; un plan
+  n’a plus de copie de travail (sorti des plans de l’affaire, ou copie manquante
+  ou illisible pour l’instant), l’analyse ne se relance pas telle quelle et rien
+  n’est enregistré : un autre de ses plans absent de la préparation confirmée est
+  d’abord à confirmer ; sinon la fenêtre dit lequel et pourquoi, en le nommant, et
+  propose de choisir parmi ses autres plans ceux à relire (aucun coché d’avance),
+  par une commande qui les nomme ; sans autre plan, la commande est refusée en le
+  disant (un plan sorti des plans de l’affaire ne revient pas, une copie manquante
+  peut revenir) ; un plan
   ajouté au dossier après l’analyse se lit par une commande qui le nomme et
   nomme l’analyse qu’elle complète : une commande sans analyse nommée est la
   première analyse de l’affaire, refusée quand l’affaire en a déjà une (la base
@@ -929,9 +932,13 @@ plan (voir le dernier point). La base en décide (migration
   génération lue : pour chaque plan (sa pièce du dossier, quelle que soit sa
   copie), sa dernière lecture réussie, quelle que soit la demande qui l’a faite ;
   une relecture en échec, arrêtée ou non démarrée, ou une analyse plus récente qui
-  ne l’a pas lu, laisse la lecture précédente. Toutes les demandes analysées de
-  l’affaire sont lues, avec leurs unités, en une lecture (une de plus par millier
-  de demandes), l’état de chaque unité dérivé de son job par la règle de la base.
+  ne l’a pas lu, laisse la lecture précédente. Seul un plan encore dans le jeu de
+  plans (sa copie, ou une copie de sa pièce) est ainsi noté : un plan qui en est
+  sorti n’est pas écarté par cette commande, et son retrait n’est pas signalé de
+  nouveau ; une révision que le membre a écartée dans la préparation confirmée
+  reste notée comme écartée. Toutes les demandes analysées de l’affaire sont lues,
+  avec leurs unités, en une lecture (une de plus par millier de demandes), l’état
+  de chaque unité dérivé de son job par la règle de la base.
   L’affaire ne les montre pas comme ajoutés depuis, mais signale encore leur
   remplacement ou leur retrait ; un plan jamais lu reste signalé comme ajouté, et
   un plan que la commande relit n’est pas noté à son ancienne copie. Les copies
@@ -942,7 +949,8 @@ plan (voir le dernier point). La base en décide (migration
   que soit l’activation au moment du rejeu, et avant toute lecture du jeu de plans :
   il est cherché sous les copies que l’analyse remplacée avait lues, puis, si une
   autre identité tient la clé, sous chaque identité que la même relance a pu avoir
-  depuis (les copies que les remplacements successifs de ses plans ont données) ;
+  depuis l’analyse (une par copie que les remplacements de ses plans ont donnée
+  depuis, la plus récente d’abord) ;
   une autre sélection de plans sous la même clé est une autre commande, refusée.
 - **L’envoi au tableau de chiffrage** d’une analyse par plan reste fermé jusqu’à
   l’envoi partiel : la revue dit qu’il arrive plus tard, et la base refuse de la

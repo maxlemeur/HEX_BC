@@ -1267,12 +1267,15 @@ describe("launchTakeoffRelaunch", () => {
 
   // A plan with no working copy now (its piece left the dossier, or its copy is missing): the relaunch is refused, saying
   // so (the member cannot confirm the options with a plan that has no copy).
-  it("refuses the relaunch of a plan whose piece left the dossier, saying so", async () => {
+  it.each([
+    ["left the dossier", true, "« plan-a.pdf » n’est plus dans les plans de l’affaire : cette analyse ne peut plus être relancée."],
+    ["has no copy for now", false, "« plan-a.pdf » n’a pas de copie de travail pour l’instant (manquante ou illisible) : l’analyse "
+      + "se relance quand ce plan a de nouveau sa copie."],
+  ] as const)("refuses the relaunch of an analysis whose only plan %s, saying so", async (_case, removed, message) => {
     const history = affaireHistory({ copies: [B_COPY], confirmed: [B_COPY.id], requests: [{ id: FIRST_REQUEST, plans: [A_BEFORE, B_COPY] }],
+      removedPieces: removed ? [PIECE_A] : [],
       predecessor: { id: JOB_OF_A, requestId: FIRST_REQUEST, unitKey: `plan:${A_BEFORE.id}` } });
-    await expect(history.runFromDialogue()).rejects.toMatchObject({ status: 422,
-      message: "Un plan de l’analyse à relancer n’a pas de copie de travail dans les plans de l’affaire : il est sorti du dossier, "
-        + "ou sa copie manque ou est illisible. L’analyse se relance quand ce plan a de nouveau sa copie." });
+    await expect(history.runFromDialogue()).rejects.toMatchObject({ status: 422, message });
     expect(history.launched).toEqual([]);
   });
 
@@ -1442,6 +1445,88 @@ describe("launchTakeoffRelaunch", () => {
       await expect(history.run([B_COPY.id])).resolves.toMatchObject({ outcome: "admitted" });
       expect(history.launched[0]).toMatchObject({ p_plan_file_ids: [B_COPY.id], p_predecessor_job_id: JOB_OF_A });
     });
+
+  // Review of fix round 1. Request 1 read A and B; B left the dossier; a later grouped analysis read A alone. A command
+  // reading C never records B as read before: it is no longer a plan of the plan set, and the dossier is not told
+  // « retiré » again for a removal the later analysis already sealed.
+  it("never sets aside as read before a plan that is no longer in the plan set", async () => {
+    const history = affaireHistory({ copies: [A_BEFORE, C_COPY], confirmed: [A_BEFORE.id, C_COPY.id], removedPieces: [PIECE_B],
+      requests: [{ id: SECOND_REQUEST, plans: [A_BEFORE], grouped: true }, { id: FIRST_REQUEST, plans: [A_BEFORE, B_COPY] }],
+      predecessor: { id: JOB_OF_A, requestId: SECOND_REQUEST, unitKey: "grouped" } });
+    await expect(history.run([C_COPY.id])).resolves.toMatchObject({ outcome: "admitted" });
+    const manifest = history.launched[0].p_manifest as AnyTakeoffLaunchManifest;
+    expect(manifest.coverage.plans_omitted).toEqual([expect.objectContaining({ id: A_BEFORE.id, reason: "not_requested" })]);
+    expect(describeDossierChangeSinceAnalysis(manifest, history.rows, history.documents)).toBeNull();
+  });
+
+  // A revision the member set aside in the confirmed preparation stays set aside, even when an earlier analysis read it.
+  it("keeps a revision the member set aside as set aside, though an earlier analysis read it", async () => {
+    const history = affaireHistory({ copies: [A_BEFORE, B_COPY, C_COPY], confirmed: [B_COPY.id, C_COPY.id],
+      requests: [{ id: FIRST_REQUEST, plans: [A_BEFORE, B_COPY] }],
+      predecessor: { id: JOB_OF_A, requestId: FIRST_REQUEST, unitKey: `plan:${A_BEFORE.id}` } });
+    await expect(history.run([C_COPY.id])).resolves.toMatchObject({ outcome: "admitted" });
+    const manifest = history.launched[0].p_manifest as AnyTakeoffLaunchManifest;
+    expect(manifest.coverage.plans_omitted).toEqual(expect.arrayContaining([{ id: A_BEFORE.id, name: "plan-a.pdf", reason: "alternate" },
+      expect.objectContaining({ id: B_COPY.id, reason: "not_requested" })]));
+    expect(manifest.coverage.plans_omitted).toHaveLength(2);
+  });
+
+  // A grouped analysis read A, B and C; A has no copy now and C's current copy is not in the member's confirmed options:
+  // the member is asked to confirm the options first, never offered B alone without being told about C.
+  it("asks to confirm the options before offering the other plans when one of them is not in the confirmed preparation", async () => {
+    const C_AFTER: Copy = { id: "aaaaaaaa-0000-4000-8000-000000000058", name: "plan-c.pdf", document: PIECE_C, generation: "generation-2" };
+    const history = affaireHistory({ copies: [B_COPY, C_AFTER], confirmed: [B_COPY.id], requests: [], removedPieces: [PIECE_A],
+      predecessor: { id: JOB_OF_A, requestId: null, unitKey: null, snapshotPlans: [A_BEFORE, B_COPY, C_COPY] } });
+    await expect(history.runFromDialogue()).rejects.toMatchObject({ status: 422,
+      message: "Ce plan ne fait pas partie de la préparation confirmée : confirmez les options du métré avec ce plan, puis relancez." });
+    expect(history.launched).toEqual([]);
+  });
+
+  // The current-copy reader is asked only about the copies the plan set holds: a deleted copy of the piece is never current.
+  it("asks the current-copy reader only about copies the plan set holds", async () => {
+    const A_GONE: Copy = { id: "aaaaaaaa-0000-4000-8000-000000000059", name: "plan-a.pdf", document: PIECE_A, generation: "generation-0" };
+    const history = affaireHistory({ copies: [A_AFTER, B_COPY], confirmed: [A_AFTER.id, B_COPY.id], formerCopies: [A_GONE],
+      requests: [{ id: FIRST_REQUEST, plans: [A_BEFORE, B_COPY] }],
+      predecessor: { id: JOB_OF_A, requestId: FIRST_REQUEST, unitKey: `plan:${A_BEFORE.id}` } });
+    await expect(history.runFromDialogue()).resolves.toMatchObject({ outcome: "admitted" });
+    const asked = history.fake.rpcCalls.filter(({ fn }) => fn === "read_takeoff_plan_location_source")
+      .map(({ args }) => (args as { p_plan_file_id: string }).p_plan_file_id).sort();
+    expect(asked).toEqual([A_BEFORE.id, A_AFTER.id].sort());
+  });
+
+  // A conflict under the key: only the identities the command can have had after the analysis it replaces are tried, one
+  // per copy recorded since (two copies recorded at once included), never the copies recorded before it.
+  it("tries, on a conflict, only the identities a relaunch can have had since its analysis", async () => {
+    const A_EARLIER: Copy = { id: "aaaaaaaa-0000-4000-8000-00000000005a", name: "plan-a.pdf", document: PIECE_A, generation: "generation-0",
+      recordedAt: "2026-11-01T08:00:00.000Z" };
+    const A0: Copy = { ...A_BEFORE, recordedAt: "2026-11-10T08:00:00.000Z" };
+    const A1: Copy = { id: "aaaaaaaa-0000-4000-8000-000000000056", name: "plan-a.pdf", document: PIECE_A, generation: "generation-2",
+      recordedAt: "2026-11-12T08:00:00.000Z" };
+    const A1_TWIN: Copy = { id: "aaaaaaaa-0000-4000-8000-00000000005b", name: "plan-a.pdf", document: PIECE_A, generation: "generation-2",
+      recordedAt: "2026-11-12T08:00:00.000Z" };
+    const history = affaireHistory({ copies: [A1, B_COPY], confirmed: [A1.id, B_COPY.id], formerCopies: [A_EARLIER, A1_TWIN],
+      requests: [{ id: FIRST_REQUEST, plans: [A0, B_COPY] }],
+      predecessor: { id: JOB_OF_A, requestId: FIRST_REQUEST, unitKey: `plan:${A0.id}` },
+      receipt: () => ({ data: null, error: { code: "23505", message: "TAKEOFF_LAUNCH_INTENT_CONFLICT" } }) });
+    await expect(history.runFromDialogue()).rejects.toMatchObject({ status: 409 });
+    expect(history.replays.map((replay) => (replay as { p_plan_file_ids: string[] }).p_plan_file_ids)).toEqual(
+      [[A0.id], [A1_TWIN.id], [A1.id]]);
+  });
+
+  // The copies recorded since are counted per piece: A's replacement recorded before B's own copy is still an identity
+  // of the relaunch of a grouped analysis of A and B.
+  it("finds a grouped relaunch's receipt under a replacement recorded before another plan's copy", async () => {
+    const A0: Copy = { ...A_BEFORE, recordedAt: "2026-11-10T08:00:00.000Z" };
+    const A1: Copy = { id: "aaaaaaaa-0000-4000-8000-000000000056", name: "plan-a.pdf", document: PIECE_A, generation: "generation-2",
+      recordedAt: "2026-11-12T08:00:00.000Z" };
+    const B_LATER: Copy = { ...B_COPY, recordedAt: "2026-11-15T08:00:00.000Z" };
+    const history = affaireHistory({ copies: [A1, B_LATER], confirmed: [A1.id, B_LATER.id], requests: [],
+      predecessor: { id: JOB_OF_A, requestId: null, unitKey: null, snapshotPlans: [A0, B_LATER] },
+      receipt: (ids) => (ids?.join() === [A1.id, B_LATER.id].sort().join()
+        ? { data: [{ outcome: "replayed", request_id: SECOND_REQUEST, job_id: "aaaaaaaa-0000-4000-8000-0000000000b4" }], error: null }
+        : { data: null, error: { code: "23505", message: "TAKEOFF_LAUNCH_INTENT_CONFLICT" } }) });
+    await expect(history.runFromDialogue()).resolves.toMatchObject({ outcome: "replayed", jobId: "aaaaaaaa-0000-4000-8000-0000000000b4" });
+  });
 
   it("refuses plans named one by one before one analysis per plan is active", async () => {
     const { calls } = gesture();

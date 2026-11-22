@@ -343,16 +343,31 @@ export type TakeoffRelaunchChoice = {
   remaining: Array<{ id: string; name: string }>;
 };
 
-/** Why the analysis is not relaunched as it was, in French. */
-export function describeTakeoffRelaunchChoice(choice: TakeoffRelaunchChoice) {
-  const removed = choice.withoutCopy.filter(({ reason }) => reason === "removed").map(({ name }) => `« ${name} »`);
-  const missing = choice.withoutCopy.filter(({ reason }) => reason === "copy_missing").map(({ name }) => `« ${name} »`);
-  const parts = [
-    removed.length ? `${removed.join(", ")} ${removed.length > 1 ? "ne sont plus" : "n’est plus"} dans le dossier de l’affaire` : null,
+/** Each plan of the analysis without a working copy, named, with why, in French. */
+function describePlansWithoutCopy(plans: TakeoffRelaunchChoice["withoutCopy"]) {
+  const removed = plans.filter(({ reason }) => reason === "removed").map(({ name }) => `« ${name} »`);
+  const missing = plans.filter(({ reason }) => reason === "copy_missing").map(({ name }) => `« ${name} »`);
+  return [
+    removed.length ? `${removed.join(", ")} ${removed.length > 1 ? "ne sont plus" : "n’est plus"} dans les plans de l’affaire` : null,
     missing.length ? `${missing.join(", ")} ${missing.length > 1 ? "n’ont" : "n’a"} pas de copie de travail pour l’instant `
       + "(manquante ou illisible)" : null,
-  ].filter(Boolean);
-  return `${parts.join(" ; ")} : l’analyse ne peut pas être relancée telle quelle. Les autres plans peuvent être relus.`;
+  ].filter(Boolean).join(" ; ");
+}
+
+/** Why the analysis is not relaunched as it was, while other plans of it remain to read, in French. */
+export function describeTakeoffRelaunchChoice(choice: TakeoffRelaunchChoice) {
+  return `${describePlansWithoutCopy(choice.withoutCopy)} : l’analyse ne peut pas être relancée telle quelle. `
+    + "Les autres plans peuvent être relus.";
+}
+
+/**
+ * Why an analysis none of whose plans can be read now is not relaunched, in French: a plan that left the plan set never
+ * comes back; a copy missing for now may.
+ */
+export function describeTakeoffRelaunchWithoutPlans(plans: TakeoffRelaunchChoice["withoutCopy"]) {
+  const waiting = plans.filter(({ reason }) => reason === "copy_missing").length;
+  return `${describePlansWithoutCopy(plans)} : ${waiting === 0 ? "cette analyse ne peut plus être relancée."
+    : `l’analyse se relance quand ${waiting > 1 ? "ces plans ont de nouveau leur copie" : "ce plan a de nouveau sa copie"}.`}`;
 }
 
 /** The reason of a request, in French, as the affaire shows it. Names come from the dossier the reader already sees. */

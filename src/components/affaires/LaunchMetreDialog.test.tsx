@@ -177,7 +177,7 @@ describe("LaunchMetreDialog", () => {
         .mockResolvedValueOnce({ ok: true, data: { outcome: "admitted", requestId: "r3", jobId: "j3" } });
       render(request());
       await user.click(await screen.findByRole("button", { name: "Confirmer et lancer le métré" }));
-      expect(await screen.findByText("« plan-a.pdf » n’est plus dans le dossier de l’affaire : l’analyse ne peut pas être relancée "
+      expect(await screen.findByText("« plan-a.pdf » n’est plus dans les plans de l’affaire : l’analyse ne peut pas être relancée "
         + "telle quelle. Les autres plans peuvent être relus.")).toBeInTheDocument();
       expect(screen.queryByText("Analyse transmise au traitement")).not.toBeInTheDocument();
       const plan = screen.getByRole("checkbox", { name: "plan-b.pdf" });
