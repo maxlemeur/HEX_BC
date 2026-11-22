@@ -1190,6 +1190,36 @@ select is(pg_temp.tried($$select pg_temp.send(770, 'covered')$$), 'sent',
 select is(pg_temp.refusal($$select pg_temp.send(770, 'covered_by_key')$$), '40001 TAKEOFF_ITEM_SEND_PREVIEW_STALE earlier_send_changed',
   'a plan that would retire the uncovered page is refused');
 reset role;
+-- Lot 5 (20261122193622): an acceptance taken on counted marks that changed since is undecided
+-- (private.takeoff_item_decision_effective, read through the pairs). The lavabo's marks move on to revision 1 after its
+-- acceptance (one more than the revision its acceptance recorded): the readers give it no decision, the job brings none
+-- of its measured parts, and the plan the preview showed is stale. Nothing is sent until the item is accepted again.
+set local session_replication_role = replica;
+update public.takeoff_count_answer_states s set revision = s.revision + 1
+from public.takeoff_item_answers a where s.answer_id = a.id and a.job_id = pg_temp.job(20, 4) and a.item_id = pg_temp.f(300);
+set local session_replication_role = origin;
+select is((select (s.revision - coalesce(d.marks_revision, 0)) from public.takeoff_count_answer_states s
+    join public.takeoff_item_answers a on a.id = s.answer_id join public.takeoff_item_answer_decisions d on d.answer_id = a.id
+    where a.job_id = pg_temp.job(20, 4) and a.item_id = pg_temp.f(300) and d.kind = 'accepted'), 1,
+  'the lavabo''s acceptance stands one marks revision behind');
+select pg_temp.sign_in(1);
+set local role authenticated;
+select is((select a -> 'decision' from jsonb_array_elements(public.read_takeoff_item_send_facts(pg_temp.f(10), pg_temp.f(20),
+    pg_temp.job(20, 4)) -> 'answers') a where a ->> 'item_id' = pg_temp.f(300)::text), 'null'::jsonb,
+  'an acceptance taken on marks changed since: the reader gives the item no decision');
+select is(pg_temp.refusal($$select pg_temp.send(770, 'covered')$$), '40001 TAKEOFF_ITEM_SEND_PREVIEW_STALE answers_changed',
+  'and the plan the preview showed, the acceptance standing, is stale: nothing is sent');
+reset role;
+select is((select count(*)::integer from private.takeoff_item_send_job_parts(pg_temp.f(10), pg_temp.f(20), pg_temp.job(20, 4),
+    array[2, 7]) p where p.item_id = pg_temp.f(300)), 0, 'the job brings none of the undecided item''s parts');
+set local session_replication_role = replica;
+update public.takeoff_count_answer_states s set revision = s.revision - 1
+from public.takeoff_item_answers a where s.answer_id = a.id and a.job_id = pg_temp.job(20, 4) and a.item_id = pg_temp.f(300);
+set local session_replication_role = origin;
+select pg_temp.sign_in(1);
+set local role authenticated;
+select is(pg_temp.tried($$select pg_temp.send(770, 'covered')$$), 'sent', 'its marks back at the accepted revision: the same plan is sent');
+reset role;
 -- Point 6: a « skip » rule of the tenant applies to the lavabo.
 insert into public.takeoff_mapping_rules (id, tenant_id, name, match_pattern, match_type, action, action_params, priority, is_active)
 values (pg_temp.f(980), pg_temp.f(10), 'Ignorer les lavabos (fictif)', 'lavabo', 'contains', 'skip', '{}'::jsonb, 1, true);
