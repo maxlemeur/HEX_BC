@@ -5,10 +5,19 @@ vi.mock("server-only", () => ({}));
 import { createSupabaseFake, filterValue, servedRows, type FakeQuery } from "@/lib/takeoff/metre-m3.test-utils";
 import { sealedMeasuringOrder } from "./item-list-seal-server";
 
-const input = { tenantId: "tenant", projectId: "project", payerId: "payer" };
+const input = { tenantId: "tenant", projectId: "project", payerId: "payer", perPlan: true };
 const none = () => ({ data: [], error: null, count: 0 });
 
 describe("the measuring order a launch request seals", () => {
+  // Lot 4: the list is answered plan by plan. Until one analysis per plan is active, a request is grouped and seals the free
+  // extraction, whatever the second order's activation says: a grouped manifest never carries a list.
+  it("seals the free extraction while one analysis per plan is not active, reading nothing", async () => {
+    const fake = createSupabaseFake({});
+    await expect(sealedMeasuringOrder(fake.client as never, { ...input, perPlan: false }))
+      .resolves.toEqual({ order: { kind: "free_extraction", version: 1, list: null } });
+    expect(fake.rpcCalls).toEqual([]);
+  });
+
   it("seals the free extraction while the second order is not activated, reading nothing of the list", async () => {
     // Every table or function without a handler throws: the inactive path reads only the activation.
     const fake = createSupabaseFake({ rpc: { takeoff_item_list_order_is_active: () => ({ data: false, error: null }) } });

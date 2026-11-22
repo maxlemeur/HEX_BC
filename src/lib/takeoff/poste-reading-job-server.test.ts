@@ -280,6 +280,17 @@ describe("processItemListLevelC", () => {
     expect(publishTakeoffItemAnswers).not.toHaveBeenCalled();
   });
 
+  // The second barrier: a job of the second order whose PDF holds pages of several plans is stopped before any call.
+  it("stops a second-order job reading several plans before any call, spending nothing", async () => {
+    const call = controlledPosteCall();
+    const file = await sourceFile();
+    await expect(run({ call, sourceFile: { ...file, sourceDocument: undefined, sourceDocumentsByPage: [
+      { kind: "plan_file", plan_file_id: PLAN }, { kind: "plan_file", plan_file_id: PLAN }, { kind: "plan_file", plan_file_id: "other-plan" },
+      { kind: "plan_file", plan_file_id: "other-plan" }] } })).rejects.toMatchObject({ code: TakeoffErrorCode.INTERNAL_ERROR, retryable: false });
+    expect(call.received).toEqual([]);
+    expect(publishTakeoffItemAnswers).not.toHaveBeenCalled();
+  });
+
   it("publishes nothing when an answer is refused, nor when the lease is lost before the publication", async () => {
     const omitting = controlledPosteCall((entry) => entry.label === "Baignoire" ? "omit" : posteNotFound(entry));
     await expect(run({ call: omitting })).rejects.toMatchObject({ code: TakeoffErrorCode.TAKEOFF_LEVEL_C_INVALID_SCHEMA,

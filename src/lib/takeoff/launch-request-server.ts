@@ -301,6 +301,8 @@ type Refusal = { state: "not_eligible" | "blocked"; reason: TakeoffLaunchReason;
  */
 async function sealAutomaticSnapshot(service: Service, input: {
   tenantId: string; projectId: string; planSet: DossierPlanSet; payerId: string; selection: TakeoffExecutionSelection; jobId: string;
+  /** One analysis per plan is active: the units are split per plan (and only then may a list of items be sealed). */
+  perPlan: boolean;
   documents: ReadonlyArray<{ id: string; size_bytes: number; upload_id: string | null }>;
   /** Plans of the dossier the analysis cannot read (not PDF): named in the coverage, never read. */
   unsupportedPlans: TakeoffLaunchPiece[];
@@ -378,7 +380,8 @@ async function sealAutomaticSnapshot(service: Service, input: {
     ...input.unsupportedPlans.map((plan) => ({ ...plan, reason: "unsupported_format" as const })),
   ];
   // Lot 4: the list of items the request seals, behind the second order's activation (the free extraction before it).
-  const order = await sealedMeasuringOrder(service, { tenantId: input.tenantId, projectId: input.projectId, payerId: input.payerId });
+  const order = await sealedMeasuringOrder(service, { tenantId: input.tenantId, projectId: input.projectId, payerId: input.payerId,
+    perPlan: input.perPlan });
   if ("blocked" in order) return { state: "blocked", reason: order.blocked, pieces: [] };
   const manifest = buildTakeoffLaunchManifest({ intent: "initial", sources: snapshot.preparation.sources, intakeDocumentByPlanFile: intake,
     omittedPlans, omittedReferences: sealed.omittedReferences, preparationRevision: snapshot.preparation_revision,
@@ -538,15 +541,17 @@ async function evaluateClaimedRequest(service: Service, claim: ClaimedRequest, t
   if ((running ?? []).length > 0) return refuse({ state: "blocked", reason: "ANOTHER_ANALYSIS_RUNNING", pieces: [] });
   assertTakeoffWorkerConfiguration();
   const jobId = deriveDeterministicJobId(claim.tenant_id, `takeoff-request:${claim.request_id}:${TAKEOFF_GROUPED_UNIT_KEY}`);
+  // One read of the activation decides both the units and the measuring order they may seal.
+  const perPlan = await isTakeoffPlanDispatchActive(service);
   const sealed = await sealAutomaticSnapshot(service, { tenantId: claim.tenant_id, projectId: claim.project_id, planSet: planSet!,
-    payerId: claim.payer_id, selection: mandate.selection!, jobId, documents,
+    payerId: claim.payer_id, selection: mandate.selection!, jobId, documents, perPlan,
     unsupportedPlans: documents.filter((document) => document.document_kind === "plans" && document.upload_status === "uploaded"
       && document.classification_status === "classified" && document.mime_type?.toLowerCase() !== "application/pdf"
       && getAffaireIntakeFileExtension(document.file_name) !== "pdf")
       .map((document) => ({ id: document.id, name: document.file_name })) });
   if ("reason" in sealed) return refuse(sealed);
   // Once the owner activated one analysis per plan, the same seal is admitted as one unit per plan, each with its job.
-  const split = await isTakeoffPlanDispatchActive(service) ? splitTakeoffLaunchManifest(sealed.manifest, sealed.pageCounts) : null;
+  const split = perPlan ? splitTakeoffLaunchManifest(sealed.manifest, sealed.pageCounts) : null;
   // Lot 4: a reading against the list of items within its bounds only (never sampled).
   const tooLarge = await itemListReadingRefusal(split ?? sealed.manifest,
     () => getTakeoffLevelCProcessingConfigForTenant(claim.tenant_id, { supabase: service }));
@@ -758,8 +763,9 @@ export async function launchTakeoffRelaunch(input: {
   const plans = snapshot.preparation.sources.filter((source) => source.active && source.kind === "plan");
   const sourceFile = await resolvePlanSetSourceFile({ supabase: context.supabase, tenantId: context.tenantId, planSetId: input.planSetId,
     jobId, maxPages: config.maxPdfPages, selectedFileIds: plans.map((source) => source.document_id) });
+  // A grouped command (one analysis per plan not active): the free extraction.
   const { manifest } = await relaunchManifest(service, context, input.planSetId, snapshot, config, intent,
-    planSetCopiesSetAside(snapshot.preparation.sources, input.planSetId), await relaunchOrder(service, context, input.projectId));
+    planSetCopiesSetAside(snapshot.preparation.sources, input.planSetId), await relaunchOrder(service, context, input.projectId, false));
   const tooLarge = await itemListReadingRefusal(manifest, async () => config);
   if (tooLarge) throw itemListReadingTooLarge(tooLarge);
   const { data, error } = await service.rpc("launch_manual_takeoff_request", {
@@ -801,8 +807,8 @@ async function relaunchSeal(service: Service, input: RelaunchInput) {
  * The measuring order a member's command seals (lot 4): the list of items behind the second order's activation, the free
  * extraction before it; a list still to prepare refuses the command.
  */
-async function relaunchOrder(service: Service, context: Context, projectId: string) {
-  const order = await sealedMeasuringOrder(service, { tenantId: context.tenantId, projectId, payerId: context.userId });
+async function relaunchOrder(service: Service, context: Context, projectId: string, perPlan: boolean) {
+  const order = await sealedMeasuringOrder(service, { tenantId: context.tenantId, projectId, payerId: context.userId, perPlan });
   if ("blocked" in order) {
     throw new TakeoffError({ status: 409, code: TakeoffErrorCode.CONFLICT, retryable: false,
       message: "La liste des postes est à préparer : importez ou choisissez la DPGF de l’affaire, puis relancez." });
@@ -931,7 +937,7 @@ async function launchTakeoffPlanCommand(service: Service, input: RelaunchInput,
   // A plan read before is one of the plan set now (a plan whose copy and piece left it is not left out by this command,
   // and its removal is not told again); a revision the member set aside in the confirmed preparation stays set aside.
   const { manifest: grouped, held } = await relaunchManifest(service, context, input.planSetId, snapshot, config, intent,
-    planSetCopiesSetAside(confirmed.preparation.sources, input.planSetId), await relaunchOrder(service, context, input.projectId));
+    planSetCopiesSetAside(confirmed.preparation.sources, input.planSetId), await relaunchOrder(service, context, input.projectId, true));
   const reading = new Set(grouped.plans.map((plan) => logicalPlanKey({ id: plan.plan_file_id, intake_document_id: plan.intake_document_id })));
   const omitted = new Map(grouped.coverage.plans_omitted.map((plan) => [plan.id, plan]));
   for (const plan of await readPlansAnalysedBefore(service, context.tenantId, input.projectId)) {

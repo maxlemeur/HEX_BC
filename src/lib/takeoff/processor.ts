@@ -21,7 +21,8 @@ import {
   type LevelCChunkMetric,
 } from "@/lib/takeoff/level-c-chunk-metrics";
 import { processLevelCChunks, type ProcessLevelCMetricsSummary } from "@/lib/takeoff/level-c-reading";
-import { processItemListLevelC, readTakeoffItemListOrder } from "@/lib/takeoff/poste-reading-job-server";
+import { POSTE_EXCHANGE_PROMPT_VERSION } from "@/lib/takeoff/poste-exchange";
+import { processItemListLevelC, readTakeoffItemListOrder, type TakeoffItemListOrder } from "@/lib/takeoff/poste-reading-job-server";
 import { assertPdfResultIsInterpretable } from "@/lib/takeoff/pdf-reading-guards";
 import { logCompletedAuditEvent, logFailedAuditEvent, logProcessingAuditEvent } from "@/lib/takeoff/processing-audit";
 import {
@@ -203,7 +204,7 @@ async function processTakeoffLevel(
   const context = await resolveContext(options);
   const resolveProvider = options.resolveProvider ?? resolveLocalTakeoffProvider;
   const now = options.now ?? (() => new Date());
-  const promptVersion = getTakeoffPromptVersion(level);
+  let promptVersion: string = getTakeoffPromptVersion(level);
   const processingStartedAt = now();
   let model = UNRESOLVED_LOCAL_MODEL;
 
@@ -261,6 +262,13 @@ async function processTakeoffLevel(
       () => job?.processing_lease_token ?? null) }; }
     catch (error) { resolved = { error }; }
     if ("provider" in resolved) model = resolved.provider.model;
+    // Lot 4: the measuring order before the claim (no read for a job without a request), so that the claim records the
+    // prompt the job reads with; a failed read ends the job once claimed, as a provider that cannot be resolved does.
+    let itemList: { order: TakeoffItemListOrder | null } | { error: unknown } = { order: null };
+    if (level === TAKEOFF_LEVEL_C) {
+      try { itemList = { order: await readTakeoffItemListOrder(context.supabase, job) }; } catch (error) { itemList = { error }; }
+    }
+    if ("order" in itemList && itemList.order) promptVersion = POSTE_EXCHANGE_PROMPT_VERSION;
 
     job = await markJobAsProcessing({
       supabase: context.supabase,
@@ -276,6 +284,7 @@ async function processTakeoffLevel(
     if (job.processing_lease_token) heldSlot = { hostId, leaseToken: job.processing_lease_token };
     // Even preflight failures must become visible, terminal job failures.
     if ("error" in resolved) throw resolved.error;
+    if ("error" in itemList) throw itemList.error;
     const localProvider = resolved.provider;
     const call: StructuredCall = async <T>(providerOptions: StructuredCallOptions<T>) => {
       await assertProviderTenantActive();
@@ -318,9 +327,8 @@ async function processTakeoffLevel(
         })
         : [];
       // Lot 4: a plan read against the list of items its request sealed (poste-reading-job-server.ts); the free extraction as before.
-      const itemList = await readTakeoffItemListOrder(context.supabase, claimed);
-      if (itemList) {
-        return await processItemListLevelC({ supabase: context.supabase, job: claimed, sourceFile, call, model, order: itemList,
+      if (itemList.order) {
+        return await processItemListLevelC({ supabase: context.supabase, job: claimed, sourceFile, call, model, order: itemList.order,
           userId: actorUserId, processingStartedAt, now, renewLease: renewProcessingLease, readVectors });
       }
       const levelCResult = await processLevelCChunks({

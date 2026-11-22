@@ -3527,6 +3527,8 @@ describe("an attempt of the second measuring order", () => {
       resolveProvider: localProvider(call) });
 
     expect(result).toMatchObject({ resultId: "result-v2", status: "completed", itemsCount: 2, chunksCount: 1 });
+    // The order is read before the claim: the claim records the prompt the job reads with.
+    expect(mock.state.job.prompt_version).toBe("takeoff-c-postes-v1");
     const handed = vi.mocked(processItemListLevelC).mock.calls[0][0];
     expect(handed).toMatchObject({ order: ORDER, model: PROVIDER_MODEL, userId: USER_ID,
       job: expect.objectContaining({ id: JOB_ID, status: "processing", processing_lease_token: expect.any(String) }),
@@ -3551,6 +3553,18 @@ describe("an attempt of the second measuring order", () => {
     expect(mock.state.takeoffRunMetrics).toEqual([expect.objectContaining({ chunk_index: 0, total_tokens: 5 })]);
   });
 
+  it("ends a job whose measuring order cannot be read once it is claimed, with that prompt unknown to it", async () => {
+    const mock = await levelCJob(planUnit);
+    vi.mocked(readTakeoffItemListOrder).mockRejectedValueOnce(new TakeoffError({ code: TakeoffErrorCode.INTERNAL_ERROR, retryable: false,
+      message: "La commande de mesure de cette analyse est invalide (fixture)." }));
+    const call = vi.fn();
+    await expect(processLevelC(JOB_ID, { supabase: mock.supabase as never, tenantId: TENANT_ID, userId: USER_ID, now: () => FIXED_NOW,
+      resolveProvider: localProvider(call) })).rejects.toMatchObject({ code: TakeoffErrorCode.INTERNAL_ERROR });
+    expect(mock.state.job).toMatchObject({ status: "failed", error_code: "INTERNAL_ERROR", prompt_version: "takeoff-c-v1" });
+    expect(call).not.toHaveBeenCalled();
+    expect(processItemListLevelC).not.toHaveBeenCalled();
+  });
+
   it("reads a job of the free extraction as before", async () => {
     const mock = await levelCJob({});
     const call = vi.fn().mockResolvedValue(buildProviderResult(buildTakeoffExchange([{ designation: "Tube cuivre", quantity: 12, unit: "m" }])));
@@ -3560,5 +3574,6 @@ describe("an attempt of the second measuring order", () => {
     expect(vi.mocked(readTakeoffItemListOrder).mock.calls[0][1].launch_request_id ?? null).toBeNull();
     expect(processItemListLevelC).not.toHaveBeenCalled();
     expect(call).toHaveBeenCalled();
+    expect(mock.state.job.prompt_version).toBe("takeoff-c-v1");
   });
 });

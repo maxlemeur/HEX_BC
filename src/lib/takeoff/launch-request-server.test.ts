@@ -105,6 +105,8 @@ function dossier(input: { classification?: string; copy?: "same" | "older" | "le
   references?: DossierReference[];
   /** The owner activated one analysis per plan. */
   perPlan?: boolean;
+  /** The owner activated the second measuring order (lot 4). */
+  listActive?: boolean;
   /** The plan copy's bytes, and the page count its row stores (null: not counted yet). */
   bytes?: Uint8Array; storedPageCount?: number | null } = {}) {
   const planBytes = input.bytes ?? BYTES;
@@ -163,7 +165,7 @@ function dossier(input: { classification?: string; copy?: "same" | "older" | "le
       record_takeoff_launch_evaluation_failure: () => ({ data: "evaluating", error: null }),
       takeoff_plan_dispatch_is_active: () => ({ data: input.perPlan === true, error: null }),
       // Lot 4: the second measuring order is not activated; the request seals the free extraction, as before.
-      takeoff_item_list_order_is_active: () => ({ data: false, error: null }),
+      takeoff_item_list_order_is_active: () => ({ data: input.listActive === true, error: null }),
       admit_takeoff_launch_request: (args) => {
         admitted.push(args);
         const job = (args as { p_job: { id: string } | Array<{ id: string }> }).p_job;
@@ -307,6 +309,18 @@ describe("evaluateTakeoffLaunchRequests", () => {
     const [result] = await evaluateTakeoffLaunchRequests();
     expect(result).toMatchObject({ outcome: "admitted" });
     expect((admitted[0] as { p_manifest: unknown }).p_manifest).toMatchObject({ format_version: 2, order: itemListOrder(120) });
+    expect(sealedMeasuringOrder).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ perPlan: true }));
+  });
+
+  // The second order is active, one analysis per plan is not: the automatic request is grouped and seals the free extraction.
+  it("seals the free extraction of a grouped request, whatever the second order's activation says", async () => {
+    const { admitted, fake } = dossier({ perPlan: false, listActive: true });
+    const [result] = await evaluateTakeoffLaunchRequests();
+    expect(result).toMatchObject({ outcome: "admitted" });
+    expect((admitted[0] as { p_manifest: unknown }).p_manifest).toMatchObject({ format_version: 1,
+      order: { kind: "free_extraction", version: 1, list: null } });
+    expect(sealedMeasuringOrder).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ perPlan: false }));
+    expect(fake.rpcCalls.map((call) => call.fn)).not.toContain("takeoff_item_list_order_is_active");
   });
 
   // A whole plan whose stored page count is unknown: the sealing counts its pages on its bytes, and its unit gets them.
@@ -1043,6 +1057,7 @@ describe("launchTakeoffRelaunch", () => {
     const sealed = planCommand({ a: 3, b: 3 });
     await expect(sealed.run([PLAN_FILE])).resolves.toMatchObject({ outcome: "admitted" });
     expect(sealed.launched[0].p_manifest).toMatchObject({ format_version: 2, order: list });
+    expect(sealedMeasuringOrder).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ perPlan: true }));
     vi.mocked(sealedMeasuringOrder).mockResolvedValueOnce({ blocked: "ITEM_LIST_TO_PREPARE" });
     const blocked = planCommand({ a: 3, b: 3 });
     await expect(blocked.run([PLAN_FILE])).rejects.toMatchObject({ status: 409,
@@ -1641,16 +1656,21 @@ describe("launchTakeoffRelaunch", () => {
   });
 
   // Past the replay: the member's confirmed preparation sealed, then the database's command decides.
-  function command(answer: { data?: unknown; error?: { code: string; message: string } }) {
+  function command(answer: { data?: unknown; error?: { code: string; message: string } }, options: { listActive?: boolean } = {}) {
     const calls: string[] = [];
+    const launched: Array<Record<string, unknown>> = [];
     const service = createSupabaseFake({ rpc: {
       // One analysis per plan not activated: the grouped command (lot 3's command of plans has its own cases above).
       takeoff_plan_dispatch_is_active: () => ({ data: false, error: null }),
       // The receipt, read first under either identity of the command: none.
       replay_manual_takeoff_plan_request: () => ({ data: [], error: null }),
-      // Lot 4: the command reads whether the second measuring order is active (it is not: the free extraction).
-      takeoff_item_list_order_is_active: () => ({ data: false, error: null }),
-      launch_manual_takeoff_request: () => { calls.push("launch"); return { data: answer.data ?? null, error: answer.error ?? null }; },
+      // Lot 4: the second measuring order, not active unless a case says so.
+      takeoff_item_list_order_is_active: () => ({ data: options.listActive === true, error: null }),
+      launch_manual_takeoff_request: (args) => {
+        calls.push("launch");
+        launched.push(args as Record<string, unknown>);
+        return { data: answer.data ?? null, error: answer.error ?? null };
+      },
     }, tables: {
       // The analysis a relaunch replaces: a grouped one, read for the plans its receipt may name.
       takeoff_jobs: () => ({ data: { launch_unit_key: "grouped", preparation_snapshot: null }, error: null }),
@@ -1668,7 +1688,7 @@ describe("launchTakeoffRelaunch", () => {
     const launch = (predecessorJobId: string | null) => launchTakeoffRelaunch({ context: { userId: PAYER, tenantId: TENANT,
       tenantRole: "engineer", supabase: session.client } as never, projectId: PROJECT, planSetId: PLAN_SET, preparationRevision: 2,
       intentKey: "aaaaaaaa-0000-4000-8000-0000000000aa", predecessorJobId });
-    return { launch, calls };
+    return { launch, calls, launched };
   }
 
   // The database refuses a manual launch while the affaire's automatic start can still begin (it is taken on from the
@@ -1694,13 +1714,15 @@ describe("launchTakeoffRelaunch", () => {
         message: "Le métré de l’affaire est occupé par une autre opération. Réessayez dans un instant." });
     });
 
-  // Lot 4: a grouped command bounds its one unit, every plan of its preparation, before the database sees it.
-  it("refuses a grouped command whose reading against the list passes its bounds, and launches nothing", async () => {
-    const { launch, calls } = command({ data: [{ outcome: "admitted", request_id: REQUEST, job_id: "aaaaaaaa-0000-4000-8000-0000000000ee" }] });
-    vi.mocked(sealedMeasuringOrder).mockResolvedValueOnce({ order: itemListOrder(1_700) });
-    await expect(launch("aaaaaaaa-0000-4000-8000-0000000000bb")).rejects.toMatchObject({ status: 422,
-      message: expect.stringContaining("dépassent les limites d’une lecture contre la liste des postes") });
-    expect(calls).toEqual([]);
+  // Lot 4: a grouped command (one analysis per plan not active) seals the free extraction, whatever the second order's
+  // activation says: the list is answered plan by plan.
+  it("seals the free extraction in a grouped command, whatever the second order's activation says", async () => {
+    const { launch, calls, launched } = command({ data: [{ outcome: "admitted", request_id: REQUEST, job_id: "aaaaaaaa-0000-4000-8000-0000000000ee" }] },
+      { listActive: true });
+    await expect(launch("aaaaaaaa-0000-4000-8000-0000000000bb")).resolves.toMatchObject({ outcome: "admitted" });
+    expect(calls).toEqual(["launch"]);
+    expect(launched[0].p_manifest).toMatchObject({ format_version: 1, order: { kind: "free_extraction", version: 1, list: null } });
+    expect(sealedMeasuringOrder).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ perPlan: false }));
   });
 
   // An analysis launched outside any request that has not ended: the command is answered with it, without a request.

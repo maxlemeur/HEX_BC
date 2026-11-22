@@ -139,8 +139,11 @@ activée, une DPGF à préparer suspend l’admission avec un motif. Le Mac du m
 réessaie alors seul.
 
 **Lecture d’un plan contre la liste.** Avec le second ordre de mesure, chaque plan
-d’une analyse plan par plan est lu contre la liste que sa demande a scellée ; une
-analyse groupée ne la lit pas et s’arrête avant tout appel. Le serveur découpe le
+d’une analyse plan par plan est lu contre la liste que sa demande a scellée. Tant
+que l’analyse plan par plan n’est pas activée, une demande reste groupée et scelle
+l’extraction libre, quelle que soit l’activation du second ordre : une liste n’est
+jamais scellée sur une analyse groupée. Un job qui lirait plusieurs plans contre
+une liste s’arrêterait d’ailleurs avant tout appel, sans rien dépenser. Le serveur découpe le
 plan comme la lecture détaillée (au-delà de 15 pages, des fragments de 10 pages
 dont 2 en recouvrement) et la liste en lots de 40 postes : chaque appel joint un
 fragment et demande un lot. Le modèle reçoit pour chaque poste une clé opaque
