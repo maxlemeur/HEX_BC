@@ -48,7 +48,6 @@ import { isTakeoffUnitState } from "./launch-request-coverage";
  */
 
 type Client = SupabaseClient<Database>;
-type Rpc = (name: string, args: Record<string, unknown>) => PromiseLike<{ data: unknown; error: { message?: string } | null }>;
 
 const READ_FAILURE = "Impossible de lire les postes du métré.";
 const ROWS_PER_READ = 500;
@@ -68,10 +67,6 @@ export type ItemTableQuery = {
   limit: number;
   focusItemId: string | null;
 };
-
-function rpc(client: Client): Rpc {
-  return (client.rpc as unknown as Rpc).bind(client);
-}
 
 function readFailure(error: { message?: string }): never {
   throw mapSupabaseError(error as Parameters<typeof mapSupabaseError>[0], READ_FAILURE);
@@ -237,7 +232,7 @@ function emptyFacets(): ItemTableFacets {
 }
 
 async function readFacets(access: AffaireAccess, scope: ItemTableScope): Promise<ItemTableFacets> {
-  const { data, error } = await rpc(access.context.supabase as unknown as Client)("count_takeoff_item_table", {
+  const { data, error } = await (access.context.supabase as unknown as Client).rpc("count_takeoff_item_table", {
     p_tenant_id: access.context.tenantId, p_project_id: access.project.id,
     ...(scope.kind === "plan" ? { p_plan_logical_id: scope.planKey } : {}),
   });
@@ -260,7 +255,7 @@ async function readFacets(access: AffaireAccess, scope: ItemTableScope): Promise
 async function readRows(access: AffaireAccess, input: { scope: ItemTableScope; filter?: ItemTableFilter; itemIds?: readonly string[];
   focusItemId?: string | null; offset: number; limit: number }) {
   const filter = input.filter ?? {};
-  const { data, error } = await rpc(access.context.supabase as unknown as Client)("read_takeoff_item_table", {
+  const { data, error } = await (access.context.supabase as unknown as Client).rpc("read_takeoff_item_table", {
     p_tenant_id: access.context.tenantId, p_project_id: access.project.id,
     ...(input.scope.kind === "plan" ? { p_plan_logical_id: input.scope.planKey } : {}),
     ...(filter.states?.length ? { p_states: filter.states } : {}),

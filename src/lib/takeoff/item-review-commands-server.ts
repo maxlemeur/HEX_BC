@@ -39,7 +39,6 @@ import { readAffaireTakeoffLaunchState } from "./launch-request-server";
  */
 
 type Client = SupabaseClient<Database>;
-type Rpc = (name: string, args: Record<string, unknown>) => PromiseLike<{ data: unknown; error: { message?: string } | null }>;
 
 export const ITEM_REVIEW_UNAVAILABLE = "TAKEOFF_ITEM_REVIEW_UNAVAILABLE";
 export const ITEM_REVIEW_STALE = "TAKEOFF_ITEM_REVIEW_STALE";
@@ -106,7 +105,7 @@ export async function runItemReviewCommand(projectId: string, command: ItemRevie
   // A stale selection still goes to the database: the same command already recorded answers what it answered.
   const apply = plan.kind === "planned" ? plan.apply.map(({ itemId }) => itemId) : [];
   const skipped = plan.kind === "planned" ? plan.skipped.map(({ itemId, label, reason }) => ({ item_id: itemId, label, reason })) : [];
-  const { data, error } = await (access.context.supabase.rpc as unknown as Rpc).bind(access.context.supabase)("review_takeoff_items", {
+  const { data, error } = await (access.context.supabase as unknown as Client).rpc("review_takeoff_items", {
     p_tenant_id: access.context.tenantId, p_project_id: access.project.id,
     p_command: {
       command_version: command.command_version,

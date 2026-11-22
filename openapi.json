@@ -5806,6 +5806,107 @@
         }
       }
     },
+    "/api/affaires/{projectId}/takeoff/items/{itemId}": {
+      "get": {
+        "tags": [
+          "Takeoff"
+        ],
+        "summary": "Lire un poste du métré d’une affaire",
+        "description": "Lecteurs de l’affaire. Un poste de la révision enregistrée de la liste, hors de tout filtre (un lien du radar, le détail d’un poste) : la même ligne que le tableau, avec les plans lus et les auteurs. 404 si la liste ne le tient pas.",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "description": "Affaire cible.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/GetAffaireTakeoffItemProjectIdParameter"
+            }
+          },
+          {
+            "name": "itemId",
+            "in": "path",
+            "description": "Poste de la liste.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/GetAffaireTakeoffItemItemIdParameter"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Le poste.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiTakeoffItemLineResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requete invalide ou payload non conforme.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentification requise.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Acces interdit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Ressource introuvable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflit metier ou de concurrence.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Erreur interne serveur.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/affaires/{projectId}/takeoff/items/remeasure": {
       "post": {
         "tags": [
@@ -42748,7 +42849,7 @@
                                         "type": "string",
                                         "minLength": 1,
                                         "maxLength": 128,
-                                        "description": "Révision de la réponse, comparée telle quelle par les commandes."
+                                        "description": "Empreinte de la réponse lue ; une commande nomme la réponse par son identifiant."
                                       },
                                       "jobId": {
                                         "type": "string",
@@ -42761,6 +42862,33 @@
                                           "uncertain",
                                           "not_found"
                                         ]
+                                      },
+                                      "quantity": {
+                                        "anyOf": [
+                                          {
+                                            "type": "object",
+                                            "properties": {
+                                              "quantity": {
+                                                "type": "number",
+                                                "exclusiveMinimum": 0
+                                              },
+                                              "unit": {
+                                                "type": "string",
+                                                "minLength": 1,
+                                                "maxLength": 16
+                                              }
+                                            },
+                                            "required": [
+                                              "quantity",
+                                              "unit"
+                                            ],
+                                            "additionalProperties": false
+                                          },
+                                          {
+                                            "type": "null"
+                                          }
+                                        ],
+                                        "description": "Le total d’une réponse mesurée : la somme de ses contributions."
                                       },
                                       "reasonCode": {
                                         "anyOf": [
@@ -42810,6 +42938,15 @@
                                               "type": "string",
                                               "minLength": 1
                                             },
+                                            "role": {
+                                              "type": "string",
+                                              "enum": [
+                                                "contribution",
+                                                "candidate",
+                                                "alternative"
+                                              ],
+                                              "description": "contribution : comptée dans le total de la réponse ; candidate : un indice ; alternative : une autre lecture, jamais ajoutée."
+                                            },
                                             "quantity": {
                                               "type": "number",
                                               "exclusiveMinimum": 0
@@ -42854,16 +42991,31 @@
                                                 "string",
                                                 "null"
                                               ]
+                                            },
+                                            "takeoffItemId": {
+                                              "anyOf": [
+                                                {
+                                                  "type": "string",
+                                                  "format": "uuid",
+                                                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                                },
+                                                {
+                                                  "type": "null"
+                                                }
+                                              ],
+                                              "description": "La ligne de l’analyse qu’une contribution est : ce que la revue ciblée corrige."
                                             }
                                           },
                                           "required": [
                                             "observationId",
+                                            "role",
                                             "quantity",
                                             "unit",
                                             "page",
                                             "evidence",
                                             "confidence",
-                                            "method"
+                                            "method",
+                                            "takeoffItemId"
                                           ],
                                           "additionalProperties": false
                                         }
@@ -42921,6 +43073,7 @@
                                       "revision",
                                       "jobId",
                                       "outcome",
+                                      "quantity",
                                       "reasonCode",
                                       "reasonText",
                                       "searchedPages",
@@ -43546,6 +43699,1299 @@
               "page",
               "names",
               "observedAt"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "ok",
+          "data"
+        ],
+        "additionalProperties": false
+      },
+      "GetAffaireTakeoffItemProjectIdParameter": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      },
+      "GetAffaireTakeoffItemItemIdParameter": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      },
+      "ApiTakeoffItemLineResponse": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "projectId": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "canReview": {
+                "type": "boolean"
+              },
+              "line": {
+                "type": "object",
+                "properties": {
+                  "itemId": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "position": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "label": {
+                    "type": "string"
+                  },
+                  "expectedUnit": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "sectionPath": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "family": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "origin": {
+                    "type": "string",
+                    "enum": [
+                      "dpgf",
+                      "template",
+                      "manual"
+                    ]
+                  },
+                  "reference": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "quantity": {
+                            "type": "number"
+                          },
+                          "dpgfReference": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "quantity",
+                          "dpgfReference"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "state": {
+                    "type": "string",
+                    "enum": [
+                      "to_measure",
+                      "reading",
+                      "incomplete",
+                      "failed",
+                      "measured",
+                      "uncertain",
+                      "not_found"
+                    ],
+                    "description": "to_measure (aucun plan interrogé), reading (un plan en file ou en lecture), incomplete (un plan terminé sans réponse), failed (aucun plan n’a répondu), measured, uncertain, not_found (verdict d’une couverture complète)."
+                  },
+                  "coverage": {
+                    "type": "object",
+                    "properties": {
+                      "expected": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      "answered": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      "inFlight": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      "ended": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      }
+                    },
+                    "required": [
+                      "expected",
+                      "answered",
+                      "inFlight",
+                      "ended"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "observed": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "quantity": {
+                            "type": "number"
+                          },
+                          "unit": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 16
+                          },
+                          "partial": {
+                            "type": "boolean"
+                          }
+                        },
+                        "required": [
+                          "quantity",
+                          "unit",
+                          "partial"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "retained": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "quantity": {
+                            "type": "number"
+                          },
+                          "unit": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 16
+                          },
+                          "source": {
+                            "type": "string",
+                            "enum": [
+                              "measured",
+                              "entered",
+                              "mixed"
+                            ]
+                          },
+                          "partial": {
+                            "type": "boolean"
+                          }
+                        },
+                        "required": [
+                          "quantity",
+                          "unit",
+                          "source",
+                          "partial"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "entry": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "itemId": {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                          },
+                          "scope": {
+                            "type": "string",
+                            "enum": [
+                              "affaire",
+                              "plan"
+                            ]
+                          },
+                          "planKey": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 200,
+                                "description": "Identité logique du plan (pièce du dossier, ou copie déposée dans le jeu de plans) : stable d’une copie à l’autre."
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "revision": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
+                          },
+                          "quantity": {
+                            "type": "number",
+                            "exclusiveMinimum": 0
+                          },
+                          "unit": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 16
+                          },
+                          "category": {
+                            "type": "string",
+                            "enum": [
+                              "site_survey",
+                              "other_drawing",
+                              "dpgf_cctp",
+                              "written_confirmation",
+                              "documented_calculation",
+                              "hypothesis"
+                            ]
+                          },
+                          "note": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "included": {
+                            "type": "boolean",
+                            "description": "Une hypothèse ne compte qu’une fois incluse par sa propre décision."
+                          },
+                          "actorId": {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                          },
+                          "at": {
+                            "type": "string"
+                          },
+                          "previous": {
+                            "anyOf": [
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "quantity": {
+                                    "type": "number",
+                                    "exclusiveMinimum": 0
+                                  },
+                                  "unit": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 16
+                                  }
+                                },
+                                "required": [
+                                  "quantity",
+                                  "unit"
+                                ],
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          }
+                        },
+                        "required": [
+                          "itemId",
+                          "scope",
+                          "planKey",
+                          "revision",
+                          "quantity",
+                          "unit",
+                          "category",
+                          "note",
+                          "included",
+                          "actorId",
+                          "at",
+                          "previous"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "gap": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "quantity": {
+                            "type": "number"
+                          },
+                          "percent": {
+                            "type": [
+                              "number",
+                              "null"
+                            ]
+                          },
+                          "requiresReview": {
+                            "type": "boolean"
+                          }
+                        },
+                        "required": [
+                          "quantity",
+                          "percent",
+                          "requiresReview"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "reasons": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "planCount": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "decision": {
+                    "type": "string",
+                    "enum": [
+                      "pending",
+                      "accepted",
+                      "set_aside",
+                      "entered",
+                      "none"
+                    ]
+                  },
+                  "readings": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "planKey": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 200,
+                          "description": "Identité logique du plan (pièce du dossier, ou copie déposée dans le jeu de plans) : stable d’une copie à l’autre."
+                        },
+                        "planName": {
+                          "type": "string"
+                        },
+                        "location": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "unit": {
+                          "type": "string",
+                          "enum": [
+                            "queued",
+                            "running",
+                            "succeeded",
+                            "failed",
+                            "canceled",
+                            "not_started"
+                          ]
+                        },
+                        "answer": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "answerId": {
+                                  "type": "string",
+                                  "format": "uuid",
+                                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                },
+                                "revision": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 128,
+                                  "description": "Empreinte de la réponse lue ; une commande nomme la réponse par son identifiant."
+                                },
+                                "jobId": {
+                                  "type": "string",
+                                  "minLength": 1
+                                },
+                                "outcome": {
+                                  "type": "string",
+                                  "enum": [
+                                    "measured",
+                                    "uncertain",
+                                    "not_found"
+                                  ]
+                                },
+                                "quantity": {
+                                  "anyOf": [
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "quantity": {
+                                          "type": "number",
+                                          "exclusiveMinimum": 0
+                                        },
+                                        "unit": {
+                                          "type": "string",
+                                          "minLength": 1,
+                                          "maxLength": 16
+                                        }
+                                      },
+                                      "required": [
+                                        "quantity",
+                                        "unit"
+                                      ],
+                                      "additionalProperties": false
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ],
+                                  "description": "Le total d’une réponse mesurée : la somme de ses contributions."
+                                },
+                                "reasonCode": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "maxLength": 64
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "reasonText": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "maxLength": 2000
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ],
+                                  "description": "Ce que la lecture du plan dit du poste, jamais un message de la base."
+                                },
+                                "searchedPages": {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "integer",
+                                    "exclusiveMinimum": 0,
+                                    "maximum": 9007199254740991
+                                  }
+                                },
+                                "unreadablePages": {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "integer",
+                                    "exclusiveMinimum": 0,
+                                    "maximum": 9007199254740991
+                                  }
+                                },
+                                "observations": {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "object",
+                                    "properties": {
+                                      "observationId": {
+                                        "type": "string",
+                                        "minLength": 1
+                                      },
+                                      "role": {
+                                        "type": "string",
+                                        "enum": [
+                                          "contribution",
+                                          "candidate",
+                                          "alternative"
+                                        ],
+                                        "description": "contribution : comptée dans le total de la réponse ; candidate : un indice ; alternative : une autre lecture, jamais ajoutée."
+                                      },
+                                      "quantity": {
+                                        "type": "number",
+                                        "exclusiveMinimum": 0
+                                      },
+                                      "unit": {
+                                        "type": "string",
+                                        "minLength": 1,
+                                        "maxLength": 16
+                                      },
+                                      "page": {
+                                        "anyOf": [
+                                          {
+                                            "type": "integer",
+                                            "exclusiveMinimum": 0,
+                                            "maximum": 9007199254740991
+                                          },
+                                          {
+                                            "type": "null"
+                                          }
+                                        ]
+                                      },
+                                      "evidence": {
+                                        "type": [
+                                          "string",
+                                          "null"
+                                        ]
+                                      },
+                                      "confidence": {
+                                        "anyOf": [
+                                          {
+                                            "type": "number",
+                                            "minimum": 0,
+                                            "maximum": 1
+                                          },
+                                          {
+                                            "type": "null"
+                                          }
+                                        ]
+                                      },
+                                      "method": {
+                                        "type": [
+                                          "string",
+                                          "null"
+                                        ]
+                                      },
+                                      "takeoffItemId": {
+                                        "anyOf": [
+                                          {
+                                            "type": "string",
+                                            "format": "uuid",
+                                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                          },
+                                          {
+                                            "type": "null"
+                                          }
+                                        ],
+                                        "description": "La ligne de l’analyse qu’une contribution est : ce que la revue ciblée corrige."
+                                      }
+                                    },
+                                    "required": [
+                                      "observationId",
+                                      "role",
+                                      "quantity",
+                                      "unit",
+                                      "page",
+                                      "evidence",
+                                      "confidence",
+                                      "method",
+                                      "takeoffItemId"
+                                    ],
+                                    "additionalProperties": false
+                                  }
+                                },
+                                "candidate": {
+                                  "anyOf": [
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "quantity": {
+                                          "type": "number",
+                                          "exclusiveMinimum": 0
+                                        },
+                                        "unit": {
+                                          "type": "string",
+                                          "minLength": 1,
+                                          "maxLength": 16
+                                        }
+                                      },
+                                      "required": [
+                                        "quantity",
+                                        "unit"
+                                      ],
+                                      "additionalProperties": false
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ],
+                                  "description": "Valeur candidate d’une réponse incertaine : jamais une quantité mesurée."
+                                },
+                                "anomalies": {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string",
+                                    "enum": [
+                                      "hypothesis",
+                                      "source_choice",
+                                      "low_confidence",
+                                      "missing_evidence",
+                                      "rule_failed",
+                                      "rules_stale",
+                                      "alert",
+                                      "page_decision",
+                                      "unit_mismatch"
+                                    ]
+                                  }
+                                },
+                                "readAt": {
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "answerId",
+                                "revision",
+                                "jobId",
+                                "outcome",
+                                "quantity",
+                                "reasonCode",
+                                "reasonText",
+                                "searchedPages",
+                                "unreadablePages",
+                                "observations",
+                                "candidate",
+                                "anomalies",
+                                "readAt"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "decision": {
+                          "anyOf": [
+                            {
+                              "oneOf": [
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "kind": {
+                                      "type": "string",
+                                      "const": "accepted"
+                                    },
+                                    "revision": {
+                                      "type": "integer",
+                                      "minimum": 0,
+                                      "maximum": 9007199254740991
+                                    },
+                                    "actorId": {
+                                      "type": "string",
+                                      "format": "uuid",
+                                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                    },
+                                    "at": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "required": [
+                                    "kind",
+                                    "revision",
+                                    "actorId",
+                                    "at"
+                                  ],
+                                  "additionalProperties": false
+                                },
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "kind": {
+                                      "type": "string",
+                                      "const": "set_aside"
+                                    },
+                                    "revision": {
+                                      "type": "integer",
+                                      "minimum": 0,
+                                      "maximum": 9007199254740991
+                                    },
+                                    "reason": {
+                                      "type": "string",
+                                      "enum": [
+                                        "out_of_scope",
+                                        "duplicate",
+                                        "reading_error",
+                                        "other"
+                                      ]
+                                    },
+                                    "note": {
+                                      "type": [
+                                        "string",
+                                        "null"
+                                      ]
+                                    },
+                                    "actorId": {
+                                      "type": "string",
+                                      "format": "uuid",
+                                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                    },
+                                    "at": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "required": [
+                                    "kind",
+                                    "revision",
+                                    "reason",
+                                    "note",
+                                    "actorId",
+                                    "at"
+                                  ],
+                                  "additionalProperties": false
+                                }
+                              ]
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "entry": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "itemId": {
+                                  "type": "string",
+                                  "format": "uuid",
+                                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                },
+                                "scope": {
+                                  "type": "string",
+                                  "enum": [
+                                    "affaire",
+                                    "plan"
+                                  ]
+                                },
+                                "planKey": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 200,
+                                      "description": "Identité logique du plan (pièce du dossier, ou copie déposée dans le jeu de plans) : stable d’une copie à l’autre."
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "revision": {
+                                  "type": "integer",
+                                  "minimum": 0,
+                                  "maximum": 9007199254740991
+                                },
+                                "quantity": {
+                                  "type": "number",
+                                  "exclusiveMinimum": 0
+                                },
+                                "unit": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 16
+                                },
+                                "category": {
+                                  "type": "string",
+                                  "enum": [
+                                    "site_survey",
+                                    "other_drawing",
+                                    "dpgf_cctp",
+                                    "written_confirmation",
+                                    "documented_calculation",
+                                    "hypothesis"
+                                  ]
+                                },
+                                "note": {
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                },
+                                "included": {
+                                  "type": "boolean",
+                                  "description": "Une hypothèse ne compte qu’une fois incluse par sa propre décision."
+                                },
+                                "actorId": {
+                                  "type": "string",
+                                  "format": "uuid",
+                                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                },
+                                "at": {
+                                  "type": "string"
+                                },
+                                "previous": {
+                                  "anyOf": [
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "quantity": {
+                                          "type": "number",
+                                          "exclusiveMinimum": 0
+                                        },
+                                        "unit": {
+                                          "type": "string",
+                                          "minLength": 1,
+                                          "maxLength": 16
+                                        }
+                                      },
+                                      "required": [
+                                        "quantity",
+                                        "unit"
+                                      ],
+                                      "additionalProperties": false
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                }
+                              },
+                              "required": [
+                                "itemId",
+                                "scope",
+                                "planKey",
+                                "revision",
+                                "quantity",
+                                "unit",
+                                "category",
+                                "note",
+                                "included",
+                                "actorId",
+                                "at",
+                                "previous"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      },
+                      "required": [
+                        "planKey",
+                        "planName",
+                        "location",
+                        "unit",
+                        "answer",
+                        "decision",
+                        "entry"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "targets": {
+                    "type": "object",
+                    "properties": {
+                      "itemId": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                      },
+                      "entryRevision": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991,
+                        "description": "Révision de la saisie de la portée (0 sans saisie)."
+                      },
+                      "answers": {
+                        "maxItems": 20000,
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "answerId": {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                            },
+                            "answerRevision": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 128
+                            },
+                            "decisionRevision": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 9007199254740991
+                            }
+                          },
+                          "required": [
+                            "answerId",
+                            "answerRevision",
+                            "decisionRevision"
+                          ],
+                          "additionalProperties": false
+                        }
+                      }
+                    },
+                    "required": [
+                      "itemId",
+                      "entryRevision",
+                      "answers"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "remeasurePlans": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 200,
+                      "description": "Identité logique du plan (pièce du dossier, ou copie déposée dans le jeu de plans) : stable d’une copie à l’autre."
+                    }
+                  },
+                  "eligibility": {
+                    "type": "object",
+                    "properties": {
+                      "accept_measured": {
+                        "type": "object",
+                        "properties": {
+                          "eligible": {
+                            "type": "boolean"
+                          },
+                          "reason": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "not_measured",
+                                  "coverage_incomplete",
+                                  "anomaly",
+                                  "dpgf_gap",
+                                  "unit_conflict",
+                                  "already_decided",
+                                  "entered",
+                                  "no_answer",
+                                  "already_set_aside",
+                                  "not_set_aside",
+                                  "not_entry_state",
+                                  "no_entry_to_include",
+                                  "reading",
+                                  "no_plan"
+                                ]
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          }
+                        },
+                        "required": [
+                          "eligible",
+                          "reason"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "set_aside": {
+                        "type": "object",
+                        "properties": {
+                          "eligible": {
+                            "type": "boolean"
+                          },
+                          "reason": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "not_measured",
+                                  "coverage_incomplete",
+                                  "anomaly",
+                                  "dpgf_gap",
+                                  "unit_conflict",
+                                  "already_decided",
+                                  "entered",
+                                  "no_answer",
+                                  "already_set_aside",
+                                  "not_set_aside",
+                                  "not_entry_state",
+                                  "no_entry_to_include",
+                                  "reading",
+                                  "no_plan"
+                                ]
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          }
+                        },
+                        "required": [
+                          "eligible",
+                          "reason"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "reinstate": {
+                        "type": "object",
+                        "properties": {
+                          "eligible": {
+                            "type": "boolean"
+                          },
+                          "reason": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "not_measured",
+                                  "coverage_incomplete",
+                                  "anomaly",
+                                  "dpgf_gap",
+                                  "unit_conflict",
+                                  "already_decided",
+                                  "entered",
+                                  "no_answer",
+                                  "already_set_aside",
+                                  "not_set_aside",
+                                  "not_entry_state",
+                                  "no_entry_to_include",
+                                  "reading",
+                                  "no_plan"
+                                ]
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          }
+                        },
+                        "required": [
+                          "eligible",
+                          "reason"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "enter_quantity": {
+                        "type": "object",
+                        "properties": {
+                          "eligible": {
+                            "type": "boolean"
+                          },
+                          "reason": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "not_measured",
+                                  "coverage_incomplete",
+                                  "anomaly",
+                                  "dpgf_gap",
+                                  "unit_conflict",
+                                  "already_decided",
+                                  "entered",
+                                  "no_answer",
+                                  "already_set_aside",
+                                  "not_set_aside",
+                                  "not_entry_state",
+                                  "no_entry_to_include",
+                                  "reading",
+                                  "no_plan"
+                                ]
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          }
+                        },
+                        "required": [
+                          "eligible",
+                          "reason"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "include_entry": {
+                        "type": "object",
+                        "properties": {
+                          "eligible": {
+                            "type": "boolean"
+                          },
+                          "reason": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "not_measured",
+                                  "coverage_incomplete",
+                                  "anomaly",
+                                  "dpgf_gap",
+                                  "unit_conflict",
+                                  "already_decided",
+                                  "entered",
+                                  "no_answer",
+                                  "already_set_aside",
+                                  "not_set_aside",
+                                  "not_entry_state",
+                                  "no_entry_to_include",
+                                  "reading",
+                                  "no_plan"
+                                ]
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          }
+                        },
+                        "required": [
+                          "eligible",
+                          "reason"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "remeasure": {
+                        "type": "object",
+                        "properties": {
+                          "eligible": {
+                            "type": "boolean"
+                          },
+                          "reason": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "not_measured",
+                                  "coverage_incomplete",
+                                  "anomaly",
+                                  "dpgf_gap",
+                                  "unit_conflict",
+                                  "already_decided",
+                                  "entered",
+                                  "no_answer",
+                                  "already_set_aside",
+                                  "not_set_aside",
+                                  "not_entry_state",
+                                  "no_entry_to_include",
+                                  "reading",
+                                  "no_plan"
+                                ]
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          }
+                        },
+                        "required": [
+                          "eligible",
+                          "reason"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "required": [
+                      "accept_measured",
+                      "set_aside",
+                      "reinstate",
+                      "enter_quantity",
+                      "include_entry",
+                      "remeasure"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "required": [
+                  "itemId",
+                  "position",
+                  "label",
+                  "expectedUnit",
+                  "sectionPath",
+                  "family",
+                  "origin",
+                  "reference",
+                  "state",
+                  "coverage",
+                  "observed",
+                  "retained",
+                  "entry",
+                  "gap",
+                  "reasons",
+                  "planCount",
+                  "decision",
+                  "readings",
+                  "targets",
+                  "remeasurePlans",
+                  "eligibility"
+                ],
+                "additionalProperties": false
+              },
+              "plans": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "key": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 200,
+                      "description": "Identité logique du plan (pièce du dossier, ou copie déposée dans le jeu de plans) : stable d’une copie à l’autre."
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "location": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "key": {
+                              "type": "string"
+                            },
+                            "label": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "key",
+                            "label"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "key",
+                    "name",
+                    "location"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "names": {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "projectId",
+              "canReview",
+              "line",
+              "plans",
+              "names"
             ],
             "additionalProperties": false
           }

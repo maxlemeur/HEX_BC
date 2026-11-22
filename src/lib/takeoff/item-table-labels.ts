@@ -1,18 +1,13 @@
-import type { ItemAggregateState } from "./item-answer-aggregation";
+import { ITEM_AGGREGATE_STATES, type ItemAggregateState } from "./item-answer-aggregation";
 import type { ItemAnswerAnomaly, ItemIneligibility, ItemLineDecision, ItemSetAsideReason } from "./item-table";
 import type { TakeoffUnitState } from "./launch-request-coverage";
+import { describePosteStatus } from "./poste-aggregation";
 
 /** The words of the table of items, in French: every code its contract carries has its label here, never on screen as is. */
 
-export const ITEM_STATE_LABELS: Record<ItemAggregateState, string> = {
-  to_measure: "À mesurer",
-  reading: "En lecture",
-  incomplete: "Lecture incomplète",
-  failed: "Échec de lecture",
-  measured: "Mesuré",
-  uncertain: "Incertain",
-  not_found: "Non trouvé",
-};
+/** The item's state, in the reading's words (describePosteStatus). */
+export const ITEM_STATE_LABELS = Object.fromEntries(ITEM_AGGREGATE_STATES.map((state) => [state, describePosteStatus(state)])) as
+  Record<ItemAggregateState, string>;
 
 export const ITEM_DECISION_LABELS: Record<ItemLineDecision, string> = {
   pending: "À vérifier",

@@ -26,7 +26,8 @@ export type ItemAnswerOutcome = (typeof ITEM_ANSWER_OUTCOMES)[number];
  * for « not found »; for an uncertain answer, its candidate value, which is never added).
  */
 export type ItemPlanReading =
-  | { reading: "in_flight" | "ended" }
+  | { reading: "in_flight" }
+  | { reading: "ended" }
   | { reading: "answered"; outcome: ItemAnswerOutcome; quantity: number | null; unit: string | null };
 
 /**

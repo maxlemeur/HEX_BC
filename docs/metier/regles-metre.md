@@ -214,7 +214,7 @@ avec le résultat (« POSTE_HORS_LISTE »), sans créer de poste.
 
 Sur l’affaire, tant qu’un plan attendu n’est pas lu, le total d’un poste reste
 partiel et son absence n’est jamais certifiée. Quand tous ses plans sont lus, un
-plan incertain le rend « À vérifier », sinon une mesure le rend « Mesuré », et
+plan incertain le rend « Incertain », sinon une mesure le rend « Mesuré », et
 seulement des plans tous cherchés sans indice le rendent « Non trouvé ».
 
 **Bornes d’une lecture contre la liste.** Avant son admission, la demande entière
