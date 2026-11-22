@@ -16,6 +16,8 @@ export type DirectionSyntheticAlert = {
   versionId: string;
   jobId: string | null;
   latestJobId: string | null;
+  /** The latest job was read against the affaire's list (lot 4): its exceptions are the table's items to check. */
+  latestJobReadsList?: boolean;
   level: DirectionAlertLevel;
   label: string;
   reasons: string[];
@@ -43,6 +45,7 @@ export type BuildDirectionSyntheticAlertsInput = {
   riskScore: number;
   sendTargetAt: string | null;
   latestJobId: string | null;
+  latestJobReadsList?: boolean;
   alerts: TakeoffRiskAlert[];
 };
 
@@ -132,6 +135,7 @@ function buildAlertGroup(
     versionId: input.versionId,
     jobId: input.latestJobId ?? resolveSharedAlertJobId(alerts),
     latestJobId: input.latestJobId,
+    latestJobReadsList: Boolean(input.latestJobId && input.latestJobReadsList),
     level: deriveGroupLevel(alerts, fallbackSeverity),
     label,
     reasons: dedupeLabels(reasons).slice(0, 3),
@@ -189,7 +193,8 @@ export function buildDirectionSyntheticAlerts(
     groups.push({
       alertKey: `${input.projectId}:${input.versionId}:discount-unavailable`,
       projectId: input.projectId, projectName: input.projectName, versionId: input.versionId,
-      jobId: input.latestJobId, latestJobId: input.latestJobId, level: "warning",
+      jobId: input.latestJobId, latestJobId: input.latestJobId,
+      latestJobReadsList: Boolean(input.latestJobId && input.latestJobReadsList), level: "warning",
       label: "Remise fixe à vérifier", status: "to_process", alertIds: [], lotLabels: [],
       reasons: ["L'assiette et le montant appliqué de la remise fixe ne peuvent pas être vérifiés pour cette version."],
     });

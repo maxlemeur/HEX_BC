@@ -1,6 +1,9 @@
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 
 import { getUserContext } from "@/lib/auth/server";
+import { getAuthenticatedTakeoffContext } from "@/lib/takeoff/job-read-server";
+import { resolveTakeoffReviewLink } from "@/lib/takeoff/review-link";
+import { readTakeoffReviewLinkFacts } from "@/lib/takeoff/review-link-server";
 import { resolveTakeoffReviewScope } from "@/lib/takeoff/version-access-server";
 import { isTakeoffEnabled } from "@/lib/takeoff/feature-flags";
 import TakeoffReviewPage from "@/components/takeoff/TakeoffReviewPage";
@@ -9,11 +12,17 @@ import { TakeoffRequestPlansNav } from "@/components/takeoff/TakeoffRequestPlans
 
 type Props = {
   params: Promise<{ projectId: string; jobId: string }>;
-  searchParams: Promise<{ versionId?: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 };
 
+/** A parameter of the review's address given once; anything else is no value (the review reads it the same way). */
+const single = (value: string | string[] | undefined) => (typeof value === "string" ? value : undefined);
+
 export default async function AffaireTakeoffReviewPage({ params, searchParams }: Props) {
-  const [{ projectId, jobId }, { versionId }] = await Promise.all([params, searchParams]);
+  const [{ projectId, jobId }, query] = await Promise.all([params, searchParams]);
+  // A version given twice names none: not found, as the access check below answers it.
+  if (Array.isArray(query.versionId)) notFound();
+  const versionId = query.versionId;
   const { tenantId, profile } = await getUserContext();
 
   if (!tenantId) notFound();
@@ -23,6 +32,20 @@ export default async function AffaireTakeoffReviewPage({ params, searchParams }:
 
   const scope = await resolveTakeoffReviewScope({ projectId, jobId, versionId });
   if (!scope) notFound();
+
+  // Access to the job and to its version or carry-over is proven above. A job read against the affaire's list is
+  // reviewed in the table of items (review-link.ts): its link lands there, with no side effect; any other job's review
+  // opens here as today.
+  const context = await getAuthenticatedTakeoffContext();
+  const line = single(query.line) ?? null;
+  const facts = await readTakeoffReviewLinkFacts({ supabase: context.supabase, tenantId: context.tenantId,
+    projectId: projectId.toLowerCase(), jobId: jobId.toLowerCase(), versionId: scope.versionId, line });
+  const destination = resolveTakeoffReviewLink({
+    projectId: projectId.toLowerCase(), jobId: jobId.toLowerCase(), versionId: versionId?.toLowerCase() ?? null,
+    reviewMode: readMode(single(query.reviewMode)), view: single(query.view) === "dpgf" ? "dpgf" : undefined,
+    dpgfView: single(query.dpgfView) === "exceptions_only" ? "exceptions_only" : undefined, line: line ?? undefined,
+  }, facts);
+  if (destination.kind !== "historical") redirect(destination.href);
 
   return (
     <div className="min-w-0">
@@ -36,4 +59,8 @@ export default async function AffaireTakeoffReviewPage({ params, searchParams }:
       <TakeoffPlanLocationsPanel jobId={jobId} />
     </div>
   );
+}
+
+function readMode(value: string | undefined) {
+  return value === "assisted" || value === "production" || value === "validation" ? value : undefined;
 }

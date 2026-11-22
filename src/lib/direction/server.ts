@@ -27,6 +27,7 @@ import { writeDirectionDebugLog } from "./debug";
 import type { DirectionDashboardQuery } from "./schemas";
 import { dedupeLabels } from "@/lib/text/dedupe-labels";
 import { resolveAlertJobId } from "@/lib/direction/alert-job-id";
+import { readTakeoffJobsReadingList } from "@/lib/takeoff/review-link-server";
 
 type EstimateVersionApprovalStatus =
   Database["public"]["Enums"]["estimate_version_approval_status"];
@@ -95,6 +96,8 @@ type TakeoffJobRow = {
   status: string;
   created_at: string;
   completed_at: string | null;
+  /** Read against the affaire's list (lot 4): its exceptions open the table of items. */
+  reads_list?: boolean;
 };
 
 type ProfileRow = {
@@ -167,7 +170,8 @@ export type DirectionDashboardPageData = {
   pagination: DirectionDashboardPagination;
 };
 
-type ProjectAlertSignals = { latestJobId: string | null; marginBp: number | null; alerts: DirectionSyntheticAlert[] };
+type ProjectAlertSignals = { latestJobId: string | null; latestJobReadsList?: boolean; marginBp: number | null;
+  alerts: DirectionSyntheticAlert[] };
 
 type DirectionPlansMetrics = {
   coveragePercent: number | null;
@@ -623,6 +627,8 @@ async function listLatestJobsByVersionId(versionIds: string[]) {
       jobs.set(row.estimate_version_id, row);
     }
   }
+  const readingList = await readTakeoffJobsReadingList(context.supabase, context.tenantId, [...jobs.values()].map((row) => row.id));
+  for (const row of jobs.values()) row.reads_list = readingList.has(row.id.toLowerCase());
 
   return jobs;
 }
@@ -988,6 +994,7 @@ export const fetchDirectionProjectSignals = cache(
     const fixedDiscountSignal = await resolveDirectionFixedDiscount(context, version);
     return {
       latestJobId,
+      latestJobReadsList: latestJobsByVersionId.get(version.id)?.reads_list ?? false,
       marginBp,
       alerts: buildDirectionSyntheticAlerts({
         projectId,
@@ -1007,6 +1014,7 @@ export const fetchDirectionProjectSignals = cache(
         ),
         sendTargetAt,
         latestJobId,
+        latestJobReadsList: latestJobsByVersionId.get(version.id)?.reads_list ?? false,
         alerts: actionableAlerts,
       }),
     };
@@ -1102,6 +1110,7 @@ export async function fetchDirectionDashboardPageData(
         riskScore,
         sendTargetAt,
         latestJobId,
+        latestJobReadsList: latestJobsByVersionId.get(version.id)?.reads_list ?? false,
         alerts: actionableAlerts,
       });
       const lotLabels = dedupeLabels(

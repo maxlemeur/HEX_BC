@@ -454,10 +454,16 @@
     },
     {
       "id": "takeoff-bookmarks",
-      "note": "Reprise des favoris et revue du métré depuis son affaire.",
+      "note": "Reprise des favoris et revue du métré depuis son affaire ; liens vers une analyse lue contre la liste et analyses antérieures (lot 4).",
       "paths": [
         "src/app/dashboard/[...unknown]/**",
-        "src/app/dashboard/affaires/[projectId]/takeoff/**"
+        "src/app/dashboard/affaires/[projectId]/takeoff/**",
+        "src/lib/takeoff/review-link.ts",
+        "src/lib/takeoff/review-link-server.ts",
+        "src/lib/takeoff/earlier-analysis.ts",
+        "src/lib/takeoff/earlier-analysis-server.ts",
+        "src/components/takeoff/TakeoffLinkNotice.tsx",
+        "src/components/takeoff/TakeoffEarlierAnalysis.tsx"
       ],
       "journeys": [
         "e2e/army/takeoff/contracts.e2e.ts"

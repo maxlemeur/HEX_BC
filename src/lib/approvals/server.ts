@@ -60,6 +60,8 @@ export type ApprovalQueueItem = {
   visualState: VisualState;
   reviewerState: ReviewerState | null;
   latestJobId: string | null;
+  /** The latest job was read against the affaire's list (lot 4): its exceptions open the table of items. */
+  latestJobReadsList: boolean;
   syntheticAlerts: DirectionSyntheticAlert[];
 };
 
@@ -174,6 +176,7 @@ export async function fetchApprovalQueue(
       visualState: deriveVisualState(row.comment_count ?? 0, reviewerState),
       reviewerState,
       latestJobId: row.latest_job_id,
+      latestJobReadsList: false,
       syntheticAlerts: [],
     };
   });
@@ -185,6 +188,7 @@ export async function fetchApprovalQueue(
         return {
           ...item,
           marginBp: signals.marginBp ?? item.marginBp,
+          latestJobReadsList: Boolean(item.latestJobId && signals.latestJobId === item.latestJobId && signals.latestJobReadsList),
           syntheticAlerts: signals.alerts,
         };
       } catch {

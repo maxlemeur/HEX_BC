@@ -35,6 +35,7 @@ vi.mock("@/lib/direction/alerts", () => ({
 }));
 
 import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
+import { buildDirectionSyntheticAlerts } from "@/lib/direction/alerts";
 import {
   fetchDirectionDashboardPageData,
   fetchDirectionProjectSignals,
@@ -66,6 +67,7 @@ function createBuilder(resolve: () => { data: unknown; error: unknown }) {
     }),
     order: vi.fn(() => builder),
     is: vi.fn(() => builder),
+    not: vi.fn(() => builder),
     maybeSingle: vi.fn(() => resolve()),
     getState: () => state,
     then: (onFulfilled: (value: { data: unknown; error: unknown }) => unknown) =>
@@ -79,6 +81,7 @@ function createSupabaseMock(fixtures: {
   versions: Row[];
   jobs: Row[];
   alerts: Row[];
+  requests?: Row[];
   memberships?: Row[];
   profiles?: Row[];
   reviewCycles?: Row[];
@@ -137,8 +140,21 @@ function createSupabaseMock(fixtures: {
         return builder;
       }
 
+      if (table === "takeoff_launch_requests") {
+        // The requests that sealed the affaire's list (`item_list_revision_id`), as the member reads them.
+        const builder = createBuilder(() => {
+          const ids = builder.getState().in.get("id") ?? [];
+          return { data: (fixtures.requests ?? []).filter((row) => ids.includes(row.id) && row.item_list_revision_id), error: null };
+        });
+        return builder;
+      }
+
       if (table === "takeoff_jobs") {
         const builder = createBuilder(() => {
+          const jobIds = builder.getState().in.get("id");
+          if (jobIds) {
+            return { data: fixtures.jobs.filter((row) => jobIds.includes(row.id) && row.launch_request_id), error: null };
+          }
           const batchError = getBatchLimitError(builder, "estimate_version_id");
           if (batchError) {
             return {
@@ -423,6 +439,38 @@ describe("fetchDirectionProjectSignals", () => {
       id: "alert-v1",
       rawJobId: "job-v1",
     });
+  });
+
+  // Lot 4, the entries: the radar's link of a version whose latest job was read against the affaire's list opens the
+  // table's items to check (RiskAlertBanner, ApprovalQueueCard); a first-format latest job keeps its review's exceptions.
+  it("says whether the version's latest job was read against the affaire's list", async () => {
+    const projectId = "project-list";
+    const versionId = "version-list";
+    const listJob = "a0000000-0000-4000-8000-000000000001";
+    const firstFormat = "a0000000-0000-4000-8000-000000000002";
+    for (const [jobId, launchRequestId, expected] of [[listJob, "a0000000-0000-4000-8000-0000000000a1", true],
+      [firstFormat, "a0000000-0000-4000-8000-0000000000a2", false], [firstFormat, null, false]] as const) {
+      vi.mocked(getAuthenticatedContext).mockResolvedValue({
+        tenantId: "tenant-1",
+        tenantRole: "director",
+        userId: "user-1",
+        supabase: createSupabaseMock({
+          versions: [createVersionRow(projectId, versionId, 1)],
+          jobs: [{ id: jobId, estimate_version_id: versionId, status: "completed", created_at: "2026-11-22T10:00:00.000Z",
+            completed_at: "2026-11-22T10:05:00.000Z", launch_request_id: launchRequestId }],
+          requests: [{ id: "a0000000-0000-4000-8000-0000000000a1", item_list_revision_id: "a0000000-0000-4000-8000-0000000000b1" },
+            { id: "a0000000-0000-4000-8000-0000000000a2", item_list_revision_id: null }],
+          alerts: [createAlertRow(versionId, `alert-${jobId}`, jobId)],
+        }),
+      } as never);
+
+      const result = await fetchDirectionProjectSignals(projectId, versionId);
+
+      expect(result.latestJobId, String(launchRequestId)).toBe(jobId);
+      expect(result.latestJobReadsList, String(launchRequestId)).toBe(expected);
+      expect(vi.mocked(buildDirectionSyntheticAlerts).mock.lastCall?.[0], String(launchRequestId))
+        .toMatchObject({ latestJobId: jobId, latestJobReadsList: expected });
+    }
   });
 
   it("filters out alerts that belong to older takeoff jobs", async () => {

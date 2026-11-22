@@ -8,7 +8,8 @@ export type TakeoffReviewHrefInput = {
   jobId: string;
   versionId?: string | null;
   targeted?: boolean;
-  reviewMode?: "validation" | "production";
+  /** « assisted » is read from old addresses only: no screen writes it. */
+  reviewMode?: "assisted" | "validation" | "production";
   view?: "dpgf";
   dpgfView?: "exceptions_only";
   line?: string;
