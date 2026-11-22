@@ -47,11 +47,24 @@ describe("Gabarit de postes de l’entreprise", () => {
     await app.open("/dashboard/admin/takeoff/item-template");
     await waitForHydration(browser);
     await expect(screen.getByText("Version publiée : 1 (livrée avec l’application).", { exact: false })).toBeVisible();
+    // A draft saved then discarded leaves nothing: the editor starts again from the published version, and the next
+    // draft is saved without a reload, never refused as a stale one.
+    await screen.getByRole("textbox", "Désignation du poste lavabo", { exact: true }).fill("Lavabo provisoire");
+    await screen.getByRole("button", "Enregistrer le brouillon", { exact: true }).click();
+    await expect(screen.getByText("Brouillon enregistré (révision 1).", { exact: false })).toBeVisible();
+    await screen.getByRole("button", "Abandonner le brouillon", { exact: true }).click();
+    await expect(screen.getByText("Aucun brouillon enregistré.", { exact: false })).toBeVisible();
+    await expect(screen.getByRole("textbox", "Désignation du poste lavabo", { exact: true })).toHaveValue("Lavabo");
+    expect(await rows(`select revision from public.takeoff_item_template_drafts where tenant_id = '${owner.tenantId}'`)).toEqual([]);
     await screen.getByRole("textbox", "Désignation du poste lavabo", { exact: true }).fill("Lavabo sur colonne");
     await expect(screen.getByText("Modifié : Lavabo → Lavabo sur colonne", { exact: true })).toBeVisible();
+    // A second line changes its unit only, from metres to units.
+    await screen.getByRole("textbox", "Unité du poste eu-pvc-40", { exact: true }).fill("u");
     await expect(screen.getByRole("button", "Publier la version 2", { exact: true })).toBeDisabled();
     await screen.getByRole("button", "Enregistrer le brouillon", { exact: true }).click();
     await expect(screen.getByText("Brouillon enregistré (révision 1).", { exact: false })).toBeVisible();
+    expect(await rows(`select revision, definition::text like '%Lavabo sur colonne%' as corrected
+      from public.takeoff_item_template_drafts where tenant_id = '${owner.tenantId}'`)).toEqual([{ revision: 1, corrected: true }]);
     await screen.getByRole("button", "Publier la version 2", { exact: true }).click();
     await expect(screen.getByText("Version publiée : 2.", { exact: false })).toBeVisible();
     expect(await rows(`select version, based_on_version, line_count from public.takeoff_item_template_versions
@@ -69,8 +82,21 @@ describe("Gabarit de postes de l’entreprise", () => {
     await expect(screen.getByText("Liste enregistrée · révision 1 · 23 postes", { exact: false })).toBeVisible();
     await expect(table.getByRole("rowheader", "Lavabo", { exact: true })).toBeVisible();
     const proposal = screen.getByRole("region", "Révision proposée", { exact: true });
-    await expect(proposal).toContainText("Révision proposée : 0 ajouté, 0 retiré, 1 modifié");
+    await expect(proposal).toContainText("Révision proposée : 0 ajouté, 0 retiré, 2 modifiés");
     await expect(proposal.getByText("Modifié : Lavabo → Lavabo sur colonne", { exact: true })).toBeVisible();
+    // A change of unit alone is told before it is accepted, its value before and after.
+    await expect(proposal.getByText("Modifié : Évacuation eaux usées PVC Ø 40 mm", { exact: true })).toBeVisible();
+    await expect(proposal.getByText("Unité : m → u", { exact: true })).toBeVisible();
+    // Without an answer from the server, the form is released with a French message and the choice kept; the next
+    // click sends the same gesture.
+    const acceptance = `**/api/affaires/${existing}/takeoff/item-list/revisions`;
+    await browser.route(acceptance, (route) => route.abort());
+    await proposal.getByRole("button", "Accepter la révision proposée", { exact: true }).click();
+    await expect(proposal.getByText("La réponse du serveur n’est pas arrivée. Vérifiez votre connexion puis réessayez : la "
+      + "révision ne sera pas enregistrée deux fois.", { exact: true })).toBeVisible();
+    await expect(proposal.getByRole("button", "Accepter la révision proposée", { exact: true })).toBeEnabled();
+    await browser.unroute(acceptance);
+    expect(await rows(`select revision from public.takeoff_list_revisions where project_id = '${existing}'`)).toEqual([{ revision: 1 }]);
     await proposal.getByRole("button", "Accepter la révision proposée", { exact: true }).click();
     await expect(screen.getByText("Liste enregistrée · révision 2 · 23 postes", { exact: false })).toBeVisible();
     const corrected = table.getByRole("row", /^Lavabo sur colonne Plomberie/);
@@ -171,8 +197,25 @@ describe("Gabarit de postes de l’entreprise", () => {
       await expect(screen.getByText(recorded, { exact: false })).toBeVisible();
     };
 
-    // Before any analysis: the first list is recorded with the item.
-    await add("Robinet de puisage", "Liste enregistrée · révision 2 · 24 postes");
+    // Before any analysis: the first list is recorded with the item. Its first click gets no answer from the server: the
+    // form is released with a French message and what was typed stays; the next click adds it, once.
+    await app.open(`/dashboard/affaires/${projectId}/takeoff?postes=liste`);
+    await waitForHydration(browser);
+    await screen.getByText("Ajouter un poste", { exact: true }).click();
+    const form = screen.getByRole("form", "Ajouter un poste", { exact: true });
+    await form.getByRole("textbox", "Désignation", { exact: true }).fill("Robinet de puisage");
+    await form.getByRole("textbox", "Unité (vide : à préciser)", { exact: true }).fill("u");
+    const additions = `**/api/affaires/${projectId}/takeoff/item-list/items`;
+    await browser.route(additions, (route) => route.abort());
+    await form.getByRole("button", "Ajouter le poste", { exact: true }).click();
+    await expect(form.getByText("La réponse du serveur n’est pas arrivée. Vérifiez votre connexion puis réessayez : le poste ne "
+      + "sera pas ajouté deux fois.", { exact: true })).toBeVisible();
+    await expect(form.getByRole("button", "Ajouter le poste", { exact: true })).toBeEnabled();
+    await expect(form.getByRole("textbox", "Désignation", { exact: true })).toHaveValue("Robinet de puisage");
+    await browser.unroute(additions);
+    expect(await rows(`select revision from public.takeoff_list_revisions where project_id = '${projectId}'`)).toEqual([]);
+    await form.getByRole("button", "Ajouter le poste", { exact: true }).click();
+    await expect(screen.getByText("Liste enregistrée · révision 2 · 24 postes", { exact: false })).toBeVisible();
     // During an analysis: a job of the affaire's estimate is running (fixture rows, no worker, no model).
     const versionId = randomUUID();
     const jobId = randomUUID();
