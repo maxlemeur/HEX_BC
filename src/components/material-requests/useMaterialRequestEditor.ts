@@ -11,6 +11,7 @@ import {
   bulkUpdateMaterialRequestLines,
   createMaterialRequestLineArticle,
   createMaterialRequestLines,
+  createMaterialRequestSupplier,
   deleteMaterialRequestFile,
   deleteMaterialRequestLine,
   fetchMaterialRequest,
@@ -237,6 +238,11 @@ export type MaterialRequestEditorApi = {
    * unsaved on screen: the line stays as the server holds it and is not held back from validation.
    */
   retainSupplier: (lineId: string, supplierId: string) => Promise<RetainResult>;
+  /**
+   * Adds a supplier the list does not hold, known by its name alone, and lists it at once. It is not given to any
+   * line: the caller chooses it next, as it would any other.
+   */
+  createSupplier: (name: string) => Promise<{ ok: true; id: string } | { ok: false; message: string }>;
   /** One request for all the lines; a line whose supplier choice is not saved is left out and reported. */
   retainSuppliers: (entries: readonly SupplierRetainEntry[]) => Promise<BulkRetainResult>;
   /**
@@ -886,6 +892,24 @@ export function useMaterialRequestEditor(projectId: string, requestId: string): 
           return { ok: true, skipped: wasSet };
         } catch (error) {
           return { ok: false, message: materialRequestErrorMessage(error, "Le fournisseur n’a pas pu être retenu.") };
+        }
+      },
+      createSupplier: async (name: string) => {
+        try {
+          const created = await createMaterialRequestSupplier(name);
+          setData((current) =>
+            current && !current.supplierOptions.some((option) => option.id === created.id)
+              ? {
+                  ...current,
+                  supplierOptions: [...current.supplierOptions, created].sort(
+                    (left, right) => left.label.localeCompare(right.label, "fr") || left.id.localeCompare(right.id),
+                  ),
+                }
+              : current,
+          );
+          return { ok: true as const, id: created.id };
+        } catch (error) {
+          return { ok: false as const, message: materialRequestErrorMessage(error, "Le fournisseur n’a pas pu être créé.") };
         }
       },
       retainSuppliers: async (entries: readonly SupplierRetainEntry[]): Promise<BulkRetainResult> => {

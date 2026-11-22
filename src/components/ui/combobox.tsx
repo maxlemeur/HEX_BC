@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import { Combobox as ComboboxPrimitive } from "@base-ui/react/combobox"
-import { CheckIcon, ChevronDownIcon, Loader2Icon } from "lucide-react"
+import { CheckIcon, ChevronDownIcon, Loader2Icon, PlusIcon } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 import { controlSizes, controlSurface, type ControlSize } from "@/components/ui/input"
@@ -23,6 +23,13 @@ type ComboboxProps = {
   onValueChange?: (value: string) => void
   /** Text typed by the user, e.g. to drive a remote search (selection does not trigger it). */
   onQueryChange?: (query: string) => void
+  /**
+   * Offers, as the last entry, to create what was typed when no option bears that name (its label or one of its
+   * keywords, whatever the case and accents). Called with the trimmed text; the selection is left as it was.
+   */
+  onCreate?: (query: string) => void
+  /** Words of that entry, e.g. « Créer le fournisseur « X » ». */
+  createLabel?: (query: string) => string
   /** Put on the input: pair it with `<FieldLabel htmlFor>`. */
   id?: string
   /** Submits the selected value through a hidden input. */
@@ -42,6 +49,9 @@ type ComboboxProps = {
   "aria-describedby"?: string
   "aria-invalid"?: boolean
 }
+
+/** Value of the entry that creates what was typed: no option may bear it. */
+const CREATE_VALUE = "\u0000create"
 
 function normalizeSearch(value: string) {
   return value
@@ -69,6 +79,8 @@ function Combobox({
   defaultValue = "",
   onValueChange,
   onQueryChange,
+  onCreate,
+  createLabel = (query) => `Créer « ${query} »`,
   id,
   name,
   placeholder = "Rechercher…",
@@ -113,32 +125,51 @@ function Combobox({
     [optionMap, selectedOption]
   )
 
+  // What is being typed, for the entry that creates it; emptied once a choice is made or the text cleared.
+  const [query, setQuery] = React.useState("")
+  const creatable = React.useMemo(() => {
+    const typed = query.trim()
+    if (!onCreate || typed === "") return null
+    const needle = normalizeSearch(typed)
+    const taken = options.some((option) =>
+      [option.label, ...(option.keywords ?? [])].some((text) => normalizeSearch(text.trim()) === needle)
+    )
+    return taken ? null : typed
+  }, [onCreate, options, query])
+
   const items = React.useMemo(() => {
     const values = options.map((option) => option.value)
     if (selectedOption && !optionMap.has(selectedOption.value)) values.push(selectedOption.value)
+    if (creatable !== null) values.push(CREATE_VALUE)
     return values
-  }, [optionMap, options, selectedOption])
+  }, [creatable, optionMap, options, selectedOption])
 
   return (
     <ComboboxPrimitive.Root<string>
       items={items}
       value={currentValue || null}
       onValueChange={(nextValue) => {
+        if (nextValue === CREATE_VALUE) {
+          if (creatable !== null) onCreate?.(creatable)
+          setQuery("")
+          return
+        }
         const normalized = nextValue ?? ""
         if (!isControlled) setUncontrolledValue(normalized)
         const option = normalized ? getOption(normalized) : undefined
         if (option) setKnownSelection(option)
         onValueChange?.(normalized)
       }}
-      onInputValueChange={(query, details) => {
-        if (details.reason === "input-change" || details.reason === "input-clear") {
-          onQueryChange?.(query)
-        }
+      onInputValueChange={(text, details) => {
+        const typed = details.reason === "input-change" || details.reason === "input-clear"
+        if (typed) onQueryChange?.(text)
+        setQuery(typed ? text : "")
       }}
       itemToStringLabel={(itemValue) => getOption(itemValue)?.label ?? ""}
-      filter={(itemValue, query) => {
+      filter={(itemValue, text) => {
+        if (itemValue === CREATE_VALUE) return true
         const option = getOption(itemValue)
-        return option ? matchesComboboxOption(option, query) : false
+        return option ? matchesComboboxOption(option, text) : false
       }}
       name={name}
       required={required}
@@ -186,6 +217,19 @@ function Combobox({
             </ComboboxPrimitive.Empty>
             <ComboboxPrimitive.List className="outline-none">
               {(itemValue: string) => {
+                if (itemValue === CREATE_VALUE) {
+                  return (
+                    <ComboboxPrimitive.Item
+                      key={itemValue}
+                      value={itemValue}
+                      data-slot="combobox-create"
+                      className="relative flex cursor-default items-center gap-2 rounded-md py-2 pr-3 pl-3 text-sm font-medium text-primary outline-none select-none data-highlighted:bg-muted"
+                    >
+                      <PlusIcon aria-hidden="true" className="size-4 shrink-0" />
+                      <span className="min-w-0 flex-1 break-words">{creatable === null ? null : createLabel(creatable)}</span>
+                    </ComboboxPrimitive.Item>
+                  )
+                }
                 const option = getOption(itemValue)
                 return (
                   <ComboboxPrimitive.Item
