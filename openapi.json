@@ -92738,6 +92738,14 @@
                           "remeasure_items"
                         ]
                       },
+                      "order": {
+                        "type": "string",
+                        "enum": [
+                          "free",
+                          "item_list"
+                        ],
+                        "description": "Ce que la demande a posé : une lecture libre (envoi d’aujourd’hui), ou la liste des postes de l’affaire (envoi poste par poste)."
+                      },
                       "state": {
                         "type": "string",
                         "enum": [
@@ -93186,6 +93194,10 @@
                             "canResubmit": {
                               "type": "boolean",
                               "description": "Vrai si et seulement si resume.action vaut retry_now."
+                            },
+                            "canSendItems": {
+                              "type": "boolean",
+                              "description": "Ce membre peut envoyer au devis les postes retenus de ce plan : lu contre la liste des postes, terminé, pas encore envoyé, et le membre écrit l’affaire (son propriétaire ingénieur ou un administrateur). Le serveur revérifie tout à l’aperçu."
                             }
                           },
                           "required": [
@@ -93199,7 +93211,8 @@
                             "retryCount",
                             "resume",
                             "canCancel",
-                            "canResubmit"
+                            "canResubmit",
+                            "canSendItems"
                           ],
                           "additionalProperties": false
                         }
@@ -93355,6 +93368,7 @@
                       "id",
                       "origin",
                       "intent",
+                      "order",
                       "state",
                       "outcome",
                       "reason",
@@ -93400,6 +93414,14 @@
                         "reread_plans",
                         "remeasure_items"
                       ]
+                    },
+                    "order": {
+                      "type": "string",
+                      "enum": [
+                        "free",
+                        "item_list"
+                      ],
+                      "description": "Ce que la demande a posé : une lecture libre (envoi d’aujourd’hui), ou la liste des postes de l’affaire (envoi poste par poste)."
                     },
                     "state": {
                       "type": "string",
@@ -93849,6 +93871,10 @@
                           "canResubmit": {
                             "type": "boolean",
                             "description": "Vrai si et seulement si resume.action vaut retry_now."
+                          },
+                          "canSendItems": {
+                            "type": "boolean",
+                            "description": "Ce membre peut envoyer au devis les postes retenus de ce plan : lu contre la liste des postes, terminé, pas encore envoyé, et le membre écrit l’affaire (son propriétaire ingénieur ou un administrateur). Le serveur revérifie tout à l’aperçu."
                           }
                         },
                         "required": [
@@ -93862,7 +93888,8 @@
                           "retryCount",
                           "resume",
                           "canCancel",
-                          "canResubmit"
+                          "canResubmit",
+                          "canSendItems"
                         ],
                         "additionalProperties": false
                       }
@@ -94018,6 +94045,7 @@
                     "id",
                     "origin",
                     "intent",
+                    "order",
                     "state",
                     "outcome",
                     "reason",

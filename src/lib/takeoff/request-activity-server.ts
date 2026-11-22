@@ -232,10 +232,13 @@ export async function readTakeoffRequestActivity(input: ReadTakeoffRequestActivi
   const visible = await readTakeoffVisibleSources({ supabase, tenantId, projectId: input.projectId, ids: [
     ...listed.flatMap((request) => sourceIdsOf(unitSources.manifests.get(request.id) ?? null, request.reason_details)),
   ] });
+  // The send by item's own write rule, read once and only when a listed request was read against the list.
+  const writesItems = listed.some((request) => unitSources.manifests.get(request.id)?.itemList === true)
+    ? await readItemListWriter(service, tenantId, input.projectId, context.userId) : false;
   const build = (request: TakeoffRequestRow, extra: { action?: TakeoffRequestActivity["action"]; dossierChanged?: TakeoffRequestActivity["dossierChanged"] } = {}) =>
     buildTakeoffRequestActivity({ request, units: unitsOf(request), unknownCalls: unitSources.unknownCalls.get(request.id) ?? null,
       manifest: unitSources.manifests.get(request.id) ?? null,
-      jobs: memberJobs, viewer, now, visible, ...extra });
+      jobs: memberJobs, viewer, now, visible, writesItems, ...extra });
 
   const currentView = current ? build(current, { action, dossierChanged }) : null;
   const elsewhereView = elsewhere ? build(elsewhere) : null;
@@ -304,6 +307,13 @@ async function readDossierPosition(service: Service, tenantId: string, projectId
   return createHash("sha256").update(parts.join("|")).digest("hex").slice(0, 32);
 }
 
+/** Whether the member writes the affaire's list of items: the rule the send by item checks again at its preview. */
+async function readItemListWriter(service: Service, tenantId: string, projectId: string, userId: string) {
+  const { data, error } = await service.rpc("takeoff_item_list_may_write", { p_tenant_id: tenantId, p_project_id: projectId, p_actor: userId });
+  if (error) readError(error, "Impossible de vérifier les droits sur les postes du métré.");
+  return data === true;
+}
+
 /**
  * The manifests and unit jobs of the admitted requests the member read, by the server after the affaire's read access:
  * two reads for the page, whatever its number of requests.
@@ -314,7 +324,8 @@ async function readUnitSources(service: Service, tenantId: string, projectId: st
   if (requestIds.length === 0) return { manifests, jobs: [] as TakeoffRequestUnitJobRow[], unknownCalls };
   const [manifestRows, jobRows, unknownRows] = await Promise.all([
     service.from("takeoff_launch_requests")
-      .select("id, format_version:manifest->format_version, units:manifest->units, plans:manifest->plans, coverage:manifest->coverage" as never)
+      .select("id, format_version:manifest->format_version, order_kind:manifest->order->>kind, units:manifest->units, "
+        + "plans:manifest->plans, coverage:manifest->coverage" as never)
       .eq("tenant_id", tenantId).eq("project_id", projectId).in("id", requestIds),
     service.from("takeoff_jobs").select(UNIT_JOB_COLUMNS as never)
       .eq("tenant_id", tenantId).eq("project_id", projectId).in("launch_request_id", requestIds).order("id").limit(MAX_JOBS_READ),

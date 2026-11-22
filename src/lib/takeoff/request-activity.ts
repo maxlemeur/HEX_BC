@@ -96,6 +96,8 @@ type ManifestPlan = { planFileId: string | null; logicalId: string | null; docum
 /** The part of a sealed manifest the activity reads: its units in order, the plans they name, the plans set aside. */
 export type TakeoffRequestManifest = {
   formatVersion: number | null;
+  /** The sealed order asked about the affaire's list of items (lot 4): its plans are sent item by item. */
+  itemList: boolean;
   units: Array<{ key: string; ordinal: number; plans: string[]; pages: number[] | null }>;
   plans: Map<string, ManifestPlan>;
   omitted: Array<TakeoffRequestActivity["plansOmitted"][number] & { id: string | null }>;
@@ -148,6 +150,7 @@ export function parseTakeoffRequestManifest(raw: unknown): TakeoffRequestManifes
       : []);
   return {
     formatVersion: typeof raw.format_version === "number" ? raw.format_version : null,
+    itemList: raw.order_kind === "item_list",
     units: [...units].sort((left, right) => left.ordinal - right.ordinal), plans, omitted,
   };
 }
@@ -255,7 +258,7 @@ function toPieces(details: unknown): TakeoffLaunchPiece[] {
 }
 
 /** What this member may do with an analysis, by the same policy as its detail, the list and the retry command. */
-function toActivityJob(job: TakeoffRequestJobRow, viewer: TakeoffResumeViewer, now: Date): TakeoffRequestActivityJob {
+function toActivityJob(job: TakeoffRequestJobRow, viewer: TakeoffResumeViewer, now: Date, sendsItems: boolean): TakeoffRequestActivityJob {
   const decision = resolveTakeoffOperatorState(toTakeoffOperatorStateInput(job, viewer, now));
   const transition = latestOf([job.created_at, job.analysis_queued_at, job.started_at, job.completed_at, job.analysis_finished_at]);
   return {
@@ -270,6 +273,8 @@ function toActivityJob(job: TakeoffRequestJobRow, viewer: TakeoffResumeViewer, n
     resume: decision.resume.reason === "not_stopped" ? null : decision.resume,
     canCancel: decision.canCancel,
     canResubmit: decision.canResubmit,
+    // Read against the list, read to its end and not sent yet, for a member who writes the affaire: the send by item.
+    canSendItems: sendsItems && job.status === "completed" && job.estimate_version_id === null,
   };
 }
 
@@ -292,6 +297,8 @@ export function buildTakeoffRequestActivity(input: {
   action?: TakeoffRequestActivity["action"];
   /** As the shared reader (readDossierChangeSinceAnalysis) masked it for this member: shown as given. */
   dossierChanged?: TakeoffRequestActivity["dossierChanged"];
+  /** The member writes the affaire's list of items (public.takeoff_item_list_may_write, the send's own rule); read once. */
+  writesItems?: boolean;
 }): TakeoffRequestActivity {
   const { request, manifest, visible } = input;
   const reason = isTakeoffLaunchReason(request.reason_code)
@@ -324,6 +331,7 @@ export function buildTakeoffRequestActivity(input: {
     id: request.id,
     origin: request.origin === "manual" ? "manual" : "automatic",
     intent: request.intent === "reread_plans" || request.intent === "remeasure_items" ? request.intent : "initial",
+    order: manifest?.itemList ? "item_list" : "free",
     state: request.state as TakeoffRequestActivity["state"],
     outcome: request.outcome === "success" || request.outcome === "failure" || request.outcome === "canceled"
       || request.outcome === "partial" ? request.outcome : null,
@@ -340,7 +348,7 @@ export function buildTakeoffRequestActivity(input: {
       name: isTakeoffSourceVisible(visible, entry.id) ? entry.name : `Plan ${index + 1}`, reason: entry.reason,
     })) : [],
     jobs: input.jobs.filter((job) => job.launch_request_id === request.id && unitJobs.has(job.id))
-      .map((job) => toActivityJob(job, input.viewer, input.now)),
+      .map((job) => toActivityJob(job, input.viewer, input.now, manifest?.itemList === true && input.writesItems === true)),
     action: input.action ?? null,
     dossierChanged: input.dossierChanged ?? null,
   };
