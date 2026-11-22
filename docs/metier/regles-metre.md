@@ -876,19 +876,24 @@ suit s'y ajoute (migration `20261122030312_takeoff_partial_send.sql`,
   (`FOR NO KEY UPDATE`), les règles de correspondance, les lignes. Fin d'un plan par le worker :
   son job, la clé du contexte (partagée), puis la ligne de sa demande (son solde) ; la
   réservation et l'usage d'un appel, l'arrêt du reste d'une demande : le job, puis la demande.
-  Relance (la commande manuelle, ses deux entrées) : l'analyse qu'elle remplace d'abord (un
-  partage de clé), quelle que soit la demande qui l'a lancée, puis la clé de commande de
-  l'affaire, puis sa demande automatique (`FOR UPDATE`), puis ses écritures ; la reprise d'un
-  essai par le Mac tient le job, puis cette clé (la garde de reprise de `20261121193413`).
-  Chacun prend le job avant la demande, aucun ne prend la demande puis le job : un envoi et la
-  relance du même plan d'une demande automatique ne s'attendent plus l'un l'autre (avant, la
-  relance tenait la demande automatique quand la clé étrangère de sa demande attendait A, que
-  l'envoi tenait en demandant cette même ligne). L'envoi ne verrouille aucun autre plan.
+  Relance (la commande manuelle, ses deux entrées) : l'analyse qu'elle remplace, quand elle a
+  été lancée hors demande (un partage de clé ; la reprise d'un essai par le Mac tient ce job,
+  puis la clé de commande : la garde de reprise de `20261121193413`), puis **l'affaire,
+  partagée**, puis la clé de commande de l'affaire, puis sa demande automatique (`FOR UPDATE`),
+  puis ses écritures et, en dernier, la clé du dossier. L'analyse remplacée d'une demande n'est
+  pas verrouillée d'avance : son worker la tient pendant sa lecture, et une relance refusée ne
+  l'attend jamais. L'envoi et la relance prennent tous deux l'affaire en premier : une relance
+  attend un envoi de la même affaire sans rien tenir de ce qu'il demande ensuite, et un envoi
+  attend, à son premier verrou, une relance qui tient l'affaire. Avant, la relance tenait la
+  demande automatique quand ses écritures attendaient l'envoi (la ligne de A, celle de
+  l'affaire, que la création d'un premier brouillon tient `FOR UPDATE`), et l'envoi demandait
+  cette même demande : les deux s'attendaient. L'envoi ne verrouille aucun autre plan.
 - **Un aperçu peut attendre.** L'essai à blanc d'un aperçu ne prend ni la clé du contexte ni
   la ligne de la demande ; mais il lie et applique A dans une transaction annulée, et la clé
   étrangère de ce lien prend un partage de clé sur la ligne de la demande : il attend donc le
   `FOR UPDATE` du solde d'un autre plan de la demande qui s'engage (sa fin), le temps de cet
-  engagement.
+  engagement. L'aperçu d'un premier brouillon tient aussi l'affaire (`FOR NO KEY UPDATE`, comme
+  l'envoi) : une relance de la même affaire en cours l'attend, ou il l'attend.
 - **Ouverture.** Le lien d'une analyse par plan à un devis n'est admis que de l'envoi qui a
   vérifié son contexte, dans sa transaction (`aa0_guard_takeoff_plan_unit_send`) ; un autre
   écrivain, une mise à jour directe ou une commande sans contexte (celle de l'application
@@ -900,7 +905,7 @@ suit s'y ajoute (migration `20261122030312_takeoff_partial_send.sql`,
 - **Mise en service.** La migration crée une table privée, neuf fonctions et cinq
   déclencheurs, et en remplace trois (l'envoi, reconstruit sur le corps de `20261121193413` ;
   la fonction de la garde du lien ; la commande manuelle, reconstruite sur `20261121231238`
-  pour le seul verrou de l'analyse remplacée) ; elle ne touche à aucune ligne. Elle prend
+  pour le seul verrou de l'affaire, partagée, avant sa clé) ; elle ne touche à aucune ligne. Elle prend
   d'abord, sans attendre (`nowait`) et dans un ordre fixe, tous ses verrous de table (les
   versions de devis, les jobs, leurs lignes, les localisations) : une table occupée l'arrête
   aussitôt (`55P03`), rien n'est appliqué, on la relance ; elle n'attend jamais en tenant un
