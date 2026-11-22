@@ -1,0 +1,300 @@
+{
+  "date_utc": "2026-11-22",
+  "source_commit": "b661b3d8293cd297dc056a6123ecf85ffaef5894",
+  "applied_and_verified": "1 of 1",
+  "applied": {
+    "file": "20261122113611_takeoff_item_answers_before_activation.sql",
+    "pr": 470,
+    "remote_version": "20261122135550",
+    "applied_at_utc": "2026-11-22T13:55:50Z",
+    "attempts": 1,
+    "bytes": 17897,
+    "sha256": "a658655855554711c724e5e1fd98cf0228013d591946a8c5f33ba8f93e641410",
+    "stored_sql_sha256": "a658655855554711c724e5e1fd98cf0228013d591946a8c5f33ba8f93e641410",
+    "stored_form": "full_file_including_final_lf"
+  },
+  "history": {
+    "before": 427,
+    "after": 428,
+    "first_407_sha256": "8a37267e2f68e79acd5d4f1a3e6c5834d230ff71db9a12fbec90397c17d5debb",
+    "row_408_sql_sha256": "eb1b0c1ceee7ac0ae0a6f909c83ed924dc512217b9bfa2d8403add8bbcd8ca84",
+    "prior_427_rows_identical": true,
+    "intervening_migrations": [],
+    "rows_after_408": [
+      {
+        "hash": "3d95a24e2400d5a44dc22dd2c42bc877d01079f81dab524760b454a2bf321f45",
+        "name": "20261117193734_workbook_supplier_references",
+        "bytes": 10091,
+        "version": "20261121064149"
+      },
+      {
+        "hash": "22d213fd5c8ef66ce88e8e089c87ee659d1fac1fdb4aa888a7d6593400f18d8c",
+        "name": "20261117195542_product_reference_price_withdrawal",
+        "bytes": 14463,
+        "version": "20261121064717"
+      },
+      {
+        "hash": "d05d03911ffe7f86b54fa46c7415f46e49fd8d40efad92e5f53cd00d22a75737",
+        "name": "20261117200342_material_request_affaire_storage_cleanup",
+        "bytes": 9701,
+        "version": "20261121064816"
+      },
+      {
+        "hash": "f6b4bc854ac5e30f2898251748259e7ed2c20f66796473d14419b7ae899b1e57",
+        "name": "20261117201102_estimate_orders_in_affaire_supply_cost",
+        "bytes": 12436,
+        "version": "20261121064859"
+      },
+      {
+        "hash": "1194ff733be5a1cc0c294c8af103e3ad6d8b908cec8f55f3cae42bd673b5075e",
+        "name": "20261120204437_takeoff_jobs_by_affaire",
+        "bytes": 60289,
+        "version": "20261121064932"
+      },
+      {
+        "hash": "fe686c48545e814dbc9b25c9db49d1ad5ea22766b6c9c56761a32ed9494d1cb2",
+        "name": "20261121011212_takeoff_analysis_completion",
+        "bytes": 37029,
+        "version": "20261121065044"
+      },
+      {
+        "hash": "dbab0169bda43ff551d1973595106165d981171ccf3f5bda9295427a7c9cefc3",
+        "name": "20261121020321_takeoff_completion_before_activation",
+        "bytes": 37669,
+        "version": "20261121065131"
+      },
+      {
+        "hash": "a88febeb429035374fb0d6fa869cc668634ec4e39cdc75d6075a0be0367c487b",
+        "name": "20261121040445_takeoff_plan_locations",
+        "bytes": 37942,
+        "version": "20261121083406"
+      },
+      {
+        "hash": "b740982809201eb4c59b0e6c62d7c312649e4c6703025095716d4f2bdca371af",
+        "name": "20261121050138_takeoff_send_receipts",
+        "bytes": 110977,
+        "version": "20261121102941"
+      },
+      {
+        "hash": "dddbaaf69c7818e310b20f14b7af506fe85e6cb2d81fba4387cc5295c2e33c56",
+        "name": "20261121085058_takeoff_send_grouped_lines_and_parts",
+        "bytes": 99174,
+        "version": "20261121112355"
+      },
+      {
+        "hash": "a42ad6c51b8660c591d710ddbd3b39e860ad6890c860917ab2d067d4b58b7167",
+        "name": "20261121160259_read_takeoff_risk_alerts",
+        "bytes": 5966,
+        "version": "20261121175751"
+      },
+      {
+        "hash": "6b349bdb73d635acef5044efc7dd1897f8db8672fa07cc1ee5e52bbf2c7fd8f2",
+        "name": "20261121170448_takeoff_launch_requests",
+        "bytes": 103804,
+        "version": "20261121175931"
+      },
+      {
+        "hash": "d68a4199cd6f92c240fbb04f6e60aeaec3a7c504dfc81c10ce2a42ecf2cbc229",
+        "name": "20261121193413_takeoff_launch_exclusion_and_send_requests",
+        "bytes": 75112,
+        "version": "20261122074155"
+      },
+      {
+        "hash": "854e5f1eecea87a5fac95bac688db00aeffb5a5f2195b693bcaea2f1d83138d4",
+        "name": "20261121230719_takeoff_item_lists",
+        "bytes": 108478,
+        "version": "20261122074312"
+      },
+      {
+        "hash": "a26d784a495f862ee6f2126d96bd2f8d71bfc7ab3264bafbd467106cb8fb4475",
+        "name": "20261121231238_takeoff_plan_dispatcher",
+        "bytes": 140685,
+        "version": "20261122074519"
+      },
+      {
+        "hash": "7893a5f2523e6fdc6a39740918aabb6e963124d0cc78edf1bf167e40f16d36e9",
+        "name": "20261122030312_takeoff_partial_send",
+        "bytes": 98334,
+        "version": "20261122084903"
+      },
+      {
+        "hash": "493d46cf320322c8cd2e77c87fe55daadbf61d73f8b5339e308978ebacaef20c",
+        "name": "20261122092341_product_packagings",
+        "bytes": 12544,
+        "version": "20261122105334"
+      },
+      {
+        "hash": "2d9fc87c12d90c2cae7ea0b1c5aac62ce770924cd2501e1f9b79d0a5d2a5e0ac",
+        "name": "20261122093228_material_request_message_templates",
+        "bytes": 13650,
+        "version": "20261122105354"
+      },
+      {
+        "hash": "edc30c089ed080fa1c80eec44b1b1728c48e8f6ec6289f0012f3f02c4aff3a4d",
+        "name": "20261122080845_takeoff_item_answers",
+        "bytes": 73313,
+        "version": "20261122113328"
+      },
+      {
+        "hash": "a658655855554711c724e5e1fd98cf0228013d591946a8c5f33ba8f93e641410",
+        "name": "20261122113611_takeoff_item_answers_before_activation",
+        "bytes": 17897,
+        "version": "20261122135550"
+      }
+    ]
+  },
+  "precheck": {
+    "list_order_activation_rows": 0,
+    "requests_sealing_a_list": 0,
+    "publications": 0,
+    "at_utc": "2026-11-22 13:55:39.952939+00",
+    "processing": 0,
+    "health": {
+      "version": "0.7.0",
+      "db": "up",
+      "http": 200
+    }
+  },
+  "functions": [
+    {
+      "name": "private.assert_takeoff_launch_order",
+      "signature": "private.assert_takeoff_launch_order(takeoff_launch_requests,jsonb)",
+      "args": "p_request takeoff_launch_requests, p_manifest jsonb",
+      "result": "uuid",
+      "md5": "9aabd027a5dfee255a5caecfd011200d",
+      "definer": true,
+      "settings": [
+        "search_path=\"\""
+      ],
+      "owner": "postgres",
+      "acl": "{postgres=X/postgres}",
+      "anon": false,
+      "authenticated": false,
+      "service_role": false,
+      "md5_before": "3e37e7de665a378696021b0897acaf4c",
+      "md5_after": "9aabd027a5dfee255a5caecfd011200d"
+    },
+    {
+      "name": "private.takeoff_item_answers_refusal",
+      "signature": "private.takeoff_item_answers_refusal(takeoff_launch_requests,jsonb,integer[],jsonb,jsonb,jsonb,jsonb)",
+      "args": "p_request takeoff_launch_requests, p_unit jsonb, p_pages integer[], p_items jsonb, p_answers jsonb, p_findings jsonb, p_vector jsonb",
+      "result": "text",
+      "md5": "fb0a54ae56dc16d3f98c4a462b85bfc5",
+      "definer": true,
+      "settings": [
+        "search_path=\"\""
+      ],
+      "owner": "postgres",
+      "acl": "{postgres=X/postgres}",
+      "anon": false,
+      "authenticated": false,
+      "service_role": false,
+      "md5_before": "fb0a54ae56dc16d3f98c4a462b85bfc5",
+      "md5_after": "fb0a54ae56dc16d3f98c4a462b85bfc5"
+    },
+    {
+      "name": "public.publish_takeoff_item_answers",
+      "signature": "publish_takeoff_item_answers(uuid,uuid,timestamp with time zone,text,text,jsonb,integer[],jsonb,jsonb,jsonb,jsonb,jsonb)",
+      "args": "p_job_id uuid, p_lease_token uuid, p_completed_at timestamp with time zone, p_model text, p_prompt_version text, p_exchange jsonb, p_unit_pages integer[], p_answers jsonb, p_findings jsonb, p_result jsonb, p_items jsonb, p_vector jsonb",
+      "result": "TABLE(result_id uuid, replayed boolean, answer_count integer)",
+      "md5": "163aac2c23b43f5af0fb12fff9e105e2",
+      "definer": true,
+      "settings": [
+        "search_path=\"\""
+      ],
+      "owner": "postgres",
+      "acl": "{postgres=X/postgres,service_role=X/postgres}",
+      "anon": false,
+      "authenticated": false,
+      "service_role": true,
+      "md5_before": "83888ec0430a3c72925bf9899285ae19",
+      "md5_after": "163aac2c23b43f5af0fb12fff9e105e2"
+    }
+  ],
+  "catalog": {
+    "scope": "Schémas hors catalogue PostgreSQL et information_schema",
+    "same_before_and_after": true,
+    "fingerprints": [
+      {
+        "kind": "columns",
+        "records": 2940,
+        "fingerprint": "b2199617df05a4e66c9067319438f1a4"
+      },
+      {
+        "kind": "constraints",
+        "records": 1850,
+        "fingerprint": "951a13204beb65e43ec9c70f3890431b"
+      },
+      {
+        "kind": "grants",
+        "records": 2296,
+        "fingerprint": "09b38d180ca674a064ab63916143ee8c"
+      },
+      {
+        "kind": "indexes",
+        "records": 995,
+        "fingerprint": "fcc4164b020c6315aa0d9706e28b7e79"
+      },
+      {
+        "kind": "policies",
+        "records": 453,
+        "fingerprint": "982930d26d22ad11a0ffa55e24890844"
+      },
+      {
+        "kind": "tables",
+        "records": 243,
+        "fingerprint": "70d23b664daa969ce57dad3ced7118ff"
+      },
+      {
+        "kind": "triggers",
+        "records": 3002,
+        "fingerprint": "b43a623fa712524a5c5932b034f44fff"
+      }
+    ],
+    "takeoff_jobs_user_triggers": [
+      "aa0_guard_takeoff_plan_unit_send",
+      "aa1_require_takeoff_host_slot",
+      "aaa_enforce_takeoff_execution_owner",
+      "aaa_enforce_takeoff_job_identity_immutable",
+      "aab_enforce_takeoff_job_retry_state",
+      "aab_guard_open_takeoff_launch_job_delete",
+      "aab_guard_takeoff_job_launch_request",
+      "aac_assign_takeoff_job_scope",
+      "aac_enforce_authenticated_takeoff_job_fields",
+      "aac_guard_takeoff_job_outside_request",
+      "aad_enforce_takeoff_job_preparation",
+      "aad_guard_takeoff_job_restart_outside_request",
+      "aae_enforce_takeoff_job_preparation_processing",
+      "enforce_takeoff_apply_security",
+      "enforce_takeoff_job_admission",
+      "enforce_takeoff_job_reactivation",
+      "enforce_takeoff_processing_admission",
+      "record_prepared_takeoff_job_creation",
+      "set_takeoff_jobs_updated_at",
+      "stale_takeoff_rule_lines_on_completion",
+      "stale_takeoff_rule_peers_after_apply",
+      "takeoff_analysis_completion",
+      "takeoff_job_lease_follow",
+      "takeoff_launch_request_settlement",
+      "z_takeoff_analysis_outcome",
+      "zz_require_takeoff_item_answers"
+    ]
+  },
+  "answer_rows": {
+    "takeoff_item_answer_publications": 0,
+    "takeoff_item_answers": 0,
+    "takeoff_item_answer_observations": 0
+  },
+  "activation_rows": {
+    "takeoff_completion_activation": 0,
+    "takeoff_launch_activation": 0,
+    "takeoff_item_list_order_activation": 0,
+    "takeoff_plan_dispatch_activation": 0
+  },
+  "activated": false,
+  "deployed": false,
+  "flags_changed": false,
+  "security_advisors": {
+    "new_findings": []
+  }
+}
