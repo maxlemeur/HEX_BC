@@ -587,15 +587,21 @@ l’autorisation, l’écran d’arrivée vérifie de nouveau.
   (`reviewMode=assisted|production|validation`), sa vue (`view=dpgf`, `dpgfView=exceptions_only`),
   sa ligne, sa version et son report.
 - Une analyse lue contre la liste des postes se revoit dans le tableau des postes, sans effet
-  de bord : sa revue mène au tableau filtré sur le plan qu’elle a lu ; ses écarts DPGF aux
-  postes « À vérifier » de ce plan ; une ligne de devis écrite par l’envoi par poste au détail
-  de ce poste sur cette lecture (ou au tableau, sur ce poste, si cette lecture ne l’a pas lu) ;
-  une ligne rattachée à aucun poste au tableau du plan. Rien de l’ancienne adresse (mode, vue,
-  ligne, version) ne passe dans celle du tableau, qui reste dans l’affaire du lien. Le tableau
-  dit pourquoi il s’ouvre ainsi : quelle analyse, ce qu’il en montre, et les avertissements
-  que sa lecture a gardés (ouvrages vus hors de la liste, lectures écartées), que sa revue
-  montrait. Sa revue ciblée reste l’écran de correction que le détail d’une ligne du tableau
-  ouvre pendant le lot 4.
+  de bord : sa revue, dans tout mode et tout onglet sauf DPGF, mène au tableau filtré sur le
+  plan qu’elle a lu, toutes décisions montrées (un favori de l’onglet « Items » garde le
+  `dpgfView` de l’onglet DPGF dans son adresse : il nomme les postes, pas les écarts) ; une
+  adresse qui nomme la vue DPGF mène aux postes « À vérifier » de ce plan ; une ligne de devis
+  écrite par l’envoi par poste au détail de ce poste sur cette lecture (ou au tableau, sur ce
+  poste, si cette lecture ne l’a pas lu) ; une ligne rattachée à aucun poste au tableau du
+  plan ; une ligne dont le poste a été retiré de la liste depuis son envoi au tableau du plan,
+  qui le dit (sa lecture est conservée, mais le tableau et le détail lisent la liste actuelle
+  et ne la montrent pas). Rien de l’ancienne adresse (mode, vue, ligne, version) ne passe dans
+  celle du tableau, qui reste dans l’affaire du lien. Le tableau dit pourquoi il s’ouvre
+  ainsi : quelle analyse, ce qu’il en montre, et les avertissements que sa lecture a gardés
+  (ouvrages vus hors de la liste, lectures écartées), que sa revue montrait.
+- Deux adresses restent celles d’aujourd’hui pour toute analyse : sa revue ciblée, écran de
+  correction que le détail d’une ligne du tableau ouvre pendant le lot 4, et la comparaison
+  de deux lectures (`view=compare`), lecture de l’historique.
 - La notification de fin d’une demande lue contre la liste ouvre le tableau des postes (avec
   les plans de la demande au-dessus) ; le lien du radar et de la file d’approbation vers une
   version dont la dernière analyse a lu la liste ouvre les postes « À vérifier » de l’affaire
@@ -606,7 +612,8 @@ suivi de ses analyses qui n’ont pas été lues contre elle (ancien format, ana
 échec, autre fournisseur). Chacune s’ouvre en lecture seule (`?anterieure=…`, le tableau à un
 pas en arrière) telle qu’elle a été conservée : ses lignes dans leur ordre (désignation,
 quantité, unité, page, fichier, et l’exclusion avec son motif enregistré), ses tableaux
-extraits et ses avertissements. Elle dit « Liste demandée non enregistrée » et « Couverture
+extraits et ses avertissements (au plus ses 200 premières lignes : l’écran dit que les autres
+se consultent dans sa revue). Elle dit « Liste demandée non enregistrée » et « Couverture
 inconnue » : rien n’y est complété d’après la liste ou le gabarit d’aujourd’hui, aucun poste
 n’y est dit non trouvé, et aucune ligne n’y est dite vérifiée (les marques de la revue
 Assistée sont une navigation, pas une validation humaine). Sa revue, où se fait son envoi,

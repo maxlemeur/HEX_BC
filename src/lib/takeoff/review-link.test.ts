@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   readTakeoffLinkNotice,
+  readTakeoffReviewLink,
   resolveTakeoffReviewLink,
   takeoffExceptionsLinkHref,
   takeoffRequestNoticeHref,
@@ -34,8 +35,8 @@ const TAKEOFF = `${AFFAIRE}/takeoff`;
 const REVIEW = `${TAKEOFF}/${JOB}/review`;
 
 const FIRST_FORMAT: TakeoffLinkJobFacts = { readsList: false };
-const listJob = (line?: { itemId: string; answered: boolean } | null, planKey: string | null = PLAN): TakeoffLinkJobFacts =>
-  ({ readsList: true, planKey, line: line ?? null });
+const listJob = (line?: { itemId: string; answered: boolean; withdrawn?: boolean } | null, planKey: string | null = PLAN):
+  TakeoffLinkJobFacts => ({ readsList: true, planKey, line: line ? { withdrawn: false, ...line } : null });
 
 /** The matrix: each kind of link, the builder of main that writes it, and the address it writes. */
 const LINKS: Array<{ kind: string; link: TakeoffReviewHrefInput; written: string }> = [
@@ -159,5 +160,60 @@ describe("the explanation of a link", () => {
     }
     expect(withoutTakeoffLinkNotice(`postePlan=${PLAN}&${notice("analyse")}&posteLimit=50`).toString())
       .toBe(`postePlan=${PLAN}&posteLimit=50`);
+  });
+});
+
+// The independent reading of #501, written before the fixes:
+// 1. the review's tab switch keeps `dpgfView=exceptions_only` when a member goes from the DPGF tab to « Items »: that
+//    bookmark landed on the items to check only, hiding the accepted ones;
+// 2. an estimate line fed by an item since withdrawn from the list led to a detail that cannot show it (« introuvable
+//    dans la liste »);
+// 3. a saved comparison of two readings landed on the table, with no way back to it.
+describe("review of #501", () => {
+  const OTHER = "99999999-9999-4999-8999-999999999999";
+  const read = (query: string, targeted = false) =>
+    readTakeoffReviewLink({ projectId: PROJECT, jobId: JOB, targeted }, new URLSearchParams(query));
+
+  it("lands an « Items » bookmark that kept the DPGF view's filter on the plan's table with every decision", () => {
+    const items = { projectId: PROJECT, jobId: JOB, versionId: VERSION, reviewMode: "production" as const, dpgfView: "exceptions_only" as const };
+    expect(resolveTakeoffReviewLink(items, listJob()))
+      .toEqual({ kind: "table", href: `${TAKEOFF}?postePlan=${PLAN}&${notice("analyse")}` });
+    for (const query of [`versionId=${VERSION}&reviewMode=production&view=items&dpgfView=exceptions_only`,
+      `versionId=${VERSION}&view=tables&dpgfView=exceptions_only`, `dpgfView=exceptions_only`]) {
+      expect(resolveTakeoffReviewLink(read(query), listJob()), query)
+        .toEqual({ kind: "table", href: `${TAKEOFF}?postePlan=${PLAN}&${notice("analyse")}` });
+    }
+    // Only an address that names the DPGF view opens the items to check.
+    expect(resolveTakeoffReviewLink(read(`versionId=${VERSION}&view=dpgf`), listJob()))
+      .toEqual({ kind: "table", href: `${TAKEOFF}?postePlan=${PLAN}&posteDecision=pending&${notice("ecarts")}` });
+  });
+
+  it("lands an estimate line fed by an item since withdrawn from the list on the plan's table, never on a detail", () => {
+    const link = { projectId: PROJECT, jobId: JOB, versionId: VERSION, line: LINE };
+    for (const answered of [true, false]) {
+      expect(resolveTakeoffReviewLink(link, listJob({ itemId: ITEM, answered, withdrawn: true })), String(answered))
+        .toEqual({ kind: "table", href: `${TAKEOFF}?postePlan=${PLAN}&${notice("retire")}` });
+    }
+    expect(readTakeoffLinkNotice(new URLSearchParams(notice("retire")))).toEqual({ kind: "retire", jobId: JOB });
+  });
+
+  it("never redirects an address that asks for the comparison of two readings, for a list job as for any other", () => {
+    expect(resolveTakeoffReviewLink({ projectId: PROJECT, jobId: JOB, versionId: VERSION, view: "compare", compareWith: OTHER }, listJob()))
+      .toEqual({ kind: "historical", href: `${REVIEW}?versionId=${VERSION}&view=compare&compareWith=${OTHER}` });
+    for (const query of [`versionId=${VERSION}&view=compare&compareWith=${OTHER}`,
+      `versionId=${VERSION}&reviewMode=production&view=compare&compareWith=${OTHER}&threshold=0.8`, `versionId=${VERSION}&view=compare`]) {
+      const link = read(query);
+      for (const facts of [FIRST_FORMAT, listJob(), listJob(null, null)]) {
+        expect(resolveTakeoffReviewLink(link, facts), query).toEqual({ kind: "historical", href: `${REVIEW}?${query}` });
+      }
+    }
+  });
+
+  it("reads the review's address as the review reads it: one value per parameter, known values only", () => {
+    expect(read(`versionId=${VERSION}&reviewMode=assisted&view=dpgf&dpgfView=exceptions_only&line=${LINE}`)).toEqual({ projectId: PROJECT,
+      jobId: JOB, versionId: VERSION, reviewMode: "assisted", view: "dpgf", dpgfView: "exceptions_only", line: LINE });
+    expect(read(`reviewMode=autre&view=autre&dpgfView=all&line=${LINE}&line=${OTHER}`)).toEqual({ projectId: PROJECT, jobId: JOB });
+    expect(read(`line=${LINE}`, true)).toEqual({ projectId: PROJECT, jobId: JOB, targeted: true, line: LINE });
+    expect(read(`versionId=${VERSION.toUpperCase()}`)).toEqual({ projectId: PROJECT, jobId: JOB, versionId: VERSION });
   });
 });

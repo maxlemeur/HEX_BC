@@ -196,4 +196,38 @@ describe("fetchApprovalQueue", () => {
       ["version-low-cost", 3_750],
     ]);
   });
+
+  // The independent reading of #501: the queue read the latest jobs' list reading once per version (through the radar's
+  // signals, up to two statements per row). It is read once for the queue, and the radar's signals are asked for none.
+  it("reads which latest jobs were read against the list once for the whole queue", async () => {
+    const job = (n: number) => `e1000000-0000-4000-8000-00000000000${n}`;
+    const listRequest = "f1000000-0000-4000-8000-000000000001";
+    const rows = [1, 2, 3].map((n) => approvalRow({ project_id: `project-${n}`, version_id: `version-${n}`, cycle_id: `cycle-${n}`,
+      exception_count: 1, latest_job_id: job(n) }));
+    const { context } = createContext({ rpcResult: { data: rows, error: null } });
+    const jobs = [{ id: job(1), launch_request_id: listRequest }, { id: job(3), launch_request_id: listRequest }];
+    const reads: string[] = [];
+    const from = vi.fn((table: string) => {
+      reads.push(table);
+      const builder = {
+        select: () => builder, eq: () => builder, in: () => builder, not: () => builder,
+        then: (resolve: (value: unknown) => unknown) => Promise.resolve({ data: table === "takeoff_jobs" ? jobs
+          : [{ id: listRequest }], error: null }).then(resolve),
+      };
+      return builder;
+    });
+    vi.mocked(getAuthenticatedContext).mockResolvedValue({ ...context, supabase: { ...context.supabase, from } } as never);
+    vi.mocked(fetchDirectionProjectSignals).mockImplementation(async (projectId) =>
+      ({ latestJobId: null, alerts: projectId === "project-2"
+        ? [{ ...SYNTHETIC_ALERT, latestJobId: job(3), jobId: job(3) }] : [] }) as never);
+
+    const result = await fetchApprovalQueue({ sortBy: "amount", sortDir: "desc", onlyExceptions: false } as never);
+
+    expect(Object.fromEntries(result.map((item) => [item.projectId, item.latestJobReadsList])))
+      .toEqual({ "project-1": true, "project-2": false, "project-3": true });
+    expect(result.find((item) => item.projectId === "project-2")?.syntheticAlerts[0]).toMatchObject({ latestJobReadsList: true });
+    expect(reads).toEqual(["takeoff_jobs", "takeoff_launch_requests"]);
+    for (const call of vi.mocked(fetchDirectionProjectSignals).mock.calls) expect(call[2]).toBe(false);
+  });
+
 });

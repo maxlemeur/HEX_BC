@@ -595,7 +595,11 @@ async function listReviewCyclesByVersionId(versionIds: string[]) {
   };
 }
 
-async function listLatestJobsByVersionId(versionIds: string[]) {
+/**
+ * The latest completed or applied job of each version. `listReadings` says whether each was read against the affaire's
+ * list (lot 4); the approvals queue reads that once for its whole page and asks for none here.
+ */
+async function listLatestJobsByVersionId(versionIds: string[], listReadings = true) {
   if (versionIds.length === 0) {
     return new Map<string, TakeoffJobRow>();
   }
@@ -627,6 +631,7 @@ async function listLatestJobsByVersionId(versionIds: string[]) {
       jobs.set(row.estimate_version_id, row);
     }
   }
+  if (!listReadings) return jobs;
   const readingList = await readTakeoffJobsReadingList(context.supabase, context.tenantId, [...jobs.values()].map((row) => row.id));
   for (const row of jobs.values()) row.reads_list = readingList.has(row.id.toLowerCase());
 
@@ -952,7 +957,9 @@ async function resolveDirectionMarginBp(context: Awaited<ReturnType<typeof getAu
 export const fetchDirectionProjectSignals = cache(
   async (
     projectId: string,
-    versionId: string
+    versionId: string,
+    /** Whether the latest job's list reading is read here (the approvals queue reads it once for its page). */
+    listReadings = true
   ): Promise<ProjectAlertSignals> => {
     const version = await getDirectionVersionById(projectId, versionId);
 
@@ -964,7 +971,7 @@ export const fetchDirectionProjectSignals = cache(
     const [context, latestJobsByVersionId, alertsByVersionId, workspace] =
       await Promise.all([
         getAuthenticatedContext(),
-        listLatestJobsByVersionId([version.id]),
+        listLatestJobsByVersionId([version.id], listReadings),
         listRiskAlertsByVersionId([version.id]),
         fetchAffaireIntakeWorkspace(projectId).catch(() => null),
       ]);

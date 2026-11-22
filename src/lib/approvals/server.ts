@@ -2,6 +2,7 @@ import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
 import { hasEstimateApprovalRole } from "@/lib/estimates/server-context";
 import type { DirectionSyntheticAlert } from "@/lib/direction/alerts";
 import { fetchDirectionProjectSignals } from "@/lib/direction/server";
+import { readTakeoffJobsReadingList } from "@/lib/takeoff/review-link-server";
 import type { TakeoffRiskCauseCode } from "@/lib/takeoff/types";
 import {
   APPROVAL_QUEUE_DEFAULT_DIRECTIONS,
@@ -137,7 +138,7 @@ type RpcRow = {
 export async function fetchApprovalQueue(
   query: ApprovalQueueQuery
 ): Promise<ApprovalQueueItem[]> {
-  const { supabase, tenantRole } = await getAuthenticatedContext();
+  const { supabase, tenantId, tenantRole } = await getAuthenticatedContext();
 
   if (!hasEstimateApprovalRole(tenantRole, "approve")) {
     return [];
@@ -181,14 +182,14 @@ export async function fetchApprovalQueue(
     };
   });
 
-  const itemsWithSignals = await Promise.all(
+  const signalled = await Promise.all(
     items.map(async (item) => {
       try {
-        const signals = await fetchDirectionProjectSignals(item.projectId, item.versionId);
+        // The latest jobs' list reading is read once below for the whole queue, not per version.
+        const signals = await fetchDirectionProjectSignals(item.projectId, item.versionId, false);
         return {
           ...item,
           marginBp: signals.marginBp ?? item.marginBp,
-          latestJobReadsList: Boolean(item.latestJobId && signals.latestJobId === item.latestJobId && signals.latestJobReadsList),
           syntheticAlerts: signals.alerts,
         };
       } catch {
@@ -196,6 +197,16 @@ export async function fetchApprovalQueue(
       }
     })
   );
+  // Which latest jobs were read against their affaire's list (lot 4): their exceptions open the table of items. One read
+  // for the queue (two statements per 200 jobs), never one per row.
+  const readingList = await readTakeoffJobsReadingList(supabase, tenantId, signalled.flatMap((item) =>
+    [item.latestJobId, ...item.syntheticAlerts.map((alert) => alert.latestJobId)]));
+  const reads = (jobId: string | null) => Boolean(jobId && readingList.has(jobId.toLowerCase()));
+  const itemsWithSignals = signalled.map((item) => ({
+    ...item,
+    latestJobReadsList: reads(item.latestJobId),
+    syntheticAlerts: item.syntheticAlerts.map((alert) => ({ ...alert, latestJobReadsList: reads(alert.latestJobId) })),
+  }));
 
   const filteredItems = query.onlyExceptions
     ? itemsWithSignals.filter(

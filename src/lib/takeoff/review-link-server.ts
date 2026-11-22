@@ -61,7 +61,8 @@ export async function readTakeoffRequestsReadingList(supabase: Client, tenantId:
  * The facts of a review link's job, once the review's access check passed for this affaire, job and version: whether it
  * read the list, the plan it read (the logical identity its answers name, as the table names plans), and for an estimate
  * line of the link's version the item the send by item wrote it from (its live target), with whether this job answered
- * that item. A line that is not an identifier, or that no live target names, names no item.
+ * that item and whether the affaire's latest list still holds it. A line that is not an identifier, or that no live
+ * target of this tenant, affaire and version names, names no item.
  */
 export async function readTakeoffReviewLinkFacts(input: { supabase: Client; tenantId: string; projectId: string; jobId: string;
   versionId: string | null; line: string | null }): Promise<TakeoffLinkJobFacts> {
@@ -79,8 +80,22 @@ export async function readTakeoffReviewLinkFacts(input: { supabase: Client; tena
   if (targetError) readFailure(targetError);
   if (!target) return { readsList: true, planKey, line: null };
   const itemId = target.item_id.toLowerCase();
-  const { data: answered, error: answeredError } = await supabase.from("takeoff_item_answers").select("id")
-    .eq("tenant_id", tenantId).eq("project_id", projectId).eq("job_id", jobId).eq("item_id", itemId).limit(1);
+  const [{ data: answered, error: answeredError }, { data: latest, error: latestError }] = await Promise.all([
+    supabase.from("takeoff_item_answers").select("id")
+      .eq("tenant_id", tenantId).eq("project_id", projectId).eq("job_id", jobId).eq("item_id", itemId).limit(1),
+    // The affaire's latest list, the one the table and the detail read: an item withdrawn since it was sent is not there.
+    supabase.from("takeoff_list_revisions").select("id")
+      .eq("tenant_id", tenantId).eq("project_id", projectId).order("revision", { ascending: false }).limit(1),
+  ]);
   if (answeredError) readFailure(answeredError);
-  return { readsList: true, planKey, line: { itemId, answered: Boolean(answered?.length) } };
+  if (latestError) readFailure(latestError);
+  const revisionId = latest?.[0]?.id ?? null;
+  let listed = false;
+  if (revisionId) {
+    const { data: entry, error: entryError } = await supabase.from("takeoff_list_revision_entries").select("item_id")
+      .eq("tenant_id", tenantId).eq("project_id", projectId).eq("revision_id", revisionId).eq("item_id", itemId).limit(1);
+    if (entryError) readFailure(entryError);
+    listed = Boolean(entry?.length);
+  }
+  return { readsList: true, planKey, line: { itemId, answered: Boolean(answered?.length), withdrawn: !listed } };
 }

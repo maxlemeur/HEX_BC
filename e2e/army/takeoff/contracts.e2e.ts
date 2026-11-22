@@ -532,8 +532,10 @@ nativeTest("TKLINK01 les liens d’une analyse lue contre la liste mènent aux p
     const explanation = ui.locator('[role="note"][aria-labelledby="metre-lien-explication"]');
     const landed: Record<string, string> = {};
 
-    // 1. The review, in any mode: the table filtered on the plan the analysis read, and why.
-    for (const from of [review, `${review}?reviewMode=assisted`, `${review}?reviewMode=production`, `${review}?reviewMode=validation&view=items`]) {
+    // 1. The review, in any mode and any tab but the DPGF one: the table filtered on the plan the analysis read, every
+    // decision shown, and why. The « Items » tab keeps the DPGF tab's filter in its address (#501's reading).
+    for (const from of [review, `${review}?reviewMode=assisted`, `${review}?reviewMode=production`, `${review}?reviewMode=validation&view=items`,
+      `${review}?reviewMode=production&view=items&dpgfView=exceptions_only`]) {
       await app.open(from);
       await expect(ui.browser).toHaveURL(`${takeoff}?postePlan=${plan}&lien=analyse&lienAnalyse=${seeded.jobId}`);
       await expect(table).toBeVisible();
@@ -593,7 +595,28 @@ nativeTest("TKLINK01 les liens d’une analyse lue contre la liste mènent aux p
     await app.open(`${takeoff}?anterieure=${seeded.jobId}`);
     await expect(ui.browser).toHaveURL(`${takeoff}?postePlan=${plan}&lien=analyse&lienAnalyse=${seeded.jobId}`);
 
-    // 6. A member of another tenant: the same addresses reveal nothing (the takeoff's own « not found »), and lead nowhere.
+    // 6. A saved comparison of two readings of the plan, once both are on a version (as a send would put them): never
+    // redirected, the comparator reads the difference; the reading's review on that version still lands on the table.
+    const created = await apiRequest<Envelope<{ version: { id: string } }>>(ui.browser, "POST", "/api/estimates",
+      { project_id: seeded.projectId, version: { title: "Version fictive des lectures" } });
+    expect(created.status).toBe(201);
+    const version = created.body.data.version.id;
+    const attached = await querySql(`begin;
+set local session_replication_role = replica;
+update public.takeoff_jobs set estimate_version_id = '${version}' where id in ('${seeded.jobId}', '${earlierJob}');
+commit;
+select 'JOBS_ON_VERSION';`);
+    expect(attached.join("\n")).toContain("JOBS_ON_VERSION");
+    const comparison = `${review}?versionId=${version}&reviewMode=production&view=compare&compareWith=${earlierJob}`;
+    await app.open(comparison);
+    await expect(screen.getByRole("heading", "Résumé des changements", { exact: true })).toBeVisible({ timeout: 30_000 });
+    await expect(ui.browser).toHaveURL(comparison);
+    await app.open(`${review}?versionId=${version}`);
+    await expect(ui.browser).toHaveURL(`${takeoff}?postePlan=${plan}&lien=analyse&lienAnalyse=${seeded.jobId}`);
+    // Not here: an estimate line fed by an item withdrawn from the list since. Its live target is written only by the send
+    // by item (its tables refuse any other writer); review-link.test.ts and review-link-server.test.ts prove that case.
+
+    // 7. A member of another tenant: the same addresses reveal nothing (the takeoff's own « not found »), and lead nowhere.
     const stranger = await signUpDedicatedOwner(ui.browser, app.baseUrl!, army.runPrefix, { tag: "TKLINKX" });
     // Its takeoff module on, so that what refuses is the access to the job, not the module.
     await querySql(`insert into public.feature_flags (tenant_id, flag_key, enabled) values ('${stranger.tenantId}', 'TAKEOFF_MODULE_ENABLED', true)

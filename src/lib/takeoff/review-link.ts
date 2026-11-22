@@ -18,10 +18,14 @@ import {
  * - A job of the first format (no measuring order, the free extraction, a grouped analysis, another provider) opens what
  *   it opens today, as the same string: its mode, view, line, version and carry-over kept.
  * - A job read against the affaire's list of items is reviewed in the table of items: its review lands on the table
- *   filtered on the plan it read; its DPGF exceptions on that plan's items to check; an estimate line the send by item
- *   wrote from an item on the detail of that item on this reading (or on the table, in focus on the item, when this
- *   reading did not answer it). The table names why it opened so (`lien`, `lienAnalyse`). Its targeted review stays: it
- *   is the correction screen the table's line detail opens while lot 4 keeps it.
+ *   filtered on the plan it read, in any tab but the DPGF one (an « Items » bookmark keeps the DPGF tab's `dpgfView`
+ *   and names the items, not the exceptions); an address that names the DPGF view, on that plan's items to check; an
+ *   estimate line the send by item wrote from an item on the detail of that item on this reading (or on the table, in
+ *   focus on the item, when this reading did not answer it; on the plan's table when the item was withdrawn from the
+ *   list since, which the table and the detail, reading the latest list, cannot show). The table names why it opened so
+ *   (`lien`, `lienAnalyse`).
+ * - Two addresses stay for every job: the targeted review (the correction screen the table's line detail opens while
+ *   lot 4 keeps it) and the comparison of two readings (`view=compare`, a read of history).
  *
  * Nothing of the old review's address travels to the table (its mode, view, line, version): an address selects a view,
  * never a selection, a decision or a right, and stays in the link's affaire.
@@ -34,14 +38,17 @@ export type TakeoffLinkJobFacts =
     readsList: true;
     /** The plan the job read (its logical identity, as the table names it); null while it published no answer. */
     planKey: string | null;
-    /** The item a link's estimate line is the live target of in the link's version, and whether this job answered it. */
-    line: { itemId: string; answered: boolean } | null;
+    /**
+     * The item a link's estimate line is the live target of in the link's version, whether this job answered it, and
+     * whether the affaire's latest list no longer holds it (withdrawn since it was sent).
+     */
+    line: { itemId: string; answered: boolean; withdrawn: boolean } | null;
   };
 
 export type TakeoffLinkDestination = { kind: "historical" | "table" | "detail"; href: string };
 
 /** Why the table opened from a link to the review of a job read against the list. */
-export const TAKEOFF_LINK_NOTICES = ["analyse", "ecarts", "ligne"] as const;
+export const TAKEOFF_LINK_NOTICES = ["analyse", "ecarts", "ligne", "retire"] as const;
 export type TakeoffLinkNoticeKind = (typeof TAKEOFF_LINK_NOTICES)[number];
 export const TAKEOFF_LINK_NOTICE_PARAMS = { kind: "lien", jobId: "lienAnalyse" } as const;
 
@@ -65,9 +72,10 @@ function itemTableHref(projectId: string, view: { planKey?: string | null; decis
 }
 
 export function resolveTakeoffReviewLink(link: TakeoffReviewHrefInput, facts: TakeoffLinkJobFacts): TakeoffLinkDestination {
-  if (!facts.readsList || link.targeted) return { kind: "historical", href: takeoffReviewHref(link) };
+  if (!facts.readsList || link.targeted || link.view === "compare") return { kind: "historical", href: takeoffReviewHref(link) };
   const notice = (kind: TakeoffLinkNoticeKind) => ({ kind, jobId: link.jobId });
   if (link.line) {
+    if (facts.line?.withdrawn) return { kind: "table", href: itemTableHref(link.projectId, { planKey: facts.planKey }, notice("retire")) };
     if (facts.line?.answered && facts.planKey) {
       return { kind: "detail", href: takeoffItemDetailHref({ projectId: link.projectId, itemId: facts.line.itemId, planKey: facts.planKey,
         jobId: link.jobId, versionId: link.versionId ?? null,
@@ -76,10 +84,44 @@ export function resolveTakeoffReviewLink(link: TakeoffReviewHrefInput, facts: Ta
     if (facts.line) return { kind: "table", href: itemTableHref(link.projectId, { focusItemId: facts.line.itemId }, notice("ligne")) };
     return { kind: "table", href: itemTableHref(link.projectId, { planKey: facts.planKey }, notice("ligne")) };
   }
-  if (link.view === "dpgf" || link.dpgfView === "exceptions_only") {
+  if (link.view === "dpgf") {
     return { kind: "table", href: itemTableHref(link.projectId, { planKey: facts.planKey, decisions: ["pending"] }, notice("ecarts")) };
   }
   return { kind: "table", href: itemTableHref(link.projectId, { planKey: facts.planKey }, notice("analyse")) };
+}
+
+type Params = { getAll(name: string): string[] };
+
+const VIEWS = ["dpgf", "items", "tables", "compare"] as const;
+const MODES = ["assisted", "production", "validation"] as const;
+
+/**
+ * A review's address as the review reads it (TakeoffReviewPage): each parameter given once, known values only; the
+ * version, the comparison's other job and the line as written (the access check and the server's facts check them).
+ */
+export function readTakeoffReviewLink(target: { projectId: string; jobId: string; targeted?: boolean }, params: Params): TakeoffReviewHrefInput {
+  const one = (name: string) => {
+    const values = params.getAll(name);
+    return values.length === 1 && values[0]!.trim() ? values[0]!.trim() : undefined;
+  };
+  const among = <T extends string>(allowed: readonly T[], value: string | undefined) =>
+    allowed.find((candidate) => candidate === value);
+  const versionId = one("versionId");
+  const link: TakeoffReviewHrefInput = { projectId: target.projectId, jobId: target.jobId };
+  if (target.targeted) link.targeted = true;
+  if (versionId) link.versionId = UUID.test(versionId) ? versionId.toLowerCase() : versionId;
+  const reviewMode = among(MODES, one("reviewMode"));
+  if (reviewMode) link.reviewMode = reviewMode;
+  const view = among(VIEWS, one("view"));
+  if (view) link.view = view;
+  if (one("dpgfView") === "exceptions_only") link.dpgfView = "exceptions_only";
+  const compareWith = one("compareWith");
+  if (compareWith) link.compareWith = compareWith;
+  const threshold = one("threshold");
+  if (threshold) link.threshold = threshold;
+  const line = one("line");
+  if (line) link.line = line;
+  return link;
 }
 
 /**
@@ -99,8 +141,6 @@ export function takeoffRequestNoticeHref(projectId: string, requestId: string, r
   if (!readsList) return `/dashboard/affaires/${projectId}?view=overview#metre`;
   return `${takeoffPath(projectId)}?request=${encodeURIComponent(requestId)}#postes-du-metre`;
 }
-
-type Params = { getAll(name: string): string[] };
 
 /** The explanation an address carries, as the resolver writes it; anything else is no explanation. */
 export function readTakeoffLinkNotice(params: Params): { kind: TakeoffLinkNoticeKind; jobId: string } | null {

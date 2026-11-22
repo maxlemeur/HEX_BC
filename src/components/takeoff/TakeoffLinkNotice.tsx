@@ -26,10 +26,15 @@ export async function TakeoffLinkNotice({ projectId, query }: { projectId: strin
     : notice.kind === "ecarts"
       ? `Ce lien ouvrait les écarts à trancher de ${named}, lue contre la liste des postes : le tableau des postes est filtré sur `
         + (onPlan ? "son plan et sur les postes à vérifier." : "les postes à vérifier.")
-      : address.focusItemId
-        ? `La ligne que nommait ce lien vers ${named} vient d’un poste que cette analyse n’a pas lu : le tableau le montre parmi les postes de l’affaire.`
-        : `La ligne que nommait ce lien vers ${named} n’est rattachée à aucun poste : le tableau des postes est `
-          + (onPlan ? "filtré sur le plan de cette analyse." : "celui de l’affaire.");
+      : notice.kind === "retire"
+        // The table and the detail read the latest list: the item withdrawn since its send is in neither.
+        ? `La ligne que nommait ce lien vers ${named} a été alimentée par un poste retiré depuis de la liste des postes : `
+          + "sa lecture est conservée, mais le tableau, qui suit la liste actuelle, ne la montre pas. Le tableau est "
+          + (onPlan ? "filtré sur le plan de cette analyse." : "celui de l’affaire.")
+        : address.focusItemId
+          ? `La ligne que nommait ce lien vers ${named} vient d’un poste que cette analyse n’a pas lu : le tableau le montre parmi les postes de l’affaire.`
+          : `La ligne que nommait ce lien vers ${named} n’est rattachée à aucun poste : le tableau des postes est `
+            + (onPlan ? "filtré sur le plan de cette analyse." : "celui de l’affaire.");
   const hidden = withoutTakeoffLinkNotice(query).toString();
   const count = analysis.warnings.length + analysis.unreadableWarnings;
   return (
