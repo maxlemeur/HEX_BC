@@ -742,7 +742,8 @@ describe("the counted marks of the item", () => {
     const original = reader.readLine;
     reader.readLine = async (itemId) => {
       const read = await original(itemId);
-      return read && { ...read, line: { ...read.line, decision: "pending" as const,
+      if (!read?.line) return read;
+      return { ...read, line: { ...read.line, decision: "pending" as const,
         readings: read.line.readings.map((value) => ({ ...value, decision: null })) } };
     };
     await settle();
