@@ -804,29 +804,40 @@ suit s'y ajoute (migration `20261122030312_takeoff_partial_send.sql`,
   ajout confirmé.
 - **Contrôles entre plans.** Les doublons et la couverture comparent le plan envoyé avec la
   destination (comme ci-dessus) et avec les autres plans de l'affaire déjà lus : pour chaque
-  autre plan que le dossier retient (sa préparation confirmée), sa dernière lecture réussie,
-  si elle n'est pas encore au devis. Un plan est sa pièce du dossier (deux copies de travail
-  d'une même pièce sont un plan). Une lecture remplacée n'est jamais comparée : ni une lecture
-  plus ancienne du plan envoyé, ni celle d'un plan relu depuis (envoyé ou non), ni celle d'un
-  plan que le dossier ne retient plus ; un plan dont la dernière lecture est envoyée est un
-  métré de la destination quand il y est. Une analyse groupée (lot 2) ou une analyse hors
-  demande n'est pas comparée et n'en compare aucune : elle s'envoie comme avant, et l'aperçu
-  d'un plan dit combien d'analyses groupées lues et non envoyées il ne compare pas. L'aperçu
-  nomme les plans comparés, ceux de la demande qui ne sont pas encore lus, chacun dans son
-  état (en attente, en lecture, en échec, arrêté, non démarré), et les plans du dossier
-  qu'aucune analyse par plan n'a lus : les contrôles entre plans ne les couvrent pas, rien
-  n'est dit vérifié pour eux, et le résumé des contrôles le dit (« hors plans non lus ou non
-  comparés »). Chaque plan non lu sera comparé, à son propre envoi, avec ce qui est alors au
-  devis : un conflit qu'il fait apparaître se traite sur lui, jamais en réécrivant A. Une règle
-  qui exigerait un plan encore non lu (un plan de détail déclaré dépendant d'un plan
-  d'ensemble) n'est pas modélisée : aucune dépendance entre plans n'est déclarée aujourd'hui.
+  autre plan, sa dernière lecture réussie, si elle n'est pas encore au devis et si elle a lu la
+  copie que le dossier tient aujourd'hui pour sa pièce. C'est l'état du dossier qui décide, non
+  une préparation : une demande automatique scelle la sienne sur la demande et peut ne laisser
+  aucune préparation confirmée, et l'enregistrement d'une modification non confirmée vide la
+  préparation confirmée ; dans les deux cas les plans déjà lus restent comparés. Un plan est sa
+  pièce du dossier (deux copies de travail d'une même pièce sont un plan). Une lecture remplacée
+  n'est jamais comparée : ni une lecture plus ancienne du plan envoyé, ni celle d'un plan relu
+  depuis (envoyé ou non), ni celle d'une copie que le dossier a remplacée ou écartée ; un plan
+  dont la dernière lecture est envoyée est un métré de la destination quand il y est. Une
+  analyse groupée (lot 2) ou une analyse hors demande n'est pas comparée et n'en compare
+  aucune : elle s'envoie comme avant.
+- **Ce que l'aperçu nomme.** Les plans comparés, chacun avec la date de la lecture comparée et,
+  quand elle vient d'une demande précédente, en le disant ; les plans de la demande qui ne sont
+  pas encore lus, chacun dans son état (en attente, en lecture, en échec, arrêté, non démarré),
+  et, quand une lecture précédente de ce plan est celle qui est comparée, sa date (« comparé
+  avec sa lecture précédente ») : un plan relu n'est jamais dit à la fois comparé et non couvert
+  sans que l'écran dise quelle lecture l'est ; les plans du dossier dont la copie actuelle n'a
+  été lue par aucune analyse par plan (une copie qui en remplace une autre déjà lue y figure) ;
+  enfin, séparément, combien d'analyses groupées et combien d'analyses lancées hors demande, lues
+  et non envoyées, il ne compare pas. Les contrôles entre plans ne couvrent pas les plans non
+  lus ou non comparés, rien n'est dit vérifié pour eux, et le résumé des contrôles le dit
+  (« hors plans non lus ou non comparés »). Chaque plan non lu sera comparé, à son propre envoi,
+  avec ce qui est alors au devis : un conflit qu'il fait apparaître se traite sur lui, jamais en
+  réécrivant A. Une règle qui exigerait un plan encore non lu (un plan de détail déclaré
+  dépendant d'un plan d'ensemble) n'est pas modélisée : aucune dépendance entre plans n'est
+  déclarée aujourd'hui.
 - **Localisation.** Dans l'évaluation d'un envoi, une page dont la lecture ne donne aucun
   niveau est comparée sous le niveau qu'un opérateur a saisi pour la révision de son plan
   (« Localisation canonique » : une valeur saisie ; « À préciser » n'en donne aucune) ; une
-  page qui a son propre niveau le garde, et une contradiction entre les deux n'est pas encore
-  montrée. Le bâtiment saisi est montré et enregistré, il ne change aucune comparaison. Les
-  recalculs des règles hors envoi (d'une version, d'un métré) n'utilisent pas encore ce
-  niveau.
+  page qui a son propre niveau le garde. Quand ce niveau diffère de celui saisi pour la même
+  révision, l'aperçu le montre (« Niveaux contradictoires » : le plan, la page, le niveau lu et
+  le niveau saisi), sans changer la valeur utilisée. Le bâtiment saisi est montré et
+  enregistré, il ne change aucune comparaison. Les recalculs des règles hors envoi (d'une
+  version, d'un métré) n'utilisent pas encore ce niveau.
 - **Ce qui rend l'aperçu caduc.** La base calcule elle-même le contexte d'un envoi — les
   autres plans lus avec l'état de leurs lignes, et la localisation saisie de chaque révision
   de plan que les contrôles lisent (celles du plan envoyé, des autres plans lus et des métrés
@@ -837,30 +848,59 @@ suit s'y ajoute (migration `20261122030312_takeoff_partial_send.sql`,
   corrigée aussi (« location_changed ») ; rien n'est écrit, l'écran recalcule l'aperçu. Ce qui
   ne le rend pas caduc : le temps écoulé, le bail ou la progression d'un plan encore lu, un
   nom, l'ordre de l'écran.
+- **Sérialisation avec les écrivains du contexte.** Chaque écrivain de ce que le contexte lit
+  prend, dans sa transaction, un verrou partagé sur le contexte d'envoi de l'affaire (une clé
+  consultative, `private.lock_takeoff_send_context`) : l'enregistrement d'une localisation, une
+  écriture des lignes d'une analyse par plan non envoyée (une revue, une exclusion, la lecture
+  du worker ; par instruction, les affaires dans l'ordre de leurs identifiants), la fin d'une
+  analyse par plan, dans quelque demande que ce soit. Tout envoi qui porte un contexte (le
+  serveur de cette version en dépose un aussi pour une analyse groupée ou hors demande) prend
+  cette clé exclusivement avant de lire son contexte : ou l'écrivain s'engage d'abord et
+  l'envoi lit ce qu'il a écrit (puis le refuse s'il change ce qu'il compare), ou l'envoi
+  s'engage d'abord et l'écrivain l'attend, le temps d'un envoi.
+- **Ordre des verrous.** Envoi : l'affaire (`FOR NO KEY UPDATE`), les verrous de l'éditeur et
+  de la version, le métré A, la clé du contexte de l'affaire, la ligne de la demande de A
+  (`FOR NO KEY UPDATE`), les règles de correspondance, les lignes. Fin d'un plan par le worker :
+  son job, la clé du contexte (partagée), puis la ligne de sa demande (son solde) ; la
+  réservation et l'usage d'un appel, l'arrêt du reste d'une demande : le job, puis la demande.
+  Relance (la commande manuelle, ses deux entrées) : l'analyse qu'elle remplace d'abord (un
+  partage de clé), quelle que soit la demande qui l'a lancée, puis la clé de commande de
+  l'affaire, puis sa demande automatique (`FOR UPDATE`), puis ses écritures ; la reprise d'un
+  essai par le Mac tient le job, puis cette clé (la garde de reprise de `20261121193413`).
+  Chacun prend le job avant la demande, aucun ne prend la demande puis le job : un envoi et la
+  relance du même plan d'une demande automatique ne s'attendent plus l'un l'autre (avant, la
+  relance tenait la demande automatique quand la clé étrangère de sa demande attendait A, que
+  l'envoi tenait en demandant cette même ligne). L'envoi ne verrouille aucun autre plan.
+- **Un aperçu peut attendre.** L'essai à blanc d'un aperçu ne prend ni la clé du contexte ni
+  la ligne de la demande ; mais il lie et applique A dans une transaction annulée, et la clé
+  étrangère de ce lien prend un partage de clé sur la ligne de la demande : il attend donc le
+  `FOR UPDATE` du solde d'un autre plan de la demande qui s'engage (sa fin), le temps de cet
+  engagement.
 - **Ouverture.** Le lien d'une analyse par plan à un devis n'est admis que de l'envoi qui a
   vérifié son contexte, dans sa transaction (`aa0_guard_takeoff_plan_unit_send`) ; un autre
   écrivain, une mise à jour directe ou une commande sans contexte (celle de l'application
   précédente) restent refusés (`TAKEOFF_SEND_JOB_NOT_READY`).
-- **Ordre des verrous.** Celui de l'envoi, plus un : après le métré, la ligne de sa demande
-  (`FOR NO KEY UPDATE`), avant de lire son contexte, par l'envoi seulement (jamais par l'essai
-  à blanc d'un aperçu, que l'usage d'un appel payant ou la fin d'un plan n'attendent donc pas).
-  Chaque écrivain de cette ligne tient son job d'abord (la fin d'un plan par le worker et son
-  solde, la réservation et l'usage d'un appel, l'arrêt du reste de la demande) : la fin d'un
-  autre plan de la demande et l'envoi s'attendent sur cette ligne, sans cycle, et ne se
-  croisent jamais. Si la fin de B passe la première, l'envoi de A lit ensuite B lu et demande
-  un nouvel aperçu ; si l'envoi passe le premier, la fin de B attend qu'il s'engage (le temps
-  de l'envoi). L'envoi ne verrouille aucun autre plan.
 - **Reçu.** Son plan d'écriture enregistre ce qui a été vérifié : la demande et l'unité du plan
   envoyé, les autres plans lus avec lesquels il a été comparé, et pour chaque révision de son
   plan la localisation (et sa génération) sous laquelle il est parti. Une correction
   postérieure ne réécrit ni la quantité envoyée ni son reçu.
-- **Mise en service.** La migration crée une table privée et des fonctions et en remplace deux
-  (l'envoi, reconstruit sur le corps de `20261121193413`, et la garde du lien) ; elle ne
-  touche à aucune ligne. L'application précédente ne dépose jamais de contexte : ses envois
-  d'analyses groupées ou hors demande sont vérifiés comme avant, et une analyse par plan, que
-  son écran n'envoie pas, reste refusée. L'envoi par plan ne sert qu'une fois l'analyse par
-  plan activée. Toujours non couvert : un brouillon qui tient une ligne DPGF reste bloqué
-  pour l'envoi d'un métré d'affaire (son rapprochement viendra avec les postes, lot 4).
+- **Mise en service.** La migration crée une table privée, neuf fonctions et cinq
+  déclencheurs, et en remplace trois (l'envoi, reconstruit sur le corps de `20261121193413` ;
+  la fonction de la garde du lien ; la commande manuelle, reconstruite sur `20261121231238`
+  pour le seul verrou de l'analyse remplacée) ; elle ne touche à aucune ligne. Elle prend
+  d'abord, sans attendre (`nowait`) et dans un ordre fixe, tous ses verrous de table (les
+  versions de devis, les jobs, leurs lignes, les localisations) : une table occupée l'arrête
+  aussitôt (`55P03`), rien n'est appliqué, on la relance ; elle n'attend jamais en tenant un
+  verrou, donc ne bloque ni ne croise aucun écrivain. L'application précédente ne dépose jamais
+  de contexte : ses envois d'analyses groupées ou hors demande sont vérifiés comme avant, et
+  une analyse par plan, que son écran n'envoie pas, reste refusée ; l'enregistrement d'une
+  localisation y attend au plus un envoi de la même affaire. L'aperçu d'une analyse groupée ou
+  hors demande garde sa forme précédente (sans `plan_scope`), qu'un onglet de la version
+  précédente valide ; le nouvel écran accepte l'aperçu du serveur précédent, sans `plan_scope`.
+  L'envoi par plan ne sert qu'une fois l'analyse par plan activée.
+- **Lignes DPGF.** Un brouillon qui tient une ligne DPGF reste refusé pour l'envoi d'un métré
+  d'affaire. L'exemple d'envoi par plan est démontré sur une ligne ordinaire ; les cibles DPGF
+  (l'envoi v3 et la redistribution vers une ligne DPGF rapprochée) viendront avec le lot 5.
 
 ## Entrées
 
