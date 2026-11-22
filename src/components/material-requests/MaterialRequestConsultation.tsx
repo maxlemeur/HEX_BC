@@ -16,7 +16,6 @@ import {
 } from "@/lib/material-requests/consultation-message";
 import type { MaterialRequestFile, MaterialRequestLine } from "@/lib/material-requests/contracts";
 import {
-  MATERIAL_REQUEST_QUOTE_MAX_CENTS,
   MATERIAL_REQUEST_QUOTE_MAX_FILES,
   MATERIAL_REQUEST_QUOTE_NOTES_MAX,
   MATERIAL_REQUEST_QUOTE_PICKER_ACCEPT,
@@ -25,17 +24,18 @@ import {
   type MaterialRequestQuoteStatus,
 } from "@/lib/material-requests/quote-contracts";
 import { formatEUR } from "@/lib/money";
-import { parseAmountCents } from "@/lib/numeric-input/parsers";
 import { PURCHASE_ORDER_PRICE_PER, type PurchaseOrderPricePer } from "@/lib/purchase-orders/line-kinds";
 import { cn } from "@/lib/utils";
 
-import { CellMessages, ConfirmButton, TextCell, usePendingWrites } from "./cells";
+import { CentsField, CentsInput, useCentsDraft } from "./cents-field";
+import { ConfirmButton, SELECTED_ROW, TextCell } from "./cells";
 import {
   checkQuoteFileSelection,
   formatDay,
   formatPricePer,
   formatQuantity,
   formatQuotedPrice,
+  lineNamesLabel,
   lineTitle,
   quotedAmountCents,
 } from "./format";
@@ -62,11 +62,6 @@ const STATUS_VARIANT: Record<MaterialRequestQuoteStatus, "info" | "warning" | "s
   retained: "success",
   closed: "neutral",
 };
-
-const CONTROL =
-  "h-9 w-full min-w-0 rounded-control border border-input bg-surface px-2 text-sm text-foreground outline-none transition-[border-color,box-shadow] placeholder:text-subtle-foreground hover:border-border-strong focus-visible:border-primary focus-visible:ring-3 focus-visible:ring-primary/15";
-
-const AMOUNT_UNREADABLE = "Montant illisible : en euros, avec une virgule et deux décimales au plus (12,50).";
 
 /**
  * The consultation of this supplier in progress (requested or received): one at most per request. A retained or
@@ -131,21 +126,21 @@ function quoteDates(quote: MaterialRequestQuote): string {
 }
 
 /** Why « Retenir ce devis » is not offered yet; null when it is. */
-/** « Le prix de la ligne 2 n’est pas lisible. », « Les prix des lignes 1 et 3 ne sont pas lisibles. » */
-function unreadableSentence(positions: readonly number[]): string {
-  if (positions.length === 1) return `Le prix de la ligne ${positions[0]} n’est pas lisible.`;
-  const named = `${positions.slice(0, -1).join(", ")} et ${positions[positions.length - 1]}`;
-  return `Les prix des lignes ${named} ne sont pas lisibles.`;
+/** « Le prix de la ligne Coude 90° DN 50 n’est pas lisible. », or the plural: the lines are named by what they ask. */
+function unreadableSentence(names: readonly string[]): string {
+  return names.length === 1
+    ? `Le prix de la ligne ${names[0]} n’est pas lisible.`
+    : `Les prix des lignes ${lineNamesLabel(names)} ne sont pas lisibles.`;
 }
 
 function retainBlocker(
   quote: MaterialRequestQuote,
   refusedPrices: number,
-  unreadablePositions: readonly number[],
-  draftPositions: readonly number[],
+  unreadableNames: readonly string[],
+  draftNames: readonly string[],
 ): string | null {
   // What the fields show comes first: a retain applies the saved prices, never a text that cannot be read.
-  if (unreadablePositions.length > 0) return unreadableSentence(unreadablePositions);
+  if (unreadableNames.length > 0) return unreadableSentence(unreadableNames);
   if (refusedPrices > 0) return QUOTE_PRICE_HELD;
   const unpriced = quote.lines.filter((line) => line.unit_price_ht_cents === null).length;
   const missing = unpriced === 1 ? "il en manque 1" : `il en manque ${unpriced}`;
@@ -155,7 +150,7 @@ function retainBlocker(
       : "Pour retenir ce devis, marquez-le reçu.";
   }
   if (unpriced > 0) return `Pour retenir ce devis, saisissez le prix de chaque ligne (${missing}).`;
-  return draftPositions.length > 0 ? linesNotValidated(draftPositions) : null;
+  return draftNames.length > 0 ? linesNotValidated(draftNames) : null;
 }
 
 function lineAmount(
@@ -354,7 +349,8 @@ function CompetitionPanel({
         {needType.length > 0 ? (
           <ul className="mt-2 space-y-0.5 text-sm font-medium text-warning">
             {needType.map((line) => (
-              <li key={line.id}>{`Ligne ${line.position} : donnez-lui un type, à l’étape Lignes, avant de la mettre en concurrence.`}</li>
+              // Such a line has no type to be named by: the technician's words name it, when it has some.
+              <li key={line.id}>{`${line.original_text?.trim() ? lineTitle(line) : "Une ligne sans désignation"} : donnez-lui un type, à l’étape Lignes, avant de la mettre en concurrence.`}</li>
             ))}
           </ul>
         ) : null}
@@ -537,144 +533,12 @@ function SupplierGroupCard({
       ) : (
         <ul className="list-disc space-y-0.5 pl-5 text-sm text-foreground">
           {pending.map((line) => (
-            <li key={line.id} className="break-words">{`Ligne ${line.position} · ${lineTitle(line)}`}</li>
+            <li key={line.id} className="break-words">{lineTitle(line)}</li>
           ))}
         </ul>
       )}
     </div>
   );
-}
-
-function readCents(raw: string): number | null | undefined {
-  const trimmed = raw.trim();
-  if (trimmed === "") return null;
-  const cents = parseAmountCents(trimmed);
-  return cents !== null && cents >= 0 && cents <= MATERIAL_REQUEST_QUOTE_MAX_CENTS ? cents : undefined;
-}
-
-function centsText(cents: number | null): string {
-  return cents === null ? "" : (cents / 100).toFixed(2).replace(".", ",");
-}
-
-/**
- * What an amount field holds: the text typed (null when it shows the saved amount), the reason a save was refused,
- * and the saving of what it shows. Shared by the field and, for a price, by the choice of the lot it is for.
- */
-function useCentsDraft(value: number | null, onAbandon?: () => void) {
-  const [draft, setDraft] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const writes = usePendingWrites<number | null>(value);
-  const unreadable = draft !== null && readCents(draft) === undefined;
-
-  /**
-   * Saves the amount shown with `send`. Nothing is sent when nothing was typed or the text cannot be read. `force`:
-   * sent even when it is the amount expected, because what goes with it changed (the lot of a price).
-   */
-  const commit = async (
-    send: (next: number | null) => Promise<SaveResult>,
-    force = false,
-  ): Promise<SaveResult | null> => {
-    if (draft === null) return null;
-    const next = readCents(draft);
-    if (next === undefined) return null;
-    if (!force && next === writes.expected()) {
-      if (writes.idle()) {
-        if (error) onAbandon?.();
-        setDraft(null);
-        setError(null);
-      }
-      return null;
-    }
-    const result = await writes.send(next, () => send(next));
-    if (result === null) return null;
-    if (result.ok) {
-      setError(null);
-      setDraft((current) => (current !== null && readCents(current) === next ? null : current));
-    } else {
-      setError(result.message);
-    }
-    return result;
-  };
-
-  /**
-   * Escape: the saved amount is shown again, and what could not be saved is dropped, with what waited for it (the lot
-   * of a price chosen while the text could not be read).
-   */
-  const abandon = () => {
-    if (error || draft !== null) onAbandon?.();
-    setDraft(null);
-    setError(null);
-  };
-
-  return { draft, setDraft, error, unreadable, shownError: unreadable ? AMOUNT_UNREADABLE : error, commit, abandon };
-}
-
-type CentsDraft = ReturnType<typeof useCentsDraft>;
-
-/**
- * An amount in euros, typed with the house grammar (« 12,50 », « 1 250 »), saved on leaving the field or Enter;
- * Escape gives back the saved amount. A refused save keeps what was typed, with the reason under it.
- */
-function CentsField({
-  id,
-  label,
-  value,
-  field,
-  onCommit,
-}: Readonly<{
-  /** Given when a visible <label> points at the field; `label` stays its accessible name. */
-  id?: string;
-  label: string;
-  value: number | null;
-  field: CentsDraft;
-  onCommit: () => void;
-}>) {
-  const messagesId = useId();
-  const { shownError } = field;
-  return (
-    <>
-      <input
-        id={id}
-        type="text"
-        inputMode="decimal"
-        autoComplete="off"
-        aria-label={label}
-        aria-invalid={Boolean(shownError) || undefined}
-        aria-describedby={shownError ? messagesId : undefined}
-        className={cn(CONTROL, "text-right tabular-nums", shownError && "border-danger")}
-        value={field.draft ?? centsText(value)}
-        onChange={(event) => field.setDraft(event.currentTarget.value)}
-        onBlur={onCommit}
-        onKeyDown={(event) => {
-          if (event.key === "Enter") {
-            event.preventDefault();
-            onCommit();
-          } else if (event.key === "Escape" && (field.draft !== null || field.error)) {
-            event.preventDefault();
-            field.abandon();
-          }
-        }}
-      />
-      <CellMessages id={messagesId} error={shownError} />
-    </>
-  );
-}
-
-function CentsInput({
-  id,
-  label,
-  value,
-  onCommit,
-  onAbandon,
-}: Readonly<{
-  id?: string;
-  label: string;
-  value: number | null;
-  onCommit: (next: number | null) => Promise<SaveResult>;
-  onAbandon?: () => void;
-}>) {
-  const field = useCentsDraft(value, onAbandon);
-  return <CentsField id={id} label={label} value={value} field={field} onCommit={() => void field.commit(onCommit)} />;
 }
 
 function QuoteFiles({
@@ -713,10 +577,12 @@ function QuoteFiles({
 
   return (
     <div className="min-w-0 space-y-1.5">
-      <p className="text-sm font-semibold text-foreground">Pièces du devis</p>
-      {quote.files.length === 0 ? (
-        <p className="text-sm text-muted-foreground">Aucune pièce jointe.</p>
-      ) : (
+      {/* Without a file, said on the title's own line. */}
+      <p className="text-sm text-foreground">
+        <span className="font-semibold">Pièces du devis</span>
+        {quote.files.length === 0 ? <span className="text-muted-foreground"> · aucune pièce jointe</span> : null}
+      </p>
+      {quote.files.length === 0 ? null : (
         <ul className="space-y-1">
           {quote.files.map((file) => (
             <li key={file.id} className="flex min-w-0 flex-wrap items-baseline gap-x-2">
@@ -870,12 +736,25 @@ function QuotePriceEntry({
     void field.commit(saveFor(per), per !== stored);
   };
 
+  const missing = quote.status === "received" && entry.unit_price_ht_cents === null;
   return (
-    <div className="min-w-0 space-y-1">
-      <label htmlFor={inputId} className="block text-xs text-muted-foreground">
+    // From 768 px the price and its lot are two cells of the row, as a field of the lines sheet is (`sheet-cell`): no
+    // box and no padding around them, the grid lines bound them; what a failed save says is read under the cell,
+    // inside the row. Below, a card keeps its boxed fields.
+    <div
+      // A price still to type on a quote that was received is said as a missing value is in the lines sheet: by the
+      // tint of its cell (a halo around the field in a card). A quote only asked for expects no price yet.
+      title={missing ? "Prix à renseigner." : undefined}
+      className={cn(
+        "min-w-0 space-y-1 md:sheet-cell md:space-y-0 md:p-0! md:[&_p]:px-3 md:[&_p]:pb-1.5",
+        missing && "rounded-md bg-warning-light max-md:-m-1.5 max-md:p-1.5 md:rounded-none",
+      )}
+    >
+      {/* From 768 px the column « PU HT » names it: the label stays for a card and for a screen reader. */}
+      <label htmlFor={inputId} className="block text-xs text-muted-foreground md:sr-only">
         Prix unitaire HT
       </label>
-      <div className="flex min-w-0 items-start gap-1.5">
+      <div className="flex min-w-0 items-start gap-1.5 md:items-stretch md:gap-0">
         <div className="min-w-0 flex-1">
           <CentsField
             id={inputId}
@@ -887,7 +766,7 @@ function QuotePriceEntry({
         </div>
         <NativeSelect
           size="sm"
-          wrapperClassName="w-auto shrink-0"
+          wrapperClassName="w-auto shrink-0 md:border-l md:border-border"
           className="pl-2"
           aria-label={`Prix donné pour, ligne ${position}, ${supplier}`}
           aria-describedby={error ? errorId : undefined}
@@ -924,20 +803,17 @@ function QuoteCard({
   const [confirmingGap, setConfirmingGap] = useState(false);
   const retainButton = useRef<HTMLButtonElement>(null);
   const editable = editor.canWrite && (quote.status === "requested" || quote.status === "received");
-  const linesById = new Map(editor.data.lines.map((line) => [line.id, line]));
+  const { linesById } = editor;
   const unreadable = new Set(quotes.unreadablePrices(quote.id));
-  const unreadablePositions = quote.lines
-    .filter((entry) => unreadable.has(entry.line_id))
-    .map((entry) => linesById.get(entry.line_id)?.position)
-    .filter((position): position is number => position !== undefined)
-    .sort((left, right) => left - right);
-  // As the lines table shows them now; checked again by the hook at the retain's turn in the queue.
-  const draftPositions = quote.lines
+  // Named by what they ask, in the order of the request: no number shows on screen to point at.
+  const asked = quote.lines
     .map((entry) => linesById.get(entry.line_id))
-    .filter((line): line is MaterialRequestLine => line !== undefined && line.status !== "validated")
-    .map((line) => line.position)
-    .sort((left, right) => left - right);
-  const blocker = retainBlocker(quote, quotes.refusedPrices(quote.id), unreadablePositions, draftPositions);
+    .filter((line): line is MaterialRequestLine => line !== undefined)
+    .sort((left, right) => left.position - right.position);
+  const unreadableNames = asked.filter((line) => unreadable.has(line.id)).map((line) => lineTitle(line));
+  // As the lines table shows them now; checked again by the hook at the retain's turn in the queue.
+  const draftNames = asked.filter((line) => line.status !== "validated").map((line) => lineTitle(line));
+  const blocker = retainBlocker(quote, quotes.refusedPrices(quote.id), unreadableNames, draftNames);
   const amounts = quote.lines.map((entry) =>
     lineAmount(linesById.get(entry.line_id), entry.unit_price_ht_cents, entry.price_per),
   );
@@ -990,7 +866,7 @@ function QuoteCard({
       )}
     >
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-        <h4 id={titleId} className="min-w-0 break-words font-display text-2xl font-semibold text-foreground">
+        <h4 id={titleId} className="min-w-0 break-words font-display text-lg font-semibold text-foreground">
           Devis {supplier}
         </h4>
         <Badge variant={STATUS_VARIANT[quote.status]} dot>
@@ -1002,22 +878,25 @@ function QuoteCard({
       <p className="text-sm text-muted-foreground">{quoteDates(quote)}</p>
 
       <div>
-      <div aria-hidden="true" className="hidden grid-cols-[minmax(0,1fr)_5rem_minmax(0,0.8fr)_minmax(8rem,1fr)_8rem] gap-3 border-b border-border bg-surface-subtle px-3 py-3 text-xs font-medium text-muted-foreground md:grid">
+      <div aria-hidden="true" className="hidden grid-cols-[minmax(0,1fr)_5rem_minmax(0,0.8fr)_minmax(8rem,1fr)_8rem] rounded-t-lg border border-border bg-surface-subtle text-xs font-medium text-muted-foreground md:grid [&>*]:px-3 [&>*]:py-1.5 [&>*+*]:border-l [&>*+*]:border-border">
         <span>Ligne / Désignation</span><span>Quantité</span><span>Référence</span><span>PU HT</span><span className="text-right">Montant HT</span>
       </div>
-      <ul className="divide-y divide-border border-b border-border bg-surface">
+      {/* One row per line and grid lines between the columns, as in the lines sheet; a card per line below 768 px. */}
+      <ul className="divide-y divide-border border-b border-border bg-surface md:rounded-b-lg md:border-x">
         {quote.lines.map((entry, index) => {
           const line = linesById.get(entry.line_id);
           const amount = amounts[index];
+          const sku = line && quote.with_references && line.supplier_id === quote.supplier_id ? editor.supplierReferenceOf(line.id)?.supplier_sku : null;
           return (
-            <li key={entry.line_id} className="grid min-w-0 gap-3 px-3 py-4 md:grid-cols-[minmax(0,1fr)_5rem_minmax(0,0.8fr)_minmax(8rem,1fr)_8rem] md:items-start">
+            <li key={entry.line_id} className="grid min-w-0 gap-x-3 gap-y-1.5 px-3 py-3 md:min-h-9 md:grid-cols-[minmax(0,1fr)_5rem_minmax(0,0.8fr)_minmax(8rem,1fr)_8rem] md:items-stretch md:gap-0 md:p-0 md:[&>*]:content-center md:[&>*]:px-3 md:[&>*]:py-1 md:[&>*+*]:border-l md:[&>*+*]:border-border">
               <div className="min-w-0">
-                <p className="break-words text-sm font-medium text-foreground">
-                  {line ? `Ligne ${line.position} · ${lineTitle(line)}` : "Ligne retirée de la demande"}
+                <p className="break-words text-sm font-medium text-foreground md:font-normal">
+                  {line ? lineTitle(line) : "Ligne retirée de la demande"}
                 </p>
               </div>
               <p className="text-sm">{line ? quantityText(line) : "—"}</p>
-              <p className="min-w-0 break-all text-sm">{line && quote.with_references && line.supplier_id === quote.supplier_id ? editor.supplierReferenceOf(line.id)?.supplier_sku || "—" : "—"}</p>
+              {/* A card says a reference only when there is one; in the table the dash keeps the column. */}
+              <p className={cn("min-w-0 break-all text-sm", !sku && "max-md:hidden")}>{sku || "—"}</p>
               {editable && line ? (
                 <QuotePriceEntry quotes={quotes} quote={quote} entry={entry} position={line.position} />
               ) : (
@@ -1043,9 +922,9 @@ function QuoteCard({
       ) : null}
 
       {editable ? (
-        <div className="grid min-w-0 gap-3 sm:grid-cols-[12rem_minmax(0,1fr)]">
+        <div className="grid min-w-0 gap-3 sm:grid-cols-[15rem_minmax(0,1fr)]">
           <label className="block min-w-0 space-y-1">
-            <span className="text-xs text-muted-foreground">Montant HT du devis (facultatif)</span>
+            <span className="block text-xs text-muted-foreground">Montant HT du devis (facultatif)</span>
             <CentsInput
               label={`Montant HT du devis (facultatif), ${supplier}`}
               value={quote.amount_ht_cents}
@@ -1053,7 +932,7 @@ function QuoteCard({
             />
           </label>
           <label className="block min-w-0 space-y-1">
-            <span className="text-xs text-muted-foreground">Remarques (délai, port…)</span>
+            <span className="block text-xs text-muted-foreground">Remarques (délai, port…)</span>
             <TextCell
               label={`Remarques (délai, port…), devis ${supplier}`}
               value={quote.notes}
@@ -1209,33 +1088,34 @@ export function MaterialRequestConsultation({ editor, quotes, affaireName, headi
   const activeQuote = ordered.find((quote) => active === `quote:${quote.id}`);
   const activeSupplierId = activeQuote?.supplier_id ?? freshGroups.find((group) => active === `supplier:${group.supplierId}`)?.supplierId;
   const totalOf = (quote: MaterialRequestQuote) => {
-    const amounts = quote.lines.map((entry) => lineAmount(data.lines.find((line) => line.id === entry.line_id), entry.unit_price_ht_cents, entry.price_per));
+    const amounts = quote.lines.map((entry) => lineAmount(editor.linesById.get(entry.line_id), entry.unit_price_ht_cents, entry.price_per));
     return amounts.every((amount) => amount !== null) ? amounts.reduce<number>((sum, amount) => sum + (amount ?? 0), 0) : null;
   };
   return (
     <section aria-labelledby={headingId} className="min-w-0 space-y-5">
-      <div>
-        <h2 id={headingId} className="font-display text-xl font-semibold text-foreground">Dossier fournisseur</h2>
-        <p className="mt-1 text-sm text-muted-foreground">Consultation et suivi des devis de la demande.</p>
+      {/* The same head as the lines step: its title, and what it is about on the same line. */}
+      <div className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1 pt-5">
+        <h2 id={headingId} className="typo-h3 text-foreground">Dossier fournisseur</h2>
+        <p className="text-sm text-muted-foreground">Consultation et suivi des devis de la demande.</p>
       </div>
       {quotes.status === "loading" ? <p role="status" className="text-sm text-muted-foreground">Chargement des devis…</p> : null}
       {quotes.status === "error" ? <div className="flex flex-wrap items-center gap-2 text-sm"><p>Les devis n’ont pas pu être chargés.</p><Button type="button" variant="outline" size="sm" aria-label="Recharger les devis" onClick={quotes.retry}>Réessayer</Button></div> : null}
       {data.lines.length === 0 ? <p className="rounded-lg border border-dashed border-border p-6 text-sm text-muted-foreground">Aucune ligne à faire chiffrer : la demande n’a pas encore de ligne.</p> : null}
-      <div className="mr-supplier-workspace grid min-w-0 overflow-hidden rounded-xl border border-border bg-surface xl:grid-cols-[26rem_minmax(0,1fr)]">
+      <div className="mr-supplier-workspace grid min-w-0 overflow-hidden rounded-lg border border-border bg-surface xl:grid-cols-[22rem_minmax(0,1fr)]">
         <nav aria-label="Dossiers fournisseurs" className="min-w-0 border-b border-border xl:border-r xl:border-b-0">
           <h3 className="sr-only">Devis demandés et fournisseurs à consulter</h3>
           {ordered.map((quote) => {
             const total = totalOf(quote);
             const gap = total !== null && quote.amount_ht_cents !== null ? quote.amount_ht_cents - total : null;
             return <button key={quote.id} type="button" aria-pressed={active === `quote:${quote.id}`} aria-label={`Consulter le devis ${quote.supplier_name} du ${formatDay(quote.requested_at)} (${MATERIAL_REQUEST_QUOTE_STATUS_LABELS[quote.status]})`} onClick={() => setSelected(`quote:${quote.id}`)}
-              className={cn("block w-full min-w-0 border-b border-border px-5 py-5 text-left hover:bg-surface-subtle focus-visible:outline-2 focus-visible:outline-offset-[-3px] focus-visible:outline-ring", active === `quote:${quote.id}` && "border-l-4 border-l-primary bg-primary/5 pl-4")}>
-              <span className="flex flex-wrap items-center justify-between gap-2"><span className="break-words text-base font-semibold">{quote.supplier_name}</span><Badge variant={STATUS_VARIANT[quote.status]}>{MATERIAL_REQUEST_QUOTE_STATUS_LABELS[quote.status]}</Badge></span>
-              <span className="mt-2 block text-xs text-muted-foreground">{plural(quote.lines.length, "ligne", "lignes")} · {quote.lines.map((entry) => data.lines.find((line) => line.id === entry.line_id)?.product_type || "Ligne retirée").join(", ")}</span>
+              className={cn("block w-full min-w-0 border-b border-border px-4 py-3 text-left hover:bg-surface-subtle focus-visible:outline-2 focus-visible:outline-offset-[-3px] focus-visible:outline-ring", active === `quote:${quote.id}` && SELECTED_ROW)}>
+              <span className="flex flex-wrap items-center justify-between gap-2"><span className="break-words text-sm font-semibold">{quote.supplier_name}</span><Badge variant={STATUS_VARIANT[quote.status]}>{MATERIAL_REQUEST_QUOTE_STATUS_LABELS[quote.status]}</Badge></span>
+              <span className="mt-1 block text-xs text-muted-foreground">{plural(quote.lines.length, "ligne", "lignes")} · {quote.lines.map((entry) => editor.linesById.get(entry.line_id)?.product_type || "Ligne retirée").join(", ")}</span>
               <span className="mt-1 block text-sm font-medium tabular-nums">{total === null ? quote.status === "closed" ? "—" : "Prix à renseigner" : `${formatEUR(total)} HT`}</span>
               {gap !== null && gap !== 0 ? <span className="mt-2 flex items-center gap-1 text-xs font-medium text-warning"><TriangleAlert aria-hidden="true" className="size-4" />Écart {gap > 0 ? "+" : ""}{formatEUR(gap)}</span> : null}
             </button>;
           })}
-          {freshGroups.map((group) => <button key={group.supplierId} type="button" aria-label={canWrite ? `Préparer une consultation pour ${group.supplierName}` : `Consulter les lignes de ${group.supplierName}`} aria-pressed={active === `supplier:${group.supplierId}`} onClick={() => setSelected(`supplier:${group.supplierId}`)} className={cn("block w-full border-b border-border px-5 py-5 text-left hover:bg-surface-subtle focus-visible:outline-2 focus-visible:outline-ring", active === `supplier:${group.supplierId}` && "border-l-4 border-l-primary bg-primary/5 pl-4")}><span className="block font-semibold">{group.supplierName}</span><span className="mt-1 block text-sm text-muted-foreground">{canWrite ? "À consulter" : "Lignes sans devis"} · {plural(group.lines.filter((line) => !line.price_quote_id).length, "ligne", "lignes")}</span></button>)}
+          {freshGroups.map((group) => <button key={group.supplierId} type="button" aria-label={canWrite ? `Préparer une consultation pour ${group.supplierName}` : `Consulter les lignes de ${group.supplierName}`} aria-pressed={active === `supplier:${group.supplierId}`} onClick={() => setSelected(`supplier:${group.supplierId}`)} className={cn("block w-full border-b border-border px-4 py-3 text-left hover:bg-surface-subtle focus-visible:outline-2 focus-visible:outline-ring", active === `supplier:${group.supplierId}` && SELECTED_ROW)}><span className="block font-semibold">{group.supplierName}</span><span className="mt-1 block text-sm text-muted-foreground">{canWrite ? "À consulter" : "Lignes sans devis"} · {plural(group.lines.filter((line) => !line.price_quote_id).length, "ligne", "lignes")}</span></button>)}
           {ordered.length === 0 ? <p className="p-5 text-sm text-muted-foreground">Aucune consultation envoyée pour le moment.</p> : null}
         </nav>
         <div className="min-w-0">
@@ -1245,7 +1125,7 @@ export function MaterialRequestConsultation({ editor, quotes, affaireName, headi
           {!active ? <p className="p-6 text-sm text-muted-foreground">Les devis apparaîtront ici après la consultation d’un fournisseur.</p> : null}
         </div>
       </div>
-      {without.length > 0 ? <div className="rounded-lg border border-dashed border-border p-4"><p className="text-sm font-medium">{canWrite ? "Sans fournisseur : choisissez-le sur la ligne, à l’étape Lignes." : "Sans fournisseur :"}</p><ul className="mt-2 list-disc pl-5 text-sm">{without.map((line) => <li key={line.id}>{`Ligne ${line.position} · ${lineTitle(line)}`}</li>)}</ul>{canWrite && onGoToLines ? <Button type="button" variant="link" size="sm" onClick={onGoToLines}>Choisir les fournisseurs, à l’étape Lignes</Button> : null}</div> : null}
+      {without.length > 0 ? <div className="rounded-lg border border-dashed border-border p-4"><p className="text-sm font-medium">{canWrite ? "Sans fournisseur : choisissez-le sur la ligne, à l’étape Lignes." : "Sans fournisseur :"}</p><ul className="mt-2 list-disc pl-5 text-sm">{without.map((line) => <li key={line.id}>{lineTitle(line)}</li>)}</ul>{canWrite && onGoToLines ? <Button type="button" variant="link" size="sm" onClick={onGoToLines}>Choisir les fournisseurs, à l’étape Lignes</Button> : null}</div> : null}
       <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border py-4">
         <p className="flex items-center gap-2 text-sm text-muted-foreground"><Info aria-hidden="true" className="size-4 shrink-0" />Les consultations se copient dans WhatsApp. Aucun envoi automatique.</p>
         <div className="flex flex-wrap gap-2">{onGoToLines ? <Button type="button" variant="outline" onClick={onGoToLines}><ArrowLeft aria-hidden="true" />Retour aux lignes</Button> : null}{onGoToOrders ? <Button type="button" onClick={onGoToOrders}>Voir les bons de commande<ArrowRight aria-hidden="true" /></Button> : null}</div>

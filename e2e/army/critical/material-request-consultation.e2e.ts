@@ -296,8 +296,9 @@ armyTest(
     await screen.getByRole("button", `Marquer reçu le devis ${betaName}`, { exact: true }).tap();
 
     // Received and priced, but its lines are drafts: what is bought must be what was checked.
+    // The lines are named by what they ask: the page shows no line number to point at.
     await expect(betaCard.getByText(
-      "Les lignes 1 et 2 ne sont pas validées : validez-les avant de retenir ce devis.", { exact: true },
+      "Les lignes Coude 90° DN 50 et Té égal DN 50 ne sont pas validées : validez-les avant de retenir ce devis.", { exact: true },
     )).toBeVisible({ timeout: 30_000 });
     await expect(retain).toBeDisabled();
     const drafts = await apiRequest<Envelope<never>>(browser, "POST", `${one}/quotes/${betaQuote.id}/retain`);

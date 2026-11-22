@@ -145,7 +145,13 @@ armyTest(
     // The screen says why, and one gesture retains them all; the validated line stays validated.
     await browser.goto(`/dashboard/affaires/${ids.projectId}/demandes-materiel/${requestId}`, { waitUntil: "domcontentloaded" });
     await expect(screen.getByText(`${betaName} · exception de l’article`, { exact: true })).toBeVisible({ timeout: 60_000 });
+    // The article's reference at the supplier is read once the line is unfolded; the line stays unfolded below.
+    await screen.getByRole("button", "Détails de la ligne 1", { exact: true }).tap();
     await expect(screen.getByText(`Réf. fournisseur : ${sku}`, { exact: true })).toBeVisible();
+    // Among drafts, a validated line's details open on request only (TI-690): the third line's proposal is read there.
+    await screen.getByRole("button", "Afficher les détails de la ligne 3", { exact: true }).tap();
+    await expect(screen.getByRole("complementary", "Détails de la ligne 3", { exact: true })
+      .getByText(`${gammaName} · fournisseur du type ${typeName}`, { exact: true })).toBeVisible();
     await expect(screen.getByText(`${gammaName} · fournisseur du type ${typeName}`, { exact: true })).toHaveCount(2);
     await screen.getByRole("button", "Retenir les fournisseurs proposés (3)", { exact: true }).tap();
     await expect(screen.getByText("3 fournisseurs retenus.", { exact: true })).toBeVisible({ timeout: 30_000 });
@@ -154,7 +160,8 @@ armyTest(
       [beta, "draft"], [gamma, "draft"], [gamma, "validated"],
     ]);
     await expect(screen.getByText(`Réf. fournisseur : ${sku}`, { exact: true })).toBeVisible({ timeout: 15_000 });
-    await expect(screen.getByRole("button", "Retenir les fournisseurs proposés (0)", { exact: true })).toBeDisabled();
+    // Nothing left to retain: the bulk action is no longer offered (TI-690).
+    await expect(screen.getByRole("button", /^Retenir les fournisseurs proposés \(\d+\)$/)).toHaveCount(0);
     // Once retained, the same answer gives the reference at each line's supplier, and no proposal is left.
     const after = await apiRequest<Envelope<Proposals>>(browser, "GET", `${one}/supplier-proposals`);
     expect(after.body.data.lines).toEqual({});

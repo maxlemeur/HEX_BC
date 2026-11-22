@@ -6,7 +6,8 @@ import type { MaterialRequestLineInput } from "./contracts";
  * no supplier, no validation, and a line it cannot read comes back with its words only.
  *
  * Articles are cut at each line end, at a dash between spaces, and at a comma or a semicolon followed by a
- * quantity (« 50 coudes DN50, 10 manchons DN15 », as an SMS writes them). A line that still seems to hold a
+ * quantity (« 50 coudes DN50, 10 manchons DN15 », as an SMS writes them). A reference or a note asking to
+ * check the quantity stays with the preceding article. A line that still seems to hold a
  * second article (« 10 coudes et 5 manchons ») is not cut: its quantity is flagged for a look at the original.
  *
  * It runs in the browser on up to 20,000 pasted characters, so every step is linear in the length of
@@ -49,6 +50,8 @@ const ARTICLE_START = new RegExp(String.raw`^(?:${NUMBER})(?:\s?[x×](?=\s)|\s?(
 const JOINERS = [" et ", " + ", " & "];
 const REFERENCE =
   /(?<![\p{L}\d])r[ée]f(?:[ée]rence)?\.?(?:\s{0,2}n°)?[\s:=]{0,6}([A-Za-z0-9][A-Za-z0-9._/-]{0,199})/iu;
+const REFERENCE_NOTE = /^r[ée]f(?:[ée]rence)?\.?(?![\p{L}\d])/iu;
+const QUANTITY_NOTE = /^(?:quantit[ée]|qt[ée])\s+[àa]\s+(?:confirmer|v[ée]rifier|pr[ée]ciser)\b/iu;
 /** Sold by length as often as by piece: without a written unit, none is proposed. */
 const SOLD_BY_LENGTH = /^(?:tubes?|tuyaux?|gaines?|c[âa]bles?)(?![\p{L}\d])/iu;
 
@@ -176,7 +179,13 @@ function readQuantity(text: string): QuantityReading | null {
   return null;
 }
 
-type Chunk = { original: string; body: string; suffix: RegExpMatchArray | null };
+type Chunk = {
+  original: string;
+  body: string;
+  suffix: RegExpMatchArray | null;
+  referenceNote?: string;
+  quantityToConfirm?: boolean;
+};
 
 /** A dash between spaces separates; a comma or a semicolon separates when an article follows it. */
 function isSeparator(line: string, index: number): boolean {
@@ -207,7 +216,7 @@ function segmentsOf(line: string): Array<{ text: string; separator: string }> {
 
 /**
  * A separator cuts the articles of a line, except when what follows is only a quantity ("- 25 pièces",
- * ", 25 pièces"): that belongs to the article before it.
+ * ", 25 pièces") or a reference or quantity note after a dash: those belong to the preceding article.
  */
 function chunksOf(line: string): Chunk[] {
   const chunks: Chunk[] = [];
@@ -220,6 +229,17 @@ function chunksOf(line: string): Chunk[] {
     const bare = segment.slice(0, end).trimEnd();
     const suffix = bare.length <= QUANTITY_SEGMENT_MAX ? bare.match(QUANTITY_ONLY) : null;
     const previous = chunks[chunks.length - 1];
+    if (previous && DASHES.has(separator.trim())) {
+      const reference = REFERENCE_NOTE.test(segment) ? readReference(segment) : null;
+      const standaloneReference = reference && !tidy(reference.rest) ? reference.value : null;
+      const quantityNote = QUANTITY_NOTE.test(segment);
+      if (standaloneReference || quantityNote) {
+        previous.original += separator + segment;
+        if (standaloneReference) previous.referenceNote ??= standaloneReference;
+        if (quantityNote) previous.quantityToConfirm = true;
+        continue;
+      }
+    }
     if (suffix && previous && !previous.suffix && parseQuantity(suffix[1]) !== null) {
       previous.original = `${previous.original}${separator}${segment}`;
       previous.suffix = suffix;
@@ -234,8 +254,9 @@ function readChunk(chunk: Chunk): MaterialRequestLineInput {
   const draft: MaterialRequestLineInput = { original_text: chunk.original.slice(0, ORIGINAL_TEXT_MAX) };
   let rest = chunk.body.replace(BULLET, "");
 
-  const reference = readReference(rest);
-  if (reference) rest = reference.rest;
+  const inlineReference = readReference(rest);
+  if (inlineReference) rest = inlineReference.rest;
+  const reference = inlineReference?.value ?? chunk.referenceNote;
   const dimension = readDimension(rest);
   if (dimension) rest = dimension.rest;
 
@@ -250,14 +271,14 @@ function readChunk(chunk: Chunk): MaterialRequestLineInput {
   if (quantity) {
     draft.quantity = quantity.quantity;
     // A thousand written with a separator, or a second article the cuts above left in the words.
-    if (quantity.doubtful || holdsSecondArticle(type)) draft.quantity_doubtful = true;
+    if (quantity.doubtful || chunk.quantityToConfirm || holdsSecondArticle(type)) draft.quantity_doubtful = true;
     // Pieces unless the text says otherwise, except for what is sold by length as often as by piece:
     // there the unit is left empty, so that the missing-unit alert asks the operator.
     const unit = quantity.unit ?? (SOLD_BY_LENGTH.test(type) ? null : "u");
     if (unit) draft.unit = unit;
   }
   if (dimension) draft.dimension = dimension.value;
-  if (reference) draft.reference = reference.value;
+  if (reference) draft.reference = reference;
   if (type) draft.product_type = type;
   return draft;
 }

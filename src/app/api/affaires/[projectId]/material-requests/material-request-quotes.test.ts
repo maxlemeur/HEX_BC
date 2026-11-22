@@ -46,7 +46,7 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
  *     recorded instead of a 409 in French; a retained or closed one keeps the supplier from being consulted again
  *     (coordinator's decision: lines added later can go to the same supplier).
  *  4. Retaining: a requested quote, or one with an unpriced line, is retained, or the refusal does not say which line
- *     (by its number); the lines do not take the quote's supplier, price and id; a quote sharing a line is left open,
+ *     (by what it asks, since the page shows no line number); the lines do not take the quote's supplier, price and id; a quote sharing a line is left open,
  *     or one sharing none is closed; a validated line returns to draft; the answer does not name what was closed.
  *  5. Read-only: a retained or closed quote is priced, noted, closed, retained again or takes a file; a file of a
  *     retained quote is deleted.
@@ -493,7 +493,7 @@ describe("recording a quote", () => {
     expect((data as { item: MaterialRequestQuote }).item).toMatchObject({ supplier_id: DELTA, status: "requested" });
   });
 
-  it("does not consult a line already priced by a retained quote, and names it by its number", async () => {
+  it("does not consult a line already priced by a retained quote, and names it by what it asks", async () => {
     const fake = seed(OWNER, "engineer", {
       tables: {
         material_request_lines: [
@@ -504,7 +504,7 @@ describe("recording a quote", () => {
     });
     const { status, error } = await call(quotesRoute.POST, "POST", inRequest, createBody({ line_ids: [LINE_VALVE, LINE_ELBOW] }));
     expect([status, error?.code, error?.message, error?.details]).toEqual([422, "MATERIAL_REQUEST_QUOTE_LINES_ALREADY_RETAINED",
-      "La ligne 1 a déjà un devis retenu : elle n’est plus à consulter.", { positions: [1], line_ids: [LINE_ELBOW] }]);
+      "La ligne Coude 90° DN 50 a déjà un devis retenu : elle n’est plus à consulter.", { positions: [1], line_ids: [LINE_ELBOW] }]);
     expect(fake.rpcCalls).toEqual([]);
   });
 
@@ -614,7 +614,7 @@ describe("pricing a quote", () => {
     const { status, error } = await call(quoteRoute.PATCH, "PATCH", ofQuote(QUOTE_GAMMA), {
       lines: [{ line_id: LINE_TUBE, unit_price_ht_cents: 1890 }, { line_id: LINE_VALVE, unit_price_ht_cents: 9900 }],
     });
-    expect([status, error?.message]).toEqual([404, "La ligne 4 n’est pas demandée dans ce devis."]);
+    expect([status, error?.message]).toEqual([404, "La ligne Vanne DN 50 n’est pas demandée dans ce devis."]);
     expect(fake.rpcCalls).toEqual([]);
   });
 });
@@ -651,11 +651,11 @@ describe("retaining a quote", () => {
     expect(fake.rpcCalls).toEqual([]);
   });
 
-  it("refuses a quote with an unpriced line, naming it by its number", async () => {
+  it("refuses a quote with an unpriced line, naming it by what it asks", async () => {
     const fake = seed(OWNER, "engineer");
     const { status, error } = await call(retainRoute.POST, "POST", ofQuote(QUOTE_BETA));
     expect([status, error?.code, error?.message, error?.details]).toEqual([422, "MATERIAL_REQUEST_QUOTE_LINES_UNPRICED",
-      "La ligne 3 de ce devis n’a pas de prix : chiffrez-la avant de le retenir.", { positions: [3], line_ids: [LINE_TUBE] }]);
+      "La ligne Tube DN 50 de ce devis n’a pas de prix : chiffrez-la avant de le retenir.", { positions: [3], line_ids: [LINE_TUBE] }]);
     expect(fake.rpcCalls).toEqual([]);
   });
 
@@ -710,14 +710,14 @@ describe("retaining a quote", () => {
     const fake = inPresumedMaterial(false, presumed);
     const { status, error } = await call(retainRoute.POST, "POST", ofQuote(QUOTE_ALPHA));
     expect([status, error?.code, error?.message, error?.details]).toEqual([422, "MATERIAL_REQUEST_QUOTE_MATERIAL_UNCONFIRMED",
-      "La ligne 1 n’a pas de matière propre et la matière présumée de la demande n’est pas confirmée : confirmez-la avant de retenir ce devis.",
+      "La ligne Coude 90° DN 50 n’a pas de matière propre et la matière présumée de la demande n’est pas confirmée : confirmez-la avant de retenir ce devis.",
       { positions: [1], line_ids: [LINE_ELBOW] }]);
     expect(fake.rpcCalls).toEqual([]);
   });
 
   it.each<[string, string[], string, number[]]>([
-    ["one draft line", [LINE_TEE], "La ligne 2 n’est pas validée : validez-la avant de retenir ce devis.", [2]],
-    ["two draft lines", [LINE_ELBOW, LINE_TEE], "Les lignes 1 et 2 ne sont pas validées : validez-les avant de retenir ce devis.", [1, 2]],
+    ["one draft line", [LINE_TEE], "La ligne Té égal DN 50 n’est pas validée : validez-la avant de retenir ce devis.", [2]],
+    ["two draft lines", [LINE_ELBOW, LINE_TEE], "Les lignes Coude 90° DN 50 et Té égal DN 50 ne sont pas validées : validez-les avant de retenir ce devis.", [1, 2]],
   ])("refuses to retain a quote with %s, naming them", async (_label, drafts, message, positions) => {
     const fake = seed(OWNER, "engineer");
     for (const row of fake.tables.material_request_lines) {
@@ -747,7 +747,7 @@ describe("retaining a quote", () => {
     });
     const { error } = await call(retainRoute.POST, "POST", ofQuote(QUOTE_BETA));
     expect([error?.message, error?.details]).toEqual([
-      "Les lignes 2 et 3 de ce devis n’ont pas de prix : chiffrez-les avant de le retenir.",
+      "Les lignes Té égal DN 50 et Tube DN 50 de ce devis n’ont pas de prix : chiffrez-les avant de le retenir.",
       { positions: [2, 3], line_ids: [LINE_TEE, LINE_TUBE] },
     ]);
   });
@@ -977,7 +977,7 @@ describe("lines priced by a retained quote", () => {
       supply_types: [{ id: SUPPLY_TYPE, tenant_id: TENANT, code: "raccords", name: "Raccords" }],
     },
   });
-  const ordered = "La ligne 1 a un devis retenu : ce qu’elle commande (article, désignation, dimension, matière, référence, unité, quantité) ne change plus.";
+  const ordered = "La ligne Coude 90° DN 50 a un devis retenu : ce qu’elle commande (article, désignation, dimension, matière, référence, unité, quantité) ne change plus.";
 
   it.each<[string, FakeRow]>([
     ["its dimension (DN 50 priced, DN 65 ordered)", { dimension: "DN 65" }],
@@ -1021,7 +1021,7 @@ describe("lines priced by a retained quote", () => {
     const fake = priced();
     const alone = await call(lineRoute.PATCH, "PATCH", { ...inRequest, lineId: LINE_ELBOW }, { supplier_id: BETA });
     expect([alone.status, alone.error?.code, alone.error?.message]).toEqual([409, "MATERIAL_REQUEST_LINE_PRICED",
-      "La ligne 1 a un devis retenu : son fournisseur est celui du devis."]);
+      "La ligne Coude 90° DN 50 a un devis retenu : son fournisseur est celui du devis."]);
     const selection = await call(linesRoute.PATCH, "PATCH", inRequest, { ids: [LINE_TEE, LINE_ELBOW], patch: { supplier_id: BETA } });
     expect([selection.status, selection.error?.code]).toEqual([409, "MATERIAL_REQUEST_LINE_PRICED"]);
     expect(fake.writes).toEqual([]);
@@ -1048,7 +1048,7 @@ describe("lines priced by a retained quote", () => {
     const fake = priced();
     const { status, error } = await call(lineRoute.DELETE, "DELETE", { ...inRequest, lineId: LINE_ELBOW });
     expect([status, error?.code, error?.message]).toEqual([409, "MATERIAL_REQUEST_LINE_PRICED",
-      "La ligne 1 a un devis retenu : elle ne se supprime plus seule."]);
+      "La ligne Coude 90° DN 50 a un devis retenu : elle ne se supprime plus seule."]);
     expect(fake.writes).toEqual([]);
     expect((await call(lineRoute.DELETE, "DELETE", { ...inRequest, lineId: LINE_TEE })).status).toBe(200);
   });

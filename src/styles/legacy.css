@@ -162,6 +162,10 @@ body {
   position: relative;
 }
 
+/*
+ * Every table of the application reads as a sheet of cells, as the lines of a material request do: one row per
+ * record, grid lines between the columns, a quiet header in the words' own case, and a tint under the pointer.
+ */
 .data-table {
   width: 100%;
   border-collapse: separate;
@@ -169,15 +173,13 @@ body {
 }
 
 .data-table thead th {
-  background: var(--slate-50);
-  border-bottom: 1px solid var(--slate-200);
-  padding: var(--density-cell-py) var(--density-cell-px);
+  background: var(--surface-subtle);
+  border-bottom: 1px solid var(--border);
+  padding: 0.375rem var(--density-cell-px);
   text-align: left;
   font-size: var(--font-size-2xs);
-  font-weight: 600;
-  letter-spacing: var(--tracking-wider);
-  text-transform: uppercase;
-  color: var(--slate-500);
+  font-weight: 500;
+  color: var(--muted-foreground);
 }
 
 .data-table thead th:first-child {
@@ -188,14 +190,25 @@ body {
   border-top-right-radius: 12px;
 }
 
-.data-table tbody td {
-  padding: var(--density-cell-py) var(--density-cell-px);
-  border-bottom: 1px solid var(--slate-100);
+.data-table tbody td,
+.data-table tbody th {
+  /* A row of 36 px with its line of text, as a sheet is read and typed in at a desk, in every density. */
+  padding: 0.5rem var(--density-cell-px);
+  border-bottom: 1px solid var(--border);
   font-size: 14px;
   color: var(--slate-700);
 }
 
-.data-table tbody tr:last-child td {
+/* The grid lines: every cell but the first of its row is bounded on its left. */
+.data-table thead th + th,
+.data-table tbody td + td,
+.data-table tbody th + td,
+.data-table tbody td + th {
+  border-left: 1px solid var(--border);
+}
+
+.data-table tbody tr:last-child td,
+.data-table tbody tr:last-child th {
   border-bottom: none;
 }
 
@@ -204,7 +217,33 @@ body {
 }
 
 .data-table tbody tr:hover {
-  background: var(--slate-50);
+  background: color-mix(in srgb, var(--surface-subtle) 60%, transparent);
+}
+
+/*
+ * The same sheet of cells for a table that keeps its own sizes and paddings (`sheet-table`, beside its own classes):
+ * grid lines between the columns, a quiet header in the words' own case, and a tint under the pointer. A printed
+ * document (an estimate, a purchase order) is not such a table: it keeps the layout of its paper.
+ */
+.sheet-table tr > * + * {
+  border-left: 1px solid var(--border);
+}
+
+.sheet-table thead th {
+  background-color: var(--surface-subtle);
+  color: var(--muted-foreground);
+  font-weight: 500;
+  /* Over a table's own classes: a header is read in its words' own case everywhere. */
+  text-transform: none !important;
+  letter-spacing: normal !important;
+}
+
+.sheet-table tbody tr {
+  transition: background-color 0.15s ease;
+}
+
+.sheet-table tbody tr:hover {
+  background: color-mix(in srgb, var(--surface-subtle) 60%, transparent);
 }
 
 /* Form input styles */

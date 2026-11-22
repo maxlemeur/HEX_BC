@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useState } from "react";
+import { useEffect, useId, useRef, useState, type Ref } from "react";
 import { ChevronUp } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
@@ -171,6 +171,7 @@ function Proposal({
   pendingHelp,
   confirmedHelp,
   confirmAction,
+  confirmationRef,
   undoLabel,
   hasValue,
   confirmed,
@@ -195,6 +196,7 @@ function Proposal({
   pendingHelp: string;
   confirmedHelp: string;
   confirmAction: string;
+  confirmationRef?: Ref<HTMLButtonElement>;
   undoLabel: string;
   hasValue: boolean;
   confirmed: boolean;
@@ -233,6 +235,7 @@ function Proposal({
         </Badge>
         {canWrite && !confirmed ? (
           <Button
+            ref={confirmationRef}
             type="button"
             size="sm"
             loading={busy}
@@ -292,6 +295,7 @@ export function MaterialRequestHeader({
   fieldsId,
   open,
   onOpenChange,
+  materialFocusRequest,
   compact = false,
 }: Readonly<{
   editor: MaterialRequestEditorApi;
@@ -300,6 +304,8 @@ export function MaterialRequestHeader({
   fieldsId: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** Counts the requests to review the presumed material: each one takes the focus to its confirmation. */
+  materialFocusRequest: number;
   compact?: boolean;
 }>) {
   const ids = useId();
@@ -328,6 +334,17 @@ export function MaterialRequestHeader({
     .map((technician) => ({ value: technician.id, label: technician.name }));
   const materialPending = Boolean(request.presumed_material) && !request.material_confirmed;
   const supplierPending = Boolean(request.presumed_supplier_id) && !request.supplier_confirmed;
+  // Asked from the lines (« à compléter » on a material still presumed): the fields are opened by who asks, and the
+  // focus goes to the confirmation, or to the material itself when it cannot be confirmed yet.
+  const materialConfirmation = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (materialFocusRequest === 0) return;
+    const button = materialConfirmation.current;
+    const target = button && !button.disabled && button.getAttribute("aria-disabled") !== "true"
+      ? button
+      : document.getElementById(`${ids}-material`);
+    target?.focus();
+  }, [ids, materialFocusRequest]);
   const technicianName =
     technicians.find((technician) => technician.id === request.technician_id)?.name ?? data.technician?.name ?? null;
   const supplierLabel = request.presumed_supplier_id
@@ -455,6 +472,7 @@ export function MaterialRequestHeader({
             pendingHelp="C’est une proposition : elle ne vaut pour aucune ligne tant que vous ne l’avez pas confirmée."
             confirmedHelp="Elle vaut pour les lignes de l’affaire qui n’indiquent pas de matière."
             confirmAction="Confirmer la matière"
+            confirmationRef={materialConfirmation}
             undoLabel="Annuler la confirmation de la matière"
             hasValue={Boolean(request.presumed_material)}
             confirmed={request.material_confirmed}

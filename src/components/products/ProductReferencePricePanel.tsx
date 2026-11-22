@@ -220,8 +220,8 @@ export function ProductReferencePricePanel({ productId, onValidated }: {
         <details className="rounded-lg border border-border p-3" open>
           <summary className="cursor-pointer rounded text-sm font-semibold text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring">Offres retenues et exclues ({proposal.offers.length})</summary>
           <div className="relative mt-3 overflow-x-auto" role="region" aria-label="Offres retenues et exclues" tabIndex={0}>
-            <table className="w-full text-left text-sm">
-              <thead className="text-xs uppercase tracking-wide text-muted-foreground"><tr><th scope="col" className="p-2 font-semibold">Fournisseur / référence</th><th scope="col" className="p-2 font-semibold">Prix HT</th><th scope="col" className="p-2 font-semibold">Conditions</th><th scope="col" className="p-2 font-semibold">Calcul</th></tr></thead>
+            <table className="sheet-table w-full text-left text-sm">
+              <thead className="text-xs text-muted-foreground"><tr><th scope="col" className="p-2 font-semibold">Fournisseur / référence</th><th scope="col" className="p-2 font-semibold">Prix HT</th><th scope="col" className="p-2 font-semibold">Conditions</th><th scope="col" className="p-2 font-semibold">Calcul</th></tr></thead>
               <tbody>{proposal.offers.map((offer) => <tr key={offer.id} className="border-t border-border-subtle">
                 <td className="p-2">{offer.supplier_name}<span className="block text-xs text-muted-foreground">{offer.supplier_sku ?? "Référence manquante"}</span></td>
                 <td className="whitespace-nowrap p-2">{formatOfferPrice(offer.unit_price_cents, offer.currency)} / {offer.unit}</td>

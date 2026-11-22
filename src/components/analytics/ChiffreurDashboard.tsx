@@ -197,22 +197,22 @@ function TopAffairesTable({ items }: { items: AnalyticsTopAffaire[] }) {
         className="relative hidden overflow-x-auto focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring md:block"
         data-testid="analytics-top-affaires-desktop"
       >
-        <table className="w-full text-sm">
+        <table className="sheet-table w-full text-sm">
           <thead>
             <tr className="border-b border-border bg-surface-subtle">
-              <th scope="col" className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              <th scope="col" className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground">
                 Affaire
               </th>
-              <th scope="col" className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              <th scope="col" className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground">
                 Client
               </th>
-              <th scope="col" className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              <th scope="col" className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground">
                 Statut
               </th>
-              <th scope="col" className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              <th scope="col" className="px-4 py-3 text-right text-xs font-semibold text-muted-foreground">
                 Total HT
               </th>
-              <th scope="col" className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              <th scope="col" className="px-4 py-3 text-right text-xs font-semibold text-muted-foreground">
                 Mise à jour
               </th>
             </tr>

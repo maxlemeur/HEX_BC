@@ -78,7 +78,7 @@ export function TakeoffReviewPolicyPanel({ items, providerMeta, context, error, 
     <details>
       <summary className="cursor-pointer font-medium">Couverture des bâtiments, étages, zones et réseaux</summary>
       {!coverage.known ? <p className="mt-2 text-warning">Périmètre attendu non renseigné : la complétude ne peut pas être établie.</p> :
-        <table className="mt-2 w-full text-left"><caption className="sr-only">Comparaison avec le périmètre attendu</caption>
+        <table className="sheet-table mt-2 w-full text-left"><caption className="sr-only">Comparaison avec le périmètre attendu</caption>
           <thead><tr><th>Périmètre</th><th>État</th><th>Éléments repérés</th></tr></thead>
           <tbody>{coverage.entries.map(entry => <tr key={`${entry.kind}:${entry.label}`}>
             <td>{entry.kind} · {entry.label}</td><td>{entry.status === "not_analysed" ? "Non analysé" : entry.status === "incomplete" ? "Incomplet" : "Analysé — à contrôler"}</td>

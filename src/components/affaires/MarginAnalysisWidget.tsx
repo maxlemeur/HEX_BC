@@ -105,7 +105,7 @@ function MarginSectionTable({
       </h3>
 
       <div className="hidden sm:block">
-        <table className="w-full text-sm">
+        <table className="sheet-table w-full text-sm">
           <thead>
             <tr className="border-b border-border text-left text-xs text-muted-foreground">
               <th className="pb-2 pr-3 font-medium">Lot / Section</th>
