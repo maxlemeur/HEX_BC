@@ -700,7 +700,7 @@ export async function launchTakeoffRelaunch(input: {
   // plans of the analysis it replaces (derived here, not named): another selection under the same key is a conflict.
   // Those plans are read at their current copies; the same command sent before the dossier replaced one of them holds
   // the copies it then read, and is answered by that receipt.
-  const { scope, sealed } = await relaunchPlanScope(service, input);
+  const { scope, sealed, departed } = await relaunchPlanScope(service, input);
   const replay = (planFileIds: string[] | null) => service.rpc("replay_manual_takeoff_plan_request",
     { ...command, p_plan_file_ids: planFileIds as string[], p_plans_named: Boolean(input.planFileIds?.length) });
   let { data: replayed, error: replayError } = await replay(scope);
@@ -710,7 +710,7 @@ export async function launchTakeoffRelaunch(input: {
   if (recorded) {
     return { outcome: recorded.outcome as TakeoffRelaunchResult["outcome"], requestId: recorded.request_id, jobId: recorded.job_id };
   }
-  if (await isTakeoffPlanDispatchActive(service)) return launchTakeoffPlanCommand(service, input, command, scope);
+  if (await isTakeoffPlanDispatchActive(service)) return launchTakeoffPlanCommand(service, input, command, scope, departed);
   // Plans are named one by one only by one analysis per plan.
   if (input.planFileIds?.length) {
     throw new TakeoffError({ status: 422, code: TakeoffErrorCode.VALIDATION_ERROR, retryable: false,
@@ -785,17 +785,21 @@ async function relaunchManifest(context: Context, planSetId: string, snapshot: T
 
 /**
  * The plans a command of one analysis per plan reads (`scope`): those it names, else the plans the analysis it replaces
- * read (its unit's plan, or every plan of a grouped analysis), each at its current working copy in the command's plan
- * set; none for a first analysis that names no plan (it reads every plan of its preparation), or for an analysis that
- * names no plan of the affaire. Read from the analysis itself, before any preparation: the command's identity holds them.
- * When the dossier replaced one of those plans since (a new generation of its piece is a new copy), `sealed` keeps the
- * copies the analysis read: the identity of the same command sent before that replacement.
+ * read (its unit's plan, or every plan of a grouped analysis, inside a request or not), each at its current working
+ * copy in the command's plan set; none for a first analysis that names no plan (it reads every plan of its
+ * preparation), or for an analysis that names no plan of the affaire. Read from the analysis itself, before any
+ * preparation: the command's identity holds them. When the dossier replaced one of those plans since (a new generation
+ * of its piece is a new copy), `sealed` keeps the copies the analysis read: the identity of the same command sent before
+ * that replacement. `departed`: the plans of that analysis no longer in the plan set at any copy.
  */
-async function relaunchPlanScope(service: Service, input: RelaunchInput): Promise<{ scope: string[] | null; sealed: string[] | null }> {
-  if (input.planFileIds?.length) return { scope: [...new Set(input.planFileIds.map((id) => id.toLowerCase()))].sort(), sealed: null };
-  if (!input.predecessorJobId) return { scope: null, sealed: null };
-  const { data: predecessor, error } = await service.from("takeoff_jobs")
-    .select("launch_unit_key, preparation_snapshot, launch_request_id")
+async function relaunchPlanScope(service: Service, input: RelaunchInput): Promise<{
+  scope: string[] | null; sealed: string[] | null; departed: string[];
+}> {
+  if (input.planFileIds?.length) {
+    return { scope: [...new Set(input.planFileIds.map((id) => id.toLowerCase()))].sort(), sealed: null, departed: [] };
+  }
+  if (!input.predecessorJobId) return { scope: null, sealed: null, departed: [] };
+  const { data: predecessor, error } = await service.from("takeoff_jobs").select("launch_unit_key, preparation_snapshot")
     .eq("tenant_id", input.context.tenantId).eq("project_id", input.projectId).eq("id", input.predecessorJobId!).maybeSingle();
   if (error) databaseError(error, "Impossible de lire l’analyse à relancer.");
   const key = predecessor?.launch_unit_key;
@@ -803,52 +807,49 @@ async function relaunchPlanScope(service: Service, input: RelaunchInput): Promis
     : ((predecessor?.preparation_snapshot as { preparation?: { sources?: Array<{ document_id?: unknown; kind?: unknown; active?: unknown }> } } | null)
       ?.preparation?.sources ?? []).flatMap((source) => source.active === true && source.kind === "plan" && typeof source.document_id === "string"
         && !source.document_id.startsWith("upload:") ? [source.document_id] : []);
-  if (!read.length) return { scope: null, sealed: null };
+  if (!read.length) return { scope: null, sealed: null, departed: [] };
   const sealed = [...new Set(read.map((id) => id.toLowerCase()))].sort();
-  const current = await currentPlanCopies(service, { tenantId: input.context.tenantId, projectId: input.projectId,
-    planSetId: input.planSetId, requestId: predecessor?.launch_request_id ?? null, plans: sealed });
-  const scope = [...new Set(current)].sort();
-  return { scope, sealed: scope.join() === sealed.join() ? null : sealed };
+  const { copies, departed } = await currentPlanCopies(service, { tenantId: input.context.tenantId, planSetId: input.planSetId,
+    plans: sealed });
+  const scope = [...new Set(copies)].sort();
+  return { scope, sealed: scope.join() === sealed.join() ? null : sealed, departed };
 }
 
 /**
  * Each plan copy an analysis read, at its dossier piece's current working copy in the plan set: the same copy while it
  * is there, else the one copy the dossier sync made of that piece since (a new generation is a new copy, under a new
- * identifier). The piece is the one the analysis's request sealed with the copy (or, outside any request, the one its
- * copy names while it is there). A plan uploaded to the plan set, a piece that left the dossier or one without a single
- * current copy keeps the copy read: the command then refuses it against the preparation, by name.
+ * identifier). The piece of each copy is the one the database recorded at its insert and keeps once the copy is gone
+ * (`takeoff_plan_location_sources`, from the copy's own `intake_document_id`, as a request seals it), so that an
+ * analysis outside any request is resolved as one of a request. A plan uploaded to the plan set, a piece that left the
+ * dossier or one with several current copies keeps the copy read, and the command then refuses it; `departed` names
+ * those no longer in the plan set at any copy.
  */
-async function currentPlanCopies(service: Service, input: {
-  tenantId: string; projectId: string; planSetId: string; requestId: string | null; plans: string[];
-}) {
+async function currentPlanCopies(service: Service, input: { tenantId: string; planSetId: string; plans: string[] }) {
   const files = await readAllRows(() => service.from("plan_files").select("id, metadata", { count: "exact" })
     .eq("tenant_id", input.tenantId).eq("plan_set_id", input.planSetId).order("id"));
   if (files.error) databaseError(files.error, "Impossible de lire les plans de l’affaire.");
-  const metadataOf = (file: { metadata: unknown }) => (file.metadata && typeof file.metadata === "object" && !Array.isArray(file.metadata)
-    ? file.metadata : {}) as Record<string, unknown>;
-  const copies = (files.data ?? []).map((file) => ({ id: file.id.toLowerCase(), metadata: metadataOf(file) }));
   // A copy the dossier sync reserved for its cleanup is no longer the piece's working copy.
-  const live = copies.filter((copy) => copy.metadata.intake_cleanup_pending !== true);
-  const liveIds = new Set(live.map((copy) => copy.id));
-  if (input.plans.every((id) => liveIds.has(id))) return input.plans;
-  const pieces = new Map<string, string>();
-  if (input.requestId) {
-    const { data: request, error } = await service.from("takeoff_launch_requests").select("manifest").eq("tenant_id", input.tenantId)
-      .eq("project_id", input.projectId).eq("id", input.requestId).maybeSingle();
-    if (error) databaseError(error, "Impossible de lire l’analyse à relancer.");
-    for (const plan of (request?.manifest as AnyTakeoffLaunchManifest | null | undefined)?.plans ?? []) {
-      if (plan.intake_document_id) pieces.set(plan.plan_file_id.toLowerCase(), plan.intake_document_id);
-    }
-  }
-  for (const copy of copies) {
-    if (!pieces.has(copy.id) && typeof copy.metadata.intake_document_id === "string") pieces.set(copy.id, copy.metadata.intake_document_id);
-  }
-  return input.plans.map((id) => {
-    const piece = pieces.get(id);
-    if (liveIds.has(id) || !piece) return id;
-    const now = live.filter((copy) => copy.metadata.source === "affaire-intake" && copy.metadata.intake_document_id === piece);
-    return now.length === 1 ? now[0]!.id : id;
+  const live = new Set((files.data ?? []).filter((file) => {
+    const metadata = file.metadata && typeof file.metadata === "object" && !Array.isArray(file.metadata)
+      ? file.metadata as Record<string, unknown> : {};
+    return metadata.intake_cleanup_pending !== true;
+  }).map((file) => file.id.toLowerCase()));
+  if (input.plans.every((id) => live.has(id))) return { copies: input.plans, departed: [] };
+  // The sources of the analysis's copies and of the plan set's current ones: at most twice the plan set's twenty files.
+  const recorded = await service.from("takeoff_plan_location_sources").select("plan_file_id, source_kind, source_id")
+    .eq("tenant_id", input.tenantId).eq("plan_set_id", input.planSetId).in("plan_file_id", [...new Set([...input.plans, ...live])]);
+  if (recorded.error) databaseError(recorded.error, "Impossible de lire les plans de l’affaire.");
+  const pieceOf = new Map((recorded.data ?? []).filter((row) => row.source_kind === "intake_document")
+    .map((row) => [row.plan_file_id.toLowerCase(), row.source_id.toLowerCase()]));
+  const departed: string[] = [];
+  const copies = input.plans.map((id) => {
+    if (live.has(id)) return id;
+    const piece = pieceOf.get(id);
+    const now = piece ? [...live].filter((copy) => pieceOf.get(copy) === piece) : [];
+    if (now.length === 0) departed.push(id);
+    return now.length === 1 ? now[0]! : id;
   });
+  return { copies, departed };
 }
 
 /**
@@ -858,7 +859,7 @@ async function currentPlanCopies(service: Service, input: {
  * refusals, in its own order (an automatic start that can still begin, then an affaire that has an analysis).
  */
 async function launchTakeoffPlanCommand(service: Service, input: RelaunchInput,
-  command: Record<string, unknown>, named: string[] | null): Promise<TakeoffRelaunchResult> {
+  command: Record<string, unknown>, named: string[] | null, departed: string[] = []): Promise<TakeoffRelaunchResult> {
   const { context } = input;
   if (input.predecessorJobId && !named) {
     throw new TakeoffError({ status: 422, code: TakeoffErrorCode.VALIDATION_ERROR, retryable: false,
@@ -871,6 +872,12 @@ async function launchTakeoffPlanCommand(service: Service, input: RelaunchInput,
     .map((source) => source.document_id).sort();
   const active = new Set(confirmed.preparation.sources.filter((source) => source.active && source.kind === "plan").map((source) => source.document_id));
   const missing = scope.filter((id) => !active.has(id));
+  // A plan of the analysis it replaces that left the dossier cannot be confirmed again: the analysis is not relaunched as
+  // it was.
+  if (missing.some((id) => departed.includes(id))) {
+    throw new TakeoffError({ status: 422, code: TakeoffErrorCode.VALIDATION_ERROR, retryable: false,
+      message: "Un plan de l’analyse à relancer n’est plus dans le dossier de l’affaire : cette analyse ne peut plus être relancée telle quelle." });
+  }
   if (missing.length > 0) {
     throw new TakeoffError({ status: 422, code: TakeoffErrorCode.VALIDATION_ERROR, retryable: false,
       message: "Ce plan ne fait pas partie de la préparation confirmée : confirmez les options du métré avec ce plan, puis relancez." });
