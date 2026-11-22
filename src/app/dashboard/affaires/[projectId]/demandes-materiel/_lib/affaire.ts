@@ -10,7 +10,7 @@ import { canAddToCatalogue } from "@/lib/catalogue/access";
  */
 export async function loadMaterialRequestAffaire(
   projectId: string,
-): Promise<{ id: string; name: string; canEditCatalogue: boolean }> {
+): Promise<{ id: string; name: string; canEditCatalogue: boolean; canCreateSupplyType: boolean }> {
   const { tenantId, profile } = await getUserContext();
   if (!tenantId) notFound();
 
@@ -18,7 +18,14 @@ export async function loadMaterialRequestAffaire(
     const project = await fetchAffaireProjectBasic(projectId);
     // Who may set a supply type's preferred supplier (admins and engineers, TI-689): the database checks it again.
     const role = profile?.tenant_role ?? null;
-    return { id: projectId, name: project.name, canEditCatalogue: role !== null && canAddToCatalogue(role) };
+    return {
+      id: projectId,
+      name: project.name,
+      canEditCatalogue: role !== null && canAddToCatalogue(role),
+      // Who may add a supply type from the article a line names: administrators, as `createSupplyType`
+      // (TI-690), which checks it again.
+      canCreateSupplyType: role === "admin",
+    };
   } catch (error) {
     if (
       error !== null &&
