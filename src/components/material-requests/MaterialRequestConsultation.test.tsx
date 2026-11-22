@@ -90,7 +90,7 @@ vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn(), replace: 
 import { MaterialRequestEditor } from "@/components/material-requests/MaterialRequestEditor";
 import type { MaterialRequestEditorApi } from "@/components/material-requests/useMaterialRequestEditor";
 import { useMaterialRequestQuotes } from "@/components/material-requests/useMaterialRequestQuotes";
-import { ConsultationMessageBlock } from "@/components/material-requests/MaterialRequestConsultation";
+import { ConsultationMessageBlock } from "@/components/material-requests/ConsultationRecipients";
 import { MATERIAL_REQUEST_QUOTE_MESSAGE_MAX } from "@/lib/material-requests/quote-contracts";
 
 const PROJECT_ID = "11111111-1111-4111-8111-111111111111";
@@ -305,7 +305,7 @@ function reads(path: string): Call[] {
   return calls.filter((call) => call.method === "GET" && call.path === path);
 }
 
-async function openEditor(routes: Record<string, Route>) {
+async function openEditor(routes: Record<string, Route>, options: { canEditCatalogue?: boolean } = {}) {
   mockApi({
     "GET /api/material-request-technicians": { data: { items: [] } },
     [`GET ${BASE}/candidates`]: { data: { lines: {} } },
@@ -316,7 +316,14 @@ async function openEditor(routes: Record<string, Route>) {
   const user = userEvent.setup();
   // The page shows one step at a time: the address names the one these tests read.
   window.history.replaceState(null, "", "?etape=devis");
-  render(<MaterialRequestEditor projectId={PROJECT_ID} requestId={REQUEST_ID} affaireName={AFFAIRE} />);
+  render(
+    <MaterialRequestEditor
+      projectId={PROJECT_ID}
+      requestId={REQUEST_ID}
+      affaireName={AFFAIRE}
+      canEditCatalogue={options.canEditCatalogue ?? false}
+    />,
+  );
   await screen.findByRole("heading", { name: "Dossier fournisseur" });
   return user;
 }
@@ -330,12 +337,31 @@ function quoteCard(supplier: string) {
   return screen.getByRole("article", { name: `Devis ${supplier}` });
 }
 
-/** A competitor added through the searchable picker of « Mettre en concurrence » (TI-691). */
-async function addCompetitor(user: ReturnType<typeof userEvent.setup>, supplier: string) {
+/**
+ * A competitor added through the searchable picker of « Mettre en concurrence » (TI-691). The search opens from the
+ * dashed card under the recipients, and closes once a supplier is added.
+ */
+async function addCompetitor(user: ReturnType<typeof userEvent.setup>, supplier: string, group = "Négoce Alpha") {
+  await openSearch(user, group);
   const input = screen.getByRole("combobox", { name: "Ajouter un fournisseur" });
   await user.click(input);
   await user.type(input, supplier.slice(0, 4));
   await user.click(await screen.findByRole("option", { name: supplier }));
+}
+
+/** Opens the search of « Mettre en concurrence » of a group, unless it is open. */
+async function openSearch(user: ReturnType<typeof userEvent.setup>, group = "Négoce Alpha") {
+  const entry = await screen.findByRole("button", { name: `Mettre en concurrence les lignes de ${group}` });
+  if (entry.getAttribute("aria-expanded") !== "true") await user.click(entry);
+}
+
+/** The recipient cards of a group: a vertical tab list, the usual supplier first. */
+function recipients(group = "Négoce Alpha") {
+  return screen.getByRole("tablist", { name: `Destinataires de la consultation, ${group}` });
+}
+
+function recipient(name: string, group = "Négoce Alpha") {
+  return within(recipients(group)).getByRole("tab", { name: new RegExp(`^${name}`) });
 }
 
 /** Opens a step of the page (1 lines, 2 quotes, 3 purchase orders), as the office does: one is shown at a time. */
@@ -563,9 +589,9 @@ describe("consultation of suppliers", () => {
     expect(await screen.findByRole("textbox", { name: "Message pour Négoce Alpha" })).toHaveValue(
       "Bonjour, pouvez-vous me faire un prix pour l’affaire Résidence des Tilleuls :\n- 20 u Coude 90° — réf. NA-4471\n- 4 u réf NA-4471 x4\nMerci !",
     );
-    await user.click(screen.getByRole("button", { name: "Mettre en concurrence les lignes de Négoce Alpha" }));
-    expect(screen.getByText("« réf NA-4471 x4 » : donnez-lui un type, à l’étape Lignes, avant de la mettre en concurrence.")).toBeVisible();
     await addCompetitor(user, "Comptoir Bêta");
+    // Said beside the competitor's message, where the line would be named.
+    expect(screen.getByText("« réf NA-4471 x4 » : donnez-lui un type, à l’étape Lignes, avant de la mettre en concurrence.")).toBeVisible();
 
     const message = screen.getByRole("textbox", { name: "Message pour Comptoir Bêta" });
     expect(message).toHaveValue(
@@ -1634,13 +1660,13 @@ describe("the member's message template and the retouch before copying (TI-691)"
       [`POST ${QUOTES}`]: created,
     });
     expect(await screen.findByRole("textbox", { name: "Message pour Négoce Alpha" })).toHaveValue("Bonjour Négoce Alpha :\n- 20 u Coude 90° réf. NA-4471");
-    await user.click(screen.getByRole("button", { name: "Mettre en concurrence les lignes de Négoce Alpha" }));
     await addCompetitor(user, "Comptoir Bêta");
     await addCompetitor(user, "Dépôt Gamma");
-    const beta = screen.getByRole("textbox", { name: "Message pour Comptoir Bêta" });
     const gamma = screen.getByRole("textbox", { name: "Message pour Dépôt Gamma" });
-    expect(beta).toHaveValue("Bonjour Comptoir Bêta :\n- 20 u Coude 90°, DN 50, Inox 316L");
     expect(gamma).toHaveValue("Bonjour Dépôt Gamma :\n- 20 u Coude 90°, DN 50, Inox 316L");
+    await user.click(recipient("Comptoir Bêta"));
+    const beta = screen.getByRole("textbox", { name: "Message pour Comptoir Bêta" });
+    expect(beta).toHaveValue("Bonjour Comptoir Bêta :\n- 20 u Coude 90°, DN 50, Inox 316L");
 
     // A retouch names the technician's reference: said, not blocked; Gamma's text is not touched.
     await user.type(beta, " (comme le 471205 et na-4471)");
@@ -1759,5 +1785,192 @@ describe("review of PR #463 (TI-691)", () => {
     await user.type(message, " (comme le na 4471)");
     const warning = screen.getByText(/cite une référence connue : NA-4471/);
     expect(message.getAttribute("aria-describedby")?.split(" ")).toContain(warning.id);
+  });
+});
+
+/**
+ * TI-691, the owner's request of 2026-11-22 (mockup B « Liste des fournisseurs + message »): inside a supplier group,
+ * the recipients are listed beside the selected one's message, and a supplier the list does not hold can be created
+ * from the competition's search. Failure modes:
+ * 29. a recipient's status is said by its colour only, or another recipient's status is shown on its card;
+ * 30. switching cards loses a retouch, or carries it to another recipient's message;
+ * 31. a supplier added to the competition is not the one selected, or the focus is lost (after adding or removing);
+ * 32. a supplier created from the search is not created by its name through the catalogue's route, is not put in
+ *     competition, or a refusal is silent or drops the typed name; a member who may not add to the catalogue is
+ *     offered the creation; a name the list already holds (the usual supplier's) is created again;
+ * 33. the list cannot be walked with the arrow keys, or is not exposed as tabs tied to their message.
+ */
+describe("the recipients beside their message, and a supplier created to compete (TI-691)", () => {
+  afterEach(() => {
+    cleanup();
+    window.history.replaceState(null, "", window.location.pathname);
+    vi.unstubAllGlobals();
+  });
+
+  const DELTA = "f4f4f4f4-f4f4-4f4f-8f4f-f4f4f4f4f4f4";
+  const COMPETITION = "Bonjour, pouvez-vous me faire un prix pour l’affaire Résidence des Tilleuls :\n- 20 u Coude 90°, DN 50, Inox 316L\nMerci !";
+  const USUAL = "Bonjour, pouvez-vous me faire un prix pour l’affaire Résidence des Tilleuls :\n- 20 u Coude 90° — réf. NA-4471\nMerci !";
+
+  function routes(extra: Record<string, Route> = {}): Record<string, Route> {
+    return {
+      [`GET ${BASE}`]: { data: detail({ lines: [line()] }) },
+      [`GET ${PROPOSALS}`]: references({ [LINE_A]: "NA-4471" }),
+      [`GET ${QUOTES}`]: { data: { items: [] } },
+      ...extra,
+    };
+  }
+
+  it("lists the recipients as vertical tabs tied to their message, the usual supplier first, each status in words (29, 33)", async () => {
+    const asked = { lines: [{ line_id: LINE_A, unit_price_ht_cents: null, price_per: 1 as const }] };
+    const user = await openEditor(routes({
+      [`GET ${QUOTES}`]: {
+        data: {
+          items: [
+            quote({ id: QUOTE_B, supplier_id: BETA, supplier_name: "Comptoir Bêta", with_references: false, ...asked }),
+            quote({ id: QUOTE_G, supplier_id: GAMMA, supplier_name: "Dépôt Gamma", with_references: false, status: "received", received_at: "2026-11-13T10:00:00.000Z", ...asked }),
+          ],
+        },
+      },
+    }));
+    await screen.findByRole("textbox", { name: "Message pour Négoce Alpha" });
+    await addCompetitor(user, "Comptoir Bêta");
+    await addCompetitor(user, "Dépôt Gamma");
+
+    const list = recipients();
+    expect(list).toHaveAttribute("aria-orientation", "vertical");
+    const tabs = within(list).getAllByRole("tab");
+    expect(tabs.map((tab) => tab.textContent)).toEqual([
+      expect.stringMatching(/^Négoce Alpha.*habituel · 1 ligne.*À envoyer/),
+      expect.stringMatching(/^Comptoir Bêta.*concurrence · 1 ligne.*Envoyée le 12\/11/),
+      expect.stringMatching(/^Dépôt Gamma.*concurrence · 1 ligne.*Devis reçu le 13\/11/),
+    ]);
+    expect(tabs.map((tab) => tab.getAttribute("aria-selected"))).toEqual(["false", "false", "true"]);
+    // Each card controls the panel of its message, which it names.
+    const panel = document.getElementById(tabs[2].getAttribute("aria-controls") ?? "");
+    expect(panel).toHaveAttribute("role", "tabpanel");
+    expect(panel).toHaveAttribute("aria-labelledby", tabs[2].id);
+    expect(within(panel as HTMLElement).getByRole("textbox", { name: "Message pour Dépôt Gamma" })).toHaveValue(COMPETITION);
+    expect(within(panel as HTMLElement).getByText("Devis reçu le 13/11/2026.")).toBeVisible();
+  });
+
+  it("shows the selected recipient's message and keeps each retouch to its own recipient across switches (30, 31)", async () => {
+    const user = await openEditor(routes({
+      [`POST ${QUOTES}`]: (body) => ({ status: 201, data: { item: quote({ message: (body as { message: string }).message, lines: [{ line_id: LINE_A, unit_price_ht_cents: null, price_per: 1 }] }) } }),
+    }));
+    const alpha = await screen.findByRole("textbox", { name: "Message pour Négoce Alpha" });
+    expect(recipient("Négoce Alpha")).toHaveAttribute("aria-selected", "true");
+    await user.type(alpha, " Merci d’avance.");
+
+    await addCompetitor(user, "Comptoir Bêta");
+    // The supplier added is the one selected, its card has the focus; the other message is out of view.
+    const betaTab = recipient("Comptoir Bêta");
+    expect(betaTab).toHaveAttribute("aria-selected", "true");
+    expect(betaTab).toHaveFocus();
+    expect(screen.queryByRole("textbox", { name: "Message pour Négoce Alpha" })).not.toBeInTheDocument();
+    const beta = screen.getByRole("textbox", { name: "Message pour Comptoir Bêta" });
+    expect(beta).toHaveValue(COMPETITION);
+    await user.type(beta, " Délai ?");
+
+    await user.click(recipient("Négoce Alpha"));
+    expect(screen.getByRole("textbox", { name: "Message pour Négoce Alpha" })).toHaveValue(`${USUAL} Merci d’avance.`);
+    expect(screen.getByRole("button", { name: "Rétablir le texte généré" })).toBeVisible();
+    await user.click(recipient("Comptoir Bêta"));
+    expect(screen.getByRole("textbox", { name: "Message pour Comptoir Bêta" })).toHaveValue(`${COMPETITION} Délai ?`);
+    await user.click(recipient("Négoce Alpha"));
+
+    await user.click(screen.getByRole("button", { name: "Consultation envoyée à Négoce Alpha" }));
+    await waitFor(() => expect(writes()).toHaveLength(1));
+    expect(writes()[0].body).toEqual({ supplier_id: ALPHA, line_ids: [LINE_A], with_references: true, message: `${USUAL} Merci d’avance.` });
+  });
+
+  it("walks the recipients with the arrow keys, Home and End, one tab stop for the list (33)", async () => {
+    const user = await openEditor(routes());
+    await screen.findByRole("textbox", { name: "Message pour Négoce Alpha" });
+    await addCompetitor(user, "Comptoir Bêta");
+    await addCompetitor(user, "Dépôt Gamma");
+    const [alpha, beta, gamma] = within(recipients()).getAllByRole("tab");
+    expect(gamma).toHaveFocus();
+    expect([alpha, beta, gamma].map((tab) => tab.tabIndex)).toEqual([-1, -1, 0]);
+
+    await user.keyboard("{ArrowDown}");
+    expect(alpha).toHaveFocus();
+    expect(alpha).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("textbox", { name: "Message pour Négoce Alpha" })).toBeVisible();
+    await user.keyboard("{ArrowDown}");
+    expect(beta).toHaveFocus();
+    expect(beta).toHaveAttribute("aria-selected", "true");
+    await user.keyboard("{End}");
+    expect(gamma).toHaveFocus();
+    await user.keyboard("{Home}");
+    expect(alpha).toHaveFocus();
+    await user.keyboard("{ArrowUp}");
+    expect(gamma).toHaveFocus();
+    expect(gamma).toHaveAttribute("aria-selected", "true");
+    expect([alpha, beta, gamma].map((tab) => tab.tabIndex)).toEqual([-1, -1, 0]);
+  });
+
+  it("withdraws a competitor from its message, selects the usual supplier and gives the focus back to the search (31)", async () => {
+    const user = await openEditor(routes());
+    await screen.findByRole("textbox", { name: "Message pour Négoce Alpha" });
+    await addCompetitor(user, "Comptoir Bêta");
+
+    await user.click(screen.getByRole("button", { name: "Retirer Comptoir Bêta de la mise en concurrence" }));
+
+    expect(within(recipients()).getAllByRole("tab").map((tab) => tab.textContent)).toEqual([expect.stringMatching(/^Négoce Alpha/)]);
+    expect(recipient("Négoce Alpha")).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("button", { name: "Mettre en concurrence les lignes de Négoce Alpha" })).toHaveFocus();
+    expect(screen.getByRole("textbox", { name: "Message pour Négoce Alpha" })).toHaveValue(USUAL);
+  });
+
+  it("creates a supplier the list does not hold by its name, puts it in competition and selects it (32)", async () => {
+    const user = await openEditor(routes({
+      "POST /api/suppliers": { status: 201, data: { item: { id: DELTA, name: "Quincaillerie Delta" } } },
+    }), { canEditCatalogue: true });
+    await screen.findByRole("textbox", { name: "Message pour Négoce Alpha" });
+    await openSearch(user);
+    const search = screen.getByRole("combobox", { name: "Ajouter un fournisseur" });
+    // The usual supplier is a name the list holds: it is not created again.
+    await user.type(search, "negoce ALPHA");
+    expect(await screen.findByRole("option", { name: /^Négoce Alpha/ })).toHaveAttribute("aria-disabled", "true");
+    expect(screen.queryByRole("option", { name: /^Créer le fournisseur/ })).not.toBeInTheDocument();
+    await user.clear(search);
+
+    await user.type(search, "  Quincaillerie Delta ");
+    await user.click(await screen.findByRole("option", { name: "Créer le fournisseur « Quincaillerie Delta »" }));
+
+    const delta = await screen.findByRole("tab", { name: /^Quincaillerie Delta/ });
+    expect(delta).toHaveAttribute("aria-selected", "true");
+    expect(delta).toHaveFocus();
+    expect(screen.getByRole("textbox", { name: "Message pour Quincaillerie Delta" })).toHaveValue(COMPETITION);
+    expect(writes()).toEqual([
+      { method: "POST", path: "/api/suppliers", body: { action: "create", item: { name: "Quincaillerie Delta" } } },
+    ]);
+  });
+
+  it("says a refused creation, keeps the typed name and adds no recipient (32)", async () => {
+    const user = await openEditor(routes({
+      "POST /api/suppliers": { status: 403, error: { code: "FORBIDDEN", message: "Vous ne pouvez pas ajouter de fournisseur." } },
+    }), { canEditCatalogue: true });
+    await screen.findByRole("textbox", { name: "Message pour Négoce Alpha" });
+    await openSearch(user);
+    await user.type(screen.getByRole("combobox", { name: "Ajouter un fournisseur" }), "Quincaillerie Delta");
+    await user.click(await screen.findByRole("option", { name: "Créer le fournisseur « Quincaillerie Delta »" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Vous ne pouvez pas ajouter de fournisseur.");
+    const search = screen.getByRole("combobox", { name: "Ajouter un fournisseur" });
+    expect(search).toHaveValue("Quincaillerie Delta");
+    expect(search).toHaveAttribute("aria-invalid", "true");
+    expect(within(recipients()).getAllByRole("tab")).toHaveLength(1);
+    expect(writes().map((call) => call.path)).toEqual(["/api/suppliers"]);
+  });
+
+  it("offers no creation to a member who may not add to the catalogue (32)", async () => {
+    const user = await openEditor(routes());
+    await screen.findByRole("textbox", { name: "Message pour Négoce Alpha" });
+    await openSearch(user);
+    expect(screen.getByRole("button", { name: "Mettre en concurrence les lignes de Négoce Alpha" })).toHaveTextContent("Chercher un fournisseur");
+    await user.type(screen.getByRole("combobox", { name: "Ajouter un fournisseur" }), "Quincaillerie Delta");
+    expect(await screen.findByText("Aucun fournisseur trouvé.")).toBeVisible();
+    expect(screen.queryByRole("option", { name: /^Créer le fournisseur/ })).not.toBeInTheDocument();
   });
 });

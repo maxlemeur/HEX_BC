@@ -38,6 +38,8 @@ type Quote = {
 // - a quote is retained before it is received, or while one of its lines is a draft;
 // - retaining the competitor's quote does not give the lines its supplier and unit prices, or leaves the first quote
 //   open; a closed quote can still be changed.
+// - (TI-691, 2026-11-22) a competitor the supplier list does not hold cannot be created from the competition's
+//   search, is created under another name, is not the recipient selected, or its consultation records another text.
 // The clipboard is the browser's own: the journey records what the screen hands it and what the browser answered,
 // and asserts the sentence the screen shows for that answer.
 
@@ -126,6 +128,10 @@ armyTest(
       expect(response.status).toBe(201);
       return response.body.data.item.id;
     };
+    const escaped = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    // The recipients of a group's consultation are vertical tabs, each beside its message (TI-691, mockup B).
+    const recipientTab = (name: string) => screen.getByRole("tab", new RegExp(`^${escaped(name)},`));
+    const quoteButton = (name: string) => screen.getByRole("button", new RegExp(`^Consulter le devis ${escaped(name)} du `));
     const alphaName = `${army.runPrefix} Négoce Alpha`;
     const betaName = `${army.runPrefix} Comptoir Bêta`;
     const alpha = await supplier(alphaName);
@@ -230,11 +236,13 @@ armyTest(
     expect(alphaQuote.lines).toEqual(lineIds.map((line_id) => ({ line_id, unit_price_ht_cents: null, price_per: 1 })));
 
     // The competitor's message names no reference at all: neither Alpha's, nor ours, nor the technician's.
-    await screen.getByRole("button", `Mettre en concurrence les lignes de ${alphaName}`, { exact: true }).tap();
-    // The whole supplier list, searched by name (TI-691).
+    const competitionEntry = screen.getByRole("button", `Mettre en concurrence les lignes de ${alphaName}`, { exact: true });
+    await competitionEntry.tap();
+    // The whole supplier list, searched by name (TI-691); the supplier added is the recipient selected.
     const competitor = screen.getByLabel("Ajouter un fournisseur", { exact: true });
     await competitor.fill(betaName);
     await screen.getByRole("option", betaName, { exact: true }).tap();
+    await expect(recipientTab(betaName)).toHaveAttribute("aria-selected", "true");
     await expect(screen.getByRole("button", `Retirer ${betaName} de la mise en concurrence`, { exact: true })).toBeVisible();
     const competition = [
       `Bonjour, pouvez-vous me faire un prix pour l’affaire ${army.projectName} :`,
@@ -260,13 +268,32 @@ armyTest(
     const betaQuote = (await quotes()).find((quote) => quote.supplier_id === beta)!;
     expect([betaQuote.status, betaQuote.with_references, betaQuote.message]).toEqual(["requested", false, betaRetouched]);
 
+    // TI-691 (2026-11-22): a competitor the list does not hold is created from the search by its name, through the
+    // catalogue's route, put in competition and selected; its consultation is recorded as shown.
+    await quoteButton(alphaName).tap({ timeout: 60_000 });
+    await expect(recipientTab(betaName)).toHaveAttribute("aria-label", new RegExp(`, Envoyée le \\d{2}/\\d{2}$`));
+    await competitionEntry.tap();
+    const deltaName = `${army.runPrefix} Quincaillerie Delta`;
+    await screen.getByLabel("Ajouter un fournisseur", { exact: true }).fill(deltaName);
+    await screen.getByRole("option", `Créer le fournisseur « ${deltaName} »`, { exact: true }).tap();
+    await expect(recipientTab(deltaName)).toHaveAttribute("aria-selected", "true", { timeout: 30_000 });
+    const deltaMessage = screen.getByLabel(`Message pour ${deltaName}`, { exact: true });
+    await expect(deltaMessage).toHaveValue(competition);
+    const listed = await apiRequest<Envelope<{ items: Array<{ id: string; name: string }> }>>(browser, "GET", "/api/suppliers");
+    const deltaSuppliers = listed.body.data.items.filter((item) => item.name === deltaName);
+    expect(deltaSuppliers).toHaveLength(1);
+    const delta = deltaSuppliers[0].id;
+    await screen.getByRole("button", `Consultation envoyée à ${deltaName}`, { exact: true }).tap();
+    await expect(screen.getByRole("article", `Devis ${deltaName}`, { exact: true })).toBeVisible({ timeout: 30_000 });
+    const deltaQuote = (await quotes()).find((quote) => quote.supplier_id === delta)!;
+    expect([deltaQuote.status, deltaQuote.with_references, deltaQuote.message]).toEqual(["requested", false, competition]);
+    expect(deltaQuote.lines.map((line) => line.line_id)).toEqual(lineIds);
+
     // TI-691: the member shapes their own message in « Mon profil », then retouches it before copying: the text
     // copied is the one shown. Their template is removed at the end, so the session's next journeys get today's.
     // The page is left below: what the browser answered to the copies so far is kept for the evidence.
     const copyOutcomes = [...(await copies()).outcomes];
     const templates = "/api/consultation-message-templates";
-    const quoteButton = (name: string) =>
-      screen.getByRole("button", new RegExp(`^Consulter le devis ${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} du `));
     const personalTemplate = {
       message_template: "Bonjour {fournisseur},\n{lignes}\n{livraison}",
       line_template: "{ligne}. {quantité} {désignation}[ (réf. {référence})]",
@@ -308,10 +335,11 @@ armyTest(
       expect(recorded.find((quote) => quote.supplier_id === beta)!.message).toBe(betaRetouched);
 
       // Each competitor's message names that competitor ({fournisseur}), without any reference.
-      await screen.getByRole("button", `Mettre en concurrence les lignes de ${alphaName}`, { exact: true }).tap();
       for (const name of [betaName, gammaName]) {
+        await competitionEntry.tap();
         await screen.getByLabel("Ajouter un fournisseur", { exact: true }).fill(name);
         await screen.getByRole("option", name, { exact: true }).tap();
+        await expect(recipientTab(name)).toHaveAttribute("aria-selected", "true");
       }
       const competing = (name: string) => [
         `Bonjour ${name},`,
@@ -319,8 +347,9 @@ armyTest(
         "2. 4 u Té égal, DN 50, Inox 316L",
         "Livraison : chantier",
       ].join("\n");
-      await expect(screen.getByLabel(`Message pour ${betaName}`, { exact: true })).toHaveValue(competing(betaName));
       await expect(screen.getByLabel(`Message pour ${gammaName}`, { exact: true })).toHaveValue(competing(gammaName));
+      await recipientTab(betaName).tap();
+      await expect(screen.getByLabel(`Message pour ${betaName}`, { exact: true })).toHaveValue(competing(betaName));
     } finally {
       const reset = await apiRequest<Envelope<{ personal: null }>>(browser, "DELETE", `${templates}/personal`);
       expect(reset.status).toBe(200);
@@ -408,7 +437,9 @@ armyTest(
       const quote = final.find((entry) => entry.supplier_id === supplierId)!;
       return [quote.status, quote.closed_at !== null, quote.retained_at !== null];
     };
-    expect([final.length, stateOf(alpha), stateOf(beta)]).toEqual([2, ["closed", true, false], ["retained", false, true]]);
+    expect([final.length, stateOf(alpha), stateOf(beta), stateOf(delta)]).toEqual([
+      3, ["closed", true, false], ["retained", false, true], ["closed", true, false],
+    ]);
     await openStep(1);
     await screen.getByRole("button", "Afficher les détails de la ligne 1", { exact: true }).tap();
     const firstDetails = screen.getByRole("complementary", "Détails de la ligne 1", { exact: true });
@@ -431,7 +462,7 @@ armyTest(
     expect([changed.status, changed.body.error?.code]).toEqual([409, "MATERIAL_REQUEST_QUOTE_READ_ONLY"]);
 
     await recordEvidence(army, "material-request-consultation", {
-      ...ids, requestId, suppliers: { alpha, beta }, elbow, tee, lineIds,
+      ...ids, requestId, suppliers: { alpha, beta, delta }, elbow, tee, lineIds,
       quotes: final.map((quote) => ({ id: quote.id, supplier_id: quote.supplier_id, status: quote.status, with_references: quote.with_references })),
       pdf: { id: storedPdf.id, byte_size: storedPdf.byte_size, sha256: storedSha[1] },
       copies: copyOutcomes,
