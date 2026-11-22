@@ -26,13 +26,11 @@ export const ITEM_SET_ASIDE_REASON_LABELS: Record<ItemSetAsideReason, string> = 
 
 export const ITEM_ANOMALY_LABELS: Record<ItemAnswerAnomaly, string> = {
   hypothesis: "Hypothèse",
-  source_choice: "Source à choisir",
   low_confidence: "Confiance faible",
   missing_evidence: "Preuve localisée manquante",
   rule_failed: "Contrôle en échec",
   rules_stale: "Contrôles à recalculer",
   alert: "Alerte à trancher",
-  page_decision: "Page déjà au devis : décision à prendre",
   unit_mismatch: "Unité différente de l’unité attendue",
 };
 
@@ -52,6 +50,7 @@ export const ITEM_INELIGIBILITY_LABELS: Record<ItemIneligibility, string> = {
   no_entry_to_include: "aucune hypothèse à inclure",
   reading: "en lecture",
   no_plan: "aucun plan à lire",
+  sent: "plan déjà envoyé au devis",
 };
 
 export const ITEM_UNIT_STATE_LABELS: Record<TakeoffUnitState, string> = {
@@ -75,6 +74,7 @@ export function itemReasonLabel(reason: string): string {
     case "hypothesis_to_include": return "Hypothèse saisie, à inclure";
     case "unreadable_pages": return "Pages illisibles";
     case "reading_ended": return "Un plan n’a pas répondu";
+    case "sent": return "Plan déjà envoyé au devis";
     default: return "À vérifier";
   }
 }

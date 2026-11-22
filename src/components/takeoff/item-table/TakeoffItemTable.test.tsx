@@ -20,6 +20,7 @@ const client = vi.hoisted(() => ({
   sendItemReviewCommand: vi.fn(),
   previewItemRemeasure: vi.fn(),
   sendItemRemeasure: vi.fn(),
+  fetchItemHistory: vi.fn(),
 }));
 vi.mock("@/lib/takeoff/item-table-client", async (importOriginal) => ({
   ...await importOriginal<typeof import("@/lib/takeoff/item-table-client")>(), ...client,
@@ -79,6 +80,8 @@ beforeEach(() => {
   searchParams = new URLSearchParams();
   window.sessionStorage.clear();
   client.fetchItemTable.mockImplementation(async () => table());
+  client.fetchItemHistory.mockImplementation(async (_project: string, itemId: string) => ({ projectId: FIXTURE_ITEM_PROJECT, itemId,
+    events: [], offset: 0, limit: 20, hasMore: false, names: {} }));
 });
 
 afterEach(() => {
@@ -236,6 +239,57 @@ describe("TakeoffItemTable", () => {
     });
   });
 
+  it("keeps the values being typed for the tab after a reload, in the scope they were typed in", async () => {
+    const first = renderTable();
+    await screen.findByRole("row", { name: /Baignoire/ });
+    fireEvent.change(screen.getByRole("textbox", { name: "Quantité saisie pour « Baignoire »" }), { target: { value: "1" } });
+    fireEvent.change(screen.getByRole("textbox", { name: "Unité saisie pour « Baignoire »" }), { target: { value: "ens" } });
+    first.unmount();
+    // The tab reloaded: the values typed are back, ready to save.
+    renderTable();
+    await screen.findByRole("row", { name: /Baignoire/ });
+    await waitFor(() => expect(screen.getByRole("textbox", { name: "Quantité saisie pour « Baignoire »" })).toHaveValue("1"));
+    expect(screen.getByRole("textbox", { name: "Unité saisie pour « Baignoire »" })).toHaveValue("ens");
+    expect(screen.getByRole("button", { name: "Enregistrer les saisies (1)" })).toBeEnabled();
+  });
+
+  it("withdraws the table, its detail and its dialogs when its read is refused, whatever it showed before", async () => {
+    const { rerenderWith } = renderTable({ signature: "a" });
+    await screen.findByRole("row", { name: /Lavabo/ });
+    fireEvent.click(screen.getByRole("button", { name: "Détail du poste « Lavabo »" }));
+    tick("WC");
+    fireEvent.click(await screen.findByRole("button", { name: "Écarter la sélection (1)" }));
+    expect(await screen.findByRole("dialog")).toBeInTheDocument();
+    // The member's access was removed: the next read is refused.
+    client.fetchItemTable.mockRejectedValue(new TakeoffApiError("Accès refusé à cette affaire.", 403, null, null));
+    rerenderWith({ signature: "b" });
+    expect(await screen.findByTestId("poste-refus")).toHaveTextContent("Accès refusé à cette affaire.");
+    expect(screen.queryByRole("table", { name: "Postes du métré" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.queryByText(/Lavabo/)).not.toBeInTheDocument();
+  });
+
+  it("tells in the detail who set the line aside, why, and who reinstated it", async () => {
+    client.fetchItemHistory.mockResolvedValue({ projectId: FIXTURE_ITEM_PROJECT, itemId: fixtureItemId(1), offset: 0, limit: 20,
+      hasMore: false, names: { "22222222-2222-4222-8222-222222222222": "Léa Martin", "33333333-3333-4333-8333-333333333333": "Paul Durand" },
+      events: [
+        { id: 3, event: "reinstated", planKey: null, takeoffItemId: null, before: { kind: "set_aside" },
+          after: { kind: "none", restored: "changed" }, actorId: "33333333-3333-4333-8333-333333333333", at: "2026-11-22T10:00:00.000Z" },
+        { id: 2, event: "set_aside", planKey: RDC, takeoffItemId: null, before: { kind: "accepted" },
+          after: { kind: "set_aside", reason: "duplicate", note: null }, actorId: "22222222-2222-4222-8222-222222222222",
+          at: "2026-11-22T09:00:00.000Z" },
+      ] });
+    renderTable();
+    await screen.findByRole("row", { name: /WC/ });
+    fireEvent.click(screen.getByRole("button", { name: "Détail du poste « WC »" }));
+    const history = await screen.findByTestId(`poste-historique-${fixtureItemId(1)}`);
+    expect(history).toHaveTextContent("Écarté : doublon");
+    expect(history).toHaveTextContent("Léa Martin");
+    expect(history).toHaveTextContent("Réintégré : une ligne avait changé entre-temps, à décider de nouveau");
+    expect(history).toHaveTextContent("Paul Durand");
+    expect(client.fetchItemHistory).toHaveBeenCalledWith(FIXTURE_ITEM_PROJECT, fixtureItemId(1), { offset: 0, limit: 20 });
+  });
+
   it("says a missing value by a yellow cell, not by a message, and keeps orange for what blocks", async () => {
     client.fetchItemTable.mockResolvedValue(fixtureItemTable({
       items: [...ITEMS, fixturePoste(6, "Nourrice", { expectedUnit: null }),
@@ -243,7 +297,8 @@ describe("TakeoffItemTable", () => {
       readings: [...SCENARIO, fixtureReading(6, RDC, fixtureAnswer("not_found", null)),
         fixtureReading(7, RDC, fixtureAnswer("measured", 36, { observations: [{ observationId: "eu",
           quantity: 36, unit: "ml", page: 1, evidence: "tracé", confidence: 0.9, method: "vector", role: "contribution",
-          takeoffItemId: null }], quantity: { quantity: 36, unit: "ml" } }))],
+          takeoffItemId: null, row: { quantity: 36, unit: "ml", isVerified: false, isExcluded: false } }],
+          quantity: { quantity: 36, unit: "ml" } }))],
     }));
     renderTable();
     const nourrice = await screen.findByRole("row", { name: /Nourrice/ });

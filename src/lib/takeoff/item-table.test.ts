@@ -38,7 +38,7 @@ function answer(outcome: ItemAnswerView["outcome"], quantity: number | null, ext
     readAt: "2026-11-22T08:00:00.000Z",
     observations: quantity === null || outcome !== "measured" ? []
       : [{ observationId: `obs-${id}`, role: "contribution", quantity, unit: "u", page: 1, evidence: "symboles LAV", confidence: 0.9,
-        method: "symbol_count", takeoffItemId: `row-${id}` }],
+        method: "symbol_count", takeoffItemId: `row-${id}`, row: { quantity, unit: "u", isVerified: false, isExcluded: false } }],
     ...extra,
   };
 }
@@ -51,7 +51,7 @@ function read(itemId: string, planKey: string, value: ItemAnswerView | "queued" 
   decision: ItemReadingInput["decision"] = null, extra: Partial<ItemReadingInput> = {}): ItemReadingInput {
   const plan = PLANS.find(({ key }) => key === planKey);
   const base = { itemId, planKey, planName: plan?.name ?? "Plan", location: null, decision, decisionRevision: decision?.revision ?? 0,
-    entry: null };
+    entry: null, sent: false };
   const reading: ItemReadingInput = typeof value === "string"
     ? { ...base, unit: value, reading: value === "failed" ? "ended" : "in_flight", answer: null }
     : { ...base, unit: "succeeded", reading: "answered", answer: value };
@@ -131,6 +131,63 @@ describe("buildItemLines", () => {
   });
 });
 
+describe("what the table retains: the reviewed rows as they now are", () => {
+  const corrected = (quantity: number, rowQuantity: number, extra: Partial<NonNullable<ItemAnswerView["observations"][number]["row"]>> = {}) => {
+    const value = answer("measured", quantity);
+    return { ...value, observations: value.observations.map((observation) => ({ ...observation,
+      row: { quantity: rowQuantity, unit: "u", isVerified: true, isExcluded: false, ...extra } })) };
+  };
+
+  it("keeps the model's reading as observed and retains the row a targeted correction holds", () => {
+    // The model read 3; an operator corrected the positive row to 7 and accepted it.
+    const [line] = lines([row(poste("a", 0, "Lavabo"), "measured", "accepted", [read("a", "plan-a", corrected(3, 7), accepted())])]);
+    expect(line.observed).toEqual({ quantity: 3, unit: "u", partial: false });
+    expect(line.retained).toEqual({ quantity: 7, unit: "u", source: "measured", partial: false });
+    expect(line.readings[0].answer?.quantity?.quantity).toBe(3);
+  });
+
+  it("shows an acceptance a targeted edit withdrew as a decision to take (the database gives it no decision)", () => {
+    const [line] = lines([row(poste("a", 0, "Lavabo"), "measured", "pending", [read("a", "plan-a", corrected(3, 7, { isVerified: false }))])]);
+    expect(line.retained).toBeNull();
+    expect(line.eligibility.accept_measured).toEqual({ eligible: true, reason: null });
+  });
+
+  it("judges the DPGF gap and the units on the rows an acceptance would verify, not on the raw reading", () => {
+    const reference = poste("ref", 0, "Lavabo", { origin: "dpgf", referenceQuantity: 10, dpgfReference: "3.1.2" });
+    const [gap] = lines([row(reference, "measured", "pending", [read("ref", "plan-a", corrected(10, 12, { isVerified: false }))])]);
+    expect(gap.gap).toMatchObject({ quantity: 2, requiresReview: true });
+    expect(gap.eligibility.accept_measured).toEqual({ eligible: false, reason: "dpgf_gap" });
+    const [units] = lines([row(poste("b", 1, "WC"), "measured", "pending", [read("b", "plan-a", corrected(1, 1, { isVerified: false })),
+      read("b", "plan-b", corrected(2, 2, { isVerified: false, unit: "ml" }))])]);
+    expect(units.reasons).toContain("unit_conflict");
+    expect(units.eligibility.accept_measured).toEqual({ eligible: false, reason: "unit_conflict" });
+  });
+
+  it("counts nothing for a line set aside: its entry is kept, and a plan's entry on an answer set aside counts neither", () => {
+    const entry = (scope: "affaire" | "plan"): ItemEntryView => ({ itemId: "b", scope, planKey: scope === "plan" ? "plan-a" : null,
+      revision: 1, quantity: 5, unit: "u", category: "site_survey", note: null, included: true, actorId: "member-1",
+      at: "2026-11-22T09:00:00.000Z", previous: null });
+    const [aside] = lines([row(poste("b", 1, "Baignoire"), "not_found", "set_aside", [read("b", "plan-a", answer("not_found", null),
+      setAside())], entry("affaire"))]);
+    expect(aside.retained).toBeNull();
+    expect(aside.entry?.quantity).toBe(5);
+    const [planEntry] = lines([row(poste("b", 1, "Baignoire"), "not_found", "set_aside", [
+      read("b", "plan-a", answer("not_found", null), setAside(), { entry: entry("plan") })])]);
+    expect(planEntry.retained).toBeNull();
+  });
+
+  it("never offers a bulk gesture on a plan already sent to an estimate", () => {
+    const [line] = lines([row(poste("a", 0, "Lavabo"), "measured", "pending", [read("a", "plan-a", answer("measured", 3), null,
+      { sent: true })])]);
+    expect(line.eligibility.accept_measured).toEqual({ eligible: false, reason: "sent" });
+    expect(line.eligibility.set_aside).toEqual({ eligible: false, reason: "sent" });
+    expect(line.reasons).toContain("sent");
+    const [aside] = lines([row(poste("a", 0, "Lavabo"), "measured", "set_aside", [read("a", "plan-a", answer("measured", 3), setAside(),
+      { sent: true })])]);
+    expect(aside.eligibility.reinstate).toEqual({ eligible: false, reason: "sent" });
+  });
+});
+
 describe("eligibility of the gestures", () => {
   const view = lines([
     row(poste("a", 0, "Lavabo"), "measured", "pending", [read("a", "plan-a", answer("measured", 3)), read("a", "plan-b", answer("not_found", null))]),
@@ -189,7 +246,7 @@ describe("eligibility of the gestures", () => {
 describe("the anomalies of an answer, from its positive rows", () => {
   const measured = answer("measured", 3);
   const rowOf = (extra: Partial<ItemContributionRow> = {}): ItemContributionRow => ({ id: measured.observations[0].takeoffItemId!,
-    isExcluded: false, rulesStale: false, ruleResults: [], confidence: 0.9, evidence: "symboles", sourcePage: 1, metadata: {},
+    quantity: 3, unit: "u", isVerified: false, isExcluded: false, rulesStale: false, ruleResults: [], confidence: 0.9, evidence: "symboles", sourcePage: 1, metadata: {},
     quantityEntryCategory: null, ...extra });
   const anomalies = (extra: Partial<ItemContributionRow> = {}, answerExtra: Partial<ItemAnswerView> = {}, expectedUnit: string | null = "u") =>
     itemAnswerAnomalies({ ...measured, ...answerExtra }, new Map([[rowOf().id, rowOf(extra)]]),

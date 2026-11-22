@@ -32,7 +32,13 @@ import {
   type ItemTableRow,
   type ItemTableScope,
 } from "./item-table";
-import type { ItemSelectionResponse, ItemTableLineResponse, ItemTableResponse } from "./item-table-contracts";
+import {
+  ITEM_HISTORY_EVENTS,
+  type ItemHistoryResponse,
+  type ItemSelectionResponse,
+  type ItemTableLineResponse,
+  type ItemTableResponse,
+} from "./item-table-contracts";
 import { QUANTITY_ENTRY_CATEGORIES, type QuantityEntryCategory } from "./quantity-entry";
 import { isTakeoffUnitState } from "./launch-request-coverage";
 
@@ -43,8 +49,11 @@ import { isTakeoffUnitState } from "./launch-request-coverage";
  * of the page's answers for their anomalies and builds the lines. Every screen, frozen selection and review command reads
  * the table through it, with the member's session.
  *
- * Statements for a page: the affaire's access, the table, its facets, the list's revision, the tenant's confidence
- * threshold, the positive rows of the page's answers (one per 500), the operator's right and the authors' names.
+ * Statements for a page, whatever the length of the list: the session's tenant membership and the affaire (its access),
+ * the list's revision, the facets, the operator's right, the page itself (twice for an address past the end: the first
+ * page is read instead), the positive rows of the page's answers (one statement per 500 rows), the tenant's confidence
+ * threshold (when the page holds an answer) and the authors' names (when a decision or an entry is shown): 9, plus one
+ * per 500 positive rows beyond the first 500, plus one past the end. The session's user is read from Auth, not SQL.
  */
 
 type Client = SupabaseClient<Database>;
@@ -126,6 +135,11 @@ function answerView(answer: TakeoffItemAnswer, rows: ReadonlyMap<string, ItemCon
     confidence: observation.confidence,
     method: observation.method,
     takeoffItemId: observation.takeoffItemId,
+    row: (() => {
+      const reviewed = observation.role === "contribution" && observation.takeoffItemId ? rows.get(observation.takeoffItemId) : undefined;
+      return reviewed ? { quantity: reviewed.quantity, unit: reviewed.unit, isVerified: reviewed.isVerified,
+        isExcluded: reviewed.isExcluded } : null;
+    })(),
   }] : []);
   const view: Omit<ItemAnswerView, "anomalies"> = {
     answerId: answer.answerId,
@@ -149,11 +163,12 @@ async function contributionRows(client: Client, tenantId: string, ids: readonly 
   const rows = new Map<string, ItemContributionRow>();
   for (let start = 0; start < ids.length; start += ROWS_PER_READ) {
     const { data, error } = await client.from("takeoff_items")
-      .select("id, is_excluded, rules_stale, rule_results, confidence, evidence, source_page, metadata, quantity_entry_category")
+      .select("id, quantity, unit, is_verified, is_excluded, rules_stale, rule_results, confidence, evidence, source_page, metadata, quantity_entry_category")
       .eq("tenant_id", tenantId).in("id", ids.slice(start, start + ROWS_PER_READ));
     if (error) readFailure(error);
     for (const row of data ?? []) {
-      rows.set(row.id, { id: row.id, isExcluded: row.is_excluded, rulesStale: row.rules_stale === true,
+      rows.set(row.id, { id: row.id, quantity: Number(row.quantity), unit: row.unit, isVerified: row.is_verified === true,
+        isExcluded: row.is_excluded, rulesStale: row.rules_stale === true,
         ruleResults: row.rule_results, confidence: row.confidence === null ? null : Number(row.confidence),
         evidence: row.evidence, sourcePage: row.source_page, metadata: row.metadata,
         quantityEntryCategory: row.quantity_entry_category });
@@ -201,6 +216,7 @@ async function tableRows(access: AffaireAccess, rows: readonly TableRow[]): Prom
         decision: decisionOf(reading.decision),
         decisionRevision: asFiniteNumber(reading.decision_revision) ?? 0,
         entry: entryOf(reading.entry),
+        sent: reading.sent === true,
       };
     });
     return {
@@ -365,13 +381,46 @@ export async function freezeAffaireItemSelection(projectId: string, input: {
   const rows = await readRows(access, { scope: input.scope, offset: 0, limit: ITEM_REVIEW_LIMITS.items + 1,
     ...(input.selection.kind === "filter" ? { filter: input.selection.filter } : { itemIds: input.selection.itemIds }) });
   try {
-    if (rows.length > ITEM_REVIEW_LIMITS.items) throw new RangeError(ITEM_SELECTION_TOO_LARGE);
+    // The count SQL gives, never the rows returned: a page of the Data API holds 1 000 rows at most, so 1 001 items
+    // matching would arrive as 1 000. Above the bound the selection is refused before anything is built.
+    if (Math.max(rows.length, rows[0]?.matching_items ?? 0) > ITEM_REVIEW_LIMITS.items) throw new RangeError(ITEM_SELECTION_TOO_LARGE);
     const lines = buildItemLines(await tableRows(access, rows), { plans: [], scope: input.scope });
     return freezeItemSelection(lines, input.selection.kind === "items" ? input.selection.itemIds : null);
   } catch (error) {
     if (error instanceof RangeError) throw unprocessableEntity(error.message, undefined, "TAKEOFF_ITEM_SELECTION_TOO_LARGE");
     throw error;
   }
+}
+
+/**
+ * The review history of one item: the journal's events of the line (takeoff_item_review_events), newest first, by pages,
+ * read with the member's session under the affaire's read rule (the journal's own policy), with the authors' names.
+ */
+export async function readAffaireItemHistory(projectId: string, itemId: string, page: { offset: number; limit: number }):
+  Promise<ItemHistoryResponse> {
+  const access = await requireAffaireAccess(projectId, "read");
+  const client = access.context.supabase as unknown as Client;
+  const { data, error } = await client.from("takeoff_item_review_events")
+    .select("id, event, plan_logical_id, takeoff_item_id, before, after, actor_id, at")
+    .eq("tenant_id", access.context.tenantId).eq("project_id", access.project.id).eq("item_id", itemId)
+    .order("id", { ascending: false }).range(page.offset, page.offset + page.limit);
+  if (error) readFailure(error);
+  const rows = data ?? [];
+  const isEvent = (value: string): value is (typeof ITEM_HISTORY_EVENTS)[number] =>
+    (ITEM_HISTORY_EVENTS as readonly string[]).includes(value);
+  const events = rows.slice(0, page.limit).flatMap((row) => isEvent(row.event) ? [{
+    id: Number(row.id), event: row.event, planKey: row.plan_logical_id, takeoffItemId: row.takeoff_item_id,
+    before: asRecord(row.before) ?? null, after: asRecord(row.after) ?? null, actorId: row.actor_id, at: row.at,
+  }] : []);
+  const people = [...new Set(events.map(({ actorId }) => actorId))];
+  const names: Record<string, string> = {};
+  if (people.length) {
+    const { data: profiles, error: namesError } = await client.from("profiles").select("id, full_name").in("id", people);
+    if (namesError) throw mapSupabaseError(namesError, "Impossible de lire les auteurs des décisions sur les postes.");
+    for (const profile of profiles ?? []) if (profile.full_name?.trim()) names[profile.id] = profile.full_name.trim();
+  }
+  return { projectId: access.project.id, itemId, events, offset: page.offset, limit: page.limit, hasMore: rows.length > page.limit,
+    names };
 }
 
 export { reviewerRight as itemReviewerRight };

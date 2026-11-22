@@ -15,6 +15,8 @@ import {
   itemSelectionRequestSchema,
   itemSelectionResponseSchema,
   itemTableLineResponseSchema,
+  ITEM_HISTORY_LIMIT,
+  itemHistoryResponseSchema,
   itemTableResponseSchema,
 } from "@/lib/takeoff/item-table-contracts";
 import { takeoffJobActionResponseSchema } from "@/lib/takeoff/job-response-contracts";
@@ -659,6 +661,23 @@ const takeoffOperationsContracts: RouteContract[] = [
       { name: "itemId", schema: uuidSchema, description: "Poste de la liste." }],
     success: [{ status: "200", description: "Le poste.", schema: {
       schemaName: "ApiTakeoffItemLineResponse", schema: z.object({ ok: z.literal(true), data: itemTableLineResponseSchema }), io: "output",
+    } }],
+  },
+  {
+    id: "get-affaire-takeoff-item-history",
+    method: "get",
+    path: "/api/affaires/{projectId}/takeoff/items/{itemId}/history",
+    summary: "Lire l’historique de revue d’un poste du métré",
+    description: "Lecteurs de l’affaire. Les événements du journal de revue d’un poste (acceptation, écart, réintégration, saisie, inclusion et leurs effets sur les lignes), du plus récent au plus ancien, page par page, avec les auteurs.",
+    tags: ["Takeoff"],
+    pathParameters: [{ name: "projectId", schema: uuidSchema, description: "Affaire cible." },
+      { name: "itemId", schema: uuidSchema, description: "Poste de la liste." }],
+    queryParameters: [
+      { name: "offset", schema: z.coerce.number().int().min(0).optional(), description: "Rang du premier événement (0 : le plus récent)." },
+      { name: "limit", schema: z.coerce.number().int().min(1).max(ITEM_HISTORY_LIMIT.max).optional(), description: "Événements par page (20 par défaut)." },
+    ],
+    success: [{ status: "200", description: "Une page de l’historique.", schema: {
+      schemaName: "ApiTakeoffItemHistoryResponse", schema: z.object({ ok: z.literal(true), data: itemHistoryResponseSchema }), io: "output",
     } }],
   },
   {

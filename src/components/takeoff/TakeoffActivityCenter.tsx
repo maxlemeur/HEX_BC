@@ -514,8 +514,9 @@ function TakeoffActivityCenterView({
         onChanged={refreshEverything}
       />
 
-      {/* The affaire's items, read again when a plan's reading moves (the signature of the poll above). */}
-      <TakeoffItemTable projectId={projectId} viewerKey={viewerKey} signature={refused ? undefined : activitySignature} />
+      {/* The affaire's items, read again when a plan's reading moves (the signature of the poll above); withdrawn with
+          the rest of the centre when its read is refused (an access removed). */}
+      {refused ? null : <TakeoffItemTable projectId={projectId} viewerKey={viewerKey} signature={activitySignature} />}
 
       {showTracking ? (
         <section className="journey-panel" aria-labelledby="takeoff-tracking-heading">

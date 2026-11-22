@@ -7,7 +7,7 @@ vi.mock("./feature-flags", () => ({ getTakeoffLowConfidenceThresholdForTenant: v
 
 import { requireAffaireAccess } from "@/lib/affaires/access-server";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
-import { freezeAffaireItemSelection, readAffaireItemLine, readAffaireItemTable } from "./item-table-server";
+import { freezeAffaireItemSelection, readAffaireItemHistory, readAffaireItemLine, readAffaireItemTable } from "./item-table-server";
 import { ITEM_REVIEW_LIMITS } from "./item-table";
 
 const PROJECT = "11111111-1111-4111-8111-111111111111";
@@ -52,15 +52,22 @@ const calls: Array<{ name: string; args: Record<string, unknown> }> = [];
 const reads: string[] = [];
 let tableRows: Array<Record<string, unknown>> = [];
 let takeoffRows: Array<Record<string, unknown>> = [];
+let events: Array<Record<string, unknown>> = [];
+const ranges: Array<[number, number]> = [];
 
 function memberClient() {
   const from = (table: string) => {
     reads.push(table);
     const data = table === "takeoff_items" ? takeoffRows
       : table === "takeoff_list_revisions" ? [{ id: "44444444-4444-4444-8444-444444444444", revision: 2, item_count: 2 }]
-        : table === "profiles" ? [] : (() => { throw new Error(`Unexpected read of ${table}.`); })();
+        : table === "takeoff_item_review_events" ? events
+          : table === "profiles" ? [{ id: MEMBER, full_name: " Léa Martin " }] : (() => { throw new Error(`Unexpected read of ${table}.`); })();
     const builder: Record<string, unknown> = {};
     for (const method of ["select", "eq", "in", "order", "limit"]) builder[method] = () => builder;
+    builder.range = (from: number, to: number) => {
+      ranges.push([from, to]);
+      return builder;
+    };
     builder.then = (resolve: (value: unknown) => unknown) => Promise.resolve({ data, error: null }).then(resolve);
     return builder;
   };
@@ -84,8 +91,10 @@ beforeEach(() => {
   vi.clearAllMocks();
   calls.length = 0;
   reads.length = 0;
+  ranges.length = 0;
+  events = [];
   tableRows = [tableRow(0), tableRow(1)];
-  takeoffRows = [{ id: rowId(0), is_excluded: false, rules_stale: false, rule_results: [], confidence: 0.4, evidence: "Symboles",
+  takeoffRows = [{ id: rowId(0), quantity: 3, unit: "u", is_verified: false, is_excluded: false, rules_stale: false, rule_results: [], confidence: 0.4, evidence: "Symboles",
     source_page: 1, metadata: {}, quantity_entry_category: null }];
   vi.mocked(requireAffaireAccess).mockResolvedValue({ context: { tenantId: TENANT, userId: MEMBER, supabase: memberClient() },
     project: { id: PROJECT } } as never);
@@ -149,6 +158,14 @@ describe("freezeAffaireItemSelection", () => {
       .rejects.toMatchObject({ status: 422, code: "TAKEOFF_ITEM_SELECTION_TOO_LARGE" });
   });
 
+  it("refuses 1 001 matching items from the count the database gives, before building anything", async () => {
+    // The Data API gives 1 000 rows at most: the 1 001st is only in the count.
+    tableRows = Array.from({ length: ITEM_REVIEW_LIMITS.items }, (_, index) => tableRow(index, { matching_items: ITEM_REVIEW_LIMITS.items + 1 }));
+    await expect(freezeAffaireItemSelection(PROJECT, { scope: { kind: "affaire" }, selection: { kind: "filter", filter: {} } }))
+      .rejects.toMatchObject({ status: 422, code: "TAKEOFF_ITEM_SELECTION_TOO_LARGE" });
+    expect(reads).not.toContain("takeoff_items");
+  });
+
   it("freezes the items named, and names those no longer in the list", async () => {
     tableRows = [tableRow(1)];
     const frozen = await freezeAffaireItemSelection(PROJECT, { scope: { kind: "affaire" },
@@ -156,5 +173,18 @@ describe("freezeAffaireItemSelection", () => {
     expect(frozen).toMatchObject({ count: 1, missing: [itemId(9)], items: [{ itemId: itemId(1), label: "Poste 1" }] });
     expect(calls.find(({ name }) => name === "read_takeoff_item_table")?.args).toMatchObject({ p_item_ids: [itemId(1), itemId(9)],
       p_limit: ITEM_REVIEW_LIMITS.items + 1 });
+  });
+});
+
+describe("the history of a line", () => {
+  it("reads its journal by pages, newest first, with the authors' names", async () => {
+    events = Array.from({ length: 21 }, (_, index) => ({ id: 100 - index, event: index % 2 ? "set_aside" : "reinstated",
+      plan_logical_id: PLAN, takeoff_item_id: null, before: { kind: "set_aside" }, after: { kind: "none" }, actor_id: MEMBER,
+      at: "2026-11-22T09:00:00Z" }));
+    const page = await readAffaireItemHistory(PROJECT, itemId(1), { offset: 20, limit: 20 });
+    expect(ranges).toEqual([[20, 40]]);
+    expect(page).toMatchObject({ itemId: itemId(1), offset: 20, limit: 20, hasMore: true, names: { [MEMBER]: "Léa Martin" } });
+    expect(page.events).toHaveLength(20);
+    expect(page.events[0]).toMatchObject({ id: 100, event: "reinstated", planKey: PLAN, actorId: MEMBER });
   });
 });

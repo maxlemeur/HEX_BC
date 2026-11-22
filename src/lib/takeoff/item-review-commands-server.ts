@@ -13,7 +13,7 @@ import { noteLength } from "@/lib/takeoff/rules/verification";
 import { asRecord } from "@/lib/value-guards";
 import type { Database } from "@/types/database";
 import { quantityEntryError } from "./quantity-entry";
-import { ITEM_INELIGIBILITIES, planItemReviewCommand, type ItemIneligibility, type ItemTableLine, type ItemTableScope } from "./item-table";
+import { ITEM_INELIGIBILITIES, planItemReviewCommand, type ItemIneligibility, type ItemTableScope } from "./item-table";
 import {
   ITEM_SET_ASIDE_NOTE,
   type ItemRemeasureCommand,
@@ -98,16 +98,15 @@ const isIneligibility = (value: unknown): value is ItemIneligibility => (ITEM_IN
 
 /**
  * A set aside or a reinstatement changed the exclusion of positive rows, which the rules read: their rules (and their
- * peers') wait for the server, and are computed again now, as a member's save of a row does (item-patch-server.ts), for
- * the version of a job sent, or else the job. Best effort: a failed computation leaves them waiting, as it does there.
+ * peers') wait for the server. The database names those jobs in its answer, kept in the command's receipt; the server
+ * computes their rules again now, as a member's save of a row does (item-patch-server.ts), for the version of a job
+ * sent, or else the job, and again on a replay of the same command, so that a refresh a stopped server owed is finished
+ * without deciding anything twice. Best effort: a failed computation leaves them waiting, as it does there.
  */
-async function refreshRulesOfRows(access: AffaireAccess, lines: readonly ItemTableLine[], applied: ReadonlySet<string>) {
-  const jobIds = [...new Set(lines.filter(({ itemId }) => applied.has(itemId)).flatMap(({ readings }) => readings
-    .flatMap(({ answer }) => answer?.observations.some(({ role, takeoffItemId }) => role === "contribution" && takeoffItemId)
-      ? [answer.jobId] : [])))];
+async function refreshRulesOfJobs(access: AffaireAccess, jobIds: readonly string[]) {
   if (!jobIds.length) return;
   const { data, error } = await (access.context.supabase as unknown as Client).from("takeoff_jobs")
-    .select("id, estimate_version_id, project_id").eq("tenant_id", access.context.tenantId).in("id", jobIds);
+    .select("id, estimate_version_id, project_id").eq("tenant_id", access.context.tenantId).in("id", [...jobIds]);
   if (error) return;
   const tenantId = access.context.tenantId;
   const versions = [...new Set((data ?? []).flatMap(({ estimate_version_id }) => estimate_version_id ? [estimate_version_id] : []))];
@@ -161,9 +160,7 @@ export async function runItemReviewCommand(projectId: string, command: ItemRevie
     const row = asRecord(entry) ?? {};
     return isIneligibility(row.reason) ? [{ itemId: String(row.item_id), label: String(row.label ?? "Poste"), reason: row.reason }] : [];
   }) : [];
-  if (answer.replayed !== true && (command.gesture === "set_aside" || command.gesture === "reinstate") && applied.length) {
-    await refreshRulesOfRows(access, lines, new Set(applied.map(({ itemId }) => itemId)));
-  }
+  await refreshRulesOfJobs(access, Array.isArray(answer.rules_jobs) ? answer.rules_jobs.map(String) : []);
   return { outcome: answer.replayed === true ? "replayed" : "applied", applied, skipped: left };
 }
 

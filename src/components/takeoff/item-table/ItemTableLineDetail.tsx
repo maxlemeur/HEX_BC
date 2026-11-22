@@ -12,6 +12,7 @@ import {
 import { QUANTITY_ENTRY_CATEGORIES } from "@/lib/takeoff/quantity-entry";
 import { takeoffReviewHref } from "@/lib/takeoff/review-href";
 import { Button } from "@/components/ui/button";
+import { ItemTableHistory } from "./ItemTableHistory";
 
 const OUTCOME_LABELS = { measured: "Mesuré", uncertain: "Incertain", not_found: "Non trouvé" } as const;
 const dateFormat = new Intl.DateTimeFormat("fr-FR", { dateStyle: "short", timeStyle: "short", timeZone: "Europe/Paris" });
@@ -33,7 +34,8 @@ function EntryFacts({ entry, names }: { entry: Entry; names: Record<string, stri
 
 /**
  * The detail of an item: each plan it was asked about, the answer of that plan (the model's raw result, kept as read),
- * its pages, sources and reasons, the decision taken and who took it, and the quantity entered. The targeted proof and
+ * its pages, sources and reasons, its positive rows as they are once reviewed, the decision taken and who took it, the
+ * quantity entered, and the review's history (who accepted, set aside or reinstated it, and why). The targeted proof and
  * correction of the existing review stays one link away.
  */
 export function ItemTableLineDetail({ line, projectId, names, canReview, busy, onIncludeEntry }: {
@@ -90,6 +92,9 @@ export function ItemTableLineDetail({ line, projectId, names, canReview, busy, o
                             {formatItemQuantity(observation.quantity, observation.unit)}
                             {observation.role === "alternative" ? " (autre lecture, non comptée)"
                               : observation.role === "candidate" ? " (indice, non compté)" : ""}
+                            {observation.row && (observation.row.quantity !== observation.quantity || observation.row.unit !== observation.unit)
+                              ? ` · ligne revue : ${formatItemQuantity(observation.row.quantity, observation.row.unit)}` : ""}
+                            {observation.row?.isExcluded ? " · ligne exclue" : ""}
                             {observation.page ? ` · page ${observation.page}` : ""}
                             {observation.evidence ? ` · source : ${observation.evidence}` : ""}
                             {observation.confidence !== null ? ` · confiance ${Math.round(observation.confidence * 100)} %` : ""}
@@ -117,6 +122,8 @@ export function ItemTableLineDetail({ line, projectId, names, canReview, busy, o
           })}
         </ul>
       )}
+      <ItemTableHistory projectId={projectId} itemId={line.itemId}
+        plans={Object.fromEntries(line.readings.map(({ planKey, planName }) => [planKey, planName]))} />
     </div>
   );
 }

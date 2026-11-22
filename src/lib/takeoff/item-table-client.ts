@@ -7,6 +7,7 @@ import {
   itemRemeasureResultSchema,
   itemReviewResultSchema,
   itemReviewStaleDetailsSchema,
+  itemHistoryResponseSchema,
   itemSelectionResponseSchema,
   itemTableLineResponseSchema,
   itemTableResponseSchema,
@@ -49,6 +50,12 @@ export function fetchItemTable(projectId: string, address: ItemTableAddress) {
   const query = params.toString();
   return call(`${base(projectId)}${query ? `?${query}` : ""}`, { method: "GET" }, itemTableResponseSchema, READ_FAILURE,
     TAKEOFF_READ_REQUEST_TIMEOUT_MS);
+}
+
+/** The review history of one item, newest first, by pages. */
+export function fetchItemHistory(projectId: string, itemId: string, page: { offset: number; limit: number }) {
+  return call(`${base(projectId)}/${encodeURIComponent(itemId)}/history?offset=${page.offset}&limit=${page.limit}`, { method: "GET" },
+    itemHistoryResponseSchema, READ_FAILURE, TAKEOFF_READ_REQUEST_TIMEOUT_MS);
 }
 
 /** One item of the list outside any filter (a link of the radar, the detail of an item). */

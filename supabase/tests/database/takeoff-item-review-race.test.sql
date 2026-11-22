@@ -6,6 +6,9 @@
 -- 3. A targeted review excludes a positive row while the item is accepted in bulk: the acceptance waits for the job's
 --    rules, then judges the row as committed and answers stale; the row stays excluded, never verified over the change.
 -- 4. Commands on two affaires do not wait for each other.
+-- 5. A set aside waits behind a targeted save on the job's rules while a new reading of the plan publishes a
+--    replacement answer: the command compares what is current once its locks are held, and answers stale; the
+--    superseded answer is not set aside, the replacement inherits no decision.
 -- Isolation justified: these interleavings exist only across sessions, which no journey drives deterministically. Each
 -- held transaction is stopped at a named point; the waits are bounded conditions. All values are fictional.
 begin;
@@ -130,6 +133,12 @@ create function pg_temp.claim_sql(project integer, token integer) returns text l
   select format($claim$select count(*) from public.claim_observed_local_takeoff_job(%L, %L, %L, clock_timestamp(), %L,
     clock_timestamp() + interval '30 minutes', 'modele-fictif', 'fixture', 'pending', 0)$claim$,
     pg_temp.job(project), pg_temp.tenant(), pg_temp.host(), pg_temp.f(token))
+$$;
+-- The relaunch of an affaire's plan (a second reading, its job 1100 + n) and its publication (its row 850 + n).
+create function pg_temp.relaunch_sql(project integer) returns text language sql stable as $$
+  select replace(replace(pg_temp.launch_sql(project), format('%L, ''initial'', null', pg_temp.f(500 + project)),
+    format('%L, ''reread_plans'', %L', pg_temp.f(600 + project), pg_temp.job(project))),
+    pg_temp.job(project)::text || '", "plan_set_id"', pg_temp.f(1100 + project)::text || '", "plan_set_id"')
 $$;
 -- The publication of an affaire's unit: its first item measured (2 on page 2, row 800 + n of the result), its second not
 -- found.
@@ -316,6 +325,34 @@ select is((select x.outcome::jsonb ->> 'outcome' from extensions.dblink('race_b'
 select is(extensions.dblink_exec('race_a', 'commit'), 'COMMIT', 'the first commits');
 select results_eq($$select item_id, kind from public.takeoff_item_answer_decisions where item_id in (pg_temp.f(301), pg_temp.f(311))
   order by item_id$$, $$values (pg_temp.f(301), 'none'::text), (pg_temp.f(311), 'set_aside'::text)$$, 'both applied');
+
+-- 5. A replacement answer published while a set aside waits for the job's rules.
+select is(extensions.dblink_exec('race_a', 'begin'), 'BEGIN', 'a targeted save holds the rules of affaire 21''s plan');
+select is((select x.held from extensions.dblink('race_a', format($hold$select pg_advisory_xact_lock(hashtextextended(%L, 0))::text
+    || pg_advisory_xact_lock(hashtextextended(%L, 0))::text$hold$, 'takeoff-job-rules:' || pg_temp.job(21), 'takeoff-job:' || pg_temp.job(21)))
+  as x(held text)), '', 'its keys held, not yet committed');
+create temp table superseded as select pg_temp.target(310) -> 'answers' -> 0 ->> 'answer_id' as answer_id;
+select is(extensions.dblink_send_query('race_b', pg_temp.review_sql(21, pg_temp.cmd('set_aside', 606, array[310],
+  '{"reason":"duplicate"}'))), 1, 'the table sets the valve aside meanwhile, with the answer it read');
+select ok(pg_temp.waits_for('race_b', 'race_a'), 'the set aside waits for the job''s rules');
+select is((select x.outcome from extensions.dblink('race_setup', pg_temp.relaunch_sql(21)) as x(outcome text)), 'admitted',
+  'meanwhile the plan is read again');
+select is((select x.claimed from extensions.dblink('race_setup', replace(pg_temp.claim_sql(21, 931), pg_temp.job(21)::text,
+  pg_temp.f(1121)::text)) as x(claimed bigint)), 1::bigint, 'its new job claimed');
+select is((select split_part(x.answer, ':', 2) from extensions.dblink('race_setup', replace(replace(pg_temp.publish_sql(21, 931),
+  pg_temp.job(21)::text, pg_temp.f(1121)::text), pg_temp.f(821)::text, pg_temp.f(871)::text)) as x(answer text)), 'false',
+  'and its replacement answers published, committed');
+select is(extensions.dblink_exec('race_a', 'commit'), 'COMMIT', 'the targeted save commits');
+select ok(pg_temp.answered('race_b'), 'the set aside answers');
+select is((select x.outcome::jsonb from extensions.dblink_get_result('race_b', false) as x(outcome text)),
+  jsonb_build_object('outcome', 'stale', 'stale', jsonb_build_array(pg_temp.f(310))),
+  'stale: what it read is no longer current once its locks are held');
+select diag(concat('set aside over a replacement: ', extensions.dblink_error_message('race_b')));
+select is((select count(*)::integer from extensions.dblink_get_result('race_b', false) as x(outcome text)), 0, 'and is done');
+select is((select count(*)::integer from public.takeoff_item_answer_decisions where answer_id::text = (select answer_id from superseded)),
+  0, 'the superseded answer is not set aside');
+select is((select count(*)::integer from public.takeoff_item_answer_decisions d join public.takeoff_item_answers a on a.id = d.answer_id
+  where a.job_id = pg_temp.f(1121)), 0, 'the replacement inherits no decision');
 
 select is(extensions.dblink_exec('race_setup', $cleanup$
 begin;

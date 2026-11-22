@@ -17,11 +17,15 @@ import { toUnitToken } from "./units";
  * with its revision.
  */
 
+/**
+ * What keeps a measured answer out of the bulk acceptance, judged from its positive rows as they now are; the database
+ * judges the same (private.takeoff_item_row_anomalies, on the vectors of supabase/tests/database/takeoff-item-review.test.sql).
+ * A page decision belongs to the send to a version (a job reading a list has none before its send applies it), and an
+ * answer of a list has no source to choose (its other readings never count): neither keeps a line out here.
+ */
 export const ITEM_ANSWER_ANOMALIES = [
   /** A contribution is an hypothesis (estimated, or a quantity the plan cannot show). */
   "hypothesis",
-  /** Alternative readings of one object still to choose between. */
-  "source_choice",
   /** A confidence below the tenant's threshold. */
   "low_confidence",
   /** A located proof (evidence or page) missing. */
@@ -31,9 +35,7 @@ export const ITEM_ANSWER_ANOMALIES = [
   "rules_stale",
   /** A remark of the reading on a measured answer (a duplicate reading, a vector reading alone…), or a positive row excluded. */
   "alert",
-  /** A page already in the estimate waits for its decision. */
-  "page_decision",
-  /** The answer's unit is not the item's expected unit. */
+  /** A positive row's unit is not the item's expected unit. */
   "unit_mismatch",
 ] as const;
 export type ItemAnswerAnomaly = (typeof ITEM_ANSWER_ANOMALIES)[number];
@@ -80,7 +82,11 @@ export type ItemObservationView = {
   method: string | null;
   /** A contribution's row of the job (what the targeted review corrects). */
   takeoffItemId: string | null;
+  /** That row as it now is, once reviewed: what an acceptance verifies and the table retains (null: not a contribution, or not readable). */
+  row: ItemReviewedRow | null;
 };
+
+export type ItemReviewedRow = { quantity: number; unit: string; isVerified: boolean; isExcluded: boolean };
 
 /** One stored answer of an item on a plan (its raw reading), with the anomalies the server found for its review. */
 export type ItemAnswerView = {
@@ -122,6 +128,8 @@ export type ItemReadingInput = {
   decision: ItemAnswerDecision | null;
   decisionRevision: number;
   entry: ItemEntryView | null;
+  /** The answer's plan was sent to an estimate (its job applied): its rows are the estimate's, no bulk gesture writes them. */
+  sent: boolean;
 };
 
 /** A quantity entered by a member for the whole item (affaire) or for its answer on one plan. */
@@ -170,7 +178,7 @@ export type ItemTableRow = {
 /** Why a gesture does not apply to a line, by its code: the screen words each one. */
 export const ITEM_INELIGIBILITIES = [
   "not_measured", "coverage_incomplete", "anomaly", "dpgf_gap", "unit_conflict", "already_decided", "entered", "no_answer",
-  "already_set_aside", "not_set_aside", "not_entry_state", "no_entry_to_include", "reading", "no_plan",
+  "already_set_aside", "not_set_aside", "not_entry_state", "no_entry_to_include", "reading", "no_plan", "sent",
 ] as const;
 export type ItemIneligibility = (typeof ITEM_INELIGIBILITIES)[number];
 
@@ -230,29 +238,65 @@ function asPlanReading(reading: ItemReadingInput): ItemPlanReading {
 
 type LineReading = ItemTableLine["readings"][number];
 
-function retainedOf(readings: readonly LineReading[], entry: ItemEntryView | null, complete: boolean): ItemTableLine["retained"] {
-  if (entry) {
-    return entry.included ? { quantity: entry.quantity, unit: entry.unit, source: "entered", partial: false } : null;
-  }
-  const parts: Array<{ quantity: number; unit: string; source: "measured" | "entered" }> = [];
-  let undecided = !complete;
+/** A measured answer's positive rows as they now are (an excluded row counts nothing): what an acceptance verifies. */
+function reviewedParts(answer: ItemAnswerView) {
+  return answer.observations.flatMap(({ role, row }) => role === "contribution" && row && !row.isExcluded
+    ? [{ quantity: row.quantity, unit: row.unit }] : []);
+}
+
+const setAsideAll = (readings: readonly LineReading[]) => {
+  const answered = readings.filter(({ answer }) => answer);
+  return answered.length > 0 && answered.every(({ decision }) => decision?.kind === "set_aside");
+};
+
+type Part = { quantity: number; unit: string; source: "measured" | "entered" };
+
+/**
+ * What the line counts, plan by plan: an answer set aside counts nothing (a plan's entry on it neither), a plan's included
+ * entry stands for its answer, a measured answer counts its positive rows as they now are; `undecided` measured answers
+ * count only in the prospect (what an acceptance would retain), never in what is retained.
+ */
+function partsOf(readings: readonly LineReading[], prospect: boolean) {
+  const parts: Part[] = [];
+  let undecided = false;
   for (const reading of readings) {
-    if (!reading.answer) continue;
+    if (!reading.answer || reading.decision?.kind === "set_aside") continue;
     if (reading.entry) {
       if (reading.entry.included) parts.push({ quantity: reading.entry.quantity, unit: reading.entry.unit, source: "entered" });
       continue;
     }
-    if (reading.decision?.kind === "set_aside") continue;
-    const measured = reading.answer.outcome === "measured" ? reading.answer.quantity : null;
-    if (reading.decision?.kind === "accepted" && measured) parts.push({ ...measured, source: "measured" });
-    else if (!reading.decision) undecided = true;
+    const accepted = reading.decision?.kind === "accepted";
+    if (!accepted) undecided = true;
+    if (reading.answer.outcome === "measured" && (accepted || prospect)) {
+      parts.push(...reviewedParts(reading.answer).map((part) => ({ ...part, source: "measured" as const })));
+    }
   }
-  if (!parts.length) return null;
-  const token = toUnitToken(parts[0].unit);
-  if (parts.some(({ unit }) => toUnitToken(unit) !== token)) return null;
+  return { parts, undecided };
+}
+
+const oneUnit = (parts: readonly Part[]) => parts.every(({ unit }) => toUnitToken(unit) === toUnitToken(parts[0].unit));
+
+function retainedOf(readings: readonly LineReading[], entry: ItemEntryView | null, complete: boolean): ItemTableLine["retained"] {
+  // A line every answer of which is set aside counts nothing: its entry is kept for the history and a reinstatement.
+  if (setAsideAll(readings)) return null;
+  if (entry) {
+    return entry.included ? { quantity: entry.quantity, unit: entry.unit, source: "entered", partial: false } : null;
+  }
+  const { parts, undecided } = partsOf(readings, false);
+  if (!parts.length || !oneUnit(parts)) return null;
   const sources = new Set(parts.map(({ source }) => source));
   return { quantity: sum(parts.map(({ quantity }) => quantity)), unit: parts[0].unit,
-    source: sources.size > 1 ? "mixed" : parts[0].source, partial: undecided };
+    source: sources.size > 1 ? "mixed" : parts[0].source, partial: undecided || !complete };
+}
+
+/** What an acceptance of the line's measured answers would retain: the basis of the DPGF gap and of the unit conflict. */
+function prospectOf(readings: readonly LineReading[], entry: ItemEntryView | null) {
+  if (setAsideAll(readings)) return { total: null, unitConflict: false };
+  if (entry) return { total: entry.included ? { quantity: entry.quantity } : null, unitConflict: false };
+  const { parts } = partsOf(readings, true);
+  if (!parts.length) return { total: null, unitConflict: false };
+  if (!oneUnit(parts)) return { total: null, unitConflict: true };
+  return { total: { quantity: sum(parts.map(({ quantity }) => quantity)) }, unitConflict: false };
 }
 
 function gapOf(item: ItemTablePoste, basis: { quantity: number } | null, complete: boolean): ItemTableLine["gap"] {
@@ -267,8 +311,11 @@ function eligibility(line: Omit<ItemTableLine, "eligibility" | "remeasurePlans">
   const answered = line.readings.filter(({ answer }) => answer);
   const undecided = answered.filter(({ decision, entry }) => !decision && !entry);
   const complete = line.coverage.expected > 0 && line.coverage.answered === line.coverage.expected;
+  // A plan sent to an estimate: its rows are the estimate's; no bulk gesture verifies, excludes or gives them back.
+  const sent = answered.some((reading) => reading.sent);
 
   const accept = (() => {
+    if (sent) return no("sent");
     if (line.state === "reading" || line.state === "incomplete" || line.state === "failed") return no("coverage_incomplete");
     if (line.state !== "measured") return no("not_measured");
     if (line.entry) return no("entered");
@@ -278,9 +325,10 @@ function eligibility(line: Omit<ItemTableLine, "eligibility" | "remeasurePlans">
     if (line.reasons.includes("unit_conflict")) return no("unit_conflict");
     return yes;
   })();
-  const setAside = !answered.length ? no("no_answer")
+  const setAside = !answered.length ? no("no_answer") : sent ? no("sent")
     : answered.some(({ decision }) => decision?.kind !== "set_aside") ? yes : no("already_set_aside");
-  const reinstate = answered.some(({ decision }) => decision?.kind === "set_aside") ? yes : no("not_set_aside");
+  const reinstate = sent && answered.some(({ decision }) => decision?.kind === "set_aside") ? no("sent")
+    : answered.some(({ decision }) => decision?.kind === "set_aside") ? yes : no("not_set_aside");
   const enter = complete && (line.state === "not_found" || line.state === "uncertain") ? yes : no("not_entry_state");
   const includeEntry = line.entry && !line.entry.included ? yes : no("no_entry_to_include");
 
@@ -307,11 +355,14 @@ function buildLine(row: ItemTableRow, plans: readonly ItemTablePlan[], scope: It
     decision: reading.decision,
     // In a plan's scope the entry of the plan is the line's own: it is not also a part of a reading.
     entry: scope.kind === "plan" ? null : reading.entry,
+    sent: reading.sent,
   }));
   const aggregate = aggregateItemReadings(row.readings.map(asPlanReading));
   const complete = row.coverage.expected > 0 && row.coverage.answered === row.coverage.expected;
+  // The raw reading stays observed; what is retained, and judged against the DPGF, is the reviewed rows as they now are.
   const retained = retainedOf(lineReadings, row.entry, complete);
-  const gap = gapOf(item, retained && !retained.partial ? retained : aggregate.observed, complete);
+  const prospect = prospectOf(lineReadings, row.entry);
+  const gap = gapOf(item, prospect.total, complete);
 
   const reasons = new Set<string>();
   for (const reading of row.readings) {
@@ -324,7 +375,8 @@ function buildLine(row: ItemTableRow, plans: readonly ItemTablePlan[], scope: It
     for (const anomaly of answer.anomalies) reasons.add(`anomaly:${anomaly}`);
     if (answer.unreadablePages.length) reasons.add("unreadable_pages");
   }
-  if (aggregate.unitConflict) reasons.add("unit_conflict");
+  if (prospect.unitConflict) reasons.add("unit_conflict");
+  if (row.readings.some(({ answer, sent }) => answer && sent)) reasons.add("sent");
   if (gap?.requiresReview) reasons.add("dpgf_gap");
   if (row.entry && !row.entry.included) reasons.add("hypothesis_to_include");
 
@@ -365,6 +417,9 @@ export function buildItemLines(rows: readonly ItemTableRow[], context: { plans: 
 /** A positive row of a measured answer, as its anomalies read it (takeoff_items, the row the targeted review corrects). */
 export type ItemContributionRow = {
   id: string;
+  quantity: number;
+  unit: string;
+  isVerified: boolean;
   isExcluded: boolean;
   rulesStale: boolean;
   ruleResults: unknown;
@@ -383,12 +438,7 @@ export type ItemContributionRow = {
 export function itemAnswerAnomalies(answer: Pick<ItemAnswerView, "outcome" | "quantity" | "reasonCode" | "observations">,
   rows: ReadonlyMap<string, ItemContributionRow>, context: { expectedUnit: string | null; lowConfidenceThreshold: number }) {
   const anomalies = new Set<ItemAnswerAnomaly>();
-  if (answer.outcome === "measured") {
-    if (answer.reasonCode) anomalies.add("alert");
-    if (context.expectedUnit && answer.quantity && toUnitToken(answer.quantity.unit) !== toUnitToken(context.expectedUnit)) {
-      anomalies.add("unit_mismatch");
-    }
-  }
+  if (answer.outcome === "measured" && answer.reasonCode) anomalies.add("alert");
   for (const observation of answer.observations) {
     if (observation.role !== "contribution" || !observation.takeoffItemId) continue;
     const row = rows.get(observation.takeoffItemId);
@@ -403,6 +453,9 @@ export function itemAnswerAnomalies(answer: Pick<ItemAnswerView, "outcome" | "qu
     if (row.confidence !== null && row.confidence < context.lowConfidenceThreshold) anomalies.add("low_confidence");
     if (!row.evidence?.trim() || row.sourcePage === null || row.sourcePage < 1) anomalies.add("missing_evidence");
     if (row.isExcluded) anomalies.add("alert");
+    if (answer.outcome === "measured" && context.expectedUnit && toUnitToken(row.unit) !== toUnitToken(context.expectedUnit)) {
+      anomalies.add("unit_mismatch");
+    }
   }
   return ITEM_ANSWER_ANOMALIES.filter((anomaly) => anomalies.has(anomaly));
 }

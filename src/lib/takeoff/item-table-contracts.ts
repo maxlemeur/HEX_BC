@@ -60,6 +60,8 @@ const observationSchema = z.object({
   confidence: confidence.nullable(),
   method: z.string().nullable(),
   takeoffItemId: uuid.nullable().describe("La ligne de l’analyse qu’une contribution est : ce que la revue ciblée corrige."),
+  row: z.object({ quantity, unit, isVerified: z.boolean(), isExcluded: z.boolean() }).strict().nullable()
+    .describe("Cette ligne telle qu’elle est revue : ce qu’une acceptation vérifie et ce que le tableau retient."),
 }).strict();
 
 const answerSchema = z.object({
@@ -140,6 +142,7 @@ const lineSchema = z.object({
     answer: answerSchema.nullable(),
     decision: decisionSchema.nullable(),
     entry: entrySchema.nullable(),
+    sent: z.boolean().describe("Le plan de la réponse est envoyé au devis : aucun geste en bloc n’écrit ses lignes."),
   }).strict()),
   targets: itemReviewTargetSchema,
   remeasurePlans: z.array(planKey),
@@ -179,6 +182,38 @@ export const itemTableLineResponseSchema = z.object({
 }).strict();
 
 export type ItemTableLineResponse = z.infer<typeof itemTableLineResponseSchema>;
+
+/** The journal's events of one item: what each review gesture did to it, and who, newest first, by pages. */
+export const ITEM_HISTORY_EVENTS = ["accepted", "set_aside", "reinstated", "entered", "entry_included", "row_verified",
+  "row_excluded", "row_restored"] as const;
+export const ITEM_HISTORY_LIMIT = { default: 20, max: 100 } as const;
+
+export const itemHistoryQuerySchema = z.object({
+  offset: z.coerce.number().int().min(0).max(1_000_000).default(0),
+  limit: z.coerce.number().int().min(1).max(ITEM_HISTORY_LIMIT.max).default(ITEM_HISTORY_LIMIT.default),
+}).strict();
+
+export const itemHistoryResponseSchema = z.object({
+  projectId: uuid,
+  itemId: uuid,
+  events: z.array(z.object({
+    id: count,
+    event: z.enum(ITEM_HISTORY_EVENTS),
+    planKey: planKey.nullable(),
+    takeoffItemId: uuid.nullable(),
+    before: z.record(z.string(), z.unknown()).nullable(),
+    after: z.record(z.string(), z.unknown()).nullable(),
+    actorId: uuid,
+    at: timestamp,
+  }).strict()),
+  offset: count,
+  limit: count,
+  hasMore: z.boolean(),
+  names: z.record(z.string(), z.string()).describe("Noms des membres auteurs des événements affichés."),
+}).strict();
+
+export type ItemHistoryResponse = z.infer<typeof itemHistoryResponseSchema>;
+export type ItemHistoryEvent = ItemHistoryResponse["events"][number];
 export type ItemTableResponseLine = ItemTableResponse["page"]["lines"][number];
 
 export const itemSelectionRequestSchema = z.object({

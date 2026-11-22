@@ -302,20 +302,42 @@ gestes sur une même affaire passent l’un après l’autre. La même commande 
 refusée. Chaque
 effet est journalisé, poste par poste et ligne par ligne.
 
+**Ordre des verrous des gestes.** La commande de revue
+(`public.review_takeoff_items`) prend, dans cet ordre et jamais à rebours : la ligne de
+l’affaire (`FOR KEY SHARE`, comme ses clés étrangères la prennent), puis la clé de revue de
+l’affaire `takeoff-item-review:<affaire>` (que seule cette commande prend), puis les clés de
+règles des analyses dont elle écrit les lignes positives, comme l’enregistrement d’une ligne
+de la revue ciblée les prend : la clé `takeoff-rules:<version>` de chaque version avant les
+clés `takeoff-job-rules:<analyse>` puis `takeoff-job:<analyse>` de chaque analyse sans
+version, chacune dans l’ordre des identifiants ; enfin les lignes (`takeoff_items`) et ses
+propres relations. Elle relit les postes visés une fois ces clés tenues : ce qu’elle compare
+et juge est ce qui est enregistré à ce moment. Les lectures du tableau ne prennent aucun
+verrou.
+
 - **Accepter les mesurés sans anomalie** : seulement les postes mesurés à couverture
-  complète, sans hypothèse, contrôle en échec ou à recalculer, confiance faible, preuve
-  localisée manquante, remarque de la lecture, unité différente ou écart DPGF. Un poste
-  incertain ne devient pas mesuré. Les lignes positives du poste sont vérifiées au nom du
-  membre, avec les contrôles d’une vérification, que la base refait ; rien n’est envoyé
-  au devis.
+  complète, sans hypothèse, contrôle en échec ou à recalculer, confiance sous le seuil du
+  tenant, preuve localisée manquante, remarque de la lecture, ligne dans une autre unité
+  que le poste, unités différentes selon les plans ou écart DPGF, et d’aucun plan déjà
+  envoyé au devis. La base refait chacune de ces règles à partir de ce qui est enregistré,
+  dans la transaction qui vérifie : aucun appel d’un membre n’accepte ce que le tableau
+  refuse. Un poste incertain ne devient pas mesuré. Les lignes positives du poste sont
+  vérifiées au nom du membre telles qu’elles sont revues ; rien n’est envoyé au devis. Une
+  décision de page déjà au devis appartient à l’envoi vers une version : une analyse qui
+  lit une liste n’a pas de version avant son envoi, qui l’applique.
 - **Écarter la sélection** : un motif choisi une fois (hors périmètre, doublon, erreur
   de lecture, autre avec une note), écrit sur chaque lecture concernée, y compris sans
   quantité. Les lignes positives sont exclues avec ce motif et leur vérification est
   retirée ; leurs règles et celles des lignes voisines sont recalculées aussitôt, comme
-  après une correction dans la revue ciblée. Un poste qu’aucun plan n’a lu n’a rien à
-  écarter. Une réintégration rend à chaque ligne ce qu’elle était (une hypothèse reste
-  exclue comme elle est arrivée) et garde la trace. Une ligne d’une analyse déjà envoyée
-  n’est pas modifiée.
+  après une correction dans la revue ciblée, et de nouveau si la même commande est
+  renvoyée (un recalcul interrompu s’achève ainsi sans rien décider deux fois). Un poste
+  qu’aucun plan n’a lu n’a rien à écarter. Un poste écarté ne retient rien : sa saisie,
+  celle de l’affaire comme celle d’un plan, est gardée pour l’historique et une
+  réintégration. Une réintégration sans changement entre-temps rend chaque ligne telle
+  qu’elle était, sa vérification comprise (par qui, quand, pourquoi), et la décision que
+  le poste avait ; si une ligne a changé entre-temps, chaque ligne retrouve son exclusion
+  d’avant sans sa vérification, le poste revient à décider, et l’historique le dit (une
+  hypothèse reste exclue comme elle est arrivée). Un plan déjà envoyé au devis n’est ni
+  écarté ni réintégré en bloc.
 - **Demander à l’IA de mesurer de nouveau** : un aperçu nomme le membre qui confirme,
   qui paie sur son propre forfait ChatGPT, le réglage de Mon profil, les plans et les
   postes ; un effort ponctuel peut être choisi sans changer le profil. Un seul poste
@@ -329,8 +351,14 @@ effet est journalisé, poste par poste et ligne par ligne.
   hypothèse saisie ne compte qu’une fois incluse, poste par poste. Aucun forçage.
 
 Le détail d’un poste montre chaque plan, ses pages cherchées et illisibles, ses sources,
-ses motifs, la décision et son auteur, et mène à la revue ciblée existante pour la
-preuve et la correction.
+ses motifs, ses lignes positives telles qu’elles sont revues, la décision et son auteur,
+l’historique de la revue (qui a accepté, écarté, réintégré, saisi ou inclus, quand et
+pourquoi, page par page), et mène à la revue ciblée existante pour la preuve et la
+correction. La quantité observée reste la lecture brute du modèle ; la quantité retenue
+est celle des lignes positives telles qu’elles sont revues (une correction ciblée y
+compte), et une acceptation qu’une correction ciblée a retirée redevient une décision à
+prendre. Un accès retiré retire le tableau, son détail et ses dialogues, quoi qu’il ait
+montré avant.
 
 ## Contrat actuel de contrôle ciblé — TI-681
 

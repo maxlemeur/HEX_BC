@@ -26,8 +26,15 @@ vi.mock("next/navigation", () => ({
 vi.mock("@/components/affaires/LaunchMetreDialog", () => ({ LaunchMetreDialog: () => null }));
 vi.mock("./TakeoffExceptionsTab", () => ({ default: () => null }));
 vi.mock("./TakeoffApplicationHistoryTab", () => ({ default: () => null }));
-// The table of items has its own tests (item-table/TakeoffItemTable.test.tsx).
-vi.mock("./item-table/TakeoffItemTable", () => ({ TakeoffItemTable: () => null }));
+// The table of items is the real one; only its transport is replaced: it reads on the page's poll signature only.
+const fetchItemTable = vi.hoisted(() => vi.fn(async () => ({
+  projectId: "project-1", canReview: false, list: null, scope: { kind: "affaire" }, filter: {}, plans: [],
+  facets: { states: {}, decisions: {}, families: [], locations: [], plans: [] },
+  page: { lines: [], total: 0, offset: 0, limit: 50, focusFound: false }, names: {}, observedAt: "2026-11-21T10:00:00.000Z",
+})));
+vi.mock("@/lib/takeoff/item-table-client", () => ({ fetchItemTable, fetchFrozenItemSelection: vi.fn(),
+  sendItemReviewCommand: vi.fn(), previewItemRemeasure: vi.fn(), sendItemRemeasure: vi.fn(), fetchItemHistory: vi.fn(),
+  fetchItemLine: vi.fn() }));
 
 import TakeoffActivityCenter from "./TakeoffActivityCenter";
 
@@ -90,17 +97,21 @@ describe("TakeoffActivityCenter polling", () => {
     expect(currentReads()).toBe(1);
     const listReads = fetchTakeoffActivityCenter.mock.calls.length;
     expect(listReads).toBeGreaterThan(0);
+    const tableReads = fetchItemTable.mock.calls.length;
+    expect(tableReads).toBe(1);
 
-    // Nothing moved: the light read is read again, the list is not.
+    // Nothing moved: the light read is read again, the list and the table of items are not.
     await act(async () => { await vi.advanceTimersByTimeAsync(30_500); });
     expect(currentReads()).toBe(2);
     expect(fetchTakeoffActivityCenter.mock.calls.length).toBe(listReads);
+    expect(fetchItemTable.mock.calls.length).toBe(tableReads);
 
     // The retry ran: the signature moved, the list is read again once, and the poll stops.
     answer = light(false, "retried");
     await act(async () => { await vi.advanceTimersByTimeAsync(30_500); });
     expect(currentReads()).toBe(3);
     expect(fetchTakeoffActivityCenter.mock.calls.length).toBeGreaterThan(listReads);
+    expect(fetchItemTable.mock.calls.length).toBe(tableReads + 1);
     const settled = [currentReads(), fetchTakeoffActivityCenter.mock.calls.length];
     await act(async () => { await vi.advanceTimersByTimeAsync(180_000); });
     expect([currentReads(), fetchTakeoffActivityCenter.mock.calls.length]).toEqual(settled);

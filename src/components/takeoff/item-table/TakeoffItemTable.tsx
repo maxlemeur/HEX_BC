@@ -7,6 +7,7 @@ import { ChevronDown } from "lucide-react";
 
 import type { ChatGptReasoningEffort } from "@/lib/ai/chatgpt-model-preferences";
 import { isTakeoffApiError } from "@/lib/takeoff/client-http";
+import { isTakeoffReadRefusal } from "../useTakeoffRequestActivity";
 import { ITEM_AGGREGATE_STATES } from "@/lib/takeoff/item-answer-aggregation";
 import { ITEM_LINE_DECISIONS, type ItemSetAsideReason, type ItemTableScope } from "@/lib/takeoff/item-table";
 import {
@@ -100,6 +101,32 @@ function storeSelection(key: string, selection: ItemSelection) {
   }
 }
 
+type StoredDrafts = Record<string, Draft & { line: ItemTableResponseLine }>;
+
+/** The values being typed, kept for the tab with the scope they were typed in (as the selection), never beyond it. */
+function readStoredDrafts(key: string, scopeKey: string): StoredDrafts {
+  try {
+    const stored = JSON.parse(window.sessionStorage.getItem(key) ?? "null") as { scope?: unknown; drafts?: unknown } | null;
+    if (!stored || stored.scope !== scopeKey || !stored.drafts || typeof stored.drafts !== "object") return {};
+    return Object.fromEntries(Object.entries(stored.drafts as Record<string, unknown>).flatMap(([itemId, value]) => {
+      const draft = value as Partial<Draft & { line: ItemTableResponseLine }> | null;
+      return draft && typeof draft.quantity === "string" && typeof draft.unit === "string" && draft.line?.itemId === itemId
+        ? [[itemId, { quantity: draft.quantity, unit: draft.unit, line: draft.line }]] : [];
+    }));
+  } catch {
+    return {};
+  }
+}
+
+function storeDrafts(key: string, scopeKey: string, drafts: StoredDrafts) {
+  try {
+    if (Object.keys(drafts).length) window.sessionStorage.setItem(key, JSON.stringify({ scope: scopeKey, drafts }));
+    else window.sessionStorage.removeItem(key);
+  } catch {
+    /* storage unavailable: the values live as long as the page */
+  }
+}
+
 function parseDecimal(text: string) {
   const value = Number(text.trim().replace(/\s/g, "").replace(",", "."));
   return text.trim() && Number.isFinite(value) && value > 0 ? value : null;
@@ -132,11 +159,14 @@ export function TakeoffItemTable({ projectId, viewerKey, signature }: {
     keepPreviousData: true, revalidateOnFocus: true, shouldRetryOnError: false,
   });
 
+  // The first signature the page's poll gives is the state the table's first read already shows: only a later one that
+  // differs reads the table again.
   const seenSignature = useRef(signature);
   useEffect(() => {
     if (signature === undefined || seenSignature.current === signature) return;
+    const first = seenSignature.current === undefined;
     seenSignature.current = signature;
-    void mutate();
+    if (!first) void mutate();
   }, [signature, mutate]);
 
   const storageKey = itemSelectionStorageKey(viewerKey, projectId);
@@ -151,9 +181,15 @@ export function TakeoffItemTable({ projectId, viewerKey, signature }: {
     storeSelection(storageKey, next);
   }, [storageKey]);
 
-  const [drafts, setDrafts] = useState<Record<string, Draft & { line: ItemTableResponseLine }>>({});
-  // A value typed belongs to the scope it was typed in.
-  useEffect(() => setDrafts({}), [scopeKey]);
+  // The values being typed stay for the tab after a reload, in the scope they were typed in, as the selection does.
+  const draftsKey = `${storageKey}:saisies`;
+  const [drafts, setDraftsState] = useState<StoredDrafts>({});
+  useEffect(() => setDraftsState(readStoredDrafts(draftsKey, scopeKey)), [draftsKey, scopeKey]);
+  const setDrafts = useCallback((update: (current: StoredDrafts) => StoredDrafts) => setDraftsState((current) => {
+    const next = update(current);
+    storeDrafts(draftsKey, scopeKey, next);
+    return next;
+  }), [draftsKey, scopeKey]);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [dialog, setDialog] = useState<null | { gesture: Gesture; intentKey: string }>(null);
   const [busy, setBusy] = useState(false);
@@ -295,6 +331,19 @@ export function TakeoffItemTable({ projectId, viewerKey, signature }: {
   const allOnPage = pageLines.length > 0 && pageLines.every(({ itemId }) => itemId in selection.items);
   const hasFilter = Object.keys(address.filter).length > 0 || address.scope.kind === "plan";
   const columns = canReview ? 14 : 11;
+
+  // An access removed: the table, its detail and its dialogs are withdrawn, whatever was read before.
+  if (isTakeoffReadRefusal(error)) {
+    return (
+      <JourneyPanel headingId="postes-du-metre" title="Postes du métré">
+        <div className="journey-panel-body">
+          <p className="text-sm text-danger" data-testid="poste-refus">
+            {isTakeoffApiError(error) ? error.message : "Accès refusé aux postes du métré."}
+          </p>
+        </div>
+      </JourneyPanel>
+    );
+  }
 
   return (
     <JourneyPanel headingId="postes-du-metre" title="Postes du métré">

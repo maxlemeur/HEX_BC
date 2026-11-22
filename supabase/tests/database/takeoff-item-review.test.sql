@@ -380,7 +380,71 @@ select pg_temp.sign_in(5);
 select is((select count(*)::integer from pg_temp.table_()), 0, 'another tenant''s admin reads nothing');
 select is((select count(*)::integer from public.count_takeoff_item_table(pg_temp.f(10), pg_temp.f(20))), 0, 'nor its facets');
 
--- 4. The command. Who may review: the affaire's takeoff operator only.
+-- 3b. What keeps a measured answer's positive row out of the bulk acceptance (private.takeoff_item_row_anomalies) and
+--     when a quantity needs a look against its DPGF reference (private.takeoff_quantity_requires_review). The planner
+--     (itemAnswerAnomalies and compareQuantityPairs, src/lib/takeoff/) runs these same vectors, read in this file.
+reset role;
+create temp table acceptance_vectors as select * from jsonb_to_recordset($vectors$[
+  {"position": 1, "label": "a clean row", "outcome": "measured", "reason_code": null, "row_found": true, "is_excluded": false, "rules_stale": false, "rule_results": [], "confidence": 0.9, "threshold": 0.5, "evidence": "Symboles relevés", "source_page": 2, "metadata": {}, "entry_category": null, "unit": "u", "expected_unit": "u", "anomalies": []},
+  {"position": 2, "label": "an estimated quantity", "outcome": "measured", "reason_code": null, "row_found": true, "is_excluded": false, "rules_stale": false, "rule_results": [], "confidence": 0.9, "threshold": 0.5, "evidence": "Symboles relevés", "source_page": 2, "metadata": {"quantity_nature": "estimated"}, "entry_category": null, "unit": "u", "expected_unit": "u", "anomalies": ["hypothesis"]},
+  {"position": 3, "label": "an entry by hypothesis", "outcome": "measured", "reason_code": null, "row_found": true, "is_excluded": false, "rules_stale": false, "rule_results": [], "confidence": 0.9, "threshold": 0.5, "evidence": "Symboles relevés", "source_page": 2, "metadata": {}, "entry_category": "hypothesis", "unit": "u", "expected_unit": "u", "anomalies": ["hypothesis"]},
+  {"position": 4, "label": "a confidence below the threshold", "outcome": "measured", "reason_code": null, "row_found": true, "is_excluded": false, "rules_stale": false, "rule_results": [], "confidence": 0.4, "threshold": 0.5, "evidence": "Symboles relevés", "source_page": 2, "metadata": {}, "entry_category": null, "unit": "u", "expected_unit": "u", "anomalies": ["low_confidence"]},
+  {"position": 5, "label": "a confidence at the threshold", "outcome": "measured", "reason_code": null, "row_found": true, "is_excluded": false, "rules_stale": false, "rule_results": [], "confidence": 0.5, "threshold": 0.5, "evidence": "Symboles relevés", "source_page": 2, "metadata": {}, "entry_category": null, "unit": "u", "expected_unit": "u", "anomalies": []},
+  {"position": 6, "label": "no confidence", "outcome": "measured", "reason_code": null, "row_found": true, "is_excluded": false, "rules_stale": false, "rule_results": [], "confidence": null, "threshold": 0.5, "evidence": "Symboles relevés", "source_page": 2, "metadata": {}, "entry_category": null, "unit": "u", "expected_unit": "u", "anomalies": []},
+  {"position": 7, "label": "a blank proof", "outcome": "measured", "reason_code": null, "row_found": true, "is_excluded": false, "rules_stale": false, "rule_results": [], "confidence": 0.9, "threshold": 0.5, "evidence": " \n\t ", "source_page": 2, "metadata": {}, "entry_category": null, "unit": "u", "expected_unit": "u", "anomalies": ["missing_evidence"]},
+  {"position": 8, "label": "no page", "outcome": "measured", "reason_code": null, "row_found": true, "is_excluded": false, "rules_stale": false, "rule_results": [], "confidence": 0.9, "threshold": 0.5, "evidence": "Symboles relevés", "source_page": null, "metadata": {}, "entry_category": null, "unit": "u", "expected_unit": "u", "anomalies": ["missing_evidence"]},
+  {"position": 9, "label": "a page 0", "outcome": "measured", "reason_code": null, "row_found": true, "is_excluded": false, "rules_stale": false, "rule_results": [], "confidence": 0.9, "threshold": 0.5, "evidence": "Symboles relevés", "source_page": 0, "metadata": {}, "entry_category": null, "unit": "u", "expected_unit": "u", "anomalies": ["missing_evidence"]},
+  {"position": 10, "label": "a row the reader cannot read", "outcome": "measured", "reason_code": null, "row_found": false, "is_excluded": null, "rules_stale": null, "rule_results": null, "confidence": null, "threshold": 0.5, "evidence": null, "source_page": null, "metadata": null, "entry_category": null, "unit": null, "expected_unit": "u", "anomalies": ["missing_evidence"]},
+  {"position": 11, "label": "a failing rule", "outcome": "measured", "reason_code": null, "row_found": true, "is_excluded": false, "rules_stale": false, "rule_results": [{"rule": "scale", "status": "pass"}, {"rule": "dn_network", "status": "fail"}], "confidence": 0.9, "threshold": 0.5, "evidence": "Symboles relevés", "source_page": 2, "metadata": {}, "entry_category": null, "unit": "u", "expected_unit": "u", "anomalies": ["rule_failed"]},
+  {"position": 12, "label": "rules that pass", "outcome": "measured", "reason_code": null, "row_found": true, "is_excluded": false, "rules_stale": false, "rule_results": [{"rule": "scale", "status": "pass"}], "confidence": 0.9, "threshold": 0.5, "evidence": "Symboles relevés", "source_page": 2, "metadata": {}, "entry_category": null, "unit": "u", "expected_unit": "u", "anomalies": []},
+  {"position": 13, "label": "rules waiting for the server", "outcome": "measured", "reason_code": null, "row_found": true, "is_excluded": false, "rules_stale": true, "rule_results": [], "confidence": 0.9, "threshold": 0.5, "evidence": "Symboles relevés", "source_page": 2, "metadata": {}, "entry_category": null, "unit": "u", "expected_unit": "u", "anomalies": ["rules_stale"]},
+  {"position": 14, "label": "an excluded row", "outcome": "measured", "reason_code": null, "row_found": true, "is_excluded": true, "rules_stale": false, "rule_results": [], "confidence": 0.9, "threshold": 0.5, "evidence": "Symboles relevés", "source_page": 2, "metadata": {}, "entry_category": null, "unit": "u", "expected_unit": "u", "anomalies": ["alert"]},
+  {"position": 15, "label": "a remark of the reading", "outcome": "measured", "reason_code": "DUPLICATE_READING", "row_found": true, "is_excluded": false, "rules_stale": false, "rule_results": [], "confidence": 0.9, "threshold": 0.5, "evidence": "Symboles relevés", "source_page": 2, "metadata": {}, "entry_category": null, "unit": "u", "expected_unit": "u", "anomalies": ["alert"]},
+  {"position": 16, "label": "another unit than the item's", "outcome": "measured", "reason_code": null, "row_found": true, "is_excluded": false, "rules_stale": false, "rule_results": [], "confidence": 0.9, "threshold": 0.5, "evidence": "Symboles relevés", "source_page": 2, "metadata": {}, "entry_category": null, "unit": "ml", "expected_unit": "u", "anomalies": ["unit_mismatch"]},
+  {"position": 17, "label": "the same unit written otherwise", "outcome": "measured", "reason_code": null, "row_found": true, "is_excluded": false, "rules_stale": false, "rule_results": [], "confidence": 0.9, "threshold": 0.5, "evidence": "Symboles relevés", "source_page": 2, "metadata": {}, "entry_category": null, "unit": "M2", "expected_unit": "m²", "anomalies": []},
+  {"position": 18, "label": "an accented unit", "outcome": "measured", "reason_code": null, "row_found": true, "is_excluded": false, "rules_stale": false, "rule_results": [], "confidence": 0.9, "threshold": 0.5, "evidence": "Symboles relevés", "source_page": 2, "metadata": {}, "entry_category": null, "unit": "Unité", "expected_unit": "unite", "anomalies": []},
+  {"position": 19, "label": "an item without a unit", "outcome": "measured", "reason_code": null, "row_found": true, "is_excluded": false, "rules_stale": false, "rule_results": [], "confidence": 0.9, "threshold": 0.5, "evidence": "Symboles relevés", "source_page": 2, "metadata": {}, "entry_category": null, "unit": "ml", "expected_unit": null, "anomalies": []},
+  {"position": 20, "label": "several at once, in order", "outcome": "measured", "reason_code": "VECTOR_ONLY", "row_found": true, "is_excluded": true, "rules_stale": true, "rule_results": [], "confidence": 0.2, "threshold": 0.5, "evidence": "Symboles relevés", "source_page": 2, "metadata": {}, "entry_category": null, "unit": "ml", "expected_unit": "u", "anomalies": ["low_confidence", "rules_stale", "alert", "unit_mismatch"]}
+]$vectors$::jsonb) as v(position integer, label text, outcome text, reason_code text, row_found boolean, is_excluded boolean,
+  rules_stale boolean, rule_results jsonb, confidence numeric, threshold numeric, evidence text, source_page integer,
+  metadata jsonb, entry_category text, unit text, expected_unit text, anomalies text[]);
+select is(private.takeoff_item_row_anomalies(v.outcome, v.reason_code, v.row_found, v.is_excluded, v.rules_stale,
+    v.rule_results, v.confidence, v.threshold, v.evidence, v.source_page, v.metadata, v.entry_category, v.unit, v.expected_unit),
+  v.anomalies, format('acceptance vector %s: %s', v.position, v.label))
+from acceptance_vectors v order by v.position;
+create temp table gap_vectors as select * from jsonb_to_recordset($gaps$[
+  {"position": 1, "reference": 10, "measured": 12, "review": true},
+  {"position": 2, "reference": 10, "measured": 10.1, "review": false},
+  {"position": 3, "reference": 100, "measured": 101.01, "review": true},
+  {"position": 4, "reference": 10, "measured": 9, "review": true},
+  {"position": 5, "reference": 3, "measured": 3, "review": false},
+  {"position": 6, "reference": 0, "measured": 1, "review": true},
+  {"position": 7, "reference": 0, "measured": 0, "review": false}
+]$gaps$::jsonb) as v(position integer, reference numeric, measured numeric, review boolean);
+select is(private.takeoff_quantity_requires_review(v.reference, v.measured), v.review,
+  format('gap vector %s: %s against %s', v.position, v.measured, v.reference))
+from gap_vectors v order by v.position;
+select pg_temp.sign_in(5);
+set local role authenticated;
+
+-- 4. The command. Who may review: the affaire's takeoff operator only, in an active tenant: a member whose tenants are
+-- all suspended has no current tenant (current_tenant_id() is null, so is the scope's predicate), and is refused.
+reset role;
+update public.tenants set is_active = false
+where id in (select m.tenant_id from public.tenant_memberships m where m.user_id = pg_temp.f(1));
+select pg_temp.sign_in(1);
+set local role authenticated;
+select is(public.current_tenant_id(), null::uuid, 'the owner of the affaire has no active tenant');
+select throws_ok($$select pg_temp.review(pg_temp.cmd('accept_measured', 632, array[300], array[300]))$$, '42501',
+  'TAKEOFF_ITEM_REVIEW_FORBIDDEN', 'a member of a suspended tenant is refused');
+select is((select count(*)::integer from pg_temp.table_()), 0, 'and reads nothing');
+select is((select count(*)::integer from public.count_takeoff_item_table(pg_temp.f(10), pg_temp.f(20))), 0, 'nor its facets');
+reset role;
+update public.tenants set is_active = true
+where id in (select m.tenant_id from public.tenant_memberships m where m.user_id = pg_temp.f(1));
+select is((select count(*)::integer from public.takeoff_item_review_commands) + (select count(*)::integer
+  from public.takeoff_item_answer_decisions), 0, 'nothing written');
+set local role authenticated;
 select pg_temp.sign_in(3);
 select throws_ok($$select pg_temp.review(pg_temp.cmd('accept_measured', 600, array[300], array[300]))$$, '42501',
   'TAKEOFF_ITEM_REVIEW_FORBIDDEN', 'a director reads but does not review');
@@ -437,16 +501,77 @@ select is(pg_temp.review(pg_temp.cmd('accept_measured', 603, array[300], array[3
 reset role;
 update public.takeoff_items set rules_stale = false where id = pg_temp.f(812);
 
+-- What an acceptance certifies is judged again by the database, from the stored facts, as the planner judges it: each of
+-- these makes the selection stale, nothing written.
+create function pg_temp.stale_300(key integer, label text) returns setof text language sql as $$
+  select is(pg_temp.review(pg_temp.cmd('accept_measured', key, array[300], array[300])),
+    jsonb_build_object('outcome', 'stale', 'stale', jsonb_build_array(pg_temp.f(300))), label)
+$$;
+-- A complete measure of 3 against a DPGF reference of 2.
+set local session_replication_role = replica;
+update public.takeoff_list_revision_entries set reference_quantity = 2 where item_id = pg_temp.f(300);
+set local session_replication_role = origin;
+select pg_temp.sign_in(1);
+set local role authenticated;
+select pg_temp.stale_300(620, 'a measure beyond its DPGF reference is not accepted in bulk');
+reset role;
+set local session_replication_role = replica;
+update public.takeoff_list_revision_entries set reference_quantity = null where item_id = pg_temp.f(300);
+set local session_replication_role = origin;
+-- A confidence of 0.9 below the tenant's threshold of 0.95.
+insert into public.feature_flags (tenant_id, flag_key, enabled, value)
+values (pg_temp.f(10), 'TAKEOFF_LOW_CONFIDENCE_THRESHOLD', true, '0.95')
+on conflict (tenant_id, flag_key) do update set enabled = true, value = excluded.value;
+select pg_temp.sign_in(1);
+set local role authenticated;
+select pg_temp.stale_300(621, 'a confidence below the tenant''s threshold is not accepted in bulk');
+reset role;
+delete from public.feature_flags where tenant_id = pg_temp.f(10) and flag_key = 'TAKEOFF_LOW_CONFIDENCE_THRESHOLD';
+-- A positive row in another unit than the item's.
+update public.takeoff_items set unit = 'ml' where id = pg_temp.f(811);
+select pg_temp.sign_in(1);
+set local role authenticated;
+select pg_temp.stale_300(622, 'a row in another unit than the item''s is not accepted in bulk');
+reset role;
+update public.takeoff_items set unit = 'u', rules_stale = false where id = pg_temp.f(811);
+-- A remark of the reading on the measured answer.
+set local session_replication_role = replica;
+update public.takeoff_item_answers set reason_code = 'DUPLICATE_READING',
+  reasons = '[{"code": "DUPLICATE_READING", "by": "worker", "text": null, "chunk_id": null}]' where id = pg_temp.answer(300);
+set local session_replication_role = origin;
+select pg_temp.sign_in(1);
+set local role authenticated;
+select pg_temp.stale_300(623, 'a measured answer with a remark is not accepted in bulk');
+reset role;
+set local session_replication_role = replica;
+update public.takeoff_item_answers set reason_code = null, reasons = '[]' where id = pg_temp.answer(300);
+-- The plan already sent to an estimate (its job applied): its rows are never verified nor excluded by a bulk command.
+update public.takeoff_jobs set status = 'applied' where id = pg_temp.job(20, 1);
+set local session_replication_role = origin;
+select pg_temp.sign_in(1);
+set local role authenticated;
+select pg_temp.stale_300(624, 'a plan already sent is not accepted in bulk');
+select is(pg_temp.review(pg_temp.cmd('set_aside', 625, array[300], array[300], '{"reason":"duplicate"}')),
+  jsonb_build_object('outcome', 'stale', 'stale', jsonb_build_array(pg_temp.f(300))), 'nor set aside');
+reset role;
+set local session_replication_role = replica;
+update public.takeoff_jobs set status = 'completed' where id = pg_temp.job(20, 1);
+set local session_replication_role = origin;
+select results_eq($$select count(*)::integer from public.takeoff_items where id in (pg_temp.f(811), pg_temp.f(812))
+  and (is_verified or is_excluded)$$, $$values (0)$$, 'its rows untouched');
+select is((select count(*)::integer from public.takeoff_item_answer_decisions), 0, 'and no decision written');
+
 -- The acceptance: the lavabo's answer accepted, its two positive rows verified in the member's name, journaled.
 select pg_temp.sign_in(1);
 set local role authenticated;
 create temp table command_604 as select pg_temp.cmd('accept_measured', 604, array[300, 301], array[300],
   jsonb_build_object('skipped', jsonb_build_array(jsonb_build_object('item_id', pg_temp.f(301), 'label', 'Vanne DN32 (fictive)',
     'reason', 'not_measured')))) as command;
-select is(pg_temp.review((select command from command_604)), jsonb_build_object('outcome', 'applied', 'applied',
+create temp table answer_604 as select pg_temp.review((select command from command_604)) as answer;
+select is((select answer from answer_604), jsonb_build_object('outcome', 'applied', 'applied',
     jsonb_build_array(jsonb_build_object('item_id', pg_temp.f(300), 'answers', 1)), 'skipped',
     jsonb_build_array(jsonb_build_object('item_id', pg_temp.f(301), 'label', 'Vanne DN32 (fictive)', 'reason', 'not_measured')),
-    'replayed', false), 'the measured item is accepted, the other left with its reason');
+    'rules_jobs', '[]'::jsonb, 'replayed', false), 'the measured item is accepted, the other left with its reason');
 select results_eq($$select kind, revision, actor_id from public.takeoff_item_answer_decisions where answer_id = pg_temp.answer(300)$$,
   $$values ('accepted'::text, 1, pg_temp.f(1))$$, 'its decision, revision 1, in the member''s name');
 reset role;
@@ -466,8 +591,8 @@ select results_eq($$select item, decision from pg_temp.table_()$$,
   $$values (pg_temp.f(301), 'pending'::text), (pg_temp.f(302), 'pending'), (pg_temp.f(300), 'accepted')$$,
   'the decisions to take come first');
 -- The same command under its key answers the same and writes nothing; another under the key is a conflict.
-select is(pg_temp.review((select command from command_604)) - 'replayed', (select pg_temp.review((select command from command_604)))
-  - 'replayed', 'the same command answers the same');
+select is(pg_temp.review((select command from command_604)) - 'replayed', (select answer from answer_604) - 'replayed',
+  'the same command answers what it answered the first time');
 select is(pg_temp.review((select command from command_604)) ->> 'replayed', 'true', 'replayed');
 select is(pg_temp.review(jsonb_set((select command from command_604), '{apply}', '[]')) ->> 'replayed', 'true',
   'what the server found eligible is decided again, never compared: the same command still replays');
@@ -481,6 +606,50 @@ reset role;
 select is((select count(*)::integer from public.takeoff_item_review_commands), 1, 'one receipt');
 select is((select count(*)::integer from public.takeoff_item_review_events), 3, 'nothing journaled twice');
 
+-- A targeted correction after the acceptance (a member's save: the row's quantity 2 corrected to 7, its verification
+-- withdrawn): the line is a decision to take again, its earlier acceptance shown as none, and it is accepted again as
+-- the row now is.
+update public.takeoff_items set quantity = 7, is_verified = false, verified_at = null, verified_by = null,
+  updated_at = clock_timestamp() where id = pg_temp.f(811);
+select pg_temp.sign_in(1);
+set local role authenticated;
+select results_eq($$select decision from pg_temp.table_() where item = pg_temp.f(300)$$, $$values ('pending'::text)$$,
+  'an acceptance a targeted edit withdrew is a decision to take again');
+select is((select t.readings -> 0 -> 'decision' from public.read_takeoff_item_table(pg_temp.f(10), pg_temp.f(20), null, null,
+    null, null, null, array[pg_temp.f(300)], null, 0, 1) t), 'null'::jsonb, 'its reading shows no decision');
+select is(pg_temp.review(pg_temp.cmd('accept_measured', 626, array[300], array[300])) ->> 'outcome', 'applied', 'accepted again');
+reset role;
+select results_eq($$select id, quantity, is_verified, verified_by from public.takeoff_items
+  where id in (pg_temp.f(811), pg_temp.f(812)) order by id$$,
+  $$values (pg_temp.f(811), 7::numeric, true, pg_temp.f(1)), (pg_temp.f(812), 1::numeric, true, pg_temp.f(1))$$,
+  'the corrected row verified as it now is');
+select results_eq($$select kind, revision from public.takeoff_item_answer_decisions where answer_id = pg_temp.answer(300)$$,
+  $$values ('accepted'::text, 2)$$, 'its decision, revision 2');
+
+-- Set aside and reinstated with nothing in between: each row comes back as it was (verified, by whom, when, why), and the
+-- answer's acceptance with it. The set aside names the job whose rules the server computes again, its replay too.
+create temp table verified_before as select id, is_verified, verified_at, verified_by, verification_justification
+  from public.takeoff_items where id in (pg_temp.f(811), pg_temp.f(812));
+select pg_temp.sign_in(1);
+set local role authenticated;
+create temp table command_627 as select pg_temp.cmd('set_aside', 627, array[300], array[300], '{"reason":"duplicate"}') as command;
+create temp table answer_627 as select pg_temp.review((select command from command_627)) as answer;
+select is((select answer -> 'rules_jobs' from answer_627), jsonb_build_array(pg_temp.job(20, 1)),
+  'the set aside names the job whose rules the server computes again');
+select is(pg_temp.review((select command from command_627)),
+  (select answer - 'replayed' || '{"replayed": true}'::jsonb from answer_627),
+  'its replay answers the same, the job included: a refresh interrupted is finished on a replay');
+select is(pg_temp.review(pg_temp.cmd('reinstate', 628, array[300], array[300])) ->> 'outcome', 'applied', 'reinstated');
+reset role;
+select results_eq($$select id, is_excluded, is_verified, verified_at, verified_by, verification_justification
+  from public.takeoff_items where id in (pg_temp.f(811), pg_temp.f(812)) order by id$$,
+  $$select id, false, is_verified, verified_at, verified_by, verification_justification from verified_before order by id$$,
+  'each row back as it was, its verification included');
+select results_eq($$select kind, revision, actor_id from public.takeoff_item_answer_decisions where answer_id = pg_temp.answer(300)$$,
+  $$values ('accepted'::text, 4, pg_temp.f(1))$$, 'and the answer accepted again, as it was');
+select results_eq($$select after ->> 'kind', after ->> 'restored' from public.takeoff_item_review_events where event = 'reinstated'
+  order by id desc limit 1$$, $$values ('accepted'::text, 'whole'::text)$$, 'the journal says it came back whole');
+
 -- The set aside: the bathtub (no positive row) and the lavabo (its rows excluded with the reason, their verification
 -- withdrawn, their rules waiting for the server, what they were journaled). Row 812 was excluded by a member before.
 update public.takeoff_items set is_excluded = true, exclusion_reason = 'Exclue par un membre (fictif)', is_verified = false,
@@ -493,7 +662,7 @@ select is(pg_temp.review(pg_temp.cmd('set_aside', 606, array[300, 302], array[30
     'answers', 1)), 'two items set aside, one without any positive row');
 select results_eq($$select kind, reason, note, revision from public.takeoff_item_answer_decisions
   where answer_id in (pg_temp.answer(300), pg_temp.answer(302)) order by item_id$$,
-  $$values ('set_aside'::text, 'other'::text, 'Prévu au lot chauffage (fictif)'::text, 2),
+  $$values ('set_aside'::text, 'other'::text, 'Prévu au lot chauffage (fictif)'::text, 5),
     ('set_aside', 'other', 'Prévu au lot chauffage (fictif)', 1)$$, 'the reason written on each answer, chosen once');
 reset role;
 select results_eq($$select id, is_excluded, exclusion_reason, is_verified, rules_stale from public.takeoff_items
@@ -506,18 +675,29 @@ set local role authenticated;
 select results_eq($$select item, decision from pg_temp.table_() where item <> pg_temp.f(301)$$,
   $$values (pg_temp.f(300), 'set_aside'::text), (pg_temp.f(302), 'set_aside')$$, 'their lines say so');
 
--- The reinstatement gives each row back what it was: 811 included again, 812 excluded with its member's reason.
-select is(pg_temp.review(pg_temp.cmd('reinstate', 607, array[300], array[300])) -> 'applied',
-  jsonb_build_array(jsonb_build_object('item_id', pg_temp.f(300), 'answers', 1)), 'the lavabo reinstated');
+-- A member changed row 811 meanwhile. The reinstatement gives each row back its exclusion (811 included again, 812
+-- excluded with its member's reason) but no verification over the change: the lavabo comes back to be decided, and the
+-- journal says so.
+reset role;
+update public.takeoff_items set quantity = 8, updated_at = clock_timestamp() where id = pg_temp.f(811);
+select pg_temp.sign_in(1);
+set local role authenticated;
+select is(pg_temp.review(pg_temp.cmd('reinstate', 607, array[300, 302], array[300, 302])) -> 'applied',
+  jsonb_build_array(jsonb_build_object('item_id', pg_temp.f(300), 'answers', 1), jsonb_build_object('item_id', pg_temp.f(302),
+    'answers', 1)), 'the lavabo and the bathtub reinstated');
 reset role;
 select results_eq($$select id, is_excluded, exclusion_reason from public.takeoff_items where id in (pg_temp.f(811), pg_temp.f(812))
   order by id$$,
   $$values (pg_temp.f(811), false, null::text), (pg_temp.f(812), true, 'Exclue par un membre (fictif)'::text)$$,
-  'each row gets back what it was');
+  'each row gets back its exclusion');
+select is((select is_verified from public.takeoff_items where id = pg_temp.f(811)), false, 'the changed row is not verified again');
 select results_eq($$select kind, revision from public.takeoff_item_answer_decisions where answer_id = pg_temp.answer(300)$$,
-  $$values ('none'::text, 3)$$, 'its answer waits for a decision again, the revision going on');
-select is((select count(*)::integer from public.takeoff_item_review_events where event in ('set_aside', 'reinstated')), 3,
-  'the set aside stays in the journal beside the reinstatement');
+  $$values ('none'::text, 6)$$, 'its answer waits for a decision again, the revision going on');
+select results_eq($$select after ->> 'kind', after ->> 'restored' from public.takeoff_item_review_events where event = 'reinstated'
+  and item_id = pg_temp.f(300) order by id desc limit 1$$, $$values ('none'::text, 'changed'::text)$$,
+  'the journal says a row changed in between');
+select is((select count(*)::integer from public.takeoff_item_review_events where event in ('set_aside', 'reinstated')), 6,
+  'every set aside stays in the journal beside its reinstatement');
 
 -- The entries: a value per item on the bathtub (not found) with what it rests on; on the lavabo (measured): stale.
 select pg_temp.sign_in(1);
@@ -555,6 +735,27 @@ select is(pg_temp.review(pg_temp.cmd('include_entry', 613, array[302], array[302
 reset role;
 select results_eq($$select event from public.takeoff_item_review_events where item_id = pg_temp.f(302) and event in ('entered',
   'entry_included') order by id$$, $$values ('entered'::text), ('entered'), ('entry_included')$$, 'each entry is journaled');
+
+-- An entered item set aside: its entry is kept for the history and a reinstatement, and counts for nothing meanwhile.
+select pg_temp.sign_in(1);
+set local role authenticated;
+select is(pg_temp.review(pg_temp.cmd('set_aside', 629, array[302], array[302], '{"reason":"out_of_scope"}')) ->> 'outcome',
+  'applied', 'the entered bathtub set aside');
+select results_eq($$select decision from pg_temp.table_() where item = pg_temp.f(302)$$, $$values ('set_aside'::text)$$,
+  'its line is set aside, not entered');
+select is((select count(*)::integer from public.takeoff_item_entries where item_id = pg_temp.f(302)), 1, 'its entry kept');
+-- A plan's entry on the valve (uncertain), then the valve set aside in the affaire: the plan's entry counts for nothing.
+select is(pg_temp.review(pg_temp.cmd('enter_quantity', 630, array[301], array[301],
+    jsonb_build_object('scope', jsonb_build_object('kind', 'plan', 'plan_logical_id', pg_temp.f(100)),
+      'values', jsonb_build_array(jsonb_build_object('item_id', pg_temp.f(301), 'quantity', 2, 'unit', 'u')),
+      'entry', jsonb_build_object('category', 'site_survey')))) ->> 'outcome', 'applied', 'the valve entered on its plan');
+select results_eq($$select decision from pg_temp.table_() where item = pg_temp.f(301)$$, $$values ('entered'::text)$$,
+  'its line is entered');
+select is(pg_temp.review(pg_temp.cmd('set_aside', 631, array[301], array[301], '{"reason":"duplicate"}')) ->> 'outcome',
+  'applied', 'the valve set aside');
+select results_eq($$select decision from pg_temp.table_() where item = pg_temp.f(301)$$, $$values ('set_aside'::text)$$,
+  'its line is set aside: the plan''s entry no longer counts');
+reset role;
 
 -- The affaire deleted with its review, by the service role (whose direct writes the relations refuse): the cascade
 -- runs as the relations' owner, nothing is left, nothing refuses.

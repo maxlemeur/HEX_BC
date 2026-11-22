@@ -48,7 +48,8 @@ export function fixtureAnswer(outcome: ItemAnswerView["outcome"], quantity: numb
     searchedPages: [1, 2], unreadablePages: [], candidate: null, anomalies: [], readAt: "2026-11-22T08:00:00.000Z",
     observations: outcome === "measured" && quantity !== null
       ? [{ observationId: `${id}-1`, role: "contribution", quantity, unit: "u", page: 1, evidence: "symboles relevés", confidence: 0.9,
-        method: "symbol_count", takeoffItemId: "44444444-4444-4444-8444-444444444444" }] : [],
+        method: "symbol_count", takeoffItemId: "44444444-4444-4444-8444-444444444444",
+        row: { quantity, unit: "u", isVerified: false, isExcluded: false } }] : [],
     ...extra,
   };
 }
@@ -57,7 +58,7 @@ export function fixtureReading(item: number, planKey: string, value: ItemAnswerV
   decision: ItemAnswerDecision | null = null): ItemReadingInput {
   const plan = FIXTURE_PLANS.find(({ key }) => key === planKey);
   const base = { itemId: fixtureItemId(item), planKey, planName: plan?.name ?? "Plan", location: plan?.location?.label ?? null,
-    decision, decisionRevision: decision?.revision ?? 0, entry: null };
+    decision, decisionRevision: decision?.revision ?? 0, entry: null, sent: false };
   return typeof value === "string"
     ? { ...base, unit: value, reading: value === "failed" ? "ended" : "in_flight", answer: null }
     : { ...base, unit: "succeeded", reading: "answered", answer: value };

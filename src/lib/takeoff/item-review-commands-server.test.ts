@@ -140,26 +140,24 @@ describe("runItemReviewCommand", () => {
     expect(review.mock.calls[1][1].p_command).toMatchObject({ reason: "other", note: "Prévu au lot chauffage" });
   });
 
-  it("computes the rules of the rows a set aside or a reinstatement wrote again, as a member's save of a row does", async () => {
-    const applied = (itemId: string, replayed = false) => review.mockResolvedValueOnce({ data: { outcome: "applied",
-      applied: [{ item_id: itemId, answers: 1 }], skipped: [], replayed }, error: null });
-    applied(fixtureItemId(1));
+  it("computes again the rules of the jobs the database names, on a replay too, as a member's save of a row does", async () => {
+    const answered = (rulesJobs: string[], replayed = false) => review.mockResolvedValueOnce({ data: { outcome: "applied",
+      applied: [{ item_id: fixtureItemId(1), answers: 1 }], skipped: [], rules_jobs: rulesJobs, replayed }, error: null });
+    answered([JOB]);
     await runItemReviewCommand(PROJECT, command("set_aside", targetsOf([1]), { reason: "duplicate" }));
     expect(recomputeTakeoffRulesQuietly).toHaveBeenCalledWith({ tenantId: TENANT, jobId: JOB, projectId: PROJECT, context: "item_review" });
+    // A replay of the same command: nothing decided again, the refresh a stopped server owed is finished.
+    answered([JOB], true);
+    await runItemReviewCommand(PROJECT, command("set_aside", targetsOf([1]), { reason: "duplicate" }));
+    expect(recomputeTakeoffRulesQuietly).toHaveBeenCalledTimes(2);
     jobs = [{ id: JOB, estimate_version_id: VERSION, project_id: PROJECT }];
-    applied(fixtureItemId(1));
+    answered([JOB]);
     await runItemReviewCommand(PROJECT, command("reinstate", targetsOf([1])));
     expect(recomputeTakeoffRulesQuietly).toHaveBeenLastCalledWith({ tenantId: TENANT, estimateVersionId: VERSION, context: "item_review" });
-    expect(recomputeTakeoffRulesQuietly).toHaveBeenCalledTimes(2);
-
-    // An acceptance writes no rule input; a replay writes nothing now; an item without a positive row has no rule.
-    applied(fixtureItemId(1));
+    // An answer that names no job (an acceptance, a set aside without positive rows) computes nothing.
+    answered([]);
     await runItemReviewCommand(PROJECT, command("accept_measured", targetsOf([1])));
-    applied(fixtureItemId(1), true);
-    await runItemReviewCommand(PROJECT, command("set_aside", targetsOf([1]), { reason: "duplicate" }));
-    applied(fixtureItemId(2));
-    await runItemReviewCommand(PROJECT, command("set_aside", targetsOf([2]), { reason: "duplicate" }));
-    expect(recomputeTakeoffRulesQuietly).toHaveBeenCalledTimes(2);
+    expect(recomputeTakeoffRulesQuietly).toHaveBeenCalledTimes(3);
   });
 });
 
