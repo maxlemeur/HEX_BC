@@ -119,6 +119,13 @@ function writeEntry(storage: Storage | null, name: string, entry: Entry) {
   }
 }
 
+/** Whether a command is the one described: the same analysis replaced, plan set, revision and chosen plans. */
+export function isSameTakeoffLaunch(command: TakeoffLaunchCommand, content: Omit<TakeoffLaunchCommand, "intentKey">) {
+  const plans = (ids: string[] | undefined) => [...(ids ?? [])].map((id) => id.toLowerCase()).sort().join();
+  return command.predecessorJobId === content.predecessorJobId && command.planSetId === content.planSetId
+    && command.preparationRevision === content.preparationRevision && plans(command.planFileIds) === plans(content.planFileIds);
+}
+
 /** The member's command on this affaire whose answer is unknown, if any: it is sent again before anything new. */
 export function readOutstandingTakeoffLaunch(scope: TakeoffLaunchScope): TakeoffLaunchCommand | null {
   return readEntry(browserStorage(), entryName(scope)).outstanding;

@@ -2,7 +2,9 @@
 
 import { useOptionalUserContext } from "@/lib/auth/user-context";
 import { TakeoffActionError, unwrapTakeoffActionResult } from "@/lib/takeoff/action-result";
-import { beginTakeoffLaunch, readOutstandingTakeoffLaunch, settleTakeoffLaunch } from "@/lib/takeoff/launch-intent-key";
+import {
+  beginTakeoffLaunch, isSameTakeoffLaunch, readOutstandingTakeoffLaunch, settleTakeoffLaunch, type TakeoffLaunchCommand,
+} from "@/lib/takeoff/launch-intent-key";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import useSWR from "swr";
@@ -214,6 +216,8 @@ function LaunchMetreDialogContent({
   // A relaunch whose analysis lost a plan's copy: the plans it may read instead, none chosen until the member ticks them.
   const [planChoice, setPlanChoice] = useState<{ preparationRevision: number; choice: TakeoffRelaunchChoice } | null>(null);
   const [chosenPlans, setChosenPlans] = useState<Set<string>>(new Set());
+  // An unanswered command of this member on the affaire (another tab's) whose content is not the plans now ticked.
+  const [otherTabCommand, setOtherTabCommand] = useState<TakeoffLaunchCommand | null>(null);
   const [selectedVersionId, setSelectedVersionId] = useState(initialVersionId);
   const [selectedPlanSetId, setSelectedPlanSetId] = useState<string | null>(
     initialPlanSetId ?? plansContext?.defaultPlanSetId ?? null,
@@ -345,26 +349,21 @@ function LaunchMetreDialogContent({
     [isSubmitting, launchSuccess, onOpenChange],
   );
 
-  const handleRequestLaunch = useCallback(async (preparationRevision: number, planFileCount: number, planFileIds?: string[]) => {
-    if (!selectedPlanSet || !hasPlanFiles || launchMode.kind !== "request") return;
+  const launchScope = useMemo(() => ({ tenantId: user?.tenantId ?? null, userId: user?.profile?.id ?? null, projectId }),
+    [projectId, user?.profile?.id, user?.tenantId]);
+
+  /** One command sent and its answer shown: the command keeps its key until an answer (a refusal included) settles it. */
+  const sendRequestCommand = useCallback(async (command: TakeoffLaunchCommand, planFileCount: number) => {
     setIsSubmitting(true);
     setErrorMessage(null);
     setPlanChoice(null);
-    const scope = { tenantId: user?.tenantId ?? null, userId: user?.profile?.id ?? null, projectId };
-    let intentKey: string | null = null;
+    setOtherTabCommand(null);
     try {
-      // A command still unanswered is settled first, with its own content (its analysis may have finished since, and the
-      // dialogue now names it): its replay answers with its receipt. Only an answered affaire offers a new command.
-      const command = readOutstandingTakeoffLaunch(scope) ?? beginTakeoffLaunch(scope, {
-        predecessorJobId: launchMode.predecessorJobId, planSetId: selectedPlanSet.id, preparationRevision,
-        ...(planFileIds?.length ? { planFileIds } : {}),
-      });
-      intentKey = command.intentKey;
       const result = unwrapTakeoffActionResult(await relaunchTakeoffAction({
         projectId, planSetId: command.planSetId, preparationRevision: command.preparationRevision, intentKey: command.intentKey,
         predecessorJobId: command.predecessorJobId, ...(command.planFileIds ? { planFileIds: command.planFileIds } : {}),
       }));
-      settleTakeoffLaunch(scope, command.intentKey);
+      settleTakeoffLaunch(launchScope, command.intentKey);
       // Nothing was recorded: a plan of the analysis has no copy now; the member chooses which of its other plans to read,
       // a new command that names them.
       if (result.outcome === "plans_to_choose" && result.choice) {
@@ -391,12 +390,28 @@ function LaunchMetreDialogContent({
     } catch (error) {
       // A refusal the server named decides the command: a new click is a new one. After a server error or a lost answer
       // the command may have been recorded: the next click replays it with the same key.
-      if (intentKey && error instanceof TakeoffActionError && error.status < 500) settleTakeoffLaunch(scope, intentKey);
+      if (error instanceof TakeoffActionError && error.status < 500) settleTakeoffLaunch(launchScope, command.intentKey);
       setErrorMessage(error instanceof TakeoffActionError ? error.message : "Impossible de lancer l'analyse.");
     } finally {
       setIsSubmitting(false);
     }
-  }, [hasPlanFiles, launchMode, onLaunched, projectId, selectedPlanSet, toast, user]);
+  }, [launchScope, onLaunched, projectId, toast]);
+
+  const handleRequestLaunch = useCallback(async (preparationRevision: number, planFileCount: number, planFileIds?: string[]) => {
+    if (!selectedPlanSet || !hasPlanFiles || launchMode.kind !== "request") return;
+    const content = { predecessorJobId: launchMode.predecessorJobId, planSetId: selectedPlanSet.id, preparationRevision,
+      ...(planFileIds?.length ? { planFileIds } : {}) };
+    // A command still unanswered is settled first, with its own content (its analysis may have finished since, and the
+    // dialogue now names it): its replay answers with its receipt. Only an answered affaire offers a new command. The
+    // plans the member ticks are sent as ticked: an unanswered command of other content (another tab's) is never sent in
+    // their place; the member sends it again or sets it aside first.
+    const outstanding = readOutstandingTakeoffLaunch(launchScope);
+    if (planFileIds?.length && outstanding && !isSameTakeoffLaunch(outstanding, content)) {
+      setOtherTabCommand(outstanding);
+      return;
+    }
+    await sendRequestCommand(outstanding ?? beginTakeoffLaunch(launchScope, content), planFileCount);
+  }, [hasPlanFiles, launchMode, launchScope, selectedPlanSet, sendRequestCommand]);
 
   const handleLaunch = useCallback(async (preparationRevision: number, planFileCount: number) => {
     if (!selectedPlanSet || !hasPlanFiles) return;
@@ -616,6 +631,27 @@ function LaunchMetreDialogContent({
                       </label>
                     ))}
                   </fieldset>
+                  {otherTabCommand && (
+                    <Alert variant="warning">
+                      <AlertDescription>
+                        Un lancement envoyé depuis un autre onglet attend encore sa réponse : renvoyez-le d’abord, ou mettez-le
+                        de côté pour relancer les plans cochés.
+                        <span className="mt-2 flex flex-wrap gap-2">
+                          <Button type="button" variant="outline" size="sm" disabled={isSubmitting}
+                            onClick={() => void sendRequestCommand(otherTabCommand, otherTabCommand.planFileIds?.length ?? 1)}>
+                            Renvoyer ce lancement
+                          </Button>
+                          <Button type="button" variant="ghost" size="sm" disabled={isSubmitting} onClick={() => {
+                            settleTakeoffLaunch(launchScope, otherTabCommand.intentKey);
+                            setOtherTabCommand(null);
+                            void handleRequestLaunch(planChoice.preparationRevision, chosenPlans.size, [...chosenPlans].sort());
+                          }}>
+                            Le mettre de côté
+                          </Button>
+                        </span>
+                      </AlertDescription>
+                    </Alert>
+                  )}
                   <Button type="button" disabled={isSubmitting || chosenPlans.size === 0}
                     onClick={() => void handleRequestLaunch(planChoice.preparationRevision, chosenPlans.size, [...chosenPlans].sort())}>
                     Relancer les plans choisis

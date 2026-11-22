@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach,beforeEach,describe,expect,it,vi } from "vitest";
 
 import { UserProvider, type UserProfile } from "@/lib/auth/user-context";
+import { beginTakeoffLaunch } from "@/lib/takeoff/launch-intent-key";
 
 import { LaunchMetreDialog } from "./LaunchMetreDialog";
 
@@ -191,6 +192,57 @@ describe("LaunchMetreDialog", () => {
       expect(first).not.toHaveProperty("planFileIds");
       expect(second).toMatchObject({ planFileIds: [kept], predecessorJobId: predecessor, preparationRevision: 7 });
       expect(second!.intentKey).not.toBe(first!.intentKey);
+    });
+
+    // Two tabs of the same member on the affaire: tab 2 sent plan C and its answer was lost; in tab 1 the member ticks B.
+    // Tab 1 never sends C in B's place: it says so, and sends C again or sets it aside only when the member asks.
+    const PLAN_B = "66666666-6666-4666-8666-666666666666";
+    const PLAN_C = "66666666-6666-4666-8666-666666666667";
+    const choose = async () => {
+      const user = userEvent.setup();
+      relaunchTakeoffMock.mockResolvedValueOnce({ ok: true, data: { outcome: "plans_to_choose", requestId: null, jobId: null,
+        choice: { withoutCopy: [{ name: "plan-a.pdf", reason: "removed" }],
+          remaining: [{ id: PLAN_B, name: "plan-b.pdf" }, { id: PLAN_C, name: "plan-c.pdf" }] } } })
+        .mockResolvedValueOnce({ ok: true, data: { outcome: "admitted", requestId: "r4", jobId: "j4" } });
+      render(as(MEMBER, request()));
+      await user.click(await screen.findByRole("button", { name: "Confirmer et lancer le métré" }));
+      await user.click(await screen.findByRole("checkbox", { name: "plan-b.pdf" }));
+      const otherTab = (planFileIds: string[]) => beginTakeoffLaunch({ tenantId: TENANT, userId: MEMBER, projectId: defaultProps.projectId },
+        { predecessorJobId: predecessor, planSetId: defaultProps.availablePlanSets[0]!.id, preparationRevision: 7, planFileIds });
+      return { user, otherTab };
+    };
+    const sentAt = (index: number) => relaunchTakeoffMock.mock.calls[index]![0] as { intentKey: string; planFileIds?: string[] };
+
+    it("never sends another tab's unanswered command in place of the plans the member ticks, and sets it aside on request", async () => {
+      const { user, otherTab } = await choose();
+      const other = otherTab([PLAN_C]);
+      await user.click(screen.getByRole("button", { name: "Relancer les plans choisis" }));
+      expect(await screen.findByText(/Un lancement envoyé depuis un autre onglet attend encore sa réponse/)).toBeInTheDocument();
+      expect(relaunchTakeoffMock).toHaveBeenCalledTimes(1);
+      await user.click(screen.getByRole("button", { name: "Le mettre de côté" }));
+      expect(await screen.findByText("Analyse transmise au traitement")).toBeInTheDocument();
+      expect(sentAt(1)).toMatchObject({ planFileIds: [PLAN_B] });
+      expect(sentAt(1).intentKey).not.toBe(other.intentKey);
+    });
+
+    it("sends another tab's unanswered command again, with its own content, only when the member asks", async () => {
+      const { user, otherTab } = await choose();
+      const other = otherTab([PLAN_C]);
+      await user.click(screen.getByRole("button", { name: "Relancer les plans choisis" }));
+      await user.click(await screen.findByRole("button", { name: "Renvoyer ce lancement" }));
+      expect(await screen.findByText("Analyse transmise au traitement")).toBeInTheDocument();
+      expect(sentAt(1)).toMatchObject({ planFileIds: [PLAN_C], intentKey: other.intentKey });
+      expect(relaunchTakeoffMock).toHaveBeenCalledTimes(2);
+    });
+
+    // Counterexample: the unanswered command is the very choice the member makes (its answer was lost): it is replayed
+    // with its key, without any question.
+    it("replays an unanswered choice of the same plans with its key", async () => {
+      const { user, otherTab } = await choose();
+      const same = otherTab([PLAN_B]);
+      await user.click(screen.getByRole("button", { name: "Relancer les plans choisis" }));
+      expect(await screen.findByText("Analyse transmise au traitement")).toBeInTheDocument();
+      expect(sentAt(1)).toMatchObject({ planFileIds: [PLAN_B], intentKey: same.intentKey });
     });
 
     it("replays a click whose answer was lost with the same key, and gives a new click after an answer a new one", async () => {
