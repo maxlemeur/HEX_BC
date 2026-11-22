@@ -617,7 +617,7 @@ function planScopeOf(jobId: string, context: TakeoffSendContext,
  * and those it leaves to the creation — the engine 3 sale coefficients of the tenant's policy (1.30 and 1.20 without
  * one), the principal contractor role. Not its identifier nor its date.
  */
-function firstDraftSettings(payload: Record<string, unknown>, policy: TenantCalcPolicy | null) {
+export function firstDraftSettings(payload: Record<string, unknown>, policy: TenantCalcPolicy | null) {
   const settings = Object.fromEntries(Object.entries(payload).filter(([key]) => key !== "id" && key !== "date_devis"));
   if (usesSaleCoefficients(requireEstimateEngineVersion(payload))) {
     settings.sale_coefficient_fo = payload.sale_coefficient_fo ?? policy?.defaultSaleCoefficientFo
