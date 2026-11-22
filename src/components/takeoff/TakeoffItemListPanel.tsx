@@ -86,15 +86,15 @@ function itemFacts(item: Poste | undefined, list: AffaireItemListView, sourceFor
   return [sectionPath(item) || "Sans section", originText(item, list, sourceFormat)].filter(Boolean).join(" · ");
 }
 
-function ChangeLine({ change }: { change: { kind: "added" | "removed"; item: Poste } | {
+function ChangeLine({ change, sourceFormat }: { change: { kind: "added" | "removed"; item: Poste } | {
   kind: "changed"; previous: Poste; current: Poste; moved: boolean; notesChanged: boolean;
-} }) {
+}; sourceFormat: string | undefined }) {
   if (change.kind !== "changed") {
     const where = sectionPath(change.item);
     return <li>{change.kind === "added" ? "Ajouté" : "Retiré"} : {change.item.label}{where ? ` (${where})` : ""}</li>;
   }
   const { previous, current } = change;
-  const facts = itemListChangedFacts(change);
+  const facts = itemListChangedFacts(change, { sourceFormat });
   return (
     <li>
       <span>Modifié : {previous.label === current.label ? current.label : `${previous.label} → ${current.label}`}</span>
@@ -251,7 +251,7 @@ export async function TakeoffItemListPanel({ projectId, query, compact = false }
               {proposal.changes.length > 1 ? "s" : ""}
             </p>
             <ul className="list-disc space-y-1 pl-6 text-sm">
-              {changes.slice(0, CHANGES_SHOWN).map((change) => <ChangeLine key={change.key} change={change} />)}
+              {changes.slice(0, CHANGES_SHOWN).map((change) => <ChangeLine key={change.key} change={change} sourceFormat={sourceFormat} />)}
             </ul>
             {changes.length > CHANGES_SHOWN && (
               <details>
@@ -259,7 +259,7 @@ export async function TakeoffItemListPanel({ projectId, query, compact = false }
                   Voir les {changes.length - CHANGES_SHOWN} autres changements avant d’accepter
                 </summary>
                 <ul className="list-disc space-y-1 pl-6 pt-2 text-sm">
-                  {changes.slice(CHANGES_SHOWN).map((change) => <ChangeLine key={change.key} change={change} />)}
+                  {changes.slice(CHANGES_SHOWN).map((change) => <ChangeLine key={change.key} change={change} sourceFormat={sourceFormat} />)}
                 </ul>
               </details>
             )}

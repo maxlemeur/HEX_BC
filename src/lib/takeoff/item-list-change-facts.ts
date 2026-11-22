@@ -20,20 +20,28 @@ function sectionPath(item: Poste) {
   return item.sections.map(({ title }) => title).join(" / ");
 }
 
-/** A section path that tells same-titled sections apart: each title with its place in its source. */
-function locatedSectionPath(item: Poste) {
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * A section path that tells same-titled sections apart: each title with its place in its own source. A section of the
+ * DPGF is its title row (identified by that row), numbered as the list numbers an import's rows without their own row
+ * number (« Ligne importée N », « Enregistrement importé N » for a CSV); a template's family, or the section of items
+ * added by hand, by its position.
+ */
+function locatedSectionPath(item: Poste, sourceFormat: string | undefined) {
   if (!item.sections.length) return "Sans section";
-  return item.sections.map(({ title, order }) =>
-    `${title} (${dpgf(item) ? "ligne importée" : "position"} ${order + 1})`).join(" / ");
+  const row = sourceFormat === "csv" ? "enregistrement importé" : "ligne importée";
+  return item.sections.map(({ id, title, order }) => `${title} (${UUID.test(id) ? row : "position"} ${order + 1})`).join(" / ");
 }
 
 /**
  * What a change of the proposal changes in an item, each fact before and after it: its effective unit, its basis, each
- * qualifier, its reference quantity, its section (two sections of one title told apart by their place), its DPGF
+ * qualifier, its reference quantity, its section (two sections of one title told apart by their place in their source), its DPGF
  * reference, and its place in the list. A change of the DPGF row's notes, whose text the reader is never sent, is named
  * without it (`notesChanged`, decided by the server on the notes' digests).
  */
-export function itemListChangedFacts(change: { previous: Poste; current: Poste; moved: boolean; notesChanged: boolean }) {
+export function itemListChangedFacts(change: { previous: Poste; current: Poste; moved: boolean; notesChanged: boolean },
+  options: { sourceFormat?: string } = {}) {
   const { previous, current } = change;
   const facts: string[] = [];
   const compare = (label: string, before: string, after: string) => {
@@ -51,7 +59,7 @@ export function itemListChangedFacts(change: { previous: Poste; current: Poste; 
   if (!sameSections) {
     const [before, after] = [sectionPath(previous) || "Sans section", sectionPath(current) || "Sans section"];
     if (before !== after) compare("Section", before, after);
-    else compare("Section", locatedSectionPath(previous), locatedSectionPath(current));
+    else compare("Section", locatedSectionPath(previous, options.sourceFormat), locatedSectionPath(current, options.sourceFormat));
   }
   compare("Référence de la ligne DPGF", dpgf(previous)?.reference ?? "aucune", dpgf(current)?.reference ?? "aucune");
   if (change.notesChanged) facts.push("Notes de la ligne de la DPGF modifiées");
