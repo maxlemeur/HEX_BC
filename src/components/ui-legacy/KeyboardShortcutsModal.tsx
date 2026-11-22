@@ -45,6 +45,7 @@ function modKey(isMac: boolean) {
 
 function buildShortcutGroups(isMac: boolean): ShortcutGroup[] {
   const mod = modKey(isMac);
+  const alt = isMac ? "⌥" : "Alt";
 
   return [
     {
@@ -65,10 +66,17 @@ function buildShortcutGroups(isMac: boolean): ShortcutGroup[] {
         { keys: [mod, "S"], label: "Enregistrer" },
         { keys: [mod, "Z"], label: "Annuler" },
         { keys: [mod, "Y"], label: "Rétablir" },
+        { keys: [mod, "Entrée"], label: "Ajouter une ligne sous la ligne active" },
+        { keys: [mod, "Maj", "Entrée"], label: "Ajouter une section après la section active" },
+        { keys: [mod, "Maj", "D"], label: "Dupliquer la ligne active" },
+        { keys: [alt, "Maj", "↑"], label: "Monter la ligne active" },
+        { keys: [alt, "Maj", "↓"], label: "Descendre la ligne active" },
         { keys: ["Tab"], label: "Cellule suivante" },
-        { keys: ["Entrée"], label: "Modifier la cellule" },
-        { keys: ["Suppr"], label: "Supprimer la sélection" },
-        { keys: [mod, "C"], label: "Copier les lignes" },
+        { keys: ["Entrée"], label: "Cellule du dessous" },
+        { keys: ["F2"], label: "Modifier la cellule" },
+        { keys: [mod, "D"], label: "Recopier la cellule du dessus" },
+        { keys: ["Suppr"], label: "Vider les cellules ou supprimer les lignes cochées" },
+        { keys: [mod, "C"], label: "Copier les lignes cochées" },
         { keys: [mod, "Maj", "A"], label: "Insérer un ouvrage" },
       ],
     },

@@ -15,6 +15,7 @@ import {
   MATERIAL_REQUEST_ORDER_KEY_TAKEN,
   MATERIAL_REQUEST_ORDER_NOTHING_READY,
   MATERIAL_REQUEST_ORDER_SUPPLIER_INACTIVE,
+  MATERIAL_REQUEST_ORDER_TOTAL_NEGATIVE,
   MATERIAL_REQUEST_ORDERED,
   type MaterialRequestOrdersCreated,
   type MaterialRequestOrdersSummary,
@@ -339,6 +340,20 @@ describe("4. summary", () => {
     expect(fake.rpcArgs.find((entry) => entry.name === "material_request_order_summary")?.args).toEqual({ p_request_id: REQUEST });
   });
 
+  it("gives the lines waiting for their discounted quote's other lines as a reason of their own, after the others", async () => {
+    seed(OWNER, "engineer", { rpc: { material_request_order_summary: (() => ({ data: {
+      ready_line_ids: [LINE_TUBE],
+      not_ready: [{ line_id: LINE_DRAFT, reason: "not_validated" }],
+      waiting_quote_line_ids: [LINE_ELBOW],
+      ordered: [], orders: [], can_create: true,
+    } })) satisfies FakeRpcHandler } });
+    const answer = await call(ordersRoute.GET, "GET", inRequest);
+    expect([answer.status, (answer.data as MaterialRequestOrdersSummary).not_ready]).toEqual([200, [
+      { line_id: LINE_DRAFT, reason: "not_validated" },
+      { line_id: LINE_ELBOW, reason: "waiting_quote" },
+    ]]);
+  });
+
   it("names the order of each ordered line once the drafts exist", async () => {
     seed(OWNER, "engineer");
     await call(ordersRoute.POST, "POST", inRequest, { idempotency_key: KEY });
@@ -406,6 +421,19 @@ describe("7. refusals in French", () => {
       422, MATERIAL_REQUEST_ORDER_SUPPLIER_INACTIVE, { supplier_names: ["Négoce Beta"] },
     ]);
     expect(answer.error?.message).toBe("Le fournisseur Négoce Beta est archivé : réactivez-le avant de commander ses lignes.");
+  });
+
+  it("names the supplier whose retained quote's discount exceeds what its draft holds of it", async () => {
+    seed(OWNER, "engineer", { rpc: { create_material_request_purchase_orders: (() => ({
+      data: null, error: { code: "23514", message: MATERIAL_REQUEST_ORDER_TOTAL_NEGATIVE, details: JSON.stringify(["Négoce Alpha"]) },
+    })) satisfies FakeRpcHandler } });
+    const answer = await call(ordersRoute.POST, "POST", inRequest, { idempotency_key: KEY });
+    expect([answer.status, answer.error?.code, answer.error?.details]).toEqual([
+      422, MATERIAL_REQUEST_ORDER_TOTAL_NEGATIVE, { supplier_names: ["Négoce Alpha"] },
+    ]);
+    expect(answer.error?.message).toBe(
+      "La remise du devis retenu chez Négoce Alpha dépasse ce qu’il reste à commander de ce devis : annulez le brouillon qui contient ses autres lignes, puis recréez les brouillons pour les réunir.",
+    );
   });
 
   it.each([

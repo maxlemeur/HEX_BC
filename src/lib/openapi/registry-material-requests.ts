@@ -186,7 +186,8 @@ const articleSupplierSaved: z.ZodType<ArticleSupplierItemSaved> = z.object({
 const quote: z.ZodType<MaterialRequestQuote> = z.object({
   id: uuid, request_id: uuid, supplier_id: uuid, supplier_name: z.string(), status: z.enum(MATERIAL_REQUEST_QUOTE_STATUSES),
   with_references: z.boolean(), message: z.string(), requested_at: timestamp, received_at: timestamp.nullable(),
-  amount_ht_cents: z.number().int().min(0).nullable(), notes: z.string().nullable(), retained_at: timestamp.nullable(),
+  amount_ht_cents: z.number().int().min(0).nullable(), shipping_ht_cents: z.number().int().min(0).nullable(),
+  discount_ht_cents: z.number().int().min(0).nullable(), notes: z.string().nullable(), retained_at: timestamp.nullable(),
   closed_at: timestamp.nullable(),
   lines: z.array(z.object({ line_id: uuid, unit_price_ht_cents: z.number().int().min(0).nullable(), price_per: pricePer })),
   files: z.array(file),
@@ -553,7 +554,7 @@ export const materialRequestOperations: OpenApiOperationDefinition[] = [
       ...writeRefusals,
       "404": refusal("NOT_FOUND : devis d'une autre demande."),
       "409": refusal(`MATERIAL_REQUEST_QUOTE_READ_ONLY : le devis est déjà retenu ou clos. ${quoteBusy}`),
-      "422": refusal("MATERIAL_REQUEST_QUOTE_NOT_RECEIVED : le devis n'est pas encore reçu. MATERIAL_REQUEST_QUOTE_LINES_UNPRICED : des lignes n'ont pas de prix (details : positions, line_ids). MATERIAL_REQUEST_QUOTE_LINES_ALREADY_RETAINED : une ligne a déjà un devis retenu. MATERIAL_REQUEST_QUOTE_LINES_NOT_VALIDATED : des lignes ne sont pas validées (details : positions, line_ids). MATERIAL_REQUEST_QUOTE_WITHOUT_LINES : le devis ne demande plus aucune ligne. MATERIAL_REQUEST_QUOTE_MATERIAL_UNCONFIRMED : des lignes sans matière propre et la matière présumée de la demande n'est pas confirmée (details : positions, line_ids). Rien n'est écrit."),
+      "422": refusal("MATERIAL_REQUEST_QUOTE_NOT_RECEIVED : le devis n'est pas encore reçu. MATERIAL_REQUEST_QUOTE_LINES_UNPRICED : des lignes n'ont pas de prix (details : positions, line_ids). MATERIAL_REQUEST_QUOTE_LINES_ALREADY_RETAINED : une ligne a déjà un devis retenu. MATERIAL_REQUEST_QUOTE_LINES_NOT_VALIDATED : des lignes ne sont pas validées (details : positions, line_ids). MATERIAL_REQUEST_QUOTE_WITHOUT_LINES : le devis ne demande plus aucune ligne. MATERIAL_REQUEST_QUOTE_MATERIAL_UNCONFIRMED : des lignes sans matière propre et la matière présumée de la demande n'est pas confirmée (details : positions, line_ids). MATERIAL_REQUEST_QUOTE_DISCOUNT_TOO_LARGE : la remise dépasse les lignes et le port du devis (details : shipping_ht_cents, discount_ht_cents). Rien n'est écrit."),
     },
   },
   {
@@ -578,7 +579,7 @@ export const materialRequestOperations: OpenApiOperationDefinition[] = [
       "200": success("ApiMaterialRequestOrdersReplayed", "Même clé : les brouillons déjà créés, replayed vrai.", ordersCreated),
       ...writeRefusals,
       "409": refusal("MATERIAL_REQUEST_LINE_ALREADY_ORDERED : une ligne vient d'être commandée par ailleurs. MATERIAL_REQUEST_ORDER_KEY_TAKEN : la clé a servi à un autre membre. MATERIAL_REQUEST_ORDER_BUSY : une autre écriture était en cours, réessayer. Rien n'est créé."),
-      "422": refusal("MATERIAL_REQUEST_ORDER_NOTHING_READY : aucune ligne prête. MATERIAL_REQUEST_ORDER_SUPPLIER_INACTIVE : le fournisseur de lignes prêtes est archivé (details.supplier_names). Rien n'est créé."),
+      "422": refusal("MATERIAL_REQUEST_ORDER_NOTHING_READY : aucune ligne prête. MATERIAL_REQUEST_ORDER_SUPPLIER_INACTIVE : le fournisseur de lignes prêtes est archivé (details.supplier_names). MATERIAL_REQUEST_ORDER_TOTAL_NEGATIVE : la remise d'un devis retenu dépasse ce que son brouillon contient de ce devis (details.supplier_names). Rien n'est créé."),
     },
   },
   {

@@ -20,8 +20,8 @@ import {
  *
  * Life of a quote, held by the database:
  *  - requested: recorded when the message is copied. Its supplier, lines, variant and message never change.
- *  - received: the supplier answered (`received: true`). Prices, total and notes stay editable while requested or
- *    received. A price is in whole cents for `price_per` units (1, 10, 100 or 1 000): 0,034 € a screw is 340 for 100.
+ *  - received: the supplier answered (`received: true`). Prices, total, shipping, discount and notes stay editable
+ *    while requested or received. A price is in whole cents for `price_per` units (1, 10, 100 or 1 000): 0,034 € a screw is 340 for 100.
  *  - retained: only through the retain route, from received, with every line priced and validated. Its lines take its
  *    supplier, their price and its quantity, and the quote (`MaterialRequestLine.unit_price_ht_cents`, `price_per`,
  *    `price_quote_id`), a validated line staying validated; a project line without its own material takes the
@@ -92,6 +92,11 @@ export const MATERIAL_REQUEST_QUOTE_LINES_NOT_VALIDATED = "MATERIAL_REQUEST_QUOT
  * confirmed first. details.positions names the lines.
  */
 export const MATERIAL_REQUEST_QUOTE_MATERIAL_UNCONFIRMED = "MATERIAL_REQUEST_QUOTE_MATERIAL_UNCONFIRMED";
+/**
+ * 422: retaining needs a discount no larger than the quote's lines and its shipping: the purchase order that carries
+ * them keeps a total of at least zero. details: shipping_ht_cents, discount_ht_cents.
+ */
+export const MATERIAL_REQUEST_QUOTE_DISCOUNT_TOO_LARGE = "MATERIAL_REQUEST_QUOTE_DISCOUNT_TOO_LARGE";
 /** 422: retaining needs a quote that still asks for a line (its lines may have been deleted since). */
 export const MATERIAL_REQUEST_QUOTE_WITHOUT_LINES = "MATERIAL_REQUEST_QUOTE_WITHOUT_LINES";
 /** 422: more files than a quote keeps (MATERIAL_REQUEST_QUOTE_MAX_FILES). */
@@ -122,8 +127,15 @@ export type MaterialRequestQuote = {
   message: string;
   requested_at: string;
   received_at: string | null;
-  /** Total excluding tax as the supplier quotes it, in cents; informative, the cost is per line. */
+  /**
+   * Total excluding tax as the supplier quotes it, in cents; informative, a check of lines + shipping - discount (the
+   * cost is per line, plus the shipping and minus the discount).
+   */
   amount_ht_cents: number | null;
+  /** The supplier's shipping for this quote, in cents excluding tax; a « Port » line of the purchase order. */
+  shipping_ht_cents: number | null;
+  /** The supplier's global discount, in cents excluding tax (>= 0, subtracted); a « Remise » line of the purchase order. */
+  discount_ht_cents: number | null;
   notes: string | null;
   retained_at: string | null;
   closed_at: string | null;
@@ -168,13 +180,15 @@ export type CreateQuoteInput = z.input<typeof createQuoteSchema>;
 export type CreateQuoteData = z.output<typeof createQuoteSchema>;
 
 /**
- * Prices, total and notes, editable while the quote is requested or received; `received: true` marks it received
+ * Prices, total, shipping, discount and notes, editable while the quote is requested or received; `received: true` marks it received
  * (the database dates it). A key left out is left alone; null clears. Each priced line is one of the quote's;
  * `price_per` left out keeps the line's (1 for a line never given one).
  */
 export const updateQuoteSchema = z
   .object({
     amount_ht_cents: z.union([cents, z.null()]).optional(),
+    shipping_ht_cents: z.union([cents, z.null()]).optional(),
+    discount_ht_cents: z.union([cents, z.null()]).optional(),
     notes: z
       .union([z.string().max(MATERIAL_REQUEST_QUOTE_NOTES_MAX, `${MATERIAL_REQUEST_QUOTE_NOTES_MAX} caractères au plus.`), z.null()])
       .optional()

@@ -60,8 +60,12 @@ export const itemDetailPlanViewSchema = z.object({
 
 export type ItemDetailPlanView = z.infer<typeof itemDetailPlanViewSchema>;
 
-/** What the detail asks: a plan read by an analysis (plan + reading), the dossier's plan, or a dossier piece. */
+/**
+ * What the detail asks: a plan read by an analysis (plan + reading), the dossier's plan, or a dossier piece; `itemId`, the
+ * item shown, required with a reading (a reading is resolved only for an item that analysis answered on that plan).
+ */
 export type ItemDetailPlanRequest = {
+  itemId: string | null;
   planKey: string | null;
   jobId: string | null;
   source: { documentId: string; generation: string | null } | null;

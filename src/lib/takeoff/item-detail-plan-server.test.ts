@@ -34,6 +34,8 @@ const COPY_B = "60000000-0000-4000-8000-00000000000b";
 const UPLOAD = "60000000-0000-4000-8000-00000000000c";
 const FOREIGN_COPY = "60000000-0000-4000-8000-00000000000d";
 const FOREIGN_PIECE = "50000000-0000-4000-8000-0000000000ff";
+const ITEM = "70000000-0000-4000-8000-000000000011";
+const OTHER_ITEM = "70000000-0000-4000-8000-000000000012";
 const DIGEST = "a".repeat(64);
 const STAMP = "2026-11-19T08:00:00.000Z";
 
@@ -117,7 +119,12 @@ const pieces = [
  * The rows of both sessions. `signing`: what Storage answers the member's signing request (ok, an answer shaped as a
  * missing object, an explicit denial, or no answer at all); `stored`: whether the object exists, as the service sees it.
  */
-function stage(input: { copies: Copy[]; sent?: boolean; signing?: "ok" | "missing" | "denied" | "transport"; stored?: boolean }) {
+/** The answers a job published, by item and plan (its logical identity): by default the item read by both jobs. */
+type Answer = { job: string; item: string; plan: string };
+const ANSWERED: Answer[] = [JOB, VERSION_JOB].flatMap((job) => [PIECE, COPY_A].map((plan) => ({ job, item: ITEM, plan })));
+
+function stage(input: { copies: Copy[]; sent?: boolean; signing?: "ok" | "missing" | "denied" | "transport"; stored?: boolean;
+  answers?: Answer[] }) {
   const jobs = [
     { id: JOB, tenant_id: TENANT, project_id: PROJECT, plan_set_id: SET, estimate_version_id: null, status: "succeeded",
       completed_at: "2026-11-20T11:00:00.000Z", preparation_snapshot: snapshot([{ id: COPY_A, name: "Plan RDC indice A.pdf", pages: [7, 2] }]) },
@@ -135,6 +142,8 @@ function stage(input: { copies: Copy[]; sent?: boolean; signing?: "ok" | "missin
     plan_sets: [set],
     takeoff_send_receipts: input.sent ? [{ id: "r", tenant_id: TENANT, job_id: VERSION_JOB, command_kind: "send" }] : [],
     affaire_intake_documents: pieces,
+    takeoff_item_answers: (input.answers ?? ANSWERED).map((answer, index) => ({ id: `answer-${index}`, tenant_id: TENANT, project_id: PROJECT,
+      job_id: answer.job, item_id: answer.item, plan_logical_id: answer.plan })),
   }, {
     "rpc/read_takeoff_plan_location_source": () => {
       const body = member.requests.at(-1)!.body as { p_plan_file_id: string };
@@ -167,10 +176,11 @@ function stage(input: { copies: Copy[]; sent?: boolean; signing?: "ok" | "missin
   return member;
 }
 
-const reading = (jobId: string, planKey: string) => resolveItemDetailPlan(PROJECT, { planKey, jobId, source: null });
-const dossier = (planKey: string) => resolveItemDetailPlan(PROJECT, { planKey, jobId: null, source: null });
+const reading = (jobId: string, planKey: string, itemId: string | null = ITEM) =>
+  resolveItemDetailPlan(PROJECT, { itemId, planKey, jobId, source: null });
+const dossier = (planKey: string) => resolveItemDetailPlan(PROJECT, { itemId: ITEM, planKey, jobId: null, source: null });
 const piece = (documentId: string, generation: string | null = null) =>
-  resolveItemDetailPlan(PROJECT, { planKey: null, jobId: null, source: { documentId, generation } });
+  resolveItemDetailPlan(PROJECT, { itemId: ITEM, planKey: null, jobId: null, source: { documentId, generation } });
 const failure = (promise: Promise<unknown>) => promise.then(() => null, (error: { status: number; code: string }) =>
   ({ status: error.status, code: error.code }));
 
@@ -178,6 +188,17 @@ beforeEach(() => {
   access.member = null;
   access.disabled = false;
   service.current = null;
+});
+
+// Review of #483 (written before the fix): a job that read only another item on the plan was resolved for any item, and
+// shown as this item's earlier reading. A reading is resolved for an item only when that job answered it on that plan.
+describe("resolveItemDetailPlan, a reading of the item asked", () => {
+  it("resolves a reading only for an item its job answered on that plan, and asks for the item", async () => {
+    stage({ copies: [{ id: COPY_A, current: true, piece: PIECE }], answers: [{ job: JOB, item: OTHER_ITEM, plan: PIECE }] });
+    expect(await failure(reading(JOB, PIECE))).toEqual({ status: 404, code: "TAKEOFF_ITEM_DETAIL_READING_NOT_FOUND" });
+    expect(await reading(JOB, PIECE, OTHER_ITEM)).toMatchObject({ reading: { jobId: JOB }, document: { kind: "attested" } });
+    expect(await failure(reading(JOB, PIECE, null))).toEqual({ status: 422, code: "TAKEOFF_ITEM_DETAIL_ADDRESS_INVALID" });
+  });
 });
 
 describe("resolveItemDetailPlan, the rights of the routes that serve the bytes", () => {
@@ -251,7 +272,7 @@ describe("resolveItemDetailPlan, a reading", () => {
     stage({ copies: [{ id: COPY_A, current: true, piece: PIECE }] });
     expect(await failure(reading(FOREIGN_JOB, PIECE))).toEqual({ status: 404, code: "TAKEOFF_ITEM_DETAIL_READING_NOT_FOUND" });
     expect(await failure(reading(JOB, LONE_PIECE))).toEqual({ status: 404, code: "TAKEOFF_ITEM_DETAIL_PLAN_NOT_FOUND" });
-    expect(await failure(resolveItemDetailPlan(OTHER_PROJECT, { planKey: PIECE, jobId: FOREIGN_JOB, source: null })))
+    expect(await failure(resolveItemDetailPlan(OTHER_PROJECT, { itemId: ITEM, planKey: PIECE, jobId: FOREIGN_JOB, source: null })))
       .toEqual({ status: 404, code: "NOT_FOUND" });
   });
 
@@ -310,9 +331,9 @@ describe("resolveItemDetailPlan, a plan of the dossier", () => {
   it("refuses a request that names a piece beside a plan or a reading, or a reading without its plan", async () => {
     stage({ copies: [] });
     for (const request of [
-      { planKey: PIECE, jobId: null, source: { documentId: PIECE, generation: null } },
-      { planKey: null, jobId: JOB, source: null },
-      { planKey: null, jobId: null, source: null },
+      { itemId: ITEM, planKey: PIECE, jobId: null, source: { documentId: PIECE, generation: null } },
+      { itemId: ITEM, planKey: null, jobId: JOB, source: null },
+      { itemId: ITEM, planKey: null, jobId: null, source: null },
     ]) {
       expect(await failure(resolveItemDetailPlan(PROJECT, request))).toEqual({ status: 422, code: "TAKEOFF_ITEM_DETAIL_ADDRESS_INVALID" });
     }

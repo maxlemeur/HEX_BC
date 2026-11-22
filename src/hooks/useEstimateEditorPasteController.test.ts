@@ -691,3 +691,40 @@ describe("document-owned paste receipts", () => {
     expect(result.current.actions).toBe(firstActions);
   });
 });
+
+// Editor shortcut ⌘/Ctrl+Maj+D (PR #489, Codex review): the payload keys are not visible in a journey, and the
+// company base that would replace an automatic K FO cannot be changed in one without touching other journeys.
+describe("useEstimateEditorPasteController duplicateLineBelow", () => {
+  it("keeps the coefficient an automatic v3 line applies, and places the copy right below it", async () => {
+    const { buildEstimateV3ItemInsertPayload } = await vi.importActual<typeof import("@/lib/estimates/v3-editor")>(
+      "@/lib/estimates/v3-editor"
+    );
+    const v3Writer = {
+      deleteItems: vi.fn(),
+      updateItems: vi.fn(),
+      buildInsertPayload: buildEstimateV3ItemInsertPayload,
+      buildUpdatePayload: vi.fn(),
+    } as unknown as EstimateV3EditorWriter;
+    const source = createItem("line-a", {
+      position: 1, quantity: 2, unit_price_ht_cents: 10000, tax_rate_bp: 2000, unit_code: "u",
+      pricing_status: "priced", k_fo: 1.13, k_fo_manual: false, fo_provision: 1, h_mo_per_unit: 0, k_mo: 1,
+    } as Partial<EditorEstimateItem>);
+    const harness = createHarness({ v3Writer, items: [source, createItem("line-b", { position: 2 })] });
+
+    let created: string[] | null = null;
+    await act(async () => {
+      created = await harness.result.current.actions.duplicateLineBelow("line-a");
+    });
+
+    const operations = mocks.batchEstimateOperations.mock.calls[0]?.[2] as CreateOperation[];
+    expect(operations.map(({ data }) => ({
+      parent_id: data.parent_id, title: data.title, quantity: data.quantity, unit_price_ht_cents: data.unit_price_ht_cents,
+      k_fo: data.k_fo, k_fo_manual: (data as Record<string, unknown>).k_fo_manual,
+    }))).toEqual([{ parent_id: null, title: "line-a", quantity: 2, unit_price_ht_cents: 10000, k_fo: 1.13, k_fo_manual: true }]);
+    expect(created).toEqual(["created-1"]);
+    expect(mocks.commitEstimateV3Operations.mock.calls[0]?.[2]).toEqual([
+      { op: "reorder", data: { parent_id: null, ordered_ids: ["line-a", "created-1", "line-b"] } },
+    ]);
+    expect(readHistoryCommand(harness.pushHistoryCommand).label).toBe("duplicate-line");
+  });
+});
