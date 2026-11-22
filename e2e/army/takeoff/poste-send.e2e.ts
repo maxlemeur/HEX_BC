@@ -12,6 +12,12 @@ import { describe, expect, nativeTest as test } from "./native-ui";
 // Lot 4, the send of one plan's retained items to an engine 3 draft (« Envoyer ce plan au devis »), on the owned stack:
 // affaires whose list was read on several plans and published (poste-send-support.ts), the measured items accepted by
 // the table's own command. No model is called, no e-mail is sent. Fictional values only.
+//
+// What these journeys cannot reach on the test application: the reading of a plan against the list (no model runtime,
+// nothing activated), so the answers are seeded as the worker publishes them; a DPGF line as a target (it needs a
+// confirmed import with its raw-row lineage; the planner's and the writer's tests cover it), so the DPGF case is the one
+// of a list whose import has no line in the destination; « Par bâtiment », « Non réparti », the mapping rules and
+// « Remplacer », which the planner's and the writer's tests cover with the same screen.
 
 const options = { session: "army", trace: "off" as const, tags: ["critical", "local"], timeout: 360_000 };
 const sha256 = async (bytes: Buffer) => (await import("node:crypto")).createHash("sha256").update(bytes).digest("hex");
@@ -38,7 +44,7 @@ describe("Envoi d’un plan au devis, poste par poste", () => {
         await acceptOnPlan(owner, seeded.projectId, plan, [seeded.items[label]]);
       }
       const dialog = () => screen.getByRole("dialog");
-      const entry = (name: string) => screen.getByRole("button", `Envoyer le plan « ${name} » au devis`, { exact: true });
+      const entry = (name: string) => screen.getByRole("button", `Envoyer ce plan au devis : « ${name} »`, { exact: true });
 
       // 1. The preview of plan A, without an estimate: the first draft it would create, the line, the WC not found. Annuler.
       await app.open(`/dashboard/affaires/${seeded.projectId}/takeoff`);
@@ -60,8 +66,21 @@ describe("Envoi d’un plan au devis, poste par poste", () => {
       await entry("plan-a.pdf").click();
       const createAndSend = dialog().getByRole("button", "Créer le devis et y envoyer « plan-a.pdf »", { exact: true });
       await expect(createAndSend).toBeEnabled();
+      // Every confirmation the screen posts is counted in the page: a double click posts one.
+      await ui.browser.evaluate(() => {
+        const scope = window as typeof window & { __itemSendConfirms?: number };
+        scope.__itemSendConfirms = 0;
+        const original = window.fetch.bind(window);
+        window.fetch = (input: RequestInfo | URL, init?: RequestInit) => {
+          const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+          if (url.includes("/item-send/confirm")) scope.__itemSendConfirms = (scope.__itemSendConfirms ?? 0) + 1;
+          return original(input, init);
+        };
+        return true;
+      });
       await createAndSend.dblclick();
       await expect(ui.browser).toHaveURL(/\/dashboard\/estimates\/[0-9a-f-]{36}\/edit\?focusItemId=[0-9a-f-]{36}$/, { timeout: 60_000 });
+      expect(await ui.browser.evaluate(() => (window as typeof window & { __itemSendConfirms?: number }).__itemSendConfirms ?? null)).toBe(1);
       const [v1] = await readOwnedVersions(seeded.projectId);
       expect([v1.version_number, v1.status, v1.calc_engine_version]).toEqual([1, "draft", 3]);
       const afterA = await readOwnedLines(seeded.projectId);
@@ -122,6 +141,19 @@ describe("Envoi d’un plan au devis, poste par poste", () => {
         .toEqual([3, 1]);
       await releaseDraftElsewhere(v1.id, other.userId);
 
+      // The line changed in the editor between the preview and the confirmation, its quantity unchanged (a description):
+      // the plan shown is no longer the plan the server computes. Refused (409), nothing written, the preview read again,
+      // and the screen left no lease behind.
+      const leases = async () => Number((await querySql(`select count(*) from public.draft_locks where version_id = '${v1.id}';`)).at(-1));
+      await editorSave({ description: "Repère fictif" });
+      await sendB.click();
+      await expect(dialog().getByTestId("item-send-notice")).toContainText("ont changé depuis l’aperçu");
+      await expect(dialog().getByTestId("item-send-notice")).toContainText("Rien n’a été écrit.");
+      await expect(sendB).toBeEnabled({ timeout: 30_000 });
+      shots.push(await ui.app.screenshot("poste-envoi-apercu-perime-409"));
+      expect([(await readOwnedLines(seeded.projectId)).find((line) => line.id === lavabo.id)!.quantity, await countOwnedReceipts(seeded.projectId),
+        await leases()]).toEqual([3, 1, 0]);
+
       // 5. The line typed by hand in the editor between the preview and the confirmation: refused, the preview read again,
       // a choice asked, none preselected, nothing written until it is made.
       await editorSave({ quantity: 4 });
@@ -133,7 +165,7 @@ describe("Envoi d’un plan au devis, poste par poste", () => {
       await expect(point.getByRole("radio", { checked: true })).toHaveCount(0);
       await expect(sendB).toBeDisabled();
       shots.push(await ui.app.screenshot("poste-envoi-apercu-perime-choix"));
-      expect(await countOwnedReceipts(seeded.projectId)).toBe(1);
+      expect([await countOwnedReceipts(seeded.projectId), await leases()]).toEqual([1, 0]);
       await point.getByRole("radio", /^Retenir le métré/).check();
       await expect(lineB).toContainText("4 u");
       await expect(lineB).toContainText("5 u");
@@ -200,7 +232,12 @@ describe("Envoi d’un plan au devis, poste par poste", () => {
       await ui.browser.reload();
       await waitForHydration(ui.browser);
       await expect(screen.getByRole("table", "Postes du métré", { exact: true })).toBeVisible();
-      await expect(screen.getByRole("button", "Envoyer ce plan au devis")).toHaveCount(0);
+      await expect(entry("plan-d.pdf")).toHaveCount(0);
+      // Nor in plan D's table, where a member who writes the affaire has it.
+      await app.open(`/dashboard/affaires/${seeded.projectId}/takeoff?postePlan=${planD.fileId}`);
+      await waitForHydration(ui.browser);
+      await expect(ui.locator(`[data-testid="poste-${seeded.items.Lavabo}"]`)).toBeVisible();
+      await expect(screen.getByRole("button", "Envoyer ce plan au devis", { exact: true })).toHaveCount(0);
       const readOnly = await apiRequest<{ data: { plan: unknown; blocked: { reason: string } } }>(ui.browser, "POST",
         `/api/takeoff/jobs/${planD.jobId}/item-send/preview`, {});
       expect([readOnly.status, readOnly.body.data.plan, readOnly.body.data.blocked.reason]).toEqual([200, null, "read_only"]);
@@ -231,7 +268,7 @@ describe("Envoi d’un plan au devis, poste par poste", () => {
       expect(saved.status).toBe(200);
     }
     const dialog = () => screen.getByRole("dialog");
-    const entry = (name: string) => screen.getByRole("button", `Envoyer le plan « ${name} » au devis`, { exact: true });
+    const entry = (name: string) => screen.getByRole("button", `Envoyer ce plan au devis : « ${name} »`, { exact: true });
 
     await app.open(`/dashboard/affaires/${seeded.projectId}/takeoff`);
     await waitForHydration(ui.browser);
@@ -267,7 +304,7 @@ describe("Envoi d’un plan au devis, poste par poste", () => {
       await acceptOnPlan(owner, seeded.projectId, seeded.plans[0], [seeded.items.Lavabo]);
       await app.open(`/dashboard/affaires/${seeded.projectId}/takeoff`);
       await waitForHydration(ui.browser);
-      await screen.getByRole("button", "Envoyer le plan « plan-a.pdf » au devis", { exact: true }).click();
+      await screen.getByRole("button", "Envoyer ce plan au devis : « plan-a.pdf »", { exact: true }).click();
       const dialog = screen.getByRole("dialog");
       await expect(dialog).toContainText("La liste des postes vient du DPGF, mais ce devis n’en contient aucune ligne");
       await expect(dialog.getByRole("link", "Confirmer l’import du DPGF", { exact: true }))

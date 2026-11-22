@@ -84,6 +84,10 @@ function TakeoffItemSendScreen({ open, jobId, planName, viewerKey, onOpenChange,
   const [notice, setNotice] = useState<Notice | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  // Sent: nothing is confirmed again while the editor opens.
+  const [sent, setSent] = useState(false);
+  // The pages whose note is being typed: the confirmation waits for it to reach the preview.
+  const [typing, setTyping] = useState<ReadonlySet<string>>(new Set());
   const pending = useRef(false);
   // One intention key per plan confirmed: a retry of the same plan replays its receipt, another plan gets a new key.
   const intent = useRef<{ digest: string; id: string } | null>(null);
@@ -107,11 +111,13 @@ function TakeoffItemSendScreen({ open, jobId, planName, viewerKey, onOpenChange,
     void previewTakeoffItemSend(jobId, itemSendRequestOf(ask), { signal: controller.signal }).then((data) => {
       if (!completion.current()) return;
       // The choices the new preview still applies; a dropped one is said, and the preview read again without it.
-      const { choices, dropped } = reconcileItemSendChoices(ask.choices, data);
+      const { dropped } = reconcileItemSendChoices(ask.choices, data);
       if (dropped.length > 0) {
         if (stale.current) stale.current.dropped.push(...dropped);
         else setNotice({ text: "Certains choix ne s’appliquent plus.", changes: dropped });
-        setAsk((current) => (current.read === read ? { ...current, choices, read: read + 1 } : current));
+        // On the choices as they are now (a page decision begun meanwhile stays), read again without the dropped ones.
+        setAsk((current) => (current.read === read
+          ? { ...current, choices: reconcileItemSendChoices(current.choices, data).choices, read: read + 1 } : current));
         return;
       }
       if (stale.current) {
@@ -175,7 +181,14 @@ function TakeoffItemSendScreen({ open, jobId, planName, viewerKey, onOpenChange,
     || !pagePoints.some((point) => point.page === entry.page));
 
   const confirmable = !!data && data.confirmable && data.plan_digest !== null && data.invalid_page_decisions.length === 0
-    && !submitting && !loading;
+    && !submitting && !loading && !sent && typing.size === 0;
+  const noteTyping = useCallback((page: number | null, pendingNote: boolean) => setTyping((current) => {
+    const key = itemSendPageKey(page);
+    if (current.has(key) === pendingNote) return current;
+    const next = new Set(current);
+    if (pendingNote) next.add(key); else next.delete(key);
+    return next;
+  }), []);
 
   const confirm = async () => {
     if (!data || !confirmable || !data.plan_digest || pending.current) return;
@@ -206,8 +219,12 @@ function TakeoffItemSendScreen({ open, jobId, planName, viewerKey, onOpenChange,
       failure = error;
     } finally {
       if (release && lockVersionId) await releaseEstimateDraftLock(lockVersionId).catch(() => false);
-      pending.current = false;
-      if (completion.ownScreen()) setSubmitting(false);
+      // After a success the button stays off until the editor opens: the same plan is never confirmed twice from here.
+      if (!response) pending.current = false;
+      if (completion.ownScreen()) {
+        if (response) setSent(true);
+        else setSubmitting(false);
+      }
       if (lockRefused && completion.ownScreen()) setSubmitError(lockRefused);
     }
     if (response) {
@@ -290,7 +307,8 @@ function TakeoffItemSendScreen({ open, jobId, planName, viewerKey, onOpenChange,
               </>
             ) : null}
             {data?.blocked ? <ItemSendBlocked blocked={data.blocked} /> : null}
-            {data && !data.blocked ? (
+            {/* « Aucun poste à envoyer » keeps the choices shown: an item left out can be taken back. */}
+            {data && (!data.blocked || data.blocked.reason === "no_line") ? (
               <>
                 {asked.length + chosen.length + pagePoints.length > 0 ? (
                   <section aria-labelledby="item-send-choices" className="space-y-2">
@@ -306,7 +324,7 @@ function TakeoffItemSendScreen({ open, jobId, planName, viewerKey, onOpenChange,
                       <ItemSendPageDecision key={point.key} point={point} labels={labels} disabled={disabled}
                         decision={ask.choices.pageDecisions.get(itemSendPageKey(point.page)) ?? null}
                         leftOut={ask.choices.resolutions.get(point.key)?.choice.kind === "leave_out"}
-                        invalid={invalidFor(point.page)}
+                        invalid={invalidFor(point.page)} onNoteTyping={noteTyping}
                         onDecide={(decision) => decidePage(point, decision)}
                         onLeaveOut={(leave) => choose(point, leave ? { kind: "leave_out" } : null)} />
                     ))}

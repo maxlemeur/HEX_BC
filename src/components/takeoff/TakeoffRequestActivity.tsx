@@ -171,7 +171,7 @@ function RequestUnits({ projectId, request, onLocate, onCommand, onSendItems, pe
               {/* A plan read against the list of items is sent item by item, from its own screen; today's formats
                   keep today's send, from their review. */}
               {!grouped && job?.canSendItems ? (
-                <Button type="button" size="sm" aria-label={`Envoyer le plan « ${name} » au devis`}
+                <Button type="button" size="sm" aria-label={`Envoyer ce plan au devis : « ${name} »`}
                   onClick={() => onSendItems({ jobId: unit.jobId, name })}>
                   Envoyer ce plan au devis
                 </Button>

@@ -74,43 +74,56 @@ const onPage = (pages: readonly number[], page: number | null) => page === null 
 const pointName = (point: ToResolve) => (point.label ? `« ${point.label} »` : point.page !== null ? `Page ${point.page}` : "Un point");
 const pageName = (page: number | null) => (page === null ? "Toutes les pages" : `Page ${page}`);
 
-/** Whether the preview shows the choice applied: the line it feeds as chosen, or the item left out. */
-function reflected(key: string, choice: ItemSendChoice, point: ToResolve, response: ItemSendPreviewResponse) {
+/**
+ * Whether the preview shows the choice applied: the line it feeds as chosen, the item left out, or what the choice led to
+ * (a second point on the same item, a line suspended, a part that cannot be cut). « kept » when it is applied, « moved »
+ * when its point is still there but about another value (an entry typed again since), « gone » when its point is gone.
+ */
+function outcomeOf(key: string, choice: ItemSendChoice, point: ToResolve, response: ItemSendPreviewResponse): "kept" | "moved" | "gone" {
+  if (choice.kind === "leave_out" && point.kind === "page_decision") {
+    return response.parts_not_sent.some((part) => part.reason === "left_out" && onPage(part.pages, point.page)) ? "kept" : "gone";
+  }
+  const item = lower(point.item_id);
+  const notSent = response.not_sent.filter((entry) => lower(entry.item_id) === item);
   if (choice.kind === "leave_out") {
-    if (point.kind === "page_decision") {
-      return response.parts_not_sent.some((part) => part.reason === "left_out" && onPage(part.pages, point.page));
-    }
-    return response.not_sent.some((entry) => lower(entry.item_id) === lower(point.item_id) && entry.reason === "left_out")
-      || response.parts_not_sent.some((part) => lower(part.item_id) === lower(point.item_id) && part.reason === "left_out");
+    return notSent.some((entry) => entry.reason === "left_out")
+      || response.parts_not_sent.some((part) => lower(part.item_id) === item && part.reason === "left_out") ? "kept" : "gone";
   }
   const targetKey = key.slice(key.indexOf(":") + 1);
   const line = response.lines.find((candidate) => candidate.key === targetKey);
-  if (!line) return false;
-  if (key.startsWith("entry:")) {
-    return choice.kind === "keep_entry" ? line.kept_entry : choice.kind === "use_retained" && line.entered !== null && !line.kept_entry;
+  if (line && key.startsWith("entry:")) {
+    // The member chose about the quantity typed then: typed again since, the choice is no longer theirs.
+    if (point.facts?.entered !== null && point.facts?.entered !== undefined && line.entered !== null && line.entered !== point.facts.entered) {
+      return "moved";
+    }
+    if (choice.kind === "keep_entry" ? line.kept_entry : choice.kind === "use_retained" && line.entered !== null && !line.kept_entry) {
+      return "kept";
+    }
   }
-  if (key.startsWith("target:")) {
-    return choice.kind === "line" ? lower(line.estimate_item_id) === lower(choice.estimateItemId) : choice.kind === "new_line" && line.change === "created";
+  if (line && key.startsWith("target:")) {
+    if (choice.kind === "line" ? lower(line.estimate_item_id) === lower(choice.estimateItemId)
+      : choice.kind === "new_line" && line.change === "created") return "kept";
   }
-  return false;
+  // What the choice led to: another point asked about the same item, the line suspended by the server, a part not cut.
+  if (response.to_resolve.some((other) => other.key !== key && lower(other.item_id) === item)) return "kept";
+  if (notSent.some((entry) => entry.reason === "entry_suspended")) return "kept";
+  if (response.invalid_page_decisions.some((invalid) => invalid.reason === "part_indivisible")) return "kept";
+  return "gone";
 }
 
 /**
  * After a new preview (a stale one read again): the choices it still applies, and a sentence for each one dropped,
- * because its point is asked again (its option is no longer offered), because its point is gone, or because its page no
- * longer waits for a decision.
+ * because its point is asked again (its option is no longer offered), because it was about a value that changed since,
+ * because its point is gone, or because its page no longer waits for a decision.
  */
 export function reconcileItemSendChoices(choices: ItemSendScreenChoices, response: ItemSendPreviewResponse) {
   const dropped: string[] = [];
   const resolutions = new Map<string, { choice: ItemSendChoice; point: ToResolve }>();
   for (const [key, entry] of choices.resolutions) {
-    if (response.to_resolve.some((point) => point.key === key)) {
-      dropped.push(`${pointName(entry.point)} : votre choix ne s’applique plus, choisissez de nouveau.`);
-    } else if (reflected(key, entry.choice, entry.point, response)) {
-      resolutions.set(key, entry);
-    } else {
-      dropped.push(`${pointName(entry.point)} : ce point n’est plus à trancher.`);
-    }
+    const outcome = response.to_resolve.some((point) => point.key === key) ? "moved" : outcomeOf(key, entry.choice, entry.point, response);
+    if (outcome === "kept") resolutions.set(key, entry);
+    else dropped.push(outcome === "moved" ? `${pointName(entry.point)} : votre choix ne s’applique plus, choisissez de nouveau.`
+      : `${pointName(entry.point)} : ce point n’est plus à trancher.`);
   }
   const pageDecisions = new Map<string, ItemSendPendingPageDecision>();
   for (const [key, decision] of choices.pageDecisions) {
@@ -120,6 +133,7 @@ export function reconcileItemSendChoices(choices: ItemSendScreenChoices, respons
       pageDecisions.set(key, decision);
     }
   }
+  if (dropped.length === 0) return { choices, dropped };
   return { choices: { resolutions, pageDecisions } satisfies ItemSendScreenChoices, dropped };
 }
 

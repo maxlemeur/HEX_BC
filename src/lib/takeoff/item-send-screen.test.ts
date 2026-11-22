@@ -90,6 +90,29 @@ describe("the member's choices on the send of one plan", () => {
     expect(dropped).toEqual(["« Lavabo » : ce point n’est plus à trancher."]);
   });
 
+  it("keeps a choice that leads to a second point, which the member then sees", () => {
+    // « Alimenter X » for a DPGF item: the line chosen was typed by hand, so the preview now asks its entry.
+    const target = { ...entryPoint(`target:${LAVABO}|dpgf`), kind: "target_missing" as const,
+      options: [{ kind: "line" as const, estimate_item_id: LINE, title: "Lavabo" }, { kind: "leave_out" as const }] };
+    const choices = withItemSendResolution(EMPTY_ITEM_SEND_CHOICES, target, { kind: "line", estimateItemId: LINE });
+    const next = preview({ lines: [], to_resolve: [entryPoint(`entry:${LAVABO}|dpgf`)], confirmable: false, plan_digest: null });
+    const { choices: kept, dropped } = reconcileItemSendChoices(choices, next);
+    expect([[...kept.resolutions.keys()], dropped]).toEqual([[`target:${LAVABO}|dpgf`], []]);
+  });
+
+  it("keeps « conserver la saisie » the server suspends, so that the member can change it", () => {
+    const choices = withItemSendResolution(EMPTY_ITEM_SEND_CHOICES, entryPoint(), { kind: "keep_entry" });
+    const next = preview({ lines: [], not_sent: [{ item_id: LAVABO, label: "Lavabo", reason: "entry_suspended", message: "Suspendue." }] });
+    expect(reconcileItemSendChoices(choices, next)).toEqual({ choices, dropped: [] });
+  });
+
+  it("drops a choice on an entry typed again since: the member chose about another quantity", () => {
+    const choices = withItemSendResolution(EMPTY_ITEM_SEND_CHOICES, entryPoint(), { kind: "use_retained" });
+    const next = preview({ lines: [line({ entered: 15, quantity_before: 15 })] });
+    const { choices: kept, dropped } = reconcileItemSendChoices(choices, next);
+    expect([kept.resolutions.size, dropped]).toEqual([0, ["« Lavabo » : votre choix ne s’applique plus, choisissez de nouveau."]]);
+  });
+
   it("keeps a « laisser de côté » the new preview still shows left out", () => {
     const choices = withItemSendResolution(EMPTY_ITEM_SEND_CHOICES, entryPoint(), { kind: "leave_out" });
     const next = preview({ lines: [], not_sent: [{ item_id: LAVABO, label: "Lavabo", reason: "left_out", message: "Laissé de côté." }] });

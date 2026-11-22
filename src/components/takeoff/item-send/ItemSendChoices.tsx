@@ -87,7 +87,7 @@ type PageChoice = "replace" | "keep_both" | "leave_out" | null;
  * A page another analysis already brought into the estimate: what holds it, and its decision. « Garder les deux » is
  * asked with its reason (a complementary scope with its note): until it is complete, the page's parts wait.
  */
-export function ItemSendPageDecision({ point, decision, leftOut, invalid, labels, disabled, onDecide, onLeaveOut }: {
+export function ItemSendPageDecision({ point, decision, leftOut, invalid, labels, disabled, onDecide, onLeaveOut, onNoteTyping }: {
   point: Point;
   decision: ItemSendPendingPageDecision | null;
   leftOut: boolean;
@@ -96,6 +96,8 @@ export function ItemSendPageDecision({ point, decision, leftOut, invalid, labels
   disabled: boolean;
   onDecide: (decision: ItemSendPendingPageDecision | null) => void;
   onLeaveOut: (leave: boolean) => void;
+  /** Whether a note typed here has not reached the preview yet: the confirmation waits for it. */
+  onNoteTyping?: (page: number | null, typing: boolean) => void;
 }) {
   const name = useId();
   const noteId = useId();
@@ -103,12 +105,18 @@ export function ItemSendPageDecision({ point, decision, leftOut, invalid, labels
   const keepBoth = decision?.decision === "keep_both" ? decision : null;
   // The note is committed once typing pauses: the preview is not computed again on every key.
   const [note, setNote] = useState(keepBoth?.note ?? "");
+  const noteTyped = keepBoth !== null && (keepBoth.note ?? "") !== note;
+  const page = point.page;
+  useEffect(() => {
+    onNoteTyping?.(page, noteTyped);
+  }, [page, noteTyped, onNoteTyping]);
+  useEffect(() => () => onNoteTyping?.(page, false), [page, onNoteTyping]);
   useEffect(() => {
     if (!keepBoth || (keepBoth.note ?? "") === note) return;
     const timer = setTimeout(() => onDecide({ ...keepBoth, note }), 500);
     return () => clearTimeout(timer);
   }, [note, keepBoth, onDecide]);
-  const page = point.page === null ? "Toutes les pages" : `Page ${point.page}`;
+  const pageName = point.page === null ? "Toutes les pages" : `Page ${point.page}`;
   const choose = (next: PageChoice) => {
     if (next === "leave_out") { onDecide(null); onLeaveOut(true); return; }
     if (leftOut) onLeaveOut(false);
@@ -126,7 +134,7 @@ export function ItemSendPageDecision({ point, decision, leftOut, invalid, labels
   );
   return (
     <fieldset className="space-y-2 rounded-lg border border-border p-3" data-testid={`item-send-page-${point.page ?? "all"}`}>
-      <legend className="px-1 text-sm font-medium text-foreground">{page} : déjà au devis par une autre analyse</legend>
+      <legend className="px-1 text-sm font-medium text-foreground">{pageName} : déjà au devis par une autre analyse</legend>
       <p className="text-sm text-foreground-secondary">
         Une page n’entre qu’une fois au devis. Décidez de ce que ce plan y apporte.
       </p>
