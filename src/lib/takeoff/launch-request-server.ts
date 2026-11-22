@@ -652,10 +652,11 @@ export async function launchTakeoffRelaunch(input: {
     p_predecessor_job_id: (input.predecessorJobId ?? null) as string,
     p_plan_set_id: input.planSetId, p_preparation_revision: input.preparationRevision };
   // The command's receipt first: a double click or a replay gets what it answered whatever changed since, the activation
-  // included, under M4's identity or the one scoped to the plans it names.
+  // included. A command naming its plans has one identity, scoped to them; one naming none, M4's or the one scoped to the
+  // plans of the analysis it replaces (derived here, not named): another selection under the same key is a conflict.
   const scope = await relaunchPlanScope(service, input);
   const { data: replayed, error: replayError } = await service.rpc("replay_manual_takeoff_plan_request",
-    { ...command, p_plan_file_ids: (scope ?? null) as string[] });
+    { ...command, p_plan_file_ids: (scope ?? null) as string[], p_plans_named: Boolean(input.planFileIds?.length) });
   if (replayError) launchError(replayError, "Impossible de relancer le métré.");
   const recorded = (replayed as Array<{ outcome: string; request_id: string; job_id: string | null }> | null)?.[0];
   if (recorded) {

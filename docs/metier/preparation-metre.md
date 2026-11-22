@@ -779,8 +779,9 @@ reprise hébergée suit les siennes pour tout job qui n’est pas un plan d’un
 analyse par plan ; une analyse groupée ne s’arrête pas plan par plan. Retirer
 l’activation n’arrête que les nouvelles admissions : les plans déjà admis restent
 lus un à la fois, sous le créneau du Mac, et tant qu’un de ces plans est à l’œuvre
-sur un Mac, tout autre job de ce Mac ne démarre, ne renouvelle son bail et ne paie
-que sous ce créneau. Tant que l’envoi partiel n’est pas livré,
+sur un Mac (ou que son créneau reste tenu par un bail non expiré, même celui d’une
+lecture arrêtée dont l’appel peut encore courir), tout autre job de ce Mac ne
+démarre, ne renouvelle son bail et ne paie que sous ce créneau. Tant que l’envoi partiel n’est pas livré,
 l’activer ferme l’envoi de toute nouvelle analyse, même d’un dossier d’un seul
 plan (voir le dernier point). La base en décide (migration
 `20261121231238_takeoff_plan_dispatcher.sql`) ; le serveur suit
@@ -902,7 +903,8 @@ plan (voir le dernier point). La base en décide (migration
   décide de l’ordre de ses refus : un démarrage automatique qui peut encore
   commencer passe avant). La première analyse lancée depuis la zone de l’affaire,
   sans nommer de plan, lit tous les plans que sa préparation retient, chacun en
-  son unité. Un plan dont le nombre de pages n’est pas enregistré et dont les
+  son unité ; la base vérifie que ce sont ceux de la préparation confirmée de la
+  révision nommée (une commande qui nomme ses plans n’en lit que parmi eux). Un plan dont le nombre de pages n’est pas enregistré et dont les
   octets ne se lisent pas refuse la commande, nommé, comme le scellement
   automatique. Les
   limites du jeu de plans s’appliquent à l’ensemble des plans demandés, avant
@@ -915,7 +917,8 @@ plan (voir le dernier point). La base en décide (migration
   Son identité nomme ses plans (celle d’une première analyse de tous les plans
   est celle du lot 2) ; le rejeu de la même clé ne dépense rien de plus et est
   répondu avant toute lecture de la préparation, sous l’identité du reçu, quelle
-  que soit l’activation au moment du rejeu.
+  que soit l’activation au moment du rejeu ; une autre sélection de plans sous la
+  même clé est une autre commande, refusée.
 - **L’envoi au tableau de chiffrage** d’une analyse par plan reste fermé jusqu’à
   l’envoi partiel : la revue dit qu’il arrive plus tard, et la base refuse de la
   rattacher à une version. Une analyse groupée s’envoie comme avant.

@@ -793,14 +793,15 @@ describe("launchTakeoffRelaunch", () => {
   const relaunch = () => launchTakeoffRelaunch({ context: member("engineer"), projectId: PROJECT, planSetId: PLAN_SET,
     preparationRevision: 2, intentKey: "aaaaaaaa-0000-4000-8000-0000000000aa", predecessorJobId: "aaaaaaaa-0000-4000-8000-0000000000bb" });
 
-  // The receipt is read first, whatever the activation: the database answers it under either identity a command can have
-  // had (all the plans of the preparation, or the plans it names, by default those of the analysis it replaces).
+  // The receipt is read first, whatever the activation: the database answers it under either identity a command naming no
+  // plan can have had (all the plans of the preparation, or those of the analysis it replaces, derived here: not named, so
+  // that a retry naming plans under the same key is another command).
   it("answers a replayed click with its recorded answer before reading the preparation", async () => {
     const { calls } = gesture({ replayed: { outcome: "already_running", request_id: REQUEST, job_id: "aaaaaaaa-0000-4000-8000-0000000000cc" } });
     expect(await relaunch()).toEqual({ outcome: "already_running", requestId: REQUEST, jobId: "aaaaaaaa-0000-4000-8000-0000000000cc" });
     expect(calls("replay_plans")).toEqual([expect.objectContaining({ p_intent_key: "aaaaaaaa-0000-4000-8000-0000000000aa",
       p_predecessor_job_id: "aaaaaaaa-0000-4000-8000-0000000000bb", p_plan_set_id: PLAN_SET, p_preparation_revision: 2,
-      p_plan_file_ids: [PLAN_FILE] })]);
+      p_plan_file_ids: [PLAN_FILE], p_plans_named: false })]);
     expect(assertConfirmedTakeoffPreparation).not.toHaveBeenCalled();
   });
 
@@ -811,7 +812,7 @@ describe("launchTakeoffRelaunch", () => {
     await expect(launchTakeoffRelaunch({ context: member("engineer"), projectId: PROJECT, planSetId: PLAN_SET, preparationRevision: 2,
       intentKey: "aaaaaaaa-0000-4000-8000-0000000000ab", planFileIds: [PLAN_FILE], predecessorJobId: "aaaaaaaa-0000-4000-8000-0000000000bb" }))
       .resolves.toEqual({ outcome: "replayed", requestId: REQUEST, jobId: "aaaaaaaa-0000-4000-8000-0000000000cc" });
-    expect(calls("replay_plans")).toEqual([expect.objectContaining({ p_plan_file_ids: [PLAN_FILE] })]);
+    expect(calls("replay_plans")).toEqual([expect.objectContaining({ p_plan_file_ids: [PLAN_FILE], p_plans_named: true })]);
     expect(assertConfirmedTakeoffPreparation).not.toHaveBeenCalled();
   });
 
@@ -845,7 +846,7 @@ describe("launchTakeoffRelaunch", () => {
       intentKey: "aaaaaaaa-0000-4000-8000-0000000000ab", planFileIds: [PLAN_FILE.toUpperCase()],
       predecessorJobId: "aaaaaaaa-0000-4000-8000-0000000000bb" });
     expect(calls("replay_plans")).toEqual([expect.objectContaining({ p_intent: "reread_plans",
-      p_predecessor_job_id: "aaaaaaaa-0000-4000-8000-0000000000bb", p_plan_file_ids: [PLAN_FILE] })]);
+      p_predecessor_job_id: "aaaaaaaa-0000-4000-8000-0000000000bb", p_plan_file_ids: [PLAN_FILE], p_plans_named: true })]);
   });
 
 
@@ -1012,7 +1013,7 @@ describe("launchTakeoffRelaunch", () => {
       intentKey: "aaaaaaaa-0000-4000-8000-0000000000ac", planFileIds: [PLAN_FILE], predecessorJobId: null }))
       .rejects.toMatchObject({ status: 422, message: expect.stringContaining("sans choisir de plans") });
     // Its receipt was looked up first: none.
-    expect(calls("replay_plans")).toEqual([expect.objectContaining({ p_plan_file_ids: [PLAN_FILE] })]);
+    expect(calls("replay_plans")).toEqual([expect.objectContaining({ p_plan_file_ids: [PLAN_FILE], p_plans_named: true })]);
     expect(calls("replay")).toEqual([]);
   });
 
@@ -1081,7 +1082,7 @@ describe("launchTakeoffRelaunch", () => {
     await launchTakeoffRelaunch({ context: member("engineer"), projectId: PROJECT, planSetId: PLAN_SET, preparationRevision: 2,
       intentKey: "aaaaaaaa-0000-4000-8000-0000000000aa", predecessorJobId: null });
     expect(calls("replay_plans")).toEqual([expect.objectContaining({ p_intent: "initial", p_predecessor_job_id: null,
-      p_plan_file_ids: null })]);
+      p_plan_file_ids: null, p_plans_named: false })]);
   });
 
 });
