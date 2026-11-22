@@ -297,16 +297,10 @@ describe("purchase orders from a request", () => {
     expect(marks).toHaveLength(2);
     expect(marks[0]).toHaveAttribute("href", `/dashboard/orders/${ORDER_A}`);
     expect(within(table).getByRole("link", { name: "Brouillon de bon : C-2026-0042" })).toHaveAttribute("href", `/dashboard/orders/${ORDER_B}`);
-    // An ordered line is not reopened from the request; a validated line not ordered still is.
-    for (const position of [1, 3, 5]) {
-      await user.click(within(table).getByRole("button", { name: `Afficher les détails de la ligne ${position}` }));
-      const inspector = screen.getByRole("complementary", { name: `Détails de la ligne ${position}` });
-      await user.click(within(inspector).getByRole("button", { name: "Actions sur la ligne" }));
-      if (position === 5) {
-        expect(within(inspector).getByRole("button", { name: "Rouvrir la ligne 5" })).toBeVisible();
-      } else {
-        expect(within(inspector).queryByRole("button", { name: `Rouvrir la ligne ${position}` })).not.toBeInTheDocument();
-      }
+    // The edit action is visible on the validated line with no order.
+    expect(within(table).getByRole("button", { name: "Modifier la ligne 5" })).toBeVisible();
+    for (const position of [1, 3]) {
+      expect(within(table).queryByRole("button", { name: `Modifier la ligne ${position}` })).not.toBeInTheDocument();
     }
     expect(creations()).toHaveLength(2);
   });
@@ -344,9 +338,9 @@ describe("purchase orders from a request", () => {
 
     const reasons = await within(section()).findByRole("list", { name: "Lignes pas encore à commander" });
     expect(within(reasons).getAllByRole("listitem").map((item) => item.textContent)).toEqual([
-      "Ligne 4 · Té égal DN 50 : pas validée : réglez ses alertes, puis validez-la (étape Lignes)",
-      "Ligne 5 · Bride plate DN 50 : sans devis retenu : consultez un fournisseur et retenez son devis (étape Devis)",
-      "Ligne 6 · Manchon DN 50 : sans fournisseur : choisissez-le sur la ligne (étape Lignes)",
+      "Té égal DN 50 : pas validée : réglez ses alertes, puis validez-la (étape Lignes)",
+      "Bride plate DN 50 : sans devis retenu : consultez un fournisseur et retenez son devis (étape Devis)",
+      "Manchon DN 50 : sans fournisseur : choisissez-le sur la ligne (étape Lignes)",
     ]);
     expect(within(section()).getByText("Aucune ligne prête à commander.")).toBeVisible();
     expect(within(section()).getByRole("button", { name: "Créer les brouillons de commande (0)" })).toBeDisabled();
@@ -363,7 +357,9 @@ describe("purchase orders from a request", () => {
     const list = await within(section()).findByRole("list", { name: "Bons de commande de la demande" });
     await user.click(within(list).getByRole("button", { name: "Afficher le bon C-2026-0041" }));
     expect(within(section()).getByRole("link", { name: "Ouvrir le bon C-2026-0041" })).toHaveAttribute("href", `/dashboard/orders/${ORDER_A}`);
-    expect(within(section()).getByRole("list", { name: "Lignes pas encore à commander" })).toBeVisible();
+    // Once orders exist the lines left behind are said once, with their reasons, in the reminder over the orders.
+    expect(within(section()).getByRole("list", { name: "Lignes à commander encore" })).toBeVisible();
+    expect(within(section()).queryByRole("list", { name: "Lignes pas encore à commander" })).not.toBeInTheDocument();
     await user.click(within(section()).getByRole("button", { name: "Création de brouillons · 0 ligne éligible" }));
     expect(within(section()).queryByRole("button", { name: /Créer les brouillons de commande/ })).not.toBeInTheDocument();
     await openStep(user, 1);

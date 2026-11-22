@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import Link from "next/link";
 import { ArrowLeft, Check, ChevronRight, ExternalLink, Info, ShoppingCart } from "lucide-react";
 
@@ -8,11 +8,13 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import type { MaterialRequestOrder } from "@/lib/material-requests/client";
+import type { MaterialRequestLine } from "@/lib/material-requests/contracts";
 import type { MaterialRequestOrderNotReadyReason } from "@/lib/material-requests/order-contracts";
 import { formatEUR } from "@/lib/money";
 import { cn } from "@/lib/utils";
 
-import { formatQuantity, formatQuotedPrice, lineTitle, purchaseOrderHref, purchaseOrderStatusLabel } from "./format";
+import { SELECTED_ROW } from "./cells";
+import { formatQuantity, formatQuotedPrice, lineNamesLabel, lineTitle, purchaseOrderHref, purchaseOrderStatusLabel } from "./format";
 import { REQUEST_STEP_KEYS, type RequestStepKey } from "./request-steps";
 import type { MaterialRequestEditorApi } from "./useMaterialRequestEditor";
 import type { MaterialRequestOrdersApi } from "./useMaterialRequestOrders";
@@ -65,18 +67,24 @@ const LEFT_BEHIND: Record<MaterialRequestOrderNotReadyReason | "ready", { one: s
 export function MaterialRequestToOrderReminder({
   editor,
   orders,
-}: Readonly<{ editor: MaterialRequestEditorApi; orders: MaterialRequestOrdersApi }>) {
+  children,
+}: Readonly<{
+  editor: MaterialRequestEditorApi;
+  orders: MaterialRequestOrdersApi;
+  /** Where each of these lines is settled: the links to the steps, read under the reasons. */
+  children?: ReactNode;
+}>) {
   const { summary } = orders;
   if (!summary || summary.ordered.length === 0) return null;
-  const positionOf = new Map(editor.data.lines.map((line) => [line.id, line.position]));
-  const groups = new Map<MaterialRequestOrderNotReadyReason | "ready", number[]>();
+  const { linesById } = editor;
+  const groups = new Map<MaterialRequestOrderNotReadyReason | "ready", MaterialRequestLine[]>();
   const add = (reason: MaterialRequestOrderNotReadyReason | "ready", lineId: string) => {
-    const position = positionOf.get(lineId);
-    if (position !== undefined) groups.set(reason, [...(groups.get(reason) ?? []), position]);
+    const line = linesById.get(lineId);
+    if (line) groups.set(reason, [...(groups.get(reason) ?? []), line]);
   };
   for (const lineId of summary.ready_line_ids) add("ready", lineId);
   for (const entry of summary.not_ready) add(entry.reason, entry.line_id);
-  const left = [...groups.values()].reduce((total, positions) => total + positions.length, 0);
+  const left = [...groups.values()].reduce((total, lines) => total + lines.length, 0);
   if (left === 0) return null;
   const order: Array<MaterialRequestOrderNotReadyReason | "ready"> = ["no_supplier", "not_priced", "not_validated", "ready"];
   return (
@@ -89,15 +97,14 @@ export function MaterialRequestToOrderReminder({
       <AlertDescription>
         <ul aria-label="Lignes à commander encore" className="mt-1 list-disc space-y-0.5 pl-5">
           {order.flatMap((reason) => {
-            const positions = [...(groups.get(reason) ?? [])].sort((first, second) => first - second);
-            if (positions.length === 0) return [];
-            const several = positions.length > 1;
-            const named = several
-              ? `Lignes ${positions.slice(0, -1).join(", ")} et ${positions[positions.length - 1]}`
-              : `Ligne ${positions[0]}`;
-            return [<li key={reason}>{`${named}, ${several ? LEFT_BEHIND[reason].several : LEFT_BEHIND[reason].one}.`}</li>];
+            // Named by what they ask, in the order of the request: no number shows on screen to point at.
+            const lines = [...(groups.get(reason) ?? [])].sort((first, second) => first.position - second.position);
+            if (lines.length === 0) return [];
+            const several = lines.length > 1;
+            return [<li key={reason}>{`${lineNamesLabel(lines.map((line) => lineTitle(line)))}, ${several ? LEFT_BEHIND[reason].several : LEFT_BEHIND[reason].one}.`}</li>];
           })}
         </ul>
+        {children}
       </AlertDescription>
     </Alert>
   );
@@ -115,9 +122,10 @@ function OrderItem({ order, selected, onSelect }: Readonly<{ order: MaterialRequ
   return (
     <li className="min-w-0 border-b border-border last:border-b-0">
       <button type="button" aria-label={`Afficher le bon ${order.reference}`} aria-pressed={selected} onClick={onSelect}
-        className={cn("block w-full min-w-0 border-l-4 border-l-transparent px-5 py-5 text-left hover:bg-surface-subtle focus-visible:outline-2 focus-visible:outline-offset-[-3px] focus-visible:outline-ring", selected && "border-l-brand-orange bg-warning-subtle")}>
+        // Selected as a line or a quote is: the application's blue, orange being kept for what there is to fix.
+        className={cn("block w-full min-w-0 px-4 py-3 text-left hover:bg-surface-subtle focus-visible:outline-2 focus-visible:outline-offset-[-3px] focus-visible:outline-ring", selected && SELECTED_ROW)}>
         <span className="flex flex-wrap items-center justify-between gap-2"><span className="min-w-0 break-words font-semibold text-foreground">{order.reference} <span className="ml-1">{order.supplier_name}</span></span><ChevronRight aria-hidden="true" className="size-4 shrink-0 text-muted-foreground" /></span>
-        <span className="mt-2 flex flex-wrap items-center gap-2 text-sm"><span className="tabular-nums text-muted-foreground">{formatEUR(order.total_ht_cents)} HT</span><span aria-hidden="true">·</span><span className="text-muted-foreground">{plural(order.line_count, "ligne", "lignes")}</span><Badge variant={STATUS_VARIANT[order.status] ?? "neutral"}>{purchaseOrderStatusLabel(order.status)}</Badge></span>
+        <span className="mt-1 flex flex-wrap items-center gap-2 text-sm"><span className="tabular-nums text-muted-foreground">{formatEUR(order.total_ht_cents)} HT</span><span aria-hidden="true">·</span><span className="text-muted-foreground">{plural(order.line_count, "ligne", "lignes")}</span><Badge variant={STATUS_VARIANT[order.status] ?? "neutral"}>{purchaseOrderStatusLabel(order.status)}</Badge></span>
       </button>
     </li>
   );
@@ -143,7 +151,7 @@ export function MaterialRequestOrders({
   const { summary, status } = orders;
   // The server says who may create: a writer of the request who may also buy. Until it answers, the request's rights.
   const canCreate = canWrite && (summary ? summary.can_create : true);
-  const linesById = new Map(data.lines.map((line) => [line.id, line]));
+  const { linesById } = editor;
   const ready = summary?.ready_line_ids.length ?? 0;
   const notReady = [...(summary?.not_ready ?? [])].sort(
     (left, right) =>
@@ -163,6 +171,18 @@ export function MaterialRequestOrders({
     .flatMap((entry) => { const line = linesById.get(entry.line_id); return line ? [line] : []; }) ?? [];
 
 
+  // Once orders exist, the lines left behind are said in the reminder over them, with their reasons: not a second
+  // time under the orders.
+  const reminded = (summary?.ordered.length ?? 0) > 0 && ready + notReady.length > 0;
+  const stepLinks = canWrite && onGoToStep && notReady.length > 0 ? (
+    <div className="flex flex-wrap gap-x-4">
+      {REQUEST_STEP_KEYS.filter((key) => notReady.some((entry) => REASON_STEP[entry.reason] === key)).map((key) => (
+        <Button key={key} type="button" variant="link" size="sm" className="px-0" onClick={() => onGoToStep(key)}>
+          {key === "lignes" ? "Régler les lignes, à l’étape Lignes" : "Faire chiffrer, à l’étape Devis"}
+        </Button>
+      ))}
+    </div>
+  ) : null;
   const creation = (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
@@ -174,29 +194,53 @@ export function MaterialRequestOrders({
   );
   return (
     <section aria-labelledby={headingId} className="mr-orders min-w-0 space-y-5">
-      <div>
-        <p className="mb-1 text-sm text-muted-foreground">Dossier de commande</p>
-        <div className="flex flex-wrap items-center gap-4"><h2 id={headingId} className="font-display text-2xl font-semibold text-foreground">Bons de commande</h2>
+      {/* The same head as the lines step: its title, and where the step stands beside it. */}
+      <div className="pt-5">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1"><h2 id={headingId} className="typo-h3 text-foreground">Bons de commande</h2>
           {allAssigned ? <Badge variant="success"><Check aria-hidden="true" />Toutes les lignes ont un bon · {plural(drafts.filter((order) => order.status !== "canceled").length, "bon créé", "bons créés")}</Badge> : null}
         </div>
       </div>
-      <MaterialRequestToOrderReminder editor={editor} orders={orders} />
+      <MaterialRequestToOrderReminder editor={editor} orders={orders}>{reminded ? stepLinks : null}</MaterialRequestToOrderReminder>
       {summary === null ? status === "error" ? <div className="flex flex-wrap items-center gap-2 text-sm"><p>Les bons de commande n’ont pas pu être chargés.</p><Button type="button" variant="outline" size="sm" aria-label="Recharger les bons de commande" onClick={orders.retry}>Réessayer</Button></div> : <p role="status" className="text-sm text-muted-foreground">Chargement des bons de commande…</p> : (
         <>
-          {drafts.length > 0 ? <div className="mr-order-workspace grid min-w-0 overflow-hidden rounded-xl border border-border bg-surface xl:grid-cols-[26rem_minmax(0,1fr)]">
+          {drafts.length > 0 ? <div className="mr-order-workspace grid min-w-0 overflow-hidden rounded-lg border border-border bg-surface xl:grid-cols-[22rem_minmax(0,1fr)]">
             <div className="min-w-0 border-b border-border xl:border-r xl:border-b-0"><h3 className="sr-only">Bons de cette demande</h3><ul aria-label="Bons de commande de la demande">{drafts.map((order) => <OrderItem key={order.id} order={order} selected={selectedOrder?.id === order.id} onSelect={() => setSelectedOrderId(order.id)} />)}</ul></div>
-            {selectedOrder ? <div role="region" aria-label={`Détail du bon ${selectedOrder.reference}`} className="min-w-0 p-5 sm:p-6">
-              <div className="flex flex-wrap items-start justify-between gap-4"><div><h3 className="font-display text-2xl font-semibold">Bon {selectedOrder.reference}</h3><p className="mt-2 text-sm text-muted-foreground">Fournisseur : <span className="font-semibold text-foreground">{selectedOrder.supplier_name}</span> <Badge variant={STATUS_VARIANT[selectedOrder.status] ?? "neutral"}>{purchaseOrderStatusLabel(selectedOrder.status)}</Badge></p></div><div className="text-right"><p className="font-display text-2xl font-semibold tabular-nums">{formatEUR(selectedOrder.total_ht_cents)} HT</p><p className="mt-1 text-sm text-muted-foreground">{plural(selectedOrder.line_count, "ligne", "lignes")}</p></div></div>
-              {selectedLines.length > 0 ? <div className="mt-8"><div aria-hidden="true" className="flex justify-between gap-3 border-b border-border pb-3 text-xs font-medium text-muted-foreground"><span>Lignes de la demande</span><span>Source</span></div><ul className="divide-y divide-border">{selectedLines.map((line) => <li key={line.id} className="flex flex-wrap items-center justify-between gap-3 py-4 text-sm"><span>{lineTitle(line)} · {formatQuantity(line.quantity)} {line.unit} · {line.unit_price_ht_cents === null ? "Prix non renseigné" : `${formatQuotedPrice(line.unit_price_ht_cents, line.price_per)} HT`}</span><span className="rounded-full bg-muted px-3 py-1 text-xs text-muted-foreground">Prix du devis retenu</span></li>)}</ul></div> : <p className="mt-6 text-sm text-muted-foreground">Consultez le bon pour le détail de ses lignes.</p>}
-              <p className="mt-5 flex items-start gap-2 text-sm text-muted-foreground"><Info aria-hidden="true" className="size-4 shrink-0" />Pour la confirmation fournisseur et la réception, ouvrez le bon.</p>
-              {selectedOrder.can_open ? <Link href={purchaseOrderHref(selectedOrder.id)} aria-label={`Ouvrir le bon ${selectedOrder.reference}`} className="mt-5 inline-flex min-h-10 items-center gap-2 rounded-lg bg-primary px-5 py-2 text-sm font-semibold text-primary-foreground hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"><ExternalLink aria-hidden="true" className="size-4" />Ouvrir le bon<span className="sr-only"> {selectedOrder.reference}</span></Link> : <p className="mt-4 text-sm text-muted-foreground">Vous pouvez consulter son résumé ici ; l’ouverture du bon est réservée à son auteur et aux administrateurs.</p>}
-              {ready === 0 ? <p className="mt-7 flex items-center gap-2 border-t border-border pt-5 text-base font-semibold"><Check aria-hidden="true" className="size-5 text-success" />Aucune nouvelle ligne à commander</p> : null}
-              <details open={ready > 0} className="mt-5 rounded-lg bg-surface-subtle p-4"><summary role="button" className="cursor-pointer text-sm font-semibold focus-visible:outline-2 focus-visible:outline-ring">Création de brouillons · {plural(ready, "ligne éligible", "lignes éligibles")}</summary><div className="mt-4">{creation}</div></details>
+            {selectedOrder ? <div role="region" aria-label={`Détail du bon ${selectedOrder.reference}`} className="min-w-0 p-4 sm:p-5">
+              <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2"><div><h3 className="font-display text-lg font-semibold">Bon {selectedOrder.reference}</h3><p className="mt-1 text-sm text-muted-foreground">Fournisseur : <span className="font-semibold text-foreground">{selectedOrder.supplier_name}</span> <Badge variant={STATUS_VARIANT[selectedOrder.status] ?? "neutral"}>{purchaseOrderStatusLabel(selectedOrder.status)}</Badge></p></div><div className="sm:text-right"><p className="font-display text-lg font-semibold tabular-nums">{formatEUR(selectedOrder.total_ht_cents)} HT</p><p className="mt-1 text-sm text-muted-foreground">{plural(selectedOrder.line_count, "ligne", "lignes")}</p></div></div>
+              {selectedLines.length > 0 ? (
+                // One row per line and grid lines between the columns, as in every table of the application
+                // (`sheet-table`); where the prices come from is said once, over them.
+                <div className="mt-4 overflow-hidden rounded-lg border border-border">
+                  <table className="sheet-table w-full table-fixed border-collapse text-left text-sm">
+                    <colgroup><col /><col className="w-18 sm:w-24" /><col className="w-28 sm:w-44" /></colgroup>
+                    <thead className="border-b border-border text-xs">
+                      <tr>
+                        <th scope="col" className="px-3 py-1.5 text-left">Lignes de la demande</th>
+                        <th scope="col" className="px-3 py-1.5 text-right">Quantité</th>
+                        <th scope="col" className="px-3 py-1.5 text-right">Prix<span className="max-sm:hidden"> du devis</span> retenu</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border">
+                      {selectedLines.map((line) => (
+                        <tr key={line.id} className="h-9">
+                          <th scope="row" className="break-words px-3 py-1 text-left font-normal">{lineTitle(line)}</th>
+                          <td className="px-3 py-1 text-right tabular-nums">{formatQuantity(line.quantity)} {line.unit}</td>
+                          <td className="px-3 py-1 text-right tabular-nums">{line.unit_price_ht_cents === null ? "Prix non renseigné" : `${formatQuotedPrice(line.unit_price_ht_cents, line.price_per)} HT`}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : <p className="mt-4 text-sm text-muted-foreground">Consultez le bon pour le détail de ses lignes.</p>}
+              <p className="mt-4 flex items-start gap-2 text-sm text-muted-foreground"><Info aria-hidden="true" className="mt-0.5 size-4 shrink-0" />Pour la confirmation fournisseur et la réception, ouvrez le bon.</p>
+              {selectedOrder.can_open ? <Link href={purchaseOrderHref(selectedOrder.id)} aria-label={`Ouvrir le bon ${selectedOrder.reference}`} className="mt-3 inline-flex min-h-9 items-center gap-2 rounded-lg bg-primary px-4 py-1.5 text-sm font-semibold text-primary-foreground hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"><ExternalLink aria-hidden="true" className="size-4" />Ouvrir le bon<span className="sr-only"> {selectedOrder.reference}</span></Link> : <p className="mt-4 text-sm text-muted-foreground">Vous pouvez consulter son résumé ici ; l’ouverture du bon est réservée à son auteur et aux administrateurs.</p>}
+              {/* With nothing ready the creation stays folded, one quiet line: what holds the other lines is said under the orders. */}
+              <details open={ready > 0} className={cn("mt-4 border-t border-border pt-3", ready > 0 && "rounded-lg border bg-surface-subtle p-4")}><summary role="button" className={cn("w-fit cursor-pointer rounded-sm text-sm focus-visible:outline-2 focus-visible:outline-ring", ready > 0 ? "font-semibold" : "font-medium text-muted-foreground")}>Création de brouillons · {plural(ready, "ligne éligible", "lignes éligibles")}</summary><div className="mt-4">{creation}</div></details>
             </div> : null}
           </div> : <div className="space-y-5 rounded-xl border border-border bg-surface p-5"><p className="text-sm text-muted-foreground">Aucun bon de commande pour le moment.</p>{creation}</div>}
           {orders.createError ? <p role="alert" className="text-sm font-medium text-danger">{orders.createError}</p> : null}
           {status === "error" ? <div className="flex flex-wrap items-center gap-2 text-sm"><p>Les bons de commande n’ont pas pu être relus.</p><Button type="button" variant="outline" size="sm" aria-label="Recharger les bons de commande" onClick={orders.retry}>Réessayer</Button></div> : null}
-          {notReady.length > 0 ? <div className="space-y-2 rounded-lg border border-dashed border-border p-4"><p className="text-sm font-medium">Pas encore à commander :</p><ul aria-label="Lignes pas encore à commander" className="list-disc space-y-1 pl-5 text-sm">{notReady.map((entry) => { const line = linesById.get(entry.line_id); return <li key={entry.line_id}>{line ? `Ligne ${line.position} · ${lineTitle(line)} : ${NOT_READY_REASONS[entry.reason] ?? entry.reason}` : "Une ligne qui n’est plus affichée : rechargez la page."}</li>; })}</ul>{canWrite && onGoToStep ? <div className="flex flex-wrap gap-4">{REQUEST_STEP_KEYS.filter((key) => notReady.some((entry) => REASON_STEP[entry.reason] === key)).map((key) => <Button key={key} type="button" variant="link" size="sm" onClick={() => onGoToStep(key)}>{key === "lignes" ? "Régler les lignes, à l’étape Lignes" : "Faire chiffrer, à l’étape Devis"}</Button>)}</div> : null}</div> : null}
+          {notReady.length > 0 && !reminded ? <div className="space-y-2 rounded-lg border border-dashed border-border p-4"><p className="text-sm font-medium">Pas encore à commander :</p><ul aria-label="Lignes pas encore à commander" className="list-disc space-y-1 pl-5 text-sm">{notReady.map((entry) => { const line = linesById.get(entry.line_id); return <li key={entry.line_id}>{line ? `${lineTitle(line)} : ${NOT_READY_REASONS[entry.reason] ?? entry.reason}` : "Une ligne qui n’est plus affichée : rechargez la page."}</li>; })}</ul>{stepLinks}</div> : null}
         </>
       )}
       {onGoToStep ? <Button type="button" variant="link" className="px-0" onClick={() => onGoToStep("devis")}><ArrowLeft aria-hidden="true" />Retour aux devis</Button> : null}

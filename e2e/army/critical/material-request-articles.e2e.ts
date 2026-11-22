@@ -98,6 +98,8 @@ armyTest(
     expect(byPosition[1].map((candidate) => [candidate.article.id, candidate.via, candidate.warnings])).toEqual([[rod, "reference", []]]);
     expect(byPosition[2].map((candidate) => candidate.article.id)).toEqual([elbow28]);
     expect(byPosition[2][0].via).toBe("ranked");
+    // Without a warning, the folded row keeps its direct « Rattacher » and its usual-name choice (TI-690).
+    expect(byPosition[2][0].warnings).toEqual([]);
     expect(byPosition[2].map((candidate) => candidate.article.id)).not.toContain(elbow22);
     expect(byPosition[3]).toEqual([]);
     expect((await read()).lines.map((entry) => entry.product_id)).toEqual([null, null, null]);
@@ -118,6 +120,8 @@ armyTest(
     await expect(screen.getByText(/^Nom usuel mémorisé :/)).toHaveCount(0);
 
     // The office retains the technician's words for the elbow, by a choice it checks at the link.
+    // A folded row keeps one gesture beside its proposal: the usual-name choice is read once the line is unfolded.
+    await screen.getByRole("button", "Détails de la ligne 2", { exact: true }).tap();
     const retain = screen.getByLabel("Mémoriser « coude 90 » comme nom usuel, ligne 2", { exact: true });
     await expect(retain).not.toBeChecked();
     await retain.check();

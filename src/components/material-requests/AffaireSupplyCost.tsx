@@ -100,9 +100,10 @@ function Totals({ totals }: Readonly<{ totals: AffaireSupplyCostAmounts }>) {
 function SupplyCostTable({ cost }: Readonly<{ cost: SupplyCost }>) {
   return (
     <div className="overflow-x-auto rounded-lg border border-border">
-      <table className="w-full min-w-[640px] border-collapse text-left text-sm">
+      {/* A sheet of cells, as the lines of a request: grid lines between the columns, one row per supply type. */}
+      <table className="sheet-table w-full min-w-[640px] border-collapse text-left text-sm">
         <caption className="sr-only">Budget et commandé par type de fourniture</caption>
-        <thead className="border-b border-border bg-surface-subtle text-xs font-semibold text-muted-foreground">
+        <thead className="border-b border-border bg-surface-subtle text-xs font-medium text-muted-foreground">
           <tr>
             <th scope="col" className="px-3 py-2">Type de fourniture</th>
             <th scope="col" className="px-3 py-2 text-right">Budget</th>

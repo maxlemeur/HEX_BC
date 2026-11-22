@@ -104,7 +104,7 @@ export function TakeoffPageTriage({ projectId, draft, availability, onChange, sa
       return <div key={source.document_id} className="space-y-2 rounded-lg border border-border bg-surface p-3">
         <p className="text-sm font-medium break-words">{source.document_name} · {triage.accepted ? "Tri accepté" : "Proposition à accepter"}</p>
         <div className="overflow-x-auto">
-          <table aria-label={`Tri proposé pour ${source.document_name}`} className="w-full text-left text-xs">
+          <table aria-label={`Tri proposé pour ${source.document_name}`} className="sheet-table w-full text-left text-xs">
             <thead className="text-muted-foreground"><tr><th className="py-1 pr-2 font-medium">Page</th><th className="py-1 pr-2 font-medium">Type</th><th className="py-1 pr-2 font-medium">Niveau</th><th className="py-1 pr-2 font-medium">Zone</th><th className="py-1 pr-2 font-medium">Confiance</th><th className="py-1 pr-2 font-medium">Proposition</th><th className="py-1 pr-2 font-medium">Statut</th><th className="py-1 font-medium">Retenue</th></tr></thead>
             <tbody>
               {triage.pages.map((page) => <tr key={page.page} className="border-t border-border">

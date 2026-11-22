@@ -177,7 +177,7 @@ export function IntakeIfcModel({
                 {listed.length === 0 ? (
                   <p className="document-cad-hint">{classes.length === 0 ? "Aucun élément sur ce niveau." : "Aucune classe n’est affichée."}</p>
                 ) : (
-                  <table aria-label="Quantités par type" className="document-ifc-types">
+                  <table aria-label="Quantités par type" className="sheet-table document-ifc-types">
                     <thead>
                       <tr><th scope="col">Type</th><th scope="col">Nombre</th><th scope="col">Longueur</th></tr>
                     </thead>

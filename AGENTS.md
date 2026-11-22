@@ -132,6 +132,12 @@ contract take precedence over historical reports and procedures.
   scripts that already pass it (builds, Army development): in `next dev` it took
   20 s instead of 7 s to compile the estimate editor and its API routes on a first
   visit, twice the memory, and seconds more for each file changed in the checkout.
+- A worktree has no `.env.local` of its own, and without one the application
+  reads no data. For the server someone browses, link the canonical checkout's
+  file (`ln -s <canonical>/.env.local .env.local`) rather than starting on
+  placeholder values; it stays ignored and is never staged. That file points at
+  the shared Supabase: browse and read with it, and keep writing campaigns,
+  migrations and seeds on owned stacks as below.
 - Browser campaigns require no ambient `.env` files or inherited DB/Supabase
   credentials, matching dependencies and sources frozen during qualification;
   task changes may be uncommitted. Isolate when needed without moving personal

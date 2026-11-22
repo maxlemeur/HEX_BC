@@ -36,6 +36,10 @@ import { matchLine, prepareCatalogue, type MatchArticle, type MatchRequestLine }
  *     article sold in « ml » comes out without a warning and the bulk link takes it;
  * 20. (Codex review of PR #263) a precision with a grade and a pressure class (« 316L PN16 ») agrees with a
  *     304L PN16 article because one word (PN16) is shared: the grade conflict is hidden.
+ * 21. (owner's review of the lines screen, 2026-11-20) a tube is proposed for an elbow because both are copper
+ *     of the same size, and the only thing said to check is the unit: nothing says the article is another piece;
+ * 22. the same size is given back in another notation than the line's (« Même dimension (DN 20) » under a line
+ *     written « Ø 22 »): it reads as a contradiction although the sizes agree.
  */
 
 let next = 0;
@@ -109,7 +113,11 @@ describe("matchLine", () => {
   it("reads the size the technician's way: Ø 35 in press-fit stainless is DN 32", () => {
     const candidates = matchLine(line({ product_type: "té", material: "Inox 304L serti", dimension: "Ø 35" }), prepared);
     expect(candidates[0].product_id).toBe("te-304se-32");
-    expect(candidates[0].reasons).toContain("Même dimension (DN 32)");
+    // The reason keeps the line's own writing beside the nominal diameter it resolves to (22).
+    expect(candidates[0].reasons).toContain("Même dimension (Ø 35, soit DN 32)");
+    // Written as the article's, the size is said once.
+    const written = matchLine(line({ product_type: "té", material: "Inox 304L serti", dimension: "dn32" }), prepared);
+    expect(written[0].reasons).toContain("Même dimension (DN 32)");
   });
 
   it("never proposes another material, nor another stainless grade", () => {
@@ -288,5 +296,21 @@ describe("matchLine", () => {
     expect(ids(matchLine(line({ product_type: "vanne inox", ...asked }), grades))).not.toContain("vanne-304-pn16");
     const byHand = matchLine(line({ product_type: "vanne", ...asked }), grades, { byHand: true });
     expect(byHand.find((candidate) => candidate.product_id === "vanne-304-pn16")?.warnings).toContain("Autre nuance (304L PN16) que la ligne (316L PN16).");
+  });
+
+  it("says first that the article does not name the piece the line asks for (21)", () => {
+    const copper = prepareCatalogue([
+      article({ id: "tube-cu-22", designation: "Cuivre plomberie 22 mm", material: "Cuivre", dimensions: "Ø22", unit: "ml" }),
+      article({ id: "coude-cu-22", product_type: "Coude 90°", material: "Cuivre", dimensions: "Ø22" }),
+    ]);
+    const asked = line({ product_type: "Coude cuivre", material: "Cuivre", dimension: "Ø 22" });
+    const tube = matchLine(asked, copper).find((candidate) => candidate.product_id === "tube-cu-22");
+    // The tube shares the material's word only: said before the unit, which is the lesser doubt.
+    expect(tube?.warnings).toEqual(["L’article ne nomme pas « coude » : vérifiez la pièce.", "Unité de l’article : ml (ligne : u)."]);
+    // The elbow is named: nothing to check, and it comes first.
+    expect(matchLine(asked, copper)[0]).toMatchObject({ product_id: "coude-cu-22", warnings: [] });
+    // A typo or an abbreviation of the piece's name still names it.
+    expect(matchLine(line({ product_type: "coud cuivre", material: "Cuivre", dimension: "Ø 22" }), copper)[0])
+      .toMatchObject({ product_id: "coude-cu-22", warnings: [] });
   });
 });

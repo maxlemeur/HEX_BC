@@ -89,22 +89,22 @@ function OrderedItems({ items }: { items: LazyRows<OrderItemRow> | undefined }) 
 
   return (
     <div className="overflow-x-auto rounded-lg border border-border-subtle bg-surface">
-      <table className="w-full text-sm">
+      <table className="sheet-table w-full text-sm">
         <thead className="bg-surface-subtle">
           <tr>
-            <th scope="col" className="px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+            <th scope="col" className="px-4 py-2.5 text-left text-xs font-semibold text-muted-foreground">
               Désignation
             </th>
-            <th scope="col" className="w-20 px-4 py-2.5 text-center text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+            <th scope="col" className="w-20 px-4 py-2.5 text-center text-xs font-semibold text-muted-foreground">
               Qté
             </th>
-            <th scope="col" className="w-24 px-4 py-2.5 text-center text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+            <th scope="col" className="w-24 px-4 py-2.5 text-center text-xs font-semibold text-muted-foreground">
               Unité
             </th>
-            <th scope="col" className="w-32 px-4 py-2.5 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+            <th scope="col" className="w-32 px-4 py-2.5 text-right text-xs font-semibold text-muted-foreground">
               P.U. HT
             </th>
-            <th scope="col" className="w-32 px-4 py-2.5 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+            <th scope="col" className="w-32 px-4 py-2.5 text-right text-xs font-semibold text-muted-foreground">
               Total HT
             </th>
           </tr>

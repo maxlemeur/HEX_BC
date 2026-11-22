@@ -549,7 +549,7 @@ export function AffaireDocumentDesk({
             </div>
           )}
           <div className="document-desk-table-scroll">
-            <table>
+            <table className="sheet-table">
               <thead>
                 <tr>
                   {canManage && (

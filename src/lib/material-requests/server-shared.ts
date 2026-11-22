@@ -17,6 +17,7 @@ import type {
   MaterialRequestSummary,
   MaterialRequestTechnician,
 } from "./contracts";
+import { byPosition, linesSubject, lineTitle, type NamedLine } from "./line-names";
 import { MATERIAL_REQUEST_LINE_PRICED } from "./quote-contracts";
 
 /**
@@ -185,12 +186,6 @@ export async function assertProjectInTenant(context: MaterialRequestContext, pro
   if (!data) throw badRequest("Affaire introuvable.");
 }
 
-/** Line numbers as a sentence reads them: « 3 », « 2 et 3 », « 1, 2 et 4 ». */
-export function linePositionsLabel(positions: readonly number[]): string {
-  const sorted = [...positions].sort((left, right) => left - right).map(String);
-  return sorted.length <= 1 ? sorted.join("") : `${sorted.slice(0, -1).join(", ")} et ${sorted[sorted.length - 1]}`;
-}
-
 /**
  * TI-691: what a line priced by a retained quote orders, at the quote's price: it no longer changes (no way back in
  * this delivery). The line trigger refuses the same (MATERIAL_REQUEST_LINE_PRICED); its zone, imputation, the
@@ -203,14 +198,15 @@ export const PRICED_LINE_ORDER = [
 
 export type PricedLineRefusal = "supplier" | "ordered" | "delete";
 
-type LineRef = Pick<MaterialRequestLine, "id" | "position">;
+/** A line a refusal points at: named by what it asks, since the page shows no line number. */
+export type LineRef = Pick<MaterialRequestLine, "id" | "position"> & NamedLine;
 
 /** 409 for lines a retained quote priced: their supplier, what they order, or their deletion alone. */
 export function pricedLinesRefusal(lines: readonly LineRef[], what: PricedLineRefusal): ApiError {
-  const sorted = [...lines].sort((left, right) => left.position - right.position || left.id.localeCompare(right.id));
+  const sorted = [...lines].sort(byPosition);
   const positions = sorted.map((line) => line.position);
   const one = positions.length === 1;
-  const subject = one ? `La ligne ${linePositionsLabel(positions)} a` : `Les lignes ${linePositionsLabel(positions)} ont`;
+  const subject = `${linesSubject(sorted.map((line) => lineTitle(line)))} ${one ? "a" : "ont"}`;
   const consequence = {
     supplier: one ? "son fournisseur est celui du devis" : "leur fournisseur est celui du devis",
     ordered: `ce qu’${one ? "elle commande" : "elles commandent"} (article, désignation, dimension, matière, référence, unité, quantité) ne change plus`,

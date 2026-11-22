@@ -461,7 +461,7 @@ export function LabVectorsScreen() {
           </button>
           {historyOpen ? (
             <div className="min-h-0 flex-1 overflow-auto">
-              <table className="w-full text-xs">
+              <table className="sheet-table w-full text-xs">
                 <thead className="sticky top-0 bg-surface text-left text-muted-foreground">
                   <tr><th className="px-3 py-1 font-medium">Date</th><th className="px-3 py-1 font-medium">Campagne</th><th className="px-3 py-1 font-medium">Page</th>
                     <th className="px-3 py-1 font-medium">Statut</th><th className="px-3 py-1 font-medium">Groupes</th><th className="px-3 py-1 font-medium">Jetons · latence</th><th className="px-3 py-1" /></tr>

@@ -387,7 +387,8 @@ export function MaterialRequestArticleSheet({
         {line ? (
           <>
             <SheetHeader className="pr-12">
-              <SheetTitle>Article de la ligne {line.position}</SheetTitle>
+              {/* The line is named under the title by what it asks: the sheet shows no number to point at. */}
+              <SheetTitle>Article de la ligne</SheetTitle>
               <SheetDescription>
                 {lineTitle(line)}
                 {line.original_text ? ` · Texte du technicien : « ${line.original_text} »` : ""}

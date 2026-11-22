@@ -71,8 +71,8 @@ export function ErrorsTable({ errors }: { errors: TakeoffMetricsErrorEntry[] }) 
 
   return (
     <div className="table-scroll" role="region" aria-label="Top codes erreur" tabIndex={0}>
-      <table className="w-full min-w-[400px] text-sm">
-        <thead className="bg-surface-subtle text-left text-xs uppercase tracking-wide text-muted-foreground">
+      <table className="sheet-table w-full min-w-[400px] text-sm">
+        <thead className="bg-surface-subtle text-left text-xs text-muted-foreground">
           <tr>
             <th className="px-4 py-3">Code</th>
             <th className="px-4 py-3 text-right">Occurrences</th>
@@ -106,8 +106,8 @@ export function RecentJobsTable({ jobs }: { jobs: TakeoffMetricsRecentJob[] }) {
 
   return (
     <div className="table-scroll" role="region" aria-label="Extractions récentes" tabIndex={0}>
-      <table className="w-full min-w-[700px] text-sm">
-        <thead className="bg-surface-subtle text-left text-xs uppercase tracking-wide text-muted-foreground">
+      <table className="sheet-table w-full min-w-[700px] text-sm">
+        <thead className="bg-surface-subtle text-left text-xs text-muted-foreground">
           <tr>
             <th className="px-4 py-3">Statut</th>
             <th className="px-4 py-3">Niveau</th>
@@ -153,8 +153,8 @@ export function CostByLevelTable({ data }: { data: TakeoffMetricsCostByLevel[] }
 
   return (
     <div className="table-scroll" role="region" aria-label="Coût par niveau" tabIndex={0}>
-      <table className="w-full min-w-[720px] text-sm">
-        <thead className="bg-surface-subtle text-left text-xs uppercase tracking-wide text-muted-foreground">
+      <table className="sheet-table w-full min-w-[720px] text-sm">
+        <thead className="bg-surface-subtle text-left text-xs text-muted-foreground">
           <tr>
             <th className="px-4 py-3">Niveau</th>
             <th className="px-4 py-3 text-right">Coût</th>
@@ -196,8 +196,8 @@ export function CorrectionEventsTable({
 
   return (
     <div className="table-scroll" role="region" aria-label="Corrections enregistrées" tabIndex={0}>
-      <table className="w-full min-w-[420px] text-sm">
-        <thead className="bg-surface-subtle text-left text-xs uppercase tracking-wide text-muted-foreground">
+      <table className="sheet-table w-full min-w-[420px] text-sm">
+        <thead className="bg-surface-subtle text-left text-xs text-muted-foreground">
           <tr>
             <th className="px-4 py-3">Signal</th>
             <th className="px-4 py-3 text-right">Occurrences</th>
@@ -231,8 +231,8 @@ export function CorrectionByLevelTable({
 
   return (
     <div className="table-scroll" role="region" aria-label="Lecture métier par niveau" tabIndex={0}>
-      <table className="w-full min-w-[720px] text-sm">
-        <thead className="bg-surface-subtle text-left text-xs uppercase tracking-wide text-muted-foreground">
+      <table className="sheet-table w-full min-w-[720px] text-sm">
+        <thead className="bg-surface-subtle text-left text-xs text-muted-foreground">
           <tr>
             <th className="px-4 py-3">Niveau</th>
             <th className="px-4 py-3 text-right">Dossiers corrigés</th>
@@ -270,8 +270,8 @@ export function RuleForcingTable({ data }: { data: TakeoffRuleForcingMetrics }) 
         <p className="px-4 pt-3 text-sm text-muted-foreground">Aucune ligne forcée sur la période.</p>
       ) : null}
       <div className="table-scroll" role="region" aria-label="Forçages par règle" tabIndex={0}>
-        <table className="w-full min-w-[760px] text-sm">
-          <thead className="bg-surface-subtle text-left text-xs uppercase tracking-wide text-muted-foreground">
+        <table className="sheet-table w-full min-w-[760px] text-sm">
+          <thead className="bg-surface-subtle text-left text-xs text-muted-foreground">
             <tr>
               <th className="px-4 py-3">Règle</th>
               <th className="px-4 py-3 text-right">Lignes en échec appliquées</th>
@@ -320,8 +320,8 @@ export function PilotWeeklyTable({
   }
 
   return (
-    <table className="w-full min-w-[760px] text-sm">
-      <thead className="bg-surface-subtle text-left text-xs uppercase tracking-wide text-muted-foreground">
+    <table className="sheet-table w-full min-w-[760px] text-sm">
+      <thead className="bg-surface-subtle text-left text-xs text-muted-foreground">
         <tr>
           <th className="px-4 py-3">Semaine</th>
           <th className="px-4 py-3 text-right">Volume</th>
