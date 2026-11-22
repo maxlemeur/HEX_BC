@@ -3,11 +3,12 @@ import path from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { itemAnswerAnomalies, type ItemAnswerView, type ItemContributionRow } from "./item-table";
+import { itemAnswerAnomalies, itemPartsTotal, type ItemAnswerView, type ItemContributionRow } from "./item-table";
 import { compareQuantityPairs } from "./quantity-policy";
 
-// What an acceptance certifies, judged by the planner and by the database (private.takeoff_item_row_anomalies and
-// private.takeoff_quantity_requires_review) on the same cases: the vectors are the pgTAP suite's, read in its file.
+// What an acceptance certifies, judged by the planner and by the database (private.takeoff_item_row_anomalies,
+// private.takeoff_item_total and private.takeoff_quantity_requires_review) on the same cases: the vectors are the pgTAP
+// suite's, read in its file. The gaps give the parts, never their sum: the sum is the rule under test.
 const PGTAP = path.join(process.cwd(), "supabase/tests/database/takeoff-item-review.test.sql");
 const sql = fs.readFileSync(PGTAP, "utf8");
 function block(tag: string) {
@@ -47,10 +48,15 @@ describe("the acceptance rules, against SQL's", () => {
   });
 });
 
-describe("the DPGF gap, against SQL's", () => {
-  const gaps = block("gaps") as Array<{ position: number; reference: number; measured: number; review: boolean }>;
+describe("the DPGF gap on the total of the parts, against SQL's", () => {
+  const gaps = block("gaps") as Array<{ position: number; reference: number; parts: number[]; review: boolean }>;
 
-  it.each(gaps)("gap vector $position: $measured against $reference", ({ reference, measured, review }) => {
-    expect(compareQuantityPairs([{ reference, measured }])?.requiresReview).toBe(review);
+  it("reads every gap vector of the pgTAP suite, the brief's three entries of a third included", () => {
+    expect(gaps.map(({ position }) => position)).toEqual(gaps.map((_, index) => index + 1));
+    expect(gaps.some(({ parts }) => parts.join() === "10,0.0333336,0.0333336,0.0333326")).toBe(true);
+  });
+
+  it.each(gaps)("gap vector $position: $parts against $reference", ({ reference, parts, review }) => {
+    expect(compareQuantityPairs([{ reference, measured: itemPartsTotal(parts) }])?.requiresReview).toBe(review);
   });
 });

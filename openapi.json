@@ -44028,7 +44028,7 @@
                                 "unit": {
                                   "type": "string",
                                   "minLength": 1,
-                                  "maxLength": 16
+                                  "maxLength": 64
                                 },
                                 "partial": {
                                   "type": "boolean"
@@ -44057,7 +44057,7 @@
                                 "unit": {
                                   "type": "string",
                                   "minLength": 1,
-                                  "maxLength": 16
+                                  "maxLength": 64
                                 },
                                 "source": {
                                   "type": "string",
@@ -44126,7 +44126,7 @@
                                 "unit": {
                                   "type": "string",
                                   "minLength": 1,
-                                  "maxLength": 16
+                                  "maxLength": 64
                                 },
                                 "category": {
                                   "type": "string",
@@ -44169,7 +44169,7 @@
                                         "unit": {
                                           "type": "string",
                                           "minLength": 1,
-                                          "maxLength": 16
+                                          "maxLength": 64
                                         }
                                       },
                                       "required": [
@@ -44327,7 +44327,7 @@
                                               "unit": {
                                                 "type": "string",
                                                 "minLength": 1,
-                                                "maxLength": 16
+                                                "maxLength": 64
                                               }
                                             },
                                             "required": [
@@ -44406,7 +44406,7 @@
                                             "unit": {
                                               "type": "string",
                                               "minLength": 1,
-                                              "maxLength": 16
+                                              "maxLength": 64
                                             },
                                             "page": {
                                               "anyOf": [
@@ -44468,7 +44468,7 @@
                                                     "unit": {
                                                       "type": "string",
                                                       "minLength": 1,
-                                                      "maxLength": 16
+                                                      "maxLength": 64
                                                     },
                                                     "isVerified": {
                                                       "type": "boolean"
@@ -44519,7 +44519,7 @@
                                               "unit": {
                                                 "type": "string",
                                                 "minLength": 1,
-                                                "maxLength": 16
+                                                "maxLength": 64
                                               }
                                             },
                                             "required": [
@@ -44703,7 +44703,7 @@
                                       "unit": {
                                         "type": "string",
                                         "minLength": 1,
-                                        "maxLength": 16
+                                        "maxLength": 64
                                       },
                                       "category": {
                                         "type": "string",
@@ -44746,7 +44746,7 @@
                                               "unit": {
                                                 "type": "string",
                                                 "minLength": 1,
-                                                "maxLength": 16
+                                                "maxLength": 64
                                               }
                                             },
                                             "required": [
@@ -44834,12 +44834,19 @@
                                     "type": "integer",
                                     "minimum": 0,
                                     "maximum": 9007199254740991
+                                  },
+                                  "entryRevision": {
+                                    "type": "integer",
+                                    "minimum": 0,
+                                    "maximum": 9007199254740991,
+                                    "description": "Révision de la saisie du plan qui tient lieu de cette réponse dans la portée de l’affaire (0 sans saisie ou dans la portée d’un plan)."
                                   }
                                 },
                                 "required": [
                                   "answerId",
                                   "answerRevision",
-                                  "decisionRevision"
+                                  "decisionRevision",
+                                  "entryRevision"
                                 ],
                                 "additionalProperties": false
                               }
@@ -45357,7 +45364,7 @@
                           "unit": {
                             "type": "string",
                             "minLength": 1,
-                            "maxLength": 16
+                            "maxLength": 64
                           },
                           "partial": {
                             "type": "boolean"
@@ -45386,7 +45393,7 @@
                           "unit": {
                             "type": "string",
                             "minLength": 1,
-                            "maxLength": 16
+                            "maxLength": 64
                           },
                           "source": {
                             "type": "string",
@@ -45455,7 +45462,7 @@
                           "unit": {
                             "type": "string",
                             "minLength": 1,
-                            "maxLength": 16
+                            "maxLength": 64
                           },
                           "category": {
                             "type": "string",
@@ -45498,7 +45505,7 @@
                                   "unit": {
                                     "type": "string",
                                     "minLength": 1,
-                                    "maxLength": 16
+                                    "maxLength": 64
                                   }
                                 },
                                 "required": [
@@ -45656,7 +45663,7 @@
                                         "unit": {
                                           "type": "string",
                                           "minLength": 1,
-                                          "maxLength": 16
+                                          "maxLength": 64
                                         }
                                       },
                                       "required": [
@@ -45735,7 +45742,7 @@
                                       "unit": {
                                         "type": "string",
                                         "minLength": 1,
-                                        "maxLength": 16
+                                        "maxLength": 64
                                       },
                                       "page": {
                                         "anyOf": [
@@ -45797,7 +45804,7 @@
                                               "unit": {
                                                 "type": "string",
                                                 "minLength": 1,
-                                                "maxLength": 16
+                                                "maxLength": 64
                                               },
                                               "isVerified": {
                                                 "type": "boolean"
@@ -45848,7 +45855,7 @@
                                         "unit": {
                                           "type": "string",
                                           "minLength": 1,
-                                          "maxLength": 16
+                                          "maxLength": 64
                                         }
                                       },
                                       "required": [
@@ -46032,7 +46039,7 @@
                                 "unit": {
                                   "type": "string",
                                   "minLength": 1,
-                                  "maxLength": 16
+                                  "maxLength": 64
                                 },
                                 "category": {
                                   "type": "string",
@@ -46075,7 +46082,7 @@
                                         "unit": {
                                           "type": "string",
                                           "minLength": 1,
-                                          "maxLength": 16
+                                          "maxLength": 64
                                         }
                                       },
                                       "required": [
@@ -46163,12 +46170,19 @@
                               "type": "integer",
                               "minimum": 0,
                               "maximum": 9007199254740991
+                            },
+                            "entryRevision": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 9007199254740991,
+                              "description": "Révision de la saisie du plan qui tient lieu de cette réponse dans la portée de l’affaire (0 sans saisie ou dans la portée d’un plan)."
                             }
                           },
                           "required": [
                             "answerId",
                             "answerRevision",
-                            "decisionRevision"
+                            "decisionRevision",
+                            "entryRevision"
                           ],
                           "additionalProperties": false
                         }
@@ -47260,12 +47274,19 @@
                             "type": "integer",
                             "minimum": 0,
                             "maximum": 9007199254740991
+                          },
+                          "entryRevision": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991,
+                            "description": "Révision de la saisie du plan qui tient lieu de cette réponse dans la portée de l’affaire (0 sans saisie ou dans la portée d’un plan)."
                           }
                         },
                         "required": [
                           "answerId",
                           "answerRevision",
-                          "decisionRevision"
+                          "decisionRevision",
+                          "entryRevision"
                         ],
                         "additionalProperties": false
                       }
@@ -47382,12 +47403,19 @@
                             "type": "integer",
                             "minimum": 0,
                             "maximum": 9007199254740991
+                          },
+                          "entryRevision": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991,
+                            "description": "Révision de la saisie du plan qui tient lieu de cette réponse dans la portée de l’affaire (0 sans saisie ou dans la portée d’un plan)."
                           }
                         },
                         "required": [
                           "answerId",
                           "answerRevision",
-                          "decisionRevision"
+                          "decisionRevision",
+                          "entryRevision"
                         ],
                         "additionalProperties": false
                       }
@@ -47518,12 +47546,19 @@
                             "type": "integer",
                             "minimum": 0,
                             "maximum": 9007199254740991
+                          },
+                          "entryRevision": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991,
+                            "description": "Révision de la saisie du plan qui tient lieu de cette réponse dans la portée de l’affaire (0 sans saisie ou dans la portée d’un plan)."
                           }
                         },
                         "required": [
                           "answerId",
                           "answerRevision",
-                          "decisionRevision"
+                          "decisionRevision",
+                          "entryRevision"
                         ],
                         "additionalProperties": false
                       }
@@ -47640,12 +47675,19 @@
                             "type": "integer",
                             "minimum": 0,
                             "maximum": 9007199254740991
+                          },
+                          "entryRevision": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991,
+                            "description": "Révision de la saisie du plan qui tient lieu de cette réponse dans la portée de l’affaire (0 sans saisie ou dans la portée d’un plan)."
                           }
                         },
                         "required": [
                           "answerId",
                           "answerRevision",
-                          "decisionRevision"
+                          "decisionRevision",
+                          "entryRevision"
                         ],
                         "additionalProperties": false
                       }
@@ -47821,12 +47863,19 @@
                             "type": "integer",
                             "minimum": 0,
                             "maximum": 9007199254740991
+                          },
+                          "entryRevision": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991,
+                            "description": "Révision de la saisie du plan qui tient lieu de cette réponse dans la portée de l’affaire (0 sans saisie ou dans la portée d’un plan)."
                           }
                         },
                         "required": [
                           "answerId",
                           "answerRevision",
-                          "decisionRevision"
+                          "decisionRevision",
+                          "entryRevision"
                         ],
                         "additionalProperties": false
                       }
@@ -48173,12 +48222,19 @@
                                 "type": "integer",
                                 "minimum": 0,
                                 "maximum": 9007199254740991
+                              },
+                              "entryRevision": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 9007199254740991,
+                                "description": "Révision de la saisie du plan qui tient lieu de cette réponse dans la portée de l’affaire (0 sans saisie ou dans la portée d’un plan)."
                               }
                             },
                             "required": [
                               "answerId",
                               "answerRevision",
-                              "decisionRevision"
+                              "decisionRevision",
+                              "entryRevision"
                             ],
                             "additionalProperties": false
                           }

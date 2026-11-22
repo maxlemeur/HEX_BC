@@ -74,12 +74,23 @@ function renderTable(props: { signature?: string } = {}) {
 }
 
 const row = (label: string) => screen.getByRole("row", { name: new RegExp(label) });
+const refused = () => new TakeoffApiError("Accès refusé à cette affaire.", 403, null, null);
+/** The server's frozen selection of the items asked, from a read of the table. */
+const freezeFrom = (response: ItemTableResponse) => async (_project: string, _scope: unknown,
+  selection: { kind: string; itemIds?: string[] }) => {
+  const lines = response.page.lines.filter(({ itemId }) => selection.kind !== "items" || selection.itemIds?.includes(itemId));
+  return { count: lines.length, missing: [], eligible: { accept_measured: 0, set_aside: 0, reinstate: 0, enter_quantity: 0,
+    include_entry: 0, remeasure: 0 }, items: lines.map(({ itemId, label, targets }) => ({ itemId, label, target: targets, eligible: [] })) };
+};
+const readAgain = (item: number, revision: string) => table({ readings: SCENARIO.map((reading) =>
+  reading.itemId === fixtureItemId(item) && reading.answer ? { ...reading, answer: { ...reading.answer, revision } } : reading) });
 const tick = (label: string) => fireEvent.click(screen.getByRole("checkbox", { name: `Sélectionner le poste « ${label} »` }));
 
 beforeEach(() => {
   searchParams = new URLSearchParams();
   window.sessionStorage.clear();
   client.fetchItemTable.mockImplementation(async () => table());
+  client.fetchFrozenItemSelection.mockImplementation(freezeFrom(table()));
   client.fetchItemHistory.mockImplementation(async (_project: string, itemId: string) => ({ projectId: FIXTURE_ITEM_PROJECT, itemId,
     events: [], offset: 0, limit: 20, hasMore: false, names: {} }));
 });
@@ -267,6 +278,100 @@ describe("TakeoffItemTable", () => {
     expect(screen.queryByRole("table", { name: "Postes du métré" })).not.toBeInTheDocument();
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     expect(screen.queryByText(/Lavabo/)).not.toBeInTheDocument();
+  });
+
+  it("withdraws the table, its detail and its history when an older page of the history is refused", async () => {
+    client.fetchItemHistory.mockImplementation(async (_project: string, itemId: string, page: { offset: number }) => {
+      if (page.offset > 0) throw refused();
+      return { projectId: FIXTURE_ITEM_PROJECT, itemId, events: [], offset: 0, limit: 20, hasMore: true, names: {} };
+    });
+    renderTable();
+    await screen.findByRole("row", { name: /WC/ });
+    fireEvent.click(screen.getByRole("button", { name: "Détail du poste « WC »" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Événements plus anciens" }));
+    expect(await screen.findByTestId("poste-refus")).toHaveTextContent("Accès refusé à cette affaire.");
+    expect(screen.queryByRole("table", { name: "Postes du métré" })).not.toBeInTheDocument();
+    expect(screen.queryByTestId(`poste-historique-${fixtureItemId(1)}`)).not.toBeInTheDocument();
+  });
+
+  it("withdraws the table when « all results » of the filter is refused, not a notice beside it", async () => {
+    client.fetchFrozenItemSelection.mockRejectedValue(refused());
+    renderTable();
+    fireEvent.click(await screen.findByRole("button", { name: "Sélectionner les 6 résultats du filtre" }));
+    expect(await screen.findByTestId("poste-refus")).toHaveTextContent("Accès refusé à cette affaire.");
+    expect(screen.queryByRole("table", { name: "Postes du métré" })).not.toBeInTheDocument();
+    expect(screen.queryByTestId("poste-notice")).not.toBeInTheDocument();
+  });
+
+  it("keeps a draft whose unit is typed before its quantity", async () => {
+    renderTable();
+    await screen.findByRole("row", { name: /Baignoire/ });
+    fireEvent.change(screen.getByRole("textbox", { name: "Unité saisie pour « Baignoire »" }), { target: { value: "ens" } });
+    expect(screen.getByRole("textbox", { name: "Unité saisie pour « Baignoire »" })).toHaveValue("ens");
+    fireEvent.change(screen.getByRole("textbox", { name: "Quantité saisie pour « Baignoire »" }), { target: { value: "2" } });
+    fireEvent.click(screen.getByRole("button", { name: "Enregistrer les saisies (1)" }));
+    expect(await screen.findByRole("dialog")).toHaveTextContent("Baignoire : 2 ens");
+  });
+
+  it("sends a draft with the targets of its line as it is now: after a stale refusal, and after a reload", async () => {
+    const save = async () => {
+      fireEvent.click(await screen.findByRole("button", { name: "Enregistrer les saisies (1)" }));
+      const dialog = await screen.findByRole("dialog");
+      fireEvent.change(within(dialog).getByRole("combobox", { name: "Ce qui fonde ces quantités" }), { target: { value: "site_survey" } });
+      fireEvent.click(within(dialog).getByRole("button", { name: "Enregistrer" }));
+    };
+    const targetsOf = (response: ItemTableResponse) => [response.page.lines.find(({ itemId }) => itemId === fixtureItemId(3))!.targets];
+    client.sendItemReviewCommand.mockRejectedValueOnce(new TakeoffApiError("Des postes ont changé.", 409,
+      { stale: [{ itemId: fixtureItemId(3), label: "Baignoire" }] }, "TAKEOFF_ITEM_REVIEW_STALE"));
+    const first = renderTable();
+    await screen.findByRole("row", { name: /Baignoire/ });
+    fireEvent.change(screen.getByRole("textbox", { name: "Quantité saisie pour « Baignoire »" }), { target: { value: "1" } });
+    // The bathtub is read again before the save: the save is stale.
+    const second = readAgain(3, "2");
+    client.fetchItemTable.mockResolvedValue(second);
+    client.fetchFrozenItemSelection.mockImplementation(freezeFrom(second));
+    await save();
+    expect(await screen.findByTestId("poste-notice")).toHaveTextContent("Rien n’a été appliqué : Baignoire a changé");
+    expect(client.sendItemReviewCommand.mock.calls[0][1].targets).toEqual(targetsOf(table()));
+    client.sendItemReviewCommand.mockRejectedValueOnce(new TakeoffApiError("Des postes ont changé.", 409,
+      { stale: [{ itemId: fixtureItemId(3), label: "Baignoire" }] }, "TAKEOFF_ITEM_REVIEW_STALE"));
+    await save();
+    await waitFor(() => expect(client.sendItemReviewCommand).toHaveBeenCalledTimes(2));
+    expect(client.sendItemReviewCommand.mock.calls[1][1].targets).toEqual(targetsOf(second));
+    // Read again once more while the tab reloads: the draft comes back with the line as it is now.
+    first.unmount();
+    const third = readAgain(3, "3");
+    client.fetchItemTable.mockResolvedValue(third);
+    client.fetchFrozenItemSelection.mockImplementation(freezeFrom(third));
+    client.sendItemReviewCommand.mockResolvedValue({ outcome: "applied", applied: [], skipped: [] });
+    renderTable();
+    await waitFor(() => expect(screen.getByRole("textbox", { name: "Quantité saisie pour « Baignoire »" })).toHaveValue("1"));
+    await save();
+    await waitFor(() => expect(client.sendItemReviewCommand).toHaveBeenCalledTimes(3));
+    expect(client.sendItemReviewCommand.mock.calls[2][1].targets).toEqual(targetsOf(third));
+  });
+
+  it("reads the open history again with the table after a review", async () => {
+    const event = { id: 1, event: "set_aside" as const, planKey: RDC, takeoffItemId: null, before: { kind: "none" },
+      after: { kind: "set_aside", reason: "duplicate", note: null }, actorId: "22222222-2222-4222-8222-222222222222",
+      at: "2026-11-22T10:00:00.000Z" };
+    client.fetchItemHistory.mockImplementation(async (_project: string, itemId: string) => ({ projectId: FIXTURE_ITEM_PROJECT, itemId,
+      events: client.sendItemReviewCommand.mock.calls.length ? [event] : [], offset: 0, limit: 20, hasMore: false,
+      names: { "22222222-2222-4222-8222-222222222222": "Léa Martin" } }));
+    client.sendItemReviewCommand.mockResolvedValue({ outcome: "applied", applied: [{ itemId: fixtureItemId(3), label: "Baignoire",
+      answers: 2 }], skipped: [] });
+    renderTable();
+    await screen.findByRole("row", { name: /Baignoire/ });
+    fireEvent.click(screen.getByRole("button", { name: "Détail du poste « Baignoire »" }));
+    const history = await screen.findByTestId(`poste-historique-${fixtureItemId(3)}`);
+    expect(history).toHaveTextContent("Aucune décision n’a encore été prise sur ce poste.");
+    tick("Baignoire");
+    fireEvent.click(screen.getByRole("button", { name: "Écarter la sélection (1)" }));
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.click(within(dialog).getByRole("radio", { name: "Doublon" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Écarter 1 poste" }));
+    await waitFor(() => expect(screen.getByTestId(`poste-historique-${fixtureItemId(3)}`)).toHaveTextContent("Écarté : doublon"));
+    expect(screen.getByTestId(`poste-historique-${fixtureItemId(3)}`)).toHaveTextContent("Léa Martin");
   });
 
   it("tells in the detail who set the line aside, why, and who reinstated it", async () => {

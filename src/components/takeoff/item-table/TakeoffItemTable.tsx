@@ -159,6 +159,12 @@ export function TakeoffItemTable({ projectId, viewerKey, signature }: {
     keepPreviousData: true, revalidateOnFocus: true, shouldRetryOnError: false,
   });
 
+  // Each read of the table this component asks for reads the open history again with it (its version).
+  const [historyVersion, setHistoryVersion] = useState(0);
+  const refresh = useCallback(() => {
+    setHistoryVersion((version) => version + 1);
+    return mutate();
+  }, [mutate]);
   // The first signature the page's poll gives is the state the table's first read already shows: only a later one that
   // differs reads the table again.
   const seenSignature = useRef(signature);
@@ -166,8 +172,17 @@ export function TakeoffItemTable({ projectId, viewerKey, signature }: {
     if (signature === undefined || seenSignature.current === signature) return;
     const first = seenSignature.current === undefined;
     seenSignature.current = signature;
-    if (!first) void mutate();
-  }, [signature, mutate]);
+    if (!first) void refresh();
+  }, [signature, refresh]);
+
+  // Any read of the affaire refused (the table's, an item's history, a frozen selection): the table, its detail, its
+  // history and its dialogs are withdrawn, whatever they showed before, until the page is opened again.
+  const [refusal, setRefusal] = useState<unknown>(null);
+  const withdrawOnRefusal = useCallback((caught: unknown) => {
+    if (!isTakeoffReadRefusal(caught)) return false;
+    setRefusal(caught);
+    return true;
+  }, []);
 
   const storageKey = itemSelectionStorageKey(viewerKey, projectId);
   const [selection, setSelection] = useState<ItemSelection>(() => emptyItemSelection(address.scope));
@@ -184,12 +199,41 @@ export function TakeoffItemTable({ projectId, viewerKey, signature }: {
   // The values being typed stay for the tab after a reload, in the scope they were typed in, as the selection does.
   const draftsKey = `${storageKey}:saisies`;
   const [drafts, setDraftsState] = useState<StoredDrafts>({});
-  useEffect(() => setDraftsState(readStoredDrafts(draftsKey, scopeKey)), [draftsKey, scopeKey]);
   const setDrafts = useCallback((update: (current: StoredDrafts) => StoredDrafts) => setDraftsState((current) => {
     const next = update(current);
-    storeDrafts(draftsKey, scopeKey, next);
+    if (next !== current) storeDrafts(draftsKey, scopeKey, next);
     return next;
   }), [draftsKey, scopeKey]);
+  // A draft's targets are those of its line as it is now: after any read of the table (the lines of the page), after a
+  // stale refusal and after a reload (the items typed, read again as a frozen selection), never those it was typed on.
+  const withLines = useCallback((lines: readonly ItemTableResponseLine[]) => setDrafts((current) => {
+    const fresh = lines.filter(({ itemId }) => itemId in current && current[itemId].line !== lines.find((line) => line.itemId === itemId));
+    if (!fresh.length) return current;
+    const next = { ...current };
+    for (const line of fresh) next[line.itemId] = { ...next[line.itemId], line };
+    return next;
+  }), [setDrafts]);
+  const readDraftTargets = useCallback(async (itemIds: string[]) => {
+    if (!itemIds.length) return;
+    try {
+      const frozen = await fetchFrozenItemSelection(projectId, address.scope, { kind: "items", itemIds });
+      setDrafts((current) => {
+        const next = { ...current };
+        for (const { itemId, target } of frozen.items) {
+          if (next[itemId]) next[itemId] = { ...next[itemId], line: { ...next[itemId].line, targets: target } };
+        }
+        return next;
+      });
+    } catch (caught) {
+      withdrawOnRefusal(caught);
+    }
+  }, [projectId, address.scope, setDrafts, withdrawOnRefusal]);
+  useEffect(() => {
+    const stored = readStoredDrafts(draftsKey, scopeKey);
+    setDraftsState(stored);
+    void readDraftTargets(Object.keys(stored));
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- read back once per scope, then read their lines again
+  }, [draftsKey, scopeKey]);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [dialog, setDialog] = useState<null | { gesture: Gesture; intentKey: string }>(null);
   const [busy, setBusy] = useState(false);
@@ -206,6 +250,9 @@ export function TakeoffItemTable({ projectId, viewerKey, signature }: {
   const scrolledFocus = useRef<string | null>(null);
   const focusId = address.focusItemId;
   const lines = data?.page.lines;
+  useEffect(() => {
+    if (lines) withLines(lines);
+  }, [lines, withLines]);
   useEffect(() => {
     if (!focusId || scrolledFocus.current === focusId || !lines?.some(({ itemId }) => itemId === focusId)) return;
     scrolledFocus.current = focusId;
@@ -225,9 +272,13 @@ export function TakeoffItemTable({ projectId, viewerKey, signature }: {
   const refreshSelection = useCallback(async (current: ItemSelection) => {
     const ids = Object.keys(current.items);
     if (!ids.length) return;
-    const frozen = await fetchFrozenItemSelection(projectId, current.scope, { kind: "items", itemIds: ids });
-    updateSelection(withFrozenSelection(current, frozen));
-  }, [projectId, updateSelection]);
+    try {
+      const frozen = await fetchFrozenItemSelection(projectId, current.scope, { kind: "items", itemIds: ids });
+      updateSelection(withFrozenSelection(current, frozen));
+    } catch (caught) {
+      withdrawOnRefusal(caught);
+    }
+  }, [projectId, updateSelection, withdrawOnRefusal]);
 
   const failure = useCallback(async (caught: unknown, current: ItemSelection) => {
     const stale = itemReviewStaleLines(caught);
@@ -235,12 +286,13 @@ export function TakeoffItemTable({ projectId, viewerKey, signature }: {
       const names = stale.slice(0, 5).map(({ label: name }) => name ?? "un poste retiré").join(", ");
       const verb = stale.length > 1 ? "ont changé" : "a changé";
       setNotice({ tone: "danger", text: `Rien n’a été appliqué : ${names}${stale.length > 5 ? ` et ${stale.length - 5} autres` : ""} ${verb} depuis la sélection. La sélection a été rafraîchie : vérifiez-la, puis confirmez de nouveau.` });
-      await refreshSelection(current).catch(() => undefined);
-      void mutate();
+      await refreshSelection(current);
+      await readDraftTargets(Object.keys(drafts));
+      void refresh();
       return;
     }
     setNotice({ tone: "danger", text: isTakeoffApiError(caught) ? caught.message : "Impossible d’enregistrer la décision sur les postes." });
-  }, [refreshSelection, mutate]);
+  }, [refreshSelection, readDraftTargets, drafts, refresh]);
 
   const runCommand = useCallback(async (command: ItemReviewCommand, done: string, onApplied?: (result: ItemReviewResult) => void) => {
     setBusy(true);
@@ -249,14 +301,14 @@ export function TakeoffItemTable({ projectId, viewerKey, signature }: {
       setNotice(resultNotice(result, done));
       onApplied?.(result);
       setDialog(null);
-      void mutate();
+      void refresh();
     } catch (caught) {
       setDialog(null);
       await failure(caught, selection);
     } finally {
       setBusy(false);
     }
-  }, [projectId, mutate, failure, selection]);
+  }, [projectId, refresh, failure, selection]);
 
   const dropApplied = useCallback((result: ItemReviewResult) => {
     const items = { ...selection.items };
@@ -304,15 +356,17 @@ export function TakeoffItemTable({ projectId, viewerKey, signature }: {
       updateSelection(withFrozenSelection(emptyItemSelection(address.scope), frozen));
       setNotice({ tone: "info", text: `${formatItemCount(frozen.count, "poste sélectionné", "postes sélectionnés")}, sur toutes les pages du filtre.` });
     } catch (caught) {
+      if (withdrawOnRefusal(caught)) return;
       setNotice({ tone: "danger", text: isTakeoffApiError(caught) ? caught.message : "Impossible de sélectionner les résultats du filtre." });
     }
-  }, [projectId, address.scope, address.filter, updateSelection]);
+  }, [projectId, address.scope, address.filter, updateSelection, withdrawOnRefusal]);
 
   const setDraft = (line: ItemTableResponseLine, change: Partial<Draft>) => setDrafts((current) => {
     const previous = current[line.itemId] ?? { quantity: "", unit: "", line };
-    const next = { ...previous, ...change };
+    const next = { ...previous, ...change, line };
     const copy = { ...current };
-    if (!next.quantity.trim()) delete copy[line.itemId];
+    // A draft lives as soon as either field is typed: a unit typed first is kept for the quantity that follows.
+    if (!next.quantity.trim() && !next.unit.trim()) delete copy[line.itemId];
     else copy[line.itemId] = next;
     return copy;
   });
@@ -332,13 +386,14 @@ export function TakeoffItemTable({ projectId, viewerKey, signature }: {
   const hasFilter = Object.keys(address.filter).length > 0 || address.scope.kind === "plan";
   const columns = canReview ? 14 : 11;
 
-  // An access removed: the table, its detail and its dialogs are withdrawn, whatever was read before.
-  if (isTakeoffReadRefusal(error)) {
+  // An access removed: the table, its detail, its history and its dialogs are withdrawn, whatever was read before.
+  const refused = isTakeoffReadRefusal(error) ? error : refusal;
+  if (refused) {
     return (
       <JourneyPanel headingId="postes-du-metre" title="Postes du métré">
         <div className="journey-panel-body">
           <p className="text-sm text-danger" data-testid="poste-refus">
-            {isTakeoffApiError(error) ? error.message : "Accès refusé aux postes du métré."}
+            {isTakeoffApiError(refused) ? refused.message : "Accès refusé aux postes du métré."}
           </p>
         </div>
       </JourneyPanel>
@@ -590,6 +645,7 @@ export function TakeoffItemTable({ projectId, viewerKey, signature }: {
                             <tr id={`poste-detail-ligne-${line.itemId}`}>
                               <td colSpan={columns} className="whitespace-normal">
                                 <ItemTableLineDetail line={line} projectId={projectId} names={data.names} canReview={canReview} busy={busy}
+                                  historyVersion={historyVersion} onRefused={withdrawOnRefusal}
                                   onIncludeEntry={(target) => void runCommand({ command_version: ITEM_REVIEW_COMMAND_VERSION,
                                     intent_key: newIntent(), scope: address.scope, gesture: "include_entry", targets: [target.targets] }, "inclus")} />
                               </td>

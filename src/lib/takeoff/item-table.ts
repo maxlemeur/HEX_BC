@@ -188,7 +188,8 @@ export type ItemReviewTarget = {
   itemId: string;
   /** The revision of the entry of the scope (0 without one). */
   entryRevision: number;
-  answers: Array<{ answerId: string; answerRevision: string; decisionRevision: number }>;
+  /** Each answer with its decision's revision and, in the affaire's scope, its plan's entry's revision (0 without one). */
+  answers: Array<{ answerId: string; answerRevision: string; decisionRevision: number; entryRevision: number }>;
 };
 
 export type ItemTableLine = {
@@ -224,7 +225,22 @@ export type ItemTableFacets = {
 };
 
 const SCALE = 1e6;
-const sum = (values: readonly number[]) => values.reduce((total, value) => total + Math.round(value * SCALE), 0) / SCALE;
+
+/** A quantity in millionths, rounded half away from zero from its decimal value (never from a binary product). */
+function toMillionths(value: number) {
+  const [digits, exponent = "0"] = Math.abs(value).toString().split("e");
+  return Math.sign(value) * Math.round(Number(`${digits}e${Number(exponent) + 6}`));
+}
+
+/**
+ * The total a line retains, and the one an acceptance would retain, compared with the DPGF reference: one rule, SQL's
+ * private.takeoff_item_total (migration …_takeoff_item_review_decisions.sql). Its parts are the positive rows of the
+ * measured answers as they now are and the plans' included entries; each part is rounded to the millionth, half away
+ * from zero, from its decimal value; the parts are then added exactly, in millionths, so their order changes nothing.
+ */
+export function itemPartsTotal(parts: readonly number[]) {
+  return parts.reduce((total, part) => total + toMillionths(part), 0) / SCALE;
+}
 const yes: ItemGestureEligibility = { eligible: true, reason: null };
 const no = (reason: ItemIneligibility): ItemGestureEligibility => ({ eligible: false, reason });
 
@@ -285,7 +301,7 @@ function retainedOf(readings: readonly LineReading[], entry: ItemEntryView | nul
   const { parts, undecided } = partsOf(readings, false);
   if (!parts.length || !oneUnit(parts)) return null;
   const sources = new Set(parts.map(({ source }) => source));
-  return { quantity: sum(parts.map(({ quantity }) => quantity)), unit: parts[0].unit,
+  return { quantity: itemPartsTotal(parts.map(({ quantity }) => quantity)), unit: parts[0].unit,
     source: sources.size > 1 ? "mixed" : parts[0].source, partial: undecided || !complete };
 }
 
@@ -296,7 +312,7 @@ function prospectOf(readings: readonly LineReading[], entry: ItemEntryView | nul
   const { parts } = partsOf(readings, true);
   if (!parts.length) return { total: null, unitConflict: false };
   if (!oneUnit(parts)) return { total: null, unitConflict: true };
-  return { total: { quantity: sum(parts.map(({ quantity }) => quantity)) }, unitConflict: false };
+  return { total: { quantity: itemPartsTotal(parts.map(({ quantity }) => quantity)) }, unitConflict: false };
 }
 
 function gapOf(item: ItemTablePoste, basis: { quantity: number } | null, complete: boolean): ItemTableLine["gap"] {
@@ -311,7 +327,7 @@ function eligibility(line: Omit<ItemTableLine, "eligibility" | "remeasurePlans">
   const answered = line.readings.filter(({ answer }) => answer);
   const undecided = answered.filter(({ decision, entry }) => !decision && !entry);
   const complete = line.coverage.expected > 0 && line.coverage.answered === line.coverage.expected;
-  // A plan sent to an estimate: its rows are the estimate's; no bulk gesture verifies, excludes or gives them back.
+  // A plan sent to an estimate: its rows and its entries are the estimate's; no bulk gesture writes them.
   const sent = answered.some((reading) => reading.sent);
 
   const accept = (() => {
@@ -329,8 +345,10 @@ function eligibility(line: Omit<ItemTableLine, "eligibility" | "remeasurePlans">
     : answered.some(({ decision }) => decision?.kind !== "set_aside") ? yes : no("already_set_aside");
   const reinstate = sent && answered.some(({ decision }) => decision?.kind === "set_aside") ? no("sent")
     : answered.some(({ decision }) => decision?.kind === "set_aside") ? yes : no("not_set_aside");
-  const enter = complete && (line.state === "not_found" || line.state === "uncertain") ? yes : no("not_entry_state");
-  const includeEntry = line.entry && !line.entry.included ? yes : no("no_entry_to_include");
+  // A plan sent is closed to every bulk gesture, its entries included: a change after a send revises the send's part.
+  const enter = sent ? no("sent")
+    : complete && (line.state === "not_found" || line.state === "uncertain") ? yes : no("not_entry_state");
+  const includeEntry = sent ? no("sent") : line.entry && !line.entry.included ? yes : no("no_entry_to_include");
 
   const remeasurePlans = scope.kind === "plan"
     ? plans.some(({ key }) => key === scope.planKey) || line.readings.length ? [scope.planKey] : []
@@ -344,19 +362,41 @@ function eligibility(line: Omit<ItemTableLine, "eligibility" | "remeasurePlans">
   };
 }
 
+/**
+ * An answer's decision as the rows read with it say it, SQL's rule (private.takeoff_item_table_pairs): an acceptance one
+ * of whose positive rows is no longer verified is no decision. The page and the rows are two reads; a targeted save
+ * committed between them leaves an acceptance read before over a row read after: that row is never retained.
+ */
+function effectiveDecision(reading: ItemReadingInput) {
+  const withdrawn = reading.decision?.kind === "accepted" && reading.answer?.observations.some(({ role, row }) =>
+    role === "contribution" && row !== null && !row.isVerified);
+  return withdrawn ? null : reading.decision;
+}
+
+/** The line's decision once its answers' decisions are read against their rows: SQL's order of the same counts. */
+function lineDecision(row: ItemTableRow, withdrawn: boolean): ItemLineDecision {
+  if (!withdrawn || row.entry || row.decision === "set_aside" || row.decision === "none") return row.decision;
+  return "pending";
+}
+
 function buildLine(row: ItemTableRow, plans: readonly ItemTablePlan[], scope: ItemTableScope): ItemTableLine {
   const { item } = row;
-  const lineReadings: LineReading[] = row.readings.map((reading) => ({
-    planKey: reading.planKey,
-    planName: reading.planName,
-    location: reading.location,
-    unit: reading.unit,
-    answer: reading.answer,
-    decision: reading.decision,
-    // In a plan's scope the entry of the plan is the line's own: it is not also a part of a reading.
-    entry: scope.kind === "plan" ? null : reading.entry,
-    sent: reading.sent,
-  }));
+  let withdrawn = false;
+  const lineReadings: LineReading[] = row.readings.map((reading) => {
+    const decision = effectiveDecision(reading);
+    if (decision !== reading.decision) withdrawn = true;
+    return {
+      planKey: reading.planKey,
+      planName: reading.planName,
+      location: reading.location,
+      unit: reading.unit,
+      answer: reading.answer,
+      decision,
+      // In a plan's scope the entry of the plan is the line's own: it is not also a part of a reading.
+      entry: scope.kind === "plan" ? null : reading.entry,
+      sent: reading.sent,
+    };
+  });
   const aggregate = aggregateItemReadings(row.readings.map(asPlanReading));
   const complete = row.coverage.expected > 0 && row.coverage.answered === row.coverage.expected;
   // The raw reading stays observed; what is retained, and judged against the DPGF, is the reviewed rows as they now are.
@@ -397,13 +437,15 @@ function buildLine(row: ItemTableRow, plans: readonly ItemTablePlan[], scope: It
     gap,
     reasons: [...reasons],
     planCount: new Set(row.readings.map(({ planKey }) => planKey)).size,
-    decision: row.decision,
+    decision: lineDecision(row, withdrawn),
     readings: lineReadings,
     targets: {
       itemId: item.id,
       entryRevision: row.entry?.revision ?? 0,
-      answers: row.readings.flatMap(({ answer, decisionRevision }) => answer
-        ? [{ answerId: answer.answerId, answerRevision: answer.revision, decisionRevision }] : []),
+      // Every entry that enters the total is frozen with the selection: in the affaire's scope, each plan's entry.
+      answers: row.readings.flatMap(({ answer, decisionRevision, entry }) => answer
+        ? [{ answerId: answer.answerId, answerRevision: answer.revision, decisionRevision,
+          entryRevision: scope.kind === "plan" ? 0 : entry?.revision ?? 0 }] : []),
     },
   };
   return { ...base, ...eligibility(base, plans, scope) };
@@ -484,7 +526,8 @@ export function freezeItemSelection(lines: readonly ItemTableLine[], requested: 
   return { count: items.length, items, eligible, missing: requested ? [...new Set(requested)].filter((id) => !found.has(id)) : [] };
 }
 
-const answerKey = (answer: ItemReviewTarget["answers"][number]) => `${answer.answerId.toLowerCase()}#${answer.decisionRevision}`;
+const answerKey = (answer: ItemReviewTarget["answers"][number]) =>
+  `${answer.answerId.toLowerCase()}#${answer.decisionRevision}#${answer.entryRevision}`;
 
 /**
  * The targets of a command that no longer describe what the table holds: an item gone from the scope, an answer read

@@ -228,8 +228,10 @@ create function pg_temp.target(item integer) returns jsonb language sql stable a
   select jsonb_build_object('item_id', pg_temp.f(item),
     'entry_revision', coalesce((select e.revision from public.takeoff_item_entries e where e.item_id = pg_temp.f(item)
       and e.plan_logical_id is null), 0),
-    'answers', coalesce((select jsonb_agg(jsonb_build_object('answer_id', a.id, 'decision_revision', coalesce(d.revision, 0)))
+    'answers', coalesce((select jsonb_agg(jsonb_build_object('answer_id', a.id, 'decision_revision', coalesce(d.revision, 0),
+        'entry_revision', coalesce(pe.revision, 0)))
       from public.takeoff_item_answers a left join public.takeoff_item_answer_decisions d on d.answer_id = a.id
+      left join public.takeoff_item_entries pe on pe.item_id = a.item_id and pe.plan_logical_id = a.plan_logical_id
       where a.item_id = pg_temp.f(item)), '[]'::jsonb))
 $$;
 create function pg_temp.cmd(gesture text, key integer, items integer[], extra jsonb default '{}'::jsonb)

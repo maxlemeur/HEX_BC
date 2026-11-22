@@ -17,6 +17,9 @@ import {
   type ItemTableScope,
 } from "./item-table";
 import type { ItemAggregateState } from "./item-answer-aggregation";
+import { itemTableResponseSchema } from "./item-table-contracts";
+import { fixtureAnswer, fixtureItemTable, fixturePoste, fixtureReading } from "./item-table.test-fixtures";
+import { TAKEOFF_ITEM_UNIT_MAX_LENGTH } from "./types";
 
 const PLANS = [
   { key: "plan-a", name: "Plan A · RDC", location: null },
@@ -127,7 +130,27 @@ describe("buildItemLines", () => {
     const [line] = lines([row(poste("a", 0, "Lavabo"), "measured", "pending",
       [read("a", "plan-a", decided, null, { decisionRevision: 3 })])]);
     expect(line.targets).toEqual({ itemId: "a", entryRevision: 0,
-      answers: [{ answerId: decided.answerId, answerRevision: "digest", decisionRevision: 3 }] });
+      answers: [{ answerId: decided.answerId, answerRevision: "digest", decisionRevision: 3, entryRevision: 0 }] });
+  });
+
+  it("freezes in the affaire's scope the revision of each plan's entry that enters the total, and of none in a plan's", () => {
+    const entered = answer("not_found", null);
+    const measured = answer("measured", 3);
+    const planEntry: ItemEntryView = { itemId: "a", scope: "plan", planKey: "plan-b", revision: 2, quantity: 5, unit: "u",
+      category: "site_survey", note: null, included: true, actorId: "member-1", at: "2026-11-22T09:00:00.000Z", previous: null };
+    const readings = [read("a", "plan-a", measured), read("a", "plan-b", entered, null, { entry: planEntry })];
+    const [affaire] = lines([row(poste("a", 0, "Lavabo"), "measured", "pending", readings)]);
+    expect(affaire.targets.answers).toEqual([
+      { answerId: measured.answerId, answerRevision: "digest", decisionRevision: 0, entryRevision: 0 },
+      { answerId: entered.answerId, answerRevision: "digest", decisionRevision: 0, entryRevision: 2 },
+    ]);
+    // The plan's entry changed from 5 to 7 (revision 3) after the selection: the selection no longer describes the line.
+    const [changed] = lines([row(poste("a", 0, "Lavabo"), "measured", "pending",
+      [readings[0], { ...readings[1], entry: { ...planEntry, revision: 3, quantity: 7 } }])]);
+    expect(checkItemReviewTargets([changed], [affaire.targets]).stale).toEqual([{ itemId: "a", label: "Lavabo" }]);
+    const [plan] = lines([row(poste("a", 0, "Lavabo"), "not_found", "entered", [readings[1]], planEntry)],
+      { kind: "plan", planKey: "plan-b" });
+    expect(plan.targets).toMatchObject({ entryRevision: 2, answers: [{ answerId: entered.answerId, entryRevision: 0 }] });
   });
 });
 
@@ -150,6 +173,20 @@ describe("what the table retains: the reviewed rows as they now are", () => {
     const [line] = lines([row(poste("a", 0, "Lavabo"), "measured", "pending", [read("a", "plan-a", corrected(3, 7, { isVerified: false }))])]);
     expect(line.retained).toBeNull();
     expect(line.eligibility.accept_measured).toEqual({ eligible: true, reason: null });
+  });
+
+  it("builds a line from the rows read with it: an acceptance the page read before a targeted save is never retained", () => {
+    // The page said « accepted » for a quantity of 3; a targeted save then committed 7, unverified, before the rows were read.
+    const [line] = lines([row(poste("a", 0, "Lavabo"), "measured", "accepted",
+      [read("a", "plan-a", corrected(3, 7, { isVerified: false }), accepted())])]);
+    expect(line.retained).toBeNull();
+    expect(line.decision).toBe("pending");
+    expect(line.readings[0].decision).toBeNull();
+    expect(line.eligibility.accept_measured).toEqual({ eligible: true, reason: null });
+    // The same acceptance over its row still verified is retained, as accepted.
+    const [kept] = lines([row(poste("a", 0, "Lavabo"), "measured", "accepted", [read("a", "plan-a", corrected(3, 7), accepted())])]);
+    expect(kept.retained).toMatchObject({ quantity: 7, partial: false });
+    expect(kept.decision).toBe("accepted");
   });
 
   it("judges the DPGF gap and the units on the rows an acceptance would verify, not on the raw reading", () => {
@@ -185,6 +222,28 @@ describe("what the table retains: the reviewed rows as they now are", () => {
     const [aside] = lines([row(poste("a", 0, "Lavabo"), "measured", "set_aside", [read("a", "plan-a", answer("measured", 3), setAside(),
       { sent: true })])]);
     expect(aside.eligibility.reinstate).toEqual({ eligible: false, reason: "sent" });
+    // Its entries neither: a plan sent is closed to every bulk gesture.
+    const hypothesis: ItemEntryView = { itemId: "b", scope: "affaire", planKey: null, revision: 1, quantity: 1, unit: "u",
+      category: "hypothesis", note: "Une baignoire supposée (fictif).", included: false, actorId: "member-1",
+      at: "2026-11-22T09:00:00.000Z", previous: null };
+    const [entered] = lines([row(poste("b", 1, "Baignoire"), "not_found", "entered", [read("b", "plan-a", answer("not_found", null),
+      null, { sent: true })], hypothesis)]);
+    expect(entered.eligibility.enter_quantity).toEqual({ eligible: false, reason: "sent" });
+    expect(entered.eligibility.include_entry).toEqual({ eligible: false, reason: "sent" });
+  });
+});
+
+describe("the page's contract", () => {
+  const pageWithRowUnit = (unit: string) => {
+    const value = fixtureAnswer("measured", 2);
+    const observations = value.observations.map((observation) => ({ ...observation, row: { ...observation.row!, unit } }));
+    return fixtureItemTable({ items: [fixturePoste(1, "WC")], readings: [fixtureReading(1, "plan-rdc", { ...value, observations })] });
+  };
+
+  it("reads a row's unit as long as the targeted review writes it: a correction of 17 characters keeps the page", () => {
+    expect(TAKEOFF_ITEM_UNIT_MAX_LENGTH).toBe(64);
+    expect(itemTableResponseSchema.safeParse(pageWithRowUnit("unité de pose x 2")).success).toBe(true);
+    expect(itemTableResponseSchema.safeParse(pageWithRowUnit("u".repeat(TAKEOFF_ITEM_UNIT_MAX_LENGTH))).success).toBe(true);
   });
 });
 
@@ -233,7 +292,11 @@ describe("eligibility of the gestures", () => {
   });
 
   it("takes an item already decided out of a second acceptance and keeps a set aside apart", () => {
-    const [decided] = lines([row(poste("a", 0, "Lavabo"), "measured", "accepted", [read("a", "plan-a", answer("measured", 3), accepted())])]);
+    const measured = answer("measured", 3);
+    // Accepted: its positive row verified, as an acceptance leaves it.
+    const verified = { ...measured, observations: measured.observations.map((observation) => ({ ...observation,
+      row: { quantity: 3, unit: "u", isVerified: true, isExcluded: false } })) };
+    const [decided] = lines([row(poste("a", 0, "Lavabo"), "measured", "accepted", [read("a", "plan-a", verified, accepted())])]);
     expect(decided.eligibility.accept_measured).toEqual({ eligible: false, reason: "already_decided" });
     expect(decided.retained).toMatchObject({ quantity: 3, source: "measured", partial: false });
     const [aside] = lines([row(poste("a", 0, "Lavabo"), "measured", "set_aside", [read("a", "plan-a", answer("measured", 3), setAside())])]);

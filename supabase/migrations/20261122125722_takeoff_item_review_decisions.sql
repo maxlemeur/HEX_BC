@@ -247,8 +247,18 @@ returns boolean language sql immutable set search_path = '' as $$
   select pg_catalog.abs(p_measured - p_reference) > p_reference * 0.01 + 0.000000001
 $$;
 
--- What a member's targeted save may change on a positive row: a set aside journals it, a reinstatement compares it, so
--- that a row changed in between is never given back what it was.
+-- The total an acceptance would retain, the one compared with the DPGF reference (one rule, the planner's itemPartsTotal
+-- in src/lib/takeoff/item-table.ts): its parts are the positive rows of its measured answers as they now are and the
+-- plans' included entries; each part is rounded to the millionth, half away from zero, from its decimal value; the parts
+-- are then added exactly, so their order changes nothing. No part, no total.
+create function private.takeoff_item_total(p_parts numeric[])
+returns numeric language sql immutable set search_path = '' as $$
+  select pg_catalog.sum(pg_catalog.round(part, 6)) from pg_catalog.unnest(p_parts) as parts(part)
+$$;
+
+-- What a member's targeted save may change on a positive row: a set aside journals it for every positive row of its
+-- answer (changed by it or not), a reinstatement compares it, so that a row changed in between is never given back what
+-- it was.
 create function private.takeoff_item_review_row_state(p_row public.takeoff_items)
 returns jsonb language sql stable set search_path = '' as $$
   select pg_catalog.jsonb_build_object('designation', p_row.designation, 'quantity', p_row.quantity, 'unit', p_row.unit,
@@ -482,14 +492,15 @@ $$;
 
 -- 9. The review command, called with the member's session (its actor is the session's user, never a client's word).
 --    p_command: {command_version: 1, intent_key, gesture, scope: {kind: affaire} | {kind: plan, plan_logical_id},
---    targets: [{item_id, entry_revision, answers: [{answer_id, decision_revision}]}] (every item of the selection, as
---    read), apply: [item_id] (those the server found eligible), skipped: [{item_id, label, reason}] (the others, kept in
---    the receipt), and per gesture: reason and note (set_aside), values [{item_id, quantity, unit}] and entry {category,
---    note} (enter_quantity).
+--    targets: [{item_id, entry_revision, answers: [{answer_id, decision_revision, entry_revision}]}] (every item of the
+--    selection, as read: in the affaire's scope an answer's entry_revision is that of its plan's entry, 0 without one or
+--    in a plan's scope, where the plan's entry is the scope's), apply: [item_id] (those the server found eligible),
+--    skipped: [{item_id, label, reason}] (the others, kept in the receipt), and per gesture: reason and note
+--    (set_aside), values [{item_id, quantity, unit}] and entry {category, note} (enter_quantity).
 --    Answers {outcome: applied, applied: [{item_id, answers}], skipped}, or {outcome: stale, stale: [item_id]} with
 --    nothing written: an item not in the latest list or not in the scope, its current answers in the scope not exactly
---    those given, a decision's or an entry's revision moved, or an item the server found eligible that no longer is
---    (its state, its answers, or one of its positive rows that cannot be verified any more). The receipt is read first:
+--    those given, a decision's or an entry's revision moved (the scope's or a plan's), or an item the server found
+--    eligible that no longer is (its state, its answers, or one of its positive rows that cannot be verified any more). The receipt is read first:
 --    the same command under its key (its gesture, scope, targets and fields; apply and skipped are the server's) answers
 --    what it answered (replayed: true), whatever changed since.
 --    Refuses: TAKEOFF_ITEM_REVIEW_FORBIDDEN (no session, not the affaire's takeoff operator in the tenant the member
@@ -545,7 +556,8 @@ begin
         or exists (select 1 from pg_catalog.jsonb_array_elements(t.value -> 'answers') a(value)
           where pg_catalog.jsonb_typeof(a.value) is distinct from 'object'
             or not private.takeoff_item_answer_is_uuid(a.value -> 'answer_id')
-            or not private.takeoff_item_answer_is_number(a.value -> 'decision_revision', 0, 2147483647, true)))
+            or not private.takeoff_item_answer_is_number(a.value -> 'decision_revision', 0, 2147483647, true)
+            or not private.takeoff_item_answer_is_number(a.value -> 'entry_revision', 0, 2147483647, true)))
     or (select count(distinct t.value ->> 'item_id') from pg_catalog.jsonb_array_elements(p_command -> 'targets') t(value))
       <> pg_catalog.jsonb_array_length(p_command -> 'targets')
     or exists (select 1 from pg_catalog.jsonb_array_elements(p_command -> 'apply') x(value)
@@ -602,8 +614,8 @@ begin
   create temporary table if not exists pg_temp.takeoff_review_lines (item_id uuid primary key, state text,
     scope_entry_id uuid, expected_unit text, reference_quantity numeric) on commit drop;
   create temporary table if not exists pg_temp.takeoff_review_pairs (item_id uuid, plan_logical_id uuid, answer_id uuid,
-    outcome text, decision_kind text, decision_effective text, decision_revision integer, plan_entry_id uuid, job_id uuid,
-    sent boolean, reason_code text) on commit drop;
+    outcome text, decision_kind text, decision_effective text, decision_revision integer, plan_entry_id uuid,
+    plan_entry_revision integer, job_id uuid, sent boolean, reason_code text) on commit drop;
   create temporary table if not exists pg_temp.takeoff_review_rules_jobs (job_id uuid primary key) on commit drop;
   truncate pg_temp.takeoff_review_rules_jobs;
 
@@ -620,9 +632,10 @@ begin
     where l.item_id in (select (t.value ->> 'item_id')::uuid from pg_catalog.jsonb_array_elements(p_command -> 'targets') t(value));
     insert into pg_temp.takeoff_review_pairs
     select p.item_id, p.plan_logical_id, p.answer_id, p.outcome, p.decision_kind, p.decision_effective, p.decision_revision,
-      p.plan_entry_id, p.answer_job_id, p.sent, a.reason_code
+      p.plan_entry_id, coalesce(pe.revision, 0), p.answer_job_id, p.sent, a.reason_code
     from private.takeoff_item_table_pairs(p_tenant_id, p_project_id, scope_plan) p
     left join public.takeoff_item_answers a on a.id = p.answer_id
+    left join public.takeoff_item_entries pe on pe.id = p.plan_entry_id
     where p.answer_id is not null
       and p.item_id in (select (t.value ->> 'item_id')::uuid from pg_catalog.jsonb_array_elements(p_command -> 'targets') t(value));
     exit when pass = 2 or gesture not in ('accept_measured', 'set_aside', 'reinstate');
@@ -645,7 +658,8 @@ begin
   end loop;
 
   -- Compare-and-set: each item read as it is now (its current answers in the scope, their decisions' revisions, the
-  -- scope's entry's revision).
+  -- revision of the plan's entry that stands for each in the affaire's scope, the scope's entry's revision): every
+  -- entry that enters the total is the one the selection saw.
   select pg_catalog.array_agg(t.item_id order by t.item_id) into stale
   from (select (t.value ->> 'item_id')::uuid as item_id, (t.value ->> 'entry_revision')::numeric::integer as entry_revision,
       t.value -> 'answers' as answers
@@ -653,19 +667,23 @@ begin
   left join pg_temp.takeoff_review_lines l on l.item_id = t.item_id
   where l.item_id is null
     or coalesce((select e.revision from public.takeoff_item_entries e where e.id = l.scope_entry_id), 0) <> t.entry_revision
-    or (select coalesce(pg_catalog.array_agg(p.answer_id::text || '#' || p.decision_revision order by p.answer_id), '{}')
+    or (select coalesce(pg_catalog.array_agg(p.answer_id::text || '#' || p.decision_revision || '#' || p.plan_entry_revision
+          order by p.answer_id), '{}')
         from pg_temp.takeoff_review_pairs p where p.item_id = t.item_id)
       is distinct from
-      (select coalesce(pg_catalog.array_agg((a.value ->> 'answer_id')::uuid::text || '#' || ((a.value ->> 'decision_revision')::numeric::integer)::text
+      (select coalesce(pg_catalog.array_agg((a.value ->> 'answer_id')::uuid::text
+          || '#' || ((a.value ->> 'decision_revision')::numeric::integer)::text
+          || '#' || ((a.value ->> 'entry_revision')::numeric::integer)::text
           order by (a.value ->> 'answer_id')::uuid), '{}')
         from pg_catalog.jsonb_array_elements(t.answers) a(value));
 
   -- The rules of each gesture on the items the server found eligible, now, under the locks: what no longer holds makes
-  -- the selection stale. No gesture writes a plan already sent to an estimate. An acceptance: a measured item (its
-  -- answer on the plan in a plan's scope), without the scope's entry, an answer still to decide, every positive row of
-  -- its answers to decide without an anomaly the planner names (the tenant's confidence threshold included), and the
-  -- total it would retain (those rows as they are, the plans' included entries) in one unit, within 1 % of its DPGF
-  -- reference. Never a forcing.
+  -- the selection stale. A plan already sent to an estimate is closed to every gesture, its entries included: what
+  -- changes after a send goes through a revision of the send's contribution, never through this command. An
+  -- acceptance: a measured item (its answer on the plan in a plan's scope), without the scope's entry, an answer still
+  -- to decide, every positive row of its answers to decide without an anomaly the planner names (the tenant's
+  -- confidence threshold included), and the total it would retain (private.takeoff_item_total: those rows as they are,
+  -- the plans' included entries) in one unit, within 1 % of its DPGF reference. Never a forcing.
   if stale is null then
     if gesture = 'accept_measured' then
       threshold := public.takeoff_low_confidence_threshold((select ff.value from public.feature_flags ff
@@ -674,8 +692,7 @@ begin
     select pg_catalog.array_agg(x.item_id order by x.item_id) into stale
     from (select (v.value #>> '{}')::uuid as item_id from pg_catalog.jsonb_array_elements(p_command -> 'apply') v(value)) x
     join pg_temp.takeoff_review_lines l on l.item_id = x.item_id
-    where (gesture in ('accept_measured', 'set_aside', 'reinstate')
-        and exists (select 1 from pg_temp.takeoff_review_pairs p where p.item_id = x.item_id and p.sent))
+    where exists (select 1 from pg_temp.takeoff_review_pairs p where p.item_id = x.item_id and p.sent)
       or case gesture
       when 'accept_measured' then not (
         l.state = 'measured' and l.scope_entry_id is null
@@ -690,7 +707,8 @@ begin
               i.quantity_entry_category, i.unit, l.expected_unit)) > 0)
         and (select pg_catalog.count(distinct private.takeoff_unit_token(q.unit)) <= 1
             and (l.reference_quantity is null or l.reference_quantity < 0 or pg_catalog.count(*) = 0
-              or not private.takeoff_quantity_requires_review(l.reference_quantity, pg_catalog.sum(q.quantity)))
+              or not private.takeoff_quantity_requires_review(l.reference_quantity,
+                private.takeoff_item_total(pg_catalog.array_agg(q.quantity))))
           from (
             select e.quantity, e.unit from pg_temp.takeoff_review_pairs p
             join public.takeoff_item_entries e on e.id = p.plan_entry_id
@@ -766,9 +784,9 @@ begin
     where p.item_id in (select (v.value #>> '{}')::uuid from pg_catalog.jsonb_array_elements(p_command -> 'apply') v(value))
       and p.decision_kind is distinct from 'set_aside';
     -- The positive rows of the answers set aside, excluded with the reason (a job still completed). What each row was
-    -- (its exclusion and its verification: by whom, when, why) and what the set aside left on it are journaled, so that
-    -- a reinstatement gives it back, and only to a row nobody changed since. A verification is withdrawn with it, and
-    -- the rules that read the exclusion wait for the server, as a member's edit does.
+    -- (its exclusion and its verification: by whom, when, why) is journaled, so that a reinstatement gives it back. A
+    -- verification is withdrawn with it, and the rules that read the exclusion wait for the server, as a member's edit
+    -- does. A row already excluded with that reason is left as it is.
     with rows_ as (
       select i.id, i.job_id, i.is_excluded, i.exclusion_reason, i.is_verified, i.verified_at, i.verified_by,
         i.verification_justification, p.item_id, p.answer_id, p.plan_logical_id
@@ -784,7 +802,7 @@ begin
         rules_stale = case when i.rules_evaluated_at is not null or i.rules_stale then true else i.rules_stale end,
         rules_stale_at = case when i.rules_evaluated_at is not null or i.rules_stale then now_ else i.rules_stale_at end
       from rows_ r where i.id = r.id
-      returning i.id, private.takeoff_item_review_row_state(i) as state
+      returning i.id
     ), journaled as (
       insert into public.takeoff_item_review_events (tenant_id, project_id, command_id, item_id, answer_id, plan_logical_id,
         takeoff_item_id, event, before, after, actor_id, at)
@@ -792,20 +810,25 @@ begin
         pg_catalog.jsonb_build_object('is_excluded', r.is_excluded, 'exclusion_reason', r.exclusion_reason,
           'is_verified', r.is_verified, 'verified_at', r.verified_at, 'verified_by', r.verified_by,
           'verification_justification', r.verification_justification),
-        pg_catalog.jsonb_build_object('is_excluded', true, 'exclusion_reason', reason_text, 'row', u.state), actor, now_
+        pg_catalog.jsonb_build_object('is_excluded', true, 'exclusion_reason', reason_text), actor, now_
       from rows_ r join updated u on u.id = r.id
       returning takeoff_item_id
     )
     insert into pg_temp.takeoff_review_rules_jobs
     select distinct r.job_id from rows_ r join journaled e on e.takeoff_item_id = r.id
     on conflict do nothing;
+    -- The answer's decision before, and every positive row of the answer as the set aside leaves it, changed by it or
+    -- not (one already excluded with the reason included): what a reinstatement compares to say nothing changed.
     insert into public.takeoff_item_review_events (tenant_id, project_id, command_id, item_id, answer_id, plan_logical_id,
       event, before, after, actor_id, at)
     select p_tenant_id, p_project_id, this_command, w.item_id, w.answer_id, p.plan_logical_id, 'set_aside',
       pg_catalog.jsonb_build_object('kind', p.decision_effective, 'actor_id', case when p.decision_effective <> 'none' then d.actor_id end,
         'decided_at', case when p.decision_effective <> 'none' then d.decided_at end),
       pg_catalog.jsonb_build_object('kind', 'set_aside', 'reason', p_command ->> 'reason',
-        'note', nullif(pg_catalog.btrim(p_command ->> 'note'), '')), actor, now_
+        'note', nullif(pg_catalog.btrim(p_command ->> 'note'), ''),
+        'rows', coalesce((select pg_catalog.jsonb_object_agg(i.id::text, private.takeoff_item_review_row_state(i))
+          from public.takeoff_item_answer_observations o join public.takeoff_items i on i.id = o.takeoff_item_id
+          where o.answer_id = w.answer_id and o.role = 'contribution'), '{}'::jsonb)), actor, now_
     from pg_temp.takeoff_review_written w join pg_temp.takeoff_review_pairs p on p.answer_id = w.answer_id
     left join public.takeoff_item_answer_decisions d on d.answer_id = w.answer_id;
     insert into public.takeoff_item_answer_decisions as d (answer_id, tenant_id, project_id, item_id, plan_logical_id, kind,
@@ -823,23 +846,24 @@ begin
     where p.item_id in (select (v.value #>> '{}')::uuid from pg_catalog.jsonb_array_elements(p_command -> 'apply') v(value))
       and p.decision_kind = 'set_aside';
     -- Each answer's latest set aside, the decision it replaced, and the rows it excluded with what each was. An answer
-    -- whose rows all hold what the set aside left (none changed since) comes back whole: each row as it was, its
-    -- verification included, and the decision it had. Otherwise each row still excluded with the set aside's reason gets
-    -- its exclusion back without its verification, and the answer comes back to be decided; the journal says which.
+    -- every positive row of which holds what the set aside left (none changed since, those it did not change included)
+    -- comes back whole: each row as it was, its verification included, and the decision it had. Otherwise each row still
+    -- excluded with the set aside's reason gets its exclusion back without its verification, and the answer comes back to
+    -- be decided; the journal says which.
     create temporary table if not exists pg_temp.takeoff_review_restored (answer_id uuid primary key, item_id uuid,
       plan_logical_id uuid, whole boolean, previous jsonb) on commit drop;
     truncate pg_temp.takeoff_review_restored;
     insert into pg_temp.takeoff_review_restored
     select w.answer_id, w.item_id, p.plan_logical_id,
-      not exists (select 1 from public.takeoff_item_review_events ev
-        left join public.takeoff_items i on i.id = ev.takeoff_item_id
-        where ev.command_id = aside.command_id and ev.answer_id = w.answer_id and ev.event = 'row_excluded'
-          and (i.id is null or private.takeoff_item_review_row_state(i) is distinct from ev.after -> 'row')),
+      pg_catalog.jsonb_typeof(aside.after -> 'rows') = 'object' and not exists (
+        select 1 from pg_catalog.jsonb_each(aside.after -> 'rows') snapshot(row_id, state)
+        left join public.takeoff_items i on i.id = snapshot.row_id::uuid
+        where i.id is null or private.takeoff_item_review_row_state(i) is distinct from snapshot.state),
       aside.before
     from pg_temp.takeoff_review_written w
     join pg_temp.takeoff_review_pairs p on p.answer_id = w.answer_id
     left join lateral (
-      select ev.command_id, ev.before from public.takeoff_item_review_events ev
+      select ev.command_id, ev.before, ev.after from public.takeoff_item_review_events ev
       where ev.tenant_id = p_tenant_id and ev.project_id = p_project_id and ev.answer_id = w.answer_id and ev.event = 'set_aside'
       order by ev.id desc limit 1
     ) aside on true;
@@ -874,7 +898,7 @@ begin
       insert into public.takeoff_item_review_events (tenant_id, project_id, command_id, item_id, answer_id, plan_logical_id,
         takeoff_item_id, event, before, after, actor_id, at)
       select p_tenant_id, p_project_id, this_command, r.item_id, r.answer_id, r.plan_logical_id, r.id, 'row_restored',
-        r.after - 'row', pg_catalog.jsonb_build_object('is_excluded', u.is_excluded, 'exclusion_reason', u.exclusion_reason,
+        r.after, pg_catalog.jsonb_build_object('is_excluded', u.is_excluded, 'exclusion_reason', u.exclusion_reason,
           'is_verified', u.is_verified, 'verified_at', u.verified_at, 'verified_by', u.verified_by), actor, now_
       from rows_ r join updated u on u.id = r.id
       returning takeoff_item_id
@@ -982,7 +1006,8 @@ begin
     'private.takeoff_item_decision_document(public.takeoff_item_answer_decisions)',
     'private.takeoff_unit_token(text)', 'private.takeoff_text_blank(text)',
     'private.takeoff_item_row_anomalies(text, text, boolean, boolean, boolean, jsonb, numeric, numeric, text, integer, jsonb, text, text, text)',
-    'private.takeoff_quantity_requires_review(numeric, numeric)', 'private.takeoff_item_review_row_state(public.takeoff_items)',
+    'private.takeoff_quantity_requires_review(numeric, numeric)', 'private.takeoff_item_total(numeric[])',
+    'private.takeoff_item_review_row_state(public.takeoff_items)',
     'private.takeoff_item_entry_document(public.takeoff_item_entries)']
   loop
     execute format('revoke all on function %s from public, anon, authenticated, service_role', routine);

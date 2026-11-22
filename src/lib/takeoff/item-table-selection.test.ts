@@ -12,7 +12,7 @@ import {
 } from "./item-table-selection";
 
 const target = (itemId: string, revision = "1") => ({ itemId, entryRevision: 0,
-  answers: [{ answerId: "00000000-0000-4000-8000-000000000001", answerRevision: revision, decisionRevision: 0 }] });
+  answers: [{ answerId: "00000000-0000-4000-8000-000000000001", answerRevision: revision, decisionRevision: 0, entryRevision: 0 }] });
 const line = (itemId: string, eligible: Partial<Record<string, boolean>> = {}): SelectableLine => ({
   itemId, label: `Poste ${itemId}`, targets: target(itemId),
   eligibility: { accept_measured: { eligible: eligible.accept_measured ?? false, reason: null },

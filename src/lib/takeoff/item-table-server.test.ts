@@ -63,12 +63,34 @@ function memberClient() {
         : table === "takeoff_item_review_events" ? events
           : table === "profiles" ? [{ id: MEMBER, full_name: " Léa Martin " }] : (() => { throw new Error(`Unexpected read of ${table}.`); })();
     const builder: Record<string, unknown> = {};
-    for (const method of ["select", "eq", "in", "order", "limit"]) builder[method] = () => builder;
-    builder.range = (from: number, to: number) => {
-      ranges.push([from, to]);
+    // The journal is read as PostgREST reads it: its filters, its order and its range (both ends included).
+    const filters: Array<[string, unknown]> = [];
+    let order: { column: string; ascending: boolean } | null = null;
+    let range: [number, number] | null = null;
+    for (const method of ["select", "in", "limit"]) builder[method] = () => builder;
+    builder.eq = (column: string, value: unknown) => {
+      filters.push([column, value]);
       return builder;
     };
-    builder.then = (resolve: (value: unknown) => unknown) => Promise.resolve({ data, error: null }).then(resolve);
+    builder.order = (column: string, options?: { ascending?: boolean }) => {
+      order = { column, ascending: options?.ascending ?? true };
+      return builder;
+    };
+    builder.range = (from: number, to: number) => {
+      ranges.push([from, to]);
+      range = [from, to];
+      return builder;
+    };
+    const result = () => {
+      if (table !== "takeoff_item_review_events") return data;
+      const sorted = data.filter((row) => filters.every(([column, value]) => row[column] === value));
+      const by = order;
+      if (by) {
+        sorted.sort((left, right) => (Number(left[by.column]) - Number(right[by.column])) * (by.ascending ? 1 : -1));
+      }
+      return range ? sorted.slice(range[0], range[1] + 1) : sorted;
+    };
+    builder.then = (resolve: (value: unknown) => unknown) => Promise.resolve({ data: result(), error: null }).then(resolve);
     return builder;
   };
   const rpc = (name: string, args: Record<string, unknown>) => {
@@ -177,14 +199,21 @@ describe("freezeAffaireItemSelection", () => {
 });
 
 describe("the history of a line", () => {
-  it("reads its journal by pages, newest first, with the authors' names", async () => {
-    events = Array.from({ length: 21 }, (_, index) => ({ id: 100 - index, event: index % 2 ? "set_aside" : "reinstated",
-      plan_logical_id: PLAN, takeoff_item_id: null, before: { kind: "set_aside" }, after: { kind: "none" }, actor_id: MEMBER,
-      at: "2026-11-22T09:00:00Z" }));
-    const page = await readAffaireItemHistory(PROJECT, itemId(1), { offset: 20, limit: 20 });
-    expect(ranges).toEqual([[20, 40]]);
-    expect(page).toMatchObject({ itemId: itemId(1), offset: 20, limit: 20, hasMore: true, names: { [MEMBER]: "Léa Martin" } });
-    expect(page.events).toHaveLength(20);
-    expect(page.events[0]).toMatchObject({ id: 100, event: "reinstated", planKey: PLAN, actorId: MEMBER });
+  it("reads its journal by pages, newest first, only the line's, with the authors' names", async () => {
+    const event = (id: number, extra: Record<string, unknown> = {}) => ({ id, tenant_id: TENANT, project_id: PROJECT, item_id: itemId(1),
+      event: id % 2 ? "set_aside" : "reinstated", plan_logical_id: PLAN, takeoff_item_id: null, before: { kind: "set_aside" },
+      after: { kind: "none" }, actor_id: MEMBER, at: "2026-11-22T09:00:00Z", ...extra });
+    // 21 events of the line, stored out of order, and newer ones of another line, another affaire and another tenant.
+    const own = [7, 21, 3, 14, 1, 18, 10, 5, 20, 12, 16, 2, 9, 19, 4, 11, 15, 6, 17, 8, 13].map((id) => event(id));
+    events = [event(40, { item_id: itemId(2) }), ...own.slice(0, 10), event(41, { project_id: "99999999-9999-4999-8999-999999999999" }),
+      ...own.slice(10), event(42, { tenant_id: "88888888-8888-4888-8888-888888888888" })];
+    const first = await readAffaireItemHistory(PROJECT, itemId(1), { offset: 0, limit: 20 });
+    expect(first).toMatchObject({ itemId: itemId(1), offset: 0, limit: 20, hasMore: true, names: { [MEMBER]: "Léa Martin" } });
+    expect(first.events.map(({ id }) => id)).toEqual(Array.from({ length: 20 }, (_, index) => 21 - index));
+    expect(first.events[0]).toMatchObject({ id: 21, event: "set_aside", planKey: PLAN, actorId: MEMBER });
+    const second = await readAffaireItemHistory(PROJECT, itemId(1), { offset: 20, limit: 20 });
+    expect(ranges).toEqual([[0, 20], [20, 40]]);
+    expect(second).toMatchObject({ offset: 20, hasMore: false });
+    expect(second.events.map(({ id }) => id)).toEqual([1]);
   });
 });

@@ -38,13 +38,17 @@ function EntryFacts({ entry, names }: { entry: Entry; names: Record<string, stri
  * quantity entered, and the review's history (who accepted, set aside or reinstated it, and why). The targeted proof and
  * correction of the existing review stays one link away.
  */
-export function ItemTableLineDetail({ line, projectId, names, canReview, busy, onIncludeEntry }: {
+export function ItemTableLineDetail({ line, projectId, names, canReview, busy, onIncludeEntry, historyVersion, onRefused }: {
   line: ItemTableResponseLine;
   projectId: string;
   names: Record<string, string>;
   canReview: boolean;
   busy: boolean;
   onIncludeEntry: (line: ItemTableResponseLine) => void;
+  /** Moves with each read of the table: the history is read again with it. */
+  historyVersion: number;
+  /** A refused read of the affaire: the table withdraws itself, this detail with it. */
+  onRefused: (caught: unknown) => boolean;
 }) {
   return (
     <div className="space-y-3 py-2" data-testid={`poste-detail-${line.itemId}`}>
@@ -122,7 +126,7 @@ export function ItemTableLineDetail({ line, projectId, names, canReview, busy, o
           })}
         </ul>
       )}
-      <ItemTableHistory projectId={projectId} itemId={line.itemId}
+      <ItemTableHistory key={historyVersion} projectId={projectId} itemId={line.itemId} version={historyVersion} onRefused={onRefused}
         plans={Object.fromEntries(line.readings.map(({ planKey, planName }) => [planKey, planName]))} />
     </div>
   );

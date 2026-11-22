@@ -171,7 +171,8 @@ set local role authenticated;
 select public.review_takeoff_items('${owner.tenantId}', '${projectId}', jsonb_build_object('command_version', 1,
   'intent_key', '${randomUUID()}', 'gesture', 'accept_measured', 'scope', '{"kind":"affaire"}'::jsonb,
   'targets', jsonb_build_array(jsonb_build_object('item_id', '${itemId}', 'entry_revision', 0,
-    'answers', (select jsonb_agg(jsonb_build_object('answer_id', a.id, 'decision_revision', 0)) from public.takeoff_item_answers a
+    'answers', (select jsonb_agg(jsonb_build_object('answer_id', a.id, 'decision_revision', 0, 'entry_revision', 0))
+      from public.takeoff_item_answers a
       where a.item_id = '${itemId}'))),
   'apply', jsonb_build_array('${itemId}'), 'skipped', '[]'::jsonb)) ->> 'outcome';
 commit;`);

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import useSWR from "swr";
 
 import { isTakeoffApiError } from "@/lib/takeoff/client-http";
@@ -42,16 +42,23 @@ export function itemHistoryLabel(event: ItemHistoryEvent): string {
 
 /**
  * The review history of a line, newest first: who accepted, set aside, reinstated, entered or included it, why and when,
- * read from the journal by pages (the affaire's read rule; no gesture is offered here).
+ * read from the journal by pages (the affaire's read rule; no gesture is offered here). It is read again with the table
+ * (its version), from its first page; a refused read withdraws the table, this history with it.
  */
-export function ItemTableHistory({ projectId, itemId, plans }: {
+export function ItemTableHistory({ projectId, itemId, plans, version, onRefused }: {
   projectId: string;
   itemId: string;
   /** The names of the line's plans, by their key. */
   plans: Record<string, string>;
+  /** Moves with each read of the table. */
+  version: number;
+  onRefused: (caught: unknown) => boolean;
 }) {
-  const first = useSWR(["item-history", projectId, itemId], () => fetchItemHistory(projectId, itemId,
+  const first = useSWR(["item-history", projectId, itemId, version], () => fetchItemHistory(projectId, itemId,
     { offset: 0, limit: ITEM_HISTORY_LIMIT.default }), { revalidateOnFocus: false, shouldRetryOnError: false });
+  useEffect(() => {
+    if (first.error) onRefused(first.error);
+  }, [first.error, onRefused]);
   const [older, setOlder] = useState<ItemHistoryResponse[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -69,6 +76,7 @@ export function ItemTableHistory({ projectId, itemId, plans }: {
       const page = await fetchItemHistory(projectId, itemId, { offset: last.offset + last.limit, limit: ITEM_HISTORY_LIMIT.default });
       setOlder((current) => [...current, page]);
     } catch (caught) {
+      if (onRefused(caught)) return;
       setError(isTakeoffApiError(caught) ? caught.message : "Impossible de lire l’historique du poste.");
     } finally {
       setLoading(false);

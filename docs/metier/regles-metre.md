@@ -292,7 +292,9 @@ sinon une quantité mesurée le rend « Mesuré » ; sinon il est « Non trouvé
 quantité (jamais 0). Les quantités de deux plans s’additionnent dans une même unité,
 jamais deux unités entre elles ; la valeur candidate d’une réponse incertaine n’est
 jamais une mesure. L’écart à la DPGF est jugé sur un total complet, à vérifier au-delà
-de 1 %.
+de 1 %. Ce total est celui des lignes positives des réponses mesurées telles qu’elles sont
+revues et des saisies incluses des plans : chacune arrondie au millionième (la moitié vers
+le haut), puis additionnées ; le tableau et la base appliquent ce même calcul.
 
 **Lecture.** La base pagine, filtre, ordonne et compte le tableau
 (`supabase/migrations/20261122125722_takeoff_item_review_decisions.sql`) : l’état de
@@ -307,8 +309,11 @@ en cours de saisie et le poste en vue restent quand un plan répond et après un
 rechargement de l’onglet. Chaque geste dit sa portée et combien de postes il touche
 avant confirmation. La base le décide dans la session du membre, auteur de la
 décision : elle compare chaque réponse (toujours la lecture en cours du poste sur ce
-plan), la révision de sa décision et celle de la saisie ; si un poste a changé depuis la
-sélection, elle n’applique rien et le nomme. Un geste attend l’enregistrement en cours
+plan), la révision de sa décision et celle de chaque saisie qui entre dans le total (celle
+de la portée, et sur l’affaire celle de chaque plan) ; si un poste a changé depuis la
+sélection, elle n’applique rien et le nomme. Une saisie en cours garde sa valeur et son
+unité, quel que soit le champ tapé d’abord, et part avec le poste tel qu’il est
+maintenant : après un refus pour changement et après un rechargement, il est relu. Un geste attend l’enregistrement en cours
 d’une ligne dans la revue ciblée, puis juge la ligne telle qu’elle est enregistrée ; deux
 gestes sur une même affaire passent l’un après l’autre. La même commande renvoyée
 (double clic, réponse perdue) rend la même réponse ; une autre sous la même clé est
@@ -349,8 +354,12 @@ verrou.
   qu’elle était, sa vérification comprise (par qui, quand, pourquoi), et la décision que
   le poste avait ; si une ligne a changé entre-temps, chaque ligne retrouve son exclusion
   d’avant sans sa vérification, le poste revient à décider, et l’historique le dit (une
-  hypothèse reste exclue comme elle est arrivée). Un plan déjà envoyé au devis n’est ni
-  écarté ni réintégré en bloc.
+  hypothèse reste exclue comme elle est arrivée). « Sans changement » se juge sur chaque
+  ligne positive de la lecture, y compris celle que l’écart a laissée telle quelle parce
+  qu’elle était déjà exclue avec ce motif. Un plan déjà envoyé au devis est fermé à tout
+  geste en bloc : il n’est ni accepté, ni écarté, ni réintégré, et ses saisies ne sont ni
+  modifiées ni incluses ; ce qui change après un envoi passe par une révision de cet
+  envoi.
 - **Demander à l’IA de mesurer de nouveau** : un aperçu nomme le membre qui confirme,
   qui paie sur son propre forfait ChatGPT, le réglage de Mon profil, les plans et les
   postes ; un effort ponctuel peut être choisi sans changer le profil. Un seul poste
@@ -370,8 +379,10 @@ pourquoi, page par page), et mène à la revue ciblée existante pour la preuve 
 correction. La quantité observée reste la lecture brute du modèle ; la quantité retenue
 est celle des lignes positives telles qu’elles sont revues (une correction ciblée y
 compte), et une acceptation qu’une correction ciblée a retirée redevient une décision à
-prendre. Un accès retiré retire le tableau, son détail et ses dialogues, quoi qu’il ait
-montré avant.
+prendre ; une ligne relue non vérifiée n’est jamais retenue, quelle que soit la décision
+lue juste avant. L’historique ouvert est relu avec le tableau. Toute lecture de l’affaire
+refusée (le tableau, l’historique d’un poste, tous les résultats d’un filtre) retire le
+tableau, son détail, son historique et ses dialogues, quoi qu’ils aient montré avant.
 
 ## Contrat actuel de contrôle ciblé — TI-681
 

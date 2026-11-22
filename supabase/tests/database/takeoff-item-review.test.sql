@@ -316,8 +316,10 @@ create function pg_temp.target(item integer) returns jsonb language sql stable a
   select jsonb_build_object('item_id', pg_temp.f(item),
     'entry_revision', coalesce((select e.revision from public.takeoff_item_entries e where e.item_id = pg_temp.f(item)
       and e.plan_logical_id is null), 0),
-    'answers', coalesce((select jsonb_agg(jsonb_build_object('answer_id', a.id, 'decision_revision', coalesce(d.revision, 0)))
+    'answers', coalesce((select jsonb_agg(jsonb_build_object('answer_id', a.id, 'decision_revision', coalesce(d.revision, 0),
+        'entry_revision', coalesce(pe.revision, 0)))
       from public.takeoff_item_answers a left join public.takeoff_item_answer_decisions d on d.answer_id = a.id
+      left join public.takeoff_item_entries pe on pe.item_id = a.item_id and pe.plan_logical_id = a.plan_logical_id
       where a.id = pg_temp.answer(item)), '[]'::jsonb))
 $$;
 create function pg_temp.cmd(gesture text, key integer, items integer[], apply integer[], extra jsonb default '{}'::jsonb)
@@ -381,8 +383,10 @@ select is((select count(*)::integer from pg_temp.table_()), 0, 'another tenant''
 select is((select count(*)::integer from public.count_takeoff_item_table(pg_temp.f(10), pg_temp.f(20))), 0, 'nor its facets');
 
 -- 3b. What keeps a measured answer's positive row out of the bulk acceptance (private.takeoff_item_row_anomalies) and
---     when a quantity needs a look against its DPGF reference (private.takeoff_quantity_requires_review). The planner
---     (itemAnswerAnomalies and compareQuantityPairs, src/lib/takeoff/) runs these same vectors, read in this file.
+--     when the total of its parts needs a look against its DPGF reference (private.takeoff_item_total, then
+--     private.takeoff_quantity_requires_review). The planner (itemAnswerAnomalies, itemPartsTotal and
+--     compareQuantityPairs, src/lib/takeoff/) runs these same vectors, read in this file: the gaps give the parts, never
+--     their sum.
 reset role;
 create temp table acceptance_vectors as select * from jsonb_to_recordset($vectors$[
   {"position": 1, "label": "a clean row", "outcome": "measured", "reason_code": null, "row_found": true, "is_excluded": false, "rules_stale": false, "rule_results": [], "confidence": 0.9, "threshold": 0.5, "evidence": "Symboles relevés", "source_page": 2, "metadata": {}, "entry_category": null, "unit": "u", "expected_unit": "u", "anomalies": []},
@@ -413,16 +417,21 @@ select is(private.takeoff_item_row_anomalies(v.outcome, v.reason_code, v.row_fou
   v.anomalies, format('acceptance vector %s: %s', v.position, v.label))
 from acceptance_vectors v order by v.position;
 create temp table gap_vectors as select * from jsonb_to_recordset($gaps$[
-  {"position": 1, "reference": 10, "measured": 12, "review": true},
-  {"position": 2, "reference": 10, "measured": 10.1, "review": false},
-  {"position": 3, "reference": 100, "measured": 101.01, "review": true},
-  {"position": 4, "reference": 10, "measured": 9, "review": true},
-  {"position": 5, "reference": 3, "measured": 3, "review": false},
-  {"position": 6, "reference": 0, "measured": 1, "review": true},
-  {"position": 7, "reference": 0, "measured": 0, "review": false}
-]$gaps$::jsonb) as v(position integer, reference numeric, measured numeric, review boolean);
-select is(private.takeoff_quantity_requires_review(v.reference, v.measured), v.review,
-  format('gap vector %s: %s against %s', v.position, v.measured, v.reference))
+  {"position": 1, "reference": 10, "parts": [12], "review": true},
+  {"position": 2, "reference": 10, "parts": [10.1], "review": false},
+  {"position": 3, "reference": 100, "parts": [101.01], "review": true},
+  {"position": 4, "reference": 10, "parts": [9], "review": true},
+  {"position": 5, "reference": 3, "parts": [2, 1], "review": false},
+  {"position": 6, "reference": 0, "parts": [1], "review": true},
+  {"position": 7, "reference": 0, "parts": [0], "review": false},
+  {"position": 8, "reference": 10, "parts": [10, 0.0333336, 0.0333336, 0.0333326], "review": true},
+  {"position": 9, "reference": 2.9702995, "parts": [2, 1.0000025], "review": true},
+  {"position": 10, "reference": 2.9702995, "parts": [2, 1.0000024], "review": false},
+  {"position": 11, "reference": 10, "parts": [5.0000004, 5.0000004, 0.1], "review": false}
+]$gaps$::jsonb) as v(position integer, reference numeric, parts jsonb, review boolean);
+select is(private.takeoff_quantity_requires_review(v.reference,
+    private.takeoff_item_total(array(select part::numeric from jsonb_array_elements_text(v.parts) as parts(part)))), v.review,
+  format('gap vector %s: %s against %s', v.position, v.parts, v.reference))
 from gap_vectors v order by v.position;
 select pg_temp.sign_in(5);
 set local role authenticated;
@@ -628,8 +637,14 @@ select results_eq($$select kind, revision from public.takeoff_item_answer_decisi
 
 -- Set aside and reinstated with nothing in between: each row comes back as it was (verified, by whom, when, why), and the
 -- answer's acceptance with it. The set aside names the job whose rules the server computes again, its replay too.
+-- Row 811 holds the justification of a targeted verification: the reinstatement must give it back too.
+update public.takeoff_items set verification_justification =
+  '{"reason_code": "system_documented", "system_reference": "Fabricant fictif, gamme G, certificat C"}'::jsonb
+where id = pg_temp.f(811);
 create temp table verified_before as select id, is_verified, verified_at, verified_by, verification_justification
   from public.takeoff_items where id in (pg_temp.f(811), pg_temp.f(812));
+select is((select count(*)::integer from verified_before where is_verified and verification_justification is not null), 1,
+  'one row verified with a justification before the set aside');
 select pg_temp.sign_in(1);
 set local role authenticated;
 create temp table command_627 as select pg_temp.cmd('set_aside', 627, array[300], array[300], '{"reason":"duplicate"}') as command;
@@ -699,6 +714,34 @@ select results_eq($$select after ->> 'kind', after ->> 'restored' from public.ta
 select is((select count(*)::integer from public.takeoff_item_review_events where event in ('set_aside', 'reinstated')), 6,
   'every set aside stays in the journal beside its reinstatement');
 
+-- A set aside leaves a row already excluded with its reason as it is, and still keeps what that row holds: a member who
+-- changes it afterwards is seen by the reinstatement, which journals the change.
+update public.takeoff_items set is_excluded = true, exclusion_reason = 'Écarté dans le tableau des postes : doublon',
+  is_verified = false, verified_at = null, verified_by = null where id = pg_temp.f(811);
+select pg_temp.sign_in(1);
+set local role authenticated;
+select is(pg_temp.review(pg_temp.cmd('set_aside', 638, array[300], array[300], '{"reason":"duplicate"}')) ->> 'outcome',
+  'applied', 'the lavabo set aside again, one of its rows already excluded with that reason');
+reset role;
+select results_eq($$select e.takeoff_item_id from public.takeoff_item_review_events e
+  join public.takeoff_item_review_commands c on c.id = e.command_id
+  where c.intent_key = pg_temp.f(638) and e.event = 'row_excluded'$$, $$values (pg_temp.f(812))$$,
+  'it excludes only the row it changes');
+update public.takeoff_items set quantity = 9, updated_at = clock_timestamp() where id = pg_temp.f(811);
+select pg_temp.sign_in(1);
+set local role authenticated;
+select is(pg_temp.review(pg_temp.cmd('reinstate', 639, array[300], array[300])) ->> 'outcome', 'applied',
+  'the lavabo reinstated after a member changed the row it left as it was');
+reset role;
+select results_eq($$select after ->> 'kind', after ->> 'restored' from public.takeoff_item_review_events where event = 'reinstated'
+  and item_id = pg_temp.f(300) order by id desc limit 1$$, $$values ('none'::text, 'changed'::text)$$,
+  'the journal says a row changed in between, the one the set aside did not change included');
+select results_eq($$select id, is_excluded, exclusion_reason from public.takeoff_items where id in (pg_temp.f(811), pg_temp.f(812))
+  order by id$$,
+  $$values (pg_temp.f(811), true, 'Écarté dans le tableau des postes : doublon'::text),
+    (pg_temp.f(812), true, 'Exclue par un membre (fictif)'::text)$$,
+  'each row as it was before the set aside');
+
 -- The entries: a value per item on the bathtub (not found) with what it rests on; on the lavabo (measured): stale.
 select pg_temp.sign_in(1);
 set local role authenticated;
@@ -725,6 +768,28 @@ select is(pg_temp.review(pg_temp.cmd('enter_quantity', 611, array[302], array[30
 select results_eq($$select quantity, category, included, revision, previous_quantity, previous_unit from public.takeoff_item_entries
   where item_id = pg_temp.f(302)$$, $$values (2::numeric, 'hypothesis'::text, false, 2, 1::numeric, 'u'::text)$$,
   'it replaces the entry, keeps the value before, and does not count until included');
+-- A plan already sent to an estimate is closed to every gesture, its entries included: nothing entered nor included.
+reset role;
+set local session_replication_role = replica;
+update public.takeoff_jobs set status = 'applied' where id = pg_temp.job(20, 1);
+set local session_replication_role = origin;
+select pg_temp.sign_in(1);
+set local role authenticated;
+select is(pg_temp.review(pg_temp.cmd('include_entry', 637, array[302], array[302])),
+  jsonb_build_object('outcome', 'stale', 'stale', jsonb_build_array(pg_temp.f(302))),
+  'an item of a plan already sent does not include its hypothesis');
+select is(pg_temp.review(pg_temp.cmd('enter_quantity', 636, array[302], array[302],
+    jsonb_build_object('values', jsonb_build_array(jsonb_build_object('item_id', pg_temp.f(302), 'quantity', 3, 'unit', 'u')),
+      'entry', jsonb_build_object('category', 'site_survey')))),
+  jsonb_build_object('outcome', 'stale', 'stale', jsonb_build_array(pg_temp.f(302))), 'nor takes an entry');
+reset role;
+set local session_replication_role = replica;
+update public.takeoff_jobs set status = 'completed' where id = pg_temp.job(20, 1);
+set local session_replication_role = origin;
+select results_eq($$select quantity, included, revision from public.takeoff_item_entries where item_id = pg_temp.f(302)$$,
+  $$values (2::numeric, false, 2)$$, 'its entry untouched');
+select pg_temp.sign_in(1);
+set local role authenticated;
 select results_eq($$select decision from pg_temp.table_() where item = pg_temp.f(302)$$, $$values ('entered'::text)$$,
   'its line is entered');
 select is(pg_temp.review(pg_temp.cmd('include_entry', 612, array[302], array[302])) ->> 'outcome', 'applied', 'included');
@@ -747,10 +812,26 @@ select is((select count(*)::integer from public.takeoff_item_entries where item_
 -- A plan's entry on the valve (uncertain), then the valve set aside in the affaire: the plan's entry counts for nothing.
 select is(pg_temp.review(pg_temp.cmd('enter_quantity', 630, array[301], array[301],
     jsonb_build_object('scope', jsonb_build_object('kind', 'plan', 'plan_logical_id', pg_temp.f(100)),
-      'values', jsonb_build_array(jsonb_build_object('item_id', pg_temp.f(301), 'quantity', 2, 'unit', 'u')),
+      'values', jsonb_build_array(jsonb_build_object('item_id', pg_temp.f(301), 'quantity', 5, 'unit', 'u')),
       'entry', jsonb_build_object('category', 'site_survey')))) ->> 'outcome', 'applied', 'the valve entered on its plan');
 select results_eq($$select decision from pg_temp.table_() where item = pg_temp.f(301)$$, $$values ('entered'::text)$$,
   'its line is entered');
+-- A selection in the affaire freezes every entry that enters its total, each plan's included: the valve's plan entry
+-- changed from 5 to 7 after the selection, a command on what was selected is stale and writes nothing.
+create temp table command_635 as select pg_temp.cmd('set_aside', 635, array[301], array[301], '{"reason":"duplicate"}') as command;
+select is((select command #> '{targets,0,answers,0,entry_revision}' from command_635), '1'::jsonb,
+  'the selection holds the plan entry''s revision');
+select is(pg_temp.review(jsonb_set(jsonb_set(pg_temp.cmd('enter_quantity', 634, array[301], array[301],
+    jsonb_build_object('scope', jsonb_build_object('kind', 'plan', 'plan_logical_id', pg_temp.f(100)),
+      'values', jsonb_build_array(jsonb_build_object('item_id', pg_temp.f(301), 'quantity', 7, 'unit', 'u')),
+      'entry', jsonb_build_object('category', 'site_survey'))),
+    '{targets,0,entry_revision}', '1'), '{targets,0,answers,0,entry_revision}', '0')) ->> 'outcome', 'applied',
+  'the valve''s plan entry changed from 5 to 7 in the plan''s scope');
+select is(pg_temp.review((select command from command_635)),
+  jsonb_build_object('outcome', 'stale', 'stale', jsonb_build_array(pg_temp.f(301))),
+  'a selection made before a plan''s entry changed is stale');
+select results_eq($$select kind from public.takeoff_item_answer_decisions where answer_id = pg_temp.answer(301)$$,
+  $$select null::text where false$$, 'and writes nothing');
 select is(pg_temp.review(pg_temp.cmd('set_aside', 631, array[301], array[301], '{"reason":"duplicate"}')) ->> 'outcome',
   'applied', 'the valve set aside');
 select results_eq($$select decision from pg_temp.table_() where item = pg_temp.f(301)$$, $$values ('set_aside'::text)$$,

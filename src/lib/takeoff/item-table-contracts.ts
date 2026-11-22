@@ -19,6 +19,7 @@ import {
   takeoffResponseTimestampSchema as timestamp,
   takeoffResponseUuidSchema as uuid,
 } from "@/lib/takeoff/response-contracts";
+import { TAKEOFF_ITEM_UNIT_MAX_LENGTH } from "@/lib/takeoff/types";
 
 /**
  * The contracts of the table of items of an affaire's takeoff (lot 4): its read (GET /api/affaires/{projectId}/takeoff/
@@ -32,7 +33,10 @@ export const ITEM_REVIEW_COMMAND_VERSION = 1 as const;
 
 const quantity = z.number().finite();
 const positiveQuantity = z.number().finite().positive();
-const unit = z.string().trim().min(1).max(16);
+// What the table reads: a row's unit as the targeted review writes it (the longest stored), a reading's or an entry's
+// within it. What a member enters through this table keeps the entries' own bound, the database's.
+const unit = z.string().trim().min(1).max(TAKEOFF_ITEM_UNIT_MAX_LENGTH);
+const entryUnit = z.string().trim().min(1).max(16);
 const page = z.number().int().positive();
 const planKey = z.string().min(1).max(200)
   .describe("Identité logique du plan (pièce du dossier, ou copie déposée dans le jeu de plans) : stable d’une copie à l’autre.");
@@ -109,8 +113,9 @@ const eligibilitySchema = z.object({ eligible: z.boolean(), reason: z.enum(ITEM_
 export const itemReviewTargetSchema = z.object({
   itemId: uuid,
   entryRevision: count.describe("Révision de la saisie de la portée (0 sans saisie)."),
-  answers: z.array(z.object({ answerId: uuid, answerRevision: z.string().min(1).max(128), decisionRevision: count }).strict())
-    .max(ITEM_REVIEW_LIMITS.answers),
+  answers: z.array(z.object({ answerId: uuid, answerRevision: z.string().min(1).max(128), decisionRevision: count,
+    entryRevision: count.describe("Révision de la saisie du plan qui tient lieu de cette réponse dans la portée de l’affaire (0 sans saisie ou dans la portée d’un plan).") })
+    .strict()).max(ITEM_REVIEW_LIMITS.answers),
 }).strict();
 
 const lineSchema = z.object({
@@ -256,7 +261,7 @@ export const itemReviewCommandSchema = z.discriminatedUnion("gesture", [
     note: z.string().max(2000).optional() }).strict(),
   z.object({ ...commandBase, gesture: z.literal("reinstate") }).strict(),
   z.object({ ...commandBase, gesture: z.literal("enter_quantity"),
-    values: z.array(z.object({ item_id: uuid, quantity: positiveQuantity, unit }).strict()).min(1).max(ITEM_REVIEW_LIMITS.items)
+    values: z.array(z.object({ item_id: uuid, quantity: positiveQuantity, unit: entryUnit }).strict()).min(1).max(ITEM_REVIEW_LIMITS.items)
       .describe("Une valeur et une unité par poste, saisies séparément : jamais un nombre recopié sur tous."),
     entry: quantityEntrySchema.describe("Catégorie choisie une fois pour la sélection, et sa note.") }).strict(),
   z.object({ ...commandBase, gesture: z.literal("include_entry"), targets: z.array(itemReviewTargetSchema).length(1) }).strict(),
