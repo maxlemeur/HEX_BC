@@ -538,6 +538,102 @@ if (!existsSync(liveProbePath)) test("PRX02 Decisions and the ChatGPT plan arbit
   }
 });
 
+// The AI reading of a material request's photo: the office asks, the photo it sees (turned or not) reaches the member's
+// plan as stored, and what the model read becomes draft lines through the routes of the lines, added or, on the
+// office's choice, in place of the drafts. The provider is the fixture: it proves the chain, the shape of the request
+// and what becomes of a loose answer, not what a real model reads on a sheet.
+if (!existsSync(liveProbePath)) test("MRIA01 the photo of a material request is read on the ChatGPT plan into draft lines, added then replaced on the office's choice", {
+  tags: ["critical", "local", "chatgpt", "material-requests"], session: "army", timeout: 420_000,
+}, async ({ app, screen, browser }) => {
+  if (!await preparePlanFixture()) throw new Error("MRIA01 requires its own temporary ChatGPT fixture.");
+  try {
+    await signIn({ app, screen, browser }, localOrigin, fixtureEmail);
+    const prefix = `ARMY-local-mria-${Date.now()}`;
+    const army = { runPrefix: prefix, projectName: prefix, ownedEstimates: [] };
+    const ui = hydratedUi({ app, screen, browser }, localOrigin);
+    await restrictCriticalBrowser(browser, ui.app, army);
+    const ids = await createEstimateViaWizard(ui, { projectName: prefix, title: "Demande photo" }, army);
+    const readTransport = async () => (await readFile(transportLog, "utf8")).trim().split("\n").filter(Boolean)
+      .map((entry) => JSON.parse(entry) as Record<string, unknown>).filter((entry) => !isAbsorbedClientAbort(entry));
+    const readings = async () => (await readTransport()).filter((entry) => entry.task === "material-request-photo");
+
+    type RequestLine = { id: string; position: number; original_text: string | null; quantity: number | null; quantity_doubtful: boolean;
+      unit: string | null; dimension: string | null; product_type: string | null; material: string | null; material_precision: string | null;
+      zone: string | null; status: string };
+    type RequestDetail = { request: { id: string }; files: { id: string; rotation: number }[]; lines: RequestLine[];
+      photoAnalysis: { status: string } | null };
+    type Envelope<T> = { ok: boolean; data: T };
+    const base = `/api/affaires/${ids.projectId}/material-requests`;
+    const created = await apiRequest<Envelope<RequestDetail>>(browser, "POST", base, {});
+    expect(created.status).toBe(201);
+    const requestId = created.body.data.request.id;
+    const read = async () => {
+      const response = await apiRequest<Envelope<RequestDetail>>(browser, "GET", `${base}/${requestId}`);
+      expect(response.status).toBe(200);
+      return response.body.data;
+    };
+    // The request says that its screen may offer the reading: the member's plan is connected on this instance.
+    expect((await read()).photoAnalysis).toMatchObject({ status: "available" });
+
+    await ui.app.open(`/dashboard/affaires/${ids.projectId}/demandes-materiel/${requestId}`);
+    await screen.getByRole("button", "Voir l’original", { exact: true }).click(DEV_SERVER_WORK);
+    const original = screen.getByRole("dialog", "Original de la demande", { exact: true });
+    // No photo, no reading to offer.
+    await expect(original.getByText("Pas de photo de l’original.", { exact: true })).toBeVisible();
+    await expect(original.getByRole("button", "Analyser la photo avec l’IA", { exact: true })).toHaveCount(0);
+
+    // A 1x1 PNG, generated here: no real photograph in a public repository.
+    const directory = path.resolve(".e2e/army/critical/artifacts/fixtures", prefix);
+    await mkdir(directory, { recursive: true });
+    const photo = path.join(directory, "demande-papier.png");
+    await writeFile(photo, Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==", "base64"));
+    await browser.locator('input[type="file"][aria-label="Photos à ajouter"]').first().setInputFiles([photo]);
+    await expect.poll(async () => (await read()).files.length, DEV_SERVER_WORK).toBe(1);
+    // The office turns the photo: the bytes stay as stored, and the model is told how to read them upright.
+    await original.getByRole("button", "Tourner à droite", { exact: true }).click();
+    await expect.poll(async () => (await read()).files[0].rotation, DEV_SERVER_WORK).toBe(90);
+    expect(await readings()).toEqual([]);
+
+    const analyze = original.getByRole("button", "Analyser la photo avec l’IA", { exact: true });
+    await analyze.click();
+    await expect.poll(async () => (await read()).lines.length, { timeout: 120_000 }).toBe(2);
+    const columns = (line: RequestLine) => [line.position, line.original_text, line.quantity, line.quantity_doubtful, line.unit,
+      line.dimension, line.product_type, line.material, line.material_precision, line.zone, line.status];
+    const READ = [
+      [1, "12 coudes cuivre Ø22 à sertir", 12, false, "u", "Ø 22", "coude", "cuivre", "à sertir", "R+3", "draft"],
+      // A quantity given as text and flagged, a size given as a number, a material the model could not read.
+      [2, "7 vannes [illisible] 20", 7, true, null, "20", "vanne", null, null, null, "draft"],
+    ];
+    const first = await read();
+    expect(first.lines.map(columns)).toEqual(READ);
+    expect(await readings()).toEqual([{ provider: "chatgpt-fixture", task: "material-request-photo", model: "army-plan-model", detail: "high", turned: true }]);
+    const screenshot = await app.screenshot("material-request-photo-analysis");
+
+    // Drafts exist: nothing is read again before the office has chosen, and its choice replaces exactly those drafts.
+    await analyze.click();
+    const replace = original.getByRole("button", "Remplacer les 2 lignes", { exact: true });
+    await expect(replace).toBeVisible();
+    await expect(original.getByRole("button", "Ajouter à la suite", { exact: true })).toBeVisible();
+    expect(await readings()).toHaveLength(1);
+    await replace.click();
+    const firstIds = first.lines.map((line) => line.id);
+    await expect.poll(async () => {
+      const lines = (await read()).lines;
+      return lines.length === 2 && lines.every((line) => !firstIds.includes(line.id));
+    }, { timeout: 120_000 }).toBe(true);
+    expect((await read()).lines.map(columns)).toEqual(READ);
+    expect(await readings()).toHaveLength(2);
+    expect((await readTransport()).filter((entry) => entry.provider === "forbidden")).toEqual([]);
+
+    await recordEvidence(army, "material-request-photo-analysis", {
+      projectId: ids.projectId, requestId, lines: READ, readings: await readings(), screenshot, provider: "fixture",
+    });
+  } finally {
+    if (fixtureStore) await rm(fixtureStore, { force: true });
+    fixtureStore = undefined;
+  }
+});
+
 // Assistant (lot 1): a question asked in the estimate editor is answered from what the application's engine computed,
 // streamed with the reads it took, cited by line, and kept in a conversation private to its author. The provider is
 // the fixture: it proves the loop, the rights and the persistence, not the quality of a real model's answer.
