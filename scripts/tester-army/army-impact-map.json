@@ -640,6 +640,7 @@
         "@plans",
         "e2e/army/local/chatgpt-local-decisions.e2e.ts",
         "e2e/army/local/chatgpt-local-takeoff.e2e.ts",
+        "e2e/army/takeoff/affaire-partial-send.e2e.ts",
         "e2e/army/takeoff/affaire-plan-analyses.e2e.ts",
         "e2e/army/takeoff/affaire-plan-dispatch.e2e.ts",
         "e2e/army/takeoff/contracts.e2e.ts",
@@ -884,11 +885,28 @@
         "e2e/fixtures/sample-plan.pdf",
         "e2e/army/takeoff/zone-plans-fixture.ts",
         "supabase/migrations/*_takeoff_send_receipts.sql",
-        "supabase/migrations/*_takeoff_send_grouped_lines_and_parts.sql"
+        "supabase/migrations/*_takeoff_send_grouped_lines_and_parts.sql",
+        "supabase/migrations/*_takeoff_partial_send.sql"
       ],
       "journeys": [
         "e2e/army/takeoff/affaire-send-outcome.e2e.ts",
         "e2e/army/takeoff/affaire-without-version.e2e.ts"
+      ]
+    },
+    {
+      "id": "partial-send",
+      "note": "Envoi d'un plan pendant que les autres sont lus (lot 3, migration C, TKPS01) : aperçu qui ne crée rien, premier brouillon pendant la lecture de B, B qui s'ajoute à la ligne de A, contrôle comparé aux autres plans lus et refus d'un aperçu périmé.",
+      "paths": [
+        "src/lib/takeoff/send-*",
+        "src/lib/takeoff/rules/recompute-server.ts",
+        "src/components/takeoff/takeoff-send/**",
+        "scripts/tester-army/takeoff-plan-dispatch.mjs",
+        "e2e/army/takeoff/plan-dispatch-support.ts",
+        "supabase/migrations/*_takeoff_plan_dispatcher.sql",
+        "supabase/migrations/*_takeoff_partial_send.sql"
+      ],
+      "journeys": [
+        "e2e/army/takeoff/affaire-partial-send.e2e.ts"
       ]
     },
     {

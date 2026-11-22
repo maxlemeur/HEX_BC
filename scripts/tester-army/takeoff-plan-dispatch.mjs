@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash, randomUUID } from "node:crypto";
+import { existsSync } from "node:fs";
 import { setTimeout as sleep } from "node:timers/promises";
 import { register } from "tsx/cjs/api";
 import { createClient } from "@supabase/supabase-js";
@@ -8,9 +9,11 @@ import { createClient } from "@supabase/supabase-js";
 // (runLocalTakeoffDispatcherPass), the real claim, slot, ledger, processor, persistence and end of each unit, with a
 // controlled local provider in place of the creator's ChatGPT plan. The provider keeps its contract with the worker: it
 // reserves each paid call in the job's ledger before « sending » it and settles it with its usage after. Its outcome per
-// job comes from ARMY_TAKEOFF_PLAN_MODES: success, terminal (a definitive failure), or hold (its call is held, a barrier
-// the journey observes, until its job is no longer processing, then settled); each call lasts
-// ARMY_TAKEOFF_PROVIDER_DELAY_MS.
+// job comes from ARMY_TAKEOFF_PLAN_MODES: success, terminal (a definitive failure), hold (its call is held, a barrier
+// the journey observes, until its job is no longer processing, then settled), or release (its call is held until the
+// journey creates ARMY_TAKEOFF_HOLD_RELEASE_FILE, then answered as a success); each call lasts
+// ARMY_TAKEOFF_PROVIDER_DELAY_MS. ARMY_TAKEOFF_PLAN_ITEMS may give a job the lines its reading returns (designation,
+// quantity, unit, page local to the copied PDF).
 const [projectId, prefix] = process.argv.slice(2);
 assert(/^[0-9a-f-]{36}$/.test(projectId ?? ""));
 assert(/^ARMY-[A-Za-z0-9-]+$/.test(prefix ?? ""));
@@ -27,7 +30,12 @@ await import("./coverage-network-guard.mjs");
 assert(!process.env.OPENAI_DECISIONS_API_KEY, "The owned worker holds no Decisions key.");
 process.env.SENTRY_DSN = "";
 const modes = JSON.parse(process.env.ARMY_TAKEOFF_PLAN_MODES ?? "{}");
-assert(Object.values(modes).every((mode) => ["success", "terminal", "hold"].includes(mode)));
+assert(Object.values(modes).every((mode) => ["success", "terminal", "hold", "release"].includes(mode)));
+const releaseFile = process.env.ARMY_TAKEOFF_HOLD_RELEASE_FILE ?? "";
+assert(!Object.values(modes).includes("release") || releaseFile.length > 0, "A released hold names its release file.");
+const planItems = JSON.parse(process.env.ARMY_TAKEOFF_PLAN_ITEMS ?? "{}");
+assert(Object.values(planItems).every((items) => Array.isArray(items) && items.every((item) => typeof item.designation === "string"
+  && Number.isFinite(item.quantity) && typeof item.unit === "string" && Number.isInteger(item.source_page))));
 const delayMs = Number(process.env.ARMY_TAKEOFF_PROVIDER_DELAY_MS ?? "0");
 assert(Number.isInteger(delayMs) && delayMs >= 0 && delayMs <= 5_000);
 
@@ -80,6 +88,10 @@ const resolveProvider = async (_supabase, job, hooks) => {
         await sleep(100);
       }
     }
+    if (mode === "release") {
+      for (let waited = 0; waited < 120_000 && !existsSync(releaseFile); waited += 100) await sleep(100);
+      assert(existsSync(releaseFile), "The journey never released the held reading.");
+    }
     inFlight -= 1;
     calls.push({ jobId: job.id, startedAt, endedAt: Date.now(), files, mode });
     await hooks.ledger.recordPaidUsage(paid, { totalTokens: 1_000, costCents: 0 });
@@ -90,11 +102,13 @@ const resolveProvider = async (_supabase, job, hooks) => {
     const plan = (current.preparation_snapshot?.preparation?.sources ?? []).find((source) => source.kind === "plan" && source.active);
     const data = options.schema.parse({
       // Pages local to the PDF the worker copied from the retained pages (1, 2): it gives them back as the plan's originals.
-      items: [
-        { designation: `ARMY ${plan?.document_name} réseau`, quantity: 4, unit: "m", source_page: 1, confidence: 0.99, evidence: "Ligne page 1" },
-        ...((plan?.pages ?? []).length > 1
-          ? [{ designation: `ARMY ${plan.document_name} vanne`, quantity: 2, unit: "u", source_page: 2, confidence: 0.99, evidence: "Vanne page 2" }] : []),
-      ],
+      items: planItems[job.id]
+        ? planItems[job.id].map((item) => ({ ...item, confidence: 0.99, evidence: `${item.designation}, page ${item.source_page}` }))
+        : [
+          { designation: `ARMY ${plan?.document_name} réseau`, quantity: 4, unit: "m", source_page: 1, confidence: 0.99, evidence: "Ligne page 1" },
+          ...((plan?.pages ?? []).length > 1
+            ? [{ designation: `ARMY ${plan.document_name} vanne`, quantity: 2, unit: "u", source_page: 2, confidence: 0.99, evidence: "Vanne page 2" }] : []),
+        ],
       warnings: [], tables: [],
       metadata: { level: "C", prompt_version: options.context.promptVersion, file_type: "pdf", schema_version: "v1" },
       confidence: 0.95,
