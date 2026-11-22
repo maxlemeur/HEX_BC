@@ -246,6 +246,28 @@ poste sur le même plan remplace la précédente, qui reste consultable. Tous le
 de l’affaire lisent les réponses, et voient « en lecture » un poste dont le plan est en
 cours d’analyse ; personne ne les modifie. La revue de ces réponses s’enregistre à part.
 
+**Repères comptés sur le plan.** Un repère désigne un objet physique d’un poste sur une
+page d’origine d’un plan (`supabase/migrations/20261122114433_takeoff_count_marks.sql`) :
+la page est celle des octets que la demande a scellés (identité du plan, génération,
+empreinte, page numérotée depuis 1, avec la boîte visible, la rotation propre, l’unité
+de la page et sa taille), le repère a un centre dans la page visible (de 0 à 1, depuis
+le coin haut gauche, après la rotation propre) et parfois un cadre. Déplacer un repère
+garde son identité ; sa position d’avant reste au journal. Une lecture machine propose
+des repères pour un poste (« proposé », ou « à attribuer » quand elle ne sait pas
+lequel) ; un membre les retient, les retire avec un motif, les rétablit, les déplace,
+les affecte à un autre poste du même plan et de la même unité, en ajoute, puis déclare
+vérifiées les pages qu’il a relues. Un objet ne compte que pour un seul poste à la fois.
+Le compte d’un poste sur un plan n’existe que quand toutes les pages lues pour lui sont
+vérifiées et qu’un repère au moins est retenu : c’est le nombre de repères retenus,
+jamais additionné au compte groupé par page de la lecture. Des repères proposés seuls
+restent « à vérifier » sans quantité ; le dernier repère retiré donne « Aucun repère
+retenu », jamais 0 ; une correction après vérification, même à nombre égal, rend la page
+« à vérifier à nouveau ». Chaque modification porte la révision qu’elle a vue : celle
+d’un autre membre entre-temps est refusée, rien n’est écrit. Une nouvelle lecture
+machine n’écrase jamais les repères déjà revus : ses repères attendent d’être retenus un
+à un. Les lecteurs de l’affaire lisent les repères et leur journal ; seul un opérateur
+de l’affaire les modifie ; une lecture remplacée garde ses repères en lecture seule.
+
 Une ligne de devis créée depuis un import garde dans sa provenance l’import et la
 ligne mappée. La ligne mappée nomme la ligne brute dont elle vient ; quand une
 nouvelle correspondance la supprime, la base garde ce lien. La ligne de devis et ses
