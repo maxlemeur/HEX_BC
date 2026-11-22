@@ -1,0 +1,46 @@
+{
+  "date_utc": "2026-11-22",
+  "status": "pending_owner_authorization_before_apply",
+  "source_commit": "441c7a14e845dd643c22b01adbbf5fe10c619f0d",
+  "applied": 0,
+  "remote_versions": [],
+  "history": {
+    "before": 428,
+    "last": {
+      "version": "20261122135550",
+      "name": "20261122113611_takeoff_item_answers_before_activation"
+    },
+    "matches_receipt_470": true
+  },
+  "health": {
+    "http": 200,
+    "version": "0.7.0",
+    "db": "up"
+  },
+  "observation": {
+    "utc": "2026-11-22 15:42:20.744457+00",
+    "takeoff_completion_activation": 0,
+    "takeoff_launch_activation": 0,
+    "takeoff_item_list_order_activation": 0,
+    "takeoff_plan_dispatch_activation": 0,
+    "takeoff_item_answers": 0,
+    "takeoff_items": 0,
+    "estimate_projects": 16,
+    "takeoff_item_answer_observations": 0,
+    "audit_logs": 46772,
+    "processing": 0,
+    "locks": 0
+  },
+  "activated": false,
+  "file": "20261122144104_takeoff_count_marks.sql",
+  "sha256": "dcae123aa4ff128a8a9f4f3c2a83d9004d3a555f5210b175861def99c0b01a14",
+  "bytes": 125030,
+  "pr_precheck": {
+    "existing_relations": 0,
+    "existing_functions": 0,
+    "b1_applied": true,
+    "b1_checks_present": true,
+    "helpers_present": true,
+    "unaccent_present": true
+  }
+}
