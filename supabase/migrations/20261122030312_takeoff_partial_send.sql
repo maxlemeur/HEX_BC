@@ -34,7 +34,8 @@
 --   nothing for a line of any other analysis.
 -- Created: one private table, nine functions, five triggers; replaced: the send (private.takeoff_send_execute, rebuilt on
 -- 20261121193413's body), the closure's trigger function, and the manual command (private.launch_manual_takeoff_command,
--- rebuilt on 20261121231238's body: its predecessor is locked first whatever launched it). No row is written; no backfill.
+-- rebuilt on 20261121231238's body: it takes the affaire, shared, before its key and its automatic request). No row is
+-- written; no backfill.
 --
 -- Locks: every table lock this migration needs is taken first, in one fixed order (the estimate versions, then the takeoff
 -- jobs, their lines and the plan locations: the order of their writers), without waiting (nowait): a busy table refuses
@@ -360,7 +361,8 @@ revoke all on function private.guard_takeoff_plan_unit_send() from public, anon,
 
 -- 3. The send, as 20261121193413 wrote it, with the context: a command that names it is compared with it under the locks
 -- (any analysis); a per-plan analysis needs one; the link of a per-plan analysis goes through its check; the receipt's
--- write plan records what was checked. The lock order is unchanged: the context reads rows, it locks none.
+-- write plan records what was checked. Two locks are added, after the job: the affaire's send context, then a per-plan
+-- analysis's request. The context reads rows, it locks none.
 create or replace function private.takeoff_send_execute(p_actor uuid, p_tenant uuid, p_role public.tenant_role, p_request uuid,
   p_command jsonb, p_dry_run boolean)
 returns jsonb
@@ -1065,10 +1067,12 @@ $$;
 revoke all on function private.takeoff_send_execute(uuid, uuid, public.tenant_role, uuid, jsonb, boolean)
   from public, anon, authenticated, service_role;
 
--- 4. The manual command (lot 2 and one analysis per plan), as 20261121231238 wrote it, but for one lock: the analysis it
--- replaces or extends is held (a key share) before anything else whatever launched it, not only outside any request. A
--- send of that analysis holds it, then its request's row; a reread naming it held the affaire's automatic request (which
--- that request may be) before its own request's foreign key needed that key share: the two waited for each other.
+-- 4. The manual command (lot 2 and one analysis per plan), as 20261121231238 wrote it, but for one lock: the affaire,
+-- shared, right after the analysis it replaces when that one was launched outside any request, before the affaire's key
+-- and its automatic request. A send of an analysis of that automatic request holds the affaire, then that request's row;
+-- a reread held that request (FOR UPDATE), then the inserts of its rows waited for the affaire (their checks lock it):
+-- the two waited for each other. The analysis it replaces is still locked early only when launched outside any request:
+-- a running analysis's worker holds its row, and a refused relaunch never waits for it (20261121193413).
 create or replace function private.launch_manual_takeoff_command(
   p_tenant_id uuid, p_project_id uuid, p_actor uuid, p_intent_key uuid, p_intent text, p_predecessor_job_id uuid,
   p_host text, p_selection jsonb, p_manifest jsonb, p_snapshot jsonb, p_job jsonb, p_plan_set_id uuid,
@@ -1103,14 +1107,19 @@ begin
   if not private.takeoff_module_enabled(p_tenant_id, p_module_default) then
     raise exception 'TAKEOFF_LAUNCH_MODULE_DISABLED' using errcode = '55000';
   end if;
-  -- The analysis it replaces, before anything else, whatever launched it: its Mac's claim of a retry holds that row and
-  -- then waits for the key (the restart guard of 20261121193413); the send of that analysis holds it, then the affaire's
-  -- send context, then its request's row (20261122030312), which this command's affaire's automatic request may be; and
-  -- this command's request names it (a key share). All take the analysis first, never the reverse.
+  -- The analysis it replaces, when launched outside any request, before the affaire's key: its Mac's claim of a retry holds
+  -- that row and then waits for the key (the restart guard of 20261121193413), while this command's request names it (a
+  -- key share). Both take the analysis first, never the reverse. A request's analysis is never restarted that way.
   if p_predecessor_job_id is not null then
     perform 1 from public.takeoff_jobs j where j.id = p_predecessor_job_id and j.tenant_id = p_tenant_id
-      and j.project_id = p_project_id for key share;
+      and j.project_id = p_project_id and j.launch_request_id is null for key share;
   end if;
+  -- The affaire, shared, before its key and its automatic request (20261122030312): a send holds the affaire (FOR NO KEY
+  -- UPDATE, FOR UPDATE once it creates a first draft) before its request's row, which may be this affaire's automatic
+  -- request; this command's rows (its record, its request, its jobs) lock the affaire too. Taken first, the command waits
+  -- for such a send holding nothing it needs, instead of holding that request while the send asks for it.
+  perform 1 from public.estimate_projects as project_row
+  where project_row.id = p_project_id and project_row.tenant_id = p_tenant_id for share;
   -- Commands and reservations of one affaire are serialized on its key: the replay and the one-running rule read
   -- committed rows, and the automatic request a confirmation reserved is always found.
   perform private.lock_takeoff_launch_commands(p_project_id);

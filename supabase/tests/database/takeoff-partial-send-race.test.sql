@@ -20,9 +20,11 @@
 -- 6.–8. (fix round 1, point 1) A location save, an edit of a peer's line, and a peer's end in another request, each in
 --    flight when A's confirmation reads its context: the send waits for it, then refuses; a save while the send is in
 --    flight waits for the send.
--- 9. (fix round 1, point 3) A reread naming A while A's send is in flight: it waits on A, holding nothing the send needs.
+-- 9. (fix round 1, point 3) A reread naming A while A's send is in flight: it waits for the send on the affaire, holding
+--    nothing the send needs.
 -- 10. (fix round 1, point 3) The same with A in the affaire's automatic request, closed, and the send holding A while it
---    waits for the context: the reread waits on A before it locks that request, the send then takes it: no deadlock.
+--    waits for the context: the reread waits on the affaire before it locks that request, the send then takes it: no
+--    deadlock.
 -- Written before the migration: red on 2c5424215 (public.read_takeoff_send_context does not exist). All values are
 -- fictional.
 begin;
@@ -523,11 +525,11 @@ select ok(extensions.dblink_error_message('race_a') like '%TAKEOFF_SEND_PREVIEW_
   'A is asked again: B was read meanwhile');
 select is((select count(*)::integer from extensions.dblink_get_result('race_a', false) as x(replayed text)), 0, 'A is done');
 
--- 9. Fix round 1, point 3: a reread naming A while A's send is in flight. The send holds A, then the affaire's context,
--- then A's request; the reread takes its predecessor A (a key share) before anything else, so it waits for the send
--- holding nothing the send needs (not the affaire's command key, not the automatic request), and goes on once A is sent.
--- Red before: a request's predecessor was not locked early; the reread held the command key (and the affaire's automatic
--- request, which A's may be) when its request's foreign key waited for A.
+-- 9. Fix round 1, point 3: a reread naming A while A's send is in flight. The send holds the affaire, A, the affaire's
+-- context, then A's request (and the affaire FOR UPDATE once it created the first draft); the reread takes the affaire,
+-- shared, before anything else, so it waits for the send holding nothing the send needs (not the affaire's command key,
+-- not the automatic request), and goes on once A is sent. Red before: the reread held the command key when its record's
+-- foreign key waited for the affaire.
 insert into commands values ('25A2', pg_temp.confirmed(pg_temp.command(672, pg_temp.unit(25, 1), 772, 872)));
 select is(extensions.dblink_exec('race_a', 'begin'), 'BEGIN', 'A''s send starts');
 select is((select x.replayed from extensions.dblink('race_a', pg_temp.send_sql((select body from commands where name = '25A2')))
@@ -537,7 +539,7 @@ select is(extensions.dblink_send_query('race_b', format($reread$select outcome f
     pg_temp.tenant(), pg_temp.f(25), pg_temp.f(1), pg_temp.f(5251), pg_temp.unit(25, 1), pg_temp.host(), pg_temp.selection(),
     jsonb_build_object('format_version', 2, 'plans', jsonb_build_array(jsonb_build_object('entry_key', pg_temp.plan_file(25, 1)))),
     pg_temp.snapshot(25), pg_temp.f(45), pg_temp.plan_file(25, 1))), 1, 'a reread naming A is commanded');
-select ok(pg_temp.waits_for('race_b', 'race_a'), 'the reread waits for A''s send, on A');
+select ok(pg_temp.waits_for('race_b', 'race_a'), 'the reread waits for A''s send, on the affaire');
 select ok((select pg_catalog.pg_try_advisory_lock(pg_catalog.hashtextextended('takeoff-launch:' || pg_temp.f(25)::text, 0))),
   'holding nothing else: the affaire''s command key is free');
 select ok((select pg_catalog.pg_advisory_unlock(pg_catalog.hashtextextended('takeoff-launch:' || pg_temp.f(25)::text, 0))), 'given back');
@@ -550,12 +552,12 @@ select is((select count(*)::integer from extensions.dblink_get_result('race_b', 
 select is((select estimate_version_id is not null from public.takeoff_jobs where id = pg_temp.unit(25, 1)), true, 'A is sent');
 
 -- 10. Fix round 1, point 3, the order the review named: A belongs to the affaire's automatic request (closed: A and B
--- read, C set aside). A's send holds A, then waits for the affaire's send context, which a writer holds (shared, as a
--- location save in flight does); a reread naming A is commanded meanwhile. It takes its predecessor A (a key share)
--- before the affaire's command key and its automatic request, so it waits on A holding neither; the writer commits, the
--- send takes the request, commits, then the reread is admitted. Red before (one predecessor lock for a request's
--- predecessor too was missing): the reread locked the automatic request (FOR UPDATE), then its request's foreign key
--- waited for A, and the send, asking for that request, deadlocked with it.
+-- read, C set aside). A's send holds the affaire and A, then waits for the affaire's send context, which a writer holds
+-- (shared, as a location save in flight does); a reread naming A is commanded meanwhile. It takes the affaire, shared,
+-- before the affaire's command key and its automatic request, so it waits for the send holding neither; the writer
+-- commits, the send takes the request, commits, then the reread is admitted. Red before: the reread locked the automatic
+-- request (FOR UPDATE), then the checks of its rows waited for the send (A's row, the affaire's), and the send, asking for
+-- that request, deadlocked with it (« deadlock detected »).
 select is((select x.outcome from extensions.dblink('race_setup', pg_temp.launch_sql(27)) as x(outcome text)), 'admitted',
   'affaire 27: a request of three plans, one analysis per plan');
 select is(extensions.dblink_exec('race_setup', pg_temp.read_sql(pg_temp.unit(27, k), 4 - k)), 'COMMIT',
@@ -579,13 +581,13 @@ select is(extensions.dblink_send_query('race_a', pg_temp.send_sql((select body f
 select ok(pg_temp.waits_for('race_a', 'race_c'), 'A''s send holds A and waits for the affaire''s send context');
 select is(extensions.dblink_send_query('race_b', pg_temp.launch_sql(27, pg_temp.unit(27, 1), 5270, 5280)), 1,
   'a reread naming A is commanded');
-select ok(pg_temp.waits_for('race_b', 'race_a'), 'the reread waits for A''s send, on A');
+select ok(pg_temp.waits_for('race_b', 'race_a'), 'the reread waits for A''s send, on the affaire');
+select is((select x.free from extensions.dblink('race_setup', format($free$select count(*)::integer from (select 1
+    from public.takeoff_launch_requests r where r.project_id = %L and r.origin = 'automatic' for update skip locked) as free_row$free$,
+    pg_temp.f(27))) as x(free integer)), 1, 'holding nothing else: the automatic request is free');
 select ok((select pg_catalog.pg_try_advisory_lock(pg_catalog.hashtextextended('takeoff-launch:' || pg_temp.f(27)::text, 0))),
   'holding nothing else: the affaire''s command key is free');
 select ok((select pg_catalog.pg_advisory_unlock(pg_catalog.hashtextextended('takeoff-launch:' || pg_temp.f(27)::text, 0))), 'given back');
-select is((select x.free from extensions.dblink('race_setup', format($free$select count(*)::integer from (select 1
-    from public.takeoff_launch_requests r where r.project_id = %L and r.origin = 'automatic' for update skip locked) as free_row$free$,
-    pg_temp.f(27))) as x(free integer)), 1, 'and the automatic request is free: the send can take it');
 select is(extensions.dblink_exec('race_c', 'commit'), 'COMMIT', 'the writer commits');
 select ok(pg_temp.answered('race_a'), 'A''s send goes on');
 select is((select x.replayed from extensions.dblink_get_result('race_a', false) as x(replayed text)), 'false',
