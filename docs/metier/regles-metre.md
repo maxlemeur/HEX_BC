@@ -145,11 +145,6 @@ l’extraction libre, quelle que soit l’activation du second ordre : une liste
 jamais scellée sur une analyse groupée. Un job qui lirait plusieurs plans contre
 une liste s’arrêterait d’ailleurs avant tout appel, sans rien dépenser.
 
-Le second ordre de mesure ne peut pas être activé avant la livraison de la
-publication des réponses par poste : jusque-là, un job du second ordre s’arrête dès
-sa prise en charge, avant de lire son plan et avant tout appel, sans rien dépenser.
-Les règles qui suivent décrivent la lecture telle qu’elle s’appliquera alors.
-
 Le serveur découpe le
 plan comme la lecture détaillée (au-delà de 15 pages, des fragments de 10 pages
 dont 2 en recouvrement) et la liste en lots d’au plus 40 postes et 64 Kio : chaque
@@ -222,7 +217,15 @@ est bornée par le nombre de ses appels de lecture (fragments × lots) : 40 au p
 plan, 480 par demande, soit les 20 plans qu’une demande peut sceller, de 20 pages
 chacun, lus contre 300 postes. La classification des groupes vectoriels, quand elle est
 active, garde ses propres limites (25 demandes par page, 40 par plan, sur les 60 pages
-vectorielles du dossier). Le budget d’une telle demande n’est pas celui de la lecture
+vectorielles du dossier). Un plan est lu en 19 fragments au plus, soit 154 pages avec le
+découpage par défaut : la réponse d’un poste garde ainsi, une fois ses fragments
+réunis, tous ses motifs et toutes ses observations dans ce que la base enregistre
+d’une réponse (32 motifs, 500 observations). Les réponses d’un plan sont aussi bornées
+ensemble, avant tout appel payant, par ce que la base enregistre d’une publication
+(8 Mio) : leur taille la plus grande se calcule depuis les postes, les fragments et les
+pages du plan, chaque texte à sa limite. Un plan de 20 pages lu contre 300 postes en
+prend 69 % ; un plan d’une page accepte au plus 1 162 postes, un plan de 154 pages 65.
+Le budget d’une telle demande n’est pas celui de la lecture
 détaillée de l’extraction libre (qui reste le réglage du tenant) : il est fixé à
 l’admission d’après les appels admis. Chaque appel payant, de lecture ou de
 classification, réserve 30 000 jetons ; la part de chaque plan vaut deux fois les
@@ -239,7 +242,8 @@ refait ce compte sur la demande entière, avec les réglages qu’il utilisera
 réellement, et dépense dans ce que la part de son plan garde : au-delà, il s’arrête
 sans rien dépenser. Au-delà d’un plafond, la demande n’est pas admise : « Métré non
 démarré — les plans … dépassent les limites d’une lecture contre la liste des postes »,
-avec les appels prévus, leur durée sur un Mac et les plafonds. Rien n’est
+avec les appels prévus, leur durée sur un Mac et les plafonds (appels par demande, appels
+et pages par plan). Rien n’est
 échantillonné ; réduire les plans ou les pages lus permet de la relancer.
 
 **Réponses enregistrées et leur publication.** Les réponses d’un plan sont enregistrées
@@ -254,10 +258,72 @@ apports le sont ; une lecture vectorielle n’est jamais un apport. Le Mac publi
 réponses d’un plan en une fois, sous son bail, avec le résultat et la fin de
 l’analyse : une réponse qui manque, un poste étranger, une page hors du plan, une
 quantité qui n’est pas la somme de ses apports sont refusés et rien n’est écrit ;
-l’analyse ne peut pas se terminer en succès autrement. Une nouvelle lecture du même
+l’analyse ne peut pas se terminer en succès autrement. Un refus arrête l’analyse du
+plan sans nouvelle tentative (une tentative relirait le plan à ses frais) ; ce que le Mac
+sait avant ses appels l’arrête avant eux : un plan dont les pages ne sont plus celles
+que sa demande a scellées n’est pas lu. Un motif que plusieurs fragments répètent (même
+code, même texte) est gardé une fois, avec le premier fragment qui l’a donné. Un total ou
+une valeur candidate au-delà de 999 999 999,999999 n’est pas une mesure : la réponse est
+incertaine, ses lectures gardées comme candidates, avec pour valeur candidate
+celle de ses lectures distinctes quand elle tient dans cette borne. Les lectures
+vectorielles s’attachent aux réponses tant qu’elles tiennent dans ce que la base
+enregistre (500 observations par réponse, 8 Mio pour toutes) ; celles qu’une réponse ne
+peut plus garder restent dans le résultat, et la réponse le dit. Une lecture vectorielle
+dont la base ne peut pas garder la quantité (au-delà de 999 999 999,999, ou nulle à trois
+décimales), la confiance ou le texte n’est jamais rattachée à un poste. Une page ou une
+ligne de la lecture vectorielle que la base refuserait (un texte qu’elle ne peut pas
+garder, une taille au-delà de ses bornes) est écartée avant l’envoi, et le résultat le
+dit : la lecture vectorielle n’est qu’une proposition, et les réponses d’un plan ne sont
+jamais perdues pour elle. Un renouvellement du bail qui échoue une fois les appels payés
+n’arrête pas la publication : seule la base, qui vérifie le bail, peut dire qu’il est
+perdu. Les refus :
+« Extraction incomplète sur ce document. » pour des réponses que la base ne peut pas
+garder telles que la lecture les a faites, une erreur interne pour une demande, une
+liste ou des pages qui ne sont pas celles qu’elle a scellées. Une publication dont la
+réponse se perd (aucune réponse, ou une réponse sans son résultat) est renvoyée à
+l’identique, comme après un conflit de sérialisation ou un interblocage, avec une attente
+croissante (de 1 à 30 secondes), tant que l’attente suivante finit dans les 10 minutes,
+le bail renouvelé entre deux envois ; la base répond alors ce qu’elle a déjà écrit. Au-delà, la lecture du plan n’est
+pas retentée : le job dit qu’elle n’a pas pu être enregistrée et qu’il faut la relancer.
+Au plus 2 000 ouvrages vus hors de la liste sont gardés ; le résultat dit
+combien d’autres ont été vus (les 40 appels d’un plan en donnent 800 au plus). Une nouvelle lecture du même
 poste sur le même plan remplace la précédente, qui reste consultable. Tous les lecteurs
 de l’affaire lisent les réponses, et voient « en lecture » un poste dont le plan est en
 cours d’analyse ; personne ne les modifie. La revue de ces réponses s’enregistre à part.
+
+**Repères comptés sur le plan.** Un repère désigne un objet physique d’un poste sur une
+page d’origine d’un plan (`supabase/migrations/20261122144104_takeoff_count_marks.sql`) :
+la page est celle des octets que la demande a scellés (identité du plan, génération,
+empreinte, page numérotée depuis 1, avec la boîte visible, la rotation propre, l’unité
+de la page et sa taille), le repère a un centre dans la page visible (de 0 à 1, depuis
+le coin haut gauche, après la rotation propre) et parfois un cadre. Déplacer un repère
+garde son identité ; sa position d’avant reste au journal. Une lecture machine propose
+des repères pour un poste (« proposé », ou « à attribuer » quand elle ne sait pas
+lequel) ; un membre les retient, les retire avec un motif, les rétablit, les déplace,
+les affecte à un autre poste de la même commande, du même plan et de la même unité, en
+ajoute, puis déclare vérifiées les pages qu’il a relues. Un objet ne compte que pour un
+seul poste à la fois, et une seule fois. Une nouvelle lecture machine ne rejoint un
+repère connu que par la même clé de source ; tout autre repère, même tout proche, reste
+le sien, en attente, signalé comme doublon possible d’un repère du même poste à moins de
+4 points sur la page à l’échelle 1. La machine ne fusionne jamais deux repères : pour en
+retenir ou en rétablir un à côté d’un repère retenu du même poste, le membre dit « même
+objet » (sa proposition rejoint le repère retenu) ou « objet distinct » (les deux
+restent) ; ajouter ou déplacer un repère sur un objet déjà retenu demande « objet
+distinct », car deux repères au même endroit ne se distinguent pas à l’écran. Le compte d’un poste sur un plan n’existe que pour un poste compté
+à l’unité (son unité scellée : u, pce, ens, lot…), quand toutes les pages lues pour lui
+sont vérifiées et qu’un repère au moins est retenu : c’est le nombre de repères retenus,
+jamais additionné au compte groupé par page de la lecture. Pour une longueur ou une
+surface, les repères situent les objets sans donner de quantité. Des repères proposés seuls
+restent « à vérifier » sans quantité ; le dernier repère retiré donne « Aucun repère
+retenu », jamais 0 ; une correction après vérification, même à nombre égal, rend la page
+« à vérifier à nouveau ». Chaque modification porte la révision qu’elle a vue : celle
+d’un autre membre entre-temps est refusée, rien n’est écrit. Une nouvelle lecture
+machine n’écrase jamais les repères déjà revus : ses nouveaux repères attendent d’être
+retenus un à un. Les lecteurs de l’affaire lisent les repères et leur journal, qui garde
+avec chaque décision de retenir un repère ce qui le fondait (clé de source, méthode,
+observation), même après la suppression de l’analyse ; seul un opérateur de l’affaire
+les modifie, et son droit est vérifié de nouveau après chaque attente ; une lecture
+remplacée garde ses repères en lecture seule.
 
 Une ligne de devis créée depuis un import garde dans sa provenance l’import et la
 ligne mappée. La ligne mappée nomme la ligne brute dont elle vient ; quand une

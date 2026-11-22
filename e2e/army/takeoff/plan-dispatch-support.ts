@@ -21,7 +21,7 @@ import { ownedWorkerSelection, type WorkerOwner, type WorkerUi } from "./worker-
 const run = promisify(execFile);
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
-function assertOwnedCampaign() {
+export function assertOwnedCampaign() {
   if (process.env.E2E_ARMY_TAKEOFF_WORKER !== "1" || process.env.E2E_ARMY_BLOCK_WORKERS !== "1") {
     throw new Error("One analysis per plan requires a dedicated owned worker campaign.");
   }
@@ -58,7 +58,7 @@ export type SeededPlan = { id: string; name: string; bytes: Buffer; hash: string
  * preparation pinning the owned worker's ChatGPT selection.
  */
 export async function seedPlanDossier(ui: WorkerUi, owner: WorkerOwner, plans: Array<{ name: string; pages: number; retained?: number[];
-  inactive?: boolean }>) {
+  inactive?: boolean }>, options: { objective?: "estimate" } = {}) {
   const backend = new URL(process.env.NEXT_PUBLIC_SUPABASE_URL!);
   const session = { auth: { persistSession: false, autoRefreshToken: false } };
   const setup: SupabaseClient = createClient(backend.origin, process.env.SUPABASE_SERVICE_ROLE_KEY!, session);
@@ -96,14 +96,16 @@ export async function seedPlanDossier(ui: WorkerUi, owner: WorkerOwner, plans: A
   if ((await setup.from("affaire_intake_documents").insert({ id: cctpId, upload_id: uploadId, file_name: "cctp.pdf", upload_status: "uploaded",
     storage_path: cctpPath, classification_status: "classified", document_kind: "cctp", mime_type: "application/pdf",
     size_bytes: cctp.length })).error) throw new Error("cctp row");
-  const revision = await confirmPlanPreparation(setup, owner, projectId, planSetId, seeded, cctpId, createHash("sha256").update(cctp).digest("hex"), 1);
+  const revision = await confirmPlanPreparation(setup, owner, projectId, planSetId, seeded, cctpId, createHash("sha256").update(cctp).digest("hex"), 1,
+    options.objective);
   return { setup, projectId, planSetId, plans: seeded, cctpId, revision,
     confirm: (active: Array<SeededPlan & { inactive: boolean }>, next: number) =>
-      confirmPlanPreparation(setup, owner, projectId, planSetId, active, cctpId, createHash("sha256").update(cctp).digest("hex"), next) };
+      confirmPlanPreparation(setup, owner, projectId, planSetId, active, cctpId, createHash("sha256").update(cctp).digest("hex"), next,
+        options.objective) };
 }
 
 async function confirmPlanPreparation(setup: SupabaseClient, owner: WorkerOwner, projectId: string, planSetId: string,
-  plans: Array<SeededPlan & { inactive: boolean }>, cctpId: string, cctpHash: string, revision: number) {
+  plans: Array<SeededPlan & { inactive: boolean }>, cctpId: string, cctpHash: string, revision: number, objective?: "estimate") {
   const files = await setup.from("plan_files").select("id,plan_set_id,file_path,file_name,file_size_bytes,file_hash,page_count,updated_at,metadata")
     .eq("plan_set_id", planSetId);
   const cctp = await setup.from("affaire_intake_documents").select("id,storage_path,file_name,mime_type,size_bytes,document_kind,updated_at,extracted_metadata")
@@ -119,6 +121,12 @@ async function confirmPlanPreparation(setup: SupabaseClient, owner: WorkerOwner,
   ];
   const preparation = buildDeducedTakeoffPreparation({ sources, planSetId });
   preparation.sources = preparation.sources.map((source) => sources.find((entry) => entry.document_id === source.document_id) ?? source);
+  // An estimate the member chose, with the unit of its quantities and its conventions confirmed, as the options screen
+  // records them.
+  if (objective) {
+    Object.assign(preparation, { objective, objective_confirmed: true, conventions: { ...preparation.conventions, unit_mode: undefined,
+      unit: "u", measurement_basis: "documented", confirmed: true } });
+  }
   const confirmedAt = new Date().toISOString();
   const snapshot = { ...createTakeoffPreparationSnapshot({ preparation, revision, confirmedAt, confirmedBy: owner.userId }),
     execution_selection: await ownedWorkerSelection() };
@@ -164,12 +172,14 @@ export type OwnedPlanLine = { designation: string; quantity: number; unit: strin
  */
 export async function runOwnedPlanDispatch(ui: WorkerUi, owner: WorkerOwner, projectId: string,
   options: { modes?: Record<string, "success" | "terminal" | "hold" | "release">; delayMs?: number; mailCollector?: string;
-    items?: Record<string, OwnedPlanLine[]>; releaseFile?: string } = {}) {
+    items?: Record<string, OwnedPlanLine[]>; releaseFile?: string;
+    /** A job reading against its list: by item label, a measure (page local to the copied PDF) or « omit »; `truncate`. */
+    itemAnswers?: Record<string, { items?: Record<string, { quantity: number; unit: string; page: number } | "omit">; truncate?: boolean }> } = {}) {
   if (!UUID.test(projectId) || !ui.army.ownedTakeoffAffaires?.includes(projectId)) throw new Error("An owned affaire is required.");
   const { stdout, stderr } = await run(process.execPath, ["--conditions=react-server", "--import", "tsx",
     "scripts/tester-army/takeoff-plan-dispatch.mjs", projectId, ui.army.runPrefix], { timeout: 120_000, env: childEnv(owner, {
     ARMY_TAKEOFF_PLAN_MODES: JSON.stringify(options.modes ?? {}), ARMY_TAKEOFF_PROVIDER_DELAY_MS: String(options.delayMs ?? 0),
-    ARMY_TAKEOFF_PLAN_ITEMS: JSON.stringify(options.items ?? {}),
+    ARMY_TAKEOFF_PLAN_ITEMS: JSON.stringify(options.items ?? {}), ARMY_TAKEOFF_ITEM_ANSWERS: JSON.stringify(options.itemAnswers ?? {}),
     ...(options.releaseFile ? { ARMY_TAKEOFF_HOLD_RELEASE_FILE: options.releaseFile } : {}),
     ...(options.mailCollector ? {
       E2E_TAKEOFF_MAIL_COLLECTOR_ORIGIN: options.mailCollector,

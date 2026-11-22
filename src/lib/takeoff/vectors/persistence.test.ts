@@ -140,6 +140,22 @@ describe("vectorItemRecords, rooms (review of PR #147)", () => {
       deviation: polygon_m2 === null ? null : (polygon_m2 - printed_m2) / printed_m2, method: polygon_m2 === null ? null : "ring", fill_rejected: null };
   }
 
+  // PR 3c closing round, point 3: a room's name cut inside a character makes an ill-formed text that the database refuses
+  // with the whole call (the page record and the row travel together); the cut keeps whole characters within the bound.
+  it("cuts a room's name on whole characters in its page record and in its row", () => {
+    const name = `${"a".repeat(119)}🧱 et suite`;
+    const page = vectorPageRecord(reading({ surfaces: [surface(name, 10, 10)] }), location);
+    const [record] = vectorItemRecords(reading({ surfaces: [surface(name, 10, 10)] }), location);
+    const texts = [page.surfaces[0].room, record.item.designation, record.room!.label];
+    expect(texts.every((text) => text.isWellFormed())).toBe(true);
+    expect(page.surfaces[0].room).toBe("a".repeat(119));
+    expect(record.room?.label).toBe("a".repeat(119));
+    expect(record.item.designation).toBe(`Surface « ${"a".repeat(119)} »`);
+    // A name of 120 whole characters is kept whole.
+    expect(vectorPageRecord(reading({ surfaces: [surface(`${"a".repeat(118)}🧱`, 10, 10)] }), location).surfaces[0].room)
+      .toBe(`${"a".repeat(118)}🧱`);
+  });
+
   it("carries each room's own printed surface to its rule inputs, two rooms alike in label and area included (Codex #160)", () => {
     // Two « Bureau » measured 10 m² each, printed 10 m² and 12 m²: the second was given the first's printed surface.
     const records = vectorItemRecords(reading({ surfaces: [surface("Bureau", 10, 10), surface("Bureau", 12, 10)] }), location);

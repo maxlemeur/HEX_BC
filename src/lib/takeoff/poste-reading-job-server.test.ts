@@ -24,8 +24,9 @@ import { TakeoffError, TakeoffErrorCode } from "@/lib/takeoff/errors";
 import { readSealedItemListItems } from "@/lib/takeoff/item-list-server";
 import { itemListEntries } from "@/lib/takeoff/item-list";
 import type { TakeoffJobProcessingRow } from "@/lib/takeoff/job-lifecycle";
+import { TAKEOFF_ITEM_ANSWER_LIMITS } from "@/lib/takeoff/item-answer-limits";
 import { createSupabaseFake, servedRows, type FakeQuery } from "@/lib/takeoff/metre-m3.test-utils";
-import { POSTE_EXCHANGE_PROMPT_VERSION } from "@/lib/takeoff/poste-exchange";
+import { planPosteBatches, POSTE_EXCHANGE_PROMPT_VERSION } from "@/lib/takeoff/poste-exchange";
 import type { TakeoffPlanLaunchManifest } from "@/lib/takeoff/launch-request";
 import type { Poste } from "@/lib/takeoff/poste-list";
 import { logCompletedAuditEvent } from "@/lib/takeoff/processing-audit";
@@ -33,6 +34,9 @@ import { buildTakeoffItemAnswersPublication, publishTakeoffItemAnswers } from "@
 import { finishPlanReading, posteVectorReadings, readPlanAgainstItemList } from "@/lib/takeoff/poste-reading";
 import { processItemListLevelC, readTakeoffItemListOrder } from "@/lib/takeoff/poste-reading-job-server";
 import { controlledPosteCall, posteMeasured, posteNotFound } from "@/lib/takeoff/poste-reading.test-fixtures";
+import { boundPosteReadingRequest } from "@/lib/takeoff/poste-reading-bounds";
+import { TAKEOFF_PAID_CALL_ESTIMATE_TOKENS } from "@/lib/takeoff/launch-call-ledger";
+import { jsonbTextBytes } from "@/lib/takeoff/rules/jsonb-size";
 import { recomputeTakeoffRulesQuietly } from "@/lib/takeoff/rules/recompute-server";
 import { takeoffVectorGroupCallsBound, type VectorPageOutcome } from "@/lib/takeoff/vectors/worker-server";
 import { prepareLevelCReading } from "@/lib/takeoff/level-c-reading";
@@ -134,6 +138,38 @@ function vectorOutcomes(quantity = 12.52): VectorPageOutcome[] {
         segments_m: [], polygon_m: null, length_m: quantity, area_m2: null, transform: null } as never }] }];
 }
 
+/** A vector page of rooms: each a surface, its room's label printed in it. */
+function surfaceOutcome(page: number, rooms: Array<{ room: string; quantity: number; confidence?: number }>): VectorPageOutcome {
+  return { document: { kind: "plan_file", plan_file_id: PLAN }, fileName: "Plan RDC.pdf", page, error: null,
+    record: { location: null, scale: { status: "verified" }, mode: "vector", to_review: 0, labels: { incomplete: 0 } } as never,
+    items: rooms.map(({ room, quantity, confidence = 0.8 }) => ({
+      item: { designation: `Surface « ${room} »`, quantity, unit: "m2", confidence, evidence: `Surface du local « ${room} » lue sur le plan.`,
+        category: "surface (lecture vectorielle)" },
+      geometry: { schema_version: 1, kind: "surface", network: null, material: null, dn: null, zone: null, level: null, groups: [],
+        segments_m: [], polygon_m: null, length_m: null, area_m2: quantity, transform: null } as never,
+      room: { label: room, printed_m2: quantity } })) };
+}
+
+/**
+ * What the command and the first order's end accept of a vector reading (the checks a vector row, a vector page and a
+ * geometry meet, listed with the closing round's report): nothing the worker sends would make them refuse the call.
+ */
+function storableVector(vector: NonNullable<Awaited<ReturnType<typeof buildTakeoffItemAnswersPublication>>["p_vector"]>,
+  rows: ReadonlySet<string>) {
+  const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  return vector.choices.length === 0
+    && vector.pages.every((page) => uuid.test(page.id) && Number.isInteger(page.source_page) && page.source_page >= 1
+      && page.schema_version === 1 && jsonbTextBytes(page.reading) <= 262_144 && jsonbTextBytes(page.rule_anchors) <= 262_144
+      && (page.source_file_name === null || page.source_file_name.length <= 255) && Number.isFinite(jsonbTextBytes(page)))
+    && vector.items.every((item) => uuid.test(item.id) && item.is_excluded === true && item.source_page !== null
+      && Number.isInteger(item.source_page) && item.source_page >= 1 && item.source_page <= 100_000 && !rows.has(item.id)
+      && Math.round(item.quantity * 1_000) > 0 && Math.round(item.quantity * 1_000) <= 999_999_999_999
+      && item.confidence !== null && item.confidence >= 0 && item.confidence <= 1 && Number.isFinite(jsonbTextBytes(item)))
+    && vector.geometries.every((geometry) => geometry.schema_version === 1 && jsonbTextBytes(geometry.geometry) <= 524_288
+      && vector.items.some((item) => item.id === geometry.takeoff_item_id)
+      && vector.pages.some((page) => page.id === geometry.vector_page_id));
+}
+
 /** A reading of the plan: 3 lavabos on page 4, the valve uncertain (candidate page 6), no bathtub, 12.5 m of EF on page 5. */
 const script = controlledPosteCall((entry) => {
   if (entry.label === "Lavabo") return posteMeasured(entry, [{ page: 2, quantity: 3 }]);
@@ -196,16 +232,134 @@ describe("readSealedItemListItems", () => {
 });
 
 describe("buildTakeoffItemAnswersPublication", () => {
-  async function publication(vectors = vectorOutcomes()) {
+  async function publication(vectors = vectorOutcomes(), options: { call?: typeof script; items?: Poste[];
+    snapshot?: TakeoffJobProcessingRow["preparation_snapshot"];
+    plan?: (plan: ReturnType<typeof finishPlanReading>) => ReturnType<typeof finishPlanReading> } = {}) {
     const file = await sourceFile();
-    const reading = await readPlanAgainstItemList({ call: script, job: job(), items: ITEMS, listRevision: 3, model: "controlled",
+    const items = options.items ?? ITEMS;
+    const reading = await readPlanAgainstItemList({ call: options.call ?? script, job: job(), items, listRevision: 3, model: "controlled",
       config: { thresholdPages: 15, chunkSizePages: 10, overlapPages: 2, timeoutMs: 300_000, maxTotalTokens: 400_000, maxCostCents: 2_500 },
       pdf: { fileName: file.fileName, bytes: file.bytes, originalPageNumbers: file.sourcePageNumbersByPage } });
-    const plan = finishPlanReading(reading, ITEMS, posteVectorReadings(vectors, PLAN), JOB);
-    return buildTakeoffItemAnswersPublication({ job: job(), items: ITEMS, list: { revisionId: REVISION, revision: 3, itemCount: 4 }, reading,
+    const read = finishPlanReading(reading, items, posteVectorReadings(vectors, PLAN), JOB);
+    const plan = options.plan ? options.plan(read) : read;
+    const owned = options.snapshot === undefined ? job() : job({ preparation_snapshot: options.snapshot });
+    return buildTakeoffItemAnswersPublication({ job: owned, items, list: { revisionId: REVISION, revision: 3, itemCount: items.length }, reading,
       plan, planFile: { kind: "plan_file", plan_file_id: PLAN }, fileName: file.fileName, mimeType: file.mimeType, vectorOutcomes: vectors,
       runMetrics: [], model: "controlled", completedAt: new Date("2026-11-22T09:00:00.000Z"), totalDurationMs: 1_000 });
   }
+
+  // PR 3c closing round, point 1: 1,000 distinct items a room « Bureau » matches, 32 rooms on the page and short answers of
+  // the model: every reading attached to every item would publish 12.8 MB of answers, past the command's 8 MiB. The
+  // readings are attached while the answers stay within it; those left out stay the result's own and each answer says so.
+  it("attaches vector readings only while the answers stay within what the command stores", async () => {
+    const items = Array.from({ length: 1_000 }, (_, index) => poste(100 + index, `Bureau ${index + 1}`, "m2"));
+    const rooms = Array.from({ length: 32 }, (_, index) => ({ room: "Bureau", quantity: 10 + index }));
+    const built = await publication([surfaceOutcome(5, rooms)], { call: controlledPosteCall(posteNotFound), items });
+    expect(jsonbTextBytes(built.p_answers)).toBeLessThanOrEqual(TAKEOFF_ITEM_ANSWER_LIMITS.answersBytes);
+    const vectorObservations = built.p_answers.flatMap((answer) => answer.observations.filter((entry) => entry.source === "vector"));
+    expect(vectorObservations.length).toBeGreaterThan(0);
+    expect(vectorObservations.length).toBeLessThan(32 * 1_000);
+    const partial = built.p_answers.filter((answer) => answer.observations.length < 32);
+    expect(partial.length).toBeGreaterThan(0);
+    expect(partial.every((answer) => answer.reasons.some((reason) => reason.code === "VECTOR_READINGS_UNATTACHED"))).toBe(true);
+    const rows = new Set(built.p_vector!.items.map((item) => item.id));
+    expect(vectorObservations.every((entry) => rows.has(entry.vector_key!))).toBe(true);
+  });
+
+  // PR 3c closing round, point 1: the largest publication an admitted unit can produce, every answer at the schema's maxima
+  // (each call's 160 observations, every text at its bound in three-byte characters, every page searched and unreadable),
+  // fits what the command stores, and stays within the bound its admission computed.
+  it("keeps the largest publication an admitted unit can produce within what the command stores", async () => {
+    const itemsOf = (count: number) => Array.from({ length: count }, (_, index) => poste(1_000 + index, `Bureau ${index + 1}`, "m2"));
+    const bound = (count: number) => boundPosteReadingRequest({ batches: planPosteBatches(itemsOf(count)).map((batch) => batch.length),
+      units: [{ key: `plan:${PLAN}`, pieces: [{ id: PLAN, name: "Plan RDC.pdf" }], pages: 4, maxPage: 6, budgetTokens: 1_000_000_000 }],
+      requestBudgetTokens: 1_000_000_000, chunking: { thresholdPages: 15, chunkSizePages: 10, overlapPages: 2 },
+      estimateTokensPerCall: TAKEOFF_PAID_CALL_ESTIMATE_TOKENS });
+    let admitted = 1;
+    for (let low = 1, high = 1_600; low <= high;) {
+      const middle = Math.floor((low + high) / 2);
+      if (bound(middle).ok) { admitted = middle; low = middle + 1; } else high = middle - 1;
+    }
+    expect(bound(admitted + 1).units[0].exceeded).toContain("publication_bytes");
+    const given = new Map<string, number>();
+    const worst = controlledPosteCall((entry) => {
+      const used = given.get(entry.chunkId) ?? 0;
+      const count = Math.min(16, 160 - used);
+      given.set(entry.chunkId, used + count);
+      return { post_id: entry.key, outcome: "uncertain", searched_pages: entry.owned, reason_code: "CONTRADICTORY_EVIDENCE",
+        reason_text: "€".repeat(160), observations: Array.from({ length: count }, () => ({ page: entry.pages.at(-1)!, evidence: "€".repeat(160),
+          method: "scaled_measure" as const, confidence: 0.12345678901234567, quantity: 999_999_999.999, unit: "€".repeat(32),
+          measurement_basis: "€".repeat(120), counts_as: "distinct" as const, basis_as_requested: false })) };
+    }, { unreadable: (manifest) => manifest.page_scope.pages });
+    const rooms = Array.from({ length: 32 }, (_, index) => ({ room: "Bureau", quantity: 10 + index }));
+    const built = await publication([surfaceOutcome(5, rooms)], { call: worst, items: itemsOf(admitted) });
+    expect(jsonbTextBytes(built.p_answers)).toBeLessThanOrEqual(TAKEOFF_ITEM_ANSWER_LIMITS.answersBytes);
+    const modelOnly = built.p_answers.map((answer) => ({ ...answer, observations: answer.observations.filter((entry) => entry.source === "model") }));
+    expect(jsonbTextBytes(modelOnly)).toBeLessThanOrEqual(bound(admitted).units[0].publicationBytes);
+    expect(built.p_answers.every((answer) => answer.reasons.length <= TAKEOFF_ITEM_ANSWER_LIMITS.reasons
+      && answer.observations.length <= TAKEOFF_ITEM_ANSWER_LIMITS.observations)).toBe(true);
+  }, 60_000);
+
+  // #461: the command keeps at most 2000 findings outside the list; the result says how many more the reading saw. A state
+  // an admitted reading never reaches (its plan's 40 calls give at most 800 findings, poste-reading-bounds.test.ts): the
+  // cap is a guard, tested here on an injected reading.
+  it("keeps at most 2000 findings outside the list, and says how many more were seen", async () => {
+    const built = await publication(vectorOutcomes(), { plan: (plan) => ({ ...plan, unlistedFindings: Array.from({ length: 2_003 }, (_, index) => ({
+      page: 3, designation: `Ouvrage fictif ${index + 1}`, evidence: "symbole sans poste", chunkId: "f1-b1" })) }) });
+    expect(built.p_findings).toHaveLength(2_000);
+    expect(built.p_findings.at(-1)).toMatchObject({ designation: "Ouvrage fictif 2000" });
+    expect(built.p_result.warnings.filter((warning) => warning.code === "POSTE_HORS_LISTE")).toHaveLength(2_000);
+    expect(built.p_result.warnings).toContainEqual({ code: "POSTE_HORS_LISTE_TRONQUE", severity: "warning",
+      message: "3 autres ouvrages vus hors de la liste ne sont pas repris (2\u202f000 au plus)." });
+  });
+
+  // #470: the publication refuses a contribution whose row the insert trigger excludes as an hypothesis (an estimate, or a
+  // reading the rules class non-observable): such a reading is a candidate of an uncertain answer, with its reason.
+  it("never sends an estimate as a contribution: the objective « estimate » makes a measure a candidate, with its reason", async () => {
+    const snapshot = { ...unit(`plan:${PLAN}`), preparation: { objective: "estimate" } } as TakeoffJobProcessingRow["preparation_snapshot"];
+    const built = await publication([], { snapshot });
+    expect(built.p_items).toEqual([]);
+    expect(built.p_answers[0]).toMatchObject({ item_id: LAVABO.id, outcome: "uncertain", quantity: null, candidate: { value: 3, unit: "u" },
+      reasons: [{ code: "QUANTITY_ESTIMATED", by: "worker", text: null, chunk_id: null }] });
+    expect(built.p_answers[0].observations).toEqual([expect.objectContaining({ role: "candidate", quantity: 3, takeoff_item_id: null })]);
+    expect(built.p_answers[3]).toMatchObject({ item_id: EF.id, outcome: "uncertain", quantity: null, candidate: { value: 12.5, unit: "ml" } });
+  });
+
+  it("never sends a reading the rules class non-observable as a contribution: a support is a candidate, with its reason", async () => {
+    const supports = poste(5, "Supports de canalisation", "u");
+    const counting = controlledPosteCall((entry) => entry.label === "Lavabo" ? posteMeasured(entry, [{ page: 2, quantity: 3 }])
+      : entry.label.startsWith("Supports") ? posteMeasured(entry, [{ page: 3, quantity: 6 }]) : posteNotFound(entry));
+    const built = await publication([], { call: counting, items: [LAVABO, supports] });
+    expect(built.p_items.map((row) => [row.designation, row.quantity])).toEqual([["Lavabo", 3]]);
+    expect(built.p_answers[0]).toMatchObject({ outcome: "measured", quantity: { value: 3, unit: "u" } });
+    expect(built.p_answers[1]).toMatchObject({ item_id: supports.id, outcome: "uncertain", quantity: null, candidate: { value: 6, unit: "u" },
+      reasons: [{ code: "NOT_OBSERVABLE", by: "worker" }] });
+    expect(built.p_answers[1].observations).toEqual([expect.objectContaining({ role: "candidate", quantity: 6, takeoff_item_id: null })]);
+  });
+
+  // PR 3c fix round, point 3: a long label is cut on whole characters, never inside a surrogate pair.
+  it("cuts a long label on whole characters", async () => {
+    const long = poste(6, `${"a".repeat(499)}🧱 et suite`, "u");
+    const counting = controlledPosteCall((entry) => entry.label.startsWith("aaa") ? posteMeasured(entry, [{ page: 2, quantity: 2 }])
+      : posteNotFound(entry));
+    const built = await publication([], { call: counting, items: [long] });
+    const [row] = built.p_items;
+    expect(Array.from(row.designation)).toHaveLength(500);
+    expect(row.designation.endsWith("🧱")).toBe(true);
+    // No lone surrogate: the body the database parses is valid JSON text.
+    expect(row.designation.isWellFormed()).toBe(true);
+  });
+
+  // #461: a contribution's row and its observation carry the same value, to the thousandth, read once.
+  it("gives each contribution's row its observation's own value, at the stored precision", async () => {
+    const precise = controlledPosteCall((entry) => entry.label === "Distribution EF"
+      ? posteMeasured(entry, [{ page: 3, quantity: 1.2345, unit: "ml" }]) : posteNotFound(entry));
+    const built = await publication([], { call: precise });
+    const [contribution] = built.p_answers.flatMap((answer) => answer.observations.filter((entry) => entry.role === "contribution"));
+    expect(built.p_items).toEqual([expect.objectContaining({ quantity: 1.235, unit: "ml" })]);
+    expect(contribution).toMatchObject({ quantity: 1.235, takeoff_item_id: built.p_items[0].id });
+    expect(built.p_answers[3].quantity).toEqual({ value: 1.235, unit: "ml" });
+  });
 
   it("gives the command the job, its lease, the exchange's versions and the unit's original pages", async () => {
     expect(await publication()).toMatchObject({ p_job_id: JOB, p_lease_token: LEASE, p_completed_at: "2026-11-22T09:00:00.000Z",
@@ -316,15 +470,26 @@ describe("processItemListLevelC", () => {
     expect(publishTakeoffItemAnswers).not.toHaveBeenCalled();
   });
 
-  it("publishes nothing when an answer is refused, nor when the lease is lost before the publication", async () => {
+  it("publishes nothing when an answer is refused", async () => {
     const omitting = controlledPosteCall((entry) => entry.label === "Baignoire" ? "omit" : posteNotFound(entry));
     await expect(run({ call: omitting })).rejects.toMatchObject({ code: TakeoffErrorCode.TAKEOFF_LEVEL_C_INVALID_SCHEMA,
       details: expect.objectContaining({ reason: "MISSING_ANSWER" }) });
-    const lost = vi.fn(async () => {
+    expect(publishTakeoffItemAnswers).not.toHaveBeenCalled();
+  });
+
+  // PR 3c closing round, point 5: once every call is paid, a renewal that could not be made (one transport error, which the
+  // worker's renewal reports as a conflict) never discards the reading: the publication is sent, and the command, which
+  // checks the lease under its lock, is the only one to say the lease is lost.
+  it("publishes a finished reading after a renewal that could not be made, and ends only on the command's own answer", async () => {
+    const unreachable = vi.fn(async () => {
       throw new TakeoffError({ code: TakeoffErrorCode.CONFLICT, message: "Le lease takeoff n'est plus disponible.", retryable: false });
     });
-    await expect(run({ renewLease: lost })).rejects.toMatchObject({ code: TakeoffErrorCode.CONFLICT });
-    expect(publishTakeoffItemAnswers).not.toHaveBeenCalled();
+    await expect(run({ renewLease: unreachable })).resolves.toMatchObject({ status: "completed" });
+    expect(publishTakeoffItemAnswers).toHaveBeenCalledTimes(1);
+    vi.mocked(publishTakeoffItemAnswers).mockRejectedValueOnce(new TakeoffError({ code: TakeoffErrorCode.CONFLICT,
+      message: "Le lease takeoff n'est plus disponible.", retryable: false }));
+    await expect(run({ renewLease: unreachable })).rejects.toMatchObject({ code: TakeoffErrorCode.CONFLICT });
+    expect(publishTakeoffItemAnswers).toHaveBeenCalledTimes(2);
   });
 
   // Fix round, point 11: the reads of the entries are counted first, so that a test of none of them cannot pass.
@@ -366,6 +531,44 @@ describe("processItemListLevelC", () => {
     expect(call.received).toEqual([]);
   });
 
+  // PR 3c fix round, point 4: the command requires the pages the request sealed; a plan whose PDF holds others (its stored
+  // count of 2 for a PDF of 3 read whole) is stopped before its first paid call, never read then refused.
+  // PR 3c closing round, points 2 and 4: the vector reading travels with the answers, and what the command or the first
+  // order's end would refuse in it refuses the paid answers too. A vector page or a row the database cannot store (a text
+  // with a NUL, a quantity beyond numeric(12,3) — a 1,000-point square at 1:100,000 reads 1,244,521,604.94 m² —, a
+  // confidence above 1) is left out before sending, with a warning in the result; the answers are published.
+  it("leaves out, with a warning, the vector pages and rows the database would refuse, and publishes the answers", async () => {
+    const pageWithNul = { ...surfaceOutcome(4, [{ room: "Hall", quantity: 12 }]),
+      record: { location: null, scale: { status: "verified", reason: "cartouche\u0000" }, mode: "vector", to_review: 0,
+        labels: { incomplete: 0 } } as never };
+    const rooms = surfaceOutcome(6, [{ room: "Cuisine", quantity: 1_244_521_604.94 }, { room: "Cellier", quantity: 8, confidence: 1.5 },
+      { room: "Salon", quantity: 21.5 }]);
+    await expect(run({ readVectors: async () => [pageWithNul, ...vectorOutcomes(), rooms] })).resolves.toMatchObject({ status: "completed" });
+    const [, published] = vi.mocked(publishTakeoffItemAnswers).mock.calls[0];
+    const vector = published.p_vector!;
+    expect(vector.pages.map((page) => page.source_page)).toEqual([5, 6]);
+    expect(vector.items.map((item) => [item.source_page, item.designation])).toEqual([[5, "EF cuivre DN 22"], [6, "Surface « Salon »"]]);
+    expect(storableVector(vector, new Set(published.p_items.map((item) => item.id)))).toBe(true);
+    expect(published.p_result.warnings.filter((warning) => warning.code === "POSTE_VECTEUR_ECARTE")).toEqual([
+      { code: "POSTE_VECTEUR_ECARTE", severity: "warning", message: "La lecture vectorielle de la page 4 n’a pas pu être gardée : elle n’est pas reprise." },
+      { code: "POSTE_VECTEUR_ECARTE", severity: "warning", message: "2 lectures vectorielles de la page 6 sont hors de ce que le métré enregistre : elles ne sont pas reprises." },
+    ]);
+    const rows = new Set(vector.items.map((item) => item.id));
+    expect(published.p_answers.flatMap((answer) => answer.observations).filter((entry) => entry.source === "vector")
+      .every((entry) => rows.has(entry.vector_key!))).toBe(true);
+  });
+
+  it("stops before any paid call when the pages it would read are not those its request sealed", async () => {
+    const call = controlledPosteCall();
+    const manifest = planManifest([{ id: PLAN, pageCount: 2, vectorPages: 4 }]);
+    const whole = { ...(await sourceFile()), bytes: await pdf(3), sourcePageNumbersByPage: undefined };
+    await expect(run({ call, sourceFile: whole, order: { ...SEALED, manifest } })).rejects.toMatchObject({
+      code: TakeoffErrorCode.TAKEOFF_PREPARATION_SOURCE_CHANGED, retryable: false,
+      message: expect.stringContaining("Les pages de ce plan ne sont plus celles que sa demande a scellées") });
+    expect(call.received).toEqual([]);
+    expect(publishTakeoffItemAnswers).not.toHaveBeenCalled();
+  });
+
   // Budget task: the attempt of a reading against the list spends from the share its request sealed for it, sized from its
   // admitted calls, never within the first format's per-job budget (400,000 tokens: 14 calls).
   it("plans its reading within the share its request sealed for it, past the first format's per-job budget", async () => {
@@ -405,6 +608,46 @@ describe("processItemListLevelC", () => {
 
   // Closing round, point 7: the re-check plans the whole request as today's settings plan it, every unit of its manifest,
   // never its own plan only.
+  // PR 3c fix round, point 1: the worker plans its plan's fragments again before its first paid call: more than one answer
+  // holds (POSTE_READING_MAX_FRAGMENTS) and nothing is read, even within the calls' ceilings and the budget.
+  it("stops before any paid call when today's fragmenting reads its plan in more fragments than one answer holds", async () => {
+    const call = controlledPosteCall();
+    const share = { tokens: 2_000_000, cost_cents: 125 };
+    // Admitted on two fragments of a 20-page plan; today's settings make 20 one-page fragments: 20 calls of one batch.
+    const manifest = planManifest([{ id: PLAN, pageCount: 20, budget: share }], share);
+    vi.mocked(prepareLevelCReading).mockResolvedValueOnce({ pageCount: 20, config: { thresholdPages: 1, chunkSizePages: 1, overlapPages: 0,
+      maxPdfPages: 200, timeoutMs: 300_000, maxTotalTokens: 400_000, maxCostCents: 125 },
+      requestBudget: { remainingTokens: 2_000_000, remainingCostCents: 125 } });
+    const twenty = { ...(await sourceFile()), bytes: await pdf(20), sourcePageNumbersByPage: Array.from({ length: 20 }, (_, page) => page + 1) };
+    const own = job({ preparation_snapshot: { launch_unit: { request_id: REQUEST, key: `plan:${PLAN}`, ordinal: 1, vector_pages: 0,
+      budget: share } } });
+    await expect(run({ call, job: own, sourceFile: twenty, order: { ...SEALED, manifest } })).rejects.toMatchObject({
+      code: TakeoffErrorCode.TAKEOFF_FILE_TOO_LARGE, retryable: false,
+      message: expect.stringContaining("40 par plan et 19 pages par plan : réduisez les plans ou les pages à lire.") });
+    expect(call.received).toEqual([]);
+    expect(publishTakeoffItemAnswers).not.toHaveBeenCalled();
+  });
+
+  // PR 3c closing round, point 1: the worker plans the bytes of its plan's answers again before its first paid call: 1,200
+  // items on its 4 pages could publish more than the command stores (1,161 at most), and nothing is read.
+  it("stops before any paid call when its plan's answers could pass what the command stores", async () => {
+    const call = controlledPosteCall();
+    const items = Array.from({ length: 1_200 }, (_, index) => poste(100 + index, `Robinet ${index + 1}`));
+    const share = { tokens: 100_000_000, cost_cents: 2_500 };
+    const manifest = planManifest([{ id: PLAN, pages: [3, 4, 5, 6], pageCount: 6, budget: share }], share,
+      { ...ORDER, list: { ...ORDER.list, item_count: 1_200 } });
+    vi.mocked(prepareLevelCReading).mockResolvedValueOnce({ pageCount: 4, config: { thresholdPages: 15, chunkSizePages: 10, overlapPages: 2,
+      maxPdfPages: 200, timeoutMs: 300_000, maxTotalTokens: 400_000, maxCostCents: 2_500 },
+      requestBudget: { remainingTokens: 100_000_000, remainingCostCents: 2_500 } });
+    const own = job({ preparation_snapshot: { launch_unit: { request_id: REQUEST, key: `plan:${PLAN}`, ordinal: 1, vector_pages: 0,
+      budget: share } } });
+    await expect(run({ call, job: own, supabase: database({ items }).client as never, order: { ...SEALED, itemCount: 1_200, manifest } }))
+      .rejects.toMatchObject({ code: TakeoffErrorCode.TAKEOFF_FILE_TOO_LARGE, retryable: false,
+        details: expect.objectContaining({ exceeded: expect.arrayContaining(["publication_bytes"]) }) });
+    expect(call.received).toEqual([]);
+    expect(publishTakeoffItemAnswers).not.toHaveBeenCalled();
+  });
+
   it("stops before any paid call when the whole request, planned with today's settings, passes its ceiling", async () => {
     const call = controlledPosteCall();
     const items = Array.from({ length: 200 }, (_, index) => poste(100 + index, `Robinet ${index + 1}`));

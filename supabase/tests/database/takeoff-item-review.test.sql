@@ -838,6 +838,103 @@ select results_eq($$select decision from pg_temp.table_() where item = pg_temp.f
   'its line is set aside: the plan''s entry no longer counts');
 reset role;
 
+-- 5. The command's work tables are its own. A session that holds, before it calls the command, a temporary relation
+--    under one of their names (its own table, with a trigger, other columns, or a view) never has it read, written or
+--    fired with the owner's rights: the command drops it and makes its own, or refuses with nothing written.
+--    Each case starts as a session that has not called the command yet: the work tables of earlier calls are dropped.
+drop table if exists pg_temp.takeoff_review_lines, pg_temp.takeoff_review_pairs, pg_temp.takeoff_review_rules_jobs,
+  pg_temp.takeoff_review_written, pg_temp.takeoff_review_restored;
+select pg_temp.sign_in(1);
+set local role authenticated;
+-- What the member's trigger does when it fires: it records who it runs as, and renames the tenant, which the member may not.
+create temporary table zz_seen (who text, relation text);
+create function pg_temp.zz_spy() returns trigger language plpgsql as $spy$
+begin
+  insert into pg_temp.zz_seen values (current_user, tg_table_name);
+  update public.tenants set name = 'Écrit par un déclencheur (fictif)' where id = pg_temp.f(10);
+  return null;
+end;
+$spy$;
+-- The member's table under one of the command's names, with B2's columns, a trigger on each statement that writes it.
+create function pg_temp.zz_hostile(relation text, columns text) returns void language plpgsql as $hostile$
+begin
+  execute format('create temporary table pg_temp.%I (%s)', relation, columns);
+  execute format('create trigger zz_spy after insert or update or delete or truncate on pg_temp.%I for each statement '
+    || 'execute function pg_temp.zz_spy()', relation);
+end;
+$hostile$;
+create function pg_temp.zz_case(relation text, columns text, command jsonb, label text) returns setof text
+language plpgsql as $case$
+begin
+  perform pg_temp.zz_hostile(relation, columns);
+  return next lives_ok(format('select pg_temp.review(%L::jsonb)', command), label || ': the command runs');
+  return next is((select count(*)::integer from pg_temp.zz_seen), 0, label || ': the session''s trigger never ran');
+  return next is((select t.name from public.tenants t where t.id = pg_temp.f(10)), 'Revue de postes (fictif)',
+    label || ': nothing the member may not write is written');
+  return next is((select count(*)::integer from pg_catalog.pg_trigger t where t.tgname = 'zz_spy'), 0,
+    label || ': the session''s table is gone');
+end;
+$case$;
+select pg_temp.zz_case('takeoff_review_pairs', 'item_id uuid, plan_logical_id uuid, answer_id uuid, outcome text, '
+  || 'decision_kind text, decision_effective text, decision_revision integer, plan_entry_id uuid, plan_entry_revision integer, '
+  || 'job_id uuid, sent boolean, reason_code text', pg_temp.cmd('reinstate', 640, array[302], array[302]), 'the pairs');
+reset role;
+drop table if exists pg_temp.takeoff_review_lines, pg_temp.takeoff_review_pairs, pg_temp.takeoff_review_rules_jobs,
+  pg_temp.takeoff_review_written, pg_temp.takeoff_review_restored;
+select pg_temp.sign_in(1);
+set local role authenticated;
+select pg_temp.zz_case('takeoff_review_lines', 'item_id uuid primary key, state text, scope_entry_id uuid, expected_unit text, '
+  || 'reference_quantity numeric', pg_temp.cmd('set_aside', 641, array[302], array[302], '{"reason":"duplicate"}'), 'the lines');
+reset role;
+drop table if exists pg_temp.takeoff_review_lines, pg_temp.takeoff_review_pairs, pg_temp.takeoff_review_rules_jobs,
+  pg_temp.takeoff_review_written, pg_temp.takeoff_review_restored;
+select pg_temp.sign_in(1);
+set local role authenticated;
+select pg_temp.zz_case('takeoff_review_rules_jobs', 'job_id uuid primary key',
+  pg_temp.cmd('reinstate', 642, array[302], array[302]), 'the jobs whose rules wait');
+reset role;
+drop table if exists pg_temp.takeoff_review_lines, pg_temp.takeoff_review_pairs, pg_temp.takeoff_review_rules_jobs,
+  pg_temp.takeoff_review_written, pg_temp.takeoff_review_restored;
+select pg_temp.sign_in(1);
+set local role authenticated;
+select pg_temp.zz_case('takeoff_review_written', 'item_id uuid, answer_id uuid',
+  pg_temp.cmd('set_aside', 643, array[302], array[302], '{"reason":"duplicate"}'), 'the answers written');
+reset role;
+drop table if exists pg_temp.takeoff_review_lines, pg_temp.takeoff_review_pairs, pg_temp.takeoff_review_rules_jobs,
+  pg_temp.takeoff_review_written, pg_temp.takeoff_review_restored;
+select pg_temp.sign_in(1);
+set local role authenticated;
+select pg_temp.zz_case('takeoff_review_restored', 'answer_id uuid primary key, item_id uuid, plan_logical_id uuid, '
+  || 'whole boolean, previous jsonb', pg_temp.cmd('reinstate', 644, array[302], array[302]), 'the answers restored');
+select results_eq($$select kind, revision from public.takeoff_item_answer_decisions where answer_id = pg_temp.answer(302)$$,
+  $$values ('none'::text, 8)$$, 'each of those commands decided, one after the other, in one transaction');
+reset role;
+drop table if exists pg_temp.takeoff_review_lines, pg_temp.takeoff_review_pairs, pg_temp.takeoff_review_rules_jobs,
+  pg_temp.takeoff_review_written, pg_temp.takeoff_review_restored;
+select pg_temp.sign_in(1);
+set local role authenticated;
+-- A table of one of those names with other columns: the command makes its own and applies.
+create temporary table takeoff_review_pairs (note text);
+select lives_ok($$select pg_temp.review(pg_temp.cmd('set_aside', 645, array[302], array[302], '{"reason":"duplicate"}'))$$,
+  'a session''s table of the same name with other columns does not stop the command');
+select results_eq($$select kind, revision from public.takeoff_item_answer_decisions where answer_id = pg_temp.answer(302)$$,
+  $$values ('set_aside'::text, 9)$$, 'which applied on its own table');
+reset role;
+drop table if exists pg_temp.takeoff_review_lines, pg_temp.takeoff_review_pairs, pg_temp.takeoff_review_rules_jobs,
+  pg_temp.takeoff_review_written, pg_temp.takeoff_review_restored;
+select pg_temp.sign_in(1);
+set local role authenticated;
+-- A view of one of those names: the command refuses, nothing written.
+create temporary view takeoff_review_lines as select 1 as x;
+select throws_ok($$select pg_temp.review(pg_temp.cmd('reinstate', 646, array[302], array[302]))$$, '42809', null,
+  'a session''s view of the same name refuses the command');
+select results_eq($$select kind, revision from public.takeoff_item_answer_decisions where answer_id = pg_temp.answer(302)$$,
+  $$values ('set_aside'::text, 9)$$, 'and nothing is written');
+drop view takeoff_review_lines;
+reset role;
+select is((select count(*)::integer from public.takeoff_item_review_commands where intent_key = pg_temp.f(646)), 0,
+  'not even its receipt');
+
 -- The affaire deleted with its review, by the service role (whose direct writes the relations refuse): the cascade
 -- runs as the relations' owner, nothing is left, nothing refuses.
 set local role service_role;

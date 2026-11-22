@@ -13,11 +13,14 @@ import { buildLevelCRunMetricRows } from "@/lib/takeoff/level-c-chunk-metrics";
 import { prepareLevelCReading, type ProcessLevelCMetricsSummary } from "@/lib/takeoff/level-c-reading";
 import type { Poste } from "@/lib/takeoff/poste-list";
 import { buildTakeoffItemAnswersPublication, publishTakeoffItemAnswers } from "@/lib/takeoff/poste-publication-server";
-import { finishPlanReading, posteVectorReadings, readPlanAgainstItemList, type PosteReadingReference } from "@/lib/takeoff/poste-reading";
+import {
+  finishPlanReading, planPagesOf, posteVectorReadings, readPlanAgainstItemList, type PosteReadingReference,
+} from "@/lib/takeoff/poste-reading";
 import { logCompletedAuditEvent } from "@/lib/takeoff/processing-audit";
 import { TAKEOFF_LEVEL_C, type Supabase } from "@/lib/takeoff/processing-context";
 import { refreshTakeoffRulesAfterResult } from "@/lib/takeoff/result-finalization";
 import type { DownloadedTakeoffFile, TakeoffSourceDocumentRef } from "@/lib/takeoff/source-loader";
+import { storableVectorOutcomes } from "@/lib/takeoff/vectors/worker-persistence-server";
 import { takeoffVectorGroupCallsBound, type VectorPageOutcome } from "@/lib/takeoff/vectors/worker-server";
 
 /**
@@ -68,16 +71,6 @@ export async function readTakeoffItemListOrder(supabase: Supabase,
 }
 
 /**
- * The stop of a job of the second order while the publication of its answers is not delivered (lot 4 PR 3c removes it):
- * the processor ends the job once claimed, before its plan is read and before any paid call. The second order is not
- * activated before then.
- */
-export function takeoffItemListReadingNotDelivered(jobId: string) {
-  return new TakeoffError({ status: 422, code: TakeoffErrorCode.TAKEOFF_LEVEL_UNSUPPORTED, retryable: false, jobId, level: TAKEOFF_LEVEL_C,
-    message: "La lecture contre la liste des postes n’est pas encore disponible : l’analyse s’arrête avant tout appel, sans rien dépenser." });
-}
-
-/**
  * Before its first paid call, the whole request planned again with the settings the worker will use (the tenant's
  * fragmenting now, which may differ from the admission's; the pages counted on its own plan's PDF), every unit of its
  * manifest and every paid call counted (each fragment times each batch of the items, and the vector classifier's), within
@@ -87,7 +80,7 @@ export function takeoffItemListReadingNotDelivered(jobId: string) {
  * past the budget what is left (a request whose earlier attempts spent its share is relaunched).
  */
 function assertReadingWithinBounds(job: TakeoffJobProcessingRow, input: { manifest: AnyTakeoffLaunchManifest; items: readonly Poste[];
-  pageCount: number; config: TakeoffChunkingRuntimeConfig & { maxTotalTokens: number }; planFile: { plan_file_id: string }; fileName: string }) {
+  pageCount: number; maxPage: number; config: TakeoffChunkingRuntimeConfig & { maxTotalTokens: number }; planFile: { plan_file_id: string }; fileName: string }) {
   const unit = readTakeoffLaunchUnit(job.preparation_snapshot)!;
   const request = posteReadingBoundsOfManifest(input.manifest, input.config, TAKEOFF_PAID_CALL_ESTIMATE_TOKENS, input.items,
     takeoffVectorGroupCallsBound, new Map([[unit.key, input.pageCount]]));
@@ -95,12 +88,13 @@ function assertReadingWithinBounds(job: TakeoffJobProcessingRow, input: { manife
   if (!request || !own) throw failure(job.id, "Le plan de cette analyse n’est pas une unité de sa demande : relancez la lecture de ce plan.");
   const attempt = boundPosteReadingRequest({ batches: planPosteBatches(input.items).map((batch) => batch.length),
     units: [{ key: unit.key, pieces: [{ id: input.planFile.plan_file_id, name: input.fileName }], pages: input.pageCount,
+      maxPage: input.maxPage,
       budgetTokens: unit.budget?.tokens ?? input.config.maxTotalTokens, vectorCalls: own.calls - own.fragments * own.batches }],
     requestBudgetTokens: input.config.maxTotalTokens, chunking: input.config, estimateTokensPerCall: TAKEOFF_PAID_CALL_ESTIMATE_TOKENS });
   const bounds = !request.ok ? request : attempt;
   if (bounds.ok) return;
   const exceeded = [...bounds.exceeded, ...bounds.units.flatMap((entry) => entry.exceeded)];
-  const tooLarge = exceeded.includes("calls") || exceeded.includes("answer_bytes");
+  const tooLarge = exceeded.some((limit) => limit !== "budget");
   throw new TakeoffError({ status: 422, retryable: false, jobId: job.id, level: TAKEOFF_LEVEL_C,
     code: tooLarge ? TakeoffErrorCode.TAKEOFF_FILE_TOO_LARGE : TakeoffErrorCode.TAKEOFF_LEVEL_C_BUDGET_EXCEEDED,
     message: tooLarge ? describeTakeoffLaunchReason("PLAN_SET_TOO_LARGE", bounds.pieces, bounds)
@@ -108,6 +102,34 @@ function assertReadingWithinBounds(job: TakeoffJobProcessingRow, input: { manife
         + "relancez-la depuis les options du métré.",
     details: { reading_calls: bounds.readingCalls, calls: bounds.calls, tokens: bounds.tokens, budget_tokens: bounds.requestBudgetTokens,
       exceeded } });
+}
+
+/**
+ * The pages a request sealed for a unit of one plan, as the publication command reads them (private.
+ * takeoff_item_answer_plans): the plan's retained pages, sorted, else its pages 1 to its page count; none when unknown.
+ */
+function sealedUnitPages(manifest: AnyTakeoffLaunchManifest, unitKey: string): number[] | null {
+  const unit = manifest.units.find((entry) => entry.key === unitKey);
+  const plan = unit?.plans.length === 1 ? manifest.plans.find((entry) => entry.entry_key === unit.plans[0]) : undefined;
+  if (!plan) return null;
+  if (plan.pages.length) return [...plan.pages].sort((left, right) => left - right);
+  const count = plan.page_count;
+  return count !== null && Number.isInteger(count) && count >= 1 && count <= 2_000
+    ? Array.from({ length: count }, (_, index) => index + 1) : null;
+}
+
+/**
+ * Before its first paid call, the original pages the job will read (its PDF's pages, mapped to the plan's) against those
+ * its request sealed: the command publishes the answers of the sealed pages only. A plan whose PDF holds other pages (its
+ * file replaced, a page count stored wrong) is stopped here, nothing spent, never read then refused.
+ */
+function assertSealedPages(job: TakeoffJobProcessingRow, manifest: AnyTakeoffLaunchManifest, read: readonly number[]) {
+  const sealed = sealedUnitPages(manifest, readTakeoffLaunchUnit(job.preparation_snapshot)!.key);
+  const pages = [...read].sort((left, right) => left - right);
+  if (sealed && sealed.length === pages.length && sealed.every((value, index) => value === pages[index])) return;
+  throw new TakeoffError({ code: TakeoffErrorCode.TAKEOFF_PREPARATION_SOURCE_CHANGED, retryable: false, jobId: job.id,
+    level: TAKEOFF_LEVEL_C, message: "Les pages de ce plan ne sont plus celles que sa demande a scellées : il n’a pas été lu. "
+      + "Relancez-le pour lire sa version actuelle.", details: { sealed_pages: sealed?.length ?? null, read_pages: pages.length } });
 }
 
 export type ProcessItemListResult = {
@@ -152,6 +174,8 @@ export async function processItemListLevelC(input: {
   const planFile = unitPlanFile(job, sourceFile);
   const prepared = await prepareLevelCReading({ supabase: input.supabase, job, sourceFile });
   const { pageCount, requestBudget } = prepared;
+  const readPages = planPagesOf(pageCount, sourceFile.sourcePageNumbersByPage);
+  assertSealedPages(job, input.order.manifest, readPages);
   if (!requestBudget) throw failure(job.id, "Le budget de la demande de cette analyse est introuvable.");
   // Its budget is what its sealed share has left (sized from its admitted calls), never the first format's per-job budget.
   const config = { ...prepared.config, maxTotalTokens: requestBudget.remainingTokens, maxCostCents: requestBudget.remainingCostCents };
@@ -163,24 +187,30 @@ export async function processItemListLevelC(input: {
   } catch {
     throw failure(job.id, "La liste des postes scellée par cette analyse n’a pas pu être lue.");
   }
-  assertReadingWithinBounds(job, { manifest: input.order.manifest, items, pageCount, config, planFile, fileName: sourceFile.fileName });
+  assertReadingWithinBounds(job, { manifest: input.order.manifest, items, pageCount, maxPage: Math.max(...readPages), config, planFile,
+    fileName: sourceFile.fileName });
   // Each context file with its kind (the reading keeps the CCTP only); a file whose kind is not known is never attached.
   const references: PosteReadingReference[] = (sourceFile.contextFiles ?? []).map((file, index) => ({ ...file,
     ...(sourceFile.contextReferences?.[index] ?? { kind: "other" as const, name: "Pièce", revision: null }) }));
   const reading = await readPlanAgainstItemList({ call: input.call, job, items, listRevision: input.order.revision, model: input.model,
     config, references, preparation: sourceFile.preparationSnapshot,
     pdf: { fileName: sourceFile.fileName, bytes: sourceFile.bytes, originalPageNumbers: sourceFile.sourcePageNumbersByPage } });
-  const vectorOutcomes = await input.readVectors();
+  // The vector reading travels with the answers: what the database could not store of it is left out before the call.
+  const vectors = storableVectorOutcomes(await input.readVectors());
+  const vectorOutcomes = vectors.outcomes;
   const plan = finishPlanReading(reading, items, posteVectorReadings(vectorOutcomes, planFile.plan_file_id), job.id);
-  await input.renewLease();
+  // Every call is paid: a renewal that could not be made (a transport error is reported as a conflict) never discards the
+  // reading. The command checks the lease under its lock, and only its own answer that the lease is lost ends the attempt.
+  await input.renewLease().catch(() => undefined);
   const completedAt = input.now();
   const totalDurationMs = Math.max(reading.durationMs, completedAt.getTime() - input.processingStartedAt.getTime());
-  const publication = buildTakeoffItemAnswersPublication({ job, items, reading, plan, planFile, vectorOutcomes, completedAt,
+  const publication = buildTakeoffItemAnswersPublication({ job, items, reading, plan, planFile, vectorOutcomes,
+    vectorLeftOut: vectors.leftOut, completedAt,
     totalDurationMs, model: input.model, fileName: sourceFile.fileName, mimeType: sourceFile.mimeType,
     list: { revisionId: input.order.revisionId, revision: input.order.revision, itemCount: input.order.itemCount },
     runMetrics: buildLevelCRunMetricRows({ supabase: input.supabase, job, metrics: reading.metrics,
       hint: { sourceFileName: sourceFile.fileName } }) });
-  const resultId = await publishTakeoffItemAnswers(input.supabase, publication);
+  const resultId = await publishTakeoffItemAnswers(input.supabase, publication, { renewLease: input.renewLease });
   await logCompletedAuditEvent({ supabase: input.supabase, userId: input.userId, job, resultId, itemsCount: publication.p_items.length,
     warningsCount: publication.p_result.warnings.length, durationMs: totalDurationMs });
   await refreshTakeoffRulesAfterResult({ supabase: input.supabase, job });
