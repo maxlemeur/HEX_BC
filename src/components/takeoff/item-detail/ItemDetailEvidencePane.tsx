@@ -2,6 +2,8 @@
 
 import { forwardRef } from "react";
 
+import type { ItemDetailDocumentState } from "@/components/takeoff/item-detail/ItemDetailPlanPane";
+
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import type { ItemDetailPlanView } from "@/lib/takeoff/item-detail-contracts";
@@ -30,15 +32,46 @@ type Props = {
   line: ItemDetailLine;
   choice: ItemDetailPlanChoice;
   plan: ItemDetailPlanView | null;
+  /** Whether the plan's bytes were served (and, for a reading, their digest checked by the route) or not. */
+  documentState: ItemDetailDocumentState;
   names: Record<string, string>;
   planNames: Record<string, string>;
-  page: number;
   outsideFilter: boolean;
   onObservation: (observation: ItemDetailObservation) => void;
   onPlan: (planKey: string, jobId: string | null) => void;
 };
 
 const who = (names: Record<string, string>, actorId: string) => names[actorId] ?? "un membre";
+
+const READING_STATUS: Record<string, string> = {
+  pending: "lecture en attente", processing: "lecture en cours", completed: "lecture terminée", applied: "lecture terminée",
+  failed: "lecture en échec", canceled: "lecture arrêtée",
+};
+const readCompleted = (status: string) => status === "completed" || status === "applied";
+
+/**
+ * What is known of the bytes shown: « verified » only once the attested route served them (it checks their digest), and
+ * « read by this analysis » only for a reading that ran; the rest is said as it is.
+ */
+function sourceText(plan: ItemDetailPlanView, state: ItemDetailDocumentState) {
+  const reading = plan.reading;
+  const status = reading ? READING_STATUS[reading.status] ?? "lecture dans un état inconnu" : null;
+  const pages = plan.plan.pagesRead.length ? ` Pages demandées : ${formatItemDetailPages(plan.plan.pagesRead)}.` : "";
+  const finished = reading?.finishedAt && readCompleted(reading.status) ? ` Lecture terminée le ${formatItemDetailDate(reading.finishedAt)}.` : "";
+  switch (plan.document.kind) {
+    case "attested": {
+      const what = reading && readCompleted(reading.status) ? "Octets lus par cette analyse" : `Copie scellée pour cette analyse (${status})`;
+      const served = state === "served" ? `${what}, servis et vérifiés (empreinte conforme).`
+        : state === "failed" ? "La copie scellée n’a pas pu être servie." : `${what} : ouverture en cours.`;
+      return `${served}${finished}${pages}`;
+    }
+    case "dossier":
+      return state === "failed" ? "La copie actuelle du dossier n’a pas pu être ouverte."
+        : "Copie actuelle du dossier au moment de l’ouverture, signée pour vous.";
+    default:
+      return `Plan non affichable.${reading ? ` Analyse : ${status}.` : ""}`;
+  }
+}
 
 function EntryText({ entry, names }: { entry: ItemDetailEntry; names: Record<string, string> }) {
   return (
@@ -61,11 +94,12 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 }
 
 export const ItemDetailEvidencePane = forwardRef<HTMLHeadingElement, Props>(function ItemDetailEvidencePane(
-  { line, choice, plan, names, planNames, page, outsideFilter, onObservation, onPlan }, heading) {
+  { line, choice, plan, documentState, names, planNames, outsideFilter, onObservation, onPlan }, heading) {
   // An earlier reading (an old bookmark) shows nothing of the current one: its answer, decision and entry are not its own.
   const earlier = choice.kind === "reading" && !choice.current;
   const reading = !earlier && (choice.kind === "reading" || choice.kind === "dossier") ? choice.reading : null;
   const answer = choice.kind === "reading" && choice.current ? reading?.answer ?? null : null;
+  const selectedObservation = choice.kind === "reading" ? choice.observationId : null;
   const history = [
     ...(answer ? [{ at: answer.readAt, text: `Lu sur ${reading?.planName ?? "le plan"} : ${ITEM_DETAIL_OUTCOME_LABELS[answer.outcome]}` }] : []),
     ...(reading?.decision ? [{ at: reading.decision.at, text: `${reading.decision.kind === "accepted" ? "Accepté" : "Écarté"} par ${who(names, reading.decision.actorId)}` }] : []),
@@ -113,7 +147,9 @@ export const ItemDetailEvidencePane = forwardRef<HTMLHeadingElement, Props>(func
               <ul aria-label="Observations" className="space-y-1">
                 {answer.observations.map((observation) => (
                   <li key={observation.observationId}>
-                    <Button variant={observation.page === page ? "secondary" : "ghost"} size="xs" className="h-auto w-full justify-start whitespace-normal py-1 text-left"
+                    <Button variant={observation.observationId === selectedObservation ? "secondary" : "ghost"} size="xs"
+                      aria-pressed={observation.observationId === selectedObservation}
+                      className="h-auto w-full justify-start whitespace-normal py-1 text-left"
                       disabled={observation.page === null} onClick={() => onObservation(observation)}>
                       <span>
                         <span className="font-medium tabular-nums">{formatItemDetailQuantity(observation.quantity, observation.unit)}</span>
@@ -145,12 +181,7 @@ export const ItemDetailEvidencePane = forwardRef<HTMLHeadingElement, Props>(func
         {plan ? (
           <>
             <p>{plan.plan.name}{plan.plan.generation ? ` · génération ${plan.plan.generation}` : ""}</p>
-            <p className="text-xs text-muted-foreground">
-              {plan.document.kind === "attested" ? "Octets lus par cette analyse, vérifiés à l’affichage."
-                : plan.document.kind === "dossier" ? "Copie actuelle du dossier." : "Plan non affichable."}
-              {plan.reading?.finishedAt ? ` Lecture terminée le ${formatItemDetailDate(plan.reading.finishedAt)}.` : ""}
-              {plan.plan.pagesRead.length ? ` Pages lues : ${formatItemDetailPages(plan.plan.pagesRead)}.` : ""}
-            </p>
+            <p className="text-xs text-muted-foreground">{sourceText(plan, documentState)}</p>
           </>
         ) : <p className="text-muted-foreground">—</p>}
       </Section>
@@ -176,7 +207,7 @@ export const ItemDetailEvidencePane = forwardRef<HTMLHeadingElement, Props>(func
       <Section title="Plans du poste">
         <ul aria-label="Plans du poste" className="space-y-1">
           {line.readings.map((entry) => {
-            const shown = choice.kind !== "none" && choice.kind !== "source" && choice.planKey === entry.planKey;
+            const shown = (choice.kind === "reading" || choice.kind === "dossier") && choice.planKey === entry.planKey;
             return (
               <li key={entry.planKey}>
                 <Button variant={shown ? "secondary" : "ghost"} size="xs" aria-current={shown ? "true" : undefined}

@@ -100,42 +100,91 @@ export type ItemDetailQueuePage = {
   plans: Array<{ key: string; name: string }>;
 };
 
-/** What the centre shows for the line: a plan read by an analysis, a plan of the dossier still to measure, or nothing. */
+/**
+ * What the centre shows for the line: a plan read by an analysis, a plan of the dossier still to measure, or nothing; or
+ * `mismatch` when the address names a plan, an answer or an observation that is not this item's: such an address opens
+ * nothing (a stale bookmark never shows another evidence as its own).
+ */
 export type ItemDetailPlanChoice =
-  | { kind: "reading"; planKey: string; planName: string; jobId: string; reading: ItemDetailReading; current: boolean }
+  | { kind: "reading"; planKey: string; planName: string; jobId: string; reading: ItemDetailReading; current: boolean;
+    observationId: string | null }
   | { kind: "dossier"; planKey: string; planName: string | null; reading: ItemDetailReading | null }
   | { kind: "source"; documentId: string; generation: string | null }
-  | { kind: "none" };
+  | { kind: "none" }
+  | { kind: "mismatch" };
+
+type DetailIdentifiers = {
+  planKey: string | null; jobId: string | null; source: { documentId: string; generation: string | null } | null;
+  answerId?: string | null; observationId?: string | null;
+};
+
+/** The plans of an item: those asked about it and those a new measure would read, by their logical identity. */
+export function itemDetailPlanKeys(line: ItemDetailLine): Set<string> {
+  return new Set([...line.readings.map(({ planKey }) => planKey), ...line.remeasurePlans]);
+}
 
 /**
- * The plan the detail opens for a line: the one the address names (with its reading, even an earlier one: an old
- * bookmark opens the old reading), else the first plan that answered, else the first plan asked, else the first plan a
- * new measure would read (« À mesurer », resolved from the dossier).
+ * The plan the detail opens for a line: the one the address names, with its reading (an earlier one too: an old bookmark
+ * opens the old reading's plan, without its evidence until answers are readable by their identity), else the first plan
+ * that answered, else the first plan asked, else the first plan a new measure would read (« À mesurer »). Every
+ * identifier named is checked to be the item's: a plan or a piece of another item, an answer that is not the reading's,
+ * or an observation that is not the answer's is a mismatch.
  */
-export function chooseItemDetailPlan(line: ItemDetailLine, address: {
-  planKey: string | null; jobId: string | null; source: { documentId: string; generation: string | null } | null;
-}): ItemDetailPlanChoice {
-  if (address.source) return { kind: "source", documentId: address.source.documentId, generation: address.source.generation };
-  const named = address.planKey ? line.readings.find((reading) => reading.planKey === address.planKey) ?? null : null;
-  if (address.planKey && address.jobId) {
-    return { kind: "reading", planKey: address.planKey, planName: named?.planName ?? "Plan", jobId: address.jobId,
-      reading: named ?? emptyReading(address.planKey), current: named?.answer?.jobId === address.jobId };
+export function chooseItemDetailPlan(line: ItemDetailLine, address: DetailIdentifiers): ItemDetailPlanChoice {
+  const plans = itemDetailPlanKeys(line);
+  if (address.source) {
+    if (!plans.has(address.source.documentId) || address.answerId || address.observationId) return { kind: "mismatch" };
+    return { kind: "source", documentId: address.source.documentId, generation: address.source.generation };
   }
-  if (address.planKey) return fromReading(named) ?? { kind: "dossier", planKey: address.planKey, planName: named?.planName ?? null, reading: named };
-  const answered = line.readings.find((reading) => reading.answer !== null);
-  const first = answered ?? line.readings[0] ?? null;
-  if (first) return fromReading(first) ?? { kind: "dossier", planKey: first.planKey, planName: first.planName, reading: first };
-  const planKey = line.remeasurePlans[0];
-  return planKey ? { kind: "dossier", planKey, planName: null, reading: null } : { kind: "none" };
+  if (address.planKey && !plans.has(address.planKey)) return { kind: "mismatch" };
+  const named = address.planKey ? line.readings.find((reading) => reading.planKey === address.planKey) ?? null : null;
+  let choice: ItemDetailPlanChoice;
+  if (address.planKey && address.jobId) {
+    choice = { kind: "reading", planKey: address.planKey, planName: named?.planName ?? "Plan", jobId: address.jobId,
+      reading: named ?? emptyReading(address.planKey), current: named?.answer?.jobId === address.jobId, observationId: null };
+  } else if (address.planKey) {
+    choice = fromReading(named) ?? { kind: "dossier", planKey: address.planKey, planName: named?.planName ?? null, reading: named };
+  } else {
+    const answered = line.readings.find((reading) => reading.answer !== null);
+    const first = answered ?? line.readings[0] ?? null;
+    const planKey = line.remeasurePlans[0];
+    choice = first ? fromReading(first) ?? { kind: "dossier", planKey: first.planKey, planName: first.planName, reading: first }
+      : planKey ? { kind: "dossier", planKey, planName: null, reading: null } : { kind: "none" };
+  }
+  return withEvidence(choice, address);
+}
+
+/** The answer and the observation an address names, checked against the reading shown; an earlier reading shows neither. */
+function withEvidence(choice: ItemDetailPlanChoice, address: DetailIdentifiers): ItemDetailPlanChoice {
+  if (!address.answerId && !address.observationId) return choice;
+  if (choice.kind !== "reading") return { kind: "mismatch" };
+  if (!choice.current) return choice;
+  const answer = choice.reading.answer;
+  if (address.answerId && answer?.answerId !== address.answerId) return { kind: "mismatch" };
+  if (address.observationId && !answer?.observations.some(({ observationId }) => observationId === address.observationId)) {
+    return { kind: "mismatch" };
+  }
+  return { ...choice, observationId: address.observationId ?? null };
 }
 
 function fromReading(reading: ItemDetailReading | null): ItemDetailPlanChoice | null {
   if (!reading?.answer) return null;
-  return { kind: "reading", planKey: reading.planKey, planName: reading.planName, jobId: reading.answer.jobId, reading, current: true };
+  return { kind: "reading", planKey: reading.planKey, planName: reading.planName, jobId: reading.answer.jobId, reading, current: true,
+    observationId: null };
 }
 
 function emptyReading(planKey: string): ItemDetailReading {
   return { planKey, planName: "Plan", location: null, unit: "succeeded", answer: null, decision: null, entry: null };
+}
+
+/** The identifiers that name what the centre shows, written into every address the screen makes, so that each parses. */
+export function itemDetailChoiceAddress(choice: ItemDetailPlanChoice): Pick<DetailIdentifiers, "planKey" | "jobId" | "source"> {
+  switch (choice.kind) {
+    case "reading": return { planKey: choice.planKey, jobId: choice.jobId, source: null };
+    case "dossier": return { planKey: choice.planKey, jobId: null, source: null };
+    case "source": return { planKey: null, jobId: null, source: { documentId: choice.documentId, generation: choice.generation } };
+    default: return { planKey: null, jobId: null, source: null };
+  }
 }
 
 /** The pages worth turning to on a plan: those of the observations first, then the pages searched, in order. */
@@ -150,13 +199,14 @@ export function itemDetailPagesOfInterest(answer: ItemDetailAnswer | null, pages
  * or read, else the plan's first page. A page beyond a known page count is not shown in its place: the first is.
  */
 export function itemDetailOpeningPage(input: { requested: number | null; answer: ItemDetailAnswer | null; pagesRead: readonly number[];
-  pageCount: number | null }): { page: number; requestedMissing: boolean } {
+  pageCount: number | null; observationId?: string | null }): { page: number; requestedMissing: boolean } {
   const within = (page: number) => input.pageCount === null || page <= input.pageCount;
   if (input.requested !== null) {
     if (within(input.requested)) return { page: input.requested, requestedMissing: false };
     return { page: 1, requestedMissing: true };
   }
-  const observed = input.answer?.observations.find(({ page }) => page !== null)?.page ?? null;
+  const chosen = input.observationId ? input.answer?.observations.find(({ observationId }) => observationId === input.observationId) : null;
+  const observed = chosen?.page ?? input.answer?.observations.find(({ page }) => page !== null)?.page ?? null;
   const candidate = observed ?? input.answer?.searchedPages[0] ?? input.pagesRead[0] ?? 1;
   return { page: within(candidate) ? candidate : 1, requestedMissing: false };
 }

@@ -26,14 +26,21 @@ function matches(row: Row, column: string, filter: string): boolean {
  */
 export function createInMemoryRestApi(
   tables: Record<string, Row[]>,
-  handlers: Record<string, InMemoryRestHandler> = {}
+  handlers: Record<string, InMemoryRestHandler> = {},
+  /** Answers a request outside the REST API (Storage's `/storage/v1/…`); without it such a request fails the test. */
+  other?: (url: URL, body: unknown) => Response,
 ) {
   const requests: InMemoryRestRequest[] = [];
   const client = createClient("https://example.test", "test-anon", { global: { fetch: async (input, init) => {
     const url = new URL(String(input));
     const table = url.pathname.replace(/^\/rest\/v1\//, "");
     const method = init?.method ?? "GET";
-    requests.push({ table, url, method, body: typeof init?.body === "string" ? JSON.parse(init.body) : null });
+    const body = typeof init?.body === "string" ? JSON.parse(init.body) : null;
+    requests.push({ table, url, method, body });
+    if (!url.pathname.startsWith("/rest/v1/")) {
+      if (!other) throw new Error(`Unsupported request in the in-memory REST fixture: ${url.pathname}`);
+      return other(url, body);
+    }
     const source = tables[table] ?? [];
     let rows: Row[];
     if (handlers[table]) {

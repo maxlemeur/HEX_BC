@@ -3,7 +3,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { ItemDetailQueue, chooseItemDetailPlan, itemDetailOpeningPage, itemDetailPagesOfInterest, type ItemDetailQueuePage } from "@/lib/takeoff/item-detail";
 import { ItemDetailPlanError, createItemDetailReader } from "@/lib/takeoff/item-detail-client";
 import { isItemDetailFieldTarget, itemDetailKeyAction } from "@/lib/takeoff/item-detail-keys";
-import { DETAIL_PROJECT, JOB_EARLIER, JOB_RDC, PLAN_R1, PLAN_RDC, basinLine, notFoundLine, planViews, toMeasureLine } from "@/lib/takeoff/item-detail.test-fixtures";
+import {
+  DETAIL_PROJECT, JOB_EARLIER, JOB_RDC, PLAN_R1, PLAN_RDC, PLAN_SCAN, basinLine, notFoundLine, planViews, toMeasureLine,
+} from "@/lib/takeoff/item-detail.test-fixtures";
 
 // The pure parts of the detail of an item (lot 5), written with them: the plan it opens, the page, the frozen queue across
 // the table's pages, the keyboard's mapping and the reader's bounded cache of plan resolutions.
@@ -20,6 +22,22 @@ describe("chooseItemDetailPlan", () => {
     expect(chooseItemDetailPlan(toMeasureLine, { ...none, source: { documentId: PLAN_R1, generation: "2" } }))
       .toEqual({ kind: "source", documentId: PLAN_R1, generation: "2" });
     expect(chooseItemDetailPlan({ ...toMeasureLine, remeasurePlans: [] }, none)).toEqual({ kind: "none" });
+  });
+});
+
+describe("chooseItemDetailPlan, identifiers that must be the item's", () => {
+  const answerId = basinLine.readings[0]!.answer!.answerId;
+  it("opens nothing for a plan, a piece, an answer or an observation of another item", () => {
+    expect(chooseItemDetailPlan(basinLine, { ...none, planKey: PLAN_SCAN })).toEqual({ kind: "mismatch" });
+    expect(chooseItemDetailPlan(basinLine, { ...none, source: { documentId: PLAN_SCAN, generation: null } })).toEqual({ kind: "mismatch" });
+    expect(chooseItemDetailPlan(basinLine, { ...none, planKey: PLAN_RDC, jobId: JOB_RDC, answerId: "a-autre" })).toEqual({ kind: "mismatch" });
+    expect(chooseItemDetailPlan(basinLine, { ...none, planKey: PLAN_RDC, jobId: JOB_RDC, answerId, observationId: "o-r1-1" }))
+      .toEqual({ kind: "mismatch" });
+  });
+
+  it("selects the observation named in the answer shown", () => {
+    expect(chooseItemDetailPlan(basinLine, { ...none, planKey: PLAN_RDC, jobId: JOB_RDC, answerId, observationId: "o-rdc-7" }))
+      .toMatchObject({ kind: "reading", current: true, observationId: "o-rdc-7" });
   });
 });
 
@@ -85,8 +103,15 @@ describe("itemDetailKeyAction", () => {
     expect(key("V")).toEqual({ kind: "gesture", gesture: "accept_measured", initial: null });
     expect(key("3")).toEqual({ kind: "gesture", gesture: "enter_quantity", initial: "3" });
     for (const other of ["r", "m", "s", "f", "Delete", "Tab", " "]) expect(key(other)).toBeNull();
-    expect(key("v", { shiftKey: true } as never)).toMatchObject({ gesture: "accept_measured" });
     expect(key("Process")).toBeNull();
+  });
+
+  // Review of PR 2 (written before the fix): Shift + ↓ moved the item, the handler never saw Shift.
+  it("leaves Shift to the browser, but for a digit (typed with Shift on a French keyboard)", () => {
+    expect(key("ArrowDown", { shiftKey: true })).toBeNull();
+    expect(key("V", { shiftKey: true })).toBeNull();
+    expect(key("Enter", { shiftKey: true })).toBeNull();
+    expect(key("4", { shiftKey: true })).toEqual({ kind: "gesture", gesture: "enter_quantity", initial: "4" });
   });
 
   it("leaves a field's keys to the field", () => {
@@ -101,30 +126,25 @@ describe("createItemDetailReader", () => {
   const table = { readQueue: vi.fn(), readLine: vi.fn() };
   const view = planViews()[`${JOB_RDC}:${PLAN_RDC}`];
 
-  it("resolves a plan once per plan and reading, and asks again after a failure", async () => {
+  // Review of PR 2 (written before the fix): the reader kept a resolution, so a dossier copy replaced since, or an
+  // absence, was shown until evicted. A plan is resolved at each opening (the screen asks when a plan is opened).
+  it("asks the server at each resolution, never answering from a previous one", async () => {
     const fetch = vi.fn(async () => new Response(JSON.stringify({ ok: true, data: view }), { status: 200 }));
     vi.stubGlobal("fetch", fetch);
     const reader = createItemDetailReader({ projectId: DETAIL_PROJECT, table });
     const request = { planKey: PLAN_RDC, jobId: JOB_RDC, source: null };
     expect(await reader.resolvePlan(request)).toEqual(view);
     await reader.resolvePlan(request);
-    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(fetch).toHaveBeenCalledTimes(2);
     expect(String((fetch.mock.calls as unknown[][])[0]![0])).toBe(
       `/api/affaires/${DETAIL_PROJECT}/takeoff/item-detail/plan?plan=${PLAN_RDC}&lecture=${JOB_RDC}`);
-
-    fetch.mockImplementationOnce(async () => new Response(JSON.stringify({ ok: false, error: { code: "TAKEOFF_ITEM_DETAIL_PLAN_NOT_FOUND",
-      message: "texte de la base" } }), { status: 404 }));
-    const other = { planKey: PLAN_R1, jobId: null, source: null };
-    await expect(reader.resolvePlan(other)).rejects.toEqual(new ItemDetailPlanError("TAKEOFF_ITEM_DETAIL_PLAN_NOT_FOUND", 404));
-    await expect(reader.resolvePlan(other)).resolves.toEqual(view);
   });
 
-  it("forgets its resolutions with the member: a new reader asks again", async () => {
-    const fetch = vi.fn(async () => new Response(JSON.stringify({ ok: true, data: view }), { status: 200 }));
-    vi.stubGlobal("fetch", fetch);
-    const request = { planKey: PLAN_RDC, jobId: JOB_RDC, source: null };
-    await createItemDetailReader({ projectId: DETAIL_PROJECT, table }).resolvePlan(request);
-    await createItemDetailReader({ projectId: DETAIL_PROJECT, table }).resolvePlan(request);
-    expect(fetch).toHaveBeenCalledTimes(2);
+  it("refuses by the code and status of the answer, never with its text", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ ok: false, error: { code: "TAKEOFF_ITEM_DETAIL_PLAN_NOT_FOUND",
+      message: "texte de la base" } }), { status: 404 })));
+    const reader = createItemDetailReader({ projectId: DETAIL_PROJECT, table });
+    await expect(reader.resolvePlan({ planKey: PLAN_R1, jobId: null, source: null }))
+      .rejects.toEqual(new ItemDetailPlanError("TAKEOFF_ITEM_DETAIL_PLAN_NOT_FOUND", 404));
   });
 });

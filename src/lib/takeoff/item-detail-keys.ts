@@ -6,7 +6,8 @@ import type { ItemDetailGesture } from "@/lib/takeoff/item-detail";
  * to set aside, I asks for the individual inclusion, F2 or a digit opens the entry (the digit as its first character).
  * No key forces, sends or spends: a new measure, a send or a forced acceptance has no shortcut.
  *
- * A key typed in a field, during a composition, or with Ctrl, ⌘ or Alt belongs to the browser or to the field.
+ * A key typed in a field, during a composition, or with Ctrl, ⌘, Alt or Shift (but a digit) belongs to the browser or to
+ * the field.
  */
 
 export type ItemDetailKeyGesture = Extract<ItemDetailGesture, "accept_measured" | "set_aside" | "include_entry" | "enter_quantity">;
@@ -17,11 +18,15 @@ export type ItemDetailKeyAction =
   | { kind: "back" }
   | { kind: "gesture"; gesture: ItemDetailKeyGesture; initial: string | null };
 
-export type ItemDetailKeyEvent = { key: string; ctrlKey: boolean; metaKey: boolean; altKey: boolean; isComposing?: boolean };
+export type ItemDetailKeyEvent = {
+  key: string; ctrlKey: boolean; metaKey: boolean; altKey: boolean; shiftKey?: boolean; isComposing?: boolean;
+};
 
 export function itemDetailKeyAction(event: ItemDetailKeyEvent, inField: boolean): ItemDetailKeyAction | null {
   // « Process »: a key an input method is composing with (Chrome, Safari).
   if (inField || event.isComposing || event.key === "Process" || event.ctrlKey || event.metaKey || event.altKey) return null;
+  // Shift belongs to the browser and to selection, except for a digit: on a French keyboard a digit is typed with it.
+  if (event.shiftKey && !/^[0-9]$/.test(event.key)) return null;
   switch (event.key) {
     case "ArrowUp": return { kind: "move", step: -1 };
     case "ArrowDown": return { kind: "move", step: 1 };

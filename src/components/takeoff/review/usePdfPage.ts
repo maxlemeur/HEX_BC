@@ -121,7 +121,8 @@ export function usePdfPage({ source, page, scale, canvas }: {
   useEffect(() => {
     setShown(null);
     setPageFailure(null);
-    if (!loaded || page === null) return;
+    // A document loaded for the previous source answers nothing once another is requested.
+    if (!loaded || loaded.key !== key || page === null) return;
     let active = true;
     loaded.document.getPage(page).then((proxy) => {
       if (!active) return;
@@ -135,12 +136,12 @@ export function usePdfPage({ source, page, scale, canvas }: {
     return () => {
       active = false;
     };
-  }, [loaded, page, canvas]);
+  }, [loaded, key, page, canvas]);
 
   useEffect(() => {
     const element = canvas.current;
-    // A page read for another source (the previous plan) is never drawn under this one.
-    if (!shown || !loaded || shown.key !== loaded.key || shown.number !== page || !element) return;
+    // Only a page of the source requested now is drawn: never the previous plan, even at another scale.
+    if (!shown || !loaded || shown.key !== key || loaded.key !== key || shown.number !== page || !element) return;
     const backing = pdfCanvasScale(shown.size, scale, window.devicePixelRatio);
     if (!(backing > 0)) return;
     let active = true;
@@ -149,8 +150,9 @@ export function usePdfPage({ source, page, scale, canvas }: {
     setRendering(true);
     try {
       const viewport = shown.page.getViewport({ scale: backing });
-      element.width = Math.ceil(viewport.width);
-      element.height = Math.ceil(viewport.height);
+      // Rounded down: the canvas never exceeds the pixel ceiling the scale was chosen under.
+      element.width = Math.max(1, Math.floor(viewport.width));
+      element.height = Math.max(1, Math.floor(viewport.height));
       element.style.width = `${shown.size.width * scale}px`;
       element.style.height = `${shown.size.height * scale}px`;
       task = shown.page.render({ canvas: element, viewport });
@@ -170,13 +172,15 @@ export function usePdfPage({ source, page, scale, canvas }: {
       active = false;
       task?.cancel();
     };
-  }, [shown, loaded, page, scale, canvas]);
+  }, [shown, loaded, key, page, scale, canvas]);
 
-  const current = shown && loaded && shown.key === loaded.key && shown.number === page ? shown : null;
+  // What is reported belongs to the source requested now, never to the previous one.
+  const document = loaded?.key === key ? loaded : null;
+  const current = shown && document && shown.key === key && shown.number === page ? shown : null;
   return {
     size: current?.size ?? null,
-    pageCount: loaded?.document.numPages ?? null,
-    loading: opening || (loaded !== null && page !== null && current === null && pageFailure === null),
+    pageCount: document?.document.numPages ?? null,
+    loading: opening || (document !== null && page !== null && current === null && pageFailure === null),
     rendering,
     failure: sourceFailure ?? pageFailure,
   };

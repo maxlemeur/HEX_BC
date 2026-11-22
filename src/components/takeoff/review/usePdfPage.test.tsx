@@ -120,7 +120,9 @@ describe("usePdfPage", () => {
     stubPdfjs();
     render(<Reader source={sourceOf("https://files.test/a0.pdf")} page={1} scale={8} />);
     await settle();
-    expect(canvas().width * canvas().height).toBeLessThanOrEqual(PDF_MAX_CANVAS_PIXELS * 1.01);
+    // Review of PR 2 (written before the fix): both dimensions rounded up made 4,871 × 3,445 = 16,780,595 pixels.
+    expect(canvas().width * canvas().height).toBeLessThanOrEqual(PDF_MAX_CANVAS_PIXELS);
+    expect(canvas().width).toBeGreaterThan(4_800);
     expect(parseFloat(canvas().style.width)).toBeCloseTo(A3.width * 8, 6);
   });
 
@@ -146,6 +148,22 @@ describe("usePdfPage", () => {
     await settle();
     expect(state).toMatchObject({ failure: null, rendering: false });
     expect(renders.filter(({ url }) => url === "https://files.test/a.pdf")).toHaveLength(1);
+  });
+
+  // Review of PR 2 (written before the fix): from page 1 of A to page 1 of B at another scale, B without an address,
+  // the hook rendered A again at the new scale, left its canvas painted and reported « rendering » with the failure.
+  it("never draws, keeps or reports the previous plan once another source is requested", async () => {
+    documents.set("https://files.test/a.pdf", { pages: 1 });
+    stubPdfjs();
+    const { rerender } = render(<Reader source={sourceOf("https://files.test/a.pdf")} page={1} scale={1} />);
+    await settle();
+    expect(renders).toHaveLength(1);
+
+    rerender(<Reader source={sourceOf(null, "piece-b")} page={1} scale={2} />);
+    await settle();
+    expect(renders).toHaveLength(1);
+    expect([canvas().width, canvas().height]).toEqual([0, 0]);
+    expect(state).toMatchObject({ failure: "unavailable", rendering: false, size: null, pageCount: null, loading: false });
   });
 
   it("clears the canvas and says so for bytes without an address, then for a page the plan does not have", async () => {

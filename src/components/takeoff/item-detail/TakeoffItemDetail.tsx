@@ -4,7 +4,11 @@ import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent a
 import { ArrowLeft, ListTree } from "lucide-react";
 
 import { ItemDetailEvidencePane } from "@/components/takeoff/item-detail/ItemDetailEvidencePane";
-import { ItemDetailPlanPane, type ItemDetailPlanResolution } from "@/components/takeoff/item-detail/ItemDetailPlanPane";
+import {
+  ItemDetailPlanPane,
+  type ItemDetailDocumentState,
+  type ItemDetailPlanResolution,
+} from "@/components/takeoff/item-detail/ItemDetailPlanPane";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
@@ -15,6 +19,7 @@ import type { ItemDetailPlanRequest } from "@/lib/takeoff/item-detail-contracts"
 import {
   ItemDetailQueue,
   chooseItemDetailPlan,
+  itemDetailChoiceAddress,
   itemDetailOpeningPage,
   itemDetailPagesOfInterest,
   type ItemDetailLine,
@@ -35,9 +40,12 @@ import {
  * source, decisions and history on the right. It opens a measured item, an answer without a quantity (« not found »,
  * with the pages searched and no point), and an item never measured (« À mesurer », the plan resolved from the dossier).
  *
- * The address is the state: a move inside replaces it (`onNavigate`, no history entry per arrow), the way back gives the
- * table's address with the item shown in focus (`onBack`). The keyboard of the list may ask for a review gesture
- * (`onGesture`); the gesture's own confirmation and its command are the table's, and the server decides them again.
+ * The address is the state. A move inside replaces it in place (`history.replaceState`, which the router follows: no
+ * history entry per arrow), naming what is shown so that every address written parses and opens the same view again; the
+ * way back gives the table's address with the item shown in focus (`onBack`). The keyboard of the list may ask for a
+ * review gesture (`onGesture`); its confirmation and its command are the table's, and the server decides them again.
+ *
+ * Everything the detail shows belongs to its reader, one per member and affaire: a new reader starts from nothing.
  */
 
 export type ItemDetailGestureRequest = { gesture: ItemDetailKeyGesture; line: ItemDetailLine; initial: string | null };
@@ -48,16 +56,33 @@ type Props = {
   reader: ItemDetailReader;
   /** The query of the page (the table's parameters and the page's own), kept by every move and by the way back. */
   tableQuery: string;
-  onNavigate: (href: string) => void;
   onBack: (href: string) => void;
   onGesture?: (request: ItemDetailGestureRequest) => void;
+  /** Called once the address was replaced in place, for a parent that does not follow the router's search parameters. */
+  onAddressChange?: (href: string) => void;
 };
 
 type Load = { state: "loading" } | { state: "ready" } | { state: "missing" } | { state: "error" };
 type Outside = { line: ItemDetailLine; names: Record<string, string>; canReview: boolean };
 
+const readers = new WeakMap<ItemDetailReader, number>();
+const identities = { next: 0 };
+/** The identity of a reader: the detail is rebuilt from nothing for another one. */
+function readerIdentity(reader: ItemDetailReader) {
+  const known = readers.get(reader);
+  if (known !== undefined) return known;
+  identities.next += 1;
+  readers.set(reader, identities.next);
+  return identities.next;
+}
+
+export function TakeoffItemDetail(props: Props) {
+  return <ItemDetailView key={readerIdentity(props.reader)} {...props} />;
+}
+
 const choiceKey = (choice: ItemDetailPlanChoice) => (choice.kind === "reading" ? `r:${choice.jobId}:${choice.planKey}`
-  : choice.kind === "dossier" ? `d:${choice.planKey}` : choice.kind === "source" ? `s:${choice.documentId}:${choice.generation ?? ""}` : "none");
+  : choice.kind === "dossier" ? `d:${choice.planKey}` : choice.kind === "source" ? `s:${choice.documentId}:${choice.generation ?? ""}`
+    : choice.kind);
 
 function planRequest(choice: ItemDetailPlanChoice): ItemDetailPlanRequest | null {
   switch (choice.kind) {
@@ -68,7 +93,7 @@ function planRequest(choice: ItemDetailPlanChoice): ItemDetailPlanRequest | null
   }
 }
 
-export function TakeoffItemDetail({ projectId, address, reader, tableQuery, onNavigate, onBack, onGesture }: Props) {
+function ItemDetailView({ projectId, address, reader, tableQuery, onBack, onGesture, onAddressChange }: Props) {
   const queue = useMemo(() => new ItemDetailQueue(), []);
   const [revision, setRevision] = useState(0);
   const [load, setLoad] = useState<Load>({ state: "loading" });
@@ -77,8 +102,12 @@ export function TakeoffItemDetail({ projectId, address, reader, tableQuery, onNa
   const [anchor, setAnchor] = useState<number | null>(null);
   const [notice, setNotice] = useState("");
   const [panels, setPanels] = useState({ queue: false, evidence: false });
+  const [focusEvidence, setFocusEvidence] = useState(false);
+  const [documentState, setDocumentState] = useState<ItemDetailDocumentState>(null);
   const list = useRef<HTMLUListElement>(null);
   const evidence = useRef<HTMLHeadingElement>(null);
+  /** Changes with each navigation the member asks for: a move still waiting for a page does not act after another. */
+  const navigation = useRef(0);
 
   // The queue: the table's page that holds the item, as the table filtered it; an item outside the filter (a link of the
   // radar) is read alone and shown beside it. Read once per item not yet in the queue.
@@ -125,17 +154,21 @@ export function TakeoffItemDetail({ projectId, address, reader, tableQuery, onNa
   const position = queue.position(itemId);
 
   const choice = useMemo<ItemDetailPlanChoice>(() => (line ? chooseItemDetailPlan(line, address) : { kind: "none" }), [line, address]);
-  const request = useMemo(() => planRequest(choice), [choice]);
-  const [resolved, setResolved] = useState<{ key: string; resolution: ItemDetailPlanResolution }>({ key: "", resolution: { state: "none" } });
+  // A plan is resolved again each time it is opened (another plan, reading or piece), never for a page turned or an item
+  // shown on the same plan: the request is read when the plan changes, not followed.
   const key = choiceKey(choice);
+  const request = useRef<ItemDetailPlanRequest | null>(null);
+  request.current = planRequest(choice);
+  const [resolved, setResolved] = useState<{ key: string; resolution: ItemDetailPlanResolution }>({ key: "", resolution: { state: "none" } });
   useEffect(() => {
-    if (!request) {
+    const asked = request.current;
+    if (!asked) {
       setResolved({ key, resolution: { state: "none" } });
       return;
     }
     let active = true;
     setResolved({ key, resolution: { state: "loading" } });
-    reader.resolvePlan(request).then((view) => {
+    reader.resolvePlan(asked).then((view) => {
       if (active) setResolved({ key, resolution: { state: "ready", view } });
     }).catch((error: unknown) => {
       if (!active) return;
@@ -145,23 +178,41 @@ export function TakeoffItemDetail({ projectId, address, reader, tableQuery, onNa
     return () => {
       active = false;
     };
-  }, [key, request, reader]);
-  const resolution: ItemDetailPlanResolution = resolved.key === key ? resolved.resolution : request ? { state: "loading" } : { state: "none" };
+  }, [key, reader]);
+  const resolution: ItemDetailPlanResolution = resolved.key === key ? resolved.resolution
+    : request.current ? { state: "loading" } : { state: "none" };
   const view = resolution.state === "ready" ? resolution.view : null;
   const answer = choice.kind === "reading" && choice.current ? choice.reading.answer : null;
   const opening = itemDetailOpeningPage({ requested: address.page, answer, pagesRead: view?.plan.pagesRead ?? [],
-    pageCount: view?.plan.pageCount ?? null });
+    pageCount: view?.plan.pageCount ?? null, observationId: choice.kind === "reading" ? choice.observationId : null });
   const pagesOfInterest = itemDetailPagesOfInterest(answer, view?.plan.pagesRead ?? []);
 
+  const replaceAddress = useCallback((next: ItemDetailAddress) => {
+    const href = itemDetailHref(projectId, next, tableQuery);
+    window.history.replaceState(null, "", href);
+    onAddressChange?.(href);
+  }, [onAddressChange, projectId, tableQuery]);
+  /** A view of the item shown: what the centre shows is named, so that the address parses and reopens it. */
   const go = useCallback((next: Partial<ItemDetailAddress>) => {
-    onNavigate(itemDetailHref(projectId, { ...address, ...next }, tableQuery));
-  }, [address, onNavigate, projectId, tableQuery]);
+    navigation.current += 1;
+    replaceAddress({ ...address, ...itemDetailChoiceAddress(choice), ...next });
+  }, [address, choice, replaceAddress]);
   const openItem = useCallback((nextItemId: string) => {
-    onNavigate(itemDetailHref(projectId, { itemId: nextItemId, planKey: null, jobId: null, page: null, source: null, answerId: null,
-      observationId: null, versionId: address.versionId }, tableQuery));
-  }, [address.versionId, onNavigate, projectId, tableQuery]);
+    navigation.current += 1;
+    replaceAddress({ itemId: nextItemId, planKey: null, jobId: null, page: null, source: null, answerId: null, observationId: null,
+      versionId: address.versionId });
+  }, [address.versionId, replaceAddress]);
+
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
 
   const move = useCallback(async (step: -1 | 1) => {
+    const asked = navigation.current;
     let next = queue.neighbour(itemId, step);
     if (!next && !queue.find(itemId) && step > 0) {
       // From an item outside the filter, down leads into the queue.
@@ -170,10 +221,13 @@ export function TakeoffItemDetail({ projectId, address, reader, tableQuery, onNa
     }
     if (next && "offset" in next) {
       try {
-        queue.add(await reader.readQueue({ kind: "page", offset: next.offset }));
+        const page = await reader.readQueue({ kind: "page", offset: next.offset });
+        // The member went back or elsewhere meanwhile: the move is dropped.
+        if (!mounted.current || navigation.current !== asked) return;
+        queue.add(page);
         setRevision((value) => value + 1);
       } catch {
-        setNotice("La page suivante des postes n’a pas pu être lue.");
+        if (mounted.current && navigation.current === asked) setNotice("La page suivante des postes n’a pas pu être lue.");
         return;
       }
       next = queue.neighbour(itemId, step);
@@ -183,6 +237,7 @@ export function TakeoffItemDetail({ projectId, address, reader, tableQuery, onNa
   }, [context, itemId, openItem, queue, reader]);
 
   const back = useCallback(() => {
+    navigation.current += 1;
     const index = position?.index ?? null;
     onBack(itemTableReturnHref(projectId, tableQuery, index === null ? { itemId, offset: 0 }
       : { itemId, offset: itemTablePageOffset(index, context?.limit ?? 0) }));
@@ -205,16 +260,23 @@ export function TakeoffItemDetail({ projectId, address, reader, tableQuery, onNa
 
   const onListKey = (event: ReactKeyboardEvent<HTMLUListElement>) => {
     const action = itemDetailKeyAction({ key: event.key, ctrlKey: event.ctrlKey, metaKey: event.metaKey, altKey: event.altKey,
-      isComposing: event.nativeEvent.isComposing }, isItemDetailFieldTarget(event.target) && event.target !== event.currentTarget);
+      shiftKey: event.shiftKey, isComposing: event.nativeEvent.isComposing },
+    isItemDetailFieldTarget(event.target) && event.target !== event.currentTarget);
     if (!action) return;
     event.preventDefault();
     if (action.kind === "move") void move(action.step);
     else if (action.kind === "evidence") {
+      // On a narrow screen the evidence panel is shown first; the focus follows once it is rendered.
       setPanels((value) => ({ ...value, evidence: true }));
-      evidence.current?.focus();
+      setFocusEvidence(true);
     } else if (action.kind === "back") back();
     else gesture(action.gesture, action.initial);
   };
+  useEffect(() => {
+    if (!focusEvidence || !panels.evidence) return;
+    setFocusEvidence(false);
+    evidence.current?.focus();
+  }, [focusEvidence, panels.evidence]);
 
   // The list takes the keyboard when the detail opens, and keeps it as the item changes.
   useEffect(() => {
@@ -246,6 +308,8 @@ export function TakeoffItemDetail({ projectId, address, reader, tableQuery, onNa
         <div className="p-4"><Alert variant="danger">Ce poste est introuvable dans la liste de l’affaire.</Alert></div>
       ) : load.state === "error" ? (
         <div className="p-4"><Alert variant="danger">Les postes du métré n’ont pas pu être lus. Revenez aux postes puis réessayez.</Alert></div>
+      ) : choice.kind === "mismatch" ? (
+        <div className="p-4"><Alert variant="danger">Ce lien ne désigne pas une lecture de ce poste.</Alert></div>
       ) : (
         <div className="flex min-h-0 flex-1 max-lg:flex-col">
           <aside aria-label="Postes de la sélection" className={cn("flex w-72 shrink-0 flex-col border-r border-border bg-surface max-lg:w-full max-lg:border-b max-lg:border-r-0",
@@ -273,12 +337,13 @@ export function TakeoffItemDetail({ projectId, address, reader, tableQuery, onNa
             </p>
           </aside>
           <ItemDetailPlanPane resolution={line ? resolution : { state: "loading" }} page={opening.page} requestedMissing={opening.requestedMissing}
-            pagesOfInterest={pagesOfInterest} onPage={(page) => go({ page })} dossierUrl={reader.dossierUrl}
+            pagesOfInterest={pagesOfInterest} onPage={(page) => go({ page })} onDocumentState={setDocumentState}
             emptyMessage="Aucun plan n’est associé à ce poste pour le moment." />
-          <div className={cn("w-[24rem] shrink-0 border-l border-border max-lg:w-full max-lg:border-l-0 max-lg:border-t", !panels.evidence && "max-lg:hidden")}>
+          <div data-testid="poste-detail-evidence-panel" data-narrow-collapsed={String(!panels.evidence)}
+            className={cn("w-[24rem] shrink-0 border-l border-border max-lg:w-full max-lg:border-l-0 max-lg:border-t", !panels.evidence && "max-lg:hidden")}>
             {line ? (
-              <ItemDetailEvidencePane ref={evidence} line={line} choice={choice} plan={view} names={names} planNames={planNames} page={opening.page}
-                outsideFilter={!found && outside !== null}
+              <ItemDetailEvidencePane ref={evidence} line={line} choice={choice} plan={view} documentState={documentState} names={names}
+                planNames={planNames} outsideFilter={!found && outside !== null}
                 onObservation={(observation) => go({ page: observation.page, observationId: observation.observationId,
                   answerId: answer?.answerId ?? null })}
                 onPlan={(planKey, jobId) => go({ planKey, jobId, page: null, source: null, answerId: null, observationId: null })} />

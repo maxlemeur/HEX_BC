@@ -9,8 +9,10 @@ import {
 /**
  * The plan the detail of an item shows (lot 5): GET /api/affaires/{projectId}/takeoff/item-detail/plan. One resolution
  * per plan and reading, never per item or per mark: a reading's plan is the copy that analysis sealed (its digest, its
- * pages), even since replaced; a plan no analysis sealed is the dossier's current copy. The bytes themselves are fetched
- * by the page reader from a short private address the server checks at that request.
+ * pages), even since replaced; a plan no analysis sealed is the dossier's current copy at the moment it is asked. The bytes
+ * are fetched by the page reader from a short private address: the attested bytes' route, checked at each request, or the
+ * plan centre's signed address, made for this member by this resolution. A resolution is asked again each time a plan is
+ * opened, never kept.
  */
 
 const page = z.number().int().positive();
@@ -25,6 +27,8 @@ export const ITEM_DETAIL_PLAN_UNAVAILABLE = [
   "several_copies",
   /** The generation the address names is not the dossier's any more. */
   "generation_replaced",
+  /** A copy exists, but the route that serves its bytes does not serve them to this member. */
+  "not_available_to_you",
 ] as const;
 export type ItemDetailPlanUnavailable = (typeof ITEM_DETAIL_PLAN_UNAVAILABLE)[number];
 
@@ -46,8 +50,8 @@ export const itemDetailPlanViewSchema = z.object({
   document: z.discriminatedUnion("kind", [
     z.object({ kind: z.literal("attested"), href: z.string().startsWith("/api/") })
       .strict().describe("Les octets que la lecture a attestés, vérifiés par le serveur à chaque demande."),
-    z.object({ kind: z.literal("dossier"), planSetId: uuid, planFileId: uuid })
-      .strict().describe("La copie actuelle du dossier : son adresse signée est demandée au moment de l’afficher."),
+    z.object({ kind: z.literal("dossier"), planSetId: uuid, planFileId: uuid, url: z.string().url() })
+      .strict().describe("La copie actuelle du dossier au moment de la demande, signée pour le membre par la lecture du centre de plans (durée courte)."),
     z.object({ kind: z.literal("unavailable"), reason: z.enum(ITEM_DETAIL_PLAN_UNAVAILABLE) }).strict(),
   ]),
 }).strict();

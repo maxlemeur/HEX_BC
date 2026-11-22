@@ -8,7 +8,7 @@ import {
   resolveHistoricalReviewLink,
   type ItemDetailAddress,
 } from "@/lib/takeoff/item-detail-address";
-import { takeoffDpgfExceptionsHref, takeoffReviewHref } from "@/lib/takeoff/review-href";
+import { takeoffReviewHref } from "@/lib/takeoff/review-href";
 
 // The address of the detail of an item (lot 5) lives on the affaire's takeoff page beside the table's own parameters
 // (`poste…`, lot 4) and the activity's (`job`, `planSet`, `offset`…). Ways it could open the wrong view, written with
@@ -68,7 +68,7 @@ describe("readItemDetailAddress", () => {
       `poste=${ITEM}&plan=p&page=2.5`, `poste=${ITEM}&plan=p&page=07`, `poste=${ITEM}&plan=${"x".repeat(201)}`,
       `poste=${ITEM}&generation=g-2`, `poste=${ITEM}&source=${PIECE}&lecture=${JOB}`, `poste=${ITEM}&source=${PIECE}&plan=p`,
       `poste=${ITEM}&observation=o-1`, `poste=${ITEM}&page=3`, `poste=${ITEM}&source=piece`, `poste=${ITEM}&reponse=a`,
-      `poste=${ITEM}&versionId=v`,
+      `poste=${ITEM}&versionId=v`, `poste=${ITEM}&lecture=${JOB}`, `poste=${ITEM}&lecture=${JOB}&page=2`,
     ]) {
       expect(read(query), query).toEqual({ kind: "invalid" });
     }
@@ -118,7 +118,8 @@ describe("resolveHistoricalReviewLink", () => {
     "versioned bookmark": `/dashboard/affaires/${PROJECT}/takeoff/${JOB}/review?versionId=${VERSION}`,
     "carried-over review": `/dashboard/affaires/${PROJECT}/takeoff/${JOB}/review?versionId=${CARRIED}`,
     "notification of an affaire's takeoff": `/dashboard/affaires/${PROJECT}/takeoff/${JOB}/review`,
-    "risk radar": takeoffDpgfExceptionsHref({ projectId: PROJECT, jobId: JOB, versionId: VERSION, reviewMode: "validation" }),
+    // Written out, as the radar's banner and the approvals queue have it on main (not built with the builder under test).
+    "risk radar": `/dashboard/affaires/${PROJECT}/takeoff/${JOB}/review?versionId=${VERSION}&reviewMode=validation&view=dpgf&dpgfView=exceptions_only`,
     "exceptions signal on an estimate line": `/dashboard/affaires/${PROJECT}/takeoff/${JOB}/review?versionId=${VERSION}&line=${LINE}`,
   };
 

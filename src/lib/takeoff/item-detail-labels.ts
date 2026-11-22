@@ -108,6 +108,7 @@ export const ITEM_DETAIL_PLAN_UNAVAILABLE_LABELS: Record<ItemDetailPlanUnavailab
   no_current_copy: "Le dossier n’a pas de copie actuelle de ce plan.",
   several_copies: "Plusieurs copies de ce plan sont actuelles : choisissez-la dans les plans de l’affaire.",
   generation_replaced: "Cette version du plan a été remplacée dans le dossier.",
+  not_available_to_you: "Ce plan n’est pas accessible avec vos droits.",
 };
 
 export const ITEM_DETAIL_PAGE_FAILURE_LABELS: Record<PdfPageFailure, string> = {

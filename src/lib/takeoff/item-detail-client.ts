@@ -5,11 +5,11 @@ import { TAKEOFF_ITEM_DETAIL_PARAMS as P } from "@/lib/takeoff/review-href";
 /**
  * The one reader of the detail of an item (lot 5): the table's lines it shows come from the table of items (lot 4's
  * read, given by the caller, so that the detail reads the same pages, filter and order the table showed), the plans from
- * the detail's own resolution, the bytes of a dossier copy from the plan centre's signed address, asked when shown.
+ * the detail's own resolution, which also signs a dossier copy for the member at that request.
  *
- * One reader per member and affaire: its cache of plan resolutions is bounded and dies with it, so a change of member or
- * tenant (a new reader) never shows what the previous one resolved. A resolution is read once per plan and reading;
- * nothing is read per item or per mark, and nothing is polled.
+ * One reader per member and affaire: the detail starts from nothing when its reader changes (TakeoffItemDetail). It keeps
+ * no resolution: a plan is resolved again each time it is opened, never per item shown on it, per page or per mark, and
+ * nothing is polled. The PDF stays loaded by the identity of its bytes (usePdfPage), not by its resolution.
  */
 
 export type ItemDetailQueueRequest = { kind: "page"; offset: number } | { kind: "focus"; itemId: string };
@@ -22,9 +22,8 @@ export type ItemDetailTableSource = {
 };
 
 export type ItemDetailReader = ItemDetailTableSource & {
+  /** The plan to show, resolved again each time a plan is opened: a dossier copy is current when it is shown. */
   resolvePlan(request: ItemDetailPlanRequest): Promise<ItemDetailPlanView>;
-  /** The short signed address of a copy of the dossier, asked at the moment its bytes are shown. */
-  dossierUrl(planSetId: string, planFileId: string): Promise<string | null>;
 };
 
 /** A refused resolution: its code and status, worded on screen by item-detail-labels.ts, never by the server's text. */
@@ -35,7 +34,6 @@ export class ItemDetailPlanError extends Error {
   }
 }
 
-const MAX_PLAN_RESOLUTIONS = 24;
 const READ_TIMEOUT_MS = 10_000;
 
 const planQuery = (request: ItemDetailPlanRequest) => {
@@ -66,38 +64,15 @@ async function readEnvelope(path: string): Promise<{ data: unknown } | { code: s
 }
 
 export function createItemDetailReader(input: { projectId: string; table: ItemDetailTableSource }): ItemDetailReader {
-  const resolutions = new Map<string, Promise<ItemDetailPlanView>>();
   return {
     readQueue: (request) => input.table.readQueue(request),
     readLine: (itemId) => input.table.readLine(itemId),
-    resolvePlan(request) {
-      const key = planQuery(request).toString();
-      const known = resolutions.get(key);
-      if (known) {
-        // Most recently used last: the oldest resolution leaves first.
-        resolutions.delete(key);
-        resolutions.set(key, known);
-        return known;
-      }
-      const pending = readEnvelope(`/api/affaires/${encodeURIComponent(input.projectId)}/takeoff/item-detail/plan?${key}`)
-        .then((answer) => {
-          if (!("data" in answer)) throw new ItemDetailPlanError(answer.code, answer.status);
-          const parsed = itemDetailPlanViewSchema.safeParse(answer.data);
-          if (!parsed.success) throw new ItemDetailPlanError(null, null);
-          return parsed.data;
-        });
-      // A failed resolution is asked again next time, never kept.
-      pending.catch(() => resolutions.delete(key));
-      resolutions.set(key, pending);
-      while (resolutions.size > MAX_PLAN_RESOLUTIONS) resolutions.delete(resolutions.keys().next().value as string);
-      return pending;
-    },
-    async dossierUrl(planSetId, planFileId) {
-      const answer = await readEnvelope(`/api/takeoff/plan-sets/${encodeURIComponent(planSetId)}/files/${encodeURIComponent(planFileId)}`
-        + "?include_download_url=true");
-      if (!("data" in answer)) return null;
-      const url = (answer.data as { plan_file?: { download_url?: unknown } } | null)?.plan_file?.download_url;
-      return typeof url === "string" && url ? url : null;
+    async resolvePlan(request) {
+      const answer = await readEnvelope(`/api/affaires/${encodeURIComponent(input.projectId)}/takeoff/item-detail/plan?${planQuery(request)}`);
+      if (!("data" in answer)) throw new ItemDetailPlanError(answer.code, answer.status);
+      const parsed = itemDetailPlanViewSchema.safeParse(answer.data);
+      if (!parsed.success) throw new ItemDetailPlanError(null, null);
+      return parsed.data;
     },
   };
 }

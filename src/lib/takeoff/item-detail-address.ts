@@ -89,6 +89,8 @@ export function readItemDetailAddress(params: Params): ItemDetailAddressRead {
     if (generation !== null && !documentId) return { kind: "invalid" };
     if (address.source && (address.jobId || address.planKey)) return { kind: "invalid" };
     if (address.observationId && !address.answerId) return { kind: "invalid" };
+    // A reading is a reading of a plan: a job alone would let the screen pick another plan than the one it read.
+    if (address.jobId && !address.planKey) return { kind: "invalid" };
     if (page !== null && !address.planKey && !address.source) return { kind: "invalid" };
     return { kind: "detail", address };
   } catch (error) {

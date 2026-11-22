@@ -1,6 +1,6 @@
 "use client";
 
-import { useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { ChevronLeft, ChevronRight, Maximize2, Minus, Plus } from "lucide-react";
 
 import { usePdfPage, type PdfPageSource } from "@/components/takeoff/review/usePdfPage";
@@ -17,8 +17,8 @@ import { zoomedBy } from "@/lib/takeoff/pdf-page-geometry";
 
 /**
  * The centre of the detail of an item: its plan's page, drawn by the review's page reader from the bytes the server
- * resolved (the copy a reading sealed, or the dossier's current copy, asked at the moment it is shown), with or without
- * a vector reading. One page at a time; zoom with the buttons or Ctrl/⌘ + wheel, pan by dragging; the pages worth
+ * resolved (the copy a reading sealed, or the dossier's current copy signed for the member by that resolution), with or
+ * without a vector reading. The PDF stays loaded by the identity of its bytes: a page turned renders, it does not load. One page at a time; zoom with the buttons or Ctrl/⌘ + wheel, pan by dragging; the pages worth
  * turning to (the observations', the pages searched) in a list. When the bytes cannot be shown the plan is named with
  * what is known of it, never replaced by another copy.
  */
@@ -32,27 +32,34 @@ export type ItemDetailPlanResolution =
 type View = { zoom: number; offset: { x: number; y: number } };
 const FITTED: View = { zoom: 1, offset: { x: 0, y: 0 } };
 
-function pdfSourceOf(view: ItemDetailPlanView | null, dossierUrl: (setId: string, fileId: string) => Promise<string | null>): PdfPageSource | null {
+/** opening: the bytes are asked; served: the route served them (the attested route checks their digest); failed. */
+export type ItemDetailDocumentState = "opening" | "served" | "failed" | null;
+
+/** The identity of the bytes a resolution names (the copy and its generation), and where to fetch them now. */
+function pdfSourceOf(view: ItemDetailPlanView | null): { key: string; href: string } | null {
   if (!view) return null;
   const { document } = view;
-  if (document.kind === "attested") return { key: `attested:${document.href}`, url: async () => document.href };
-  if (document.kind === "dossier") {
-    return { key: `dossier:${document.planFileId}:${view.plan.generation ?? ""}`, url: () => dossierUrl(document.planSetId, document.planFileId) };
-  }
+  if (document.kind === "attested") return { key: `attested:${document.href}`, href: document.href };
+  if (document.kind === "dossier") return { key: `dossier:${document.planFileId}:${view.plan.generation ?? ""}`, href: document.url };
   return null;
 }
 
-export function ItemDetailPlanPane({ resolution, page, requestedMissing, pagesOfInterest, onPage, dossierUrl, emptyMessage }: {
+export function ItemDetailPlanPane({ resolution, page, requestedMissing, pagesOfInterest, onPage, onDocumentState, emptyMessage }: {
   resolution: ItemDetailPlanResolution;
   page: number;
   requestedMissing: boolean;
   pagesOfInterest: readonly number[];
   onPage: (page: number) => void;
-  dossierUrl: (setId: string, fileId: string) => Promise<string | null>;
+  onDocumentState?: (state: ItemDetailDocumentState) => void;
   emptyMessage: string;
 }) {
   const view = resolution.state === "ready" ? resolution.view : null;
-  const source = useMemo(() => pdfSourceOf(view, dossierUrl), [view, dossierUrl]);
+  const bytes = pdfSourceOf(view);
+  // The latest address of these bytes, read when they are loaded: a new resolution of the same copy loads nothing again.
+  const href = useRef<string | null>(null);
+  href.current = bytes?.href ?? null;
+  const bytesKey = bytes?.key ?? null;
+  const source = useMemo<PdfPageSource | null>(() => (bytesKey ? { key: bytesKey, url: async () => href.current } : null), [bytesKey]);
   const canvas = useRef<HTMLCanvasElement>(null);
   const frame = useRef<HTMLDivElement>(null);
   const drag = useRef<{ x: number; y: number } | null>(null);
@@ -78,6 +85,12 @@ export function ItemDetailPlanPane({ resolution, page, requestedMissing, pagesOf
   const fit = size && size.key === viewKey ? (frameWidth > 0 ? frameWidth / size.width : 0.25) : 0;
   const reader = usePdfPage({ source, page: source ? page : null, scale: fit * current.zoom, canvas });
   if (reader.size && (size?.key !== viewKey || size.width !== reader.size.width)) setSize({ key: viewKey, width: reader.size.width });
+  const documentState: ItemDetailDocumentState = !source ? null
+    : reader.failure === "unavailable" || reader.failure === "load_failed" ? "failed"
+      : reader.pageCount !== null ? "served" : "opening";
+  useEffect(() => {
+    onDocumentState?.(documentState);
+  }, [documentState, onDocumentState]);
 
   useLayoutEffect(() => {
     const element = frame.current;

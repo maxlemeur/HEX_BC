@@ -114,7 +114,7 @@ export const detailPlans = [{ key: PLAN_RDC, name: "Plan RDC" }, { key: PLAN_R1,
 export function planViews(): Record<string, ItemDetailPlanView> {
   const attested = (planKey: string, jobId: string, copy: string, name: string, pagesRead: number[]): ItemDetailPlanView => ({
     plan: { key: planKey, name, planFileId: copy, generation: "1", contentSha256: "c".repeat(64), pageCount: 9, pagesRead },
-    reading: { jobId, status: "succeeded", finishedAt: "2026-11-21T09:30:00.000Z" },
+    reading: { jobId, status: "completed", finishedAt: "2026-11-21T09:30:00.000Z" },
     document: { kind: "attested", href: `/api/takeoff/jobs/${jobId}/vector-plans/${copy}` },
   });
   return {
@@ -123,31 +123,40 @@ export function planViews(): Record<string, ItemDetailPlanView> {
     [`${JOB_SCAN}:${PLAN_SCAN}`]: attested(PLAN_SCAN, JOB_SCAN, COPY_SCAN, "Plan scanné R+2", [2]),
     [`${JOB_EARLIER}:${PLAN_RDC}`]: attested(PLAN_RDC, JOB_EARLIER, COPY_RDC, "Plan RDC", []),
     [`:${PLAN_R1}`]: { plan: { key: PLAN_R1, name: "Plan R+1", planFileId: COPY_R1, generation: "2", contentSha256: null, pageCount: 4,
-      pagesRead: [] }, reading: null, document: { kind: "dossier", planSetId: SET, planFileId: COPY_R1 } },
+      pagesRead: [] }, reading: null, document: { kind: "dossier", planSetId: SET, planFileId: COPY_R1,
+      url: `https://files.test/dossier/${COPY_R1}.pdf` } },
     [`:${PLAN_RDC}`]: { plan: { key: PLAN_RDC, name: "Plan RDC", planFileId: COPY_RDC, generation: "1", contentSha256: null, pageCount: 9,
-      pagesRead: [] }, reading: null, document: { kind: "dossier", planSetId: SET, planFileId: COPY_RDC } },
+      pagesRead: [] }, reading: null, document: { kind: "dossier", planSetId: SET, planFileId: COPY_RDC,
+      url: `https://files.test/dossier/${COPY_RDC}.pdf` } },
   };
 }
 
-export type FixtureReaderCalls = { queue: ItemDetailQueueRequest[]; lines: string[]; plans: ItemDetailPlanRequest[]; dossier: string[] };
+export type FixtureReaderCalls = { queue: ItemDetailQueueRequest[]; lines: string[]; plans: ItemDetailPlanRequest[] };
 
-/** A reader over fictional lines: pages of `limit` lines in their order, `outside` read alone, plans from `views`. */
+/**
+ * A reader over fictional lines: pages of `limit` lines in their order, `outside` read alone, plans from `views` (read at
+ * each resolution, so that a test can change what the server would answer), a page of the queue held until released.
+ */
 export function fixtureItemDetailReader(input: {
   lines: ItemDetailLine[];
   limit?: number;
   outside?: ItemDetailLine[];
   canReview?: boolean;
   views?: Record<string, ItemDetailPlanView>;
+  holdPages?: Promise<void>;
 }): { reader: ItemDetailReader; calls: FixtureReaderCalls } {
   const limit = input.limit ?? 50;
   const views = input.views ?? planViews();
-  const calls: FixtureReaderCalls = { queue: [], lines: [], plans: [], dossier: [] };
+  const calls: FixtureReaderCalls = { queue: [], lines: [], plans: [] };
   const page = (offset: number): ItemDetailQueuePage => ({ lines: input.lines.slice(offset, offset + limit), total: input.lines.length,
     offset, limit, canReview: input.canReview ?? true, names: { [MEMBER]: "Camille Martin" }, plans: detailPlans });
   const reader: ItemDetailReader = {
     async readQueue(request) {
       calls.queue.push(request);
-      if (request.kind === "page") return { ...page(request.offset), focusFound: false };
+      if (request.kind === "page") {
+        await input.holdPages;
+        return { ...page(request.offset), focusFound: false };
+      }
       const index = input.lines.findIndex(({ itemId }) => itemId === request.itemId);
       return { ...page(index < 0 ? 0 : Math.floor(index / limit) * limit), focusFound: index >= 0 };
     },
@@ -164,10 +173,6 @@ export function fixtureItemDetailReader(input: {
         throw new ItemDetailPlanError("TAKEOFF_ITEM_DETAIL_PLAN_NOT_FOUND", 404);
       }
       return view;
-    },
-    async dossierUrl(planSetId, planFileId) {
-      calls.dossier.push(`${planSetId}/${planFileId}`);
-      return `https://files.test/dossier/${planFileId}.pdf`;
     },
   };
   return { reader, calls };
