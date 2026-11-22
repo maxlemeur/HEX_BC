@@ -89,7 +89,8 @@ function TakeoffItemSendScreen({ open, jobId, planName, viewerKey, onOpenChange,
   // The pages whose note is being typed: the confirmation waits for it to reach the preview.
   const [typing, setTyping] = useState<ReadonlySet<string>>(new Set());
   const pending = useRef(false);
-  // One intention key per plan confirmed: a retry of the same plan replays its receipt, another plan gets a new key.
+  // One intention key per plan and choices confirmed: a retry of the same request replays its receipt (the server answers it
+  // only for the same plan and the same choices), another plan or other choices get a new key.
   const intent = useRef<{ digest: string; id: string } | null>(null);
   // A preview found stale: the one shown before it, and the choices dropped since, said with the next one.
   const stale = useRef<{ from: Preview; dropped: string[] } | null>(null);
@@ -196,7 +197,9 @@ function TakeoffItemSendScreen({ open, jobId, planName, viewerKey, onOpenChange,
     setSubmitting(true);
     setSubmitError(null);
     const digest = data.plan_digest;
-    if (intent.current?.digest !== digest) intent.current = { digest, id: crypto.randomUUID() };
+    const request = itemSendRequestOf({ ...ask, destination: data.destination ?? undefined, breakdown: data.breakdown });
+    const requestKey = `${digest}:${JSON.stringify(request)}`;
+    if (intent.current?.digest !== requestKey) intent.current = { digest: requestKey, id: crypto.randomUUID() };
     const completion = start({ screen, item: String(ask.read) });
     const lockVersionId = data.destination?.kind === "existing_draft" ? data.destination.version_id : null;
     let release = false;
@@ -213,8 +216,7 @@ function TakeoffItemSendScreen({ open, jobId, planName, viewerKey, onOpenChange,
         }
         release = lock.shouldRelease;
       }
-      response = await confirmTakeoffItemSend(jobId, { ...itemSendRequestOf({ ...ask, destination: data.destination ?? undefined,
-        breakdown: data.breakdown }), request_id: intent.current.id, plan_digest: digest });
+      response = await confirmTakeoffItemSend(jobId, { ...request, request_id: intent.current.id, plan_digest: digest });
     } catch (error) {
       failure = error;
     } finally {

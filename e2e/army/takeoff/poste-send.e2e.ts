@@ -220,7 +220,8 @@ describe("Envoi d’un plan au devis, poste par poste", () => {
       const doubled = await apiRequest<{ error: { message: string } }>(ui.browser, "POST", `/api/takeoff/jobs/${planD.jobId}/item-send/confirm`, {
         request_id: crypto.randomUUID(), plan_digest: "0".repeat(64), destination: { kind: "existing_draft", version_id: v1.id },
         page_decisions: [{ page: 2, decision: "keep_both", reason_code: "other_zone", note: null }] });
-      expect(doubled.status).toBe(422);
+      // The plan the member would confirm is no longer confirmable: refused as a stale preview, nothing written.
+      expect(doubled.status).toBe(409);
       expect(doubled.body.error.message).toContain("elle compterait deux fois");
       expect(doubled.body.error.message).toContain("Rien n’a été écrit.");
       expect([(await readOwnedLines(seeded.projectId)).find((line) => line.id === lavabo.id)!.quantity, await countOwnedReceipts(seeded.projectId)])
@@ -313,6 +314,16 @@ describe("Envoi d’un plan au devis, poste par poste", () => {
       const shot = await ui.app.screenshot("poste-envoi-dpgf-sans-ligne");
       await dialog.getByRole("button", "Annuler", { exact: true }).click();
       expect([await readOwnedVersions(seeded.projectId), await countOwnedReceipts(seeded.projectId)]).toEqual([[], 0]);
+
+      // The review of this plan does not offer today's send, which refuses a plan read against the list: it offers this one.
+      await app.open(`/dashboard/affaires/${seeded.projectId}/takeoff/${seeded.plans[0].jobId}/review`);
+      await waitForHydration(ui.browser);
+      const notice = ui.locator('[data-testid="item-send-review-notice"]');
+      await expect(notice).toContainText("Ce plan a été lu contre la liste des postes", { timeout: 30_000 });
+      await notice.getByRole("button", "Envoyer ce plan au devis", { exact: true }).click();
+      await expect(screen.getByRole("dialog")).toContainText("Envoyer le plan « plan-a.pdf » au devis");
+      await expect(screen.getByRole("dialog")).toContainText("La liste des postes vient du DPGF");
+      await screen.getByRole("dialog").getByRole("button", "Annuler", { exact: true }).click();
       await recordEvidence(army, "POSTE-ENVOI03", { projectId: seeded.projectId, screenshots: [shot] });
     });
 });
