@@ -40,6 +40,32 @@ describe("affaire site address", () => {
     expect(result.siteAddress).toBe("12 rue du Test\nParis");
   });
 
+  it("saves the site contacts trimmed, without empty role or phone, and answers them as stored (TI-691)", async () => {
+    query.maybeSingle.mockResolvedValue({ data: {
+      id: input.projectId, name: "Chantier", site_address: null,
+      site_contacts: [{ name: "Jean Fictif", role: "chef de chantier", phone: "06 00 00 00 01" }, { name: "Marie Fictive" }],
+    }, error: null });
+    const result = await updateAffaireProjectMetadataAction({ ...input, siteContacts: [
+      { name: " Jean Fictif ", role: " chef de chantier ", phone: " 06 00 00 00 01 " },
+      { name: "Marie Fictive", role: "  ", phone: "" },
+    ] });
+    expect(query.update).toHaveBeenCalledWith(expect.objectContaining({ site_contacts: [
+      { name: "Jean Fictif", role: "chef de chantier", phone: "06 00 00 00 01" },
+      { name: "Marie Fictive" },
+    ] }));
+    expect(result.siteContacts).toEqual([
+      { name: "Jean Fictif", role: "chef de chantier", phone: "06 00 00 00 01" },
+      { name: "Marie Fictive" },
+    ]);
+  });
+
+  it("leaves the site contacts alone when the fiche does not send them, and refuses a contact without a name", async () => {
+    await updateAffaireProjectMetadataAction({ ...input, siteAddress: "Paris" });
+    expect(query.update.mock.calls[0]?.[0]).not.toHaveProperty("site_contacts");
+    await expect(updateAffaireProjectMetadataAction({ ...input, siteContacts: [{ name: " ", phone: "06" }] })).rejects.toThrow();
+    expect(query.update).toHaveBeenCalledTimes(1);
+  });
+
   it("rejects unauthorized roles", async () => {
     membership.mockResolvedValue({ role: "viewer", tenant_id: "tenant" });
     await expect(updateAffaireProjectMetadataAction({ ...input, siteAddress: "Paris" })).rejects.toThrow("Accès refuse");

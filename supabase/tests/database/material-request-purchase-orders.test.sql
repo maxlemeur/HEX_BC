@@ -13,7 +13,7 @@
 --  5. the drafts are not one per supplier, the overhead lines do not follow in their supplier's draft imputed to
 --     overhead, a line misses its article, reference at the supplier (else the article's), catalogue wording,
 --     quantity, unit, quote price and lot, 20 % tax, supply type, imputation or request line; the header has a site,
---     misses its affaire, delivery mode or notes naming the request;
+--     misses its affaire or delivery mode, or carries instructions although its affaire has no site contact;
 --  6. money: a price for 100 units is not divided, 2,5 cents rounds to 2 (half to even) instead of 3, a discount
 --     adds, its tax rounds towards zero, the header totals do not subtract it, a discount larger than the order is
 --     accepted, or a draft edit that passes through a negative sum before a valid one is refused;
@@ -493,10 +493,10 @@ select results_eq(
     from public.purchase_orders where id in (current_setting('test.order_alpha')::uuid, current_setting('test.order_beta')::uuid)
     order by order_number$$,
   $$values ('draft'::text, 'a9310000-0000-4000-8000-000000000001'::uuid, null::uuid, 'a9310000-0000-4000-8000-000000000201'::uuid,
-      'counter'::text, 'Demande de matériel du 10/11/2026 (Paul Fictif)'::text, true),
+      'counter'::text, null::text, true),
     ('draft', 'a9310000-0000-4000-8000-000000000001'::uuid, null::uuid, 'a9310000-0000-4000-8000-000000000201'::uuid,
-      'counter', 'Demande de matériel du 10/11/2026 (Paul Fictif)', true)$$,
-  '5 each header: draft of its author, no site, the affaire, the request''s delivery place, notes naming the request');
+      'counter', null, true)$$,
+  '5 each header: draft of its author, no site, the affaire, the request''s delivery place, no instructions (the affaire has no site contact: affaire-site-contacts.test.sql)');
 select results_eq(
   $$select position, product_id, reference, designation, quantity, unit, unit_price_ht_cents, price_per, tax_rate_bp,
       supply_type_id, imputation, overhead_category, project_id, material_request_line_id, line_kind

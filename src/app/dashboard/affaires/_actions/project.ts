@@ -7,6 +7,7 @@ import { affaireOwnerFilter } from "@/lib/affaires/access-server";
 import {
   getCurrentMembershipOrThrow,
 } from "@/lib/affaires/import-flow-server";
+import { affaireSiteContactsSchema, readAffaireSiteContacts } from "@/lib/affaires/site-contacts";
 import { ensureEngineerOrAdmin } from "@/lib/auth/engineer-or-admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { toNonEmptyString } from "@/lib/value-guards";
@@ -17,6 +18,8 @@ const updateAffaireProjectMetadataSchema = z.object({
   clientName: z.string().trim().max(200).nullable().optional(),
   siteAddress: z.string().trim().max(1000).nullable().optional(),
   reference: z.string().trim().max(200).nullable().optional(),
+  /** The people to call on site (TI-691); left out, they are left alone. */
+  siteContacts: affaireSiteContactsSchema.optional(),
 });
 
 export type UpdateAffaireProjectMetadataInput = z.infer<
@@ -50,6 +53,7 @@ export async function updateAffaireProjectMetadataAction(
       ...(parsed.siteAddress !== undefined
         ? { site_address: toNonEmptyString(parsed.siteAddress) }
         : {}),
+      ...(parsed.siteContacts !== undefined ? { site_contacts: parsed.siteContacts } : {}),
     })
     .eq("id", parsed.projectId)
     .eq("tenant_id", membership.tenant_id)
@@ -60,7 +64,7 @@ export async function updateAffaireProjectMetadataAction(
   }
 
   const { data, error } = await query
-    .select("id, name, client_name, reference, site_address")
+    .select("id, name, client_name, reference, site_address, site_contacts")
     .maybeSingle();
 
   if (error) {
@@ -81,5 +85,6 @@ export async function updateAffaireProjectMetadataAction(
     clientName: data.client_name,
     siteAddress: data.site_address,
     reference: data.reference,
+    siteContacts: readAffaireSiteContacts(data.site_contacts),
   };
 }
