@@ -22,6 +22,8 @@ import { ProductFormModal, type ProductRecord } from "@/components/products/Prod
  *     nor announced when it appears;
  * 10. an answer to a « usuel » choice, older than a packaging added meanwhile, hides that packaging;
  * 11. a row's text typed while its save is on its way is replaced by the answer to that save, and lost.
+ * 12. (TI-690/TI-691, owner 2026-11-22) « usuel » does not say what it now drives: the rounding proposed in material
+ *     requests and the {conditionnement} field of the supplier message.
  */
 
 const PRODUCT_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
@@ -116,6 +118,19 @@ describe("ProductFormModal, sale packagings", () => {
     expect(within(rows[1]).getByRole("textbox", { name: "Quantité en ml : Touret de 100 ml" })).toHaveValue("100");
     expect(within(rows[1]).getByRole("checkbox", { name: "Usuel : Touret de 100 ml" })).not.toBeChecked();
     expect(within(region).getByText(/Quantité d’unités de l’article dans un conditionnement/)).toBeVisible();
+  });
+
+  it("says what « usuel » drives, beside the rows' marks and the new packaging's (12)", async () => {
+    const user = userEvent.setup({ delay: null });
+    routes = { [`GET ${URL}`]: answer([bar, reel]) };
+    renderForm();
+
+    const region = await section();
+    const usual = await within(region).findByRole("checkbox", { name: "Usuel : Barre de 6 ml" });
+    const drives = /arrondir les quantités des demandes de matériel.*\{conditionnement\} du message aux fournisseurs/;
+    expect(usual).toHaveAccessibleDescription(drives);
+    await user.click(within(region).getByRole("button", { name: "Ajouter un conditionnement" }));
+    expect(within(region).getByRole("checkbox", { name: "Conditionnement usuel" })).toHaveAccessibleDescription(drives);
   });
 
   it("shows the list without any control to a member who may not change the article (2)", async () => {

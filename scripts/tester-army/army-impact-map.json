@@ -991,6 +991,24 @@
       ]
     },
     {
+      "id": "takeoff-item-table",
+      "note": "Tableau des postes (lot 4 PR 4, migration B2, POSTE-REVUE01) : lecture paginée en SQL, sélection sur deux pages, acceptation, écart, saisie et sélection périmée.",
+      "paths": [
+        "src/components/takeoff/item-table/**",
+        "src/components/takeoff/TakeoffActivityCenter.tsx",
+        "src/app/api/affaires/[projectId]/takeoff/items/**",
+        "src/lib/takeoff/item-table*.ts",
+        "src/lib/takeoff/item-review-commands-server.ts",
+        "src/lib/takeoff/item-answer-aggregation.ts",
+        "src/lib/takeoff/poste-aggregation.ts",
+        "src/lib/takeoff/item-answers*.ts",
+        "supabase/migrations/*_takeoff_item_review_decisions.sql"
+      ],
+      "journeys": [
+        "e2e/army/takeoff/poste-bulk-review.e2e.ts"
+      ]
+    },
+    {
       "id": "import-format-completion",
       "paths": [
         "src/lib/imports/**",

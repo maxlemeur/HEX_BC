@@ -10,7 +10,7 @@ import {
 
 type Envelope<T> = { ok: boolean; data: T; error?: { code: string; message: string } };
 type Line = {
-  id: string; position: number; original_text: string | null; unit: string | null; dimension: string | null;
+  id: string; position: number; original_text: string | null; quantity: number | null; unit: string | null; dimension: string | null;
   product_type: string | null; reference: string | null; material: string | null; status: "draft" | "validated";
   product_id: string | null; product_match: string | null;
 };
@@ -35,6 +35,9 @@ type Product = { id: string };
 //   catalogue; or the type created in place is not the one the article gets, or its Enter creates the article;
 // - unlinking a validated line leaves it validated although it no longer says what was validated, or
 //   keeps the article's wording, so the next proposals and usual names start from the wrong words.
+// - (TI-690, the owner's request of 2026-11-22) the usual packaging of a linked article is not shown beside the
+//   line's quantity, the quantity is rounded without the office, or its click writes another quantity than the
+//   whole packagings.
 armyTest(
   "MR02 request lines are linked to catalogue articles by the office, and a usual name is learned only when the office retains it",
   { session: "army", tags: ["critical", "material-requests"], timeout: 300_000 },
@@ -70,6 +73,11 @@ armyTest(
       designation: `${army.runPrefix} Coude 90° cuivre Ø28`, reference: null,
       product_type: "Coude 90° à souder", material: "Cuivre", dimensions: "Ø28",
     });
+    // The Ø28 elbow is sold by bags of 4: its usual packaging.
+    const bag = await apiRequest<Envelope<unknown>>(browser, "POST", `/api/products/${elbow28}/packagings`, {
+      label: "Sachet", quantity: 4, is_usual: true,
+    });
+    expect(bag.status).toBe(201);
     const elbow22 = await product({
       designation: `${army.runPrefix} Coude 90° cuivre Ø22`, reference: null,
       product_type: "Coude 90° à souder", material: "Cuivre", dimensions: "Ø22",
@@ -134,6 +142,14 @@ armyTest(
     await expect.poll(async () => (await line(2)).product_id, { timeout: 30_000 }).toBe(elbow28);
     expect((await line(2)).product_match).toBe("ranked");
     await expect(screen.getByText("Nom usuel mémorisé : « coude 90 »", { exact: true })).toBeVisible({ timeout: 15_000 });
+
+    // Linked, the elbow's usual packaging shows beside the 10 asked; nothing is rounded until the office clicks, and
+    // its click writes the whole bags (3 × 4 = 12).
+    await expect(screen.getByText("Usuel : Sachet de 4 u", { exact: true })).toBeVisible({ timeout: 15_000 });
+    expect((await line(2)).quantity).toBe(10);
+    await screen.getByRole("button", "Arrondir à 3 sachets (12 u), ligne 2", { exact: true }).tap();
+    await expect.poll(async () => (await line(2)).quantity, { timeout: 30_000 }).toBe(12);
+    await expect(screen.getByRole("button", "Revenir à 10 u, ligne 2", { exact: true })).toBeVisible();
 
     // The plug is not in the catalogue: the office creates it from the line, as a draft marked new.
     await screen.getByRole("button", "Chercher ou créer l’article, ligne 3", { exact: true }).tap();

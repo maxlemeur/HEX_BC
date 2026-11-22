@@ -214,7 +214,7 @@ avec le résultat (« POSTE_HORS_LISTE »), sans créer de poste.
 
 Sur l’affaire, tant qu’un plan attendu n’est pas lu, le total d’un poste reste
 partiel et son absence n’est jamais certifiée. Quand tous ses plans sont lus, un
-plan incertain le rend « À vérifier », sinon une mesure le rend « Mesuré », et
+plan incertain le rend « Incertain », sinon une mesure le rend « Mesuré », et
 seulement des plans tous cherchés sans indice le rendent « Non trouvé ».
 
 **Bornes d’une lecture contre la liste.** Avant son admission, la demande entière
@@ -301,6 +301,122 @@ leurs métadonnées.
 
 Lire la liste, la compléter ou publier le gabarit ne lance aucune analyse et ne crée
 aucun devis.
+
+### Tableau des postes
+
+La page **Métrés** montre sous l’avancement des plans un tableau des postes : une
+ligne par poste de la révision enregistrée, avec son unité, son état, la quantité
+observée, la quantité retenue ou saisie à part, la référence et l’écart DPGF, la
+couverture (plans lus sur plans demandés), ses motifs et sa décision. Les postes qui
+attendent une décision viennent d’abord, puis l’ordre de la liste. La portée est
+l’affaire, ou un plan choisi dans le filtre « Plan » ; les filtres État, Famille,
+Localisation et Décision s’ajoutent, et l’adresse de la page les garde avec le poste
+en vue. Une adresse choisit une vue, jamais un geste, un payeur ni un droit.
+
+**États.** « À mesurer » : aucun plan n’a été interrogé sur ce poste, par exemple un
+poste ajouté après le lancement. « En lecture », « Lecture incomplète » et « Échec de
+lecture » décrivent un travail sans verdict : la quantité observée reste partielle et
+aucune absence n’est certifiée sur l’affaire tant qu’un plan reste à lire. Un plan encore
+en attente ou en lecture garde le poste « En lecture » ; sinon il est en « Échec de
+lecture » quand aucun plan n’a répondu, en « Lecture incomplète » quand d’autres ont
+répondu, quelle que soit la cause de l’arrêt. La base et la lecture contre la liste
+appliquent la même règle. Quand tous
+les plans demandés ont répondu, une réponse incertaine rend le poste « Incertain » ;
+sinon une quantité mesurée le rend « Mesuré » ; sinon il est « Non trouvé », sans
+quantité (jamais 0). Les quantités de deux plans s’additionnent dans une même unité,
+jamais deux unités entre elles ; la valeur candidate d’une réponse incertaine n’est
+jamais une mesure. L’écart à la DPGF est jugé sur un total complet, à vérifier au-delà
+de 1 %. Ce total est celui des lignes positives des réponses mesurées telles qu’elles sont
+revues et des saisies incluses des plans : chacune arrondie au millionième (la moitié vers
+le haut), puis additionnées ; le tableau et la base appliquent ce même calcul.
+
+**Lecture.** La base pagine, filtre, ordonne et compte le tableau
+(`supabase/migrations/20261122125722_takeoff_item_review_decisions.sql`) : l’état de
+chaque poste est celui des réponses enregistrées, sa décision celle de ses réponses. La
+localisation d’un plan est celle qu’un opérateur a enregistrée (bâtiment, niveau) ; un
+plan localisé seulement par la lecture de son cartouche n’apparaît pas dans ce filtre.
+
+**Gestes.** Un lecteur voit le tableau ; l’opérateur du métré coche des postes, sur
+plusieurs pages ou tous les résultats d’un filtre, que le serveur fige avec leurs
+révisions (1 000 postes au plus par geste, jamais tronqués). La sélection, les valeurs
+en cours de saisie et le poste en vue restent quand un plan répond et après un
+rechargement de l’onglet. Chaque geste dit sa portée et combien de postes il touche
+avant confirmation. La base le décide dans la session du membre, auteur de la
+décision : elle compare chaque réponse (toujours la lecture en cours du poste sur ce
+plan), la révision de sa décision et celle de chaque saisie qui entre dans le total (celle
+de la portée, et sur l’affaire celle de chaque plan) ; si un poste a changé depuis la
+sélection, elle n’applique rien et le nomme. Une saisie en cours garde sa valeur et son
+unité, quel que soit le champ tapé d’abord, et part avec le poste tel qu’il est
+maintenant : après un refus pour changement et après un rechargement, il est relu. Un geste attend l’enregistrement en cours
+d’une ligne dans la revue ciblée, puis juge la ligne telle qu’elle est enregistrée ; deux
+gestes sur une même affaire passent l’un après l’autre. La même commande renvoyée
+(double clic, réponse perdue) rend la même réponse ; une autre sous la même clé est
+refusée. Chaque
+effet est journalisé, poste par poste et ligne par ligne.
+
+**Ordre des verrous des gestes.** La commande de revue
+(`public.review_takeoff_items`) prend, dans cet ordre et jamais à rebours : la ligne de
+l’affaire (`FOR KEY SHARE`, comme ses clés étrangères la prennent), puis la clé de revue de
+l’affaire `takeoff-item-review:<affaire>` (que seule cette commande prend), puis les clés de
+règles des analyses dont elle écrit les lignes positives, comme l’enregistrement d’une ligne
+de la revue ciblée les prend : la clé `takeoff-rules:<version>` de chaque version avant les
+clés `takeoff-job-rules:<analyse>` puis `takeoff-job:<analyse>` de chaque analyse sans
+version, chacune dans l’ordre des identifiants ; enfin les lignes (`takeoff_items`) et ses
+propres relations. Elle relit les postes visés une fois ces clés tenues : ce qu’elle compare
+et juge est ce qui est enregistré à ce moment. Les lectures du tableau ne prennent aucun
+verrou.
+
+- **Accepter les mesurés sans anomalie** : seulement les postes mesurés à couverture
+  complète, sans hypothèse, contrôle en échec ou à recalculer, confiance sous le seuil du
+  tenant, preuve localisée manquante, remarque de la lecture, ligne dans une autre unité
+  que le poste, unités différentes selon les plans ou écart DPGF, et d’aucun plan déjà
+  envoyé au devis. La base refait chacune de ces règles à partir de ce qui est enregistré,
+  dans la transaction qui vérifie : aucun appel d’un membre n’accepte ce que le tableau
+  refuse. Un poste incertain ne devient pas mesuré. Les lignes positives du poste sont
+  vérifiées au nom du membre telles qu’elles sont revues ; rien n’est envoyé au devis. Une
+  décision de page déjà au devis appartient à l’envoi vers une version : une analyse qui
+  lit une liste n’a pas de version avant son envoi, qui l’applique.
+- **Écarter la sélection** : un motif choisi une fois (hors périmètre, doublon, erreur
+  de lecture, autre avec une note), écrit sur chaque lecture concernée, y compris sans
+  quantité. Les lignes positives sont exclues avec ce motif et leur vérification est
+  retirée ; leurs règles et celles des lignes voisines sont recalculées aussitôt, comme
+  après une correction dans la revue ciblée, et de nouveau si la même commande est
+  renvoyée (un recalcul interrompu s’achève ainsi sans rien décider deux fois). Un poste
+  qu’aucun plan n’a lu n’a rien à écarter. Un poste écarté ne retient rien : sa saisie,
+  celle de l’affaire comme celle d’un plan, est gardée pour l’historique et une
+  réintégration. Une réintégration sans changement entre-temps rend chaque ligne telle
+  qu’elle était, sa vérification comprise (par qui, quand, pourquoi), et la décision que
+  le poste avait ; si une ligne a changé entre-temps, chaque ligne retrouve son exclusion
+  d’avant sans sa vérification, le poste revient à décider, et l’historique le dit (une
+  hypothèse reste exclue comme elle est arrivée). « Sans changement » se juge sur chaque
+  ligne positive de la lecture, y compris celle que l’écart a laissée telle quelle parce
+  qu’elle était déjà exclue avec ce motif. Un plan déjà envoyé au devis est fermé à tout
+  geste en bloc : il n’est ni accepté, ni écarté, ni réintégré, et ses saisies ne sont ni
+  modifiées ni incluses ; ce qui change après un envoi passe par une révision de cet
+  envoi.
+- **Demander à l’IA de mesurer de nouveau** : un aperçu nomme le membre qui confirme,
+  qui paie sur son propre forfait ChatGPT, le réglage de Mon profil, les plans et les
+  postes ; un effort ponctuel peut être choisi sans changer le profil. Un seul poste
+  suffit, et un poste jamais mesuré l’est sur les plans lus de l’affaire. Pendant une
+  analyse de l’affaire, la sélection reste prête. La confirmation de l’aperçu est le
+  consentement ; l’admission de la demande vient avec une prochaine évolution, d’ici là
+  rien n’est lancé.
+- **Saisie complémentaire** : dans les cellules des postes non trouvés ou incertains,
+  une valeur et une unité par poste, puis une seule catégorie pour la sélection, avec
+  la note obligatoire d’une hypothèse. Le résultat de la lecture reste consultable ; une
+  hypothèse saisie ne compte qu’une fois incluse, poste par poste. Aucun forçage.
+
+Le détail d’un poste montre chaque plan, ses pages cherchées et illisibles, ses sources,
+ses motifs, ses lignes positives telles qu’elles sont revues, la décision et son auteur,
+l’historique de la revue (qui a accepté, écarté, réintégré, saisi ou inclus, quand et
+pourquoi, page par page), et mène à la revue ciblée existante pour la preuve et la
+correction. La quantité observée reste la lecture brute du modèle ; la quantité retenue
+est celle des lignes positives telles qu’elles sont revues (une correction ciblée y
+compte), et une acceptation qu’une correction ciblée a retirée redevient une décision à
+prendre ; une ligne relue non vérifiée n’est jamais retenue, quelle que soit la décision
+lue juste avant. L’historique ouvert est relu avec le tableau. Toute lecture de l’affaire
+refusée (le tableau, l’historique d’un poste, tous les résultats d’un filtre) retire le
+tableau, son détail, son historique et ses dialogues, quoi qu’ils aient montré avant.
 
 ## Contrat actuel de contrôle ciblé — TI-681
 

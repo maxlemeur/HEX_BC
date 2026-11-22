@@ -64,6 +64,8 @@ export type FakeSupabaseOptions = {
   beforeUpdate?: (table: string, values: FakeRow, tables: FakeTables) => void;
   /** Called just before a delete runs: what another session did in the meantime. */
   beforeDelete?: (table: string, tables: FakeTables) => void;
+  /** Reads the database refuses (an outage, a missing grant): the SQLSTATE and message it answers. */
+  failRead?: (table: string) => { code: string; message: string } | false;
 };
 
 function readPath(row: FakeRow, column: string): unknown {
@@ -301,6 +303,8 @@ export function createFakeSupabase(options: FakeSupabaseOptions) {
         return { data: returning ? matching.map((row) => project(row, columns)) : null, error: null };
       }
       reads.push(table);
+      const readFailure = options.failRead?.(table);
+      if (readFailure) return { data: null, error: { ...readFailure, details: null, hint: null }, count: null };
       const sorted = [...matching].sort((left, right) => {
         for (const { column, ascending } of orders) {
           const a = comparable(left[column]);

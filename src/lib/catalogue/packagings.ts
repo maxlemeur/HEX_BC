@@ -6,7 +6,9 @@ import { formatDecimalInput, parseQuantity } from "@/lib/numeric-input/parsers";
 /**
  * Sale packagings of a catalogue article (« conditionnements de vente »): a label and how many units of the article
  * one packaging holds, in the article's unit (« Barre » of 6 for an article in ml). At most one is the usual one.
- * Informative only: no quantity, price, estimate or order reads them. Stored in `public.product_packagings`
+ * No price, estimate or order reads them. The usual one is read by material requests (TI-690/TI-691,
+ * src/lib/material-requests/usual-packaging.ts): it proposes to round a line in its unit up to whole packagings, which
+ * only the office's click writes, and fills {conditionnement} in the supplier message. Stored in `public.product_packagings`
  * (migration 20261122092341_product_packagings.sql), whose trigger takes the tenant and the unit from the article,
  * trims the label, computes its key and position, and moves the usual mark. A packaging keeps its article's unit:
  * the unit of an article that has packagings cannot change (foreign key ON UPDATE RESTRICT).
