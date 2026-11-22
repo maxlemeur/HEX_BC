@@ -566,8 +566,9 @@ begin
         or (o.value ->> 'source' = 'model' and (o.value ->> 'vector_key' is not null or o.value ->> 'method' = 'vector_reading'))) then
     return 'TAKEOFF_ANSWERS_OBSERVATION_INVALID';
   end if;
-  -- Every row the result writes is the takeoff_items row of exactly one contribution, with its quantity (to the
-  -- thousandth, which the row keeps) and page (its unit is the worker's normalized code of the contribution's).
+  -- Every row the result writes is the takeoff_items row of exactly one contribution, with its quantity and page (its
+  -- unit is the worker's normalized code of the contribution's; the row keeps the quantity to the thousandth, the
+  -- observation as read).
   if exists (select 1 from pg_catalog.jsonb_array_elements(p_items) i(value)
       where pg_catalog.jsonb_typeof(i.value) is distinct from 'object' or not private.takeoff_item_answer_is_uuid(i.value -> 'id')
         or not private.takeoff_item_answer_is_number(i.value -> 'quantity', 0, 999999999.999, false, true)
@@ -589,7 +590,6 @@ begin
         where (i.value ->> 'id')::uuid = (o.value ->> 'takeoff_item_id')::uuid) item on true
       where o.value ->> 'takeoff_item_id' is not null and (item.value is null
         or (item.value ->> 'quantity')::numeric <> (o.value ->> 'quantity')::numeric
-        or (o.value ->> 'quantity')::numeric <> pg_catalog.round((o.value ->> 'quantity')::numeric, 3)
         or (item.value ->> 'source_page')::numeric::integer <> (o.value ->> 'page')::numeric::integer)) then
     return 'TAKEOFF_ANSWERS_OBSERVATION_INVALID';
   end if;

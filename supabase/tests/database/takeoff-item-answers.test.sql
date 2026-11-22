@@ -396,10 +396,6 @@ select throws_ok($$select * from pg_temp.publish(pg_temp.job(20, 1), 901,
   jsonb_set(pg_temp.valid(), '{1,observations,1,page}', '7'), pg_temp.rows_(1))$$,
   '22023', 'TAKEOFF_ANSWERS_OBSERVATION_INVALID', 'a vector observation on another page than its row is refused');
 select throws_ok($$select * from pg_temp.publish(pg_temp.job(20, 1), 901,
-  jsonb_set(jsonb_set(pg_temp.valid(), '{0,observations,0,quantity}', '2.0004'), '{0,quantity,value}', '3.0004'),
-  jsonb_set(pg_temp.rows_(1), '{0,quantity}', '2.0004'))$$,
-  '22023', 'TAKEOFF_ANSWERS_OBSERVATION_INVALID', 'a contribution finer than its row keeps (the thousandth) is refused');
-select throws_ok($$select * from pg_temp.publish(pg_temp.job(20, 1), 901,
   jsonb_set(pg_temp.valid(), '{0,observations,2,takeoff_item_id}', to_jsonb(pg_temp.f(813))),
   pg_temp.rows_(1) || jsonb_build_array(pg_temp.row_(813, 1, 7)))$$,
   '22023', 'TAKEOFF_ANSWERS_OBSERVATION_INVALID', 'an alternative written as a row of the result is refused');
