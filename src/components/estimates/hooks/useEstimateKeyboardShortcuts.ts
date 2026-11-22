@@ -52,6 +52,36 @@ function isTextEditingTarget(target: EventTarget | null) {
   );
 }
 
+/** Row actions of the editor shortcuts (⌘ on a Mac, Ctrl elsewhere). */
+export type EstimateRowShortcut =
+  | "insertLine"
+  | "insertSection"
+  | "duplicateLine"
+  | "moveUp"
+  | "moveDown";
+
+/**
+ * ⌘/Ctrl+Entrée adds a line, ⌘/Ctrl+Maj+Entrée a section, ⌘/Ctrl+Maj+D duplicates the line and
+ * ⌥/Alt+Maj+↑/↓ moves it. Ctrl+D stays the grid's fill down; Alt+↓ alone opens a cell's list;
+ * Ctrl+↑/↓ belong to macOS (Mission Control).
+ */
+export function resolveEstimateRowShortcut(
+  event: Pick<KeyboardEvent, "key" | "ctrlKey" | "metaKey" | "shiftKey" | "altKey">
+): EstimateRowShortcut | null {
+  const command = event.ctrlKey || event.metaKey;
+  if (command && !event.altKey && event.key === "Enter") {
+    return event.shiftKey ? "insertSection" : "insertLine";
+  }
+  if (command && event.shiftKey && !event.altKey && event.key.toLowerCase() === "d") {
+    return "duplicateLine";
+  }
+  if (event.altKey && event.shiftKey && !command) {
+    if (event.key === "ArrowUp") return "moveUp";
+    if (event.key === "ArrowDown") return "moveDown";
+  }
+  return null;
+}
+
 type UseEstimateKeyboardShortcutsParams = {
   tableCardRef: RefObject<HTMLDivElement | null>;
   hasSelectedLines: boolean;
@@ -69,6 +99,7 @@ type UseEstimateKeyboardShortcutsParams = {
   onUndo: () => Promise<void>;
   onRedo: () => Promise<void>;
   onOpenAssemblyPicker?: () => void;
+  onRowShortcut?: (action: EstimateRowShortcut) => void;
 };
 
 export function useEstimateKeyboardShortcuts({
@@ -88,7 +119,9 @@ export function useEstimateKeyboardShortcuts({
   onUndo,
   onRedo,
   onOpenAssemblyPicker,
+  onRowShortcut,
 }: UseEstimateKeyboardShortcutsParams) {
+  const runRowShortcut = useEffectEvent((action: EstimateRowShortcut) => onRowShortcut?.(action));
   // An Effect Event runs the handlers of the last committed render. The listener used to be registered
   // again by a passive effect after every render (the editor passes an inline `onOpenAssemblyPicker`):
   // after lines shown outside a discrete event, such as a server answer, Ctrl+A selected the previous
@@ -110,6 +143,24 @@ export function useEstimateKeyboardShortcuts({
     });
 
     if (!shortcutScope.canHandleAnyShortcut) {
+      return;
+    }
+
+    const rowShortcut = resolveEstimateRowShortcut(event);
+    if (rowShortcut) {
+      if (!withinTable || isReadOnly || !onRowShortcut) return;
+      const editing = isTextEditingTarget(target);
+      // ⌥⇧↑/↓ select text in a field: a line moves from a selected cell only.
+      if (editing && (rowShortcut === "moveUp" || rowShortcut === "moveDown")) return;
+      event.preventDefault();
+      if (event.repeat && rowShortcut !== "moveUp" && rowShortcut !== "moveDown") return;
+      if (editing && target instanceof HTMLElement) {
+        // Leaving the field commits it, as Tab does; the action then reads the committed line.
+        target.blur();
+        window.setTimeout(() => runRowShortcut(rowShortcut), 0);
+        return;
+      }
+      runRowShortcut(rowShortcut);
       return;
     }
 

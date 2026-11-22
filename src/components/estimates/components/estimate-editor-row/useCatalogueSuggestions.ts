@@ -248,7 +248,8 @@ export function useCatalogueSuggestions({
           return;
         }
 
-        if (event.key === "Enter") {
+        // ⌘/Ctrl+Entrée adds a line (editor shortcut): it never applies a suggestion.
+        if (event.key === "Enter" && !event.ctrlKey && !event.metaKey) {
           const activeSuggestion =
             catalogueSuggestions[activeCatalogueSuggestionIndex];
           if (activeSuggestion) {

@@ -242,6 +242,10 @@ export type EstimateEditorTableProps = {
     rows: ClipboardPreviewValues[];
     laborRoleId?: string | null;
   }) => Promise<void>;
+  /** Keyboard shortcuts: each resolves to the created ids, or null when nothing was created. */
+  onInsertLineBelow?: (anchorRowId: string | null) => Promise<string[] | null>;
+  onDuplicateLineBelow?: (anchorRowId: string | null) => Promise<string[] | null>;
+  onInsertSectionBelow?: (anchorRowId: string | null) => Promise<string[] | null>;
   onUndo: () => Promise<void>;
   onRedo: () => Promise<void>;
   canUndo: boolean;
