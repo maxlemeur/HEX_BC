@@ -58,6 +58,10 @@ values (pg_temp.f(70), pg_temp.f(30), 'cctp.pdf', 'uploaded', 'fixture/cctp.pdf'
 
 -- The confirmed preparation of an affaire's plans (first plan read on its pages 2 and 7), and the manifest of format 2
 -- the server seals for it: units in the order of their names (plan-1, plan-2, plan-3: identifiers 3, 2, 1), equal shares.
+-- Each plan carries the digest its sealing recorded (a fictional one, derived from its identifier).
+create function pg_temp.digest(plan uuid) returns text language sql immutable as $$
+  select encode(sha256(convert_to(plan::text, 'UTF8')), 'hex')
+$$;
 create function pg_temp.snapshot(project integer, reference boolean default false) returns jsonb language sql as $$
   select jsonb_build_object('schema_version', 1, 'preparation_revision', 1, 'confirmed_by', pg_temp.f(1),
     'confirmed_at', '2026-11-21T08:00:00Z', 'execution_selection', pg_temp.selection(),
@@ -68,7 +72,7 @@ create function pg_temp.snapshot(project integer, reference boolean default fals
       'sources', (select jsonb_agg(source order by source ->> 'document_id') from (
         select jsonb_build_object('document_id', f.id, 'document_name', f.file_name, 'kind', 'plan', 'active', true, 'confirmed', true,
           'plan_set_id', f.plan_set_id, 'file_path', f.file_path, 'page_count', f.page_count, 'source_updated_at', f.updated_at,
-          'pages', case when f.file_name = 'plan-1.pdf' then '[2, 7]'::jsonb else '[]'::jsonb end) as source
+          'content_hash', pg_temp.digest(f.id), 'pages', case when f.file_name = 'plan-1.pdf' then '[2, 7]'::jsonb else '[]'::jsonb end) as source
         from public.plan_files f where f.plan_set_id = pg_temp.f(project + 20)
         union all
         select jsonb_build_object('document_id', d.id, 'document_name', d.file_name, 'kind', 'cctp', 'active', true, 'confirmed', true,
@@ -88,7 +92,7 @@ create function pg_temp.manifest(project integer, tokens integer default 400000,
       'pages', p.pages, 'page_count', 9, 'vector_pages', 0,
       'budget', jsonb_build_object('tokens', ceil(tokens::numeric / p.units), 'cost_cents', ceil(cents::numeric / p.units))) order by p.ordinal) from plans p),
     'plans', (select jsonb_agg(jsonb_build_object('entry_key', p.id, 'plan_file_id', p.id, 'name', p.file_name, 'logical_id', p.id,
-      'pages', p.pages, 'page_count', 9) order by p.ordinal) from plans p),
+      'content_sha256', pg_temp.digest(p.id), 'pages', p.pages, 'page_count', 9) order by p.ordinal) from plans p),
     'coverage', jsonb_build_object('plans_retained', (select count(*) from plans), 'plans_omitted', '[]'::jsonb), 'references', '[]'::jsonb,
     'budget', jsonb_build_object('tokens', tokens, 'cost_cents', cents))
 $$;
@@ -386,13 +390,17 @@ select results_eq($$select outcome, units_succeeded, units_not_started, reason_c
 select results_eq($$select plans_read_count, plans_not_started_count from public.takeoff_completion_notifications
     where request_id = pg_temp.request(24)$$, $$values (1, 2)$$, 'its notice counts them');
 
--- 9. A unit whose attempt died: the hosted recovery closes it, its reservation stays unknown, the Mac is free again.
+-- 9. A unit whose attempt died with a call reserved: that call may have spent what is left, so its request makes no
+-- further paid call even before any recovery (its plans not started are closed, none is handed); the hosted recovery
+-- then closes the attempt and holds its call as unknown.
 select results_eq($$select outcome from pg_temp.launch(25)$$, $$values ('admitted'::text)$$, 'a fourth request');
 select is(pg_temp.claim(pg_temp.unit(25, 1), 931), 1, 'its first plan is claimed');
 select results_eq($$select outcome from pg_temp.reserve(pg_temp.unit(25, 1), 931, 'call:1')$$, $$values ('reserved'::text)$$,
   'and its call reserved; then the Mac stops');
 update public.takeoff_jobs set processing_lease_expires_at = clock_timestamp() - interval '1 second' where id = pg_temp.unit(25, 1);
-select is(pg_temp.dispatch(), pg_temp.unit(25, 2), 'a lease that expired holds the Mac no more: the next unit may start');
+select results_eq($$select job_id, closed_jobs from public.dispatch_next_takeoff_host_job(pg_temp.host())$$,
+  $$values (null::uuid, array[pg_temp.unit(25, 2), pg_temp.unit(25, 3)])$$,
+  'the Mac is free, but no plan of the request is handed: those not started are closed');
 select is((select count(*)::integer from public.recover_stale_local_takeoff_jobs(now()) where job_id = pg_temp.unit(25, 1)), 1,
   'the recovery closes the abandoned attempt');
 select results_eq($$select state from private.takeoff_launch_usage where job_id = pg_temp.unit(25, 1)$$, $$values ('unknown'::text)$$,
@@ -400,19 +408,10 @@ select results_eq($$select state from private.takeoff_launch_usage where job_id 
 select is((select error_code from public.takeoff_jobs where id = pg_temp.unit(25, 1)), 'TAKEOFF_WORKER_OUTCOME_UNKNOWN',
   'with the unknown outcome named');
 
--- 10. The send of a per-plan analysis stays closed; a reconciliation closes a request whose ends were not settled.
+-- 10. The send of a per-plan analysis stays closed (a reconciliation of a request whose ends were not settled: the end
+-- of section 14).
 select throws_ok($$update public.takeoff_jobs set estimate_version_id = pg_temp.f(80) where id = pg_temp.unit(20, 1)$$,
   '40001', 'TAKEOFF_SEND_JOB_NOT_READY', 'a per-plan analysis is never attached to a draft (its send stays closed)');
-set local session_replication_role = replica;
-update public.takeoff_jobs set status = 'canceled', analysis_outcome = 'canceled', analysis_finished_at = now(), next_retry_at = null
-where launch_request_id = pg_temp.request(25) and analysis_outcome is null;
-set local session_replication_role = origin;
-select results_eq($$select state from public.reconcile_takeoff_launch_requests() where request_id = pg_temp.request(25)$$,
-  $$values ('closed'::text)$$, 'a request whose units all ended is closed by the reconciliation, without any call');
-select is((select count(*)::integer from public.takeoff_completion_notifications where request_id = pg_temp.request(25)), 1,
-  'with one notice');
-select is((select count(*)::integer from public.reconcile_takeoff_launch_requests() where request_id = pg_temp.request(25)), 0,
-  'and only once');
 
 -- 11. Affaire 29's seven plans: the dispatcher counts the admission limits as the claim's triggers do, an attempt that
 -- holds a call of unknown outcome is never retried on its own, a job read without the slot still holds the Mac, the
@@ -607,6 +606,112 @@ set local session_replication_role = origin;
 select is(public.takeoff_local_retry_floor() > (select next_retry_at from public.takeoff_jobs where id = pg_temp.f(3903)), true,
   'the older retry is past the wait ceiling');
 select is(pg_temp.dispatch(), pg_temp.f(3904), 'the dispatcher hands the retry within the ceiling, never the expired one');
+
+-- 14. The closing review round, written before its fixes (red then). Once one analysis per plan is active, and after its
+-- withdrawal while its plans are still at work on a Mac: a dead attempt's call freezes its request before any recovery,
+-- an expired retry of a plan never starts, no other job runs or pays beside a plan on its Mac, and the seal refuses what
+-- the worker would refuse, the worker reading a plan's pages in the manifest's order.
+set local session_replication_role = replica;
+update public.takeoff_jobs set status = 'canceled', analysis_outcome = 'canceled', analysis_finished_at = now(), next_retry_at = null
+where id in (pg_temp.f(3901), pg_temp.f(3903), pg_temp.f(3904));
+set local session_replication_role = origin;
+-- A worker dies with a call reserved: its lease lapses, and no recovery has run yet.
+select results_eq($$select outcome from pg_temp.round_launch(21, 2)$$, $$values ('admitted'::text)$$, 'a request of three plans');
+select is(pg_temp.claim(pg_temp.round_unit(21, 2, 1), 991), 1, 'its first plan is read');
+select results_eq($$select outcome from pg_temp.reserve(pg_temp.round_unit(21, 2, 1), 991, 'call:1')$$, $$values ('reserved'::text)$$,
+  'a call is reserved');
+update public.takeoff_jobs set processing_lease_expires_at = clock_timestamp() - interval '1 second'
+where id = pg_temp.round_unit(21, 2, 1);
+select is(pg_temp.claim(pg_temp.round_unit(21, 2, 2), 992), 1, 'another process reads the next plan, the Mac being free');
+select results_eq($$select reason from public.takeoff_job_may_pay(pg_temp.round_unit(21, 2, 2))$$, $$values ('USAGE_UNKNOWN'::text)$$,
+  'the dead attempt''s call may have spent what is left: the next plan may not pay');
+select results_eq($$select outcome, reason from pg_temp.reserve(pg_temp.round_unit(21, 2, 2), 992, 'call:1')$$,
+  $$values ('refused'::text, 'USAGE_UNKNOWN'::text)$$, 'nor reserve a call');
+-- That worker dies too, before any recovery: the plan not started is never handed.
+update public.takeoff_jobs set processing_lease_expires_at = clock_timestamp() - interval '1 second'
+where id = pg_temp.round_unit(21, 2, 2);
+select results_eq($$select job_id, closed_jobs from public.dispatch_next_takeoff_host_job(pg_temp.host())$$,
+  $$values (null::uuid, array[pg_temp.round_unit(21, 2, 3)])$$, 'the plan not started is closed, never handed');
+-- A retry of a plan that has waited past the ceiling never starts, whoever claims it: only its recovery closes it.
+set local session_replication_role = replica;
+update public.takeoff_jobs set status = 'failed', retry_count = 1, next_retry_at = clock_timestamp() - interval '25 hours',
+  completed_at = clock_timestamp() - interval '25 hours', processing_lease_token = null, processing_lease_expires_at = null
+where id = pg_temp.round_unit(21, 2, 1);
+set local session_replication_role = origin;
+select throws_ok($$select pg_temp.claim(pg_temp.round_unit(21, 2, 1), 993, 'failed', 1)$$, '55000', 'TAKEOFF_JOB_RETRY_EXPIRED',
+  'a retry of a plan past the wait ceiling never starts');
+-- Withdrawn while a plan is at work on the Mac: every other job of that Mac keeps to the Mac's slot.
+delete from private.takeoff_plan_dispatch_activation;
+set local session_replication_role = replica;
+update public.takeoff_jobs set status = 'processing', next_retry_at = null, processing_lease_token = pg_temp.f(994),
+  processing_lease_expires_at = clock_timestamp() + interval '30 minutes', started_at = clock_timestamp()
+where id = pg_temp.round_unit(21, 2, 1);
+insert into private.takeoff_host_slots (host_id, job_id, holder_token, generation, acquired_at, expires_at)
+values (pg_temp.host(), pg_temp.round_unit(21, 2, 1), pg_temp.f(994), 100, clock_timestamp(), clock_timestamp() + interval '30 minutes')
+on conflict (host_id) do update set job_id = excluded.job_id, holder_token = excluded.holder_token, generation = excluded.generation,
+  acquired_at = excluded.acquired_at, expires_at = excluded.expires_at;
+insert into public.takeoff_jobs (id, tenant_id, project_id, plan_set_id, level, status, created_by, execution_provider,
+  execution_host_id, processing_lease_token, processing_lease_expires_at, started_at)
+values
+  (pg_temp.f(3905), pg_temp.f(10), pg_temp.f(22), pg_temp.f(42), 'C', 'pending', pg_temp.f(1), 'chatgpt_local', pg_temp.host(),
+    null, null, null),
+  (pg_temp.f(3906), pg_temp.f(10), pg_temp.f(22), pg_temp.f(42), 'C', 'processing', pg_temp.f(1), 'chatgpt_local', pg_temp.host(),
+    pg_temp.f(995), clock_timestamp() + interval '30 minutes', clock_timestamp()),
+  (pg_temp.f(3907), pg_temp.f(10), pg_temp.f(22), pg_temp.f(42), 'C', 'pending', pg_temp.f(1), 'chatgpt_local',
+    'urn:uuid:d5100000-0000-4000-8000-000000000098', null, null, null);
+set local session_replication_role = origin;
+select is(pg_temp.claim(pg_temp.f(3905), 996), 0, 'a job outside any request waits for the plan read on its Mac');
+select throws_ok($$select count(*) from public.claim_local_takeoff_job(pg_temp.f(3905), pg_temp.f(10), pg_temp.host(),
+    clock_timestamp(), pg_temp.f(997), clock_timestamp() + interval '30 minutes', 'modele-fictif', 'fixture')$$, '42501',
+  'TAKEOFF_HOST_SLOT_REQUIRED', 'nor does a released worker''s direct claim start it');
+select throws_ok($$select * from pg_temp.reserve(pg_temp.f(3906), 995, 'call:1')$$, '42501', 'TAKEOFF_LAUNCH_USAGE_LEASE_REQUIRED',
+  'a job running beside the plan pays nothing');
+select throws_ok($$select public.renew_takeoff_processing_lease(pg_temp.f(3906), pg_temp.f(10), pg_temp.f(995), clock_timestamp(),
+    clock_timestamp() + interval '30 minutes')$$, '40001', 'TAKEOFF_HOST_SLOT_LOST',
+  'nor renews its lease while the plan holds the Mac');
+select is((select count(*)::integer from public.claim_local_takeoff_job(pg_temp.f(3907), pg_temp.f(10),
+    'urn:uuid:d5100000-0000-4000-8000-000000000098', clock_timestamp(), pg_temp.f(998), clock_timestamp() + interval '30 minutes',
+    'modele-fictif', 'fixture')), 1, 'a Mac without a plan at work claims as before');
+-- The seal, active again: a plan without its digest is refused (its worker would refuse it), and a plan's pages are read
+-- in the manifest's order whatever order its source listed them in.
+insert into private.takeoff_plan_dispatch_activation (active_from) values (now() - interval '1 minute');
+create function pg_temp.plan_command_with(project integer, round integer, manifest jsonb, snapshot jsonb)
+returns table (outcome text, request_id uuid, job_id uuid) language sql as $$
+  select * from public.launch_manual_takeoff_plan_request(pg_temp.f(10), pg_temp.f(project), pg_temp.f(1),
+    pg_temp.f(700 + 10 * round + project - 20), 'reread_plans', pg_temp.latest_job(project), pg_temp.host(), pg_temp.selection(),
+    manifest, snapshot, (select jsonb_agg(j.value || jsonb_build_object('id',
+        pg_temp.round_unit(project, round, (u.value ->> 'ordinal')::integer)) order by (u.value ->> 'ordinal')::integer)
+      from jsonb_array_elements(pg_temp.jobs(project)) with ordinality as j(value, position)
+      join jsonb_array_elements(manifest -> 'units') with ordinality as u(value, position) using (position)),
+    pg_temp.f(project + 20), 1, (select array_agg(f.id) from public.plan_files f where f.plan_set_id = pg_temp.f(project + 20)))
+$$;
+-- The source of affaire 27's plan-1 (identifier 173), changed.
+create function pg_temp.with_plan_one(snapshot jsonb, source jsonb) returns jsonb language sql as $$
+  select jsonb_set(snapshot, '{preparation,sources}', (select jsonb_agg(case when s.value ->> 'document_id' = pg_temp.f(173)::text
+      then s.value || source else s.value end order by s.position)
+    from jsonb_array_elements(snapshot #> '{preparation,sources}') with ordinality as s(value, position)))
+$$;
+select throws_ok($$select * from pg_temp.plan_command_with(27, 3,
+    jsonb_set(pg_temp.manifest(27), '{plans,0}', (pg_temp.manifest(27) #> '{plans,0}') - 'content_sha256'),
+    pg_temp.with_plan_one(pg_temp.snapshot(27), '{"content_hash": null}'))$$, '22023', 'TAKEOFF_LAUNCH_SEAL_INVALID',
+  'a plan without its digest is refused at the seal');
+select results_eq($$select outcome from pg_temp.plan_command_with(27, 4, pg_temp.manifest(27),
+    pg_temp.with_plan_one(pg_temp.snapshot(27), '{"pages": [7, 2]}'))$$, $$values ('admitted'::text)$$,
+  'a plan whose source lists its pages 7 then 2 is admitted with the manifest''s pages 2 and 7');
+select is((select s -> 'pages' from public.takeoff_jobs j, jsonb_array_elements(j.preparation_snapshot #> '{preparation,sources}') s
+    where j.id = pg_temp.round_unit(27, 4, 1) and s ->> 'document_id' = pg_temp.f(173)::text), '[2, 7]'::jsonb,
+  'its worker reads them in the manifest''s order');
+-- A reconciliation closes a request whose ends were not settled (written without their triggers here).
+set local session_replication_role = replica;
+update public.takeoff_jobs set status = 'canceled', analysis_outcome = 'canceled', analysis_finished_at = now(), next_retry_at = null
+where launch_request_id = pg_temp.request(27) and analysis_outcome is null;
+set local session_replication_role = origin;
+select results_eq($$select state from public.reconcile_takeoff_launch_requests() where request_id = pg_temp.request(27)$$,
+  $$values ('closed'::text)$$, 'a request whose units all ended is closed by the reconciliation, without any call');
+select is((select count(*)::integer from public.takeoff_completion_notifications where request_id = pg_temp.request(27)), 1,
+  'with one notice');
+select is((select count(*)::integer from public.reconcile_takeoff_launch_requests() where request_id = pg_temp.request(27)), 0,
+  'and only once');
 
 select * from finish();
 rollback;

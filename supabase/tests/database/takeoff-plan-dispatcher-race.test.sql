@@ -12,13 +12,19 @@
 -- 6. Two units of one request reach for its last balance at once (a second process read one without the Mac): one call
 --    is reserved, the unit that does not hold the Mac reserves none.
 -- 7. With lot 2's activations on and one analysis per plan withdrawn, the hosted recovery against a released worker's
---    direct claim (the job's row first, then the tenant's admission lock): the recovery takes no lock that claim waits for,
---    and neither waits for the other.
+--    direct claim (claim_local_takeoff_job: the job's row, then the tenant's admission lock, held until it commits) of a
+--    job on another Mac, without a plan at work: the recovery takes no lock that claim holds, and neither waits for the
+--    other.
 -- 8. One analysis per plan active again: a retry of an analysis outside any request, claimed through the Mac's slot, against
 --    a command naming it (20261121193413's restart guard). The claim takes the Mac's lock, the job, the slot, then the
 --    affaire's command key and its automatic request; the command takes the job (a key share), then the key. While a third
 --    process holds the key, the claim waits for it holding the job and the slot, and the command waits for the job holding
 --    nothing: no cycle. The command is answered with the analysis the claim started.
+-- 9. A job outside one analysis per plan whose lease lapsed renews with its earlier clock while a plan takes the Mac: the
+--    renewal waits for the slot's row, then finds the Mac taken and is refused; one live lease on the Mac.
+-- 10. A stop on a request that has just closed, against a reread naming one of its jobs (the affaire's automatic request
+--    held, then a key share on the job through the new request's foreign key): the stale stop answers at once and takes
+--    no lock; a stop of a running request holds its jobs without excluding that key share. Neither deadlocks.
 -- Isolation justified: these interleavings exist only across sessions, which no journey drives deterministically. Each
 -- held transaction is stopped at a named point; the waits are bounded conditions. All values are fictional.
 begin;
@@ -100,7 +106,7 @@ create function pg_temp.launch_sql(project integer) returns text language sql st
         'pages', '[]'::jsonb, 'page_count', 1, 'vector_pages', 0, 'budget', jsonb_build_object('tokens', 133334, 'cost_cents', 834))
         order by p.ordinal) from plans p),
       'plans', (select jsonb_agg(jsonb_build_object('entry_key', p.id, 'plan_file_id', p.id, 'name', p.file_name, 'pages', '[]'::jsonb,
-        'page_count', 1) order by p.ordinal) from plans p),
+        'page_count', 1, 'content_sha256', encode(sha256(convert_to(p.id::text, 'UTF8')), 'hex')) order by p.ordinal) from plans p),
       'coverage', jsonb_build_object('plans_retained', 3, 'plans_omitted', '[]'::jsonb), 'references', '[]'::jsonb,
       'budget', jsonb_build_object('tokens', 400000, 'cost_cents', 2500)),
     jsonb_build_object('schema_version', 1, 'preparation_revision', 1, 'confirmed_by', pg_temp.f(1),
@@ -111,7 +117,8 @@ create function pg_temp.launch_sql(project integer) returns text language sql st
         'processing', '{"level":"C","provider":"chatgpt"}'::jsonb,
         'sources', (select jsonb_agg(jsonb_build_object('document_id', p.id, 'document_name', p.file_name, 'kind', 'plan', 'active', true,
           'confirmed', true, 'plan_set_id', pg_temp.f(project + 20), 'file_path', p.file_path, 'page_count', p.page_count,
-          'source_updated_at', p.updated_at, 'pages', '[]'::jsonb) order by p.id) from plans p))),
+          'source_updated_at', p.updated_at, 'pages', '[]'::jsonb, 'content_hash', encode(sha256(convert_to(p.id::text, 'UTF8')), 'hex'))
+          order by p.id) from plans p))),
     (select jsonb_agg(jsonb_build_object('id', pg_temp.unit(project, p.ordinal::integer), 'plan_set_id', pg_temp.f(project + 20),
       'launch_unit_key', 'plan:' || p.id, 'source_file_name', p.file_name, 'source_file_type', 'application/pdf',
       'source_file_size_bytes', 8, 'prompt_version', 'fixture', 'execution_host_id', pg_temp.host()) order by p.ordinal) from plans p),
@@ -309,18 +316,25 @@ select is((select count(*)::integer from private.takeoff_launch_usage where requ
 -- 7. One analysis per plan withdrawn (lot 2's activations on): the hosted recovery against a released worker's direct claim.
 select is(extensions.dblink_exec('race_setup', 'begin; delete from private.takeoff_plan_dispatch_activation; commit'), 'COMMIT',
   'the owner withdraws one analysis per plan');
-select is(extensions.dblink_exec('race_a', 'begin'), 'BEGIN', 'a released worker claims a waiting job directly');
-select is((select count(*)::integer from extensions.dblink('race_a', format('select id from public.takeoff_jobs where id = %L for update',
-  pg_temp.unit(23, 3))) as x(id uuid)), 1, 'its claim holds the job''s row first');
+create function pg_temp.other_host() returns text language sql immutable as $$ select 'urn:uuid:d5200000-0000-4000-8000-000000000098' $$;
+select is(extensions.dblink_exec('race_setup', format($standalone$begin;
+  set local session_replication_role = replica;
+  insert into public.takeoff_jobs (id, tenant_id, project_id, plan_set_id, level, status, created_by, execution_provider,
+    execution_host_id, created_at)
+  values (%L, %L, %L, %L, 'C', 'pending', %L, 'chatgpt_local', %L, now());
+  commit;$standalone$, pg_temp.f(2101), pg_temp.tenant(), pg_temp.f(21), pg_temp.f(41), pg_temp.f(1), pg_temp.other_host())), 'COMMIT',
+  'a job outside any request waits on another Mac');
+select is(extensions.dblink_exec('race_a', 'begin'), 'BEGIN', 'a released worker claims it directly');
+select is((select x.claimed from extensions.dblink('race_a', format($claim$select count(*) from public.claim_local_takeoff_job(%L, %L, %L,
+    clock_timestamp(), %L, clock_timestamp() + interval '30 minutes', 'modele-fictif', 'fixture')$claim$,
+    pg_temp.f(2101), pg_temp.tenant(), pg_temp.other_host(), pg_temp.f(971))) as x(claimed bigint)), 1::bigint,
+  'its claim holds the job''s row and the tenant''s admission lock');
 select is(extensions.dblink_send_query('race_b', 'select count(*) from public.recover_stale_local_takeoff_jobs(now())'), 1,
   'the hosted recovery runs meanwhile');
 select ok(pg_temp.answered('race_b'), 'the recovery answers without waiting for the claim');
 select is((select count(*)::integer from extensions.dblink_get_result('race_b', false) as x(recovered bigint)), 1, 'with its count');
 select diag(concat('recovery: ', extensions.dblink_error_message('race_b')));
 select is((select count(*)::integer from extensions.dblink_get_result('race_b', false) as x(recovered bigint)), 0, 'and is done');
-select is((select count(*)::integer from extensions.dblink('race_a', format(
-    'select pg_advisory_xact_lock(hashtextextended(%L, 0))', 'takeoff-admission:' || pg_temp.tenant()::text)) as x(locked text)), 1,
-  'then the claim''s trigger takes the tenant''s admission lock at once');
 select is(extensions.dblink_exec('race_a', 'rollback'), 'ROLLBACK', 'the claim ends');
 
 -- 8. A retry outside any request claimed through the slot, against a command naming it.
@@ -364,6 +378,79 @@ select diag(concat('command: ', extensions.dblink_error_message('race_b')));
 select is((select count(*)::integer from extensions.dblink_get_result('race_b', false) as x(outcome text)), 0, 'and is done');
 select results_eq($$select answer, request_id, job_id from private.takeoff_launch_commands where intent_key = pg_temp.f(622)$$,
   $$values ('already_running'::text, null::uuid, pg_temp.retry())$$, 'its receipt names that analysis and no request');
+
+-- 9. The retry claimed in case 8 holds the Mac; its lease lapses (its worker's clock is behind), and a plan takes the Mac.
+select is(extensions.dblink_exec('race_setup', format($lapse$begin;
+  update public.takeoff_jobs set processing_lease_expires_at = clock_timestamp() - interval '1 second' where id = %L;
+  commit;$lapse$, pg_temp.retry())), 'COMMIT', 'the retry''s lease lapses');
+select is(extensions.dblink_exec('race_a', 'begin'), 'BEGIN', 'another process of the Mac claims a waiting plan');
+select is((select x.claimed from extensions.dblink('race_a', pg_temp.claim_sql(pg_temp.unit(23, 3), 982)) as x(claimed bigint)), 1::bigint,
+  'it takes the Mac with the plan');
+select is(extensions.dblink_send_query('race_b', format($renew$select public.renew_takeoff_processing_lease(%L, %L, %L,
+    clock_timestamp() - interval '1 hour', clock_timestamp() + interval '30 minutes')$renew$, pg_temp.retry(), pg_temp.tenant(),
+    pg_temp.f(981))), 1, 'the retry''s worker renews meanwhile, with its earlier clock');
+select ok(pg_temp.waits_for('race_b', 'race_a'), 'the renewal waits for the Mac''s slot');
+select is(extensions.dblink_exec('race_a', 'commit'), 'COMMIT', 'the plan''s claim commits');
+select ok(pg_temp.answered('race_b'), 'the renewal goes on');
+select is((select count(*)::integer from extensions.dblink_get_result('race_b', false) as x(renewed boolean)), 0,
+  'and is refused');
+select ok(extensions.dblink_error_message('race_b') like '%TAKEOFF_HOST_SLOT_LOST%', 'as a lost Mac');
+select is((select count(*)::integer from extensions.dblink_get_result('race_b', false) as x(renewed boolean)), 0, 'and is done');
+select is((select count(*)::integer from public.takeoff_jobs where execution_host_id = pg_temp.host() and status = 'processing'
+  and processing_lease_expires_at > clock_timestamp()), 1, 'one live lease on the Mac');
+
+-- 10. A stop against a reread naming one of its request's jobs. The requests of affaires 22 (closed by case 4) and 24 (still
+-- running) are the affaires' automatic starts here, which a reread holds before its new request names their job.
+create function pg_temp.stop_of_sql(project integer, request uuid) returns text language sql stable as $$
+  select format($stop$select outcome || ':' || request_state from public.stop_takeoff_launch_request(%L, %L, %L, %L)$stop$,
+    pg_temp.tenant(), pg_temp.f(project), pg_temp.f(1), request)
+$$;
+create temp table stopped_requests as select project, pg_temp.request(project) as id from (values (22), (24)) as affaire(project);
+select is(extensions.dblink_exec('race_setup', format($automatic$begin;
+  set local session_replication_role = replica;
+  update public.takeoff_launch_requests set origin = 'automatic', intent_key = id, command_digest = null where id in (%L, %L);
+  commit;$automatic$, (select id from stopped_requests where project = 22), (select id from stopped_requests where project = 24))),
+  'COMMIT', 'the two requests are their affaires'' automatic starts');
+-- A stale stop: the request has just closed.
+select is(extensions.dblink_exec('race_a', 'begin'), 'BEGIN', 'a reread of affaire 22 starts');
+select is((select count(*)::integer from extensions.dblink('race_a', format(
+    'select id from public.takeoff_launch_requests where id = %L for update', (select id from stopped_requests where project = 22)))
+  as x(id uuid)), 1, 'it holds the affaire''s automatic request');
+select is(extensions.dblink_send_query('race_b', pg_temp.stop_of_sql(22, (select id from stopped_requests where project = 22))), 1,
+  'a member''s stop of that request arrives late');
+select ok(pg_temp.answered('race_b'), 'the stale stop answers at once');
+select is(extensions.dblink_send_query('race_a', format('select id from public.takeoff_jobs where id = %L for key share',
+  pg_temp.unit(22, 1))), 1, 'the reread''s new request names one of its jobs');
+select ok(pg_temp.answered('race_a'), 'and its key share is taken at once');
+select is((select count(*)::integer from extensions.dblink_get_result('race_a', false) as x(id uuid)), 1, 'on that job');
+select diag(concat('reread: ', extensions.dblink_error_message('race_a')));
+select is((select count(*)::integer from extensions.dblink_get_result('race_a', false) as x(id uuid)), 0, 'and is done');
+select is((select x.answer from extensions.dblink_get_result('race_b', false) as x(answer text)), 'not_running:closed',
+  'the request has ended: nothing to stop');
+select diag(concat('stale stop: ', extensions.dblink_error_message('race_b')));
+select is((select count(*)::integer from extensions.dblink_get_result('race_b', false) as x(answer text)), 0, 'and is done');
+select is(extensions.dblink_exec('race_a', 'rollback'), 'ROLLBACK', 'the reread ends');
+-- A stop of a running request while a reread holds the affaire's automatic request: the stop holds the request's jobs and
+-- waits for the request; the reread's key share on one of those jobs does not wait for the stop.
+select is(extensions.dblink_exec('race_a', 'begin'), 'BEGIN', 'a reread of affaire 24 starts');
+select is((select count(*)::integer from extensions.dblink('race_a', format(
+    'select id from public.takeoff_launch_requests where id = %L for update', (select id from stopped_requests where project = 24)))
+  as x(id uuid)), 1, 'it holds the affaire''s automatic request');
+select is(extensions.dblink_send_query('race_b', pg_temp.stop_of_sql(24, (select id from stopped_requests where project = 24))), 1,
+  'a member stops the rest of that request meanwhile');
+select ok(pg_temp.waits_for('race_b', 'race_a'), 'the stop waits for the request the reread holds');
+select is(extensions.dblink_send_query('race_a', format('select id from public.takeoff_jobs where id = %L for key share',
+  pg_temp.unit(24, 1))), 1, 'the reread''s new request names one of its jobs');
+select ok(pg_temp.answered('race_a'), 'its key share does not wait for the stop');
+select is((select count(*)::integer from extensions.dblink_get_result('race_a', false) as x(id uuid)), 1, 'on that job');
+select diag(concat('reread: ', extensions.dblink_error_message('race_a')));
+select is((select count(*)::integer from extensions.dblink_get_result('race_a', false) as x(id uuid)), 0, 'and is done');
+select is(extensions.dblink_exec('race_a', 'rollback'), 'ROLLBACK', 'the reread ends');
+select ok(pg_temp.answered('race_b'), 'then the stop goes on');
+select is((select x.answer from extensions.dblink_get_result('race_b', false) as x(answer text)), 'stopped:closed',
+  'and stops the rest: neither deadlocked');
+select diag(concat('stop: ', extensions.dblink_error_message('race_b')));
+select is((select count(*)::integer from extensions.dblink_get_result('race_b', false) as x(answer text)), 0, 'and is done');
 
 select is(extensions.dblink_exec('race_setup', $cleanup$
 begin;
