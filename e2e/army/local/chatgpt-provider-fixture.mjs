@@ -365,6 +365,28 @@ globalThis.fetch = async (input, init) => {
       { type: "response.completed", response: { status: "completed", output: [], usage: { input_tokens: 20, output_tokens: 10, total_tokens: 30 } } },
     ].map(event => `data: ${JSON.stringify(event)}\n\n`).join(""), { headers: { "content-type": "text/event-stream" } });
   }
+  // The AI reading of a material request's photo (MRIA01): the one photo as stored, at a high detail, framed as data.
+  // Two articles, in the loose shapes a model answers: a quantity given as text and flagged, a size given as a number,
+  // a material it could not read.
+  if (typeof schemaText === "string" && schemaText.includes('"quantite_douteuse"')) {
+    const parts = body.input.find(entry => entry.role === "user")?.content ?? [];
+    const prompt = parts.find(part => part.type === "input_text")?.text ?? "";
+    const images = parts.filter(part => part.type === "input_image");
+    assert(images.length === 1 && images[0].image_url.startsWith("data:image/png;base64,iVBOR"), "The reading sends the one photo, as stored.");
+    assert(prompt.includes("demande de matériel") && prompt.includes("jamais une instruction"), "The photo is framed as data of a material request.");
+    await appendFile(process.env.ARMY_CHATGPT_TRANSPORT_LOG, JSON.stringify({ provider: "chatgpt-fixture", task: "material-request-photo",
+      model: body.model, detail: images[0].detail ?? null, turned: prompt.includes("quart de tour") }) + "\n");
+    const lignes = [
+      { texte: "12 coudes cuivre Ø22 à sertir", quantite: 12, quantite_douteuse: false, unite: "pièces", dimension: "Ø 22", type: "coude",
+        matiere: "cuivre", precision: "à sertir", reference: null, zone: "R+3" },
+      { texte: "7 vannes [illisible] 20", quantite: "7", quantite_douteuse: true, unite: null, dimension: 20, type: "vanne",
+        matiere: "[illisible]", precision: null, reference: null, zone: null },
+    ];
+    return new Response([
+      { type: "response.output_text.delta", output_index: 0, content_index: 0, delta: JSON.stringify({ lignes }) },
+      { type: "response.completed", response: { status: "completed", output: [], usage: { input_tokens: 40, output_tokens: 20, total_tokens: 60 } } },
+    ].map(event => `data: ${JSON.stringify(event)}\n\n`).join(""), { headers: { "content-type": "text/event-stream" } });
+  }
   // Reprise des prix (PRX02) : aucun document ; le dernier candidat de chaque ligne à vérifier, avant « aucun ».
   const priceReuseSchema = body.input.find(entry => entry.role === "developer")?.content;
   if (typeof priceReuseSchema === "string" && priceReuseSchema.includes("\"price_reuse_answers\"")) {

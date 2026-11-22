@@ -1114,6 +1114,18 @@
       ]
     },
     {
+      "id": "material-request-photo-analysis",
+      "note": "Analyse IA des photos d'une demande de matériel : la photo lue sur le forfait ChatGPT devient des lignes en brouillon, ajoutées ou à la place des brouillons au choix du bureau (parcours MRIA01 de chatgpt-local-decisions.e2e.ts, fournisseur en fixture).",
+      "paths": [
+        "src/lib/material-requests/photo-analysis{,-server}.ts",
+        "src/app/api/affaires/[projectId]/material-requests/[requestId]/files/[fileId]/analysis/**",
+        "src/components/material-requests/MaterialRequestOriginal.tsx"
+      ],
+      "journeys": [
+        "e2e/army/local/chatgpt-local-decisions.e2e.ts"
+      ]
+    },
+    {
       "id": "chatgpt-local",
       "note": "Connexion personnelle locale : profil (Accès IA : abonnement et clé API), consentement OAuth et refus récupérable, sans abonnement ni clé réels en CI.",
       "paths": [

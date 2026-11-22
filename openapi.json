@@ -1937,7 +1937,7 @@
           "Demandes de matériel"
         ],
         "summary": "Ouvrir une demande de matériel",
-        "description": "La demande, son technicien, ses originaux, ses lignes dans l'ordre, le résumé de chaque article rattaché à une ligne (articles, par identifiant), les matières connues du catalogue du tenant et ses fournisseurs actifs.",
+        "description": "La demande, son technicien, ses originaux, ses lignes dans l'ordre, le résumé de chaque article rattaché à une ligne (articles, par identifiant), les matières connues du catalogue du tenant et ses fournisseurs actifs. photoAnalysis dit à qui peut écrire si l'analyse IA des photos peut lui être proposée : disabled (instance sans IA, rien n'est proposé), unavailable (forfait ChatGPT à connecter, message à afficher) ou available ; null pour un lecteur.",
         "parameters": [
           {
             "name": "projectId",
@@ -2823,6 +2823,136 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/affaires/{projectId}/material-requests/{requestId}/files/{fileId}/analysis": {
+      "post": {
+        "tags": [
+          "Demandes de matériel"
+        ],
+        "summary": "Lire un original avec l'IA",
+        "description": "Fait lire une photo de la demande par un modèle de vision, sur le forfait ChatGPT de l'appelant, et répond des lignes en brouillon dans l'ordre de lecture : les mots du technicien (original_text) à côté de ce qui a été lu (quantité, unité, dimension, type, matière, précision, référence, zone). Rien n'est écrit : l'écran ajoute ces lignes par POST lines ou lines/replace, et le bureau relit chaque ligne face à la photo. Un champ qui n'est pas écrit sur la photo reste absent ; une quantité raturée ou arrondie est marquée quantity_doubtful. Une photo par appel, de 15 Mo au plus ; la rotation d'affichage de la photo est indiquée au modèle, ses octets partent tels quels. Seuls les originaux de la demande se lisent : le fichier d'un devis, une photo dont le dépôt n'a pas abouti ou en cours de suppression répondent 404. Une photo sans article répond lines vide.",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "description": "Affaire du tenant actif.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/MaterialRequestProjectId"
+            }
+          },
+          {
+            "name": "requestId",
+            "in": "path",
+            "description": "Demande de cette affaire.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/MaterialRequestId"
+            }
+          },
+          {
+            "name": "fileId",
+            "in": "path",
+            "description": "Original ou fichier d'un devis de cette demande.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/MaterialRequestFileId"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Lignes lues, non enregistrées.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiMaterialRequestPhotoAnalysis"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requete invalide ou payload non conforme.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentification requise.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "FORBIDDEN : l'écriture demande le propriétaire de l'affaire ou un administrateur, avec le rôle admin ou engineer.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiMaterialRequestError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NOT_FOUND : affaire d'un autre tenant ou archivée, ou identifiant d'une autre affaire.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiMaterialRequestError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "MATERIAL_REQUEST_PHOTO_ANALYSIS_UNAVAILABLE : aucune lecture ne peut être lancée pour l'appelant ici (instance sans IA, forfait ChatGPT à connecter ou à reconnecter) ; le message dit quoi faire. details.status : disabled ou unavailable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiMaterialRequestError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "MATERIAL_REQUEST_PHOTO_TOO_LARGE : la photo est trop lourde pour être envoyée au modèle.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiMaterialRequestError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Erreur interne serveur.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "MATERIAL_REQUEST_PHOTO_ANALYSIS_FAILED : la lecture n'a pas donné de lignes. details.reason : AI_QUOTA, AI_RATE_LIMIT, AI_REQUEST_REJECTED, TIMEOUT, INVALID_ANSWER ou PROVIDER_ERROR. Rien n'est réessayé automatiquement.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiMaterialRequestError"
                 }
               }
             }
@@ -36568,6 +36698,34 @@
                   ],
                   "additionalProperties": false
                 }
+              },
+              "photoAnalysis": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "status": {
+                        "type": "string",
+                        "enum": [
+                          "disabled",
+                          "unavailable",
+                          "available"
+                        ]
+                      },
+                      "message": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "status",
+                      "message"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
               }
             },
             "required": [
@@ -36578,7 +36736,8 @@
               "articles",
               "canWrite",
               "materialOptions",
-              "supplierOptions"
+              "supplierOptions",
+              "photoAnalysis"
             ],
             "additionalProperties": false
           }
@@ -37324,6 +37483,108 @@
             },
             "required": [
               "deleted"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "ok",
+          "data"
+        ],
+        "additionalProperties": false
+      },
+      "ApiMaterialRequestPhotoAnalysis": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "file_id": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "lines": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "original_text": {},
+                    "quantity": {
+                      "anyOf": [
+                        {
+                          "type": "number",
+                          "exclusiveMinimum": 0,
+                          "maximum": 1000000
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "quantity_doubtful": {
+                      "type": "boolean"
+                    },
+                    "unit": {},
+                    "dimension": {},
+                    "no_dimension": {
+                      "type": "boolean"
+                    },
+                    "product_type": {},
+                    "material": {},
+                    "material_precision": {},
+                    "reference": {},
+                    "supplier_id": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "zone": {},
+                    "imputation": {
+                      "type": "string",
+                      "enum": [
+                        "project",
+                        "overhead"
+                      ]
+                    },
+                    "overhead_category": {},
+                    "duplicate_acknowledged": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "original_text",
+                    "unit",
+                    "dimension",
+                    "product_type",
+                    "material",
+                    "material_precision",
+                    "reference",
+                    "zone",
+                    "overhead_category"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "model": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "file_id",
+              "lines",
+              "model"
             ],
             "additionalProperties": false
           }

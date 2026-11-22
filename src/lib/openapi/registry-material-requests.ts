@@ -16,6 +16,7 @@ import {
   createMaterialRequestLinesSchema,
   createMaterialRequestSchema,
   createMaterialRequestTechnicianSchema,
+  materialRequestLineInputSchema,
   linkMaterialRequestLineArticleSchema,
   materialRequestLineIdsSchema,
   prepareMaterialRequestFilesSchema,
@@ -35,6 +36,11 @@ import {
   type MaterialRequestTechnician,
   type MaterialRequestUpdateResult,
 } from "@/lib/material-requests/contracts";
+import {
+  MATERIAL_REQUEST_PHOTO_ANALYSIS_MAX_BYTES,
+  type MaterialRequestPhotoAnalysis,
+  type MaterialRequestPhotoAnalysisAvailability,
+} from "@/lib/material-requests/photo-analysis";
 import {
   LINE_SUPPLIER_REASONS,
   productPreferredSupplierSchema,
@@ -224,6 +230,13 @@ const detailShape = {
   articles: z.record(z.string(), articleSummary),
 };
 const deleted = z.object({ deleted: z.literal(true) });
+// The AI reading of a photo (src/lib/material-requests/photo-analysis.ts).
+const photoAnalysisAvailability: z.ZodType<MaterialRequestPhotoAnalysisAvailability> = z.object({
+  status: z.enum(["disabled", "unavailable", "available"]), message: z.string(),
+});
+const photoAnalysis: z.ZodType<MaterialRequestPhotoAnalysis> = z.object({
+  file_id: uuid, lines: z.array(materialRequestLineInputSchema), model: z.string(),
+});
 
 // Every alert code, by construction: a code added to alerts.ts fails to compile here until it is listed.
 const alertCodes: Record<MaterialRequestLineAlertCode, true> = {
@@ -400,13 +413,15 @@ export const materialRequestOperations: OpenApiOperationDefinition[] = [
   },
   {
     tags, method: "get", path: one, summary: "Ouvrir une demande de matériel",
-    description: "La demande, son technicien, ses originaux, ses lignes dans l'ordre, le résumé de chaque article rattaché à une ligne (articles, par identifiant), les matières connues du catalogue du tenant et ses fournisseurs actifs.",
+    description: "La demande, son technicien, ses originaux, ses lignes dans l'ordre, le résumé de chaque article rattaché à une ligne (articles, par identifiant), les matières connues du catalogue du tenant et ses fournisseurs actifs. photoAnalysis dit à qui peut écrire si l'analyse IA des photos peut lui être proposée : disabled (instance sans IA, rien n'est proposé), unavailable (forfait ChatGPT à connecter, message à afficher) ou available ; null pour un lecteur.",
     parameters: [project, requestId],
     responses: {
       "200": success("ApiMaterialRequestDetail", "Demande et listes de choix.", z.object({
         ...detailShape, canWrite: z.boolean(), materialOptions: z.array(z.string()),
         // label: what a picker shows, the name with what tells two suppliers of the same name apart (TI-691).
         supplierOptions: z.array(z.object({ id: uuid, name: z.string(), label: z.string() })),
+        // Whether the screen may offer the AI reading of the photos; null for a reader.
+        photoAnalysis: photoAnalysisAvailability.nullable(),
       })),
       ...readRefusals,
     },
@@ -478,6 +493,18 @@ export const materialRequestOperations: OpenApiOperationDefinition[] = [
     description: "Retire l'original de toute lecture, puis supprime ses octets et sa ligne. Vaut aussi pour une photo préparée mais pas encore conservée : c'est ainsi qu'un dépôt s'annule, et un envoi encore en cours n'aboutit plus. Le fichier d'un devis se supprime de même tant que le devis est demandé ou reçu ; il reste une fois le devis retenu ou clos.",
     parameters: [project, requestId, fileId],
     responses: { "200": success("ApiMaterialRequestFileDeleted", "Original supprimé.", deleted), ...writeRefusals, "409": quoteReadOnly },
+  },
+  {
+    tags, method: "post", path: `${one}/files/{fileId}/analysis`, summary: "Lire un original avec l'IA",
+    description: `Fait lire une photo de la demande par un modèle de vision, sur le forfait ChatGPT de l'appelant, et répond des lignes en brouillon dans l'ordre de lecture : les mots du technicien (original_text) à côté de ce qui a été lu (quantité, unité, dimension, type, matière, précision, référence, zone). Rien n'est écrit : l'écran ajoute ces lignes par POST lines ou lines/replace, et le bureau relit chaque ligne face à la photo. Un champ qui n'est pas écrit sur la photo reste absent ; une quantité raturée ou arrondie est marquée quantity_doubtful. Une photo par appel, de ${MATERIAL_REQUEST_PHOTO_ANALYSIS_MAX_BYTES / (1024 * 1024)} Mo au plus ; la rotation d'affichage de la photo est indiquée au modèle, ses octets partent tels quels. Seuls les originaux de la demande se lisent : le fichier d'un devis, une photo dont le dépôt n'a pas abouti ou en cours de suppression répondent 404. Une photo sans article répond lines vide.`,
+    parameters: [project, requestId, fileId],
+    responses: {
+      "200": success("ApiMaterialRequestPhotoAnalysis", "Lignes lues, non enregistrées.", photoAnalysis),
+      ...writeRefusals,
+      "409": refusal("MATERIAL_REQUEST_PHOTO_ANALYSIS_UNAVAILABLE : aucune lecture ne peut être lancée pour l'appelant ici (instance sans IA, forfait ChatGPT à connecter ou à reconnecter) ; le message dit quoi faire. details.status : disabled ou unavailable."),
+      "413": refusal("MATERIAL_REQUEST_PHOTO_TOO_LARGE : la photo est trop lourde pour être envoyée au modèle."),
+      "503": refusal("MATERIAL_REQUEST_PHOTO_ANALYSIS_FAILED : la lecture n'a pas donné de lignes. details.reason : AI_QUOTA, AI_RATE_LIMIT, AI_REQUEST_REJECTED, TIMEOUT, INVALID_ANSWER ou PROVIDER_ERROR. Rien n'est réessayé automatiquement."),
+    },
   },
   {
     tags, method: "post", path: `${one}/lines`, summary: "Ajouter des lignes à une demande",
