@@ -474,6 +474,23 @@ describe("TakeoffItemTable", () => {
     expect(replace).toHaveBeenCalledWith(expect.stringContaining("posteState=not_found"), { scroll: false });
   });
 
+  it("opens an item's detail on its plan from its line, and gives the keyboard back to that line when the detail closes", async () => {
+    searchParams = new URLSearchParams("posteState=measured&tab=jobs");
+    renderTable();
+    const link = await screen.findByRole("link", { name: "Détail de « Lavabo » sur le plan" });
+    const lavabo = table().page.lines.find(({ label }) => label === "Lavabo")!;
+    const jobId = lavabo.readings.find(({ planKey }) => planKey === RDC)!.answer!.jobId;
+    expect(link).toHaveAttribute("href",
+      `/dashboard/affaires/${FIXTURE_ITEM_PROJECT}/takeoff?posteState=measured&tab=jobs&poste=${fixtureItemId(0)}&plan=${RDC}&lecture=${jobId}`);
+    expect(link).not.toHaveFocus();
+    cleanup();
+    // Back from the detail, the table opens on the item it showed last, its « Détail » holding the keyboard.
+    searchParams = new URLSearchParams(`posteState=measured&tab=jobs&posteFocus=${fixtureItemId(1)}`);
+    renderTable();
+    const back = await screen.findByRole("link", { name: "Détail de « WC » sur le plan" });
+    await waitFor(() => expect(back).toHaveFocus());
+  });
+
   it("says the list is not recorded yet instead of an empty table", async () => {
     client.fetchItemTable.mockResolvedValue(fixtureItemTable({ items: [], listed: false }) satisfies ItemTableResponse);
     renderTable();
