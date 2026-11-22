@@ -923,20 +923,29 @@
       "paths": [
         "src/app/dashboard/affaires/[projectId]/takeoff/page.tsx",
         "src/app/dashboard/affaires/_actions/import-flow.ts",
-        "src/components/takeoff/PosteListPreviewPanel.tsx",
+        "src/components/takeoff/TakeoffItemList*.tsx",
+        "src/components/takeoff/ItemTemplateEditor.tsx",
+        "src/app/api/affaires/[projectId]/takeoff/item-list/**",
+        "src/app/api/takeoff/item-templates/**",
+        "src/app/dashboard/admin/takeoff/item-template/**",
         "src/components/affaires/AffaireHub.tsx",
         "src/components/affaires/AffaireWorkbench.tsx",
         "src/hooks/useImportFlow.ts",
+        "src/hooks/useFileParser.ts",
         "src/workers/xlsx-parser.worker.ts",
         "src/lib/affaires/import-flow*.ts",
         "src/lib/estimates/linked-dpgf-read-server.ts",
         "src/lib/imports/**",
         "src/lib/mappings/**",
         "src/lib/takeoff/poste-list*.ts",
-        "src/lib/takeoff/plumbing-template.ts"
+        "src/lib/takeoff/item-list*.ts",
+        "src/lib/takeoff/item-template*.ts",
+        "src/lib/takeoff/plumbing-template.ts",
+        "src/lib/estimates/canonical-v2-creation.ts"
       ],
       "journeys": [
-        "e2e/army/takeoff/poste-list.e2e.ts"
+        "e2e/army/takeoff/poste-list.e2e.ts",
+        "e2e/army/takeoff/plumbing-template.e2e.ts"
       ]
     },
     {

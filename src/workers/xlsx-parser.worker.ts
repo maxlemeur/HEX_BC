@@ -25,6 +25,8 @@ type ParseWorkerSuccessResponse = {
   requestId: string;
   ok: true;
   rows: ParsedImportRow[];
+  /** The worksheet row where the table read starts (its row 1), as Excel numbers it. */
+  sheetFirstRow: number | null;
 };
 
 type ParseWorkerErrorResponse = {
@@ -153,6 +155,17 @@ export async function parseWorkbook(
   buffer: ArrayBuffer,
   headerRowNumber?: number | null
 ): Promise<ParsedImportRow[]> {
+  return (await parseWorkbookWithOrigin(buffer, headerRowNumber)).rows;
+}
+
+/**
+ * The rows and the worksheet row where the table read starts: a row's `source_row_number` counts from there (the
+ * table's row), and `sheetFirstRow + source_row_number - 1` is the row Excel shows.
+ */
+export async function parseWorkbookWithOrigin(
+  buffer: ArrayBuffer,
+  headerRowNumber?: number | null
+): Promise<{ rows: ParsedImportRow[]; sheetFirstRow: number | null }> {
   const workbook = XLSX.read(buffer, {
     type: "array",
     raw: true,
@@ -180,11 +193,14 @@ export async function parseWorkbook(
   const selectedSheetName = workbook.SheetNames[selectedSheetIndex];
   const matrix = sheetMatrices[selectedSheetIndex];
   const selectedSheet = selectedSheetName ? workbook.Sheets[selectedSheetName] : undefined;
-  if (!selectedSheetName || !matrix || !selectedSheet) return [];
+  if (!selectedSheetName || !matrix || !selectedSheet) return { rows: [], sheetFirstRow: null };
 
   const rowStyles = await extractRowStyles(buffer, selectedSheetName, selectedSheet, matrix);
 
-  return toImportRows(matrix, selectedSheetName, rowStyles, headerRowNumber);
+  return {
+    rows: toImportRows(matrix, selectedSheetName, rowStyles, headerRowNumber),
+    sheetFirstRow: resolveSheetMatrixOrigin(selectedSheet).row,
+  };
 }
 
 function postResponse(response: ParseWorkerResponse) {
@@ -206,11 +222,12 @@ if (typeof self !== "undefined") {
     }
 
     try {
-      const rows = await parseWorkbook(payload.buffer, payload.headerRowNumber ?? null);
+      const { rows, sheetFirstRow } = await parseWorkbookWithOrigin(payload.buffer, payload.headerRowNumber ?? null);
       postResponse({
         requestId,
         ok: true,
         rows,
+        sheetFirstRow,
       });
     } catch (error) {
       postResponse({

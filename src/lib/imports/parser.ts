@@ -21,6 +21,11 @@ export type ParsedImportFile = {
   sourceFormat: "csv" | "xlsx";
   headers: string[];
   rows: NormalizedImportRow[];
+  /**
+   * The worksheet row where the table read starts, as Excel numbers it: a row's `source_row_number` counts from there
+   * (the table's row), and `sheetFirstRow + source_row_number - 1` is the sheet's own row. Null without a sheet.
+   */
+  sheetFirstRow?: number | null;
 };
 
 export type ParseImportFileOptions = {
@@ -38,6 +43,7 @@ type ParseWorkbookResult = {
   sheetName: string | null;
   matrix: unknown[][];
   rowStyles: ParsedWorkbookRowStyle[];
+  sheetFirstRow?: number | null;
 };
 
 type ParseWorkbookRunner = (
@@ -117,6 +123,8 @@ const resolveSheetMatrixOrigin = (${SHEET_MATRIX_ORIGIN_SOURCE});
       merged_column_indexes: [],
       outline_level: null,
     }));
+    const sheetFirstRow = sheetName && workbook.Sheets[sheetName]
+      ? resolveSheetMatrixOrigin(workbook.Sheets[sheetName]).row : null;
 
     if (sheetName) {
       try {
@@ -162,7 +170,7 @@ const resolveSheetMatrixOrigin = (${SHEET_MATRIX_ORIGIN_SOURCE});
       }
     }
 
-    parentPort.postMessage({ ok: true, sheetName, matrix, rowStyles });
+    parentPort.postMessage({ ok: true, sheetName, matrix, rowStyles, sheetFirstRow });
   } catch (error) {
     parentPort.postMessage({
       ok: false,
@@ -271,11 +279,13 @@ async function runWorkbookParseInWorker(
           typeof record.sheetName === "string" && record.sheetName.trim().length > 0
             ? record.sheetName
             : null;
+        const sheetFirstRow = Number(record.sheetFirstRow);
 
         resolve({
           sheetName,
           matrix,
           rowStyles,
+          sheetFirstRow: Number.isInteger(sheetFirstRow) && sheetFirstRow > 0 ? sheetFirstRow : null,
         });
       });
     });
@@ -333,7 +343,7 @@ export async function parseImportFile(
     throw new Error("Le fichier est vide.");
   }
 
-  const { sheetName, matrix, rowStyles } = await parseWorkbookMatrixWithTimeout(fileBytes);
+  const { sheetName, matrix, rowStyles, sheetFirstRow = null } = await parseWorkbookMatrixWithTimeout(fileBytes);
   if (!sheetName) {
     return {
       sourceFormat,
@@ -409,6 +419,7 @@ export async function parseImportFile(
     sourceFormat,
     headers,
     rows,
+    sheetFirstRow: sourceFormat === "xlsx" ? sheetFirstRow : null,
   };
 }
 

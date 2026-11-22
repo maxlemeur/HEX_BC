@@ -5,6 +5,7 @@ import { z } from "zod";
 
 import {
   buildImportFlowStats,
+  importStructuralExclusions,
   normalizeMappedRowsForEstimateCreation,
   resolveImportLaborRole,
   type ImportFlowLineValuesContext,
@@ -19,9 +20,10 @@ import {
   type Supabase,
   DEFAULT_MARGIN_MULTIPLIER,
   DEFAULT_TAX_RATE_BP,
+  IMPORT_DECISIONS_NOT_RECORDED_MESSAGE,
+  IMPORT_MAPPING_CHANGED_MESSAGE,
   assertProjectAccessOrThrow,
   ensureImportProjectLink,
-  fetchLatestMappingId,
   fetchMappedRowsForImport,
   fetchProjectOwnerLaborRoles,
   fetchVersionComputationContext,
@@ -35,6 +37,7 @@ import {
 } from "@/lib/affaires/import-engine-server";
 import { persistCanonicalEstimateV2 } from "@/lib/estimates/canonical-v2-creation";
 import { IMPORT_CONTROL_TOLERANCE_CENTS } from "@/lib/imports/optima-profile";
+import { readDpgfImportReviewState } from "@/lib/imports/rows-digest-server";
 import {
   createMapping,
   findPerUnitDurationsMappedToLineHours,
@@ -42,7 +45,14 @@ import {
 } from "@/lib/mappings/server";
 import { mappingRecordSchema } from "@/lib/mappings/schemas";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import type { ConfirmUnifiedImportFlowResult, ImportFlowLinesPreview } from "@/lib/affaires/import-flow-results";
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
+import type { ImportStructureDecision } from "@/lib/imports/structure";
+import type { Json } from "@/types/database";
+import type {
+  ConfirmUnifiedImportFlowOutcome,
+  ConfirmUnifiedImportFlowRefusal,
+  ImportFlowLinesPreview,
+} from "@/lib/affaires/import-flow-results";
 import type {
   TakeoffCarryOverStatus,
   TakeoffCarryOverSummary,
@@ -91,6 +101,11 @@ const confirmUnifiedImportFlowSchema = z.object({
   versionTitle: z.string().trim().max(200).nullable().optional(),
   sectionTitle: z.string().trim().max(200).nullable().optional(),
   structurePlan: z.object({ decisions: z.array(structureDecisionSchema).max(10_000) }).optional(),
+  // The database's digest of the import's rows when the member reviewed them, and the latest mapping it read with it
+  // (the structure preview's rows_digest and rows_mapping_id): a confirmation that keeps the import's latest mapping
+  // records only those rows, under that mapping (lot 4).
+  rowsDigest: z.string().regex(/^[0-9a-f]{64}$/, "rowsDigest invalide."),
+  reviewedMappingId: z.string().uuid("reviewedMappingId invalide.").nullable().optional(),
   // Labour role of the imported hours chosen at the preview (E17). Omitted: the workbook rate
   // decides; null: the explicit « no role » choice (MO valued at 0 €/h, warned in the preview).
   laborRoleId: z.string().uuid("laborRoleId invalide.").nullable().optional(),
@@ -259,9 +274,66 @@ export async function getUnifiedImportFlowTakeoffCarryOverPreview(
   });
 }
 
+function refusal(importId: string, reason: ConfirmUnifiedImportFlowRefusal["reason"]): ConfirmUnifiedImportFlowRefusal {
+  return { mode: "refused", reason, importId,
+    message: reason === "mapping_changed" ? IMPORT_MAPPING_CHANGED_MESSAGE : IMPORT_DECISIONS_NOT_RECORDED_MESSAGE };
+}
+
+/** Whether a refusal comes from the confirmation's own check: its mapping or its rows are no longer the import's. */
+function isImportConfirmationChanged(error: unknown) {
+  for (let cause = error, depth = 0; cause && depth < 5; depth += 1) {
+    const message = typeof cause === "object" && "message" in cause ? String((cause as { message?: unknown }).message) : "";
+    if (message.includes("DPGF_IMPORT_CONFIRMATION_STALE") || message.includes("DPGF_IMPORT_CONFIRMATION_ROWS_CHANGED")) {
+      return true;
+    }
+    cause = typeof cause === "object" && "cause" in cause ? (cause as { cause?: unknown }).cause : null;
+  }
+  return false;
+}
+
+/**
+ * The structure decisions of a confirmation that keeps the mapping alone. The mapping writer commits in several
+ * requests (header, deletion, inserts by 500) and cannot share a transaction with them: this record is the
+ * confirmation's own transaction, and the confirmation does not report success without it. A refusal is returned with
+ * its French reason; confirming again (the same gesture) writes the same mapping again and records it.
+ */
+async function recordMappingOnlyConfirmation(input: {
+  tenantId: string;
+  actorUserId: string;
+  importId: string;
+  mappingId: string;
+  projectId: string | null;
+  decisions: readonly ImportStructureDecision[];
+  exclusions: ReturnType<typeof importStructuralExclusions>;
+  mappedRowIds: string[];
+  rowsDigest: string;
+}): Promise<ConfirmUnifiedImportFlowRefusal | null> {
+  let failure: unknown = null;
+  try {
+    const { error } = await createServiceRoleClient().rpc("record_dpgf_import_confirmation", {
+      p_tenant_id: input.tenantId,
+      p_actor: input.actorUserId,
+      p_import_id: input.importId,
+      p_mapping_id: input.mappingId,
+      p_project_id: input.projectId as string,
+      p_estimate_version_id: null as unknown as string,
+      p_decisions: input.decisions as unknown as Json,
+      p_exclusions: input.exclusions as unknown as Json,
+      p_mapped_row_ids: input.mappedRowIds,
+      p_rows_sha256: input.rowsDigest,
+    });
+    failure = error;
+  } catch (error) {
+    failure = error ?? new Error("record failed");
+  }
+  if (!failure) return null;
+  console.warn("dpgf import confirmation decisions not recorded", { importId: input.importId });
+  return refusal(input.importId, isImportConfirmationChanged(failure) ? "mapping_changed" : "decisions_not_recorded");
+}
+
 export async function confirmUnifiedImportFlow(
   input: ConfirmUnifiedImportFlowInput
-): Promise<ConfirmUnifiedImportFlowResult> {
+): Promise<ConfirmUnifiedImportFlowOutcome> {
   const parsed = confirmUnifiedImportFlowSchema.safeParse(input);
   if (!parsed.success) {
     throw new Error("Payload de confirmation invalide.");
@@ -324,8 +396,15 @@ export async function confirmUnifiedImportFlow(
   }
 
   const normalizedMapping = mappingRecordSchema.parse(parsed.data.mapping ?? {});
-  let mappingId: string | null = null;
-
+  // The rows this confirmation wrote, when it writes its mapping (the member's, applied to the import's raw rows).
+  let writtenRowIds: ReadonlySet<string> | null = null;
+  let mappingId: string | null;
+  // The digest the confirmation's record checks with the mapping, the database's own, read with it and recomputed under
+  // the import's lock with the rows it records. When the confirmation writes the member's mapping: the rows it has just
+  // written, read before they are read below, the rows the member previewed following from the raw rows and that
+  // mapping. When it keeps the latest mapping: the mapping and the rows the member reviewed, read together by the
+  // preview. Anything else is refused before anything is created.
+  let rowsDigest: string;
   if (Object.keys(normalizedMapping).length > 0) {
     const createMappingResult = await createMapping({
       import_id: parsed.data.importId,
@@ -333,14 +412,17 @@ export async function confirmUnifiedImportFlow(
       save_template: false,
     });
     mappingId = createMappingResult.mapping.id;
-  }
-
-  if (!mappingId) {
-    mappingId = await fetchLatestMappingId({
-      supabase,
-      importId: parsed.data.importId,
-      tenantId: membership.tenant_id,
-    });
+    writtenRowIds = new Set(createMappingResult.mapped_row_ids);
+    const written = await readDpgfImportReviewState({ tenantId: membership.tenant_id, importId: parsed.data.importId });
+    if (written.mappingId !== mappingId) return refusal(parsed.data.importId, "mapping_changed");
+    rowsDigest = written.rowsDigest;
+  } else {
+    const current = await readDpgfImportReviewState({ tenantId: membership.tenant_id, importId: parsed.data.importId });
+    if (current.mappingId !== (parsed.data.reviewedMappingId ?? null) || current.rowsDigest !== parsed.data.rowsDigest) {
+      return refusal(parsed.data.importId, "mapping_changed");
+    }
+    mappingId = current.mappingId;
+    rowsDigest = parsed.data.rowsDigest;
   }
 
   const effectiveProjectId = requestedProjectId ?? importRow.project_id ?? null;
@@ -349,6 +431,12 @@ export async function confirmUnifiedImportFlow(
     importId: parsed.data.importId,
     tenantId: membership.tenant_id,
   });
+  // A confirmation that wrote its mapping records exactly the rows it wrote: rows another tab's writer is still
+  // inserting refuse it before anything else is written.
+  const written = writtenRowIds;
+  if (written && (mappedRows.length !== written.size || mappedRows.some(({ id }) => !written.has(id)))) {
+    return refusal(parsed.data.importId, "mapping_changed");
+  }
 
   const versionContext = effectiveProjectId
     ? await fetchVersionComputationContext(
@@ -427,6 +515,20 @@ export async function confirmUnifiedImportFlow(
 
   if (!parsed.data.createEstimate) {
     const stats = buildImportFlowStats(normalizedRows, 0);
+    if (mappingId) {
+      const refused = await recordMappingOnlyConfirmation({
+        tenantId: membership.tenant_id,
+        actorUserId: user.id,
+        importId: parsed.data.importId,
+        mappingId,
+        projectId: effectiveProjectId,
+        decisions: normalizationOptions.structureDecisions,
+        exclusions: importStructuralExclusions(normalizedRows),
+        mappedRowIds: mappedRows.map(({ id }) => id),
+        rowsDigest,
+      });
+      if (refused) return refused;
+    }
     revalidateImportFlowPaths(effectiveProjectId, null);
 
     return {
@@ -482,8 +584,20 @@ export async function confirmUnifiedImportFlow(
         ...(saleCoefficients ? { engine: 3 } : {}),
       },
       ...(saleCoefficients ? { expectedCalcEngineVersion: 3 } : {}),
+      // The structure decisions applied to this estimate, the rows they left out and the rows checked, recorded in
+      // its transaction (lot 4, the affaire's item list).
+      ...(mappingId
+        ? { importConfirmation: {
+          mappingId,
+          decisions: normalizationOptions.structureDecisions,
+          exclusions: importStructuralExclusions(normalizedRows),
+          mappedRowIds: mappedRows.map(({ id }) => id),
+          rowsDigest,
+        } }
+        : {}),
     });
   } catch (error) {
+    if (isImportConfirmationChanged(error)) return refusal(parsed.data.importId, "mapping_changed");
     throw new Error("Impossible de créer la version depuis l'import.", {
       cause: error,
     });

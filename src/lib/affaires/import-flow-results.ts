@@ -38,6 +38,21 @@ export type ConfirmUnifiedImportFlowResult = {
   };
 };
 
+/**
+ * A confirmation refused for a reason the member can act on (lot 4): returned, never thrown, so that its French message
+ * and way forward reach the form (a Server Action's thrown message is replaced by a generic one in production).
+ * mapping_changed: the import's rows are no longer those the member reviewed; decisions_not_recorded: the mapping is
+ * saved, its structure decisions are not, confirming again records them.
+ */
+export type ConfirmUnifiedImportFlowRefusal = {
+  mode: "refused";
+  reason: "mapping_changed" | "decisions_not_recorded";
+  importId: string;
+  message: string;
+};
+
+export type ConfirmUnifiedImportFlowOutcome = ConfirmUnifiedImportFlowResult | ConfirmUnifiedImportFlowRefusal;
+
 export type ImportFlowLinesPreview = {
   validLineCount: number;
   ignoredParameterRows: number;

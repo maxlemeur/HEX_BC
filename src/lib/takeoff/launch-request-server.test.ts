@@ -140,6 +140,8 @@ function dossier(input: { classification?: string; copy?: "same" | "older" | "le
           mandate_selection: SELECTION, payer_eligible: true }] : [], error: null }),
       record_takeoff_launch_evaluation: (args) => { recorded.push(args); return { data: "blocked", error: null }; },
       record_takeoff_launch_evaluation_failure: () => ({ data: "evaluating", error: null }),
+      // Lot 4: the second measuring order is not activated; the request seals the free extraction, as before.
+      takeoff_item_list_order_is_active: () => ({ data: false, error: null }),
       admit_takeoff_launch_request: (args) => {
         admitted.push(args);
         return { data: [{ outcome: "admitted", job_id: (args as { p_job: { id: string } }).p_job.id, reason_code: null }], error: null };
@@ -612,6 +614,7 @@ function gesture(input: { launchActive?: boolean; reply?: Record<string, unknown
   const row = { request_id: REQUEST, state: "evaluating", reason_code: null, payer_id: PAYER, ...input.reply };
   const fake = createSupabaseFake({ rpc: {
     takeoff_launch_is_active: () => ({ data: input.launchActive !== false, error: null }),
+    takeoff_item_list_order_is_active: () => ({ data: false, error: null }),
     // The one payer rule (the database's): the member of `member()` may pay unless a reader.
     takeoff_payer_may_launch: (args) => ({ data: (args as { p_user_id: string }).p_user_id === PAYER && input.mayPay !== false, error: null }),
     takeoff_launch_request_action: () => ({ data: input.action ?? "none", error: null }),
@@ -772,6 +775,8 @@ describe("launchTakeoffRelaunch", () => {
     const calls: string[] = [];
     const service = createSupabaseFake({ rpc: {
       replay_manual_takeoff_request: () => ({ data: [], error: null }),
+      // Lot 4: the command reads whether the second measuring order is active (it is not: the free extraction).
+      takeoff_item_list_order_is_active: () => ({ data: false, error: null }),
       launch_manual_takeoff_request: () => { calls.push("launch"); return { data: answer.data ?? null, error: answer.error ?? null }; },
     } });
     vi.mocked(createServiceRoleClient).mockReturnValue(service.client as never);

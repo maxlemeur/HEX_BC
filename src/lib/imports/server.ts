@@ -289,6 +289,11 @@ function parseOptionalProjectId(value: unknown): string | null {
   return trimmed;
 }
 
+/** A worksheet row (1 to 1 048 576, Excel's last), or nothing: a value out of range is dropped, never stored. */
+function parseSheetFirstRow(value: unknown): number | null {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 1 && value <= 1_048_576 ? value : null;
+}
+
 function normalizeSourceFormat(value: unknown, fallback: ImportSourceFormat): ImportSourceFormat {
   if (typeof value !== "string") return fallback;
   const normalized = value.trim().toLowerCase();
@@ -964,6 +969,9 @@ export async function createImportFromJsonBody(body: unknown, admittedContext?: 
         status: "completed",
         row_count: normalizedRows.length,
         error_message: null,
+        // Where the browser's parser found the table on its worksheet (a workbook only): the list shows a row by the
+        // number Excel gives it. It changes nothing a row stores.
+        sheet_first_row: importMetadata.sourceFormat === "xlsx" ? parseSheetFirstRow(input.sheetFirstRow) : null,
       },
       "Impossible de finaliser l'import JSON."
     );
@@ -1146,6 +1154,7 @@ export async function createImportFromMultipartFormData(
         row_count: parsed.rows.length,
         source_format: parsed.sourceFormat,
         error_message: null,
+        sheet_first_row: "sheetFirstRow" in parsed ? parsed.sheetFirstRow ?? null : null,
       },
       "Impossible de finaliser l'import du fichier."
     );

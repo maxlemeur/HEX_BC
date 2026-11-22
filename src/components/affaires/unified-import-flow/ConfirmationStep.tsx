@@ -117,10 +117,17 @@ export function ConfirmationStep({
           createEstimate,
           previewSourceVersionId,
           structurePlan,
+          rowsDigest: structurePreview?.rows_digest ?? "",
+          reviewedMappingId: structurePreview?.rows_mapping_id ?? null,
           ...(laborRoleId === undefined ? {} : { laborRoleId }),
           ...(saleCoefficients === undefined ? {} : { saleCoefficients }),
         });
 
+        // A refusal the member can act on: its French reason and way forward, the confirmation stays open.
+        if (result.mode === "refused") {
+          setConfirmError(result.message);
+          return;
+        }
         setConfirmationResult(result);
         onResultReady?.(result);
       } catch (err) {
@@ -133,7 +140,8 @@ export function ConfirmationStep({
         setIsConfirming(false);
       }
     },
-    [importId, laborRoleId, mapping, onResultReady, previewSourceVersionId, projectId, saleCoefficients, structurePlan],
+    [importId, laborRoleId, mapping, onResultReady, previewSourceVersionId, projectId, saleCoefficients, structurePlan,
+      structurePreview],
   );
 
   const carryOverPreviewCopy =

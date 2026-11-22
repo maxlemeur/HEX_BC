@@ -1,4 +1,12 @@
 import { affaireLinkedDpgfSourceResponseSchema } from "@/lib/estimates/linked-dpgf-contracts";
+import {
+  itemListAcceptRequestSchema,
+  itemListAddRequestSchema,
+  itemListRecordedSchema,
+  itemTemplateDiscardRequestSchema,
+  itemTemplatePublishRequestSchema,
+  itemTemplateSaveRequestSchema,
+} from "@/lib/takeoff/item-list-contracts";
 import { z, type ZodTypeAny } from "zod";
 import { driveRequestSchema,driveConnectionRequestSchema,driveConnectionStateSchema,drivePurposeSchema } from "@/lib/affaires/google-drive/contracts";
 import { purchaseOrderItemsResponseSchema } from "@/lib/purchase-orders/schemas";
@@ -349,6 +357,8 @@ const importJsonSchema = z
     projectId: uuidSchema.nullable().optional(),
     storagePath: z.string().nullable().optional(),
     fileSizeBytes: z.number().int().min(0).nullable().optional(),
+    // A workbook parsed in the browser: the worksheet row where its table starts (a value out of range is dropped).
+    sheetFirstRow: z.number().int().min(1).max(1_048_576).nullable().optional(),
     validation: jsonRecordSchema.optional(),
   })
   .passthrough()
@@ -543,6 +553,57 @@ const administrationContracts: RouteContract[] = [
     pathParameters: [projectIdParameter],
     success: [{ status: "200", description: "Source DPGF validée, ou absence explicite.",
       schema: { schemaName: "AffaireLinkedDpgfSourceResponse", schema: z.object({ ok: z.literal(true), data: affaireLinkedDpgfSourceResponseSchema }), io: "output" } }],
+  },
+  {
+    id: "get-affaire-takeoff-item-list", method: "get", path: "/api/affaires/{projectId}/takeoff/item-list",
+    summary: "Lire la liste des postes d'une affaire", tags: ["Takeoff"],
+    description: "Lecteurs de l'affaire. La révision enregistrée de la liste (immuable), son historique, ses sources (l'import DPGF de l'affaire et les décisions de structure de sa confirmation, ou la version du gabarit) résolues par le serveur sous la règle de l'affaire, les continuités acceptées, et la révision que les sources proposent maintenant, jamais appliquée seule. Aucun prix n'est lu.",
+    pathParameters: [projectIdParameter],
+  },
+  {
+    id: "accept-affaire-takeoff-item-list-revision", method: "post", path: "/api/affaires/{projectId}/takeoff/item-list/revisions",
+    summary: "Accepter la révision proposée de la liste des postes", tags: ["Takeoff"],
+    description: "Opérateur du métré de l'affaire (administrateur, ou ingénieur propriétaire). Le serveur recalcule la proposition depuis les sources : 409 si la liste ou la proposition a changé depuis la lecture (révision attendue, empreinte de la proposition) ou si une continuité n'est plus proposée. Les postes gardent leur identité ; une continuité acceptée enregistre la nouvelle origine sur le poste existant. La même clé d'intention rend la même révision.",
+    pathParameters: [projectIdParameter],
+    body: { schema: itemListAcceptRequestSchema, description: "Révision lue (0 avant la première), empreinte de la proposition affichée, clé d'intention et continuités confirmées." },
+    success: [{ status: "200", description: "Révision enregistrée ou rejouée.",
+      schema: { schemaName: "TakeoffItemListRecordedResponse", schema: z.object({ ok: z.literal(true), data: itemListRecordedSchema }), io: "output" } }],
+  },
+  {
+    id: "add-affaire-takeoff-item-list-item", method: "post", path: "/api/affaires/{projectId}/takeoff/item-list/items",
+    summary: "Ajouter un poste à la liste d'une affaire", tags: ["Takeoff"],
+    description: "Opérateur du métré de l'affaire, à toute date (avant, pendant ou après une analyse, après un premier envoi). Désignation, unité ou « à préciser », base de mesure, discriminants et section ; ni quantité ni prix. L'auteur est le membre de la session. Sans liste enregistrée, la première liste des sources est enregistrée d'abord. Un double clic (même clé d'intention) rend la même révision ; 409 si la liste a changé depuis la lecture.",
+    pathParameters: [projectIdParameter],
+    body: { schema: itemListAddRequestSchema, description: "Révision lue, clé d'intention et définition du poste." },
+    success: [{ status: "200", description: "Révision enregistrée ou rejouée.",
+      schema: { schemaName: "TakeoffItemListAddedResponse", schema: z.object({ ok: z.literal(true), data: itemListRecordedSchema }), io: "output" } }],
+  },
+  {
+    id: "get-takeoff-item-template", method: "get", path: "/api/takeoff/item-templates/{templateKey}",
+    summary: "Lire le gabarit de postes et son brouillon", tags: ["Takeoff"],
+    description: "Administrateurs de l'entreprise. La dernière version publiée (ou celle livrée avec l'application), le brouillon en cours et ce que sa publication ajouterait, retirerait et modifierait, par identifiant de poste.",
+    pathParameters: [{ name: "templateKey", schema: z.enum(["plomberie"]), description: "Clé du gabarit." }],
+  },
+  {
+    id: "save-takeoff-item-template-draft", method: "put", path: "/api/takeoff/item-templates/{templateKey}/draft",
+    summary: "Enregistrer le brouillon du gabarit", tags: ["Takeoff"],
+    description: "Administrateurs de l'entreprise. Enregistre le brouillon sur la révision et la version publiée lues ; 409 si un autre enregistrement ou une publication est intervenu entre-temps. Les identifiants de familles et de postes sont uniques et conservés de version en version.",
+    pathParameters: [{ name: "templateKey", schema: z.enum(["plomberie"]), description: "Clé du gabarit." }],
+    body: { schema: itemTemplateSaveRequestSchema, description: "Révision du brouillon lue (0 sans brouillon), version publiée de départ et définition." },
+  },
+  {
+    id: "discard-takeoff-item-template-draft", method: "delete", path: "/api/takeoff/item-templates/{templateKey}/draft",
+    summary: "Abandonner le brouillon du gabarit", tags: ["Takeoff"],
+    description: "Administrateurs de l'entreprise. Retire le brouillon lu ; la version publiée reste inchangée.",
+    pathParameters: [{ name: "templateKey", schema: z.enum(["plomberie"]), description: "Clé du gabarit." }],
+    body: { schema: itemTemplateDiscardRequestSchema, description: "Révision du brouillon lue." },
+  },
+  {
+    id: "publish-takeoff-item-template", method: "post", path: "/api/takeoff/item-templates/{templateKey}/publish",
+    summary: "Publier le brouillon du gabarit", tags: ["Takeoff"],
+    description: "Administrateurs de l'entreprise. Publie le brouillon lu comme nouvelle version : les prochaines affaires la lisent, une affaire existante se voit proposer l'écart sur sa liste. Aucun effet sur les devis, analyses ou demandes déjà scellées. La même clé d'intention rend la même version.",
+    pathParameters: [{ name: "templateKey", schema: z.enum(["plomberie"]), description: "Clé du gabarit." }],
+    body: { schema: itemTemplatePublishRequestSchema, description: "Révision du brouillon lue et clé d'intention." },
   },
   {
     id: "create-affaire-intake-files",
