@@ -196,7 +196,8 @@ async function ownedAnswers(projectId: string) {
 // Lot 4, PR 4b: a new measure of a selection. After the first reading of both plans (the WC not found anywhere), the member
 // selects the WC in the table and opens its new measure: the preview names the plans, the item, the paid calls and the
 // budget sized on it alone (this application has no local ChatGPT runtime to pay with: the dialog says so and offers no
-// confirmation). The member's confirmation, run by the server with the member's own subscription on this Mac, is admitted
+// confirmation). A confirmation naming another effort than the profile's is refused, nothing recorded (the Mac reads a
+// request with its payer's profile as it is). The member's confirmation, run by the server with the member's own subscription on this Mac, is admitted
 // for the WC alone on both plans; the WC reads « En lecture » at once, the other items keep their answers. The Mac reads
 // both plans against the WC only (the controlled provider answers the items its prompt asks: two on A, none on B); the
 // table then shows the WC measured, its new readings to decide, and the lavabo and the tap as they were.
@@ -234,8 +235,18 @@ armyTest("TKPR03 a new measure of one item reads it alone on its plans, and the 
       await expect(screen.getByRole("button", "Confirmer la demande sur mon forfait", { exact: true })).toBeDisabled();
       await screen.getByRole("button", "Annuler", { exact: true }).click();
 
-      // The member's confirmation, run by the server on this Mac: admitted for the WC alone, on both plans.
+      // A confirmation naming another effort than the profile's (« automatique ») is refused and records nothing: the Mac
+      // reads a request with its payer's profile as it is, and would refuse one sealed with another effort.
       const intentKey = randomUUID();
+      const requests = async () => Number((await querySql(`select count(*) from public.takeoff_launch_requests
+        where project_id = '${dossier.projectId}';`)).find((line) => /^\s*\d+\s*$/.test(line)));
+      const requestsBefore = await requests();
+      expect(await runOwnedTakeoffCommand(owner, ["remeasure", dossier.projectId, ids[WC], intentKey, "-", "-", "high"]))
+        .toMatchObject({ status: 422, rejected: expect.stringContaining("un autre effort pour elle seule n’est pas encore possible") });
+      expect(await requests()).toBe(requestsBefore);
+
+      // The member's confirmation with the profile's setting, run by the server on this Mac: admitted for the WC alone, on
+      // both plans, under the same key.
       const confirmed = await runOwnedTakeoffCommand(owner, ["remeasure", dossier.projectId, ids[WC], intentKey]);
       expect(confirmed).toMatchObject({ result: { outcome: "admitted", preview: { subscription: "ready",
         items: [{ itemId: ids[WC], label: WC }], reading: { state: "ready", calls: 2 } } } });

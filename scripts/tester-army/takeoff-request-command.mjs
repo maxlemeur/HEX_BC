@@ -73,10 +73,15 @@ try {
     // The items of the affaire's table selected, and the confirmation's key: the preview the dialog shows, then its
     // explicit confirmation with that preview's digest (the member's own subscription, the profile's setting). With the
     // plans and the digest of a confirmation sent before, the same body is sent again, as the dialog resends a lost answer.
-    const [items, intentKey, planKeys, digest] = rest;
+    // An effort after them (« - - » for a fresh preview) is the setting the confirmation names instead of the profile's.
+    const [items, intentKey, sentPlanKeys, sentDigest, effort] = rest;
+    const planKeys = sentPlanKeys === "-" ? undefined : sentPlanKeys;
+    const digest = sentDigest === "-" ? undefined : sentDigest;
     const itemIds = (items ?? "").split(",");
     assert(itemIds.length > 0 && itemIds.every((id) => uuid.test(id)) && uuid.test(intentKey ?? ""));
     assert((planKeys === undefined) === (digest === undefined) && (digest === undefined || /^[0-9a-f]{64}$/.test(digest)));
+    assert(effort === undefined || ["none", "low", "medium", "high", "xhigh", "max"].includes(effort));
+    const setting = effort ? { reasoning_effort: effort } : null;
     const scope = { kind: "affaire" };
     result = await run(async () => {
       // What the table shows the member: the list revision and each selected line's readings (its target).
@@ -85,11 +90,11 @@ try {
         targets: table.page.lines.filter((line) => itemIds.includes(line.itemId)).map((line) => line.targets) };
       if (planKeys !== undefined) {
         return runItemRemeasure(projectId, { command_version: 1, intent_key: intentKey, scope, item_ids: itemIds,
-          plan_keys: planKeys.split(","), setting: null, preview_digest: digest, seen });
+          plan_keys: planKeys.split(","), setting, preview_digest: digest, seen });
       }
       const preview = await previewItemRemeasure(projectId, { scope, itemIds, seen });
       const command = { command_version: 1, intent_key: intentKey, scope, item_ids: itemIds,
-        plan_keys: preview.plans.map(({ key }) => key), setting: null, preview_digest: preview.previewDigest, seen };
+        plan_keys: preview.plans.map(({ key }) => key), setting, preview_digest: preview.previewDigest, seen };
       const admitted = await runItemRemeasure(projectId, command);
       return { ...admitted, sent: { planKeys: command.plan_keys, digest: command.preview_digest },
         preview: { plans: preview.plans, items: preview.items, reading: preview.reading, subscription: preview.subscription.state } };

@@ -524,9 +524,12 @@ ouvert. La relecture d’un reçu (`public.replay_takeoff_item_remeasure`) ne pr
   envoi.
 - **Demander à l’IA de mesurer de nouveau** : un aperçu nomme le membre qui confirme,
   qui paie sur son propre forfait ChatGPT, le réglage de Mon profil, les plans et les
-  postes, les appels payants et le budget réservé, calculés sur les seuls postes demandés ;
-  un effort ponctuel peut être choisi sans changer le profil. Un seul poste suffit, et un
-  poste jamais mesuré l’est sur les plans lus de l’affaire. Pendant une analyse de
+  postes, les appels payants et le budget réservé, calculés sur les seuls postes demandés.
+  La demande utilise le réglage de Mon profil tel quel : un effort pour une seule demande
+  n’est pas encore proposé, car le Mac lit une demande avec le réglage du profil de son
+  payeur et refuse celle qui en scelle un autre ; une confirmation qui en nomme un autre
+  est refusée sans rien écrire. Un seul poste suffit, et un poste jamais mesuré l’est sur
+  les plans lus de l’affaire. Pendant une analyse de
   l’affaire, la sélection reste prête. La confirmation de l’aperçu est le consentement :
   le serveur prépare une demande d’une analyse par plan, de la préparation confirmée de
   l’affaire telle qu’elle est, qui ne lit que les postes demandés (la demande les nomme ;

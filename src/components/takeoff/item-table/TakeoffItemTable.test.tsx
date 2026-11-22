@@ -552,18 +552,19 @@ describe("TakeoffItemTable", () => {
     const seen = { list_revision_id: table().list!.revisionId, targets: [shownLine.targets] };
     expect(client.previewItemRemeasure).toHaveBeenCalledWith(FIXTURE_ITEM_PROJECT, { kind: "affaire" }, [fixtureItemId(5)], seen);
     expect(preview).toHaveTextContent("Forfait utilisé : celui de Léa Martin");
-    expect(preview).toHaveTextContent("Réglage de Mon profil : modele-a · effort moyen.");
+    // The profile's setting, used as it is: no effort is offered for this request alone (the Mac would refuse another).
+    expect(preview).toHaveTextContent("Réglage de Mon profil : modele-a · effort moyen. La demande l’utilise tel quel.");
+    expect(within(preview).queryByRole("combobox")).not.toBeInTheDocument();
     expect(preview).toHaveTextContent("Plan RDC");
     expect(preview).toHaveTextContent("1 poste mesuré");
     // What its admission reads and reserves on the member's subscription, sized on the items asked.
     expect(screen.getByTestId("poste-remeasure-reading")).toHaveTextContent(
       "1 poste lu sur 2 plans, en 2 appels payants. Budget réservé sur votre forfait : 66 000 jetons au plus (2 appels payants).");
-    fireEvent.change(within(preview).getByRole("combobox", { name: "Effort pour cette demande seulement" }), { target: { value: "high" } });
     const reads = client.fetchItemTable.mock.calls.length;
     fireEvent.click(screen.getByRole("button", { name: "Confirmer la demande sur mon forfait" }));
     await waitFor(() => expect(client.sendItemRemeasure).toHaveBeenCalledTimes(1));
     expect(client.sendItemRemeasure.mock.calls[0][1]).toMatchObject({ item_ids: [fixtureItemId(5)], plan_keys: [RDC, R1],
-      setting: { reasoning_effort: "high" }, preview_digest: "a".repeat(64), seen });
+      setting: null, preview_digest: "a".repeat(64), seen });
     expect(await screen.findByTestId("poste-notice")).toHaveTextContent("Nouvelle mesure demandée");
     // The table is read again at once: the items asked now read « En lecture » on their plans.
     await waitFor(() => expect(client.fetchItemTable.mock.calls.length).toBeGreaterThan(reads));

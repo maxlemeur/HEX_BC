@@ -311,9 +311,16 @@ function samePlan(confirmed: TakeoffItemRemeasurePlan, admitted: TakeoffItemReme
   return identity(confirmed) === identity(admitted);
 }
 
-/** The setting this confirmation seals: the profile's, with the effort chosen for this request alone. */
+/**
+ * The setting this confirmation seals: the profile's, as it is. The Mac reads a request with its payer's profile and
+ * refuses one sealed with another effort (resolveLocalTakeoffProvider), so an effort for this request alone is not offered
+ * yet: a confirmation naming one is refused here, before anything is replayed, planned or written.
+ */
 function sealedSelection(selection: TakeoffExecutionSelection, setting: ItemRemeasureCommand["setting"]): TakeoffExecutionSelection {
-  return setting ? { ...selection, reasoningEffort: setting.reasoning_effort ?? selection.reasoningEffort } : selection;
+  if (setting?.reasoning_effort && setting.reasoning_effort !== (selection.reasoningEffort ?? null)) {
+    invalid("Cette demande utilise le réglage de Mon profil : un autre effort pour elle seule n’est pas encore possible. Rouvrez l’aperçu et confirmez avec le réglage de Mon profil.");
+  }
+  return selection;
 }
 
 /** What a remeasure of the selection would ask, and who would pay: shown before its explicit confirmation. Reads only. */
@@ -326,7 +333,7 @@ export async function previewItemRemeasure(projectId: string, input: { scope: It
  * A new manual request of the member who confirms, on their own subscription, for the items and plans the preview showed;
  * it may hold one item. The same confirmation sent again answers the request it admitted. Otherwise the preview is made
  * again and must be the one confirmed (payer, setting, plans, items, readings, calls and budget); the request is planned
- * with the setting chosen for it alone, and the database compares the readings once more under its locks.
+ * with the profile's setting as it is (sealedSelection), and the database compares the readings once more under its locks.
  */
 export async function runItemRemeasure(projectId: string, command: ItemRemeasureCommand): Promise<ItemRemeasureResult> {
   // The member's right first (requireReviewer: the right to launch on the affaire), a replay included.
@@ -357,7 +364,7 @@ export async function runItemRemeasure(projectId: string, command: ItemRemeasure
   if (preview.reading.state === "refused" || !confirmed) {
     invalid(preview.reading.state === "refused" ? preview.reading.reason : "Aucun poste de la sélection ne peut être mesuré de nouveau.");
   }
-  // The setting chosen for this request alone, sealed in its selection; the profile is not changed.
+  // The profile's setting, sealed in the request's selection as it is (another effort was refused above); the profile is not changed.
   const sealed = sealedSelection(selection, command.setting);
   const planned = await planTakeoffItemRemeasure(access.context, { projectId: access.project.id, planKeys: shownPlans,
     itemIds: preview.items.map(({ itemId }) => itemId), selection: sealed });

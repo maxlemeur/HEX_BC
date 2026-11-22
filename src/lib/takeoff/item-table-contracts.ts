@@ -334,7 +334,7 @@ export const itemRemeasureCommandSchema = z.object({
   item_ids: z.array(uuid).min(1).max(ITEM_REVIEW_LIMITS.items),
   plan_keys: z.array(planKey).min(1).max(200),
   setting: z.object({ reasoning_effort: chatGptReasoningEffortSchema.nullable() }).strict().nullable()
-    .describe("Réglage ponctuel de cette demande ; nul : celui de Mon profil. Jamais enregistré dans le profil."),
+    .describe("Réglage de cette demande ; nul : celui de Mon profil, tel quel. Un effort autre que celui de Mon profil est refusé : il n’est pas encore possible pour une seule demande."),
   preview_digest: z.string().regex(/^[0-9a-f]{64}$/)
     .describe("Empreinte de l’aperçu confirmé : payeur et réglage, plans, postes et leurs lectures, appels et budget."),
   seen: itemRemeasureSeenSchema.describe("Ce que le membre a vu de la sélection : la révision de la liste et les lectures de chaque poste."),

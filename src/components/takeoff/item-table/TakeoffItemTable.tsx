@@ -6,7 +6,6 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import useSWR from "swr";
 import { ChevronDown } from "lucide-react";
 
-import type { ChatGptReasoningEffort } from "@/lib/ai/chatgpt-model-preferences";
 import { isTakeoffApiError } from "@/lib/takeoff/client-http";
 import { itemTableLineDetailHref } from "@/lib/takeoff/item-detail-address";
 import { isTakeoffReadRefusal } from "../useTakeoffRequestActivity";
@@ -385,7 +384,7 @@ export function TakeoffItemTable({ projectId, viewerKey, signature }: {
     }
   }, [projectId, selection, seenOfSelection, forDialog, screenKey]);
 
-  const confirmRemeasure = useCallback(async (effort: ChatGptReasoningEffort | null) => {
+  const confirmRemeasure = useCallback(async () => {
     if (!dialog || !preview.value) return;
     setBusy(true);
     const started = selection;
@@ -394,7 +393,8 @@ export function TakeoffItemTable({ projectId, viewerKey, signature }: {
       const result = await sendItemRemeasure(projectId, { command_version: ITEM_REVIEW_COMMAND_VERSION, intent_key: dialog.intentKey,
         scope: selection.scope, item_ids: preview.value.items.map(({ itemId }) => itemId),
         plan_keys: preview.value.plans.map(({ key: planKey }) => planKey),
-        setting: effort ? { reasoning_effort: effort } : null, preview_digest: preview.value.previewDigest,
+        // The profile's setting as it is: the Mac reads a request with its payer's profile.
+        setting: null, preview_digest: preview.value.previewDigest,
         seen: dialog.seen ?? seenOfSelection() });
       if (completion.ownScreen()) {
         setNotice(result.outcome === "already_running"
@@ -792,7 +792,7 @@ export function TakeoffItemTable({ projectId, viewerKey, signature }: {
       ) : null}
       {dialog?.gesture === "remeasure" ? (
         <RemeasureDialog scopeLabel={label} busy={busy} preview={preview.value} loadError={preview.error}
-          onClose={() => setDialog(null)} onConfirm={(effort) => void confirmRemeasure(effort)} />
+          onClose={() => setDialog(null)} onConfirm={() => void confirmRemeasure()} />
       ) : null}
     </JourneyPanel>
   );

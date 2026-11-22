@@ -50123,7 +50123,7 @@
                 "type": "null"
               }
             ],
-            "description": "Réglage ponctuel de cette demande ; nul : celui de Mon profil. Jamais enregistré dans le profil."
+            "description": "Réglage de cette demande ; nul : celui de Mon profil, tel quel. Un effort autre que celui de Mon profil est refusé : il n’est pas encore possible pour une seule demande."
           },
           "preview_digest": {
             "type": "string",

@@ -275,17 +275,37 @@ describe("remeasure of a selection", () => {
     expect(launchTakeoffItemRemeasure).not.toHaveBeenCalled();
   });
 
-  it("admits the confirmation with the effort chosen for it alone, the readings the member saw and what was confirmed", async () => {
-    const body = await confirmation([2], { setting: { reasoning_effort: "high" } });
-    expect(body.item_ids).toEqual([fixtureItemId(2)]);
-    await expect(runItemRemeasure(PROJECT, body)).resolves.toEqual({ outcome: "admitted", requestId: "55555555-5555-4555-8555-555555555555" });
-    const sealed = { profileId: "p", model: "modele-a", reasoningEffort: "high", hostId: "h", authorizationId: "a" };
-    expect(planTakeoffItemRemeasure).toHaveBeenLastCalledWith(access.context, { projectId: PROJECT, planKeys: body.plan_keys,
-      itemIds: [fixtureItemId(2)], selection: sealed });
+  it("admits the confirmation with the profile's setting as it is, the readings the member saw and what was confirmed", async () => {
     const answer = lines.find(({ itemId }) => itemId === fixtureItemId(2))!.readings[0].answer!.answerId.toLowerCase();
-    expect(launchTakeoffItemRemeasure).toHaveBeenCalledWith(access.context, { projectId: PROJECT, intentKey: INTENT, plan: PLANNED,
-      selection: sealed, targets: [{ item_id: fixtureItemId(2), answers: [answer] }], host: "localhost:3000",
-      confirmation: { preview_digest: body.preview_digest, setting: { reasoning_effort: "high" } } });
+    const sealed = { profileId: "p", model: "modele-a", reasoningEffort: "medium", hostId: "h", authorizationId: "a" };
+    // No setting, or the profile's own effort named: the same selection sealed, the confirmation as it was sent.
+    for (const setting of [null, { reasoning_effort: "medium" as const }]) {
+      vi.clearAllMocks();
+      const body = await confirmation([2], { setting });
+      expect(body.item_ids).toEqual([fixtureItemId(2)]);
+      await expect(runItemRemeasure(PROJECT, body)).resolves.toEqual({ outcome: "admitted", requestId: "55555555-5555-4555-8555-555555555555" });
+      expect(planTakeoffItemRemeasure).toHaveBeenLastCalledWith(access.context, { projectId: PROJECT, planKeys: body.plan_keys,
+        itemIds: [fixtureItemId(2)], selection: sealed });
+      expect(launchTakeoffItemRemeasure).toHaveBeenCalledWith(access.context, { projectId: PROJECT, intentKey: INTENT, plan: PLANNED,
+        selection: sealed, targets: [{ item_id: fixtureItemId(2), answers: [answer] }], host: "localhost:3000",
+        confirmation: { preview_digest: body.preview_digest, setting } });
+    }
+  });
+
+  // The Mac reads a request with its payer's profile as it is, and refuses one sealed with another effort: an effort for
+  // one request alone is not offered yet, so a confirmation naming one is refused before anything is replayed or planned.
+  it("refuses a confirmation at another effort than the profile's, before anything is replayed, planned or launched", async () => {
+    for (const reasoningEffort of ["medium", null] as const) {
+      vi.mocked(readLocalChatGptSubscription).mockResolvedValue({ issue: null, selection: { profileId: "p", model: "modele-a",
+        reasoningEffort, hostId: "h", authorizationId: "a" } });
+      const body = await confirmation([2], { setting: { reasoning_effort: "high" } });
+      vi.clearAllMocks();
+      expect(await refusal(runItemRemeasure(PROJECT, body))).toMatchObject({ status: 422, code: "VALIDATION_ERROR",
+        message: "Cette demande utilise le réglage de Mon profil : un autre effort pour elle seule n’est pas encore possible. Rouvrez l’aperçu et confirmez avec le réglage de Mon profil." });
+      expect(replayTakeoffItemRemeasure).not.toHaveBeenCalled();
+      expect(planTakeoffItemRemeasure).not.toHaveBeenCalled();
+      expect(launchTakeoffItemRemeasure).not.toHaveBeenCalled();
+    }
   });
 
   it("answers stale with the items the database found read again, by their labels; nothing is admitted", async () => {
@@ -338,21 +358,21 @@ describe("remeasure of a selection", () => {
 
   // Case 3: a receipt answers only the confirmation it was written for, by the identity the database digests.
   it("replays a lost answer by what the member confirmed alone, before planning anything", async () => {
-    const body = await confirmation([2], { setting: { reasoning_effort: "high" } });
+    const body = await confirmation([2], { setting: { reasoning_effort: "medium" } });
     vi.clearAllMocks();
     vi.mocked(replayTakeoffItemRemeasure).mockResolvedValue({ outcome: "replayed", requestId: "55555555-5555-4555-8555-555555555555" });
     await expect(runItemRemeasure(PROJECT, body)).resolves.toEqual({ outcome: "replayed", requestId: "55555555-5555-4555-8555-555555555555" });
     const answer = lines.find(({ itemId }) => itemId === fixtureItemId(2))!.readings[0].answer!.answerId.toLowerCase();
     expect(replayTakeoffItemRemeasure).toHaveBeenCalledWith(access.context, { projectId: PROJECT, intentKey: INTENT,
       planKeys: body.plan_keys, listRevisionId: LIST, targets: [{ item_id: fixtureItemId(2), answers: [answer] }],
-      selection: { profileId: "p", model: "modele-a", reasoningEffort: "high", hostId: "h", authorizationId: "a" },
-      confirmation: { preview_digest: body.preview_digest, setting: { reasoning_effort: "high" } } });
+      selection: { profileId: "p", model: "modele-a", reasoningEffort: "medium", hostId: "h", authorizationId: "a" },
+      confirmation: { preview_digest: body.preview_digest, setting: { reasoning_effort: "medium" } } });
     expect(planTakeoffItemRemeasure).not.toHaveBeenCalled();
     expect(launchTakeoffItemRemeasure).not.toHaveBeenCalled();
   });
 
   it("leaves another confirmation under the key to the database: a strict superset, another preview, a removed effort", async () => {
-    const body = await confirmation([2], { setting: { reasoning_effort: "high" } });
+    const body = await confirmation([2], { setting: { reasoning_effort: "medium" } });
     const conflict = Object.assign(new Error("conflict"), { status: 409, code: "CONFLICT" });
     vi.mocked(replayTakeoffItemRemeasure).mockRejectedValue(conflict);
     for (const other of [{ ...body, item_ids: [fixtureItemId(1), fixtureItemId(2)], seen: seen([1, 2]) },
@@ -363,10 +383,10 @@ describe("remeasure of a selection", () => {
     expect(sent.map(({ targets }) => targets.map(({ item_id: id }) => id))).toEqual([[fixtureItemId(1), fixtureItemId(2)],
       [fixtureItemId(2)], [fixtureItemId(2)]]);
     expect(sent.map(({ confirmation: confirmed }) => confirmed)).toEqual([
-      { preview_digest: body.preview_digest, setting: { reasoning_effort: "high" } },
-      { preview_digest: "f".repeat(64), setting: { reasoning_effort: "high" } },
+      { preview_digest: body.preview_digest, setting: { reasoning_effort: "medium" } },
+      { preview_digest: "f".repeat(64), setting: { reasoning_effort: "medium" } },
       { preview_digest: body.preview_digest, setting: null }]);
-    expect(sent.map(({ selection }) => selection.reasoningEffort)).toEqual(["high", "high", "medium"]);
+    expect(sent.map(({ selection }) => selection.reasoningEffort)).toEqual(["medium", "medium", "medium"]);
     expect(launchTakeoffItemRemeasure).not.toHaveBeenCalled();
   });
 
