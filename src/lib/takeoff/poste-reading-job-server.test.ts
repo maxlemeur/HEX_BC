@@ -195,16 +195,67 @@ describe("readSealedItemListItems", () => {
 });
 
 describe("buildTakeoffItemAnswersPublication", () => {
-  async function publication(vectors = vectorOutcomes()) {
+  async function publication(vectors = vectorOutcomes(), options: { call?: typeof script; items?: Poste[];
+    snapshot?: TakeoffJobProcessingRow["preparation_snapshot"];
+    plan?: (plan: ReturnType<typeof finishPlanReading>) => ReturnType<typeof finishPlanReading> } = {}) {
     const file = await sourceFile();
-    const reading = await readPlanAgainstItemList({ call: script, job: job(), items: ITEMS, listRevision: 3, model: "controlled",
+    const items = options.items ?? ITEMS;
+    const reading = await readPlanAgainstItemList({ call: options.call ?? script, job: job(), items, listRevision: 3, model: "controlled",
       config: { thresholdPages: 15, chunkSizePages: 10, overlapPages: 2, timeoutMs: 300_000, maxTotalTokens: 400_000, maxCostCents: 2_500 },
       pdf: { fileName: file.fileName, bytes: file.bytes, originalPageNumbers: file.sourcePageNumbersByPage } });
-    const plan = finishPlanReading(reading, ITEMS, posteVectorReadings(vectors, PLAN), JOB);
-    return buildTakeoffItemAnswersPublication({ job: job(), items: ITEMS, list: { revisionId: REVISION, revision: 3, itemCount: 4 }, reading,
+    const read = finishPlanReading(reading, items, posteVectorReadings(vectors, PLAN), JOB);
+    const plan = options.plan ? options.plan(read) : read;
+    const owned = options.snapshot === undefined ? job() : job({ preparation_snapshot: options.snapshot });
+    return buildTakeoffItemAnswersPublication({ job: owned, items, list: { revisionId: REVISION, revision: 3, itemCount: items.length }, reading,
       plan, planFile: { kind: "plan_file", plan_file_id: PLAN }, fileName: file.fileName, mimeType: file.mimeType, vectorOutcomes: vectors,
       runMetrics: [], model: "controlled", completedAt: new Date("2026-11-22T09:00:00.000Z"), totalDurationMs: 1_000 });
   }
+
+  // #461: the command keeps at most 2000 findings outside the list; the result says how many more the reading saw.
+  it("keeps at most 2000 findings outside the list, and says how many more were seen", async () => {
+    const built = await publication(vectorOutcomes(), { plan: (plan) => ({ ...plan, unlistedFindings: Array.from({ length: 2_003 }, (_, index) => ({
+      page: 3, designation: `Ouvrage fictif ${index + 1}`, evidence: "symbole sans poste", chunkId: "f1-b1" })) }) });
+    expect(built.p_findings).toHaveLength(2_000);
+    expect(built.p_findings.at(-1)).toMatchObject({ designation: "Ouvrage fictif 2000" });
+    expect(built.p_result.warnings.filter((warning) => warning.code === "POSTE_HORS_LISTE")).toHaveLength(2_000);
+    expect(built.p_result.warnings).toContainEqual({ code: "POSTE_HORS_LISTE_TRONQUE", severity: "warning",
+      message: "3 autres ouvrages vus hors de la liste ne sont pas repris (2\u202f000 au plus)." });
+  });
+
+  // #470: the publication refuses a contribution whose row the insert trigger excludes as an hypothesis (an estimate, or a
+  // reading the rules class non-observable): such a reading is a candidate of an uncertain answer, with its reason.
+  it("never sends an estimate as a contribution: the objective « estimate » makes a measure a candidate, with its reason", async () => {
+    const snapshot = { ...unit(`plan:${PLAN}`), preparation: { objective: "estimate" } } as TakeoffJobProcessingRow["preparation_snapshot"];
+    const built = await publication([], { snapshot });
+    expect(built.p_items).toEqual([]);
+    expect(built.p_answers[0]).toMatchObject({ item_id: LAVABO.id, outcome: "uncertain", quantity: null, candidate: { value: 3, unit: "u" },
+      reasons: [{ code: "QUANTITY_ESTIMATED", by: "worker", text: null, chunk_id: null }] });
+    expect(built.p_answers[0].observations).toEqual([expect.objectContaining({ role: "candidate", quantity: 3, takeoff_item_id: null })]);
+    expect(built.p_answers[3]).toMatchObject({ item_id: EF.id, outcome: "uncertain", quantity: null, candidate: { value: 12.5, unit: "ml" } });
+  });
+
+  it("never sends a reading the rules class non-observable as a contribution: a support is a candidate, with its reason", async () => {
+    const supports = poste(5, "Supports de canalisation", "u");
+    const counting = controlledPosteCall((entry) => entry.label === "Lavabo" ? posteMeasured(entry, [{ page: 2, quantity: 3 }])
+      : entry.label.startsWith("Supports") ? posteMeasured(entry, [{ page: 3, quantity: 6 }]) : posteNotFound(entry));
+    const built = await publication([], { call: counting, items: [LAVABO, supports] });
+    expect(built.p_items.map((row) => [row.designation, row.quantity])).toEqual([["Lavabo", 3]]);
+    expect(built.p_answers[0]).toMatchObject({ outcome: "measured", quantity: { value: 3, unit: "u" } });
+    expect(built.p_answers[1]).toMatchObject({ item_id: supports.id, outcome: "uncertain", quantity: null, candidate: { value: 6, unit: "u" },
+      reasons: [{ code: "NOT_OBSERVABLE", by: "worker" }] });
+    expect(built.p_answers[1].observations).toEqual([expect.objectContaining({ role: "candidate", quantity: 6, takeoff_item_id: null })]);
+  });
+
+  // #461: a contribution's row and its observation carry the same value, to the thousandth, read once.
+  it("gives each contribution's row its observation's own value, at the stored precision", async () => {
+    const precise = controlledPosteCall((entry) => entry.label === "Distribution EF"
+      ? posteMeasured(entry, [{ page: 3, quantity: 1.2345, unit: "ml" }]) : posteNotFound(entry));
+    const built = await publication([], { call: precise });
+    const [contribution] = built.p_answers.flatMap((answer) => answer.observations.filter((entry) => entry.role === "contribution"));
+    expect(built.p_items).toEqual([expect.objectContaining({ quantity: 1.235, unit: "ml" })]);
+    expect(contribution).toMatchObject({ quantity: 1.235, takeoff_item_id: built.p_items[0].id });
+    expect(built.p_answers[3].quantity).toEqual({ value: 1.235, unit: "ml" });
+  });
 
   it("gives the command the job, its lease, the exchange's versions and the unit's original pages", async () => {
     expect(await publication()).toMatchObject({ p_job_id: JOB, p_lease_token: LEASE, p_completed_at: "2026-11-22T09:00:00.000Z",

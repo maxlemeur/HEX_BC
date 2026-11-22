@@ -13,7 +13,11 @@ import { createClient } from "@supabase/supabase-js";
 // the journey observes, until its job is no longer processing, then settled), or release (its call is held until the
 // journey creates ARMY_TAKEOFF_HOLD_RELEASE_FILE, then answered as a success); each call lasts
 // ARMY_TAKEOFF_PROVIDER_DELAY_MS. ARMY_TAKEOFF_PLAN_ITEMS may give a job the lines its reading returns (designation,
-// quantity, unit, page local to the copied PDF).
+// quantity, unit, page local to the copied PDF). A job that reads its plan against its request's sealed list (lot 4, the
+// second measuring order) is answered item by item from the manifest of each call, as the model would
+// (poste-reading.test-fixtures.ts): « not found » on every page the call owns unless ARMY_TAKEOFF_ITEM_ANSWERS gives the
+// job, by item label, a measure ({ quantity, unit, page } local to the copied PDF) or « omit » (no answer for the item);
+// its `truncate` cuts the answer in half, as a reading cut short.
 const [projectId, prefix] = process.argv.slice(2);
 assert(/^[0-9a-f-]{36}$/.test(projectId ?? ""));
 assert(/^ARMY-[A-Za-z0-9-]+$/.test(prefix ?? ""));
@@ -36,6 +40,9 @@ assert(!Object.values(modes).includes("release") || releaseFile.length > 0, "A r
 const planItems = JSON.parse(process.env.ARMY_TAKEOFF_PLAN_ITEMS ?? "{}");
 assert(Object.values(planItems).every((items) => Array.isArray(items) && items.every((item) => typeof item.designation === "string"
   && Number.isFinite(item.quantity) && typeof item.unit === "string" && Number.isInteger(item.source_page))));
+const itemAnswers = JSON.parse(process.env.ARMY_TAKEOFF_ITEM_ANSWERS ?? "{}");
+assert(Object.values(itemAnswers).every((spec) => spec && typeof spec === "object" && Object.values(spec.items ?? {}).every((answer) =>
+  answer === "omit" || (Number.isFinite(answer.quantity) && typeof answer.unit === "string" && Number.isInteger(answer.page)))));
 const delayMs = Number(process.env.ARMY_TAKEOFF_PROVIDER_DELAY_MS ?? "0");
 assert(Number.isInteger(delayMs) && delayMs >= 0 && delayMs <= 5_000);
 
@@ -56,6 +63,8 @@ const { processTakeoffJobAttempt } = load("../../src/lib/takeoff/async-worker.ts
 const { processLevelC } = load("../../src/lib/takeoff/processor.ts");
 const { runLocalTakeoffDispatcherPass } = load("../../src/lib/takeoff/local-dispatcher.ts");
 const { TakeoffError, TakeoffErrorCode } = load("../../src/lib/takeoff/errors.ts");
+const { POSTE_EXCHANGE_PROMPT_VERSION } = load("../../src/lib/takeoff/poste-exchange.ts");
+const { posteMeasured, posteNotFound, readPosteManifest } = load("../../src/lib/takeoff/poste-reading.test-fixtures.ts");
 const emit = (event) => process.stdout.write("ARMY_DISPATCH " + JSON.stringify(event) + "\n");
 const calls = [];
 let inFlight = 0;
@@ -98,6 +107,29 @@ const resolveProvider = async (_supabase, job, hooks) => {
     if (mode === "terminal") {
       throw new TakeoffError({ code: TakeoffErrorCode.AI_PROVIDER, message: "ARMY controlled terminal provider failure", retryable: false,
         jobId: job.id, level: "C" });
+    }
+    if (options.context.promptVersion === POSTE_EXCHANGE_PROMPT_VERSION) {
+      const manifest = readPosteManifest(options.prompt);
+      const spec = itemAnswers[job.id] ?? {};
+      const responses = manifest.requested_posts.flatMap((post) => {
+        const entry = { key: post.post_id, owned: manifest.page_scope.owned_pages };
+        const answer = spec.items?.[post.label];
+        if (answer === "omit") return [];
+        return [answer ? posteMeasured(entry, [{ page: answer.page, quantity: answer.quantity, unit: answer.unit }]) : posteNotFound(entry)];
+      });
+      const text = JSON.stringify({ schema_version: manifest.schema_version, prompt_version: manifest.prompt_version,
+        chunk_id: manifest.chunk_id, responses, unreadable_pages: [], unlisted_findings: [], warnings: [] });
+      // A truncated reading is no JSON: the local reader's parse refuses it, and the local provider names it as the job's
+      // schema failure (src/lib/ai/chatgpt-takeoff.ts), definitive, as here.
+      let data;
+      try {
+        data = options.schema.parse(JSON.parse(spec.truncate ? text.slice(0, Math.floor(text.length / 2)) : text));
+      } catch {
+        throw new TakeoffError({ code: TakeoffErrorCode.AI_SCHEMA, retryable: false, jobId: job.id,
+          message: "ARMY controlled unreadable answer", details: { provider: "chatgpt" } });
+      }
+      return { data, tokenCount: 1_000, tokenUsage: { inputTokens: 900, reasoningTokens: 0, outputTokens: 100, totalTokens: 1_000 },
+        costCents: 0, durationMs: Math.max(1, Date.now() - startedAt), model: options.context.model, promptVersion: options.context.promptVersion };
     }
     const plan = (current.preparation_snapshot?.preparation?.sources ?? []).find((source) => source.kind === "plan" && source.active);
     const data = options.schema.parse({

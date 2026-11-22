@@ -19,7 +19,10 @@ import { MEASUREMENT_UNITS, normalizeMeasurementUnit } from "@/lib/units/normali
 
 /** Why the worker changed or confirmed an answer after the model's reading. */
 export const POSTE_WORKER_REASONS = ["UNIT_MISMATCH", "NON_INTEGER_COUNT", "READINGS_DISAGREE", "PAGES_UNREADABLE", "VECTOR_ONLY",
-  "DUPLICATE_READING", "SAME_OBJECT_UNCLEAR", "BASIS_MISMATCH", "BASIS_UNSTATED"] as const;
+  "DUPLICATE_READING", "SAME_OBJECT_UNCLEAR", "BASIS_MISMATCH", "BASIS_UNSTATED",
+  // An hypothesis, never a counted measure (TI-682 D11, hypothesis.ts): the affaire's objective is an estimate, or the rules
+  // class what was read as something a plan cannot show (a support, a weld…). Decided when the publication is built.
+  "QUANTITY_ESTIMATED", "NOT_OBSERVABLE"] as const;
 export type PosteWorkerReason = (typeof POSTE_WORKER_REASONS)[number];
 export type PosteReasonCode = PosteModelReason | PosteWorkerReason;
 

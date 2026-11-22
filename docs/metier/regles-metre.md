@@ -145,11 +145,6 @@ l’extraction libre, quelle que soit l’activation du second ordre : une liste
 jamais scellée sur une analyse groupée. Un job qui lirait plusieurs plans contre
 une liste s’arrêterait d’ailleurs avant tout appel, sans rien dépenser.
 
-Le second ordre de mesure ne peut pas être activé avant la livraison de la
-publication des réponses par poste : jusque-là, un job du second ordre s’arrête dès
-sa prise en charge, avant de lire son plan et avant tout appel, sans rien dépenser.
-Les règles qui suivent décrivent la lecture telle qu’elle s’appliquera alors.
-
 Le serveur découpe le
 plan comme la lecture détaillée (au-delà de 15 pages, des fragments de 10 pages
 dont 2 en recouvrement) et la liste en lots d’au plus 40 postes et 64 Kio : chaque
@@ -241,7 +236,14 @@ apports le sont ; une lecture vectorielle n’est jamais un apport. Le Mac publi
 réponses d’un plan en une fois, sous son bail, avec le résultat et la fin de
 l’analyse : une réponse qui manque, un poste étranger, une page hors du plan, une
 quantité qui n’est pas la somme de ses apports sont refusés et rien n’est écrit ;
-l’analyse ne peut pas se terminer en succès autrement. Une nouvelle lecture du même
+l’analyse ne peut pas se terminer en succès autrement. Un refus arrête l’analyse du
+plan sans nouvelle tentative (une tentative relirait le plan à ses frais) :
+« Extraction incomplète sur ce document. » pour des réponses que la base ne peut pas
+garder telles que la lecture les a faites, une erreur interne pour une demande, une
+liste ou des pages qui ne sont pas celles qu’elle a scellées. Une publication dont la
+réponse se perd est renvoyée à l’identique, et la base répond alors ce qu’elle a déjà
+écrit. Au plus 2 000 ouvrages vus hors de la liste sont gardés ; le résultat dit
+combien d’autres ont été vus. Une nouvelle lecture du même
 poste sur le même plan remplace la précédente, qui reste consultable. Tous les lecteurs
 de l’affaire lisent les réponses, et voient « en lecture » un poste dont le plan est en
 cours d’analyse ; personne ne les modifie. La revue de ces réponses s’enregistre à part.
