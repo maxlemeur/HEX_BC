@@ -89,13 +89,13 @@ describe("Gabarit de postes de l’entreprise", () => {
     await expect(proposal.getByText("Unité : m → u", { exact: true })).toBeVisible();
     // Without an answer from the server, the form is released with a French message and the choice kept; the next
     // click sends the same gesture.
-    const acceptance = `**/api/affaires/${existing}/takeoff/item-list/revisions`;
-    await browser.route(acceptance, (route) => route.abort());
+    const revisionsRoute = `**/api/affaires/${existing}/takeoff/item-list/revisions`;
+    await browser.route(revisionsRoute, (route) => route.abort());
     await proposal.getByRole("button", "Accepter la révision proposée", { exact: true }).click();
     await expect(proposal.getByText("La réponse du serveur n’est pas arrivée. Vérifiez votre connexion puis réessayez : la "
       + "révision ne sera pas enregistrée deux fois.", { exact: true })).toBeVisible();
     await expect(proposal.getByRole("button", "Accepter la révision proposée", { exact: true })).toBeEnabled();
-    await browser.unroute(acceptance);
+    await browser.unroute(revisionsRoute);
     expect(await rows(`select revision from public.takeoff_list_revisions where project_id = '${existing}'`)).toEqual([{ revision: 1 }]);
     await proposal.getByRole("button", "Accepter la révision proposée", { exact: true }).click();
     await expect(screen.getByText("Liste enregistrée · révision 2 · 23 postes", { exact: false })).toBeVisible();
