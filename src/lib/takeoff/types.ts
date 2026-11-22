@@ -42,6 +42,9 @@ import type {
   TakeoffLevel,
 } from "@/lib/takeoff/enums";
 
+/** The longest unit a member's targeted save writes on a takeoff row: what every read of a row accepts. */
+export const TAKEOFF_ITEM_UNIT_MAX_LENGTH = 64;
+
 export const TAKEOFF_PROCESSING_STRATEGIES = ["sync", "batch"] as const;
 export type TakeoffProcessingStrategy =
   (typeof TAKEOFF_PROCESSING_STRATEGIES)[number];

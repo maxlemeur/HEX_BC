@@ -3,9 +3,11 @@ import type { PosteReasonCode } from "@/lib/takeoff/poste-exchange-merge";
 
 /**
  * The state of an item on the affaire from its answers on the plans it is expected on (lot 4, section 3.2): the rule the
- * table of items calls (lot 4 PR 4). While a plan is unread the observed total stays partial and an absence is never
- * certified; once every expected plan is answered, one uncertain answer makes the item uncertain, otherwise a measure
- * makes it measured, and only plans all searched without any indication make it not found.
+ * table of items calls (lot 4 PR 4), the same as the database's (private.takeoff_item_state, which the table's readers
+ * apply; item-answer-aggregation.test.ts runs both on the database tests' cases). While a plan is unread the observed
+ * total stays partial and an absence is never certified; once every expected plan is answered, one uncertain answer
+ * makes the item uncertain, otherwise a measure makes it measured, and only plans all searched without any indication
+ * make it not found.
  */
 export const POSTE_AFFAIRE_STATUSES = ["to_measure", "reading", "incomplete", "failed", "measured", "uncertain", "not_found"] as const;
 export type PosteAffaireStatus = (typeof POSTE_AFFAIRE_STATUSES)[number];
@@ -38,8 +40,6 @@ export type PosteAffaireAggregate = {
   candidates: Array<{ unit: string; value: number }>;
 };
 
-const PROGRESS_ORDER = ["failed", "incomplete", "reading", "to_measure"] as const;
-
 function totals(values: ReadonlyArray<{ value: number; unit: string } | null>) {
   const byUnit = new Map<string, number>();
   for (const entry of values) if (entry) byUnit.set(entry.unit, (byUnit.get(entry.unit) ?? 0) + entry.value);
@@ -59,13 +59,20 @@ export function aggregatePosteAnswers(plans: readonly PostePlanWork[]): PosteAff
   const observed = totals(answered.filter((plan) => plan.outcome === "measured").map((plan) => plan.quantity));
   const candidates = totals(answered.filter((plan) => plan.outcome === "uncertain").map((plan) => plan.candidate));
   const complete = plans.length > 0 && answered.length === plans.length;
+  // The work still without a verdict, as the database says it: a plan still read keeps the item reading, then a plan
+  // whose reading has not started keeps it to measure; once none is read or waits, no answer at all makes it failed and
+  // some answers make it incomplete. Measures in two units are kept apart (two totals), never added.
   let status: PosteAffaireStatus;
-  if (!complete) {
-    status = PROGRESS_ORDER.find((state) => plans.some((plan) => plan.state === state)) ?? "to_measure";
-  } else if (count("uncertain") > 0 || observed.length > 1) {
-    status = "uncertain";
+  if (plans.length === 0) {
+    status = "to_measure";
+  } else if (complete) {
+    status = count("uncertain") > 0 ? "uncertain" : count("measured") > 0 ? "measured" : "not_found";
+  } else if (plans.some((plan) => plan.state === "reading")) {
+    status = "reading";
+  } else if (plans.some((plan) => plan.state === "to_measure")) {
+    status = "to_measure";
   } else {
-    status = count("measured") > 0 ? "measured" : "not_found";
+    status = answered.length === 0 ? "failed" : "incomplete";
   }
   return {
     status, complete, partial: !complete,
@@ -81,7 +88,7 @@ const STATUS_LABELS: Record<PosteAffaireStatus, string> = {
   incomplete: "Lecture incomplète",
   failed: "Échec de lecture",
   measured: "Mesuré",
-  uncertain: "À vérifier",
+  uncertain: "Incertain",
   not_found: "Non trouvé",
 };
 

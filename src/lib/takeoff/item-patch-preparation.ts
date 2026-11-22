@@ -1,10 +1,11 @@
 import { z } from "zod";
 
 import { getTakeoffVerificationReadiness } from "@/lib/takeoff/guards";
-import type {
-  TakeoffItemPatchEntry,
-  TakeoffItemPatchField,
-  TakeoffJobItem,
+import {
+  TAKEOFF_ITEM_UNIT_MAX_LENGTH,
+  type TakeoffItemPatchEntry,
+  type TakeoffItemPatchField,
+  type TakeoffJobItem,
 } from "@/lib/takeoff/types";
 
 import { quantityEntryError, quantityEntryNote, quantityEntrySchema } from "@/lib/takeoff/quantity-entry";
@@ -16,7 +17,7 @@ const takeoffItemPatchFieldSchema = z
   .object({
     designation: z.string().trim().min(1, "designation ne peut pas être vide.").max(500).optional(),
     quantity: z.number().finite().positive("quantity doit être > 0.").optional(),
-    unit: z.string().trim().min(1, "unit ne peut pas être vide.").max(64).optional(),
+    unit: z.string().trim().min(1, "unit ne peut pas être vide.").max(TAKEOFF_ITEM_UNIT_MAX_LENGTH).optional(),
     source_page: z.number().int().positive("source_page doit être > 0.").nullable().optional(),
     is_excluded: z.boolean().optional(),
     exclusion_reason: z.string().trim().min(1).max(500).nullable().optional(),

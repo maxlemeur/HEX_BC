@@ -1,21 +1,14 @@
 "use client";
 
-import Link from "next/link";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
-import { ArrowLeft, ArrowRight, Check, CheckCheck, Copy, FileText, Info, Paperclip, RotateCcw, Send, TriangleAlert, Users, X } from "lucide-react";
+import { ArrowLeft, ArrowRight, Check, CheckCheck, FileText, Info, Paperclip, TriangleAlert, X } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Combobox } from "@/components/ui/combobox";
 import { NativeSelect } from "@/components/ui/native-select";
-import { Textarea } from "@/components/ui/textarea";
 import { materialRequestFileUrl, type MaterialRequestSupplierOption } from "@/lib/material-requests/client";
 import { competitionNeedsType, consultationLineOf } from "@/lib/material-requests/consultation-message";
-import {
-  competitionReferenceLeaks,
-  consultationMessage,
-  consultationMessageProblem,
-} from "@/lib/material-requests/consultation-template";
+import { consultationMessage } from "@/lib/material-requests/consultation-template";
 import type { MaterialRequestFile, MaterialRequestLine } from "@/lib/material-requests/contracts";
 import {
   MATERIAL_REQUEST_QUOTE_MAX_FILES,
@@ -23,14 +16,21 @@ import {
   MATERIAL_REQUEST_QUOTE_PICKER_ACCEPT,
   MATERIAL_REQUEST_QUOTE_STATUS_LABELS,
   type MaterialRequestQuote,
-  type MaterialRequestQuoteStatus,
 } from "@/lib/material-requests/quote-contracts";
 import { formatEUR } from "@/lib/money";
 import { PURCHASE_ORDER_PRICE_PER, type PurchaseOrderPricePer } from "@/lib/purchase-orders/line-kinds";
+import { plural } from "@/lib/text/plural";
 import { cn } from "@/lib/utils";
 
 import { CentsField, CentsInput, useCentsDraft } from "./cents-field";
 import { ConfirmButton, SELECTED_ROW, TextCell } from "./cells";
+import {
+  ConsultationMessageBlock,
+  ConsultationRecipients,
+  STATUS_VARIANT,
+  consultationOf,
+  liveQuoteOf,
+} from "./ConsultationRecipients";
 import {
   checkQuoteFileSelection,
   formatDay,
@@ -42,81 +42,15 @@ import {
   quotedAmountCents,
 } from "./format";
 import { photoUploadStepLabel, type PhotoUploadStep } from "./photo-upload";
-import { CONSULTATION_TEMPLATE_ANCHOR } from "./ConsultationTemplateSettings";
 import { useConsultationTemplate, type ConsultationTemplateState } from "./useConsultationTemplate";
 import type { MaterialRequestEditorApi, SaveResult } from "./useMaterialRequestEditor";
-import {
-  QUOTE_PRICE_HELD,
-  linesNotValidated,
-  supplierAlreadyConsulted,
-  type MaterialRequestQuotesApi,
-  type QuotesStatus,
-} from "./useMaterialRequestQuotes";
-import { plural } from "@/lib/text/plural";
+import { QUOTE_PRICE_HELD, linesNotValidated, type MaterialRequestQuotesApi } from "./useMaterialRequestQuotes";
 
 /*
  * « Consultation » (TI-691, lot 2 « l'achat », delivery 2): the office asks suppliers for a price with a short
  * message it copies into WhatsApp (MergeOne sends nothing), records that it was sent, attaches what comes back,
  * prices it line by line and retains one quote; the others are closed and stay readable.
  */
-
-const STATUS_VARIANT: Record<MaterialRequestQuoteStatus, "info" | "warning" | "success" | "neutral"> = {
-  requested: "info",
-  received: "warning",
-  retained: "success",
-  closed: "neutral",
-};
-
-/**
- * The consultation of this supplier in progress (requested or received): one at most per request. A retained or
- * closed quote frees the supplier, which may be asked again for other lines.
- */
-function liveQuoteOf(quotes: readonly MaterialRequestQuote[], supplierId: string): MaterialRequestQuote | null {
-  return (
-    quotes.find((quote) => quote.supplier_id === supplierId && (quote.status === "requested" || quote.status === "received"))
-    ?? null
-  );
-}
-
-/**
- * Where a supplier stands for these lines: asked for all of them, busy with others, or free to ask. `unread`: the
- * consultations already recorded are not read yet (or could not be): nothing may be recorded until they are, or a
- * consultation recorded meanwhile elsewhere would be offered again.
- */
-type SupplierConsultation = { sent: MaterialRequestQuote | null; busyElsewhere: boolean; unread: string | null };
-
-const QUOTES_UNREAD: Record<Exclude<QuotesStatus, "ready">, string> = {
-  loading: "Lecture des consultations déjà envoyées…",
-  error: "Les consultations déjà envoyées n’ont pas pu être lues : rechargez les devis plus bas.",
-};
-
-function consultationOf(
-  quotes: Pick<MaterialRequestQuotesApi, "items" | "status">,
-  supplierId: string,
-  lineIds: readonly string[],
-): SupplierConsultation {
-  const unread = quotes.status === "ready" ? null : QUOTES_UNREAD[quotes.status];
-  const live = liveQuoteOf(quotes.items, supplierId);
-  if (!live) return { sent: null, busyElsewhere: false, unread };
-  const asked = new Set(live.lines.map((line) => line.line_id));
-  return lineIds.every((id) => asked.has(id))
-    ? { sent: live, busyElsewhere: false, unread }
-    : { sent: null, busyElsewhere: true, unread };
-}
-
-/** Where a supplier's consultation stands, in one sentence. */
-function quoteStage(quote: MaterialRequestQuote): string {
-  switch (quote.status) {
-    case "requested":
-      return `Consultation envoyée le ${formatDay(quote.requested_at)}.`;
-    case "received":
-      return `Devis reçu le ${formatDay(quote.received_at)}.`;
-    case "retained":
-      return `Devis retenu le ${formatDay(quote.retained_at)}.`;
-    case "closed":
-      return `Devis clos le ${formatDay(quote.closed_at)}.`;
-  }
-}
 
 function quoteDates(quote: MaterialRequestQuote): string {
   return [
@@ -179,168 +113,6 @@ function fileSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1).replace(".", ",")} Mo`;
 }
 
-/** Copy to the clipboard, as the message to the technician does; refused copies are said, not hidden. */
-function useCopy() {
-  const [copy, setCopy] = useState<{ text: string; state: "copied" | "refused" } | null>(null);
-  return {
-    stateFor: (text: string) => (copy && copy.text === text ? copy.state : null),
-    copyText: async (text: string) => {
-      try {
-        await navigator.clipboard.writeText(text);
-        setCopy({ text, state: "copied" });
-      } catch {
-        setCopy({ text, state: "refused" });
-      }
-    },
-  };
-}
-
-/**
- * The message for one supplier, « Copier » and « Consultation envoyée » (TI-691). The text can be retouched before it
- * is copied: both buttons take the text as shown, never the generated one behind it. A retouch lives as long as the
- * page; when the generated text changes under it (lines, supplier, template), the retouch is kept and the block says
- * so, with the way back. An empty text, or one over the recorded bound, is neither copied nor recorded. In
- * competition, a known reference in the text is pointed out; the office may still go on.
- */
-export function ConsultationMessageBlock({
-  supplierName,
-  message,
-  consultation,
-  onSend,
-  knownReferences,
-}: Readonly<{
-  supplierName: string;
-  message: string;
-  /**
-   * The supplier's consultation in progress: for these lines, it is recorded and not sent twice; for others, the
-   * database takes one at a time, and the office is told why before trying.
-   */
-  consultation: SupplierConsultation;
-  onSend: (message: string) => Promise<SaveResult>;
-  /** A competition message: the references known for its lines, which it should not name. */
-  knownReferences?: readonly (string | null)[];
-}>) {
-  const ids = useId();
-  const unreadId = `${ids}-unread`;
-  const problemId = `${ids}-problem`;
-  const leakId = `${ids}-leak`;
-  const { stateFor, copyText } = useCopy();
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  /** The office's own text, and the generated text it started from. */
-  const [retouch, setRetouch] = useState<{ text: string; from: string } | null>(null);
-  const retouched = retouch !== null && retouch.text !== message;
-  const shown = retouched ? retouch.text : message;
-  const stale = retouched && retouch.from !== message;
-  const problem = consultationMessageProblem(shown);
-  const leaks = knownReferences ? competitionReferenceLeaks(shown, knownReferences) : [];
-  const copyState = stateFor(shown);
-
-  const send = async () => {
-    if (problem) return;
-    setBusy(true);
-    setError(null);
-    const result = await onSend(shown);
-    setBusy(false);
-    if (!result.ok) setError(result.message);
-  };
-
-  return (
-    <div className="min-w-0 space-y-2">
-      <Textarea
-        aria-label={`Message pour ${supplierName}`}
-        aria-describedby={[problem ? problemId : null, leaks.length > 0 ? leakId : null].filter(Boolean).join(" ") || undefined}
-        aria-invalid={problem ? true : undefined}
-        className="min-h-28 px-3 py-2 text-sm"
-        value={shown}
-        onChange={(event) => {
-          const text = event.target.value;
-          setRetouch((current) => ({ text, from: current && current.text !== message ? current.from : message }));
-        }}
-      />
-      {stale ? (
-        <p className="text-sm font-medium text-warning">
-          Le texte généré a changé depuis votre retouche (lignes, fournisseur ou modèle) : votre texte est gardé tel
-          quel, vérifiez-le avant de le copier.
-        </p>
-      ) : null}
-      {problem ? (
-        <p id={problemId} className="text-sm font-medium text-danger">{problem}</p>
-      ) : null}
-      {leaks.length > 0 ? (
-        <p id={leakId} className="flex items-start gap-1.5 text-sm font-medium text-warning">
-          <TriangleAlert aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
-          {`Ce message en concurrence cite une référence connue : ${leaks.join(", ")}. Le concurrent pourrait savoir qui vous fournit ; vous pouvez tout de même l’envoyer.`}
-        </p>
-      ) : null}
-      <div className="flex flex-wrap items-center gap-2">
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          disabled={problem !== null}
-          aria-label={`Copier le message pour ${supplierName}`}
-          onClick={() => void copyText(shown)}
-        >
-          {copyState === "copied" ? <Check aria-hidden="true" /> : <Copy aria-hidden="true" />}
-          Copier
-        </Button>
-        {consultation.sent ? (
-          <p className="text-sm font-medium text-foreground">{quoteStage(consultation.sent)}</p>
-        ) : consultation.busyElsewhere ? null : (
-          <Button
-            type="button"
-            size="sm"
-            loading={busy}
-            disabled={consultation.unread !== null || problem !== null}
-            aria-label={`Consultation envoyée à ${supplierName}`}
-            aria-describedby={consultation.unread ? unreadId : problem ? problemId : undefined}
-            onClick={() => void send()}
-          >
-            <Send aria-hidden="true" />
-            Consultation envoyée
-          </Button>
-        )}
-        {retouched ? (
-          <Button type="button" variant="ghost" size="sm" onClick={() => setRetouch(null)}>
-            <RotateCcw aria-hidden="true" />
-            Rétablir le texte généré
-          </Button>
-        ) : null}
-        {/* A new tab: the retouches of this page stay as they are. */}
-        <Link
-          href={`/dashboard/profile#${CONSULTATION_TEMPLATE_ANCHOR}`}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="ml-auto text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
-        >
-          Modifier mon modèle
-          <span className="sr-only"> (nouvel onglet)</span>
-        </Link>
-      </div>
-      {consultation.unread && !consultation.sent && !consultation.busyElsewhere ? (
-        <p id={unreadId} className="text-xs text-muted-foreground">
-          {consultation.unread}
-        </p>
-      ) : null}
-      {consultation.busyElsewhere ? (
-        <p className="text-sm text-foreground">{supplierAlreadyConsulted(supplierName, true)}</p>
-      ) : null}
-      <p role="status" className="text-sm text-muted-foreground empty:hidden">
-        {copyState === "copied" ? "Message copié." : null}
-        {copyState === "refused"
-          ? "La copie a été refusée par le navigateur : sélectionnez le texte et copiez-le à la main."
-          : null}
-      </p>
-      {error ? (
-        <p role="alert" className="text-sm font-medium text-danger">
-          Non enregistré : {error}
-        </p>
-      ) : null}
-    </div>
-  );
-}
-
 type SupplierGroup = { supplierId: string; supplierName: string; lines: MaterialRequestLine[] };
 
 function supplierGroups(
@@ -367,120 +139,6 @@ function supplierGroups(
   };
 }
 
-function CompetitionPanel({
-  id,
-  group,
-  lineIds,
-  needType,
-  options,
-  quotes,
-  messageFor,
-  knownReferences,
-  onSend,
-}: Readonly<{
-  id: string;
-  group: SupplierGroup;
-  /** The lines asked: a competitor's consultation in progress counts as sent only when it covers them all. */
-  lineIds: readonly string[];
-  /** Lines whose only words would leak a reference, or name nothing: a type is needed before competing. */
-  needType: readonly MaterialRequestLine[];
-  options: readonly MaterialRequestSupplierOption[];
-  quotes: Pick<MaterialRequestQuotesApi, "items" | "status">;
-  /** Each competitor's own message: {fournisseur} names it (TI-691). */
-  messageFor: (supplierName: string) => string;
-  /** The references known for the lines, which no competition message should name. */
-  knownReferences: readonly (string | null)[];
-  onSend: (supplierId: string, supplierName: string, message: string) => Promise<SaveResult>;
-}>) {
-  const [chosen, setChosen] = useState<string[]>([]);
-  const pickerId = useId();
-  /** Bumped by each addition: the search field starts empty again, with the focus, for the next supplier. */
-  const [added, setAdded] = useState(0);
-  useEffect(() => {
-    if (added > 0) document.getElementById(pickerId)?.focus();
-  }, [added, pickerId]);
-  const others = options.filter((option) => option.id !== group.supplierId);
-  // The whole list, searched as the office types (TI-691: twenty suppliers in a grid cut short by its height).
-  const addable = others.filter((option) => !chosen.includes(option.id));
-
-  return (
-    <div id={id} className="min-w-0 space-y-3 rounded-md border border-dashed border-border p-3">
-      <fieldset className="min-w-0">
-        <legend className="text-sm font-semibold text-foreground">Fournisseurs à mettre en concurrence</legend>
-        <p className="mt-0.5 text-xs text-muted-foreground">
-          Leur message ne donne aucune référence : seulement les désignations complètes.
-        </p>
-        {needType.length > 0 ? (
-          <ul className="mt-2 space-y-0.5 text-sm font-medium text-warning">
-            {needType.map((line) => (
-              // Such a line has no type to be named by: the technician's words name it, when it has some.
-              <li key={line.id}>{`${line.original_text?.trim() ? lineTitle(line) : "Une ligne sans désignation"} : donnez-lui un type, à l’étape Lignes, avant de la mettre en concurrence.`}</li>
-            ))}
-          </ul>
-        ) : null}
-        {others.length === 0 ? (
-          <p className="mt-2 text-sm text-muted-foreground">Aucun autre fournisseur dans la liste.</p>
-        ) : (
-          <div className="mt-2 min-w-0 space-y-1">
-            <label htmlFor={pickerId} className="text-xs text-muted-foreground">
-              Ajouter un fournisseur
-            </label>
-            <Combobox
-              key={added}
-              id={pickerId}
-              aria-describedby={`${pickerId}-count`}
-              size="sm"
-              placeholder="Chercher un fournisseur…"
-              emptyMessage={addable.length === 0 ? "Tous les fournisseurs sont ajoutés." : "Aucun fournisseur trouvé."}
-              options={addable.map((option) => ({ value: option.id, label: option.label }))}
-              // Always empty: a pick adds the supplier below and leaves the field ready for the next one.
-              value=""
-              onValueChange={(supplierId) => {
-                if (!supplierId) return;
-                setChosen((current) => (current.includes(supplierId) ? current : [...current, supplierId]));
-                setAdded((current) => current + 1);
-              }}
-            />
-            <p id={`${pickerId}-count`} className="text-xs text-muted-foreground">
-              {`${plural(others.length, "fournisseur", "fournisseurs")} dans la liste, à chercher par leur nom.`}
-            </p>
-          </div>
-        )}
-      </fieldset>
-      {chosen.map((supplierId) => {
-        const name = others.find((option) => option.id === supplierId)?.label ?? "Fournisseur";
-        return (
-          <div key={supplierId} className="min-w-0 space-y-1.5 border-t border-border pt-3">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <h4 className="min-w-0 break-words text-sm font-semibold text-foreground">{name}</h4>
-              <Button
-                type="button"
-                variant="ghost"
-                size="xs"
-                aria-label={`Retirer ${name} de la mise en concurrence`}
-                onClick={() => {
-                  setChosen((current) => current.filter((entry) => entry !== supplierId));
-                  // The button leaves with its supplier: the focus goes back to the search field.
-                  setAdded((current) => current + 1);
-                }}
-              >
-                <X aria-hidden="true" />
-                Retirer
-              </Button>
-            </div>
-            <ConsultationMessageBlock
-              supplierName={name}
-              message={messageFor(name)}
-              knownReferences={knownReferences}
-              consultation={consultationOf(quotes, supplierId, lineIds)}
-              onSend={(text) => onSend(supplierId, name, text)}
-            />
-          </div>
-        );
-      })}
-    </div>
-  );
-}
 
 function SupplierGroupCard({
   editor,
@@ -488,6 +146,7 @@ function SupplierGroupCard({
   group,
   affaireName,
   template,
+  canCreateSupplier,
 }: Readonly<{
   editor: MaterialRequestEditorApi;
   quotes: MaterialRequestQuotesApi;
@@ -495,11 +154,11 @@ function SupplierGroupCard({
   affaireName: string;
   /** The member's template in force (TI-691); its message is offered only once it is read. */
   template: ConsultationTemplateState;
+  /** May add a supplier to the catalogue, by its name, from the competition's search (admins and engineers). */
+  canCreateSupplier: boolean;
 }>) {
   const ids = useId();
   const headingId = `${ids}-heading`;
-  const panelId = `${ids}-competition`;
-  const [competing, setCompeting] = useState(false);
   const { data, canWrite } = editor;
   // A line priced by a retained quote is bought: it is not asked again.
   const pending = group.lines.filter((line) => !line.price_quote_id);
@@ -511,6 +170,8 @@ function SupplierGroupCard({
       consultationLineOf(line, {
         request: data.request,
         supplierSku: withReferences ? (editor.supplierReferenceOf(line.id)?.supplier_sku ?? null) : null,
+        // TI-690: what a template's {conditionnement} writes, in both variants (it names no reference).
+        usualPackaging: line.product_id ? (editor.articles[line.product_id]?.usual_packaging ?? null) : null,
       }),
     );
   const message = (withReferences: boolean, supplierName: string) =>
@@ -579,46 +240,34 @@ function SupplierGroupCard({
                 Réessayer
               </Button>
             </div>
-          ) : referencesRead ? (
-            <ConsultationMessageBlock
-              supplierName={group.supplierName}
-              message={message(true, group.supplierName)}
-              consultation={consultationOf(quotes, group.supplierId, lineIds)}
-              onSend={(text) => send(group.supplierId, group.supplierName, true, text)}
-            />
           ) : (
-            <p role="status" className="text-sm text-muted-foreground">
-              Lecture des références chez {group.supplierName}…
-            </p>
-          )}
-          {template.status !== "ready" ? null : <>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="h-auto min-h-8 max-w-full whitespace-normal py-1"
-            aria-expanded={competing}
-            aria-controls={competing ? panelId : undefined}
-            aria-label={`Mettre en concurrence les lignes de ${group.supplierName}`}
-            onClick={() => setCompeting((current) => !current)}
-          >
-            <Users aria-hidden="true" />
-            Mettre en concurrence
-          </Button>
-          {competing ? (
-            <CompetitionPanel
-              id={panelId}
+            <ConsultationRecipients
               group={group}
+              pendingCount={pending.length}
               lineIds={lineIds}
               needType={needType}
               options={data.supplierOptions}
               quotes={quotes}
+              usualPanel={
+                referencesRead ? (
+                  <ConsultationMessageBlock
+                    supplierName={group.supplierName}
+                    message={message(true, group.supplierName)}
+                    consultation={consultationOf(quotes, group.supplierId, lineIds)}
+                    onSend={(text) => send(group.supplierId, group.supplierName, true, text)}
+                  />
+                ) : (
+                  <p role="status" className="text-sm text-muted-foreground">
+                    Lecture des références chez {group.supplierName}…
+                  </p>
+                )
+              }
               messageFor={(supplierName) => message(false, supplierName)}
               knownReferences={knownReferences}
               onSend={(supplierId, supplierName, text) => send(supplierId, supplierName, false, text)}
+              onCreateSupplier={canCreateSupplier ? editor.createSupplier : null}
             />
-          ) : null}
-          </>}
+          )}
         </>
       ) : (
         <ul className="list-disc space-y-0.5 pl-5 text-sm text-foreground">
@@ -1145,11 +794,16 @@ function QuoteCard({
  * The « Devis » step of a request: the lines grouped by their supplier, the message to copy for each, the
  * competition, then the quotes. A reader sees the groups and the quotes, and nothing that writes.
  */
-export function MaterialRequestConsultation({ editor, quotes, affaireName, headingId, onGoToLines, onGoToOrders }: Readonly<{
+export function MaterialRequestConsultation({ editor, quotes, affaireName, headingId, canCreateSupplier = false, onGoToLines, onGoToOrders }: Readonly<{
   editor: MaterialRequestEditorApi;
   quotes: MaterialRequestQuotesApi;
   affaireName: string;
   headingId: string;
+  /**
+   * May add a supplier the list does not hold from the competition's search: the catalogue's own rule (admins and
+   * engineers, `canAddToCatalogue`), which its route and policies enforce.
+   */
+  canCreateSupplier?: boolean;
   onGoToLines?: () => void;
   onGoToOrders?: () => void;
 }>) {
@@ -1210,7 +864,7 @@ export function MaterialRequestConsultation({ editor, quotes, affaireName, headi
           {ordered.length === 0 ? <p className="p-5 text-sm text-muted-foreground">Aucune consultation envoyée pour le moment.</p> : null}
         </nav>
         <div className="min-w-0">
-          {pendingGroups.map((group) => <div key={group.supplierId} hidden={activeSupplierId !== group.supplierId} className="border-b border-border p-4"><SupplierGroupCard editor={editor} quotes={workspaceQuotes} group={group} affaireName={affaireName} template={template} /></div>)}
+          {pendingGroups.map((group) => <div key={group.supplierId} hidden={activeSupplierId !== group.supplierId} className="border-b border-border p-4"><SupplierGroupCard editor={editor} quotes={workspaceQuotes} group={group} affaireName={affaireName} template={template} canCreateSupplier={canWrite && canCreateSupplier} /></div>)}
           {ordered.map((quote) => <div key={quote.id} hidden={active !== `quote:${quote.id}`}><QuoteCard editor={editor} quotes={workspaceQuotes} quote={quote} /></div>)}
           {groups.filter((group) => group.lines.length > 0 && group.lines.every((line) => line.price_quote_id)).map((group) => <div key={`priced:${group.supplierId}`} hidden={activeSupplierId !== group.supplierId} role="group" aria-label={group.supplierName} className="border-t border-border px-6 py-3 text-sm text-muted-foreground">Toutes ses lignes ont leur prix retenu.</div>)}
           {!active ? <p className="p-6 text-sm text-muted-foreground">Les devis apparaîtront ici après la consultation d’un fournisseur.</p> : null}

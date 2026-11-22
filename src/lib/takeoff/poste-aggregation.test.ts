@@ -35,14 +35,19 @@ describe("aggregatePosteAnswers", () => {
     expect(aggregatePosteAnswers([notFound("plan:a"), { planKey: "plan:b", state: "reading" }]).status).toBe("reading");
   });
 
-  it("names the work still without a verdict, a failure first", () => {
+  it("names the work still without a verdict as the database does: a plan still read first", () => {
     expect(aggregatePosteAnswers([]).status).toBe("to_measure");
     expect(aggregatePosteAnswers([{ planKey: "plan:a", state: "to_measure" }, { planKey: "plan:b", state: "reading" }]).status)
       .toBe("reading");
     expect(aggregatePosteAnswers([{ planKey: "plan:a", state: "incomplete" }, { planKey: "plan:b", state: "reading" }]).status)
-      .toBe("incomplete");
+      .toBe("reading");
+    expect(aggregatePosteAnswers([{ planKey: "plan:a", state: "failed" }, { planKey: "plan:b", state: "to_measure" }]).status)
+      .toBe("to_measure");
+    // Ended plans: failed while no plan answered, incomplete once one did, whatever stopped them.
+    expect(aggregatePosteAnswers([{ planKey: "plan:a", state: "incomplete" }, { planKey: "plan:b", state: "failed" }]).status)
+      .toBe("failed");
     expect(aggregatePosteAnswers([{ planKey: "plan:a", state: "incomplete" }, { planKey: "plan:b", state: "failed" },
-      measured("plan:c", 1)])).toMatchObject({ status: "failed", partial: true, observed: [{ unit: "u", value: 1 }] });
+      measured("plan:c", 1)])).toMatchObject({ status: "incomplete", partial: true, observed: [{ unit: "u", value: 1 }] });
   });
 
   it("lets one uncertain plan make the item uncertain at full coverage, its candidate never added to the measure", () => {
@@ -58,9 +63,9 @@ describe("aggregatePosteAnswers", () => {
     expect(aggregatePosteAnswers([notFound("plan:a"), measured("plan:b", 4)]).status).toBe("measured");
   });
 
-  it("keeps measures in two units apart and leaves the item to check", () => {
+  it("keeps measures in two units apart, never added: two totals, the state the database gives", () => {
     expect(aggregatePosteAnswers([measured("plan:a", 3, "u"), measured("plan:b", 1, "ens")])).toMatchObject({
-      status: "uncertain", observed: [{ unit: "ens", value: 1 }, { unit: "u", value: 3 }] });
+      status: "measured", observed: [{ unit: "ens", value: 1 }, { unit: "u", value: 3 }] });
   });
 
   it("refuses two answers for one plan instead of counting them twice", () => {
@@ -74,7 +79,7 @@ describe("the wording PR 4 shows", () => {
     for (const code of [...POSTE_UNCERTAIN_REASONS, ...POSTE_NOT_FOUND_REASONS, ...POSTE_WORKER_REASONS]) {
       expect(describePosteReason(code)).toMatch(/\.$/);
     }
-    expect(describePosteStatus("uncertain")).toBe("À vérifier");
+    expect(describePosteStatus("uncertain")).toBe("Incertain");
     expect(describePosteReason("PAGES_UNREADABLE")).toMatch(/illisible/);
   });
 });

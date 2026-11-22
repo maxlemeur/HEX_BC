@@ -36,6 +36,7 @@ import {
   type MaterialRequestAccess,
   type MaterialRequestContext,
 } from "./server-shared";
+import type { MaterialRequestUsualPackaging } from "./usual-packaging";
 
 /**
  * Lines and catalogue articles (TI-690, delivery 3, « le rapprochement »). The office links each line to an
@@ -52,6 +53,9 @@ import {
  *  - A unit replaced by another asks the office to check the quantity (quantity_doubtful).
  *  - A link or an unlink is written only over the line as it was read: an edit made in between answers 409.
  *  - A validated line that is linked, relinked or unlinked returns to draft (the line trigger holds it too).
+ *  - Every article summary carries its usual packaging (TI-690, `product_packagings.is_usual`, one per article at
+ *    most), read under the caller's own rights for the active tenant: the screen offers to round a line to it, and
+ *    the supplier message may write it ({conditionnement}).
  * Reading follows the affaire; writing asks for the writers of material requests. Creating an article also
  * asks for the catalogue's insert right (TI-689: admins and engineers), checked again by the policies.
  */
@@ -84,7 +88,11 @@ type ArticleRow = {
   supply_type_id: string | null;
 };
 
-function summaryOf(row: ArticleRow, supplyTypeName: string | null): MaterialRequestArticleSummary {
+function summaryOf(
+  row: ArticleRow,
+  supplyTypeName: string | null,
+  usualPackaging: MaterialRequestUsualPackaging | null,
+): MaterialRequestArticleSummary {
   return {
     id: row.id,
     reference: row.reference,
@@ -96,7 +104,41 @@ function summaryOf(row: ArticleRow, supplyTypeName: string | null): MaterialRequ
     catalogue_status: row.catalogue_status,
     created_from_material_request: row.created_from_material_request,
     supply_type_name: supplyTypeName,
+    usual_packaging: usualPackaging,
   };
+}
+
+type UsualPackagingRow = { product_id: string; label: string; quantity: number | string; unit: string };
+
+function usualPackagingsOf(rows: readonly UsualPackagingRow[]): Map<string, MaterialRequestUsualPackaging> {
+  return new Map(rows.map((row) => [row.product_id, { label: row.label, quantity: Number(row.quantity), unit: row.unit }]));
+}
+
+const USUAL_PACKAGING_COLUMNS = "id, product_id, label, quantity, unit";
+
+/**
+ * The usual packaging is only shown (review of PR #478): a read of the packagings that fails is logged here and the
+ * articles go without one, rather than taking the request, its proposals or a link down with it.
+ */
+function withoutUsualPackagings(error: unknown): Map<string, MaterialRequestUsualPackaging> {
+  console.error("The usual packagings of the articles could not be read; the articles are shown without them", { error });
+  return new Map();
+}
+
+/** The usual packaging of each article named, by article id; an article without one is absent. */
+async function readUsualPackagings(
+  context: MaterialRequestContext,
+  productIds: readonly string[],
+): Promise<Map<string, MaterialRequestUsualPackaging>> {
+  if (productIds.length === 0) return new Map();
+  const { data, error } = await readAllRowsInChunks([...productIds], (chunk) => context.supabase
+    .from("product_packagings")
+    .select(USUAL_PACKAGING_COLUMNS, { count: "exact" })
+    .eq("tenant_id", context.tenantId)
+    .eq("is_usual", true)
+    .in("product_id", chunk));
+  if (error) return withoutUsualPackagings(error);
+  return usualPackagingsOf((data ?? []) as UsualPackagingRow[]);
 }
 
 async function readSupplyTypeNames(context: MaterialRequestContext, ids: ReadonlyArray<string | null>): Promise<Map<string, string>> {
@@ -125,15 +167,22 @@ export async function readArticleSummaries(
     .in("id", chunk));
   if (error) throw mapSupabaseError(error, "Impossible de charger les articles des lignes.");
   const rows = (data ?? []) as ArticleRow[];
-  const names = await readSupplyTypeNames(context, rows.map((row) => row.supply_type_id));
-  return Object.fromEntries(rows.map((row) => [row.id, summaryOf(row, row.supply_type_id ? (names.get(row.supply_type_id) ?? null) : null)]));
+  const [names, usual] = await Promise.all([
+    readSupplyTypeNames(context, rows.map((row) => row.supply_type_id)),
+    readUsualPackagings(context, rows.map((row) => row.id)),
+  ]);
+  return Object.fromEntries(rows.map((row) => [
+    row.id,
+    summaryOf(row, row.supply_type_id ? (names.get(row.supply_type_id) ?? null) : null, usual.get(row.id) ?? null),
+  ]));
 }
 
 type LoadedCatalogue = { prepared: PreparedCatalogue; summaries: ReadonlyMap<string, MaterialRequestArticleSummary> };
 
 /**
  * The catalogue of the active tenant, read once per call and prepared once for every line: its active
- * articles (drafts included), their supplier references, their usual names and their supply type.
+ * articles (drafts included), their supplier references, their usual names, their supply type and their usual
+ * packaging.
  *
  * Why on the server: about 2,600 articles with their supplier references and usual names would be sent to
  * every browser that opens a request, and read again whenever the office teaches a name. Here they are read
@@ -142,7 +191,7 @@ type LoadedCatalogue = { prepared: PreparedCatalogue; summaries: ReadonlyMap<str
  */
 async function loadCatalogue(context: MaterialRequestContext): Promise<LoadedCatalogue> {
   const { supabase, tenantId } = context;
-  const [products, skus, aliases, supplyTypes] = await Promise.all([
+  const [products, skus, aliases, supplyTypes, packagings] = await Promise.all([
     readAllRows(() => supabase.from("products").select(ARTICLE_COLUMNS, { count: "exact" })
       .eq("tenant_id", tenantId).eq("is_active", true), { concurrency: 4 }),
     readAllRows(() => supabase.from("supplier_catalog_items").select("id, product_id, supplier_sku", { count: "exact" })
@@ -150,11 +199,16 @@ async function loadCatalogue(context: MaterialRequestContext): Promise<LoadedCat
     readAllRows(() => supabase.from("product_aliases").select("id, product_id, alias", { count: "exact" })
       .eq("tenant_id", tenantId), { concurrency: 4 }),
     readAllRows(() => supabase.from("supply_types").select("id, name", { count: "exact" }).eq("tenant_id", tenantId)),
+    readAllRows(() => supabase.from("product_packagings").select(USUAL_PACKAGING_COLUMNS, { count: "exact" })
+      .eq("tenant_id", tenantId).eq("is_usual", true)),
   ]);
   if (products.error) throw mapSupabaseError(products.error, "Impossible de charger le catalogue.");
   if (skus.error) throw mapSupabaseError(skus.error, "Impossible de charger les références fournisseurs.");
   if (aliases.error) throw mapSupabaseError(aliases.error, "Impossible de charger les noms usuels.");
   if (supplyTypes.error) throw mapSupabaseError(supplyTypes.error, "Impossible de charger les types de fourniture.");
+  const usual = packagings.error
+    ? withoutUsualPackagings(packagings.error)
+    : usualPackagingsOf((packagings.data ?? []) as UsualPackagingRow[]);
 
   const skusOf = new Map<string, string[]>();
   for (const item of skus.data ?? []) {
@@ -189,7 +243,7 @@ async function loadCatalogue(context: MaterialRequestContext): Promise<LoadedCat
   }));
   const summaries = new Map(rows.map((row) => [
     row.id,
-    summaryOf(row, row.supply_type_id ? (supplyTypeNames.get(row.supply_type_id) ?? null) : null),
+    summaryOf(row, row.supply_type_id ? (supplyTypeNames.get(row.supply_type_id) ?? null) : null, usual.get(row.id) ?? null),
   ]));
   return { prepared: prepareCatalogue(articles), summaries };
 }
@@ -459,6 +513,7 @@ async function linkLine(
   stored: StoredLine,
   article: ArticleRow,
   supplyTypeName: string | null,
+  usualPackaging: MaterialRequestUsualPackaging | null,
   match: MaterialRequestProductMatch,
   learn: boolean,
 ): Promise<MaterialRequestLineArticleResult> {
@@ -477,7 +532,7 @@ async function linkLine(
   const learned = learn ? aliasToLearn(own.product_type, article) : null;
   const written = await writeLine(access, stored, next);
   const aliasLearned = learned ? await learnAlias(access.context, article, learned) : null;
-  return { line: written, article: summaryOf(article, supplyTypeName), alias_learned: aliasLearned };
+  return { line: written, article: summaryOf(article, supplyTypeName, usualPackaging), alias_learned: aliasLearned };
 }
 
 async function readActiveArticle(context: MaterialRequestContext, productId: string): Promise<ArticleRow> {
@@ -508,9 +563,12 @@ export async function linkMaterialRequestLineArticle(
     throw conflict(LINE_CHANGED, undefined, MATERIAL_REQUEST_LINE_CHANGED);
   }
   const article = await readActiveArticle(access.context, input.product_id);
-  const names = await readSupplyTypeNames(access.context, [article.supply_type_id]);
+  const [names, usual] = await Promise.all([
+    readSupplyTypeNames(access.context, [article.supply_type_id]),
+    readUsualPackagings(access.context, [article.id]),
+  ]);
   const supplyTypeName = article.supply_type_id ? (names.get(article.supply_type_id) ?? null) : null;
-  return linkLine(access, line, article, supplyTypeName, input.via, input.learn_alias === true);
+  return linkLine(access, line, article, supplyTypeName, usual.get(article.id) ?? null, input.via, input.learn_alias === true);
 }
 
 /**
@@ -597,7 +655,8 @@ export async function createMaterialRequestLineArticle(
   const article = data as ArticleRow;
 
   try {
-    return await linkLine(access, line, article, supplyType.name, "created", input.learn_alias === true);
+    // An article created a moment ago has no packaging yet.
+    return await linkLine(access, line, article, supplyType.name, null, "created", input.learn_alias === true);
   } catch (linkError) {
     const { error: undoError } = await context.supabase
       .from("products")

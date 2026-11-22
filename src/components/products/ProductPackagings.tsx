@@ -42,6 +42,9 @@ type AddDraft = RowDraft & { isUsual: boolean };
 export const PRODUCT_PACKAGINGS_UNIT_NOTICE_ID = "product-packagings-unit-notice";
 
 const EMPTY_ADD_DRAFT: AddDraft = { label: "", quantity: "", isUsual: false };
+/** What « usuel » drives since TI-690/TI-691 (owner, 2026-11-22). */
+const USUAL_PACKAGING_HINT =
+  "L’usuel propose d’arrondir les quantités des demandes de matériel à des conditionnements entiers et remplit le champ {conditionnement} du message aux fournisseurs.";
 const QUANTITY_REFUSAL = "La quantité doit être un nombre supérieur à zéro, avec trois décimales au plus.";
 
 /** Enter saves the row it is typed in; it must never submit the article form around it. */
@@ -293,6 +296,7 @@ export function ProductPackagings({
 
   const headingId = `${ids}-heading`;
   const hintId = `${ids}-hint`;
+  const usualHintId = `${ids}-usual-hint`;
   /** A write is on its way: the others wait. */
   const writing = busy !== null || pendingUsual !== null;
   const suggestionsId = `${ids}-suggestions`;
@@ -383,6 +387,7 @@ export function ProductPackagings({
                     type="checkbox"
                     className="size-4 accent-primary"
                     aria-label={`Usuel : ${named}`}
+                    aria-describedby={usualHintId}
                     checked={isUsualShown(item)}
                     disabled={busy !== null}
                     onChange={(event) => void chooseUsual(item, event.target.checked)}
@@ -418,6 +423,11 @@ export function ProductPackagings({
             );
           })}
         </ul>
+      ) : null}
+      {current?.status === "ready" && items.length > 0 ? (
+        <p id={usualHintId} className="mt-1.5 text-xs text-muted-foreground">
+          {USUAL_PACKAGING_HINT}
+        </p>
       ) : null}
 
       {canEdit ? (
@@ -460,15 +470,21 @@ export function ProductPackagings({
                   />
                 </div>
               </div>
-              <label className="inline-flex items-center gap-2 text-sm text-foreground-secondary">
-                <input
-                  type="checkbox"
-                  className="size-4 accent-primary"
-                  checked={addDraft.isUsual}
-                  onChange={(event) => setAddDraft({ ...addDraft, isUsual: event.target.checked })}
-                />
-                Conditionnement usuel
-              </label>
+              <div>
+                <label className="inline-flex items-center gap-2 text-sm text-foreground-secondary">
+                  <input
+                    type="checkbox"
+                    className="size-4 accent-primary"
+                    aria-describedby={`${usualHintId}-add`}
+                    checked={addDraft.isUsual}
+                    onChange={(event) => setAddDraft({ ...addDraft, isUsual: event.target.checked })}
+                  />
+                  Conditionnement usuel
+                </label>
+                <p id={`${usualHintId}-add`} className="mt-1 text-xs text-muted-foreground">
+                  {USUAL_PACKAGING_HINT}
+                </p>
+              </div>
               <div className="flex flex-wrap gap-2">
                 <Button
                   type="button"

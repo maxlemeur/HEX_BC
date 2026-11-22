@@ -46,6 +46,12 @@ import { MATERIAL_REQUEST_QUOTE_MESSAGE_MAX } from "./quote-contracts";
  * 15. a known reference retyped with another separator, case or accent (« NA 4471 », « na4471 », « NA–4471 ») goes
  *     unnoticed; or a short code without a digit (« 50 » in « DN 50 ») raises a false warning;
  * 16. a field written twice is refused (only {lignes} stays once at most).
+ * TI-690/TI-691, the usual packaging (owner, 2026-11-22):
+ * 17. {conditionnement} is not a line field: it is flagged unknown, or not written « 3 barres de 6 ml » for a line
+ *     whose quantity is an exact multiple of its article's usual packaging; or it says something for a line that is
+ *     not one (another quantity, another unit, no packaging), where its optional part must vanish;
+ * 18. {conditionnement} is taken out of a competition message as if it were a reference;
+ * 19. the default template or today's message changes for lines that have a usual packaging.
  */
 
 function item(partial: Partial<ConsultationLine> = {}): ConsultationLine {
@@ -363,5 +369,62 @@ describe("consultation template", () => {
       template: custom("👋 {fournisseur} 👋\n{lignes}\n🙏 {affaire} / {affaire}", "✅ {désignation} ({désignation})"),
     });
     expect(message).toBe("👋 Négoce Alpha 👋\n✅ Coude 🔧 (Coude 🔧)\n🙏 Résidence des Tilleuls / Résidence des Tilleuls");
+  });
+
+  describe("the usual packaging of a line, {conditionnement} (17-19)", () => {
+    const BARRE = { label: "Barre", quantity: 6, unit: "ml" };
+    const PACKED: ConsultationLine[] = [
+      item({ position: 1, quantity: 18, unit: "ml", designation: "Tube cuivre", dimension: "Ø 22", material: null, supplierSku: "TU-22", usualPackaging: BARRE }),
+      item({ position: 2, quantity: 14, unit: "ml", designation: "Tube cuivre", dimension: "Ø 28", material: null, usualPackaging: BARRE }),
+      item({ position: 3, quantity: 6, unit: "m.l.", designation: "Tube cuivre", dimension: "Ø 14", material: null, usualPackaging: BARRE }),
+      item({ position: 4, quantity: 12, unit: "u", designation: "Manchon", dimension: "Ø 22", material: null, usualPackaging: BARRE }),
+      item({ position: 5, quantity: 4, designation: "Té égal" }),
+    ];
+    const template = custom("{lignes}", "- {quantité} {désignation}[ ({conditionnement})]");
+
+    it("is a line field, recognised without accents or in capitals, and inserted nowhere else (17)", () => {
+      expect(consultationTemplateIssues(custom("{lignes}", "{désignation} {conditionnement} {CONDITIONNEMENT}")).line.unknown).toEqual([]);
+      expect(consultationTemplateIssues(custom("{lignes} {conditionnement}", "{désignation}")).message.unknown).toEqual(["{conditionnement}"]);
+    });
+
+    it("writes the whole packagings of an exact multiple, and its optional part vanishes otherwise (17)", () => {
+      const message = renderConsultationMessage({ ...base, lines: PACKED, withReferences: true, deliveryPlace: null, template });
+      expect(message.split("\n")).toEqual([
+        "- 18 ml Tube cuivre, Ø 22 (3 barres de 6 ml)",
+        "- 14 ml Tube cuivre, Ø 28",
+        "- 6 m.l. Tube cuivre, Ø 14 (1 barre de 6 ml)",
+        "- 12 u Manchon, Ø 22",
+        "- 4 u Té égal, DN 50, Inox 316L",
+      ]);
+    });
+
+    it("may stand instead of the quantity", () => {
+      const message = renderConsultationMessage({
+        ...base,
+        lines: PACKED.slice(0, 1),
+        withReferences: true,
+        deliveryPlace: null,
+        template: custom("{lignes}", "- {conditionnement} {désignation}[ — réf. {référence}]"),
+      });
+      expect(message).toBe("- 3 barres de 6 ml Tube cuivre — réf. TU-22");
+    });
+
+    it("is written in a competition message: it is no reference (18)", () => {
+      const message = renderConsultationMessage({ ...base, lines: PACKED.slice(0, 2), withReferences: false, deliveryPlace: null, template });
+      expect(message).toBe("- 18 ml Tube cuivre, Ø 22 (3 barres de 6 ml)\n- 14 ml Tube cuivre, Ø 28");
+      expect(message).not.toMatch(/TU-22/);
+    });
+
+    it("leaves the default template and today's message byte for byte as they were (19)", () => {
+      for (const withReferences of [true, false]) {
+        for (const deliveryPlace of ["site", null] as const) {
+          const input = { affaireName: "Résidence des Tilleuls", lines: PACKED, withReferences, deliveryPlace };
+          const today = buildConsultationMessage(input);
+          expect(renderConsultationMessage({ ...input, supplierName: "Négoce Alpha", template: DEFAULT_CONSULTATION_TEMPLATE })).toBe(today);
+          expect(consultationMessage({ ...input, supplierName: "Négoce Alpha", template: null })).toBe(today);
+          expect(today).not.toMatch(/barre/);
+        }
+      }
+    });
   });
 });

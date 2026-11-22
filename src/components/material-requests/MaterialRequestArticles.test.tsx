@@ -133,6 +133,7 @@ function article(partial: Partial<MaterialRequestArticleSummary> = {}): Material
     catalogue_status: "validated",
     created_from_material_request: false,
     supply_type_name: "Fixation",
+    usual_packaging: null,
     ...partial,
   };
 }
