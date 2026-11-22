@@ -31,8 +31,10 @@ type UploadEntry = {
 const EMPTY_DOCUMENTS: DossierDocument[] = [];
 
 // `reload` reads the dossier again (useAffaireDossier): the documents it brings come back through
-// `documents`, which retire the entries they integrate.
-export function useIntakeUploadFeedback(projectId: string, dossierDocuments: DossierDocument[] | undefined, reload: () => Promise<unknown>) {
+// `documents`, which retire the entries they integrate. `batchPending`: a batch of the affaire is still
+// analysed (its brief is written after its pieces are classified); the reads go on until it ends.
+export function useIntakeUploadFeedback(projectId: string, dossierDocuments: DossierDocument[] | undefined, reload: () => Promise<unknown>,
+  batchPending = false) {
   const documents = dossierDocuments ?? EMPTY_DOCUMENTS;
   const [entries, setEntries] = useState<UploadEntry[]>([]);
   const integrated = new Set(documents.filter((document) => document.uploadStatus === "uploaded" && dossierDocumentState(document) !== "processing").map((document) => document.documentId));
@@ -70,7 +72,7 @@ export function useIntakeUploadFeedback(projectId: string, dossierDocuments: Dos
 
   // One read at a time, two seconds after the previous answer: on a fixed two-second rhythm, a
   // server that answers in two seconds or more would pile its reads up.
-  useDossierPoll(awaitingIntegration, reload, { intervalMs: 2000 });
+  useDossierPoll(awaitingIntegration || batchPending, reload, { intervalMs: 2000 });
 
   const dismissFailure = useCallback((key: string) => setEntries((prior) => prior.filter((entry) => entry.key !== key || entry.phase !== "failed")), []);
   return { files, onUploadEvent, dismissFailure };

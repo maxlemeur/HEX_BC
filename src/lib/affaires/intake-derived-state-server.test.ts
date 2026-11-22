@@ -127,16 +127,21 @@ function createSupabaseMock(documents: unknown[]) {
         const builder = {
           select: vi.fn(),
           eq: vi.fn(),
+          // The batches whose analysis has not ended: none here.
+          in: vi.fn(),
           order: vi.fn(),
           limit: vi.fn(),
           maybeSingle: vi.fn(async () => ({
             data: createUploadRow(),
             error: null,
           })),
+          then: (resolve: (value: { data: unknown[]; error: null }) => unknown) =>
+            Promise.resolve(resolve({ data: [], error: null })),
         };
 
         builder.select.mockReturnValue(builder);
         builder.eq.mockReturnValue(builder);
+        builder.in.mockReturnValue(builder);
         builder.order.mockReturnValue(builder);
         builder.limit.mockReturnValue(builder);
 

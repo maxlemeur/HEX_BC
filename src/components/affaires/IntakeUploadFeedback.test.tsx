@@ -21,15 +21,15 @@ const document = (documentId: string) => ({
   detectedCategory: "plans", confidence: 0.9, issues: [],
 }) as unknown as DossierDocument;
 
-function Screen({ event }: { event: IntakeUploadEvent }) {
+function Screen({ event, batchPending = false }: { event: IntakeUploadEvent; batchPending?: boolean }) {
   const [state, setState] = useState<DossierDocument[] | Promise<DossierDocument[]>>([]);
   useEffect(() => { dossier.publish = setState as (state: unknown) => void; }, []);
   const documents = state instanceof Promise ? use(state) : state;
-  return <Feedback documents={documents} event={event} />;
+  return <Feedback documents={documents} event={event} batchPending={batchPending} />;
 }
 
-function Feedback({ documents, event }: { documents: DossierDocument[]; event: IntakeUploadEvent }) {
-  const feedback = useIntakeUploadFeedback("project-1", documents, dossier.reload);
+function Feedback({ documents, event, batchPending }: { documents: DossierDocument[]; event: IntakeUploadEvent; batchPending: boolean }) {
+  const feedback = useIntakeUploadFeedback("project-1", documents, dossier.reload, batchPending);
   const { onUploadEvent } = feedback;
   useEffect(() => { onUploadEvent(event); }, [event, onUploadEvent]);
   return <IntakeUploadFeedback feedback={feedback} />;
@@ -92,6 +92,23 @@ describe("useIntakeUploadFeedback", () => {
 
     await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
     expect(dossier.reload).toHaveBeenCalledTimes(1);
+  });
+
+  // The analysis marks the piece classified, then writes the brief, then records the batch's end: the reads go on
+  // while the batch is pending, so the brief written after the classification reaches the page.
+  it("keeps asking while the batch is pending after its piece is classified, and stops when the batch ends", async () => {
+    const view = render(<Screen event={uploaded} batchPending />);
+    await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
+    const classified = { ...document("document-1"), classificationStatus: "classified", classificationSource: "manual" } as DossierDocument;
+    await answer(0, [classified]);
+    expect(screen.queryByText(/plan\.pdf/)).not.toBeInTheDocument();
+    await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
+    expect(dossier.reload).toHaveBeenCalledTimes(2);
+
+    await answer(1, [classified]);
+    view.rerender(<Screen event={uploaded} batchPending={false} />);
+    await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
+    expect(dossier.reload).toHaveBeenCalledTimes(2);
   });
 
   it("keeps rendering finite when an upload starts behind an entry update held back by a refresh in flight", async () => {
