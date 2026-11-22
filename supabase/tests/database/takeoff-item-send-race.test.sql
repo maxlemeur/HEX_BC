@@ -638,9 +638,12 @@ begin
       on tables.table_schema = columns.table_schema and tables.table_name = columns.table_name
     where columns.table_schema in ('public', 'private') and columns.column_name = 'tenant_id'
       and tables.table_type = 'BASE TABLE' and not (columns.table_schema = 'public' and columns.table_name = 'tenants')
+      and not (columns.table_schema = 'public' and columns.table_name = 'audit_logs')
   loop
     execute format('delete from %I.%I where tenant_id = $1', entry.table_schema, entry.table_name) using target;
   end loop;
+  -- Tenant data deletes can write audit entries, so clear them after the loop.
+  delete from public.audit_logs where tenant_id = target;
   delete from public.tenants where id = target;
   end loop;
 end
