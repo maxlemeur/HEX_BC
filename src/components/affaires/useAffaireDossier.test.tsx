@@ -167,6 +167,105 @@ describe("useAffaireDossier", () => {
   });
 });
 
+// The page waits on what the server stored about the dossier's analysis (intake-follow.ts): one wait, one cadence, per
+// batch, said on the page, and ended by the server's record or, past the server's own limits, by a visible offer to
+// read again. Never a silent stop.
+describe("useAffaireDossier wait", () => {
+  const pending = (name: string, uploads: string[], classificationStatus = "classified", brief: unknown = null) => ({
+    ...workspace(name, classificationStatus), pendingUploadIds: uploads, briefDraft: brief,
+  }) as unknown as AffaireIntakeWorkspace;
+  const tick = (ms: number) => act(async () => { await vi.advanceTimersByTimeAsync(ms); });
+  function Follow({ server }: { server: AffaireIntakeWorkspace }) {
+    const dossier = useAffaireDossier(projectId, { workspace: server });
+    useEffect(() => { probe.dossier = dossier; });
+    return <p>{dossier.workspace?.documents[0].fileName} · {dossier.follow}</p>;
+  }
+
+  beforeEach(() => { vi.useFakeTimers(); });
+
+  it("reads while a batch's analysis runs, past two minutes, and stops when the server records its end", async () => {
+    render(<Follow server={pending("plan.pdf", ["upload-1"])} />);
+    expect(screen.getByText("plan.pdf · waiting")).toBeInTheDocument();
+    // Transcriptions of a scanned piece can take minutes: three minutes later the page still reads.
+    for (let minute = 0; minute < 45; minute += 1) {
+      await tick(4000);
+      await respond(reads.length - 1, { workspace: pending("plan.pdf", ["upload-1"]) });
+    }
+    expect(reads.length).toBe(45);
+    expect(screen.getByText("plan.pdf · waiting")).toBeInTheDocument();
+    await tick(4000);
+    await respond(reads.length - 1, { workspace: pending("plan-brief.pdf", [], "classified", { status: "a_confirmer" }) });
+    expect(screen.getByText("plan-brief.pdf · idle")).toBeInTheDocument();
+    await tick(60_000);
+    expect(reads.length).toBe(46);
+  });
+
+  it("keeps reading after a failed classification while the batch's analysis runs", async () => {
+    render(<Follow server={pending("plan.pdf", ["upload-1"], "processing")} />);
+    await tick(4000);
+    await respond(0, { workspace: pending("plan.pdf", ["upload-1"], "failed") });
+    await tick(4000);
+    expect(reads.length).toBe(2);
+    await respond(1, { workspace: pending("plan-secours.pdf", [], "failed", { status: "a_confirmer" }) });
+    expect(screen.getByText("plan-secours.pdf · idle")).toBeInTheDocument();
+  });
+
+  it("starts a new wait for a new batch, after an earlier one ran out", async () => {
+    render(<Follow server={pending("plan.pdf", ["upload-1"])} />);
+    for (let elapsed = 0; elapsed < 15 * 60 * 1000; elapsed += 4000) {
+      await tick(4000);
+      if (reads.length && reads.at(-1)) await respond(reads.length - 1, { workspace: pending("plan.pdf", ["upload-1"]) });
+    }
+    await tick(4000);
+    expect(screen.getByText("plan.pdf · overdue")).toBeInTheDocument();
+    const before = reads.length;
+    await tick(60_000);
+    expect(reads.length).toBe(before);
+    // The member adds a piece: its batch is followed whatever the previous one did.
+    act(() => { void probe.dossier!.reload(); });
+    await respond(reads.length - 1, { workspace: pending("plan-2.pdf", ["upload-1", "upload-2"]) });
+    expect(screen.getByText("plan-2.pdf · waiting")).toBeInTheDocument();
+    await tick(4000);
+    expect(reads.length).toBe(before + 2);
+  });
+
+  it("offers to read again past the server's limits, and « Actualiser » reads and waits again", async () => {
+    render(<Follow server={pending("plan.pdf", ["upload-1"])} />);
+    for (let elapsed = 0; elapsed <= 15 * 60 * 1000; elapsed += 4000) {
+      await tick(4000);
+      await respond(reads.length - 1, { workspace: pending("plan.pdf", ["upload-1"]) });
+    }
+    await tick(4000);
+    expect(screen.getByText("plan.pdf · overdue")).toBeInTheDocument();
+    const before = reads.length;
+    act(() => { probe.dossier!.refresh(); });
+    expect(reads.length).toBe(before + 1);
+    await respond(reads.length - 1, { workspace: pending("plan.pdf", ["upload-1"]) });
+    expect(screen.getByText("plan.pdf · waiting")).toBeInTheDocument();
+  });
+
+  it("reads again after a failed read while it waits, and nothing once the page is gone", async () => {
+    const view = render(<Follow server={pending("plan.pdf", ["upload-1"])} />);
+    await tick(4000);
+    await respond(0, "failure");
+    await tick(4000);
+    expect(reads.length).toBe(2);
+    // A reload asked during a read would send one more read after it: never once the page is gone.
+    act(() => { void probe.dossier!.reload(); });
+    view.unmount();
+    await respond(1, { workspace: pending("plan.pdf", ["upload-1"]) });
+    await tick(60_000);
+    expect(reads.length).toBe(2);
+  });
+
+  it("waits for nothing over a page whose dossier the server says is analysed", async () => {
+    render(<Follow server={pending("plan.pdf", [])} />);
+    expect(screen.getByText("plan.pdf · idle")).toBeInTheDocument();
+    await tick(60_000);
+    expect(reads.length).toBe(0);
+  });
+});
+
 describe("useDossierPoll", () => {
   function Poller({ active, reload, maxMs }: { active: boolean; reload: () => Promise<void>; maxMs?: number }) {
     const { expired } = useDossierPoll(active, reload, { intervalMs: 2000, maxMs });

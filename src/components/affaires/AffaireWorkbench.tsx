@@ -11,6 +11,7 @@ import { AFFAIRE_INTAKE_DOCUMENT_KIND_LABELS, type AffaireIntakeDocumentKind } f
 import { canClassifyDossierDocument, dossierDocumentAiConfidence, dossierDocumentState, type DossierDocument } from "@/lib/affaires/document-triage";
 import type { AffaireIntakeWorkspace } from "@/lib/affaires/intake-workspace-server";
 import type { AffaireRegisterEntry, AffaireRegisterSummary } from "@/lib/affaires/register";
+import { DossierFollowNotice, type DossierFollow } from "./DossierFollowNotice";
 
 export type AffaireWorkbenchSection = "overview" | "dossier" | "estimate" | "register" | "submission";
 
@@ -83,7 +84,7 @@ export function AffaireWorkbench({ active, onSelect, criticalCount, takeoffHref,
   );
 }
 
-export function AffaireDossierOverview({ workspace, clientName, registerSummary, registerEntries, isReadOnly, onOpenDocuments, onAddDocuments, onOpenDocument, onReviewBrief, onOpenRegister, estimateHref, versionLabel }: {
+export function AffaireDossierOverview({ workspace, clientName, registerSummary, registerEntries, isReadOnly, onOpenDocuments, onAddDocuments, onOpenDocument, onReviewBrief, onOpenRegister, estimateHref, versionLabel, dossierFollow }: {
   workspace: AffaireIntakeWorkspace | null | undefined;
   clientName: string | null;
   registerSummary: AffaireRegisterSummary | null | undefined;
@@ -96,6 +97,8 @@ export function AffaireDossierOverview({ workspace, clientName, registerSummary,
   onOpenRegister: () => void;
   estimateHref: string | null;
   versionLabel: string;
+  /** The page's wait on the dossier's analysis, said under the brief. */
+  dossierFollow?: DossierFollow | null;
 }) {
   const [drafts, setDrafts] = useState<Record<string, AffaireIntakeDocumentKind>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -243,6 +246,7 @@ export function AffaireDossierOverview({ workspace, clientName, registerSummary,
         <section className="affaire-dossier-brief" aria-label="Résumé du brief">
           <h3>Brief de l’affaire</h3>
           <span className={`affaire-brief-status${brief?.status === "confirme" ? " is-confirmed" : ""}`}>{briefLabel}</span>
+          <DossierFollowNotice follow={dossierFollow} />
           <dl className="affaire-brief-facts">
             <div><dt>Périmètre et lots</dt><dd>{scope}</dd></div>
             <div><dt>Client</dt><dd>{clientName || "À confirmer"}</dd></div>

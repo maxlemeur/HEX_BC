@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type { AffaireIntakeWorkspace } from "@/lib/affaires/intake-workspace-server";
 import { type AffaireHubPlansSummaryData } from "@/lib/affaires/hub-plans-summary";
+import { AFFAIRE_DOSSIER_FOLLOW_CEILING_MS, AFFAIRE_DOSSIER_FOLLOW_INTERVAL_MS, affaireDossierWaitKey } from "@/lib/affaires/intake-follow";
 
 // What the affaire page waits for on its own (the documents of the dossier while they are added and
 // analysed, the plans they become) is read through the application's API and shown from that read.
@@ -26,6 +27,12 @@ export type AffaireDossier = {
   // after it, since the read in flight may predate what the caller waits for. Never rejects: a
   // failed read keeps the documents on screen, and the next poll asks again.
   reload: () => Promise<void>;
+  // The page's one wait on the dossier's analysis, on what the server stored (intake-follow.ts): « waiting » while a
+  // batch's analysis or a piece's has not ended, « overdue » past the server's limits (reads stop; the page offers to
+  // read again), « idle » otherwise.
+  follow: "idle" | "waiting" | "overdue";
+  // « Actualiser »: reads now and waits again from the start.
+  refresh: () => void;
 };
 
 class RefusedRead extends Error {}
@@ -85,6 +92,7 @@ export function useAffaireDossier(
 
   const start = useCallback(() => {
     const base = serverWorkspace.current;
+    if (!mounted.current) return Promise.resolve();
     const pending = readDossier(projectId, plans).then((data) => {
       if (!mounted.current || serverWorkspace.current !== base) return;
       const shown = fingerprint(data.workspace);
@@ -112,9 +120,10 @@ export function useAffaireDossier(
   const reload = useCallback(() => {
     if (!live || refused.current) return Promise.resolve();
     if (inFlight.current === null) return start();
+    // The read asked during a read leaves after it, never once the page is gone.
     next.current ??= inFlight.current.then(() => {
       next.current = null;
-      return refused.current ? undefined : start();
+      return refused.current || !mounted.current ? undefined : start();
     });
     return next.current;
   }, [live, start]);
@@ -125,25 +134,41 @@ export function useAffaireDossier(
     if (shown !== undefined && shown !== rendered) void reload();
   }, [projectId, reload, rendered]);
 
+  const workspace = current?.workspace ?? server.workspace;
+  // One wait for the page, per batch: a new batch or a piece that ends changes its key and starts it again.
+  const waitKey = live ? affaireDossierWaitKey(workspace) : null;
+  const [epoch, setEpoch] = useState(0);
+  const { expired } = useDossierPoll(waitKey !== null, reload, {
+    intervalMs: AFFAIRE_DOSSIER_FOLLOW_INTERVAL_MS, maxMs: AFFAIRE_DOSSIER_FOLLOW_CEILING_MS, key: `${waitKey}#${epoch}`,
+  });
+  const refresh = useCallback(() => {
+    setEpoch((value) => value + 1);
+    void reload();
+  }, [reload]);
+
   return {
-    workspace: current?.workspace ?? server.workspace,
+    workspace,
     plansSummary: current?.plansSummary !== undefined ? current.plansSummary : server.plansSummary ?? null,
     fromRead: current !== null,
     plansFromRead: current?.plansSummary !== undefined,
     reload,
+    follow: waitKey === null ? "idle" : expired ? "overdue" : "waiting",
+    refresh,
   };
 }
 
 // Asks for the dossier while `active`: an interval after the previous answer, so a server slower
 // than the interval never has two reads in flight. Stops when `active` ends, or once `maxMs` has
-// passed since it began, which `expired` reports until `active` ends.
-export function useDossierPoll(active: boolean, reload: () => Promise<unknown>, { intervalMs, maxMs }: { intervalMs: number; maxMs?: number }) {
-  const [expired, setExpired] = useState(false);
+// passed since it began, which `expired` reports until `active` ends or `key` changes; a new `key`
+// starts it again.
+export function useDossierPoll(active: boolean, reload: () => Promise<unknown>,
+  { intervalMs, maxMs, key = "" }: { intervalMs: number; maxMs?: number; key?: string }) {
+  const [expiredKey, setExpiredKey] = useState<string | null>(null);
   const reloadRef = useRef(reload);
   reloadRef.current = reload;
   useEffect(() => {
     if (!active) {
-      setExpired(false);
+      setExpiredKey(null);
       return;
     }
     const started = Date.now();
@@ -152,7 +177,7 @@ export function useDossierPoll(active: boolean, reload: () => Promise<unknown>, 
     const wait = () => {
       timer = setTimeout(() => {
         if (maxMs !== undefined && Date.now() - started >= maxMs) {
-          setExpired(true);
+          setExpiredKey(key);
           return;
         }
         void reloadRef.current().catch(() => undefined).finally(() => { if (!cancelled) wait(); });
@@ -163,6 +188,6 @@ export function useDossierPoll(active: boolean, reload: () => Promise<unknown>, 
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [active, intervalMs, maxMs]);
-  return { expired };
+  }, [active, intervalMs, maxMs, key]);
+  return { expired: active && expiredKey === key };
 }

@@ -61,7 +61,7 @@ import {
   FinancialSummaryCard,
   VersionTimelineCard,
 } from "./AffaireHubSections";
-import { getAffaireDossierState, isAffaireIntakeBriefAwaited } from "@/lib/affaires/intake";
+import { getAffaireDossierState } from "@/lib/affaires/intake";
 import type { AffaireTakeoffZoneData } from "@/lib/takeoff/affaire-takeoff-zone";
 import type { CockpitCommandPreference, CockpitIntent, CockpitSuggestion } from "@/lib/cockpit/suggestions";
 import { sortCockpitSuggestions } from "@/lib/cockpit/suggestions";
@@ -88,7 +88,8 @@ import { materialRequestsHref } from "@/components/material-requests/format";
 import { AffaireDossierOverview, AffaireWorkbench, affaireSectionFromLocation, type AffaireWorkbenchSection } from "./AffaireWorkbench";
 import { buildAffaireJourney } from "./AffaireJourneyPanel.model";
 import { IntakeUploadFeedback, useIntakeUploadFeedback } from "./IntakeUploadFeedback";
-import { useAffaireDossier, useDossierPoll } from "./useAffaireDossier";
+import { useAffaireDossier } from "./useAffaireDossier";
+import { DossierFollowNotice } from "./DossierFollowNotice";
 import { useHubCockpitSuggestions, type HubCockpitInput } from "./useHubCockpitSuggestions";
 import "./AffaireWorkbench.css";
 import { type AffaireHubPlansSummaryData } from "@/lib/affaires/hub-plans-summary";
@@ -487,9 +488,7 @@ export function AffaireHub({
   // navigation.
   const dossier = useAffaireDossier(summary.project.id, { workspace: serverIntakeWorkspace, plansSummary: serverPlansSummary }, { plans: takeoffEnabled, live: liveDossier });
   const intakeWorkspace = dossier.workspace;
-  // The first brief is written after its pieces' analysis: the page follows the dossier until it shows (two minutes at
-  // most), so a member who stays on the affaire can confirm it there.
-  useDossierPoll(isAffaireIntakeBriefAwaited(intakeWorkspace), dossier.reload, { intervalMs: 4000, maxMs: 120_000 });
+  const dossierFollow = useMemo(() => ({ state: dossier.follow, onRefresh: dossier.refresh }), [dossier.follow, dossier.refresh]);
   const plansSummary = dossier.plansSummary;
   const plansError = dossier.plansFromRead ? undefined : sectionErrors?.plansSummary;
   // Over a read, the suggestions follow the dossier on screen, computed as the server does.
@@ -506,7 +505,7 @@ export function AffaireHub({
   });
   const cockpitSuggestions = cockpit.suggestions;
   const noteCockpitPreference = cockpit.notePreference;
-  const uploadFeedback = useIntakeUploadFeedback(summary.project.id, intakeWorkspace?.documents, dossier.reload);
+  const uploadFeedback = useIntakeUploadFeedback(summary.project.id, intakeWorkspace?.documents);
   const [documentsOpen, setDocumentsOpen] = useState(false);
   const [documentsRequested, setDocumentsRequested] = useState(false);
   const [addingDocuments, setAddingDocuments] = useState(false);
@@ -1180,6 +1179,7 @@ export function AffaireHub({
             onOpenRegister={() => selectSection("register")}
             estimateHref={summary.currentVersion ? `/dashboard/estimates/${summary.currentVersion.id}${isReadOnlyReview || summary.currentVersion.status !== "draft" ? "" : "/edit"}` : isReadOnlyReview ? null : `/dashboard/estimates/new?projectId=${summary.project.id}`}
             versionLabel={summary.currentVersion ? `V${summary.currentVersion.versionNumber}${summary.lineCount === 0 ? " non chiffrée" : " · " + summary.lineCount + " lignes"}` : "Aucun devis"}
+            dossierFollow={dossierFollow}
           />
         </div> : null}
       {/* Unified Import Flow (full-width, replaces grid when active) */}
@@ -1309,6 +1309,7 @@ export function AffaireHub({
               )}
               {!isFreshStartState && intakeWorkspace !== undefined && (
                 <div id="brief" hidden={activeSection !== "dossier" || !detailsOpen} className="scroll-mt-24">
+                  <DossierFollowNotice follow={dossierFollow} />
                   <BriefDraftCard
                     projectId={summary.project.id}
                     briefDraft={intakeWorkspace?.briefDraft ?? null}

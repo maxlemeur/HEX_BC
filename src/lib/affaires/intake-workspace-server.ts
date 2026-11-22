@@ -44,6 +44,11 @@ export type AffaireIntakeWorkspace = {
   projectId: string;
   analysisAvailability?: { available: boolean; message: string; provider?: "decisions" | "chatgpt" };
   uploadId: string | null;
+  /**
+   * The affaire's batches whose analysis has not ended, oldest first: the server records a batch's end once its run
+   * wrote the brief (intake-follow.ts). The page reads the dossier until none is left.
+   */
+  pendingUploadIds?: string[];
   canManageDocuments?: boolean;
   documents: Array<{
     documentId: string;
@@ -108,6 +113,7 @@ export const fetchAffaireIntakeWorkspace = cache(async (
     return {
       projectId: project.id,
       uploadId: null,
+      pendingUploadIds: [],
       documents: [],
       missingPieces: [],
       readiness: buildAffaireIntakeReadinessSnapshot({
@@ -118,6 +124,15 @@ export const fetchAffaireIntakeWorkspace = cache(async (
     };
   }
 
+  const pendingUploadsPromise = startConcurrentRead(resolveSupabaseQuery<{ data: unknown[] | null; error: unknown }>(
+    context.supabase
+      .from("affaire_intake_uploads")
+      .select("id, status" as never)
+      .eq("project_id", project.id)
+      .in("status", ["queued", "processing"])
+      .order("created_at", { ascending: true })
+      .order("id", { ascending: true })
+  ));
   const canManageDocuments = canAccessAffaire(context, project.user_id, "write");
   const analysisAvailabilityPromise = canManageDocuments
     ? startConcurrentRead(getIntakeAnalysisAvailability(context))
@@ -172,14 +187,20 @@ export const fetchAffaireIntakeWorkspace = cache(async (
       ...(document.rejection_reason ? [document.rejection_reason] : []),
     ],
   }));
-  const [missingPieces, analysisAvailability] = await Promise.all([
+  const [missingPieces, analysisAvailability, pendingUploads] = await Promise.all([
     missingPiecesPromise,
     analysisAvailabilityPromise,
+    pendingUploadsPromise,
   ]);
+  if (pendingUploads.error) {
+    throw internalError("Impossible de lire l’analyse en cours du dossier.", pendingUploads.error);
+  }
 
   return {
     projectId: project.id,
     uploadId: upload.id,
+    pendingUploadIds: (pendingUploads.data ?? []).flatMap((row) =>
+      row && typeof row === "object" && typeof (row as { id?: unknown }).id === "string" ? [(row as { id: string }).id] : []),
     analysisAvailability,
     canManageDocuments,
     documents: workspaceDocuments,

@@ -3,9 +3,10 @@ import {
   type AffaireIntakeUploadStatus,
 } from "@/lib/affaires/intake";
 
-const AFFAIRE_INTAKE_LEASE_TTL_MS = 10 * 60 * 1000;
+// Exported for the page that follows an analysis (intake-follow.ts): it waits on these limits, not on a guess.
+export const AFFAIRE_INTAKE_LEASE_TTL_MS = 10 * 60 * 1000;
 const AFFAIRE_INTAKE_MAX_ATTEMPTS = 3;
-const AFFAIRE_INTAKE_RETRY_BACKOFF_SECONDS = [30, 120, 300] as const;
+export const AFFAIRE_INTAKE_RETRY_BACKOFF_SECONDS = [30, 120, 300] as const;
 
 type RpcResult = {
   data: unknown;

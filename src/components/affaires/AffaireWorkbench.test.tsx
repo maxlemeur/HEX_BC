@@ -89,3 +89,34 @@ describe("affaireSectionFromLocation", () => {
     expect(affaireSectionFromLocation(new URLSearchParams("view=dossier"), "#metre")).toBe("overview");
   });
 });
+
+// While the dossier waits on its analysis the brief says so; past the server's limits it offers to read again.
+describe("the brief while the dossier's analysis runs", () => {
+  const workspace: AffaireIntakeWorkspace = { projectId: "project", uploadId: "upload-1", canManageDocuments: true,
+    documents: [document("plan")], missingPieces: [], briefDraft: null };
+  const overview = (follow: "idle" | "waiting" | "overdue", onRefresh = vi.fn()) => render(<AffaireDossierOverview workspace={workspace}
+    clientName={null} registerSummary={null} registerEntries={[]} isReadOnly={false} onOpenDocuments={vi.fn()} onAddDocuments={vi.fn()}
+    onOpenDocument={vi.fn()} onReviewBrief={vi.fn()} onOpenRegister={vi.fn()} estimateHref={null} versionLabel="V1"
+    dossierFollow={{ state: follow, onRefresh }} />);
+
+  it("says the brief is being prepared while the analysis runs", () => {
+    overview("waiting");
+    const brief = screen.getByRole("region", { name: "Résumé du brief" });
+    expect(brief).toHaveTextContent("Analyse des pièces en cours : le brief est en préparation.");
+    expect(screen.queryByRole("button", { name: "Actualiser" })).not.toBeInTheDocument();
+  });
+
+  it("says the brief may be ready and reads again on « Actualiser » past the server's limits", async () => {
+    const onRefresh = vi.fn();
+    overview("overdue", onRefresh);
+    expect(screen.getByRole("region", { name: "Résumé du brief" }))
+      .toHaveTextContent("L’analyse dure plus longtemps que prévu : le brief est peut-être prêt.");
+    await userEvent.setup().click(screen.getByRole("button", { name: "Actualiser" }));
+    expect(onRefresh).toHaveBeenCalledTimes(1);
+  });
+
+  it("says nothing once the server recorded the end of the analysis", () => {
+    overview("idle");
+    expect(screen.queryByText(/le brief est en préparation|peut-être prêt/)).not.toBeInTheDocument();
+  });
+});

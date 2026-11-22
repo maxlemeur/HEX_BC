@@ -1,4 +1,4 @@
-import { render, screen, within } from "@testing-library/react";
+import { act, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -118,9 +118,8 @@ describe("BriefDraftCard confirmation dialog", () => {
 
     dialog = await openDialog(user);
     expect(readNotice).toHaveBeenCalledTimes(2);
-    // The first opening's answer lands now: this dialog still waits for its own.
-    first.resolve(NOTICE);
-    await Promise.resolve();
+    // The first opening's answer lands now, and React applies what it would change: this dialog still waits for its own.
+    await act(async () => { first.resolve(NOTICE); });
     expect(within(dialog).getByRole("status")).toHaveTextContent(PENDING);
     expect(within(dialog).getByRole("button", { name: "Oui, confirmer" })).toBeDisabled();
 

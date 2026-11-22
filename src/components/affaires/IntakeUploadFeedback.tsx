@@ -4,7 +4,6 @@ import { useCallback, useEffect, useState } from "react";
 import { LoaderCircleIcon } from "lucide-react";
 
 import { dossierDocumentState, type DossierDocument } from "@/lib/affaires/document-triage";
-import { useDossierPoll } from "./useAffaireDossier";
 
 export type IntakeUploadResult = {
   documentId: string;
@@ -30,9 +29,10 @@ type UploadEntry = {
 
 const EMPTY_DOCUMENTS: DossierDocument[] = [];
 
-// `reload` reads the dossier again (useAffaireDossier): the documents it brings come back through
-// `documents`, which retire the entries they integrate.
-export function useIntakeUploadFeedback(projectId: string, dossierDocuments: DossierDocument[] | undefined, reload: () => Promise<unknown>) {
+// The documents the dossier's reads bring (useAffaireDossier, whose one wait follows each batch's analysis on the
+// server's record, after the read the upload's completion asks for) retire the entries they integrate. The feedback
+// asks for no read of its own: a second rhythm would add whole-dossier reads to the page's.
+export function useIntakeUploadFeedback(projectId: string, dossierDocuments: DossierDocument[] | undefined) {
   const documents = dossierDocuments ?? EMPTY_DOCUMENTS;
   const [entries, setEntries] = useState<UploadEntry[]>([]);
   const integrated = new Set(documents.filter((document) => document.uploadStatus === "uploaded" && dossierDocumentState(document) !== "processing").map((document) => document.documentId));
@@ -40,7 +40,6 @@ export function useIntakeUploadFeedback(projectId: string, dossierDocuments: Dos
     label: entry.phase === "uploading" ? "Chargement en cours…" : entry.phase === "failed" ? entry.message ?? "Ajout impossible. Réessayez."
       : documents.some((document) => document.documentId === entry.documentId) ? "Analyse en cours…" : "Intégration au dossier…",
   }));
-  const awaitingIntegration = files.some((entry) => entry.phase === "integrating");
 
   const onUploadEvent = useCallback((event: IntakeUploadEvent) => {
     setEntries((prior) => {
@@ -68,9 +67,6 @@ export function useIntakeUploadFeedback(projectId: string, dossierDocuments: Dos
     setEntries((prior) => prior.filter((entry) => !retired(entry)));
   }, [documents, entries, projectId]);
 
-  // One read at a time, two seconds after the previous answer: on a fixed two-second rhythm, a
-  // server that answers in two seconds or more would pile its reads up.
-  useDossierPoll(awaitingIntegration, reload, { intervalMs: 2000 });
 
   const dismissFailure = useCallback((key: string) => setEntries((prior) => prior.filter((entry) => entry.key !== key || entry.phase !== "failed")), []);
   return { files, onUploadEvent, dismissFailure };

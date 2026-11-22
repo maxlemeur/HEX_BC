@@ -713,21 +713,6 @@ export function isAffaireIntakeDocumentProcessing(
   );
 }
 
-/**
- * Whether a dossier waits for its first brief: no brief yet, and a piece whose analysis is running or has ended. The
- * analysis marks the piece, then writes the brief (intake-analysis-server.ts); a page that stopped reading the dossier
- * when the piece settled would never show the brief its member is to confirm.
- */
-export function isAffaireIntakeBriefAwaited(workspace: {
-  documents: ReadonlyArray<AffaireIntakeReviewableDocument & { isBeingDeleted?: boolean }>;
-  briefDraft: unknown;
-} | null | undefined) {
-  if (!workspace || workspace.briefDraft) return false;
-  return workspace.documents.some((document) => (document.uploadStatus ?? "uploaded") === "uploaded" && !document.isBeingDeleted
-    && (isAffaireIntakeDocumentProcessing(document)
-      || document.classificationStatus === "classified" || document.classificationStatus === "ambiguous"));
-}
-
 export function isAffaireIntakeDocumentNeedingReview(
   document: AffaireIntakeReviewableDocument
 ) {

@@ -40,6 +40,8 @@ function fixture(options: {
   denied?: boolean;
   documentError?: boolean;
   briefError?: boolean;
+  /** The affaire's uploads whose analysis has not ended, as the server stored them. */
+  pendingUploads?: Array<{ id: string; status: "queued" | "processing" }>;
 } = {}) {
   const requests: string[] = [];
   const client = createClient("http://127.0.0.1:54321", "army-fictional-anon", {
@@ -57,6 +59,9 @@ function fixture(options: {
         data = { id: PROJECT_ID, tenant_id: TENANT_ID,
           user_id: options.denied ? "99999999-9999-4999-8999-999999999999" : USER_ID,
           name: "ARMY loading", reference: "ARMY-LOAD", client_name: "ARMY fictional", is_archived: false };
+      } else if (table === "affaire_intake_uploads" && url.searchParams.get("status") === "in.(queued,processing)") {
+        await options.uploadGate;
+        data = options.pendingUploads ?? [];
       } else if (table === "affaire_intake_uploads") {
         await options.uploadGate;
         data = options.noUpload ? null : { id: UPLOAD_ID, tenant_id: TENANT_ID, project_id: PROJECT_ID,
@@ -130,12 +135,22 @@ describe("affaire workspace independent reads", () => {
       expect(workspace.missingPieces.map((piece) => piece.code)).not.toContain("missing_plans");
       expect(workspace.analysisAvailability).toEqual(availability);
       expect(workspace.briefDraft).toBeNull();
+      expect(workspace.pendingUploadIds).toEqual([]);
     } finally {
       upload.release();
       documents.release();
       brief.release();
       await cleanup;
     }
+  });
+
+  // The page waits on this record (intake-follow.ts): a batch's analysis ends when its run stores the upload's last
+  // status, after it wrote the brief. An older batch still running counts as much as the latest.
+  it("names the affaire's batches whose analysis has not ended, an older one included", async () => {
+    const OLDER = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
+    fixture({ pendingUploads: [{ id: OLDER, status: "processing" }, { id: UPLOAD_ID, status: "queued" }] });
+    const workspace = await fetchAffaireIntakeWorkspace(PROJECT_ID);
+    expect(workspace.pendingUploadIds).toEqual([OLDER, UPLOAD_ID]);
   });
 
   it("keeps the no-upload branch limited to its brief", async () => {
@@ -150,7 +165,8 @@ describe("affaire workspace independent reads", () => {
       await cleanup;
     }
     const workspace = await pending;
-    expect(workspace).toMatchObject({ projectId: PROJECT_ID, uploadId: null, documents: [], missingPieces: [], briefDraft: null });
+    expect(workspace).toMatchObject({ projectId: PROJECT_ID, uploadId: null, documents: [], missingPieces: [], briefDraft: null,
+      pendingUploadIds: [] });
     expect(f.requests.toSorted()).toEqual(["estimate_projects", "affaire_intake_uploads", "affaire_briefs"].toSorted());
     expect(getIntakeAnalysisAvailability).not.toHaveBeenCalled();
     expect(hasStoredStandalonePlan).not.toHaveBeenCalled();
