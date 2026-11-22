@@ -37,6 +37,9 @@ import { createSupabaseFake, servedRows } from "@/lib/takeoff/metre-m3.test-util
 // - the member's role was the one read when the request started: demoted meanwhile, they still repaired;
 // - a recompute of the rules that failed, or left lines unwritten, was recorded as completed;
 // - the first draft's defaults were recorded as done only with the rest, so a stop before the rules left them to redo.
+// Lot 4, PR 5b (#484), written before the fix (red on ee09f2b7): a job read against the affaire's list of items is sent
+// item by item only, and the database refuses today's send of it (TAKEOFF_SEND_JOB_NOT_READY, reason item_list_job); the
+// preview answered « Le métré doit être terminé… » for that finished job, and the confirmation said the same.
 
 vi.mock("@/lib/takeoff/job-read-server", async (importOriginal) => ({
   ...await importOriginal<typeof import("@/lib/takeoff/job-read-server")>(),
@@ -77,7 +80,7 @@ import { buildTakeoffPageReplacementProposal } from "@/lib/takeoff/page-replacem
 import { evaluateTakeoffRulesForDestination, recomputeTakeoffRulesQuietly } from "@/lib/takeoff/rules/recompute-server";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { takeoffSendPreviewResponseSchema } from "@/lib/takeoff/send-contracts";
-import { previewTakeoffSend, sendTakeoffJob } from "@/lib/takeoff/send-server";
+import { mapSendTakeoffRpcError, previewTakeoffSend, sendTakeoffJob } from "@/lib/takeoff/send-server";
 
 const TENANT = "10000000-0000-4000-8000-000000000001";
 const PROJECT = "20000000-0000-4000-8000-000000000001";
@@ -150,6 +153,8 @@ function setUp(versions: Array<{ id: string; dpgf: boolean | number }>, options:
    * (format 2) by default when the context names one; lot 2's grouped request (format 1) otherwise.
    */
   requestManifest?: Record<string, unknown>;
+  /** Lot 4: the revision of the affaire's list of items the job's launch request was read against (none by default). */
+  itemListRevision?: string;
 } = {}) {
   // What the service staged, by request: the member's session runs it as public.send_takeoff_job does.
   const staged = new Map<string, Record<string, unknown>>();
@@ -227,6 +232,9 @@ function setUp(versions: Array<{ id: string; dpgf: boolean | number }>, options:
       takeoff_launch_requests: (query: { columns: string | null; filters: Array<{ column: string; value: unknown }> }) => {
         const manifest: Record<string, unknown> | undefined = options.requestManifest ?? (options.context?.display ? PLAN_MANIFEST : undefined);
         const asked = query.filters.find((filter) => filter.column === "id")?.value;
+        if (asked === REQUEST && (query.columns ?? "").includes("item_list_revision_id")) {
+          return { data: { item_list_revision_id: options.itemListRevision ?? null }, error: null };
+        }
         if (!manifest || asked !== REQUEST) return { data: null, error: null };
         const field = /(\w+):manifest->>(\w+)/.exec(query.columns ?? "");
         return { data: field ? { [field[1]]: manifest[field[2]] === undefined ? null : String(manifest[field[2]]) } : { id: REQUEST, manifest },
@@ -495,6 +503,43 @@ describe("previewTakeoffSend — what its dry run answers", () => {
     expect(JSON.stringify(refused)).not.toMatch(/fixture_check|Failing row|texte privé/);
     expect(log).toHaveBeenCalledWith("takeoff.send.preview_failed", { job_id: JOB, code: "23514" });
     log.mockRestore();
+  });
+});
+
+describe("previewTakeoffSend — a job read against the affaire's list of items", () => {
+  const LIST_JOB_MESSAGE = "Ce métré a été lu contre la liste des postes : il s’envoie poste par poste. Rien n’a été écrit.";
+
+  it("refuses it with its own reason before any dry run, never as a takeoff to finish", async () => {
+    const fake = setUp([], { itemListRevision: "c0000000-0000-4000-8000-000000000001", job: { launch_request_id: REQUEST } });
+
+    await expect(previewTakeoffSend(JOB, {})).rejects.toMatchObject({ status: 409, retryable: false, message: LIST_JOB_MESSAGE,
+      details: { guard: "send_item_list_job" } });
+    expect(fake.staged()).toEqual([]);
+  });
+
+  it("refuses its confirmation the same way, and stages nothing", async () => {
+    const fake = setUp([], { itemListRevision: "c0000000-0000-4000-8000-000000000001", job: { launch_request_id: REQUEST } });
+
+    await expect(sendTakeoffJob(JOB, { request_id: "a1000000-0000-4000-8000-000000000001", fingerprint: "f".repeat(64),
+      destination: { kind: "first_draft" }, section: { kind: "new" } })).rejects.toMatchObject({ status: 409, message: LIST_JOB_MESSAGE,
+      details: { guard: "send_item_list_job" } });
+    expect(fake.history()).toEqual([]);
+  });
+
+  it("says the same when the database refuses the link of such a job (its trigger, reason item_list_job)", () => {
+    expect(mapSendTakeoffRpcError({ message: "TAKEOFF_SEND_JOB_NOT_READY", details: JSON.stringify({ reason: "item_list_job" }),
+      hint: null } as never, JOB)).toMatchObject({ status: 409, message: LIST_JOB_MESSAGE, details: { guard: "send_item_list_job" } });
+    expect(mapSendTakeoffRpcError({ message: "TAKEOFF_SEND_JOB_NOT_READY", details: null, hint: null } as never, JOB))
+      .toMatchObject({ status: 409, details: { guard: "send_not_ready" } });
+  });
+
+  it("previews a job of a request read without a list as before", async () => {
+    setUp([], { requestManifest: GROUPED_MANIFEST, job: { launch_request_id: REQUEST } });
+
+    const preview = await previewTakeoffSend(JOB, {});
+
+    expect(preview.blocked).toBeNull();
+    expect(preview.estimate_lines).toEqual([expect.objectContaining({ title: "Lavabo", quantity: 3 })]);
   });
 });
 

@@ -1381,16 +1381,56 @@ suit s'y ajoute (migration `20261122030312_takeoff_partial_send.sql`,
   viennent avec l'envoi par poste (lot 4, ci-dessous), la redistribution vers une ligne DPGF
   rapprochée ensuite.
 
-## Envoyer les postes d'un plan : l'aperçu (lot 4)
+## Envoyer les postes d'un plan : l'aperçu et la confirmation (lot 4)
 
 Une analyse lue contre la liste des postes donne une réponse par poste et par plan. Son envoi au
 devis part de ces réponses, pas des lignes du métré : l'aperçu
 (`POST /api/takeoff/jobs/{jobId}/item-send/preview`, `src/lib/takeoff/item-send-plan.ts`) montre
-ce que deviendrait le devis et n'écrit rien, ni version, ni section, ni ligne, ni reçu. Sa
-confirmation et son écrivain viennent avec une prochaine version ; tant que les réponses par poste
-ne sont pas enregistrées, l'aperçu répond qu'elles ne le sont pas. L'envoi des métrés d'aujourd'hui
-(une analyse groupée, hors demande ou par plan sans liste) est inchangé. Le droit d'écrire l'affaire
-est vérifié d'abord : sans lui, le membre lit le motif et rien d'autre du métré.
+ce que deviendrait le devis et n'écrit rien, ni version, ni section, ni ligne, ni reçu ; tant que les
+réponses par poste ne sont pas enregistrées, il répond qu'elles ne le sont pas. Le droit d'écrire
+l'affaire est vérifié d'abord : sans lui, le membre lit le motif et rien d'autre du métré.
+
+La confirmation (`POST /api/takeoff/jobs/{jobId}/item-send/confirm`,
+`src/lib/takeoff/item-send-confirm-server.ts`) envoie la même demande, les décisions de pages, une
+clé d'intention et l'empreinte du plan montré. Le serveur recalcule le plan depuis les faits
+enregistrés, lus par les lecteurs de la base que l'écrivain relit (`read_takeoff_item_send_facts`,
+`read_takeoff_item_send_draft`) ; un autre plan que celui montré est refusé, rien n'est écrit, l'aperçu
+est à rouvrir. L'écrivain (`public.send_takeoff_item_plan`) est celui du serveur : seul le rôle de
+service l'appelle, avec le membre authentifié en paramètre ; après ses attentes, il relit le droit du
+membre sur l'affaire (son propriétaire ingénieur ou un administrateur, l'affaire non archivée), que
+l'entreprise est toujours celle où le membre travaille (comme l'application la résout, entreprise
+active), l'admission du module et le bail du brouillon à l'heure qu'il est, puis écrit en une
+transaction. La même clé rend le même reçu seulement à son auteur, toujours en droit d'écrire, pour
+les mêmes choix et le même plan ; autrement c'est un conflit ou un refus. Un aperçu qui ne peut plus
+être confirmé (un poste écarté depuis) est à rouvrir. Chaque refus dit au membre pourquoi.
+
+**Frontière de confiance.** La base ne prend du plan rien qui change un montant : chaque part, sa
+quantité, son unité et ses pages, l'identité quantitative, ce qui est remplacé, l'effet des
+décisions de pages et les pages écrites sont relus ou recalculés depuis les réponses, décisions,
+saisies, lignes, cibles et parts enregistrées — les pages d'une part laissée de côté comprises, la
+quantité ajoutée prise des parts enregistrées, chacune nommée une seule fois, et le résumé de chaque
+page (ses postes, ses cibles, ses observations) comparé en entier. Le plan a une
+seule forme, celle que le planificateur écrit : une clé manquante ou inconnue le refuse, et les plans
+du planificateur passent par la vérification de la base dans les tests. L'identité se compare sous
+une seule forme des deux côtés, quelle que soit la langue de la base (décomposition de compatibilité,
+casse, signes diacritiques de toutes les écritures retirés). Ce que seul le serveur calcule, elle le lie par
+comparaison : la projection des règles de correspondance (le plan nomme la règle appliquée à chaque
+poste ; l'état des règles et la version de chaque règle nommée sont comparés, une règle « Ignorer »
+n'écrit jamais, le titre et la catégorie d'une ligne créée sont vérifiés), et les réglages du premier
+brouillon : il est créé comme « Créer un devis » le crée, sous la politique de l'entreprise (son
+moteur, son contrat de création), depuis les réglages canoniques du serveur
+(`prepareCanonicalEstimateCreation`, comme l'envoi d'aujourd'hui) — coefficients et remise compris,
+jamais une valeur de la demande — et ses réglages créés sont comparés à ceux que l'aperçu a montrés.
+
+L'envoi des métrés d'aujourd'hui (une analyse groupée, hors demande ou par plan sans liste) est
+inchangé, sauf vers un devis alimenté poste par poste : l'envoi groupé, l'envoi d'un plan aux formats
+d'aujourd'hui et l'application héritée (avec sa composition DPGF) refusent une version qui tient une
+cible de l'envoi par poste — avec sa ligne, ou avec une part vivante quand le même envoi a d'abord
+vidé la section (« Remplacer la section ») —, car leurs lignes compteraient à côté des parts gardées
+par poste. Une analyse lue contre la liste ne part que poste par poste : l'envoi d'aujourd'hui la
+refuse, à l'aperçu comme à la confirmation, et le membre lit « Ce métré a été lu contre la liste des
+postes : il s’envoie poste par poste. Rien n’a été écrit. » (`send_item_list_job`) ; la base refuse
+de même de la rattacher à une version hors de l'envoi par poste.
 
 - **Unité d'envoi.** Ce qui est retenu de ce plan, confirmé pour ce seul job : une mesure acceptée
   dans le tableau des postes, ou une saisie retenue. Une mesure que personne n'a acceptée, avec ou
@@ -1422,9 +1462,12 @@ est vérifié d'abord : sans lui, le membre lit le motif et rien d'autre du mét
   son import, telle que la base la garde (une ligne mappée remplacée par un remappage garde sa
   filiation), lue en entier ; sans preuve complète, aucune cible automatique. Une ligne alimentée
   pour un autre poste n'est ni la cible de celui-ci ni proposée, quel que soit le chemin ; seule une
-  ligne encore au devis est une cible, jamais une ligne supprimée. Une ligne introuvable, multiple ou d'un import antérieur sans
-  filiation prouvée demande un choix parmi les lignes présentées, et seule la ligne choisie reçoit le
-  métré. Les postes hors DPGF vont dans la section « Compléments du métré hors DPGF », même pour un
+  ligne encore au devis est une cible, jamais une ligne supprimée. Un poste fait à la main n'alimente
+  jamais une ligne du DPGF ; un poste d'un import n'alimente qu'une ligne de cet import, jamais une
+  ligne nouvelle tant que le brouillon en tient une. Une ligne introuvable ou multiple de son import
+  demande un choix parmi les lignes présentées, et seule la ligne choisie reçoit le métré. Une liste
+  qui tient des postes d'un DPGF ne part que vers un brouillon qui tient une ligne de cet import. Les
+  postes hors DPGF vont dans la section « Compléments du métré hors DPGF », même pour un
   plan interrogé sur ces seuls postes. La quantité retenue et l'écart sont ceux de la politique DPGF
   d'aujourd'hui (le maximum protecteur, l'écart cumulé avec les écarts imprimés, la vérification
   au-delà de 1 %). Une quantité saisie à la main sur la ligne est gardée à part de la référence, de
@@ -1434,10 +1477,25 @@ est vérifié d'abord : sans lui, le membre lit le motif et rien d'autre du mét
 - **Pages.** Les postes d'une page partagent un seul apport de page. Une page déjà au devis par une
   autre analyse ne compte pas deux fois, comparée sur le fichier, son empreinte et la référence du
   plan que donne la préparation (deux révisions d'un même plan sont un même document) : ses apports
-  attendent sa décision, et l'aperçu montre les lignes du devis déjà sur la page. La part d'un plan
-  pour un poste est une : ce qu'un envoi antérieur du même plan a apporté à la ligne est remplacé,
-  jamais additionné (l'aperçu montre l'avant et l'après). Une saisie pour ce plan se tient sur toutes
-  les pages de son unité, pour la garde comme pour son apport de page.
+  attendent sa décision, et l'aperçu montre les lignes du devis déjà sur la page. La décision se
+  prend à la confirmation : « Remplacer » retire de la ligne les parts antérieures des postes que ce
+  plan y envoie, jamais sur une page d'un envoi d'aujourd'hui (lue sans part par poste) ; « Garder les
+  deux », avec sa raison (un périmètre complémentaire dit pourquoi dans une note), jamais sur une ligne
+  qui tient déjà cette page d'une autre lecture ; une part qui porte aussi sur une page non remplacée
+  n'est pas coupée. Sans décision, la page reste en attente, ou ses apports sont laissés de côté.
+- **Couverture d'une confirmation.** Une confirmation remplace les parts antérieures du même poste et
+  du même plan sur les pages qu'elle couvre : celles que sa réponse a cherchées et qu'elle envoie (une
+  page cherchée sans rien trouvé est couverte : ce qu'elle avait apporté est retiré) et une page
+  tenue qu'elle remplace. Une part antérieure sur une page qu'elle ne couvre pas (tenue sans décision,
+  laissée de côté) reste vivante : 2 unités déjà envoyées depuis la page 2 et une nouvelle lecture de
+  la seule page 7 font 3, jamais 1. Une saisie pour ce plan couvre toutes les pages de son unité, pour
+  la garde comme pour son apport de page. L'identité se compare avec les parts qui restent, jamais avec
+  celles remplacées. Une réponse qu'une lecture plus récente du plan a remplacée n'envoie rien.
+- **Ligne supprimée.** Après la suppression dans l'éditeur de la ligne qu'un envoi par poste
+  alimentait, un nouvel envoi recrée la ligne seulement par choix, et retire dans la même transaction
+  les parts restées vivantes de l'ancienne cible, qui gardent leur historique. Une ligne du DPGF
+  supprimée dont la ligne brute est désormais sur une autre ligne de l'import : l'envoi vers cette
+  ligne retire de même les parts de l'ancienne cible.
 - **Règles et prix.** Une seule projection des règles de correspondance
   (`src/lib/takeoff/item-send-rules.ts`) : « Fixer le prix » est sans effet et dit tel, sans passer
   à la règle suivante ; « Remplacer par un ouvrage » garde la quantité du poste et nomme l'ouvrage.
@@ -1448,8 +1506,8 @@ est vérifié d'abord : sans lui, le membre lit le motif et rien d'autre du mét
   qui ont écarté un poste (identifiant et version), apports déjà au devis avec leurs sources et leur
   identité, lignes et pages lues, état du brouillon de destination (version, statut, date de
   modification), état revu du DPGF (son dernier mappage et l'empreinte de ses lignes), réglages du
-  premier brouillon et contexte d'envoi du lot 3 ; l'ordre de lecture des observations n'y change
-  rien. La confirmation sera refusée quand l'un d'eux a changé.
+  premier brouillon, état des règles de correspondance et contexte d'envoi du lot 3 ; l'ordre de
+  lecture des observations n'y change rien. La confirmation est refusée quand l'un d'eux a changé.
 
 ## Entrées
 
