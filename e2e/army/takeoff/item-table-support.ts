@@ -1,5 +1,9 @@
 import { createHash, randomUUID } from "node:crypto";
 
+import { createClient } from "@supabase/supabase-js";
+
+import { createEmptyTakeoffPreparation } from "@/lib/takeoff/preparation";
+
 import { querySql } from "../local/calculation-gate-support";
 import type { DedicatedOwner } from "../local/dedicated-owner";
 
@@ -22,9 +26,13 @@ const text = (value: string) => `'${value.replaceAll("'", "''")}'`;
  * failing. A publication counts every contribution's row (20261122113611_takeoff_item_answers_before_activation.sql
  * refuses one its insert excludes), so an hypothesis row is published countable, then made an estimate and excluded as
  * the hypothesis rule excludes a new one: what a member's later edit of the row leaves.
+ *
+ * `planPdf`, when given, is the plan's bytes (nine pages): stored where the dossier stores them and sealed by their own
+ * digest, so that a reader of the analysis is served them (the attested route checks the digest). Without it, the plan
+ * has no bytes and a fictional digest.
  */
-export async function seedPublishedItemTable(owner: DedicatedOwner, input: { name: string; labels: string[]; answers: SeededAnswer[] }):
-  Promise<SeededItemTable> {
+export async function seedPublishedItemTable(owner: DedicatedOwner, input: { name: string; labels: string[]; answers: SeededAnswer[];
+  planPdf?: Buffer }): Promise<SeededItemTable> {
   if (input.labels.length !== input.answers.length) throw new Error("One answer per item.");
   const ids = {
     project: randomUUID(), upload: randomUUID(), brief: randomUUID(), planSet: randomUUID(), plan: randomUUID(),
@@ -33,8 +41,15 @@ export async function seedPublishedItemTable(owner: DedicatedOwner, input: { nam
   const host = `urn:uuid:${randomUUID()}`;
   const itemIds = input.labels.map(() => randomUUID());
   const rowIds = input.answers.map((answer) => answer === "measured" || answer === "hypothesis" ? randomUUID() : null);
-  const planDigest = createHash("sha256").update(ids.plan).digest("hex");
+  const planDigest = createHash("sha256").update(input.planPdf ?? ids.plan).digest("hex");
   const filePath = [owner.tenantId, ids.planSet, ids.plan, "plan-1.pdf"].join("/");
+  const planSize = input.planPdf?.length ?? 8;
+  if (input.planPdf) {
+    const backend = new URL(process.env.NEXT_PUBLIC_SUPABASE_URL!);
+    const storage = createClient(backend.origin, process.env.SUPABASE_SERVICE_ROLE_KEY!, { auth: { persistSession: false, autoRefreshToken: false } })
+      .storage.from("plan-files");
+    if ((await storage.upload(filePath, input.planPdf, { contentType: "application/pdf" })).error) throw new Error("The plan's bytes were not stored.");
+  }
   const selection = { profileId: "profil-fictif", model: "modele-fictif", reasoningEffort: null, hostId: host,
     authorizationId: "autorisation-fictive" };
   const answers = input.answers.map((answer, index) => {
@@ -63,8 +78,19 @@ export async function seedPublishedItemTable(owner: DedicatedOwner, input: { nam
     duration_ms: 5, job_duration_ms: 6, run_metrics: [] };
   const plan = { entry_key: ids.plan, plan_file_id: ids.plan, name: "plan-1.pdf", logical_id: ids.plan, intake_document_id: null,
     generation: "generation-fictive-1", content_sha256: planDigest, pages: [2, 7], page_count: 9 };
-  const source = { document_id: ids.plan, document_name: "plan-1.pdf", kind: "plan", active: true, confirmed: true, plan_set_id: ids.planSet,
-    file_path: filePath, page_count: 9, content_hash: planDigest, pages: [2, 7] };
+  // The preparation as the application builds it (its own constructor), so that every reader of the job parses its seal:
+  // the plan's source with its pages, its digest and its path; its modification date is the row's, set below.
+  const preparation = createEmptyTakeoffPreparation({ estimateVersionId: null });
+  preparation.objective = "count";
+  preparation.objective_confirmed = true;
+  preparation.scope = { ...preparation.scope, lots: ["Plomberie"], confirmed: true };
+  preparation.conventions = { ...preparation.conventions, unit: "u", confirmed: true };
+  preparation.destination = { kind: "analysis_only", estimate_version_id: null, reviewer: null, confirmed: true };
+  preparation.processing = { level: "C", provider: "chatgpt" };
+  preparation.sources = [{ document_id: ids.plan, document_name: "plan-1.pdf", kind: "plan", revision: "A",
+    source_version: "version-fictive-1", pages: [2, 7], active: true, confirmed: true, plan_set_id: ids.planSet, file_path: filePath,
+    page_count: 9, logical_document_id: null, content_hash: planDigest, source_updated_at: null, mime_type: "application/pdf",
+    page_triage: null }];
 
   const sql = `begin;
 insert into public.feature_flags (tenant_id, flag_key, enabled) values ('${owner.tenantId}', 'TAKEOFF_MODULE_ENABLED', true)
@@ -75,7 +101,7 @@ insert into public.affaire_briefs (id, project_id, upload_id, status, summary, p
 values ('${ids.brief}', '${ids.project}', '${ids.upload}', 'confirme', 'Résumé fictif', 'Objet fictif', now(), '${owner.userId}');
 insert into public.plan_sets (id, tenant_id, project_id, name) values ('${ids.planSet}', '${owner.tenantId}', '${ids.project}', 'Plans du dossier');
 insert into public.plan_files (id, tenant_id, plan_set_id, file_name, file_path, file_type, file_size_bytes, page_count)
-values ('${ids.plan}', '${owner.tenantId}', '${ids.planSet}', 'plan-1.pdf', ${text(filePath)}, 'application/pdf', 8, 9);
+values ('${ids.plan}', '${owner.tenantId}', '${ids.planSet}', 'plan-1.pdf', ${text(filePath)}, 'application/pdf', ${planSize}, 9);
 -- The list as its write function stores it (its digest is fictional: the seal compares it with itself).
 set local session_replication_role = replica;
 insert into public.takeoff_list_items (id, tenant_id, project_id, origin_kind, created_in_revision, created_by)
@@ -88,17 +114,19 @@ values ('${ids.revision}', '${owner.tenantId}', '${ids.project}', 1, 'item_added
 insert into public.takeoff_list_revision_entries (revision_id, tenant_id, project_id, item_id, position, source_key, label, expected_unit,
   sections, origin_kind, origin)
 select '${ids.revision}', '${owner.tenantId}', '${ids.project}', (entry ->> 'id')::uuid, (position - 1)::integer, 'manual:' || (entry ->> 'id'),
-  entry ->> 'label', 'u', '[{"id":"appareils","title":"Appareils sanitaires","order":1}]'::jsonb, 'manual', '{"kind":"manual"}'::jsonb
-from jsonb_array_elements(${literal(itemIds.map((id, index) => ({ id, label: input.labels[index] })))}) with ordinality as e(entry, position);
+  entry ->> 'label', 'u', '[{"id":"appareils","title":"Appareils sanitaires","order":1}]'::jsonb, 'manual',
+  -- Each item added by hand, as the list's write function records it (its intent, its author, when, in which revision).
+  jsonb_build_object('kind', 'manual', 'intentId', entry ->> 'intent', 'addedBy', '${owner.userId}',
+    'addedAt', to_char(now() at time zone 'utc', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'), 'addedInRevision', 1)
+from jsonb_array_elements(${literal(itemIds.map((id, index) => ({ id, label: input.labels[index], intent: randomUUID() })))})
+  with ordinality as e(entry, position);
 insert into public.takeoff_preparations (tenant_id, project_id, revision, draft, confirmed_snapshot, confirmed_at, confirmed_by, updated_by)
 select '${owner.tenantId}', '${ids.project}', 1, snapshot -> 'preparation', snapshot, now(), '${owner.userId}', '${owner.userId}'
 from (select jsonb_build_object('schema_version', 1, 'preparation_revision', 1, 'confirmed_by', '${owner.userId}',
   'confirmed_at', now(), 'execution_selection', ${literal(selection)},
   'readiness', '{"status":"ready","can_launch":true,"blockers":[],"reservations":[]}'::jsonb,
-  'preparation', jsonb_build_object('schema_version', 1, 'destination', '{"kind":"analysis_only","estimate_version_id":null}'::jsonb,
-    'processing', '{"level":"C","provider":"chatgpt"}'::jsonb,
-    'sources', jsonb_build_array(${literal(source)} || jsonb_build_object('source_updated_at',
-      (select updated_at from public.plan_files where id = '${ids.plan}'))))) as snapshot) s;
+  'preparation', jsonb_set(${literal(preparation)}, '{sources,0,source_updated_at}',
+    to_jsonb((select updated_at from public.plan_files where id = '${ids.plan}')))) as snapshot) s;
 set local session_replication_role = origin;
 
 -- What the second measuring order needs, for this transaction only.

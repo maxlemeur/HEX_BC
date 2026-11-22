@@ -12,12 +12,15 @@ import type { ClipboardPreviewValues } from "@/lib/estimates/clipboard";
 import { batchEstimateOperations } from "@/lib/estimates/batch-operations-client";
 import { deleteEstimateItem, reorderEstimateItems } from "@/lib/estimates/items-client";
 import {
+  buildEstimateItemInsertPayload,
   type EditorEstimateItem,
   type EstimateItem,
   type EstimateItemInsertPayload,
   type EstimateVersionRow,
 } from "@/lib/estimates/editor-items";
 import { toFiniteNumber } from "@/lib/estimates/editor-values";
+import { getDefaultSectionTitleForLevel } from "@/lib/estimates/hierarchy";
+import { multiplyToStoredEstimateNumeric } from "@/lib/estimates/stored-item-numeric";
 import { commitEstimateV3Operations, type EstimateV3EditorWriter } from "@/lib/estimates/v3-editor-writer";
 import { interpretClipboardRowForV3 } from "@/lib/estimates/v3-paste";
 import { isRecord } from "@/lib/value-guards";
@@ -29,6 +32,33 @@ type RecreatedItems = {
   idMap: Map<string, string>;
   createdItems: EstimateItem[];
 };
+
+/** Where inserted rows go: in `parentId`, right after `insertAfterId`, else first (`placeFirst`) or last. */
+type RowPlacement = {
+  parentId: string | null;
+  insertAfterId: string | null;
+  placeFirst?: boolean;
+};
+
+/** Inputs of a blank line, as the section's « + Ligne » button creates it. */
+const BLANK_LINE_INPUTS = {
+  quantity: 1,
+  unit_price_ht_cents: 0,
+  k_fo: 1,
+  h_mo: 0,
+  h_mo_majoration: 1,
+  k_mo: 1,
+  pu_ht_cents: 0,
+  labor_role_hourly_rate_cents: 0,
+  h_mo_atelier: 0,
+  k_mo_atelier: 1,
+  labor_role_atelier_id: null,
+  labor_role_atelier_hourly_rate_cents: 0,
+  h_mo_chantier: 0,
+  k_mo_chantier: 1,
+  labor_role_chantier_id: null,
+  labor_role_chantier_hourly_rate_cents: 0,
+} as const;
 
 type EstimateEditorPasteControllerInput = {
   document?: EstimateEditorDocument;
@@ -138,174 +168,72 @@ export function useEstimateEditorPasteController({
     [acceptDeletedItems, getVersionSnapshot, isItemsOperationCurrent, rollbackItems, v3Writer]
   );
 
-  const pasteRows = useCallback(
+  /**
+   * Creates rows at the end of `targetParentId`, then moves them right after `insertAfterId` (first in the
+   * parent when it is null and `placeFirst` is set), as one undoable history entry. Returns the created ids,
+   * or null when nothing was created. Paste, « add below », « duplicate » and « section below » share it.
+   */
+  const insertRows = useCallback(
     async ({
-      anchorRowId,
-      rows,
-      laborRoleId = null,
+      actionLabel,
+      historyLabel,
+      messages,
+      resolvePlacement,
+      buildPayloads,
     }: {
-      anchorRowId: string | null;
-      rows: ClipboardPreviewValues[];
-      laborRoleId?: string | null;
-    }) => {
-      if (!isItemsDocumentCurrent()) return;
+      actionLabel: string;
+      historyLabel: string;
+      messages: { create: string; reposition: string };
+      resolvePlacement: (snapshot: EditorEstimateItem[]) => RowPlacement | string;
+      buildPayloads: (input: {
+        versionId: string;
+        settings: NonNullable<EstimateEditorPasteControllerInput["settings"]>;
+        placement: RowPlacement;
+        snapshot: EditorEstimateItem[];
+        nextPosition: () => number;
+      }) => EstimateItemInsertPayload[] | string;
+    }): Promise<string[] | null> => {
+      if (!isItemsDocumentCurrent()) return null;
       if (isMutationBlocked) {
         reportError(mutationBlockedMessage);
-        return;
+        return null;
       }
       const documentScope = document?.captureScope();
       const isDocumentCurrent = () => !document || Boolean(documentScope && document.isCurrent(documentScope));
-      if (!(await ensureGroupedActionCanProceed("coller les lignes")) || !isDocumentCurrent()) return;
+      if (!(await ensureGroupedActionCanProceed(actionLabel)) || !isDocumentCurrent()) return null;
 
       const versionSnapshot = getVersionSnapshot();
       if (!versionSnapshot || !settings) {
         reportError("Version introuvable.");
-        return;
+        return null;
       }
       const targetVersionId = versionSnapshot.id;
-      const validRows = rows.filter(
-        (row) =>
-          typeof row.designation === "string" &&
-          row.designation.trim().length > 0
-      );
-      if (validRows.length === 0) {
-        reportError("Aucune ligne valide à insérer.");
-        return;
-      }
-
-      reportError(null);
       const snapshot = getItemsSnapshot();
-      const effectiveTaxRateBp =
-        settings.contractor_role === "subcontractor"
-          ? 0
-          : settings.tax_rate_bp;
-      const anchorItem = anchorRowId
-        ? (snapshot.find((item) => item.id === anchorRowId) ?? null)
-        : null;
-      const targetParentId = anchorItem
-        ? anchorItem.item_type === "section"
-          ? anchorItem.id
-          : (anchorItem.parent_id ?? null)
-        : null;
-      const insertAfterId =
-        anchorItem?.item_type === "line" ? anchorItem.id : null;
+      const placement = resolvePlacement(snapshot);
+      if (typeof placement === "string") {
+        reportError(placement);
+        return null;
+      }
+      const { parentId: targetParentId, insertAfterId, placeFirst = false } = placement;
       const beforeOrderedIds = snapshot
         .filter((item) => item.parent_id === targetParentId)
         .sort((left, right) => left.position - right.position)
         .map((item) => item.id);
-      let nextPosition =
-        snapshot
-          .filter((item) => item.parent_id === targetParentId)
-          .reduce((maximum, item) => Math.max(maximum, item.position), 0) + 1;
-
-      const createPayloads: EstimateItemInsertPayload[] = validRows.map((row) => {
-        const quantity = Math.max(toFiniteNumber(row.quantity, 1), 0);
-        const unitPriceHtCents = Math.round(
-          Math.max(toFiniteNumber(row.unit_price_ht, 0), 0) * 100
-        );
-        const kFo = Math.max(toFiniteNumber(row.k_fo, 1), 0);
-        const normalizedSupplyType = row.supply_type?.trim().toLowerCase();
-        const supplyTypeId = normalizedSupplyType
-          ? (supplyTypeIdByLowerName.get(normalizedSupplyType) ?? null)
-          : null;
-        if (v3Writer) {
-          // v3 : saisies seulement, jamais d'unité dans description, d'heures de ligne ni de projection (D4, D12).
-          const interpretation = interpretClipboardRowForV3(row);
-          if (!interpretation.ok) throw new Error(interpretation.reasons[0]);
-          const { unit_code, pricing_status, h_mo_per_unit } = interpretation.write;
-          const v3Payload: Record<string, unknown> = {
-            version_id: targetVersionId,
-            parent_id: targetParentId,
-            item_type: "line",
-            position: nextPosition++,
-            title: row.designation?.trim() || "Nouvelle ligne",
-            description: null,
-            quantity,
-            unit_price_ht_cents: unitPriceHtCents,
-            tax_rate_bp: settings.tax_rate_bp,
-            k_fo: kFo,
-            ...(row.k_fo !== null && row.k_fo !== undefined ? { k_fo_manual: true } : {}),
-            h_mo_majoration: Math.max(toFiniteNumber(row.h_mo_majoration, 1), 0),
-            k_mo: Math.max(toFiniteNumber(row.k_mo, 1), 0),
-            labor_role_id: (h_mo_per_unit ?? 0) > 0 ? laborRoleId : null,
-            category_id: null,
-            supply_type_id: supplyTypeId,
-            selected_supplier_price_id: null,
-            unit_code,
-            pricing_status,
-            h_mo_per_unit,
-          };
-          return v3Payload as EstimateItemInsertPayload;
-        }
-        // Sub-lot 2.8 (P-16): a v1/v2 stores the line's hours; pasted hours per unit become h/u × Q.
-        const hMo = row.h_mo_per_unit !== null && row.h_mo_per_unit !== undefined
-          ? (computeLineHoursFromHoursPerUnit(quantity, Math.max(row.h_mo_per_unit, 0)) ?? 0)
-          : Math.max(toFiniteNumber(row.h_mo, 0), 0);
-        const kMo = Math.max(toFiniteNumber(row.k_mo, 1), 0);
-        const hMoMajoration = Math.max(
-          toFiniteNumber(row.h_mo_majoration, 1),
-          0
-        );
-        const lineValues = computeEstimateLineValues(
-          {
-            quantity,
-            unit_price_ht_cents: unitPriceHtCents,
-            tax_rate_bp: settings.tax_rate_bp,
-            k_fo: kFo,
-            h_mo: hMo,
-            h_mo_majoration: hMoMajoration,
-            k_mo: kMo,
-            pu_ht_cents: 0,
-            labor_role_hourly_rate_cents: 0,
-            h_mo_atelier: 0,
-            k_mo_atelier: 1,
-            labor_role_atelier_id: null,
-            labor_role_atelier_hourly_rate_cents: 0,
-            h_mo_chantier: 0,
-            k_mo_chantier: 1,
-            labor_role_chantier_id: null,
-            labor_role_chantier_hourly_rate_cents: 0,
-          },
-          {
-            marginMultiplier: settings.margin_multiplier,
-            taxRateBp: effectiveTaxRateBp,
-            isLaborSplitEnabled,
-          }
-        );
-        const payload: EstimateItemInsertPayload = {
-          version_id: targetVersionId,
-          parent_id: targetParentId,
-          item_type: "line",
-          position: nextPosition++,
-          title: row.designation?.trim() || "Nouvelle ligne",
-          description: row.unit?.trim() || null,
-          quantity,
-          unit_price_ht_cents: unitPriceHtCents,
-          tax_rate_bp: settings.tax_rate_bp,
-          k_fo: kFo,
-          h_mo: hMo,
-          h_mo_majoration: hMoMajoration,
-          k_mo: kMo,
-          pu_ht_cents: lineValues.puHtCents,
-          labor_role_id: null,
-          category_id: null,
-          supply_type_id: supplyTypeId,
-          selected_supplier_price_id: null,
-          line_total_ht_cents: lineValues.saleLineCents,
-          line_tax_cents: lineValues.taxLineCents,
-          line_total_ttc_cents: lineValues.ttcLineCents,
-        };
-        if (isLaborSplitEnabled) {
-          payload.h_mo_atelier = 0;
-          payload.k_mo_atelier = 1;
-          payload.labor_role_atelier_id = null;
-          payload.h_mo_chantier = 0;
-          payload.k_mo_chantier = 1;
-          payload.labor_role_chantier_id = null;
-        }
-        return payload;
+      let lastPosition = snapshot
+        .filter((item) => item.parent_id === targetParentId)
+        .reduce((maximum, item) => Math.max(maximum, item.position), 0);
+      const createPayloads = buildPayloads({
+        versionId: targetVersionId,
+        settings,
+        placement,
+        snapshot,
+        nextPosition: () => ++lastPosition,
       });
-
+      if (typeof createPayloads === "string") {
+        reportError(createPayloads);
+        return null;
+      }
+      reportError(null);
       const createdItems: EstimateItem[] = [];
       let nextVersionToken = versionSnapshot.updated_at;
       try {
@@ -326,7 +254,7 @@ export function useEstimateEditorPasteController({
               data: payload,
             }))
           );
-          if (!isDocumentCurrent()) return;
+          if (!isDocumentCurrent()) return null;
           if (!batchResult.committed) {
             const failedResult = batchResult.results.find(
               (result) => result.status === "error"
@@ -362,11 +290,11 @@ export function useEstimateEditorPasteController({
               const createdChunk = [...createdItemsByChunkIndex.values()];
               createdChunk.forEach((item) => document.acceptCreatedItem(null, item, documentScope));
             });
-            if (!accepted) return;
+            if (!accepted) return null;
           }
         }
       } catch (error) {
-        if (!isDocumentCurrent() || getVersionSnapshot()?.id !== targetVersionId) return;
+        if (!isDocumentCurrent() || getVersionSnapshot()?.id !== targetVersionId) return null;
         const hasConflict = handleVersionConflict(error, {
           persistDraft: true,
         });
@@ -375,19 +303,19 @@ export function useEstimateEditorPasteController({
         }
         if (createdItems.length > 0) {
           reportError(`${createdItems.length} ligne(s) ont été enregistrées. Le collage s'est arrêté ; les lignes enregistrées sont conservées.`);
-          return;
+          return null;
         }
-        if (hasConflict) return;
+        if (hasConflict) return null;
         throw new Error(
           resolveErrorMessage(
             error instanceof Error
               ? error.message
-              : "Impossible d'insérer les lignes collées."
+              : messages.create
           )
         );
       }
 
-      if (!isDocumentCurrent() || getVersionSnapshot()?.id !== targetVersionId) return;
+      if (!isDocumentCurrent() || getVersionSnapshot()?.id !== targetVersionId) return null;
       if (!document && nextVersionToken !== versionSnapshot.updated_at) {
         applyVersionToken(nextVersionToken);
       }
@@ -400,7 +328,9 @@ export function useEstimateEditorPasteController({
         .sort((left, right) => left.position - right.position)
         .map((item) => item.id);
       let afterOrderedIds = currentOrderedIds;
-      if (insertAfterId) {
+      if (placeFirst && !insertAfterId) {
+        afterOrderedIds = [...insertedIds, ...currentOrderedIds.filter((itemId) => !insertedIds.includes(itemId))];
+      } else if (insertAfterId) {
         const withoutInserted = currentOrderedIds.filter(
           (itemId) => !insertedIds.includes(itemId)
         );
@@ -421,8 +351,8 @@ export function useEstimateEditorPasteController({
             targetVersionId,
             targetParentId,
             afterOrderedIds
-          ))) return;
-          if (!isDocumentCurrent() || getVersionSnapshot()?.id !== targetVersionId) return;
+          ))) return null;
+          if (!isDocumentCurrent() || getVersionSnapshot()?.id !== targetVersionId) return null;
           const nextPositionById = new Map<string, number>();
           afterOrderedIds.forEach((itemId, index) => {
             nextPositionById.set(itemId, index + 1);
@@ -438,13 +368,13 @@ export function useEstimateEditorPasteController({
             )
           );
         } catch (error) {
-          if (!isDocumentCurrent() || getVersionSnapshot()?.id !== targetVersionId) return;
+          if (!isDocumentCurrent() || getVersionSnapshot()?.id !== targetVersionId) return null;
           await reloadItems();
           throw new Error(
             resolveErrorMessage(
               error instanceof Error
                 ? error.message
-                : "Impossible de repositionner les lignes collees."
+                : messages.reposition
             )
           );
         }
@@ -453,7 +383,7 @@ export function useEstimateEditorPasteController({
 
       let currentInsertedIds = [...insertedIds];
       pushHistoryCommand({
-        label: "paste-insert",
+        label: historyLabel,
         undo: async (context) => {
           if (!isItemsDocumentCurrent() || (context && !context.isCurrentScope())) return false;
           const currentVersion = getVersionSnapshot();
@@ -548,6 +478,7 @@ export function useEstimateEditorPasteController({
           }
         },
       });
+      return insertedIds;
     },
     [
       isItemsDocumentCurrent,
@@ -563,7 +494,6 @@ export function useEstimateEditorPasteController({
       getItemsSnapshot,
       getVersionSnapshot,
       handleVersionConflict,
-      isLaborSplitEnabled,
       isMutationBlocked,
       mutationBlockedMessage,
       pushHistoryCommand,
@@ -575,12 +505,305 @@ export function useEstimateEditorPasteController({
       setItems,
       setTotalsOutOfSync,
       settings,
-      supplyTypeIdByLowerName,
       triggerVersionReload,
       v3Writer,
     ]
   );
 
-  const actions = useMemo(() => ({ pasteRows }), [pasteRows]);
+  const pasteRows = useCallback(
+    async ({
+      anchorRowId,
+      rows,
+      laborRoleId = null,
+    }: {
+      anchorRowId: string | null;
+      rows: ClipboardPreviewValues[];
+      laborRoleId?: string | null;
+    }) => {
+      const validRows = rows.filter(
+        (row) =>
+          typeof row.designation === "string" &&
+          row.designation.trim().length > 0
+      );
+      await insertRows({
+        actionLabel: "coller les lignes",
+        historyLabel: "paste-insert",
+        messages: {
+          create: "Impossible d'insérer les lignes collées.",
+          reposition: "Impossible de repositionner les lignes collees.",
+        },
+        resolvePlacement: (snapshot) => {
+          const anchorItem = anchorRowId
+            ? (snapshot.find((item) => item.id === anchorRowId) ?? null)
+            : null;
+          return {
+            parentId: anchorItem
+              ? anchorItem.item_type === "section"
+                ? anchorItem.id
+                : (anchorItem.parent_id ?? null)
+              : null,
+            insertAfterId: anchorItem?.item_type === "line" ? anchorItem.id : null,
+          };
+        },
+        buildPayloads: ({ versionId: targetVersionId, settings, placement, nextPosition }) => {
+          if (validRows.length === 0) return "Aucune ligne valide à insérer.";
+          const targetParentId = placement.parentId;
+          const effectiveTaxRateBp =
+            settings.contractor_role === "subcontractor"
+              ? 0
+              : settings.tax_rate_bp;
+          return validRows.map((row) => {
+          const quantity = Math.max(toFiniteNumber(row.quantity, 1), 0);
+          const unitPriceHtCents = Math.round(
+            Math.max(toFiniteNumber(row.unit_price_ht, 0), 0) * 100
+          );
+          const kFo = Math.max(toFiniteNumber(row.k_fo, 1), 0);
+          const normalizedSupplyType = row.supply_type?.trim().toLowerCase();
+          const supplyTypeId = normalizedSupplyType
+            ? (supplyTypeIdByLowerName.get(normalizedSupplyType) ?? null)
+            : null;
+          if (v3Writer) {
+            // v3 : saisies seulement, jamais d'unité dans description, d'heures de ligne ni de projection (D4, D12).
+            const interpretation = interpretClipboardRowForV3(row);
+            if (!interpretation.ok) throw new Error(interpretation.reasons[0]);
+            const { unit_code, pricing_status, h_mo_per_unit } = interpretation.write;
+            const v3Payload: Record<string, unknown> = {
+              version_id: targetVersionId,
+              parent_id: targetParentId,
+              item_type: "line",
+              position: nextPosition(),
+              title: row.designation?.trim() || "Nouvelle ligne",
+              description: null,
+              quantity,
+              unit_price_ht_cents: unitPriceHtCents,
+              tax_rate_bp: settings.tax_rate_bp,
+              k_fo: kFo,
+              ...(row.k_fo !== null && row.k_fo !== undefined ? { k_fo_manual: true } : {}),
+              h_mo_majoration: Math.max(toFiniteNumber(row.h_mo_majoration, 1), 0),
+              k_mo: Math.max(toFiniteNumber(row.k_mo, 1), 0),
+              labor_role_id: (h_mo_per_unit ?? 0) > 0 ? laborRoleId : null,
+              category_id: null,
+              supply_type_id: supplyTypeId,
+              selected_supplier_price_id: null,
+              unit_code,
+              pricing_status,
+              h_mo_per_unit,
+            };
+            return v3Payload as EstimateItemInsertPayload;
+          }
+          // Sub-lot 2.8 (P-16): a v1/v2 stores the line's hours; pasted hours per unit become h/u × Q.
+          const hMo = row.h_mo_per_unit !== null && row.h_mo_per_unit !== undefined
+            ? (computeLineHoursFromHoursPerUnit(quantity, Math.max(row.h_mo_per_unit, 0)) ?? 0)
+            : Math.max(toFiniteNumber(row.h_mo, 0), 0);
+          const kMo = Math.max(toFiniteNumber(row.k_mo, 1), 0);
+          const hMoMajoration = Math.max(
+            toFiniteNumber(row.h_mo_majoration, 1),
+            0
+          );
+          const lineValues = computeEstimateLineValues(
+            {
+              quantity,
+              unit_price_ht_cents: unitPriceHtCents,
+              tax_rate_bp: settings.tax_rate_bp,
+              k_fo: kFo,
+              h_mo: hMo,
+              h_mo_majoration: hMoMajoration,
+              k_mo: kMo,
+              pu_ht_cents: 0,
+              labor_role_hourly_rate_cents: 0,
+              h_mo_atelier: 0,
+              k_mo_atelier: 1,
+              labor_role_atelier_id: null,
+              labor_role_atelier_hourly_rate_cents: 0,
+              h_mo_chantier: 0,
+              k_mo_chantier: 1,
+              labor_role_chantier_id: null,
+              labor_role_chantier_hourly_rate_cents: 0,
+            },
+            {
+              marginMultiplier: settings.margin_multiplier,
+              taxRateBp: effectiveTaxRateBp,
+              isLaborSplitEnabled,
+            }
+          );
+          const payload: EstimateItemInsertPayload = {
+            version_id: targetVersionId,
+            parent_id: targetParentId,
+            item_type: "line",
+            position: nextPosition(),
+            title: row.designation?.trim() || "Nouvelle ligne",
+            description: row.unit?.trim() || null,
+            quantity,
+            unit_price_ht_cents: unitPriceHtCents,
+            tax_rate_bp: settings.tax_rate_bp,
+            k_fo: kFo,
+            h_mo: hMo,
+            h_mo_majoration: hMoMajoration,
+            k_mo: kMo,
+            pu_ht_cents: lineValues.puHtCents,
+            labor_role_id: null,
+            category_id: null,
+            supply_type_id: supplyTypeId,
+            selected_supplier_price_id: null,
+            line_total_ht_cents: lineValues.saleLineCents,
+            line_tax_cents: lineValues.taxLineCents,
+            line_total_ttc_cents: lineValues.ttcLineCents,
+          };
+          if (isLaborSplitEnabled) {
+            payload.h_mo_atelier = 0;
+            payload.k_mo_atelier = 1;
+            payload.labor_role_atelier_id = null;
+            payload.h_mo_chantier = 0;
+            payload.k_mo_chantier = 1;
+            payload.labor_role_chantier_id = null;
+          }
+          return payload;
+          });
+        },
+      });
+    },
+    [insertRows, isLaborSplitEnabled, supplyTypeIdByLowerName, v3Writer]
+  );
+
+  /** Editor shortcuts: one blank line right below the active line (first in the active section). */
+  const insertLineBelow = useCallback(
+    (anchorRowId: string | null) =>
+      insertRows({
+        actionLabel: "ajouter une ligne",
+        historyLabel: "insert-line-below",
+        messages: {
+          create: "Impossible d'ajouter la ligne.",
+          reposition: "Impossible de placer la nouvelle ligne.",
+        },
+        resolvePlacement: (snapshot) => {
+          const anchor = anchorRowId ? snapshot.find((item) => item.id === anchorRowId) : undefined;
+          if (!anchor) return "Placez-vous sur une ligne ou une section pour ajouter une ligne dessous.";
+          return anchor.item_type === "section"
+            ? { parentId: anchor.id, insertAfterId: null, placeFirst: true }
+            : { parentId: anchor.parent_id ?? null, insertAfterId: anchor.id };
+        },
+        buildPayloads: ({ versionId, settings, placement, nextPosition }) => {
+          const lineValues = computeEstimateLineValues(
+            { ...BLANK_LINE_INPUTS, tax_rate_bp: settings.tax_rate_bp },
+            {
+              marginMultiplier: settings.margin_multiplier,
+              taxRateBp: settings.contractor_role === "subcontractor" ? 0 : settings.tax_rate_bp,
+              isLaborSplitEnabled,
+            }
+          );
+          // Same payload as the section's « + Ligne » button: the server sets the K FO base of a v3 line.
+          const payload: EstimateItemInsertPayload = {
+            version_id: versionId,
+            parent_id: placement.parentId,
+            item_type: "line",
+            position: nextPosition(),
+            title: "Nouvelle ligne",
+            description: null,
+            quantity: 1,
+            unit_price_ht_cents: 0,
+            tax_rate_bp: settings.tax_rate_bp,
+            k_fo: 1,
+            h_mo: 0,
+            h_mo_majoration: 1,
+            k_mo: 1,
+            pu_ht_cents: lineValues.puHtCents,
+            labor_role_id: null,
+            category_id: null,
+            supply_type_id: null,
+            product_id: null,
+            selected_supplier_price_id: null,
+            line_total_ht_cents: lineValues.saleLineCents,
+            line_tax_cents: lineValues.taxLineCents,
+            line_total_ttc_cents: lineValues.ttcLineCents,
+          };
+          if (isLaborSplitEnabled) {
+            Object.assign(payload, {
+              h_mo_atelier: 0, k_mo_atelier: 1, labor_role_atelier_id: null,
+              h_mo_chantier: 0, k_mo_chantier: 1, labor_role_chantier_id: null,
+            });
+          }
+          return [payload];
+        },
+      }),
+    [insertRows, isLaborSplitEnabled]
+  );
+
+  /** Editor shortcuts: a copy of the active line, with all its inputs, right below it. */
+  const duplicateLineBelow = useCallback(
+    (anchorRowId: string | null) =>
+      insertRows({
+        actionLabel: "dupliquer la ligne",
+        historyLabel: "duplicate-line",
+        messages: {
+          create: "Impossible de dupliquer la ligne.",
+          reposition: "Impossible de placer la ligne dupliquée.",
+        },
+        resolvePlacement: (snapshot) => {
+          const anchor = anchorRowId ? snapshot.find((item) => item.id === anchorRowId) : undefined;
+          if (!anchor || anchor.item_type !== "line") return "Placez-vous sur une ligne pour la dupliquer.";
+          return { parentId: anchor.parent_id ?? null, insertAfterId: anchor.id };
+        },
+        buildPayloads: ({ versionId, placement, snapshot, nextPosition }) => {
+          const source = snapshot.find((item) => item.id === placement.insertAfterId);
+          if (!source) return "Placez-vous sur une ligne pour la dupliquer.";
+          const buildPayload = v3Writer?.buildInsertPayload ?? buildEstimateItemInsertPayload;
+          const payload = buildPayload(versionId, source, { parentId: placement.parentId, position: nextPosition() });
+          // v3: the copy keeps the coefficient the source applies, as a section copy does; a K FO left to the
+          // defaults would take today's company or personal base and change the copied price.
+          return [v3Writer && source.item_type === "line"
+            ? {
+              ...payload,
+              k_fo: multiplyToStoredEstimateNumeric(source.k_fo ?? 1, source.fo_provision ?? 1, 6),
+              k_fo_manual: true,
+            } as EstimateItemInsertPayload
+            : payload];
+        },
+      }),
+    [insertRows, v3Writer]
+  );
+
+  /**
+   * Editor shortcuts: a new section at the level of the active row's section, right after that section
+   * (after the active row itself when it is a line outside any section, at the end of the estimate without one).
+   */
+  const insertSectionBelow = useCallback(
+    (anchorRowId: string | null) =>
+      insertRows({
+        actionLabel: "ajouter une section",
+        historyLabel: "insert-section-below",
+        messages: {
+          create: "Impossible d'ajouter la section.",
+          reposition: "Impossible de placer la nouvelle section.",
+        },
+        resolvePlacement: (snapshot) => {
+          const byId = new Map(snapshot.map((item) => [item.id, item]));
+          const anchor = anchorRowId ? byId.get(anchorRowId) : undefined;
+          if (!anchor) return { parentId: null, insertAfterId: null };
+          const section = anchor.item_type === "section"
+            ? anchor
+            : anchor.parent_id ? byId.get(anchor.parent_id) : undefined;
+          const after = section ?? anchor;
+          return { parentId: after.parent_id ?? null, insertAfterId: after.id };
+        },
+        buildPayloads: ({ versionId, placement, snapshot, nextPosition }) => {
+          const byId = new Map(snapshot.map((item) => [item.id, item]));
+          let level = 1;
+          for (let cursor = placement.parentId; cursor && level < 200; cursor = byId.get(cursor)?.parent_id ?? null) level += 1;
+          return [{
+            version_id: versionId,
+            parent_id: placement.parentId,
+            item_type: "section",
+            position: nextPosition(),
+            title: getDefaultSectionTitleForLevel(level),
+          }];
+        },
+      }),
+    [insertRows]
+  );
+
+  const actions = useMemo(
+    () => ({ pasteRows, insertLineBelow, duplicateLineBelow, insertSectionBelow }),
+    [pasteRows, insertLineBelow, duplicateLineBelow, insertSectionBelow]
+  );
   return { actions };
 }

@@ -869,7 +869,8 @@ export function createGridEngine(): GridEngine {
     if (activeId !== cellId) activate(cellId);
 
     if (event.altKey && !event.ctrlKey && !event.metaKey) {
-      if (event.key === "ArrowDown") {
+      // Alt+Shift+Up/Down move the line (editor shortcut): left to the page.
+      if (event.key === "ArrowDown" && !event.shiftKey) {
         event.preventDefault();
         if (startEditingById(cellId, "edit")) {
           editors.get(cellId)?.click();
