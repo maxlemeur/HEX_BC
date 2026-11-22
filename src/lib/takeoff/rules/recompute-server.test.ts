@@ -278,7 +278,9 @@ describe("reading the plan page of each vector page", () => {
     const fake = createSupabaseFake({
       tables: {
         // As PostgREST serves them: never more than its ceiling of rows per response.
-        takeoff_jobs: (query) => servedRows<Record<string, unknown>>(query.filters.some((filter) => filter.column === "estimate_version_id")
+        // The destination's attached takeoffs are read by their version (`eq`); the takeoff sent, without one (`is null`).
+        takeoff_jobs: (query) => servedRows<Record<string, unknown>>(query.filters.some((filter) => filter.column === "estimate_version_id"
+          && filter.kind === "eq")
           ? attached : query.filters.some((filter) => filter.column === "project_id") ? [ownJob] : [...attached, ...elsewhere], query),
         takeoff_version_links: (query) => servedRows(links, query),
         takeoff_items: (query) => ({ data: ofJobs(query), error: null, count: ofJobs(query).length }),

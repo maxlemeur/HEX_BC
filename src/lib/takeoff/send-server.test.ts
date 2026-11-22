@@ -76,6 +76,7 @@ import { buildTakeoffMappingPreviewForJob } from "@/lib/takeoff/mapping-preview-
 import { buildTakeoffPageReplacementProposal } from "@/lib/takeoff/page-replacement-server";
 import { evaluateTakeoffRulesForDestination, recomputeTakeoffRulesQuietly } from "@/lib/takeoff/rules/recompute-server";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
+import { takeoffSendPreviewResponseSchema } from "@/lib/takeoff/send-contracts";
 import { previewTakeoffSend, sendTakeoffJob } from "@/lib/takeoff/send-server";
 
 const TENANT = "10000000-0000-4000-8000-000000000001";
@@ -130,6 +131,8 @@ function setUp(versions: Array<{ id: string; dpgf: boolean | number }>, options:
   context?: Record<string, unknown>;
   /** The job's own fields, over the completed versionless analysis of the fake. */
   job?: Record<string, unknown>;
+  /** The pages of the plan sent whose own level contradicts the operator's (the rules' evaluation). */
+  levelContradictions?: unknown[];
   /** The affaire's other takeoffs, as the service reads them (eq filters applied); none read when undefined. */
   twins?: Array<Record<string, unknown>>;
 } = {}) {
@@ -199,8 +202,8 @@ function setUp(versions: Array<{ id: string; dpgf: boolean | number }>, options:
       takeoff_send_receipts: () => ({ data: null, error: null }),
       ...(options.job?.plan_set_id ? { plan_sets: () => ({ data: { name: "Plans fictifs" }, error: null }) } : {}),
       ...(options.twins ? { takeoff_jobs: (query: { filters: Array<{ kind: string; column: string; value: unknown }> }) => ({
-        data: options.twins!.filter((row) => query.filters.every((filter) => filter.kind !== "eq" || !(filter.column in row)
-          || row[filter.column] === filter.value)).slice(0, 1), error: null }) } : {}),
+        data: options.twins!.filter((row) => query.filters.every((filter) => (filter.kind !== "eq" && filter.kind !== "is")
+          || !(filter.column in row) || row[filter.column] === filter.value)).slice(0, 1), error: null }) } : {}),
       // The member's membership and the tenant as the database holds them now.
       tenant_memberships: () => ({ data: { role: membership.role }, error: null }),
       tenants: () => ({ data: { is_active: true }, error: null }),
@@ -237,7 +240,8 @@ function setUp(versions: Array<{ id: string; dpgf: boolean | number }>, options:
       original: state, transformed: state }] });
   // The takeoff's lines carry no rule input: nothing is evaluated for any destination.
   vi.mocked(evaluateTakeoffRulesForDestination).mockResolvedValue({ jobStamp: "b".repeat(32), peersStamp: null, writes: [],
-    transforms: [], results: options.results ?? new Map(), context: options.context ?? NO_CONTEXT } as never);
+    transforms: [], results: options.results ?? new Map(), context: options.context ?? NO_CONTEXT,
+    levelContradictions: options.levelContradictions ?? [] } as never);
   // As the comparison loader does for a takeoff not on that version.
   vi.mocked(buildTakeoffPageReplacementProposal).mockRejectedValue(Object.assign(new Error("Comparaison DPGF indisponible."), { status: 409 }));
   // A recomputation of the rules that wrote every line it read.
@@ -268,17 +272,20 @@ describe("previewTakeoffSend — one analysis per plan", () => {
   // the preview answered « plan_send_pending » with no line; now it previews the plan's lines, names the plans its controls
   // compared it with and those not read yet, and stages the stamps of the context the database computed, which the send
   // compares again under its locks.
-  const planContext = (unread: Array<{ plan_name: string; state: string }>, peers = "c".repeat(32)) => ({
+  const planContext = (unread: Array<{ plan_name: string; state: string; compared_reading_at?: string | null }>, peers = "c".repeat(32)) => ({
     peers: [{ job_id: OTHER_JOB, stamp: "d".repeat(32) }],
     plans: [{ job_id: JOB, plan_file_id: PLAN_FILE, content_hash: "e".repeat(64), location: { id: LOCATION, revision: 2,
       building_choice: "reading", building: null, level_choice: "value", level: "R+1" } }],
     stamps: { peers, locations: "f".repeat(32) },
-    display: { request_id: REQUEST, plan_name: "plan-a.pdf", peers: [{ job_id: OTHER_JOB, plan_name: "plan-b.pdf" }], unread,
-      never_read: ["plan-d.pdf"], uncompared_readings: 1 },
+    display: { request_id: REQUEST, plan_name: "plan-a.pdf",
+      peers: [{ job_id: OTHER_JOB, plan_name: "plan-b.pdf", read_at: "2026-11-22T09:00:00Z", earlier_request: false }],
+      unread: unread.map((plan) => ({ compared_reading_at: null, ...plan })), never_read: ["plan-d.pdf"],
+      uncompared: { grouped: 1, outside_request: 0 } },
   });
+  const contradiction = { source_file_name: "plan-a.pdf", source_page: 2, read_level: "R+2", operator_level: "R+1" };
 
   it("previews the plan's lines while another plan is read, names its scope and stages the context's stamps", async () => {
-    const fake = setUp([], { context: planContext([{ plan_name: "plan-c.pdf", state: "running" }]) });
+    const fake = setUp([], { context: planContext([{ plan_name: "plan-c.pdf", state: "running" }]), levelContradictions: [contradiction] });
 
     const preview = await previewTakeoffSend(JOB, {});
 
@@ -286,8 +293,9 @@ describe("previewTakeoffSend — one analysis per plan", () => {
     expect(preview.estimate_lines).toEqual([expect.objectContaining({ change: "created", title: "Lavabo", quantity: 3 })]);
     expect(preview.plan_scope).toEqual({ request_id: REQUEST, plan_name: "plan-a.pdf",
       location: { building: null, level: "R+1", generation: 2 },
-      compared: [{ job_id: OTHER_JOB, plan_name: "plan-b.pdf" }], unread: [{ plan_name: "plan-c.pdf", state: "running" }],
-      never_read: ["plan-d.pdf"], uncompared_readings: 1 });
+      compared: [{ job_id: OTHER_JOB, plan_name: "plan-b.pdf", read_at: "2026-11-22T09:00:00Z", earlier_request: false }],
+      unread: [{ plan_name: "plan-c.pdf", state: "running", compared_reading_at: null }],
+      never_read: ["plan-d.pdf"], uncompared: { grouped: 1, outside_request: 0 }, level_contradictions: [contradiction] });
     // The dry run carries the stamps the database computed, never a hash of this server's.
     expect(fake.staged()[0].expected).toMatchObject({ context: { peers: "c".repeat(32), locations: "f".repeat(32) } });
   });
@@ -304,13 +312,37 @@ describe("previewTakeoffSend — one analysis per plan", () => {
     expect(read.fingerprint).not.toBe(queued.fingerprint);
   });
 
+  // Fix round 1, point 6: the grouped analysis of a request of format 1 (lot 2), not a standalone one. Its preview has no
+  // plan scope at all (the key is absent, the shape a page of the previous version reads).
   it("previews a grouped analysis of a request as lot 2 does: no plan scope", async () => {
-    const fake = setUp([]);
+    const fake = setUp([], { job: { launch_request_id: REQUEST } });
     const preview = await previewTakeoffSend(JOB, {});
     expect(preview.blocked).toBeNull();
-    expect(preview.plan_scope).toBeNull();
+    expect(preview).not.toHaveProperty("plan_scope");
     expect(preview.estimate_lines).toEqual([expect.objectContaining({ change: "created", title: "Lavabo", quantity: 3 })]);
     expect(fake.staged()[0].expected).toMatchObject({ context: NO_CONTEXT.stamps });
+  });
+});
+
+// Fix round 1, point 5: an open page of the previous version reads a preview of this server, and a page of this version a
+// preview of the previous server, during a deployment. The previous contract is this one without `plan_scope` (strict),
+// as 2c5424215 has it. Red before the fix: the server always sent `plan_scope` (null for a grouped analysis), which the
+// previous strict schema refuses, and this schema required it.
+describe("previewTakeoffSend — the preview's contract across one deployment", () => {
+  const previousContract = takeoffSendPreviewResponseSchema.omit({ plan_scope: true }).strict();
+
+  it("answers a grouped or standalone analysis in the previous shape", async () => {
+    setUp([]);
+    const preview = await previewTakeoffSend(JOB, {});
+    expect(previousContract.safeParse(preview).success).toBe(true);
+  });
+
+  it("reads a preview of the previous server, which has no plan scope and may name the closed per-plan send", async () => {
+    setUp([]);
+    const { plan_scope: _absent, ...previous } = await previewTakeoffSend(JOB, {});
+    expect(takeoffSendPreviewResponseSchema.safeParse(previous).success).toBe(true);
+    expect(takeoffSendPreviewResponseSchema.safeParse({ ...previous, blocked: { reason: "plan_send_pending",
+      message: "L’envoi au tableau de chiffrage d’une analyse par plan arrive avec une prochaine version." } }).success).toBe(true);
   });
 });
 
@@ -320,8 +352,8 @@ describe("previewTakeoffSend — another takeoff of the same preparation in the 
   // go to the same draft. Before this pull request the server refused the second plan of a request as well.
   const PLAN_SET = "a0000000-0000-4000-8000-0000000000a1";
   const twin = (overrides: Record<string, unknown> = {}) => ({ id: OTHER_JOB, tenant_id: TENANT, estimate_version_id: OTHER_DRAFT,
-    plan_set_id: PLAN_SET, level: "C", execution_provider: "chatgpt_local", "preparation_snapshot->>preparation_revision": "1",
-    ...overrides });
+    plan_set_id: PLAN_SET, level: "C", execution_provider: "chatgpt_local", launch_request_id: null,
+    "preparation_snapshot->>preparation_revision": "1", ...overrides });
 
   it("names a twin launched without a request", async () => {
     setUp([{ id: OTHER_DRAFT, dpgf: false }], { job: { plan_set_id: PLAN_SET }, twins: [twin()] });
@@ -337,6 +369,14 @@ describe("previewTakeoffSend — another takeoff of the same preparation in the 
     const preview = await previewTakeoffSend(JOB, {});
     expect(preview.blocked).toBeNull();
     expect(fake.staged()).toHaveLength(1);
+  });
+
+  // Fix round 1, point 6: the fake applies `.is(...)`: an identical job of a request already in the draft is no twin of an
+  // analysis launched without one (red with the filter `launch_request_id is null` removed).
+  it("does not name an identical analysis of a request in the draft as a twin of one launched without a request", async () => {
+    setUp([{ id: OTHER_DRAFT, dpgf: false }], { job: { plan_set_id: PLAN_SET }, twins: [twin({ launch_request_id: REQUEST })] });
+    vi.mocked(buildTakeoffPageReplacementProposal).mockResolvedValue({ pages: [] } as never);
+    expect((await previewTakeoffSend(JOB, {})).blocked).toBeNull();
   });
 
   it("does not name a twin of another provider", async () => {

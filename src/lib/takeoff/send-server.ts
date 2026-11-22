@@ -24,13 +24,19 @@ import { buildTakeoffPageReplacementProposal } from "@/lib/takeoff/page-replacem
 import { parseApplyTakeoffPayload } from "@/lib/takeoff/query-parsers";
 import { failurePartners, isLineId, leftOutByPartners } from "@/lib/takeoff/rules/partner-exclusions";
 import { ruleFailuresReopen, ruleOverrideFailureKeys } from "@/lib/takeoff/rules/failure-keys";
-import { evaluateTakeoffRulesForDestination, recomputeTakeoffRulesQuietly, type TakeoffSendContext } from "@/lib/takeoff/rules/recompute-server";
+import {
+  evaluateTakeoffRulesForDestination,
+  recomputeTakeoffRulesQuietly,
+  type TakeoffPageLevelContradiction,
+  type TakeoffSendContext,
+} from "@/lib/takeoff/rules/recompute-server";
 import { takeoffJobIdSchema } from "@/lib/takeoff/schemas";
 import {
   takeoffSendPreviewRequestSchema,
   takeoffSendRequestSchema,
   type TakeoffSendBlocker,
   type TakeoffSendDestination,
+  type TakeoffSendPlanScope,
   type TakeoffSendPreviewResponse,
   type TakeoffSendResponse,
   type TakeoffSendSectionChoice,
@@ -79,6 +85,9 @@ const BLOCKER_MESSAGES: Record<TakeoffSendBlocker, string> = {
   read_only: "Ce métré est accessible en lecture seule.",
   rules_unbounded: "Les contrôles de ce métré ne peuvent pas être enregistrés pour ce devis : contactez le support.",
   draft_locked: "Ce brouillon est ouvert par un autre membre : l’envoi y sera possible quand il l’aura libéré.",
+  // Never answered by this server (the previous one closed the send of one analysis per plan).
+  plan_send_pending: "L’envoi au tableau de chiffrage d’une analyse par plan arrive avec une prochaine version : relisez son "
+    + "résultat dans la revue ; rien n’est écrit.",
 };
 
 const PRICE_ACTIONS = new Set(["set_price", "apply_assembly"]);
@@ -273,7 +282,7 @@ async function computeSendPreview(ctx: Context, job: SendJob, request: {
       new_section_title: takeoffSendSectionTitle(null), blocked: { reason: blocker, message: BLOCKER_MESSAGES[blocker] }, engine: null,
       lines: [], left_out: [], price_rules_ignored: [], reservations: [], estimate_lines: null, outcome_pending: null,
       controls: { evaluated_for: null, not_evaluated_reason: null, cross_takeoff: null, blocked_items: [], medium_items: [], threshold: 0 },
-      page_proposal: null, plan_scope: null,
+      page_proposal: null,
       impact: { sent_count: 0, accumulated_count: 0, version_created: false, section_created: false }, ...extra } });
 
   // A takeoff that cannot be sent from here (already sent, not finished, or read by someone who cannot write the affaire)
@@ -530,6 +539,7 @@ async function computeSendPreview(ctx: Context, job: SendJob, request: {
     price_rules_ignored: priceRulesIgnored.map((rule) => [rule.takeoff_item_id, rule.action]), blocker, outcome, outcome_pending: outcomePending,
   });
 
+  const planScope = rules ? planScopeOf(job.id, rules.context, rules.levelContradictions) : null;
   const response: TakeoffSendPreviewResponse = {
     job_id: job.id, fingerprint, destinations,
     destination: destination ?? null, destination_label: option?.label ?? null,
@@ -553,7 +563,8 @@ async function computeSendPreview(ctx: Context, job: SendJob, request: {
         ...(item.source_file_name !== undefined ? { source_file_name: item.source_file_name } : {}) })),
       threshold },
     page_proposal: pageProposal,
-    plan_scope: rules ? planScopeOf(job.id, rules.context) : null,
+    // Only for an analysis of one plan: a grouped or standalone one keeps the shape a page of the previous version reads.
+    ...(planScope ? { plan_scope: planScope } : {}),
     impact: { sent_count: sentItems.length, accumulated_count: accumulations.size,
       version_created: destination?.kind === "first_draft" || destination?.kind === "version_copy",
       section_created: sectionChoice.kind === "new" },
@@ -569,7 +580,8 @@ async function computeSendPreview(ctx: Context, job: SendJob, request: {
  * operator set for its plan revision, from the context the database computed. Display only: the fingerprint holds the
  * context's stamps, never a plan's progress.
  */
-function planScopeOf(jobId: string, context: TakeoffSendContext): TakeoffSendPreviewResponse["plan_scope"] {
+function planScopeOf(jobId: string, context: TakeoffSendContext,
+  levelContradictions: TakeoffPageLevelContradiction[]): TakeoffSendPlanScope | null {
   if (!context.display) return null;
   const own = context.plans.find((plan) => plan.job_id === jobId && plan.location !== null)?.location ?? null;
   return {
@@ -580,7 +592,8 @@ function planScopeOf(jobId: string, context: TakeoffSendContext): TakeoffSendPre
     compared: context.display.peers,
     unread: context.display.unread,
     never_read: context.display.never_read,
-    uncompared_readings: context.display.uncompared_readings,
+    uncompared: context.display.uncompared,
+    level_contradictions: levelContradictions,
   };
 }
 

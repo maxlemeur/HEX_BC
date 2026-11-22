@@ -279,9 +279,9 @@ function crossTakeoffSummary(data: TakeoffSendPreviewResponse) {
   }
   // The send of one plan is also compared with the affaire's other plans already read (« 2 autres plans déjà lus »), and
   // never with a plan not read or not compared, which the summary says.
-  const scope = data.plan_scope;
+  const scope = data.plan_scope ?? null;
   const peers = scope && scope.compared.length > 0 ? plural(scope.compared.length, "autre plan déjà lu", "autres plans déjà lus") : null;
-  const outside = scope && scope.unread.length + scope.never_read.length + scope.uncompared_readings > 0
+  const outside = scope && scope.unread.length + scope.never_read.length + scope.uncompared.grouped + scope.uncompared.outside_request > 0
     ? ", hors plans non lus ou non comparés" : "";
   const where = (controls.evaluated_for === "existing_draft" ? `avec les métrés de ce brouillon${peers ? ` et ${peers}` : ""}`
     : controls.evaluated_for === "version_copy" ? `avec les métrés de la version copiée${peers ? ` et ${peers}` : ""}`
@@ -437,13 +437,26 @@ function SendPreviewBody({ data, headline, disabled, onDestinationChange, onSect
   );
 }
 
+const readingDate = new Intl.DateTimeFormat("fr-FR", { day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" });
+/** « lu le 22 novembre à 10:04 », or nothing when the time is unknown. */
+function readOn(at: string | null) {
+  const date = at ? new Date(at) : null;
+  return date && !Number.isNaN(date.getTime()) ? `lu le ${readingDate.format(date)}` : null;
+}
+
 /**
- * The send of one plan of a request read plan by plan: this plan only, while the others may still be read. The plans
- * already read are compared with it; those not read yet are named, never covered by the controls: each will be reviewed
- * and sent on its own, and its own send compares it with this one.
+ * The send of one plan of a request read plan by plan: this plan only, while the others may still be read. The readings
+ * compared are named with when they were read (an earlier reading of a plan whose reread is pending is that earlier
+ * reading, never the pending one); the plans not read, the dossier's plans never read and the analyses not compared are
+ * not covered by the controls; a page whose own level contradicts the operator's is named, its own level kept.
  */
 function PlanScope({ scope }: { scope: TakeoffSendPlanScope }) {
   const name = scope.plan_name ?? "sans nom";
+  const uncompared = [scope.uncompared.grouped > 0
+    ? plural(scope.uncompared.grouped, "analyse groupée", "analyses groupées") : null,
+  scope.uncompared.outside_request > 0
+    ? plural(scope.uncompared.outside_request, "analyse lancée hors demande", "analyses lancées hors demande") : null]
+    .filter((part): part is string => part !== null);
   return (
     <section aria-labelledby="takeoff-send-plan-scope" className="space-y-2 rounded-xl border border-border p-4">
       <h3 id="takeoff-send-plan-scope" className="text-sm font-semibold text-foreground">Envoi du plan « {name} »</h3>
@@ -457,21 +470,50 @@ function PlanScope({ scope }: { scope: TakeoffSendPlanScope }) {
           {scope.location.level ? " Une page sans niveau lu est comparée sous ce niveau." : ""}
         </p>
       ) : null}
+      {scope.level_contradictions.length > 0 ? (
+        <div className="text-sm">
+          <p className="text-foreground">
+            À vérifier : le niveau lu sur {scope.level_contradictions.length > 1 ? "ces pages contredit" : "cette page contredit"} la
+            localisation saisie. Chaque page est comparée sous son propre niveau.
+          </p>
+          <ul aria-label="Niveaux contradictoires" className="mt-1 list-disc space-y-0.5 pl-5 text-muted-foreground">
+            {scope.level_contradictions.map((page) => (
+              <li key={`${page.source_file_name ?? ""}-${page.source_page}`}>
+                {page.source_file_name ? `« ${page.source_file_name} », ` : ""}p. {page.source_page} : niveau lu « {page.read_level} »,
+                localisation saisie « {page.operator_level} »
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
       {scope.compared.length > 0 ? (
-        <p className="text-sm text-muted-foreground">
-          Comparé avec {scope.compared.length > 1 ? "les plans déjà lus" : "le plan déjà lu"} :{" "}
-          {scope.compared.map((plan) => `« ${plan.plan_name ?? "sans nom"} »`).join(", ")}.
-        </p>
+        <div className="text-sm">
+          <p className="text-muted-foreground">
+            Comparé avec {scope.compared.length > 1 ? "les plans déjà lus" : "le plan déjà lu"} :
+          </p>
+          <ul aria-label="Plans comparés" className="mt-1 list-disc space-y-0.5 pl-5 text-muted-foreground">
+            {scope.compared.map((plan) => (
+              <li key={plan.job_id}>
+                « {plan.plan_name ?? "sans nom"} »{[readOn(plan.read_at), plan.earlier_request ? "par une demande précédente" : null]
+                  .filter(Boolean).map((part) => `, ${part}`).join("")}
+              </li>
+            ))}
+          </ul>
+        </div>
       ) : null}
       {scope.unread.length > 0 ? (
         <div className="text-sm">
           <p className="text-foreground">
             {plural(scope.unread.length, "plan de la demande n’est pas encore lu", "plans de la demande ne sont pas encore lus")} :
-            les contrôles entre plans ne les couvrent pas.
+            les contrôles entre plans ne couvrent pas leur lecture à venir.
           </p>
           <ul aria-label="Plans non lus" className="mt-1 list-disc space-y-0.5 pl-5 text-muted-foreground">
             {scope.unread.map((plan, index) => (
-              <li key={`${plan.plan_name ?? ""}-${index}`}>« {plan.plan_name ?? "sans nom"} » : {UNREAD_LABELS[plan.state]}</li>
+              <li key={`${plan.plan_name ?? ""}-${index}`}>
+                « {plan.plan_name ?? "sans nom"} » : {UNREAD_LABELS[plan.state]}
+                {plan.compared_reading_at ? ` ; comparé avec sa lecture précédente${readOn(plan.compared_reading_at)
+                  ? ` (${readOn(plan.compared_reading_at)})` : ""}` : ""}
+              </li>
             ))}
           </ul>
         </div>
@@ -479,13 +521,13 @@ function PlanScope({ scope }: { scope: TakeoffSendPlanScope }) {
       {scope.never_read.length > 0 ? (
         <p className="text-sm text-foreground">
           {scope.never_read.length > 1 ? "Plans du dossier jamais lus un par un" : "Plan du dossier jamais lu un par un"} :{" "}
-          {scope.never_read.map((name) => `« ${name ?? "sans nom"} »`).join(", ")} : les contrôles entre plans ne les couvrent pas.
+          {scope.never_read.map((planName) => `« ${planName ?? "sans nom"} »`).join(", ")} : les contrôles entre plans ne les couvrent pas.
         </p>
       ) : null}
-      {scope.uncompared_readings > 0 ? (
+      {uncompared.length > 0 ? (
         <p className="text-sm text-foreground">
-          {plural(scope.uncompared_readings, "analyse groupée de l’affaire, lue et pas encore envoyée, n’est pas comparée",
-            "analyses groupées de l’affaire, lues et pas encore envoyées, ne sont pas comparées")} avec ce plan.
+          {uncompared.join(" et ")} de l’affaire, {scope.uncompared.grouped + scope.uncompared.outside_request > 1
+            ? "lues et pas encore envoyées, ne sont pas comparées" : "lue et pas encore envoyée, n’est pas comparée"} avec ce plan.
         </p>
       ) : null}
     </section>

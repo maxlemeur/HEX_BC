@@ -133,7 +133,9 @@ armyTest("TKPS01 a plan is sent while the others are read: nothing before the co
 
       // B's preview: its valve adds to A's line (3 → 5); it is compared with C, read and not sent.
       dialog = await openSend(ui, dossier.projectId, jobB.id);
-      await expect(dialog.getByText(/Comparé avec le plan déjà lu : « plan-c\.pdf »\./)).toBeVisible();
+      const compared = dialog.getByRole("list", "Plans comparés", { exact: true }).getByRole("listitem");
+      await expect(compared).toHaveCount(1);
+      await expect(compared).toHaveText(/^« plan-c\.pdf », lu le /);
       const fed = dialog.getByRole("list", LINES, { exact: true }).getByRole("listitem", VALVE, { exact: true });
       await expect(fed).toContainText("ligne modifiée");
       await expect(fed).toContainText(/3 → 5 u$/);

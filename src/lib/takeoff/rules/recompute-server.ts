@@ -243,7 +243,7 @@ async function readVersionPeerJobs(supabase: ServiceClient, tenantId: string, ve
  * reading gives none (lot 3, migration C: a send's evaluation only); a page's own level always comes first.
  */
 async function evaluateRulesOfJobs(input: { supabase: ServiceClient; tenantId: string; jobs: JobRow[]; surfaceVersionId: string | null;
-  planLevels?: ReadonlyMap<string, string> }) {
+  planLevels?: ReadonlyMap<string, string>; contradictionsOf?: string }) {
   const { supabase, tenantId, jobs } = input;
   if (jobs.length === 0) return null;
   const jobIds = jobs.map((job) => job.id);
@@ -275,10 +275,18 @@ async function evaluateRulesOfJobs(input: { supabase: ServiceClient; tenantId: s
 
   const pages: RulePage[] = [];
   const candidates: RulePageCandidate[] = [];
+  const levelContradictions: TakeoffPageLevelContradiction[] = [];
   for (const row of (pageData ?? []) as unknown as PageRow[]) {
     const reading = VectorPageRecordSchema.safeParse(row.reading);
     const anchors = AnchorsSchema.safeParse(row.rule_anchors);
     const planLevel = row.plan_file_id ? input.planLevels?.get(`${row.job_id}|${row.plan_file_id}`) ?? null : null;
+    // A page whose own reading names another level than the operator's for its plan revision keeps its own: the member
+    // is shown the contradiction, never another value.
+    const readLevel = reading.success ? reading.data.location.level : null;
+    if (row.job_id === input.contradictionsOf && planLevel !== null && readLevel !== null && readLevel !== planLevel) {
+      levelContradictions.push({ source_file_name: row.source_file_name, source_page: row.source_page, read_level: readLevel,
+        operator_level: planLevel });
+    }
     pages.push({
       key: row.id, job_id: row.job_id, order: (jobOrder.get(row.job_id) ?? 0) * 10_000 + row.source_page,
       level: (reading.success ? reading.data.location.level : null) ?? planLevel,
@@ -323,8 +331,14 @@ async function evaluateRulesOfJobs(input: { supabase: ServiceClient; tenantId: s
   }
   const evaluation = evaluateTakeoffRules({ lines: quantityLines, pages });
 
-  return { items, geometries, evaluation, status, lines };
+  levelContradictions.sort((left, right) => (left.source_file_name ?? "").localeCompare(right.source_file_name ?? "")
+    || left.source_page - right.source_page);
+  return { items, geometries, evaluation, status, lines, levelContradictions };
 }
+
+/** A page of the plan sent whose own reading names another level than the one an operator set for its plan revision. */
+export type TakeoffPageLevelContradiction = { source_file_name: string | null; source_page: number; read_level: string;
+  operator_level: string };
 
 export type RuleResultWrite = { id: string; results: TakeoffRuleResult[]; complete_failure_keys?: string[]; expected_updated_at: string; expected_stale_at: string | null };
 
@@ -413,10 +427,12 @@ export const TakeoffSendContextSchema = z.object({
   display: z.object({
     request_id: uuidString,
     plan_name: z.string().nullable(),
-    peers: z.array(z.object({ job_id: uuidString, plan_name: z.string().nullable() })),
-    unread: z.array(z.object({ plan_name: z.string().nullable(), state: z.enum(["queued", "running", "failed", "canceled", "not_started"]) })),
+    peers: z.array(z.object({ job_id: uuidString, plan_name: z.string().nullable(), read_at: z.string().nullable(),
+      earlier_request: z.boolean() })),
+    unread: z.array(z.object({ plan_name: z.string().nullable(), state: z.enum(["queued", "running", "failed", "canceled", "not_started"]),
+      compared_reading_at: z.string().nullable() })),
     never_read: z.array(z.string().nullable()),
-    uncompared_readings: z.number().int().nonnegative(),
+    uncompared: z.object({ grouped: z.number().int().nonnegative(), outside_request: z.number().int().nonnegative() }),
   }).nullable(),
 });
 export type TakeoffSendContext = z.infer<typeof TakeoffSendContextSchema>;
@@ -459,6 +475,8 @@ export async function evaluateTakeoffRulesForDestination(input: {
   transforms: Array<{ item_id: string; transform: TakeoffFrameTransform | null }>;
   /** The results of this takeoff's lines that carry rule inputs; empty when none does (nothing was evaluated). */
   results: Map<string, TakeoffRuleResult[]>;
+  /** The pages of this takeoff whose own level contradicts the operator's for their plan revision (shown, not used). */
+  levelContradictions: TakeoffPageLevelContradiction[];
 }> {
   const supabase = input.supabase ?? createServiceRoleClient();
   const { data: jobStamp, error: jobStampError } = await supabase.rpc("takeoff_rule_job_stamp" as never,
@@ -479,7 +497,8 @@ export async function evaluateTakeoffRulesForDestination(input: {
   const parsedContext = TakeoffSendContextSchema.safeParse(contextData);
   if (contextError || !parsedContext.success) failed("Impossible de lire les autres plans de l’affaire pour les règles.", contextError);
   const context = parsedContext.data;
-  const empty = { jobStamp: jobStamp as string | null, peersStamp, context, writes: [], transforms: [], results: new Map() };
+  const empty = { jobStamp: jobStamp as string | null, peersStamp, context, writes: [], transforms: [], results: new Map(),
+    levelContradictions: [] };
   if (jobStamp === null) return empty;
 
   const own = await supabase.from("takeoff_jobs" as never).select(JOB_SELECT as never)
@@ -505,7 +524,7 @@ export async function evaluateTakeoffRulesForDestination(input: {
   }
   const jobs = [...peers, ...planPeers, ...((own.data ?? []) as unknown as JobRow[])];
   const evaluated = await evaluateRulesOfJobs({ supabase, tenantId: input.tenantId, jobs, surfaceVersionId: input.destinationVersionId,
-    planLevels: takeoffSendPlanLevels(context) });
+    planLevels: takeoffSendPlanLevels(context), contradictionsOf: input.jobId });
   if (!evaluated) return empty;
   const { items, geometries, evaluation } = evaluated;
   const writes: RuleResultWrite[] = [];
@@ -524,5 +543,6 @@ export async function evaluateTakeoffRulesForDestination(input: {
     results.set(item.id, payload.results);
     writes.push({ id: item.id, ...payload, expected_updated_at: item.updated_at, expected_stale_at: item.rules_stale_at });
   }
-  return { jobStamp: jobStamp as string, peersStamp, context, writes, transforms, results };
+  return { jobStamp: jobStamp as string, peersStamp, context, writes, transforms, results,
+    levelContradictions: evaluated.levelContradictions };
 }

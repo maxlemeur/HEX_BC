@@ -55,6 +55,9 @@ export type TakeoffSendRequest = z.infer<typeof takeoffSendRequestSchema>;
 export const TAKEOFF_SEND_BLOCKERS = [
   "not_completed", "already_sent", "no_line", "dpgf_reconciliation_required", "copy_pages_already_in_estimate",
   "preparation_already_sent", "choose_destination", "read_only", "rules_unbounded", "draft_locked",
+  // Sent by the previous server only (#448: the send of one analysis per plan was closed); accepted so that a page of this
+  // application reading a preview from that server during a deployment still shows its message.
+  "plan_send_pending",
 ] as const;
 export type TakeoffSendBlocker = (typeof TAKEOFF_SEND_BLOCKERS)[number];
 
@@ -100,13 +103,19 @@ export const takeoffSendPlanScopeSchema = z.object({
   plan_name: z.string().nullable(),
   location: z.object({ building: z.string().nullable(), level: z.string().nullable(), generation: z.number().int().positive() })
     .strict().nullable(),
-  compared: z.array(z.object({ job_id: uuid, plan_name: z.string().nullable() }).strict()),
+  /** Each reading compared: its plan, when it was read, and whether it comes from an earlier request. */
+  compared: z.array(z.object({ job_id: uuid, plan_name: z.string().nullable(), read_at: z.string().nullable(),
+    earlier_request: z.boolean() }).strict()),
+  /** The units of this request not read; for a plan whose earlier reading is compared, when that reading was made. */
   unread: z.array(z.object({ plan_name: z.string().nullable(),
-    state: z.enum(["queued", "running", "failed", "canceled", "not_started"]) }).strict()),
-  /** The dossier's plans no analysis of one plan has read yet (outside this request): not compared either. */
+    state: z.enum(["queued", "running", "failed", "canceled", "not_started"]), compared_reading_at: z.string().nullable() }).strict()),
+  /** The dossier's plans no analysis of one plan has read at their current copy (outside this request): not compared. */
   never_read: z.array(z.string().nullable()),
-  /** Readings of the affaire outside one analysis per plan (lot 2's grouped readings), read and not sent: not compared. */
-  uncompared_readings: z.number().int().nonnegative(),
+  /** Analyses of the affaire read and not sent that nothing compares with this plan: lot 2's grouped ones, those outside any request. */
+  uncompared: z.object({ grouped: z.number().int().nonnegative(), outside_request: z.number().int().nonnegative() }).strict(),
+  /** Pages of this plan whose own level contradicts the one an operator set for its revision: each keeps its own level. */
+  level_contradictions: z.array(z.object({ source_file_name: z.string().nullable(), source_page: z.number().int(),
+    read_level: z.string(), operator_level: z.string() }).strict()),
 }).strict();
 export type TakeoffSendPlanScope = z.infer<typeof takeoffSendPlanScopeSchema>;
 
@@ -166,7 +175,8 @@ export const takeoffSendPreviewResponseSchema = z.object({
     threshold: z.number(),
   }).strict(),
   page_proposal: takeoffPageReplacementResponseSchema.nullable(),
-  plan_scope: takeoffSendPlanScopeSchema.nullable(),
+  /** Absent for a grouped or standalone analysis (the shape a previous page expects), and from a previous server. */
+  plan_scope: takeoffSendPlanScopeSchema.optional(),
   impact: z.object({ sent_count: z.number().int().nonnegative(), accumulated_count: z.number().int().nonnegative(),
     version_created: z.boolean(), section_created: z.boolean() }).strict(),
 }).strict();
