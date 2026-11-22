@@ -50,6 +50,9 @@ vi.mock("./TakeoffApplicationHistoryTab", () => ({
   default: () => <div>Historique</div>,
 }));
 
+// The table of items has its own tests (item-table/TakeoffItemTable.test.tsx).
+vi.mock("./item-table/TakeoffItemTable", () => ({ TakeoffItemTable: () => null }));
+
 vi.mock("./TakeoffJobsTable", () => ({
   default: ({ data }: { data: TakeoffActivityCenterResponse }) => (
     <table><tbody>{data.jobs.map((job) => <tr key={job.jobId}><td>{job.jobId}</td></tr>)}</tbody></table>
