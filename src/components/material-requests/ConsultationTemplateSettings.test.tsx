@@ -19,6 +19,10 @@ import { DEFAULT_CONSULTATION_TEMPLATE } from "@/lib/material-requests/consultat
  *     reference in competition;
  *  5. an unknown field is not flagged; a template without its lines can be saved; a save's refusal is silent;
  *  6. the company section writes the member's template, or the member's section the company's.
+ * Review of PR #463:
+ *  7. where the templates are not installed yet, the sections offer a save that can only fail, without a word;
+ *  8. a member without a template of their own freezes a copy of the company's by saving the editor unchanged;
+ *  9. the preview hides that a line like « {livraison} merci » disappears when the delivery place is unknown.
  */
 
 type Reply = { status?: number; data?: unknown; error?: { code: string; message: string } };
@@ -60,7 +64,7 @@ function field(name: RegExp) {
 
 describe("« Message de consultation fournisseur » in the profile", () => {
   it("starts from the member's own template and says so (1)", async () => {
-    mockApi({ [READ]: { data: { personal: OWN, company: COMPANY, can_edit_company: false } } });
+    mockApi({ [READ]: { data: { personal: OWN, company: COMPANY, can_edit_company: false, available: true } } });
     render(<ConsultationTemplateSettings />);
     expect(await screen.findByText(/Votre modèle personnel s’applique/)).toBeVisible();
     expect(field(/Modèle du message/)).toHaveValue(OWN.message_template);
@@ -68,7 +72,7 @@ describe("« Message de consultation fournisseur » in the profile", () => {
   });
 
   it("starts from the company's template when the member has none, and says so (1)", async () => {
-    mockApi({ [READ]: { data: { personal: null, company: COMPANY, can_edit_company: false } } });
+    mockApi({ [READ]: { data: { personal: null, company: COMPANY, can_edit_company: false, available: true } } });
     render(<ConsultationTemplateSettings />);
     expect(await screen.findByText(/Le modèle de l’entreprise s’applique/)).toBeVisible();
     expect(field(/Modèle du message/)).toHaveValue(COMPANY.message_template);
@@ -76,7 +80,7 @@ describe("« Message de consultation fournisseur » in the profile", () => {
   });
 
   it("starts from today's message when neither exists (1)", async () => {
-    mockApi({ [READ]: { data: { personal: null, company: null, can_edit_company: false } } });
+    mockApi({ [READ]: { data: { personal: null, company: null, can_edit_company: false, available: true } } });
     render(<ConsultationTemplateSettings />);
     expect(await screen.findByText(/Le message d’origine s’applique/)).toBeVisible();
     expect(field(/Modèle du message/)).toHaveValue(DEFAULT_CONSULTATION_TEMPLATE.message);
@@ -88,14 +92,14 @@ describe("« Message de consultation fournisseur » in the profile", () => {
     render(<ConsultationTemplateSettings />);
     expect(await screen.findByText(/n’a pas pu être lu/)).toBeVisible();
     expect(screen.queryByRole("textbox", { name: /Modèle du message/ })).toBeNull();
-    mockApi({ [READ]: { data: { personal: null, company: null, can_edit_company: false } } });
+    mockApi({ [READ]: { data: { personal: null, company: null, can_edit_company: false, available: true } } });
     await userEvent.setup().click(screen.getByRole("button", { name: "Réessayer" }));
     expect(await screen.findByRole("textbox", { name: /Modèle du message/ })).toBeVisible();
   });
 
   it("inserts a field at the cursor, previews both variants, flags an unknown field and saves (4, 5, 6)", async () => {
     mockApi({
-      [READ]: { data: { personal: null, company: null, can_edit_company: true } },
+      [READ]: { data: { personal: null, company: null, can_edit_company: true, available: true } },
       "PUT /api/consultation-message-templates/personal": (body) => ({ data: { personal: body } }),
     });
     const user = userEvent.setup();
@@ -131,7 +135,7 @@ describe("« Message de consultation fournisseur » in the profile", () => {
 
   it("refuses to save a template without its lines, and says a refusal of the server (5)", async () => {
     mockApi({
-      [READ]: { data: { personal: OWN, company: null, can_edit_company: false } },
+      [READ]: { data: { personal: OWN, company: null, can_edit_company: false, available: true } },
       "PUT /api/consultation-message-templates/personal": { status: 400, error: { code: "CONSULTATION_TEMPLATE_INVALID", message: "Le modèle est vide ou trop long." } },
     });
     const user = userEvent.setup();
@@ -148,7 +152,7 @@ describe("« Message de consultation fournisseur » in the profile", () => {
 
   it("« Rétablir le modèle par défaut » removes the member's template and shows the company's (2)", async () => {
     mockApi({
-      [READ]: { data: { personal: OWN, company: COMPANY, can_edit_company: false } },
+      [READ]: { data: { personal: OWN, company: COMPANY, can_edit_company: false, available: true } },
       "DELETE /api/consultation-message-templates/personal": { data: { personal: null } },
     });
     const user = userEvent.setup();
@@ -163,7 +167,7 @@ describe("« Message de consultation fournisseur » in the profile", () => {
 describe("the company's template in the administration", () => {
   it("starts from today's message, saves the company's template and resets it (6)", async () => {
     mockApi({
-      [READ]: { data: { personal: OWN, company: null, can_edit_company: true } },
+      [READ]: { data: { personal: OWN, company: null, can_edit_company: true, available: true } },
       "PUT /api/consultation-message-templates/company": (body) => ({ data: { company: body } }),
       "DELETE /api/consultation-message-templates/company": { data: { company: null } },
     });
@@ -183,5 +187,41 @@ describe("the company's template in the administration", () => {
       "PUT /api/consultation-message-templates/company",
       "DELETE /api/consultation-message-templates/company",
     ]);
+  });
+});
+
+describe("review of PR #463", () => {
+  it("says the setting is not available yet where the templates are not installed, and offers no save (7)", async () => {
+    mockApi({ [READ]: { data: { personal: null, company: null, can_edit_company: true, available: false } } });
+    const { unmount } = render(<ConsultationTemplateSettings />);
+    expect(await screen.findByText(/pas encore disponible/)).toBeVisible();
+    expect(screen.getByRole("button", { name: "Enregistrer le modèle" })).toBeDisabled();
+    unmount();
+    render(<CompanyConsultationTemplateSettings />);
+    expect(await screen.findByText(/pas encore disponible/)).toBeVisible();
+    expect(screen.getByRole("button", { name: "Enregistrer le modèle" })).toBeDisabled();
+  });
+
+  it("does not save an unchanged copy of the company's template as the member's own (8)", async () => {
+    mockApi({ [READ]: { data: { personal: null, company: COMPANY, can_edit_company: false, available: true } } });
+    const user = userEvent.setup();
+    render(<ConsultationTemplateSettings />);
+    const save = await screen.findByRole("button", { name: "Enregistrer le modèle" });
+    expect(save).toBeDisabled();
+    await user.type(field(/Modèle de chaque ligne/), " !");
+    expect(save).toBeEnabled();
+  });
+
+  it("previews a case where the delivery place is unknown (9)", async () => {
+    mockApi({ [READ]: { data: { personal: null, company: null, can_edit_company: false, available: true } } });
+    const user = userEvent.setup();
+    render(<ConsultationTemplateSettings />);
+    const message = await screen.findByRole("textbox", { name: /Modèle du message/ });
+    await user.clear(message);
+    await user.type(message, "{{lignes}\n{{livraison} merci");
+    const previews = screen.getAllByRole("figure").map((figure) => figure.querySelector("pre")?.textContent ?? "");
+    expect(previews.some((text) => text.endsWith("Livraison : chantier merci"))).toBe(true);
+    expect(previews.some((text) => !text.includes("merci"))).toBe(true);
+    expect(screen.getByText(/lieu de livraison inconnu/)).toBeVisible();
   });
 });

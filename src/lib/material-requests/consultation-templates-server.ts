@@ -1,5 +1,5 @@
 import { getAuthenticatedTenantContext, type AuthenticatedTenantContext } from "@/lib/auth/tenant-context";
-import { badRequest, forbidden } from "@/lib/http/api-error";
+import { badRequest, forbidden, internalError } from "@/lib/http/api-error";
 import { mapSupabaseError, type SupabaseErrorLike } from "@/lib/http/api-response";
 
 import {
@@ -14,6 +14,10 @@ import {
  * their session, under RLS: the database sets its tenant (the active one) and its member, and nobody else reads it.
  * The company's is read by the members of the active tenant and written only through two database functions that
  * check, again, that the caller administers the active tenant. Its author is never read.
+ *
+ * Deploy order: where the migration is not applied yet (a server reading a database without the two tables), the
+ * read answers `available: false` with no template; no stored template can exist there, so the built-in message is
+ * the right one. Any other read failure is the server's (500) and the screens say it.
  */
 
 const PERSONAL = "material_request_message_templates";
@@ -51,6 +55,15 @@ function record(row: { message_template: string; line_template: string } | null)
   return row ? { message_template: row.message_template, line_template: row.line_template } : null;
 }
 
+/** The read found no such table: the migration is not applied where this server reads. */
+class TemplatesNotInstalled extends Error {}
+
+function readFailure(error: SupabaseErrorLike, table: string): Error {
+  const message = error.message ?? "";
+  if (error.code === "PGRST205" || (error.code === "42P01" && message.includes(table))) return new TemplatesNotInstalled(table);
+  return internalError("Le modèle de message n’a pas pu être lu.", undefined, "CONSULTATION_TEMPLATE_READ_FAILED");
+}
+
 async function readPersonal(context: AuthenticatedTenantContext): Promise<ConsultationTemplateRecord | null> {
   const { data, error } = await context.supabase
     .from(PERSONAL)
@@ -58,7 +71,7 @@ async function readPersonal(context: AuthenticatedTenantContext): Promise<Consul
     .eq("tenant_id", context.tenantId)
     .eq("user_id", context.userId)
     .maybeSingle();
-  if (error) throw mapTemplateError(error, "Impossible de lire votre modèle de message.");
+  if (error) throw readFailure(error, PERSONAL);
   return record(data);
 }
 
@@ -68,14 +81,21 @@ async function readCompany(context: AuthenticatedTenantContext): Promise<Consult
     .select(COLUMNS)
     .eq("tenant_id", context.tenantId)
     .maybeSingle();
-  if (error) throw mapTemplateError(error, "Impossible de lire le modèle de message de l’entreprise.");
+  if (error) throw readFailure(error, COMPANY);
   return record(data);
 }
 
 export async function readConsultationTemplates(): Promise<ConsultationTemplates> {
   const context = await getAuthenticatedTenantContext();
-  const [personal, company] = await Promise.all([readPersonal(context), readCompany(context)]);
-  return { personal, company, can_edit_company: context.isTenantAdmin };
+  try {
+    const [personal, company] = await Promise.all([readPersonal(context), readCompany(context)]);
+    return { personal, company, can_edit_company: context.isTenantAdmin, available: true };
+  } catch (error) {
+    if (error instanceof TemplatesNotInstalled) {
+      return { personal: null, company: null, can_edit_company: context.isTenantAdmin, available: false };
+    }
+    throw error;
+  }
 }
 
 /** Saves the member's own template: one row per membership, replaced by each save. */

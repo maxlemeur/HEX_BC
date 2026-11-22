@@ -27,8 +27,12 @@ import {
  * The competition rule holds whatever the template says: without references, {référence} is always empty and
  * {désignation} is the reference-free designation (« Article à préciser (ligne N) » when nothing else names the
  * article). Only what the member typed in the template can say anything else. With references, {désignation} is
- * the short name only when the line template writes {référence} and the reference is known (today's rule: the
- * reference names the article); otherwise it is the full designation.
+ * the short name only on a line that actually writes its reference (today's rule: the reference names the article):
+ * {référence} outside brackets, or in an optional part whose fields are all filled on that line. Otherwise it is the
+ * full designation, size and material included.
+ *
+ * Fields may be written more than once (« Bonjour {fournisseur} … pour {fournisseur} »), except {lignes}: once at
+ * most. The text written is checked against the recorded bound, never cut.
  */
 
 export type ConsultationTemplate = { message: string; line: string };
@@ -40,9 +44,8 @@ export const DEFAULT_CONSULTATION_TEMPLATE: ConsultationTemplate = {
 
 /**
  * Bounds of the templates (the database holds the same). The recorded message keeps its own bound
- * (MATERIAL_REQUEST_QUOTE_MESSAGE_MAX): each field is written once at most, so a line adds at most the line
- * template's 300 characters to what today's message writes for it; the screen refuses to record a message over the
- * bound and says so.
+ * (MATERIAL_REQUEST_QUOTE_MESSAGE_MAX): the text a template writes is measured before it is copied or recorded, and
+ * the screen refuses one over the bound and says so, without cutting it.
  */
 export const CONSULTATION_MESSAGE_TEMPLATE_MAX = 2000;
 export const CONSULTATION_LINE_TEMPLATE_MAX = 300;
@@ -62,7 +65,7 @@ const REQUIRED: Record<TemplateKind, string> = { message: "lignes", line: "dési
 
 /** Case and accents aside: « {Quantite} » is {quantité}. */
 function folded(value: string): string {
-  return value.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+  return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
 }
 
 function fieldOf(raw: string, kind: TemplateKind): string | null {
@@ -153,9 +156,22 @@ function renderTemplate(source: string, kind: TemplateKind, values: ReadonlyMap<
     .join("\n");
 }
 
-/** Whether a template writes a field anywhere, optional parts included. */
-function writesField(source: string, kind: TemplateKind, field: string): boolean {
-  return [...source.matchAll(FIELD)].some((match) => fieldOf(match[1], kind) === field);
+/**
+ * Whether a template writes a field with these values: outside brackets on a line that stays, or in an optional
+ * part whose fields are all filled.
+ */
+function rendersField(source: string, kind: TemplateKind, values: ReadonlyMap<string, string>, field: string): boolean {
+  if (!values.get(field)) return false;
+  return source.replace(/\r\n?/g, "\n").split("\n").some((line) => {
+    const segments = lineSegments(line, kind);
+    const outer = segments.flatMap((segment) => (segment.kind === "field" ? [segment.field] : []));
+    if (outer.length > 0 && outer.every((name) => !values.get(name))) return false;
+    return segments.some((segment) =>
+      segment.kind === "field"
+        ? segment.field === field
+        : segment.kind === "optional" && segment.fields.includes(field) && segment.fields.every((name) => values.get(name)),
+    );
+  });
 }
 
 /** The message a member's template writes. The lines are written in the order given. */
@@ -167,20 +183,21 @@ export function renderConsultationMessage(input: {
   withReferences: boolean;
   deliveryPlace: MaterialRequestDeliveryPlace | null;
 }): string {
-  const writesReference = writesField(input.template.line, "line", "référence");
   const items = input.lines
     .map((line) => {
-      const parts = consultationLineParts(line, { withReferences: input.withReferences, writesReference });
-      return renderTemplate(
-        input.template.line,
-        "line",
-        new Map([
+      const valuesOf = (writesReference: boolean) => {
+        const parts = consultationLineParts(line, { withReferences: input.withReferences, writesReference });
+        return new Map([
           ["quantité", parts.quantity ?? ""],
           ["désignation", parts.designation],
           ["référence", parts.reference ?? ""],
           ["ligne", String(line.position)],
-        ]),
-      );
+        ]);
+      };
+      // The full designation first; the short one only where this very line writes the reference.
+      const full = valuesOf(false);
+      const values = rendersField(input.template.line, "line", full, "référence") ? valuesOf(true) : full;
+      return renderTemplate(input.template.line, "line", values);
     })
     .filter((item) => item.trim().length > 0);
   return renderTemplate(
@@ -220,7 +237,7 @@ export function consultationMessage(input: {
 export type ConsultationTemplateIssues = {
   /** Fields not known in this template, as typed: left as they are in the message. */
   unknown: string[];
-  /** Fields written more than once (refused: a field is written once at most). */
+  /** {lignes} written more than once (refused: the lines are written once at most; other fields may repeat). */
   duplicated: string[];
   /** The field this template must write: {lignes} in the message, {désignation} in a line (refused without it). */
   missing: string[];
@@ -239,12 +256,14 @@ function issuesOf(source: string, kind: TemplateKind): ConsultationTemplateIssue
   }
   return {
     unknown,
-    duplicated: [...seen.entries()].filter(([, count]) => count > 1).map(([field]) => `{${field}}`),
+    duplicated: [...seen.entries()]
+      .filter(([field, count]) => field === "lignes" && count > 1)
+      .map(([field]) => `{${field}}`),
     missing: seen.has(REQUIRED[kind]) ? [] : [`{${REQUIRED[kind]}}`],
   };
 }
 
-/** What the editor flags (unknown fields) and what a save refuses (a field twice, a required one missing). */
+/** What the editor flags (unknown fields) and what a save refuses ({lignes} twice, a required field missing). */
 export function consultationTemplateIssues(template: ConsultationTemplate): {
   message: ConsultationTemplateIssues;
   line: ConsultationTemplateIssues;
@@ -260,36 +279,42 @@ export function consultationTemplateRefusals(template: ConsultationTemplate): st
     const { duplicated, missing } = issues[kind];
     if (missing.length > 0) sentences.push(`${label} doit contenir ${missing.join(", ")}.`);
     if (duplicated.length > 0) {
-      sentences.push(`${label} écrit ${duplicated.join(", ")} plusieurs fois : chaque champ s’écrit une fois au plus.`);
+      sentences.push(`${label} écrit ${duplicated.join(", ")} plusieurs fois : les lignes s’écrivent une fois au plus.`);
     }
   }
   return sentences;
 }
 
-/** Whether a template is the default one: it is then not kept, and the member follows today's message. */
-export function isDefaultConsultationTemplate(template: ConsultationTemplate): boolean {
-  const normalize = (value: string) => value.replace(/\r\n?/g, "\n");
-  return (
-    normalize(template.message) === DEFAULT_CONSULTATION_TEMPLATE.message
-    && normalize(template.line) === DEFAULT_CONSULTATION_TEMPLATE.line
-  );
+/** Case and accents aside, letters and digits only: « NA–4471 », « na 4471 » and « NA-4471 » read the same. */
+function foldedCode(value: string): string {
+  return folded(value).replace(/[^\p{L}\p{N}]+/gu, "");
 }
 
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
+/** Separators a reference may be retyped with between its letter and digit chunks. */
+const REFERENCE_SEPARATOR = "[\\s\\-–—./_]*";
 
 /**
  * The references known for the lines (the technician's, the article's, the usual supplier's) that a competition
- * text names: a word the member typed in their template or in a retouch. Whole words only, case aside. The screen
- * warns and lets the member go on: the owner wants retouching free.
+ * text names: a word the member typed in their template or in a retouch. Compared folded (case, accents aside), its
+ * chunks of letters and digits joined by any separator or none (« NA 4471 », « na4471 », « NA–4471 » for
+ * « NA-4471 »), whole words only. A reference shorter than 4 characters once folded, or without a digit, is not
+ * looked for (« 50 » would match « DN 50 »). The screen warns and lets the member go on: retouching stays free.
  */
 export function competitionReferenceLeaks(message: string, references: readonly (string | null | undefined)[]): string[] {
+  const text = folded(message);
   const found: string[] = [];
+  const seen = new Set<string>();
   for (const reference of references) {
     const known = consultationText(reference);
-    if (!known || found.some((entry) => entry.toLowerCase() === known.toLowerCase())) continue;
-    if (new RegExp(`(?<![\\p{L}\\p{N}])${escapeRegExp(known)}(?![\\p{L}\\p{N}])`, "iu").test(message)) found.push(known);
+    if (!known) continue;
+    const code = foldedCode(known);
+    if (code.length < 4 || !/\p{N}/u.test(code) || seen.has(code)) continue;
+    const chunks = folded(known).match(/\p{L}+|\p{N}+/gu) ?? [];
+    const pattern = new RegExp(`(?<![\\p{L}\\p{N}])${chunks.join(REFERENCE_SEPARATOR)}(?![\\p{L}\\p{N}])`, "u");
+    if (pattern.test(text)) {
+      seen.add(code);
+      found.push(known);
+    }
   }
   return found;
 }

@@ -10,6 +10,7 @@ import {
   consultationMessage,
   consultationMessageProblem,
   consultationTemplateIssues,
+  consultationTemplateRefusals,
   renderConsultationMessage,
   type ConsultationTemplate,
 } from "./consultation-template";
@@ -39,6 +40,12 @@ import { MATERIAL_REQUEST_QUOTE_MESSAGE_MAX } from "./quote-contracts";
  * 12. a final text that is empty, blank or over the recorded bound (counted as the API counts it) is offered to
  *     copy or record; or a text at the bound is refused;
  * 13. an emoji in a template or a value is cut or miscounted; a field written twice is not written twice.
+ * Review of PR #463:
+ * 14. the short designation (without size or material) is written on a line whose reference is not, because an
+ *     optional part holding {référence} vanished there (no quantity);
+ * 15. a known reference retyped with another separator, case or accent (« NA 4471 », « na4471 », « NA–4471 ») goes
+ *     unnoticed; or a short code without a digit (« 50 » in « DN 50 ») raises a false warning;
+ * 16. a field written twice is refused (only {lignes} stays once at most).
  */
 
 function item(partial: Partial<ConsultationLine> = {}): ConsultationLine {
@@ -244,19 +251,37 @@ describe("consultation template", () => {
     expect(message).toBe("- 10 u Coude 90°, DN 50, Inox 316L");
   });
 
-  it("refuses a template without its lines or designation, or with a field written twice (8)", () => {
+  it("refuses a template without its lines or designation, or with its lines twice; other fields may repeat (8, 16)", () => {
     expect(consultationTemplateIssues(custom("Bonjour {affaire}", "{quantité} {quantite} {désignation}"))).toEqual({
       message: { unknown: [], duplicated: [], missing: ["{lignes}"] },
-      line: { unknown: [], duplicated: ["{quantité}"], missing: [] },
+      line: { unknown: [], duplicated: [], missing: [] },
     });
     expect(consultationTemplateIssues(custom("{lignes}\n{lignes}", "{quantité}"))).toEqual({
       message: { unknown: [], duplicated: ["{lignes}"], missing: [] },
       line: { unknown: [], duplicated: [], missing: ["{désignation}"] },
     });
+    const twice = custom("Bonjour {fournisseur},\n{lignes}\nMerci pour {fournisseur} !", "- {désignation}");
+    expect(consultationTemplateRefusals(twice)).toEqual([]);
+    expect(
+      renderConsultationMessage({ ...base, lines: LINES.slice(1, 2), withReferences: false, deliveryPlace: null, template: twice }),
+    ).toBe("Bonjour Négoce Alpha,\n- Té égal, DN 50, Inox 316L\nMerci pour Négoce Alpha !");
     expect(consultationTemplateIssues(DEFAULT_CONSULTATION_TEMPLATE)).toEqual({
       message: { unknown: [], duplicated: [], missing: [] },
       line: { unknown: [], duplicated: [], missing: [] },
     });
+  });
+
+  it("writes the short designation only on a line that writes its reference (14)", () => {
+    const valve = item({ quantity: null, unit: null, designation: "Vanne", dimension: "DN50", material: null, supplierSku: "VA-50" });
+    const counted = item({ quantity: 2, designation: "Vanne", dimension: "DN50", material: null, supplierSku: "VA-50" });
+    const message = renderConsultationMessage({
+      ...base,
+      lines: [valve, counted],
+      withReferences: true,
+      deliveryPlace: null,
+      template: custom("{lignes}", "[{quantité} réf {référence}] {désignation}"),
+    });
+    expect(message).toBe("Vanne, DN50\n2 u réf VA-50 Vanne");
   });
 
   it("keeps a 300-line request of ordinary lines under the recorded bound with the longest templates (8)", () => {
@@ -294,6 +319,17 @@ describe("consultation template", () => {
       ...LINES.map((line) => line.reference),
       ...LINES.map((line) => line.supplierSku),
     ])).toEqual([]);
+  });
+
+  it("finds a known reference retyped with other separators, case or accents, and ignores short codes (15)", () => {
+    for (const typed of ["NA 4471", "na4471", "NA–4471", "NA—4471", "na.4471", "NA/4471", "NA_4471", "Na - 4471"]) {
+      expect(competitionReferenceLeaks(`Comme le ${typed} svp`, ["NA-4471"])).toEqual(["NA-4471"]);
+    }
+    expect(competitionReferenceLeaks("Réf CD I316 50 svp", ["cd-i316-50"])).toEqual(["cd-i316-50"]);
+    expect(competitionReferenceLeaks("Référence ÉCO-12 svp", ["eco12"])).toEqual(["eco12"]);
+    // Too short once folded, or without a digit: « 50 » would match « DN 50 », « VANNE » a plain word.
+    expect(competitionReferenceLeaks("- 4 u Té égal, DN 50, Vanne", ["50", "A-5", "VANNE"])).toEqual([]);
+    expect(competitionReferenceLeaks("NA-44712", ["NA-4471"])).toEqual([]);
   });
 
   it("refuses an empty, blank or too long final text, and accepts one at the bound (12)", () => {

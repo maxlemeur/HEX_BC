@@ -29,6 +29,10 @@ import { ConsultationTemplateEditor } from "./ConsultationTemplateEditor";
 
 export const CONSULTATION_TEMPLATE_ANCHOR = "message-consultation";
 
+/** Where the migration is not applied yet, no template exists and none can be saved. */
+const NOT_INSTALLED =
+  "Le réglage du message n’est pas encore disponible sur cette installation : le message d’origine s’applique. Il pourra être modifié une fois la mise à jour de la base faite.";
+
 function recordOf(template: ConsultationTemplate): ConsultationTemplateRecord {
   return { message_template: template.message, line_template: template.line };
 }
@@ -99,7 +103,9 @@ function PersonalEditor({
   update,
 }: Readonly<{ templates: ConsultationTemplates; update: (change: Partial<ConsultationTemplates>) => void }>) {
   const fallback = templateOfRecord(templates.company) ?? DEFAULT_CONSULTATION_TEMPLATE;
-  const source = templates.personal
+  const source = !templates.available
+    ? NOT_INSTALLED
+    : templates.personal
     ? "Votre modèle personnel s’applique à vos messages."
     : templates.company
       ? "Le modèle de l’entreprise s’applique à vos messages. Enregistrez le vôtre pour le remplacer."
@@ -109,6 +115,8 @@ function PersonalEditor({
       <p role="status" className="text-sm font-medium text-foreground">{source}</p>
       <ConsultationTemplateEditor
         initial={templateOfRecord(templates.personal) ?? fallback}
+        unavailable={templates.available ? null : NOT_INSTALLED}
+        savedAs={templates.personal ? null : fallback}
         canReset={templates.personal !== null}
         resetLabel="Rétablir le modèle par défaut"
         resetDone={templates.company ? "Modèle par défaut rétabli : celui de l’entreprise." : "Modèle par défaut rétabli : le message d’origine."}
@@ -142,12 +150,15 @@ export function CompanyConsultationTemplateSettings() {
   return (
     <div className="flex min-w-0 flex-col gap-4">
       <p role="status" className="text-sm font-medium text-foreground">
-        {company
+        {!load.templates.available
+          ? NOT_INSTALLED
+          : company
           ? "Le modèle de l’entreprise s’applique aux membres sans modèle personnel."
           : "Aucun modèle d’entreprise : le message d’origine s’applique aux membres sans modèle personnel."}
       </p>
       <ConsultationTemplateEditor
         initial={templateOfRecord(company) ?? DEFAULT_CONSULTATION_TEMPLATE}
+        unavailable={load.templates.available ? null : NOT_INSTALLED}
         canReset={company !== null}
         resetLabel="Rétablir le message d’origine"
         resetDone="Message d’origine rétabli pour les membres sans modèle personnel."

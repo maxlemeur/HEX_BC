@@ -7199,7 +7199,7 @@
           "Demandes de matériel"
         ],
         "summary": "Lire les modèles du message de consultation",
-        "description": "Le modèle personnel de l'appelant dans son tenant actif et le modèle général de l'entreprise (null quand il n'y en a pas), sans leur auteur. Le message suit le modèle personnel, sinon celui de l'entreprise, sinon le message d'origine. can_edit_company : l'appelant administre son tenant actif.",
+        "description": "Le modèle personnel de l'appelant dans son tenant actif et le modèle général de l'entreprise (null quand il n'y en a pas), sans leur auteur. Le message suit le modèle personnel, sinon celui de l'entreprise, sinon le message d'origine. can_edit_company : l'appelant administre son tenant actif. available : false tant que les modèles ne sont pas installés dans la base lue (migration non appliquée) ; aucun modèle n'existe alors et le message d'origine s'applique.",
         "responses": {
           "200": {
             "description": "Modèles en vigueur.",
@@ -7262,11 +7262,11 @@
             }
           },
           "500": {
-            "description": "Erreur interne serveur.",
+            "description": "CONSULTATION_TEMPLATE_READ_FAILED : la lecture a échoué côté serveur ; rien n'est remplacé par le message d'origine.",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ApiFailureResponse"
+                  "$ref": "#/components/schemas/ApiMaterialRequestError"
                 }
               }
             }
@@ -7282,7 +7282,7 @@
         "summary": "Enregistrer le modèle de message de l'entreprise",
         "description": "Réservé aux administrateurs du tenant actif (rôle de leur adhésion ; un administrateur global sans ce rôle est refusé). Remplace le modèle général, appliqué aux membres sans modèle personnel ; leurs modèles personnels ne changent pas.",
         "requestBody": {
-          "description": "Les deux textes, enregistrés ensemble. Le message contient {lignes} et la ligne {désignation}, chaque champ une fois au plus ; 2000 et 300 caractères au plus, jamais vides. Ni tenant ni membre : la base les fixe.",
+          "description": "Les deux textes, enregistrés ensemble. Le message contient {lignes} une fois et la ligne {désignation} ; les autres champs peuvent se répéter ; 2000 et 300 caractères au plus, jamais vides. Ni tenant ni membre : la base les fixe.",
           "required": true,
           "content": {
             "application/json": {
@@ -7304,7 +7304,7 @@
             }
           },
           "400": {
-            "description": "CONSULTATION_TEMPLATE_INVALID : modèle vide, trop long, sans {lignes} ou {désignation}, ou avec un champ écrit deux fois ; le message dit quoi corriger. Rien n'est écrit.",
+            "description": "CONSULTATION_TEMPLATE_INVALID : modèle vide, trop long, sans {lignes} ou {désignation}, ou avec {lignes} écrit deux fois ; le message dit quoi corriger. Rien n'est écrit.",
             "content": {
               "application/json": {
                 "schema": {
@@ -7453,7 +7453,7 @@
         "summary": "Enregistrer son modèle de message de consultation",
         "description": "Remplace le modèle personnel de l'appelant dans son tenant actif ; personne d'autre ne le lit ni ne le modifie. Les consultations déjà enregistrées gardent leur texte.",
         "requestBody": {
-          "description": "Les deux textes, enregistrés ensemble. Le message contient {lignes} et la ligne {désignation}, chaque champ une fois au plus ; 2000 et 300 caractères au plus, jamais vides. Ni tenant ni membre : la base les fixe.",
+          "description": "Les deux textes, enregistrés ensemble. Le message contient {lignes} une fois et la ligne {désignation} ; les autres champs peuvent se répéter ; 2000 et 300 caractères au plus, jamais vides. Ni tenant ni membre : la base les fixe.",
           "required": true,
           "content": {
             "application/json": {
@@ -7475,7 +7475,7 @@
             }
           },
           "400": {
-            "description": "CONSULTATION_TEMPLATE_INVALID : modèle vide, trop long, sans {lignes} ou {désignation}, ou avec un champ écrit deux fois ; le message dit quoi corriger. Rien n'est écrit.",
+            "description": "CONSULTATION_TEMPLATE_INVALID : modèle vide, trop long, sans {lignes} ou {désignation}, ou avec {lignes} écrit deux fois ; le message dit quoi corriger. Rien n'est écrit.",
             "content": {
               "application/json": {
                 "schema": {
@@ -43533,12 +43533,16 @@
               },
               "can_edit_company": {
                 "type": "boolean"
+              },
+              "available": {
+                "type": "boolean"
               }
             },
             "required": [
               "personal",
               "company",
-              "can_edit_company"
+              "can_edit_company",
+              "available"
             ],
             "additionalProperties": false
           }

@@ -5,8 +5,9 @@
 --
 -- 1. public.material_request_message_templates: one row per membership (tenant, member), which nobody else reads
 --    or changes, an admin included. message_template is the whole message, line_template what is written for each
---    line. Bounded to 2000 and 300 characters, never blank: with each field written once at most (checked by the
---    application), a line adds at most 300 characters to today's message.
+--    line. Bounded to 2000 and 300 characters, never blank. Fields may repeat ({lignes} once at most, checked by
+--    the application); the message a template writes is measured against the recorded bound of
+--    material_request_quotes.message before it is copied or recorded, and refused over it, never cut.
 --    - The keys are the database's: at insert the member is auth.uid() and the tenant public.current_tenant_id(),
 --      whatever the caller sent; afterwards they never change (MATERIAL_REQUEST_MESSAGE_TEMPLATE_KEY_IMMUTABLE).
 --      Writes need a user session (MATERIAL_REQUEST_MESSAGE_TEMPLATE_USER_ONLY): the service role writes none.

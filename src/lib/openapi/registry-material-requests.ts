@@ -266,14 +266,14 @@ const writeRefusals = {
 const consultationTemplates = "/api/consultation-message-templates";
 const templateRecord: z.ZodType<ConsultationTemplateRecord> = z.object({ message_template: z.string(), line_template: z.string() });
 const templatesRead: z.ZodType<ConsultationTemplates> = z.object({
-  personal: templateRecord.nullable(), company: templateRecord.nullable(), can_edit_company: z.boolean(),
+  personal: templateRecord.nullable(), company: templateRecord.nullable(), can_edit_company: z.boolean(), available: z.boolean(),
 });
 const templateInput = jsonBody({
   name: "ConsultationTemplateInput",
-  description: "Les deux textes, enregistrés ensemble. Le message contient {lignes} et la ligne {désignation}, chaque champ une fois au plus ; 2000 et 300 caractères au plus, jamais vides. Ni tenant ni membre : la base les fixe.",
+  description: "Les deux textes, enregistrés ensemble. Le message contient {lignes} une fois et la ligne {désignation} ; les autres champs peuvent se répéter ; 2000 et 300 caractères au plus, jamais vides. Ni tenant ni membre : la base les fixe.",
   schema: consultationTemplateInputSchema,
 });
-const templateInvalid = refusal("CONSULTATION_TEMPLATE_INVALID : modèle vide, trop long, sans {lignes} ou {désignation}, ou avec un champ écrit deux fois ; le message dit quoi corriger. Rien n'est écrit.");
+const templateInvalid = refusal("CONSULTATION_TEMPLATE_INVALID : modèle vide, trop long, sans {lignes} ou {désignation}, ou avec {lignes} écrit deux fois ; le message dit quoi corriger. Rien n'est écrit.");
 const templateTags = ["Demandes de matériel"];
 
 const project = pathParameter({ name: "projectId", description: "Affaire du tenant actif.", schemaName: "MaterialRequestProjectId", schema: uuid });
@@ -331,8 +331,11 @@ const catalogueEditorRefusals = {
 export const materialRequestOperations: OpenApiOperationDefinition[] = [
   {
     tags: templateTags, method: "get", path: consultationTemplates, summary: "Lire les modèles du message de consultation",
-    description: "Le modèle personnel de l'appelant dans son tenant actif et le modèle général de l'entreprise (null quand il n'y en a pas), sans leur auteur. Le message suit le modèle personnel, sinon celui de l'entreprise, sinon le message d'origine. can_edit_company : l'appelant administre son tenant actif.",
-    responses: { "200": success("ApiConsultationTemplates", "Modèles en vigueur.", templatesRead) },
+    description: "Le modèle personnel de l'appelant dans son tenant actif et le modèle général de l'entreprise (null quand il n'y en a pas), sans leur auteur. Le message suit le modèle personnel, sinon celui de l'entreprise, sinon le message d'origine. can_edit_company : l'appelant administre son tenant actif. available : false tant que les modèles ne sont pas installés dans la base lue (migration non appliquée) ; aucun modèle n'existe alors et le message d'origine s'applique.",
+    responses: {
+      "200": success("ApiConsultationTemplates", "Modèles en vigueur.", templatesRead),
+      "500": refusal("CONSULTATION_TEMPLATE_READ_FAILED : la lecture a échoué côté serveur ; rien n'est remplacé par le message d'origine."),
+    },
   },
   {
     tags: templateTags, method: "put", path: `${consultationTemplates}/personal`, summary: "Enregistrer son modèle de message de consultation",

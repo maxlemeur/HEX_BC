@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useRef, useState, type FormEvent, type RefObject } from "react";
+import { useId, useLayoutEffect, useRef, useState, type FormEvent, type RefObject } from "react";
 import { RotateCcw, SaveIcon } from "lucide-react";
 
 import { Alert } from "@/components/ui/alert";
@@ -56,6 +56,8 @@ export type TemplateSaveResult = { ok: true } | { ok: false; message: string };
 
 export function ConsultationTemplateEditor({
   initial,
+  unavailable,
+  savedAs,
   canReset,
   resetLabel,
   resetDone,
@@ -64,6 +66,13 @@ export function ConsultationTemplateEditor({
 }: Readonly<{
   /** What the editor starts from: the template in force. */
   initial: ConsultationTemplate;
+  /** Why nothing can be saved (the templates are not installed yet), or null. */
+  unavailable?: string | null;
+  /**
+   * The template a save would only copy (the member has none of their own and has not changed the one in force):
+   * « Enregistrer » waits for a change, so no copy of the company's template is frozen as theirs.
+   */
+  savedAs?: ConsultationTemplate | null;
   /** A template of this level is saved: « Rétablir » removes it. */
   canReset: boolean;
   resetLabel: string;
@@ -90,22 +99,30 @@ export function ConsultationTemplateEditor({
     ...(line.length > CONSULTATION_LINE_TEMPLATE_MAX ? [`Le modèle de ligne : ${CONSULTATION_LINE_TEMPLATE_MAX} caractères au plus.`] : []),
   ];
   const unknown = [...issues.message.unknown, ...issues.line.unknown];
+  const unchanged = savedAs ? savedAs.message === message && savedAs.line === line : false;
+
+  /** Where the caret goes once an inserted field is rendered: right after it, in the same field. */
+  const caret = useRef<{ field: HTMLTextAreaElement; position: number } | null>(null);
+  useLayoutEffect(() => {
+    const pending = caret.current;
+    if (!pending) return;
+    caret.current = null;
+    pending.field.focus();
+    pending.field.setSelectionRange(pending.position, pending.position);
+  }, [message, line]);
 
   function insert(target: RefObject<HTMLTextAreaElement | null>, value: string, set: (next: string) => void, token: string) {
     const field = target.current;
     const start = field?.selectionStart ?? value.length;
     const end = field?.selectionEnd ?? value.length;
+    if (field) caret.current = { field, position: start + token.length };
     set(`${value.slice(0, start)}${token}${value.slice(end)}`);
     setStatus(null);
-    requestAnimationFrame(() => {
-      field?.focus();
-      field?.setSelectionRange(start + token.length, start + token.length);
-    });
   }
 
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (refusals.length > 0) return;
+    if (refusals.length > 0 || unavailable || unchanged) return;
     setBusy("save");
     setStatus(null);
     const result = await onSave(draft);
@@ -127,8 +144,8 @@ export function ConsultationTemplateEditor({
     setStatus({ kind: "success", text: resetDone });
   }
 
-  const preview = (withReferences: boolean, supplierName: string) =>
-    renderConsultationMessage({ ...SAMPLE, template: draft, withReferences, supplierName });
+  const preview = (withReferences: boolean, supplierName: string, deliveryPlace: "site" | null) =>
+    renderConsultationMessage({ ...SAMPLE, deliveryPlace, template: draft, withReferences, supplierName });
 
   return (
     <form noValidate onSubmit={(event) => void save(event)} className="flex min-w-0 flex-col gap-5">
@@ -172,7 +189,7 @@ export function ConsultationTemplateEditor({
 
       <div id={`${ids}-syntax`} className="space-y-1 rounded-md bg-surface-subtle px-3 py-2 text-xs text-muted-foreground">
         <p>
-          Un champ entre accolades est remplacé par sa valeur, une fois au plus par champ. Entre crochets, une partie
+          Un champ entre accolades est remplacé par sa valeur ; {"{lignes}"} s’écrit une fois. Entre crochets, une partie
           disparaît quand son champ est vide : <code className="text-foreground">[ — réf. {"{référence}"}]</code>.
         </p>
         <p>
@@ -193,25 +210,34 @@ export function ConsultationTemplateEditor({
       ) : null}
 
       <div className="grid min-w-0 gap-3 md:grid-cols-2">
-        <Preview title="Aperçu au fournisseur habituel (avec références)" text={preview(true, "Négoce Alpha")} />
-        <Preview title="Aperçu en concurrence (sans référence)" text={preview(false, "Comptoir Bêta")} />
+        <Preview title="Aperçu au fournisseur habituel (avec références)" text={preview(true, "Négoce Alpha", "site")} />
+        <Preview title="Aperçu en concurrence (sans référence)" text={preview(false, "Comptoir Bêta", null)} />
       </div>
-      <p className="-mt-3 text-xs text-muted-foreground">Lignes d’exemple, inventées.</p>
+      <p className="-mt-3 text-xs text-muted-foreground">
+        Lignes d’exemple, inventées. Livraison sur chantier dans le premier aperçu, lieu de livraison inconnu dans le
+        second.
+      </p>
 
       {status ? <Alert variant={status.kind}>{status.text}</Alert> : null}
+      {unchanged && !unavailable ? (
+        <p className="text-xs text-muted-foreground">Modifiez le modèle pour enregistrer le vôtre.</p>
+      ) : null}
 
       <div className="flex flex-wrap justify-end gap-2">
         <Button
           type="button"
           variant="outline"
-          disabled={busy !== null || !canReset}
+          disabled={busy !== null || !canReset || Boolean(unavailable)}
           loading={busy === "reset"}
           onClick={() => void reset()}
         >
           <RotateCcw aria-hidden="true" />
           {resetLabel}
         </Button>
-        <Button type="submit" disabled={busy !== null || refusals.length > 0} loading={busy === "save"} leftIcon={<SaveIcon aria-hidden="true" />}>
+        <Button
+          type="submit"
+          disabled={busy !== null || refusals.length > 0 || Boolean(unavailable) || unchanged}
+          loading={busy === "save"} leftIcon={<SaveIcon aria-hidden="true" />}>
           Enregistrer le modèle
         </Button>
       </div>

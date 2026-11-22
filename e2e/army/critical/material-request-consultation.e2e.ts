@@ -130,6 +130,9 @@ armyTest(
     const betaName = `${army.runPrefix} Comptoir Bêta`;
     const alpha = await supplier(alphaName);
     const beta = await supplier(betaName);
+    // A second competitor, for the template's {fournisseur} in each competitor's own message (TI-691).
+    const gammaName = `${army.runPrefix} Dépôt Gamma`;
+    await supplier(gammaName);
     const supplyType = await apiRequest<Envelope<{ item: { id: string } }>>(
       browser, "POST", "/api/catalogue/supply-types", { name: `${army.runPrefix} inox` },
     );
@@ -246,11 +249,16 @@ armyTest(
     const copied = (await copies()).texts[1];
     expect(copied).toBe(competition);
     for (const reference of [sku, elbowReference, teeReference, "réf."]) expect(copied).not.toContain(reference);
+    // TI-691: the office retouches the competitor's text before sending it; what is recorded is the text shown.
+    const betaMessage = screen.getByLabel(`Message pour ${betaName}`, { exact: true });
+    const betaRetouched = `${competition}\nRéponse souhaitée avant vendredi.`;
+    await betaMessage.fill(betaRetouched);
+    await expect(betaMessage).toHaveValue(betaRetouched);
     await screen.getByRole("button", `Consultation envoyée à ${betaName}`, { exact: true }).tap();
     const betaCard = screen.getByRole("article", `Devis ${betaName}`, { exact: true });
     await expect(betaCard).toBeVisible({ timeout: 30_000 });
     const betaQuote = (await quotes()).find((quote) => quote.supplier_id === beta)!;
-    expect([betaQuote.status, betaQuote.with_references, betaQuote.message]).toEqual(["requested", false, competition]);
+    expect([betaQuote.status, betaQuote.with_references, betaQuote.message]).toEqual(["requested", false, betaRetouched]);
 
     // TI-691: the member shapes their own message in « Mon profil », then retouches it before copying: the text
     // copied is the one shown. Their template is removed at the end, so the session's next journeys get today's.
@@ -294,8 +302,25 @@ armyTest(
       copyOutcomes.push(...(await retouchCopies()).outcomes);
       await screen.getByRole("button", "Rétablir le texte généré", { exact: true }).tap();
       await expect(alphaMessage).toHaveValue(shaped);
-      // The consultation recorded before the template keeps its text.
-      expect((await quotes()).find((quote) => quote.supplier_id === alpha)!.message).toBe(withReferences);
+      // The consultations recorded before the template keep their text.
+      const recorded = await quotes();
+      expect(recorded.find((quote) => quote.supplier_id === alpha)!.message).toBe(withReferences);
+      expect(recorded.find((quote) => quote.supplier_id === beta)!.message).toBe(betaRetouched);
+
+      // Each competitor's message names that competitor ({fournisseur}), without any reference.
+      await screen.getByRole("button", `Mettre en concurrence les lignes de ${alphaName}`, { exact: true }).tap();
+      for (const name of [betaName, gammaName]) {
+        await screen.getByLabel("Ajouter un fournisseur", { exact: true }).fill(name);
+        await screen.getByRole("option", name, { exact: true }).tap();
+      }
+      const competing = (name: string) => [
+        `Bonjour ${name},`,
+        "1. 10 u Coude 90°, DN 50, Inox 316L",
+        "2. 4 u Té égal, DN 50, Inox 316L",
+        "Livraison : chantier",
+      ].join("\n");
+      await expect(screen.getByLabel(`Message pour ${betaName}`, { exact: true })).toHaveValue(competing(betaName));
+      await expect(screen.getByLabel(`Message pour ${gammaName}`, { exact: true })).toHaveValue(competing(gammaName));
     } finally {
       const reset = await apiRequest<Envelope<{ personal: null }>>(browser, "DELETE", `${templates}/personal`);
       expect(reset.status).toBe(200);

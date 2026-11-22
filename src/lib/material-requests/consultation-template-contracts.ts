@@ -18,6 +18,11 @@ export type ConsultationTemplates = {
   company: ConsultationTemplateRecord | null;
   /** The caller administers their active tenant: the company template is theirs to change. */
   can_edit_company: boolean;
+  /**
+   * False where the templates are not installed yet (migration not applied): no template exists, the built-in
+   * message applies, and the screens say the setting is not available yet.
+   */
+  available: boolean;
 };
 
 function templateText(max: number, label: string) {

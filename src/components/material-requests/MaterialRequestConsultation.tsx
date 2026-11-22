@@ -223,6 +223,7 @@ export function ConsultationMessageBlock({
   const ids = useId();
   const unreadId = `${ids}-unread`;
   const problemId = `${ids}-problem`;
+  const leakId = `${ids}-leak`;
   const { stateFor, copyText } = useCopy();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -248,7 +249,7 @@ export function ConsultationMessageBlock({
     <div className="min-w-0 space-y-2">
       <Textarea
         aria-label={`Message pour ${supplierName}`}
-        aria-describedby={problem ? problemId : undefined}
+        aria-describedby={[problem ? problemId : null, leaks.length > 0 ? leakId : null].filter(Boolean).join(" ") || undefined}
         aria-invalid={problem ? true : undefined}
         className="min-h-28 px-3 py-2 text-sm"
         value={shown}
@@ -267,7 +268,7 @@ export function ConsultationMessageBlock({
         <p id={problemId} className="text-sm font-medium text-danger">{problem}</p>
       ) : null}
       {leaks.length > 0 ? (
-        <p className="flex items-start gap-1.5 text-sm font-medium text-warning">
+        <p id={leakId} className="flex items-start gap-1.5 text-sm font-medium text-warning">
           <TriangleAlert aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
           {`Ce message en concurrence cite une référence connue : ${leaks.join(", ")}. Le concurrent pourrait savoir qui vous fournit ; vous pouvez tout de même l’envoyer.`}
         </p>
@@ -306,11 +307,15 @@ export function ConsultationMessageBlock({
             Rétablir le texte généré
           </Button>
         ) : null}
+        {/* A new tab: the retouches of this page stay as they are. */}
         <Link
           href={`/dashboard/profile#${CONSULTATION_TEMPLATE_ANCHOR}`}
+          target="_blank"
+          rel="noopener noreferrer"
           className="ml-auto text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
         >
           Modifier mon modèle
+          <span className="sr-only"> (nouvel onglet)</span>
         </Link>
       </div>
       {consultation.unread && !consultation.sent && !consultation.busyElsewhere ? (

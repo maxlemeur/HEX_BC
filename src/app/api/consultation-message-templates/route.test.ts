@@ -15,11 +15,16 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
  * else the company's, else today's message). Every text is invented:
  *  1. a member reads another member's template, or another tenant's company template, or its author;
  *  2. a member names the tenant or the member of the template they save (only the database sets them);
- *  3. a template without its lines or designation, with a field twice, blank, over its bound or holding a NUL is
+ *  3. a template without its lines or designation, with its lines twice, blank, over its bound or holding a NUL is
  *     stored (the refusal must say why, in words);
  *  4. a member who is not an admin of the active tenant writes the company template, or a refusal is not 403;
  *  5. resetting fails when there is nothing to reset, or resets someone else's template;
  *  6. a second save leaves two rows.
+ * Review of PR #463:
+ *  7. the tables are not installed yet (migration not applied where the server reads): the read fails and the
+ *     devis step offers no message, instead of saying the templates are not available (none can exist there);
+ *     or any other read failure is answered as a 400 the client caused;
+ *  8. a field other than {lignes} written twice is refused.
  */
 
 const TENANT = "10000000-0000-4000-8000-000000000001";
@@ -81,12 +86,14 @@ describe("consultation message templates", () => {
       personal: OWN,
       company: { message_template: "Société {lignes}", line_template: "• {désignation}" },
       can_edit_company: false,
+      available: true,
     });
     seed(OUTSIDER, "admin");
     expect((await call(templatesRoute.GET, "GET")).data).toEqual({
       personal: null,
       company: { message_template: "Autre société {lignes}", line_template: "{désignation}" },
       can_edit_company: true,
+      available: true,
     });
   });
 
@@ -116,7 +123,7 @@ describe("consultation message templates", () => {
   it.each<[string, Record<string, string>, RegExp]>([
     ["without its lines", { message_template: "Bonjour", line_template: "{désignation}" }, /doit contenir \{lignes\}/],
     ["without the designation", { message_template: "{lignes}", line_template: "{quantité}" }, /doit contenir \{désignation\}/],
-    ["with a field twice", { message_template: "{lignes}", line_template: "{désignation} {designation}" }, /plusieurs fois/],
+    ["with its lines twice", { message_template: "{lignes}\n{lignes}", line_template: "{désignation}" }, /plusieurs fois/],
     ["blank", { message_template: " \n\t", line_template: "{désignation}" }, /vide/],
     ["over its bound", { message_template: `${"m".repeat(1993)}{lignes}`, line_template: "{désignation}" }, /2000 caractères/],
     ["over the line bound", { message_template: "{lignes}", line_template: `${"l".repeat(288)}{désignation}` }, /300 caractères/],
@@ -182,5 +189,51 @@ describe("consultation message templates", () => {
     const refused = await call(companyRoute.PUT, "PUT", OWN);
     expect(refused.status).toBe(403);
     expect(refused.error?.message).toMatch(/administrateur/);
+  });
+
+  /** The two template tables answer this error to every read, as the database would. */
+  function failReads(fake: ReturnType<typeof seed>, failure: { code: string; message: string | ((table: string) => string) }) {
+    const from = fake.supabase.from.bind(fake.supabase);
+    (fake.supabase as { from: unknown }).from = (table: string) => {
+      if (table !== "material_request_message_templates" && table !== "tenant_consultation_message_templates") return from(table);
+      const chain = {
+        select: () => chain,
+        eq: () => chain,
+        maybeSingle: async () => ({
+          data: null,
+          error: {
+            details: null, hint: null, code: failure.code,
+            message: typeof failure.message === "function" ? failure.message(table) : failure.message,
+          },
+        }),
+      };
+      return chain;
+    };
+  }
+
+  it.each([
+    ["PGRST205", "Could not find the table 'public.material_request_message_templates' in the schema cache"],
+    ["42P01", (table: string) => `relation "public.${table}" does not exist`],
+  ] as const)("says the templates are not installed yet when the tables are missing (%s) (7)", async (code, message) => {
+    const fake = seed(ENGINEER, "engineer");
+    failReads(fake, { code, message });
+    const read = await call(templatesRoute.GET, "GET");
+    expect(read.status).toBe(200);
+    expect(read.data).toEqual({ personal: null, company: null, can_edit_company: false, available: false });
+  });
+
+  it("answers any other read failure as the server's, not the caller's (7)", async () => {
+    const fake = seed(ENGINEER, "engineer");
+    failReads(fake, { code: "XX000", message: "internal error" });
+    const read = await call(templatesRoute.GET, "GET");
+    expect(read.status).toBeGreaterThanOrEqual(500);
+    failReads(fake, { code: "42P01", message: 'relation "public.estimate_items" does not exist' });
+    expect((await call(templatesRoute.GET, "GET")).status).toBeGreaterThanOrEqual(500);
+  });
+
+  it("saves a template that writes a field twice (8)", async () => {
+    seed(ENGINEER, "engineer");
+    const body = { message_template: "Bonjour {fournisseur},\n{lignes}\nMerci pour {fournisseur} !", line_template: "{désignation} ({désignation})" };
+    expect(await call(personalRoute.PUT, "PUT", body)).toMatchObject({ status: 200, data: { personal: body } });
   });
 });

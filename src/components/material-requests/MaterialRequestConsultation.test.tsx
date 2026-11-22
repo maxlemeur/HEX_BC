@@ -71,6 +71,10 @@ const euros = (cents: number) => formatEUR(cents).replace(/\s/g, " ");
  * 24. a competition text that names a known reference (typed in a retouch) is copied without a warning, or the
  *     warning blocks it;
  * 25. a template that cannot be read is silently replaced by today's message.
+ * Review of PR #463:
+ * 26. where the templates are not installed yet (migration not applied), the devis step offers no message at all;
+ * 27. « Modifier mon modèle » leaves the page and drops the retouches without a word;
+ * 28. the competition warning is not tied to the text it is about, or misses a reference retyped « NA 4471 ».
  */
 
 const { storageFromMock, uploadToSignedUrlMock } = vi.hoisted(() => ({
@@ -306,7 +310,7 @@ async function openEditor(routes: Record<string, Route>) {
     "GET /api/material-request-technicians": { data: { items: [] } },
     [`GET ${BASE}/candidates`]: { data: { lines: {} } },
     // TI-691: no template of the member nor of the company: today's message.
-    [TEMPLATES]: { data: { personal: null, company: null, can_edit_company: false } },
+    [TEMPLATES]: { data: { personal: null, company: null, can_edit_company: false, available: true } },
     ...routes,
   });
   const user = userEvent.setup();
@@ -1594,7 +1598,7 @@ describe("the member's message template and the retouch before copying (TI-691)"
 
   it("follows the member's template, and copies and records a retouch exactly as shown (20, 21)", async () => {
     const user = await openEditor({
-      [TEMPLATES]: { data: { personal: PERSONAL, company: { message_template: "Société {lignes}", line_template: "{désignation}" }, can_edit_company: false } },
+      [TEMPLATES]: { data: { personal: PERSONAL, company: { message_template: "Société {lignes}", line_template: "{désignation}" }, can_edit_company: false, available: true } },
       [`GET ${BASE}`]: { data: detail({ lines: [line(), line(TEE)], request: { delivery_place: "site" } }) },
       [`GET ${PROPOSALS}`]: references({ [LINE_A]: "NA-4471", [LINE_B]: null }),
       [`GET ${QUOTES}`]: { data: { items: [] } },
@@ -1603,7 +1607,7 @@ describe("the member's message template and the retouch before copying (TI-691)"
     const generated = ["Bonjour Négoce Alpha,", "1. 20 u Coude 90° (réf. NA-4471)", "2. 4 u Té égal, DN 50, Inox 316L", "Livraison : chantier"].join("\n");
     const message = await screen.findByRole("textbox", { name: "Message pour Négoce Alpha" });
     expect(message).toHaveValue(generated);
-    expect(screen.getByRole("link", { name: "Modifier mon modèle" })).toHaveAttribute("href", "/dashboard/profile#message-consultation");
+    expect(screen.getByRole("link", { name: /^Modifier mon modèle/ })).toHaveAttribute("href", "/dashboard/profile#message-consultation");
     expect(screen.queryByRole("button", { name: "Rétablir le texte généré" })).not.toBeInTheDocument();
 
     await user.type(message, "\nÀ livrer avant vendredi 🙏");
@@ -1623,7 +1627,7 @@ describe("the member's message template and the retouch before copying (TI-691)"
 
   it("writes each competitor's own message, and keeps a retouch to its competitor (20, 24)", async () => {
     const user = await openEditor({
-      [TEMPLATES]: { data: { personal: null, company: { message_template: "Bonjour {fournisseur} :\n{lignes}", line_template: "- {quantité} {désignation}[ réf. {référence}]" }, can_edit_company: false } },
+      [TEMPLATES]: { data: { personal: null, company: { message_template: "Bonjour {fournisseur} :\n{lignes}", line_template: "- {quantité} {désignation}[ réf. {référence}]" }, can_edit_company: false, available: true } },
       [`GET ${BASE}`]: { data: detail({ lines: [line({ reference: "471205" })] }) },
       [`GET ${PROPOSALS}`]: references({ [LINE_A]: "NA-4471" }),
       [`GET ${QUOTES}`]: { data: { items: [] } },
@@ -1677,7 +1681,7 @@ describe("the member's message template and the retouch before copying (TI-691)"
   it("says that the template cannot be read and offers no message in its place (25)", async () => {
     let fail = true;
     const user = await openEditor({
-      [TEMPLATES]: () => (fail ? { status: 500, error: { code: "INTERNAL", message: "Erreur interne." } } : { data: { personal: PERSONAL, company: null, can_edit_company: false } }),
+      [TEMPLATES]: () => (fail ? { status: 500, error: { code: "INTERNAL", message: "Erreur interne." } } : { data: { personal: PERSONAL, company: null, can_edit_company: false, available: true } }),
       [`GET ${BASE}`]: { data: detail({ lines: [line()] }) },
       [`GET ${PROPOSALS}`]: references({ [LINE_A]: "NA-4471" }),
       [`GET ${QUOTES}`]: { data: { items: [] } },
@@ -1718,5 +1722,42 @@ describe("the message block of one supplier (TI-691)", () => {
     expect(screen.getByText(/Le message dépasse 262 144 caractères/)).toBeVisible();
     expect(screen.getByRole("button", { name: "Copier le message pour Négoce Alpha" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Consultation envoyée à Négoce Alpha" })).toBeDisabled();
+  });
+});
+
+describe("review of PR #463 (TI-691)", () => {
+  afterEach(() => {
+    cleanup();
+    window.history.replaceState(null, "", window.location.pathname);
+    vi.unstubAllGlobals();
+  });
+
+  it("writes today's message where the templates are not installed yet (26)", async () => {
+    await openEditor({
+      [TEMPLATES]: { data: { personal: null, company: null, can_edit_company: false, available: false } },
+      [`GET ${BASE}`]: { data: detail({ lines: [line()] }) },
+      [`GET ${PROPOSALS}`]: references({ [LINE_A]: "NA-4471" }),
+      [`GET ${QUOTES}`]: { data: { items: [] } },
+    });
+    expect(await screen.findByRole("textbox", { name: "Message pour Négoce Alpha" })).toHaveValue(
+      "Bonjour, pouvez-vous me faire un prix pour l’affaire Résidence des Tilleuls :\n- 20 u Coude 90° — réf. NA-4471\nMerci !",
+    );
+    expect(screen.queryByText(/n’a pas pu être lu/)).not.toBeInTheDocument();
+  });
+
+  it("opens « Modifier mon modèle » in a new tab, keeping the retouches (27)", () => {
+    render(<ConsultationMessageBlock supplierName="Négoce Alpha" message="Bonjour" consultation={{ sent: null, busyElsewhere: false, unread: null }} onSend={vi.fn()} />);
+    const link = screen.getByRole("link", { name: /Modifier mon modèle/ });
+    expect(link).toHaveAttribute("target", "_blank");
+    expect(link.getAttribute("rel")).toMatch(/noopener/);
+  });
+
+  it("ties the competition warning to its text and finds a retyped reference (28)", async () => {
+    const user = userEvent.setup();
+    render(<ConsultationMessageBlock supplierName="Comptoir Bêta" message="Bonjour" knownReferences={["NA-4471"]} consultation={{ sent: null, busyElsewhere: false, unread: null }} onSend={vi.fn()} />);
+    const message = screen.getByRole("textbox", { name: "Message pour Comptoir Bêta" });
+    await user.type(message, " (comme le na 4471)");
+    const warning = screen.getByText(/cite une référence connue : NA-4471/);
+    expect(message.getAttribute("aria-describedby")?.split(" ")).toContain(warning.id);
   });
 });
