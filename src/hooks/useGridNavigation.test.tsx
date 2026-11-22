@@ -334,6 +334,20 @@ describe("useGridNavigation", () => {
     expect(document.querySelector("[data-editing='true']")).toBeNull();
   });
 
+  it("leaves Alt+Shift+Up/Down to the page, where they move the line", () => {
+    render(<Harness rows={createRows()} />);
+    select("L3", "quantity");
+
+    expect(press("ArrowDown", { altKey: true, shiftKey: true })).toBe(true);
+    expect(press("ArrowUp", { altKey: true, shiftKey: true })).toBe(true);
+    expect(activeCellId()).toBe("L3::quantity");
+    expect(document.querySelector("[data-editing='true']")).toBeNull();
+
+    // Alt+Down alone still opens the cell's editor.
+    press("ArrowDown", { altKey: true });
+    expect(document.querySelector("[data-editing='true']")).not.toBeNull();
+  });
+
   it("moves with the arrows and stops at the edges", () => {
     render(<Harness rows={createRows()} />);
     select("L3", "quantity");
