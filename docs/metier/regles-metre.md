@@ -838,7 +838,8 @@ suit s'y ajoute (migration `20261122030312_takeoff_partial_send.sql`,
   aujourd'hui (chaque copie actuelle d'une pièce ou plan importé, comme pour les plans comparés),
   dont la copie actuelle n'a été lue par aucune analyse par plan — une copie qui en remplace une
   autre y figure aussitôt, sous son nom de fichier, sans attendre qu'une demande ou la préparation
-  la nomme ; enfin, séparément, combien d'analyses groupées et combien d'analyses lancées hors
+  la nomme, même quand la demande de ce plan contenait l'ancienne copie (seule une lecture de la
+  copie actuelle la couvre) ; enfin, séparément, combien d'analyses groupées et combien d'analyses lancées hors
   demande, lues et non envoyées, il ne compare pas. Les contrôles entre plans ne couvrent pas les
   plans non lus ou non comparés, rien n'est dit vérifié pour eux, et le résumé des contrôles le
   dit (« hors plans non lus ou non comparés »). Chaque plan non lu sera comparé, à son propre
@@ -873,14 +874,22 @@ suit s'y ajoute (migration `20261122030312_takeoff_partial_send.sql`,
   millisecondes : un écrivain qui s'engage après que l'envoi a lu son contexte et avant que
   l'envoi s'engage n'est pas vu par lui. L'envoi écrit ce qu'il a lu, et son reçu enregistre ce
   que sa comparaison a lu (chaque plan comparé avec l'empreinte de ses lignes, chaque révision
-  avec sa localisation et sa copie). Quand les lignes du plan envoyé sont relues (sa revue,
-  `public.read_takeoff_send_drift`, réservée au service, lue après l'accès du membre au métré),
-  ce reçu est comparé à l'état présent : un plan comparé, pas envoyé depuis, dont les lignes ont
-  changé ou qui a été relu, ou une révision comparée dont la localisation ou la copie a changé,
-  marque les lignes envoyées « Contexte modifié depuis l'envoi : à revoir » (la revue nomme le
+  avec sa localisation et sa copie) et quand : l'instant où il a lu son contexte et celui où son
+  corps s'est terminé, juste avant son engagement (l'horloge de la base). Quand les lignes du
+  plan envoyé sont relues (sa revue, `public.read_takeoff_send_drift`, réservée au service, lue
+  après l'accès du membre au métré), ce reçu est comparé à l'état présent, et chaque changement
+  a son propre motif : les lignes d'un plan comparé, pas envoyé depuis, ont changé ; un plan
+  comparé a été relu (une lecture plus récente de sa pièce a réussi) ; la lecture comparée
+  n'existe plus ; un plan a été lu pendant l'envoi sans lui être comparé (sa lecture s'est
+  terminée, à l'horloge de la base, entre les deux instants du reçu, avec ou sans ligne) ; la
+  localisation d'une révision comparée a été corrigée ; sa copie dans le dossier a changé
+  (remplacée, écartée, réservée pour suppression). L'écran ne dit « relu » que si une lecture a
+  eu lieu ; une copie réservée pour suppression n'est nommée que par sa copie. Ces changements
+  marquent les lignes envoyées « Contexte modifié depuis l'envoi : à revoir » (la revue nomme le
   changement et les lignes ; le devis n'est pas réécrit). Ne comptent pas : un plan comparé
-  envoyé depuis (son propre envoi l'a comparé à celui-ci), un plan lu seulement après cet envoi
-  (son propre envoi le comparera). Une clé consultative par affaire, que chaque écrivain prenait
+  envoyé depuis (son propre envoi l'a comparé à celui-ci), un plan lu seulement après la fin de
+  cet envoi (son propre envoi le comparera). L'empreinte d'un plan comparé est celle de toutes
+  ses lignes : vérifier une seule ligne de B marque toutes les lignes envoyées de A. Une clé consultative par affaire, que chaque écrivain prenait
   en partage, a été essayée puis retirée : elle faisait payer chaque écrivain publié, créait
   deux interblocages par la ligne de l'affaire (l'envoi d'un premier brouillon contre un
   enregistrement de localisation, une relance contre l'envoi de l'analyse hors demande qu'elle
@@ -890,13 +899,19 @@ suit s'y ajoute (migration `20261122030312_takeoff_partial_send.sql`,
   demande de A (`FOR NO KEY UPDATE`), les règles de correspondance, les lignes. Fin d'un plan
   par le worker : son job, puis la ligne de sa demande (son solde) ; la réservation et l'usage
   d'un appel, l'arrêt du reste d'une demande : le job, puis la demande. Relance (la commande
-  manuelle, ses deux entrées) : **l'affaire, partagée**, puis l'analyse qu'elle remplace quand
-  elle a été lancée hors demande (un partage de clé ; la reprise d'un essai par le Mac tient ce
-  job, puis la clé de commande, sans rien prendre de l'affaire : la garde de reprise de
-  `20261121193413`), puis la clé de commande de l'affaire, puis sa demande automatique
-  (`FOR UPDATE`), puis ses écritures et, en dernier, la clé du dossier. L'analyse remplacée d'une
-  demande n'est pas verrouillée d'avance : son worker la tient pendant sa lecture, et une
-  relance refusée ne l'attend jamais. L'envoi et la relance prennent tous deux l'affaire avant
+  manuelle, ses deux entrées) : **l'affaire, partagée**, puis l'analyse qu'elle remplace (un
+  partage de clé) quand elle a été lancée hors demande (la reprise d'un essai par le Mac tient
+  ce job, puis la clé de commande, sans rien prendre de l'affaire : la garde de reprise de
+  `20261121193413`) ou quand elle est terminée (lue, envoyée ou annulée : aucun worker ne la
+  tient), puis la clé de commande de l'affaire, puis sa demande automatique (`FOR UPDATE`), puis
+  ses écritures et, en dernier, la clé du dossier. Une analyse remplacée encore en lecture n'est
+  pas verrouillée d'avance : son worker la tient, et une relance refusée ne l'attend jamais.
+  L'aperçu sur un brouillon existant prend l'affaire en partage comme la relance, puis le job,
+  puis (la vérification de clé étrangère de sa seconde mise à jour) un partage de clé de la
+  ligne de sa demande : la relance attend ce job avant de tenir la demande automatique, donc
+  rien ne se croise. L'aperçu ne prend pas la demande avant le job : l'arrêt d'une demande tient
+  ses jobs (`FOR NO KEY UPDATE`) puis la demande (`FOR UPDATE`), et la fin d'un plan son job puis
+  la demande (son solde, `FOR UPDATE`) — job avant demande partout. L'envoi et la relance prennent tous deux l'affaire avant
   tout job : une relance attend un envoi de la même affaire sans rien tenir de ce qu'il demande
   ensuite, et un envoi attend, à son premier verrou, une relance qui tient l'affaire. Un
   enregistrement de localisation prend l'affaire en partage de clé : il n'attend un envoi qu'une
@@ -916,17 +931,18 @@ suit s'y ajoute (migration `20261122030312_takeoff_partial_send.sql`,
   précédente) restent refusés (`TAKEOFF_SEND_JOB_NOT_READY`).
 - **Reçu.** Son plan d'écriture enregistre ce qui a été vérifié : la demande et l'unité du plan
   envoyé, les autres plans lus avec lesquels il a été comparé (avec l'empreinte de leurs
-  lignes), et pour chaque révision lue la localisation (et sa génération) et la copie sous
-  lesquelles il est parti. Une correction postérieure ne réécrit ni la quantité envoyée ni son
+  lignes), pour chaque révision lue la localisation (et sa génération) et la copie sous
+  lesquelles il est parti, et les deux instants de sa comparaison. Une correction postérieure ne réécrit ni la quantité envoyée ni son
   reçu ; elle est seulement signalée à la relecture (ci-dessus).
 - **Mise en service.** La migration crée une table privée et sept fonctions, et en remplace
   trois (l'envoi, reconstruit sur le corps de `20261121193413` ; la fonction de la garde du
-  lien ; la commande manuelle, reconstruite sur `20261121231238` pour le seul verrou de
-  l'affaire, partagée, en premier) ; elle n'ajoute aucun déclencheur et ne touche à aucune
-  ligne. Elle prend d'abord, sans attendre (`nowait`) et dans un ordre fixe, les deux verrous de
-  table que les clés étrangères de sa table de contrôle demandent (les versions de devis, puis
-  les jobs) : une table occupée l'arrête aussitôt (`55P03`), rien n'est appliqué, on la relance ;
-  elle n'attend jamais en tenant un verrou, donc ne bloque ni ne croise aucun écrivain.
+  lien ; la commande manuelle, reconstruite sur `20261121231238` pour ses deux verrous :
+  l'affaire, partagée, en premier, et l'analyse remplacée terminée) ; elle n'ajoute aucun
+  déclencheur, aucune clé étrangère et ne touche à aucune ligne. Elle ne prend aucun verrou sur
+  une table existante : elle n'attend aucun écrivain et n'en fait attendre aucun. La table de
+  contrôle n'a ni clé étrangère (aucun déclencheur interne sur la suppression d'un job ou d'une
+  version, d'une affaire supprimée par l'application précédente comprise) ni colonne de version ;
+  elle n'est lue et écrite que par l'envoi d'une analyse par plan.
   L'application précédente ne dépose jamais de contexte : ses envois d'analyses groupées ou hors
   demande sont vérifiés comme avant, et une analyse par plan, que son écran n'envoie pas, reste
   refusée ; ses commandes de lancement (la même fonction de la base) attendent, à l'affaire, un
