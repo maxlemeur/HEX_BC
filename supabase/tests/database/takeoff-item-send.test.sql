@@ -627,6 +627,8 @@ insert into plans select 'engine_2', jsonb_set(body, '{engine}', '2'), payload f
 insert into plans select 'no_payload', body, null from plans where name = 'first';
 insert into plans select 'decision_without_decision', jsonb_set(body, '{page_decisions}', '[{"page": 2}]'), payload
 from plans where name = 'first';
+insert into plans select 'contribution_without_sources', jsonb_set(body, '{targets,0,contributions,0}',
+  (body #> '{targets,0,contributions,0}') - 'observation_ids'), payload from plans where name = 'first';
 create function pg_temp.send_with_override(p_request integer) returns jsonb language sql security definer as $$
   select public.send_takeoff_item_plan(pg_temp.f(10), pg_temp.f(1), false, jsonb_build_object('request_id', pg_temp.f(p_request),
     'plan', p.body, 'version_payload', p.payload, 'override', jsonb_build_object('reason_code', 'other',
@@ -640,6 +642,8 @@ select is(pg_temp.refusal($$select pg_temp.send(713, 'no_payload')$$), '22023 TA
   'a first draft without the server''s payload');
 select is(pg_temp.refusal($$select pg_temp.send(713, 'decision_without_decision')$$), '22023 TAKEOFF_ITEM_SEND_INVALID',
   'point 3: a page decision without its decision is no decision');
+select is(pg_temp.refusal($$select pg_temp.send(713, 'contribution_without_sources')$$), '22023 TAKEOFF_ITEM_SEND_INVALID',
+  'point 3, the same NULL shape: a contribution without its sources is malformed, never judged further');
 select is(pg_temp.refusal($$select pg_temp.send_with_override(713)$$), '22023 TAKEOFF_ITEM_SEND_OVERRIDE_NOT_ADMITTED',
   'an override is refused: no block of this send admits one');
 reset role;

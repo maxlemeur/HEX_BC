@@ -1143,7 +1143,7 @@ returns boolean language sql immutable set search_path = '' as $$
         and pg_catalog.jsonb_typeof(t.value -> 'contributions') = 'array'
         and pg_catalog.jsonb_array_length(t.value -> 'contributions') between 1 and 500
         and not exists (select 1 from pg_catalog.jsonb_array_elements(t.value -> 'contributions') as c(value)
-          where not (pg_catalog.jsonb_typeof(c.value) = 'object' and private.takeoff_item_send_uuid(c.value -> 'answer_id')
+          where (pg_catalog.jsonb_typeof(c.value) = 'object' and private.takeoff_item_send_uuid(c.value -> 'answer_id')
             and coalesce(c.value ->> 'answer_revision' ~ '^[0-9a-f]{64}$', false)
             and coalesce(c.value ->> 'kind' in ('measured', 'entered'), false)
             and pg_catalog.jsonb_typeof(c.value -> 'observation_ids') = 'array'
@@ -1154,7 +1154,7 @@ returns boolean language sql immutable set search_path = '' as $$
             and not exists (select 1 from pg_catalog.jsonb_array_elements(c.value -> 'pages') as g(value)
               where (pg_catalog.jsonb_typeof(g.value) = 'number' and (g.value #>> '{}') ~ '^[1-9][0-9]{0,8}$') is not true)
             and pg_catalog.jsonb_typeof(c.value -> 'identity') = 'object'
-            and private.takeoff_item_send_text(c.value #> '{identity,unit}', 32)))) is not true)
+            and private.takeoff_item_send_text(c.value #> '{identity,unit}', 32)) is not true)) is not true)
     and not exists (select 1 from pg_catalog.jsonb_array_elements(p_plan -> 'sections') as s(value)
       where (pg_catalog.jsonb_typeof(s.value) = 'object' and private.takeoff_item_send_text(s.value -> 'key', 2000)
         and private.takeoff_item_send_text(s.value -> 'title', 4000)
