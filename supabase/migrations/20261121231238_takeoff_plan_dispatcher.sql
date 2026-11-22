@@ -585,14 +585,27 @@ returns text language sql immutable set search_path = '' as $$
 $$;
 revoke all on function private.takeoff_launch_plan_command_digest(uuid, text, uuid, uuid, integer, uuid[]) from public, anon, authenticated, service_role;
 
+-- A member's command's receipt, read first whatever the activation, under either identity the command can have had: M4's
+-- (every plan of the preparation, a grouped analysis or the first analysis launched from the affaire's zone), or the one
+-- scoped to the plans it names (`p_plan_file_ids`, when given). The same key for another command is a conflict.
 create function public.replay_manual_takeoff_plan_request(
   p_tenant_id uuid, p_project_id uuid, p_actor uuid, p_intent_key uuid, p_intent text, p_predecessor_job_id uuid,
   p_plan_set_id uuid, p_preparation_revision integer, p_plan_file_ids uuid[]
 ) returns table (outcome text, request_id uuid, job_id uuid)
-language sql stable security definer set search_path = '' as $$
-  select * from private.replay_takeoff_launch_command(p_tenant_id, p_project_id, p_intent_key,
-    private.takeoff_launch_plan_command_digest(p_actor, p_intent, p_predecessor_job_id, p_plan_set_id, p_preparation_revision,
-      p_plan_file_ids))
+language plpgsql stable security definer set search_path = '' as $$
+#variable_conflict use_column
+declare
+  receipt private.takeoff_launch_commands%rowtype;
+  digest text := private.takeoff_launch_command_digest(p_actor, p_intent, p_predecessor_job_id, p_plan_set_id, p_preparation_revision);
+begin
+  select * into receipt from private.takeoff_launch_commands c
+  where c.tenant_id = p_tenant_id and c.project_id = p_project_id and c.intent_key = p_intent_key;
+  if found and coalesce(array_length(p_plan_file_ids, 1), 0) > 0 and receipt.command_digest = private.takeoff_launch_plan_command_digest(
+      p_actor, p_intent, p_predecessor_job_id, p_plan_set_id, p_preparation_revision, p_plan_file_ids) then
+    digest := receipt.command_digest;
+  end if;
+  return query select * from private.replay_takeoff_launch_command(p_tenant_id, p_project_id, p_intent_key, digest);
+end;
 $$;
 revoke all on function public.replay_manual_takeoff_plan_request(uuid, uuid, uuid, uuid, text, uuid, uuid, integer, uuid[]) from public, anon, authenticated;
 grant execute on function public.replay_manual_takeoff_plan_request(uuid, uuid, uuid, uuid, text, uuid, uuid, integer, uuid[]) to service_role;

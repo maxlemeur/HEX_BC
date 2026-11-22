@@ -712,6 +712,31 @@ select is((select count(*)::integer from public.takeoff_completion_notifications
   'with one notice');
 select is((select count(*)::integer from public.reconcile_takeoff_launch_requests() where request_id = pg_temp.request(27)), 0,
   'and only once');
+-- The first analysis of an affaire, launched from its zone without naming any plan: M4's command, its identity, with the
+-- manifest of every plan the preparation retains, one unit each; its lost answer is replayed by the same receipt lookup a
+-- command naming its plans uses, whatever the activation.
+insert into public.estimate_projects (id, tenant_id, user_id, name)
+values (pg_temp.f(2030), pg_temp.f(10), pg_temp.f(1), 'Affaire sans analyse (fictive)');
+insert into public.plan_sets (id, tenant_id, project_id, name) values (pg_temp.f(2050), pg_temp.f(10), pg_temp.f(2030), 'Plans du dossier');
+insert into public.plan_files (id, tenant_id, plan_set_id, file_name, file_path, file_type, file_size_bytes, page_count)
+select pg_temp.f(2050 + k), pg_temp.f(10), pg_temp.f(2050), 'plan-' || k || '.pdf',
+  concat_ws('/', pg_temp.f(10), pg_temp.f(2050), pg_temp.f(2050 + k), 'plan-' || k || '.pdf'), 'application/pdf', 8, 9
+from generate_series(1, 2) as k;
+select results_eq($$select outcome, job_id from public.launch_manual_takeoff_request(pg_temp.f(10), pg_temp.f(2030), pg_temp.f(1),
+    pg_temp.f(2031), 'initial', null, pg_temp.host(), pg_temp.selection(), pg_temp.manifest(2030), pg_temp.snapshot(2030),
+    pg_temp.jobs(2030), pg_temp.f(2050), 1)$$, $$values ('admitted'::text, pg_temp.unit(2030, 1))$$,
+  'a first analysis of every plan is admitted through M4''s command');
+select results_eq($$select units_expected, manifest -> 'format_version' from public.takeoff_launch_requests where id = pg_temp.request(2030)$$,
+  $$values (2, '2'::jsonb)$$, 'as one analysis per plan');
+select results_eq($$select outcome, job_id from public.replay_manual_takeoff_plan_request(pg_temp.f(10), pg_temp.f(2030), pg_temp.f(1),
+    pg_temp.f(2031), 'initial', null, pg_temp.f(2050), 1, null)$$, $$values ('replayed'::text, pg_temp.unit(2030, 1))$$,
+  'its lost answer is replayed without naming any plan');
+select results_eq($$select outcome from public.replay_manual_takeoff_plan_request(pg_temp.f(10), pg_temp.f(2030), pg_temp.f(1),
+    pg_temp.f(2031), 'initial', null, pg_temp.f(2050), 1, array[pg_temp.f(2051)])$$, $$values ('replayed'::text)$$,
+  'and so when the retry names plans: the receipt answers under either identity');
+select throws_ok($$select * from public.replay_manual_takeoff_plan_request(pg_temp.f(10), pg_temp.f(2030), pg_temp.f(1),
+    pg_temp.f(2031), 'initial', null, pg_temp.f(2050), 2, null)$$, '23505', 'TAKEOFF_LAUNCH_INTENT_CONFLICT',
+  'the same key for another command is still a conflict');
 
 select * from finish();
 rollback;
