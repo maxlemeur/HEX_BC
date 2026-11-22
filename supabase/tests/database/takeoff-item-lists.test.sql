@@ -700,6 +700,16 @@ select is(extensions.dblink_exec('race_b', 'rollback'), 'ROLLBACK', 'the second 
 select is((select count(*)::integer from extensions.dblink('race_setup', format(
   'select revision from public.takeoff_list_revisions where project_id = %L', pg_temp.fx(22))) as t(revision integer)), 1,
   'one revision exists');
+-- A list is read plan by plan (format 2): one unit per plan, each with its identity, its digest and its pages (here a
+-- whole plan of 3 pages), as 20261122113611_takeoff_item_answers_before_activation.sql requires at the seal.
+create function pg_temp.plan_units(p_page_count jsonb default '3', p_format integer default 2) returns jsonb
+language sql immutable as $$
+  select jsonb_build_object('format_version', p_format,
+    'units', jsonb_build_array(jsonb_build_object('key', 'plan:' || pg_temp.fx(95), 'ordinal', 1,
+      'plans', jsonb_build_array(pg_temp.fx(95)), 'pages', '[]'::jsonb, 'page_count', p_page_count)),
+    'plans', jsonb_build_array(jsonb_build_object('entry_key', pg_temp.fx(95), 'plan_file_id', pg_temp.fx(95),
+      'logical_id', pg_temp.fx(95), 'content_sha256', repeat('e', 64), 'pages', '[]'::jsonb, 'page_count', p_page_count)))
+$$;
 -- An admission sealing revision 1 while a writer records revision 2: it waits for the writer, then is stale.
 select is(extensions.dblink_exec('race_setup', format($setup$
 begin;
@@ -711,7 +721,7 @@ commit;
 $setup$, pg_temp.fx(91), pg_temp.fx(91), pg_temp.fx(22))), 'COMMIT', 'a request of that affaire, the second order activated');
 create temp table race_manifest as select jsonb_build_object('order', jsonb_build_object('kind', 'item_list', 'version', 2,
   'list', jsonb_build_object('revision_id', r.revision_id, 'revision', r.revision, 'content_sha256', r.content_sha256,
-  'item_count', r.item_count))) as manifest
+  'item_count', r.item_count))) || pg_temp.plan_units() as manifest
 from extensions.dblink('race_setup', format('select id, revision, content_sha256, item_count from public.takeoff_list_revisions
   where project_id = %L and revision = 1', pg_temp.fx(22))) as r(revision_id uuid, revision integer, content_sha256 text, item_count integer);
 select is(extensions.dblink_exec('race_a', 'begin'), 'BEGIN', 'a writer opens its transaction');
@@ -1000,11 +1010,12 @@ set local session_replication_role = origin;
 create function pg_temp.request() returns public.takeoff_launch_requests language sql stable as $$
   select * from public.takeoff_launch_requests where id = pg_temp.fx(90)
 $$;
-create function pg_temp.order_manifest(p_revision integer, p_project integer default 20, p_digest text default null)
+create function pg_temp.order_manifest(p_revision integer, p_project integer default 20, p_digest text default null,
+  p_units jsonb default pg_temp.plan_units())
 returns jsonb language sql stable as $$
   select jsonb_build_object('order', jsonb_build_object('kind', 'item_list', 'version', 2, 'list', jsonb_build_object(
     'revision_id', r.id, 'revision', r.revision, 'content_sha256', coalesce(p_digest, r.content_sha256),
-    'item_count', r.item_count)))
+    'item_count', r.item_count))) || p_units
   from public.takeoff_list_revisions r where r.project_id = pg_temp.fx(p_project) and r.revision = p_revision
 $$;
 select is(private.assert_takeoff_launch_order(pg_temp.request(),
@@ -1023,6 +1034,20 @@ select throws_ok($$ select private.assert_takeoff_launch_order(pg_temp.request()
 select throws_ok($$ select private.assert_takeoff_launch_order(pg_temp.request(), pg_temp.order_manifest(4)) $$,
   '40001', 'TAKEOFF_LAUNCH_DOSSIER_CHANGED',
   'a revision recorded since the evaluation read the list makes the admission stale, never sealed without it');
+-- A list is read plan by plan: a grouped manifest (format 1) never seals it, and each plan's pages must be known at the
+-- seal, before anything is paid (its answers are published against them).
+select throws_ok($$ select private.assert_takeoff_launch_order(pg_temp.request(), pg_temp.order_manifest(5, 20, null,
+  pg_temp.plan_units(p_format => 1))) $$, '22023', 'TAKEOFF_LAUNCH_SEAL_INVALID', 'a grouped manifest never seals a list');
+select throws_ok($$ select private.assert_takeoff_launch_order(pg_temp.request(), pg_temp.order_manifest(5, 20, null,
+  pg_temp.plan_units('null'))) $$, '22023', 'TAKEOFF_LAUNCH_PLAN_PAGES_UNKNOWN',
+  'a plan read whole whose page count is unknown is refused at the seal');
+select throws_ok($$ select private.assert_takeoff_launch_order(pg_temp.request(), pg_temp.order_manifest(5, 20, null,
+  pg_temp.plan_units() #- '{plans,0,logical_id}')) $$, '22023', 'TAKEOFF_LAUNCH_PLAN_PAGES_UNKNOWN',
+  'so is a plan without its identity');
+select is(private.assert_takeoff_launch_order(pg_temp.request(), pg_temp.order_manifest(5, 20, null,
+  jsonb_set(jsonb_set(pg_temp.plan_units('null'), '{plans,0,pages}', '[1, 3]'), '{units,0,pages}', '[1, 3]'))),
+  (select id from public.takeoff_list_revisions where project_id = pg_temp.fx(20) and revision = 5),
+  'a plan whose retained pages are listed needs no page count');
 -- The seal itself (M4's, replaced): it records the list it sealed on the request.
 create function pg_temp.sealed_manifest(p_revision integer) returns jsonb language sql stable as $$
   select pg_temp.order_manifest(p_revision) || jsonb_build_object('format_version', 1, 'intent', 'initial',
@@ -1035,13 +1060,19 @@ create function pg_temp.snapshot() returns jsonb language sql stable as $$
     'readiness', jsonb_build_object('can_launch', true), 'preparation', jsonb_build_object(
       'processing', jsonb_build_object('level', 'C', 'provider', 'chatgpt'), 'destination', jsonb_build_object('kind', 'analysis_only')))
 $$;
-select throws_ok($$ select private.seal_takeoff_launch_request(pg_temp.request(), pg_temp.sealed_manifest(4), pg_temp.snapshot(), 0) $$,
-  '40001', 'TAKEOFF_LAUNCH_DOSSIER_CHANGED', 'the seal refuses a list that is no longer the latest');
-select results_eq($$ select r.state, r.item_list_revision_id, r.manifest #>> '{order,kind}'
-  from private.seal_takeoff_launch_request(pg_temp.request(), pg_temp.sealed_manifest(5), pg_temp.snapshot(), 0) r $$,
-  $$ select 'admitted'::text, id, 'item_list'::text from public.takeoff_list_revisions
-    where project_id = pg_temp.fx(20) and revision = 5 $$,
-  'the seal admits the request and records the revision it sealed');
+-- Through the seal: a grouped request (lot 2's format 1) never seals a list, the latest one included (it could never
+-- publish its answers). The seal of a list on a request of one analysis per plan, and its record on the request, are in
+-- takeoff-plan-dispatcher.test.sql (section 16).
+select throws_ok($$ select private.seal_takeoff_launch_request(pg_temp.request(), pg_temp.sealed_manifest(5), pg_temp.snapshot(), 0) $$,
+  '22023', 'TAKEOFF_LAUNCH_SEAL_INVALID', 'the seal of a grouped request refuses a list, the latest one included');
+-- A request that sealed revision 5 (admitted as a request of one analysis per plan would be), for the next check.
+set local session_replication_role = replica;
+update public.takeoff_launch_requests set state = 'admitted', admitted_at = now(), manifest = pg_temp.order_manifest(5),
+  manifest_digest = repeat('f', 64), preparation_snapshot = pg_temp.snapshot(), units_expected = 1, token_budget = 1000,
+  cost_budget_cents = 0, item_list_revision_id = (select id from public.takeoff_list_revisions
+    where project_id = pg_temp.fx(20) and revision = 5)
+where id = pg_temp.fx(90);
+set local session_replication_role = origin;
 select throws_ok($$ delete from public.takeoff_list_revisions where project_id = pg_temp.fx(20) and revision = 5 $$, '23503', null,
   'a sealed revision outlives any attempt to delete it while its request exists');
 select results_eq($$ select revision from pg_temp.record(2, 0, 208, 'initial', jsonb_build_array(
