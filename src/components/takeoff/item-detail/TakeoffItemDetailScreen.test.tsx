@@ -303,7 +303,10 @@ describe("TakeoffItemDetailScreen, the way back", () => {
     expect(replace).toHaveBeenCalledWith(
       `/dashboard/affaires/${DETAIL_PROJECT}/takeoff?posteState=measured&posteState=not_found&tab=jobs&posteFocus=${ITEMS.notFound}`,
       { scroll: false });
-    expect(plansAsked.every((path) => path.startsWith(`/api/affaires/${DETAIL_PROJECT}/takeoff/item-detail/plan?`))).toBe(true);
+    // The plans through the detail's route, and the counted marks of the reading shown (lot 5) through theirs: nothing else.
+    expect(plansAsked.every((path) => path.startsWith(`/api/affaires/${DETAIL_PROJECT}/takeoff/item-detail/plan?`)
+      || path.startsWith(`/api/affaires/${DETAIL_PROJECT}/takeoff/count-marks?`))).toBe(true);
+    expect(plansAsked.some((path) => path.startsWith(`/api/affaires/${DETAIL_PROJECT}/takeoff/item-detail/plan?`))).toBe(true);
   });
 });
 
