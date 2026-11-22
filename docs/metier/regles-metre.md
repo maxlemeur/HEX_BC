@@ -1275,14 +1275,22 @@ enregistrés, lus par les lecteurs de la base que l'écrivain relit (`read_takeo
 `read_takeoff_item_send_draft`) ; un autre plan que celui montré est refusé, rien n'est écrit, l'aperçu
 est à rouvrir. L'écrivain (`public.send_takeoff_item_plan`) est celui du serveur : seul le rôle de
 service l'appelle, avec le membre authentifié en paramètre ; après ses attentes, il relit le droit du
-membre sur l'affaire (son propriétaire ingénieur ou un administrateur, l'affaire non archivée) et
-l'admission du module, puis écrit en une transaction. La même clé et le même plan rendent le même
-reçu ; un autre plan sous la même clé est un conflit. Chaque refus dit au membre pourquoi.
+membre sur l'affaire (son propriétaire ingénieur ou un administrateur, l'affaire non archivée), que
+l'entreprise est toujours celle où le membre travaille (comme l'application la résout, entreprise
+active), l'admission du module et le bail du brouillon à l'heure qu'il est, puis écrit en une
+transaction. La même clé rend le même reçu seulement à son auteur, toujours en droit d'écrire, pour
+les mêmes choix et le même plan ; autrement c'est un conflit ou un refus. Un aperçu qui ne peut plus
+être confirmé (un poste écarté depuis) est à rouvrir. Chaque refus dit au membre pourquoi.
 
 **Frontière de confiance.** La base ne prend du plan rien qui change un montant : chaque part, sa
 quantité, son unité et ses pages, l'identité quantitative, ce qui est remplacé, l'effet des
 décisions de pages et les pages écrites sont relus ou recalculés depuis les réponses, décisions,
-saisies, lignes, cibles et parts enregistrées. Ce que seul le serveur calcule, elle le lie par
+saisies, lignes, cibles et parts enregistrées — les pages d'une part laissée de côté comprises, et
+le résumé de chaque page (ses postes, ses cibles, ses observations) comparé en entier. Le plan a une
+seule forme, celle que le planificateur écrit : une clé manquante ou inconnue le refuse, et les plans
+du planificateur passent par la vérification de la base dans les tests. L'identité se compare sous
+une seule forme des deux côtés, quelle que soit la langue de la base (décomposition de compatibilité,
+casse, signes diacritiques de toutes les écritures retirés). Ce que seul le serveur calcule, elle le lie par
 comparaison : la projection des règles de correspondance (le plan nomme la règle appliquée à chaque
 poste ; l'état des règles et la version de chaque règle nommée sont comparés, une règle « Ignorer »
 n'écrit jamais, le titre et la catégorie d'une ligne créée sont vérifiés), et les réglages du premier
@@ -1294,7 +1302,9 @@ jamais une valeur de la demande — et ses réglages créés sont comparés à c
 L'envoi des métrés d'aujourd'hui (une analyse groupée, hors demande ou par plan sans liste) est
 inchangé, sauf vers un devis alimenté poste par poste : l'envoi groupé, l'envoi d'un plan aux formats
 d'aujourd'hui et l'application héritée (avec sa composition DPGF) refusent une version qui tient une
-cible vivante de l'envoi par poste, car leurs lignes compteraient à côté des parts gardées par poste.
+cible de l'envoi par poste — avec sa ligne, ou avec une part vivante quand le même envoi a d'abord
+vidé la section (« Remplacer la section ») —, car leurs lignes compteraient à côté des parts gardées
+par poste.
 
 - **Unité d'envoi.** Ce qui est retenu de ce plan, confirmé pour ce seul job : une mesure acceptée
   dans le tableau des postes, ou une saisie retenue. Une mesure que personne n'a acceptée, avec ou
@@ -1357,7 +1367,9 @@ cible vivante de l'envoi par poste, car leurs lignes compteraient à côté des 
   celles remplacées. Une réponse qu'une lecture plus récente du plan a remplacée n'envoie rien.
 - **Ligne supprimée.** Après la suppression dans l'éditeur de la ligne qu'un envoi par poste
   alimentait, un nouvel envoi recrée la ligne seulement par choix, et retire dans la même transaction
-  les parts restées vivantes de l'ancienne cible, qui gardent leur historique.
+  les parts restées vivantes de l'ancienne cible, qui gardent leur historique. Une ligne du DPGF
+  supprimée dont la ligne brute est désormais sur une autre ligne de l'import : l'envoi vers cette
+  ligne retire de même les parts de l'ancienne cible.
 - **Règles et prix.** Une seule projection des règles de correspondance
   (`src/lib/takeoff/item-send-rules.ts`) : « Fixer le prix » est sans effet et dit tel, sans passer
   à la règle suivante ; « Remplacer par un ouvrage » garde la quantité du poste et nomme l'ouvrage.

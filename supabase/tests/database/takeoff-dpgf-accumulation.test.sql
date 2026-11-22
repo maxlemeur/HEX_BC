@@ -992,5 +992,78 @@ reset role;
 select is((pg_temp.da_target(28)).quantity, 20::numeric, 'the DPGF line keeps the 20 the send by item wrote, never 10');
 select is((select status::text from public.takeoff_jobs where id = pg_temp.da_job(28, 2)), 'completed', 'the takeoff is not applied');
 
+-- Lot 4, case 29 (closing 8 of #484's last check): a draft without DPGF line whose only line a send by item fed lies under
+-- the section a takeoff of the first format replaces. Today's writer deletes the section's lines first, which empties
+-- the target's link (its foreign key): the guard of the applied job still sees the target, by its live part, so the
+-- refusal rolls the deletion back. The line keeps its 20, the takeoff stays to apply.
+insert into da_cases values (29, 'Vanne d''arrêt', 'u', 0);
+select set_config('request.jwt.claim.sub', '', true);
+select set_config('request.jwt.claims', '', true);
+insert into public.estimate_versions (id, tenant_id, project_id, version_number, calc_engine_version, max_section_depth,
+  currency, status, margin_mode, margin_multiplier, margin_bp, global_coefficient, discount_bp, discount_mode, tax_rate_bp,
+  rounding_mode, rounding_step_cents, sale_coefficient_fo, sale_coefficient_mo, gross_ht_cents, discount_applied_cents,
+  commercial_rounding_cents, total_ht_cents, total_tax_cents, total_ttc_cents)
+values (pg_temp.da_id(29001), current_setting('test.tenant_id')::uuid, pg_temp.da_id(10), 29, 3, 3, 'EUR', 'draft', 'fixed', 1, 0,
+  1, 0, 'simple', 2000, 'none', 1, 1.3, 1.2, 0, 0, 0, 0, 0, 0);
+do $case29$
+begin
+  perform set_config('miaouffrage.estimate_v3_writer', pg_temp.da_id(29001)::text, true);
+  insert into public.estimate_items (id, tenant_id, version_id, item_type, position, title)
+  values (pg_temp.da_id(29002), current_setting('test.tenant_id')::uuid, pg_temp.da_id(29001), 'section', 1, 'Lot fictif');
+  insert into public.estimate_items (id, tenant_id, version_id, parent_id, item_type, position, title, description,
+    quantity, unit_code, unit_price_ht_cents, tax_rate_bp, k_fo, h_mo, k_mo, pu_ht_cents, line_total_ht_cents,
+    line_tax_cents, line_total_ttc_cents, source_provider, source_metadata)
+  values (pg_temp.da_id(29003), current_setting('test.tenant_id')::uuid, pg_temp.da_id(29001), pg_temp.da_id(29002), 'line', 1,
+    'Vanne d''arrêt (envoi par poste)', 'u', 20, 'u', 1000, 2000, 1, 0, 1, 1000, 20000, 4000, 24000, 'takeoff',
+    jsonb_build_object('takeoff_item_send', jsonb_build_object('version', 1, 'item_id', pg_temp.da_id(29050),
+      'compartment_key', 'together', 'breakdown', 'together')));
+  perform public.estimate_v3_complete_entry_for_writer(pg_temp.da_id(29001), array[pg_temp.da_id(29003)]);
+  perform set_config('miaouffrage.estimate_v3_writer', '', true);
+end;
+$case29$;
+insert into public.takeoff_jobs (id, tenant_id, estimate_version_id, level, status, source_file_name, created_by)
+select pg_temp.da_job(29, job_no), current_setting('test.tenant_id')::uuid, pg_temp.da_id(29001), 'B', 'completed',
+  'plan-fictif.pdf', pg_temp.da_id(1)
+from generate_series(1, 2) as job_no;
+insert into da_items values (29, 2, 1, 'Siphon de sol', 5, 'u', 3);
+select pg_temp.da_seed(29, 2);
+insert into public.draft_locks (version_id, user_id, tenant_id, expires_at, session_id)
+values (pg_temp.da_id(29001), pg_temp.da_id(1), current_setting('test.tenant_id')::uuid, statement_timestamp() + interval '30 minutes',
+  gen_random_uuid());
+set local session_replication_role = replica;
+insert into public.takeoff_list_items (id, tenant_id, project_id, origin_kind, created_in_revision, created_by)
+values (pg_temp.da_id(29050), current_setting('test.tenant_id')::uuid, pg_temp.da_id(10), 'manual', 1, pg_temp.da_id(1));
+set local session_replication_role = origin;
+do $case29_item_send$
+begin
+  perform set_config('mergeone.takeoff_item_send', 'case-29', true);
+  insert into public.takeoff_item_send_receipts (id, tenant_id, project_id, job_id, version_id, request_id, format_version, actor_id,
+    plan_sha256, version_created, write_plan, result)
+  values (pg_temp.da_id(29060), current_setting('test.tenant_id')::uuid, pg_temp.da_id(10), pg_temp.da_job(29, 1),
+    pg_temp.da_id(29001), pg_temp.da_id(29061), 1, pg_temp.da_id(1), repeat('0', 64), false, '{}', '{}');
+  insert into public.takeoff_item_send_targets (id, tenant_id, project_id, version_id, item_id, breakdown, compartment_key,
+    estimate_item_id, line_kind, unit_code, created_by_receipt_id)
+  values (pg_temp.da_id(29062), current_setting('test.tenant_id')::uuid, pg_temp.da_id(10), pg_temp.da_id(29001),
+    pg_temp.da_id(29050), 'together', 'together', pg_temp.da_id(29003), 'new_line', 'u', pg_temp.da_id(29060));
+  insert into public.takeoff_item_send_parts (tenant_id, project_id, version_id, target_id, receipt_id, job_id, item_id,
+    plan_logical_id, kind, answer_id, answer_revision, entry_id, entry_revision, observation_ids, takeoff_item_ids, quantity, unit,
+    unit_code, pages)
+  values (current_setting('test.tenant_id')::uuid, pg_temp.da_id(10), pg_temp.da_id(29001), pg_temp.da_id(29062),
+    pg_temp.da_id(29060), pg_temp.da_job(29, 1), pg_temp.da_id(29050), pg_temp.da_id(29063), 'entered', pg_temp.da_id(29064),
+    repeat('1', 64), pg_temp.da_id(29065), 1, '{}', '{}', 20, 'u', 'u', '{3}');
+  perform set_config('mergeone.takeoff_item_send', '', true);
+end;
+$case29_item_send$;
+select pg_temp.da_permit(29, 2, 'da-29-2');
+select pg_temp.da_as();
+set local role authenticated;
+select is(pg_temp.da_apply('section of a version fed by item replaced', 29, 2, 'da-29-2', 'replace', pg_temp.da_id(29002)),
+  'P0001 TAKEOFF_APPLY_ITEM_SEND_VERSION',
+  'case 29: « Remplacer la section » never empties the lines a send by item fed: the guard sees their target');
+reset role;
+select results_eq($$select item.quantity, item.parent_id from public.estimate_items item where item.id = pg_temp.da_id(29003)$$,
+  $$values (20::numeric, pg_temp.da_id(29002))$$, 'the fed line stays, with its 20, in its section');
+select is((select status::text from public.takeoff_jobs where id = pg_temp.da_job(29, 2)), 'completed', 'the takeoff is not applied');
+
 select * from finish();
 rollback;

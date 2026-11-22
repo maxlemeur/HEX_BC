@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 import { parseQuantity } from "@/lib/numeric-input/parsers";
 import { composeDpgfTarget } from "@/lib/takeoff/dpgf-composition";
 import { round4 } from "@/lib/takeoff/dpgf-quantity-policy";
-import { itemSendDiameter, itemSendFolded } from "@/lib/takeoff/item-send-plan";
+import { itemSendDiameter, itemSendFolded } from "@/lib/takeoff/item-send-fold";
 import { lengthFactor, roundedMeasure } from "@/lib/takeoff/page-replacement";
 
 // Lot 4, PR 5b: the writer (migration C) computes again in SQL what the planner computes here; the vectors both run are

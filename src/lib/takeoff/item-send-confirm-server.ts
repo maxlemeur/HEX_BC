@@ -2,7 +2,7 @@ import "server-only";
 
 import { mapSupabaseError } from "@/lib/http/api-response";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
-import type { ApplyTakeoffRpcError } from "@/lib/takeoff/apply-errors";
+import { mapApplyTakeoffRpcError, type ApplyTakeoffRpcError } from "@/lib/takeoff/apply-errors";
 import { TakeoffError, TakeoffErrorCode, toTakeoffError } from "@/lib/takeoff/errors";
 import { takeoffModuleDefault } from "@/lib/takeoff/feature-flags";
 import {
@@ -15,6 +15,8 @@ import type { ItemSendDecisionInvalidReason, ItemSendWritePlan } from "@/lib/tak
 import {
   computeItemSendState,
   ITEM_SEND_INVALID_DECISION_MESSAGES,
+  itemSendChoicesDigest,
+  itemSendMemberMayWrite,
   itemSendPlanDigest,
   type Context,
 } from "@/lib/takeoff/item-send-preview-server";
@@ -35,7 +37,7 @@ import type { Json } from "@/types/database";
 // reads each part again, derives the identity, what is replaced and the pages written, and binds what only the server
 // computes (the mapping rules' projection, the first draft's settings) by comparison.
 
-type Receipt = { id: string; job_id: string; write_plan: unknown; result: unknown };
+type Receipt = { id: string; job_id: string; project_id: string; actor_id: string; write_plan: unknown; result: unknown };
 
 const conflict = (jobId: string, guard: string, message: string, retryable = false) => new TakeoffError({ status: 409,
   code: TakeoffErrorCode.CONFLICT, message, details: { guard }, retryable, jobId });
@@ -142,6 +144,8 @@ export function mapItemSendRpcError(error: ApplyTakeoffRpcError, jobId: string):
       return new TakeoffError({ status: 500, code: TakeoffErrorCode.INTERNAL_ERROR, retryable: false, jobId,
         message: `L’envoi par poste n’a pas pu être préparé. ${NOTHING}`, details: { guard: "item_send_plan_invalid" } });
     default:
+      // A refusal of the guard of the applied job (its blocked rows, a lease, a right): its own member message.
+      if (error.message?.startsWith("TAKEOFF_APPLY_")) return mapApplyTakeoffRpcError(error, { jobId });
       // A lock the send needs stayed held past its wait, or two writes crossed: nothing was written, try again.
       if (error.code === "55P03" || error.code === "40P01" || error.code === "40001") {
         return new TakeoffError({ status: 503, code: TakeoffErrorCode.CONFLICT, retryable: true, jobId,
@@ -170,7 +174,7 @@ function responseOf(answer: unknown, jobId: string): ItemSendConfirmResponse {
 /** The receipt of an intention key, as the member reads it (its policy is the affaire's readers'). */
 async function readReceipt(ctx: Context, requestId: string, jobId: string): Promise<Receipt | null> {
   const { data, error } = await ctx.supabase.from("takeoff_item_send_receipts" as never)
-    .select("id, job_id, write_plan, result" as never).eq("tenant_id" as never, ctx.tenantId as never)
+    .select("id, job_id, project_id, actor_id, write_plan, result" as never).eq("tenant_id" as never, ctx.tenantId as never)
     .eq("request_id" as never, requestId as never).maybeSingle();
   if (error) {
     throw toTakeoffError(mapSupabaseError(error, "Impossible de vérifier l’envoi déjà confirmé."),
@@ -180,11 +184,17 @@ async function readReceipt(ctx: Context, requestId: string, jobId: string): Prom
 }
 
 /**
- * The same intention key answers its receipt when it confirmed this job's plan (a lost answer sent again), and is a
- * conflict otherwise: another job, or another plan under the same key.
+ * The same intention key answers its receipt only to its author, still allowed to write the affaire, for the same job,
+ * the same choices and the same plan (a lost answer sent again): the right first, then anything else is a conflict.
  */
-function replayOf(receipt: Receipt, jobId: string, digest: string): ItemSendConfirmResponse {
-  if (receipt.job_id.toLowerCase() !== jobId.toLowerCase() || itemSendPlanDigest(receipt.write_plan as ItemSendWritePlan) !== digest) {
+async function replayOf(ctx: Context, receipt: Receipt, jobId: string, request: ItemSendConfirmRequest): Promise<ItemSendConfirmResponse> {
+  if (!await itemSendMemberMayWrite(ctx, receipt.project_id, jobId)) {
+    throw refused(jobId, "item_send_project_not_writable", "Seul le propriétaire de l’affaire ou un administrateur envoie ce métré, "
+      + `et l’affaire ne doit pas être archivée. ${NOTHING}`, 403);
+  }
+  const plan = receipt.write_plan as ItemSendWritePlan;
+  if (receipt.actor_id.toLowerCase() !== ctx.userId.toLowerCase() || receipt.job_id.toLowerCase() !== jobId.toLowerCase()
+    || plan.choices_sha256 !== itemSendChoicesDigest(request) || itemSendPlanDigest(plan) !== request.plan_digest) {
     throw conflict(jobId, "item_send_request_conflict", `Cette confirmation a déjà servi à un autre envoi. ${AGAIN}`);
   }
   return responseOf({ ...(receipt.result as Record<string, unknown>), receipt_id: receipt.id, replayed: true }, jobId);
@@ -202,7 +212,7 @@ export async function confirmTakeoffItemSend(jobId: string, body: unknown): Prom
 /** The confirmation for an authenticated member (the route's, and the server tests'). */
 export async function confirmItemSendFor(ctx: Context, jobId: string, request: ItemSendConfirmRequest): Promise<ItemSendConfirmResponse> {
   const committed = await readReceipt(ctx, request.request_id, jobId);
-  if (committed) return replayOf(committed, jobId, request.plan_digest);
+  if (committed) return replayOf(ctx, committed, jobId, request);
 
   // The plan again, from the stored facts and the member's choices only: what the request may name is a choice among
   // those the preview offered, never a quantity, a part, a page, a setting or a price.
@@ -212,20 +222,19 @@ export async function confirmItemSendFor(ctx: Context, jobId: string, request: I
     if (state.blocker === "already_sent") {
       // Committed meanwhile under this key (a lost answer sent again while the first one ran): its receipt.
       const meanwhile = await readReceipt(ctx, request.request_id, jobId);
-      if (meanwhile) return replayOf(meanwhile, jobId, request.plan_digest);
+      if (meanwhile) return replayOf(ctx, meanwhile, jobId, request);
     }
     const response = state.response;
-    if (response.blocked) {
-      throw response.blocked.reason === "already_sent"
-        ? conflict(jobId, "item_send_already_sent", response.blocked.message)
-        : refused(jobId, `item_send_${response.blocked.reason}`, `${response.blocked.message} ${NOTHING}`,
-          response.blocked.reason === "read_only" ? 403 : 422);
+    if (response.blocked?.reason === "read_only") {
+      throw refused(jobId, "item_send_read_only", `${response.blocked.message} ${NOTHING}`, 403);
     }
-    if (response.invalid_page_decisions.length > 0) {
-      throw refused(jobId, "item_send_page_decision_invalid", `${response.invalid_page_decisions[0].message} ${NOTHING}`);
-    }
-    throw refused(jobId, "item_send_to_resolve", "Il reste des points à trancher avant l’envoi : "
-      + `${response.to_resolve.map((entry) => entry.message).slice(0, 1).join("")} ${NOTHING}`);
+    if (response.blocked?.reason === "already_sent") throw conflict(jobId, "item_send_already_sent", response.blocked.message);
+    // The preview the member confirmed could be confirmed: what blocks now (an item set aside, a line to choose, a page
+    // decision no longer admitted, a draft changed) moved since. The preview is to be read again; nothing is written.
+    const why = response.blocked?.message ?? response.invalid_page_decisions[0]?.message ?? response.to_resolve[0]?.message ?? null;
+    throw new TakeoffError({ status: 409, code: TakeoffErrorCode.CONFLICT, retryable: true, jobId,
+      message: `${why ? `${why} ` : ""}${AGAIN} ${NOTHING}`, details: { guard: "item_send_preview_stale",
+        reason: response.blocked?.reason ?? (response.invalid_page_decisions.length > 0 ? "page_decision_invalid" : "to_resolve") } });
   }
   // Only the plan the member saw: another plan computed now (a fact moved since the preview) is never written.
   if (itemSendPlanDigest(state.writePlan) !== request.plan_digest) throw stale(jobId, null);
