@@ -375,6 +375,9 @@ export type ChoiceOption = { value: string; label: string };
 /** The « nothing chosen » entry of a searchable choice: the combobox's own empty value means « no selection yet ». */
 const NO_CHOICE = "__aucun__";
 
+/** What creating an entry of a choice answers: its value, or why it was refused. */
+export type ChoiceCreation = { ok: true; value: string } | { ok: false; message: string };
+
 /**
  * A choice saved as soon as it is made. A refused choice stays shown, with the reason under it. `searchable` lists the
  * options in a combobox that filters as the office types (TI-691: a supplier among twenty, in a list cut short by its
@@ -392,9 +395,15 @@ export function ChoiceCell({
   onUnsavedChange,
   searchable = false,
   placeholder,
+  create,
 }: Readonly<{
   /** `options` should keep its identity between renders: a searchable choice indexes it. */
   searchable?: boolean;
+  /**
+   * For a searchable choice: what is typed and that no option names can be created, then chosen. `run` creates it
+   * and answers its value, which must be among `options` by then; a refusal is said under the cell, nothing chosen.
+   */
+  create?: { label: (name: string) => string; run: (name: string) => Promise<ChoiceCreation> };
   /**
    * Shown in the search field of a searchable choice while nothing is chosen: the field itself stays empty, so typing
    * searches instead of adding to a « — ».
@@ -416,6 +425,8 @@ export function ChoiceCell({
   const messagesId = useId();
   const [pending, setPending] = useState<string | null>(null);
   const [failed, setFailed] = useState<{ value: string; message: string } | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [notCreated, setNotCreated] = useState<string | null>(null);
   const writes = usePendingWrites(value ?? "");
   const shown = pending ?? failed?.value ?? value ?? "";
   const known = shown === "" || options.some((option) => option.value === shown);
@@ -425,14 +436,32 @@ export function ChoiceCell({
     onUnsavedChange?.(unsaved);
   }, [onUnsavedChange, unsaved]);
 
+  /** Counts the choices made: a creation that answers after a later choice does not replace it. */
+  const gestures = useRef(0);
+
   const choose = async (next: string) => {
+    gestures.current += 1;
     setPending(next);
     setFailed(null);
+    setNotCreated(null);
     const result = await writes.send(next, () => onCommit(next === "" ? null : next));
     // An earlier choice answered after a later one was made: the later answer settles the cell.
     if (result === null) return;
     setPending(null);
     if (!result.ok) setFailed({ value: next, message: result.message });
+  };
+
+  const createAndChoose = async (name: string) => {
+    if (!create || creating) return;
+    setCreating(true);
+    setNotCreated(null);
+    const asked = gestures.current;
+    const created = await create.run(name);
+    setCreating(false);
+    // The field stays usable while the creation travels: what was chosen meanwhile is the office's last word.
+    if (gestures.current !== asked) return;
+    if (created.ok) await choose(created.value);
+    else setNotCreated(created.message);
   };
 
   // Only built for a searchable choice, and once for the same options: the combobox indexes what it is given.
@@ -456,13 +485,16 @@ export function ChoiceCell({
           id={id}
           size="sm"
           aria-label={id ? undefined : label}
-          aria-invalid={failed ? true : undefined}
-          aria-describedby={failed ? messagesId : undefined}
+          aria-invalid={failed || notCreated ? true : undefined}
+          aria-describedby={failed || notCreated ? messagesId : undefined}
           placeholder={placeholder}
           emptyMessage="Aucun résultat"
           options={entries}
           value={shown}
           disabled={disabled}
+          isLoading={creating}
+          onCreate={create ? (name) => void createAndChoose(name) : undefined}
+          createLabel={create?.label}
           onValueChange={(next) => {
             // Clearing the search text is not a choice: only a picked entry is.
             if (next === "") return;
@@ -471,7 +503,7 @@ export function ChoiceCell({
             void choose(chosen);
           }}
         />
-        <CellMessages id={messagesId} error={failed?.message} />
+        <CellMessages id={messagesId} error={failed?.message ?? notCreated} />
       </>
     );
   }

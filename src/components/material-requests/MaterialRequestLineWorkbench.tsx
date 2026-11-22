@@ -198,7 +198,7 @@ function MaterialRequestLineInspector(props: WorkbenchProps) {
         <MaterialRequestSupplierCell layout="inspector" line={line} editable={canWrite} supplierOptions={props.supplierOptions} ownSupplier={ownSupplier}
           requestSupplierLabel={inheritedSupplier ? fromRequest(inheritedSupplier) : null} proposal={props.supplierProposal} reference={props.supplierReference}
           supplyTypeName={article?.supply_type_name ?? null} article={article} proposalRead={props.supplierProposalRead}
-          onChooseTypeSupplier={props.onChooseTypeSupplier} onSave={props.onSave} onRetain={props.onRetainSupplier} />
+          onChooseTypeSupplier={props.onChooseTypeSupplier} onSave={props.onSave} onRetain={props.onRetainSupplier} onCreateSupplier={props.onCreateSupplier} />
         <dl className="text-sm"><div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)] gap-4"><dt className="text-muted-foreground">Imputation</dt><dd className="font-medium">{MATERIAL_REQUEST_IMPUTATION_LABELS[line.imputation]}{line.overhead_category ? ` · ${line.overhead_category}` : ""}</dd></div></dl>
         {article && canWrite && (!article.material?.trim() || !article.dimensions?.trim()) ? <div className="rounded-lg bg-primary/5 p-4"><IncompleteArticle article={article} canEditCatalogue={props.canEditCatalogue} /></div> : null}
         {canWrite ? <details><summary role="button" className="cursor-pointer rounded-lg border border-border px-3 py-2 text-sm font-medium focus-visible:outline-2 focus-visible:outline-ring">Actions sur la ligne</summary><div className="mt-3 space-y-3">

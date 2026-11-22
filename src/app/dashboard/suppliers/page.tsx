@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import useSWR from "swr";
 import { BriefcaseIcon, PencilIcon, PlusIcon, RotateCwIcon, SearchIcon, TrashIcon } from "lucide-react";
 
@@ -161,6 +161,17 @@ export default function SuppliersPage() {
     });
     setIsFormOpen(true);
   }, []);
+
+  // « ?fiche=<id> » opens that supplier's sheet once the list is read: a supplier created from a material request
+  // is a name alone, and the request leads here to fill the rest. Asked once; who may not change it sees the list.
+  const sheetAsked = useRef(false);
+  useEffect(() => {
+    if (sheetAsked.current || !suppliersResponse) return;
+    sheetAsked.current = true;
+    const asked = new URLSearchParams(window.location.search).get("fiche");
+    const supplier = asked ? suppliers.find((candidate) => candidate.id === asked) : undefined;
+    if (supplier && canEditCatalogueRecord(access, supplier.created_by)) openEditForm(supplier);
+  }, [access, openEditForm, suppliers, suppliersResponse]);
 
   function updateField<K extends keyof SupplierFormState>(
     key: K,

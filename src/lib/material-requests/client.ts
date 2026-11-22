@@ -100,6 +100,20 @@ function write<T>(path: string, method: "POST" | "PUT" | "PATCH" | "DELETE", bod
   );
 }
 
+/**
+ * A supplier the catalogue did not know, created from a request with its name alone (the catalogue's own route and
+ * rights: admins and engineers add suppliers). The rest of its sheet is filled in the catalogue.
+ */
+export async function createMaterialRequestSupplier(name: string): Promise<MaterialRequestSupplierOption> {
+  const { item } = await write<{ item: { id: string; name: string } }>(
+    "/api/suppliers",
+    "POST",
+    { action: "create", item: { name } },
+    "Le fournisseur n’a pas pu être créé.",
+  );
+  return { id: item.id, name: item.name, label: item.name };
+}
+
 export function materialRequestErrorMessage(error: unknown, fallback: string): string {
   if (isEstimateApiError(error) && error.message.trim().length > 0) return error.message;
   return fallback;

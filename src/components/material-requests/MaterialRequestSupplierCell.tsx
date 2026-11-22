@@ -17,7 +17,12 @@ import { cn } from "@/lib/utils";
 
 import { ChoiceCell } from "./cells";
 import { formatQuotedPrice } from "./format";
-import { SUPPLIER_ALREADY_SET, type RetainResult, type SaveResult } from "./useMaterialRequestEditor";
+import {
+  SUPPLIER_ALREADY_SET,
+  type MaterialRequestEditorApi,
+  type RetainResult,
+  type SaveResult,
+} from "./useMaterialRequestEditor";
 
 /** Why a supplier is proposed, in a few words read after its name. */
 export function supplierReasonLabel(proposal: LineSupplierProposal, supplyTypeName: string | null): string {
@@ -82,6 +87,8 @@ type SupplierCellProps = Readonly<{
   onChooseTypeSupplier: (() => void) | null;
   onSave: (patch: MaterialRequestLineInput) => Promise<SaveResult>;
   onRetain: (supplierId: string) => Promise<RetainResult>;
+  /** Adds to the catalogue a supplier typed in the field that the list does not hold, by its name alone. */
+  onCreateSupplier: MaterialRequestEditorApi["createSupplier"];
   layout?: "cell" | "inspector";
   /**
    * False in a folded line: the cell is one line, in a card as in the sheet, the supplier or the proposed one beside
@@ -151,6 +158,7 @@ export function MaterialRequestSupplierCell({
   onChooseTypeSupplier,
   onSave,
   onRetain,
+  onCreateSupplier,
   layout = "cell",
   expanded = true,
 }: SupplierCellProps) {
@@ -160,10 +168,28 @@ export function MaterialRequestSupplierCell({
   const [error, setError] = useState<string | null>(null);
   /** The retain found the line already had a supplier (set meanwhile): said until the next gesture. */
   const [alreadySet, setAlreadySet] = useState(false);
+  /** The supplier this cell just added to the catalogue: only its name is known there. */
+  const [created, setCreated] = useState<{ id: string; name: string } | null>(null);
   const n = line.position;
   const proposalId = `${ids}-proposal`;
   // Built once for the same suppliers, not at every render of every line: the combobox indexes what it is given.
-  const choices = useMemo(() => supplierOptions.map((option) => ({ value: option.id, label: option.label })), [supplierOptions]);
+  // The name is a keyword besides the label: a homonym's label carries a mark, and its name must not be created again.
+  const choices = useMemo(
+    () => supplierOptions.map((option) => ({ value: option.id, label: option.label, keywords: [option.name] })),
+    [supplierOptions],
+  );
+  const creation = useMemo(
+    () => ({
+      label: (name: string) => `Créer le fournisseur « ${name} »`,
+      run: async (name: string) => {
+        const result = await onCreateSupplier(name);
+        if (!result.ok) return result;
+        setCreated({ id: result.id, name });
+        return { ok: true as const, value: result.id };
+      },
+    }),
+    [onCreateSupplier],
+  );
 
   // A line priced by a retained quote (TI-691) is bought from that quote's supplier: it no longer changes.
   if (!editable || line.price_quote_id) {
@@ -226,6 +252,7 @@ export function MaterialRequestSupplierCell({
         searchable
         placeholder={requestSupplierLabel ? "Chercher un autre…" : "Chercher…"}
         onUnsavedChange={setChoosing}
+        create={creation}
         onCommit={async (supplier_id) => {
           setError(null);
           setAlreadySet(false);
@@ -237,6 +264,25 @@ export function MaterialRequestSupplierCell({
         <p className="text-xs text-foreground-secondary">{`Acheté chez : ${requestSupplierLabel}`}</p>
       ) : null}
       {expanded && line.supplier_id && ownSupplier ? <ReferenceDetails reference={reference} supplierName={ownSupplier} /> : null}
+      {/*
+        A supplier just created is a name: its address, contact and SIRET are filled on its sheet, in another tab.
+        Read once the line is unfolded, as the rest of what is under the select: a folded row keeps its height.
+      */}
+      {expanded && created && line.supplier_id === created.id ? (
+        <p className="text-xs text-muted-foreground">
+          {"Nouveau fournisseur, connu par son nom seul. "}
+          <a
+            href={`/dashboard/suppliers?fiche=${encodeURIComponent(created.id)}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label={`Compléter la fiche de ${created.name}`}
+            className="inline-flex items-center gap-1 font-medium text-primary underline-offset-2 hover:underline focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-ring"
+          >
+            <ExternalLink aria-hidden="true" className="size-3.5 shrink-0" />
+            Compléter sa fiche
+          </a>
+        </p>
+      ) : null}
       {shown ? (
         // Folded, the proposal is one line and its gesture; unfolded, it is read in full. Neutral either way: a
         // proposal is not an alert.
