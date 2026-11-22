@@ -86,6 +86,21 @@ export async function readOwnedBrief(projectId: string) {
   return brief ?? null;
 }
 
+/**
+ * What the payer notice of the brief's confirmation depends on for `memberId`, read as the affaire's page reads it when
+ * the server renders it (readAutomaticTakeoffPayerNotice): the brief to confirm, both cut-offs, and the member's right to
+ * pay on the affaire. The module's flag is the server's default on these stacks, and a missing subscription only changes
+ * the notice's digest.
+ */
+export async function readOwnedPayerNoticeBasis(projectId: string, memberId: string) {
+  if (!UUID.test(projectId) || !UUID.test(memberId)) throw new Error("Invalid fixture affaire or member.");
+  const [basis] = await readJson<Array<{ brief: string | null; active: boolean; payer: boolean }>>(`select coalesce(json_agg(
+    json_build_object('brief', (select b.status from public.affaire_briefs b where b.project_id = p.id),
+      'active', private.takeoff_launch_active(), 'payer', private.takeoff_launch_payer_eligible(p.tenant_id, p.id, '${memberId}'))),
+    '[]'::json) from public.estimate_projects p where p.id = '${projectId}';`);
+  return basis ?? null;
+}
+
 /** The affaire's estimate versions: a launch from the takeoff's options creates none (the send chooses its draft). */
 export async function readOwnedVersionCount(projectId: string) {
   if (!UUID.test(projectId)) throw new Error("Invalid fixture affaire.");
