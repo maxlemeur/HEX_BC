@@ -1964,6 +1964,35 @@ describe("the recipients beside their message, and a supplier created to compete
     expect(writes().map((call) => call.path)).toEqual(["/api/suppliers"]);
   });
 
+  it("says on each card that the consultations could not be read, not that they are still being read (29)", async () => {
+    await openEditor(routes({
+      [`GET ${QUOTES}`]: { status: 500, error: { code: "INTERNAL", message: "Erreur interne." } },
+    }));
+    await screen.findByRole("textbox", { name: "Message pour Négoce Alpha" });
+
+    await waitFor(() =>
+      expect(within(recipients()).getAllByRole("tab")[0]).toHaveTextContent(/Consultations non lues/),
+    );
+    expect(within(recipients()).getAllByRole("tab")[0]).not.toHaveTextContent(/Lecture en cours/);
+  });
+
+  it("holds the search while a supplier is being created, so nothing else is added meanwhile (32)", async () => {
+    let release: (reply: Reply) => void = () => {};
+    const user = await openEditor(routes({
+      "POST /api/suppliers": () => new Promise<Reply>((resolve) => { release = resolve; }),
+    }), { canEditCatalogue: true });
+    await screen.findByRole("textbox", { name: "Message pour Négoce Alpha" });
+    await openSearch(user);
+    const search = screen.getByRole("combobox", { name: "Ajouter un fournisseur" });
+    await user.type(search, "Quincaillerie Delta");
+    await user.click(await screen.findByRole("option", { name: "Créer le fournisseur « Quincaillerie Delta »" }));
+
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "Ajouter un fournisseur" })).toBeDisabled());
+    release({ status: 201, data: { item: { id: "f4f4f4f4-f4f4-4f4f-8f4f-f4f4f4f4f4f4", name: "Quincaillerie Delta" } } });
+    expect(await screen.findByRole("tab", { name: /^Quincaillerie Delta/ })).toHaveAttribute("aria-selected", "true");
+    expect(within(recipients()).getAllByRole("tab")).toHaveLength(2);
+  });
+
   it("offers no creation to a member who may not add to the catalogue (32)", async () => {
     const user = await openEditor(routes());
     await screen.findByRole("textbox", { name: "Message pour Négoce Alpha" });

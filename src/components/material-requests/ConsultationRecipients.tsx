@@ -271,6 +271,7 @@ function recipientStatus(consultation: SupplierConsultation): { label: string; v
     }
   }
   if (consultation.busyElsewhere) return { label: "Consulté pour d’autres lignes", variant: "warning" };
+  if (consultation.unread === QUOTES_UNREAD.error) return { label: "Consultations non lues", variant: "warning" };
   if (consultation.unread) return { label: "Lecture en cours", variant: "neutral" };
   return { label: "À envoyer", variant: "outline" };
 }
@@ -355,7 +356,8 @@ export function ConsultationRecipients({
         return {
           value: option.id,
           label: usual ? `${option.label} (fournisseur habituel)` : chosen ? `${option.label} (déjà en concurrence)` : option.label,
-          keywords: [option.name],
+          // Its name and its full label: neither can be typed to create the same supplier again.
+          keywords: [option.name, option.label],
           disabled: usual || chosen,
         };
       }),
@@ -507,6 +509,9 @@ export function ConsultationRecipients({
                     options={entries}
                     defaultInputValue={notCreated?.name}
                     isLoading={creating}
+                    loadingMessage="Création du fournisseur…"
+                    // While a supplier is being created, nothing else is picked or created: its answer adds it.
+                    disabled={creating}
                     onCreate={onCreateSupplier ? (name) => void create(name) : undefined}
                     createLabel={(name) => `Créer le fournisseur « ${name} »`}
                     // Always empty: a pick adds the supplier to the list and selects its message.
