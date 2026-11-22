@@ -1,46 +1,930 @@
 {
   "date_utc": "2026-11-22",
-  "status": "pending_owner_authorization_before_apply",
   "source_commit": "441c7a14e845dd643c22b01adbbf5fe10c619f0d",
-  "applied": 0,
-  "remote_versions": [],
+  "status": "applied_and_verified",
+  "series": {
+    "order": [
+      471,
+      474,
+      481
+    ],
+    "owner_authorized_interval_on": "2026-11-22",
+    "interval_seconds": 11,
+    "lock_retries": 0
+  },
   "history": {
     "before": 428,
-    "last": {
-      "version": "20261122135550",
-      "name": "20261122113611_takeoff_item_answers_before_activation"
-    },
-    "matches_receipt_470": true
+    "after": 431,
+    "first_407_sha256": "8a37267e2f68e79acd5d4f1a3e6c5834d230ff71db9a12fbec90397c17d5debb",
+    "row_408_sql_sha256": "eb1b0c1ceee7ac0ae0a6f909c83ed924dc512217b9bfa2d8403add8bbcd8ca84",
+    "prior_428_rows_identical": true,
+    "rows_after_408": [
+      {
+        "hash": "3d95a24e2400d5a44dc22dd2c42bc877d01079f81dab524760b454a2bf321f45",
+        "name": "20261117193734_workbook_supplier_references",
+        "bytes": 10091,
+        "version": "20261121064149"
+      },
+      {
+        "hash": "22d213fd5c8ef66ce88e8e089c87ee659d1fac1fdb4aa888a7d6593400f18d8c",
+        "name": "20261117195542_product_reference_price_withdrawal",
+        "bytes": 14463,
+        "version": "20261121064717"
+      },
+      {
+        "hash": "d05d03911ffe7f86b54fa46c7415f46e49fd8d40efad92e5f53cd00d22a75737",
+        "name": "20261117200342_material_request_affaire_storage_cleanup",
+        "bytes": 9701,
+        "version": "20261121064816"
+      },
+      {
+        "hash": "f6b4bc854ac5e30f2898251748259e7ed2c20f66796473d14419b7ae899b1e57",
+        "name": "20261117201102_estimate_orders_in_affaire_supply_cost",
+        "bytes": 12436,
+        "version": "20261121064859"
+      },
+      {
+        "hash": "1194ff733be5a1cc0c294c8af103e3ad6d8b908cec8f55f3cae42bd673b5075e",
+        "name": "20261120204437_takeoff_jobs_by_affaire",
+        "bytes": 60289,
+        "version": "20261121064932"
+      },
+      {
+        "hash": "fe686c48545e814dbc9b25c9db49d1ad5ea22766b6c9c56761a32ed9494d1cb2",
+        "name": "20261121011212_takeoff_analysis_completion",
+        "bytes": 37029,
+        "version": "20261121065044"
+      },
+      {
+        "hash": "dbab0169bda43ff551d1973595106165d981171ccf3f5bda9295427a7c9cefc3",
+        "name": "20261121020321_takeoff_completion_before_activation",
+        "bytes": 37669,
+        "version": "20261121065131"
+      },
+      {
+        "hash": "a88febeb429035374fb0d6fa869cc668634ec4e39cdc75d6075a0be0367c487b",
+        "name": "20261121040445_takeoff_plan_locations",
+        "bytes": 37942,
+        "version": "20261121083406"
+      },
+      {
+        "hash": "b740982809201eb4c59b0e6c62d7c312649e4c6703025095716d4f2bdca371af",
+        "name": "20261121050138_takeoff_send_receipts",
+        "bytes": 110977,
+        "version": "20261121102941"
+      },
+      {
+        "hash": "dddbaaf69c7818e310b20f14b7af506fe85e6cb2d81fba4387cc5295c2e33c56",
+        "name": "20261121085058_takeoff_send_grouped_lines_and_parts",
+        "bytes": 99174,
+        "version": "20261121112355"
+      },
+      {
+        "hash": "a42ad6c51b8660c591d710ddbd3b39e860ad6890c860917ab2d067d4b58b7167",
+        "name": "20261121160259_read_takeoff_risk_alerts",
+        "bytes": 5966,
+        "version": "20261121175751"
+      },
+      {
+        "hash": "6b349bdb73d635acef5044efc7dd1897f8db8672fa07cc1ee5e52bbf2c7fd8f2",
+        "name": "20261121170448_takeoff_launch_requests",
+        "bytes": 103804,
+        "version": "20261121175931"
+      },
+      {
+        "hash": "d68a4199cd6f92c240fbb04f6e60aeaec3a7c504dfc81c10ce2a42ecf2cbc229",
+        "name": "20261121193413_takeoff_launch_exclusion_and_send_requests",
+        "bytes": 75112,
+        "version": "20261122074155"
+      },
+      {
+        "hash": "854e5f1eecea87a5fac95bac688db00aeffb5a5f2195b693bcaea2f1d83138d4",
+        "name": "20261121230719_takeoff_item_lists",
+        "bytes": 108478,
+        "version": "20261122074312"
+      },
+      {
+        "hash": "a26d784a495f862ee6f2126d96bd2f8d71bfc7ab3264bafbd467106cb8fb4475",
+        "name": "20261121231238_takeoff_plan_dispatcher",
+        "bytes": 140685,
+        "version": "20261122074519"
+      },
+      {
+        "hash": "7893a5f2523e6fdc6a39740918aabb6e963124d0cc78edf1bf167e40f16d36e9",
+        "name": "20261122030312_takeoff_partial_send",
+        "bytes": 98334,
+        "version": "20261122084903"
+      },
+      {
+        "hash": "493d46cf320322c8cd2e77c87fe55daadbf61d73f8b5339e308978ebacaef20c",
+        "name": "20261122092341_product_packagings",
+        "bytes": 12544,
+        "version": "20261122105334"
+      },
+      {
+        "hash": "2d9fc87c12d90c2cae7ea0b1c5aac62ce770924cd2501e1f9b79d0a5d2a5e0ac",
+        "name": "20261122093228_material_request_message_templates",
+        "bytes": 13650,
+        "version": "20261122105354"
+      },
+      {
+        "hash": "edc30c089ed080fa1c80eec44b1b1728c48e8f6ec6289f0012f3f02c4aff3a4d",
+        "name": "20261122080845_takeoff_item_answers",
+        "bytes": 73313,
+        "version": "20261122113328"
+      },
+      {
+        "hash": "a658655855554711c724e5e1fd98cf0228013d591946a8c5f33ba8f93e641410",
+        "name": "20261122113611_takeoff_item_answers_before_activation",
+        "bytes": 17897,
+        "version": "20261122135550"
+      },
+      {
+        "hash": "5a07546488d92fc9288ff526f570f2658cfb674b83921d365763b054e5e3b299",
+        "name": "20261122125722_takeoff_item_review_decisions",
+        "bytes": 73749,
+        "version": "20261122171215"
+      },
+      {
+        "hash": "dcae123aa4ff128a8a9f4f3c2a83d9004d3a555f5210b175861def99c0b01a14",
+        "name": "20261122144104_takeoff_count_marks",
+        "bytes": 125030,
+        "version": "20261122171223"
+      },
+      {
+        "hash": "08044d0d6eee2f84cb597730beb72079398df067871760d3c76034eb513126ed",
+        "name": "20261122145415_takeoff_item_review_work_tables",
+        "bytes": 38426,
+        "version": "20261122171226"
+      }
+    ]
   },
   "health": {
-    "http": 200,
     "version": "0.7.0",
+    "http": 200,
     "db": "up"
   },
-  "observation": {
-    "utc": "2026-11-22 15:42:20.744457+00",
+  "activated": false,
+  "deployed": false,
+  "flags_changed": false,
+  "activation_rows": {
     "takeoff_completion_activation": 0,
     "takeoff_launch_activation": 0,
     "takeoff_item_list_order_activation": 0,
-    "takeoff_plan_dispatch_activation": 0,
-    "takeoff_item_answers": 0,
-    "takeoff_items": 0,
-    "estimate_projects": 16,
-    "takeoff_item_answer_observations": 0,
-    "audit_logs": 46772,
-    "processing": 0,
-    "locks": 0
+    "takeoff_plan_dispatch_activation": 0
   },
-  "activated": false,
-  "file": "20261122144104_takeoff_count_marks.sql",
-  "sha256": "dcae123aa4ff128a8a9f4f3c2a83d9004d3a555f5210b175861def99c0b01a14",
-  "bytes": 125030,
-  "pr_precheck": {
+  "precheck_time": "2026-11-22 17:11:57.892982+00",
+  "processing": 0,
+  "concurrent_locks": 0,
+  "audit_rows": 46842,
+  "existing_triggers": {
+    "n": 3002,
+    "fingerprint": "1ef7a726a364f20ced16f01e574f1f6a"
+  },
+  "applied": [
+    {
+      "pr": 474,
+      "file": "20261122144104_takeoff_count_marks.sql",
+      "remote_version": "20261122171223",
+      "applied_at_utc": "2026-11-22T17:12:23Z",
+      "bytes": 125030,
+      "sha256": "dcae123aa4ff128a8a9f4f3c2a83d9004d3a555f5210b175861def99c0b01a14",
+      "stored_sql_sha256": "dcae123aa4ff128a8a9f4f3c2a83d9004d3a555f5210b175861def99c0b01a14",
+      "stored_form": "full_file_including_final_lf",
+      "attempts": 1
+    }
+  ],
+  "precheck": {
     "existing_relations": 0,
     "existing_functions": 0,
     "b1_applied": true,
     "b1_checks_present": true,
     "helpers_present": true,
-    "unaccent_present": true
+    "unaccent_present": true,
+    "estimate_projects": 16,
+    "answers": 0,
+    "observations": 0
+  },
+  "tables": [
+    {
+      "name": "takeoff_count_pages",
+      "rows": 0,
+      "columns": [
+        "id",
+        "tenant_id",
+        "project_id",
+        "plan_logical_id",
+        "plan_file_id",
+        "plan_generation",
+        "plan_content_sha256",
+        "page",
+        "geometry_version",
+        "view_box",
+        "rotation",
+        "user_unit",
+        "width",
+        "height",
+        "created_at"
+      ],
+      "constraints": [
+        "takeoff_count_pages_pkey",
+        "takeoff_count_pages_page_key",
+        "takeoff_count_pages_scope_key",
+        "takeoff_count_pages_page_check",
+        "takeoff_count_pages_width_check",
+        "takeoff_count_pages_affaire_fkey",
+        "takeoff_count_pages_height_check",
+        "takeoff_count_pages_rotation_check",
+        "takeoff_count_pages_view_box_check",
+        "takeoff_count_pages_user_unit_check",
+        "takeoff_count_pages_dimensions_check",
+        "takeoff_count_pages_plan_generation_check",
+        "takeoff_count_pages_geometry_version_check",
+        "takeoff_count_pages_plan_content_sha256_check"
+      ],
+      "indexes": [
+        "takeoff_count_pages_pkey",
+        "takeoff_count_pages_page_key",
+        "takeoff_count_pages_scope_key"
+      ],
+      "rls": true,
+      "acl": "{postgres=arwdDxtm/postgres,service_role=arwd/postgres,authenticated=r/postgres}",
+      "select_policies": [
+        "takeoff_count_pages_reader_select"
+      ],
+      "triggers": [
+        "takeoff_count_pages_writer",
+        "takeoff_count_pages_immutable"
+      ]
+    },
+    {
+      "name": "takeoff_count_marks",
+      "rows": 0,
+      "columns": [
+        "id",
+        "tenant_id",
+        "project_id",
+        "page_id",
+        "origin",
+        "x",
+        "y",
+        "box",
+        "position_revision",
+        "created_by",
+        "created_job_id",
+        "created_at",
+        "moved_by",
+        "moved_at"
+      ],
+      "constraints": [
+        "takeoff_count_marks_pkey",
+        "takeoff_count_marks_x_check",
+        "takeoff_count_marks_y_check",
+        "takeoff_count_marks_box_check",
+        "takeoff_count_marks_page_fkey",
+        "takeoff_count_marks_scope_key",
+        "takeoff_count_marks_origin_check",
+        "takeoff_count_marks_origin_rule_check",
+        "takeoff_count_marks_position_revision_check"
+      ],
+      "indexes": [
+        "takeoff_count_marks_pkey",
+        "takeoff_count_marks_page_idx",
+        "takeoff_count_marks_scope_key"
+      ],
+      "rls": true,
+      "acl": "{postgres=arwdDxtm/postgres,service_role=arwd/postgres,authenticated=r/postgres}",
+      "select_policies": [
+        "takeoff_count_marks_reader_select"
+      ],
+      "triggers": [
+        "takeoff_count_marks_writer"
+      ]
+    },
+    {
+      "name": "takeoff_count_answer_states",
+      "rows": 0,
+      "columns": [
+        "answer_id",
+        "tenant_id",
+        "project_id",
+        "revision",
+        "member_edited",
+        "last_event_id",
+        "updated_at"
+      ],
+      "constraints": [
+        "takeoff_count_answer_states_pkey",
+        "takeoff_count_answer_states_scope_key",
+        "takeoff_count_answer_states_answer_fkey",
+        "takeoff_count_answer_states_revision_check"
+      ],
+      "indexes": [
+        "takeoff_count_answer_states_pkey",
+        "takeoff_count_answer_states_scope_key"
+      ],
+      "rls": true,
+      "acl": "{postgres=arwdDxtm/postgres,service_role=arwd/postgres,authenticated=r/postgres}",
+      "select_policies": [
+        "takeoff_count_answer_states_reader_select"
+      ],
+      "triggers": [
+        "takeoff_count_answer_states_writer"
+      ]
+    },
+    {
+      "name": "takeoff_count_answer_pages",
+      "rows": 0,
+      "columns": [
+        "answer_id",
+        "page",
+        "tenant_id",
+        "project_id",
+        "changed_revision",
+        "verified_revision",
+        "verified_by",
+        "verified_at"
+      ],
+      "constraints": [
+        "takeoff_count_answer_pages_pkey",
+        "takeoff_count_answer_pages_page_check",
+        "takeoff_count_answer_pages_state_fkey",
+        "takeoff_count_answer_pages_verification_check",
+        "takeoff_count_answer_pages_changed_revision_check",
+        "takeoff_count_answer_pages_verified_revision_check"
+      ],
+      "indexes": [
+        "takeoff_count_answer_pages_pkey"
+      ],
+      "rls": true,
+      "acl": "{postgres=arwdDxtm/postgres,service_role=arwd/postgres,authenticated=r/postgres}",
+      "select_policies": [
+        "takeoff_count_answer_pages_reader_select"
+      ],
+      "triggers": [
+        "takeoff_count_answer_pages_writer"
+      ]
+    },
+    {
+      "name": "takeoff_count_mark_attributions",
+      "rows": 0,
+      "columns": [
+        "mark_id",
+        "answer_id",
+        "tenant_id",
+        "project_id",
+        "page_id",
+        "state",
+        "prior_state",
+        "reason_code",
+        "reason_text",
+        "decided_by",
+        "decided_at",
+        "created_at"
+      ],
+      "constraints": [
+        "takeoff_count_mark_attributions_pkey",
+        "takeoff_count_mark_attributions_mark_fkey",
+        "takeoff_count_mark_attributions_answer_fkey",
+        "takeoff_count_mark_attributions_state_check",
+        "takeoff_count_mark_attributions_state_rule_check",
+        "takeoff_count_mark_attributions_prior_state_check",
+        "takeoff_count_mark_attributions_reason_code_check",
+        "takeoff_count_mark_attributions_reason_text_check"
+      ],
+      "indexes": [
+        "takeoff_count_mark_attributions_pkey",
+        "takeoff_count_mark_attributions_answer_idx",
+        "takeoff_count_mark_attributions_retained_uidx"
+      ],
+      "rls": true,
+      "acl": "{postgres=arwdDxtm/postgres,service_role=arwd/postgres,authenticated=r/postgres}",
+      "select_policies": [
+        "takeoff_count_mark_attributions_reader_select"
+      ],
+      "triggers": [
+        "takeoff_count_mark_attributions_writer"
+      ]
+    },
+    {
+      "name": "takeoff_count_mark_proposals",
+      "rows": 0,
+      "columns": [
+        "id",
+        "tenant_id",
+        "project_id",
+        "mark_id",
+        "page_id",
+        "answer_id",
+        "job_id",
+        "observation_id",
+        "generation",
+        "source_key",
+        "method",
+        "method_version",
+        "proposed_state",
+        "x",
+        "y",
+        "box",
+        "raw_centre",
+        "raw_box",
+        "raw_frame",
+        "source_ref",
+        "subtype",
+        "diameter_mm",
+        "diameter_source",
+        "confidence",
+        "published_at"
+      ],
+      "constraints": [
+        "takeoff_count_mark_proposals_pkey",
+        "takeoff_count_mark_proposals_x_check",
+        "takeoff_count_mark_proposals_y_check",
+        "takeoff_count_mark_proposals_box_check",
+        "takeoff_count_mark_proposals_mark_fkey",
+        "takeoff_count_mark_proposals_raw_check",
+        "takeoff_count_mark_proposals_source_key",
+        "takeoff_count_mark_proposals_answer_fkey",
+        "takeoff_count_mark_proposals_method_check",
+        "takeoff_count_mark_proposals_subtype_check",
+        "takeoff_count_mark_proposals_diameter_check",
+        "takeoff_count_mark_proposals_raw_frame_check",
+        "takeoff_count_mark_proposals_confidence_check",
+        "takeoff_count_mark_proposals_generation_check",
+        "takeoff_count_mark_proposals_source_key_check",
+        "takeoff_count_mark_proposals_source_ref_check",
+        "takeoff_count_mark_proposals_diameter_mm_check",
+        "takeoff_count_mark_proposals_observation_id_fkey",
+        "takeoff_count_mark_proposals_method_version_check",
+        "takeoff_count_mark_proposals_proposed_state_check",
+        "takeoff_count_mark_proposals_diameter_source_check"
+      ],
+      "indexes": [
+        "takeoff_count_mark_proposals_pkey",
+        "takeoff_count_mark_proposals_mark_idx",
+        "takeoff_count_mark_proposals_source_key",
+        "takeoff_count_mark_proposals_observation_idx"
+      ],
+      "rls": true,
+      "acl": "{postgres=arwdDxtm/postgres,service_role=arwd/postgres,authenticated=r/postgres}",
+      "select_policies": [
+        "takeoff_count_mark_proposals_reader_select"
+      ],
+      "triggers": [
+        "takeoff_count_mark_proposals_writer",
+        "takeoff_count_mark_proposals_immutable"
+      ]
+    },
+    {
+      "name": "takeoff_count_mark_commands",
+      "rows": 0,
+      "columns": [
+        "id",
+        "tenant_id",
+        "project_id",
+        "kind",
+        "intent_key",
+        "actor_id",
+        "job_id",
+        "generation",
+        "attempt_sha256",
+        "content_sha256",
+        "revisions",
+        "result",
+        "created_at"
+      ],
+      "constraints": [
+        "takeoff_count_mark_commands_pkey",
+        "takeoff_count_mark_commands_kind_check",
+        "takeoff_count_mark_commands_affaire_fkey",
+        "takeoff_count_mark_commands_result_check",
+        "takeoff_count_mark_commands_kind_rule_check",
+        "takeoff_count_mark_commands_revisions_check",
+        "takeoff_count_mark_commands_generation_check",
+        "takeoff_count_mark_commands_attempt_sha256_check",
+        "takeoff_count_mark_commands_content_sha256_check"
+      ],
+      "indexes": [
+        "takeoff_count_mark_commands_pkey",
+        "takeoff_count_mark_commands_affaire_idx",
+        "takeoff_count_mark_commands_intent_uidx",
+        "takeoff_count_mark_commands_generation_uidx"
+      ],
+      "rls": true,
+      "acl": "{postgres=arwdDxtm/postgres,service_role=arwd/postgres}",
+      "select_policies": [],
+      "triggers": [
+        "takeoff_count_mark_commands_writer",
+        "takeoff_count_mark_commands_immutable"
+      ]
+    },
+    {
+      "name": "takeoff_count_mark_events",
+      "rows": 0,
+      "columns": [
+        "id",
+        "tenant_id",
+        "project_id",
+        "answer_id",
+        "revision",
+        "ordinal",
+        "command_id",
+        "gesture",
+        "mark_id",
+        "page",
+        "before",
+        "after",
+        "reason_code",
+        "reason_text",
+        "previous_event_id",
+        "evidence",
+        "actor_kind",
+        "actor_id",
+        "occurred_at"
+      ],
+      "constraints": [
+        "takeoff_count_mark_events_pkey",
+        "takeoff_count_mark_events_order_key",
+        "takeoff_count_mark_events_page_check",
+        "takeoff_count_mark_events_actor_check",
+        "takeoff_count_mark_events_after_check",
+        "takeoff_count_mark_events_affaire_fkey",
+        "takeoff_count_mark_events_before_check",
+        "takeoff_count_mark_events_gesture_check",
+        "takeoff_count_mark_events_ordinal_check",
+        "takeoff_count_mark_events_evidence_check",
+        "takeoff_count_mark_events_revision_check",
+        "takeoff_count_mark_events_command_id_fkey",
+        "takeoff_count_mark_events_actor_kind_check",
+        "takeoff_count_mark_events_reason_code_check",
+        "takeoff_count_mark_events_reason_text_check"
+      ],
+      "indexes": [
+        "takeoff_count_mark_events_pkey",
+        "takeoff_count_mark_events_mark_idx",
+        "takeoff_count_mark_events_order_key",
+        "takeoff_count_mark_events_affaire_idx",
+        "takeoff_count_mark_events_command_idx"
+      ],
+      "rls": true,
+      "acl": "{postgres=arwdDxtm/postgres,service_role=arwd/postgres,authenticated=r/postgres}",
+      "select_policies": [
+        "takeoff_count_mark_events_reader_select"
+      ],
+      "triggers": [
+        "takeoff_count_mark_events_writer",
+        "takeoff_count_mark_events_immutable"
+      ]
+    },
+    {
+      "name": "takeoff_count_mark_twins",
+      "rows": 0,
+      "columns": [
+        "answer_id",
+        "mark_id",
+        "twin_mark_id",
+        "tenant_id",
+        "project_id",
+        "generation",
+        "recorded_by",
+        "created_at"
+      ],
+      "constraints": [
+        "takeoff_count_mark_twins_pkey",
+        "takeoff_count_mark_twins_pair_check",
+        "takeoff_count_mark_twins_answer_fkey",
+        "takeoff_count_mark_twins_mark_id_fkey",
+        "takeoff_count_mark_twins_origin_check",
+        "takeoff_count_mark_twins_generation_check",
+        "takeoff_count_mark_twins_twin_mark_id_fkey"
+      ],
+      "indexes": [
+        "takeoff_count_mark_twins_pkey",
+        "takeoff_count_mark_twins_mark_idx",
+        "takeoff_count_mark_twins_twin_idx"
+      ],
+      "rls": true,
+      "acl": "{postgres=arwdDxtm/postgres,service_role=arwd/postgres,authenticated=r/postgres}",
+      "select_policies": [
+        "takeoff_count_mark_twins_reader_select"
+      ],
+      "triggers": [
+        "takeoff_count_mark_twins_writer",
+        "takeoff_count_mark_twins_immutable"
+      ]
+    }
+  ],
+  "functions": [
+    {
+      "name": "private.lock_takeoff_count_marks_revision",
+      "argument_types": "uuid",
+      "md5_prosrc": "1ed711b7f4388c548cdac90a0a850039",
+      "security_definer": true,
+      "api_execute_roles": []
+    },
+    {
+      "name": "private.refuse_takeoff_count_mark_direct_write",
+      "argument_types": "",
+      "md5_prosrc": "74633fdfa7755bda2b88b1927272f8b7",
+      "security_definer": false,
+      "api_execute_roles": []
+    },
+    {
+      "name": "private.refuse_takeoff_count_mark_update",
+      "argument_types": "",
+      "md5_prosrc": "e27b4052377882f68720077252afba67",
+      "security_definer": false,
+      "api_execute_roles": []
+    },
+    {
+      "name": "private.takeoff_count_answer_is_current",
+      "argument_types": "takeoff_item_answers",
+      "md5_prosrc": "b8dc6bb1c8dfe2e7362d02f5deeb51ed",
+      "security_definer": true,
+      "api_execute_roles": []
+    },
+    {
+      "name": "private.takeoff_count_answer_scope",
+      "argument_types": "takeoff_item_answers",
+      "md5_prosrc": "cd0b7f6b5ad3c9f66c07d479492ee282",
+      "security_definer": false,
+      "api_execute_roles": []
+    },
+    {
+      "name": "private.takeoff_count_mark_box",
+      "argument_types": "jsonb",
+      "md5_prosrc": "bb9b1bdeb7fcdf9b9f796e98d1ddea0c",
+      "security_definer": false,
+      "api_execute_roles": []
+    },
+    {
+      "name": "private.takeoff_count_mark_document",
+      "argument_types": "takeoff_count_marks, uuid",
+      "md5_prosrc": "4f5a30f6b47e33929c85285b48068bba",
+      "security_definer": true,
+      "api_execute_roles": []
+    },
+    {
+      "name": "private.takeoff_count_mark_edit_well_formed",
+      "argument_types": "jsonb, jsonb",
+      "md5_prosrc": "6916c28dd7884f2c07870a37f829a7c1",
+      "security_definer": false,
+      "api_execute_roles": []
+    },
+    {
+      "name": "private.takeoff_count_mark_event",
+      "argument_types": "uuid, uuid, uuid, uuid, integer, text, uuid, integer, jsonb, jsonb, text, text, uuid, jsonb",
+      "md5_prosrc": "a81a44318d0addc4c21237711e7acc5a",
+      "security_definer": true,
+      "api_execute_roles": []
+    },
+    {
+      "name": "private.takeoff_count_mark_evidence",
+      "argument_types": "uuid",
+      "md5_prosrc": "f14a8a41ef44823359b4b41af8138f97",
+      "security_definer": true,
+      "api_execute_roles": []
+    },
+    {
+      "name": "private.takeoff_count_mark_has_twin",
+      "argument_types": "takeoff_count_marks, uuid",
+      "md5_prosrc": "5b1733569947ddc31aba1b092a8c8045",
+      "security_definer": true,
+      "api_execute_roles": []
+    },
+    {
+      "name": "private.takeoff_count_mark_is_twin_of",
+      "argument_types": "takeoff_count_marks, uuid, uuid",
+      "md5_prosrc": "50bbd62c7e14cfcad0ad995e62d90438",
+      "security_definer": true,
+      "api_execute_roles": []
+    },
+    {
+      "name": "private.takeoff_count_mark_numbers",
+      "argument_types": "jsonb, integer, numeric, numeric",
+      "md5_prosrc": "7cfb7836f2017b41bc203485eb75b1f7",
+      "security_definer": false,
+      "api_execute_roles": []
+    },
+    {
+      "name": "private.takeoff_count_mark_publication_well_formed",
+      "argument_types": "jsonb, jsonb",
+      "md5_prosrc": "5ef63761d23eb7b20dcaadcf0018355e",
+      "security_definer": false,
+      "api_execute_roles": []
+    },
+    {
+      "name": "private.takeoff_count_mark_summary",
+      "argument_types": "uuid",
+      "md5_prosrc": "b6c2df9bdbb319d6f56fffbafff1d5f3",
+      "security_definer": true,
+      "api_execute_roles": []
+    },
+    {
+      "name": "private.takeoff_count_marks_revision",
+      "argument_types": "uuid",
+      "md5_prosrc": "8b59eef02cef12c4da3bf438827ee95f",
+      "security_definer": true,
+      "api_execute_roles": []
+    },
+    {
+      "name": "private.takeoff_count_page_for",
+      "argument_types": "takeoff_item_answers, integer, jsonb",
+      "md5_prosrc": "ebdd68bade235cdd296695ad5b2a7699",
+      "security_definer": true,
+      "api_execute_roles": []
+    },
+    {
+      "name": "private.takeoff_count_page_geometry",
+      "argument_types": "jsonb",
+      "md5_prosrc": "1c6fa6d643b97eb7296d90f9d3a5012f",
+      "security_definer": false,
+      "api_execute_roles": []
+    },
+    {
+      "name": "private.takeoff_count_record_distinct",
+      "argument_types": "takeoff_item_answers, uuid, uuid[], uuid",
+      "md5_prosrc": "9c6f8a91b48b0758638c7e14a3e6dcff",
+      "security_definer": true,
+      "api_execute_roles": []
+    },
+    {
+      "name": "private.takeoff_count_retained_twins",
+      "argument_types": "uuid, numeric, numeric, uuid, uuid",
+      "md5_prosrc": "16dfc4913c797d93811bf54c01f91621",
+      "security_definer": true,
+      "api_execute_roles": []
+    },
+    {
+      "name": "private.takeoff_count_same_object",
+      "argument_types": "uuid, numeric, numeric, numeric, numeric",
+      "md5_prosrc": "28cc9d5252087a9eaac0b8eef2e2e036",
+      "security_definer": true,
+      "api_execute_roles": []
+    },
+    {
+      "name": "private.takeoff_count_unit_counts",
+      "argument_types": "text",
+      "md5_prosrc": "d64f2909a03b1b3e220a93adfa529578",
+      "security_definer": false,
+      "api_execute_roles": []
+    },
+    {
+      "name": "public.edit_takeoff_count_marks",
+      "argument_types": "uuid, uuid, uuid, jsonb, jsonb",
+      "md5_prosrc": "1e0e92a7d63af98c5117c5d24e6cebe0",
+      "security_definer": true,
+      "api_execute_roles": [
+        "authenticated"
+      ]
+    },
+    {
+      "name": "public.publish_takeoff_count_marks",
+      "argument_types": "uuid, uuid, integer, jsonb, jsonb",
+      "md5_prosrc": "6374ca4869d05ba4f0bc74a8199f6b3b",
+      "security_definer": true,
+      "api_execute_roles": [
+        "service_role"
+      ]
+    },
+    {
+      "name": "public.read_takeoff_count_mark_events",
+      "argument_types": "uuid, uuid, uuid, integer, integer, integer",
+      "md5_prosrc": "774973bf1a79b96ac0ba5fba36863f34",
+      "security_definer": true,
+      "api_execute_roles": [
+        "authenticated"
+      ]
+    },
+    {
+      "name": "public.read_takeoff_count_mark_summaries",
+      "argument_types": "uuid, uuid, uuid[]",
+      "md5_prosrc": "022dbb875758e8dca8ca55a25a1cb186",
+      "security_definer": true,
+      "api_execute_roles": [
+        "authenticated"
+      ]
+    },
+    {
+      "name": "public.read_takeoff_count_marks",
+      "argument_types": "uuid, uuid, uuid, integer, text[], uuid, integer",
+      "md5_prosrc": "a44ba83d7e353ec6fc095836bee43f2b",
+      "security_definer": true,
+      "api_execute_roles": [
+        "authenticated"
+      ]
+    },
+    {
+      "name": "public.takeoff_count_marks_changed_since",
+      "argument_types": "uuid, uuid, uuid, integer",
+      "md5_prosrc": "685ec721ae3fc4e2278704be9eea889c",
+      "security_definer": true,
+      "api_execute_roles": [
+        "authenticated"
+      ]
+    }
+  ],
+  "new_internal_triggers": [
+    {
+      "parent": "estimate_projects",
+      "child": "takeoff_count_mark_commands",
+      "conname": "takeoff_count_mark_commands_affaire_fkey",
+      "n": 2,
+      "internal_enabled": true
+    },
+    {
+      "parent": "estimate_projects",
+      "child": "takeoff_count_mark_events",
+      "conname": "takeoff_count_mark_events_affaire_fkey",
+      "n": 2,
+      "internal_enabled": true
+    },
+    {
+      "parent": "estimate_projects",
+      "child": "takeoff_count_pages",
+      "conname": "takeoff_count_pages_affaire_fkey",
+      "n": 2,
+      "internal_enabled": true
+    },
+    {
+      "parent": "takeoff_item_answer_observations",
+      "child": "takeoff_count_mark_proposals",
+      "conname": "takeoff_count_mark_proposals_observation_id_fkey",
+      "n": 2,
+      "internal_enabled": true
+    },
+    {
+      "parent": "takeoff_item_answers",
+      "child": "takeoff_count_answer_states",
+      "conname": "takeoff_count_answer_states_answer_fkey",
+      "n": 2,
+      "internal_enabled": true
+    },
+    {
+      "parent": "takeoff_item_answers",
+      "child": "takeoff_count_mark_attributions",
+      "conname": "takeoff_count_mark_attributions_answer_fkey",
+      "n": 2,
+      "internal_enabled": true
+    },
+    {
+      "parent": "takeoff_item_answers",
+      "child": "takeoff_count_mark_proposals",
+      "conname": "takeoff_count_mark_proposals_answer_fkey",
+      "n": 2,
+      "internal_enabled": true
+    },
+    {
+      "parent": "takeoff_item_answers",
+      "child": "takeoff_count_mark_twins",
+      "conname": "takeoff_count_mark_twins_answer_fkey",
+      "n": 2,
+      "internal_enabled": true
+    }
+  ],
+  "security_advisors": {
+    "new_findings": [
+      {
+        "level": "INFO",
+        "name": "rls_enabled_no_policy",
+        "detail": "Table \\`public.takeoff_count_mark_commands\\` has RLS enabled, but no policies exist",
+        "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0008_rls_enabled_no_policy"
+      },
+      {
+        "level": "WARN",
+        "name": "authenticated_security_definer_function_executable",
+        "detail": "Function `public.edit_takeoff_count_marks(p_tenant_id uuid, p_project_id uuid, p_intent_key uuid, p_revisions jsonb, p_gestures jsonb)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/edit_takeoff_count_marks`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+        "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0029_authenticated_security_definer_function_executable"
+      },
+      {
+        "level": "WARN",
+        "name": "authenticated_security_definer_function_executable",
+        "detail": "Function `public.read_takeoff_count_mark_events(p_tenant_id uuid, p_project_id uuid, p_answer_id uuid, p_after_revision integer, p_after_ordinal integer, p_limit integer)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/read_takeoff_count_mark_events`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+        "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0029_authenticated_security_definer_function_executable"
+      },
+      {
+        "level": "WARN",
+        "name": "authenticated_security_definer_function_executable",
+        "detail": "Function `public.read_takeoff_count_mark_summaries(p_tenant_id uuid, p_project_id uuid, p_answer_ids uuid[])` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/read_takeoff_count_mark_summaries`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+        "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0029_authenticated_security_definer_function_executable"
+      },
+      {
+        "level": "WARN",
+        "name": "authenticated_security_definer_function_executable",
+        "detail": "Function `public.read_takeoff_count_marks(p_tenant_id uuid, p_project_id uuid, p_answer_id uuid, p_page integer, p_states text[], p_after_mark_id uuid, p_limit integer)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/read_takeoff_count_marks`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+        "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0029_authenticated_security_definer_function_executable"
+      },
+      {
+        "level": "WARN",
+        "name": "authenticated_security_definer_function_executable",
+        "detail": "Function `public.takeoff_count_marks_changed_since(p_tenant_id uuid, p_project_id uuid, p_answer_id uuid, p_revision integer)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/takeoff_count_marks_changed_since`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+        "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0029_authenticated_security_definer_function_executable"
+      }
+    ]
+  },
+  "count_unit_literal": {
+    "input": "u",
+    "result": true,
+    "transaction_read_only": true
   }
 }
