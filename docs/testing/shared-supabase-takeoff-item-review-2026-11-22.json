@@ -45,5 +45,58 @@
   "flags_changed": false,
   "stop_reason": "La condition de l’autorisation permanente concernant les droits sur les données existantes demande une décision du propriétaire.",
   "post_apply_checks": "sans objet",
-  "new_security_advisor_findings": null
+  "new_security_advisor_findings": null,
+  "latest_precheck": {
+    "date_utc": "2026-11-22",
+    "status": "pending_owner_authorization_before_apply",
+    "source_commit": "441c7a14e845dd643c22b01adbbf5fe10c619f0d",
+    "applied": 0,
+    "remote_versions": [],
+    "history": {
+      "before": 428,
+      "last": {
+        "version": "20261122135550",
+        "name": "20261122113611_takeoff_item_answers_before_activation"
+      },
+      "matches_receipt_470": true
+    },
+    "health": {
+      "http": 200,
+      "version": "0.7.0",
+      "db": "up"
+    },
+    "observation": {
+      "utc": "2026-11-22 15:42:20.744457+00",
+      "takeoff_completion_activation": 0,
+      "takeoff_launch_activation": 0,
+      "takeoff_item_list_order_activation": 0,
+      "takeoff_plan_dispatch_activation": 0,
+      "takeoff_item_answers": 0,
+      "takeoff_items": 0,
+      "estimate_projects": 16,
+      "takeoff_item_answer_observations": 0,
+      "audit_logs": 46772,
+      "processing": 0,
+      "locks": 0
+    },
+    "activated": false,
+    "files": [
+      {
+        "file": "20261122125722_takeoff_item_review_decisions.sql",
+        "bytes": 73749,
+        "sha256": "5a07546488d92fc9288ff526f570f2658cfb674b83921d365763b054e5e3b299"
+      },
+      {
+        "file": "20261122145415_takeoff_item_review_work_tables.sql",
+        "bytes": 38426,
+        "sha256": "08044d0d6eee2f84cb597730beb72079398df067871760d3c76034eb513126ed"
+      }
+    ],
+    "pr_precheck": {
+      "tables_taken": 0,
+      "functions_taken": 0,
+      "b1_states_missing": 0
+    },
+    "old_reading_states_md5": "5d0825ac5c143ce338a993927d37247a"
+  }
 }
