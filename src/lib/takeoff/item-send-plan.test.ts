@@ -989,6 +989,22 @@ describe("planTakeoffItemSend — the item's live DPGF target comes first (revie
     expect(fedLines(plan)).toEqual([chosen.id]);
   });
 
+  it("reserves only the item's own target: the line of its raw row back stays free for another item (review of #500, point 3)", () => {
+    // Item B's raw row is missing too: the line 43 that A's raw row came back on is a line of the import B may be given.
+    const other = dpgfItem(45, "Lave-mains", "u", "raw-45", "mapped-45", 2);
+    const back = dpgfLine(43, "mapped-40", "raw-40", 4, { quantity: 4 });
+    const base = { items: [ef, other], answers: [measured(ef, [{ quantity: 5, page: 1 }]), measured(other, [{ quantity: 2, page: 1 }])],
+      plan: { key: "plan-a", name: "Plan A", location: null, pages: [1] }, destination: draft([chosen, back]), earlier: fedOn41 };
+    const asked = planTakeoffItemSend(input(base));
+    const forOther = asked.toResolve.find((entry) => entry.itemId === other.id);
+    expect(forOther?.options).toEqual([{ kind: "line", estimateItemId: back.id, title: back.title }, { kind: "leave_out" }]);
+    const chosenForOther = planTakeoffItemSend(input({ ...base,
+      resolutions: [{ key: forOther!.key, choice: { kind: "line", estimateItemId: back.id } }] }));
+    expect(chosenForOther.toResolve).toEqual([]);
+    expect(chosenForOther.targets.map((target) => [target.itemId,
+      target.line.kind === "new_line" ? null : target.line.estimateItemId])).toEqual([[ef.id, chosen.id], [other.id, back.id]]);
+  });
+
   it("feeds the line the member chose when a line for the item's raw row comes back, never the newcomer", () => {
     const plan = planTakeoffItemSend(input({ items: [ef], answers: [measured(ef, [{ quantity: 5, page: 1 }])],
       plan: { key: "plan-a", name: "Plan A", location: null, pages: [1] },

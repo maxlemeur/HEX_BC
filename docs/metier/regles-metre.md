@@ -1515,7 +1515,8 @@ de même de la rattacher à une version hors de l'envoi par poste.
   sont ordinaires pour l'aperçu, l'écrivain, la garde des pages et les envois d'aujourd'hui. Un poste
   d'un DPGF qui a une cible vivante dans le brouillon alimente cette ligne-là, sans rien demander : une
   jumelle copiée de sa ligne, ou une ligne de sa ligne brute revenue, est une ligne existante comme les
-  autres ; la ligne brute ne désigne la ligne qu'en l'absence de cible. Une marque ne compte qu'avec la cible vivante que l'envoi a écrite pour cette ligne :
+  autres, que le poste ne retient pas : elle reste libre pour un autre poste ; la ligne brute ne désigne
+  la ligne qu'en l'absence de cible. Une marque ne compte qu'avec la cible vivante que l'envoi a écrite pour cette ligne :
   une ligne marquée qu'aucune cible ne tient (son détail perdu) fait refuser l'envoi, jamais compter
   deux fois. La copie prend l'affaire, puis la version copiée, puis les métrés qui lui sont rattachés :
   un envoi dans la version copiée ou dans la copie l'attend, ou elle l'attend, sans jamais croiser.

@@ -703,8 +703,12 @@ export function planTakeoffItemSend(input: ItemSendInput): ItemSendPlan {
   };
   /** An item of a DPGF import goes to a line of that import while the draft holds one (never to a new line then). */
   const dpgfBound = (item: ItemSendListItem) => item.origin.kind === "dpgf" && linesOfImport(item.origin.importId).length > 0;
+  // An item that holds a live DPGF target in the draft reserves that line (claimed above) and no other: a line of its raw
+  // row come back stays free for another item.
+  const holdsDpgfTarget = (item: ItemSendListItem) => input.earlier.targets.some((target) => lower(target.itemId) === lower(item.id)
+    && target.breakdown === "dpgf" && draftLines.some((line) => lower(line.id) === lower(target.estimateItemId)));
   for (const item of scoped) {
-    if (!dpgfBound(item)) continue;
+    if (!dpgfBound(item) || holdsDpgfTarget(item)) continue;
     const proven = dpgfCandidates(item);
     if (proven.length === 1) claim(proven[0].id, item.id);
   }

@@ -51,7 +51,7 @@
 -- go with their version (its cascade), and a set-null action would update a part, which C's write guard refuses
 -- (a part only moves from live to replaced); the identifier stays as the record of where the copy came from.
 -- A receipt « copy » is no send: its job and its intention key are null (takeoff_item_send_receipts.job_id and request_id
--- become nullable, required exactly for a send). So the copy's journal outlives its source: nothing a copied receipt,
+-- become nullable: a send carries both, a copy neither, never one alone). So the copy's journal outlives its source: nothing a copied receipt,
 -- target or part references is the source's (the job's cascade, its version's, never reach the copy), and the copy keeps
 -- what it needs (its targets, parts, sections and pages, on its own version and lines). Once the source is gone, the copy
 -- still knows where each row came from: the receipt it was copied from and that receipt's job and version (in the copy
@@ -93,7 +93,8 @@ alter table public.takeoff_item_send_receipts add constraint takeoff_item_send_r
 alter table public.takeoff_item_send_receipts alter column job_id drop not null;
 alter table public.takeoff_item_send_receipts alter column request_id drop not null;
 alter table public.takeoff_item_send_receipts add constraint takeoff_item_send_receipts_send_identity_check
-  check ((command_kind = 'send') = (job_id is not null and request_id is not null));
+  check ((command_kind = 'send' and job_id is not null and request_id is not null)
+    or (command_kind = 'copy' and job_id is null and request_id is null));
 comment on column public.takeoff_item_send_receipts.copied_from_receipt_id is
   'A receipt « copy »: the receipt of the source version its rows were copied from. No foreign key: the source''s rows go '
   'with their version, and the identifier stays as the record of where the copy came from.';

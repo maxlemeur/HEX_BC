@@ -1933,6 +1933,25 @@ select results_eq($$select l.id, i.quantity from template_lines l join public.es
 -- send's plan, finds no replay and is told the job is sent.
 select is((select count(*)::integer from public.takeoff_item_send_receipts r where r.command_kind = 'copy'
   and (r.request_id is not null or r.job_id is not null)), 0, 'a copy''s receipt carries no intention key and no job of a send');
+-- A copy's receipt carries neither identifier of a send: half of one is refused (a job alone would bind it to the source's
+-- job, a request alone to a send's replay).
+create function pg_temp.half_copy_receipt(p_job uuid, p_request uuid) returns text language plpgsql as $$
+begin
+  perform set_config('mergeone.takeoff_item_send', 'test', true);
+  insert into public.takeoff_item_send_receipts (tenant_id, project_id, job_id, version_id, request_id, command_kind, format_version,
+    actor_id, plan_sha256, version_created, write_plan, result, copied_from_receipt_id)
+  select r.tenant_id, r.project_id, p_job, r.version_id, p_request, 'copy', 1, r.actor_id, r.plan_sha256, false, '{}', '{}',
+    r.copied_from_receipt_id
+  from public.takeoff_item_send_receipts r where r.version_id = (select version_id from copy20) and r.command_kind = 'copy' limit 1;
+  return 'written';
+end;
+$$;
+select throws_ok($$select pg_temp.half_copy_receipt(pg_temp.job(20, 1), null)$$, '23514',
+  'new row for relation "takeoff_item_send_receipts" violates check constraint "takeoff_item_send_receipts_send_identity_check"',
+  'a copy''s receipt naming a job alone is refused');
+select throws_ok($$select pg_temp.half_copy_receipt(null, gen_random_uuid())$$, '23514',
+  'new row for relation "takeoff_item_send_receipts" violates check constraint "takeoff_item_send_receipts_send_identity_check"',
+  'a copy''s receipt carrying an intention key alone is refused');
 select is(pg_temp.refusal($$select public.send_takeoff_item_plan(c.tenant_id, c.actor_id, false,
     jsonb_build_object('request_id', coalesce(c.request_id, gen_random_uuid()), 'plan', s.write_plan))::text
   from public.takeoff_item_send_receipts c join public.takeoff_item_send_receipts s on s.id = c.copied_from_receipt_id
