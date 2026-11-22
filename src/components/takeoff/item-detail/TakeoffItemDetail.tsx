@@ -72,8 +72,11 @@ type Props = {
    * table withdraws itself. Returns whether it was a refusal.
    */
   onRefused?: (caught: unknown) => boolean;
-  /** Changes after a decision of the page on the item shown: its line and its journal are read again, nothing moves. */
-  version?: number;
+  /**
+   * Changes after each command of the page: the command's item (`itemId`, whichever item is shown when the command ends)
+   * is read again and its line kept, the journal shown read again; nothing moves.
+   */
+  refresh?: { version: number; itemId: string } | null;
   /** Told what the detail shows each time it changes (another item, reading, line read again or right). */
   onShown?: (shown: ItemDetailShown | null) => void;
 };
@@ -113,7 +116,8 @@ function planRequest(choice: ItemDetailPlanChoice, itemId: string): ItemDetailPl
 const neverRefused = () => false;
 
 function ItemDetailView({ projectId, address, reader, tableQuery, onBack, onGesture, onAddressChange, onRefused = neverRefused,
-  version = 0, onShown }: Props) {
+  refresh = null, onShown }: Props) {
+  const version = refresh?.version ?? 0;
   const queue = useMemo(() => new ItemDetailQueue(), []);
   const [revision, setRevision] = useState(0);
   const [load, setLoad] = useState<Load>({ state: "loading" });
@@ -167,16 +171,18 @@ function ItemDetailView({ projectId, address, reader, tableQuery, onBack, onGest
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [itemId, queue, reader]);
 
-  // After a decision of the page, the item shown is read again in the table's scope and replaces its line where it stands,
-  // kept by item: the queue's membership, its order and the page shown do not move. An item no longer in the list (or in
-  // the plan's scope) is cleared of what was read of it; the right read with it governs the gestures.
+  // After a command of the page, the command's item (the member may have moved on since) is read again in the table's
+  // scope and replaces its line where it stands, kept by item: the queue's membership, its order and the page shown do not
+  // move. An item no longer in the list (or in the plan's scope) is cleared of what was read of it; the right read with it
+  // governs the gestures.
   const [fresh, setFresh] = useState<Record<string, ItemDetailLine | null>>({});
   useEffect(() => {
-    if (version === 0) return;
+    if (!refresh) return;
+    const target = refresh.itemId;
     let active = true;
-    void reader.readLine(itemId).then((read) => {
+    void reader.readLine(target).then((read) => {
       if (!active) return;
-      setFresh((current) => ({ ...current, [itemId]: read?.line ?? null }));
+      setFresh((current) => ({ ...current, [target]: read?.line ?? null }));
       if (read) setRights(read.canReview);
     }).catch((caught: unknown) => {
       if (active) onRefused(caught);
@@ -184,7 +190,7 @@ function ItemDetailView({ projectId, address, reader, tableQuery, onBack, onGest
     return () => {
       active = false;
     };
-    // The item is read again when the page says it changed, not when another item is shown.
+    // The command's item is read again when the page says a command ended, not when another item is shown.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [version]);
   const read = found?.page.page.lines[found.index] ?? (outside?.line.itemId === itemId ? outside.line : null);

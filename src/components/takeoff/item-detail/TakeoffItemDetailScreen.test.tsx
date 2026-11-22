@@ -66,12 +66,12 @@ import {
   planViews,
 } from "@/lib/takeoff/item-detail.test-fixtures";
 import { fixtureItemTable } from "@/lib/takeoff/item-table.test-fixtures";
-import type { ItemReadingInput } from "@/lib/takeoff/item-table";
+import type { ItemEntryView, ItemReadingInput } from "@/lib/takeoff/item-table";
 
-type Scenario = { readings: ItemReadingInput[]; canReview: boolean };
+type Scenario = { readings: ItemReadingInput[]; canReview: boolean; entries?: ItemEntryView[] };
 let scenario: Scenario = { readings: DETAIL_READINGS, canReview: true };
 const tableOf = (request: Partial<ItemTableAddress> = {}) => fixtureItemTable({ items: DETAIL_ITEMS, readings: scenario.readings,
-  plans: DETAIL_PLANS, canReview: scenario.canReview, limit: 50, scope: request.scope, filter: request.filter,
+  entries: scenario.entries, plans: DETAIL_PLANS, canReview: scenario.canReview, limit: 50, scope: request.scope, filter: request.filter,
   offset: request.offset, focusItemId: request.focusItemId ?? null });
 
 const plansAsked: string[] = [];
@@ -429,5 +429,42 @@ describe("TakeoffItemDetailScreen, review of #483", () => {
     await show(ITEMS.notFound); await setAside();
     await show(ITEMS.basin);
     expect(evidence().queryByRole("button", { name: "Écarter" }) === null).toBe(true);
+  });
+});
+
+// Review of #483, automated review of 3b1ac6e6 (written before the fix): « Inclure l’hypothèse » sends at once; the member
+// moved to another item before the answer, and the read that follows a command read the item shown, not the command's.
+// Back on the first item, its line was the old one (the hypothesis still to include, its old revisions).
+describe("TakeoffItemDetailScreen, a command that ends after the member moved", () => {
+  it("reads again the command's item, and keeps its line, whichever item is shown when the command ends", async () => {
+    const entry = (included: boolean, revision: number): ItemEntryView => ({ itemId: ITEMS.basin, scope: "affaire", planKey: null, revision,
+      quantity: 5, unit: "u", category: "hypothesis", note: "Cinq lavabos supposés au sous-sol (fictif).", included,
+      actorId: "operator", at: "2026-11-22T09:00:00.000Z", previous: null });
+    scenario = { ...scenario, entries: [entry(false, 1)] };
+    let release: () => void = () => undefined;
+    client.sendItemReviewCommand.mockImplementation(() => new Promise((resolve) => {
+      release = () => {
+        scenario = { ...scenario, entries: [entry(true, 2)] };
+        resolve({ outcome: "applied", applied: [{ itemId: ITEMS.basin, label: "Lavabo céramique", answers: 0 }], skipped: [] });
+      };
+    }));
+    open(ITEMS.basin, PLAN_RDC, JOB_RDC);
+    await settle();
+    const options = () => within(screen.getByRole("listbox", { name: "Postes" })).getAllByRole("option");
+    expect(evidence().getByText(/hypothèse non incluse/)).toBeTruthy();
+    fireEvent.click(evidence().getByRole("button", { name: "Inclure l’hypothèse" }));
+    expect(client.sendItemReviewCommand).toHaveBeenCalledTimes(1);
+    fireEvent.click(options().find((option) => option.textContent?.startsWith("Siphon de sol"))!);
+    await settle();
+    expect(evidence().getByRole("heading", { name: "Siphon de sol" })).toBeTruthy();
+    await act(async () => { release(); });
+    await settle();
+    expect(client.fetchItemLine.mock.calls.map(([, itemId]) => itemId)).toContain(ITEMS.basin);
+    // The basin (5 u in all), not its homonym of the caretaker's flat (1 u).
+    fireEvent.click(options().find((option) => option.textContent?.startsWith("Lavabo céramique") && option.textContent.endsWith("5 u"))!);
+    await settle();
+    expect(evidence().getByRole("heading", { name: "Lavabo céramique" })).toBeTruthy();
+    expect(evidence().queryByText(/hypothèse non incluse/)).toBeNull();
+    expect(evidence().queryByRole("button", { name: "Inclure l’hypothèse" })).toBeNull();
   });
 });
