@@ -119,6 +119,7 @@
     "e2e/army/local/engine-v3-creators.e2e.ts": 116,
     "e2e/army/local/engine-v3-default.e2e.ts": 12,
     "e2e/army/local/engine-v3-editor-actions.e2e.ts": 183,
+    "e2e/army/local/engine-v3-editor-row-shortcuts.e2e.ts": 8,
     "e2e/army/local/engine-v3-editor.e2e.ts": 128,
     "e2e/army/local/engine-v3-emission.e2e.ts": 12,
     "e2e/army/local/engine-v3-exports.e2e.ts": 29,

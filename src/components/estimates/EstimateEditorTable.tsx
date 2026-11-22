@@ -63,6 +63,7 @@ import {
 } from "@/components/estimates/hooks/useEstimateEditorSuggestions";
 import {
   useEstimateKeyboardShortcuts,
+  type EstimateRowShortcut,
 } from "@/components/estimates/hooks/useEstimateKeyboardShortcuts";
 import {
   useEstimateSelection,
@@ -82,6 +83,7 @@ import {
   useEstimateVisibility,
 } from "@/components/estimates/hooks/useEstimateVisibility";
 import {
+  toGridCellId,
   useGridNavigation,
   type GridNavigationResult,
 } from "@/hooks/useGridNavigation";
@@ -700,6 +702,9 @@ export function EstimateEditorTable({
   onInsertAssembly,
   onInsertTemplate,
   onPasteRows,
+  onInsertLineBelow,
+  onDuplicateLineBelow,
+  onInsertSectionBelow,
   onUndo,
   onRedo,
   canUndo,
@@ -772,6 +777,9 @@ export function EstimateEditorTable({
     setIsAssemblyPickerOpen(true);
   }, [isReadOnly]);
   const gridNavigationRef = useRef<GridNavigationResult | null>(null);
+  /** Row ids of the grid's model, for the shortcuts that select a row the grid has not rendered yet. */
+  const gridRowIdsRef = useRef<ReadonlySet<string>>(new Set());
+  const rowShortcutBusyRef = useRef(false);
   const cellPasteHandlerRef = useRef<((text: string, target: Element) => boolean) | null>(null);
   const getPinnedRowId = useCallback(() => gridNavigationRef.current?.getActiveRowId() ?? null, []);
   const appliedSuggestionContextByItemIdRef = useRef<
@@ -1568,6 +1576,112 @@ export function EstimateEditorTable({
     ]
   );
 
+  // The created or moved row keeps the keyboard: its cell is selected once the grid mounts it.
+  const selectRowCell = useCallback((rowId: string, columnKey: string, edit: boolean) => {
+    let frames = 0;
+    const attempt = () => {
+      const navigation = gridNavigationRef.current;
+      const cell = { rowId, columnKey };
+      const mounted = tableCardRef.current?.querySelector(`[data-cell-id="${CSS.escape(toGridCellId(cell))}"]`);
+      if (navigation && mounted) {
+        // Selecting first scrolls the row into view; the editor itself focuses without scrolling.
+        navigation.selectCell(cell);
+        if (edit) navigation.startEditing(cell, "replace");
+        return;
+      }
+      frames += 1;
+      // A virtualized grid renders the row once it is asked for it: selecting it scrolls to it.
+      if (navigation && gridRowIdsRef.current.has(rowId) && frames > 2) {
+        navigation.selectCell(cell);
+        return;
+      }
+      if (frames < 60) {
+        window.requestAnimationFrame(attempt);
+        return;
+      }
+      // Not shown (collapsed section): typing must not overwrite the cell the shortcut left.
+      const active = document.activeElement;
+      if (active instanceof HTMLElement && tableCardRef.current?.contains(active)) active.blur();
+    };
+    window.requestAnimationFrame(attempt);
+  }, []);
+
+  const handleRowShortcut = useCallback(
+    async (action: EstimateRowShortcut) => {
+      // One row shortcut at a time: a second insertion would place its rows from positions the first is changing.
+      if (isReadOnly || rowShortcutBusyRef.current) return;
+      // The active cell's row; else the only checked line.
+      const anchorId = insertionAnchorItemIdRef.current
+        ?? (selectedLineIdList.length === 1 ? selectedLineIdList[0] : null);
+      const anchorItem = anchorId ? items.find((item) => item.id === anchorId) : undefined;
+      if (anchorItem && isPendingCreateItem(anchorItem)) {
+        toast.error({
+          title: "Ligne en cours d’enregistrement",
+          description: "Attendez sa confirmation avant d’ajouter, de dupliquer ou de déplacer à partir d’elle.",
+        });
+        return;
+      }
+      if (action === "moveUp" || action === "moveDown") {
+        const anchor = anchorId ? items.find((item) => item.id === anchorId) : undefined;
+        if (!anchor) return;
+        if (!canReorder) {
+          toast.error({
+            title: "Déplacement indisponible",
+            description: "Affichez toutes les lignes et attendez la fin des enregistrements pour déplacer une ligne.",
+          });
+          return;
+        }
+        const parentId = anchor.parent_id ?? null;
+        const siblingIds = items
+          .filter((item) => (item.parent_id ?? null) === parentId)
+          .sort((left, right) => left.position - right.position)
+          .map((item) => item.id);
+        const from = siblingIds.indexOf(anchor.id);
+        const to = from + (action === "moveUp" ? -1 : 1);
+        if (from < 0 || to < 0 || to >= siblingIds.length) return;
+        [siblingIds[from], siblingIds[to]] = [siblingIds[to], siblingIds[from]];
+        onReorder(parentId, siblingIds);
+        gridNavigationRef.current?.focusActiveCell();
+        return;
+      }
+      const run = action === "insertLine"
+        ? onInsertLineBelow
+        : action === "duplicateLine"
+          ? onDuplicateLineBelow
+          : onInsertSectionBelow;
+      if (!run) return;
+      const activeColumn = gridNavigationRef.current?.getSelection()?.active.columnKey ?? "title";
+      rowShortcutBusyRef.current = true;
+      try {
+        const createdId = (await run(anchorId))?.[0];
+        if (!createdId) return;
+        if (action === "duplicateLine") selectRowCell(createdId, activeColumn, false);
+        else selectRowCell(createdId, "title", true);
+      } catch (error) {
+        toast.error({
+          title: action === "duplicateLine"
+            ? "Duplication impossible"
+            : action === "insertSection" ? "Section non ajoutée" : "Ligne non ajoutée",
+          description: error instanceof Error ? error.message : "Réessayez.",
+        });
+      } finally {
+        rowShortcutBusyRef.current = false;
+      }
+    },
+    [
+      canReorder,
+      isReadOnly,
+      items,
+      onDuplicateLineBelow,
+      onInsertLineBelow,
+      onInsertSectionBelow,
+      onReorder,
+      selectRowCell,
+      selectedLineIdList,
+      toast,
+    ]
+  );
+
   useEstimateKeyboardShortcuts({
     tableCardRef,
     hasSelectedLines,
@@ -1589,6 +1703,7 @@ export function EstimateEditorTable({
     onUndo,
     onRedo,
     onOpenAssemblyPicker: () => openAssemblyPicker(),
+    onRowShortcut: (action) => void handleRowShortcut(action),
   });
 
   const applySuggestion = useCallback(
@@ -1838,6 +1953,9 @@ export function EstimateEditorTable({
   useLayoutEffect(() => {
     gridNavigationRef.current = spreadsheetNavigation;
   }, [spreadsheetNavigation]);
+  useLayoutEffect(() => {
+    gridRowIdsRef.current = new Set(spreadsheetNavigationRows.map((row) => row.rowId));
+  }, [spreadsheetNavigationRows]);
 
   useEstimateGridClipboardEvents({
     navigation: spreadsheetNavigation,
