@@ -24,7 +24,7 @@ import { querySql } from "./calculation-gate-support";
 import { callServerAction, serverActionId } from "./engine-v3-creators-support";
 import {
   activateOwnedAutomaticStart, deactivateOwnedAutomaticStart, makeOwnedDirector, readOwnedAffaireJobs, readOwnedAffaireNotices,
-  readOwnedBrief, readOwnedLaunchRequests, readOwnedVersionCount,
+  readOwnedBrief, readOwnedLaunchRequests, readOwnedPayerNoticeBasis, readOwnedVersionCount,
 } from "./automatic-start-support";
 import { LAB_VECTOR_PLAN } from "./lab-vector-plan-fixture";
 import { labSessionCookies, launchLabRun, rawLabRequest } from "./takeoff-lab-support";
@@ -1254,21 +1254,22 @@ async function uploadDossierPlan(ui: ReturnType<typeof hydratedUi>, projectId: s
   }, DEV_SERVER_WORK).toBe(true);
 }
 /**
- * Opens the affaire until its brief's button shows. The brief is written once the dossier's analysis ends and the page
- * does not always show it by itself: it is read again until the button is there. The hub opens the brief's section from
- * the page's address once hydrated, and `next dev` hydrates only after the `load` a reload waits for: each reload is
- * read once hydrated (a check before it never sees the section, and a reload after it starts over: CI run 44917281697).
- * Opening the address of the page already shown only moves to its fragment.
+ * Opens the brief of the affaire for `memberId` on a page the server rendered once what its payer notice depends on is
+ * stored, with (`notice`) or without the automatic start. The server reads the notice once, when it renders the page,
+ * and only for a brief to confirm; the hub's own reads of the dossier then bring the brief over that render without it.
+ * The page the upload opened was rendered before the brief existed, and opening its address again only moves to the
+ * fragment: its button showed the brief those reads brought, with a dialog that had no notice (CI run 44999469481,
+ * AUTO03 then AUTO01). The page is therefore loaded again after the stored state is read. The hub opens the brief's
+ * section from the address once hydrated, and `next dev` hydrates only after the `load` a reload waits for.
  */
-async function openBriefConfirmation(ui: ReturnType<typeof hydratedUi>, projectId: string) {
+async function openBriefConfirmation(ui: ReturnType<typeof hydratedUi>, projectId: string, memberId: string, notice: boolean) {
+  await expect.poll(() => readOwnedPayerNoticeBasis(projectId, memberId), DEV_SERVER_WORK)
+    .toEqual({ brief: "a_confirmer", active: notice, payer: true });
   const confirm = ui.screen.getByRole("button", "Confirmer le brief", { exact: true });
   await ui.app.open(`/dashboard/affaires/${projectId}#brief`);
-  await expect.poll(async () => {
-    if (await confirm.isVisible()) return true;
-    await ui.browser.reload();
-    await waitForHydration(ui.browser);
-    return confirm.isVisible();
-  }, DEV_SERVER_WORK).toBe(true);
+  await ui.browser.reload();
+  await waitForHydration(ui.browser);
+  await expect(confirm).toBeVisible(DEV_SERVER_WORK);
   return confirm;
 }
 const PAYER_NOTICE = "Une fois les plans prêts, le métré utilisera votre forfait ChatGPT et les réglages de Mon profil.";
@@ -1297,7 +1298,7 @@ if (!existsSync(liveProbePath)) test("AUTO01 a confirmed dossier starts one deta
     const readsBefore = await planReads();
 
     // The member who confirms is told who pays, at the gesture.
-    const confirm = await openBriefConfirmation(ui, ids.projectId);
+    const confirm = await openBriefConfirmation(ui, ids.projectId, owner.userId, true);
     await confirm.click();
     const dialog = screen.getByRole("alertdialog", "Confirmer ce brief ?", { exact: true });
     await expect(dialog).toContainText("Une fois les plans prêts, le métré utilisera votre forfait ChatGPT et les réglages de Mon profil.");
@@ -1428,7 +1429,7 @@ if (!existsSync(liveProbePath)) test("AUTO03 a confirmer whose ChatGPT connectio
     const readsBefore = await planReads();
     // The dialog tells the member who pays, for the subscription connected now; the connection goes while it is open
     // (the dossier was classified and its brief written while it existed): the notice shown no longer holds.
-    const confirm = await openBriefConfirmation(ui, ids.projectId);
+    const confirm = await openBriefConfirmation(ui, ids.projectId, owner.userId, true);
     await confirm.click();
     const dialog = screen.getByRole("alertdialog", "Confirmer ce brief ?", { exact: true });
     await expect(dialog).toContainText(PAYER_NOTICE);
@@ -1469,7 +1470,7 @@ if (!existsSync(liveProbePath)) test("AUTO04 a confirmation from a dialog shown 
     await uploadDossierPlan(ui, ids.projectId, `${prefix}-plan.pdf`, owner.email);
     await expect.poll(async () => (await readOwnedBrief(ids.projectId))?.status ?? null, DEV_SERVER_WORK).toBe("a_confirmer");
     const readsBefore = await planReads();
-    const confirm = await openBriefConfirmation(ui, ids.projectId);
+    const confirm = await openBriefConfirmation(ui, ids.projectId, owner.userId, false);
     await confirm.click();
     const dialog = screen.getByRole("alertdialog", "Confirmer ce brief ?", { exact: true });
     await expect(dialog).toBeVisible();
@@ -1512,7 +1513,7 @@ if (!existsSync(liveProbePath)) test("AUTO05 a dossier classified after its conf
     await setDecisionsControl({ holdClassification: true });
     await uploadDossierPlan(ui, ids.projectId, `${prefix}-plan-etage.pdf`, owner.email, "opened", "classifying");
     const readsBefore = await planReads();
-    const confirm = await openBriefConfirmation(ui, ids.projectId);
+    const confirm = await openBriefConfirmation(ui, ids.projectId, owner.userId, true);
     await confirm.click();
     const dialog = screen.getByRole("alertdialog", "Confirmer ce brief ?", { exact: true });
     await expect(dialog).toContainText(PAYER_NOTICE);

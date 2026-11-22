@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import { describeV3EntryRefusal } from "@/lib/estimates/assemblies-server";
 import { TakeoffError, TakeoffErrorCode } from "@/lib/takeoff/errors";
+import { listOf } from "@/lib/text/list";
 
 export type ApplyTakeoffRpcError = {
   code?: string;
@@ -114,8 +115,6 @@ function pageName(page: { source_file_name?: string | null; source_page?: number
 }
 
 const quantityFormat = new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 4 });
-const listOf = (items: readonly string[]) =>
-  items.length <= 1 ? items.join("") : `${items.slice(0, -1).join(", ")} et ${items[items.length - 1]}`;
 
 type RefusedPage = { source_file_name: string | null; source_page: number | null; decision: "replace" | "keep_both" | null };
 

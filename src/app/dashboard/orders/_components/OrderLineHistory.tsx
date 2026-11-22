@@ -101,7 +101,7 @@ export function OrderLineHistory({ orderId }: { orderId: string }) {
                   </time>
                 </p>
                 <div className="mt-2 overflow-x-auto">
-                  <table className="w-full text-sm">
+                  <table className="sheet-table w-full text-sm">
                     <caption className="sr-only">Valeurs de la ligne {designation}</caption>
                     <thead className="text-xs text-muted-foreground">
                       <tr>

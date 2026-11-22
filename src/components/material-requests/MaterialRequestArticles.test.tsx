@@ -40,6 +40,14 @@ import type {
  * 15. (Codex review of #263) a change of imputation keeps the proposals computed with the request's presumed
  *     material, which only holds for the affaire, so a stale safe proposal stays in the bulk link; a link does
  *     not tell the server which version of the line the office chose it for.
+ * 16. (TI-690, a lighter lines table) a folded row links a proposal that carries warnings while those warnings
+ *     are not on screen; or it hides that there is something to check; or its « Vérifier » button links
+ *     instead of opening the proposals, or the proposals it opens do not show that candidate's warnings with
+ *     a working link; or unfolding the row no longer shows the warnings beside a direct « Rattacher ».
+ * 17. (TI-690, the owner's walk) a missing supply type sends the office to the catalogue, losing the article form;
+ *     or the type created from the form is not selected, or its Enter submits the article; or a refused name is
+ *     thrown away or silent; or a member who may not create a type (only administrators may) is offered a button
+ *     the server refuses, or is told to create one where they cannot.
  */
 
 vi.mock("@/lib/material-requests/source-text", () => ({ splitSourceText: vi.fn() }));
@@ -213,14 +221,14 @@ function candidateReads(): Call[] {
   return calls.filter((call) => call.method === "GET" && call.path === `${BASE}/candidates`);
 }
 
-async function openEditor(routes: Record<string, Route>) {
+async function openEditor(routes: Record<string, Route>, access: { canCreateSupplyType?: boolean } = {}) {
   mockApi({
     "GET /api/material-request-technicians": { data: { items: [] } },
     [`GET ${BASE}/quotes`]: { data: { items: [] } },
     ...routes,
   });
   const user = userEvent.setup();
-  render(<MaterialRequestEditor projectId={PROJECT_ID} requestId={REQUEST_ID} />);
+  render(<MaterialRequestEditor projectId={PROJECT_ID} requestId={REQUEST_ID} {...access} />);
   await screen.findByRole("heading", { name: "Lignes" });
   return user;
 }
@@ -229,7 +237,7 @@ const BULK = /^Rattacher les références et noms connus \(\d+\)$/;
 
 /** Shows the fields a line keeps on demand (precision, reference, zone, imputation), as the office does. */
 async function showMoreFields(user: ReturnType<typeof userEvent.setup>, position: number) {
-  const toggle = screen.getByRole("button", { name: `Précision, référence, repère, imputation : ligne ${position}` });
+  const toggle = screen.getByRole("button", { name: `Détails de la ligne ${position}` });
   if (toggle.getAttribute("aria-expanded") !== "true") await user.click(toggle);
 }
 
@@ -247,6 +255,8 @@ describe("linking request lines to catalogue articles", () => {
       [`PUT ${BASE}/lines/${LINE_A}/article`]: { data: { line: result, article: article(), alias_learned: "tige" } },
     });
 
+    // Read once the line is unfolded: a folded row keeps the article, its supplier and one gesture.
+    await showMoreFields(user, 1);
     const link = await screen.findByRole("button", { name: "Rattacher l’article proposé à la ligne 1" });
     expect(screen.getByText("Tige filetée acier zingué M10 1 m")).toBeVisible();
     expect(screen.getByText("Référence écrite par le technicien")).toBeVisible();
@@ -287,7 +297,12 @@ describe("linking request lines to catalogue articles", () => {
       [`PUT ${BASE}/lines/${LINE_A}/article`]: { data: { line: linked(line(), article(), "reference"), article: article(), alias_learned: null } },
     });
 
-    const warning = await screen.findByText("À vérifier : La ligne indique une autre dimension que la référence (M12).");
+    // Folded, the row says there is something to check and links nothing directly (16).
+    expect(await screen.findByText("1 point à vérifier")).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Rattacher l’article proposé à la ligne 2" })).not.toBeInTheDocument();
+    // Unfolded, the warning is on screen beside the direct link, which names it.
+    await showMoreFields(user, 2);
+    const warning = screen.getByText("À vérifier : La ligne indique une autre dimension que la référence (M12).");
     expect(warning).toBeVisible();
     expect(screen.getByRole("button", { name: "Rattacher l’article proposé à la ligne 2" })).toHaveAccessibleDescription(
       expect.stringContaining("autre dimension"),
@@ -339,7 +354,8 @@ describe("linking request lines to catalogue articles", () => {
     ]);
     expect(screen.getByText("Nom usuel mémorisé : « rondelle »")).toBeVisible();
     expect(screen.getByRole("button", { name: "Rattacher l’article proposé à la ligne 2" })).toBeEnabled();
-    expect(screen.getByRole("button", { name: BULK })).toBeDisabled();
+    // Nothing sure is left: the bulk action, offered at (2) above, is no longer on screen (TI-690).
+    expect(screen.queryByRole("button", { name: BULK })).not.toBeInTheDocument();
   });
 
   it("unlinks an article and shows the line's proposals again (4)", async () => {
@@ -355,6 +371,8 @@ describe("linking request lines to catalogue articles", () => {
 
     expect(await screen.findByText("Tige filetée acier zingué M10 1 m")).toBeVisible();
     expect(screen.getByLabelText("Type, ligne 1")).toHaveValue("Tige filetée");
+    // Read once the line is unfolded: a folded row keeps the article, its supplier and one gesture.
+    await showMoreFields(user, 1);
     await user.click(screen.getByRole("button", { name: "Délier l’article de la ligne 1" }));
 
     await waitFor(() => expect(writes()).toEqual([{ method: "DELETE", path: `${BASE}/lines/${LINE_A}/article`, body: null }]));
@@ -368,7 +386,7 @@ describe("linking request lines to catalogue articles", () => {
 
   it("keeps a line whose proposal ties with another article out of the bulk link (2)", async () => {
     const lineB = line({ id: LINE_B, position: 2, product_type: "Écrou" });
-    await openEditor({
+    const user = await openEditor({
       [`GET ${BASE}`]: { data: detail({ lines: [line(), lineB] }) },
       [`GET ${BASE}/candidates`]: {
         data: {
@@ -391,9 +409,9 @@ describe("linking request lines to catalogue articles", () => {
       },
     });
 
-    expect(
-      await screen.findByText("À vérifier : Plusieurs articles portent cette référence : choisissez."),
-    ).toBeVisible();
+    expect(await screen.findByText("1 point à vérifier")).toBeVisible();
+    await showMoreFields(user, 2);
+    expect(screen.getByText("À vérifier : Plusieurs articles portent cette référence : choisissez.")).toBeVisible();
     expect(screen.getByRole("button", { name: "Rattacher les références et noms connus (1)" })).toBeEnabled();
   });
 
@@ -441,12 +459,88 @@ describe("linking request lines to catalogue articles", () => {
       },
     });
 
-    await user.click(await screen.findByRole("button", { name: "Rattacher l’article proposé à la ligne 1" }));
+    // A proposal with a warning is linked directly only once the row is unfolded, the warning on screen (16).
+    await screen.findByText("1 point à vérifier");
+    await showMoreFields(user, 1);
+    await user.click(screen.getByRole("button", { name: "Rattacher l’article proposé à la ligne 1" }));
 
     expect(await screen.findByText("Unité changée pour celle de l’article : vérifiez la quantité.")).toBeVisible();
     expect(screen.getByLabelText("Unité, ligne 1")).toHaveValue("u");
     expect(screen.getByLabelText("Quantité à vérifier, ligne 1")).toBeChecked();
     expect(screen.queryByText(/Nom usuel mémorisé/)).not.toBeInTheDocument();
+  });
+
+  it("reads a folded proposal's warnings in the proposals panel before linking it there (16)", async () => {
+    const warned = candidate({
+      via: "ranked",
+      reasons: ["Même type et même dimension"],
+      warnings: ["Unité différente : l’article se compte en u.", "Article encore en brouillon au catalogue."],
+    });
+    const user = await openEditor({
+      [`GET ${BASE}`]: { data: detail({ lines: [line()] }) },
+      [`GET ${BASE}/candidates`]: { data: { lines: { [LINE_A]: [warned] } } },
+      [`PUT ${BASE}/lines/${LINE_A}/article`]: { data: { line: linked(line(), article(), "reference"), article: article(), alias_learned: null } },
+    });
+
+    const check = await screen.findByRole("button", { name: "Vérifier l’article proposé, ligne 1" });
+    // Folded: how many points, not the points themselves, and no gesture that links.
+    expect(screen.getByText("2 points à vérifier")).toBeVisible();
+    expect(check).toHaveAccessibleDescription("2 points à vérifier");
+    expect(screen.queryByText(/^À vérifier :/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Rattacher/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("checkbox", { name: /^Mémoriser/ })).not.toBeInTheDocument();
+
+    await user.click(check);
+    expect(writes()).toEqual([]);
+    const panel = await screen.findByRole("dialog", { name: "Article de la ligne" });
+    expect(within(panel).getByText("Tige filetée acier zingué M10 1 m")).toBeVisible();
+    expect(within(panel).getByText("À vérifier : Unité différente : l’article se compte en u.")).toBeVisible();
+    expect(within(panel).getByText("À vérifier : Article encore en brouillon au catalogue.")).toBeVisible();
+    const link = within(panel).getByRole("button", { name: "Rattacher « Tige filetée acier zingué M10 1 m »" });
+    expect(link).toHaveAccessibleDescription(expect.stringContaining("Unité différente"));
+
+    await user.click(link);
+
+    await waitFor(() => expect(writes()).toHaveLength(1));
+    expect(writes()[0].body).toEqual({ product_id: ARTICLE_1, via: "ranked", expected_line: seen(line()) });
+    // Read once the line is unfolded: a folded row keeps the article, its supplier and one gesture.
+    await showMoreFields(user, 1);
+    expect(await screen.findByRole("button", { name: "Délier l’article de la ligne 1" })).toBeEnabled();
+  });
+
+  it("keeps a direct link for a folded proposal without warnings, and every warning beside it once unfolded (16)", async () => {
+    const lineB = line({ id: LINE_B, position: 2, product_type: "Écrou" });
+    const user = await openEditor({
+      [`GET ${BASE}`]: { data: detail({ lines: [line(), lineB] }) },
+      [`GET ${BASE}/candidates`]: {
+        data: {
+          lines: {
+            [LINE_A]: [candidate({ via: "ranked" })],
+            [LINE_B]: [candidate({ via: "ranked", warnings: ["Unité différente : l’article se compte en u."] })],
+          },
+        },
+      },
+    });
+
+    // Without a warning, the folded row links in one gesture.
+    expect(await screen.findByRole("button", { name: "Rattacher l’article proposé à la ligne 1" })).toBeEnabled();
+    // The usual-name choice is read once the line is unfolded.
+    await showMoreFields(user, 1);
+    expect(screen.getByRole("checkbox", { name: "Mémoriser « Tige » comme nom usuel, ligne 1" })).not.toBeChecked();
+    expect(screen.queryByRole("button", { name: "Vérifier l’article proposé, ligne 1" })).not.toBeInTheDocument();
+    // With one, singular, and no direct link while folded.
+    expect(screen.getByText("1 point à vérifier")).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Rattacher l’article proposé à la ligne 2" })).not.toBeInTheDocument();
+
+    await showMoreFields(user, 2);
+
+    expect(screen.getByText("À vérifier : Unité différente : l’article se compte en u.")).toBeVisible();
+    expect(screen.queryByText("1 point à vérifier")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Vérifier l’article proposé, ligne 2" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Rattacher l’article proposé à la ligne 2" })).toHaveAccessibleDescription(
+      expect.stringContaining("Unité différente"),
+    );
+    expect(screen.getByRole("checkbox", { name: "Mémoriser « Écrou » comme nom usuel, ligne 2" })).toBeInTheDocument();
   });
 
   describe("creating the article a line names", () => {
@@ -469,15 +563,15 @@ describe("linking request lines to catalogue articles", () => {
       },
     };
 
-    async function openCreation(routes: Record<string, Route>) {
+    async function openCreation(routes: Record<string, Route>, access: { canCreateSupplyType?: boolean } = {}) {
       const user = await openEditor({
         [`GET ${BASE}`]: { data: detail({ lines: [line()] }) },
         [`GET ${BASE}/candidates`]: { data: { lines: { [LINE_A]: [] } } },
         "GET /api/catalogue/supply-types": supplyTypes,
         ...routes,
-      });
+      }, access);
       await user.click(await screen.findByRole("button", { name: "Chercher ou créer l’article, ligne 1" }));
-      const panel = await screen.findByRole("dialog", { name: "Article de la ligne 1" });
+      const panel = await screen.findByRole("dialog", { name: "Article de la ligne" });
       await user.click(within(panel).getByRole("button", { name: "Créer l’article" }));
       await within(panel).findByRole("option", { name: "Robinetterie" });
       return { user, panel };
@@ -510,6 +604,8 @@ describe("linking request lines to catalogue articles", () => {
       });
       await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
       expect(screen.getByText("Tige acier M10")).toBeVisible();
+      // Read once the line is unfolded: a folded row keeps the article, its supplier and one gesture.
+      await showMoreFields(user, 1);
       expect(screen.getByText("Nouveau")).toBeVisible();
       expect(screen.getByText("créé depuis cette ligne")).toBeVisible();
     });
@@ -546,19 +642,152 @@ describe("linking request lines to catalogue articles", () => {
       expect(screen.getByRole("button", { name: "Chercher ou créer l’article, ligne 1", hidden: true })).toBeInTheDocument();
     });
 
-    it("says there is no supply type yet and points to the catalogue (11)", async () => {
+    it("lets an administrator create a supply type in place, selected at once, and the article uses it (17)", async () => {
+      const SUPPLY_NEW = "5c5c5c5c-5c5c-45c5-85c5-5c5c5c5c5c5c";
+      const { user, panel } = await openCreation(
+        {
+          "POST /api/catalogue/supply-types": { status: 201, data: { item: { id: SUPPLY_NEW, code: "SUPPORTAGE", name: "Supportage" } } },
+          [`POST ${BASE}/lines/${LINE_A}/article`]: {
+            status: 201,
+            data: { line: linked(line(), created, "created"), article: created, alias_learned: null },
+          },
+        },
+        { canCreateSupplyType: true },
+      );
+      await user.type(within(panel).getByLabelText("Désignation"), "Tige acier M10 longue");
+
+      const open = within(panel).getByRole("button", { name: "Nouveau type" });
+      expect(open).toHaveAttribute("aria-expanded", "false");
+      await user.click(open);
+      const name = within(panel).getByLabelText("Nom du nouveau type de fourniture");
+      expect(name).toHaveFocus();
+      await user.type(name, "  Supportage {Enter}");
+
+      const select = within(panel).getByLabelText("Type de fourniture *");
+      await waitFor(() => expect(select).toHaveValue(SUPPLY_NEW));
+      expect(select).toHaveDisplayValue("Supportage");
+      expect(select).toHaveFocus();
+      expect(within(panel).queryByLabelText("Nom du nouveau type de fourniture")).not.toBeInTheDocument();
+      // Enter created the type only: the article was neither sent nor its typed values lost.
+      expect(writes()).toEqual([{ method: "POST", path: "/api/catalogue/supply-types", body: { name: "Supportage" } }]);
+      expect(screen.getByRole("dialog", { name: "Article de la ligne" })).toBeInTheDocument();
+      expect(within(panel).getByLabelText("Désignation")).toHaveValue("Tige acier M10 longue");
+
+      await user.click(within(panel).getByRole("button", { name: "Créer et rattacher" }));
+      await waitFor(() => expect(writes()).toHaveLength(2));
+      expect(writes()[1]).toEqual({
+        method: "POST",
+        path: `${BASE}/lines/${LINE_A}/article`,
+        body: {
+          product_type: "Tige",
+          material: "Acier",
+          dimensions: "M10",
+          unit: "u",
+          designation: "Tige acier M10 longue",
+          supply_type_id: SUPPLY_NEW,
+        },
+      });
+    });
+
+    it("keeps the name typed and shows the server's sentence when the supply type is refused (17)", async () => {
+      const { user, panel } = await openCreation(
+        {
+          "POST /api/catalogue/supply-types": {
+            status: 409,
+            error: { code: "CONFLICT", message: "Ce type de fourniture existe déjà : « Fixation »." },
+          },
+        },
+        { canCreateSupplyType: true },
+      );
+      await user.selectOptions(within(panel).getByLabelText("Type de fourniture *"), "Robinetterie");
+
+      await user.click(within(panel).getByRole("button", { name: "Nouveau type" }));
+      const name = within(panel).getByLabelText("Nom du nouveau type de fourniture");
+      await user.type(name, "fixations");
+      await user.click(within(panel).getByRole("button", { name: "Créer" }));
+
+      expect(await within(panel).findByRole("alert")).toHaveTextContent("Ce type de fourniture existe déjà : « Fixation ».");
+      expect(name).toHaveValue("fixations");
+      expect(name).toHaveAccessibleDescription("Ce type de fourniture existe déjà : « Fixation ».");
+      expect(within(panel).getByLabelText("Type de fourniture *")).toHaveValue(SUPPLY_B);
+      expect(writes()).toHaveLength(1);
+    });
+
+    it("files a created supply type in the list's alphabetical order, as the catalogue lists them (17)", async () => {
+      const SUPPLY_NEW = "5c5c5c5c-5c5c-45c5-85c5-5c5c5c5c5c5c";
+      const { user, panel } = await openCreation(
+        { "POST /api/catalogue/supply-types": { status: 201, data: { item: { id: SUPPLY_NEW, code: "CABLAGE", name: "Câblage" } } } },
+        { canCreateSupplyType: true },
+      );
+
+      await user.click(within(panel).getByRole("button", { name: "Nouveau type" }));
+      await user.type(within(panel).getByLabelText("Nom du nouveau type de fourniture"), "Câblage{Enter}");
+
+      const select = within(panel).getByLabelText("Type de fourniture *");
+      await waitFor(() => expect(select).toHaveValue(SUPPLY_NEW));
+      expect(within(select).getAllByRole("option").map((option) => option.textContent)).toEqual([
+        "Choisir…",
+        "Câblage",
+        "Fixation",
+        "Robinetterie",
+      ]);
+    });
+
+    it("offers no supply type creation to a member who is not an administrator (17)", async () => {
+      const { panel } = await openCreation({});
+
+      expect(within(panel).queryByRole("button", { name: "Nouveau type" })).not.toBeInTheDocument();
+      expect(within(panel).queryByLabelText("Nom du nouveau type de fourniture")).not.toBeInTheDocument();
+      expect(within(panel).getByLabelText("Type de fourniture *")).toBeEnabled();
+    });
+
+    it("says there is no supply type yet and that an administrator creates one (11, 17)", async () => {
       const user = await openEditor({
         [`GET ${BASE}`]: { data: detail({ lines: [line()] }) },
         [`GET ${BASE}/candidates`]: { data: { lines: { [LINE_A]: [] } } },
         "GET /api/catalogue/supply-types": { data: { items: [] } },
       });
       await user.click(await screen.findByRole("button", { name: "Chercher ou créer l’article, ligne 1" }));
-      const panel = await screen.findByRole("dialog", { name: "Article de la ligne 1" });
+      const panel = await screen.findByRole("dialog", { name: "Article de la ligne" });
       await user.click(within(panel).getByRole("button", { name: "Créer l’article" }));
 
-      expect(await within(panel).findByText(/Aucun type de fourniture n’existe encore/)).toBeVisible();
-      expect(within(panel).getByRole("link", { name: "Ouvrir le catalogue" })).toHaveAttribute("href", "/dashboard/products");
+      expect(
+        await within(panel).findByText("Aucun type de fourniture n’existe encore : un administrateur peut en créer un."),
+      ).toBeVisible();
+      expect(within(panel).getByLabelText("Type de fourniture *")).toHaveAccessibleDescription(
+        "Aucun type de fourniture n’existe encore : un administrateur peut en créer un.",
+      );
+      expect(within(panel).queryByRole("button", { name: "Nouveau type" })).not.toBeInTheDocument();
+      expect(within(panel).queryByRole("link", { name: "Ouvrir le catalogue" })).not.toBeInTheDocument();
       expect(within(panel).getByRole("button", { name: "Créer et rattacher" })).toBeDisabled();
+    });
+
+    it("lets an administrator create the first supply type from an empty list (11, 17)", async () => {
+      const SUPPLY_NEW = "5c5c5c5c-5c5c-45c5-85c5-5c5c5c5c5c5c";
+      const user = await openEditor(
+        {
+          [`GET ${BASE}`]: { data: detail({ lines: [line()] }) },
+          [`GET ${BASE}/candidates`]: { data: { lines: { [LINE_A]: [] } } },
+          "GET /api/catalogue/supply-types": { data: { items: [] } },
+          "POST /api/catalogue/supply-types": { status: 201, data: { item: { id: SUPPLY_NEW, code: "FIXATION", name: "Fixation" } } },
+        },
+        { canCreateSupplyType: true },
+      );
+      await user.click(await screen.findByRole("button", { name: "Chercher ou créer l’article, ligne 1" }));
+      const panel = await screen.findByRole("dialog", { name: "Article de la ligne" });
+      await user.click(within(panel).getByRole("button", { name: "Créer l’article" }));
+
+      expect(await within(panel).findByText("Aucun type de fourniture n’existe encore. Créez-en un avec « Nouveau type ».")).toBeVisible();
+      expect(within(panel).getByRole("button", { name: "Créer et rattacher" })).toBeDisabled();
+      await user.click(within(panel).getByRole("button", { name: "Nouveau type" }));
+      await user.type(within(panel).getByLabelText("Nom du nouveau type de fourniture"), "Fixation");
+      await user.click(within(panel).getByRole("button", { name: "Créer" }));
+
+      await waitFor(() => expect(within(panel).getByLabelText("Type de fourniture *")).toHaveValue(SUPPLY_NEW));
+      // Disabled while the list was empty, the select is enabled in time to take the focus back.
+      expect(within(panel).getByLabelText("Type de fourniture *")).toHaveFocus();
+      expect(within(panel).queryByText(/Aucun type de fourniture n’existe encore/)).not.toBeInTheDocument();
+      expect(within(panel).getByRole("button", { name: "Créer et rattacher" })).toBeEnabled();
     });
   });
 
@@ -635,7 +864,10 @@ describe("linking request lines to catalogue articles", () => {
     const link = screen.getByRole("button", { name: "Rattacher l’article proposé à la ligne 1" });
     expect(link).toBeDisabled();
     expect(link).toHaveAccessibleDescription(expect.stringContaining("Une modification de cette ligne n’est pas enregistrée"));
-    expect(screen.getByRole("button", { name: "Rattacher les références et noms connus (0)" })).toBeDisabled();
+    // With nothing left to do the bulk action leaves the screen (it read (1) before the failure); the sentence that
+    // says why stays under « Détails des propositions » (TI-690).
+    expect(screen.queryByRole("button", { name: BULK })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Détails des propositions" })).toBeInTheDocument();
     expect(screen.getByLabelText("Repère, ligne 1")).toHaveValue("Chaufferie");
     expect(writes().map((call) => call.method)).toEqual(["PATCH"]);
   });
@@ -650,8 +882,10 @@ describe("linking request lines to catalogue articles", () => {
       [`PUT ${BASE}/lines/${LINE_A}/article`]: { data: { line: linked(line(), found, "manual"), article: found, alias_learned: "tige" } },
     });
 
+    // Read once the line is unfolded: a folded row keeps the article, its supplier and one gesture.
+    await showMoreFields(user, 1);
     await user.click(await screen.findByRole("button", { name: "Autres propositions, ligne 1" }));
-    const panel = await screen.findByRole("dialog", { name: "Article de la ligne 1" });
+    const panel = await screen.findByRole("dialog", { name: "Article de la ligne" });
     // Every proposal of the line, not only the first one.
     expect(within(panel).getByText("Tige filetée inox M10")).toBeVisible();
 
@@ -675,10 +909,13 @@ describe("linking request lines to catalogue articles", () => {
       [`PUT ${BASE}/lines/${LINE_A}/article`]: { data: { line: linked(line(), article(), "reference"), article: article(), alias_learned: null } },
     });
 
+    // A validated line is one row of the sheet: what can still be done to it is read under the row, on request.
+    await user.click(await screen.findByRole("button", { name: "Afficher les détails de la ligne 1" }));
     const link = await screen.findByRole("button", { name: "Rattacher l’article proposé à la ligne 1" });
     expect(link).toHaveAccessibleDescription(expect.stringContaining("La ligne repassera en brouillon."));
-    // A validated line is never part of the bulk link: it would leave the validated lines without a word.
-    expect(screen.getByRole("button", { name: "Rattacher les références et noms connus (0)" })).toBeDisabled();
+    // A validated line is never part of the bulk link: it would leave the validated lines without a word. With
+    // nothing to do, the bulk action is not offered at all (TI-690).
+    expect(screen.queryByRole("button", { name: BULK })).not.toBeInTheDocument();
 
     await user.click(link);
 

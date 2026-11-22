@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useState } from "react";
+import { useId, useMemo, useState } from "react";
 import Link from "next/link";
 import { Check, ExternalLink } from "lucide-react";
 
@@ -13,10 +13,16 @@ import type {
   MaterialRequestLineInput,
 } from "@/lib/material-requests/contracts";
 import type { LineSupplierProposal, LineSupplierReference } from "@/lib/material-requests/supplier-contracts";
+import { cn } from "@/lib/utils";
 
 import { ChoiceCell } from "./cells";
 import { formatQuotedPrice } from "./format";
-import { SUPPLIER_ALREADY_SET, type RetainResult, type SaveResult } from "./useMaterialRequestEditor";
+import {
+  SUPPLIER_ALREADY_SET,
+  type MaterialRequestEditorApi,
+  type RetainResult,
+  type SaveResult,
+} from "./useMaterialRequestEditor";
 
 /** Why a supplier is proposed, in a few words read after its name. */
 export function supplierReasonLabel(proposal: LineSupplierProposal, supplyTypeName: string | null): string {
@@ -81,7 +87,14 @@ type SupplierCellProps = Readonly<{
   onChooseTypeSupplier: (() => void) | null;
   onSave: (patch: MaterialRequestLineInput) => Promise<SaveResult>;
   onRetain: (supplierId: string) => Promise<RetainResult>;
+  /** Adds to the catalogue a supplier typed in the field that the list does not hold, by its name alone. */
+  onCreateSupplier: MaterialRequestEditorApi["createSupplier"];
   layout?: "cell" | "inspector";
+  /**
+   * False in a folded line: the cell is one line, in a card as in the sheet, the supplier or the proposed one beside
+   * « Retenir »; the reference, why nothing is proposed and the choice of another supplier are read once unfolded.
+   */
+  expanded?: boolean;
 }>;
 
 /**
@@ -145,7 +158,9 @@ export function MaterialRequestSupplierCell({
   onChooseTypeSupplier,
   onSave,
   onRetain,
+  onCreateSupplier,
   layout = "cell",
+  expanded = true,
 }: SupplierCellProps) {
   const ids = useId();
   const [choosing, setChoosing] = useState(false);
@@ -153,8 +168,28 @@ export function MaterialRequestSupplierCell({
   const [error, setError] = useState<string | null>(null);
   /** The retain found the line already had a supplier (set meanwhile): said until the next gesture. */
   const [alreadySet, setAlreadySet] = useState(false);
+  /** The supplier this cell just added to the catalogue: only its name is known there. */
+  const [created, setCreated] = useState<{ id: string; name: string } | null>(null);
   const n = line.position;
   const proposalId = `${ids}-proposal`;
+  // Built once for the same suppliers, not at every render of every line: the combobox indexes what it is given.
+  // The name is a keyword besides the label: a homonym's label carries a mark, and its name must not be created again.
+  const choices = useMemo(
+    () => supplierOptions.map((option) => ({ value: option.id, label: option.label, keywords: [option.name] })),
+    [supplierOptions],
+  );
+  const creation = useMemo(
+    () => ({
+      label: (name: string) => `Créer le fournisseur « ${name} »`,
+      run: async (name: string) => {
+        const result = await onCreateSupplier(name);
+        if (!result.ok) return result;
+        setCreated({ id: result.id, name });
+        return { ok: true as const, value: result.id };
+      },
+    }),
+    [onCreateSupplier],
+  );
 
   // A line priced by a retained quote (TI-691) is bought from that quote's supplier: it no longer changes.
   if (!editable || line.price_quote_id) {
@@ -197,51 +232,98 @@ export function MaterialRequestSupplierCell({
   };
 
   return (
-    <div className="min-w-0 space-y-1.5">
+    // In the lines sheet the select fills the cell, as a field does; what is read under it keeps a padding. Folded,
+    // a proposal takes the place of the select: one gesture retains it, and another supplier is chosen once unfolded.
+    <div
+      className={cn(
+        "min-w-0 space-y-1.5 sheet:space-y-1 sheet:[&>:not([data-slot=combobox])]:mx-2.5",
+        expanded ? "sheet:pb-1.5" : "space-y-0 sheet:space-y-0",
+        // Unfolded in the sheet, a line parts the select from what is read under it.
+        expanded && layout === "cell" && "sheet:[&>[data-slot=combobox]]:border-b sheet:[&>[data-slot=combobox]]:border-border",
+        !expanded && shown && "[&>[data-slot=combobox]]:hidden",
+      )}
+    >
       <ChoiceCell
         label={`Fournisseur, ligne ${n}`}
         value={line.supplier_id}
-        options={supplierOptions.map((option) => ({ value: option.id, label: option.label }))}
+        options={choices}
         emptyLabel={requestSupplierLabel ?? "—"}
         unknownLabel="Fournisseur retiré de la liste"
         searchable
-        placeholder={requestSupplierLabel ? "Chercher un autre fournisseur…" : "Chercher un fournisseur…"}
+        placeholder={requestSupplierLabel ? "Chercher un autre…" : "Chercher…"}
         onUnsavedChange={setChoosing}
+        create={creation}
         onCommit={async (supplier_id) => {
           setError(null);
           setAlreadySet(false);
           return onSave({ supplier_id });
         }}
       />
-      {!line.supplier_id && requestSupplierLabel ? (
-        // Said as text, not only in the field's hint: what the line is bought from while it names no supplier.
+      {/* Read once the line is unfolded: what it is bought from while it names no supplier, and the article's reference there. */}
+      {expanded && !line.supplier_id && requestSupplierLabel ? (
         <p className="text-xs text-foreground-secondary">{`Acheté chez : ${requestSupplierLabel}`}</p>
       ) : null}
-      {line.supplier_id && ownSupplier ? <ReferenceDetails reference={reference} supplierName={ownSupplier} /> : null}
+      {expanded && line.supplier_id && ownSupplier ? <ReferenceDetails reference={reference} supplierName={ownSupplier} /> : null}
+      {/*
+        A supplier just created is a name: its address, contact and SIRET are filled on its sheet, in another tab.
+        Read once the line is unfolded, as the rest of what is under the select: a folded row keeps its height.
+      */}
+      {expanded && created && line.supplier_id === created.id ? (
+        <p className="text-xs text-muted-foreground">
+          {"Nouveau fournisseur, connu par son nom seul. "}
+          <a
+            href={`/dashboard/suppliers?fiche=${encodeURIComponent(created.id)}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label={`Compléter la fiche de ${created.name}`}
+            className="inline-flex items-center gap-1 font-medium text-primary underline-offset-2 hover:underline focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-ring"
+          >
+            <ExternalLink aria-hidden="true" className="size-3.5 shrink-0" />
+            Compléter sa fiche
+          </a>
+        </p>
+      ) : null}
       {shown ? (
-        <div className="space-y-1 rounded-md border border-dashed border-border px-2 py-1.5">
-          <p className="text-micro font-semibold uppercase text-muted-foreground">Proposé</p>
-          <div id={proposalId} className="min-w-0 space-y-0.5">
-            <p className="break-words text-sm font-medium leading-snug text-foreground">
+        // Folded, the proposal is one line and its gesture; unfolded, it is read in full. Neutral either way: a
+        // proposal is not an alert.
+        <div
+          className={cn(
+            "grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2 gap-y-1",
+            expanded ? "rounded-md border border-dashed border-border-strong bg-surface-subtle px-2 py-1.5" : "min-h-9",
+          )}
+        >
+          <p className={cn("text-micro font-semibold uppercase text-muted-foreground", !expanded && "sr-only")}>Proposé</p>
+          <div id={proposalId} className={cn("min-w-0 space-y-0.5", expanded ? "col-span-2 row-start-2" : "contents")}>
+            <p
+              className={cn(
+                "font-medium leading-snug text-foreground",
+                expanded
+                  ? "break-words text-sm"
+                  : "row-start-1 truncate text-sm font-normal italic text-foreground-secondary",
+              )}
+              title={expanded ? undefined : `Proposé : ${shownLabel} · ${supplierReasonLabel(shown, supplyTypeName)}`}
+            >
               {`${shownLabel} · ${supplierReasonLabel(shown, supplyTypeName)}`}
             </p>
-            <ReferenceDetails reference={shown} supplierName={shown.supplier_name} />
+            {expanded ? <ReferenceDetails reference={shown} supplierName={shown.supplier_name} /> : null}
           </div>
           <Button
             type="button"
             variant="outline"
             size="xs"
+            className="col-start-2 row-start-1"
             loading={busy}
             aria-label={`Retenir le fournisseur proposé, ligne ${n}`}
             aria-describedby={proposalId}
             onClick={() => void retain(shown.supplier_id)}
           >
-            <Check aria-hidden="true" />
+            {expanded ? <Check aria-hidden="true" /> : null}
             Retenir
           </Button>
         </div>
       ) : null}
-      {missing && article ? (
+      {/* Why nothing is proposed, and where to settle it, are read once the line is unfolded. */}
+      {expanded && missing && article ? (
         <NoProposal article={article} supplyTypeName={supplyTypeName} onChooseTypeSupplier={onChooseTypeSupplier} />
       ) : null}
       <p role="status" className="text-xs text-muted-foreground empty:hidden">

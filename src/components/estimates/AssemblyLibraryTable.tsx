@@ -208,9 +208,9 @@ function AssemblyContentPreview({
           aria-label={`Sous-ouvrages de ${assembly.name}`}
           tabIndex={0}
         >
-          <table className="w-full min-w-[620px] text-sm">
+          <table className="sheet-table w-full min-w-[620px] text-sm">
             <thead>
-              <tr className="bg-surface-subtle text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              <tr className="bg-surface-subtle text-left text-xs font-semibold text-muted-foreground">
                 <th className="px-4 py-2.5">Sous-ouvrage</th>
                 <th className="px-4 py-2.5">Référence</th>
                 <th className="px-4 py-2.5">Quantité</th>
@@ -270,9 +270,9 @@ function AssemblyContentPreview({
           aria-label={`Lignes de ${assembly.name}`}
           tabIndex={0}
         >
-          <table className="w-full min-w-[960px] text-sm">
+          <table className="sheet-table w-full min-w-[960px] text-sm">
             <thead>
-              <tr className="bg-surface-subtle text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              <tr className="bg-surface-subtle text-left text-xs font-semibold text-muted-foreground">
                 <th className="px-4 py-2.5">Désignation</th>
                 <th className="px-4 py-2.5">Type</th>
                 <th className="px-4 py-2.5">Unité</th>

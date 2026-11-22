@@ -1,9 +1,13 @@
 "use client";
 
-import { useEffect, useId, useState } from "react";
-import Link from "next/link";
+import { useEffect, useId, useRef, useState } from "react";
 import { ArrowLeft, Link2, PackagePlus, Search } from "lucide-react";
 
+import {
+  NewSupplyTypeButton,
+  NewSupplyTypePanel,
+  useSupplyTypeCreation,
+} from "@/components/catalogue/SupplyTypeCreation";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { FieldLabel } from "@/components/ui/field";
@@ -95,18 +99,21 @@ type SupplyTypes =
 
 /**
  * The article a line names, created as a draft of the catalogue and linked at once. Prefilled from the
- * line; the supply type is the operator's choice. A refusal keeps what was typed.
+ * line; the supply type is the operator's choice, and an administrator adds a missing one in place.
+ * A refusal keeps what was typed.
  */
 function ArticleCreationForm({
   line,
   request,
   hold,
+  canCreateSupplyType,
   onCreate,
   onBack,
 }: Readonly<{
   line: MaterialRequestLine;
   request: MaterialRequest;
   hold: string | null;
+  canCreateSupplyType: boolean;
   onCreate: (input: CreateMaterialRequestLineArticleInput) => Promise<SaveResult>;
   onBack: () => void;
 }>) {
@@ -124,6 +131,24 @@ function ArticleCreationForm({
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [learn, setLearn] = useState(false);
+  const supplySelectRef = useRef<HTMLSelectElement>(null);
+  const supplyTypeCreation = useSupplyTypeCreation({
+    selectRef: supplySelectRef,
+    onCreated: (item) => {
+      // Filed by name, as the catalogue lists them; a type already listed is not shown twice.
+      setSupplyTypes((current) =>
+        current.status === "ready"
+          ? {
+              status: "ready",
+              items: [...current.items.filter((known) => known.id !== item.id), item].sort((left, right) =>
+                left.name.localeCompare(right.name, "fr"),
+              ),
+            }
+          : current,
+      );
+      setFields((current) => ({ ...current, supply_type_id: item.id }));
+    },
+  });
   // The technician's words, unless the article created says them already.
   const learnable = learnableWords(line.product_type, { product_type: fields.product_type, designation: fields.designation });
 
@@ -149,6 +174,8 @@ function ArticleCreationForm({
     setFields((current) => ({ ...current, [key]: value }));
   };
   const none = supplyTypes.status === "ready" && supplyTypes.items.length === 0;
+  // Only administrators add a supply type (the server refuses the others): no button the server would refuse.
+  const offerCreation = canCreateSupplyType && supplyTypes.status === "ready";
   const id = (name: string) => `${ids}-${name}`;
 
   const submit = async (event: React.FormEvent<HTMLFormElement>) => {
@@ -207,36 +234,41 @@ function ArticleCreationForm({
         </div>
         <div className="flex min-w-0 flex-col gap-1.5 sm:col-span-2">
           <FieldLabel htmlFor={id("supply")}>Type de fourniture *</FieldLabel>
-          <NativeSelect
-            id={id("supply")}
-            size="sm"
-            required
-            disabled={supplyTypes.status !== "ready" || none}
-            aria-describedby={supplyTypes.status === "ready" && !none ? undefined : id("supply-state")}
-            value={fields.supply_type_id}
-            onChange={set("supply_type_id")}
-          >
-            <option value="">Choisir…</option>
-            {supplyTypes.status === "ready"
-              ? supplyTypes.items.map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {item.name}
-                  </option>
-                ))
-              : null}
-          </NativeSelect>
+          <div className="flex gap-2">
+            <NativeSelect
+              ref={supplySelectRef}
+              id={id("supply")}
+              size="sm"
+              wrapperClassName="min-w-0 flex-1"
+              required
+              disabled={supplyTypes.status !== "ready" || none}
+              aria-describedby={supplyTypes.status === "ready" && !none ? undefined : id("supply-state")}
+              value={fields.supply_type_id}
+              onChange={set("supply_type_id")}
+            >
+              <option value="">Choisir…</option>
+              {supplyTypes.status === "ready"
+                ? supplyTypes.items.map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {item.name}
+                    </option>
+                  ))
+                : null}
+            </NativeSelect>
+            {offerCreation ? <NewSupplyTypeButton creation={supplyTypeCreation} idPrefix={id("supply")} size="sm" /> : null}
+          </div>
           <div id={id("supply-state")} className="text-xs">
             {supplyTypes.status === "loading" ? <p className="text-muted-foreground">Chargement des types de fourniture…</p> : null}
             {supplyTypes.status === "error" ? <p className="text-danger">{supplyTypes.message}</p> : null}
             {none ? (
-              <>
-                <p className="text-warning">Aucun type de fourniture n’existe encore : créez-en un dans le catalogue.</p>
-                <Link href="/dashboard/products" className="font-medium text-primary underline">
-                  Ouvrir le catalogue
-                </Link>
-              </>
+              <p className="text-warning">
+                {offerCreation
+                  ? "Aucun type de fourniture n’existe encore. Créez-en un avec « Nouveau type »."
+                  : "Aucun type de fourniture n’existe encore : un administrateur peut en créer un."}
+              </p>
             ) : null}
           </div>
+          {offerCreation ? <NewSupplyTypePanel creation={supplyTypeCreation} idPrefix={id("supply")} size="sm" /> : null}
         </div>
         <div className="flex min-w-0 flex-col gap-1.5 sm:col-span-2">
           <FieldLabel htmlFor={id("designation")}>Désignation</FieldLabel>
@@ -297,11 +329,14 @@ function ArticleCreationForm({
 export function MaterialRequestArticleSheet({
   editor,
   line,
+  canCreateSupplyType = false,
   onOpenChange,
 }: Readonly<{
   editor: MaterialRequestEditorApi;
   /** The line whose article is being chosen; null closes the panel. */
   line: MaterialRequestLine | null;
+  /** May add a supply type while creating the article (admins only). */
+  canCreateSupplyType?: boolean;
   onOpenChange: (open: boolean) => void;
 }>) {
   const ids = useId();
@@ -387,7 +422,8 @@ export function MaterialRequestArticleSheet({
         {line ? (
           <>
             <SheetHeader className="pr-12">
-              <SheetTitle>Article de la ligne {line.position}</SheetTitle>
+              {/* The line is named under the title by what it asks: the sheet shows no number to point at. */}
+              <SheetTitle>Article de la ligne</SheetTitle>
               <SheetDescription>
                 {lineTitle(line)}
                 {line.original_text ? ` · Texte du technicien : « ${line.original_text} »` : ""}
@@ -406,6 +442,7 @@ export function MaterialRequestArticleSheet({
                   line={line}
                   request={editor.data.request}
                   hold={hold}
+                  canCreateSupplyType={canCreateSupplyType}
                   onCreate={async (input) => {
                     const result = await editor.createArticle(line.id, input);
                     if (result.ok || result.blocked) await settle(result);

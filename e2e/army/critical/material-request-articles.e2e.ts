@@ -14,7 +14,10 @@ type Line = {
   product_type: string | null; reference: string | null; material: string | null; status: "draft" | "validated";
   product_id: string | null; product_match: string | null;
 };
-type Article = { id: string; designation: string; catalogue_status: "draft" | "validated"; created_from_material_request: boolean };
+type Article = {
+  id: string; designation: string; catalogue_status: "draft" | "validated"; created_from_material_request: boolean;
+  supply_type_name: string | null;
+};
 type Detail = { request: { id: string }; lines: Line[]; articles: Record<string, Article> };
 type Candidate = { article: { id: string }; via: "reference" | "alias" | "ranked"; warnings: string[] };
 type Product = { id: string };
@@ -28,6 +31,8 @@ type Product = { id: string };
 //   link taught the technician's word to the whole tenant, silently, at its first use;
 // - an article missing from the catalogue cannot be created from the line, is created validated, or
 //   is not marked new in the catalogue;
+// - (TI-690, the owner's walk) its supply type is missing too and the office must leave the form for the
+//   catalogue; or the type created in place is not the one the article gets, or its Enter creates the article;
 // - unlinking a validated line leaves it validated although it no longer says what was validated, or
 //   keeps the article's wording, so the next proposals and usual names start from the wrong words.
 armyTest(
@@ -98,6 +103,8 @@ armyTest(
     expect(byPosition[1].map((candidate) => [candidate.article.id, candidate.via, candidate.warnings])).toEqual([[rod, "reference", []]]);
     expect(byPosition[2].map((candidate) => candidate.article.id)).toEqual([elbow28]);
     expect(byPosition[2][0].via).toBe("ranked");
+    // Without a warning, the folded row keeps its direct « Rattacher » and its usual-name choice (TI-690).
+    expect(byPosition[2][0].warnings).toEqual([]);
     expect(byPosition[2].map((candidate) => candidate.article.id)).not.toContain(elbow22);
     expect(byPosition[3]).toEqual([]);
     expect((await read()).lines.map((entry) => entry.product_id)).toEqual([null, null, null]);
@@ -118,6 +125,8 @@ armyTest(
     await expect(screen.getByText(/^Nom usuel mémorisé :/)).toHaveCount(0);
 
     // The office retains the technician's words for the elbow, by a choice it checks at the link.
+    // A folded row keeps one gesture beside its proposal: the usual-name choice is read once the line is unfolded.
+    await screen.getByRole("button", "Détails de la ligne 2", { exact: true }).tap();
     const retain = screen.getByLabel("Mémoriser « coude 90 » comme nom usuel, ligne 2", { exact: true });
     await expect(retain).not.toBeChecked();
     await retain.check();
@@ -130,12 +139,30 @@ armyTest(
     await screen.getByRole("button", "Chercher ou créer l’article, ligne 3", { exact: true }).tap();
     await screen.getByRole("button", "Créer l’article", { exact: true }).last().tap();
     await expect(screen.getByLabel("Type d’article *", { exact: true })).toHaveValue("bouchon mâle", { timeout: 15_000 });
-    await screen.getByLabel("Type de fourniture *", { exact: true }).selectOption({ value: supplyTypeId });
+    // Its supply type does not exist yet: the administrator creates it in place, without leaving the form (TI-690).
+    // Enter creates the type, selects it and gives the focus back to the select; it does not create the article.
+    const supplySelect = screen.getByLabel("Type de fourniture *", { exact: true });
+    await screen.getByRole("button", "Nouveau type", { exact: true }).tap();
+    const fittingsType = `${army.runPrefix} raccords laiton`;
+    const typeName = screen.getByLabel("Nom du nouveau type de fourniture", { exact: true });
+    await typeName.fill(fittingsType);
+    await typeName.press("Enter");
+    await expect(supplySelect).toBeFocused({ timeout: 15_000 });
+    await expect(typeName).toHaveCount(0);
+    const supplyTypes = await apiRequest<Envelope<{ items: Array<{ id: string; name: string }> }>>(
+      browser, "GET", "/api/catalogue/supply-types",
+    );
+    const fittings = supplyTypes.body.data.items.find((item) => item.name === fittingsType);
+    expect(fittings).toBeDefined();
+    await expect(supplySelect).toHaveValue(fittings!.id);
+    expect((await line(3)).product_id).toBeNull();
     await screen.getByRole("button", "Créer et rattacher", { exact: true }).tap();
     await expect.poll(async () => (await line(3)).product_match, { timeout: 30_000 }).toBe("created");
     const detail = await read();
     const plugId = detail.lines[2].product_id!;
-    expect(detail.articles[plugId]).toMatchObject({ catalogue_status: "draft", created_from_material_request: true });
+    expect(detail.articles[plugId]).toMatchObject({
+      catalogue_status: "draft", created_from_material_request: true, supply_type_name: fittingsType,
+    });
 
     await browser.goto(`/dashboard/products?q=${encodeURIComponent("bouchon mâle")}&catalogue_status=draft`, { waitUntil: "domcontentloaded" });
     await expect(screen.getByText("Nouveau", { exact: true }).first()).toBeVisible({ timeout: 30_000 });
@@ -173,7 +200,7 @@ armyTest(
       .toEqual([null, null, "draft", "goujon", null, "M12", reference]);
 
     await recordEvidence(army, "material-request-articles", {
-      ...ids, requestId, rod, elbow28, plugId, proposals: byPosition, learned,
+      ...ids, requestId, rod, elbow28, plugId, fittingsTypeId: fittings!.id, proposals: byPosition, learned,
     });
   },
 );

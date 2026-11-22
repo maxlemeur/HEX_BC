@@ -1,0 +1,98 @@
+/* ==========================================================================
+   Cells of a table, as in a spreadsheet
+   ==========================================================================
+   For every table of the application (`data-table`, `sheet-table`: see legacy.css) and for the screens that draw
+   their own cells. What is said of a table is not in a cascade layer, on purpose: it wins over a field's own classes.
+
+   A field alone in a cell is the cell: no box, no padding around it, the grid lines bound it. The cell being typed
+   in is the active cell, outlined by two pixels inside its grid lines. A cell of a table that holds more than one
+   thing (a field and a button, a field and its unit) keeps its boxed field.
+   ========================================================================== */
+
+:root {
+  /* The height of a row that is read and typed in at a desk. Screens that draw their own cells use it too. */
+  --sheet-row-h: 2.25rem;
+}
+
+/*
+ * `sheet-cell`: what carries it holds fields that are cells of a sheet. The one place that says how such a field
+ * looks; a screen that draws its own cells takes it from the width where they are a sheet (`sheet:sheet-cell` on the
+ * lines of a material request, `md:sheet-cell` on the prices of a quote) and keeps its boxed fields in a card below.
+ * As a utility it wins over a field's own classes by its selectors, which name the field's element.
+ */
+@utility sheet-cell {
+  & :is(input:not([type="checkbox"], [type="radio"], [type="file"], [type="hidden"]), select, textarea) {
+    min-height: var(--sheet-row-h);
+    border-color: transparent;
+    border-radius: 0;
+    background-color: transparent;
+    box-shadow: none;
+    outline: none;
+    text-overflow: ellipsis;
+  }
+
+  /* The cell being typed in is the active cell. */
+  & :is(input:not([type="checkbox"], [type="radio"], [type="file"], [type="hidden"]), select, textarea):focus-visible {
+    position: relative;
+    z-index: 1;
+    background-color: var(--surface);
+    outline: 2px solid var(--primary);
+    outline-offset: -2px;
+  }
+
+  /* A value the server refused is still in its cell (`border-danger` on the field), typed in or not. */
+  & :is(input:not([type="checkbox"], [type="radio"], [type="file"], [type="hidden"]), select, textarea).border-danger {
+    outline: 2px solid var(--danger);
+    outline-offset: -2px;
+  }
+
+  /* As in a spreadsheet, the arrow of a list shows on the cell under the pointer or being typed in. */
+  @media (hover: hover) {
+    & [data-slot="combobox"] :is(button, svg),
+    & [data-slot="native-select-wrapper"] > svg {
+      opacity: 0;
+      transition: opacity 0.1s ease;
+    }
+
+    & [data-slot="combobox"]:is(:hover, :focus-within) :is(button, svg),
+    & [data-slot="native-select-wrapper"]:is(:hover, :focus-within) > svg {
+      opacity: 1;
+    }
+  }
+}
+
+/* In a table, a cell that holds a field alone, or the list that wraps one, is such a cell at every width. */
+:is(.data-table, .sheet-table) td:has(> :is(input:not([type="checkbox"], [type="radio"], [type="file"], [type="hidden"]), select, textarea, [data-slot="native-select-wrapper"]):only-child) {
+  @apply sheet-cell;
+  padding: 0;
+
+  & > :is(input, select, textarea),
+  & > [data-slot="native-select-wrapper"] > select {
+    display: block;
+    width: 100%;
+  }
+
+  /* A neighbouring cell may make the row taller than the field: here the cell itself is outlined, not the field. */
+  & :is(input:not([type="checkbox"], [type="radio"], [type="file"], [type="hidden"]), select, textarea):is(:focus-visible, .border-danger) {
+    background-color: transparent;
+    outline: none;
+  }
+
+  &:has(:is(input, select, textarea):focus-visible) {
+    position: relative;
+    z-index: 1;
+    background-color: var(--surface);
+    outline: 2px solid var(--primary);
+    outline-offset: -2px;
+  }
+
+  &:has(:is(input, select, textarea):is([aria-invalid="true"], .border-danger)) {
+    outline: 2px solid var(--danger);
+    outline-offset: -2px;
+  }
+}
+
+/* In the shared table the field's text sits where the text of a plain cell does, under its column title. */
+.data-table td > :is(input:not([type="checkbox"], [type="radio"], [type="file"], [type="hidden"]), textarea):only-child {
+  padding-inline: var(--density-cell-px);
+}

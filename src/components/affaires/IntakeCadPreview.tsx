@@ -293,7 +293,7 @@ function CadDrawingView({
               {quantities.blocks.length > 0 && (
                 <details>
                   <summary>Blocs par calque ({quantities.blocks.length.toLocaleString("fr-FR")})</summary>
-                  <table>
+                  <table className="sheet-table">
                     <thead>
                       <tr><th scope="col">Bloc</th><th scope="col">Calque</th><th scope="col">Nombre</th></tr>
                     </thead>

@@ -111,6 +111,16 @@ export function isTakeoffVectorReadingEnabled() {
   return readDefaultOnTakeoffFlag("MERGEONE_TAKEOFF_VECTORS", process.env.MERGEONE_TAKEOFF_VECTORS);
 }
 
+/**
+ * The most paid calls the classification of one document's vector groups may make on `vectorPages` pages: none when it
+ * does not run (the conditions of `takeoffVectorLocalGroupsHook`), else the local plan's caps per document and per page.
+ * What the bounds of a reading against a list of items count (lot 4), at the admission and in the worker alike.
+ */
+export function takeoffVectorGroupCallsBound(vectorPages: number) {
+  if (vectorPages <= 0 || !isTakeoffVectorReadingEnabled() || !isTakeoffDecisionsSelected() || !isLocalChatGptEnabled()) return 0;
+  return Math.min(GROUP_LOCAL_MODEL_LIMITS.requestsPerDocument, GROUP_LOCAL_MODEL_LIMITS.requestsPerPage * vectorPages);
+}
+
 /** The Decisions classification of a job's vector groups (readTakeoffVectorPages `decisions`). */
 export type TakeoffVectorDecisionsHook = {
   owner: ChatGptOwner;

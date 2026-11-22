@@ -57,6 +57,16 @@ import type {
  *     sélection » or « Valider les lignes sans alerte »; or a bulk change slips another value under a
  *     typed one that is still shown as unsaved; or such a line stays locked once its change is saved
  *     or dropped.
+ * 23. (TI-690, one sheet for every state of the request) the details of a validated line open by themselves, or
+ *     away from its row, or do not open and close again from its title, or the row's highlight does not follow; or a
+ *     request whose lines are all settled shows another table than one still edited;
+ * 24. « Tout sélectionner » is offered twice, or inside a part of the page hidden from assistive technologies, or
+ *     the bar that acts on the selection no longer comes above the table;
+ * 25. a bulk action with nothing to do stays on screen as a dead button, or hiding it drops the sentence that says
+ *     why nothing can be done.
+ * 26. (TI-690, one row per line) a line is held by what no cell can carry (a possible duplicate) and its folded row
+ *     says nothing of it; or the count that leads to the first value to fix focuses a choice that is not shown;
+ *     or the page names a line by a number that no longer appears on it.
  */
 
 const { routerPushMock, splitSourceTextMock, storageFromMock, uploadToSignedUrlMock } = vi.hoisted(() => ({
@@ -223,9 +233,14 @@ async function openEditor(routes: Record<string, Route>) {
   return user;
 }
 
+async function openOriginal(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(screen.getByRole("button", { name: "Voir l’original" }));
+  return screen.findByRole("dialog", { name: "Original de la demande" });
+}
+
 /** Shows the fields a line keeps on demand (precision, reference, zone, imputation), as the office does. */
 async function showMoreFields(user: ReturnType<typeof userEvent.setup>, position: number) {
-  const toggle = screen.getByRole("button", { name: `Précision, référence, repère, imputation : ligne ${position}` });
+  const toggle = screen.getByRole("button", { name: `Détails de la ligne ${position}` });
   if (toggle.getAttribute("aria-expanded") !== "true") await user.click(toggle);
 }
 
@@ -253,8 +268,8 @@ describe("MaterialRequestEditor", () => {
     vi.unstubAllGlobals();
   });
 
-  it("highlights a cell held back by an alert and gives its reason to assistive tech (1)", async () => {
-    await openEditor({
+  it("guides the office to the missing input while the other line can be validated (1)", async () => {
+    const user = await openEditor({
       [`GET ${BASE}`]: {
         data: detail({ lines: [line(), line({ id: LINE_B, position: 2, quantity: null, product_type: "Bouchon fileté" })] }),
       },
@@ -263,15 +278,31 @@ describe("MaterialRequestEditor", () => {
     const missing = screen.getByLabelText("Quantité, ligne 2");
     expect(missing).toHaveAttribute("aria-invalid", "true");
     expect(missing).toHaveAccessibleDescription(expect.stringContaining("Quantité à renseigner."));
-    expect(missing.closest("label")).toHaveClass("bg-warning-light");
+    // The tint fills the cell of the value to fix: that is the one place the sheet says it.
+    expect(missing.closest(".mr-cell")).toHaveClass("bg-warning-light");
+
+    // No banner names the line: the count beside the title leads to the first value to fix.
+    expect(screen.queryByRole("region", { name: "À corriger d’abord" })).not.toBeInTheDocument();
+    expect(within(screen.getByRole("region", { name: "Lignes" })).queryByText(/Ligne \d/)).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "1 à compléter" }));
+    expect(missing).toHaveFocus();
+    expect(screen.getByRole("button", { name: "Valider les lignes sans alerte (1)" })).toBeEnabled();
+    expect(writes()).toEqual([]);
 
     const complete = screen.getByLabelText("Quantité, ligne 1");
     expect(complete).not.toHaveAttribute("aria-invalid", "true");
     expect(complete).toHaveAccessibleDescription("");
-    expect(complete.closest("label")).not.toHaveClass("bg-warning-light");
+    expect(complete.closest(".mr-cell")).not.toHaveClass("bg-warning-light");
 
     expect(within(screen.getByRole("list", { name: "Points à régler, ligne 2" })).getByText("Quantité à renseigner.")).toBeVisible();
     expect(screen.queryByRole("list", { name: "Points à régler, ligne 1" })).not.toBeInTheDocument();
+
+    const trigger = screen.getByRole("button", { name: "Voir l’original" });
+    const original = await openOriginal(user);
+    expect(within(original).getByRole("heading", { name: "Message reçu" })).toBeVisible();
+    await user.click(within(original).getByRole("button", { name: "Fermer" }));
+    await waitFor(() => expect(trigger).toHaveFocus());
+    expect(screen.queryByRole("dialog", { name: "Original de la demande" })).not.toBeInTheDocument();
   });
 
   it("shows a remark that does not block differently from a blocking alert (1)", async () => {
@@ -287,8 +318,8 @@ describe("MaterialRequestEditor", () => {
     const material = screen.getByLabelText("Matière, ligne 1");
     expect(material).toHaveAccessibleDescription(expect.stringContaining("Diffère de la matière de la demande"));
     expect(material).not.toHaveAttribute("aria-invalid", "true");
-    expect(material.closest("label")).toHaveClass("bg-warning-subtle");
-    expect(material.closest("label")).not.toHaveClass("bg-warning-light");
+    expect(material.closest(".mr-cell")).toHaveClass("bg-warning-subtle");
+    expect(material.closest(".mr-cell")).not.toHaveClass("bg-warning-light");
     expect(screen.getByRole("button", { name: "Valider les lignes sans alerte (0)" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Valider la ligne 1" })).toBeEnabled();
   });
@@ -330,6 +361,30 @@ describe("MaterialRequestEditor", () => {
     await waitFor(() => expect(screen.getAllByText("Validée")).toHaveLength(3));
   });
 
+  it("says a possible duplicate, which no cell carries, by a mark that unfolds the line (26)", async () => {
+    const user = await openEditor({
+      [`GET ${BASE}`]: { data: detail({ lines: [line(), line({ id: LINE_B, position: 2 })] }) },
+    });
+
+    // Folded, each row holds a mark for what its cells cannot say.
+    const first = screen.getByRole("button", { name: "Détails de la ligne 1" });
+    expect(first).toHaveAttribute("aria-expanded", "false");
+    expect(screen.getByRole("button", { name: "Voir ce qui retient la ligne 1" })).toHaveAccessibleDescription(
+      "Doublon possible : même pièce, même dimension, même zone.",
+    );
+
+    // The count leads to the choice that keeps the line: the line is unfolded for it.
+    await user.click(screen.getByRole("button", { name: "2 à compléter" }));
+    expect(first).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByRole("button", { name: "Doublon : garder la ligne 1" })).toHaveFocus();
+    expect(screen.queryByRole("button", { name: "Voir ce qui retient la ligne 1" })).not.toBeInTheDocument();
+
+    // The other line is unfolded by its own mark.
+    await user.click(screen.getByRole("button", { name: "Voir ce qui retient la ligne 2" }));
+    expect(screen.getByRole("button", { name: "Détails de la ligne 2" })).toHaveAttribute("aria-expanded", "true");
+    expect(writes()).toEqual([]);
+  });
+
   it("validates nothing and names the blocked lines when the server refuses (3)", async () => {
     const user = await openEditor({
       [`GET ${BASE}`]: {
@@ -351,9 +406,11 @@ describe("MaterialRequestEditor", () => {
     const report = await screen.findByRole("alert");
     expect(writes()[0].body).toEqual({ ids: [LINE_A, LINE_B] });
     expect(report).toHaveTextContent("Rien n’a été validé");
-    expect(report).toHaveTextContent("Ligne 2");
+    // The blocked line is named by what it asks, as the sheet shows it: no number points at it.
+    expect(report).toHaveTextContent("Bouchon fileté DN 32");
     expect(report).toHaveTextContent("Quantité à renseigner.");
-    expect(report).not.toHaveTextContent("Ligne 1");
+    expect(report).not.toHaveTextContent("Raccord union");
+    expect(report).not.toHaveTextContent(/Ligne \d/);
     expect(screen.queryByText("Validée")).not.toBeInTheDocument();
     expect(screen.getAllByText("Brouillon")).toHaveLength(2);
   });
@@ -408,7 +465,12 @@ describe("MaterialRequestEditor", () => {
     );
     expect(screen.getByRole("button", { name: "Valider les lignes sans alerte (0)" })).toBeDisabled();
 
-    await user.click(screen.getByRole("button", { name: "Confirmer la matière" }));
+    await user.click(screen.getByRole("button", { name: "Replier" }));
+    await user.click(screen.getByRole("button", { name: "1 à compléter" }));
+    const confirmMaterial = screen.getByRole("button", { name: "Confirmer la matière" });
+    expect(confirmMaterial).toHaveFocus();
+    expect(writes()).toEqual([]);
+    await user.click(confirmMaterial);
 
     await waitFor(() => expect(writes()).toHaveLength(1));
     // The confirmation names the material the operator has on screen.
@@ -463,7 +525,7 @@ describe("MaterialRequestEditor", () => {
   });
 
   it("offers no control that writes to a reader without write access (7)", async () => {
-    await openEditor({
+    const user = await openEditor({
       [`GET ${BASE}`]: {
         data: detail({
           canWrite: false,
@@ -478,7 +540,6 @@ describe("MaterialRequestEditor", () => {
       [`GET ${BASE}/files/${FILE_ID}`]: { data: null },
     });
 
-    await screen.findByRole("img", { name: /photo-essai\.jpg/ });
     const fields = [
       ...screen.queryAllByRole("textbox"),
       ...screen.queryAllByRole("combobox"),
@@ -493,8 +554,8 @@ describe("MaterialRequestEditor", () => {
       .map((button) => button.getAttribute("aria-label") || button.textContent?.trim());
     // Exact whitelist: the new line selectors and next-step button only navigate; no write control is enabled.
     expect(enabledButtons.sort()).toEqual([
-      "Agrandir", "Afficher les détails de la ligne 1", "Afficher les détails de la ligne 2", "Consulter les devis",
-      "Message au technicien", "Options de la demande",
+      "Afficher les détails de la ligne 1", "Afficher les détails de la ligne 2", "Consulter les devis",
+      "Message au technicien", "Options de la demande", "Voir l’original",
     ].sort());
     // The request's details and the technician's history moved into the options menu: a reader still reads both, and
     // is offered no deletion.
@@ -504,6 +565,11 @@ describe("MaterialRequestEditor", () => {
     ]);
     expect(writes()).toEqual([]);
     expect(screen.getByText(/lecture seule/i)).toBeVisible();
+
+    const original = await openOriginal(user);
+    expect(await within(original).findByRole("img", { name: /photo-essai\.jpg/ })).toBeVisible();
+    expect(within(original).getAllByRole("button").map((button) => button.getAttribute("aria-label") || button.textContent?.trim()).sort()).toEqual(["Agrandir", "Fermer"]);
+    expect(writes()).toEqual([]);
   });
 
   it("creates the lines the pre-reading of the pasted message returned (8)", async () => {
@@ -530,14 +596,17 @@ describe("MaterialRequestEditor", () => {
       [`POST ${BASE}/lines`]: { status: 201, data: { lines: created } },
     });
 
-    await user.click(screen.getByRole("button", { name: "Découper le texte en lignes" }));
+    const original = await openOriginal(user);
+    await user.click(within(original).getByRole("button", { name: "Découper le texte en lignes" }));
 
     await waitFor(() => expect(writes()).toHaveLength(1));
     expect(splitSourceTextMock).toHaveBeenCalledWith("6 raccords DN 32\nun rouleau de filasse");
     expect(writes()[0]).toEqual({ method: "POST", path: `${BASE}/lines`, body: { lines: drafts } });
+    await waitFor(() => expect(within(original).queryByRole("button", { name: "Découper le texte en lignes" })).not.toBeInTheDocument());
+    await user.click(within(original).getByRole("button", { name: "Fermer" }));
     expect(await screen.findByLabelText("Type, ligne 1")).toHaveValue("raccords");
-    expect(screen.getByText("« un rouleau de filasse »")).toBeVisible();
-    expect(screen.queryByRole("button", { name: "Découper le texte en lignes" })).not.toBeInTheDocument();
+    // In the lines step: the consultation step names the same line by these words too.
+    expect(within(screen.getByRole("region", { name: "Lignes" })).getByText("« un rouleau de filasse »")).toBeVisible();
   });
 
   it("shows the message built by the shared rules and copies it (9)", async () => {
@@ -579,7 +648,8 @@ describe("MaterialRequestEditor", () => {
         data: { file: file({ rotation: (body as { rotation: 0 | 90 | 180 | 270 }).rotation }) },
       }),
     });
-    await screen.findByRole("img", { name: /photo-essai\.jpg/ });
+    const original = await openOriginal(user);
+    await within(original).findByRole("img", { name: /photo-essai\.jpg/ });
 
     await user.click(screen.getByRole("button", { name: "Tourner à droite" }));
     await waitFor(() => expect(writes()).toHaveLength(1));
@@ -620,13 +690,17 @@ describe("MaterialRequestEditor", () => {
 
     expect(screen.queryByLabelText("Type, ligne 1")).not.toBeInTheDocument();
     expect(screen.queryByRole("checkbox", { name: "Sélectionner la ligne 1" })).not.toBeInTheDocument();
-    expect(screen.getByText("Raccord union")).toBeVisible();
+    // Its row names it by what it asks; its details are read on request, as among drafts.
+    expect(screen.getByRole("button", { name: "Afficher les détails de la ligne 1" })).toHaveTextContent("Raccord union");
+    expect(screen.queryByRole("complementary", { name: "Détails de la ligne 1" })).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "Rouvrir la ligne 1" }));
+    // Offered once the purchase orders are read: an ordered line is not reopened.
+    await user.click(await screen.findByRole("button", { name: "Modifier la ligne 1" }));
 
     await waitFor(() => expect(writes()).toHaveLength(1));
     expect(writes()[0]).toEqual({ method: "POST", path: `${BASE}/lines/reopen`, body: { ids: [LINE_A] } });
     expect(await screen.findByLabelText("Type, ligne 1")).toHaveValue("Raccord union");
+    expect(screen.getByLabelText("Quantité, ligne 1")).toHaveFocus();
   });
 
   it("adds an empty draft line and puts the cursor in it (14)", async () => {
@@ -639,15 +713,32 @@ describe("MaterialRequestEditor", () => {
       product_type: null,
       material: null,
     });
+    let finishSave: (() => void) | undefined;
+    let finishAdd: (() => void) | undefined;
     const user = await openEditor({
       [`GET ${BASE}`]: { data: detail({ lines: [line()] }) },
-      [`POST ${BASE}/lines`]: { status: 201, data: { lines: [added] } },
+      [`PATCH ${BASE}/lines/${LINE_A}`]: () => new Promise<Reply>((resolve) => {
+        finishSave = () => resolve({ data: { line: line({ quantity: 12 }) } });
+      }),
+      [`POST ${BASE}/lines`]: () => new Promise<Reply>((resolve) => {
+        finishAdd = () => resolve({ status: 201, data: { lines: [added] } });
+      }),
     });
 
+    const quantity = screen.getByLabelText("Quantité, ligne 1");
+    await user.clear(quantity);
+    await user.type(quantity, "12");
     await user.click(screen.getByRole("button", { name: "Ajouter une ligne" }));
+    await waitFor(() => expect(finishSave).toBeTypeOf("function"));
+    finishSave?.();
+    await waitFor(() => expect(finishAdd).toBeTypeOf("function"));
+    finishAdd?.();
 
     await waitFor(() => expect(screen.getByLabelText("Quantité, ligne 2")).toHaveFocus());
-    expect(writes()).toEqual([{ method: "POST", path: `${BASE}/lines`, body: { lines: [{}] } }]);
+    expect(writes()).toEqual([
+      { method: "PATCH", path: `${BASE}/lines/${LINE_A}`, body: { quantity: 12 } },
+      { method: "POST", path: `${BASE}/lines`, body: { lines: [{}] } },
+    ]);
     expect(screen.getByRole("button", { name: "Valider la ligne 2" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Valider les lignes sans alerte (1)" })).toBeEnabled();
   });
@@ -763,6 +854,8 @@ describe("MaterialRequestEditor", () => {
       });
       const chosen = photos();
 
+      const type = screen.getByLabelText("Type, ligne 1");
+      await openOriginal(user);
       await user.upload(screen.getByLabelText("Photos à ajouter"), chosen);
 
       // While the first photo travels: the operator reads where it is, nothing is listed, nothing can be sent twice.
@@ -770,7 +863,7 @@ describe("MaterialRequestEditor", () => {
       expect(screen.getByRole("button", { name: "Ajouter des photos" })).toBeDisabled();
       expect(screen.getByLabelText("Photos à ajouter")).toBeDisabled();
       expect(screen.queryByRole("img")).not.toBeInTheDocument();
-      expect(screen.getByLabelText("Type, ligne 1")).toBeEnabled();
+      expect(type).toBeEnabled();
       releaseFirst();
 
       expect(await screen.findByRole("img", { name: /photo-essai-1\.jpg/ })).toBeVisible();
@@ -805,6 +898,7 @@ describe("MaterialRequestEditor", () => {
         },
       });
 
+      await openOriginal(user);
       await user.upload(screen.getByLabelText("Photos à ajouter"), photos());
 
       expect(await screen.findByRole("alert")).toHaveTextContent("Format HEIC refusé : envoyez la photo en JPEG.");
@@ -828,6 +922,7 @@ describe("MaterialRequestEditor", () => {
         [`DELETE ${BASE}/files/${FILE_2}`]: { data: { deleted: true } },
       });
 
+      await openOriginal(user);
       await user.upload(screen.getByLabelText("Photos à ajouter"), photos());
 
       expect(await screen.findByRole("alert")).toHaveTextContent(
@@ -859,6 +954,7 @@ describe("MaterialRequestEditor", () => {
         [`DELETE ${BASE}/files/${FILE_ID}`]: { data: { deleted: true } },
         [`DELETE ${BASE}/files/${FILE_2}`]: { data: { deleted: true } },
       });
+      await openOriginal(user);
       await user.upload(screen.getByLabelText("Photos à ajouter"), photos());
       await screen.findByText("Envoi de la photo 1 sur 2 : photo-essai-1.jpg…");
 
@@ -895,6 +991,7 @@ describe("MaterialRequestEditor", () => {
         [`POST ${BASE}/files`]: { status: 201, data: { uploads: prepared.data.uploads.slice(0, 1) } },
         [`DELETE ${BASE}/files/${FILE_ID}`]: { data: { deleted: true } },
       });
+      await openOriginal(user);
       await user.upload(screen.getByLabelText("Photos à ajouter"), photos().slice(0, 1));
       await screen.findByText("Envoi de la photo 1 sur 1 : photo-essai-1.jpg…");
 
@@ -909,7 +1006,7 @@ describe("MaterialRequestEditor", () => {
     });
 
     it("sends a photo the browser gives no type to with the type the server recorded (15)", async () => {
-      await openEditor({
+      const user = await openEditor({
         [`GET ${BASE}`]: { data: detail({}) },
         [`POST ${BASE}/files`]: {
           status: 201,
@@ -928,6 +1025,7 @@ describe("MaterialRequestEditor", () => {
       });
       const untyped = new File(["octets"], "photo-essai-3.jpg", { type: "" });
 
+      await openOriginal(user);
       fireEvent.change(screen.getByLabelText("Photos à ajouter"), { target: { files: [untyped] } });
 
       expect(await screen.findByRole("img", { name: /photo-essai-3\.jpg/ })).toBeVisible();
@@ -955,6 +1053,7 @@ describe("MaterialRequestEditor", () => {
         },
       });
 
+      await openOriginal(user);
       await user.upload(screen.getByLabelText("Photos à ajouter"), photos());
 
       expect(await screen.findByRole("alert")).toHaveTextContent(
@@ -1073,7 +1172,8 @@ describe("MaterialRequestEditor", () => {
       },
     });
 
-    await user.click(screen.getByRole("button", { name: "Découper le texte en lignes" }));
+    const original = await openOriginal(user);
+    await user.click(within(original).getByRole("button", { name: "Découper le texte en lignes" }));
 
     await waitFor(() => expect(writes()).toHaveLength(1));
     expect((writes()[0].body as { lines: unknown[] }).lines).toEqual(read.slice(0, 300));
@@ -1097,9 +1197,7 @@ describe("MaterialRequestEditor", () => {
 
     await user.click(screen.getByRole("checkbox", { name: "Sélectionner la ligne 1" }));
     await user.click(screen.getByRole("button", { name: "Valider la sélection" }));
-    await user.click(await screen.findByRole("button", { name: "Afficher les détails de la ligne 1" }));
-    await user.click(within(screen.getByRole("complementary", { name: "Détails de la ligne 1" })).getByRole("button", { name: "Actions sur la ligne" }));
-    await user.click(screen.getByRole("button", { name: "Rouvrir la ligne 1" }));
+    await user.click(await screen.findByRole("button", { name: "Modifier la ligne 1" }));
 
     expect(await screen.findByRole("checkbox", { name: "Sélectionner la ligne 1" })).not.toBeChecked();
     // Nothing is selected: the form that fills or validates a selection is not shown.
@@ -1279,11 +1377,12 @@ describe("MaterialRequestEditor", () => {
 
       const table = screen.getByRole("list", { name: "Lignes de la demande" });
       expect(within(table).getByText("Laiton brut (demande)")).toBeVisible();
-      expect(within(table).getByText("Négoce Exemple (demande)")).toBeVisible();
+      // In the row's own cell: the details under the row, read on request, say it too.
+      expect(within(table).getAllByText("Négoce Exemple (demande)")[0]).toBeVisible();
     });
 
     it("does not show an unconfirmed presumption as applying (20)", async () => {
-      await openEditor({
+      const user = await openEditor({
         [`GET ${BASE}`]: {
           data: detail({
             canWrite: false,
@@ -1294,6 +1393,7 @@ describe("MaterialRequestEditor", () => {
       });
 
       expect(screen.queryByText(/\(demande\)/)).not.toBeInTheDocument();
+      await user.click(screen.getByRole("button", { name: "Afficher les détails de la ligne 1" }));
       expect(screen.getByRole("list", { name: "Points à régler, ligne 1" })).toHaveTextContent(
         "Matière présumée « Laiton brut » à confirmer.",
       );
@@ -1426,7 +1526,7 @@ describe("MaterialRequestEditor", () => {
       },
     });
     const twoLines = () => [line(), line({ id: LINE_B, position: 2, product_type: "Réduction" })];
-    const notValidated = "La ligne 1 n’a pas été validée : sa dernière modification n’a pas été enregistrée.";
+    const notValidated = "La ligne Raccord union DN 32 n’a pas été validée : sa dernière modification n’a pas été enregistrée.";
 
     it("is not validated by its own button when the save queued before the validation fails (22)", async () => {
       let reject!: () => void;
@@ -1537,6 +1637,7 @@ describe("MaterialRequestEditor", () => {
         { zone: "Local technique B" },
         { ids: [LINE_A] },
       ]);
+      await user.click(screen.getByRole("button", { name: "Afficher les détails de la ligne 1" }));
       expect(screen.getByText("Local technique B")).toBeVisible();
     });
 
@@ -1588,7 +1689,7 @@ describe("MaterialRequestEditor", () => {
 
       expect(
         await screen.findByText(
-          "La ligne 1 n’a pas été modifiée : une valeur saisie dans cette colonne n’y est pas enregistrée.",
+          "La ligne Raccord union DN 32 n’a pas été modifiée : une valeur saisie dans cette colonne n’y est pas enregistrée.",
         ),
       ).toBeVisible();
       expect(writes()[1]).toEqual({
@@ -1688,7 +1789,9 @@ describe("the steps of a request", () => {
     await open([line()], {}, false);
 
     // Not « Rattachez un article… »: the actions are not a reader's.
-    expect(screen.getByText("Lignes · 0 validée sur 1", { exact: true })).toBeVisible();
+    const lines = screen.getByRole("region", { name: "Lignes" });
+    expect(within(lines).getByText("1 ligne · 0 validée", { exact: true })).toBeVisible();
+    expect(screen.queryByRole("region", { name: "À corriger d’abord" })).not.toBeInTheDocument();
     expect(tab(1)).toHaveAttribute("aria-selected", "true");
     expect(screen.queryByText(/^Rattachez/)).not.toBeInTheDocument();
     expect(screen.queryByText(/apporte à la ligne/)).not.toBeInTheDocument();
@@ -1723,7 +1826,7 @@ describe("the steps of a request", () => {
     });
     const user = userEvent.setup();
     render(<MaterialRequestEditor projectId={PROJECT_ID} requestId={REQUEST_ID} />);
-    const more = await screen.findByRole("button", { name: "Précision, référence, repère, imputation : ligne 1" });
+    const more = await screen.findByRole("button", { name: "Détails de la ligne 1" });
     expect(more).toHaveAttribute("aria-expanded", "false");
 
     await user.click(screen.getByRole("checkbox", { name: "Tout sélectionner" }));
@@ -1837,5 +1940,86 @@ describe("the options of a request", () => {
     await user.click(deletion);
     expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
     expect(writes()).toEqual([]);
+  });
+});
+
+describe("a lighter lines table (TI-690)", () => {
+  beforeEach(() => {
+    window.history.replaceState(null, "", "?etape=lignes");
+  });
+  afterEach(() => {
+    cleanup();
+    window.history.replaceState(null, "", window.location.pathname);
+    vi.unstubAllGlobals();
+  });
+
+  const validated = (patch: Partial<MaterialRequestLine> = {}) =>
+    line({ id: LINE_B, position: 2, product_type: "Réduction", status: "validated", validated_at: "2026-11-10T09:00:00.000Z", ...patch });
+
+  it("opens the details of a validated line among drafts only when asked, and closes them again (23)", async () => {
+    const user = await openEditor({ [`GET ${BASE}`]: { data: detail({ lines: [line(), validated()] }) } });
+
+    const title = await screen.findByRole("button", { name: "Afficher les détails de la ligne 2" });
+    expect(title).toHaveAttribute("aria-pressed", "false");
+    expect(screen.queryByRole("complementary", { name: "Détails de la ligne 2" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Réduction" })).not.toBeInTheDocument();
+
+    await user.click(title);
+    expect(title).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("complementary", { name: "Détails de la ligne 2" })).toBeVisible();
+
+    await user.click(title);
+    expect(title).toHaveAttribute("aria-pressed", "false");
+    expect(screen.queryByRole("complementary", { name: "Détails de la ligne 2" })).not.toBeInTheDocument();
+  });
+
+  it("shows the same sheet once every line is settled: no line inspected by itself, one at a time on request (23)", async () => {
+    const user = await openEditor({
+      [`GET ${BASE}`]: { data: detail({ lines: [validated({ id: LINE_A, position: 1 }), validated()] }) },
+    });
+
+    const first = await screen.findByRole("button", { name: "Afficher les détails de la ligne 1" });
+    const second = screen.getByRole("button", { name: "Afficher les détails de la ligne 2" });
+    expect(screen.queryByRole("complementary")).not.toBeInTheDocument();
+    expect(second).toHaveAttribute("aria-pressed", "false");
+
+    // The details open under the row asked for, inside it; asking for another line moves them.
+    await user.click(first);
+    const row = within(screen.getByRole("list", { name: "Lignes de la demande" })).getByRole("listitem", { name: "Ligne 1" });
+    expect(within(row).getByRole("complementary", { name: "Détails de la ligne 1" })).toBeVisible();
+    await user.click(second);
+    expect(screen.queryByRole("complementary", { name: "Détails de la ligne 1" })).not.toBeInTheDocument();
+    expect(screen.getByRole("complementary", { name: "Détails de la ligne 2" })).toBeVisible();
+    // The same title closes them again.
+    await user.click(second);
+    expect(screen.queryByRole("complementary")).not.toBeInTheDocument();
+  });
+
+  it("offers « Tout sélectionner » once, readable, with the selection bar above the table (24)", async () => {
+    const user = await openEditor({
+      [`GET ${BASE}`]: { data: detail({ lines: [line(), line({ id: LINE_B, position: 2, product_type: "Réduction" })] }) },
+    });
+
+    const all = await screen.findByRole("checkbox", { name: "Tout sélectionner" });
+    expect(screen.getAllByRole("checkbox", { name: "Tout sélectionner" })).toHaveLength(1);
+    expect(all.closest('[aria-hidden="true"]')).toBeNull();
+    const list = screen.getByRole("list", { name: "Lignes de la demande" });
+    expect(all.compareDocumentPosition(list) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    await user.click(all);
+
+    expect(screen.getByRole("checkbox", { name: "Sélectionner la ligne 1" })).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "Sélectionner la ligne 2" })).toBeChecked();
+    const bar = screen.getByRole("group", { name: "Actions sur la sélection" });
+    expect(bar.compareDocumentPosition(all) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("hides a bulk action with nothing to do and keeps the sentence that says why (25)", async () => {
+    const user = await openEditor({ [`GET ${BASE}`]: { data: detail({ lines: [line()] }) } });
+
+    const disclosure = await screen.findByRole("button", { name: "Détails des propositions" });
+    expect(screen.queryByRole("button", { name: /^Rattacher les références et noms connus/ })).not.toBeInTheDocument();
+    await user.click(disclosure);
+    expect(screen.getByText(/^Rien à rattacher d’un coup : aucune ligne ne porte une référence ou un nom usuel connus/)).toBeVisible();
   });
 });

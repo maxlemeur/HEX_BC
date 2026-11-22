@@ -1,12 +1,12 @@
 "use client";
 
-import { useEffect, useId, useRef, useState, type ReactNode } from "react";
-import { ChevronDown, ChevronLeft, ChevronRight, ImagePlus, Maximize2, RotateCcw, RotateCw, Scissors, Trash2 } from "lucide-react";
+import { useEffect, useId, useRef, useState } from "react";
+import { ChevronLeft, ChevronRight, ImagePlus, Maximize2, RotateCcw, RotateCw, Scissors, Trash2 } from "lucide-react";
 
 import { useToast } from "@/components/feedback/toast-provider";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { fetchMaterialRequestFileBlob } from "@/lib/material-requests/client";
 import {
@@ -85,7 +85,7 @@ function PhotoFrame({
   );
 }
 
-function Photos({ editor, compact = false }: Readonly<{ editor: MaterialRequestEditorApi; compact?: boolean }>) {
+function Photos({ editor }: Readonly<{ editor: MaterialRequestEditorApi }>) {
   const { data, canWrite } = editor;
   const files = data.files;
   const [index, setIndex] = useState(0);
@@ -129,7 +129,7 @@ function Photos({ editor, compact = false }: Readonly<{ editor: MaterialRequestE
           onError={setError}
         />
       ) : (
-        <p className={compact ? "sr-only" : "rounded-lg border border-dashed border-border bg-surface-subtle px-4 py-6 text-center text-sm text-muted-foreground"}>
+        <p className="rounded-lg border border-dashed border-border bg-surface-subtle px-4 py-6 text-center text-sm text-muted-foreground">
           Pas de photo de l’original.
         </p>
       )}
@@ -294,14 +294,14 @@ function Photo({
 
 /** Where the splitting cuts the message, said where the office reads or corrects it. */
 const SPLIT_RULE =
-  "Le découpage propose une ligne par article : il coupe à chaque retour à la ligne, à un tiret entre deux espaces, et à une virgule ou un point-virgule suivi d’une quantité (« 50 coudes DN50, 10 manchons DN15 »).";
+  "Le découpage suit les retours à la ligne, les tirets espacés et les virgules ou points-virgules suivis d’une quantité. Une référence ou une note comme « quantité à confirmer » après un tiret reste avec son article.";
 
 /**
  * The pasted message, shown as it was received; cutting it into lines only proposes drafts. Once corrected, it is
  * cut again in one gesture, in place of the lines, as long as they are all drafts no quote holds (TI-691): the office
  * no longer deletes them one by one, and never loses a validated or quoted line to a split.
  */
-function SourceText({ editor, compact = false, photos }: Readonly<{ editor: MaterialRequestEditorApi; compact?: boolean; photos?: ReactNode }>) {
+function SourceText({ editor }: Readonly<{ editor: MaterialRequestEditorApi }>) {
   const toast = useToast();
   const textId = useId();
   const ruleId = useId();
@@ -376,7 +376,7 @@ function SourceText({ editor, compact = false, photos }: Readonly<{ editor: Mate
   };
 
   return (
-    <div className={compact && draft === null && sourceText ? "mr-source-text" : "space-y-2"}>
+    <div className="min-w-0 space-y-2">
       <h3 className="text-sm font-semibold text-foreground">Message reçu</h3>
       {draft !== null ? (
         <>
@@ -418,8 +418,7 @@ function SourceText({ editor, compact = false, photos }: Readonly<{ editor: Mate
         <p className="text-sm text-muted-foreground">Pas de message collé.</p>
       )}
       {canWrite && draft === null ? (
-        <div className="mr-original-actions flex flex-wrap gap-2">
-          {photos}
+        <div className="flex flex-wrap gap-2">
           {sourceText && lines.length === 0 ? (
             <Button type="button" size="sm" loading={busy} aria-describedby={ruleId} onClick={() => void split(false)}>
               <Scissors aria-hidden="true" />
@@ -513,18 +512,22 @@ function SourceText({ editor, compact = false, photos }: Readonly<{ editor: Mate
   );
 }
 
-/** What the technician sent, kept beside the lines while the office rewrites it. */
-export function MaterialRequestOriginal({
-  editor,
-  headingId,
-  compact = false,
-}: Readonly<{ editor: MaterialRequestEditorApi; headingId: string; compact?: boolean }>) {
+export function MaterialRequestOriginalDialog({ editor }: Readonly<{ editor: MaterialRequestEditorApi }>) {
   return (
-    <section aria-labelledby={headingId} className={compact ? "mr-original-compact rounded-lg border border-border bg-surface/50" : "space-y-4 rounded-lg border border-border bg-surface p-4"}>
-      <details open>
-        <summary className="focus-visible:outline-2 focus-visible:outline-ring"><ChevronDown aria-hidden="true" className="inline size-4" /><h2 id={headingId} className="inline typo-h3 text-foreground">Original</h2></summary>
-        {compact && editor.data.files.length === 0 ? <SourceText editor={editor} compact photos={<Photos editor={editor} compact />} /> : <div className="mt-4 grid gap-4 md:grid-cols-[minmax(0,18rem)_minmax(0,1fr)] md:gap-6"><Photos editor={editor} /><SourceText editor={editor} /></div>}
-      </details>
-    </section>
+    <Dialog>
+      <DialogTrigger render={<Button type="button" variant="ghost" size="sm" />}>
+        Voir l’original
+      </DialogTrigger>
+      <DialogContent size="xl" keepMounted>
+        <DialogHeader>
+          <DialogTitle>Original de la demande</DialogTitle>
+          <DialogDescription className="sr-only">Message et photos reçus du technicien.</DialogDescription>
+        </DialogHeader>
+        <div className={editor.data.files.length ? "grid gap-5 md:grid-cols-[minmax(0,1fr)_minmax(0,18rem)]" : "grid gap-5"}>
+          <SourceText editor={editor} />
+          <Photos editor={editor} />
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }

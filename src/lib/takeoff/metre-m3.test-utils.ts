@@ -24,7 +24,8 @@ export type FakeQuery = {
   operation: "select" | "insert" | "update" | "delete" | "upsert";
   payload: unknown;
   columns: string | null;
-  filters: Array<{ kind: "eq" | "in" | "contains"; column: string; value: unknown }>;
+  /** `is` as PostgREST's `is.null` / `is.true`: a column the row does not hold reads as null. */
+  filters: Array<{ kind: "eq" | "in" | "contains" | "is"; column: string; value: unknown }>;
   cardinality: "single" | "maybeSingle" | "many";
   /** The page asked for (`range`), the row limit and whether an exact count was asked: a handler may honour them. */
   range?: [number, number] | null;
@@ -52,7 +53,7 @@ type QueryBuilder = {
   in: (column: string, value: unknown) => QueryBuilder;
   contains: (column: string, value: unknown) => QueryBuilder;
   neq: (...args: unknown[]) => QueryBuilder;
-  is: (...args: unknown[]) => QueryBuilder;
+  is: (column: string, value: unknown) => QueryBuilder;
   not: (...args: unknown[]) => QueryBuilder;
   order: (...args: unknown[]) => QueryBuilder;
   limit: (count: number) => QueryBuilder;
@@ -84,7 +85,8 @@ export function servedRows<Row extends Record<string, unknown>>(rows: readonly R
   const matching = rows.filter((row) => query.filters.every((filter) => (filter.kind === "in"
     ? Array.isArray(filter.value) && filter.value.includes(row[filter.column])
     : filter.kind === "contains" ? contains(row[filter.column], filter.value)
-      : row[filter.column] === filter.value)));
+      : filter.kind === "is" ? (row[filter.column] ?? null) === filter.value
+        : row[filter.column] === filter.value)));
   const [from, to] = query.range ?? [0, matching.length - 1];
   const page = matching.slice(from, Math.min(to + 1, from + (query.limit ?? Infinity), from + POSTGREST_MAX_ROWS));
   return { data: page, error: null, count: query.count ? matching.length : null };
@@ -137,7 +139,10 @@ export function createSupabaseFake(input: {
         return builder;
       },
       neq: () => builder,
-      is: () => builder,
+      is: (column: string, value: unknown) => {
+        state.filters.push({ kind: "is", column, value });
+        return builder;
+      },
       not: () => builder,
       order: () => builder,
       limit: (count: number) => {

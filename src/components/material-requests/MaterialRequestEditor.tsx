@@ -22,7 +22,7 @@ import { MaterialRequestHeader, requestFieldsOpenAtStart } from "./MaterialReque
 import { MaterialRequestLines } from "./MaterialRequestLines";
 import { MaterialRequestOptions } from "./MaterialRequestOptions";
 import { MaterialRequestOrders } from "./MaterialRequestOrders";
-import { MaterialRequestOriginal } from "./MaterialRequestOriginal";
+import { MaterialRequestOriginalDialog } from "./MaterialRequestOriginal";
 import { MaterialRequestSteps, requestStepPanelId } from "./MaterialRequestSteps";
 import { REQUEST_STEP_KEYS, requestSteps, type RequestStepKey } from "./request-steps";
 import { TechnicianHistorySheet } from "./TechnicianHistorySheet";
@@ -45,13 +45,20 @@ function ReadyEditor({
   editor,
   affaireName,
   canEditCatalogue,
-}: Readonly<{ editor: MaterialRequestEditorApi; affaireName: string; canEditCatalogue: boolean }>) {
+  canCreateSupplyType,
+}: Readonly<{
+  editor: MaterialRequestEditorApi;
+  affaireName: string;
+  canEditCatalogue: boolean;
+  canCreateSupplyType: boolean;
+}>) {
   const router = useRouter();
   const ids = useId();
   const materialListId = `${ids}-materials`;
   const [technicians, setTechnicians] = useState<MaterialRequestTechnician[]>([]);
   const [messageOpen, setMessageOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [materialFocusRequest, setMaterialFocusRequest] = useState(0);
   const { data, canWrite, projectId, requestId, alertsByLine } = editor;
   const requestFieldsId = `${ids}-request-fields`;
   const [requestFieldsOpen, setRequestFieldsOpen] = useState(() => requestFieldsOpenAtStart(data.request, canWrite));
@@ -170,20 +177,31 @@ function ReadyEditor({
               fieldsId={requestFieldsId}
               open={requestFieldsOpen}
               onOpenChange={setRequestFieldsOpen}
+              materialFocusRequest={materialFocusRequest}
             />
             <MaterialRequestLines
               editor={editor}
               materialListId={materialListId}
               headingId={`${ids}-lines`}
               orderedLine={orders.orderedLine}
+              orderStatusKnown={orders.status === "ready" && !orders.refreshing && !orders.creating}
+              onReviewPresumedMaterial={() => {
+                // The fields of the request open, then the focus goes to the confirmation of the material.
+                setRequestFieldsOpen(true);
+                setMaterialFocusRequest((current) => current + 1);
+              }}
               canEditCatalogue={canEditCatalogue}
-              original={<MaterialRequestOriginal compact editor={editor} headingId={`${ids}-original`} />}
-              nextAction={<Button type="button" onClick={() => goToStep("devis")}><ArrowRight aria-hidden="true" />Consulter les devis</Button>}
+              canCreateSupplyType={canCreateSupplyType}
+              nextAction={<Button type="button" variant="outline" onClick={() => goToStep("devis")}><ArrowRight aria-hidden="true" />Consulter les devis</Button>}
               toolbar={
-                <Button type="button" variant="outline" size="sm" className="h-auto min-h-8 max-w-full whitespace-normal py-1" onClick={() => setMessageOpen(true)}>
-                  <MessageSquareText aria-hidden="true" />
-                  Message au technicien
-                </Button>
+                // The technician's previous requests are among the options of the request, behind its gear.
+                <>
+                  <MaterialRequestOriginalDialog editor={editor} />
+                  <Button type="button" variant="outline" size="sm" className="h-auto min-h-8 max-w-full whitespace-normal py-1" onClick={() => setMessageOpen(true)}>
+                    <MessageSquareText aria-hidden="true" />
+                    Message au technicien
+                  </Button>
+                </>
               }
             />
           </Tabs.Panel>
@@ -253,6 +271,7 @@ export function MaterialRequestEditor({
   requestId,
   affaireName = "",
   canEditCatalogue = false,
+  canCreateSupplyType = false,
 }: Readonly<{
   projectId: string;
   requestId: string;
@@ -260,6 +279,8 @@ export function MaterialRequestEditor({
   affaireName?: string;
   /** May set a supply type's preferred supplier from the request (admins and engineers). */
   canEditCatalogue?: boolean;
+  /** May add a supply type from the article a line names (admins only). */
+  canCreateSupplyType?: boolean;
 }>) {
   const state = useMaterialRequestEditor(projectId, requestId);
 
@@ -277,5 +298,12 @@ export function MaterialRequestEditor({
       </Alert>
     );
   }
-  return <ReadyEditor editor={state.editor} affaireName={affaireName} canEditCatalogue={canEditCatalogue} />;
+  return (
+    <ReadyEditor
+      editor={state.editor}
+      affaireName={affaireName}
+      canEditCatalogue={canEditCatalogue}
+      canCreateSupplyType={canCreateSupplyType}
+    />
+  );
 }

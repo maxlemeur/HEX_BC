@@ -116,6 +116,8 @@ describe("confirmed preparation reference contents", () => {
     expect(result.files).toEqual([{ data: bytes.toString("base64"), mimeType: "application/pdf" }]);
     expect(result.sourceHints[0]).toContain(DOCUMENT_ID);
     expect(result.sourceHints[0]).toContain("1→1, 2→2, 3→3");
+    // Lot 4: each file's kind, name and indice beside it, for the reading against the list (it attaches the CCTP only).
+    expect(result.references).toEqual([{ kind: source.kind, name: document.file_name, revision: source.revision }]);
     expect(db.storageFrom).toHaveBeenCalledWith(AFFAIRE_INTAKE_BUCKET);
     expect(db.download).toHaveBeenCalledExactlyOnceWith(document.storage_path);
   });

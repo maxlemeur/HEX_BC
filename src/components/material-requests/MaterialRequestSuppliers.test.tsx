@@ -31,6 +31,8 @@ import type { LineSupplierProposal, LineSupplierReference } from "@/lib/material
  *     linked or unlinked, supplier chosen, removed or retained, supplier named on the request changed);
  *  8. a validated line cannot get its supplier, or is shown back in draft once it has one;
  *  9. an address that is not a web address is turned into a link.
+ * 10. a supplier the catalogue does not know cannot be given to a line without leaving the request; or its
+ *     creation sets nothing on the line, adds a second supplier of a name that exists, or fails in silence.
  * (Independent review of delivery 1: 3 « skipped », 4 readers read the references, 6 per-article reads,
  * 7 refresh after retains, 1 technician's supplier still to confirm.)
  */
@@ -264,6 +266,8 @@ describe("suppliers of request lines", () => {
 
     const retain = await screen.findByRole("button", { name: "Retenir le fournisseur proposé, ligne 1" });
     expect(screen.getByText("Négoce Alpha · fournisseur du type Inox")).toBeVisible();
+    // Read once the line is unfolded: a folded row keeps the article, its supplier and one gesture.
+    await user.click(screen.getByRole("button", { name: "Détails de la ligne 1" }));
     expect(retain).toHaveAccessibleDescription(expect.stringContaining("Réf. fournisseur : NA-4471"));
     // Shown is not chosen: nothing was written before the gesture.
     expect(writes()).toEqual([]);
@@ -360,7 +364,8 @@ describe("suppliers of request lines", () => {
     expect(screen.getByLabelText("Fournisseur, ligne 3")).toHaveValue("Négoce Alpha");
     expect(screen.getByLabelText("Fournisseur, ligne 4")).toHaveValue("Dépôt Gamma");
     expect(screen.getByLabelText("Fournisseur, ligne 5")).toHaveValue("");
-    expect(screen.getByRole("button", { name: /^Retenir les fournisseurs proposés \(\d+\)$/ })).toBeDisabled();
+    // Nothing left to retain: the bulk action leaves the screen instead of staying grey (TI-690).
+    expect(screen.queryByRole("button", { name: /^Retenir les fournisseurs proposés \(\d+\)$/ })).not.toBeInTheDocument();
     await waitFor(() => expect(reads(PROPOSALS)).toHaveLength(2));
   });
 
@@ -426,20 +431,21 @@ describe("suppliers of request lines", () => {
       { method: "POST", path: RETAIN, body: { choices: [{ line_id: LINE_B, supplier_id: ALPHA }] } },
     ]);
     await waitFor(() => expect(screen.getByLabelText("Fournisseur, ligne 1")).toHaveValue("Dépôt Gamma"));
-    expect(screen.getByText(/La ligne 1 n’a pas été modifiée/)).toBeVisible();
+    expect(screen.getByText(/^La ligne .+ n’a pas été modifiée/)).toBeVisible();
   });
 
   it("shows a reader each supplier with its reference, from the proposals' answer, and no control (4, 6)", async () => {
     // The detail renders before its supplier-reference response arrives, especially on CI.
     let releaseReferences!: (reply: Reply) => void;
     const references = new Promise<Reply>((resolve) => { releaseReferences = resolve; });
-    await openEditor({
+    const user = await openEditor({
       [`GET ${BASE}`]: {
         data: detail({ canWrite: false, lines: [line(), line({ id: LINE_B, position: 2, supplier_id: BETA })] }),
       },
       [`GET ${PROPOSALS}`]: () => references,
     });
 
+    await user.click(screen.getByRole("button", { name: "Afficher les détails de la ligne 2" }));
     const details = screen.getByRole("complementary", { name: "Détails de la ligne 2" });
     expect(within(details).getByText("Comptoir Bêta", { exact: true })).toBeVisible();
     expect(within(details).queryByText("Réf. fournisseur")).not.toBeInTheDocument();
@@ -450,7 +456,8 @@ describe("suppliers of request lines", () => {
     expect(await within(details).findByText("Réf. fournisseur")).toBeVisible();
     expect(await within(details).findByText("CB-90-50", { exact: true })).toBeVisible();
     const rows = within(screen.getByRole("list", { name: "Lignes de la demande" })).getAllByRole("listitem", { name: /^Ligne \d+$/ });
-    expect(within(rows[1]).getByText("Comptoir Bêta")).toBeVisible();
+    // In the row's own cell, before the details opened under it.
+    expect(within(rows[1]).getAllByText("Comptoir Bêta")[0]).toBeVisible();
     expect(screen.queryByRole("button", { name: /Retenir/ })).not.toBeInTheDocument();
     expect(screen.queryByText(/Négoce Alpha ·/)).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Fournisseur, ligne 1")).not.toBeInTheDocument();
@@ -477,7 +484,12 @@ describe("suppliers of request lines", () => {
     expect(screen.getByRole("alert")).toHaveTextContent("Choix refusé pour cet essai.");
     await user.click(screen.getByRole("button", { name: "Ajouter une ligne" }));
     await screen.findByLabelText("Quantité, ligne 3");
-    await user.click(screen.getByRole("button", { name: "Afficher les détails de la ligne 1" }));
+    // Among drafts the line asked for stays open (TI-690); its title closes it, and opens it again unchanged.
+    const title = screen.getByRole("button", { name: "Afficher les détails de la ligne 1" });
+    expect(title).toHaveAttribute("aria-pressed", "true");
+    await user.click(title);
+    expect(screen.queryByRole("complementary", { name: "Détails de la ligne 1" })).not.toBeInTheDocument();
+    await user.click(title);
     expect(screen.getByLabelText("Fournisseur, ligne 1")).toHaveValue("Comptoir Bêta");
     expect(screen.getByRole("alert")).toHaveTextContent("Choix refusé pour cet essai.");
     expect(writes().filter((call) => call.method === "PATCH")).toEqual([{ method: "PATCH", path: `${BASE}/lines/${LINE_A}`, body: { supplier_id: BETA } }]);
@@ -485,13 +497,15 @@ describe("suppliers of request lines", () => {
 
   it("does not replace an archived assigned supplier with the request's different presumed supplier", async () => {
     window.history.replaceState(null, "", "?etape=lignes");
-    await openEditor({
+    const user = await openEditor({
       [`GET ${BASE}`]: { data: { ...detail({ canWrite: false, request: { presumed_supplier_id: BETA, supplier_confirmed: true }, lines: [line({ supplier_id: ALPHA })] }), supplierOptions: SUPPLIERS.filter((item) => item.id !== ALPHA) } },
       [`GET ${PROPOSALS}`]: proposals({}),
     });
     const row = within(screen.getByRole("list", { name: "Lignes de la demande" })).getByRole("listitem", { name: "Ligne 1" });
-    expect(within(row).getByText("Fournisseur retiré de la liste")).toBeVisible();
+    // In the row's own cell: the details under the row, read on request, say it too.
+    expect(within(row).getAllByText("Fournisseur retiré de la liste")[0]).toBeVisible();
     expect(within(row).queryByText("Comptoir Bêta (demande)")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Afficher les détails de la ligne 1" }));
     expect(within(screen.getByRole("complementary", { name: "Détails de la ligne 1" })).getByText("Fournisseur retiré de la liste")).toBeVisible();
   });
 
@@ -535,7 +549,7 @@ describe("suppliers of request lines", () => {
       line({ id: LINE_B, position: 2, supplier_id: BETA }),
       line({ id: LINE_C, position: 3, supplier_id: ALPHA }),
     ];
-    await openEditor({
+    const user = await openEditor({
       [`GET ${BASE}`]: { data: detail({ lines }) },
       [`GET ${PROPOSALS}`]: proposals({}, {
         [LINE_A]: { supplier_sku: "CB-90-50", product_url: "https://fournisseur.example/coude-50" },
@@ -545,6 +559,8 @@ describe("suppliers of request lines", () => {
     });
 
     const rows = within(screen.getByRole("list", { name: "Lignes de la demande" })).getAllByRole("listitem", { name: /^Ligne \d+$/ });
+    // Read once the line is unfolded: a folded row keeps the article, its supplier and one gesture.
+    for (const toggle of screen.getAllByRole("button", { name: /^Détails de la ligne \d+$/ })) await user.click(toggle);
     expect(await within(rows[0]).findByText("Réf. fournisseur : CB-90-50")).toBeVisible();
     expect(screen.getByLabelText("Fournisseur, ligne 1")).toHaveValue("Comptoir Bêta");
     const sheet = within(rows[0]).getByRole("link", { name: "Fiche chez Comptoir Bêta" });
@@ -575,6 +591,8 @@ describe("suppliers of request lines", () => {
     await screen.findByText("Négoce Alpha · fournisseur du type Inox");
     expect(reads(PROPOSALS)).toHaveLength(1);
 
+    // Read once the line is unfolded: a folded row keeps the article, its supplier and one gesture.
+    await user.click(screen.getByRole("button", { name: "Détails de la ligne 1" }));
     await user.click(screen.getByRole("button", { name: "Délier l’article de la ligne 1" }));
     await waitFor(() => expect(reads(PROPOSALS)).toHaveLength(2));
 
@@ -598,6 +616,8 @@ describe("suppliers of request lines", () => {
       [`POST ${RETAIN}`]: retained([{ ...validated, supplier_id: ALPHA }]),
     });
 
+    // The supplier of a validated line is chosen under its row, on request.
+    await user.click(await screen.findByRole("button", { name: "Afficher les détails de la ligne 1" }));
     await user.click(await screen.findByRole("button", { name: "Retenir le fournisseur proposé, ligne 1" }));
 
     await waitFor(() => expect(screen.getByLabelText("Fournisseur, ligne 1")).toHaveValue("Négoce Alpha"));
@@ -624,5 +644,85 @@ describe("suppliers of request lines", () => {
 
     expect(await screen.findByText("Négoce Alpha · fournisseur du type Inox")).toBeVisible();
     expect(screen.queryByText("Fournisseurs proposés indisponibles.")).not.toBeInTheDocument();
+  });
+
+  it("creates a supplier named in the field, gives it to the line and leads to its sheet (10)", async () => {
+    const DELTA = "f4f4f4f4-f4f4-4f4f-8f4f-f4f4f4f4f4f4";
+    const user = await openEditor({
+      [`GET ${BASE}`]: { data: detail({ lines: [line()] }) },
+      [`GET ${PROPOSALS}`]: proposals({ [LINE_A]: null }),
+      "POST /api/suppliers": { status: 201, data: { item: { id: DELTA, name: "Quincaillerie Delta" } } },
+      [`PATCH ${BASE}/lines/${LINE_A}`]: { data: { line: line({ supplier_id: DELTA }) } },
+    });
+    await user.click(screen.getByRole("button", { name: "Détails de la ligne 1" }));
+
+    await user.type(screen.getByLabelText("Fournisseur, ligne 1"), "  Quincaillerie Delta ");
+    await user.click(await screen.findByRole("option", { name: "Créer le fournisseur « Quincaillerie Delta »" }));
+
+    await waitFor(() => expect(screen.getByLabelText("Fournisseur, ligne 1")).toHaveValue("Quincaillerie Delta"));
+    expect(writes()).toEqual([
+      { method: "POST", path: "/api/suppliers", body: { action: "create", item: { name: "Quincaillerie Delta" } } },
+      { method: "PATCH", path: `${BASE}/lines/${LINE_A}`, body: { supplier_id: DELTA } },
+    ]);
+    // Only its name is known: the rest of its sheet is one link away, without losing the request.
+    const sheet = await screen.findByRole("link", { name: "Compléter la fiche de Quincaillerie Delta" });
+    expect(sheet).toHaveAttribute("href", `/dashboard/suppliers?fiche=${DELTA}`);
+    expect(sheet).toHaveAttribute("target", "_blank");
+  });
+
+  it("offers no creation for a name the list already holds, whatever its case and accents (10)", async () => {
+    const user = await openEditor({
+      [`GET ${BASE}`]: { data: detail({ lines: [line()] }) },
+      [`GET ${PROPOSALS}`]: proposals({ [LINE_A]: null }),
+    });
+    await user.click(screen.getByRole("button", { name: "Détails de la ligne 1" }));
+
+    await user.type(screen.getByLabelText("Fournisseur, ligne 1"), "negoce ALPHA");
+
+    expect(await screen.findByRole("option", { name: "Négoce Alpha" })).toBeVisible();
+    expect(screen.queryByRole("option", { name: /^Créer le fournisseur/ })).not.toBeInTheDocument();
+  });
+
+  it("says so and leaves the line as it was when the creation is refused (10)", async () => {
+    const user = await openEditor({
+      [`GET ${BASE}`]: { data: detail({ lines: [line()] }) },
+      [`GET ${PROPOSALS}`]: proposals({ [LINE_A]: null }),
+      "POST /api/suppliers": { status: 403, error: { code: "FORBIDDEN", message: "Vous ne pouvez pas ajouter de fournisseur." } },
+    });
+    await user.click(screen.getByRole("button", { name: "Détails de la ligne 1" }));
+
+    await user.type(screen.getByLabelText("Fournisseur, ligne 1"), "Quincaillerie Delta");
+    await user.click(await screen.findByRole("option", { name: "Créer le fournisseur « Quincaillerie Delta »" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Vous ne pouvez pas ajouter de fournisseur.");
+    expect(writes().map((call) => call.path)).toEqual(["/api/suppliers"]);
+    expect(screen.queryByRole("link", { name: /^Compléter la fiche/ })).not.toBeInTheDocument();
+  });
+
+  it("keeps a supplier chosen while a creation travels, instead of the one created (10)", async () => {
+    const DELTA = "f4f4f4f4-f4f4-4f4f-8f4f-f4f4f4f4f4f4";
+    let answer: (reply: Reply) => void = () => undefined;
+    const user = await openEditor({
+      [`GET ${BASE}`]: { data: detail({ lines: [line()] }) },
+      [`GET ${PROPOSALS}`]: proposals({ [LINE_A]: null }),
+      "POST /api/suppliers": () => new Promise<Reply>((resolve) => { answer = resolve; }),
+      [`PATCH ${BASE}/lines/${LINE_A}`]: { data: { line: line({ supplier_id: BETA }) } },
+    });
+    await user.click(screen.getByRole("button", { name: "Détails de la ligne 1" }));
+    await user.type(screen.getByLabelText("Fournisseur, ligne 1"), "Quincaillerie Delta");
+    await user.click(await screen.findByRole("option", { name: "Créer le fournisseur « Quincaillerie Delta »" }));
+
+    await pickSupplier(user, "Fournisseur, ligne 1", "Comptoir Bêta");
+    await waitFor(() => expect(writes().filter((call) => call.method === "PATCH")).toHaveLength(1));
+    answer({ status: 201, data: { item: { id: DELTA, name: "Quincaillerie Delta" } } });
+    // The creation is answered and listed before the line is read again: a write it caused would have left by then.
+    const group = screen.getByLabelText("Fournisseur, ligne 1").closest<HTMLElement>('[data-slot="combobox"]');
+    await user.click(within(group as HTMLElement).getByRole("button", { name: "Afficher les suggestions" }));
+    expect(await screen.findByRole("option", { name: "Quincaillerie Delta" })).toBeInTheDocument();
+
+    await waitFor(() => expect(screen.getByLabelText("Fournisseur, ligne 1")).toHaveValue("Comptoir Bêta"));
+    expect(writes().filter((call) => call.method === "PATCH")).toEqual([
+      { method: "PATCH", path: `${BASE}/lines/${LINE_A}`, body: { supplier_id: BETA } },
+    ]);
   });
 });

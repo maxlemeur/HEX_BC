@@ -48,7 +48,8 @@ vi.mock("@/lib/takeoff/preparation-repository", () => ({ assertPreparationProjec
 vi.mock("@/lib/ai/chatgpt-local-store", () => ({ getChatGptHostId: vi.fn().mockResolvedValue("urn:uuid:aaaaaaaa-0000-4000-8000-000000000099"), readChatGptStore: vi.fn() }));
 vi.mock("@/lib/takeoff/feature-flags", () => ({
   takeoffModuleDefault: vi.fn(() => true),
-  getTakeoffLevelCProcessingConfigForTenant: vi.fn().mockResolvedValue({ maxPdfPages: 200, maxTotalTokens: 400000, maxCostCents: 2500 }),
+  getTakeoffLevelCProcessingConfigForTenant: vi.fn().mockResolvedValue({ maxPdfPages: 200, maxTotalTokens: 400000, maxCostCents: 2500,
+    thresholdPages: 15, chunkSizePages: 10, overlapPages: 2 }),
 }));
 vi.mock("@/lib/takeoff/local-dispatch", () => ({ runLocalTakeoffAttempts: vi.fn().mockResolvedValue(undefined) }));
 // The preparation as the dossier gives it is fixed here; its sealing is the real one a confirmation uses.
@@ -62,7 +63,8 @@ vi.mock("@/lib/takeoff/job-read-server", async (importOriginal) => ({
 // A command reads its member's subscription as pinned at the confirmation (its own tests: chatgpt-takeoff.test.ts).
 vi.mock("@/lib/ai/chatgpt-takeoff", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/ai/chatgpt-takeoff")>()), getConfirmedTakeoffExecutionOwner: vi.fn() }));
-vi.mock("@/lib/pdf/page-render-server", () => ({ renderPdfPages: vi.fn().mockResolvedValue({ pages: [{ regionText: "" }] }) }));
+vi.mock("@/lib/pdf/page-render-server", async (importOriginal) => ({ ...await importOriginal<typeof import("@/lib/pdf/page-render-server")>(),
+  renderPdfPages: vi.fn().mockResolvedValue({ pages: [{ regionText: "" }] }) }));
 // The measuring order a command seals (lot 4): the real reading (the second order not active, the free extraction) unless a
 // case answers otherwise.
 vi.mock("@/lib/takeoff/item-list-seal-server", async (importOriginal) => {
@@ -104,6 +106,8 @@ function dossier(input: { classification?: string; copy?: "same" | "older" | "le
   references?: DossierReference[];
   /** The owner activated one analysis per plan. */
   perPlan?: boolean;
+  /** The owner activated the second measuring order (lot 4). */
+  listActive?: boolean;
   /** The plan copy's bytes, and the page count its row stores (null: not counted yet). */
   bytes?: Uint8Array; storedPageCount?: number | null } = {}) {
   const planBytes = input.bytes ?? BYTES;
@@ -162,7 +166,7 @@ function dossier(input: { classification?: string; copy?: "same" | "older" | "le
       record_takeoff_launch_evaluation_failure: () => ({ data: "evaluating", error: null }),
       takeoff_plan_dispatch_is_active: () => ({ data: input.perPlan === true, error: null }),
       // Lot 4: the second measuring order is not activated; the request seals the free extraction, as before.
-      takeoff_item_list_order_is_active: () => ({ data: false, error: null }),
+      takeoff_item_list_order_is_active: () => ({ data: input.listActive === true, error: null }),
       admit_takeoff_launch_request: (args) => {
         admitted.push(args);
         const job = (args as { p_job: { id: string } | Array<{ id: string }> }).p_job;
@@ -183,6 +187,20 @@ function dossier(input: { classification?: string; copy?: "same" | "older" | "le
     availableSources: [source, ...references],
   } as never);
   return { fake, admitted, recorded, document, copy };
+}
+
+/** The list of items a request seals once the second measuring order is active (lot 4), of `items` items. */
+function itemListOrder(items: number) {
+  return { kind: "item_list" as const, version: 2 as const, list: { revision_id: "aaaaaaaa-0000-4000-8000-0000000000f1", revision: 3,
+    content_sha256: "e".repeat(64), item_count: items } };
+}
+
+/** The seal of such a list: its order and its items, as `sealedMeasuringOrder` hands them to the bounds. */
+function itemListSeal(items: number) {
+  return { order: itemListOrder(items), items: Array.from({ length: items }, (_, index) => ({
+    id: `bbbbbbbb-0000-4000-8000-${String(index).padStart(12, "0")}`, label: `Poste fictif ${index}`, expectedUnit: "u",
+    measurementBasis: null, qualifiers: {}, sections: [], synonyms: [], referenceQuantity: null,
+    origin: { kind: "manual" as const, intentId: `i-${index}`, addedBy: PAYER, addedAt: "2026-11-22T08:00:00.000Z", addedInRevision: 1 } })) };
 }
 
 beforeEach(() => {
@@ -278,6 +296,40 @@ describe("evaluateTakeoffLaunchRequests", () => {
       execution_host_id: HOST, id: expect.stringMatching(/^[0-9a-f-]{36}$/) })]);
     expect(result.jobId).toBe(call.p_job[0].id);
     expect(runLocalTakeoffAttempts).toHaveBeenCalledWith(expect.objectContaining({ jobId: call.p_job[0].id }));
+  });
+
+  // Lot 4: a request that reads its plans against a list of items is bounded on the whole request before its admission:
+  // 1,700 items in batches of 40 make 43 calls on a one-page plan, more than one plan's reading may make and more than the
+  // budget lets start. The member is asked to reduce the scope; nothing is admitted, nothing is sampled.
+  it("refuses, naming the plan, a request whose reading against the list passes its bounds, and admits nothing", async () => {
+    const { admitted, recorded } = dossier({ perPlan: true });
+    vi.mocked(sealedMeasuringOrder).mockResolvedValueOnce(itemListSeal(1_700));
+    const [result] = await evaluateTakeoffLaunchRequests();
+    expect(result).toMatchObject({ requestId: REQUEST, outcome: "blocked", reason: "PLAN_SET_TOO_LARGE", jobId: null });
+    expect(admitted).toEqual([]);
+    expect(recorded).toEqual([expect.objectContaining({ p_state: "blocked", p_reason: "PLAN_SET_TOO_LARGE", p_details: {
+      pieces: [{ id: PLAN_FILE, name: "Plan RDC.pdf" }],
+      reading_bounds: { items: 1_700, plans: 1, calls: 43, tokens: 1_290_000, request_budget_tokens: 400_000 } } })]);
+  });
+
+  it("admits a request whose reading against the list stays within its bounds, its list sealed", async () => {
+    const { admitted } = dossier({ perPlan: true });
+    vi.mocked(sealedMeasuringOrder).mockResolvedValueOnce(itemListSeal(120));
+    const [result] = await evaluateTakeoffLaunchRequests();
+    expect(result).toMatchObject({ outcome: "admitted" });
+    expect((admitted[0] as { p_manifest: unknown }).p_manifest).toMatchObject({ format_version: 2, order: itemListOrder(120) });
+    expect(sealedMeasuringOrder).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ perPlan: true }));
+  });
+
+  // The second order is active, one analysis per plan is not: the automatic request is grouped and seals the free extraction.
+  it("seals the free extraction of a grouped request, whatever the second order's activation says", async () => {
+    const { admitted, fake } = dossier({ perPlan: false, listActive: true });
+    const [result] = await evaluateTakeoffLaunchRequests();
+    expect(result).toMatchObject({ outcome: "admitted" });
+    expect((admitted[0] as { p_manifest: unknown }).p_manifest).toMatchObject({ format_version: 1,
+      order: { kind: "free_extraction", version: 1, list: null } });
+    expect(sealedMeasuringOrder).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ perPlan: false }));
+    expect(fake.rpcCalls.map((call) => call.fn)).not.toContain("takeoff_item_list_order_is_active");
   });
 
   // A whole plan whose stored page count is unknown: the sealing counts its pages on its bytes, and its unit gets them.
@@ -1010,15 +1062,25 @@ describe("launchTakeoffRelaunch", () => {
   it("seals the list of items in a command of plans once the second order is active, and refuses it while the list is to prepare", async () => {
     const list = { kind: "item_list" as const, version: 2 as const, list: { revision_id: "aaaaaaaa-0000-4000-8000-0000000000f1",
       revision: 3, content_sha256: "e".repeat(64), item_count: 12 } };
-    vi.mocked(sealedMeasuringOrder).mockResolvedValueOnce({ order: list });
+    vi.mocked(sealedMeasuringOrder).mockResolvedValueOnce({ order: list, items: itemListSeal(12).items });
     const sealed = planCommand({ a: 3, b: 3 });
     await expect(sealed.run([PLAN_FILE])).resolves.toMatchObject({ outcome: "admitted" });
     expect(sealed.launched[0].p_manifest).toMatchObject({ format_version: 2, order: list });
+    expect(sealedMeasuringOrder).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ perPlan: true }));
     vi.mocked(sealedMeasuringOrder).mockResolvedValueOnce({ blocked: "ITEM_LIST_TO_PREPARE" });
     const blocked = planCommand({ a: 3, b: 3 });
     await expect(blocked.run([PLAN_FILE])).rejects.toMatchObject({ status: 409,
       message: "La liste des postes est à préparer : importez ou choisissez la DPGF de l’affaire, puis relancez." });
     expect(blocked.launched).toEqual([]);
+  });
+
+  it("refuses a command of plans whose reading against the list passes its bounds, before any unit is admitted", async () => {
+    vi.mocked(sealedMeasuringOrder).mockResolvedValueOnce(itemListSeal(1_700));
+    const sealed = planCommand({ a: 3, b: 3 });
+    await expect(sealed.run([PLAN_FILE])).rejects.toMatchObject({ status: 422, message: "Métré non démarré — les plans « plan-a.pdf » "
+      + "dépassent les limites d’une lecture contre la liste des postes. Lecture de 1\u202f700 postes sur 1 plan : 43 appels prévus, "
+      + "environ 1\u202f290\u202f000 jetons pour un budget de 400\u202f000. Réduisez les plans ou les pages à lire." });
+    expect(sealed.launched).toEqual([]);
   });
 
   it("lets a command start the first analysis of an affaire that has none", async () => {
@@ -1603,16 +1665,21 @@ describe("launchTakeoffRelaunch", () => {
   });
 
   // Past the replay: the member's confirmed preparation sealed, then the database's command decides.
-  function command(answer: { data?: unknown; error?: { code: string; message: string } }) {
+  function command(answer: { data?: unknown; error?: { code: string; message: string } }, options: { listActive?: boolean } = {}) {
     const calls: string[] = [];
+    const launched: Array<Record<string, unknown>> = [];
     const service = createSupabaseFake({ rpc: {
       // One analysis per plan not activated: the grouped command (lot 3's command of plans has its own cases above).
       takeoff_plan_dispatch_is_active: () => ({ data: false, error: null }),
       // The receipt, read first under either identity of the command: none.
       replay_manual_takeoff_plan_request: () => ({ data: [], error: null }),
-      // Lot 4: the command reads whether the second measuring order is active (it is not: the free extraction).
-      takeoff_item_list_order_is_active: () => ({ data: false, error: null }),
-      launch_manual_takeoff_request: () => { calls.push("launch"); return { data: answer.data ?? null, error: answer.error ?? null }; },
+      // Lot 4: the second measuring order, not active unless a case says so.
+      takeoff_item_list_order_is_active: () => ({ data: options.listActive === true, error: null }),
+      launch_manual_takeoff_request: (args) => {
+        calls.push("launch");
+        launched.push(args as Record<string, unknown>);
+        return { data: answer.data ?? null, error: answer.error ?? null };
+      },
     }, tables: {
       // The analysis a relaunch replaces: a grouped one, read for the plans its receipt may name.
       takeoff_jobs: () => ({ data: { launch_unit_key: "grouped", preparation_snapshot: null }, error: null }),
@@ -1630,7 +1697,7 @@ describe("launchTakeoffRelaunch", () => {
     const launch = (predecessorJobId: string | null) => launchTakeoffRelaunch({ context: { userId: PAYER, tenantId: TENANT,
       tenantRole: "engineer", supabase: session.client } as never, projectId: PROJECT, planSetId: PLAN_SET, preparationRevision: 2,
       intentKey: "aaaaaaaa-0000-4000-8000-0000000000aa", predecessorJobId });
-    return { launch, calls };
+    return { launch, calls, launched };
   }
 
   // The database refuses a manual launch while the affaire's automatic start can still begin (it is taken on from the
@@ -1655,6 +1722,17 @@ describe("launchTakeoffRelaunch", () => {
       await expect(launch("aaaaaaaa-0000-4000-8000-0000000000bb")).rejects.toMatchObject({ status: 503, retryable: true,
         message: "Le métré de l’affaire est occupé par une autre opération. Réessayez dans un instant." });
     });
+
+  // Lot 4: a grouped command (one analysis per plan not active) seals the free extraction, whatever the second order's
+  // activation says: the list is answered plan by plan.
+  it("seals the free extraction in a grouped command, whatever the second order's activation says", async () => {
+    const { launch, calls, launched } = command({ data: [{ outcome: "admitted", request_id: REQUEST, job_id: "aaaaaaaa-0000-4000-8000-0000000000ee" }] },
+      { listActive: true });
+    await expect(launch("aaaaaaaa-0000-4000-8000-0000000000bb")).resolves.toMatchObject({ outcome: "admitted" });
+    expect(calls).toEqual(["launch"]);
+    expect(launched[0].p_manifest).toMatchObject({ format_version: 1, order: { kind: "free_extraction", version: 1, list: null } });
+    expect(sealedMeasuringOrder).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ perPlan: false }));
+  });
 
   // An analysis launched outside any request that has not ended: the command is answered with it, without a request.
   it("answers with the analysis outside any request that still runs, and starts nothing", async () => {

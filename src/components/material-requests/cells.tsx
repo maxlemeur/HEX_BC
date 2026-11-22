@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useId, useRef, useState, type ReactNode } from "react";
-import { Info, TriangleAlert } from "lucide-react";
+import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
+import { ChevronDown, Info, TriangleAlert } from "lucide-react";
 
 import { DecimalDraftInput } from "@/components/estimates/components/estimate-editor-row/DecimalDraftInput";
 import { Button } from "@/components/ui/button";
@@ -30,6 +30,54 @@ export function alertCellClass(alerts: CellAlerts): string {
   const tone = cellTone(alerts);
   if (tone === "blocking") return "bg-warning-light";
   return tone === "notice" ? "bg-warning-subtle" : "";
+}
+
+/** The row of a list that is the one shown beside it (a line, a quote, a purchase order): the application's blue. */
+export const SELECTED_ROW = "bg-primary/5 shadow-[inset_3px_0_0_var(--color-primary)]";
+
+/** The arrow that unfolds a line of the sheet: it points at the line while folded, up once unfolded. */
+export function FoldArrow({ open, className }: Readonly<{ open: boolean; className?: string }>) {
+  return (
+    <ChevronDown
+      aria-hidden="true"
+      className={cn("transition-transform duration-150 motion-reduce:transition-none", open ? "rotate-180" : "-rotate-90", className)}
+    />
+  );
+}
+
+/**
+ * One alert in words. A blocking alert and a remark differ by their icon and their wording as well as by their
+ * colour.
+ */
+export function AlertWords({
+  alert,
+  as: Tag = "p",
+  className,
+  ...rest
+}: Readonly<{ alert: MaterialRequestLineAlert; as?: "p" | "li"; className?: string; "aria-hidden"?: boolean }>) {
+  const Icon = alert.blocking ? TriangleAlert : Info;
+  return (
+    <Tag {...rest} className={cn("flex items-start gap-1 font-medium text-warning", className)}>
+      <Icon aria-hidden="true" className="mt-px size-3.5 shrink-0" />
+      <span>{alert.blocking ? alert.message : `À noter : ${alert.message}`}</span>
+    </Tag>
+  );
+}
+
+/** Every alert of a line, in words: under the fields of a card, and under its row once the line is unfolded. */
+export function AlertSummary({
+  position,
+  alerts,
+  className,
+}: Readonly<{ position: number; alerts: CellAlerts; className?: string }>) {
+  if (alerts.length === 0) return null;
+  return (
+    <ul aria-label={`Points à régler, ligne ${position}`} className={cn("space-y-0.5 text-xs", className)}>
+      {alerts.map((alert) => (
+        <AlertWords key={alert.code} as="li" alert={alert} className={cn(!alert.blocking && "font-normal")} />
+      ))}
+    </ul>
+  );
 }
 
 const CELL_CONTROL =
@@ -68,14 +116,7 @@ export function CellMessages({
   return (
     <div id={id} className={cn("space-y-0.5 text-xs leading-snug", quietAlerts && !error ? "sr-only" : "mt-1")}>
       {alerts.map((alert) => (
-        <p key={alert.code} className={cn("flex items-start gap-1 font-medium text-warning", quietAlerts && "sr-only")}>
-          {alert.blocking ? (
-            <TriangleAlert aria-hidden="true" className="mt-px size-3.5 shrink-0" />
-          ) : (
-            <Info aria-hidden="true" className="mt-px size-3.5 shrink-0" />
-          )}
-          <span>{alert.blocking ? alert.message : `À noter : ${alert.message}`}</span>
-        </p>
+        <AlertWords key={alert.code} alert={alert} className={cn(quietAlerts && "sr-only")} />
       ))}
       {error ? (
         <p role="alert" className="font-medium text-danger">
@@ -334,6 +375,9 @@ export type ChoiceOption = { value: string; label: string };
 /** The « nothing chosen » entry of a searchable choice: the combobox's own empty value means « no selection yet ». */
 const NO_CHOICE = "__aucun__";
 
+/** What creating an entry of a choice answers: its value, or why it was refused. */
+export type ChoiceCreation = { ok: true; value: string } | { ok: false; message: string };
+
 /**
  * A choice saved as soon as it is made. A refused choice stays shown, with the reason under it. `searchable` lists the
  * options in a combobox that filters as the office types (TI-691: a supplier among twenty, in a list cut short by its
@@ -351,8 +395,15 @@ export function ChoiceCell({
   onUnsavedChange,
   searchable = false,
   placeholder,
+  create,
 }: Readonly<{
+  /** `options` should keep its identity between renders: a searchable choice indexes it. */
   searchable?: boolean;
+  /**
+   * For a searchable choice: what is typed and that no option names can be created, then chosen. `run` creates it
+   * and answers its value, which must be among `options` by then; a refusal is said under the cell, nothing chosen.
+   */
+  create?: { label: (name: string) => string; run: (name: string) => Promise<ChoiceCreation> };
   /**
    * Shown in the search field of a searchable choice while nothing is chosen: the field itself stays empty, so typing
    * searches instead of adding to a « — ».
@@ -374,6 +425,8 @@ export function ChoiceCell({
   const messagesId = useId();
   const [pending, setPending] = useState<string | null>(null);
   const [failed, setFailed] = useState<{ value: string; message: string } | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [notCreated, setNotCreated] = useState<string | null>(null);
   const writes = usePendingWrites(value ?? "");
   const shown = pending ?? failed?.value ?? value ?? "";
   const known = shown === "" || options.some((option) => option.value === shown);
@@ -383,9 +436,14 @@ export function ChoiceCell({
     onUnsavedChange?.(unsaved);
   }, [onUnsavedChange, unsaved]);
 
+  /** Counts the choices made: a creation that answers after a later choice does not replace it. */
+  const gestures = useRef(0);
+
   const choose = async (next: string) => {
+    gestures.current += 1;
     setPending(next);
     setFailed(null);
+    setNotCreated(null);
     const result = await writes.send(next, () => onCommit(next === "" ? null : next));
     // An earlier choice answered after a later one was made: the later answer settles the cell.
     if (result === null) return;
@@ -393,25 +451,50 @@ export function ChoiceCell({
     if (!result.ok) setFailed({ value: next, message: result.message });
   };
 
+  const createAndChoose = async (name: string) => {
+    if (!create || creating) return;
+    setCreating(true);
+    setNotCreated(null);
+    const asked = gestures.current;
+    const created = await create.run(name);
+    setCreating(false);
+    // The field stays usable while the creation travels: what was chosen meanwhile is the office's last word.
+    if (gestures.current !== asked) return;
+    if (created.ok) await choose(created.value);
+    else setNotCreated(created.message);
+  };
+
+  // Only built for a searchable choice, and once for the same options: the combobox indexes what it is given.
+  const unknown = known ? null : shown;
+  const entries = useMemo(
+    () =>
+      searchable
+        ? [
+            ...(emptyLabel !== undefined ? [{ value: NO_CHOICE, label: emptyLabel }] : []),
+            ...(unknown === null ? [] : [{ value: unknown, label: unknownLabel ?? unknown }]),
+            ...options,
+          ]
+        : [],
+    [emptyLabel, options, searchable, unknown, unknownLabel],
+  );
+
   if (searchable) {
-    const entries = [
-      ...(emptyLabel !== undefined ? [{ value: NO_CHOICE, label: emptyLabel }] : []),
-      ...(known ? [] : [{ value: shown, label: unknownLabel ?? shown }]),
-      ...options,
-    ];
     return (
       <>
         <Combobox
           id={id}
           size="sm"
           aria-label={id ? undefined : label}
-          aria-invalid={failed ? true : undefined}
-          aria-describedby={failed ? messagesId : undefined}
+          aria-invalid={failed || notCreated ? true : undefined}
+          aria-describedby={failed || notCreated ? messagesId : undefined}
           placeholder={placeholder}
           emptyMessage="Aucun résultat"
           options={entries}
           value={shown}
           disabled={disabled}
+          isLoading={creating}
+          onCreate={create ? (name) => void createAndChoose(name) : undefined}
+          createLabel={create?.label}
           onValueChange={(next) => {
             // Clearing the search text is not a choice: only a picked entry is.
             if (next === "") return;
@@ -420,7 +503,7 @@ export function ChoiceCell({
             void choose(chosen);
           }}
         />
-        <CellMessages id={messagesId} error={failed?.message} />
+        <CellMessages id={messagesId} error={failed?.message ?? notCreated} />
       </>
     );
   }

@@ -303,9 +303,9 @@ function ProductsPreview({ products }: Readonly<{ products: ProductTemplateRow[]
       <div className="relative overflow-x-auto rounded-lg border border-border" role="region" tabIndex={0} aria-labelledby="template-products-preview-title">
         <table
           aria-labelledby="template-products-preview-title"
-          className="w-full min-w-[780px] text-left text-sm"
+          className="sheet-table w-full min-w-[780px] text-left text-sm"
         >
-          <thead className="bg-surface-subtle text-xs uppercase tracking-wide text-muted-foreground">
+          <thead className="bg-surface-subtle text-xs text-muted-foreground">
             <tr>
               <th scope="col" className="px-3 py-2 font-semibold">Référence</th>
               <th scope="col" className="px-3 py-2 font-semibold">Désignation</th>
@@ -345,9 +345,9 @@ function PricesPreview({ prices }: Readonly<{ prices: SupplierPriceTemplateRow[]
       <div className="relative overflow-x-auto rounded-lg border border-border" role="region" tabIndex={0} aria-labelledby="template-prices-preview-title">
         <table
           aria-labelledby="template-prices-preview-title"
-          className="w-full min-w-[820px] text-left text-sm"
+          className="sheet-table w-full min-w-[820px] text-left text-sm"
         >
-          <thead className="bg-surface-subtle text-xs uppercase tracking-wide text-muted-foreground">
+          <thead className="bg-surface-subtle text-xs text-muted-foreground">
             <tr>
               <th scope="col" className="px-3 py-2 font-semibold">Produit</th>
               <th scope="col" className="px-3 py-2 font-semibold">Fournisseur</th>
@@ -386,9 +386,9 @@ function IssuesPreview({ issues }: Readonly<{ issues: ProductPriceTemplateIssue[
       <div className="relative max-h-48 overflow-auto rounded-lg border border-danger-border" role="region" tabIndex={0} aria-label="Anomalies détectées">
         <table
           aria-labelledby="template-issues-title"
-          className="w-full min-w-[640px] text-left text-sm"
+          className="sheet-table w-full min-w-[640px] text-left text-sm"
         >
-          <thead className="sticky top-0 bg-danger-subtle text-xs uppercase tracking-wide text-danger">
+          <thead className="sticky top-0 bg-danger-subtle text-xs text-danger">
             <tr>
               <th scope="col" className="px-3 py-2 font-semibold">Feuille</th>
               <th scope="col" className="px-3 py-2 font-semibold">Ligne</th>
