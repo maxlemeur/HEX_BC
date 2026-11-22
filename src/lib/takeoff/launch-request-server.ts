@@ -420,6 +420,16 @@ async function countUnstoredPlanPages(service: Service, sources: TakeoffPreparat
   return counted;
 }
 
+/** A command whose plans, each read by its own analysis, pass the page limit of a reading: named. */
+function planPagesPastLimit(plans: ReadonlyArray<{ document_id: string; document_name: string }>, maxPages: number) {
+  const names = plans.map((plan) => `« ${plan.document_name} »`).join(", ");
+  return new TakeoffError({ status: 422, code: TakeoffErrorCode.TAKEOFF_FILE_TOO_LARGE, retryable: false,
+    message: plans.length === 1
+      ? `Le plan ${names} dépasse les ${maxPages} pages qu’une analyse lit : retirez-le de la préparation ou réduisez-le, puis relancez.`
+      : `Les plans ${names} dépassent chacun les ${maxPages} pages qu’une analyse lit : retirez-les de la préparation ou réduisez-les, puis relancez.`,
+    details: { pieces: plans.map((plan) => ({ id: plan.document_id, name: plan.document_name })), max_pdf_pages: maxPages } });
+}
+
 /** The plan set's copies a preparation does not read: a revision the members set aside, or an identical copy of a plan it reads. */
 function planSetCopiesSetAside(sources: TakeoffPreparationSnapshot["preparation"]["sources"], planSetId: string):
   TakeoffLaunchManifest["coverage"]["plans_omitted"] {
@@ -937,6 +947,12 @@ async function launchTakeoffPlanCommand(service: Service, input: RelaunchInput,
     }
     throw error;
   }
+  // Read plan by plan, each plan within the page limit of a reading now, on its stored count or its pages counted on its
+  // bytes (the count its sizing weighs): a plan past it is named.
+  const countedPages = await countUnstoredPlanPages(service, snapshot.preparation.sources);
+  const pastLimit = snapshot.preparation.sources.filter((source) => source.kind === "plan" && source.active
+    && (source.page_count ?? countedPages.get(source.document_id) ?? 0) > config.maxPdfPages);
+  if (pastLimit.length) throw planPagesPastLimit(pastLimit, config.maxPdfPages);
   // The dossier's limits on every plan the command reads, before its units (each is checked again on its own): read plan
   // by plan, the page limit is each plan's.
   const jobKey = `takeoff-request-command:${input.projectId}:${input.intentKey}`;
@@ -957,8 +973,7 @@ async function launchTakeoffPlanCommand(service: Service, input: RelaunchInput,
     omitted.set(plan.id, { ...plan, reason: "not_requested" });
   }
   const { manifest: split, refusal: tooLarge } = await sealItemListReading(splitTakeoffLaunchManifest({ ...grouped,
-    coverage: { ...grouped.coverage, plans_omitted: [...omitted.values()] } },
-    await countUnstoredPlanPages(service, snapshot.preparation.sources)), async () => config, order.items);
+    coverage: { ...grouped.coverage, plans_omitted: [...omitted.values()] } }, countedPages), async () => config, order.items);
   if (tooLarge) throw itemListReadingTooLarge(tooLarge);
   const units = await planUnitJobs(service, { tenantId: context.tenantId, planSetId: input.planSetId, jobKey,
     hostId: owner.execution_host_id, manifest: split });

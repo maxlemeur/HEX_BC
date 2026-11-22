@@ -197,9 +197,12 @@ export class PreparationPlanSealError extends TakeoffError {
   }
 }
 
-/** The plans an analysis would read pass the worker's plan budget (their number, size or real pages): they are named. */
+/**
+ * The plans an analysis would read pass the worker's plan budget (their number, size or real pages): they are named.
+ * `violation`: the bound they pass (`total_pages`: their pages together, which plans read each alone may hold).
+ */
 export class PreparationPlanBudgetError extends TakeoffError {
-  constructor(readonly pieces: Array<{ id: string; name: string }>) {
+  constructor(readonly pieces: Array<{ id: string; name: string }>, readonly violation: string | null = null) {
     const names = pieces.map((piece) => `« ${piece.name} »`).join(", ");
     super({ status: 422, code: TakeoffErrorCode.TAKEOFF_FILE_TOO_LARGE, retryable: false, message: pieces.length === 1
       ? `Le plan ${names} dépasse les limites d’une analyse. Retirez-le des pièces retenues ou réduisez-le avant de confirmer.`
@@ -410,7 +413,8 @@ export async function sealPreparationSources(draft: TakeoffPreparation, options:
       if (budget.violation) {
         const named = budget.violation === "file_pages"
           ? plans.filter((source) => planCounts.get(source.document_id)!.page_count > bounds.maxPages) : plans;
-        throw new PreparationPlanBudgetError(named.map((source) => ({ id: source.document_id, name: source.document_name })));
+        throw new PreparationPlanBudgetError(named.map((source) => ({ id: source.document_id, name: source.document_name })),
+          budget.violation);
       }
     },
   };
@@ -517,10 +521,18 @@ export async function confirmTakeoffPreparation(input: {
       return readPreparationRevision(context, input.projectId, revision, false);
     }
   }
-  // The plans the analysis reads, as the worker reads them at this level: each on its own once one analysis per plan is
-  // active (a grouped launch checks them together again).
-  sealed.assertReadPlans(draft, { maxPages: await getPlanSetMaxPdfPages({ supabase: context.supabase, tenantId: context.tenantId,
-    level: draft.processing.level ?? DETAILED_TAKEOFF_PROCESSING.level }), perPlan: await isTakeoffPlanDispatchActive() });
+  // The plans the analysis reads, as the worker reads them at this level. Past the page limit only together, they are read
+  // each alone once one analysis per plan is active (a grouped launch checks them together again): the activation is read
+  // then only, and a read that fails keeps the rule of a grouped analysis.
+  const maxPages = await getPlanSetMaxPdfPages({ supabase: context.supabase, tenantId: context.tenantId,
+    level: draft.processing.level ?? DETAILED_TAKEOFF_PROCESSING.level });
+  try {
+    sealed.assertReadPlans(draft, { maxPages });
+  } catch (error) {
+    if (!(error instanceof PreparationPlanBudgetError) || error.violation !== "total_pages"
+      || !(await isTakeoffPlanDispatchActive().catch(() => false))) throw error;
+    sealed.assertReadPlans(draft, { maxPages, perPlan: true });
+  }
   const confirmedAt = new Date().toISOString();
   const snapshot = createTakeoffPreparationSnapshot({ preparation: draft, confirmedBy: context.userId, confirmedAt, revision });
   if (draft.provenance) snapshot.execution_selection = await selectionForConfirmation(context, input.expectedExecutionFingerprint);

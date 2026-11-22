@@ -57,9 +57,12 @@ function fixture() {
       "affaire-intake": ({ paths }) => ({ data: new Blob([Uint8Array.from(intakeContents.get(paths[0]) ?? Buffer.from(CCTP_TEXT))]), error: null }),
     },
   });
-  // Lot 3's activation of one analysis per plan, read by the confirmation (not active unless a case says).
-  let planDispatch = false;
-  const server = createSupabaseFake({ rpc: { takeoff_plan_dispatch_is_active: () => ({ data: planDispatch, error: null }) }, tables: {
+  // Lot 3's activation of one analysis per plan, read by the confirmation (not active unless a case says; « unreadable »:
+  // its read fails).
+  let planDispatch: boolean | "unreadable" = false;
+  const server = createSupabaseFake({ rpc: { takeoff_plan_dispatch_is_active: () => planDispatch === "unreadable"
+    ? { data: null, error: { code: "57014", message: "canceling statement due to statement timeout" } }
+    : { data: planDispatch, error: null } }, tables: {
     takeoff_preparations: (query) => {
       const expected = filterValue(query, "revision");
       if ((query.operation === "insert" && record) || (query.operation === "update" && record?.revision !== expected)) {
@@ -79,7 +82,7 @@ function fixture() {
   return {
     user, server, context, file, files, contents, intakeContents, ready, content, intake, getRecord: () => record,
     seedRecord: (row: PreparationRecordRow) => { record = row; },
-    setPlanDispatch: (active: boolean) => { planDispatch = active; },
+    setPlanDispatch: (active: boolean | "unreadable") => { planDispatch = active; },
     setTargetProject: (id: string) => { targetProjectId = id; },
     setMissingMigration: () => { missingMigration = true; },
     onDownload: (callback: () => void) => { onDownload = callback; },
@@ -771,6 +774,32 @@ describe("the sealing of a member's confirmation", () => {
     await expect(confirmPlanSet(M3_PLAN_SET_ID)).rejects.toMatchObject({ status: 422, code: "TAKEOFF_FILE_TOO_LARGE",
       message: "Le plan « Plan fictif.pdf » dépasse les limites d’une analyse. Retirez-le des pièces retenues ou réduisez-le avant de confirmer." });
     expect(g.getRecord()?.confirmed_snapshot).toBeNull();
+  });
+
+  // Budget closing round: the activation is read only when it can change the outcome (plans past the limit together),
+  // and a read that fails keeps today's rule: a released confirmation gains no read and no refusal.
+  it("reads the activation of one analysis per plan only for plans past the page limit together", async () => {
+    const f = fixture();
+    f.setPlanDispatch("unreadable");
+    await confirmPlanSet(M3_PLAN_SET_ID);
+    expect(f.getRecord()?.confirmed_snapshot).not.toBeNull();
+    expect(f.server.rpcCalls.map((call) => call.fn)).not.toContain("takeoff_plan_dispatch_is_active");
+  });
+
+  it("refuses as before plans past the page limit together when the activation cannot be read", async () => {
+    const f = fixture();
+    f.setPlanDispatch("unreadable");
+    f.file.page_count = null;
+    f.contents.set(f.file.file_path, await pdfOfPages(101));
+    f.file.file_size_bytes = f.contents.get(f.file.file_path)!.byteLength;
+    const second = { ...f.file, id: "88888888-8888-4888-8888-888888888888", file_name: "Plan étage.pdf", file_path: `${M3_TENANT_ID}/plan-etage.pdf` };
+    f.files.push(second);
+    f.contents.set(second.file_path, Buffer.concat([await pdfOfPages(101), Buffer.from("\n% etage\n")]));
+    second.file_size_bytes = f.contents.get(second.file_path)!.byteLength;
+    await expect(confirmPlanSet(M3_PLAN_SET_ID)).rejects.toMatchObject({ status: 422, code: "TAKEOFF_FILE_TOO_LARGE",
+      message: expect.stringMatching(/^Les plans .* dépassent ensemble les limites d’une analyse\./) });
+    expect(f.server.rpcCalls.map((call) => call.fn)).toContain("takeoff_plan_dispatch_is_active");
+    expect(f.getRecord()?.confirmed_snapshot).toBeNull();
   });
 
   it("refuses, naming it, a single retained plan whose real pages pass the analysis's budget", async () => {

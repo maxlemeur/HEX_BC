@@ -1111,11 +1111,24 @@ describe("launchTakeoffRelaunch", () => {
   // each plan's, never the plans' together.
   it("refuses a command one of whose plans exceeds the limit of a reading, before any unit is admitted", async () => {
     const { run, launched } = planCommand({ a: 201, b: 3 });
-    await expect(run([PLAN_FILE, PLAN_B])).rejects.toMatchObject({ code: "TAKEOFF_FILE_TOO_LARGE" });
+    // Budget closing round: the plan is named.
+    await expect(run([PLAN_FILE, PLAN_B])).rejects.toMatchObject({ code: "TAKEOFF_FILE_TOO_LARGE",
+      message: expect.stringContaining("« plan-a.pdf »") });
     expect(launched).toEqual([]);
     const together = planCommand({ a: 150, b: 150 });
     await expect(together.run([PLAN_FILE, PLAN_B])).resolves.toMatchObject({ outcome: "admitted" });
     expect(together.launched).toHaveLength(1);
+  });
+
+  // Budget closing round: a plan whose row stores no count is counted on its bytes, and that count is checked against the
+  // current limit of a reading, the plan named; a count the confirmation once admitted at a higher limit does not stand.
+  it("refuses, naming it, a plan whose pages counted on its bytes exceed the current limit of a reading", async () => {
+    const document = await PDFDocument.create();
+    for (let page = 0; page < 201; page += 1) document.addPage([20, 20]);
+    const { run, launched } = planCommand({ a: null, b: 3 }, null, await document.save());
+    await expect(run([PLAN_FILE])).rejects.toMatchObject({ code: "TAKEOFF_FILE_TOO_LARGE",
+      message: expect.stringContaining("« plan-a.pdf »") });
+    expect(launched).toEqual([]);
   });
 
   // The plans the affaire's previous analysis read, and the plan set's copies set aside, are recorded as such: the
