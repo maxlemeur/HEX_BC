@@ -339,7 +339,9 @@ describe("previewTakeoffSend — the preview's contract across one deployment", 
 
   it("reads a preview of the previous server, which has no plan scope and may name the closed per-plan send", async () => {
     setUp([]);
-    const { plan_scope: _absent, ...previous } = await previewTakeoffSend(JOB, {});
+    // The previous server never answers plan_scope.
+    const previous: Record<string, unknown> = { ...(await previewTakeoffSend(JOB, {})) };
+    delete previous.plan_scope;
     expect(takeoffSendPreviewResponseSchema.safeParse(previous).success).toBe(true);
     expect(takeoffSendPreviewResponseSchema.safeParse({ ...previous, blocked: { reason: "plan_send_pending",
       message: "L’envoi au tableau de chiffrage d’une analyse par plan arrive avec une prochaine version." } }).success).toBe(true);
