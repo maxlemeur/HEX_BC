@@ -51,19 +51,24 @@ export const itemTableFilterSchema = z.object({
 
 const observationSchema = z.object({
   observationId: z.string().min(1),
+  role: z.enum(["contribution", "candidate", "alternative"])
+    .describe("contribution : comptée dans le total de la réponse ; candidate : un indice ; alternative : une autre lecture, jamais ajoutée."),
   quantity: positiveQuantity,
   unit,
   page: page.nullable(),
   evidence: z.string().nullable(),
   confidence: confidence.nullable(),
   method: z.string().nullable(),
+  takeoffItemId: uuid.nullable().describe("La ligne de l’analyse qu’une contribution est : ce que la revue ciblée corrige."),
 }).strict();
 
 const answerSchema = z.object({
   answerId: uuid,
-  revision: z.string().min(1).max(128).describe("Révision de la réponse, comparée telle quelle par les commandes."),
+  revision: z.string().min(1).max(128).describe("Empreinte de la réponse lue ; une commande nomme la réponse par son identifiant."),
   jobId: z.string().min(1),
   outcome: z.enum(ITEM_ANSWER_OUTCOMES),
+  quantity: z.object({ quantity: positiveQuantity, unit }).strict().nullable()
+    .describe("Le total d’une réponse mesurée : la somme de ses contributions."),
   reasonCode: z.string().max(64).nullable(),
   reasonText: z.string().max(2000).nullable().describe("Ce que la lecture du plan dit du poste, jamais un message de la base."),
   searchedPages: z.array(page),
@@ -163,6 +168,17 @@ export const itemTableResponseSchema = z.object({
 }).strict();
 
 export type ItemTableResponse = z.infer<typeof itemTableResponseSchema>;
+
+/** One item of the list on its own, outside any filter (a link of the radar, the detail): null when the list does not hold it. */
+export const itemTableLineResponseSchema = z.object({
+  projectId: uuid,
+  canReview: z.boolean(),
+  line: lineSchema,
+  plans: z.array(z.object({ key: planKey, name: z.string(), location: z.object({ key: z.string(), label: z.string() }).strict().nullable() }).strict()),
+  names: z.record(z.string(), z.string()),
+}).strict();
+
+export type ItemTableLineResponse = z.infer<typeof itemTableLineResponseSchema>;
 export type ItemTableResponseLine = ItemTableResponse["page"]["lines"][number];
 
 export const itemSelectionRequestSchema = z.object({

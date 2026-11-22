@@ -1,9 +1,13 @@
+import { TAKEOFF_ITEM_ANSWER_OUTCOMES } from "./item-answers";
+import { aggregatePosteAnswers, POSTE_AFFAIRE_STATUSES, type PosteAffaireStatus, type PostePlanWork } from "./poste-aggregation";
 import { toUnitToken } from "./units";
 
 /**
  * How the answers of one item on each plan make the item's state on the affaire (lot 4, section 3.2 of its
- * specification): a pure rule, read by the table of items. The reading of a plan against the list of items delivers its
- * own copy of this rule; this module is the table's until then, with the same contract, and is replaced by it.
+ * specification), as the table of items reads it. The database decides the state the table shows (B1's states function
+ * through private.takeoff_item_state); the reading's rule, aggregatePosteAnswers, gives the same state on the same plans
+ * (item-answer-aggregation.test.ts runs both on the database tests' cases). This module reads the table's plans through
+ * that rule and gives the table its observed total in one unit.
  *
  * - While a plan the item was asked about is not read, the observed total stays partial and no absence is certified on
  *   the affaire.
@@ -12,17 +16,17 @@ import { toUnitToken } from "./units";
  * - The candidate value of an uncertain answer is never a measured quantity, and two units are never added together.
  */
 
-export const ITEM_ANSWER_OUTCOMES = ["measured", "uncertain", "not_found"] as const;
+/** The outcomes of a stored answer (B1's). */
+export const ITEM_ANSWER_OUTCOMES = TAKEOFF_ITEM_ANSWER_OUTCOMES;
 export type ItemAnswerOutcome = (typeof ITEM_ANSWER_OUTCOMES)[number];
 
 /**
- * One plan's reading of one item: where the plan's unit of work stands while it has no answer for the item, or the
- * answer it published. `quantity` is the sum of the answer's positive observations (null for « not found », and for an
- * uncertain answer the candidate value, which is never added).
+ * One plan's reading of one item, as the database counts it: its unit of work still queued or read (in_flight), ended
+ * without an answer for the item (ended), or the answer it published. `quantity` is the answer's measured quantity (null
+ * for « not found »; for an uncertain answer, its candidate value, which is never added).
  */
 export type ItemPlanReading =
-  | { reading: "queued" | "running" }
-  | { reading: "failed" | "canceled" | "not_started" }
+  | { reading: "in_flight" | "ended" }
   | { reading: "answered"; outcome: ItemAnswerOutcome; quantity: number | null; unit: string | null };
 
 /**
@@ -30,8 +34,8 @@ export type ItemPlanReading =
  * incomplete: a plan ended without an answer while others answered; failed: no plan answered and none is still read;
  * measured, uncertain, not_found: the verdict of a full coverage.
  */
-export const ITEM_AGGREGATE_STATES = ["to_measure", "reading", "incomplete", "failed", "measured", "uncertain", "not_found"] as const;
-export type ItemAggregateState = (typeof ITEM_AGGREGATE_STATES)[number];
+export const ITEM_AGGREGATE_STATES = POSTE_AFFAIRE_STATUSES;
+export type ItemAggregateState = PosteAffaireStatus;
 
 export type ItemAggregate = {
   state: ItemAggregateState;
@@ -42,46 +46,31 @@ export type ItemAggregate = {
   unitConflict: boolean;
 };
 
-/** Decimal quantities added without drift (lengths in metres to the micrometre). */
-const SCALE = 1e6;
-
 export function aggregateItemReadings(readings: readonly ItemPlanReading[]): ItemAggregate {
   const coverage = { expected: readings.length, answered: 0, inFlight: 0, ended: 0 };
-  let uncertain = false;
-  let measured = false;
-  let unit: string | null = null;
-  let unitToken: string | null = null;
-  let unitConflict = false;
-  let scaled = 0;
-  for (const reading of readings) {
-    if (reading.reading === "queued" || reading.reading === "running") {
+  // The unit as first written, for each unit token the rule adds under (« m² » and « M2 » are one unit).
+  const units = new Map<string, string>();
+  const plans = readings.map((reading, index): PostePlanWork => {
+    const planKey = String(index);
+    if (reading.reading === "in_flight") {
       coverage.inFlight += 1;
-      continue;
+      return { planKey, state: "reading" };
     }
-    if (reading.reading !== "answered") {
+    if (reading.reading === "ended") {
       coverage.ended += 1;
-      continue;
+      return { planKey, state: "incomplete" };
     }
     coverage.answered += 1;
-    if (reading.outcome === "uncertain") uncertain = true;
-    if (reading.outcome !== "measured" || reading.quantity === null || !reading.unit) continue;
-    measured = true;
-    const token = toUnitToken(reading.unit);
-    if (unitToken === null) {
-      unitToken = token;
-      unit = reading.unit;
-    } else if (unitToken !== token) {
-      unitConflict = true;
-    }
-    scaled += Math.round(reading.quantity * SCALE);
-  }
+    const value = reading.quantity !== null && reading.unit ? { value: reading.quantity, unit: toUnitToken(reading.unit) } : null;
+    if (value && !units.has(value.unit)) units.set(value.unit, reading.unit!);
+    return { planKey, state: "answered", outcome: reading.outcome, quantity: reading.outcome === "measured" ? value : null,
+      candidate: reading.outcome === "uncertain" ? value : null };
+  });
 
-  const complete = coverage.expected > 0 && coverage.answered === coverage.expected;
-  const state: ItemAggregateState = coverage.expected === 0 ? "to_measure"
-    : complete ? (uncertain ? "uncertain" : measured ? "measured" : "not_found")
-      : coverage.inFlight > 0 ? "reading"
-        : coverage.answered === 0 ? "failed" : "incomplete";
-  const observed = measured && !unitConflict && unit !== null
-    ? { quantity: scaled / SCALE, unit, partial: !complete } : null;
-  return { state, coverage, observed, unitConflict };
+  const aggregate = aggregatePosteAnswers(plans);
+  const [total, ...others] = aggregate.observed;
+  const unitConflict = others.length > 0;
+  const observed = total && !unitConflict
+    ? { quantity: total.value, unit: units.get(total.unit) ?? total.unit, partial: aggregate.partial } : null;
+  return { state: aggregate.status, coverage, observed, unitConflict };
 }

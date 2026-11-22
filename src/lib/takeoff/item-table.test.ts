@@ -1,20 +1,27 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  buildItemTable,
+  buildItemLines,
   checkItemReviewTargets,
   freezeItemSelection,
   ITEM_REVIEW_LIMITS,
-  pageItemTable,
+  itemAnswerAnomalies,
   planItemReviewCommand,
   type ItemAnswerView,
+  type ItemContributionRow,
+  type ItemEntryView,
+  type ItemLineDecision,
   type ItemReadingInput,
-  type ItemTableInput,
   type ItemTablePoste,
+  type ItemTableRow,
+  type ItemTableScope,
 } from "./item-table";
+import type { ItemAggregateState } from "./item-answer-aggregation";
 
-const PLAN_A = { key: "plan-a", name: "Plan A · RDC", location: { key: "bat-a:rdc", label: "Bâtiment A · RDC" } };
-const PLAN_B = { key: "plan-b", name: "Plan B · R+1", location: { key: "bat-b:r1", label: "Bâtiment B · R+1" } };
+const PLANS = [
+  { key: "plan-a", name: "Plan A · RDC", location: null },
+  { key: "plan-b", name: "Plan B · R+1", location: null },
+];
 
 function poste(id: string, position: number, label: string, extra: Partial<ItemTablePoste> = {}): ItemTablePoste {
   return { id, position, label, expectedUnit: "u", sectionPath: ["Plomberie", "Appareils sanitaires"], referenceQuantity: null,
@@ -26,157 +33,115 @@ function answer(outcome: ItemAnswerView["outcome"], quantity: number | null, ext
   answerCount += 1;
   const id = `00000000-0000-4000-8000-${String(answerCount).padStart(12, "0")}`;
   return {
-    answerId: id, revision: "1", jobId: "job-1", outcome, reasonCode: null, reasonText: null, searchedPages: [1, 2],
-    unreadablePages: [], candidate: null, anomalies: [], readAt: "2026-11-22T08:00:00.000Z",
+    answerId: id, revision: "digest", jobId: "job-1", outcome, quantity: outcome === "measured" && quantity !== null ? { quantity, unit: "u" } : null,
+    reasonCode: null, reasonText: null, searchedPages: [1, 2], unreadablePages: [], candidate: null, anomalies: [],
+    readAt: "2026-11-22T08:00:00.000Z",
     observations: quantity === null || outcome !== "measured" ? []
-      : [{ observationId: `obs-${id}`, quantity, unit: "u", page: 1, evidence: "symboles LAV", confidence: 0.9, method: "pdf" }],
+      : [{ observationId: `obs-${id}`, role: "contribution", quantity, unit: "u", page: 1, evidence: "symboles LAV", confidence: 0.9,
+        method: "symbol_count", takeoffItemId: `row-${id}` }],
     ...extra,
   };
-}
-
-function read(itemId: string, planKey: string, value: ItemAnswerView | ItemReadingInput["unit"], decision: ItemReadingInput["decision"] = null): ItemReadingInput {
-  return typeof value === "string"
-    ? { itemId, planKey, unit: value, answer: null, decision: null }
-    : { itemId, planKey, unit: "succeeded", answer: value, decision };
 }
 
 const accepted = (revision = 1) => ({ kind: "accepted" as const, revision, actorId: "member-1", at: "2026-11-22T09:00:00.000Z" });
 const setAside = (revision = 1) => ({ kind: "set_aside" as const, revision, reason: "duplicate" as const, note: null,
   actorId: "member-1", at: "2026-11-22T09:00:00.000Z" });
 
-function table(input: Partial<ItemTableInput>) {
-  return buildItemTable({ items: [], plans: [PLAN_A, PLAN_B], readings: [], entries: [], scope: { kind: "affaire" }, ...input });
+function read(itemId: string, planKey: string, value: ItemAnswerView | "queued" | "running" | "failed",
+  decision: ItemReadingInput["decision"] = null, extra: Partial<ItemReadingInput> = {}): ItemReadingInput {
+  const plan = PLANS.find(({ key }) => key === planKey);
+  const base = { itemId, planKey, planName: plan?.name ?? "Plan", location: null, decision, decisionRevision: decision?.revision ?? 0,
+    entry: null };
+  const reading: ItemReadingInput = typeof value === "string"
+    ? { ...base, unit: value, reading: value === "failed" ? "ended" : "in_flight", answer: null }
+    : { ...base, unit: "succeeded", reading: "answered", answer: value };
+  return { ...reading, ...extra };
 }
 
-describe("buildItemTable", () => {
-  const lavabo = poste("lavabo", 0, "Lavabo");
-  const wc = poste("wc", 1, "WC");
-  const baignoire = poste("baignoire", 2, "Baignoire");
-  const vanne = poste("vanne", 3, "Vanne DN32", { sectionPath: ["Plomberie", "Robinetterie"] });
-  const added = poste("ajout", 4, "Receveur de douche", { origin: "manual", sectionPath: ["Postes ajoutés"] });
+/** A row as the database gives it: its state and its decision are SQL's, given here as the database would decide them. */
+function row(item: ItemTablePoste, state: ItemAggregateState, decision: ItemLineDecision, readings: ItemReadingInput[],
+  entry: ItemEntryView | null = null): ItemTableRow {
+  const answered = readings.filter((reading) => reading.reading === "answered").length;
+  const inFlight = readings.filter((reading) => reading.reading === "in_flight").length;
+  return { item, state, decision, readings, entry,
+    coverage: { expected: readings.length, answered, inFlight, ended: readings.length - answered - inFlight } };
+}
 
-  it("gives every item a line in document order, with its state and its partial total", () => {
-    const lines = table({
-      items: [lavabo, wc, baignoire, vanne, added],
-      readings: [
-        read("lavabo", "plan-a", answer("measured", 3)), read("lavabo", "plan-b", "running"),
-        read("wc", "plan-a", answer("measured", 2)), read("wc", "plan-b", answer("measured", 1)),
-        read("baignoire", "plan-a", answer("not_found", null)), read("baignoire", "plan-b", answer("not_found", null)),
-        read("vanne", "plan-a", answer("uncertain", null, { reasonCode: "diameter_unreadable", reasonText: "Le diamètre n’est pas lisible" })),
-        read("vanne", "plan-b", answer("not_found", null)),
-      ],
-    }).lines;
+const lines = (rows: ItemTableRow[], scope: ItemTableScope = { kind: "affaire" }, plans = PLANS) => buildItemLines(rows, { plans, scope });
 
-    const byId = Object.fromEntries(lines.map((line) => [line.itemId, line]));
-    expect(byId.lavabo).toMatchObject({ state: "reading", observed: { quantity: 3, unit: "u", partial: true },
-      coverage: { expected: 2, answered: 1 }, planCount: 2 });
-    expect(byId.wc).toMatchObject({ state: "measured", observed: { quantity: 3, unit: "u", partial: false } });
-    expect(byId.baignoire).toMatchObject({ state: "not_found", observed: null });
-    expect(byId.vanne).toMatchObject({ state: "uncertain", reasons: expect.arrayContaining(["answer_reason:diameter_unreadable"]) });
-    // An item added after the analysis was sealed is still a line: « to measure », never « not found ».
-    expect(byId.ajout).toMatchObject({ state: "to_measure", observed: null, planCount: 0, decision: "none" });
+describe("buildItemLines", () => {
+  it("keeps the database's state and decision, and adds the observed total, partial while a plan is read", () => {
+    const [lavabo] = lines([row(poste("lavabo", 0, "Lavabo"), "reading", "pending",
+      [read("lavabo", "plan-a", answer("measured", 3)), read("lavabo", "plan-b", "running")])]);
+    expect(lavabo).toMatchObject({ state: "reading", decision: "pending", observed: { quantity: 3, unit: "u", partial: true },
+      coverage: { expected: 2, answered: 1, inFlight: 1 }, planCount: 2, family: "Plomberie / Appareils sanitaires" });
   });
 
-  it("puts the decisions to take first, then keeps the stable document order", () => {
-    const lines = table({
-      items: [lavabo, wc, baignoire, added],
-      readings: [
-        read("lavabo", "plan-a", "running"),
-        read("wc", "plan-a", answer("measured", 2), accepted()),
-        read("baignoire", "plan-a", answer("not_found", null)),
-      ],
-    }).lines;
-    // Baignoire waits for a decision; the others keep the order of the list.
-    expect(lines.map(({ itemId }) => itemId)).toEqual(["baignoire", "lavabo", "wc", "ajout"]);
-    expect(lines.map(({ decision }) => decision)).toEqual(["pending", "none", "accepted", "none"]);
+  it("adds two plans' measures, and never the answer still read again", () => {
+    const [wc] = lines([row(poste("wc", 1, "WC"), "measured", "pending",
+      [read("wc", "plan-a", answer("measured", 2)), read("wc", "plan-b", answer("measured", 1))])]);
+    expect(wc.observed).toEqual({ quantity: 3, unit: "u", partial: false });
+    const [rereading] = lines([row(poste("wc", 1, "WC"), "reading", "pending",
+      [read("wc", "plan-a", answer("measured", 2)), read("wc", "plan-b", answer("measured", 9), null, { unit: "running", reading: "in_flight" })])]);
+    // The answer of a plan read again stays shown, its quantity no longer counted until the new reading.
+    expect(rereading.observed).toEqual({ quantity: 2, unit: "u", partial: true });
+    expect(rereading.readings[1].answer?.quantity?.quantity).toBe(9);
   });
 
-  it("reads one plan in the plan's scope: only the items read there, each with that plan's answer", () => {
-    const view = table({
-      items: [lavabo, wc, added],
-      scope: { kind: "plan", planKey: "plan-b" },
-      readings: [read("lavabo", "plan-a", answer("measured", 3)), read("lavabo", "plan-b", answer("measured", 2)),
-        read("wc", "plan-a", answer("measured", 1))],
-    });
-    expect(view.lines.map(({ itemId }) => itemId)).toEqual(["lavabo"]);
-    expect(view.lines[0]).toMatchObject({ state: "measured", observed: { quantity: 2, partial: false }, coverage: { expected: 1 } });
-    expect(view.lines[0].targets.answers).toHaveLength(1);
+  it("names the reasons of the readings: their own, their anomalies, unreadable pages, a plan without an answer", () => {
+    const [vanne] = lines([row(poste("vanne", 3, "Vanne DN32"), "incomplete", "pending", [
+      read("vanne", "plan-a", answer("uncertain", null, { reasonCode: "QUALIFIER_UNREADABLE", unreadablePages: [3] })),
+      read("vanne", "plan-b", "failed")])]);
+    expect(vanne.reasons).toEqual(["answer_reason:QUALIFIER_UNREADABLE", "unreadable_pages", "reading_ended"]);
   });
 
-  it("filters by state, family, location and decision", () => {
-    const base = {
-      items: [lavabo, wc, vanne, added],
-      readings: [read("lavabo", "plan-a", answer("measured", 3)), read("wc", "plan-b", answer("measured", 1), accepted()),
-        read("vanne", "plan-a", answer("uncertain", null))],
-    };
-    const ids = (filter: Parameters<typeof table>[0]["filter"]) => table({ ...base, filter }).lines.map(({ itemId }) => itemId);
-    expect(ids({ states: ["measured"] })).toEqual(["lavabo", "wc"]);
-    expect(ids({ families: ["Plomberie / Robinetterie"] })).toEqual(["vanne"]);
-    expect(ids({ locations: ["bat-b:r1"] })).toEqual(["wc"]);
-    expect(ids({ decisions: ["pending"] })).toEqual(["lavabo", "vanne"]);
-    expect(ids({ decisions: ["none"] })).toEqual(["ajout"]);
-    // Facets count the scope before the filters, so that a filter never hides its own options.
-    expect(table({ ...base, filter: { states: ["measured"] } }).facets.states).toMatchObject({ measured: 2, uncertain: 1, to_measure: 1 });
-  });
-
-  it("shows a DPGF gap above 1 % as an anomaly, not at exactly 1 %", () => {
+  it("shows a DPGF gap above 1 %, not at exactly 1 %, and judges none on a partial total", () => {
     const reference = (quantity: number) => poste("ref", 0, "Lavabo", { origin: "dpgf", referenceQuantity: quantity, dpgfReference: "3.1.2" });
-    const at = (measured: number, ref: number) => table({ items: [reference(ref)],
-      readings: [read("ref", "plan-a", answer("measured", measured))] }).lines[0];
+    const at = (measured: number, ref: number) => lines([row(reference(ref), "measured", "pending",
+      [read("ref", "plan-a", answer("measured", measured))])])[0];
     expect(at(101, 100)).toMatchObject({ gap: { quantity: 1, percent: 1, requiresReview: false } });
     expect(at(101, 100).eligibility.accept_measured.eligible).toBe(true);
-    expect(at(102, 100)).toMatchObject({ gap: { quantity: 2, percent: 2, requiresReview: true },
-      reasons: expect.arrayContaining(["dpgf_gap"]) });
+    expect(at(102, 100)).toMatchObject({ gap: { quantity: 2, percent: 2, requiresReview: true }, reasons: expect.arrayContaining(["dpgf_gap"]) });
     expect(at(102, 100).eligibility.accept_measured).toEqual({ eligible: false, reason: "dpgf_gap" });
-    // No gap is judged on a partial total.
-    expect(table({ items: [reference(100)], readings: [read("ref", "plan-a", answer("measured", 50)), read("ref", "plan-b", "queued")] })
-      .lines[0].gap).toBeNull();
+    expect(lines([row(reference(100), "reading", "pending", [read("ref", "plan-a", answer("measured", 50)), read("ref", "plan-b", "queued")])])[0].gap)
+      .toBeNull();
   });
 
-  it("retains an entered quantity apart from the model's raw result, which stays readable", () => {
-    const [line] = table({
-      items: [baignoire],
-      readings: [read("baignoire", "plan-a", answer("not_found", null))],
-      entries: [{ itemId: "baignoire", scope: "affaire", planKey: null, revision: 1, quantity: 1, unit: "u",
-        category: "site_survey", note: null, included: true, actorId: "member-1", at: "2026-11-22T09:00:00.000Z", previous: null }],
-    }).lines;
-    expect(line).toMatchObject({ state: "not_found", observed: null, decision: "entered",
-      retained: { quantity: 1, unit: "u", source: "entered" } });
-    expect(line.readings[0].answer?.outcome).toBe("not_found");
+  it("retains an entered quantity apart from the model's raw result, an hypothesis only once included", () => {
+    const entry = (included: boolean, category: ItemEntryView["category"] = "site_survey"): ItemEntryView => ({ itemId: "baignoire",
+      scope: "affaire", planKey: null, revision: 1, quantity: 1, unit: "u", category, note: included ? null : "Une baignoire supposée.",
+      included, actorId: "member-1", at: "2026-11-22T09:00:00.000Z", previous: null });
+    const make = (value: ItemEntryView) => lines([row(poste("baignoire", 2, "Baignoire"), "not_found", "entered",
+      [read("baignoire", "plan-a", answer("not_found", null))], value)])[0];
+    expect(make(entry(true))).toMatchObject({ observed: null, retained: { quantity: 1, unit: "u", source: "entered" }, decision: "entered" });
+    expect(make(entry(true)).readings[0].answer?.outcome).toBe("not_found");
+    const hypothesis = make(entry(false, "hypothesis"));
+    expect(hypothesis.retained).toBeNull();
+    expect(hypothesis.reasons).toContain("hypothesis_to_include");
+    expect(hypothesis.eligibility.include_entry.eligible).toBe(true);
+    expect(hypothesis.targets.entryRevision).toBe(1);
   });
 
-  it("does not retain an entered hypothesis until it is included by its own decision", () => {
-    const entry = { itemId: "baignoire", scope: "affaire" as const, planKey: null, revision: 1, quantity: 1, unit: "u",
-      category: "hypothesis" as const, note: "Une baignoire supposée au R+1 selon le CCTP.", included: false,
-      actorId: "member-1", at: "2026-11-22T09:00:00.000Z", previous: null };
-    const notIncluded = table({ items: [baignoire], readings: [read("baignoire", "plan-a", answer("not_found", null))],
-      entries: [entry] }).lines[0];
-    expect(notIncluded.retained).toBeNull();
-    expect(notIncluded.reasons).toContain("hypothesis_to_include");
-    expect(notIncluded.eligibility.include_entry.eligible).toBe(true);
-    const included = table({ items: [baignoire], readings: [read("baignoire", "plan-a", answer("not_found", null))],
-      entries: [{ ...entry, included: true }] }).lines[0];
-    expect(included.retained).toMatchObject({ quantity: 1, source: "entered" });
-    expect(included.eligibility.include_entry.eligible).toBe(false);
+  it("names each current answer with its decision's revision, which goes on after a reinstatement", () => {
+    const decided = answer("measured", 3);
+    const [line] = lines([row(poste("a", 0, "Lavabo"), "measured", "pending",
+      [read("a", "plan-a", decided, null, { decisionRevision: 3 })])]);
+    expect(line.targets).toEqual({ itemId: "a", entryRevision: 0,
+      answers: [{ answerId: decided.answerId, answerRevision: "digest", decisionRevision: 3 }] });
   });
 });
 
 describe("eligibility of the gestures", () => {
-  const items = [poste("a", 0, "Lavabo"), poste("b", 1, "WC"), poste("c", 2, "Baignoire"), poste("d", 3, "Évier"),
-    poste("e", 4, "Douche"), poste("f", 5, "Mitigeur"), poste("g", 6, "Vanne")];
-
-  const view = table({
-    items,
-    readings: [
-      read("a", "plan-a", answer("measured", 3)), read("a", "plan-b", answer("not_found", null)),
-      read("b", "plan-a", answer("measured", 2, { anomalies: ["hypothesis"] })),
-      read("c", "plan-a", answer("uncertain", null)),
-      read("d", "plan-a", answer("not_found", null)),
-      read("e", "plan-a", answer("measured", 1, { anomalies: ["page_decision"] })),
-      read("f", "plan-a", answer("measured", 4)), read("f", "plan-b", "running"),
-    ],
-  });
-  const line = (id: string) => view.lines.find(({ itemId }) => itemId === id)!;
+  const view = lines([
+    row(poste("a", 0, "Lavabo"), "measured", "pending", [read("a", "plan-a", answer("measured", 3)), read("a", "plan-b", answer("not_found", null))]),
+    row(poste("b", 1, "WC"), "measured", "pending", [read("b", "plan-a", answer("measured", 2, { anomalies: ["hypothesis"] }))]),
+    row(poste("c", 2, "Baignoire"), "uncertain", "pending", [read("c", "plan-a", answer("uncertain", null))]),
+    row(poste("d", 3, "Évier"), "not_found", "pending", [read("d", "plan-a", answer("not_found", null))]),
+    row(poste("e", 4, "Douche"), "measured", "pending", [read("e", "plan-a", answer("measured", 1, { anomalies: ["low_confidence"] }))]),
+    row(poste("f", 5, "Mitigeur"), "reading", "pending", [read("f", "plan-a", answer("measured", 4)), read("f", "plan-b", "running")]),
+    row(poste("g", 6, "Vanne"), "to_measure", "none", []),
+  ]);
+  const line = (id: string) => view.find(({ itemId }) => itemId === id)!;
 
   it("accepts only the measured items of a full coverage without anomaly", () => {
     expect(line("a").eligibility.accept_measured).toEqual({ eligible: true, reason: null });
@@ -206,73 +171,89 @@ describe("eligibility of the gestures", () => {
     expect(line("g").remeasurePlans).toEqual(["plan-a", "plan-b"]);
     expect(line("a").remeasurePlans).toEqual(["plan-a", "plan-b"]);
     expect(line("f").eligibility.remeasure).toEqual({ eligible: false, reason: "reading" });
-    expect(table({ items, plans: [] }).lines[0].eligibility.remeasure).toEqual({ eligible: false, reason: "no_plan" });
+    expect(lines([row(poste("g", 6, "Vanne"), "to_measure", "none", [])], { kind: "affaire" }, [])[0].eligibility.remeasure)
+      .toEqual({ eligible: false, reason: "no_plan" });
   });
 
   it("takes an item already decided out of a second acceptance and keeps a set aside apart", () => {
-    const decided = table({ items: [poste("a", 0, "Lavabo")], readings: [read("a", "plan-a", answer("measured", 3), accepted())] }).lines[0];
+    const [decided] = lines([row(poste("a", 0, "Lavabo"), "measured", "accepted", [read("a", "plan-a", answer("measured", 3), accepted())])]);
     expect(decided.eligibility.accept_measured).toEqual({ eligible: false, reason: "already_decided" });
-    const aside = table({ items: [poste("a", 0, "Lavabo")], readings: [read("a", "plan-a", answer("measured", 3), setAside())] }).lines[0];
-    expect(aside.decision).toBe("set_aside");
+    expect(decided.retained).toMatchObject({ quantity: 3, source: "measured", partial: false });
+    const [aside] = lines([row(poste("a", 0, "Lavabo"), "measured", "set_aside", [read("a", "plan-a", answer("measured", 3), setAside())])]);
     expect(aside.eligibility.set_aside).toEqual({ eligible: false, reason: "already_set_aside" });
     expect(aside.eligibility.reinstate.eligible).toBe(true);
     expect(aside.retained).toBeNull();
   });
 });
 
+describe("the anomalies of an answer, from its positive rows", () => {
+  const measured = answer("measured", 3);
+  const rowOf = (extra: Partial<ItemContributionRow> = {}): ItemContributionRow => ({ id: measured.observations[0].takeoffItemId!,
+    isExcluded: false, rulesStale: false, ruleResults: [], confidence: 0.9, evidence: "symboles", sourcePage: 1, metadata: {},
+    quantityEntryCategory: null, ...extra });
+  const anomalies = (extra: Partial<ItemContributionRow> = {}, answerExtra: Partial<ItemAnswerView> = {}, expectedUnit: string | null = "u") =>
+    itemAnswerAnomalies({ ...measured, ...answerExtra }, new Map([[rowOf().id, rowOf(extra)]]),
+      { expectedUnit, lowConfidenceThreshold: 0.5 });
+
+  it("finds none on a verifiable row", () => {
+    expect(anomalies()).toEqual([]);
+  });
+
+  it("finds what the database's acceptance refuses, and what the bulk acceptance leaves to a review line by line", () => {
+    expect(anomalies({ metadata: { quantity_nature: "estimated" } })).toEqual(["hypothesis"]);
+    expect(anomalies({ rulesStale: true })).toEqual(["rules_stale"]);
+    expect(anomalies({ ruleResults: [{ status: "fail", rule: "scale" }] })).toEqual(["rule_failed"]);
+    expect(anomalies({ confidence: 0.4 })).toEqual(["low_confidence"]);
+    expect(anomalies({ evidence: " ", sourcePage: null })).toEqual(["missing_evidence"]);
+    expect(anomalies({ isExcluded: true })).toEqual(["alert"]);
+    expect(anomalies({}, { reasonCode: "DUPLICATE_READING" })).toEqual(["alert"]);
+    expect(anomalies({}, {}, "ml")).toEqual(["unit_mismatch"]);
+    // A row the page could not read is never taken as verifiable.
+    expect(itemAnswerAnomalies(measured, new Map(), { expectedUnit: "u", lowConfidenceThreshold: 0.5 })).toEqual(["missing_evidence"]);
+  });
+});
+
 describe("the frozen selection and the review commands", () => {
   const many = Array.from({ length: 120 }, (_, index) => poste(`item-${index}`, index, `Poste ${index}`));
-  const readings = many.map((item) => read(item.id, "plan-a", answer(item.position % 3 === 0 ? "not_found" : "measured", 2)));
-  const view = table({ items: many, readings });
+  const rows = many.map((item) => item.position % 3 === 0
+    ? row(item, "not_found", "pending", [read(item.id, "plan-a", answer("not_found", null))])
+    : row(item, "measured", "pending", [read(item.id, "plan-a", answer("measured", 2))]));
+  const view = lines(rows);
 
-  it("freezes every result of the filter beyond the visible page, with its count and eligible counts", () => {
-    const page = pageItemTable(view.lines, { offset: 0, limit: 50 });
-    expect(page.lines).toHaveLength(50);
-    expect(page.total).toBe(120);
-    const frozen = freezeItemSelection(view, { kind: "filter" });
+  it("freezes every line given, with its count and what each gesture may do", () => {
+    const frozen = freezeItemSelection(view);
     expect(frozen.count).toBe(120);
-    expect(frozen.items).toHaveLength(120);
     expect(frozen.eligible).toMatchObject({ accept_measured: 80, set_aside: 120, enter_quantity: 40 });
-    expect(frozen.items[0].target.answers[0]).toEqual({ answerId: expect.any(String), answerRevision: "1", decisionRevision: 0 });
     expect(frozen.items[0].eligible).toEqual(["set_aside", "enter_quantity", "remeasure"]);
   });
 
-  it("freezes a hand-made selection by its identifiers, and names the ones no longer in the scope", () => {
-    const frozen = freezeItemSelection(view, { kind: "items", itemIds: ["item-1", "item-2", "gone"] });
-    expect(frozen.items.map(({ itemId }) => itemId)).toEqual(["item-1", "item-2"]);
-    expect(frozen.missing).toEqual(["gone"]);
+  it("names the items asked that are no longer in the scope", () => {
+    expect(freezeItemSelection(view.slice(1, 3), ["item-1", "item-2", "gone"]).missing).toEqual(["gone"]);
   });
 
   it("refuses a selection above its bound instead of truncating it", () => {
-    const tooMany = table({ items: Array.from({ length: ITEM_REVIEW_LIMITS.items + 1 }, (_, index) => poste(`x-${index}`, index, "P")) });
-    expect(() => freezeItemSelection(tooMany, { kind: "filter" })).toThrow(/1\s000 postes/);
+    const tooMany = lines(Array.from({ length: ITEM_REVIEW_LIMITS.items + 1 }, (_, index) => row(poste(`x-${index}`, index, "P"), "to_measure", "none", [])));
+    expect(() => freezeItemSelection(tooMany)).toThrow(/1\s000 postes/);
   });
 
   it("finds a stale selection: an answer read again, a decision taken meanwhile, an answer arrived", () => {
-    const frozen = freezeItemSelection(view, { kind: "items", itemIds: ["item-1", "item-2", "item-4"] });
-    const changed = table({
-      items: many,
-      readings: readings.map((reading) => reading.itemId === "item-1" && reading.answer
-        ? { ...reading, answer: { ...reading.answer, revision: "2" } }
-        : reading.itemId === "item-2" ? { ...reading, decision: accepted(1) } : reading)
-        .concat([read("item-4", "plan-b", answer("measured", 1))]),
-      plans: [PLAN_A, PLAN_B],
-    });
-    const targets = frozen.items.map(({ target }) => target);
-    expect(checkItemReviewTargets(changed, targets).stale.map(({ itemId }) => itemId).sort())
-      .toEqual(["item-1", "item-2", "item-4"]);
+    const targets = view.filter(({ itemId }) => ["item-1", "item-2", "item-4"].includes(itemId)).map(({ targets }) => targets);
+    const changed = lines(rows.map((value) => {
+      if (value.item.id === "item-1") return { ...value, readings: [read("item-1", "plan-a", answer("measured", 2))] };
+      if (value.item.id === "item-2") return { ...value, readings: value.readings.map((reading) => ({ ...reading, decision: accepted(1), decisionRevision: 1 })) };
+      if (value.item.id === "item-4") return { ...value, readings: [...value.readings, read("item-4", "plan-b", answer("measured", 1))] };
+      return value;
+    }));
+    expect(checkItemReviewTargets(changed, targets).stale.map(({ itemId }) => itemId).sort()).toEqual(["item-1", "item-2", "item-4"]);
     expect(checkItemReviewTargets(view, targets).stale).toEqual([]);
   });
 
-  it("plans nothing on a stale selection, and only the eligible lines otherwise", () => {
-    const frozen = freezeItemSelection(view, { kind: "items", itemIds: ["item-0", "item-1"] });
-    const targets = frozen.items.map(({ target }) => target);
-    const plan = planItemReviewCommand(view, { gesture: "accept_measured", targets });
-    expect(plan).toEqual({ kind: "planned", apply: [expect.objectContaining({ itemId: "item-1" })],
-      skipped: [{ itemId: "item-0", label: "Poste 0", reason: "not_measured" }] });
-
-    const moved = table({ items: many, readings: readings.map((reading) => reading.itemId === "item-1"
-      ? { ...reading, decision: setAside(1) } : reading) });
+  it("applies the eligible lines and names the others with their reason", () => {
+    const targets = view.filter(({ itemId }) => itemId === "item-0" || itemId === "item-1").map(({ targets }) => targets);
+    expect(planItemReviewCommand(view, { gesture: "accept_measured", targets })).toEqual({ kind: "planned",
+      apply: [{ itemId: "item-1", label: "Poste 1" }], skipped: [{ itemId: "item-0", label: "Poste 0", reason: "not_measured" }] });
+    const moved = lines(rows.map((value) => value.item.id === "item-1"
+      ? { ...value, readings: value.readings.map((reading) => ({ ...reading, decision: setAside(1), decisionRevision: 1 })) } : value));
     expect(planItemReviewCommand(moved, { gesture: "accept_measured", targets }))
       .toEqual({ kind: "stale", stale: [{ itemId: "item-1", label: "Poste 1" }] });
   });

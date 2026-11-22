@@ -8,6 +8,7 @@ import {
   itemReviewResultSchema,
   itemReviewStaleDetailsSchema,
   itemSelectionResponseSchema,
+  itemTableLineResponseSchema,
   itemTableResponseSchema,
   type ItemRemeasureCommand,
   type ItemReviewCommand,
@@ -47,6 +48,12 @@ export function fetchItemTable(projectId: string, address: ItemTableAddress) {
   const params = withItemTableParams("", itemTableAddressParams(address));
   const query = params.toString();
   return call(`${base(projectId)}${query ? `?${query}` : ""}`, { method: "GET" }, itemTableResponseSchema, READ_FAILURE,
+    TAKEOFF_READ_REQUEST_TIMEOUT_MS);
+}
+
+/** One item of the list outside any filter (a link of the radar, the detail of an item). */
+export function fetchItemLine(projectId: string, itemId: string) {
+  return call(`${base(projectId)}/${encodeURIComponent(itemId)}`, { method: "GET" }, itemTableLineResponseSchema, READ_FAILURE,
     TAKEOFF_READ_REQUEST_TIMEOUT_MS);
 }
 

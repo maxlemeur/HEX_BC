@@ -1,23 +1,26 @@
 import { aggregateItemReadings, type ItemAggregateState, type ItemAnswerOutcome, type ItemPlanReading } from "./item-answer-aggregation";
+import { takeoffHypothesisCause } from "./hypothesis";
 import { compareQuantityPairs } from "./quantity-policy";
 import type { QuantityEntryCategory } from "./quantity-entry";
 import type { TakeoffUnitState } from "./launch-request-coverage";
 import { toUnitToken } from "./units";
 
 /**
- * The table of items of an affaire's takeoff (lot 4, section 3.3 of its specification): a line per item of the list,
- * from the stored list revision and the answers each plan gave, and what each review gesture may do with it. A pure
- * model: the server builds it for the page it returns and builds it again, on the frozen selection a command names,
- * before it writes; the screen only displays what it computed.
+ * The table of items of an affaire's takeoff (lot 4, section 3.3 of its specification): the lines of a page, from what
+ * the database's table reader gives (public.read_takeoff_item_table: the items in the scope, filtered, ordered and paged
+ * in SQL, each with its state and its decision as SQL decides them, its readings per plan, their answers, decisions and
+ * entries), and what each review gesture may do with them. A pure model: the server builds the lines it returns and
+ * builds them again, on the items a command names, before the database writes; the screen only displays them.
  *
  * Scope: the affaire (every plan the item was asked about) or one plan (the item's answer on it). A review command acts
- * in the scope it was shown in; its targets name each answer with its revision and its decision's revision.
+ * in the scope it was shown in; its targets name each current answer with its decision's revision, and the scope's entry
+ * with its revision.
  */
 
 export const ITEM_ANSWER_ANOMALIES = [
   /** A contribution is an hypothesis (estimated, or a quantity the plan cannot show). */
   "hypothesis",
-  /** Alternative readings of one object (PDF, vectors) still to choose between. */
+  /** Alternative readings of one object still to choose between. */
   "source_choice",
   /** A confidence below the tenant's threshold. */
   "low_confidence",
@@ -26,7 +29,7 @@ export const ITEM_ANSWER_ANOMALIES = [
   /** A control rule that fails, or rules to evaluate again. */
   "rule_failed",
   "rules_stale",
-  /** An alert of the reading nobody decided. */
+  /** A remark of the reading on a measured answer (a duplicate reading, a vector reading alone…), or a positive row excluded. */
   "alert",
   /** A page already in the estimate waits for its decision. */
   "page_decision",
@@ -59,7 +62,7 @@ export type ItemTablePoste = {
 };
 
 export type ItemTablePlan = {
-  /** The plan's logical identity (its dossier piece, or the copy uploaded to the plan set): stable across copies. */
+  /** The plan's logical identity (the launch manifest's `logical_id`): stable across copies. */
   key: string;
   name: string;
   location: { key: string; label: string } | null;
@@ -67,21 +70,27 @@ export type ItemTablePlan = {
 
 export type ItemObservationView = {
   observationId: string;
+  /** contribution: counted in the answer's total; candidate: an indication; alternative: another reading, never added. */
+  role: "contribution" | "candidate" | "alternative";
   quantity: number;
   unit: string;
   page: number | null;
   evidence: string | null;
   confidence: number | null;
   method: string | null;
+  /** A contribution's row of the job (what the targeted review corrects). */
+  takeoffItemId: string | null;
 };
 
 /** One stored answer of an item on a plan (its raw reading), with the anomalies the server found for its review. */
 export type ItemAnswerView = {
   answerId: string;
-  /** Compared as is: a review command names the revision it saw. */
+  /** The digest of the raw answer, as the database gives it; a command names the answer's id, which is unique. */
   revision: string;
   jobId: string;
   outcome: ItemAnswerOutcome;
+  /** A measured answer's total: the sum of its contributions. */
+  quantity: { quantity: number; unit: string } | null;
   reasonCode: string | null;
   reasonText: string | null;
   searchedPages: number[];
@@ -97,13 +106,22 @@ export type ItemAnswerDecision =
   | { kind: "accepted"; revision: number; actorId: string; at: string }
   | { kind: "set_aside"; revision: number; reason: ItemSetAsideReason; note: string | null; actorId: string; at: string };
 
-/** One plan's reading of one item: the plan's unit of work, and the answer it published with its decision. */
+/**
+ * One plan's reading of one item, as the database gives it: the plan, the latest job asked and its unit's state, whether
+ * the pair is answered, in flight or ended, the current answer (also while a new reading runs), its decision and the
+ * revision of its decision (which goes on after a reinstatement), and the plan's entry.
+ */
 export type ItemReadingInput = {
   itemId: string;
   planKey: string;
+  planName: string;
+  location: string | null;
   unit: TakeoffUnitState;
+  reading: "answered" | "in_flight" | "ended";
   answer: ItemAnswerView | null;
   decision: ItemAnswerDecision | null;
+  decisionRevision: number;
+  entry: ItemEntryView | null;
 };
 
 /** A quantity entered by a member for the whole item (affaire) or for its answer on one plan. */
@@ -126,25 +144,27 @@ export type ItemEntryView = {
 export type ItemTableScope = { kind: "affaire" } | { kind: "plan"; planKey: string };
 
 export const ITEM_LINE_DECISIONS = ["pending", "accepted", "set_aside", "entered", "none"] as const;
-/** pending: an answer waits for a decision; none: nothing to decide yet (not read, or being read). */
+/** pending: an answer waits for a decision; none: nothing to decide yet (not read, or being read). SQL decides it. */
 export type ItemLineDecision = (typeof ITEM_LINE_DECISIONS)[number];
 
 export type ItemTableFilter = {
   states?: ItemAggregateState[];
   /** Section paths, as « Plomberie / Robinetterie ». */
   families?: string[];
-  /** Plan locations: the items read on a plan there. */
+  /** Plan locations (their key): the items read on a plan there. */
   locations?: string[];
   decisions?: ItemLineDecision[];
 };
 
-export type ItemTableInput = {
-  items: readonly ItemTablePoste[];
-  plans: readonly ItemTablePlan[];
+/** One item of a page as the database gives it: its facts, its state and its decision (SQL's), its readings, its entry. */
+export type ItemTableRow = {
+  item: ItemTablePoste;
+  state: ItemAggregateState;
+  coverage: { expected: number; answered: number; inFlight: number; ended: number };
+  decision: ItemLineDecision;
   readings: readonly ItemReadingInput[];
-  entries: readonly ItemEntryView[];
-  scope: ItemTableScope;
-  filter?: ItemTableFilter;
+  /** The scope's entry: the whole item's in the affaire's scope, the plan's in a plan's scope. */
+  entry: ItemEntryView | null;
 };
 
 /** Why a gesture does not apply to a line, by its code: the screen words each one. */
@@ -181,30 +201,18 @@ export type ItemTableLine = {
   reasons: string[];
   planCount: number;
   decision: ItemLineDecision;
-  readings: Array<{
-    planKey: string;
-    planName: string;
-    location: string | null;
-    unit: TakeoffUnitState;
-    answer: ItemAnswerView | null;
-    decision: ItemAnswerDecision | null;
-    entry: ItemEntryView | null;
-  }>;
+  readings: Array<Omit<ItemReadingInput, "itemId" | "reading" | "decisionRevision">>;
   targets: ItemReviewTarget;
   remeasurePlans: string[];
   eligibility: Record<ItemReviewGesture, ItemGestureEligibility>;
 };
 
-export type ItemTableView = {
-  scope: ItemTableScope;
-  lines: ItemTableLine[];
-  facets: {
-    states: Record<ItemAggregateState, number>;
-    decisions: Record<ItemLineDecision, number>;
-    families: Array<{ value: string; count: number }>;
-    locations: Array<{ value: string; label: string; count: number }>;
-    plans: Array<{ key: string; name: string; count: number }>;
-  };
+export type ItemTableFacets = {
+  states: Record<ItemAggregateState, number>;
+  decisions: Record<ItemLineDecision, number>;
+  families: Array<{ value: string; count: number }>;
+  locations: Array<{ value: string; label: string; count: number }>;
+  plans: Array<{ key: string; name: string; count: number }>;
 };
 
 const SCALE = 1e6;
@@ -212,19 +220,12 @@ const sum = (values: readonly number[]) => values.reduce((total, value) => total
 const yes: ItemGestureEligibility = { eligible: true, reason: null };
 const no = (reason: ItemIneligibility): ItemGestureEligibility => ({ eligible: false, reason });
 
-function answerQuantity(answer: ItemAnswerView) {
-  if (answer.outcome !== "measured" || !answer.observations.length) return null;
-  return { quantity: sum(answer.observations.map(({ quantity }) => quantity)), unit: answer.observations[0].unit };
-}
-
+/** One plan's reading as the state rule reads it (the same as SQL's: an answer counts once its pair is answered). */
 function asPlanReading(reading: ItemReadingInput): ItemPlanReading {
-  if (reading.answer) {
-    const measured = answerQuantity(reading.answer);
-    return { reading: "answered", outcome: reading.answer.outcome, quantity: measured?.quantity ?? null, unit: measured?.unit ?? null };
-  }
-  // A plan read without an answer for an item it was asked about ended without a verdict for it.
-  if (reading.unit === "succeeded") return { reading: "failed" };
-  return { reading: reading.unit };
+  if (reading.reading === "in_flight") return { reading: "in_flight" };
+  if (reading.reading === "ended" || !reading.answer) return { reading: "ended" };
+  return { reading: "answered", outcome: reading.answer.outcome, quantity: reading.answer.quantity?.quantity ?? null,
+    unit: reading.answer.quantity?.unit ?? null };
 }
 
 type LineReading = ItemTableLine["readings"][number];
@@ -242,7 +243,7 @@ function retainedOf(readings: readonly LineReading[], entry: ItemEntryView | nul
       continue;
     }
     if (reading.decision?.kind === "set_aside") continue;
-    const measured = answerQuantity(reading.answer);
+    const measured = reading.answer.outcome === "measured" ? reading.answer.quantity : null;
     if (reading.decision?.kind === "accepted" && measured) parts.push({ ...measured, source: "measured" });
     else if (!reading.decision) undecided = true;
   }
@@ -252,15 +253,6 @@ function retainedOf(readings: readonly LineReading[], entry: ItemEntryView | nul
   const sources = new Set(parts.map(({ source }) => source));
   return { quantity: sum(parts.map(({ quantity }) => quantity)), unit: parts[0].unit,
     source: sources.size > 1 ? "mixed" : parts[0].source, partial: undecided };
-}
-
-function lineDecision(readings: readonly LineReading[], entry: ItemEntryView | null): ItemLineDecision {
-  const answered = readings.filter(({ answer }) => answer);
-  if (!answered.length) return "none";
-  if (entry) return "entered";
-  if (answered.every(({ decision, entry: own }) => decision?.kind === "set_aside" && !own)) return "set_aside";
-  if (answered.some(({ decision, entry: own }) => !decision && !own)) return "pending";
-  return answered.some(({ entry: own }) => own) ? "entered" : "accepted";
 }
 
 function gapOf(item: ItemTablePoste, basis: { quantity: number } | null, complete: boolean): ItemTableLine["gap"] {
@@ -293,7 +285,7 @@ function eligibility(line: Omit<ItemTableLine, "eligibility" | "remeasurePlans">
   const includeEntry = line.entry && !line.entry.included ? yes : no("no_entry_to_include");
 
   const remeasurePlans = scope.kind === "plan"
-    ? plans.some(({ key }) => key === scope.planKey) ? [scope.planKey] : []
+    ? plans.some(({ key }) => key === scope.planKey) || line.readings.length ? [scope.planKey] : []
     : line.readings.length ? line.readings.map(({ planKey }) => planKey) : plans.map(({ key }) => key);
   const remeasure = line.coverage.inFlight > 0 ? no("reading") : remeasurePlans.length ? yes : no("no_plan");
 
@@ -304,31 +296,28 @@ function eligibility(line: Omit<ItemTableLine, "eligibility" | "remeasurePlans">
   };
 }
 
-function buildLine(item: ItemTablePoste, readings: readonly ItemReadingInput[], entries: readonly ItemEntryView[],
-  plans: ReadonlyMap<string, ItemTablePlan>, planOrder: readonly ItemTablePlan[], scope: ItemTableScope): ItemTableLine {
-  const entryOf = (planKey: string | null) => entries.find((entry) => entry.itemId === item.id
-    && (planKey === null ? entry.scope === "affaire" : entry.scope === "plan" && entry.planKey === planKey)) ?? null;
-  const lineReadings: LineReading[] = readings.map((reading) => ({
+function buildLine(row: ItemTableRow, plans: readonly ItemTablePlan[], scope: ItemTableScope): ItemTableLine {
+  const { item } = row;
+  const lineReadings: LineReading[] = row.readings.map((reading) => ({
     planKey: reading.planKey,
-    planName: plans.get(reading.planKey)?.name ?? "Plan",
-    location: plans.get(reading.planKey)?.location?.label ?? null,
+    planName: reading.planName,
+    location: reading.location,
     unit: reading.unit,
     answer: reading.answer,
     decision: reading.decision,
-    entry: entryOf(reading.planKey),
+    // In a plan's scope the entry of the plan is the line's own: it is not also a part of a reading.
+    entry: scope.kind === "plan" ? null : reading.entry,
   }));
-  const entry = scope.kind === "affaire" ? entryOf(null) : entryOf(scope.planKey);
-  // In a plan's scope the entry of the plan is the line's own: it is not also a part of a reading.
-  if (scope.kind === "plan") for (const reading of lineReadings) reading.entry = null;
-  const aggregate = aggregateItemReadings(readings.map(asPlanReading));
-  const complete = aggregate.coverage.expected > 0 && aggregate.coverage.answered === aggregate.coverage.expected;
-  const retained = retainedOf(lineReadings, entry, complete);
+  const aggregate = aggregateItemReadings(row.readings.map(asPlanReading));
+  const complete = row.coverage.expected > 0 && row.coverage.answered === row.coverage.expected;
+  const retained = retainedOf(lineReadings, row.entry, complete);
   const gap = gapOf(item, retained && !retained.partial ? retained : aggregate.observed, complete);
 
   const reasons = new Set<string>();
-  for (const { answer, unit } of lineReadings) {
+  for (const reading of row.readings) {
+    const { answer } = reading;
     if (!answer) {
-      if (unit === "failed" || unit === "canceled" || unit === "not_started" || unit === "succeeded") reasons.add("reading_ended");
+      if (reading.reading === "ended") reasons.add("reading_ended");
       continue;
     }
     if (answer.reasonCode && answer.outcome !== "measured") reasons.add(`answer_reason:${answer.reasonCode}`);
@@ -337,7 +326,7 @@ function buildLine(item: ItemTablePoste, readings: readonly ItemReadingInput[], 
   }
   if (aggregate.unitConflict) reasons.add("unit_conflict");
   if (gap?.requiresReview) reasons.add("dpgf_gap");
-  if (entry && !entry.included) reasons.add("hypothesis_to_include");
+  if (row.entry && !row.entry.included) reasons.add("hypothesis_to_include");
 
   const base = {
     itemId: item.id,
@@ -348,136 +337,109 @@ function buildLine(item: ItemTablePoste, readings: readonly ItemReadingInput[], 
     family: item.sectionPath.length ? item.sectionPath.join(" / ") : null,
     origin: item.origin,
     reference: item.referenceQuantity === null ? null : { quantity: item.referenceQuantity, dpgfReference: item.dpgfReference },
-    state: aggregate.state,
-    coverage: aggregate.coverage,
+    state: row.state,
+    coverage: row.coverage,
     observed: aggregate.observed,
     retained,
-    entry,
+    entry: row.entry,
     gap,
     reasons: [...reasons],
-    planCount: new Set(readings.map(({ planKey }) => planKey)).size,
-    decision: lineDecision(lineReadings, entry),
+    planCount: new Set(row.readings.map(({ planKey }) => planKey)).size,
+    decision: row.decision,
     readings: lineReadings,
     targets: {
       itemId: item.id,
-      entryRevision: entry?.revision ?? 0,
-      answers: lineReadings.flatMap(({ answer, decision }) => answer
-        ? [{ answerId: answer.answerId, answerRevision: answer.revision, decisionRevision: decision?.revision ?? 0 }] : []),
+      entryRevision: row.entry?.revision ?? 0,
+      answers: row.readings.flatMap(({ answer, decisionRevision }) => answer
+        ? [{ answerId: answer.answerId, answerRevision: answer.revision, decisionRevision }] : []),
     },
   };
-  return { ...base, ...eligibility(base, planOrder, scope) };
+  return { ...base, ...eligibility(base, plans, scope) };
 }
 
-const DECISION_FIRST: Record<ItemLineDecision, number> = { pending: 0, accepted: 1, set_aside: 1, entered: 1, none: 1 };
-
-function countBy<T extends string>(keys: readonly T[], values: readonly T[]) {
-  const counts = Object.fromEntries(keys.map((key) => [key, 0])) as Record<T, number>;
-  for (const value of values) counts[value] += 1;
-  return counts;
+/** The lines of a page, in the order the database gave its rows. */
+export function buildItemLines(rows: readonly ItemTableRow[], context: { plans: readonly ItemTablePlan[]; scope: ItemTableScope }) {
+  return rows.map((row) => buildLine(row, context.plans, context.scope));
 }
+
+/** A positive row of a measured answer, as its anomalies read it (takeoff_items, the row the targeted review corrects). */
+export type ItemContributionRow = {
+  id: string;
+  isExcluded: boolean;
+  rulesStale: boolean;
+  ruleResults: unknown;
+  confidence: number | null;
+  evidence: string | null;
+  sourcePage: number | null;
+  metadata: unknown;
+  quantityEntryCategory: string | null;
+};
 
 /**
- * The lines of the table in the scope, then filtered: the decisions to take first, the stable document order after. The
- * facets count the scope before the filters, so that a filter never hides its own options.
+ * What keeps an answer out of the bulk acceptance, from its own facts and its positive rows: an hypothesis, rules to
+ * evaluate again or failing, a confidence below the tenant's threshold, a located proof missing, a positive row
+ * excluded or a remark of the reading on a measured answer, a unit other than the item's.
  */
-export function buildItemTable(input: ItemTableInput): ItemTableView {
-  const plans = new Map(input.plans.map((plan) => [plan.key, plan]));
-  const planRank = new Map(input.plans.map(({ key }, index) => [key, index]));
-  const readingsByItem = new Map<string, ItemReadingInput[]>();
-  for (const reading of input.readings) {
-    if (input.scope.kind === "plan" && reading.planKey !== input.scope.planKey) continue;
-    const list = readingsByItem.get(reading.itemId) ?? [];
-    list.push(reading);
-    readingsByItem.set(reading.itemId, list);
-  }
-  for (const list of readingsByItem.values()) {
-    list.sort((left, right) => (planRank.get(left.planKey) ?? Infinity) - (planRank.get(right.planKey) ?? Infinity));
-  }
-  const items = [...input.items].sort((left, right) => left.position - right.position)
-    .filter(({ id }) => input.scope.kind === "affaire" || readingsByItem.has(id));
-  const scoped = items.map((item) => buildLine(item, readingsByItem.get(item.id) ?? [], input.entries, plans, input.plans,
-    input.scope));
-
-  const filter = input.filter ?? {};
-  const locationPlans = (locations: readonly string[]) => new Set(input.plans
-    .filter(({ location }) => location && locations.includes(location.key)).map(({ key }) => key));
-  const inLocation = filter.locations?.length ? locationPlans(filter.locations) : null;
-  const lines = scoped.filter((line) => (!filter.states?.length || filter.states.includes(line.state))
-    && (!filter.families?.length || (line.family !== null && filter.families.includes(line.family)))
-    && (!inLocation || line.readings.some(({ planKey }) => inLocation.has(planKey)))
-    && (!filter.decisions?.length || filter.decisions.includes(line.decision)))
-    .sort((left, right) => DECISION_FIRST[left.decision] - DECISION_FIRST[right.decision] || left.position - right.position);
-
-  const families = new Map<string, number>();
-  for (const { family } of scoped) if (family) families.set(family, (families.get(family) ?? 0) + 1);
-  const locations = new Map<string, { label: string; count: number }>();
-  const planCounts = new Map<string, number>();
-  for (const line of scoped) {
-    const seen = new Set<string>();
-    for (const { planKey } of line.readings) {
-      planCounts.set(planKey, (planCounts.get(planKey) ?? 0) + 1);
-      const location = plans.get(planKey)?.location;
-      if (location && !seen.has(location.key)) {
-        seen.add(location.key);
-        locations.set(location.key, { label: location.label, count: (locations.get(location.key)?.count ?? 0) + 1 });
-      }
+export function itemAnswerAnomalies(answer: Pick<ItemAnswerView, "outcome" | "quantity" | "reasonCode" | "observations">,
+  rows: ReadonlyMap<string, ItemContributionRow>, context: { expectedUnit: string | null; lowConfidenceThreshold: number }) {
+  const anomalies = new Set<ItemAnswerAnomaly>();
+  if (answer.outcome === "measured") {
+    if (answer.reasonCode) anomalies.add("alert");
+    if (context.expectedUnit && answer.quantity && toUnitToken(answer.quantity.unit) !== toUnitToken(context.expectedUnit)) {
+      anomalies.add("unit_mismatch");
     }
   }
-  return {
-    scope: input.scope,
-    lines,
-    facets: {
-      states: countBy(["to_measure", "reading", "incomplete", "failed", "measured", "uncertain", "not_found"], scoped.map(({ state }) => state)),
-      decisions: countBy(["pending", "accepted", "set_aside", "entered", "none"], scoped.map(({ decision }) => decision)),
-      families: [...families].map(([value, count]) => ({ value, count })),
-      locations: [...locations].map(([value, { label, count }]) => ({ value, label, count })),
-      plans: input.plans.map(({ key, name }) => ({ key, name, count: planCounts.get(key) ?? 0 })),
-    },
-  };
-}
-
-/** A page of the lines; a focused item brings the page that holds it. */
-export function pageItemTable(lines: readonly ItemTableLine[], input: { offset: number; limit: number; focusItemId?: string | null }) {
-  const limit = Math.max(1, input.limit);
-  const focusIndex = input.focusItemId ? lines.findIndex(({ itemId }) => itemId === input.focusItemId) : -1;
-  const offset = focusIndex >= 0 ? Math.floor(focusIndex / limit) * limit : Math.min(Math.max(0, input.offset),
-    Math.max(0, Math.floor(Math.max(0, lines.length - 1) / limit) * limit));
-  return { lines: lines.slice(offset, offset + limit), total: lines.length, offset, limit, focusFound: focusIndex >= 0 };
+  for (const observation of answer.observations) {
+    if (observation.role !== "contribution" || !observation.takeoffItemId) continue;
+    const row = rows.get(observation.takeoffItemId);
+    if (!row) {
+      anomalies.add("missing_evidence");
+      continue;
+    }
+    if (takeoffHypothesisCause({ metadata: row.metadata, quantity_entry_category: row.quantityEntryCategory })) anomalies.add("hypothesis");
+    if (row.rulesStale) anomalies.add("rules_stale");
+    if (Array.isArray(row.ruleResults) && row.ruleResults.some((result) =>
+      result && typeof result === "object" && (result as { status?: unknown }).status === "fail")) anomalies.add("rule_failed");
+    if (row.confidence !== null && row.confidence < context.lowConfidenceThreshold) anomalies.add("low_confidence");
+    if (!row.evidence?.trim() || row.sourcePage === null || row.sourcePage < 1) anomalies.add("missing_evidence");
+    if (row.isExcluded) anomalies.add("alert");
+  }
+  return ITEM_ANSWER_ANOMALIES.filter((anomaly) => anomalies.has(anomaly));
 }
 
 export type ItemSelectionCounts = Record<ItemReviewGesture, number>;
 
+/** What a selection above its bound is told. */
+export const ITEM_SELECTION_TOO_LARGE = "Une sélection tient en 1\u202f000 postes au plus : affinez le filtre.";
+
 const eligibleGestures = (line: ItemTableLine) => ITEM_REVIEW_GESTURES.filter((gesture) => line.eligibility[gesture].eligible);
 
 /**
- * A frozen selection: every line of the filter (beyond the page shown), or the items a member ticked, each with the
- * revisions a command will name and the gestures that apply to it. Above its bound the selection is refused, never cut.
+ * A frozen selection of lines (every result of a filter, or the items a member ticked), each with the revisions a command
+ * will name and the gestures that apply to it. Above its bound the selection is refused, never cut.
  */
-export function freezeItemSelection(view: ItemTableView, selection: { kind: "filter" } | { kind: "items"; itemIds: readonly string[] }) {
-  const byId = new Map(view.lines.map((line) => [line.itemId, line]));
-  const chosen = selection.kind === "filter" ? view.lines
-    : [...new Set(selection.itemIds)].flatMap((id) => byId.get(id) ?? []);
-  const missing = selection.kind === "items" ? [...new Set(selection.itemIds)].filter((id) => !byId.has(id)) : [];
-  if (chosen.length > ITEM_REVIEW_LIMITS.items
-    || chosen.reduce((total, line) => total + line.targets.answers.length, 0) > ITEM_REVIEW_LIMITS.answers) {
-    throw new RangeError("Une sélection tient en 1\u202f000 postes au plus : affinez le filtre.");
+export function freezeItemSelection(lines: readonly ItemTableLine[], requested: readonly string[] | null = null) {
+  if (lines.length > ITEM_REVIEW_LIMITS.items
+    || lines.reduce((total, line) => total + line.targets.answers.length, 0) > ITEM_REVIEW_LIMITS.answers) {
+    throw new RangeError(ITEM_SELECTION_TOO_LARGE);
   }
-  const items = chosen.map((line) => ({ itemId: line.itemId, label: line.label, target: line.targets,
+  const found = new Set(lines.map(({ itemId }) => itemId));
+  const items = lines.map((line) => ({ itemId: line.itemId, label: line.label, target: line.targets,
     eligible: eligibleGestures(line) }));
   const eligible = Object.fromEntries(ITEM_REVIEW_GESTURES.map((gesture) =>
     [gesture, items.filter((item) => item.eligible.includes(gesture)).length])) as ItemSelectionCounts;
-  return { count: items.length, items, eligible, missing };
+  return { count: items.length, items, eligible, missing: requested ? [...new Set(requested)].filter((id) => !found.has(id)) : [] };
 }
 
-const answerKey = (answer: ItemReviewTarget["answers"][number]) =>
-  `${answer.answerId}@${answer.answerRevision}#${answer.decisionRevision}`;
+const answerKey = (answer: ItemReviewTarget["answers"][number]) => `${answer.answerId.toLowerCase()}#${answer.decisionRevision}`;
 
 /**
  * The targets of a command that no longer describe what the table holds: an item gone from the scope, an answer read
- * again or arrived, a decision or an entry written since. A command with one stale target applies nothing.
+ * again or arrived, a decision or an entry written since. The database is the judge (it compares again under its lock);
+ * the server uses this to word what it sends.
  */
-export function checkItemReviewTargets(view: ItemTableView, targets: readonly ItemReviewTarget[]) {
-  const byId = new Map(view.lines.map((line) => [line.itemId, line]));
+export function checkItemReviewTargets(lines: readonly ItemTableLine[], targets: readonly ItemReviewTarget[]) {
+  const byId = new Map(lines.map((line) => [line.itemId, line]));
   const stale = targets.flatMap((target) => {
     const line = byId.get(target.itemId);
     if (!line) return [{ itemId: target.itemId, label: null as string | null }];
@@ -491,33 +453,25 @@ export function checkItemReviewTargets(view: ItemTableView, targets: readonly It
 
 export type ItemReviewPlan =
   | { kind: "stale"; stale: Array<{ itemId: string; label: string | null }> }
-  | { kind: "planned"; apply: Array<{ itemId: string; label: string; answers: string[] }>;
+  | { kind: "planned"; apply: Array<{ itemId: string; label: string }>;
     skipped: Array<{ itemId: string; label: string; reason: ItemIneligibility }> };
 
 /**
- * What a review command would write, decided on the table built again: nothing on a stale selection; otherwise the
- * eligible lines with the answers the gesture writes on, and the others named with their reason.
+ * What a review command applies to, decided on the lines built again: nothing on a stale selection; otherwise the
+ * eligible lines, and the others named with their reason.
  */
-export function planItemReviewCommand(view: ItemTableView, command: { gesture: Exclude<ItemReviewGesture, "remeasure">;
+export function planItemReviewCommand(lines: readonly ItemTableLine[], command: { gesture: Exclude<ItemReviewGesture, "remeasure">;
   targets: readonly ItemReviewTarget[] }): ItemReviewPlan {
-  const { stale } = checkItemReviewTargets(view, command.targets);
+  const { stale } = checkItemReviewTargets(lines, command.targets);
   if (stale.length) return { kind: "stale", stale };
-  const byId = new Map(view.lines.map((line) => [line.itemId, line]));
+  const byId = new Map(lines.map((line) => [line.itemId, line]));
   const apply: Extract<ItemReviewPlan, { kind: "planned" }>["apply"] = [];
   const skipped: Extract<ItemReviewPlan, { kind: "planned" }>["skipped"] = [];
   for (const target of command.targets) {
     const line = byId.get(target.itemId)!;
     const verdict = line.eligibility[command.gesture];
-    if (!verdict.eligible) {
-      skipped.push({ itemId: line.itemId, label: line.label, reason: verdict.reason! });
-      continue;
-    }
-    const answers = line.readings.filter(({ answer, decision, entry }) => answer && (
-      command.gesture === "accept_measured" ? !decision && !entry
-        : command.gesture === "set_aside" ? decision?.kind !== "set_aside"
-          : command.gesture === "reinstate" ? decision?.kind === "set_aside"
-            : true)).map(({ answer }) => answer!.answerId);
-    apply.push({ itemId: line.itemId, label: line.label, answers });
+    if (verdict.eligible) apply.push({ itemId: line.itemId, label: line.label });
+    else skipped.push({ itemId: line.itemId, label: line.label, reason: verdict.reason! });
   }
   return { kind: "planned", apply, skipped };
 }

@@ -88,6 +88,8 @@ export function ItemTableLineDetail({ line, projectId, names, canReview, busy, o
                         {answer.observations.map((observation) => (
                           <li key={observation.observationId}>
                             {formatItemQuantity(observation.quantity, observation.unit)}
+                            {observation.role === "alternative" ? " (autre lecture, non comptée)"
+                              : observation.role === "candidate" ? " (indice, non compté)" : ""}
                             {observation.page ? ` · page ${observation.page}` : ""}
                             {observation.evidence ? ` · source : ${observation.evidence}` : ""}
                             {observation.confidence !== null ? ` · confiance ${Math.round(observation.confidence * 100)} %` : ""}
@@ -104,7 +106,8 @@ export function ItemTableLineDetail({ line, projectId, names, canReview, busy, o
                     ) : null}
                     {reading.entry ? <EntryFacts entry={reading.entry} names={names} /> : null}
                     <Link className="underline" prefetch={false}
-                      href={takeoffReviewHref({ projectId, jobId: answer.jobId, targeted: true })}>
+                      href={takeoffReviewHref({ projectId, jobId: answer.jobId, targeted: true,
+                        line: answer.observations.find(({ takeoffItemId }) => takeoffItemId)?.takeoffItemId ?? undefined })}>
                       Voir la preuve et corriger dans la revue ciblée
                     </Link>
                   </div>

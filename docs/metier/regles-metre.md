@@ -161,7 +161,11 @@ en vue. Une adresse choisit une vue, jamais un geste, un payeur ni un droit.
 **États.** « À mesurer » : aucun plan n’a été interrogé sur ce poste, par exemple un
 poste ajouté après le lancement. « En lecture », « Lecture incomplète » et « Échec de
 lecture » décrivent un travail sans verdict : la quantité observée reste partielle et
-aucune absence n’est certifiée sur l’affaire tant qu’un plan reste à lire. Quand tous
+aucune absence n’est certifiée sur l’affaire tant qu’un plan reste à lire. Un plan encore
+en attente ou en lecture garde le poste « En lecture » ; sinon il est en « Échec de
+lecture » quand aucun plan n’a répondu, en « Lecture incomplète » quand d’autres ont
+répondu, quelle que soit la cause de l’arrêt. La base et la lecture contre la liste
+appliquent la même règle. Quand tous
 les plans demandés ont répondu, une réponse incertaine rend le poste « Incertain » ;
 sinon une quantité mesurée le rend « Mesuré » ; sinon il est « Non trouvé », sans
 quantité (jamais 0). Les quantités de deux plans s’additionnent dans une même unité,
@@ -169,27 +173,47 @@ jamais deux unités entre elles ; la valeur candidate d’une réponse incertain
 jamais une mesure. L’écart à la DPGF est jugé sur un total complet, à vérifier au-delà
 de 1 %.
 
+**Lecture.** La base pagine, filtre, ordonne et compte le tableau
+(`supabase/migrations/20261122100758_takeoff_item_review_decisions.sql`) : l’état de
+chaque poste est celui des réponses enregistrées, sa décision celle de ses réponses. La
+localisation d’un plan est celle qu’un opérateur a enregistrée (bâtiment, niveau) ; un
+plan localisé seulement par la lecture de son cartouche n’apparaît pas dans ce filtre.
+
 **Gestes.** Un lecteur voit le tableau ; l’opérateur du métré coche des postes, sur
 plusieurs pages ou tous les résultats d’un filtre, que le serveur fige avec leurs
 révisions (1 000 postes au plus par geste, jamais tronqués). La sélection, les valeurs
 en cours de saisie et le poste en vue restent quand un plan répond et après un
 rechargement de l’onglet. Chaque geste dit sa portée et combien de postes il touche
-avant confirmation ; le serveur refait le tableau et, si un poste a changé depuis la
-sélection, n’applique rien et le nomme.
+avant confirmation. La base le décide dans la session du membre, auteur de la
+décision : elle compare chaque réponse (toujours la lecture en cours du poste sur ce
+plan), la révision de sa décision et celle de la saisie ; si un poste a changé depuis la
+sélection, elle n’applique rien et le nomme. Un geste attend l’enregistrement en cours
+d’une ligne dans la revue ciblée, puis juge la ligne telle qu’elle est enregistrée ; deux
+gestes sur une même affaire passent l’un après l’autre. La même commande renvoyée
+(double clic, réponse perdue) rend la même réponse ; une autre sous la même clé est
+refusée. Chaque
+effet est journalisé, poste par poste et ligne par ligne.
 
 - **Accepter les mesurés sans anomalie** : seulement les postes mesurés à couverture
-  complète, sans hypothèse, source à choisir, contrôle en échec, alerte à trancher,
-  écart DPGF ou décision de page en attente. Un poste incertain ne devient pas mesuré.
-  Rien n’est envoyé au devis.
+  complète, sans hypothèse, contrôle en échec ou à recalculer, confiance faible, preuve
+  localisée manquante, remarque de la lecture, unité différente ou écart DPGF. Un poste
+  incertain ne devient pas mesuré. Les lignes positives du poste sont vérifiées au nom du
+  membre, avec les contrôles d’une vérification, que la base refait ; rien n’est envoyé
+  au devis.
 - **Écarter la sélection** : un motif choisi une fois (hors périmètre, doublon, erreur
   de lecture, autre avec une note), écrit sur chaque lecture concernée, y compris sans
-  quantité. Un poste qu’aucun plan n’a lu n’a rien à écarter. Une réintégration garde
-  la trace.
+  quantité. Les lignes positives sont exclues avec ce motif, leur vérification retirée,
+  leurs règles à recalculer. Un poste qu’aucun plan n’a lu n’a rien à écarter. Une
+  réintégration rend à chaque ligne ce qu’elle était (une hypothèse reste exclue comme
+  elle est arrivée) et garde la trace. Une ligne d’une analyse déjà envoyée n’est pas
+  modifiée.
 - **Demander à l’IA de mesurer de nouveau** : un aperçu nomme le membre qui confirme,
   qui paie sur son propre forfait ChatGPT, le réglage de Mon profil, les plans et les
   postes ; un effort ponctuel peut être choisi sans changer le profil. Un seul poste
-  suffit, et un poste jamais mesuré l’est sur les plans de l’affaire. Pendant une
-  analyse de l’affaire, la sélection reste prête.
+  suffit, et un poste jamais mesuré l’est sur les plans lus de l’affaire. Pendant une
+  analyse de l’affaire, la sélection reste prête. La confirmation de l’aperçu est le
+  consentement ; l’admission de la demande vient avec une prochaine évolution, d’ici là
+  rien n’est lancé.
 - **Saisie complémentaire** : dans les cellules des postes non trouvés ou incertains,
   une valeur et une unité par poste, puis une seule catégorie pour la sélection, avec
   la note obligatoire d’une hypothèse. Le résultat de la lecture reste consultable ; une

@@ -242,7 +242,8 @@ describe("TakeoffItemTable", () => {
         fixturePoste(7, "Évacuation EU", { origin: "dpgf", expectedUnit: "ml", referenceQuantity: 30, dpgfReference: "3.2.1" })],
       readings: [...SCENARIO, fixtureReading(6, RDC, fixtureAnswer("not_found", null)),
         fixtureReading(7, RDC, fixtureAnswer("measured", 36, { observations: [{ observationId: "eu",
-          quantity: 36, unit: "ml", page: 1, evidence: "tracé", confidence: 0.9, method: "vector" }] }))],
+          quantity: 36, unit: "ml", page: 1, evidence: "tracé", confidence: 0.9, method: "vector", role: "contribution",
+          takeoffItemId: null }], quantity: { quantity: 36, unit: "ml" } }))],
     }));
     renderTable();
     const nourrice = await screen.findByRole("row", { name: /Nourrice/ });

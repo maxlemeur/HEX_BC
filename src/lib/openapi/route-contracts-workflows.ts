@@ -14,6 +14,7 @@ import {
   itemReviewResultSchema,
   itemSelectionRequestSchema,
   itemSelectionResponseSchema,
+  itemTableLineResponseSchema,
   itemTableResponseSchema,
 } from "@/lib/takeoff/item-table-contracts";
 import { takeoffJobActionResponseSchema } from "@/lib/takeoff/job-response-contracts";
@@ -645,6 +646,19 @@ const takeoffOperationsContracts: RouteContract[] = [
     ],
     success: [{ status: "200", description: "Une page du tableau des postes, ses filtres et ses plans.", schema: {
       schemaName: "ApiTakeoffItemTableResponse", schema: z.object({ ok: z.literal(true), data: itemTableResponseSchema }), io: "output",
+    } }],
+  },
+  {
+    id: "get-affaire-takeoff-item",
+    method: "get",
+    path: "/api/affaires/{projectId}/takeoff/items/{itemId}",
+    summary: "Lire un poste du métré d’une affaire",
+    description: "Lecteurs de l’affaire. Un poste de la révision enregistrée de la liste, hors de tout filtre (un lien du radar, le détail d’un poste) : la même ligne que le tableau, avec les plans lus et les auteurs. 404 si la liste ne le tient pas.",
+    tags: ["Takeoff"],
+    pathParameters: [{ name: "projectId", schema: uuidSchema, description: "Affaire cible." },
+      { name: "itemId", schema: uuidSchema, description: "Poste de la liste." }],
+    success: [{ status: "200", description: "Le poste.", schema: {
+      schemaName: "ApiTakeoffItemLineResponse", schema: z.object({ ok: z.literal(true), data: itemTableLineResponseSchema }), io: "output",
     } }],
   },
   {
