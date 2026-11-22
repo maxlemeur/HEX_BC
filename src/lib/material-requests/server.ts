@@ -31,8 +31,6 @@ import {
   type UpdateMaterialRequestData,
 } from "./contracts";
 import { removeRequestOriginals } from "./files-server";
-import type { MaterialRequestPhotoAnalysisAvailability } from "./photo-analysis";
-import { getMaterialRequestPhotoAnalysisAvailability } from "./photo-analysis-server";
 import { linesSubject, lineTitle } from "./line-names";
 import { orderedAmong, orderedLineDatabaseRefusal, orderedLineIds, orderedLinesRefusal, requestOrderedRefusal } from "./orders-server";
 import { readArticleSummaries } from "./articles-server";
@@ -225,28 +223,19 @@ async function readSupplierOptions(access: MaterialRequestAccess): Promise<Mater
 }
 
 export async function getMaterialRequestDetail(projectId: string, requestId: string): Promise<
-  MaterialRequestDetail & {
-    canWrite: boolean;
-    materialOptions: string[];
-    supplierOptions: MaterialRequestSupplierOption[];
-    /** Whether the screen may offer the AI reading of the photos; null for a reader, who cannot ask for one. */
-    photoAnalysis: MaterialRequestPhotoAnalysisAvailability | null;
-  }
+  MaterialRequestDetail & { canWrite: boolean; materialOptions: string[]; supplierOptions: MaterialRequestSupplierOption[] }
 > {
   const access = await requireProjectAccess(projectId, "read");
   const request = await requireRequest(access, requestId);
-  const [technician, files, lines, materialOptions, supplierOptions, photoAnalysis] = await Promise.all([
+  const [technician, files, lines, materialOptions, supplierOptions] = await Promise.all([
     request.technician_id ? readTechnician(access.context, request.technician_id) : null,
     readRequestFiles(access, request.id),
     readRequestLines(access, request.id),
     readMaterialOptions(access),
     readSupplierOptions(access),
-    access.canWrite ? getMaterialRequestPhotoAnalysisAvailability(access.context) : null,
   ]);
   const articles = await readArticleSummaries(access.context, lines.map((line) => line.product_id));
-  return {
-    request, technician, files, lines, articles, canWrite: access.canWrite, materialOptions, supplierOptions, photoAnalysis,
-  };
+  return { request, technician, files, lines, articles, canWrite: access.canWrite, materialOptions, supplierOptions };
 }
 
 type RequestPatch = Partial<Omit<UpdateMaterialRequestData, "expected_presumed_material" | "expected_presumed_supplier_id">>;

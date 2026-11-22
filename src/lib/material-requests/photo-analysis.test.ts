@@ -21,7 +21,10 @@ import {
  *  6. an entry that names nothing becomes an empty line, or an article the model read without its words is
  *     dropped;
  *  7. the pre-reading decides: it validates, sets a supplier, an imputation or « sans dimension »;
- *  8. a photo turned on screen is read lying down: the prompt does not say how it is turned.
+ *  8. a photo turned on screen is read lying down: the prompt does not say how it is turned;
+ *  9. a character the database refuses (a control character, half of an emoji left by a cut) reaches a line: the
+ *     insert fails and the whole batch is lost;
+ * 10. « 0.500 » kg is read as five hundred.
  */
 
 function drafts(lignes: unknown[]) {
@@ -126,6 +129,22 @@ describe("draftsFromPhotoAnswer", () => {
     expect(materialRequestLineInputSchema.safeParse(read[0]).success).toBe(true);
     expect(read[0].original_text).toHaveLength(500);
     expect(read[0].product_type).toHaveLength(200);
+  });
+
+  it("writes no character the database refuses, and never cuts inside one", () => {
+    const [draft] = drafts([
+      { texte: `collier\u0000 inox\u0007\n2e ligne ${"😀".repeat(300)}`, type: `collier \ud83d`, matiere: "inox\u0000 316L" },
+    ]);
+    expect(draft.original_text).toMatch(/^collier inox 2e ligne (?:😀)+$/u);
+    expect(draft.original_text!.length).toBeLessThanOrEqual(500);
+    expect(draft).toMatchObject({ product_type: "collier", material: "inox 316L" });
+    expect(JSON.stringify(draft)).not.toMatch(/\\u0000|\\ud83d(?!\\ude00)/);
+  });
+
+  it("reads « 0.500 » as half a unit, not as five hundred", () => {
+    expect(drafts([{ texte: "0.500 kg de pâte", quantite: "0.500", unite: "kg", type: "pâte à joint" }])).toEqual([
+      { original_text: "0.500 kg de pâte", quantity: 0.5, unit: "kg", product_type: "pâte à joint" },
+    ]);
   });
 
   it("decides nothing: no status, supplier, imputation or « sans dimension »", () => {

@@ -110,21 +110,34 @@ export function buildMaterialRequestPhotoPrompt(input: { rotation: MaterialReque
 
 const QUANTITY_MAX = 1_000_000;
 /** A thousand written with a separator (« 1 000 », « 1.000 »): read whole, and flagged, as the splitting does. */
-const THOUSANDS = /^\d{1,3}(?:[ .  ]\d{3})+$/;
+const THOUSANDS = /^[1-9]\d{0,2}(?:[ .\u00a0\u202f]\d{3})+$/;
 /** What a model writes where it could not read: never a size, a type or a material. */
 const UNREAD = /^(?:\[?\s*illisible\s*\]?|\?+|-+|n\/?a|null|aucune?|néant)$/i;
 
+/**
+ * One line of plain text, cut at `max`: control characters and lone surrogates are dropped (the database refuses
+ * them, and one refused line would refuse the whole batch), and the cut never falls inside a character.
+ */
+function plain(value: string | null, max: number): string {
+  const text = (value ?? "").replace(/[\u0000-\u001f\u007f]+/g, " ").replace(/\s+/g, " ").trim();
+  let cut = "";
+  for (const character of text) {
+    const code = character.codePointAt(0) ?? 0;
+    if (code >= 0xd800 && code <= 0xdfff) continue;
+    if (cut.length + character.length > max) break;
+    cut += character;
+  }
+  return cut.trim();
+}
+
 function clean(value: string | null, max: number): string | undefined {
-  if (value === null) return undefined;
-  const text = value.replace(/\s+/g, " ").trim();
-  if (!text || UNREAD.test(text)) return undefined;
-  return text.slice(0, max).trim() || undefined;
+  const text = plain(value, max);
+  return !text || UNREAD.test(plain(value, Number.MAX_SAFE_INTEGER)) ? undefined : text;
 }
 
 /** The technician's words keep their « [illisible] »: only blank text is dropped. */
 function words(value: string | null, max: number): string | undefined {
-  const text = value?.replace(/\s+/g, " ").trim() ?? "";
-  return text ? text.slice(0, max).trim() || undefined : undefined;
+  return plain(value, max) || undefined;
 }
 
 /** A quantity the API accepts (above zero, bounded, three decimals at most), or nothing: none is invented. */

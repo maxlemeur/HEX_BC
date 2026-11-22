@@ -17,7 +17,13 @@ import * as requestRoute from "@/app/api/affaires/[projectId]/material-requests/
 import { isLocalChatGptEnabled } from "@/lib/ai/chatgpt-local-auth";
 import { callStructuredAi, getStructuredAiAvailability } from "@/lib/ai/structured-ai";
 import { StructuredAiError } from "@/lib/ai/structured-ai-diagnostic";
-import { MATERIAL_REQUEST_PHOTO_ANALYSIS_MAX_BYTES } from "@/lib/material-requests/photo-analysis";
+import { ChatGptSignInError } from "@/lib/ai/chatgpt-sign-in-errors";
+import {
+  MATERIAL_REQUEST_PHOTO_ANALYSIS_MAX_BYTES,
+  MATERIAL_REQUEST_PHOTO_ANALYSIS_TIMEOUT_MS,
+  materialRequestPhotoAnswerSchema,
+} from "@/lib/material-requests/photo-analysis";
+import { z } from "zod";
 import { createFakeSupabase, fakeMembership, type FakeRow } from "@/lib/material-requests/server.test-utils";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
@@ -176,6 +182,9 @@ describe("POST material request photo analysis", () => {
     // The photo was turned a quarter on screen: the model is told how to read it upright.
     expect(options.prompt).toMatch(/quart de tour dans le sens des aiguilles/);
     expect(options.context).toMatchObject({ tenantId: TENANT });
+    // The answer asked for is this reading's own, within the time of one call on the plan.
+    expect(options.schema).toBe(materialRequestPhotoAnswerSchema);
+    expect(options.timeoutMs).toBe(MATERIAL_REQUEST_PHOTO_ANALYSIS_TIMEOUT_MS);
   });
 
   it.each<[string, string, Role]>([
@@ -251,6 +260,8 @@ describe("POST material request photo analysis", () => {
     ["a refused request", new StructuredAiError("AI_REQUEST_REJECTED", "message du fournisseur", 400), "AI_REQUEST_REJECTED"],
     ["a timeout", Object.assign(new Error("The operation was aborted due to timeout"), { name: "TimeoutError" }), "TIMEOUT"],
     ["an answer that is not JSON", new SyntaxError("Unexpected token < in JSON"), "INVALID_ANSWER"],
+    ["an answer that is not the one asked for", z.object({ lignes: z.array(z.string()) }).safeParse({ lignes: "aborted" }).error, "INVALID_ANSWER"],
+    ["a failure of the provider", new StructuredAiError("AI_PROVIDER_FAILED", "message du fournisseur", 500), "PROVIDER_ERROR"],
     ["an unexpected failure", new Error("secret-provider-payload sk-fictif"), "PROVIDER_ERROR"],
   ])("answers 503 with a reason and a fixed sentence on %s", async (_label, failure, reason) => {
     const fake = seed(OWNER, "engineer");
@@ -272,6 +283,15 @@ describe("POST material request photo analysis", () => {
     const { status, error } = await analyze(PHOTO);
     expect(status).toBe(409);
     expect(error).toMatchObject({ code: "MATERIAL_REQUEST_PHOTO_ANALYSIS_UNAVAILABLE", message: "Reconnectez votre forfait ChatGPT dans Mon profil." });
+  });
+
+  it("asks to reconnect when the plan's access could not be renewed, instead of asking to try again", async () => {
+    seed(OWNER, "engineer");
+    vi.mocked(callStructuredAi).mockRejectedValue(new ChatGptSignInError("renewal"));
+    const { status, error } = await analyze(PHOTO);
+    expect(status).toBe(409);
+    expect(error?.code).toBe("MATERIAL_REQUEST_PHOTO_ANALYSIS_UNAVAILABLE");
+    expect(error?.message).toMatch(/Reconnectez votre forfait dans Mon profil/);
   });
 
   it("answers no line for a photo without article, rather than a failure", async () => {

@@ -1,6 +1,7 @@
 import "server-only";
 
 import { isLocalChatGptEnabled } from "@/lib/ai/chatgpt-local-auth";
+import { getAuthenticatedTenantContext } from "@/lib/auth/tenant-context";
 import { callStructuredAi, getStructuredAiAvailability } from "@/lib/ai/structured-ai";
 import { StructuredAiError } from "@/lib/ai/structured-ai-diagnostic";
 import { ApiError, conflict, internalError, mapSupabaseError, notFound, payloadTooLarge } from "@/lib/http/api-response";
@@ -54,6 +55,12 @@ export async function getMaterialRequestPhotoAnalysisAvailability(
   }
 }
 
+/** The same for the caller of a request, resolved from their session only where a reading can exist at all. */
+export async function readMaterialRequestPhotoAnalysisAvailability(): Promise<MaterialRequestPhotoAnalysisAvailability> {
+  if (!isLocalChatGptEnabled()) return { status: "disabled", message: DISABLED_MESSAGE };
+  return getMaterialRequestPhotoAnalysisAvailability(await getAuthenticatedTenantContext());
+}
+
 function unavailable(message: string, status: MaterialRequestPhotoAnalysisAvailability["status"]) {
   return conflict(message, { status }, MATERIAL_REQUEST_PHOTO_ANALYSIS_UNAVAILABLE);
 }
@@ -68,12 +75,16 @@ const FAILURE_MESSAGES: Record<string, string> = {
     "ChatGPT a refusé cette photo, ou le modèle choisi ne lit pas les images. Vérifiez le modèle dans Mon profil, ou saisissez les lignes à la main.",
   TIMEOUT: "La lecture de la photo a dépassé son délai. Relancez-la, ou réduisez l’effort du modèle dans Mon profil.",
   INVALID_ANSWER: "L’IA a renvoyé une réponse inexploitable pour cette photo. Relancez la lecture, ou saisissez les lignes à la main.",
-  PROVIDER_ERROR: "ChatGPT n’a pas terminé la lecture de cette photo. Relancez-la, ou saisissez les lignes à la main.",
+  PROVIDER_ERROR:
+    "ChatGPT n’a pas terminé la lecture de cette photo. Relancez-la ; si cela se répète, vérifiez la connexion ChatGPT dans Mon profil.",
 };
+/** The plan's token could not be renewed, or the sign-in is otherwise broken: only a reconnection helps. */
+const RECONNECT_MESSAGE = "L’accès ChatGPT n’a pas pu être renouvelé. Reconnectez votre forfait dans Mon profil.";
 
 /** Only this module's sentences and a closed reason cross: nothing the provider or the runtime said. */
 function readingFailure(error: unknown): ApiError {
   if (error instanceof StructuredAiError && ACCESS_CODES.has(error.code)) return unavailable(error.message, "unavailable");
+  if (error instanceof Error && error.name === "ChatGptSignInError") return unavailable(RECONNECT_MESSAGE, "unavailable");
   const reason = error instanceof StructuredAiError
     ? (error.code in FAILURE_MESSAGES ? error.code : "PROVIDER_ERROR")
     : error instanceof Error && error.name === "TimeoutError"

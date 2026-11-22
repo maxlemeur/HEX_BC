@@ -194,8 +194,10 @@ export type MaterialRequestEditorApi = {
   /**
    * Splits the message again: every line shown gives way to these drafts, in one request. The server refuses
    * while a line is validated or in a quote, or once the lines are no longer those shown (read again then).
+   * `replacedIds`: the lines the office saw when it chose, for a replacement decided some time before it is written
+   * (the AI reading of the photos); the lines shown at the call otherwise.
    */
-  replaceLines: (lines: MaterialRequestLineInput[]) => Promise<SaveResult>;
+  replaceLines: (lines: MaterialRequestLineInput[], replacedIds?: readonly string[]) => Promise<SaveResult>;
   removeLine: (lineId: string) => Promise<SaveResult>;
   applyToLines: (ids: string[], patch: BulkUpdateMaterialRequestLinesInput["patch"]) => Promise<SaveResult>;
   validateLines: (ids: string[]) => Promise<SaveResult>;
@@ -652,9 +654,9 @@ export function useMaterialRequestEditor(projectId: string, requestId: string): 
           return { ok: false, message: materialRequestErrorMessage(error, "Les lignes n’ont pas pu être ajoutées.") };
         }
       },
-      replaceLines: async (lines: MaterialRequestLineInput[]): Promise<SaveResult> => {
+      replaceLines: async (lines: MaterialRequestLineInput[], replacedIds?: readonly string[]): Promise<SaveResult> => {
         // The lines as shown at the gesture: the server replaces those and no other.
-        const replaced_ids = (latest.current?.lines ?? []).map((line) => line.id);
+        const replaced_ids = replacedIds ? [...replacedIds] : (latest.current?.lines ?? []).map((line) => line.id);
         try {
           const all = await enqueue(() => replaceMaterialRequestLines(projectId, requestId, { replaced_ids, lines }));
           // What was said of the former lines is said of lines that no longer exist.

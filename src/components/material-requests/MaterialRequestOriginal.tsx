@@ -235,11 +235,14 @@ function PhotoAnalysis({ editor }: Readonly<{ editor: MaterialRequestEditorApi }
   /** What each photo gave, by photo and angle, until lines are created from it. */
   const read = useRef(new Map<string, MaterialRequestLineInput[]>());
   const reading = useRef<AbortController | null>(null);
-  /** The lines as the screen shows them now: a reading takes minutes, and they may change meanwhile. */
-  const shown = useRef(lines);
+  /**
+   * The lines as the screen shows them now, and whether a change typed on one is not saved: a reading takes minutes,
+   * and the office may go on working on the lines meanwhile.
+   */
+  const shown = useRef({ lines, unsaved: editor.lineChanges.size > 0 });
   useEffect(() => {
-    shown.current = lines;
-  }, [lines]);
+    shown.current = { lines, unsaved: editor.lineChanges.size > 0 };
+  }, [lines, editor.lineChanges]);
   useEffect(() => () => reading.current?.abort(), []);
   /** The control that held the focus is gone (the choice, « Arrêter »): the focus goes back to the reading's button. */
   const trigger = useRef<HTMLButtonElement>(null);
@@ -259,7 +262,9 @@ function PhotoAnalysis({ editor }: Readonly<{ editor: MaterialRequestEditorApi }
 
   const start = async (mode: "add" | "replace") => {
     if (run) return;
+    // What the office saw when it chose: the drafts, and everything typed on them.
     const expected = lines.map((line) => line.id);
+    const seen = JSON.stringify(lines);
     const controller = new AbortController();
     reading.current = controller;
     setChoosing(false);
@@ -302,8 +307,10 @@ function PhotoAnalysis({ editor }: Readonly<{ editor: MaterialRequestEditorApi }
       setNotice(`Aucun article lu sur ${several ? "les photos" : "la photo"} : saisissez les lignes à la main.`);
       return;
     }
-    const current = shown.current;
-    if (mode === "replace" && (current.length !== expected.length || current.some((line, index) => line.id !== expected[index]))) {
+    const { lines: current, unsaved } = shown.current;
+    // A line added, removed, corrected or linked during the reading, or a correction not saved yet: replacing would
+    // throw that work away without the office having chosen it.
+    if (mode === "replace" && (unsaved || JSON.stringify(current) !== seen)) {
       setRun(null);
       setError({ message: `Les lignes ont changé pendant la lecture : rien n’a été remplacé. Relancez l’analyse pour choisir à nouveau. ${READ_KEPT}`, profile: false });
       return;
@@ -316,7 +323,8 @@ function PhotoAnalysis({ editor }: Readonly<{ editor: MaterialRequestEditorApi }
       return;
     }
     setRun({ step: "writing" });
-    const result = mode === "replace" ? await editor.replaceLines(created) : await editor.addLines(created);
+    // The server replaces the lines of the choice and no other: one added since is refused there too.
+    const result = mode === "replace" ? await editor.replaceLines(created, expected) : await editor.addLines(created);
     setRun(null);
     if (!result.ok) {
       setError({ message: `${result.message} ${READ_KEPT}`, profile: false });

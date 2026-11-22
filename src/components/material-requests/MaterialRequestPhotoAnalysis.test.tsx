@@ -15,9 +15,11 @@ import type { MaterialRequestPhotoAnalysisAvailability } from "@/lib/material-re
  *  3. taking the reading up after a failure reads again the photos already read (the plan is spent twice);
  *  4. drafts already typed are replaced without the office choosing it, or the choice is offered although a line is
  *     validated or priced (the server would refuse, after minutes of reading);
- *  5. lines are replaced although they are no longer the ones the office saw when it chose (one was added while the
- *     photos were being read);
- *  6. a photo without any article is reported as a failure, or creates an empty line.
+ *  5. lines are replaced although they are no longer the ones the office saw when it chose: one was added while the
+ *     photos were being read, or a draft was corrected meanwhile (independent review: the ids were the same, and the
+ *     correction was thrown away with a success message);
+ *  6. a photo without any article is reported as a failure, or creates an empty line;
+ *  7. « Arrêter » creates lines anyway, or a refusal to run does not lead to the profile where the plan is connected.
  */
 
 const PROJECT_ID = "11111111-1111-4111-8111-111111111111";
@@ -276,6 +278,83 @@ describe("AI reading of the photos of a material request", () => {
     const reopened = await screen.findByRole("dialog", { name: "Original de la demande" });
     expect(await within(reopened).findByRole("alert")).toHaveTextContent("Les lignes ont changé pendant la lecture : rien n’a été remplacé.");
     expect(writes().some((call) => call.path === `${BASE}/lines/replace`)).toBe(false);
+  });
+
+  it("replaces nothing when a draft was corrected while the photo was being read (5)", async () => {
+    let release: (reply: Reply) => void = () => undefined;
+    const held = new Promise<Reply>((resolve) => {
+      release = resolve;
+    });
+    const { user, original } = await openOriginal({
+      [`GET ${BASE}`]: { data: detail({ lines: [line()] }) },
+      [analysisOf(FILE_1)]: () => held,
+      [`PATCH ${BASE}/lines/${LINE_A}`]: { data: { line: line({ quantity: 25 }) } },
+    });
+
+    await user.click(within(original).getByRole("button", { name: "Analyser la photo avec l’IA" }));
+    await user.click(within(original).getByRole("button", { name: "Remplacer la ligne" }));
+    await within(original).findByText(/Lecture de la photo/);
+    await user.click(within(original).getByRole("button", { name: "Fermer" }));
+    // Same line, same id: only what was typed on it changed.
+    const quantity = screen.getByLabelText("Quantité, ligne 1");
+    await user.clear(quantity);
+    await user.type(quantity, "25{Enter}");
+    await waitFor(() => expect(writes().some((call) => call.method === "PATCH")).toBe(true));
+    await waitFor(() => expect(screen.getByLabelText("Quantité, ligne 1")).toHaveValue("25"));
+    release(read(FILE_1, SHEET_1));
+
+    await user.click(screen.getByRole("button", { name: "Voir l’original" }));
+    const reopened = await screen.findByRole("dialog", { name: "Original de la demande" });
+    expect(await within(reopened).findByRole("alert")).toHaveTextContent("Les lignes ont changé pendant la lecture : rien n’a été remplacé.");
+    expect(writes().some((call) => call.path === `${BASE}/lines/replace`)).toBe(false);
+    // The photo is not read again when the office chooses anew.
+    await user.click(within(reopened).getByRole("button", { name: "Analyser la photo avec l’IA" }));
+    await user.click(within(reopened).getByRole("button", { name: "Ajouter à la suite" }));
+    await waitFor(() => expect(writes().some((call) => call.path === `${BASE}/lines`)).toBe(true));
+    expect(readings()).toHaveLength(1);
+  });
+
+  it("creates nothing once the office stops the reading (7)", async () => {
+    const { user, original } = await openOriginal({
+      [`GET ${BASE}`]: { data: detail({}) },
+      [analysisOf(FILE_1)]: () => new Promise<Reply>(() => undefined),
+    });
+    // The mock ignores the signal a real fetch obeys: it gives the request up the same way.
+    const fetchMock = vi.mocked(fetch);
+    const answer = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation((input, init) => {
+      const signal = init?.signal;
+      if (!signal) return answer(input, init);
+      return Promise.race([
+        answer(input, init),
+        new Promise<never>((_resolve, reject) => {
+          signal.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")));
+        }),
+      ]);
+    });
+
+    await user.click(within(original).getByRole("button", { name: "Analyser la photo avec l’IA" }));
+    await user.click(await within(original).findByRole("button", { name: "Arrêter" }));
+
+    expect(await within(original).findByText(/^Lecture arrêtée : aucune ligne n’a été créée\./)).toBeVisible();
+    expect(writes().map((call) => call.path)).toEqual([`${BASE}/files/${FILE_1}/analysis`]);
+    await waitFor(() => expect(within(original).getByRole("button", { name: "Analyser la photo avec l’IA" })).toHaveFocus());
+  });
+
+  it("leads to the profile when the reading is refused because the plan must be reconnected (7)", async () => {
+    const { user, original } = await openOriginal({
+      [`GET ${BASE}`]: { data: detail({}) },
+      [analysisOf(FILE_1)]: {
+        status: 409,
+        error: { code: "MATERIAL_REQUEST_PHOTO_ANALYSIS_UNAVAILABLE", message: "Reconnectez votre forfait ChatGPT dans Mon profil.", details: { status: "unavailable" } },
+      },
+    });
+
+    await user.click(within(original).getByRole("button", { name: "Analyser la photo avec l’IA" }));
+
+    const alert = await within(original).findByRole("alert");
+    expect(alert).toHaveTextContent("Reconnectez votre forfait ChatGPT dans Mon profil. Aucune ligne n’a été créée.");
+    expect(within(alert).getByRole("link", { name: "Ouvrir Mon profil" })).toHaveAttribute("href", "/dashboard/profile");
   });
 
   it("says that a photo holds no article, without creating a line (6)", async () => {
