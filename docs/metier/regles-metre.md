@@ -1501,15 +1501,21 @@ de même de la rattacher à une version hors de l'envoi par poste.
   emporte dans la même transaction ce que l'envoi par poste y a laissé : les cibles vivantes, sur les
   lignes copiées, leurs parts vivantes (sources, révisions, identité, pages), les sections et les
   apports de page, sous un reçu « copie » qui nomme le reçu d'origine ; l'historique remplacé reste
-  dans la version d'origine, qui n'est pas touchée. Un envoi dans la copie s'y comporte comme dans
+  dans la version d'origine, qui n'est pas touchée. Une section qu'un envoi a créée suit la copie même
+  quand plus aucune de ses lignes n'est alimentée : l'envoi suivant la reprend, jamais un second
+  « Métré ». Un reçu « copie » n'est pas un envoi : il ne porte ni métré ni clé d'intention, il ne
+  rejoue jamais un envoi et ne fait jamais dire qu'un métré est envoyé. Le journal de la copie survit à
+  sa source : supprimer la version d'origine (et ses métrés) ne retire rien de la copie, qui garde, en
+  identifiants, d'où vient chaque part. Un envoi dans la copie s'y comporte comme dans
   l'original : la même lecture d'un plan remplace sa part sur les pages qu'elle couvre, un autre plan
   ajoute, une page que l'original tient reste tenue, une ligne n'est alimentée que pour un poste. Les
   envois d'aujourd'hui y restent refusés (elle tient des cibles vivantes). Une section dupliquée ou
   importée dans l'éditeur, et les lignes qu'apporte un modèle, sont des lignes du membre : la copie de
   section retire la marque de l'envoi par poste, un modèle ne garde aucune provenance, et ces lignes
-  sont ordinaires pour l'aperçu, l'écrivain, la garde des pages et les envois d'aujourd'hui ; un
-  poste d'un DPGF dont la ligne alimentée a une jumelle de la même ligne brute alimente sa cible, sans
-  rien demander. Une marque ne compte qu'avec la cible vivante que l'envoi a écrite pour cette ligne :
+  sont ordinaires pour l'aperçu, l'écrivain, la garde des pages et les envois d'aujourd'hui. Un poste
+  d'un DPGF qui a une cible vivante dans le brouillon alimente cette ligne-là, sans rien demander : une
+  jumelle copiée de sa ligne, ou une ligne de sa ligne brute revenue, est une ligne existante comme les
+  autres ; la ligne brute ne désigne la ligne qu'en l'absence de cible. Une marque ne compte qu'avec la cible vivante que l'envoi a écrite pour cette ligne :
   une ligne marquée qu'aucune cible ne tient (son détail perdu) fait refuser l'envoi, jamais compter
   deux fois. La copie prend l'affaire, puis la version copiée, puis les métrés qui lui sont rattachés :
   un envoi dans la version copiée ou dans la copie l'attend, ou elle l'attend, sans jamais croiser.

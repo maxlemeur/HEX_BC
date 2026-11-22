@@ -171,11 +171,14 @@ function responseOf(answer: unknown, jobId: string): ItemSendConfirmResponse {
   return parsed.data;
 }
 
-/** The receipt of an intention key, as the member reads it (its policy is the affaire's readers'). */
+/**
+ * The receipt of a send under an intention key, as the member reads it (its policy is the affaire's readers'): a send's
+ * only, never a copy's (a copy of a draft carries its receipts under no intention key).
+ */
 async function readReceipt(ctx: Context, requestId: string, jobId: string): Promise<Receipt | null> {
   const { data, error } = await ctx.supabase.from("takeoff_item_send_receipts" as never)
     .select("id, job_id, project_id, actor_id, write_plan, result" as never).eq("tenant_id" as never, ctx.tenantId as never)
-    .eq("request_id" as never, requestId as never).maybeSingle();
+    .eq("request_id" as never, requestId as never).eq("command_kind" as never, "send" as never).maybeSingle();
   if (error) {
     throw toTakeoffError(mapSupabaseError(error, "Impossible de vérifier l’envoi déjà confirmé."),
       { fallbackCode: TakeoffErrorCode.INTERNAL_ERROR, retryable: false, jobId });

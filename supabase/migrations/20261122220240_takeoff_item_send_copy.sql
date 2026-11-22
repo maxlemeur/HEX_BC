@@ -50,9 +50,18 @@
 -- takeoff_item_send_parts.copied_from_part_id name what a copy was made from. Neither has a foreign key: the source's rows
 -- go with their version (its cascade), and a set-null action would update a part, which C's write guard refuses
 -- (a part only moves from live to replaced); the identifier stays as the record of where the copy came from.
+-- A receipt « copy » is no send: its job and its intention key are null (takeoff_item_send_receipts.job_id and request_id
+-- become nullable, required exactly for a send). So the copy's journal outlives its source: nothing a copied receipt,
+-- target or part references is the source's (the job's cascade, its version's, never reach the copy), and the copy keeps
+-- what it needs (its targets, parts, sections and pages, on its own version and lines). Once the source is gone, the copy
+-- still knows where each row came from: the receipt it was copied from and that receipt's job and version (in the copy
+-- receipt's documents), the part it was copied from, and each part's reading (job, answer, observations, plan, pages,
+-- revisions), as identifiers recorded without a foreign key. And every lookup of a send's receipt is by its intention key
+-- (the writer's replay, the server's) or by its job (« already sent », the readers of a job sent, which also name the
+-- send's kind): none can find a copy's receipt, with no change to the writer.
 --
--- What a version no send by item fed pays: one indexed read of takeoff_item_send_targets (by its version) that finds no
--- row; the affaire's row lock it takes first is the one the duplication already takes. What the released application
+-- What a version no send by item fed pays: two indexed reads (its live targets, its sections) that find no row; the
+-- affaire's row lock it takes first is the one the duplication already takes. What the released application
 -- sees: nothing else changes in its writes or answers.
 --
 -- A copy made before this migration of a version fed by item: none exists (nothing is activated: no job is read against
@@ -78,6 +87,13 @@ alter table public.takeoff_item_send_receipts add constraint takeoff_item_send_r
 alter table public.takeoff_item_send_receipts add column copied_from_receipt_id uuid;
 alter table public.takeoff_item_send_receipts add constraint takeoff_item_send_receipts_copy_check
   check ((command_kind = 'copy') = (copied_from_receipt_id is not null));
+-- A receipt « copy » is no send: it names no job and no intention key. Every lookup of a send's receipt (its replay by
+-- intention key, « already sent » by job, the readers of a job sent) never finds it, and the deletion of the source's job
+-- (with its version) never reaches the copy.
+alter table public.takeoff_item_send_receipts alter column job_id drop not null;
+alter table public.takeoff_item_send_receipts alter column request_id drop not null;
+alter table public.takeoff_item_send_receipts add constraint takeoff_item_send_receipts_send_identity_check
+  check ((command_kind = 'send') = (job_id is not null and request_id is not null));
 comment on column public.takeoff_item_send_receipts.copied_from_receipt_id is
   'A receipt « copy »: the receipt of the source version its rows were copied from. No foreign key: the source''s rows go '
   'with their version, and the identifier stays as the record of where the copy came from.';
@@ -97,9 +113,12 @@ declare
   receipt_map jsonb;
   previous_writer text;
 begin
-  -- A version no send by item fed: one indexed read that finds no row.
+  -- A version no send by item fed: two indexed reads that find no row. A version whose fed lines are all gone may still
+  -- own the sections its sends created: they are carried.
   if not exists (select 1 from public.takeoff_item_send_targets as target
-      where target.version_id = p_source_version_id and target.estimate_item_id is not null) then
+      where target.version_id = p_source_version_id and target.estimate_item_id is not null)
+    and not exists (select 1 from public.takeoff_item_send_sections as section
+      where section.version_id = p_source_version_id and section.estimate_item_id is not null) then
     return;
   end if;
 
@@ -152,16 +171,19 @@ begin
   previous_writer := coalesce(pg_catalog.current_setting('mergeone.takeoff_item_send', true), '');
   perform pg_catalog.set_config('mergeone.takeoff_item_send', 'copy:' || p_copy_version_id::text, true);
 
+  -- A receipt « copy » names no job and no intention key (it is no send); its documents keep, as a record, the receipt,
+  -- the job and the version it was copied from, which may be deleted later without touching the copy.
   insert into public.takeoff_item_send_receipts (id, tenant_id, project_id, job_id, version_id, request_id, command_kind,
     format_version, actor_id, plan_sha256, version_created, write_plan, result, copied_from_receipt_id)
-  select (receipt_map ->> receipt.id::text)::uuid, receipt.tenant_id, receipt.project_id, receipt.job_id, p_copy_version_id,
-    pg_catalog.gen_random_uuid(), 'copy', 1, coalesce((select auth.uid()), receipt.actor_id), receipt.plan_sha256, false,
-    pg_catalog.jsonb_build_object('copied_from_receipt_id', receipt.id, 'source_version_id', p_source_version_id),
+  select (receipt_map ->> receipt.id::text)::uuid, receipt.tenant_id, receipt.project_id, null, p_copy_version_id,
+    null, 'copy', 1, coalesce((select auth.uid()), receipt.actor_id), receipt.plan_sha256, false,
     pg_catalog.jsonb_build_object('copied_from_receipt_id', receipt.id, 'source_version_id', p_source_version_id,
-      'version_id', p_copy_version_id),
+      'source_job_id', coalesce(receipt.job_id::text, receipt.write_plan ->> 'source_job_id')),
+    pg_catalog.jsonb_build_object('copied_from_receipt_id', receipt.id, 'source_version_id', p_source_version_id,
+      'source_job_id', coalesce(receipt.job_id::text, receipt.write_plan ->> 'source_job_id'), 'version_id', p_copy_version_id),
     receipt.id
   from public.takeoff_item_send_receipts as receipt
-  where receipt_map ? receipt.id::text;
+  where receipt.version_id = p_source_version_id and receipt_map ? receipt.id::text;
 
   insert into public.takeoff_item_send_targets (id, tenant_id, project_id, version_id, item_id, breakdown, compartment_key,
     estimate_item_id, line_kind, unit_code, basis, network, material, diameter, created_by_receipt_id)
@@ -170,7 +192,7 @@ begin
     target.unit_code, target.basis, target.network, target.material, target.diameter,
     (receipt_map ->> target.created_by_receipt_id::text)::uuid
   from public.takeoff_item_send_targets as target
-  where target_map ? target.id::text;
+  where target.version_id = p_source_version_id and target_map ? target.id::text;
 
   insert into public.takeoff_item_send_parts (id, tenant_id, project_id, version_id, target_id, receipt_id, job_id, item_id,
     plan_logical_id, kind, answer_id, answer_revision, decision_revision, entry_id, entry_revision, observation_ids,
@@ -181,7 +203,7 @@ begin
     part.entry_revision, part.observation_ids, part.takeoff_item_ids, part.quantity, part.unit, part.unit_code, part.basis,
     part.network, part.material, part.diameter, part.pages, part.id
   from public.takeoff_item_send_parts as part
-  where part_map ? part.id::text;
+  where part.version_id = p_source_version_id and part_map ? part.id::text;
 
   insert into public.takeoff_item_send_sections (tenant_id, project_id, version_id, section_key, title, estimate_item_id,
     receipt_id)

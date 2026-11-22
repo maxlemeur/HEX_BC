@@ -1715,9 +1715,10 @@ select is((select count(*)::integer from public.takeoff_item_send_parts p where 
   'each part of the copy names the live part of the original it was copied from; no replaced part is copied');
 select ok((select count(*) from public.takeoff_item_send_receipts r where r.version_id = (select version_id from copy20)) > 0
     and (select count(*) from public.takeoff_item_send_receipts r where r.version_id = (select version_id from copy20)
-      and (r.command_kind <> 'copy' or not exists (select 1 from public.takeoff_item_send_receipts s
-        where s.id = r.copied_from_receipt_id and s.version_id = (select version_id from draft) and s.job_id = r.job_id))) = 0,
-  'each receipt of the copy is a « copy » naming the original''s receipt its rows came from');
+      and (r.command_kind <> 'copy' or r.job_id is not null or r.request_id is not null
+        or not exists (select 1 from public.takeoff_item_send_receipts s where s.id = r.copied_from_receipt_id
+          and s.version_id = (select version_id from draft) and (r.result ->> 'source_job_id')::uuid = s.job_id))) = 0,
+  'each receipt of the copy is a « copy » naming the original''s receipt its rows came from (and its job, as a record)');
 select is((select count(*)::integer from public.takeoff_item_send_receipts r where r.version_id = (select version_id from copy20)
     and r.command_kind = 'send'), 0, 'no send is recorded for the copy');
 -- A version no send by item fed: its copy holds nothing of it (the carry finds no row).
@@ -1926,6 +1927,112 @@ select is((pg_temp.send(794, 'thirteenth_template') ->> 'lines_written'), '1',
 reset role;
 select results_eq($$select l.id, i.quantity from template_lines l join public.estimate_items i on i.id = l.id order by l.id$$,
   $$select id, quantity from template_lines order by id$$, 'the template''s lines are untouched');
+
+-- Review of #500, point 3: a copy's receipt is never a send's. It names no job and no intention key of a send, so neither
+-- a replay nor « already sent » can find it: the writer, called with the request a copy's receipt carries and its source
+-- send's plan, finds no replay and is told the job is sent.
+select is((select count(*)::integer from public.takeoff_item_send_receipts r where r.command_kind = 'copy'
+  and (r.request_id is not null or r.job_id is not null)), 0, 'a copy''s receipt carries no intention key and no job of a send');
+select is(pg_temp.refusal($$select public.send_takeoff_item_plan(c.tenant_id, c.actor_id, false,
+    jsonb_build_object('request_id', coalesce(c.request_id, gen_random_uuid()), 'plan', s.write_plan))::text
+  from public.takeoff_item_send_receipts c join public.takeoff_item_send_receipts s on s.id = c.copied_from_receipt_id
+  where c.version_id = (select version_id from copy20) and s.actor_id = c.actor_id
+    and s.write_plan #>> '{destination,kind}' = 'existing_draft'
+  order by s.created_at limit 1$$), '40001 TAKEOFF_ITEM_SEND_ALREADY_SENT',
+  'the request a copy''s receipt carries is never the replay of its source''s send');
+
+-- Review of #500, point 2: a section outlives its last fed line. The copy's target lines deleted in the editor, its
+-- « Métré » section kept: a copy of it, and a copy of that copy, keep the section's identity on their own section, so that
+-- the next send reuses it and never creates a second « Métré ».
+select set_config('miaouffrage.estimate_v3_writer', (select version_id::text from copy20), true);
+delete from public.estimate_items where id in (select t.estimate_item_id from public.takeoff_item_send_targets t
+  where t.version_id = (select version_id from copy20));
+select set_config('miaouffrage.estimate_v3_writer', '', true);
+select is((select count(*)::integer from public.takeoff_item_send_targets t where t.version_id = (select version_id from copy20)
+  and t.estimate_item_id is not null), 0, 'no line of the copy is fed any more');
+select pg_temp.sign_in(1);
+set local role authenticated;
+create temp table section_copy as select public.duplicate_estimate_version((select version_id from copy20), false) as version_id;
+create temp table section_copy2 as select public.duplicate_estimate_version((select version_id from section_copy), false) as version_id;
+reset role;
+select results_eq($$select s.section_key, i.title, i.item_type::text, i.version_id = (select version_id from section_copy)
+  from public.takeoff_item_send_sections s join public.estimate_items i on i.id = s.estimate_item_id
+  where s.version_id = (select version_id from section_copy)$$, $$values ('list:'::text, 'Métré'::text, 'section'::text, true)$$,
+  'a copy of a version whose fed lines are gone keeps the section a send created, on its own section');
+select results_eq($$select s.section_key, i.title, i.version_id = (select version_id from section_copy2)
+  from public.takeoff_item_send_sections s join public.estimate_items i on i.id = s.estimate_item_id
+  where s.version_id = (select version_id from section_copy2)$$, $$values ('list:'::text, 'Métré'::text, true)$$,
+  'and so does a copy of that copy');
+select is((select count(*)::integer from public.estimate_items i where i.version_id = (select version_id from section_copy2)
+  and i.item_type = 'section' and i.title = 'Métré'), 1, 'one « Métré » section, the one the next send reuses');
+
+-- Review of #500, point 1: a copy's journal outlives its source. Affaire 22's draft, fed by item (its WC on a DPGF line),
+-- copied as a new version; a third reading of its plan accepted; then the draft deleted by its owner, its jobs with it.
+-- The copy keeps its target, its live parts, its sections and pages and its receipts, which name no job of the source,
+-- only where they were copied from; no line of it carries the marker without its target; the third reading is sent into
+-- it and replaces the parts the copy carried.
+select pg_temp.sign_in(1);
+set local role authenticated;
+create temp table copy22 as select public.duplicate_estimate_version(pg_temp.f(991), false) as version_id;
+reset role;
+grant select on copy22 to authenticated;
+create temp table copy22_before as select pg_temp.c_rows((select version_id from copy22)) as rows_;
+select ok((select rows_ from copy22_before) like '%' || pg_temp.f(320) || '%', 'the copy holds the WC''s target and parts');
+create function pg_temp.wc_answers3() returns jsonb language sql immutable as $$
+  select jsonb_build_array(jsonb_build_object('item_id', pg_temp.f(320), 'outcome', 'measured', 'reasons', '[]'::jsonb,
+    'searched_pages', '[2, 7]'::jsonb, 'unreadable_pages', '[]'::jsonb, 'quantity', jsonb_build_object('value', 8, 'unit', 'u'),
+    'candidate', null, 'observations', jsonb_build_array(
+      pg_temp.observation('contribution', 2, 3, 'u', 1934), pg_temp.observation('contribution', 7, 5, 'u', 1935))))
+$$;
+-- This file's earlier readings were admitted two days ago: the member's daily admissions (ten in 24 hours) are not this
+-- case's subject.
+set local session_replication_role = replica;
+update public.takeoff_job_admissions set admitted_at = admitted_at - interval '2 days' where tenant_id = pg_temp.f(10);
+set local session_replication_role = origin;
+select results_eq($$select outcome from pg_temp.launch(22, 3)$$, $$values ('admitted'::text)$$, 'a third reading of affaire 22''s plan');
+select is((select job_id from public.dispatch_next_takeoff_host_job(pg_temp.host())), pg_temp.job(22, 3), 'handed');
+select is(pg_temp.claim(pg_temp.job(22, 3), 924), 1, 'claimed');
+select results_eq($$select replayed from pg_temp.publish(pg_temp.job(22, 3), 924, pg_temp.wc_answers3(),
+    jsonb_build_array(pg_temp.row_(1934, 3, 2), pg_temp.row_(1935, 5, 7)), null, array[2, 7], '[]'::jsonb)$$,
+  $$values (false)$$, 'and published: the WC measured 3 on page 2 and 5 on page 7');
+update public.takeoff_items set rules_stale = false, rules_evaluated_at = now(), rule_results = '[]'::jsonb
+where job_id = pg_temp.job(22, 3);
+select pg_temp.sign_in(1);
+set local role authenticated;
+select is(public.review_takeoff_items(pg_temp.f(10), pg_temp.f(22), pg_temp.cmd('accept_measured', 653, array[320], array[320])) ->> 'outcome',
+  'applied', 'the WC accepted');
+delete from public.estimate_versions where id = pg_temp.f(991);
+reset role;
+select is((select count(*)::integer from public.estimate_versions where id = pg_temp.f(991)), 0, 'the source draft is deleted by its owner');
+select is(pg_temp.c_rows((select version_id from copy22)), (select rows_ from copy22_before),
+  'the copy keeps its targets, live parts, sections and page contributions');
+select is((select count(*)::integer from public.takeoff_item_send_receipts r where r.version_id = (select version_id from copy22)
+    and r.command_kind = 'copy' and r.copied_from_receipt_id is not null
+    and not exists (select 1 from public.takeoff_item_send_receipts s where s.id = r.copied_from_receipt_id))
+  = (select count(*)::integer from public.takeoff_item_send_receipts r where r.version_id = (select version_id from copy22))
+  and exists (select 1 from public.takeoff_item_send_receipts r where r.version_id = (select version_id from copy22)), true,
+  'its receipts stay, each naming the receipt it was copied from, gone with its source');
+select is((select count(*)::integer from public.estimate_items i where i.version_id = (select version_id from copy22)
+  and i.source_metadata ? 'takeoff_item_send' and not exists (select 1 from public.takeoff_item_send_targets t
+    where t.estimate_item_id = i.id)), 0, 'no line of the copy carries the marker without its target');
+insert into public.draft_locks (version_id, user_id, tenant_id, expires_at, session_id)
+select version_id, pg_temp.f(1), pg_temp.f(10), now() + interval '10 minutes', gen_random_uuid() from copy22;
+create temp table copy22_line as select t.estimate_item_id as id from public.takeoff_item_send_targets t
+where t.version_id = (select version_id from copy22) and t.item_id = pg_temp.f(320);
+insert into plans select 'wc_copy', jsonb_set(pg_temp.plan(pg_temp.job(22, 3), (select version_id from copy22), jsonb_build_array(
+    pg_temp.earlier_line(pg_temp.job(22, 3), 320, (select id from copy22_line), 8, 'dpgf_line', 'dpgf', p_project => 22)), '[]'::jsonb,
+    null, 22),
+  '{dependencies,lines}', (select jsonb_agg(jsonb_build_object('estimate_item_id', i.id, 'updated_at', i.updated_at, 'quantity', i.quantity,
+    'dpgf', jsonb_build_object('import_id', pg_temp.f(340), 'raw_row_id', null,
+      'reference', private.takeoff_item_send_dpgf_reference(pg_temp.f(10), i.source_metadata))))
+    from public.estimate_items i where i.id = (select id from copy22_line))), null;
+select pg_temp.sign_in(1);
+set local role authenticated;
+select is((pg_temp.send(795, 'wc_copy') ->> 'parts_replaced'), '2',
+  'a send into the copy of a deleted draft replaces the parts the copy carried, never refused as a copy unread');
+reset role;
+select is((select quantity from public.estimate_items where id = (select id from copy22_line)), 8::numeric,
+  'the copied DPGF line holds max(4, 3 + 5) = 8');
 
 select * from finish();
 rollback;

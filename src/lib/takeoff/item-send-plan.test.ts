@@ -970,3 +970,30 @@ describe("planTakeoffItemSend — a draft whose fed line was copied (the copy of
     expect(JSON.stringify(plan.writePlan)).not.toContain(twin.id);
   });
 });
+
+describe("planTakeoffItemSend — the item's live DPGF target comes first (review of #500, point 4)", () => {
+  // Raw row 40 lost (no line of the import proves it): the member chose line 41 of the import, and it was fed.
+  const ef = dpgfItem(40, "Lavabo", "u", "raw-40", "mapped-40", 4);
+  const chosen = dpgfLine(41, "mapped-41", "raw-41", 4, { quantity: 4 });
+  const fedOn41 = { targets: [{ itemId: ef.id, breakdown: "dpgf" as const, compartmentKey: "dpgf", estimateItemId: chosen.id,
+    parts: [part({ planKey: "plan-earlier", pages: [1], quantity: 0.5, answerId: "answer-old", observationIds: ["obs-old"] })] }],
+    sections: [] };
+  const fedLines = (plan: ReturnType<typeof planTakeoffItemSend>) => plan.targets.map((target) => target.line.kind === "new_line"
+    ? null : target.line.estimateItemId);
+
+  it("feeds the line the member chose once its copy is in the draft, never asking again", () => {
+    const plan = planTakeoffItemSend(input({ items: [ef], answers: [measured(ef, [{ quantity: 5, page: 1 }])],
+      plan: { key: "plan-a", name: "Plan A", location: null, pages: [1] },
+      destination: draft([chosen, dpgfLine(42, "mapped-41", "raw-41", 4, { quantity: 4 })]), earlier: fedOn41 }));
+    expect(plan.toResolve).toEqual([]);
+    expect(fedLines(plan)).toEqual([chosen.id]);
+  });
+
+  it("feeds the line the member chose when a line for the item's raw row comes back, never the newcomer", () => {
+    const plan = planTakeoffItemSend(input({ items: [ef], answers: [measured(ef, [{ quantity: 5, page: 1 }])],
+      plan: { key: "plan-a", name: "Plan A", location: null, pages: [1] },
+      destination: draft([chosen, dpgfLine(43, "mapped-40", "raw-40", 4, { quantity: 4 })]), earlier: fedOn41 }));
+    expect(plan.toResolve).toEqual([]);
+    expect(fedLines(plan)).toEqual([chosen.id]);
+  });
+});

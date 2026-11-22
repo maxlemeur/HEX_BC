@@ -450,8 +450,8 @@ describe("confirmTakeoffItemSend", () => {
     setUp({});
     const preview = await previewTakeoffItemSend(JOB, {});
     const state = await computeItemSendState({ ...(await getAuthenticatedTakeoffContext()), tenantRole: "admin" } as never, JOB, {});
-    return { preview, receipt: { id: "efefefef-efef-4fef-8fef-efefefefefef", tenant_id: TENANT, request_id: REQUEST_ID, job_id: JOB,
-      project_id: PROJECT, actor_id: MEMBER, write_plan: JSON.parse(JSON.stringify(state.writePlan)), result: { job_id: JOB,
+    return { preview, receipt: { id: "efefefef-efef-4fef-8fef-efefefefefef", tenant_id: TENANT, request_id: REQUEST_ID,
+      command_kind: "send", job_id: JOB, project_id: PROJECT, actor_id: MEMBER, write_plan: JSON.parse(JSON.stringify(state.writePlan)), result: { job_id: JOB,
         version_id: VERSION, version_created: true, lines_written: 1, parts_written: 1, parts_replaced: 0, focus_item_id: LINE },
       ...overrides } };
   }
@@ -505,6 +505,15 @@ describe("confirmTakeoffItemSend", () => {
     const error = await refusal(confirmTakeoffItemSend(JOB, { request_id: REQUEST_ID, plan_digest: preview.plan_digest }));
     expect([error.status, (error.details as { guard?: string }).guard]).toEqual([409, "item_send_preview_stale"]);
     expect(written).toEqual([]);
+  });
+
+  it("never answers a copy's receipt as a send's: its intention key reaches the writer (review of #500, point 3)", async () => {
+    // A receipt « copy » (a copy of a draft carried it) under the member's intention key: never the replay of a send.
+    setUp({ receipts: [{ id: "cdcdcdcd-cdcd-4dcd-8dcd-cdcdcdcdcdcd", tenant_id: TENANT, request_id: REQUEST_ID, command_kind: "copy",
+      job_id: JOB, project_id: PROJECT, actor_id: MEMBER, write_plan: {}, result: {} }] });
+    const preview = await previewTakeoffItemSend(JOB, {});
+    await confirmTakeoffItemSend(JOB, { request_id: REQUEST_ID, plan_digest: preview.plan_digest });
+    expect(written).toEqual([expect.objectContaining({ p_request: expect.objectContaining({ request_id: REQUEST_ID }) })]);
   });
 
   it("gives the member what to do for a refusal of the guard of the applied job, never the generic failure", () => {
