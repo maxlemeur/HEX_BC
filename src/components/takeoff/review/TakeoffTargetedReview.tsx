@@ -475,6 +475,8 @@ export function TakeoffTargetedReview({ jobId, versionId, projectId, canEdit = t
   const apply = useTakeoffApplyConfirm({ jobId, versionId, onApplied: handleApplied });
   // A plan read against the list of items is sent item by item (lot 4): today's send refuses it, so it is not offered.
   const itemListSend = useItemListSend({ projectId, jobId, viewerKey, onSent: handleApplied });
+  // Opened before the job was known as read against the list: today's send, which refuses it, is closed.
+  useEffect(() => { if (itemListSend.itemList) setWizardOpen(false); }, [itemListSend.itemList]);
 
   const included = items.filter((item) => !item.is_excluded);
   const applyBlocker = !canEdit ? "Ce métré est accessible en lecture seule."

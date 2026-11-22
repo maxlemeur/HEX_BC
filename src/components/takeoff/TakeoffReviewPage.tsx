@@ -1046,6 +1046,7 @@ export default function TakeoffReviewPage({
 
   // A plan read against the list of items is sent item by item (lot 4): today's send refuses it, so it is not offered.
   const itemListSend = useItemListSend({ projectId, jobId, viewerKey, onSent: handleApplied });
+  useEffect(() => { if (itemListSend.itemList) setApplyWizardOpen(false); }, [itemListSend.itemList]);
   const handleOpenApplyWizard = useCallback(() => {
     if (itemListSend.itemList) { itemListSend.open(); return; }
     if (!readiness.canOpen) return;

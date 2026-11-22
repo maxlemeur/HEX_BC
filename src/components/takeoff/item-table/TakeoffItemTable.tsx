@@ -265,7 +265,8 @@ export function TakeoffItemTable({ projectId, viewerKey, signature }: {
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<Notice | null>(null);
   const [preview, setPreview] = useState<{ value: ItemRemeasurePreview | null; error: string | null }>({ value: null, error: null });
-  const [sending, setSending] = useState<{ jobId: string; planName: string } | null>(null);
+  // The send belongs to the plan's scope it was opened from: another scope (a filter, the browser's history) closes it.
+  const [sending, setSending] = useState<{ jobId: string; planName: string; scope: string } | null>(null);
 
   const navigate = useCallback((partial: Partial<ItemTableAddress>) => {
     const next = withItemTableParams(searchParams.toString(), itemTableAddressParams(partial, PREFIX));
@@ -530,7 +531,8 @@ export function TakeoffItemTable({ projectId, viewerKey, signature }: {
                   </p>
                 ) : null}
                 {canReview ? sends.filter(({ sent }) => !sent).map((send) => (
-                  <Button key={send.jobId} size="sm" variant="secondary" onClick={() => setSending({ jobId: send.jobId, planName: planName ?? "" })}>
+                  <Button key={send.jobId} size="sm" variant="secondary"
+                    onClick={() => setSending({ jobId: send.jobId, planName: planName ?? "", scope: scopeKey })}>
                     Envoyer ce plan au devis{sends.length > 1 ? ` (lecture du ${readingDate.format(new Date(send.readAt))})` : ""}
                   </Button>
                 )) : null}
@@ -769,7 +771,7 @@ export function TakeoffItemTable({ projectId, viewerKey, signature }: {
             return copy;
           }))} />
       ) : null}
-      {sending ? (
+      {sending && sending.scope === scopeKey && canReview ? (
         <TakeoffItemSendDialog open jobId={sending.jobId} planName={sending.planName} viewerKey={viewerKey}
           onOpenChange={(open) => { if (!open) setSending(null); }} onSent={() => void refresh()} />
       ) : null}

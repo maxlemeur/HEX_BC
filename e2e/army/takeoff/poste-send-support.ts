@@ -12,7 +12,8 @@ import type { DedicatedOwner } from "../local/dedicated-owner";
 // was read on several plans in one request, each plan published as the worker publishes its answers
 // (public.publish_takeoff_item_answers), as item-table-support.ts seeds one plan. The reading against a list is not
 // activated: the request, its dispatch, its claims and its publications run here through the database's own functions,
-// in one transaction that sets the activations they need and removes them before its commit. Fictional values only.
+// in one transaction that adds the activations they need and removes those it added before its commit, leaving the ones
+// it found. Fictional values only.
 
 export type SendSeedPlan = {
   /** Its file name; the plans are read in this order (the dispatcher's display-name order). */
@@ -169,11 +170,17 @@ from (select jsonb_build_object('schema_version', 1, 'preparation_revision', 1, 
     join public.plan_files f on f.id = (s.source ->> 'document_id')::uuid))) as snapshot) s;
 set local session_replication_role = origin;
 
--- What the second measuring order needs, for this transaction only.
-insert into private.takeoff_launch_activation (active_from) values (now() - interval '1 minute') on conflict do nothing;
-insert into private.takeoff_completion_activation (active_from) values (now() - interval '1 minute') on conflict do nothing;
-insert into private.takeoff_plan_dispatch_activation (active_from) values (now() - interval '1 minute') on conflict do nothing;
-insert into private.takeoff_item_list_order_activation (active_from) values (now() - interval '1 minute') on conflict do nothing;
+-- What the second measuring order needs, for this transaction only: the activations it adds are removed before its
+-- commit, and those it found stay as they were.
+create temporary table seed_activations_added (name text not null) on commit drop;
+with added as (insert into private.takeoff_launch_activation (active_from) values (now() - interval '1 minute') on conflict do nothing
+  returning 1) insert into seed_activations_added select 'launch' from added;
+with added as (insert into private.takeoff_completion_activation (active_from) values (now() - interval '1 minute') on conflict do nothing
+  returning 1) insert into seed_activations_added select 'completion' from added;
+with added as (insert into private.takeoff_plan_dispatch_activation (active_from) values (now() - interval '1 minute') on conflict do nothing
+  returning 1) insert into seed_activations_added select 'dispatch' from added;
+with added as (insert into private.takeoff_item_list_order_activation (active_from) values (now() - interval '1 minute') on conflict do nothing
+  returning 1) insert into seed_activations_added select 'item_list' from added;
 
 select outcome from public.launch_manual_takeoff_plan_request('${owner.tenantId}', '${ids.project}', '${owner.userId}', '${ids.intent}',
   'initial', null, ${text(host)}, ${literal(selection)}, ${literal(manifest)},
@@ -181,9 +188,10 @@ select outcome from public.launch_manual_takeoff_plan_request('${owner.tenantId}
   '${ids.planSet}', 1, array[${plans.map((plan) => `'${plan.fileId}'::uuid`).join(", ")}]);
 ${publications.join("\n")}
 
-delete from private.takeoff_item_list_order_activation;
-delete from private.takeoff_plan_dispatch_activation;
-delete from private.takeoff_launch_activation;
+delete from private.takeoff_item_list_order_activation where exists (select 1 from seed_activations_added where name = 'item_list');
+delete from private.takeoff_plan_dispatch_activation where exists (select 1 from seed_activations_added where name = 'dispatch');
+delete from private.takeoff_completion_activation where exists (select 1 from seed_activations_added where name = 'completion');
+delete from private.takeoff_launch_activation where exists (select 1 from seed_activations_added where name = 'launch');
 commit;
 select 'ITEM_SEND_SEEDED';
 `;

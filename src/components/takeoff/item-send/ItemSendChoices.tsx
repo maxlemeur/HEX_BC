@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 
 import { Alert } from "@/components/ui/alert";
 import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
@@ -106,6 +106,15 @@ export function ItemSendPageDecision({ point, decision, leftOut, invalid, labels
   // The note is committed once typing pauses: the preview is not computed again on every key.
   const [note, setNote] = useState(keepBoth?.note ?? "");
   const noteTyped = keepBoth !== null && (keepBoth.note ?? "") !== note;
+  // A note typed and not committed yet when this card goes (another gesture reads the preview again): committed then.
+  const unsaved = useRef<{ keepBoth: typeof keepBoth; note: string; onDecide: typeof onDecide }>({ keepBoth, note, onDecide });
+  useEffect(() => {
+    unsaved.current = { keepBoth, note, onDecide };
+  });
+  useEffect(() => () => {
+    const { keepBoth: decided, note: typed, onDecide: decide } = unsaved.current;
+    if (decided && (decided.note ?? "") !== typed) decide({ ...decided, note: typed || null });
+  }, []);
   const page = point.page;
   useEffect(() => {
     onNoteTyping?.(page, noteTyped);

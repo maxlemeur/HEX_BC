@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { ItemSendPreviewResponse } from "@/lib/takeoff/item-send-contracts";
 import {
   EMPTY_ITEM_SEND_CHOICES,
+  itemSendPageHolderChanged,
   itemSendPreviewChanges,
   itemSendRequestOf,
   reconcileItemSendChoices,
@@ -110,7 +111,30 @@ describe("the member's choices on the send of one plan", () => {
     const choices = withItemSendResolution(EMPTY_ITEM_SEND_CHOICES, entryPoint(), { kind: "use_retained" });
     const next = preview({ lines: [line({ entered: 15, quantity_before: 15 })] });
     const { choices: kept, dropped } = reconcileItemSendChoices(choices, next);
-    expect([kept.resolutions.size, dropped]).toEqual([0, ["« Lavabo » : votre choix ne s’applique plus, choisissez de nouveau."]]);
+    expect([kept.resolutions.size, dropped]).toEqual([0,
+      ["« Lavabo » : la ligne ou les quantités sur lesquelles vous aviez choisi ont changé, choisissez de nouveau."]]);
+  });
+
+  it("records what a choice is applied on, and drops it when another line or other quantities stand there", () => {
+    const choices = withItemSendResolution(EMPTY_ITEM_SEND_CHOICES, entryPoint(), { kind: "use_retained" });
+    const applied = line({ entered: 4, quantity_before: 4, quantity_after: 5 });
+    const first = reconcileItemSendChoices(choices, preview({ lines: [applied] }));
+    expect([first.dropped, first.choices.resolutions.get(`entry:${LAVABO}|together`)?.appliedOn]).toEqual([[],
+      { estimateItemId: LINE, entered: 4, measured: 5, retained: 5 }]);
+    // A proven line B holding the same entry, or the retained quantity moved on A: the member chooses again.
+    for (const now of [line({ ...applied, estimate_item_id: OTHER_LINE }), line({ ...applied, measured: 7, retained: 7, quantity_after: 7 })]) {
+      const next = reconcileItemSendChoices(first.choices, preview({ lines: [now] }));
+      expect([next.choices.resolutions.size, next.dropped]).toEqual([0,
+        ["« Lavabo » : la ligne ou les quantités sur lesquelles vous aviez choisi ont changé, choisissez de nouveau."]]);
+    }
+  });
+
+  it("says a page holder changed when its lines, their quantities or the items held moved", () => {
+    const page = { ...entryPoint("page:2"), kind: "page_decision" as const, label: null, item_id: null, facts: null, page: 2,
+      held_item_ids: [LAVABO], earlier_lines: [{ estimate_item_id: LINE, title: "Ancien apport", quantity: 3 }], options: [] };
+    expect(itemSendPageHolderChanged(page, { ...page, earlier_lines: [{ estimate_item_id: LINE, title: "Renommé", quantity: 3 }] })).toBe(false);
+    expect(itemSendPageHolderChanged(page, { ...page, earlier_lines: [{ estimate_item_id: LINE, title: "Ancien apport", quantity: 8 }] })).toBe(true);
+    expect(itemSendPageHolderChanged(page, { ...page, held_item_ids: [LAVABO, WC] })).toBe(true);
   });
 
   it("keeps a « laisser de côté » the new preview still shows left out", () => {

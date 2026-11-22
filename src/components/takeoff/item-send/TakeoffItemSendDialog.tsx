@@ -16,6 +16,7 @@ import type { ItemSendConfirmResponse, ItemSendPreviewResponse } from "@/lib/tak
 import type { ItemSendBreakdown, ItemSendChoice } from "@/lib/takeoff/item-send-plan";
 import {
   EMPTY_ITEM_SEND_CHOICES,
+  itemSendPageHolderChanged,
   itemSendPageKey,
   itemSendPreviewChanges,
   itemSendRequestOf,
@@ -72,6 +73,12 @@ export function TakeoffItemSendDialog(props: Props) {
 }
 
 const lockGuards = new Set(["item_send_draft_locked", "item_send_draft_lock_required"]);
+/**
+ * The confirmations whose answer was lost, by screen (member and plan), with the request they sent: reopening the same send
+ * with the same plan and choices sends them again under their key, so that the server replays the receipt of one that won.
+ */
+const uncertainIntents = new Map<string, { digest: string; id: string }>();
+const pageName = (page: number | null) => (page === null ? "Toutes les pages" : `Page ${page}`);
 const guardOf = (error: unknown) => (isTakeoffApiError(error) && error.details && typeof error.details === "object"
   ? (error.details as { guard?: unknown }).guard : undefined);
 
@@ -89,12 +96,19 @@ function TakeoffItemSendScreen({ open, jobId, planName, viewerKey, onOpenChange,
   // The pages whose note is being typed: the confirmation waits for it to reach the preview.
   const [typing, setTyping] = useState<ReadonlySet<string>>(new Set());
   const pending = useRef(false);
+  const screen = `${viewerKey}:${jobId}`;
   // One intention key per plan and choices confirmed: a retry of the same request replays its receipt (the server answers it
-  // only for the same plan and the same choices), another plan or other choices get a new key.
-  const intent = useRef<{ digest: string; id: string } | null>(null);
+  // only for the same plan and the same choices), another plan or other choices get a new key. A lost answer's key outlives
+  // the screen.
+  const intent = useRef<{ digest: string; id: string } | null>(uncertainIntents.get(screen) ?? null);
+  // The leases this send took, a lost answer's included: released after each confirmation and when the screen goes; a lease
+  // the member already held is only renewed, never released.
+  const leases = useRef(new Set<string>());
+  useEffect(() => () => {
+    for (const versionId of leases.current) void releaseEstimateDraftLock(versionId).catch(() => false);
+  }, []);
   // A preview found stale: the one shown before it, and the choices dropped since, said with the next one.
   const stale = useRef<{ from: Preview; dropped: string[] } | null>(null);
-  const screen = `${viewerKey}:${jobId}`;
   const start = useCompletions({ screen, item: String(ask.read) });
 
   /** A new request: read again only when what the server is asked changes (or the member asks to try again). */
@@ -109,17 +123,50 @@ function TakeoffItemSendScreen({ open, jobId, planName, viewerKey, onOpenChange,
     const read = ask.read;
     const completion = start({ screen, item: String(read) });
     const controller = new AbortController();
-    void previewTakeoffItemSend(jobId, itemSendRequestOf(ask), { signal: controller.signal }).then((data) => {
+    const request = itemSendRequestOf(ask);
+    // With page decisions, what each decided page holds now is read too, without them: a decision whose page holds
+    // something else than when it was taken is asked again (« Remplacer » would take out something else).
+    const holders = request.page_decisions?.length
+      ? previewTakeoffItemSend(jobId, itemSendRequestOf({ ...ask, choices: { ...ask.choices, pageDecisions: new Map() } }),
+        { signal: controller.signal })
+      : Promise.resolve(null);
+    void Promise.all([previewTakeoffItemSend(jobId, request, { signal: controller.signal }), holders]).then(([data, bare]) => {
       if (!completion.current()) return;
+      const fresh = (bare?.to_resolve ?? []).filter((point) => point.kind === "page_decision");
+      const movedPages = [...ask.choices.pageDecisions.keys()].filter((key) => {
+        const before = heldPoints.get(key);
+        const now = fresh.find((point) => itemSendPageKey(point.page) === key);
+        return before !== undefined && now !== undefined && itemSendPageHolderChanged(before, now);
+      });
+      if (fresh.length > 0) {
+        setHeldPoints((currentPoints) => {
+          const next = new Map(currentPoints);
+          for (const point of fresh) next.set(itemSendPageKey(point.page), point);
+          return next;
+        });
+      }
       // The choices the new preview still applies; a dropped one is said, and the preview read again without it.
-      const { dropped } = reconcileItemSendChoices(ask.choices, data);
+      const reconciled = reconcileItemSendChoices(ask.choices, data);
+      const dropped = [...reconciled.dropped, ...movedPages.map((key) => `${pageName(heldPoints.get(key)?.page ?? null)} : ce qu’elle `
+        + "tient au devis a changé depuis votre décision, décidez de nouveau.")];
+      const withoutMoved = (choices: Ask["choices"]) => {
+        if (movedPages.length === 0) return choices;
+        const pageDecisions = new Map(choices.pageDecisions);
+        for (const key of movedPages) pageDecisions.delete(key);
+        return { ...choices, pageDecisions };
+      };
       if (dropped.length > 0) {
         if (stale.current) stale.current.dropped.push(...dropped);
         else setNotice({ text: "Certains choix ne s’appliquent plus.", changes: dropped });
         // On the choices as they are now (a page decision begun meanwhile stays), read again without the dropped ones.
-        setAsk((current) => (current.read === read
-          ? { ...current, choices: reconcileItemSendChoices(current.choices, data).choices, read: read + 1 } : current));
+        setAsk((currentAsk) => (currentAsk.read === read ? { ...currentAsk,
+          choices: withoutMoved(reconcileItemSendChoices(currentAsk.choices, data).choices), read: read + 1 } : currentAsk));
         return;
+      }
+      // What each kept choice is applied on, recorded with this read (the request does not change: no new read).
+      if (reconciled.choices !== ask.choices) {
+        setAsk((currentAsk) => (currentAsk.read === read
+          ? { ...currentAsk, choices: reconcileItemSendChoices(currentAsk.choices, data).choices } : currentAsk));
       }
       if (stale.current) {
         const changes = [...itemSendPreviewChanges(stale.current.from, data), ...stale.current.dropped];
@@ -201,27 +248,34 @@ function TakeoffItemSendScreen({ open, jobId, planName, viewerKey, onOpenChange,
     const request = itemSendRequestOf(ask);
     const requestKey = `${digest}:${JSON.stringify(request)}`;
     if (intent.current?.digest !== requestKey) intent.current = { digest: requestKey, id: crypto.randomUUID() };
+    const key = intent.current;
     const completion = start({ screen, item: String(ask.read) });
     const lockVersionId = data.destination?.kind === "existing_draft" ? data.destination.version_id : null;
-    let release = false;
     let response: ItemSendConfirmResponse | null = null;
     let failure: unknown = null;
     let lockRefused: string | null = null;
     try {
       if (lockVersionId) {
         const lock = await ensureTakeoffApplyDraftLock(lockVersionId);
+        // A lease this send took, also when the answer granting it was lost: it is released below.
+        if (lock.shouldRelease || lock.acquireAttempted) leases.current.add(lockVersionId);
         if (!lock.acquired) {
-          lockRefused = `${lock.errorMessage ?? "Le brouillon est verrouillé."} L’envoi y sera possible quand ce brouillon sera libéré. `
-            + "Rien n’a été écrit.";
+          lockRefused = lock.lockedByOther
+            ? `${lock.errorMessage ?? "Le brouillon est verrouillé."} L’envoi y sera possible quand ce brouillon sera libéré. Rien n’a été écrit.`
+            : `${lock.errorMessage ?? "Le brouillon n’a pas pu vous être réservé."} Rien n’a été écrit : réessayez.`;
           return;
         }
-        release = lock.shouldRelease;
+        // The member left this send while the lease was taken: nothing is posted.
+        if (!completion.ownScreen()) return;
       }
-      response = await confirmTakeoffItemSend(jobId, { ...request, request_id: intent.current.id, plan_digest: digest });
+      response = await confirmTakeoffItemSend(jobId, { ...request, request_id: key.id, plan_digest: digest });
     } catch (error) {
       failure = error;
     } finally {
-      if (release && lockVersionId) await releaseEstimateDraftLock(lockVersionId).catch(() => false);
+      if (lockVersionId && leases.current.has(lockVersionId)) {
+        const released = await releaseEstimateDraftLock(lockVersionId).then(() => true, () => false);
+        if (released) leases.current.delete(lockVersionId);
+      }
       // After a success the button stays off until the editor opens: the same plan is never confirmed twice from here.
       if (!response) pending.current = false;
       if (completion.ownScreen()) {
@@ -230,13 +284,22 @@ function TakeoffItemSendScreen({ open, jobId, planName, viewerKey, onOpenChange,
       }
       if (lockRefused && completion.ownScreen()) setSubmitError(lockRefused);
     }
+    // A lost answer (network, timeout, server): its key and request are kept for the same send, also once reopened.
+    const lost = failure !== null && (!isTakeoffApiError(failure) || failure.status === 408 || failure.status >= 500);
+    if (lost) uncertainIntents.set(screen, key);
+    else if (response || failure) uncertainIntents.delete(screen);
     if (response) {
-      toast.success({ title: `Plan « ${shownPlan} » envoyé au devis`,
-        description: `${plural(response.lines_written, "ligne écrite", "lignes écrites")}${response.version_created ? ", premier brouillon créé" : ""}.` });
-      onSent?.(response);
+      const title = `Plan « ${shownPlan} » envoyé au devis`;
+      const description = `${plural(response.lines_written, "ligne écrite", "lignes écrites")}`
+        + `${response.version_created ? ", premier brouillon créé" : ""}.`;
       if (completion.ownScreen()) {
         router.push(takeoffItemSendLandingHref(response.version_id,
           { lines_written: response.focus_item_id ? [response.focus_item_id] : [], sections_created: [] }));
+        toast.success({ title, description });
+        onSent?.(response);
+      } else {
+        // Written while the member was elsewhere: said where they are, without moving them nor touching the screen they left.
+        toast.success({ title, description: `${description} Le devis n’a pas été ouvert : vous aviez quitté cet envoi.` });
       }
       return;
     }
@@ -305,7 +368,8 @@ function TakeoffItemSendScreen({ open, jobId, planName, viewerKey, onOpenChange,
               <>
                 <ItemSendDestination data={data} disabled={disabled}
                   onChange={(destination) => update((currentAsk) => ({ ...currentAsk, destination, choices: EMPTY_ITEM_SEND_CHOICES }))} />
-                <ItemSendBreakdownChoice value={data.breakdown} disabled={disabled || data.blocked !== null}
+                <ItemSendBreakdownChoice value={data.breakdown}
+                  disabled={disabled || (data.blocked !== null && data.blocked.reason !== "no_line")}
                   onChange={(breakdown) => update((currentAsk) => ({ ...currentAsk, breakdown, destination: data.destination ?? undefined }))} />
               </>
             ) : null}

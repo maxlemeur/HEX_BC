@@ -41,7 +41,8 @@ export function useItemListSend(input: { projectId: string; jobId: string; viewe
           ) : null}
         </div>
       </Alert>
-      {open ? (
+      {/* Withdrawn as soon as a fresh read no longer lets this member send this plan. */}
+      {open && canSend ? (
         <TakeoffItemSendDialog open jobId={input.jobId} planName={unit.name} viewerKey={input.viewerKey}
           onOpenChange={(next) => { if (!next) setOpen(false); }} onSent={input.onSent} />
       ) : null}

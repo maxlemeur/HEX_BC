@@ -14,9 +14,16 @@ type KeepBothReason = (typeof ITEM_SEND_KEEP_BOTH_REASONS)[number];
 export type ItemSendPendingPageDecision = { page: number | null; decision: "replace" }
   | { page: number | null; decision: "keep_both"; reasonCode: KeepBothReason | null; note: string | null };
 
+/**
+ * What a choice was applied on, once a preview showed it applied: its line and the quantities shown. A choice is kept
+ * across a new preview only while they are the same; otherwise the member chooses again.
+ */
+export type ItemSendAppliedOn = { estimateItemId: string | null; entered: number | null; measured: number; retained: number };
+type Resolution = { choice: ItemSendChoice; point: ToResolve; appliedOn?: ItemSendAppliedOn };
+
 export type ItemSendScreenChoices = {
   /** Each explicit choice, by the key of the point it answers, with that point as it was shown. */
-  resolutions: ReadonlyMap<string, { choice: ItemSendChoice; point: ToResolve }>;
+  resolutions: ReadonlyMap<string, Resolution>;
   /** Each page decision, by its page. */
   pageDecisions: ReadonlyMap<string, ItemSendPendingPageDecision>;
 };
@@ -74,56 +81,83 @@ const onPage = (pages: readonly number[], page: number | null) => page === null 
 const pointName = (point: ToResolve) => (point.label ? `« ${point.label} »` : point.page !== null ? `Page ${point.page}` : "Un point");
 const pageName = (page: number | null) => (page === null ? "Toutes les pages" : `Page ${page}`);
 
+type Line = ItemSendPreviewResponse["lines"][number];
+type Outcome = { kind: "kept"; appliedOn: ItemSendAppliedOn | null } | { kind: "moved" | "changed" | "gone" };
+
 /**
  * Whether the preview shows the choice applied: the line it feeds as chosen, the item left out, or what the choice led to
- * (a second point on the same item, a line suspended, a part that cannot be cut). « kept » when it is applied, « moved »
- * when its point is still there but about another value (an entry typed again since), « gone » when its point is gone.
+ * (a second point on the same item, a line suspended, a part that cannot be cut). « kept » when it is applied on what it
+ * was made on; « moved » when its point is asked again; « changed » when the line or the quantities it was made on are no
+ * longer those (another line, an entry typed again, another measure or retained quantity); « gone » when its point is gone.
  */
-function outcomeOf(key: string, choice: ItemSendChoice, point: ToResolve, response: ItemSendPreviewResponse): "kept" | "moved" | "gone" {
+function outcomeOf(key: string, entry: Resolution, response: ItemSendPreviewResponse): Outcome {
+  const { choice, point } = entry;
   if (choice.kind === "leave_out" && point.kind === "page_decision") {
-    return response.parts_not_sent.some((part) => part.reason === "left_out" && onPage(part.pages, point.page)) ? "kept" : "gone";
+    return response.parts_not_sent.some((part) => part.reason === "left_out" && onPage(part.pages, point.page))
+      ? { kind: "kept", appliedOn: null } : { kind: "gone" };
   }
   const item = lower(point.item_id);
-  const notSent = response.not_sent.filter((entry) => lower(entry.item_id) === item);
+  const notSent = response.not_sent.filter((candidate) => lower(candidate.item_id) === item);
   if (choice.kind === "leave_out") {
-    return notSent.some((entry) => entry.reason === "left_out")
-      || response.parts_not_sent.some((part) => lower(part.item_id) === item && part.reason === "left_out") ? "kept" : "gone";
+    return notSent.some((candidate) => candidate.reason === "left_out")
+      || response.parts_not_sent.some((part) => lower(part.item_id) === item && part.reason === "left_out")
+      ? { kind: "kept", appliedOn: null } : { kind: "gone" };
   }
   const targetKey = key.slice(key.indexOf(":") + 1);
   const line = response.lines.find((candidate) => candidate.key === targetKey);
   if (line && key.startsWith("entry:")) {
-    // The member chose about the quantity typed then: typed again since, the choice is no longer theirs.
-    if (point.facts?.entered !== null && point.facts?.entered !== undefined && line.entered !== null && line.entered !== point.facts.entered) {
-      return "moved";
-    }
+    // The member chose about the line typed then, at the quantities shown then: a change of either asks again.
+    if (!sameQuantities(point, line) || (entry.appliedOn && !sameAppliedOn(entry.appliedOn, line))) return { kind: "changed" };
     if (choice.kind === "keep_entry" ? line.kept_entry : choice.kind === "use_retained" && line.entered !== null && !line.kept_entry) {
-      return "kept";
+      return { kind: "kept", appliedOn: appliedOnOf(line) };
     }
   }
   if (line && key.startsWith("target:")) {
     if (choice.kind === "line" ? lower(line.estimate_item_id) === lower(choice.estimateItemId)
-      : choice.kind === "new_line" && line.change === "created") return "kept";
+      : choice.kind === "new_line" && line.change === "created") return { kind: "kept", appliedOn: null };
   }
   // What the choice led to: another point asked about the same item, the line suspended by the server, a part not cut.
-  if (response.to_resolve.some((other) => other.key !== key && lower(other.item_id) === item)) return "kept";
-  if (notSent.some((entry) => entry.reason === "entry_suspended")) return "kept";
-  if (response.invalid_page_decisions.some((invalid) => invalid.reason === "part_indivisible")) return "kept";
-  return "gone";
+  if (response.to_resolve.some((other) => other.key !== key && lower(other.item_id) === item)) return { kind: "kept", appliedOn: null };
+  if (notSent.some((candidate) => candidate.reason === "entry_suspended")) return { kind: "kept", appliedOn: null };
+  if (response.invalid_page_decisions.some((invalid) => invalid.reason === "part_indivisible")) return { kind: "kept", appliedOn: null };
+  return { kind: "gone" };
+}
+
+const appliedOnOf = (line: Line): ItemSendAppliedOn => ({ estimateItemId: line.estimate_item_id, entered: line.entered,
+  measured: line.measured, retained: line.retained });
+const sameAppliedOn = (on: ItemSendAppliedOn, line: Line) => lower(on.estimateItemId) === lower(line.estimate_item_id)
+  && on.entered === line.entered && on.measured === line.measured && on.retained === line.retained;
+/** The quantities the point showed when the member chose: typed, measured and retained. */
+function sameQuantities(point: ToResolve, line: Line) {
+  const facts = point.facts;
+  if (!facts) return true;
+  // An entry gone (the line holds what the sends wrote again) is a point gone, not a choice about another entry.
+  if (line.entered === null) return true;
+  return facts.entered === line.entered && facts.measured === line.measured && facts.retained === line.retained;
 }
 
 /**
- * After a new preview (a stale one read again): the choices it still applies, and a sentence for each one dropped,
- * because its point is asked again (its option is no longer offered), because it was about a value that changed since,
- * because its point is gone, or because its page no longer waits for a decision.
+ * After a new preview (a stale one read again): the choices it still applies, each with what it is applied on, and a
+ * sentence for each one dropped, because its point is asked again (its option is no longer offered), because the line
+ * or the quantities it was made on changed since, because its point is gone, or because its page no longer waits for a
+ * decision.
  */
 export function reconcileItemSendChoices(choices: ItemSendScreenChoices, response: ItemSendPreviewResponse) {
   const dropped: string[] = [];
-  const resolutions = new Map<string, { choice: ItemSendChoice; point: ToResolve }>();
+  const resolutions = new Map<string, Resolution>();
+  let recorded = false;
   for (const [key, entry] of choices.resolutions) {
-    const outcome = response.to_resolve.some((point) => point.key === key) ? "moved" : outcomeOf(key, entry.choice, entry.point, response);
-    if (outcome === "kept") resolutions.set(key, entry);
-    else dropped.push(outcome === "moved" ? `${pointName(entry.point)} : votre choix ne s’applique plus, choisissez de nouveau.`
-      : `${pointName(entry.point)} : ce point n’est plus à trancher.`);
+    const outcome: Outcome = response.to_resolve.some((point) => point.key === key) ? { kind: "moved" } : outcomeOf(key, entry, response);
+    if (outcome.kind === "kept") {
+      const appliedOn = entry.appliedOn ?? outcome.appliedOn ?? undefined;
+      recorded ||= appliedOn !== entry.appliedOn;
+      resolutions.set(key, appliedOn ? { ...entry, appliedOn } : entry);
+    } else {
+      dropped.push(outcome.kind === "moved" ? `${pointName(entry.point)} : votre choix ne s’applique plus, choisissez de nouveau.`
+        : outcome.kind === "changed" ? `${pointName(entry.point)} : la ligne ou les quantités sur lesquelles vous aviez choisi ont changé, `
+          + "choisissez de nouveau."
+          : `${pointName(entry.point)} : ce point n’est plus à trancher.`);
+    }
   }
   const pageDecisions = new Map<string, ItemSendPendingPageDecision>();
   for (const [key, decision] of choices.pageDecisions) {
@@ -133,8 +167,19 @@ export function reconcileItemSendChoices(choices: ItemSendScreenChoices, respons
       pageDecisions.set(key, decision);
     }
   }
-  if (dropped.length === 0) return { choices, dropped };
+  if (dropped.length === 0 && !recorded) return { choices, dropped };
   return { choices: { resolutions, pageDecisions } satisfies ItemSendScreenChoices, dropped };
+}
+
+/**
+ * Whether what a page holds in the estimate changed since the member decided it: its lines or their quantities, or the
+ * items of this plan held on it. A decision is asked again then: « Remplacer » would take out something else.
+ */
+export function itemSendPageHolderChanged(decidedOn: ToResolve, now: ToResolve) {
+  const lines = (point: ToResolve) => JSON.stringify([...point.earlier_lines].map((line) => [lower(line.estimate_item_id), line.quantity])
+    .sort((left, right) => String(left[0]).localeCompare(String(right[0]))));
+  const items = (point: ToResolve) => JSON.stringify([...point.held_item_ids].map(lower).sort());
+  return lines(decidedOn) !== lines(now) || items(decidedOn) !== items(now);
 }
 
 const quantity = new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 3 });

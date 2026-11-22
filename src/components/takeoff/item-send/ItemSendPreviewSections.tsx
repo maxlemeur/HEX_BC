@@ -158,8 +158,9 @@ export function ItemSendLines({ lines }: { lines: Preview["lines"] }) {
   return (
     <Section id="item-send-lines" title={`Lignes du devis après l’envoi (${lines.length})`}>
       <p className="text-sm text-muted-foreground">
-        « Déjà au devis » : ce que d’autres analyses y ont apporté, conservé. « Remplacé » : ce qu’un envoi précédent de ce même plan
-        y avait apporté, que cet envoi remplace. « Apport » : ce que ce plan apporte.
+        « Déjà au devis » : ce que d’autres analyses y ont apporté, conservé. « Remplacé » : ce qu’un envoi précédent y avait apporté
+        sur les pages que cet envoi couvre (de ce même plan, ou d’une page que vous remplacez), et qu’il retire. « Apport » : ce que
+        ce plan apporte.
       </p>
       <Sheet label="Lignes du devis après l’envoi">
         <thead>

@@ -344,6 +344,9 @@ export function TakeoffRequestActivity({ projectId, viewerKey, live, linked, onS
   }
 
   const coverage = current ? describeTakeoffRequestActivityCoverage(current) : null;
+  // The send stays open only while a fresh read still lets this member send that plan: a right withdrawn withdraws it.
+  const sendable = sending !== null && [current, ...olders].some((request) => request?.jobs
+    .some((job) => job.jobId === sending.jobId && job.canSendItems));
   const observedAt = live.data?.observedAt;
   const failedRead = Boolean(live.error) && Boolean(live.data);
 
@@ -426,7 +429,7 @@ export function TakeoffRequestActivity({ projectId, viewerKey, live, linked, onS
         <TakeoffPlanLocationDialog setId={locating.setId} fileId={locating.fileId} documentName={locating.name}
           open onOpenChange={(open) => { if (!open) setLocating(null); }} onSaved={() => undefined} />
       ) : null}
-      {sending ? (
+      {sending && sendable ? (
         <TakeoffItemSendDialog open jobId={sending.jobId} planName={sending.name} viewerKey={viewerKey}
           onOpenChange={(open) => { if (!open) setSending(null); }} onSent={onChanged} />
       ) : null}
