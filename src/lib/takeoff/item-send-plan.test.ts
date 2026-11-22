@@ -303,7 +303,7 @@ describe("planTakeoffItemSend — DPGF targets and entries", () => {
     expect(plan.sections).toEqual([]);
   });
 
-  it("finds the line of a remapped import through its raw row, and asks a choice for a line deleted or of an older import", () => {
+  it("finds the line of a remapped import through its raw row, asks a choice for a line deleted, never offers an older import's", () => {
     const remapped = planTakeoffItemSend(input({ items: [ef], answers: [measured(ef, [{ quantity: 5, page: 1 }])],
       destination: draft([dpgfLine(20, "mapped-other", "raw-20", 4)]) }));
     expect(remapped.targets[0].line).toEqual(expect.objectContaining({ kind: "dpgf_line", estimateItemId: lineId(20) }));
@@ -316,7 +316,9 @@ describe("planTakeoffItemSend — DPGF targets and entries", () => {
     const older = planTakeoffItemSend(input({ items: [ef], answers: [measured(ef, [{ quantity: 5, page: 1 }])],
       destination: draft([dpgfLine(23, "mapped-23", "raw-20", 4, { dpgf: { importId: OLD_IMPORT, mappedRowId: "mapped-23",
         rawRowId: "raw-20", reference: 4, composition: { version: 0 } } })]) }));
-    expect(older.toResolve[0]).toEqual(expect.objectContaining({ kind: "target_missing" }));
+    // A line of another import is never this item's (point 5 of #484's review): with no line of the item's own import, the
+    // list's DPGF must be imported first, as the writer refuses it (dpgf_import_required).
+    expect([older.blocker, older.toResolve]).toEqual([{ reason: "dpgf_import_required", engine: 3 }, []]);
     // The member's explicit choice of a line offered: the line receives the send, nothing else.
     const chosen = planTakeoffItemSend(input({ items: [ef], answers: [measured(ef, [{ quantity: 5, page: 1 }])],
       destination: draft([dpgfLine(22, "mapped-22", "raw-22", 1)]),
@@ -800,5 +802,103 @@ describe("itemSendPlanCanonical — closing changes (closing 8)", () => {
     const pipeAnswer = measured(pipe, [{ quantity: 2, page: 1 }]);
     const of = (item: ItemSendListItem) => itemSendPlanCanonical(planTakeoffItemSend(input({ items: [item], answers: [pipeAnswer], stamps })).writePlan!);
     expect(of(pipe)).not.toBe(of(other));
+  });
+});
+
+describe("planTakeoffItemSend — fix round 1 of #484, twins of the writer's rules", () => {
+  const PLAN = "plan-a";
+  const earlierLine = line(40, { quantity: 3 });
+  const own = (observation: string, quantity: number, pages: number[], overrides: Partial<EarlierPart> = {}) =>
+    part({ jobId: OTHER_JOB, answerId: "answer-earlier", observationIds: [observation], quantity, pages, planKey: PLAN, ...overrides });
+  const fedBy = (parts: EarlierPart[]) => ({ targets: [{ itemId: lavabo.id, breakdown: "together" as const, compartmentKey: "together",
+    estimateItemId: earlierLine.id, parts }], sections: [] });
+  const reread = (extra: Partial<ItemSendAnswer> = {}) => measured(lavabo, [{ quantity: 2, page: 2 }, { quantity: 1, page: 7 }],
+    { searchedPages: [2, 7], ...extra });
+  const today = (page: number, lines: string[] = ["50000000-0000-4000-8000-000000000099"]) => ({ page, earlierJobIds: [OTHER_JOB],
+    estimateItemIds: lines, today: true, todayEstimateItemIds: lines, parts: [] });
+
+  it("replaces this plan's earlier parts on the pages the confirmation covers only: 2 + 1 = 3, never 1 (point 1)", () => {
+    const plan = planTakeoffItemSend(input({ items: [lavabo], answers: [reread()], plan: { key: PLAN, name: "Plan A", location: null, pages: [2, 7] },
+      destination: draft([earlierLine]), earlier: fedBy([own("obs-2", 2, [2]), own("obs-7", 1, [7])]), pagesInEstimate: [today(2)],
+      resolutions: [{ key: "page:2", choice: { kind: "leave_out" } }] }));
+    expect(plan.confirmable).toBe(true);
+    expect(plan.targets[0].replaces).toEqual([{ jobId: OTHER_JOB, answerId: "answer-earlier", observationIds: ["obs-7"], quantity: 1 }]);
+    expect(plan.targets[0].quantity).toEqual(expect.objectContaining({ before: 3, earlier: 2, replaced: 1, added: 1, after: 3 }));
+    expect(plan.partsNotSent).toEqual([expect.objectContaining({ itemId: lavabo.id, pages: [2], reason: "left_out" })]);
+  });
+
+  it("retires what a page searched with nothing found had brought: it is covered", () => {
+    const plan = planTakeoffItemSend(input({ items: [lavabo], plan: { key: PLAN, name: "Plan A", location: null, pages: [2, 7] },
+      answers: [measured(lavabo, [{ quantity: 1, page: 7 }], { searchedPages: [2, 7] })], destination: draft([earlierLine]),
+      earlier: fedBy([own("obs-2", 2, [2]), own("obs-7", 1, [7])]) }));
+    expect(plan.targets[0].quantity).toEqual(expect.objectContaining({ replaced: 3, added: 1, after: 1 }));
+  });
+
+  it("compares the identity with the parts that stay, never with those replaced (point 4, finding 4)", () => {
+    const stored = { unit: "u", basis: "surface au sol", network: null, material: null, diameter: null };
+    const replaced = planTakeoffItemSend(input({ items: [lavabo], answers: [reread()], plan: { key: PLAN, name: "Plan A", location: null, pages: [2, 7] },
+      destination: draft([earlierLine]), earlier: fedBy([own("obs-2", 2, [2], { identity: stored }), own("obs-7", 1, [7], { identity: stored })]) }));
+    expect(replaced.toResolve).toEqual([]);
+    expect(replaced.targets[0].quantity.after).toBe(3);
+    const kept = planTakeoffItemSend(input({ items: [lavabo], answers: [reread()], plan: { key: PLAN, name: "Plan A", location: null, pages: [2, 7] },
+      destination: draft([earlierLine]), earlier: fedBy([own("obs-9", 2, [9], { planKey: "plan-other", identity: stored })]) }));
+    expect(kept.toResolve).toEqual([expect.objectContaining({ kind: "identity_conflict" })]);
+  });
+
+  it("recreates a line the editor deleted only by choice, and retires the parts still live on its target (point 8)", () => {
+    const displaced = { itemId: lavabo.id, breakdown: "together" as const, compartmentKey: "together", parts: [own("obs-2", 3, [2])] };
+    const asked = planTakeoffItemSend(input({ items: [lavabo], answers: [reread()], plan: { key: PLAN, name: "Plan A", location: null, pages: [2, 7] },
+      destination: draft([]), earlier: { targets: [], sections: [], displaced: [displaced] } }));
+    expect(asked.toResolve).toEqual([expect.objectContaining({ kind: "target_missing", options: [{ kind: "new_line" }, { kind: "leave_out" }] })]);
+    const recreated = planTakeoffItemSend(input({ items: [lavabo], answers: [reread()], plan: { key: PLAN, name: "Plan A", location: null, pages: [2, 7] },
+      destination: draft([]), earlier: { targets: [], sections: [], displaced: [displaced] },
+      resolutions: [{ key: asked.toResolve[0].key, choice: { kind: "new_line" } }] }));
+    expect(recreated.targets[0]).toEqual(expect.objectContaining({ line: expect.objectContaining({ kind: "new_line" }),
+      replaces: [{ jobId: OTHER_JOB, answerId: "answer-earlier", observationIds: ["obs-2"], quantity: 3 }] }));
+    expect(recreated.writePlan!.dependencies.resolutions).toEqual([{ key: asked.toResolve[0].key, choice: { kind: "new_line" } }]);
+  });
+
+  it("sends nothing of an answer a later reading of the plan replaced", () => {
+    const plan = planTakeoffItemSend(input({ items: [lavabo], answers: [reread({ current: false })] }));
+    expect(plan.notSent).toEqual([expect.objectContaining({ itemId: lavabo.id, reason: "superseded" })]);
+    expect(plan.targets).toEqual([]);
+  });
+
+  it("sends a held page's parts with its decision, and judges the decision as the writer does (point 3)", () => {
+    const other = (pages: number[]) => ({ partId: "part-other", jobId: OTHER_JOB, itemId: lavabo.id, planKey: "plan-other", pages,
+      estimateItemId: earlierLine.id, answerId: "answer-other", observationIds: ["obs-other"] });
+    const held = (pages: number[]) => ({ page: 2, earlierJobIds: [OTHER_JOB], estimateItemIds: [earlierLine.id], today: false,
+      todayEstimateItemIds: [], parts: [other(pages)] });
+    const earlier = fedBy([part({ jobId: OTHER_JOB, answerId: "answer-other", observationIds: ["obs-other"], quantity: 4, pages: [2],
+      planKey: "plan-other" })]);
+    const base = { items: [lavabo], answers: [reread()], plan: { key: PLAN, name: "Plan A", location: null, pages: [2, 7] },
+      destination: draft([line(40, { quantity: 4 })]), earlier };
+    const undecided = planTakeoffItemSend(input({ ...base, pagesInEstimate: [held([2])] }));
+    expect(undecided.toResolve).toEqual([expect.objectContaining({ kind: "page_decision", page: 2 })]);
+    const replace = planTakeoffItemSend(input({ ...base, pagesInEstimate: [held([2])], pageDecisions: [{ page: 2, decision: "replace" }] }));
+    expect(replace.confirmable).toBe(true);
+    expect(replace.targets[0].replaces).toEqual([{ jobId: OTHER_JOB, answerId: "answer-other", observationIds: ["obs-other"], quantity: 4 }]);
+    expect(replace.targets[0].quantity.after).toBe(3);
+    expect(replace.writePlan!.page_decisions).toEqual([{ page: 2, decision: "replace", reason_code: null, note: null }]);
+    const keepBoth = planTakeoffItemSend(input({ ...base, pagesInEstimate: [held([2])],
+      pageDecisions: [{ page: 2, decision: "keep_both", reasonCode: "other_zone", note: null }] }));
+    expect(keepBoth.invalidDecisions).toEqual([{ page: 2, reason: "keep_both_same_line" }]);
+    expect(keepBoth.confirmable).toBe(false);
+    const uncut = planTakeoffItemSend(input({ ...base, pagesInEstimate: [held([2, 5])], pageDecisions: [{ page: 2, decision: "replace" }] }));
+    expect(uncut.invalidDecisions).toEqual([{ page: null, reason: "part_indivisible" }]);
+    const todayPage = planTakeoffItemSend(input({ ...base, pagesInEstimate: [today(2)], pageDecisions: [{ page: 2, decision: "replace" }] }));
+    expect(todayPage.invalidDecisions).toEqual([{ page: 2, reason: "replace_not_cuttable" }]);
+  });
+
+  it("binds the mapping rules' stamp in the write plan, and names a renamed line by its rule, else by the list's label (point 6)", () => {
+    const rules = projectItemSendRules([lavabo], [{ id: "rule-1", tenant_id: "t", created_at: "2026-01-01T00:00:00.000Z",
+      updated_at: "2026-01-02T00:00:00.000Z", created_by: "m", name: "Renommer", match_pattern: "lavabo", match_type: "contains",
+      action: "rename", action_params: { designation: "Lavabo PMR" }, priority: 1, is_active: true } as TakeoffMappingRule]);
+    const plan = planTakeoffItemSend(input({ items: [lavabo], answers: [measured(lavabo, [{ quantity: 3, page: 2 }])], rules,
+      stamps: { job: "job-stamp", peers: null, context: null, dpgf: [], firstDraftSettings: null, destination: null, mapping: "mapping-stamp" } }));
+    expect(plan.writePlan!.dependencies.stamps.mapping).toBe("mapping-stamp");
+    expect(plan.writePlan!.dependencies.rules).toEqual([{ item_id: lavabo.id, rule_id: "rule-1", rule_version: "2026-01-02T00:00:00.000Z",
+      action: "rename", effect: "renamed" }]);
+    expect(plan.targets[0].line).toEqual(expect.objectContaining({ title: "Lavabo PMR" }));
   });
 });

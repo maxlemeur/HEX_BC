@@ -86,6 +86,13 @@ export type ItemSendAnswer = {
   decision: { kind: "accepted" | "set_aside"; revision: number } | null;
   /** A quantity a member entered for this plan; an hypothesis counts only once included by its own decision. */
   entry: { revision: number; quantity: number; unit: string; category: string; included: boolean } | null;
+  /**
+   * The pages its reading searched (B1): what a confirmation covers on its plan, with the held pages it decides. Absent:
+   * every page of the plan's unit.
+   */
+  searchedPages?: readonly number[];
+  /** False when a later reading of the same plan replaced this answer: nothing of it is sent (B2's current answer). */
+  current?: boolean;
 };
 
 export type ItemSendLocationField = { value: string | null; state: "proposed" | "confirmed" | "corrected" | "unknown" | "multiple" };
@@ -108,6 +115,8 @@ export type ItemSendDraftLine = {
    */
   dpgf: {
     importId: string | null;
+    /** The import the line's provenance names (source_metadata.import_id): the line is of that import. Absent: importId. */
+    metadataImportId?: string | null;
     mappedRowId: string | null;
     rawRowId: string | null;
     reference: number | null;
@@ -127,7 +136,8 @@ export type ItemSendDestinationState =
  */
 export type ItemSendEarlierTarget = {
   itemId: string;
-  breakdown: ItemSendBreakdown;
+  /** « dpgf » for a DPGF line's target. */
+  breakdown: ItemSendBreakdown | "dpgf";
   compartmentKey: string;
   estimateItemId: string;
   parts: ReadonlyArray<{
@@ -140,12 +150,33 @@ export type ItemSendEarlierTarget = {
     qualifiers: Pick<PosteQualifiers, "network" | "material" | "diameter">;
     pages: readonly number[];
     planKey: string | null;
+    /** The identity the part was stored with (migration C): the one compared and echoed, never derived again. */
+    identity?: ItemSendIdentity;
   }>;
 };
 export type ItemSendEarlierSection = { key: string; estimateItemId: string };
+/** A target whose line the editor deleted, with the parts still live on it: a recreation, by choice, retires them. */
+export type ItemSendDisplacedTarget = Omit<ItemSendEarlierTarget, "estimateItemId">;
 
-/** A page of this plan's document that another analysis already brought into the draft. */
-export type ItemSendPageInEstimate = { page: number | null; earlierJobIds: readonly string[]; estimateItemIds: readonly string[] };
+/** A live part an earlier send by item holds on a page of this plan's document, by item (the writer's page guard). */
+export type ItemSendHeldPart = { partId: string; jobId: string; itemId: string; planKey: string; pages: readonly number[];
+  estimateItemId: string; answerId: string; observationIds: readonly string[] };
+
+/**
+ * A page of this plan's document that another analysis already brought into the draft: through today's provenance (a
+ * reading with no part per item) or through the live parts of an earlier send by item. Absent `today` and `parts`: a
+ * page of today's provenance, its lines those of `estimateItemIds`.
+ */
+export type ItemSendPageInEstimate = { page: number | null; earlierJobIds: readonly string[]; estimateItemIds: readonly string[];
+  today?: boolean; todayEstimateItemIds?: readonly string[]; parts?: readonly ItemSendHeldPart[] };
+
+export const ITEM_SEND_KEEP_BOTH_REASONS = ["other_zone", "other_trade", "complementary_scope"] as const;
+/**
+ * The member's decision for a page held, taken at the confirmation: « Remplacer » (its earlier parts of the items this
+ * plan sends there leave the line), or « Garder les deux » with its reason (a complementary scope says why in a note).
+ */
+export type ItemSendPageDecision = { page: number | null; decision: "replace" }
+  | { page: number | null; decision: "keep_both"; reasonCode: (typeof ITEM_SEND_KEEP_BOTH_REASONS)[number]; note: string | null };
 
 /**
  * What else the confirmation must find unchanged, which the server reads and the writer compares again: the job's rule
@@ -165,6 +196,8 @@ export type ItemSendStamps = {
   firstDraftSettings: Readonly<Record<string, unknown>> | null;
   /** The destination draft as today's send's expected state holds it; null for a first draft. */
   destination: { versionId: string; status: string; updatedAt: string } | null;
+  /** The tenant's mapping rules as a whole (public.takeoff_mapping_rules_stamp), read before the rules themselves. */
+  mapping?: string | null;
 };
 
 export type ItemSendChoice =
@@ -192,7 +225,8 @@ export type ItemSendInput = {
   /** Quantities entered for an item on the whole affaire: never added to one plan's measure. */
   affaireEntries: ReadonlyArray<{ itemId: string; revision: number }>;
   destination: ItemSendDestinationState;
-  earlier: { targets: readonly ItemSendEarlierTarget[]; sections: readonly ItemSendEarlierSection[] };
+  earlier: { targets: readonly ItemSendEarlierTarget[]; sections: readonly ItemSendEarlierSection[];
+    displaced?: readonly ItemSendDisplacedTarget[] };
   pagesInEstimate: readonly ItemSendPageInEstimate[];
   rules: ReadonlyMap<string, ItemSendRuleEffect>;
   breakdown: ItemSendBreakdown;
@@ -200,6 +234,8 @@ export type ItemSendInput = {
   affaireNamesBuilding: boolean;
   stamps: ItemSendStamps;
   resolutions: readonly ItemSendResolution[];
+  /** The page decisions the member takes with the confirmation (none for the preview of a plan never decided). */
+  pageDecisions?: readonly ItemSendPageDecision[];
 };
 
 // --------------------------------------------------------------------------------------------------------------- outputs
@@ -272,7 +308,7 @@ export type ItemSendTarget = {
 };
 
 export type ItemSendNotSentReason = "set_aside" | "not_accepted" | "not_found" | "uncertain" | "empty" | "unit_incompatible"
-  | "hypothesis_not_included" | "rule_skip" | "affaire_entry" | "no_answer" | "left_out" | "entry_suspended";
+  | "hypothesis_not_included" | "rule_skip" | "affaire_entry" | "no_answer" | "left_out" | "entry_suspended" | "superseded";
 export type ItemSendNotSent = { itemId: string; label: string; reason: ItemSendNotSentReason; ruleName: string | null };
 
 /** A part of an answer that does not enter the estimate, with what it would have brought. */
@@ -288,7 +324,7 @@ export type ItemSendPartNotSent = {
 };
 
 export type ItemSendToResolveKind = "target_missing" | "target_multiple" | "identity_conflict" | "entered_quantity"
-  | "breakdown_mixed" | "page_decision" | "section_depth" | "quantity_unwritable";
+  | "breakdown_mixed" | "page_decision" | "section_depth" | "quantity_unwritable" | "compartment_changed";
 export type ItemSendOption =
   | { kind: "line"; estimateItemId: string; title: string | null }
   | { kind: "new_line" }
@@ -326,6 +362,16 @@ export type ItemSendNotAdded = {
   itemId: string; observationId: string; role: "alternative" | "candidate"; quantity: number | null; unit: string | null; page: number | null;
 };
 
+/**
+ * A page decision the writer would refuse, named before anything is written: a page not held; « Remplacer » on a page
+ * of today's send (its reading has no part per item); « Garder les deux » onto a line that already holds that page from
+ * another reading (today's « Fusionner » match); an earlier part that also lies on a page the confirmation does not
+ * replace (it cannot be cut); a part a replaced page takes out that lies on a line this plan does not feed.
+ */
+export type ItemSendDecisionInvalidReason = "page_not_held" | "replace_not_cuttable" | "keep_both_same_line" | "part_indivisible"
+  | "part_elsewhere";
+export type ItemSendInvalidDecision = { page: number | null; reason: ItemSendDecisionInvalidReason };
+
 export type ItemSendRuleReport = { itemId: string; label: string; ruleId: string | null; ruleName: string | null;
   ruleVersion: string | null; action: ItemSendRuleAction; effect: ItemSendRuleEffectKind; assemblyId: string | null };
 
@@ -361,6 +407,7 @@ export type ItemSendWritePlan = {
     replaces: Array<{ job_id: string; answer_id: string | null; observation_ids: string[]; quantity: number }>;
   }>;
   page_contributions: Array<{ page: number; item_ids: string[]; target_keys: string[]; observation_ids: string[] }>;
+  page_decisions: Array<{ page: number | null; decision: "replace" | "keep_both"; reason_code: string | null; note: string | null }>;
   left_out: Array<{ item_id: string; reason: ItemSendNotSentReason; rule_id: string | null; rule_version: string | null }>;
   parts_not_sent: Array<{ item_id: string; kind: "measured" | "entered"; observation_ids: string[]; pages: number[]; quantity: number;
     unit: string | null; reason: ItemSendPartNotSent["reason"] }>;
@@ -371,7 +418,7 @@ export type ItemSendWritePlan = {
     rules: Array<{ item_id: string; rule_id: string; rule_version: string | null; action: ItemSendRuleAction; effect: ItemSendRuleEffectKind }>;
     location_generation: number | null;
     plan_pages: number[];
-    earlier_targets: Array<{ estimate_item_id: string; item_id: string; compartment_key: string; breakdown: ItemSendBreakdown;
+    earlier_targets: Array<{ estimate_item_id: string; item_id: string; compartment_key: string; breakdown: ItemSendBreakdown | "dpgf";
       parts: Array<{ job_id: string; answer_id: string | null; observation_ids: string[]; quantity: number; pages: number[];
         plan_key: string | null; identity: SnakeIdentity }> }>;
     lines: Array<{ estimate_item_id: string; updated_at: string; quantity: number; dpgf: { import_id: string | null; raw_row_id: string | null;
@@ -381,7 +428,8 @@ export type ItemSendWritePlan = {
       dpgf: Array<{ import_id: string; mapping_id: string | null; rows_sha256: string | null; updated_at: string; status: string;
         row_count: number }>;
       first_draft_settings: Readonly<Record<string, unknown>> | null;
-      destination: { version_id: string; status: string; updated_at: string } | null };
+      destination: { version_id: string; status: string; updated_at: string } | null;
+      mapping: string | null };
     resolutions: Array<{ key: string; choice: ItemSendChoice }>;
   };
 };
@@ -398,6 +446,8 @@ export type ItemSendPlan = {
   pageContributions: ItemSendPageContribution[];
   notAdded: ItemSendNotAdded[];
   rules: ItemSendRuleReport[];
+  /** Page decisions the writer would refuse: none is written while one is listed. */
+  invalidDecisions: ItemSendInvalidDecision[];
   confirmable: boolean;
   writePlan: ItemSendWritePlan | null;
 };
@@ -413,6 +463,11 @@ const folded = (value: string | null | undefined) => {
   return text.length > 0 ? text : null;
 };
 const byText = (left: string, right: string) => (left < right ? -1 : left > right ? 1 : 0);
+const lower = (value: string | null | undefined) => (value ?? "").toLowerCase();
+/** The key of a page held, as the page decisions and the preview name it. */
+const pageKey = (page: number | null) => `page:${page ?? "all"}`;
+/** Whether parts on these pages (none: every page) lie on a page held (null: every page). */
+const onPage = (pages: readonly number[], page: number | null) => page === null || pages.length === 0 || pages.includes(page);
 const KNOWN = new Set(["confirmed", "corrected"]);
 
 /** The decimal places a number states as written (its shortest spelling, exponent included). */
@@ -528,6 +583,9 @@ const identityOf = (unit: string, basis: string | null, qualifiers: Pick<PosteQu
 const sameIdentity = (left: ItemSendIdentity, right: ItemSendIdentity) => left.unit === right.unit && left.basis === right.basis
   && left.network === right.network && left.material === right.material && left.diameter === right.diameter;
 const snakeIdentity = (identity: ItemSendIdentity): SnakeIdentity => ({ ...identity });
+/** The comparison forms of a basis or qualifier and of a diameter, twins of the writer's (vectors in its pgTAP file). */
+export const itemSendFolded = folded;
+export const itemSendDiameter = diameterOf;
 
 /**
  * The send by item writes engine 3 lines only (a unit code, a line status, hours per unit in columns): never another
@@ -561,18 +619,24 @@ export function planTakeoffItemSend(input: ItemSendInput): ItemSendPlan {
   });
   const draftLines = destination.kind === "existing_draft" ? destination.lines : [];
   const withDpgf = draftLines.some((line) => line.dpgf !== null);
-  // Decided on the whole sealed list: a plan asked about its complement only still needs the DPGF in the draft.
-  const listHoldsDpgf = input.items.some((item) => item.origin.kind === "dpgf");
+  /** The draft's DPGF lines of an import, by the import their provenance names. */
+  const linesOfImport = (importId: string) => draftLines.filter((line) => line.dpgf
+    && lower(line.dpgf.metadataImportId === undefined ? line.dpgf.importId : line.dpgf.metadataImportId) === lower(importId));
+  // Decided on the whole sealed list: a plan asked about its complement only still needs the DPGF in the draft, a line
+  // of one of the list's imports.
+  const listImports = input.items.flatMap((item) => (item.origin.kind === "dpgf" ? [item.origin.importId] : []));
+  const listHoldsDpgf = listImports.length > 0;
+  const holdsListImport = listImports.some((importId) => linesOfImport(importId).length > 0);
 
   const blockerReason: ItemSendBlockerReason | null = input.job.sent ? "already_sent"
     : input.job.status !== "completed" ? "not_completed"
       : !input.job.canEdit ? "read_only"
         : destination.kind === "unresolved" ? destination.reason
           : !itemSendEngineFits(engine) ? (destination.kind === "first_draft" ? "engine_policy_v2" : "engine_not_v3")
-            : listHoldsDpgf && !withDpgf ? "dpgf_import_required" : null;
+            : listHoldsDpgf && !holdsListImport ? "dpgf_import_required" : null;
   const result: ItemSendPlan = { blocker: blockerReason ? { reason: blockerReason, engine } : null, breakdown: input.breakdown, engine,
-    sections: [], targets: [], notSent: [], partsNotSent: [], toResolve: [], pageContributions: [], notAdded: [], rules, confirmable: false,
-    writePlan: null };
+    sections: [], targets: [], notSent: [], partsNotSent: [], toResolve: [], pageContributions: [], notAdded: [], rules,
+    invalidDecisions: [], confirmable: false, writePlan: null };
   if (result.blocker || destination.kind === "unresolved") return result;
 
   const resolutions = new Map(input.resolutions.map((resolution) => [resolution.key, resolution.choice]));
@@ -598,6 +662,23 @@ export function planTakeoffItemSend(input: ItemSendInput): ItemSendPlan {
     for (const part of parts) partOut(item, part, reason);
   };
   const held = new Map<string, { page: number | null; itemIds: Set<string>; lineIds: Set<string> }>();
+  const unitPages = [...new Set(input.plan.pages)].sort((left, right) => left - right);
+  const decisions = new Map((input.pageDecisions ?? []).map((decision) => [pageKey(decision.page), decision]));
+  // The pages held, as the writer's page guard reads them: today's provenance (no part per item) or the live parts of an
+  // earlier send by item, each with its item, plan and line.
+  const heldEntries = input.pagesInEstimate.map((entry) => {
+    const today = entry.today ?? entry.parts === undefined;
+    return { page: entry.page, key: pageKey(entry.page), today, estimateItemIds: entry.estimateItemIds,
+      todayLines: [...(entry.todayEstimateItemIds ?? (today ? entry.estimateItemIds : []))], parts: [...(entry.parts ?? [])] };
+  });
+  /** A page holds an item when today's provenance holds it, or a live part other than this plan's own part of the item. */
+  const holdsFor = (entry: (typeof heldEntries)[number], itemId: string) => entry.today
+    || entry.parts.some((part) => !(lower(part.planKey) === lower(input.plan.key) && lower(part.itemId) === lower(itemId)));
+  /** The earlier parts a « Remplacer » page decision takes out, and the parts the targets replace: each must leave a line fed. */
+  const pageReplacedAll = new Map<string, ItemSendHeldPart>();
+  const replacedSources = new Set<string>();
+  const sourceKey = (part: { jobId: string; answerId: string | null; observationIds: readonly string[] }) =>
+    JSON.stringify([lower(part.jobId), lower(part.answerId), [...part.observationIds].map(lower).sort(byText)]);
   const earlierSections = new Map(input.earlier.sections.filter((section) => destination.kind === "existing_draft"
     && destination.sections.some(({ id }) => id === section.estimateItemId)).map((section) => [section.key, section.estimateItemId]));
   const createdSections = new Map<string, ItemSendSection>();
@@ -616,11 +697,12 @@ export function planTakeoffItemSend(input: ItemSendInput): ItemSendPlan {
     return draftLines.filter((line) => line.dpgf && line.dpgf.rawRowId !== null && line.dpgf.importId === origin.importId
       && line.dpgf.rawRowId === origin.rawRowId && free(line.id, item.id));
   };
-  if (withDpgf) {
-    for (const item of scoped) {
-      const proven = dpgfCandidates(item);
-      if (proven.length === 1) claim(proven[0].id, item.id);
-    }
+  /** An item of a DPGF import goes to a line of that import while the draft holds one (never to a new line then). */
+  const dpgfBound = (item: ItemSendListItem) => item.origin.kind === "dpgf" && linesOfImport(item.origin.importId).length > 0;
+  for (const item of scoped) {
+    if (!dpgfBound(item)) continue;
+    const proven = dpgfCandidates(item);
+    if (proven.length === 1) claim(proven[0].id, item.id);
   }
 
   for (const item of scoped) {
@@ -636,6 +718,8 @@ export function planTakeoffItemSend(input: ItemSendInput): ItemSendPlan {
     const entered: Part | null = answer.entry ? { kind: "entered", answer, observationIds: [], quantity: answer.entry.quantity,
       unit: answer.entry.unit, basis: null, pages: [...new Set(input.plan.pages)].sort((left, right) => left - right) } : null;
     const answerParts = () => (entered ? [entered] : measuredParts());
+    // A later reading of the plan replaced this answer: what it read is no longer this plan's (B2's current answer).
+    if (answer.current === false) { notSent(item, "superseded"); continue; }
     if (rule?.effect === "skipped") { notSent(item, "rule_skip", answerParts()); continue; }
     if (input.affaireEntries.some((entry) => entry.itemId === item.id)) { notSent(item, "affaire_entry", answerParts()); continue; }
     if (answer.decision?.kind === "set_aside") { notSent(item, "set_aside", answerParts()); continue; }
@@ -683,19 +767,22 @@ export function planTakeoffItemSend(input: ItemSendInput): ItemSendPlan {
     }
     const identity = identityOf(unit, [...bases][0] ?? item.measurementBasis, item.qualifiers);
 
-    // A page another analysis brought into the estimate: its parts wait for the page decision, never counted twice.
+    // A page another analysis brought into the estimate: its parts wait for the page decision the confirmation takes,
+    // never counted twice; with that decision they are sent, without it they are held, or left out by choice.
     const sendable = parts.filter((part) => {
-      const overlap = input.pagesInEstimate.filter((known) => known.page === null || part.pages.length === 0 || part.pages.includes(known.page));
+      const overlap = heldEntries.filter((entry) => onPage(part.pages, entry.page) && holdsFor(entry, item.id));
       if (overlap.length === 0) return true;
-      const keys = overlap.map((known) => `page:${known.page ?? "all"}`);
-      const waiting = keys.filter((key) => !offered(key, [{ kind: "leave_out" }]));
-      if (waiting.length === 0) { partOut(item, part, "left_out"); return false; }
-      for (const [index, key] of keys.entries()) {
-        if (!waiting.includes(key)) continue;
-        const entry = held.get(key) ?? { page: overlap[index].page, itemIds: new Set<string>(), lineIds: new Set<string>() };
-        entry.itemIds.add(item.id);
-        for (const id of overlap[index].estimateItemIds) entry.lineIds.add(id);
-        held.set(key, entry);
+      const waiting = overlap.filter((entry) => !decisions.has(entry.key) && !offered(entry.key, [{ kind: "leave_out" }]));
+      if (waiting.length === 0) {
+        if (overlap.every((entry) => decisions.has(entry.key))) return true;
+        partOut(item, part, "left_out");
+        return false;
+      }
+      for (const entry of waiting) {
+        const shown = held.get(entry.key) ?? { page: entry.page, itemIds: new Set<string>(), lineIds: new Set<string>() };
+        shown.itemIds.add(item.id);
+        for (const id of entry.estimateItemIds) shown.lineIds.add(id);
+        held.set(entry.key, shown);
       }
       partOut(item, part, "page_held");
       return false;
@@ -712,7 +799,21 @@ export function planTakeoffItemSend(input: ItemSendInput): ItemSendPlan {
       kind: part.kind, observationIds: part.observationIds, quantity: part.quantity, unit, pages: part.pages, identity }));
     const leaveOut = () => notSent(item, "left_out", sendable);
     const position = positions.get(item.id)!;
-    const dpgfItem = item.origin.kind === "dpgf" && withDpgf;
+    const dpgfItem = dpgfBound(item);
+    // What this confirmation covers on its plan (the writer's rule): the pages its answer searched (an entry: every page
+    // of the plan's unit), less those it holds or leaves out, plus the pages a « Remplacer » decision carries. An earlier
+    // part of this plan on a page it covers is replaced; on another page it stays.
+    const notSentPages = new Set(result.partsNotSent.filter((entry) => entry.itemId === item.id
+      && (entry.reason === "page_held" || entry.reason === "left_out")).flatMap((entry) => entry.pages));
+    const covered = new Set((entered ? unitPages : [...new Set(answer.searchedPages ?? unitPages)]).filter((page) => !notSentPages.has(page)
+      && !heldEntries.some((entry) => (entry.page === null || entry.page === page) && holdsFor(entry, item.id) && !decisions.has(entry.key))));
+    for (const decision of decisions.values()) if (decision.decision === "replace" && decision.page !== null) covered.add(decision.page);
+    // The earlier parts of this item a « Remplacer » page decision takes out, where this plan sends a part of it.
+    const pageReplaced = heldEntries.filter((entry) => decisions.get(entry.key)?.decision === "replace"
+      && sendable.some((part) => onPage(part.pages, entry.page)))
+      .flatMap((entry) => entry.parts.filter((part) => lower(part.itemId) === lower(item.id)));
+    /** Once this item has its target: what its replaced pages take out must leave a line this plan feeds. */
+    const takeOut = () => { for (const part of pageReplaced) pageReplacedAll.set(lower(part.partId), part); };
     const compartment: ItemSendCompartment = dpgfItem ? { key: "dpgf", label: ITEM_SEND_DPGF_COMPARTMENT_LABEL, reason: null }
       : itemSendCompartment(input.breakdown, input.plan.location, input.affaireNamesBuilding);
     const targetKey = `${item.id}|${compartment.key}`;
@@ -779,8 +880,11 @@ export function planTakeoffItemSend(input: ItemSendInput): ItemSendPlan {
           roundedFrom: retained !== retainedRaw ? retainedRaw : null, gap: gapOf(reference, total), keptEntry } });
     };
 
-    /** A new line in the sections of the list (or the complementary section), each section by its identity. */
-    const createLine = (resolution: ItemSendChoice["kind"] | null) => {
+    /**
+     * A new line in the sections of the list (or the complementary section), each section by its identity. After a target
+     * whose line the editor deleted, the parts still live on it leave with this recreation (`displaced`).
+     */
+    const createLine = (resolution: ItemSendChoice["kind"] | null, displaced: ItemSendTarget["replaces"] = []) => {
       const path = sectionPath(item, compartment, withDpgf);
       if (path.length > destination.maxSectionDepth) {
         const key = `depth:${targetKey}`;
@@ -809,26 +913,62 @@ export function planTakeoffItemSend(input: ItemSendInput): ItemSendPlan {
         parent = { key: step.key, existingId: null };
       }
       const sectionKey = path.at(-1)!.key;
-      result.targets.push({ ...base, resolution, replaces: [],
-        line: { kind: "new_line", sectionKey, sectionId: earlierSections.get(sectionKey) ?? null, title: rule?.designation ?? item.label },
+      for (const part of displaced) replacedSources.add(sourceKey(part));
+      takeOut();
+      result.targets.push({ ...base, resolution, replaces: displaced,
+        // The item's label in the sealed list, or the name a « Renommer » rule gives it (the writer checks either).
+        line: { kind: "new_line", sectionKey, sectionId: earlierSections.get(sectionKey) ?? null,
+          title: rule?.action === "rename" ? rule.designation : item.label },
         quantity: { before: null, reference: null, entered: null, earlier: 0, replaced: 0, added, measured: added, retained: after, after,
           roundedFrom: after !== added ? added : null, gap: null, keptEntry: false } });
     };
 
+    type EarlierPart = ItemSendEarlierTarget["parts"][number];
+    const ofThisPlan = (part: EarlierPart) => part.planKey !== null && lower(part.planKey) === lower(input.plan.key);
+    const replacesOf = (parts: readonly EarlierPart[]): ItemSendTarget["replaces"] => parts.map((part) => ({ jobId: part.jobId,
+      answerId: part.answerId, observationIds: [...part.observationIds].sort(byText), quantity: part.quantity }));
     /**
-     * This item's earlier parts on a line: those of other plans, kept (refused, null, when one has another quantitative
-     * identity), and those of this very plan, which this plan's part replaces.
+     * This item's earlier parts on a line (the writer's rule, twin of its replacement): this plan's parts on the pages
+     * this confirmation covers, and those a « Remplacer » decision takes out, are replaced; every other part stays, and
+     * must have this quantitative identity (null otherwise: nothing is added to the line). « indivisible »: one of this
+     * plan's parts also lies on a page the confirmation does not cover, and is not cut.
      */
-    const earlierOf = (targets: readonly ItemSendEarlierTarget[], stored: readonly DpgfContribution[] = []): Earlier | null => {
+    const earlierOf = (targets: readonly ItemSendEarlierTarget[], stored: readonly DpgfContribution[] = []): Earlier | null | "indivisible" => {
       const parts = targets.flatMap((target) => target.parts);
-      const ofThisPlan = (part: ItemSendEarlierTarget["parts"][number]) => part.planKey !== null && part.planKey === input.plan.key;
-      const kept = parts.filter((part) => !ofThisPlan(part));
-      if (!kept.every((part) => sameIdentity(identityOf(unitCode(part.unit) ?? "", part.basis, part.qualifiers), identity))) return null;
-      const contribution = (part: ItemSendEarlierTarget["parts"][number]): DpgfContribution => ({ job_id: part.jobId,
+      const inCovered = (page: number) => covered.has(page);
+      if (parts.some((part) => ofThisPlan(part) && part.pages.length > 0 && part.pages.some(inCovered) && !part.pages.every(inCovered))) {
+        return "indivisible";
+      }
+      const replaced = (part: EarlierPart) => (ofThisPlan(part) && (part.pages.length > 0 ? part.pages.every(inCovered) : unitPages.every(inCovered)))
+        || pageReplaced.some((held) => sourceKey(held) === sourceKey(part));
+      const kept = parts.filter((part) => !replaced(part));
+      if (!kept.every((part) => sameIdentity(part.identity ?? identityOf(unitCode(part.unit) ?? "", part.basis, part.qualifiers), identity))) {
+        return null;
+      }
+      const contribution = (part: EarlierPart): DpgfContribution => ({ job_id: part.jobId,
         item_ids: [part.answerId ?? part.jobId], quantity: part.quantity, protective: 0, printed_gap: 0 });
       return { kept: [...stored, ...kept.map(contribution)], all: [...stored, ...parts.map(contribution)],
-        replaces: parts.filter(ofThisPlan).map((part) => ({ jobId: part.jobId, answerId: part.answerId,
-          observationIds: [...part.observationIds].sort(byText), quantity: part.quantity })) };
+        replaces: replacesOf(parts.filter(replaced)) };
+    };
+    /** This plan's earlier part of the item is on another line than the one fed: it would stay counted beside the new one. */
+    const elsewhere = (lineId: string | null) => input.earlier.targets.some((target) => lower(target.itemId) === lower(item.id)
+      && lower(target.estimateItemId) !== lower(lineId) && target.parts.some(ofThisPlan));
+    const compartmentChanged = () => {
+      const key = `compartment:${targetKey}`;
+      if (offered(key, [{ kind: "leave_out" }])) { leaveOut(); return; }
+      ask({ key, kind: "compartment_changed", itemId: item.id, label: item.label, compartmentKey: compartment.key,
+        options: [{ kind: "leave_out" }] });
+    };
+    const feed = (line: ItemSendDraftLine, kind: "dpgf_line" | "earlier_line", resolution: ItemSendChoice["kind"] | null,
+      earlier: Earlier | null | "indivisible", reference: number | null) => {
+      if (earlier === "indivisible") { result.invalidDecisions.push({ page: null, reason: "part_indivisible" }); return; }
+      if (!earlier) { identityConflict(); return; }
+      if (elsewhere(line.id)) { compartmentChanged(); return; }
+      const before = result.targets.length;
+      feedExisting(line, kind, resolution, earlier, reference);
+      if (result.targets.length === before) return;
+      for (const part of earlier.replaces) replacedSources.add(sourceKey(part));
+      takeOut();
     };
 
     if (dpgfItem) {
@@ -837,7 +977,9 @@ export function planTakeoffItemSend(input: ItemSendInput): ItemSendPlan {
       let resolution: ItemSendChoice["kind"] | null = null;
       if (!line) {
         const key = `target:${targetKey}`;
-        const pool = (candidates.length > 1 ? candidates : draftLines.filter((candidate) => candidate.dpgf && unitCode(candidate.unitCode) === unit))
+        const origin = item.origin as Extract<ItemSendListItem["origin"], { kind: "dpgf" }>;
+        // A line of the item's import only: a line of another import is never this item's.
+        const pool = (candidates.length > 1 ? candidates : linesOfImport(origin.importId).filter((candidate) => unitCode(candidate.unitCode) === unit))
           .filter((candidate) => free(candidate.id, item.id));
         const options: ItemSendOption[] = [...pool.map((candidate) => ({ kind: "line" as const, estimateItemId: candidate.id, title: candidate.title })),
           { kind: "leave_out" }];
@@ -856,8 +998,7 @@ export function planTakeoffItemSend(input: ItemSendInput): ItemSendPlan {
       // Only this item's earlier parts accumulate (the claims already keep a line of another item out of reach).
       const own = earlierOf(input.earlier.targets.filter((target) => target.estimateItemId === targetLine.id && target.itemId === item.id),
         storedParts(targetLine.dpgf!.composition, input.job.id));
-      if (!own) { identityConflict(); continue; }
-      feedExisting(targetLine, "dpgf_line", resolution, own, targetLine.dpgf!.reference);
+      feed(targetLine, "dpgf_line", resolution, own, targetLine.dpgf!.reference);
       continue;
     }
 
@@ -869,16 +1010,22 @@ export function planTakeoffItemSend(input: ItemSendInput): ItemSendPlan {
       continue;
     }
     const inCompartment = ofItem.filter((target) => target.compartmentKey === compartment.key);
-    if (inCompartment.length === 0) { createLine(null); continue; }
     // The live target: one whose line is still in the draft, never a deleted one before it.
     const live = inCompartment.filter((target) => draftLines.some((candidate) => candidate.id === target.estimateItemId));
+    // The targets of this item and compartment whose line the editor deleted, with their parts still live.
+    const displaced = [...(input.earlier.displaced ?? []).filter((target) => lower(target.itemId) === lower(item.id)
+      && target.breakdown === input.breakdown && target.compartmentKey === compartment.key),
+    ...inCompartment.filter((target) => !live.includes(target))].flatMap((target) => target.parts);
     if (live.length === 0) {
-      // The line an earlier send fed is gone (deleted in the editor): its parts left with it; a new line only by choice.
+      if (elsewhere(null)) { compartmentChanged(); continue; }
+      if (displaced.length === 0) { createLine(null); continue; }
+      // The line an earlier send fed is gone (deleted in the editor): a new line only by choice, and the parts still live
+      // on its target leave with it (kept in their history), never counted twice.
       const key = `target:${targetKey}`;
       const options: ItemSendOption[] = [{ kind: "new_line" }, { kind: "leave_out" }];
       const picked = offered(key, options);
       if (picked?.kind === "leave_out") { leaveOut(); continue; }
-      if (picked?.kind === "new_line") { createLine("new_line"); continue; }
+      if (picked?.kind === "new_line") { createLine("new_line", replacesOf(displaced)); continue; }
       ask({ key, kind: "target_missing", itemId: item.id, label: item.label, compartmentKey: compartment.key, options });
       continue;
     }
@@ -905,10 +1052,36 @@ export function planTakeoffItemSend(input: ItemSendInput): ItemSendPlan {
       ask({ key, kind: "target_missing", itemId: item.id, label: item.label, compartmentKey: compartment.key, options: [{ kind: "leave_out" }] });
       continue;
     }
-    const earlierParts = earlierOf(inCompartment.filter((target) => target.estimateItemId === line.id));
-    if (!earlierParts) { identityConflict(); continue; }
-    feedExisting(line, "earlier_line", resolution, earlierParts, null);
+    feed(line, "earlier_line", resolution, earlierOf(inCompartment.filter((target) => target.estimateItemId === line.id)), null);
   }
+
+  // The page decisions, as the writer judges them: each on a page held; « Remplacer » never on a page of today's send
+  // (no part per item to cut); « Garder les deux » never onto a line that already holds that page from another reading;
+  // a part a replaced page takes out lies on pages all replaced, and on a line this plan feeds.
+  for (const decision of decisions.values()) {
+    const entry = heldEntries.find((candidate) => candidate.key === pageKey(decision.page));
+    if (!entry) { result.invalidDecisions.push({ page: decision.page, reason: "page_not_held" }); continue; }
+    if (decision.decision === "replace" && entry.today) {
+      result.invalidDecisions.push({ page: decision.page, reason: "replace_not_cuttable" });
+    }
+    if (decision.decision === "keep_both" && result.targets.some((target) => target.line.kind !== "new_line"
+      && target.contributions.some((contribution) => onPage(contribution.pages, entry.page))
+      && (entry.todayLines.some((id) => lower(id) === lower((target.line as { estimateItemId: string }).estimateItemId))
+        || entry.parts.some((part) => lower(part.estimateItemId) === lower((target.line as { estimateItemId: string }).estimateItemId)
+          && !(lower(part.planKey) === lower(input.plan.key) && lower(part.itemId) === lower(target.itemId)))))) {
+      result.invalidDecisions.push({ page: decision.page, reason: "keep_both_same_line" });
+    }
+  }
+  const replacing = (page: number) => [...decisions.values()].some((decision) => decision.decision === "replace"
+    && (decision.page === null || decision.page === page));
+  for (const part of pageReplacedAll.values()) {
+    if (part.pages.length === 0 || !part.pages.every(replacing)) {
+      result.invalidDecisions.push({ page: null, reason: "part_indivisible" });
+    } else if (!replacedSources.has(sourceKey(part))) {
+      result.invalidDecisions.push({ page: null, reason: "part_elsewhere" });
+    }
+  }
+  result.invalidDecisions = [...new Map(result.invalidDecisions.map((entry) => [JSON.stringify(entry), entry])).values()];
 
   // A page already in the estimate: replacing its earlier parts or keeping both is decided with the confirmation; here
   // its parts are held, or left out by the member's choice. The preview names the estimate's lines already on it.
@@ -940,7 +1113,8 @@ export function planTakeoffItemSend(input: ItemSendInput): ItemSendPlan {
   }
   result.pageContributions = [...pages.values()].sort((left, right) => left.page - right.page);
   if (result.targets.length === 0 && result.toResolve.length === 0) result.blocker = { reason: "no_line", engine };
-  result.confirmable = result.blocker === null && result.toResolve.length === 0 && result.targets.length > 0;
+  result.confirmable = result.blocker === null && result.toResolve.length === 0 && result.invalidDecisions.length === 0
+    && result.targets.length > 0;
   if (result.confirmable) result.writePlan = writePlanOf(input, result, destination, resolved);
   return result;
 }
@@ -998,6 +1172,9 @@ function writePlanOf(input: ItemSendInput, plan: ItemSendPlan, destination: Excl
     }),
     page_contributions: plan.pageContributions.map((page) => ({ page: page.page, item_ids: page.itemIds, target_keys: page.targetKeys,
       observation_ids: [...page.observationIds].sort(byText) })),
+    page_decisions: [...(input.pageDecisions ?? [])].sort((left, right) => (left.page ?? 0) - (right.page ?? 0)).map((decision) => (
+      decision.decision === "replace" ? { page: decision.page, decision: "replace" as const, reason_code: null, note: null }
+        : { page: decision.page, decision: "keep_both" as const, reason_code: decision.reasonCode, note: decision.note })),
     left_out: plan.notSent.map((entry) => {
       const rule = entry.reason === "rule_skip" ? input.rules.get(entry.itemId) ?? null : null;
       return { item_id: entry.itemId, reason: entry.reason, rule_id: rule?.ruleId ?? null, rule_version: rule?.ruleVersion ?? null };
@@ -1023,7 +1200,7 @@ function writePlanOf(input: ItemSendInput, plan: ItemSendPlan, destination: Excl
         estimate_item_id: target.estimateItemId, item_id: target.itemId, compartment_key: target.compartmentKey, breakdown: target.breakdown,
         parts: target.parts.map((part) => ({ job_id: part.jobId, answer_id: part.answerId, observation_ids: [...part.observationIds].sort(byText),
           quantity: part.quantity, pages: [...part.pages].sort((left, right) => left - right), plan_key: part.planKey,
-          identity: snakeIdentity(identityOf(unitCode(part.unit) ?? part.unit, part.basis, part.qualifiers)) }))
+          identity: snakeIdentity(part.identity ?? identityOf(unitCode(part.unit) ?? part.unit, part.basis, part.qualifiers)) }))
           .sort((left, right) => byText(JSON.stringify([left.job_id, left.answer_id, left.observation_ids]),
             JSON.stringify([right.job_id, right.answer_id, right.observation_ids]))),
       })),
@@ -1038,7 +1215,8 @@ function writePlanOf(input: ItemSendInput, plan: ItemSendPlan, destination: Excl
           row_count: entry.rowCount })),
         first_draft_settings: input.stamps.firstDraftSettings,
         destination: input.stamps.destination ? { version_id: input.stamps.destination.versionId, status: input.stamps.destination.status,
-          updated_at: input.stamps.destination.updatedAt } : null },
+          updated_at: input.stamps.destination.updatedAt } : null,
+        mapping: input.stamps.mapping ?? null },
       resolutions: input.resolutions.filter((resolution) => resolved.has(resolution.key))
         .sort((left, right) => byText(left.key, right.key)),
     },

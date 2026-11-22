@@ -3,6 +3,7 @@
 -- first one go, then reads what the second one did.
 -- 1. A bulk review of the affaire holds it (an item set aside) while the plan is confirmed: the send waits, then is
 --    asked again (the answers it showed changed); nothing written. Never interleaved.
+-- 1b. The member made a viewer while the send waits for the affaire: the right is read after the wait, nothing written.
 -- 2. The same request sent twice at once (a lost answer sent again): the second waits, then answers the first one's
 --    receipt, replayed; one version, one receipt.
 -- 3. A targeted save of a contributing row holds the job's rules while the plan is confirmed: the send waits for the
@@ -14,6 +15,7 @@
 -- 6. Two tabs confirm the same job at once (two requests) while a bulk review of the affaire is sent: the second
 --    confirmation waits for the affaire and is told the job is sent; the review waits for the affaire's review key and
 --    finds the plan closed; one receipt, one target, the job applied once.
+-- The confirmation is the server's (the service role, the acting member its parameter); the tabs' reviews are the member's.
 -- The two first creations of a draft are cases 2 (one job, twice) and 4 (the import and the send). Isolation justified:
 -- these interleavings exist only across sessions, which no journey drives deterministically. All values are fictional.
 begin;
@@ -193,13 +195,18 @@ select is(extensions.dblink_exec('race_setup', format($rules$update public.takeo
   rules_evaluated_at = now(), rule_results = '[]'::jsonb where job_id in (%L, %L)$rules$, pg_temp.job(20), pg_temp.job(21))),
   'UPDATE 2', 'the rules of both rows are evaluated');
 
--- The member in both tabs.
+-- The member in the tabs (race_a, race_c); race_b is the server's confirmation of a member's request (the service role,
+-- no member's session: the acting member is the writer's parameter).
 select is(extensions.dblink_exec(session.name, 'set role authenticated'), 'SET', format('%s acts as the member', session.name))
-from (values ('race_a'), ('race_b'), ('race_c')) as session(name);
+from (values ('race_a'), ('race_c')) as session(name);
 select is((select claims.sub from extensions.dblink(session.name, format($claims$select set_config('request.jwt.claims', %L, false),
     set_config('request.jwt.claim.sub', %L, false)$claims$, jsonb_build_object('role', 'authenticated', 'sub', pg_temp.f(1))::text,
     pg_temp.f(1)::text)) as claims(claims text, sub text)), pg_temp.f(1)::text, format('%s is signed in', session.name))
-from (values ('race_a'), ('race_b'), ('race_c')) as session(name);
+from (values ('race_a'), ('race_c')) as session(name);
+select is(extensions.dblink_exec('race_b', 'set role service_role'), 'SET', 'race_b acts as the server');
+select is((select claims.sub from extensions.dblink('race_b', $claims$select set_config('request.jwt.claims', '{"role":"service_role"}',
+    false), set_config('request.jwt.claim.sub', '', false)$claims$) as claims(claims text, sub text)), '',
+  'race_b carries no member''s session');
 
 create temp table race_pids(label text primary key, pid integer);
 insert into race_pids
@@ -255,7 +262,7 @@ $$;
 
 
 -- The plans, built as the server builds them (src/lib/takeoff/item-send-plan.ts) from what is committed, by the owner.
-create temp table plans (name text primary key, body jsonb not null);
+create temp table plans (name text primary key, body jsonb not null, payload jsonb);
 create function pg_temp.plan_file(p_project integer) returns uuid language sql immutable as $$ select pg_temp.f(100 + p_project - 20) $$;
 create function pg_temp.document(p_project integer) returns jsonb language sql immutable as $$
   select jsonb_build_object('plan_file_id', pg_temp.plan_file(p_project), 'content_hash', pg_temp.digest(pg_temp.plan_file(p_project)),
@@ -313,7 +320,7 @@ create function pg_temp.plan(p_project integer, p_version uuid, p_item integer, 
 returns jsonb language sql as $$
   select jsonb_build_object('format', 'takeoff_item_send', 'version', 1, 'job_id', pg_temp.job(p_project),
     'plan_key', pg_temp.plan_file(p_project), 'list', jsonb_build_object('revision_id', pg_temp.f(400 + p_project - 20), 'revision', 1),
-    'destination', case when p_version is null then jsonb_build_object('kind', 'first_draft', 'version_payload', p_payload)
+    'destination', case when p_version is null then jsonb_build_object('kind', 'first_draft')
       else jsonb_build_object('kind', 'existing_draft', 'version_id', p_version) end,
     'engine', 3, 'breakdown', 'together',
     'sections', '[{"key": "list:", "title": "Métré", "parent_key": null, "parent_id": null}]'::jsonb,
@@ -348,9 +355,17 @@ returns jsonb language sql as $$
         'mapping', public.takeoff_mapping_rules_stamp(pg_temp.tenant())),
       'resolutions', '[]'::jsonb))
 $$;
+-- The server's call for the member (the service role; a first draft's payload is the server's canonical creation).
 create function pg_temp.send_sql(p_request integer, p_plan text) returns text language sql stable as $$
-  select format($send$select public.send_takeoff_item_plan(%L::jsonb)::text$send$, jsonb_build_object('request_id', pg_temp.f(p_request),
-    'plan', (select body from plans where name = p_plan)))
+  select format($send$select public.send_takeoff_item_plan(%L, %L, false, %L::jsonb)::text$send$, pg_temp.tenant(), pg_temp.f(1),
+    jsonb_build_object('request_id', pg_temp.f(p_request), 'plan', p.body)
+      || case when p.payload is null then '{}'::jsonb else jsonb_build_object('version_payload', p.payload) end)
+  from plans p where p.name = p_plan
+$$;
+-- A tab's transaction turned into the server's (its role and its session, for that transaction only).
+create function pg_temp.as_server_sql() returns text language sql immutable as $$
+  select $server$set local role service_role; set local request.jwt.claims = '{"role":"service_role"}';
+    set local request.jwt.claim.sub = ''$server$
 $$;
 create function pg_temp.written(p_project integer) returns text language sql stable as $$
   select concat_ws('/', (select count(*) from public.estimate_versions v where v.project_id = pg_temp.f(p_project)),
@@ -366,7 +381,7 @@ select is((select x.outcome::jsonb ->> 'outcome' from extensions.dblink('race_a'
   format('affaire %s: its measured item accepted', p.project)) from (values (20), (21)) as p(project);
 
 -- 1. Affaire 21: a bulk review holds the affaire while the plan is confirmed.
-insert into plans values ('21-first', pg_temp.plan(21, null, 310, 2, pg_temp.payload(721)));
+insert into plans values ('21-first', pg_temp.plan(21, null, 310, 2, pg_temp.payload(721)), pg_temp.payload(721));
 select is(extensions.dblink_exec('race_a', 'begin'), 'BEGIN', 'a tab sets the absent item aside');
 select is((select x.outcome::jsonb ->> 'outcome' from extensions.dblink('race_a', pg_temp.review_sql(21,
     pg_temp.cmd('set_aside', 611, array[311], '{"reason":"duplicate"}'))) as x(outcome text)), 'applied', 'applied, not yet committed');
@@ -380,9 +395,31 @@ select ok(extensions.dblink_error_message('race_b') like '%TAKEOFF_ITEM_SEND_PRE
 select is((select count(*)::integer from extensions.dblink_get_result('race_b', false) as x(answer text)), 0, 'and is done');
 select is(pg_temp.written(21), '0/0/0/0/completed', 'no version, no receipt, the job still to send');
 
+-- 1b. Affaire 21: the member loses the right to write while the send waits for the affaire (point 10 of the review).
+insert into plans values ('21-demoted', pg_temp.plan(21, null, 310, 2, pg_temp.payload(721)), pg_temp.payload(721));
+select is(extensions.dblink_exec('race_setup', 'begin'), 'BEGIN', 'an administrator changes the member''s role');
+select is((select x.held from extensions.dblink('race_setup', format($hold$select 1 from public.estimate_projects where id = %L
+  for update$hold$, pg_temp.f(21))) as x(held integer)), 1, 'holding the affaire');
+insert into race_pids select 'race_setup', (select backend.pid from extensions.dblink('race_setup', 'select pg_backend_pid()')
+  as backend(pid integer)) on conflict (label) do update set pid = excluded.pid;
+select is(extensions.dblink_send_query('race_b', pg_temp.send_sql(813, '21-demoted')), 1, 'the plan''s send is confirmed meanwhile');
+select ok(pg_temp.waits_for('race_b', 'race_setup'), 'the send waits for the affaire');
+select is(extensions.dblink_exec('race_setup', format($demote$update public.tenant_memberships set role = 'viewer'
+  where user_id = %L and tenant_id = %L$demote$, pg_temp.f(1), pg_temp.tenant())), 'UPDATE 1', 'the member made a viewer');
+select is(extensions.dblink_exec('race_setup', 'commit'), 'COMMIT', 'the change commits while the send waits');
+select ok(pg_temp.answered('race_b'), 'the send answers');
+select is((select count(*)::integer from extensions.dblink_get_result('race_b', false) as x(answer text)), 0, 'it writes nothing');
+select ok(extensions.dblink_error_message('race_b') like '%TAKEOFF_ITEM_SEND_PROJECT_NOT_WRITABLE%',
+  'the right is read after the wait: a viewer never sends');
+select is((select count(*)::integer from extensions.dblink_get_result('race_b', false) as x(answer text)), 0, 'and is done');
+select is(pg_temp.written(21), '0/0/0/0/completed', 'no version, no receipt, the job still to send');
+select is(extensions.dblink_exec('race_setup', format($restore$update public.tenant_memberships set role = 'engineer'
+  where user_id = %L and tenant_id = %L$restore$, pg_temp.f(1), pg_temp.tenant())), 'UPDATE 1', 'the member an engineer again');
+
 -- 2. Affaire 21: the same request twice at once.
-insert into plans values ('21-again', pg_temp.plan(21, null, 310, 2, pg_temp.payload(721)));
+insert into plans values ('21-again', pg_temp.plan(21, null, 310, 2, pg_temp.payload(721)), pg_temp.payload(721));
 select is(extensions.dblink_exec('race_a', 'begin'), 'BEGIN', 'a tab confirms the plan''s send');
+select is(extensions.dblink_exec('race_a', pg_temp.as_server_sql()), 'SET', 'through the server');
 create temp table first_send as select x.answer::jsonb as answer
   from extensions.dblink('race_a', pg_temp.send_sql(812, '21-again')) as x(answer text);
 select is((select answer ->> 'replayed' from first_send), 'false', 'sent, not yet committed');
@@ -397,7 +434,7 @@ select is((select count(*)::integer from extensions.dblink_get_result('race_b', 
 select is(pg_temp.written(21), '1/1/1/1/applied', 'one V1, one receipt, one target, one part, the job applied');
 
 -- 3. Affaire 20: a targeted save of the contributing row holds the job's rules while the plan is confirmed.
-insert into plans values ('20-first', pg_temp.plan(20, null, 300, 2, pg_temp.payload(720)));
+insert into plans values ('20-first', pg_temp.plan(20, null, 300, 2, pg_temp.payload(720)), pg_temp.payload(720));
 create temp table targeted_read as select format($save$select count(*) from public.update_takeoff_item_for_review(%L, %L, %L,
     %L::timestamptz, %L::jsonb, %L::timestamptz)$save$, i.tenant_id, i.job_id, i.id, i.updated_at,
     jsonb_build_object('quantity', 3, 'updated_at', clock_timestamp()), i.rules_evaluated_at) as save
@@ -423,7 +460,7 @@ select is((select x.outcome::jsonb ->> 'outcome' from extensions.dblink('race_a'
     pg_temp.cmd('accept_measured', 640, array[300]))) as x(outcome text)), 'applied', 'the corrected measure accepted again');
 
 -- 4. Affaire 20: an import creates V1 while the plan's first draft is confirmed.
-insert into plans values ('20-second', pg_temp.plan(20, null, 300, 3, pg_temp.payload(720)));
+insert into plans values ('20-second', pg_temp.plan(20, null, 300, 3, pg_temp.payload(720)), pg_temp.payload(720));
 select is(extensions.dblink_exec('race_a', 'reset role'), 'RESET', 'session A acts as the import''s service');
 select is(extensions.dblink_exec('race_a', 'begin'), 'BEGIN', 'the import starts');
 select is(extensions.dblink_exec('race_a', 'set local role service_role'), 'SET', 'as the service role');
@@ -468,6 +505,7 @@ select is(pg_temp.written(20), '1/0/0/0/completed', 'nothing sent');
 -- 6. Affaire 20: two tabs confirm the same job at once while a bulk review of the affaire is sent.
 insert into plans values ('20-fourth', pg_temp.plan(20, pg_temp.f(730), 300, 3));
 select is(extensions.dblink_exec('race_a', 'begin'), 'BEGIN', 'a tab confirms the plan''s send on V1');
+select is(extensions.dblink_exec('race_a', pg_temp.as_server_sql()), 'SET', 'through the server');
 select is((select x.answer::jsonb ->> 'replayed' from extensions.dblink('race_a', pg_temp.send_sql(823, '20-fourth'))
   as x(answer text)), 'false', 'sent, not yet committed');
 select is(extensions.dblink_send_query('race_b', pg_temp.send_sql(824, '20-fourth')), 1, 'another tab confirms it too (another request)');

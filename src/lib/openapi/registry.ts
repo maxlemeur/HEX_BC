@@ -5,7 +5,12 @@ import { takeoffVectorReadingResponseSchema } from "@/lib/takeoff/vectors/read-c
 import { takeoffLaunchPageContributionsRequestSchema, takeoffPageContributionsResponseSchema } from "@/lib/takeoff/page-contributions-contracts";
 import { takeoffPageReplacementRequestSchema, takeoffPageReplacementResponseSchema } from "@/lib/takeoff/page-replacement-contracts";
 import { takeoffSendPreviewRequestSchema, takeoffSendPreviewResponseSchema, takeoffSendRequestSchema, takeoffSendResponseSchema } from "@/lib/takeoff/send-contracts";
-import { itemSendPreviewRequestSchema, itemSendPreviewResponseSchema } from "@/lib/takeoff/item-send-contracts";
+import {
+  itemSendConfirmRequestSchema,
+  itemSendConfirmResponseSchema,
+  itemSendPreviewRequestSchema,
+  itemSendPreviewResponseSchema,
+} from "@/lib/takeoff/item-send-contracts";
 import { takeoffJobPlanLocationsSchema, takeoffPlanFileLocationSchema, takeoffPlanLocationSaveSchema } from "@/lib/takeoff/plan-location-contracts";
 import { takeoffJobListResponseSchema as sharedTakeoffJobListDataSchema } from "@/lib/takeoff/job-response-contracts";
 import { takeoffJobDetailResponseSchema as sharedTakeoffJobDetailDataSchema } from "@/lib/takeoff/job-response-contracts";
@@ -1936,9 +1941,19 @@ const apiTakeoffItemSendPreviewSchemaDefinition = successResponseSchemaDefinitio
 );
 const takeoffItemSendPreviewBody = jsonBody({
   name: "TakeoffItemSendPreviewRequest",
-  description: "Destination, decoupage (ensemble, par niveau, par batiment) et choix explicites du membre, chacun par la cle du point a "
-    + "trancher que l'apercu a donnee ; absents, ceux que l'apercu propose.",
+  description: "Destination, decoupage (ensemble, par niveau, par batiment), choix explicites du membre, chacun par la cle du point a "
+    + "trancher que l'apercu a donnee, et decisions des pages deja au devis ; absents, ceux que l'apercu propose.",
   schema: itemSendPreviewRequestSchema,
+});
+const apiTakeoffItemSendConfirmSchemaDefinition = successResponseSchemaDefinition(
+  "ApiTakeoffItemSendConfirmResponse",
+  itemSendConfirmResponseSchema
+);
+const takeoffItemSendConfirmBody = jsonBody({
+  name: "TakeoffItemSendConfirmRequest",
+  description: "La demande de l'apercu telle que le membre l'a confirmee, avec sa cle d'intention (request_id) et l'empreinte du plan "
+    + "montre (plan_digest). Aucune quantite, part, page, reglage ni prix : seulement des choix parmi ceux que l'apercu a offerts.",
+  schema: itemSendConfirmRequestSchema,
 });
 const apiTakeoffSendSchemaDefinition = successResponseSchemaDefinition("ApiTakeoffSendResponse", takeoffSendResponseSchema);
 const takeoffSendBody = jsonBody({
@@ -3253,6 +3268,20 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
     requestBody: takeoffItemSendPreviewBody,
     responses: {
       "200": jsonResponse("Apercu de l'envoi par poste.", apiTakeoffItemSendPreviewSchemaDefinition),
+      ...takeoffJobsErrorResponses,
+    },
+  },
+  {
+    method: "post",
+    path: "/api/takeoff/jobs/{jobId}/item-send/confirm",
+    summary: "Confirmer l'envoi par poste des reponses d'un plan",
+    description:
+      "Lot 4 : recalcule le plan d'ecriture depuis les faits enregistres et les choix du membre, comme l'apercu, le refuse (409) si son empreinte differe de celle confirmee, puis l'ecrivain du serveur (public.send_takeoff_item_plan, role de service, membre authentifie en parametre) relit chaque droit apres ses attentes et ecrit en une transaction : premier brouillon (cree comme « Creer un devis »), sections, lignes creees ou alimentees, parts par poste, pages et recu. Une meme cle d'intention renvoie son recu ; un autre plan sous la meme cle est un conflit (409). Chaque refus dit au membre pourquoi ; rien n'est ecrit.",
+    tags: ["Takeoff"],
+    parameters: [takeoffJobIdPathParameter],
+    requestBody: takeoffItemSendConfirmBody,
+    responses: {
+      "200": jsonResponse("Recu de l'envoi par poste.", apiTakeoffItemSendConfirmSchemaDefinition),
       ...takeoffJobsErrorResponses,
     },
   },

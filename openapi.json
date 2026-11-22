@@ -27946,6 +27946,119 @@
         }
       }
     },
+    "/api/takeoff/jobs/{jobId}/item-send/confirm": {
+      "post": {
+        "tags": [
+          "Takeoff"
+        ],
+        "summary": "Confirmer l'envoi par poste des reponses d'un plan",
+        "description": "Lot 4 : recalcule le plan d'ecriture depuis les faits enregistres et les choix du membre, comme l'apercu, le refuse (409) si son empreinte differe de celle confirmee, puis l'ecrivain du serveur (public.send_takeoff_item_plan, role de service, membre authentifie en parametre) relit chaque droit apres ses attentes et ecrit en une transaction : premier brouillon (cree comme « Creer un devis »), sections, lignes creees ou alimentees, parts par poste, pages et recu. Une meme cle d'intention renvoie son recu ; un autre plan sous la meme cle est un conflit (409). Chaque refus dit au membre pourquoi ; rien n'est ecrit.",
+        "parameters": [
+          {
+            "name": "jobId",
+            "in": "path",
+            "description": "Identifiant UUID du job takeoff.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/TakeoffJobIdPathParameter"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "La demande de l'apercu telle que le membre l'a confirmee, avec sa cle d'intention (request_id) et l'empreinte du plan montre (plan_digest). Aucune quantite, part, page, reglage ni prix : seulement des choix parmi ceux que l'apercu a offerts.",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TakeoffItemSendConfirmRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Recu de l'envoi par poste.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiTakeoffItemSendConfirmResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requete invalide ou payload non conforme.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiTakeoffFailureResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentification requise.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiTakeoffFailureResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Acces interdit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiTakeoffFailureResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Job takeoff introuvable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiTakeoffFailureResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflit metier ou de concurrence.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiTakeoffFailureResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation metier echouee.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiTakeoffFailureResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Erreur interne serveur.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiTakeoffFailureResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/takeoff/jobs/{jobId}/item-send/preview": {
       "post": {
         "tags": [
@@ -27965,7 +28078,7 @@
           }
         ],
         "requestBody": {
-          "description": "Destination, decoupage (ensemble, par niveau, par batiment) et choix explicites du membre, chacun par la cle du point a trancher que l'apercu a donnee ; absents, ceux que l'apercu propose.",
+          "description": "Destination, decoupage (ensemble, par niveau, par batiment), choix explicites du membre, chacun par la cle du point a trancher que l'apercu a donnee, et decisions des pages deja au devis ; absents, ceux que l'apercu propose.",
           "required": true,
           "content": {
             "application/json": {
@@ -102087,6 +102200,322 @@
         ],
         "additionalProperties": false
       },
+      "TakeoffItemSendConfirmRequest": {
+        "type": "object",
+        "properties": {
+          "destination": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "const": "first_draft"
+                  }
+                },
+                "required": [
+                  "kind"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "const": "existing_draft"
+                  },
+                  "version_id": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "version_id"
+                ],
+                "additionalProperties": false
+              }
+            ]
+          },
+          "breakdown": {
+            "type": "string",
+            "enum": [
+              "together",
+              "by_level",
+              "by_building"
+            ]
+          },
+          "resolutions": {
+            "maxItems": 2000,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "key": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 400
+                },
+                "choice": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "kind": {
+                          "type": "string",
+                          "const": "line"
+                        },
+                        "estimate_item_id": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        }
+                      },
+                      "required": [
+                        "kind",
+                        "estimate_item_id"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "kind": {
+                          "type": "string",
+                          "const": "new_line"
+                        }
+                      },
+                      "required": [
+                        "kind"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "kind": {
+                          "type": "string",
+                          "const": "keep_entry"
+                        }
+                      },
+                      "required": [
+                        "kind"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "kind": {
+                          "type": "string",
+                          "const": "use_retained"
+                        }
+                      },
+                      "required": [
+                        "kind"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "kind": {
+                          "type": "string",
+                          "const": "leave_out"
+                        }
+                      },
+                      "required": [
+                        "kind"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "key",
+                "choice"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "page_decisions": {
+            "maxItems": 2000,
+            "type": "array",
+            "items": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "page": {
+                      "anyOf": [
+                        {
+                          "type": "integer",
+                          "exclusiveMinimum": 0,
+                          "maximum": 999999999
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "decision": {
+                      "type": "string",
+                      "const": "replace"
+                    }
+                  },
+                  "required": [
+                    "page",
+                    "decision"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "page": {
+                      "anyOf": [
+                        {
+                          "type": "integer",
+                          "exclusiveMinimum": 0,
+                          "maximum": 999999999
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "decision": {
+                      "type": "string",
+                      "const": "keep_both"
+                    },
+                    "reason_code": {
+                      "type": "string",
+                      "enum": [
+                        "other_zone",
+                        "other_trade",
+                        "complementary_scope"
+                      ]
+                    },
+                    "note": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "maxLength": 500
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "page",
+                    "decision",
+                    "reason_code"
+                  ],
+                  "additionalProperties": false
+                }
+              ]
+            }
+          },
+          "request_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "plan_digest": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          }
+        },
+        "required": [
+          "request_id",
+          "plan_digest"
+        ],
+        "additionalProperties": false
+      },
+      "ApiTakeoffItemSendConfirmResponse": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "receipt_id": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "replayed": {
+                "type": "boolean"
+              },
+              "job_id": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "version_id": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "version_created": {
+                "type": "boolean"
+              },
+              "lines_written": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "parts_written": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "parts_replaced": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "focus_item_id": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "receipt_id",
+              "replayed",
+              "job_id",
+              "version_id",
+              "version_created",
+              "lines_written",
+              "parts_written",
+              "parts_replaced",
+              "focus_item_id"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "ok",
+          "data"
+        ],
+        "additionalProperties": false
+      },
       "TakeoffItemSendPreviewRequest": {
         "type": "object",
         "properties": {
@@ -102226,6 +102655,86 @@
                 "choice"
               ],
               "additionalProperties": false
+            }
+          },
+          "page_decisions": {
+            "maxItems": 2000,
+            "type": "array",
+            "items": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "page": {
+                      "anyOf": [
+                        {
+                          "type": "integer",
+                          "exclusiveMinimum": 0,
+                          "maximum": 999999999
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "decision": {
+                      "type": "string",
+                      "const": "replace"
+                    }
+                  },
+                  "required": [
+                    "page",
+                    "decision"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "page": {
+                      "anyOf": [
+                        {
+                          "type": "integer",
+                          "exclusiveMinimum": 0,
+                          "maximum": 999999999
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "decision": {
+                      "type": "string",
+                      "const": "keep_both"
+                    },
+                    "reason_code": {
+                      "type": "string",
+                      "enum": [
+                        "other_zone",
+                        "other_trade",
+                        "complementary_scope"
+                      ]
+                    },
+                    "note": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "maxLength": 500
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "page",
+                    "decision",
+                    "reason_code"
+                  ],
+                  "additionalProperties": false
+                }
+              ]
             }
           }
         },
@@ -102790,7 +103299,8 @@
                         "affaire_entry",
                         "no_answer",
                         "left_out",
-                        "entry_suspended"
+                        "entry_suspended",
+                        "superseded"
                       ]
                     },
                     "message": {
@@ -102861,7 +103371,8 @@
                         "affaire_entry",
                         "no_answer",
                         "left_out",
-                        "entry_suspended"
+                        "entry_suspended",
+                        "superseded"
                       ]
                     },
                     "message": {
@@ -102899,7 +103410,8 @@
                         "breakdown_mixed",
                         "page_decision",
                         "section_depth",
-                        "quantity_unwritable"
+                        "quantity_unwritable",
+                        "compartment_changed"
                       ]
                     },
                     "item_id": {
@@ -103187,6 +103699,45 @@
                   "additionalProperties": false
                 }
               },
+              "invalid_page_decisions": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "page": {
+                      "anyOf": [
+                        {
+                          "type": "integer",
+                          "exclusiveMinimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "reason": {
+                      "type": "string",
+                      "enum": [
+                        "page_not_held",
+                        "replace_not_cuttable",
+                        "keep_both_same_line",
+                        "part_indivisible",
+                        "part_elsewhere"
+                      ]
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "page",
+                    "reason",
+                    "message"
+                  ],
+                  "additionalProperties": false
+                }
+              },
               "rules": {
                 "type": "array",
                 "items": {
@@ -103317,6 +103868,7 @@
               "to_resolve",
               "not_added",
               "page_contributions",
+              "invalid_page_decisions",
               "rules",
               "confirmable",
               "focus_item_id",

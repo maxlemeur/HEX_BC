@@ -916,5 +916,81 @@ select is((select jsonb_build_array(detail -> 'dpgf_line_count', jsonb_array_len
 select is((select count(*)::integer from public.estimate_items item where item.version_id = pg_temp.da_version(27)
     and item.item_type = 'line' and item.source_provider = 'dpgf'), 22, 'the 22 DPGF lines stay');
 
+-- Lot 4 (…_takeoff_item_send_writer.sql), case 28: a DPGF line a send by item fed is never recomposed by a takeoff of
+-- the first format. Its DPGF reference is 10; the send by item's part of 20 is in its journal, not in
+-- takeoff_quantity_policy, which the composition of the application reads (private.takeoff_compose_dpgf_targets). The
+-- application of another plan's line of 5 (apply_takeoff_job_guarded_atomic) is refused: the line keeps its 20, never 10.
+insert into da_cases values (28, 'EF cuivre DN 22', 'ml', 10);
+-- Its draft as the fixture writes one, outside a member's session.
+select set_config('request.jwt.claim.sub', '', true);
+select set_config('request.jwt.claims', '', true);
+insert into public.estimate_versions (id, tenant_id, project_id, version_number, calc_engine_version, max_section_depth,
+  currency, status, margin_mode, margin_multiplier, margin_bp, global_coefficient, discount_bp, discount_mode, tax_rate_bp,
+  rounding_mode, rounding_step_cents, sale_coefficient_fo, sale_coefficient_mo, gross_ht_cents, discount_applied_cents,
+  commercial_rounding_cents, total_ht_cents, total_tax_cents, total_ttc_cents)
+values (pg_temp.da_id(28001), current_setting('test.tenant_id')::uuid, pg_temp.da_id(10), 28, 3, 3, 'EUR', 'draft', 'fixed', 1, 0,
+  1, 0, 'simple', 2000, 'none', 1, 1.3, 1.2, 0, 0, 0, 0, 0, 0);
+do $case28$
+begin
+  perform set_config('miaouffrage.estimate_v3_writer', pg_temp.da_id(28001)::text, true);
+  insert into public.estimate_items (id, tenant_id, version_id, item_type, position, title)
+  values (pg_temp.da_id(28002), current_setting('test.tenant_id')::uuid, pg_temp.da_id(28001), 'section', 1, 'Lot fictif');
+  insert into public.estimate_items (id, tenant_id, version_id, parent_id, item_type, position, title, description,
+    quantity, unit_code, unit_price_ht_cents, tax_rate_bp, k_fo, h_mo, k_mo, pu_ht_cents, line_total_ht_cents,
+    line_tax_cents, line_total_ttc_cents, source_provider, source_file_name, source_page, source_metadata, fo_provision)
+  values (pg_temp.da_id(28003), current_setting('test.tenant_id')::uuid, pg_temp.da_id(28001), pg_temp.da_id(28002), 'line', 1,
+    'EF cuivre DN 22', 'ml', 10, 'ml', 1000, 2000, 1, 0, 1, 1000, 10000, 2000, 12000, 'dpgf', 'dpgf-fictif.xlsx', 7,
+    jsonb_build_object('dpgf_source_quantity', 10, 'dpgf_source_unit', 'ml'), 1);
+  perform public.estimate_v3_complete_entry_for_writer(pg_temp.da_id(28001), '{}'::uuid[]);
+  perform set_config('miaouffrage.estimate_v3_writer', '', true);
+end;
+$case28$;
+insert into public.takeoff_jobs (id, tenant_id, estimate_version_id, level, status, source_file_name, created_by)
+select pg_temp.da_job(28, job_no), current_setting('test.tenant_id')::uuid, pg_temp.da_id(28001), 'B', 'completed',
+  'plan-fictif.pdf', pg_temp.da_id(1)
+from generate_series(1, 2) as job_no;
+insert into da_items values (28, 2, 1, 'EF cuivre DN 22', 5, 'ml', 3);
+select pg_temp.da_seed(28, 2);
+insert into public.draft_locks (version_id, user_id, tenant_id, expires_at, session_id)
+values (pg_temp.da_id(28001), pg_temp.da_id(1), current_setting('test.tenant_id')::uuid, statement_timestamp() + interval '30 minutes',
+  gen_random_uuid());
+-- What a send by item left on the line: its target, its receipt and its part of 20 (an entry of a plan), the line at 20.
+set local session_replication_role = replica;
+insert into public.takeoff_list_items (id, tenant_id, project_id, origin_kind, created_in_revision, created_by)
+values (pg_temp.da_id(28050), current_setting('test.tenant_id')::uuid, pg_temp.da_id(10), 'manual', 1, pg_temp.da_id(1));
+set local session_replication_role = origin;
+do $case28_item_send$
+begin
+  perform set_config('mergeone.takeoff_item_send', 'case-28', true);
+  insert into public.takeoff_item_send_receipts (id, tenant_id, project_id, job_id, version_id, request_id, format_version, actor_id,
+    plan_sha256, version_created, write_plan, result)
+  values (pg_temp.da_id(28060), current_setting('test.tenant_id')::uuid, pg_temp.da_id(10), pg_temp.da_job(28, 1),
+    pg_temp.da_id(28001), pg_temp.da_id(28061), 1, pg_temp.da_id(1), repeat('0', 64), false, '{}', '{}');
+  insert into public.takeoff_item_send_targets (id, tenant_id, project_id, version_id, item_id, breakdown, compartment_key,
+    estimate_item_id, line_kind, unit_code, created_by_receipt_id)
+  values (pg_temp.da_id(28062), current_setting('test.tenant_id')::uuid, pg_temp.da_id(10), pg_temp.da_id(28001),
+    pg_temp.da_id(28050), 'dpgf', 'dpgf', pg_temp.da_id(28003), 'dpgf_line', 'ml', pg_temp.da_id(28060));
+  insert into public.takeoff_item_send_parts (tenant_id, project_id, version_id, target_id, receipt_id, job_id, item_id,
+    plan_logical_id, kind, answer_id, answer_revision, entry_id, entry_revision, observation_ids, takeoff_item_ids, quantity, unit,
+    unit_code, pages)
+  values (current_setting('test.tenant_id')::uuid, pg_temp.da_id(10), pg_temp.da_id(28001), pg_temp.da_id(28062),
+    pg_temp.da_id(28060), pg_temp.da_job(28, 1), pg_temp.da_id(28050), pg_temp.da_id(28063), 'entered', pg_temp.da_id(28064),
+    repeat('1', 64), pg_temp.da_id(28065), 1, '{}', '{}', 20, 'ml', 'ml', '{3}');
+  perform set_config('mergeone.takeoff_item_send', '', true);
+  perform set_config('miaouffrage.estimate_v3_writer', pg_temp.da_id(28001)::text, true);
+  update public.estimate_items set quantity = 20 where id = pg_temp.da_id(28003);
+  perform public.estimate_v3_complete_entry_for_writer(pg_temp.da_id(28001), array[pg_temp.da_id(28003)]);
+  perform set_config('miaouffrage.estimate_v3_writer', '', true);
+end;
+$case28_item_send$;
+select pg_temp.da_permit(28, 2, 'da-28-2');
+select pg_temp.da_as();
+set local role authenticated;
+select is(pg_temp.da_apply('item send version', 28, 2, 'da-28-2'), 'P0001 TAKEOFF_APPLY_ITEM_SEND_VERSION',
+  'case 28: a takeoff of the first format is never applied to a version a send by item fed');
+reset role;
+select is((pg_temp.da_target(28)).quantity, 20::numeric, 'the DPGF line keeps the 20 the send by item wrote, never 10');
+select is((select status::text from public.takeoff_jobs where id = pg_temp.da_job(28, 2)), 'completed', 'the takeoff is not applied');
+
 select * from finish();
 rollback;
