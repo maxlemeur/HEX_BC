@@ -451,6 +451,13 @@ select is((select jsonb_agg(peer -> 'job_id') from jsonb_array_elements(pg_temp.
   jsonb_build_array(pg_temp.f(1306)), 'A2''s peer is C''s latest reading (C2), not C');
 select is((select jsonb_agg(peer -> 'job_id') from jsonb_array_elements(pg_temp.context(pg_temp.c()) -> 'peers') as peer),
   jsonb_build_array(pg_temp.f(1304)), 'C, an earlier reading of its plan, is compared with A2 only');
+-- C2 sent (its plan's latest reading is on a version): C, the reading it replaced, is no peer of A2 either. Red before
+-- the fix of the selection: the latest unsent reading of plan C, C, was A2's peer beside C2 on its version.
+set local session_replication_role = replica;
+update public.takeoff_jobs set status = 'applied', estimate_version_id = pg_temp.f(705) where id = pg_temp.f(1306);
+set local session_replication_role = origin;
+select is(pg_temp.context(pg_temp.f(1304)) -> 'peers', '[]'::jsonb,
+  'a plan whose latest reading was sent has no peer: the reading it replaced is never compared');
 -- A grouped or standalone analysis has no peer: the context of a job outside a request of format 2.
 set local session_replication_role = replica;
 insert into public.takeoff_jobs

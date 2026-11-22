@@ -21,25 +21,15 @@
 -- the service role only), and two are replaced (the send, private.takeoff_send_execute, rebuilt on 20261121193413's body;
 -- the closure's trigger function). No backfill.
 --
--- Locks: creating and replacing functions takes no lock on the tables released writers use beyond what validating their
--- bodies reads (check_function_bodies is off for that reason). Nothing needs to be drained. lock_timeout bounds any wait.
+-- Locks: creating and replacing the functions takes no lock on a table (check_function_bodies is off). The check table,
+-- created last, has foreign keys to takeoff_jobs and estimate_versions: from that statement to the commit (a fraction of a
+-- second) writes to those two tables wait. A transaction holding them longer than lock_timeout (5 s) stops the migration
+-- with nothing applied (55P03); run it again. Nothing needs to be drained.
 -- Requires 20261121040445 (plan locations), 20261121193413 (the send's body rebuilt here) and 20261121231238 (the closure).
 begin;
 
 set local lock_timeout = '5s';
 set local check_function_bodies = off;
-
--- 1. The send's own check, in its transaction: the version link of a per-plan analysis is admitted only while the send
--- that checked its context holds this row (inserted just before the link, deleted just after; a rollback removes it).
--- No API role reads or writes it. Its keys are the job's and the version's, which the send holds already (the job for
--- update, the version it locks or creates): their checks wait for nothing.
-create table private.takeoff_plan_send_checks (
-  job_id uuid primary key references public.takeoff_jobs(id) on delete cascade,
-  version_id uuid not null references public.estimate_versions(id) on delete cascade,
-  stamps jsonb not null,
-  xact xid8 not null default pg_catalog.pg_current_xact_id()
-);
-revoke all on table private.takeoff_plan_send_checks from public, anon, authenticated, service_role;
 
 -- A per-plan analysis: a unit of a request of format 2 (the test #448's closure used).
 create function private.takeoff_job_is_plan_unit(p_launch_request_id uuid)
@@ -49,14 +39,15 @@ returns boolean language sql stable set search_path = '' as $$
 $$;
 revoke all on function private.takeoff_job_is_plan_unit(uuid) from public, anon, authenticated, service_role;
 
--- 2. What a send's controls read besides the takeoff itself and the destination's own state (lot 2's job, peers and
+-- 1. What a send's controls read besides the takeoff itself and the destination's own state (lot 2's job, peers and
 -- mapping stamps):
 -- - peers: for a per-plan analysis, the readable analyses of the affaire's other plans. A plan is its source (its dossier
 --   piece, or the plan file itself: two working copies of one piece are one plan, takeoff_plan_location_sources); for each
---   other plan, its latest successful reading not yet sent (completed, without a version), with the state of its lines
---   (public.takeoff_rule_job_stamp). An earlier reading of this analysis's own plan is never a peer (a reading replaced),
---   nor a peer sent to a version (its lines are the destination's when it is that version, another estimate's
---   otherwise). A grouped or standalone analysis has no peer here (lot 2: the destination only).
+--   other plan, its latest successful reading, when it is not sent yet (completed, without a version), with the state of
+--   its lines (public.takeoff_rule_job_stamp). A reading replaced is never a peer: neither an earlier reading of this
+--   analysis's own plan, nor one of another plan whose later reading succeeded (sent or not). A plan whose latest reading
+--   was sent has no peer: its lines are the destination's when it is that version, another estimate's otherwise. A
+--   grouped or standalone analysis has no peer here (lot 2: the destination only).
 -- - plans: each plan revision the controls read — of this takeoff, of its peers, and of the destination's takeoffs
 --   (attached to it, or carried over to it by a copy) — as their preparation attested it (plan file, digest of its bytes),
 --   with the operator's location of that revision (migration B; null when none was saved).
@@ -81,12 +72,16 @@ returns jsonb language sql stable set search_path = '' as $$
     where candidate.tenant_id = p_tenant and candidate.project_id = p_project and plan.file_id is not null
   ), own as (
     select readings.* from readings where readings.id = p_job
-  ), peers as (
-    select distinct on (other.source_kind, other.source_id) other.id
+  ), latest as (
+    select distinct on (other.source_kind, other.source_id) other.id, other.estimate_version_id
     from readings as other cross join own
-    where other.id <> own.id and other.status = 'completed'::public.takeoff_job_status and other.estimate_version_id is null
+    where other.id <> own.id
+      and other.status in ('completed'::public.takeoff_job_status, 'applied'::public.takeoff_job_status)
       and (other.source_kind, other.source_id) is distinct from (own.source_kind, own.source_id)
     order by other.source_kind, other.source_id, other.created_at desc, other.id desc
+  ), peers as (
+    -- A plan whose latest reading was sent has no peer here: an earlier reading it replaced is never compared.
+    select latest.id from latest where latest.estimate_version_id is null
   ), evaluated as (
     select p_job as id
     union select peers.id from peers
@@ -178,7 +173,7 @@ $$;
 revoke all on function public.read_takeoff_send_context(uuid, uuid, uuid, uuid) from public, anon, authenticated;
 grant execute on function public.read_takeoff_send_context(uuid, uuid, uuid, uuid) to service_role;
 
--- 3. The closure of 20261121231238, replaced: a per-plan analysis is linked to a version only by the send that checked its
+-- 2. The closure of 20261121231238, replaced: a per-plan analysis is linked to a version only by the send that checked its
 -- context, in that send's transaction (its row in private.takeoff_plan_send_checks). Any other writer — a direct update,
 -- the previous application's send, a send that named no context — is refused as before.
 create or replace function private.guard_takeoff_plan_unit_send()
@@ -196,7 +191,7 @@ end;
 $$;
 revoke all on function private.guard_takeoff_plan_unit_send() from public, anon, authenticated, service_role;
 
--- 4. The send, as 20261121193413 wrote it, with the context: a command that names it is compared with it under the locks
+-- 3. The send, as 20261121193413 wrote it, with the context: a command that names it is compared with it under the locks
 -- (any analysis); a per-plan analysis needs one; the link of a per-plan analysis goes through its check; the receipt's
 -- write plan records what was checked. The lock order is unchanged: the context reads rows, it locks none.
 create or replace function private.takeoff_send_execute(p_actor uuid, p_tenant uuid, p_role public.tenant_role, p_request uuid,
@@ -897,5 +892,19 @@ end;
 $$;
 revoke all on function private.takeoff_send_execute(uuid, uuid, public.tenant_role, uuid, jsonb, boolean)
   from public, anon, authenticated, service_role;
+
+-- 4. Last, the send's own check, in its transaction: the version link of a per-plan analysis is admitted only while the send
+-- that checked its context holds this row (inserted just before the link, deleted just after; a rollback removes it).
+-- No API role reads or writes it. Its keys are the job's and the version's, which the send holds already (the job for
+-- update, the version it locks or creates): their checks wait for nothing. Created last: adding those foreign keys holds
+-- takeoff_jobs and estimate_versions in SHARE ROW EXCLUSIVE until the commit (their writes wait that long), and the
+-- functions above take no lock on a table.
+create table private.takeoff_plan_send_checks (
+  job_id uuid primary key references public.takeoff_jobs(id) on delete cascade,
+  version_id uuid not null references public.estimate_versions(id) on delete cascade,
+  stamps jsonb not null,
+  xact xid8 not null default pg_catalog.pg_current_xact_id()
+);
+revoke all on table private.takeoff_plan_send_checks from public, anon, authenticated, service_role;
 
 commit;
