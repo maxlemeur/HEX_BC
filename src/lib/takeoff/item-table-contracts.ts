@@ -114,7 +114,8 @@ export const itemReviewTargetSchema = z.object({
   itemId: uuid,
   entryRevision: count.describe("Révision de la saisie de la portée (0 sans saisie)."),
   answers: z.array(z.object({ answerId: uuid, answerRevision: z.string().min(1).max(128), decisionRevision: count,
-    entryRevision: count.describe("Révision de la saisie du plan qui tient lieu de cette réponse dans la portée de l’affaire (0 sans saisie ou dans la portée d’un plan).") })
+    entryRevision: count.describe("Révision de la saisie du plan qui tient lieu de cette réponse dans la portée de l’affaire (0 sans saisie ou dans la portée d’un plan)."),
+    marksRevision: count.optional().describe("Révision des repères comptés de la réponse que la sélection a vue (0 sans repères ; absente, comptée 0) : une acceptance la compare.") })
     .strict()).max(ITEM_REVIEW_LIMITS.answers),
 }).strict();
 

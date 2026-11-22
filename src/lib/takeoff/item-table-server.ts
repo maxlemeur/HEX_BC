@@ -177,6 +177,21 @@ async function contributionRows(client: Client, tenantId: string, ids: readonly 
   return rows;
 }
 
+/**
+ * The counted marks revision of each answer (lot 5), as the member reads it: a selection carries it and an acceptance
+ * compares it (an answer without marks is at 0).
+ */
+async function countMarksRevisions(client: Client, answerIds: readonly string[]) {
+  const revisions = new Map<string, number>();
+  for (let start = 0; start < answerIds.length; start += 500) {
+    const { data, error } = await client.from("takeoff_count_answer_states").select("answer_id, revision")
+      .in("answer_id", answerIds.slice(start, start + 500));
+    if (error) throw mapSupabaseError(error, "Impossible de lire les repères des postes.");
+    for (const row of data ?? []) revisions.set(row.answer_id, row.revision);
+  }
+  return revisions;
+}
+
 function rawReadings(row: TableRow) {
   return Array.isArray(row.readings) ? row.readings.map((entry) => asRecord(entry) ?? {}) : [];
 }
@@ -195,9 +210,10 @@ async function tableRows(access: AffaireAccess, rows: readonly TableRow[]): Prom
   }
   const contributionIds = [...answers.values()].flatMap((answer) => answer.observations
     .flatMap((observation) => observation.role === "contribution" && observation.takeoffItemId ? [observation.takeoffItemId] : []));
-  const [contributions, lowConfidenceThreshold] = await Promise.all([
+  const [contributions, lowConfidenceThreshold, marksRevisions] = await Promise.all([
     contributionIds.length ? contributionRows(client, access.context.tenantId, contributionIds) : new Map<string, ItemContributionRow>(),
     answers.size ? getTakeoffLowConfidenceThresholdForTenant(access.context.tenantId) : Promise.resolve(0),
+    answers.size ? countMarksRevisions(client, [...answers.keys()]) : new Map<string, number>(),
   ]);
   return rows.map((row): ItemTableRow => {
     if (!isState(row.state) || !isDecision(row.decision)) throw new TypeError("Poste illisible.");
@@ -215,6 +231,7 @@ async function tableRows(access: AffaireAccess, rows: readonly TableRow[]): Prom
         answer: answer ? answerView(answer, contributions, { expectedUnit: row.expected_unit, lowConfidenceThreshold }) : null,
         decision: decisionOf(reading.decision),
         decisionRevision: asFiniteNumber(reading.decision_revision) ?? 0,
+        marksRevision: answer ? marksRevisions.get(answer.answerId) ?? 0 : 0,
         entry: entryOf(reading.entry),
         sent: reading.sent === true,
       };

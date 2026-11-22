@@ -325,6 +325,55 @@ observation), même après la suppression de l’analyse ; seul un opérateur de
 les modifie, et son droit est vérifié de nouveau après chaque attente ; une lecture
 remplacée garde ses repères en lecture seule.
 
+**Les repères à l’écran.** Le détail d’un poste sur son plan dessine les repères de la
+page affichée à leur place, quels que soient le zoom et le déplacement, chacun avec sa
+forme et son signe (retenu ✓, proposé ?, à attribuer !, nouvelle lecture N) ; un repère
+retiré ne se voit que dans la liste des retirés et dans l’historique, un repère retenu
+pour un autre poste de la même lecture est signalé. Seuls les repères de la partie
+visible sont dessinés ; le total du serveur est affiché à part du nombre chargé. Le
+compte montre trois nombres distincts, calculés par le serveur : proposés, relus (retenus
+sur les pages vérifiées) et quantité retenue. Les mêmes repères forment une liste au
+clavier (↑ ↓ pour changer de repère et le centrer, R retenir, Suppr retirer avec un
+motif, T rétablir, D déplacer, A affecter à un autre poste, N ajouter, P déclarer la page
+vérifiée ; sur le plan, les flèches déplacent le réticule d’un point, Maj de dix, Entrée
+pose, Échap quitte ; le réticule part du centre de la partie visible du plan). Un repère ne
+se pose au clavier que sur une partie de la page visible dans le cadre ; sinon l’écran le
+dit. Une page ne se déclare vérifiée que sur son plan affiché et dessiné. Les gestes
+s’accumulent puis s’enregistrent en une seule commande, sous la révision affichée ; pendant
+un enregistrement, le membre continue, seuls les gestes envoyés sont retirés de la liste une
+fois enregistrés, et aucun chemin (touche, dialogue, question) ne modifie un geste en cours
+d’envoi. La réponse d’un enregistrement appartient au membre et au poste qui l’ont lancé :
+ouvert entre-temps, un autre poste garde sa page et ses gestes. Si un autre membre a modifié
+les repères entre-temps, ils sont relus, l’écran dit ce qui a changé et garde chaque geste
+pour l’enregistrer de nouveau ; la page, ses repères retirés, l’historique et le compte sont
+toujours montrés à une seule révision, sinon l’écran les relit. Les gestes non enregistrés
+restent dans l’onglet pour ce membre et ce poste. Un ajout non enregistré ne s’affecte pas
+à un autre poste : il s’enregistre d’abord. À côté d’un repère retenu, l’écran demande
+« Même objet » ou « Objet distinct » et ne décide jamais seul, y compris pour un repère
+retenu que seul l’enregistrement trouve : chaque choix nomme son repère par son numéro et sa
+place, le charge s’il ne l’est pas encore et le centre quand il est choisi.
+Un lecteur, un plan déjà envoyé au devis et une lecture remplacée montrent les repères, le
+compte et l’historique, sans geste ; la commande refuse elle-même une modification d’un
+plan envoyé, sous ses verrous (un envoi et une modification s’excluent). Ouvert sur une
+lecture plus ancienne, le détail ne montre pas de repères et mène à la lecture actuelle. Tant qu’un envoi ne vérifie pas la
+révision des repères, une quantité comptée sur le plan est montrée et n’est jamais
+envoyée : le tableau des postes et l’envoi gardent la quantité qu’ils retiennent.
+
+Une acceptance du tableau des postes retient aussi la révision des repères de la réponse
+acceptée, et compare celle que la sélection a vue : des repères modifiés depuis rendent la
+sélection périmée, rien n’est accepté. Écarter, réintégrer, saisir une quantité ou inclure
+une saisie ne certifient aucun compte : des repères modifiés depuis la sélection ne les
+rendent pas périmés, ni pour le serveur ni pour la base, qui jugent sur la même règle. Une
+sélection que le serveur trouve périmée part à la base avec tous ses postes à appliquer,
+jamais avec aucun : la base rend la réponse de la même commande déjà enregistrée, refuse la
+sélection périmée, ou applique toute la sélection qu’elle trouve actuelle et admissible ;
+elle n’enregistre jamais une commande qui n’a rien fait sur une sélection périmée. Si les repères changent ensuite (un repère ajouté, déplacé, retiré, rétabli,
+retenu, affecté à un autre poste, une page vérifiée, une nouvelle lecture machine), même à
+nombre égal, l’acceptance n’est plus une décision : le poste redevient « à décider » dans
+le tableau, ses compteurs et la commande, et s’accepte de nouveau sur les repères actuels.
+Écarter puis réintégrer un poste rend l’acceptance telle qu’elle était, liée aux repères
+sur lesquels elle avait été prise. Une réponse sans repères garde son acceptance.
+
 Une ligne de devis créée depuis un import garde dans sa provenance l’import et la
 ligne mappée. La ligne mappée nomme la ligne brute dont elle vient ; quand une
 nouvelle correspondance la supprime, la base garde ce lien. La ligne de devis et ses
@@ -393,10 +442,16 @@ l’affaire `takeoff-item-review:<affaire>` (que seule cette commande prend), pu
 règles des analyses dont elle écrit les lignes positives, comme l’enregistrement d’une ligne
 de la revue ciblée les prend : la clé `takeoff-rules:<version>` de chaque version avant les
 clés `takeoff-job-rules:<analyse>` puis `takeoff-job:<analyse>` de chaque analyse sans
-version, chacune dans l’ordre des identifiants ; enfin les lignes (`takeoff_items`) et ses
-propres relations. Elle relit les postes visés une fois ces clés tenues : ce qu’elle compare
-et juge est ce qui est enregistré à ce moment. Les lectures du tableau ne prennent aucun
-verrou.
+version, chacune dans l’ordre des identifiants ; pour une acceptance, l’état des repères
+de chaque réponse visée (`FOR SHARE`, dans l’ordre des identifiants), après ces clés et
+avant les lignes ; enfin les lignes (`takeoff_items`) et ses propres relations. Elle relit
+les postes visés une fois ces clés tenues : ce qu’elle compare et juge est ce qui est
+enregistré à ce moment. La commande de correction des repères
+(`public.edit_takeoff_count_marks`) prend, après la ligne de l’affaire, les lignes des
+analyses des réponses qu’elle nomme (`FOR SHARE`), puis ces réponses (`FOR KEY SHARE`), leur
+état des repères et les repères qu’elle nomme (`FOR UPDATE`), chaque fois dans l’ordre des
+identifiants : un envoi, ou tout autre écrivain de la ligne d’une de ces analyses, attend la
+fin de sa transaction, jamais davantage. Les lectures du tableau ne prennent aucun verrou.
 
 - **Accepter les mesurés sans anomalie** : seulement les postes mesurés à couverture
   complète, sans hypothèse, contrôle en échec ou à recalculer, confiance sous le seuil du

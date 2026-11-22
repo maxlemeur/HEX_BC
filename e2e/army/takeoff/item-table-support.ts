@@ -32,7 +32,10 @@ const text = (value: string) => `'${value.replaceAll("'", "''")}'`;
  * has no bytes and a fictional digest.
  */
 export async function seedPublishedItemTable(owner: DedicatedOwner, input: { name: string; labels: string[]; answers: SeededAnswer[];
-  planPdf?: Buffer }): Promise<SeededItemTable> {
+  planPdf?: Buffer;
+  /** Machine marks the same attempt publishes after the answers (public.publish_takeoff_count_marks, generation 1). */
+  countMarks?: (itemIds: string[]) => { pages: unknown; marks: unknown } }):
+  Promise<SeededItemTable> {
   if (input.labels.length !== input.answers.length) throw new Error("One answer per item.");
   const ids = {
     project: randomUUID(), upload: randomUUID(), brief: randomUUID(), planSet: randomUUID(), plan: randomUUID(),
@@ -73,6 +76,7 @@ export async function seedPublishedItemTable(owner: DedicatedOwner, input: { nam
   const rows = input.answers.flatMap((answer, index) => rowIds[index] ? [{ id: rowIds[index], designation: input.labels[index],
     quantity: 1, unit: "u", confidence: 0.9, evidence: "Symbole relevé (fictif)", source_file_name: "plan-1.pdf", source_page: 2,
     metadata: {} }] : []);
+  const marks = input.countMarks?.(itemIds) ?? null;
   const hypotheses = input.answers.flatMap((answer, index) => answer === "hypothesis" ? [rowIds[index]!] : []);
   const result = { extracted_json: {}, warnings: [], tables: [], provider_meta: {}, confidence: null, token_count: 10, cost_cents: 0,
     duration_ms: 5, job_duration_ms: 6, run_metrics: [] };
@@ -157,7 +161,8 @@ select count(*) from public.claim_observed_local_takeoff_job('${ids.job}', '${ow
 select answer_count from public.publish_takeoff_item_answers('${ids.job}', '${ids.token}', now(), 'modele-fictif',
   'takeoff-c-postes-v1', '{"schema_version":"v2","prompt_version":"takeoff-c-postes-v1"}'::jsonb, array[2, 7], ${literal(answers)},
   '[]'::jsonb, ${literal(result)}, ${literal(rows)}, null);
--- The hypotheses made estimates, excluded as public.exclude_new_takeoff_hypothesis excludes a new estimated row.
+${marks ? `select public.publish_takeoff_count_marks('${ids.job}', '${ids.token}', 1, ${literal(marks.pages)}, ${literal(marks.marks)}) ->> 'marks';
+` : ""}-- The hypotheses made estimates, excluded as public.exclude_new_takeoff_hypothesis excludes a new estimated row.
 update public.takeoff_items set metadata = '{"quantity_nature":"estimated"}'::jsonb, is_excluded = true,
   exclusion_reason = 'Hypothèse non présélectionnée : quantité estimée, sans mesure sur un plan. Incluez la ligne pour la compter.'
 where job_id = '${ids.job}' and id::text in (select jsonb_array_elements_text(${literal(hypotheses)}));

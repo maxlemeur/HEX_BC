@@ -121,6 +121,8 @@ export const TAKEOFF_COUNT_MARK_EDIT_REFUSALS = {
     "Ce repère ne peut pas être affecté à ce poste : autre plan, page non lue ou autre unité.",
   TAKEOFF_MARKS_UNDECIDED: "Décidez de chaque repère proposé sur cette page avant de la déclarer vérifiée.",
   TAKEOFF_MARKS_LIMIT_EXCEEDED: "Ce poste a trop de repères sur ce plan.",
+  TAKEOFF_MARKS_PLAN_SENT:
+    "Ce plan a déjà été envoyé au devis : ses repères se consultent ici, une correction passera par une révision de l’apport.",
 } as const;
 export type TakeoffCountMarkEditRefusal = keyof typeof TAKEOFF_COUNT_MARK_EDIT_REFUSALS;
 
