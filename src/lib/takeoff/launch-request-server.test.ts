@@ -1102,8 +1102,10 @@ describe("launchTakeoffRelaunch", () => {
       return { id: request.id, tenant_id: TENANT, project_id: PROJECT, state: "closed",
         created_at: new Date(Date.UTC(2026, 10, 21, 12) - index * 60_000).toISOString(),
         manifest: { format_version: request.grouped ? 1 : 2, units,
+          // As the server sealed them before the recorded source decided identity: an upload's metadata piece included.
           plans: request.plans.map((plan) => ({ entry_key: plan.id, plan_file_id: plan.id, name: plan.name,
-            logical_id: plan.document ?? plan.id, intake_document_id: plan.document, generation: plan.generation, pages: [] })),
+            logical_id: plan.document ?? plan.strayPiece ?? plan.id, intake_document_id: plan.document ?? plan.strayPiece ?? null,
+            generation: plan.generation, pages: [] })),
           coverage: { plans_omitted: (request.notRequested ?? []).map((plan) => ({ ...sealed(plan), reason: "not_requested" })) } },
         takeoff_jobs: units.map((unit) => unitJob(request.id, unit.key,
           request.states?.[request.grouped ? "grouped" : unit.plans[0]!] ?? "succeeded", (jobIndex += 1))) };
@@ -1121,9 +1123,11 @@ describe("launchTakeoffRelaunch", () => {
       ...(input.predecessor.snapshotPlans ?? []), ...(input.formerCopies ?? []), ...input.copies];
     const firstSeen = new Map<string, { copy: Copy; index: number }>();
     everyCopy.forEach((copy, index) => { if (!firstSeen.has(copy.id)) firstSeen.set(copy.id, { copy, index }); });
+    // In the database's order of recording (its own timestamps, then the copy), as the queries ask it.
     const registry = [...firstSeen.values()].map(({ copy, index }) => ({ plan_file_id: copy.id, plan_set_id: PLAN_SET,
       tenant_id: TENANT, project_id: PROJECT, source_kind: copy.document ? "intake_document" : "plan_file",
-      source_id: copy.document ?? copy.id, recorded_at: copy.recordedAt ?? new Date(Date.UTC(2026, 10, 1) + index * 60_000).toISOString() }));
+      source_id: copy.document ?? copy.id, recorded_at: copy.recordedAt ?? new Date(Date.UTC(2026, 10, 1) + index * 60_000).toISOString() }))
+      .sort((left, right) => left.recorded_at.localeCompare(right.recorded_at) || left.plan_file_id.localeCompare(right.plan_file_id));
     const pieces = [...new Set(everyCopy.flatMap((copy) => (copy.document ? [copy.document] : [])))].map((id) => ({ id,
       tenant_id: TENANT, project_id: PROJECT, upload_status: "uploaded", classification_status: "classified", document_kind: "plans",
       deleted_at: input.removedPieces?.includes(id) ? "2026-11-21T09:00:00Z" : null, deletion_token: null }));
@@ -1304,11 +1308,11 @@ describe("launchTakeoffRelaunch", () => {
         replaced: [{ id: PIECE_A, name: "plan-a.pdf" }] });
     });
 
-  // The requests are read from the latest, a page at a time, as far back as a plan lacks a successful reading: here
-  // eleven later requests read A again without success, and only the oldest, past the first page, read it.
+  // The requests are read from the latest, a thousand a page: here a thousand later requests read A again without
+  // success, and only the oldest, on the second page, read it. Its reading is inherited across the page.
   it("finds a plan's last successful reading past the first page of the affaire's requests", async () => {
-    const later = Array.from({ length: 11 }, (_, index) => ({
-      id: `aaaaaaaa-0000-4000-8000-0000000001${String(index).padStart(2, "0")}`, plans: [A_BEFORE],
+    const later = Array.from({ length: 1000 }, (_, index) => ({
+      id: `aaaaaaaa-0000-4000-8000-00000001${String(index).padStart(4, "0")}`, plans: [A_BEFORE],
       states: { [A_BEFORE.id]: index % 2 ? "canceled" : "failed" }, notRequested: [B_COPY] }));
     const history = affaireHistory({ copies: [A_BEFORE, B_COPY, C_COPY], confirmed: [A_BEFORE.id, B_COPY.id, C_COPY.id],
       requests: [...later, { id: FIRST_REQUEST, plans: [A_BEFORE, B_COPY] }],
@@ -1318,6 +1322,9 @@ describe("launchTakeoffRelaunch", () => {
     expect(manifest.coverage.plans_omitted).toEqual(expect.arrayContaining([
       { id: A_BEFORE.id, name: "plan-a.pdf", reason: "not_requested", intake_document_id: PIECE_A, generation: "generation-1" }]));
     expect(manifest.coverage.plans_omitted).toHaveLength(2);
+    // Two pages of requests: the oldest was on the second.
+    expect(history.fake.queries.filter(({ table }) => table === "takeoff_launch_requests").map(({ range }) => range))
+      .toEqual([[0, 999], [1000, 1999]]);
   });
 
   // The reading that counts is the latest that succeeded: a later successful reading of the same plan, at its new copy,
@@ -1526,6 +1533,63 @@ describe("launchTakeoffRelaunch", () => {
         ? { data: [{ outcome: "replayed", request_id: SECOND_REQUEST, job_id: "aaaaaaaa-0000-4000-8000-0000000000b4" }], error: null }
         : { data: null, error: { code: "23505", message: "TAKEOFF_LAUNCH_INTENT_CONFLICT" } }) });
     await expect(history.runFromDialogue()).resolves.toMatchObject({ outcome: "replayed", jobId: "aaaaaaaa-0000-4000-8000-0000000000b4" });
+  });
+
+  // Closing round. A0 is still in the plan set and in the confirmed options after its dossier generation changed, and
+  // its replacement is not available yet: the reader calls A0 stale, so it is never read; it is offered as a plan
+  // without copy.
+  it("never admits a copy the reader calls stale when its replacement is unavailable", async () => {
+    const history = affaireHistory({ copies: [A_BEFORE, B_COPY], confirmed: [A_BEFORE.id, B_COPY.id], stale: [A_BEFORE.id], requests: [],
+      predecessor: { id: JOB_OF_A, requestId: null, unitKey: null, snapshotPlans: [A_BEFORE, B_COPY] } });
+    await expect(history.runFromDialogue()).resolves.toEqual({ outcome: "plans_to_choose", requestId: null, jobId: null,
+      choice: { withoutCopy: [{ name: "plan-a.pdf", reason: "copy_missing" }], remaining: [{ id: B_COPY.id, name: "plan-b.pdf" }] } });
+    expect(history.launched).toEqual([]);
+  });
+
+  // An earlier grouped analysis read upload U, whose metadata names piece A (its manifest, sealed before the recorded
+  // source decided identity, says so): U's reading is its own, and a command reading A keeps it as read before.
+  it("never lets a historical upload naming a dossier piece in its metadata stand in for that piece", async () => {
+    const history = affaireHistory({ copies: [A_BEFORE, UPLOAD_A, C_COPY], confirmed: [A_BEFORE.id, UPLOAD_A.id, C_COPY.id],
+      requests: [{ id: FIRST_REQUEST, plans: [UPLOAD_A], grouped: true }],
+      predecessor: { id: JOB_OF_A, requestId: FIRST_REQUEST, unitKey: "grouped" } });
+    await expect(history.run([A_BEFORE.id])).resolves.toMatchObject({ outcome: "admitted" });
+    const manifest = history.launched[0].p_manifest as AnyTakeoffLaunchManifest;
+    expect(manifest.coverage.plans_omitted).toEqual(expect.arrayContaining([{ id: UPLOAD_A.id, name: "plan-a-envoi.pdf",
+      reason: "not_requested", intake_document_id: null, generation: null }]));
+  });
+
+  // The copies are ordered by the database's own times, below the millisecond: A1 was recorded before B1 within the same
+  // millisecond, so the relaunch recorded between them read A1 and B0.
+  it("finds a relaunch's receipt under copies recorded within the same millisecond, in the database's order", async () => {
+    const A0: Copy = { ...A_BEFORE, recordedAt: "2026-11-10T08:00:00.000000+00:00" };
+    const B0: Copy = { ...B_COPY, recordedAt: "2026-11-10T08:00:00.000200+00:00" };
+    const A1: Copy = { id: "aaaaaaaa-0000-4000-8000-000000000056", name: "plan-a.pdf", document: PIECE_A, generation: "generation-2",
+      recordedAt: "2026-11-12T08:00:00.000100+00:00" };
+    const B1: Copy = { id: "aaaaaaaa-0000-4000-8000-00000000005c", name: "plan-b.pdf", document: PIECE_B, generation: "generation-2",
+      recordedAt: "2026-11-12T08:00:00.000900+00:00" };
+    const history = affaireHistory({ copies: [A1, B1], confirmed: [A1.id, B1.id], requests: [],
+      predecessor: { id: JOB_OF_A, requestId: null, unitKey: null, snapshotPlans: [A0, B0] },
+      receipt: (ids) => (ids?.join() === [A1.id, B0.id].sort().join()
+        ? { data: [{ outcome: "replayed", request_id: SECOND_REQUEST, job_id: "aaaaaaaa-0000-4000-8000-0000000000b5" }], error: null }
+        : { data: null, error: { code: "23505", message: "TAKEOFF_LAUNCH_INTENT_CONFLICT" } }) });
+    await expect(history.runFromDialogue()).resolves.toMatchObject({ outcome: "replayed", jobId: "aaaaaaaa-0000-4000-8000-0000000000b5" });
+  });
+
+  // The registry's history of a piece is read a page at a time: the copy holding the receipt is the newest of more than a
+  // thousand recorded since the analysis.
+  it("finds a relaunch's receipt past the first thousand copies of its plan", async () => {
+    const A0: Copy = { ...A_BEFORE, recordedAt: new Date(Date.UTC(2026, 10, 10)).toISOString() };
+    const former = Array.from({ length: 1001 }, (_, index): Copy => ({ id: `aaaaaaaa-0000-4000-9100-${String(index).padStart(12, "0")}`,
+      name: "plan-a.pdf", document: PIECE_A, generation: `generation-h${index}`,
+      recordedAt: new Date(Date.UTC(2026, 10, 11) + index * 1000).toISOString() }));
+    const A1: Copy = { id: "aaaaaaaa-0000-4000-8000-000000000056", name: "plan-a.pdf", document: PIECE_A, generation: "generation-2",
+      recordedAt: new Date(Date.UTC(2026, 10, 12)).toISOString() };
+    const history = affaireHistory({ copies: [A1], confirmed: [A1.id], formerCopies: former, requests: [],
+      predecessor: { id: JOB_OF_A, requestId: null, unitKey: null, snapshotPlans: [A0] },
+      receipt: (ids) => (ids?.join() === A1.id
+        ? { data: [{ outcome: "replayed", request_id: SECOND_REQUEST, job_id: "aaaaaaaa-0000-4000-8000-0000000000b6" }], error: null }
+        : { data: null, error: { code: "23505", message: "TAKEOFF_LAUNCH_INTENT_CONFLICT" } }) });
+    await expect(history.runFromDialogue()).resolves.toMatchObject({ outcome: "replayed", jobId: "aaaaaaaa-0000-4000-8000-0000000000b6" });
   });
 
   it("refuses plans named one by one before one analysis per plan is active", async () => {

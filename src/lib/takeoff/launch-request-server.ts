@@ -443,11 +443,8 @@ async function readPlansAnalysedBefore(service: Service, tenantId: string, proje
   const requests = ((read.data ?? []) as unknown as Array<{ id: string; created_at: string; manifest: unknown;
     takeoff_jobs: TakeoffRequestUnitJobRow[] | null }>)
     .sort((left, right) => right.created_at.localeCompare(left.created_at) || right.id.localeCompare(left.id));
-  const known = new Map<string, PlanReadBefore>();
-  const keep = (plan: PlanReadBefore) => {
-    const key = logicalPlanKey(plan);
-    if (!known.has(key)) known.set(key, plan);
-  };
+  const readings: PlanReadBefore[] = [];
+  const keep = (plan: PlanReadBefore) => { readings.push(plan); };
   for (const request of requests) {
     const manifest = request.manifest as AnyTakeoffLaunchManifest | null | undefined;
     if (!manifest || !Array.isArray(manifest.plans)) continue;
@@ -466,7 +463,31 @@ async function readPlansAnalysedBefore(service: Service, tenantId: string, proje
       keep({ id: plan.id, name: plan.name, intake_document_id: plan.intake_document_id ?? null, generation: plan.generation ?? null });
     }
   }
+  // Each copy's identity is the source the database recorded for it, as for a new manifest: an upload whose metadata
+  // named a piece (and whose manifest, sealed before, says so) is its own plan. A copy gone before its source was
+  // recorded keeps the identity its manifest sealed.
+  const recorded = await recordedCopySources(service, tenantId, projectId, readings.map(({ id }) => id));
+  const known = new Map<string, PlanReadBefore>();
+  for (const reading of readings) {
+    const source = recorded.get(reading.id.toLowerCase());
+    const plan = source ? { ...reading, intake_document_id: source.kind === "intake_document" ? source.id : null } : reading;
+    const key = logicalPlanKey(plan);
+    if (!known.has(key)) known.set(key, plan);
+  }
   return [...known.values()];
+}
+
+/** The recorded source of each copy named (`takeoff_plan_location_sources`), read in pieces of a hundred copies. */
+async function recordedCopySources(service: Service, tenantId: string, projectId: string, fileIds: readonly string[]) {
+  const ids = [...new Set(fileIds.map((id) => id.toLowerCase()))];
+  const sources = new Map<string, { kind: string; id: string }>();
+  for (let from = 0; from < ids.length; from += 100) {
+    const { data, error } = await service.from("takeoff_plan_location_sources").select("plan_file_id, source_kind, source_id")
+      .eq("tenant_id", tenantId).eq("project_id", projectId).in("plan_file_id", ids.slice(from, from + 100));
+    if (error) databaseError(error, "Impossible de lire les plans de l’affaire.");
+    for (const row of data ?? []) sources.set(row.plan_file_id.toLowerCase(), { kind: row.source_kind, id: row.source_id.toLowerCase() });
+  }
+  return sources;
 }
 
 /** A request this Mac's claim returned, with what its evaluation needs: the mandate's selection and its payer's right. */
@@ -855,6 +876,9 @@ async function relaunchCommandPlans(service: Service, input: RelaunchInput): Pro
   return { ids: [...new Set(read.map((id) => id.toLowerCase()))].sort(), derived: true, names };
 }
 
+/** The rows of a read of the copies' recorded sources, a page (PostgREST's ceiling, supabase/config.toml). */
+const REGISTRY_PAGE = 1000;
+
 /**
  * The other identities a command naming no plan can have had since the analysis it replaces: for each copy of its plans'
  * pieces recorded since the copies that analysis read (each a new copy, recorded at its insert in
@@ -863,38 +887,50 @@ async function relaunchCommandPlans(service: Service, input: RelaunchInput): Pro
  * statements, and one replay per copy recorded since the analysis.
  */
 async function relaunchIdentities(service: Service, tenantId: string, planSetId: string, sealed: string[]) {
-  const columns = "plan_file_id, source_kind, source_id, recorded_at";
-  const own = await service.from("takeoff_plan_location_sources").select(columns).eq("tenant_id", tenantId)
+  const own = await service.from("takeoff_plan_location_sources").select("plan_file_id, source_kind, source_id").eq("tenant_id", tenantId)
     .eq("plan_set_id", planSetId).in("plan_file_id", sealed);
   if (own.error) databaseError(own.error, "Impossible de lire les plans de l’affaire.");
-  const ownRows = (own.data ?? []).filter((row) => row.source_kind === "intake_document");
-  const pieceOf = new Map(ownRows.map((row) => [row.plan_file_id.toLowerCase(), row.source_id.toLowerCase()]));
+  const pieceOf = new Map((own.data ?? []).filter((row) => row.source_kind === "intake_document")
+    .map((row) => [row.plan_file_id.toLowerCase(), row.source_id.toLowerCase()]));
   if (pieceOf.size === 0) return [];
+  // The pieces' copies in the database's order of recording (its own timestamps, then the copy), a page at a time. The
+  // registry only grows (a copy's source is recorded once), so a page read later is never shifted. Copies recorded at the
+  // same instant share a moment: they are the same time for the identities.
+  const history: Array<{ id: string; piece: string; moment: number }> = [];
+  let previous: string | null = null;
+  for (let from = 0; ; from += REGISTRY_PAGE) {
+    const { data, error } = await service.from("takeoff_plan_location_sources").select("plan_file_id, source_id, recorded_at")
+      .eq("tenant_id", tenantId).eq("plan_set_id", planSetId).eq("source_kind", "intake_document")
+      .in("source_id", [...new Set(pieceOf.values())]).order("recorded_at").order("plan_file_id").range(from, from + REGISTRY_PAGE - 1);
+    if (error) databaseError(error, "Impossible de lire les plans de l’affaire.");
+    for (const row of data ?? []) {
+      const moment: number = (history.at(-1)?.moment ?? -1) + (row.recorded_at === previous ? 0 : 1);
+      previous = row.recorded_at;
+      history.push({ id: row.plan_file_id.toLowerCase(), piece: row.source_id.toLowerCase(), moment });
+    }
+    if ((data ?? []).length < REGISTRY_PAGE) break;
+  }
   // Per piece, the copy the analysis read: only the copies recorded since count.
   const since = new Map<string, number>();
-  for (const row of ownRows) {
-    const piece = row.source_id.toLowerCase();
-    since.set(piece, Math.max(since.get(piece) ?? -Infinity, Date.parse(row.recorded_at)));
+  for (const copy of history) {
+    if (sealed.includes(copy.id)) since.set(copy.piece, Math.max(since.get(copy.piece) ?? -1, copy.moment));
   }
-  const copies = await service.from("takeoff_plan_location_sources").select(columns).eq("tenant_id", tenantId)
-    .eq("plan_set_id", planSetId).eq("source_kind", "intake_document").in("source_id", [...new Set(pieceOf.values())]);
-  if (copies.error) databaseError(copies.error, "Impossible de lire les plans de l’affaire.");
-  const timeline = (copies.data ?? []).map((row) => ({ id: row.plan_file_id.toLowerCase(), piece: row.source_id.toLowerCase(),
-    at: Date.parse(row.recorded_at) })).sort((left, right) => left.at - right.at || left.id.localeCompare(right.id));
-  const latest = (piece: string, time: number) => timeline.filter((copy) => copy.piece === piece && copy.at <= time).at(-1)?.id;
+  const latest = (piece: string, moment: number) => history.filter((copy) => copy.piece === piece && copy.moment <= moment).at(-1)?.id;
   const seen = new Set([sealed.join()]);
-  return timeline.filter((copy) => copy.at >= (since.get(copy.piece) ?? Infinity) && !sealed.includes(copy.id)).reverse().flatMap((copy) => {
-    const identity = [...new Set(sealed.map((id) => {
-      const piece = pieceOf.get(id);
-      if (!piece) return id;
-      return piece === copy.piece ? copy.id : latest(piece, copy.at) ?? id;
-    }))].sort();
-    if (seen.has(identity.join())) return [];
-    seen.add(identity.join());
-    return [identity];
-  });
+  return history.filter((copy) => copy.moment >= (since.get(copy.piece) ?? Infinity) && !sealed.includes(copy.id)).reverse()
+    .flatMap((copy) => {
+      const identity = [...new Set(sealed.map((id) => {
+        const piece = pieceOf.get(id);
+        if (!piece) return id;
+        return piece === copy.piece ? copy.id : latest(piece, copy.moment) ?? id;
+      }))].sort();
+      if (seen.has(identity.join())) return [];
+      seen.add(identity.join());
+      return [identity];
+    });
 }
 
+/** The plans a relaunch reads at their current copies (`scope`), and those of the analysis with no current copy now. */
 type CurrentPlanCopies = { scope: string[]; withoutCopy: Array<{ id: string; piece: string | null; removed: boolean }> };
 
 /**
@@ -917,31 +953,36 @@ async function currentPlanCopies(service: Service, context: Context, projectId: 
       : null;
   };
   const sealed = await Promise.all(plans.map(async (id) => ({ id, source: await sourceOf(id) })));
-  const pieces = [...new Set(sealed.flatMap(({ source }) => (source && !source.current && source.piece ? [source.piece] : [])))];
+  const pieces = new Set(sealed.flatMap(({ source }) => (source && !source.current && source.piece ? [source.piece] : [])));
   const currentOf = new Map<string, string[]>();
-  if (pieces.length) {
-    const { data, error } = await service.from("takeoff_plan_location_sources").select("plan_file_id, source_id")
-      .eq("tenant_id", context.tenantId).eq("plan_set_id", planSetId).eq("source_kind", "intake_document").in("source_id", pieces);
-    if (error) databaseError(error, "Impossible de lire les plans de l’affaire.");
-    const recorded = (data ?? []).map((row) => ({ id: row.plan_file_id.toLowerCase(), piece: row.source_id.toLowerCase() }))
-      .filter(({ id }) => !plans.includes(id));
-    // Only the copies the plan set holds can be current (at most its twenty files): a deleted copy is never asked about.
-    const held = recorded.length ? await service.from("plan_files").select("id").eq("tenant_id", context.tenantId)
-      .eq("plan_set_id", planSetId).in("id", recorded.map(({ id }) => id)) : { data: [], error: null };
+  if (pieces.size) {
+    // Only a copy the plan set holds can be current (at most its twenty files): its copies, then their recorded pieces.
+    const held = await readAllRows(() => service.from("plan_files").select("id", { count: "exact" }).eq("tenant_id", context.tenantId)
+      .eq("plan_set_id", planSetId).order("id"));
     if (held.error) databaseError(held.error, "Impossible de lire les plans de l’affaire.");
-    const heldIds = new Set((held.data ?? []).map((row) => row.id.toLowerCase()));
-    const candidates = recorded.filter(({ id }) => heldIds.has(id));
+    const heldIds = (held.data ?? []).map((row) => row.id.toLowerCase()).filter((id) => !plans.includes(id));
+    const recorded = heldIds.length ? await service.from("takeoff_plan_location_sources").select("plan_file_id, source_kind, source_id")
+      .eq("tenant_id", context.tenantId).eq("plan_set_id", planSetId).in("plan_file_id", heldIds) : { data: [], error: null };
+    if (recorded.error) databaseError(recorded.error, "Impossible de lire les plans de l’affaire.");
+    const candidates = (recorded.data ?? []).filter((row) => row.source_kind === "intake_document" && pieces.has(row.source_id.toLowerCase()))
+      .map((row) => ({ id: row.plan_file_id.toLowerCase(), piece: row.source_id.toLowerCase() }));
     for (const candidate of await Promise.all(candidates.map(async (copy) => ({ ...copy, source: await sourceOf(copy.id) })))) {
       if (candidate.source?.current) currentOf.set(candidate.piece, [...(currentOf.get(candidate.piece) ?? []), candidate.id]);
     }
   }
+  // A copy the reader does not call current is never read: its piece's one current copy is, else it has no copy now
+  // (missing, unreadable, or several current copies: never chosen for the member).
   const gone: Array<{ id: string; piece: string | null }> = [];
-  const scope = sealed.map(({ id, source }) => {
-    if (source?.current) return id;
+  const scope: string[] = [];
+  for (const { id, source } of sealed) {
+    if (source?.current) {
+      scope.push(id);
+      continue;
+    }
     const now = source?.piece ? currentOf.get(source.piece) ?? [] : [];
-    if (now.length === 0) gone.push({ id, piece: source?.piece ?? null });
-    return now.length === 1 ? now[0]! : id;
-  });
+    if (now.length === 1) scope.push(now[0]!);
+    else gone.push({ id, piece: source?.piece ?? null });
+  }
   // Whether the piece of a plan without a copy is still a plan of the dossier: only the wording of the refusal depends on it.
   const goneIds = [...new Set(gone.flatMap(({ piece }) => (piece ? [piece] : [])))];
   const dossier = goneIds.length ? await service.from("affaire_intake_documents")
@@ -982,8 +1023,8 @@ async function launchTakeoffPlanCommand(service: Service, input: RelaunchInput,
   // member is never offered fewer plans without being told why). Then the member is told which plan has no copy and why,
   // by name, and chooses which of its other plans to read (a command that names them: another scope, under its own
   // identity); never asked to confirm the options with a plan that has no copy.
-  const withoutCopy = current?.withoutCopy.filter(({ id }) => missing.includes(id)) ?? [];
-  if (missing.length > withoutCopy.length) {
+  const withoutCopy = current?.withoutCopy ?? [];
+  if (missing.length > 0) {
     throw new TakeoffError({ status: 422, code: TakeoffErrorCode.VALIDATION_ERROR, retryable: false,
       message: "Ce plan ne fait pas partie de la préparation confirmée : confirmez les options du métré avec ce plan, puis relancez." });
   }
@@ -993,7 +1034,7 @@ async function launchTakeoffPlanCommand(service: Service, input: RelaunchInput,
     const named = withoutCopy.map(({ id, piece, removed }, index) => ({
       name: isTakeoffSourceVisible(visible, id, piece) ? names.get(id) ?? `Plan ${index + 1}` : `Plan ${index + 1}`,
       reason: removed ? "removed" as const : "copy_missing" as const }));
-    const remaining = scope.filter((id) => !current!.withoutCopy.some((plan) => plan.id === id) && active.has(id));
+    const remaining = scope;
     if (remaining.length === 0) {
       throw new TakeoffError({ status: 422, code: TakeoffErrorCode.VALIDATION_ERROR, retryable: false,
         message: describeTakeoffRelaunchWithoutPlans(named) });

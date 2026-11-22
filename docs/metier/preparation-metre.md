@@ -907,15 +907,19 @@ plan (voir le dernier point). La base en décide (migration
   identifiant, et l’ancienne copie peut rester dans le jeu jusqu’à son nettoyage) se
   relit à sa copie actuelle, retrouvée par la pièce du dossier que la base a notée
   pour chaque copie et garde après sa suppression. Une copie déposée dans le jeu est
-  son propre plan, quelles que soient ses métadonnées. Quand un plan de l’analyse
-  n’a plus de copie de travail (sorti des plans de l’affaire, ou copie manquante
-  ou illisible pour l’instant), l’analyse ne se relance pas telle quelle et rien
-  n’est enregistré : un autre de ses plans absent de la préparation confirmée est
+  son propre plan, quelles que soient ses métadonnées, y compris dans les analyses
+  scellées avant cette règle. Quand un plan de l’analyse n’a pas de copie actuelle
+  (sorti des plans de l’affaire, copie manquante ou illisible pour l’instant, ou
+  ancienne génération encore dans le jeu sans copie qui la remplace), il n’est
+  jamais lu ; l’analyse ne se relance pas telle quelle et rien n’est enregistré :
+  un autre de ses plans absent de la préparation confirmée est
   d’abord à confirmer ; sinon la fenêtre dit lequel et pourquoi, en le nommant, et
   propose de choisir parmi ses autres plans ceux à relire (aucun coché d’avance),
-  par une commande qui les nomme ; sans autre plan, la commande est refusée en le
-  disant (un plan sorti des plans de l’affaire ne revient pas, une copie manquante
-  peut revenir) ; un plan
+  par une commande qui les nomme ; un lancement de l’affaire envoyé depuis un autre
+  onglet et resté sans réponse, d’un autre contenu, n’est jamais envoyé à la place
+  des plans cochés : la fenêtre le dit, et le membre le renvoie ou le met de côté
+  d’abord ; sans autre plan, la commande est refusée en le disant (un plan sorti
+  des plans de l’affaire ne revient pas, une copie manquante peut revenir) ; un plan
   ajouté au dossier après l’analyse se lit par une commande qui le nomme et
   nomme l’analyse qu’elle complète : une commande sans analyse nommée est la
   première analyse de l’affaire, refusée quand l’affaire en a déjà une (la base
@@ -950,7 +954,7 @@ plan (voir le dernier point). La base en décide (migration
   il est cherché sous les copies que l’analyse remplacée avait lues, puis, si une
   autre identité tient la clé, sous chaque identité que la même relance a pu avoir
   depuis l’analyse (une par copie que les remplacements de ses plans ont donnée
-  depuis, la plus récente d’abord) ;
+  depuis, la plus récente d’abord, dans l’ordre d’enregistrement de la base) ;
   une autre sélection de plans sous la même clé est une autre commande, refusée.
 - **L’envoi au tableau de chiffrage** d’une analyse par plan reste fermé jusqu’à
   l’envoi partiel : la revue dit qu’il arrive plus tard, et la base refuse de la
