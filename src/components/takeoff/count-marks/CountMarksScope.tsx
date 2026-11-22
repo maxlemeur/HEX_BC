@@ -6,7 +6,6 @@ import { isRightRefusal, useCompletions, type Completion, type CompletionTarget 
 import { isTakeoffApiError } from "@/lib/takeoff/client-http";
 import {
   TAKEOFF_COUNT_MARK_EDIT_REFUSALS,
-  takeoffCountMarkEditRefusal,
   type TakeoffCountMark,
   type TakeoffCountMarkGesture,
   type TakeoffCountMarkRemovalReason,
@@ -15,10 +14,19 @@ import {
 } from "@/lib/takeoff/count-marks";
 import { createCountMarksReader, type CountMarksReader } from "@/lib/takeoff/count-marks-client";
 import {
+  ChangingMarksError,
+  isChanging,
+  isReadRefusal,
+  readCountMarkLots,
+  readNamedRetained,
+  readSession,
+  refusalSentence,
+  storeSession,
+  type Loaded,
+} from "@/components/takeoff/count-marks/countMarksReads";
+import {
   countMarkDuplicateDetailSchema,
-  TAKEOFF_COUNT_MARKS_PLAN_SENT,
   TAKEOFF_COUNT_MARKS_PLAN_SENT_MESSAGE,
-  TAKEOFF_COUNT_MARKS_READ_CHANGING,
   TAKEOFF_COUNT_MARKS_READ_CHANGING_MESSAGE,
   type CountMarksView,
 } from "@/lib/takeoff/count-marks-contracts";
@@ -51,6 +59,7 @@ import {
   type CountMarkPageSize,
   type CountMarkPoint,
   type CountMarkShown,
+  type CountMarkShownState,
   type CountRegion,
 } from "@/lib/takeoff/count-marks-view";
 import type { PdfPageRotation } from "@/lib/takeoff/pdf-page-geometry";
@@ -73,9 +82,6 @@ import type { PdfPageRotation } from "@/lib/takeoff/pdf-page-geometry";
  *   shown only while it is still that, a failure as a success.
  */
 
-const PAGE_LOTS_WITHOUT_ASKING = 5;
-/** The states of the marks a member reviews on the page: a newer reading's marks (pending) are retained from there. */
-const REVIEWED_STATES = ["proposed", "to_attribute", "retained", "pending"] as const;
 const IN_FLIGHT_NOTICE = "Ce geste est en cours d’enregistrement : modifiez-le une fois enregistré.";
 const PAGE_NOT_SHOWN_NOTICE = "Une page se vérifie sur son plan affiché : ouvrez-la avant de la déclarer vérifiée.";
 const PAGE_NOT_DRAWN_NOTICE = "Le plan de cette page n’est pas encore dessiné : déclarez-la vérifiée une fois affichée.";
@@ -83,9 +89,6 @@ const NOTHING_IN_FRAME_NOTICE = "Aucune partie de la page n’est dans le cadre 
 /** The states a member still decides on a page before declaring it verified. */
 const UNDECIDED_STATES: readonly string[] = ["proposed", "to_attribute"];
 const UNSAVED_REATTRIBUTION_NOTICE = "Enregistrez d’abord cet ajout : un repère non enregistré ne s’affecte pas à un autre poste.";
-
-/** Lots read at two revisions, again: no view is published; what was shown stays, and the member is told. */
-class ChangingMarksError extends Error {}
 
 export type CountMarksAnswer = {
   answerId: string;
@@ -108,15 +111,6 @@ export type CountMarksPlanFrame = {
   visible: CountRegion | null;
   /** Whether the sheet of this page is drawn (its render completed): a page is verified on its sheet only. */
   painted: boolean;
-};
-
-type Loaded = {
-  answerId: string;
-  page: number;
-  view: CountMarksView;
-  marks: TakeoffCountMark[];
-  nextAfter: string | null;
-  lots: number;
 };
 
 export type CountMarksMode =
@@ -243,43 +237,6 @@ export function useCountMarks() {
 
 const newKey = () => crypto.randomUUID();
 
-const sessionKey = (viewerId: string, answerId: string) => `metre-reperes:${viewerId}:${answerId}`;
-
-function readSession(viewerId: string, answerId: string): CountMarkDraft | null {
-  try {
-    const stored = window.sessionStorage.getItem(sessionKey(viewerId, answerId));
-    if (!stored) return null;
-    const draft = JSON.parse(stored) as CountMarkDraft;
-    return draft && draft.answerId === answerId && Array.isArray(draft.entries) && draft.entries.length ? draft : null;
-  } catch {
-    return null;
-  }
-}
-
-function storeSession(viewerId: string, draft: CountMarkDraft) {
-  try {
-    if (draft.entries.length) window.sessionStorage.setItem(sessionKey(viewerId, draft.answerId), JSON.stringify(draft));
-    else window.sessionStorage.removeItem(sessionKey(viewerId, draft.answerId));
-  } catch {
-    // A tab without storage keeps the session in memory only.
-  }
-}
-
-const isReadRefusal = (error: unknown) => isTakeoffApiError(error) && [401, 403, 404].includes(error.status);
-/** Reads that kept crossing revisions, here or on the server (which compares a page and its count). */
-const isChanging = (error: unknown) => error instanceof ChangingMarksError
-  || (isTakeoffApiError(error) && error.code === TAKEOFF_COUNT_MARKS_READ_CHANGING);
-
-/** A refusal of the command, worded from its code only. */
-function refusalSentence(error: unknown) {
-  if (!isTakeoffApiError(error)) return "La modification n’a pas pu être enregistrée. Réessayez.";
-  if (error.code === TAKEOFF_COUNT_MARKS_PLAN_SENT) return TAKEOFF_COUNT_MARKS_PLAN_SENT_MESSAGE;
-  const code = takeoffCountMarkEditRefusal(error.code);
-  if (code) return TAKEOFF_COUNT_MARK_EDIT_REFUSALS[code];
-  if (error.status === 0) return "La modification n’a pas pu être envoyée. Réessayez : elle ne sera pas enregistrée deux fois.";
-  return "La modification n’a pas pu être enregistrée. Réessayez.";
-}
-
 export function CountMarksScope({ projectId, answer, page, itemLabels: labelsGiven, reader: given, onSaved, readOnly = false,
   onRefused, showPage, children }: {
   projectId: string;
@@ -315,8 +272,15 @@ export function CountMarksScope({ projectId, answer, page, itemLabels: labelsGiv
   const [removed, setRemoved] = useState<Removed | null>(null);
   const [refusedQuestion, setRefusedQuestion] = useState<CountMarksRefusedQuestion | null>(null);
   const [refusedNeighbours, setRefusedNeighbours] = useState<Record<string, CountMarkNeighbour>>({});
-  // A command refused for the member's right (403) stops editing at once, for the screen, whatever a later read says.
+  // A command refused for the member's right (403) stops editing at once, for the screen, until a read started after it
+  // says what the member may do: the latest read holds, in both directions.
   const [editStopped, setEditStopped] = useState(false);
+  const readSeq = useRef(0);
+  const stopSeq = useRef(0);
+  const readStarted = useCallback(() => ++readSeq.current, []);
+  const readApplied = useCallback((started: number) => {
+    if (started > stopSeq.current) setEditStopped(false);
+  }, []);
   // A point to centre once its page's sheet is drawn (the refused gesture's page, shown first).
   const [pendingCentre, setPendingCentre] = useState<{ page: number; point: CountMarkPoint } | null>(null);
   const [inFlight, setInFlight] = useState<ReadonlySet<string>>(() => new Set());
@@ -337,7 +301,7 @@ export function CountMarksScope({ projectId, answer, page, itemLabels: labelsGiv
   const [panelOpen, setPanelOpen] = useState(true);
   // The items a mark of this answer may be given to: the other items of its reading, read from the server when the member
   // first asks to give one (whatever the table of items shows).
-  const [destinations, setDestinations] = useState<{ answerId: string; targets: CountMarksTarget[] } | null>(null);
+  const [destinations, setDestinations] = useState<Record<string, CountMarksTarget[]>>({});
   const frameRef = useRef<CountMarksPlanFrame | null>(null);
   frameRef.current = planFrame;
 
@@ -403,34 +367,8 @@ export function CountMarksScope({ projectId, answer, page, itemLabels: labelsGiv
     return true;
   }, [withdraw, withdrawForRight]);
 
-  /**
-   * Every lot of the page's marks up to the bound, or the next lot after those loaded. Lots read at another revision than
-   * the first are read again from the start once: the marks shown are of one revision.
-   */
-  const readLots = useCallback(async (target: { answerId: string; page: number }, from: Loaded | null): Promise<Loaded> => {
-    for (let attempt = 0; ; attempt += 1) {
-      const start = attempt === 0 ? from : null;
-      const bound = start ? start.lots + 1 : PAGE_LOTS_WITHOUT_ASKING;
-      let view = await reader.readPage({ answerId: target.answerId, page: target.page, after: start?.nextAfter ?? null,
-        states: REVIEWED_STATES });
-      const revision = start?.view.revision ?? view.revision;
-      const marks = [...(start?.marks ?? []), ...view.marks];
-      const names = { ...(start?.view.names ?? {}), ...view.names };
-      let lots = (start?.lots ?? 0) + 1;
-      let mixed = view.revision !== revision;
-      while (!mixed && view.nextAfter && lots < bound) {
-        view = await reader.readPage({ answerId: target.answerId, page: target.page, after: view.nextAfter, states: REVIEWED_STATES });
-        marks.push(...view.marks);
-        Object.assign(names, view.names);
-        lots += 1;
-        mixed = view.revision !== revision;
-      }
-      if (mixed && attempt === 0) continue;
-      if (mixed) throw new ChangingMarksError();
-      return { answerId: target.answerId, page: target.page, view: { ...view, names, marks: [], loaded: marks.length },
-        marks, nextAfter: view.nextAfter, lots };
-    }
-  }, [reader]);
+  const readLots = useCallback((target: { answerId: string; page: number }, from: Loaded | null) =>
+    readCountMarkLots(reader, target, from), [reader]);
 
   const loadedRef = useRef(loaded);
   loadedRef.current = loaded;
@@ -467,10 +405,12 @@ export function CountMarksScope({ projectId, answer, page, itemLabels: labelsGiv
     const done = start({ screen, item: answer, reading: String(target.page) });
     setReloading(true);
     try {
+      const started = readStarted();
       const { next, removed: read } = await readScreen({ answerId: answer, page: target.page }, wantRemovedRef.current);
       if (!done.current()) return null;
       const previous = loadedRef.current;
       setLoaded(next);
+      readApplied(started);
       setRemoved(read);
       setFailure(null);
       if (options.say && previous && previous.answerId === next.answerId && previous.page === next.page) {
@@ -486,7 +426,7 @@ export function CountMarksScope({ projectId, answer, page, itemLabels: labelsGiv
     } finally {
       if (done.current()) setReloading(false);
     }
-  }, [readScreen, refusedBy, screen, start]);
+  }, [readApplied, readScreen, readStarted, refusedBy, screen, start]);
   const readAgain = useCallback(() => {
     void reload({ say: true });
   }, [reload]);
@@ -497,9 +437,11 @@ export function CountMarksScope({ projectId, answer, page, itemLabels: labelsGiv
     const done = start({ screen, item: answerId, reading: String(page) });
     let active = true;
     setReloading(true);
+    const started = readStarted();
     readScreen({ answerId, page }, wantRemovedRef.current).then(({ next, removed: read }) => {
       if (!active || !done.current()) return;
       setLoaded(next);
+      readApplied(started);
       setRemoved(read);
       setFailure(null);
       // The session of this member on this answer, kept for the tab.
@@ -517,7 +459,7 @@ export function CountMarksScope({ projectId, answer, page, itemLabels: labelsGiv
     return () => {
       active = false;
     };
-  }, [answerId, page, inScope, refused, readScreen, refusedBy, screen, start, writeSession, attempt]);
+  }, [answerId, page, inScope, refused, readApplied, readScreen, readStarted, refusedBy, screen, start, writeSession, attempt]);
 
   const current = loaded && loaded.answerId === answerId && loaded.page === page ? loaded : null;
   // A reading consulted only is drawn from the server's revision alone: the tab's stored session stays apart, untouched.
@@ -530,9 +472,16 @@ export function CountMarksScope({ projectId, answer, page, itemLabels: labelsGiv
    * A change of the session shown, stored for the tab; refused (and said) when it would change a gesture being sent,
    * whatever the path (a key, a dialog, a question): only the save's own reply changes those. Returns whether it applied.
    */
-  const updateDraft = useCallback((change: (draft: CountMarkDraft) => CountMarkDraft, options: { bySave?: boolean } = {}) => {
+  const updateDraft = useCallback((change: (draft: CountMarkDraft) => CountMarkDraft,
+    options: { bySave?: boolean; discard?: boolean } = {}) => {
     const value = sessionRef.current;
     if (!value) return false;
+    // While editing is stopped (no right, or a refusal of it not yet answered by a read), no path adds a gesture: a
+    // crosshair, a dialog or a question opened before included. Only the save's own reply and a discard change it.
+    if (!options.bySave && !options.discard && !canEditRef.current) {
+      setNotice("Un opérateur du métré de l’affaire peut corriger ces repères.");
+      return false;
+    }
     // A session begins on the revision read last: an empty one never carries an older one.
     const read = loadedRef.current;
     const base = value.draft.entries.length || !read || read.answerId !== value.draft.answerId ? value.draft
@@ -578,6 +527,8 @@ export function CountMarksScope({ projectId, answer, page, itemLabels: labelsGiv
   const pointingBlocked = recorded && drawn && !sameCountPage(recorded, drawn.size)
     ? "Ce plan ne correspond plus à la page sur laquelle ces repères ont été posés : ils se consultent sans pointer." : null;
   const canEdit = Boolean(current?.view.edit.allowed) && !refused && !readOnly && !editStopped;
+  const canEditRef = useRef(canEdit);
+  canEditRef.current = canEdit;
 
   const markOf = useCallback((markId: string | null) => (markId ? shown.find((mark) => mark.markId === markId) ?? null : null), [shown]);
   const describe = useCallback((mark: CountMarkShown) => {
@@ -804,14 +755,40 @@ export function CountMarksScope({ projectId, answer, page, itemLabels: labelsGiv
       if (given) setAnnouncement(`Repère affecté à « ${target.label} », non enregistré.`);
     } catch (error) {
       if (isRightRefusal(error)) {
-        if (done.ownScreen()) withdraw();
+        if (done.ownScreen()) withdrawForRight(error);
         return;
       }
       if (!done.current()) return;
       setNotice(isTakeoffApiError(error) && error.status === 404 ? `« ${target.label} » n’a pas de lecture sur cette page : le repère ne peut pas lui être affecté.`
         : "Le poste choisi n’a pas pu être lu. Réessayez.");
     }
-  }, [answerId, markOf, page, reader, refuseGesture, screen, start, updateDraft, withdraw]);
+  }, [answerId, markOf, page, reader, refuseGesture, screen, start, updateDraft, withdrawForRight]);
+
+  /**
+   * How many marks of a page the session leaves to decide, as the command will judge it: the server's count for that page
+   * at the revision read (its summary lists every page of the scope), or for the page shown with all its lots read, its
+   * marks; then each mark the session's gestures on that page take from its first state to its last. null when it
+   * cannot be told (the page shown with lots still to read, or another page the summary does not list).
+   */
+  const undecidedOn = useCallback((value: CountMarkDraft | null, onPage: number): number | null => {
+    if (!current) return null;
+    const facts = current.view.summary.pages.find((entry) => entry.page === onPage);
+    const base = facts ? facts.proposed + facts.toAttribute
+      : onPage === page && !current.nextAfter ? current.marks.filter((mark) => UNDECIDED_STATES.includes(mark.state)).length : null;
+    if (base === null) return null;
+    const first = new Map<string, CountMarkShownState | null>();
+    const last = new Map<string, CountMarkShownState>();
+    for (const entry of value?.entries ?? []) {
+      if (entry.page !== onPage || !entry.markId || entry.gesture.op === "verify") continue;
+      if (!first.has(entry.markId)) first.set(entry.markId, entry.from);
+      last.set(entry.markId, entry.to);
+    }
+    let left = base;
+    for (const [markId, from] of first) {
+      left += (UNDECIDED_STATES.includes(last.get(markId)!) ? 1 : 0) - (from !== null && UNDECIDED_STATES.includes(from) ? 1 : 0);
+    }
+    return left;
+  }, [current, page]);
 
   const verifyPage = useCallback(() => {
     if (refuseGesture()) return;
@@ -824,8 +801,14 @@ export function CountMarksScope({ projectId, answer, page, itemLabels: labelsGiv
       setNotice(PAGE_NOT_DRAWN_NOTICE);
       return;
     }
+    // Every mark of the page counts, those beyond the lots read included (the server's count of the page).
+    const left = undecidedOn(draft, page);
+    if (left === null) {
+      setNotice("La page a d’autres repères à lire : chargez la suite avant de la déclarer vérifiée.");
+      return;
+    }
     const undecided = shown.filter((mark) => mark.state === "proposed" || mark.state === "to_attribute");
-    if (undecided.length) {
+    if (left > 0 || undecided.length) {
       // A removed mark restored to a proposal in this session is one of them: say so, it is not on the page as read.
       setNotice(undecided.some((mark) => mark.unsaved && draft?.entries.some((entry) => entry.markId === mark.markId
         && entry.gesture.op === "restore"))
@@ -835,7 +818,7 @@ export function CountMarksScope({ projectId, answer, page, itemLabels: labelsGiv
     }
     updateDraft((value) => draftVerify(value, { id: newKey(), page }, newKey()));
     setAnnouncement(`Page ${page} déclarée vérifiée, non enregistrée.`);
-  }, [draft, drawn, page, pointingBlocked, refuseGesture, shown, updateDraft]);
+  }, [draft, drawn, page, pointingBlocked, refuseGesture, shown, undecidedOn, updateDraft]);
 
   const openDialog = useCallback((kind: "remove" | "reattribute", markId?: string | null) => {
     if (refuseGesture()) return;
@@ -867,15 +850,21 @@ export function CountMarksScope({ projectId, answer, page, itemLabels: labelsGiv
       if (!known.length) setNotice("Aucun autre poste de cette lecture ne peut recevoir ce repère.");
       else setDialog({ kind, markId: mark.markId });
     };
-    if (destinations && destinations.answerId === answerId) {
-      open(destinations.targets);
+    // A mark another answer already retains goes nowhere: the command refuses its transfer (to that answer as to any).
+    if (mark.mark?.others.some((other) => other.state === "retained")) {
+      setNotice("Ce repère est déjà retenu pour un autre poste de cette lecture : il ne s’affecte pas.");
+      return;
+    }
+    if (answerId && destinations[answerId]) {
+      open(destinations[answerId]);
       return;
     }
     if (!answerId) return;
     const done = start({ screen, item: answerId, reading: String(page) });
     reader.readTargets({ answerId }).then((read) => {
       if (!done.ownScreen()) return;
-      setDestinations({ answerId: read.answerId, targets: read.targets });
+      // Kept by answer: a late reply for another answer never replaces the destinations of the dialog open now.
+      setDestinations((known) => ({ ...known, [read.answerId]: read.targets }));
       if (done.current()) open(read.targets);
     }).catch((error: unknown) => {
       if (refusedBy(error, done)) return;
@@ -890,18 +879,24 @@ export function CountMarksScope({ projectId, answer, page, itemLabels: labelsGiv
     }
     // Undone, a gesture made on an undecided mark leaves it undecided again: its page's pending verification goes with
     // it (the command would refuse the whole batch), and the member is told.
-    const entry = sessionRef.current?.draft.entries.find((candidate) => candidate.id === id);
-    const verification = entry && entry.gesture.op !== "verify" && entry.from !== null && UNDECIDED_STATES.includes(entry.from)
-      ? sessionRef.current?.draft.entries.find((candidate) => candidate.gesture.op === "verify" && candidate.page === entry.page)
-      : undefined;
-    const undone = updateDraft((value) => {
-      const next = draftWithout(value, id, newKey());
-      return verification ? draftWithout(next, verification.id, newKey()) : next;
+    const value = sessionRef.current?.draft ?? null;
+    const entry = value?.entries.find((candidate) => candidate.id === id);
+    const verification = entry && entry.gesture.op !== "verify"
+      ? value?.entries.find((candidate) => candidate.gesture.op === "verify" && candidate.page === entry.page) : undefined;
+    // Only when the page really is undecided once the gesture is undone (a later gesture may still decide its mark); when
+    // that cannot be told, when the undone gesture had decided an undecided mark.
+    const after = value && verification ? draftWithout(value, id, "") : null;
+    const left = after && entry ? undecidedOn(after, entry.page) : null;
+    const goes = Boolean(verification && entry && (left !== null ? left > 0
+      : entry.from !== null && UNDECIDED_STATES.includes(entry.from)));
+    const undone = updateDraft((draftValue) => {
+      const next = draftWithout(draftValue, id, newKey());
+      return goes && verification ? draftWithout(next, verification.id, newKey()) : next;
     });
-    if (undone && verification && entry) {
+    if (undone && goes && entry) {
       setNotice(`La déclaration de la page ${entry.page} vérifiée est retirée : un repère y redevient à décider.`);
     }
-  }, [updateDraft]);
+  }, [undecidedOn, updateDraft]);
   const giveDistinct = useCallback((id: string) => {
     if (inFlightRef.current.has(id)) {
       setNotice(IN_FLIGHT_NOTICE);
@@ -932,7 +927,7 @@ export function CountMarksScope({ projectId, answer, page, itemLabels: labelsGiv
 
   const discard = useCallback(() => {
     if (!answerId || !current || savingRef.current) return;
-    updateDraft(() => emptyCountMarkDraft(answerId, current.view.revision, newKey()));
+    updateDraft(() => emptyCountMarkDraft(answerId, current.view.revision, newKey()), { discard: true });
     setAskWords(false);
     setNotice("Modifications abandonnées.");
   }, [answerId, current, updateDraft]);
@@ -970,31 +965,11 @@ export function CountMarksScope({ projectId, answer, page, itemLabels: labelsGiv
     try {
       if (of !== loadedRef.current?.answerId || on !== loadedRef.current.page) {
         // The retained marks of another answer (a reattribution's target), or of another page than the one shown: read on
-        // the refused gesture's page, by lots until each one is found, all at one revision (read again once, then the
-        // member is told the marks are changing).
-        const wanted = new Set(markIds);
-        for (let attempt = 0; attempt < 2; attempt += 1) {
-          const found: Record<string, CountMarkNeighbour> = {};
-          let revision: number | null = null;
-          let after: string | null = null;
-          let mixed = false;
-          do {
-            const read: CountMarksView = await reader.readPage({ answerId: of, page: on, states: ["retained"], after });
-            if (!done.current()) return;
-            if (revision !== null && read.revision !== revision) {
-              mixed = true;
-              break;
-            }
-            revision = read.revision;
-            for (const value of read.marks) if (wanted.has(value.markId)) found[value.markId] = { x: value.x, y: value.y, page: on };
-            after = read.nextAfter;
-          } while (after && markIds.some((markId) => !(markId in found)));
-          if (!mixed) {
-            setRefusedNeighbours(found);
-            return;
-          }
-        }
-        setNotice(TAKEOFF_COUNT_MARKS_READ_CHANGING_MESSAGE);
+        // the refused gesture's page at one revision, else the member is told the marks are changing.
+        const found = await readNamedRetained(reader, { answerId: of, page: on, markIds }, done.current);
+        if (found === "gone") return;
+        if (found) setRefusedNeighbours(found);
+        else setNotice(TAKEOFF_COUNT_MARKS_READ_CHANGING_MESSAGE);
         return;
       }
       let value = loadedRef.current;
@@ -1034,7 +1009,8 @@ export function CountMarksScope({ projectId, answer, page, itemLabels: labelsGiv
     showPage?.(onPage);
   }, [showPage]);
   useEffect(() => {
-    if (!pendingCentre || !planFrame || planFrame.page !== pendingCentre.page) return;
+    // Once that page's sheet is drawn, not while its render is still pending.
+    if (!pendingCentre || !planFrame || planFrame.page !== pendingCentre.page || !planFrame.painted) return;
     planFrame.centre(pendingCentre.point);
     setPendingCentre(null);
   }, [pendingCentre, planFrame]);
@@ -1042,11 +1018,19 @@ export function CountMarksScope({ projectId, answer, page, itemLabels: labelsGiv
   const save = useCallback(async () => {
     const session_ = sessionRef.current;
     if (!draft?.entries.length || !session_ || savingRef.current || refuseGesture()) return;
-    // Never a batch the command must refuse: the page shown declared verified while a mark of it is still to decide.
-    if (draft.entries.some((entry) => entry.gesture.op === "verify" && entry.page === page)
-      && shown.some((mark) => UNDECIDED_STATES.includes(mark.state))) {
-      setNotice(`La page ${page} est déclarée vérifiée mais un repère y reste à décider : décidez-le ou annulez la déclaration.`);
-      return;
+    // Never a batch the command must refuse: a page the session declares verified while a mark of it is still to decide,
+    // judged on every page it verifies at the revision it is sent on (the revision read last, the session rebased on it).
+    for (const entry of draft.entries) {
+      if (entry.gesture.op !== "verify") continue;
+      const left = undecidedOn(draft, entry.page);
+      if (left === null && entry.page === page) {
+        setNotice(`La page ${page} a d’autres repères à lire : chargez la suite avant d’enregistrer sa vérification.`);
+        return;
+      }
+      if (left !== null && left > 0) {
+        setNotice(`La page ${entry.page} est déclarée vérifiée mais un repère y reste à décider : décidez-le ou annulez la déclaration.`);
+        return;
+      }
     }
     // The reply belongs to the member and the answer that started the save, whatever is shown when it comes.
     const viewerId = session_.viewerId;
@@ -1082,7 +1066,7 @@ export function CountMarksScope({ projectId, answer, page, itemLabels: labelsGiv
       // that saved: a reattribution reopens its target's acceptance too.
       if (done.ownScreen()) {
         const itemOf = (other: string) => other === savedAnswer ? null
-          : (destinations?.targets.find((target) => target.answerId === other)?.itemId
+          : ((destinations[savedAnswer] ?? []).find((target) => target.answerId === other)?.itemId
             ?? current?.marks.flatMap((value) => value.others).find((value) => value.answerId === other)?.itemId ?? null);
         onSaved?.(Object.keys(command.revisions).map((other) => ({ answerId: other, itemId: itemOf(other) })));
       }
@@ -1105,7 +1089,10 @@ export function CountMarksScope({ projectId, answer, page, itemLabels: labelsGiv
           withdrawForRight(error);
           return;
         }
+        // Every read started from now on decides the edit right again (readApplied).
+        stopSeq.current = ++readSeq.current;
         setEditStopped(true);
+        setMode({ kind: "idle" });
         if (!done.current()) {
           void reload();
           return;
@@ -1144,8 +1131,8 @@ export function CountMarksScope({ projectId, answer, page, itemLabels: labelsGiv
       setInFlight(new Set());
       setSaving(false);
     }
-  }, [current, destinations, draft, loadNamed, onSaved, page, rebase, refuseGesture, reader, reload, screen, shown, start, updateDraft,
-    withdrawForRight]);
+  }, [current, destinations, draft, loadNamed, onSaved, page, rebase, refuseGesture, reader, reload, screen, start, undecidedOn,
+    updateDraft, withdrawForRight]);
 
   // One read per cursor: a second click on the same lot reads nothing, and a lot is appended once, after its cursor.
   const lotsCursor = useRef<string | null>(null);
@@ -1155,6 +1142,7 @@ export function CountMarksScope({ projectId, answer, page, itemLabels: labelsGiv
     lotsCursor.current = cursor;
     const done = start({ screen, item: answerId, reading: String(page) });
     setReloading(true);
+    const started = readStarted();
     readLots({ answerId, page }, current).then(async (next) => {
       if (!done.current() || loadedRef.current?.nextAfter !== cursor) return;
       if (next.view.revision !== current.view.revision) {
@@ -1167,6 +1155,7 @@ export function CountMarksScope({ projectId, answer, page, itemLabels: labelsGiv
         setNotice(countMarksChangeSentence(countMarksChange(current.marks, next.marks), kept));
       }
       setLoaded(next);
+      readApplied(started);
     }).catch((error: unknown) => {
       if (refusedBy(error, done) || !done.current()) return;
       setNotice("La suite des repères n’a pas pu être lue.");
@@ -1174,7 +1163,7 @@ export function CountMarksScope({ projectId, answer, page, itemLabels: labelsGiv
       if (lotsCursor.current === cursor) lotsCursor.current = null;
       if (done.current()) setReloading(false);
     });
-  }, [answerId, current, page, readLots, refusedBy, reload, screen, start]);
+  }, [answerId, current, page, readApplied, readLots, readStarted, refusedBy, reload, screen, start]);
 
   const showRemoved = useCallback((show: boolean) => {
     setWantRemoved(show);
@@ -1222,8 +1211,8 @@ export function CountMarksScope({ projectId, answer, page, itemLabels: labelsGiv
   }, [answerId, page, readAgain, reader, refusedBy, removed?.nextAfter, screen, start]);
 
   // The destinations the command accepts for a mark of this page: an answer that read it.
-  const shownTargets = useMemo(() => (destinations && destinations.answerId === answerId
-    ? destinations.targets.filter((target) => target.scopePages.includes(page)) : []), [answerId, destinations, page]);
+  const shownTargets = useMemo(() => (answerId && destinations[answerId]
+    ? destinations[answerId].filter((target) => target.scopePages.includes(page)) : []), [answerId, destinations, page]);
   const itemLabels = useMemo(() => ({ ...labelsGiven, ...Object.fromEntries(shownTargets.map(({ itemId, label }) => [itemId, label])) }),
     [labelsGiven, shownTargets]);
 

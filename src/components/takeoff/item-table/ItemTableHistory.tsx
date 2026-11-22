@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import useSWR from "swr";
 
 import { isTakeoffApiError } from "@/lib/takeoff/client-http";
@@ -45,9 +45,11 @@ export function itemHistoryLabel(event: ItemHistoryEvent): string {
  * read from the journal by pages (the affaire's read rule; no gesture is offered here). It is read again with the table
  * (its version), from its first page; a refused read withdraws the table, this history with it.
  *
- * Its first page is read for the member and the scope that asked (`scope`, in the request's key: another reader never
- * shares it), and its refusal goes to the handler of the screen that started it, even once this history is gone (the
- * member moved to another item): that handler decides whether it still concerns what is shown (lot 5 follow-ups).
+ * Shown in the table (no `scope`), a refused first page goes to the handler of whoever shows that history now, as it always
+ * did: a request shared by a table shown again reaches it. Shown in the detail of an item (`scope`: the member and the
+ * scope that read, in the request's key, so that another reader never shares it), the refusal goes from the request
+ * itself to the handler of the screen that started it, even once this history is gone (the member moved to another
+ * item): that handler decides whether it still concerns what is shown (lot 5 follow-ups).
  */
 export function ItemTableHistory({ projectId, itemId, plans, version, onRefused, scope = null }: {
   projectId: string;
@@ -64,11 +66,15 @@ export function ItemTableHistory({ projectId, itemId, plans, version, onRefused,
     try {
       return await fetchItemHistory(projectId, itemId, { offset: 0, limit: ITEM_HISTORY_LIMIT.default });
     } catch (caught) {
-      // The handler of the render that asked, whatever is mounted when the answer comes.
-      onRefused(caught);
+      // In the detail: the handler of the render that asked, whatever is mounted when the answer comes.
+      if (scope !== null) onRefused(caught);
       throw caught;
     }
   }, { revalidateOnFocus: false, shouldRetryOnError: false });
+  // In the table: whoever shows this history now hears of its refusal, a request shared with a table shown before included.
+  useEffect(() => {
+    if (scope === null && first.error) onRefused(first.error);
+  }, [first.error, onRefused, scope]);
   const [older, setOlder] = useState<ItemHistoryResponse[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);

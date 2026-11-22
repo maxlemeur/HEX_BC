@@ -855,22 +855,162 @@ describe("review of #496", () => {
     expect(onRefused).toHaveBeenCalledWith(expect.objectContaining({ status: 401 }));
   });
 
-  it("stops editing at once a save refused 403, the read after it deciding only what may still be seen", async () => {
+  // The last reading of #496: editing stopped by a 403 let a crosshair opened during the save add a gesture; and a later
+  // read allowing the edit again left it stopped. Stopped, no path adds a gesture; the latest read decides, both ways.
+  it("stops editing at once a save refused 403, the read after it deciding the edit right, in both directions", async () => {
     const served = double(view([mark(1), mark(2, { x: 0.1 })]));
-    served.edit = async () => { throw refused(403); };
-    render(show(served.reader));
+    let reject: (error: unknown) => void = () => undefined;
+    served.edit = () => new Promise((_, rejecting) => { reject = rejecting; });
+    const shown = render(show(served.reader));
     const grid = await screen.findByTestId("reperes-liste");
     key(grid, "Home");
     key(grid, "r");
-    await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "Enregistrer (1)" }));
-    });
-    // The read after it still allows editing (the edit's own check refused): no gesture is offered nonetheless.
-    expect(screen.getByTestId("reperes-liste")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Enregistrer (1)" }));
+    // A crosshair opened while the save is on its way.
+    const layer = screen.getByTestId("reperes-calque");
+    key(layer, "n");
+    expect(screen.getByTestId("reperes-reticule")).toBeInTheDocument();
+    served.next.push(view([mark(1), mark(2, { x: 0.1 })], { edit: { allowed: false, reason: "forbidden" } }));
+    await act(async () => reject(refused(403)));
+    key(layer, "Enter");
+    expect(screen.getByTestId("reperes-session")).toHaveTextContent("1 modification non enregistrée");
     expect(screen.getByRole("button", { name: "Enregistrer (1)" })).toBeDisabled();
     key(list(), "End");
     key(list(), "r");
     expect(screen.getByTestId("reperes-session")).toHaveTextContent("1 modification non enregistrée");
+    // A later read says the member may edit again: the latest read holds.
+    served.next.push(view([mark(1), mark(2, { x: 0.1 })], { page: 2 }));
+    shown.rerender(show(served.reader, { page: 2, frame: frame({ page: 2 }) }));
+    await screen.findByTestId("reperes-liste");
+    await waitFor(() => expect(screen.getByRole("button", { name: "Enregistrer (1)" })).toBeEnabled());
+  });
+
+  it("tells the detail when the read of a chosen destination's revision is refused for the right", async () => {
+    const served = double(view([mark(1)]));
+    const steady = served.reader.readPage;
+    served.reader.readPage = vi.fn(async (input) => {
+      if (input.answerId === OTHER_ANSWER) throw refused(403);
+      return steady(input);
+    }) as typeof steady;
+    const onRefused = vi.fn(() => true);
+    render(show(served.reader, { onRefused }));
+    const grid = await screen.findByTestId("reperes-liste");
+    key(grid, "Home");
+    key(grid, "a");
+    fireEvent.click(await screen.findByRole("radio", { name: "Lavabo double" }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Affecter" }));
+    });
+    expect(screen.getByTestId("reperes-refus")).toBeInTheDocument();
+    expect(onRefused).toHaveBeenCalledTimes(1);
+  });
+
+  it("offers no destination for a mark another answer already retains (the command refuses the transfer)", async () => {
+    const served = double(view([mark(1, { state: "to_attribute",
+      others: [{ answerId: OTHER_ANSWER, itemId: OTHER_ITEM, state: "retained", revision: 11 }] })]));
+    render(show(served.reader));
+    const grid = await screen.findByTestId("reperes-liste");
+    key(grid, "Home");
+    await act(async () => {
+      key(grid, "a");
+    });
+    expect(screen.queryByRole("radio", { name: "Lavabo double" })).toBeNull();
+    expect(screen.getByTestId("reperes-avis")).toHaveTextContent("déjà retenu pour un autre poste");
+  });
+
+  it("keeps each answer's destinations: a slow reply for another answer never replaces those of the dialog open", async () => {
+    const served = double(view([mark(1)]));
+    let releaseFirst: () => void = () => undefined;
+    let calls = 0;
+    served.reader.readTargets = vi.fn((input: { answerId: string }) => {
+      calls += 1;
+      const reply = { answerId: input.answerId, targets: input.answerId === ANSWER ? targets
+        : [{ answerId: ANSWER, itemId: "b0000000-0000-4000-8000-000000000001", label: "Lavabo (fictif)", scopePages: [7] }] };
+      return calls === 1 ? new Promise((resolve) => { releaseFirst = () => resolve(reply); }) : Promise.resolve(reply);
+    }) as CountMarksReader["readTargets"];
+    const mountFor = (answerId: string) => (
+      <CountMarksScope projectId={PROJECT} answer={{ ...answer, answerId }} page={7} itemLabels={{}} reader={served.reader}>
+        <CountMarksTools /><CountMarksLayer frame={frame()} /><CountMarksPanel />
+      </CountMarksScope>
+    );
+    const shown = render(mountFor(ANSWER));
+    let grid = await screen.findByTestId("reperes-liste");
+    key(grid, "Home");
+    key(grid, "a");
+    // The member opens another answer before the first answer's destinations arrive, and asks to give its mark.
+    served.next.push(view([mark(1)], { answerId: OTHER_ANSWER }));
+    served.reader.readPage = vi.fn(async () => view([mark(5)], { answerId: OTHER_ANSWER })) as CountMarksReader["readPage"];
+    shown.rerender(mountFor(OTHER_ANSWER));
+    grid = await screen.findByTestId("reperes-liste");
+    key(grid, "Home");
+    key(grid, "a");
+    expect(await screen.findByRole("radio", { name: "Lavabo (fictif)" })).toBeInTheDocument();
+    await act(async () => releaseFirst());
+    expect(screen.getByRole("radio", { name: "Lavabo (fictif)" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Affecter" })).toBeInTheDocument();
+  });
+
+  it("never sends a verification of a page the revision sent on holds undecided, wherever the screen is", async () => {
+    const served = double(view([]));
+    let revision = 3;
+    const pageFacts = (undecided: number) => [{ page: 7, proposed: undecided, toAttribute: 0, retained: 0, removed: 0, pending: 0,
+      changedRevision: 0, verifiedRevision: null, reread: 0, state: "to_check" as const }];
+    served.reader.readPage = vi.fn(async (input) => view(input.page === 7 && revision === 4 ? [mark(99)] : [],
+      { page: input.page, revision, summary: summary({ revision, proposed: revision === 4 ? 1 : 0,
+        pages: pageFacts(revision === 4 ? 1 : 0) }) })) as CountMarksReader["readPage"];
+    served.edit = async () => {
+      if (served.edits.length === 1) {
+        revision = 4;
+        throw new TakeoffApiError("x", 409, null, "TAKEOFF_MARKS_REVISION_CONFLICT");
+      }
+      throw new TakeoffApiError("x", 422, null, "TAKEOFF_MARKS_UNDECIDED");
+    };
+    const shown = render(show(served.reader));
+    const grid = await screen.findByTestId("reperes-liste");
+    key(grid, "p");
+    shown.rerender(show(served.reader, { page: 2, frame: frame({ page: 2 }) }));
+    await screen.findByTestId("reperes-liste");
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Enregistrer (1)" }));
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Enregistrer (1)" }));
+    });
+    expect(served.edits.filter((command) => command.revisions[ANSWER] === 4)).toHaveLength(0);
+    expect(screen.getByTestId("reperes-avis")).toHaveTextContent("La page 7 est déclarée vérifiée mais un repère y reste à décider");
+  });
+
+  it("refuses to declare a page verified while marks of it beyond the lots read are undecided", async () => {
+    const served = double(view([]));
+    served.reader.readPage = vi.fn(async (input) => {
+      const n = input.after ? Number(input.after.slice(-3)) + 1 : 1;
+      return view([mark(n, { state: n === 6 ? "proposed" : "retained" })], { nextAfter: n < 6 ? id(n) : null, total: 6,
+        summary: summary({ proposed: 1, retained: 5 }) });
+    }) as CountMarksReader["readPage"];
+    render(show(served.reader));
+    const grid = await screen.findByTestId("reperes-liste");
+    expect(screen.getByTestId("reperes-charges")).toHaveTextContent("5 chargés sur 6");
+    key(grid, "p");
+    expect(screen.queryByTestId("reperes-session")).toBeNull();
+    expect(screen.getByTestId("reperes-avis")).toHaveTextContent("chargez la suite avant de la déclarer vérifiée");
+  });
+
+  it("keeps a page's verification when the undone gesture leaves it decided (a move undone, its retain kept)", async () => {
+    const served = double(view([mark(1)]));
+    render(show(served.reader));
+    const grid = await screen.findByTestId("reperes-liste");
+    key(grid, "Home");
+    key(grid, "d");
+    const layer = screen.getByTestId("reperes-calque");
+    key(layer, "ArrowRight");
+    key(layer, "Enter");
+    key(grid, "r");
+    key(grid, "p");
+    const bar = screen.getByTestId("reperes-session");
+    expect(bar).toHaveTextContent("3 modifications non enregistrées");
+    fireEvent.click(within(bar).getAllByRole("button", { name: "Annuler ce geste" })[0]!);
+    expect(bar).toHaveTextContent("2 modifications non enregistrées");
+    expect(screen.queryByTestId("reperes-avis")?.textContent ?? "").not.toContain("est retirée");
   });
 
   it("offers as a destination only an item the command accepts for that mark: one whose answer read its page", async () => {
@@ -973,6 +1113,11 @@ describe("review of #496", () => {
       { name: /^Voir le repère retenu de « Lavabo double » \(50,1 % × 50,0 %\), page 7/ });
     fireEvent.click(choice);
     expect(showPage).toHaveBeenCalledWith(7);
+    // Page 7 shown but its sheet still drawing: nothing is centred yet (the last reading of #496).
+    const drawing = frame({ page: 7, painted: false });
+    shown.rerender(show(served.reader, { page: 7, frame: drawing, showPage }));
+    await screen.findByTestId("reperes-liste");
+    expect(drawing.centre).not.toHaveBeenCalledWith(expect.objectContaining({ x: 0.501 }));
     // The sheet of page 7 drawn, the neighbour is centred on it.
     shown.rerender(show(served.reader, { page: 7, frame: frame7, showPage }));
     await screen.findByTestId("reperes-liste");
