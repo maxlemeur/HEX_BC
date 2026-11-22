@@ -48,6 +48,10 @@ export const itemDetailPlanViewSchema = z.object({
     jobId: uuid,
     status: z.string(),
     finishedAt: timestamp.nullable(),
+    answer: z.object({
+      answerId: uuid,
+      scopePages: z.array(page).describe("Pages cherchées et illisibles de la réponse : la portée de ses repères."),
+    }).strict().optional().describe("La réponse que cette analyse a donnée pour le poste sur ce plan (lot 5)."),
   }).strict().nullable(),
   document: z.discriminatedUnion("kind", [
     z.object({ kind: z.literal("attested"), href: z.string().startsWith("/api/") })

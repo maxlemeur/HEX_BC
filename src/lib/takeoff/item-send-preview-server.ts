@@ -19,8 +19,10 @@ import {
 } from "@/lib/takeoff/item-send-contracts";
 import { readItemSendEarlierState, readItemSendFacts } from "@/lib/takeoff/item-send-facts-server";
 import {
+  itemSendCanonical,
   itemSendEngineFits,
   itemSendPlanCanonical,
+  itemSendWireChoice,
   planTakeoffItemSend,
   type ItemSendBlockerReason,
   type ItemSendBreakdown,
@@ -370,6 +372,36 @@ const toDecision = (decision: NonNullable<ItemSendPreviewRequest["page_decisions
 export const itemSendPlanDigest = (plan: ItemSendWritePlan) => createHash("sha256").update(itemSendPlanCanonical(plan), "utf8").digest("hex");
 
 /**
+ * The member's choices a plan was computed from, normalised (each list in one order, a note trimmed, absent choices
+ * null): the plan carries their digest, so that a replay under the same intention key answers only the same choices.
+ */
+export function itemSendChoicesDigest(request: ItemSendPreviewRequest): string {
+  const choices = {
+    destination: request.destination ?? null,
+    breakdown: request.breakdown ?? null,
+    resolutions: [...(request.resolutions ?? [])].map((resolution) => ({ key: resolution.key,
+      choice: itemSendWireChoice(toChoice(resolution.choice)) })).sort((left, right) => (left.key < right.key ? -1 : left.key > right.key ? 1 : 0)),
+    page_decisions: [...(request.page_decisions ?? [])].map((decision) => decision.decision === "replace"
+      ? { page: decision.page, decision: "replace", reason_code: null, note: null }
+      : { page: decision.page, decision: "keep_both", reason_code: decision.reason_code, note: decision.note?.trim() || null })
+      .sort((left, right) => (left.page ?? Number.MAX_SAFE_INTEGER) - (right.page ?? Number.MAX_SAFE_INTEGER)),
+  };
+  return createHash("sha256").update(itemSendCanonical(choices), "utf8").digest("hex");
+}
+
+/**
+ * Whether the member may write the affaire now (its owner engineer or an administrator, not archived), read with the
+ * member's own session: the preview's first check, and a replay's.
+ */
+export async function itemSendMemberMayWrite(ctx: Context, projectId: string, jobId: string): Promise<boolean> {
+  const { data: project, error } = await ctx.supabase.from("estimate_projects")
+    .select("id, user_id, is_archived").eq("tenant_id", ctx.tenantId).eq("id", projectId).maybeSingle();
+  if (error) failed(error, "Impossible de lire l’affaire du métré.", jobId);
+  return Boolean(project) && !project!.is_archived && (ctx.tenantRole === TAKEOFF_TENANT_ADMIN_ROLE
+    || (ctx.tenantRole === "engineer" && project!.user_id === ctx.userId));
+}
+
+/**
  * What the preview shows and the confirmation writes, computed once from the stored facts and the member's choices: the
  * answer, the write plan (null until confirmable) and, for a first draft, the payload « Créer un devis » prepares for
  * it (prepareCanonicalEstimateCreation, as today's send: the server's settings, never a member's).
@@ -382,12 +414,9 @@ export async function computeItemSendState(ctx: Context, jobId: string, request:
   const job = await readPreviewJob(ctx, jobId);
   const only = (response: ItemSendPreviewResponse): ItemSendState => ({ response, writePlan: null, versionPayload: null,
     blocker: response.blocked?.reason ?? null });
-  // The right to write the affaire first: a member without it learns its reason, not the kind of its takeoff.
-  const { data: project, error: projectError } = await service.from("estimate_projects")
-    .select("id, user_id, is_archived").eq("tenant_id", ctx.tenantId).eq("id", job.project_id).maybeSingle();
-  if (projectError || !project) failed(projectError, "Impossible de lire l’affaire du métré.", jobId);
-  const canEdit = !project.is_archived && (ctx.tenantRole === TAKEOFF_TENANT_ADMIN_ROLE
-    || (ctx.tenantRole === "engineer" && project.user_id === ctx.userId));
+  // The right to write the affaire first, read with the member's session: a member without it learns its reason, not
+  // the kind of its takeoff.
+  const canEdit = await itemSendMemberMayWrite(ctx, job.project_id, jobId);
   if (!canEdit) return only(reasonOnly(jobId, "read_only"));
 
   const { list, plan, unit } = await readSealedOrder(service, ctx.tenantId, job);
@@ -498,9 +527,11 @@ export async function computeItemSendState(ctx: Context, jobId: string, request:
   const computed = planTakeoffItemSend({ ...base, plan: { ...base.plan, location }, destination, earlier, pagesInEstimate, rules, breakdown,
     affaireNamesBuilding: namesBuilding, stamps });
   const assemblies = await assemblyNames(ctx, computed.rules.flatMap((rule) => (rule.assemblyId ? [rule.assemblyId] : [])), jobId);
+  // The plan names the member's choices it was computed from (their digest), which a replay compares.
+  const writePlan = computed.writePlan ? { ...computed.writePlan, choices_sha256: itemSendChoicesDigest(request) } : null;
   const response = respond(jobId, shown, computed, { destinations, destination: chosen, label, versionCreated: chosen?.kind === "first_draft" },
-    assemblies, computed.writePlan ? itemSendPlanDigest(computed.writePlan) : null);
-  return { response, writePlan: computed.writePlan, versionPayload: chosen?.kind === "first_draft" ? versionPayload : null,
+    assemblies, writePlan ? itemSendPlanDigest(writePlan) : null);
+  return { response, writePlan, versionPayload: chosen?.kind === "first_draft" ? versionPayload : null,
     blocker: computed.blocker?.reason ?? null };
 }
 

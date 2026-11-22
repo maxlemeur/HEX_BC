@@ -143,7 +143,7 @@ function stage(input: { copies: Copy[]; sent?: boolean; signing?: "ok" | "missin
     takeoff_send_receipts: input.sent ? [{ id: "r", tenant_id: TENANT, job_id: VERSION_JOB, command_kind: "send" }] : [],
     affaire_intake_documents: pieces,
     takeoff_item_answers: (input.answers ?? ANSWERED).map((answer, index) => ({ id: `answer-${index}`, tenant_id: TENANT, project_id: PROJECT,
-      job_id: answer.job, item_id: answer.item, plan_logical_id: answer.plan })),
+      job_id: answer.job, item_id: answer.item, plan_logical_id: answer.plan, searched_pages: [7, 2], unreadable_pages: [9, 7] })),
   }, {
     "rpc/read_takeoff_plan_location_source": () => {
       const body = member.requests.at(-1)!.body as { p_plan_file_id: string };
@@ -248,12 +248,15 @@ describe("resolveItemDetailPlan, the rights of the routes that serve the bytes",
 });
 
 describe("resolveItemDetailPlan, a reading", () => {
-  it("shows the copy the reading sealed, by its piece or its copy, with its digest, pages and attested bytes", async () => {
+  // Follow-ups of lot 5: the reading proved the job answered the item on that plan, and names that answer, with the pages
+  // it covered (its marks' scope): an earlier reading shows its own marks, read only.
+  it("shows the copy the reading sealed, by its piece or its copy, with its digest, pages, attested bytes and answer", async () => {
     stage({ copies: [{ id: COPY_A, current: false, generation: "1", piece: PIECE }, { id: COPY_B, current: true, generation: "2", piece: PIECE }] });
     const expected = {
       plan: { key: PIECE, name: "Plan RDC indice A.pdf", planFileId: COPY_A, generation: "1", contentSha256: DIGEST, pageCount: 9,
         pagesRead: [2, 7] },
-      reading: { jobId: JOB, status: "succeeded", finishedAt: "2026-11-20T11:00:00.000Z" },
+      reading: { jobId: JOB, status: "succeeded", finishedAt: "2026-11-20T11:00:00.000Z",
+        answer: { answerId: "answer-0", scopePages: [2, 7, 9] } },
       document: { kind: "attested", href: `/api/takeoff/jobs/${JOB}/vector-plans/${COPY_A}` },
     };
     // Superseded since (copy B is the dossier's now): the reading still shows what it read.

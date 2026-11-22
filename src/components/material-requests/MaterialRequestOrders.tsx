@@ -30,6 +30,8 @@ const NOT_READY_REASONS: Record<MaterialRequestOrderNotReadyReason, string> = {
   not_validated: "pas validée : réglez ses alertes, puis validez-la (étape Lignes)",
   not_priced: "sans devis retenu : consultez un fournisseur et retenez son devis (étape Devis)",
   no_supplier: "sans fournisseur : choisissez-le sur la ligne (étape Lignes)",
+  waiting_quote:
+    "attend les autres lignes de son devis, qui porte une remise : validez-les (étape Lignes) pour commander l’ensemble avec la remise",
 };
 
 /** The step where each reason is settled. */
@@ -37,6 +39,7 @@ const REASON_STEP: Record<MaterialRequestOrderNotReadyReason, RequestStepKey> = 
   not_validated: "lignes",
   not_priced: "devis",
   no_supplier: "lignes",
+  waiting_quote: "lignes",
 };
 
 /** The same reasons for several lines at once, in the reminder at the top of the request. */
@@ -56,6 +59,10 @@ const LEFT_BEHIND: Record<MaterialRequestOrderNotReadyReason | "ready", { one: s
   not_validated: {
     one: "pas validée : réglez ses alertes, puis validez-la, à l’étape Lignes",
     several: "pas validées : réglez leurs alertes, puis validez-les, à l’étape Lignes",
+  },
+  waiting_quote: {
+    one: "attend les autres lignes de son devis remisé : validez-les, à l’étape Lignes, pour la commander avec la remise",
+    several: "attendent les autres lignes de leur devis remisé : validez-les, à l’étape Lignes, pour les commander avec la remise",
   },
 };
 
@@ -86,7 +93,7 @@ export function MaterialRequestToOrderReminder({
   for (const entry of summary.not_ready) add(entry.reason, entry.line_id);
   const left = [...groups.values()].reduce((total, lines) => total + lines.length, 0);
   if (left === 0) return null;
-  const order: Array<MaterialRequestOrderNotReadyReason | "ready"> = ["no_supplier", "not_priced", "not_validated", "ready"];
+  const order: Array<MaterialRequestOrderNotReadyReason | "ready"> = ["no_supplier", "not_priced", "not_validated", "waiting_quote", "ready"];
   return (
     <Alert variant="warning">
       <AlertTitle>

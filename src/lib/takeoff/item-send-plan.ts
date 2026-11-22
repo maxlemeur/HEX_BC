@@ -6,6 +6,7 @@ import {
   type StoredDpgfComposition,
 } from "@/lib/takeoff/dpgf-composition";
 import { round4 } from "@/lib/takeoff/dpgf-quantity-policy";
+import { itemSendDiameter, itemSendFolded } from "@/lib/takeoff/item-send-fold";
 import type { ItemSendRuleAction, ItemSendRuleEffect, ItemSendRuleEffectKind } from "@/lib/takeoff/item-send-rules";
 import { lengthFactor, roundedMeasure } from "@/lib/takeoff/page-replacement";
 import { PLAN_LOCATION_LABEL_MAX } from "@/lib/takeoff/plan-location";
@@ -430,9 +431,17 @@ export type ItemSendWritePlan = {
       first_draft_settings: Readonly<Record<string, unknown>> | null;
       destination: { version_id: string; status: string; updated_at: string } | null;
       mapping: string | null };
-    resolutions: Array<{ key: string; choice: ItemSendChoice }>;
+    /** The member's choices the plan applied, as the writer reads them (snake case, like every key of the plan). */
+    resolutions: Array<{ key: string; choice: ItemSendWireChoice }>;
   };
+  /** The digest of the member's choices the plan was computed from (the server's; a replay compares it). */
+  choices_sha256?: string;
 };
+
+/** A choice as the plan carries it to the writer. */
+export type ItemSendWireChoice = { kind: "line"; estimate_item_id: string } | { kind: Exclude<ItemSendChoice["kind"], "line"> };
+export const itemSendWireChoice = (choice: ItemSendChoice): ItemSendWireChoice => (choice.kind === "line"
+  ? { kind: "line", estimate_item_id: choice.estimateItemId } : { kind: choice.kind });
 
 export type ItemSendPlan = {
   blocker: ItemSendBlocker | null;
@@ -457,11 +466,8 @@ export type ItemSendPlan = {
 const unitCode = (raw: string | null | undefined) => (raw ? normalizeMeasurementUnit(raw).unitCode : null);
 const same = (left: number, right: number) => round4(left) === round4(right);
 const fold = (value: string | null | undefined) => (value ?? "").normalize("NFC").trim().replace(/\s+/g, " ").toLocaleLowerCase("fr-FR");
-/** A basis or a qualifier as the reading compares them: without case, accents or punctuation (poste-exchange-merge.ts). */
-const folded = (value: string | null | undefined) => {
-  const text = (value ?? "").normalize("NFD").replace(/\p{M}+/gu, "").toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
-  return text.length > 0 ? text : null;
-};
+/** A basis or a qualifier as the reading compares them (item-send-fold.ts, the writer's twin). */
+const folded = itemSendFolded;
 const byText = (left: string, right: string) => (left < right ? -1 : left > right ? 1 : 0);
 const lower = (value: string | null | undefined) => (value ?? "").toLowerCase();
 /** The key of a page held, as the page decisions and the preview name it. */
@@ -576,16 +582,14 @@ function gapOf(reference: number | null, composed: ReturnType<typeof composeDpgf
 }
 
 /** A diameter as it is written (« 1/2" » is not « 1.2" »): only its case and its spaces are not compared. */
-const diameterOf = (value: string | null | undefined) => (value?.trim() ? fold(value) : null);
+const diameterOf = itemSendDiameter;
 const identityOf = (unit: string, basis: string | null, qualifiers: Pick<PosteQualifiers, "network" | "material" | "diameter"> | null | undefined)
   : ItemSendIdentity => ({ unit, basis: folded(basis), network: folded(qualifiers?.network), material: folded(qualifiers?.material),
   diameter: diameterOf(qualifiers?.diameter) });
 const sameIdentity = (left: ItemSendIdentity, right: ItemSendIdentity) => left.unit === right.unit && left.basis === right.basis
   && left.network === right.network && left.material === right.material && left.diameter === right.diameter;
 const snakeIdentity = (identity: ItemSendIdentity): SnakeIdentity => ({ ...identity });
-/** The comparison forms of a basis or qualifier and of a diameter, twins of the writer's (vectors in its pgTAP file). */
-export const itemSendFolded = folded;
-export const itemSendDiameter = diameterOf;
+
 
 /**
  * The send by item writes engine 3 lines only (a unit code, a line status, hours per unit in columns): never another
@@ -998,7 +1002,12 @@ export function planTakeoffItemSend(input: ItemSendInput): ItemSendPlan {
       // Only this item's earlier parts accumulate (the claims already keep a line of another item out of reach).
       const own = earlierOf(input.earlier.targets.filter((target) => target.estimateItemId === targetLine.id && target.itemId === item.id),
         storedParts(targetLine.dpgf!.composition, input.job.id));
-      feed(targetLine, "dpgf_line", resolution, own, targetLine.dpgf!.reference);
+      // The DPGF line an earlier send fed for this item was deleted (its raw row now on this line): the parts left live on
+      // that target leave with this send, as the writer retires them, never live beside the new ones.
+      const displacedDpgf = (input.earlier.displaced ?? []).filter((target) => lower(target.itemId) === lower(item.id)
+        && target.breakdown === "dpgf" && target.compartmentKey === "dpgf").flatMap((target) => target.parts);
+      feed(targetLine, "dpgf_line", resolution, own && own !== "indivisible"
+        ? { ...own, replaces: [...own.replaces, ...replacesOf(displacedDpgf)] } : own, targetLine.dpgf!.reference);
       continue;
     }
 
@@ -1218,9 +1227,15 @@ function writePlanOf(input: ItemSendInput, plan: ItemSendPlan, destination: Excl
           updated_at: input.stamps.destination.updatedAt } : null,
         mapping: input.stamps.mapping ?? null },
       resolutions: input.resolutions.filter((resolution) => resolved.has(resolution.key))
-        .sort((left, right) => byText(left.key, right.key)),
+        .sort((left, right) => byText(left.key, right.key))
+        .map((resolution) => ({ key: resolution.key, choice: itemSendWireChoice(resolution.choice) })),
     },
   };
+}
+
+/** Any value in the plan's one spelling (sorted keys, one spelling per number). */
+export function itemSendCanonical(value: unknown): string {
+  return canonical(value);
 }
 
 function canonical(value: unknown): string {

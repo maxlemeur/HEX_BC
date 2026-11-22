@@ -54,6 +54,8 @@ type Props = {
   /** Moves with each change of the item the detail made: the journal is read again with it. */
   historyVersion: number;
   onRefused: (caught: unknown) => boolean;
+  /** The member and scope reading the journal (the detail's reader): a new reader reads its own. */
+  historyScope?: string;
   onObservation: (observation: ItemDetailObservation) => void;
   onPlan: (planKey: string, jobId: string | null) => void;
   /**
@@ -151,7 +153,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 }
 
 export const ItemDetailEvidencePane = forwardRef<HTMLHeadingElement, Props>(function ItemDetailEvidencePane(
-  { projectId, line, choice, plan, documentState, names, planNames, outsideFilter, historyVersion, onRefused, onObservation, onPlan,
+  { projectId, line, choice, plan, documentState, names, planNames, outsideFilter, historyVersion, onRefused, historyScope, onObservation, onPlan,
     decide, proof = null }, heading) {
   // An earlier reading (an old bookmark) shows nothing of the current one: its answer, decision and entry are not its own.
   const earlier = choice.kind === "reading" && !choice.current;
@@ -290,7 +292,7 @@ export const ItemDetailEvidencePane = forwardRef<HTMLHeadingElement, Props>(func
       <Section title="Historique">
         {earlier ? <p className="text-xs text-muted-foreground">L’historique porte sur la lecture actuelle du poste.</p> : (
           <ItemTableHistory key={`${line.itemId}:${historyVersion}`} projectId={projectId} itemId={line.itemId} version={historyVersion}
-            onRefused={onRefused}
+            onRefused={onRefused} scope={historyScope}
             plans={Object.fromEntries(line.readings.map(({ planKey, planName }) => [planKey, planName]))} />
         )}
       </Section>

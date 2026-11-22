@@ -34,6 +34,7 @@ import {
 
 import TakeoffJobsTable from "./TakeoffJobsTable";
 import { TakeoffRequestActivity } from "./TakeoffRequestActivity";
+import { ItemDetailOpenerFocus } from "./item-detail/ItemDetailOpenerFocus";
 import { TakeoffItemTable } from "./item-table/TakeoffItemTable";
 import { isTakeoffReadRefusal, isTakeoffRequestActivityKey, useTakeoffRequestActivity } from "./useTakeoffRequestActivity";
 import TakeoffExceptionsTab from "./TakeoffExceptionsTab";
@@ -517,6 +518,8 @@ function TakeoffActivityCenterView({
       {/* The affaire's items, read again when a plan's reading moves (the signature of the poll above); withdrawn with
           the rest of the centre when its read is refused (an access removed). */}
       {refused ? null : <TakeoffItemTable projectId={projectId} viewerKey={viewerKey} signature={activitySignature} />}
+      {/* Back from an item's detail by the browser: the keyboard on the « Détail » it was opened from. */}
+      {refused ? null : <ItemDetailOpenerFocus projectId={projectId} viewerKey={viewerKey} />}
 
       {showTracking ? (
         <section className="journey-panel" aria-labelledby="takeoff-tracking-heading">

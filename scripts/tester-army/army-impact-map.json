@@ -1008,6 +1008,20 @@
       ]
     },
     {
+      "id": "takeoff-count-marks",
+      "note": "Repères comptés d’un poste (lot 5 PR 3b, REPERES01) : lecture par lots, commande de correction, doublon, révision dépassée, rejeu, historique, lecteur, plan envoyé ; rien d’envoyé ne bouge.",
+      "paths": [
+        "src/components/takeoff/count-marks/**",
+        "src/app/api/affaires/[projectId]/takeoff/count-marks/**",
+        "src/lib/takeoff/count-marks*.ts",
+        "supabase/migrations/*_takeoff_count_marks.sql",
+        "e2e/army/takeoff/count-marks-support.ts"
+      ],
+      "journeys": [
+        "e2e/army/takeoff/count-marks.e2e.ts"
+      ]
+    },
+    {
       "id": "takeoff-item-table",
       "note": "Tableau des postes (lot 4 PR 4, migration B2, POSTE-REVUE01) : lecture paginée en SQL, sélection sur deux pages, acceptation, écart, saisie et sélection périmée.",
       "paths": [
@@ -1114,6 +1128,18 @@
         "e2e/army/local/engine-v3-unified-kfo.e2e.ts",
         "e2e/army/local/engine-v3-price-reuse.e2e.ts",
         "e2e/army/local/engine-v3-site-cost.e2e.ts"
+      ]
+    },
+    {
+      "id": "material-request-photo-analysis",
+      "note": "Analyse IA des photos d'une demande de matériel : la photo lue sur le forfait ChatGPT devient des lignes en brouillon, ajoutées ou à la place des brouillons au choix du bureau (parcours MRIA01 de chatgpt-local-decisions.e2e.ts, fournisseur en fixture).",
+      "paths": [
+        "src/lib/material-requests/photo-analysis{,-server}.ts",
+        "src/app/api/affaires/[projectId]/material-requests/[requestId]/files/[fileId]/analysis/**",
+        "src/components/material-requests/MaterialRequestOriginal.tsx"
+      ],
+      "journeys": [
+        "e2e/army/local/chatgpt-local-decisions.e2e.ts"
       ]
     },
     {

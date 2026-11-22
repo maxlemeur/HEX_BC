@@ -1,17 +1,111 @@
 "use client";
 
-import { PencilIcon } from "lucide-react";
+import { PencilIcon, Plus, Trash2 } from "lucide-react";
 
 import { ProjectIcon, PROJECT_ICONS, type ProjectIconKey } from "@/components/affaires/ProjectIconPicker";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import {
+  AFFAIRE_SITE_CONTACT_NAME_MAX,
+  AFFAIRE_SITE_CONTACT_PHONE_MAX,
+  AFFAIRE_SITE_CONTACT_ROLE_MAX,
+  AFFAIRE_SITE_CONTACTS_MAX,
+  affaireSiteContactText,
+  type AffaireSiteContact,
+} from "@/lib/affaires/site-contacts";
 
 export type AffaireProjectDetailsValues = {
   projectName: string;
   clientName: string;
   reference: string;
   siteAddress?: string;
+  /** TI-691: the people to call on site; rows being typed may be incomplete until they are saved. */
+  siteContacts?: AffaireSiteContactDraft[];
 };
+
+/** A contact row as typed: every field a string, an empty one left out when saved. */
+export type AffaireSiteContactDraft = { name: string; role: string; phone: string };
+
+export function toSiteContactDrafts(contacts: readonly AffaireSiteContact[] | undefined): AffaireSiteContactDraft[] {
+  return (contacts ?? []).map((contact) => ({ name: contact.name, role: contact.role ?? "", phone: contact.phone ?? "" }));
+}
+
+const CONTACT_INPUT =
+  "w-full min-w-0 border-0 border-b-2 border-border bg-transparent pb-1.5 text-sm text-foreground placeholder:text-subtle-foreground transition-colors focus:border-primary focus:outline-none";
+
+/** The rows of « Contacts sur site »: a name, a role and one number each, added and removed in place. */
+function SiteContactsEditor({
+  contacts,
+  onChange,
+}: Readonly<{ contacts: AffaireSiteContactDraft[]; onChange: (next: AffaireSiteContactDraft[]) => void }>) {
+  const update = (index: number, patch: Partial<AffaireSiteContactDraft>) =>
+    onChange(contacts.map((contact, position) => (position === index ? { ...contact, ...patch } : contact)));
+  return (
+    <fieldset className="lg:col-span-2">
+      <legend className="block text-xs font-semibold uppercase tracking-wider text-foreground-secondary">
+        Contacts sur site
+      </legend>
+      <p className="mt-1 text-xs text-muted-foreground">
+        Imprimés dans les instructions des bons de commande faits depuis les demandes de matériel de l’affaire.
+      </p>
+      {contacts.length > 0 ? (
+        <ul aria-label="Contacts sur site" className="mt-2 space-y-2">
+          {contacts.map((contact, index) => (
+            <li key={index} className="grid grid-cols-[minmax(0,1fr)_auto] items-end gap-2 sm:grid-cols-[minmax(0,2fr)_minmax(0,2fr)_minmax(0,1.5fr)_auto]">
+              <input
+                type="text"
+                aria-label={`Nom, contact ${index + 1}`}
+                value={contact.name}
+                maxLength={AFFAIRE_SITE_CONTACT_NAME_MAX}
+                placeholder="Nom"
+                onChange={(event) => update(index, { name: event.target.value })}
+                className={`${CONTACT_INPUT} max-sm:col-span-2`}
+              />
+              <input
+                type="text"
+                aria-label={`Rôle, contact ${index + 1}`}
+                value={contact.role}
+                maxLength={AFFAIRE_SITE_CONTACT_ROLE_MAX}
+                placeholder="Rôle (facultatif)"
+                onChange={(event) => update(index, { role: event.target.value })}
+                className={`${CONTACT_INPUT} max-sm:col-span-2`}
+              />
+              <input
+                type="tel"
+                aria-label={`Téléphone, contact ${index + 1}`}
+                value={contact.phone}
+                maxLength={AFFAIRE_SITE_CONTACT_PHONE_MAX}
+                placeholder="06 00 00 00 00"
+                onChange={(event) => update(index, { phone: event.target.value })}
+                className={CONTACT_INPUT}
+              />
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                aria-label={`Retirer le contact ${index + 1}`}
+                onClick={() => onChange(contacts.filter((_, position) => position !== index))}
+              >
+                <Trash2 aria-hidden="true" />
+              </Button>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        className="mt-3"
+        disabled={contacts.length >= AFFAIRE_SITE_CONTACTS_MAX}
+        onClick={() => onChange([...contacts, { name: "", role: "", phone: "" }])}
+      >
+        <Plus aria-hidden="true" />
+        Ajouter un contact
+      </Button>
+    </fieldset>
+  );
+}
 
 type AffaireProjectDetailsCardProps = {
   mode: "view" | "edit";
@@ -27,6 +121,7 @@ type AffaireProjectDetailsCardProps = {
   onClientNameChange?: (value: string) => void;
   onSiteAddressChange?: (value: string) => void;
   onReferenceChange?: (value: string) => void;
+  onSiteContactsChange?: (value: AffaireSiteContactDraft[]) => void;
   onEdit?: () => void;
   footer?: React.ReactNode;
   /** Page heading kept while the fiche is edited in place (the view mode renders the h1). */
@@ -48,6 +143,7 @@ export function AffaireProjectDetailsCard({
   onClientNameChange,
   onReferenceChange,
   onSiteAddressChange,
+  onSiteContactsChange,
   onEdit,
   footer,
   editHeading,
@@ -144,6 +240,9 @@ export function AffaireProjectDetailsCard({
                   className="mt-2 w-full rounded-lg border border-border bg-transparent p-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary" />
               </div>
             ) : null}
+            {onSiteContactsChange ? (
+              <SiteContactsEditor contacts={values.siteContacts ?? []} onChange={onSiteContactsChange} />
+            ) : null}
           </div>
         </div>
 
@@ -164,6 +263,21 @@ export function AffaireProjectDetailsCard({
     { label: "Référence", value: values.reference, fallback: "Non renseignée", cell: "sm:border-r" },
     ...(values.siteAddress !== undefined
       ? [{ label: "Adresse du chantier", value: values.siteAddress, fallback: "Non renseignée", cell: "col-span-2 border-t sm:col-span-1 sm:border-t-0" }]
+      : []),
+    ...(values.siteContacts !== undefined
+      ? [{
+          label: "Contacts sur site",
+          value: values.siteContacts
+            .filter((contact) => contact.name.trim())
+            .map((contact) => affaireSiteContactText({
+              name: contact.name.trim(),
+              role: contact.role.trim() || undefined,
+              phone: contact.phone.trim() || undefined,
+            }))
+            .join("\n"),
+          fallback: "Aucun",
+          cell: "col-span-2 border-t sm:col-span-3",
+        }]
       : []),
   ];
 
