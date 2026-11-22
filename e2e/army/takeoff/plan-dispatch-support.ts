@@ -156,13 +156,21 @@ export type DispatchAnswer = { event: "result"; pass: { ran: string[]; closed: s
   calls: Array<{ jobId: string; startedAt: number; endedAt: number; files: Array<{ mimeType: string; bytes: number; sha256: string }>; mode: string }>;
   maxInFlight: number };
 
-/** A pass of the Mac's dispatcher, its units answered by the controlled provider (`modes` per job, success by default). */
+export type OwnedPlanLine = { designation: string; quantity: number; unit: string; source_page: number };
+
+/**
+ * A pass of the Mac's dispatcher, its units answered by the controlled provider (`modes` per job, success by default;
+ * « release » holds a job's call until `releaseFile` exists; `items` per job, the lines its reading returns).
+ */
 export async function runOwnedPlanDispatch(ui: WorkerUi, owner: WorkerOwner, projectId: string,
-  options: { modes?: Record<string, "success" | "terminal" | "hold">; delayMs?: number; mailCollector?: string } = {}) {
+  options: { modes?: Record<string, "success" | "terminal" | "hold" | "release">; delayMs?: number; mailCollector?: string;
+    items?: Record<string, OwnedPlanLine[]>; releaseFile?: string } = {}) {
   if (!UUID.test(projectId) || !ui.army.ownedTakeoffAffaires?.includes(projectId)) throw new Error("An owned affaire is required.");
   const { stdout, stderr } = await run(process.execPath, ["--conditions=react-server", "--import", "tsx",
     "scripts/tester-army/takeoff-plan-dispatch.mjs", projectId, ui.army.runPrefix], { timeout: 120_000, env: childEnv(owner, {
     ARMY_TAKEOFF_PLAN_MODES: JSON.stringify(options.modes ?? {}), ARMY_TAKEOFF_PROVIDER_DELAY_MS: String(options.delayMs ?? 0),
+    ARMY_TAKEOFF_PLAN_ITEMS: JSON.stringify(options.items ?? {}),
+    ...(options.releaseFile ? { ARMY_TAKEOFF_HOLD_RELEASE_FILE: options.releaseFile } : {}),
     ...(options.mailCollector ? {
       E2E_TAKEOFF_MAIL_COLLECTOR_ORIGIN: options.mailCollector,
       RESEND_BASE_URL: options.mailCollector, RESEND_API_KEY: "LOCAL_ONLY_INVALID_RESEND_SENTINEL",

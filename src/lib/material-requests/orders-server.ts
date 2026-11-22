@@ -25,7 +25,8 @@ import {
   type MaterialRequestOrdersCreated,
   type MaterialRequestOrdersSummary,
 } from "./order-contracts";
-import { linePositionsLabel, requireProjectAccess, requireRequest, type MaterialRequestAccess } from "./server-shared";
+import { byPosition, linesSubject, lineTitle } from "./line-names";
+import { requireProjectAccess, requireRequest, type LineRef, type MaterialRequestAccess } from "./server-shared";
 
 /**
  * Purchase orders from a material request (TI-691, lot 2 « l'achat », delivery 3a). Both database functions are
@@ -162,7 +163,6 @@ export async function createMaterialRequestOrders(
   };
 }
 
-type LineRef = Pick<MaterialRequestLine, "id" | "position">;
 type PricedLineRef = LineRef & Pick<MaterialRequestLine, "price_quote_id">;
 type OrderedLineRef = LineRef & { reference: string };
 
@@ -179,18 +179,19 @@ export async function orderedAmong(
   const held = new Map((await readSummary(access, requestId)).ordered.map((entry) => [entry.line_id, entry]));
   return candidates.flatMap((line) => {
     const order = held.get(line.id);
-    return order ? [{ id: line.id, position: line.position, reference: order.purchase_order_reference }] : [];
+    return order ? [{ ...line, reference: order.purchase_order_reference }] : [];
   });
 }
 
-/** 409: a line in an order that stands does not return to draft (« La ligne 3 est dans le bon C-2611-004 … »). */
+/** 409: a line in an order that stands does not return to draft (« La ligne Coude 90° DN 50 est dans le bon C-2611-004 … »). */
 export function orderedLinesRefusal(lines: readonly OrderedLineRef[]): ApiError {
-  const sorted = [...lines].sort((left, right) => left.position - right.position || left.id.localeCompare(right.id));
+  const sorted = [...lines].sort(byPosition);
   const positions = sorted.map((line) => line.position);
   const references = [...new Set(sorted.map((line) => line.reference))];
+  const subject = linesSubject(sorted.map((line) => lineTitle(line)));
   const message = sorted.length === 1
-    ? `La ligne ${positions[0]} est dans le bon ${references[0]} : elle ne peut plus être rouverte.`
-    : `Les lignes ${linePositionsLabel(positions)} sont dans ${references.length === 1 ? "le bon" : "les bons"} ${references.join(", ")} : elles ne peuvent plus être rouvertes.`;
+    ? `${subject} est dans le bon ${references[0]} : elle ne peut plus être rouverte.`
+    : `${subject} sont dans ${references.length === 1 ? "le bon" : "les bons"} ${references.join(", ")} : elles ne peuvent plus être rouvertes.`;
   return conflict(message, { line_ids: sorted.map((line) => line.id), positions, references }, MATERIAL_REQUEST_LINE_ORDERED);
 }
 
@@ -204,7 +205,7 @@ export function orderedLineDatabaseRefusal(candidates: readonly PricedLineRef[])
     const priced = candidates.filter((line) => line.price_quote_id !== null);
     const reference = typeof error.details === "string" ? error.details : "";
     return priced.length === 1 && reference
-      ? orderedLinesRefusal([{ id: priced[0].id, position: priced[0].position, reference }])
+      ? orderedLinesRefusal([{ ...priced[0], reference }])
       : conflict("Une ligne est dans un bon de commande : elle ne peut plus être rouverte.", undefined, MATERIAL_REQUEST_LINE_ORDERED);
   };
 }

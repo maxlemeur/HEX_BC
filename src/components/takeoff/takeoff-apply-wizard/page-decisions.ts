@@ -1,5 +1,6 @@
 import { composeDpgfTarget, removeDpgfParts } from "@/lib/takeoff/dpgf-composition";
 import { replacementQuantities } from "@/lib/takeoff/page-replacement";
+import { listOf } from "@/lib/text/list";
 import {
   TAKEOFF_PAGE_KEEP_BOTH_REASONS,
   TAKEOFF_PAGE_NOTE_MIN,
@@ -144,8 +145,6 @@ export type Resolution = {
   merges: Advice[];
 };
 
-/** « a », « a et b », « a, b et c ». */
-const listOf = (items: readonly string[]) => (items.length <= 1 ? items.join("") : `${items.slice(0, -1).join(", ")} et ${items[items.length - 1]}`);
 const placeLabel = (place: { source_file_name: string | null; source_page: number | null }) =>
   pageLabel({ file_name: place.source_file_name, page: place.source_page });
 const samePlace = (place: { source_file_name: string | null; source_page: number | null }, page: TakeoffPageReplacementPage) =>

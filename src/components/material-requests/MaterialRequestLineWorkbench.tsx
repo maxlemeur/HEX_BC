@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { Check, Info, MoreHorizontal, RotateCcw, ShoppingCart, TriangleAlert } from "lucide-react";
+import { Check, Pencil, ShoppingCart } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -10,65 +10,171 @@ import { effectiveLineMaterial } from "@/lib/material-requests/alerts";
 import { MATERIAL_REQUEST_IMPUTATION_LABELS } from "@/lib/material-requests/contracts";
 import { cn } from "@/lib/utils";
 
+import { AlertSummary, FoldArrow, SELECTED_ROW } from "./cells";
 import { formatQuantity, orderedLineMark, purchaseOrderHref } from "./format";
 import { IncompleteArticle, MATCH_LABELS, MaterialRequestArticleCell } from "./MaterialRequestArticleCell";
-import type { LineRowProps } from "./MaterialRequestLineRow";
+import {
+  CELL_LINE,
+  CELL_PAD,
+  fromRequest,
+  LINE_COLUMNS,
+  LINE_GRID,
+  supplierFromRequest,
+  supplierName,
+  type LineRowProps,
+} from "./MaterialRequestLineRow";
 import { MaterialRequestSupplierCell } from "./MaterialRequestSupplierCell";
 
-type WorkbenchProps = LineRowProps & { inspected: boolean; onInspect: () => void };
+type WorkbenchProps = Omit<LineRowProps, "unfolded" | "onUnfoldedChange"> & {
+  inspected: boolean;
+  onInspect: () => void;
+  orderStatusKnown: boolean;
+};
 
-/** A settled row stays compact; all its provenance and existing actions are in the inspector. */
+/** A cell of the lines sheet that holds a value rather than a field. */
+const CELL = cn("sheet:flex sheet:min-h-9 sheet:min-w-0 sheet:items-center sheet:self-stretch sheet:py-0.5", CELL_PAD);
+const AT = LINE_COLUMNS;
+
+/**
+ * A validated line, or any line read by who may not write: one row of the lines sheet, under the columns of the
+ * lines still edited (a card below the sheet's width). Its provenance and its actions are read under the row, on
+ * request, as a draft line unfolds.
+ */
 export function MaterialRequestLineSummary(props: WorkbenchProps) {
-  const { line, article, request, ordered, inspected, onInspect } = props;
+  const { line, article, request, ordered, inspected, onInspect, onReopen, canWrite } = props;
+  // The details are built the first time the line is inspected, then stay in the page while they are not shown: a
+  // supplier choice the server refused, and its reason, are still there when the line is opened again.
+  const [opened, setOpened] = useState(inspected);
+  if (inspected && !opened) setOpened(true);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const reopen = async () => {
+    setBusy(true);
+    setError(null);
+    const result = await onReopen();
+    setBusy(false);
+    if (!result.ok) setError(result.message);
+  };
   const material = effectiveLineMaterial(line, { ...request, material_confirmed: request.material_confirmed && line.imputation === "project" });
-  const supplier = line.supplier_id ? props.supplierOptions.find((item) => item.id === line.supplier_id)?.label ?? "Fournisseur retiré de la liste" : null;
-  const inherited = request.supplier_confirmed && request.presumed_supplier_id
-    ? props.supplierOptions.find((item) => item.id === request.presumed_supplier_id)?.label ?? "Fournisseur retiré de la liste"
-    : null;
+  const supplier = supplierName(props.supplierOptions, line.supplier_id);
+  const inherited = supplierFromRequest(request, props.supplierOptions);
   const mark = ordered ? orderedLineMark(ordered.status, ordered.purchase_order_reference) : null;
+  const validated = line.status === "validated";
+  const noSize = (!line.dimension || line.dimension === "-") && (!material.material || material.material === "-") && !line.no_dimension;
+  // In a card the article is not said twice when the line's type already is its designation.
+  const sameName = article?.designation !== undefined && article.designation === line.product_type;
+  const linked = line.product_id !== null;
   return (
+    // Below the sheet's width: a card of two rows, what the line asks beside its state, then its article and supplier.
     <li aria-label={`Ligne ${line.position}`} className={cn(
-      "relative grid min-w-0 grid-cols-2 items-start gap-x-4 gap-y-2 border-b border-border px-4 py-4 text-sm last:border-b-0 lg:grid-cols-4 xl:grid",
-      "xl:grid-cols-[minmax(10rem,1.35fr)_4rem_minmax(8rem,1fr)_minmax(8rem,1fr)_6rem_minmax(7rem,0.8fr)_2rem]",
-      inspected ? "border-l-[3px] border-l-primary bg-primary/5 pl-[13px]" : "bg-surface",
+      "relative grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1 rounded-lg border border-border px-3 py-2.5 text-sm sm:px-4",
+      "sheet:items-start sheet:gap-0 sheet:rounded-none sheet:border-0 sheet:border-b sheet:p-0 sheet:last:rounded-b-lg sheet:last:border-b-0",
+      LINE_GRID,
+      inspected ? SELECTED_ROW : "bg-surface sheet:hover:bg-surface-subtle/60",
     )}>
-      <div className="min-w-0">
+      {/* Under the boxes of the lines still edited: a validated line is not selected. */}
+      <div aria-hidden="true" className={cn("hidden sheet:row-span-4 sheet:block sheet:self-stretch sheet:border-r sheet:border-border", AT.select.at)} />
+      <div className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-0.5 sheet:contents">
         <button type="button" aria-label={`Afficher les détails de la ligne ${line.position}`} aria-pressed={inspected} onClick={onInspect}
-          className="block max-w-full break-words text-left font-semibold text-foreground hover:text-primary focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-ring">
-          {line.product_type || article?.designation || "Article à préciser"}
+          className={cn("block max-w-full break-words text-left font-semibold text-foreground hover:text-primary focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-ring sheet:font-normal", CELL, CELL_LINE, AT.type.at)}>
+          <span className="sheet:truncate">{line.product_type || article?.designation || "Article à préciser"}</span>
         </button>
-        <p className="mt-0.5 break-all text-xs text-muted-foreground">{article?.reference || line.reference || `Ligne ${line.position}`}</p>
-        {article?.designation && article.designation !== line.product_type ? <p className="mt-0.5 text-xs text-muted-foreground">{article.designation}</p> : null}
+        <p className="tabular-nums sheet:contents">
+          <span className="sr-only">Quantité : </span>
+          <span className={cn("sheet:justify-end", CELL, AT.quantity.at)}>{line.quantity === null ? "—" : formatQuantity(line.quantity)}</span>{" "}
+          <span className={cn(CELL, CELL_LINE, AT.unit.at)}>{line.unit}</span>
+        </p>
+        <div className="flex min-w-0 flex-wrap gap-x-3 break-words sheet:contents">
+          {noSize ? (
+            <p className={cn("italic text-muted-foreground sheet:[grid-column:5/7] sheet:row-start-1", CELL, CELL_LINE)}>Non renseignées</p>
+          ) : (
+            <>
+              <p className={cn(CELL, CELL_LINE, AT.dimension.at)}>
+                <span className="sheet:truncate">{line.dimension || (line.no_dimension ? "Sans dimension" : "Non renseignée")}</span>
+              </p>
+              <p className={cn(!material.material && "italic text-muted-foreground", CELL, CELL_LINE, AT.material.at)}>
+                <span className="sheet:truncate">{material.material || "Matière non renseignée"}{material.source === "presumed" ? " (demande)" : ""}</span>
+              </p>
+            </>
+          )}
+        </div>
       </div>
-      <p className="font-semibold tabular-nums"><span className="sr-only">Quantité : </span>{line.quantity === null ? "—" : formatQuantity(line.quantity)} {line.unit}</p>
-      <div className="min-w-0 break-words">
-        {(!line.dimension || line.dimension === "-") && (!material.material || material.material === "-") && !line.no_dimension ? <p className="italic text-muted-foreground">Non renseignées</p> : <><p>{line.dimension || (line.no_dimension ? "Sans dimension" : "Non renseignée")}</p><p className={cn("mt-0.5", !material.material && "italic text-muted-foreground")}>{material.material || "Matière non renseignée"}{material.source === "presumed" ? " (demande)" : ""}</p></>}
+      <div className={cn("flex items-center justify-end gap-1", AT.state.at, CELL, CELL_LINE, "sheet:px-1.5")}>
+        <Badge variant={validated ? "success" : "neutral"} title={validated ? "Validée" : "Brouillon"} className={cn(validated && "xl:border-transparent xl:bg-transparent xl:px-0")}>
+          {validated ? <Check aria-hidden="true" /> : null}
+          {/* Where the row is short of room, the mark alone: the word is read by a screen reader and on hover. */}
+          <span className={cn(validated && "max-sm:sr-only sheet:max-xl:sr-only")}>{validated ? "Validée" : "Brouillon"}</span>
+        </Badge>
+        {canWrite && validated && props.orderStatusKnown && !ordered ? (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="px-2"
+            aria-label={`Modifier la ligne ${line.position}`}
+            title="Rouvrir en brouillon pour modifier"
+            loading={busy}
+            onClick={() => void reopen()}
+          >
+            {/* The pencil alone: the row keeps its height, and the word is read on hover and by a screen reader. */}
+            <Pencil aria-hidden="true" />
+            <span className="sr-only">Modifier</span>
+          </Button>
+        ) : null}
+        {/* The arrow of the draft lines, for the eye and the mouse: the line's title is the control that is named. */}
+        <button
+          type="button"
+          tabIndex={-1}
+          aria-hidden="true"
+          title={inspected ? "Replier la ligne" : "Déplier la ligne"}
+          className="inline-flex size-7 shrink-0 items-center justify-center rounded-md text-foreground-secondary hover:bg-muted"
+          onClick={onInspect}
+        >
+          <FoldArrow open={inspected} className="size-3.5" />
+        </button>
       </div>
-      <div className="min-w-0 break-words">
-        <p className="font-medium">{supplier || (inherited ? `${inherited} (demande)` : "Sans fournisseur")}</p>
-        {props.supplierReference?.supplier_sku ? <p className="mt-0.5 break-all text-xs text-muted-foreground">Réf. : {props.supplierReference.supplier_sku}</p> : null}
+      {/* What the line is bought as, and from whom: under what it asks in a card, in their columns in the sheet. */}
+      <div className="col-span-full flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-0.5 text-muted-foreground sheet:contents sheet:text-foreground">
+        <div className={cn("flex min-w-0 flex-wrap items-baseline gap-x-2 sheet:flex-nowrap", AT.article.at, CELL, CELL_LINE, sameName && "max-sheet:hidden")}>
+          {article?.designation ? (
+            <p className="min-w-0 sheet:truncate">{article.designation}</p>
+          ) : (
+            <p className="text-subtle-foreground">{linked ? "Article rattaché" : "Non rattaché"}</p>
+          )}
+          {article?.reference || line.reference ? (
+            <p className="break-all font-mono text-xs sheet:hidden">{article?.reference || line.reference}</p>
+          ) : null}
+        </div>
+        <div className={cn("flex min-w-0 flex-wrap items-baseline gap-x-2 break-words sheet:flex-nowrap", AT.supplier.at, CELL, CELL_LINE)}>
+          <p className={cn("min-w-0 sheet:truncate", !supplier && !inherited && "text-subtle-foreground")}>{supplier || (inherited ? fromRequest(inherited) : "Sans fournisseur")}</p>
+          {props.supplierReference?.supplier_sku ? <p className="break-all text-xs sheet:hidden">Réf. : {props.supplierReference.supplier_sku}</p> : null}
+        </div>
       </div>
-      <div><Badge variant={line.status === "validated" ? "success" : "neutral"}>{line.status === "validated" ? <Check aria-hidden="true" /> : null}{line.status === "validated" ? "Validée" : "Brouillon"}</Badge></div>
-      <div className="min-w-0 text-xs">
-        {ordered && mark ? ordered.can_open ? (
-          <Link href={purchaseOrderHref(ordered.purchase_order_id)} className="inline-flex items-start gap-1 text-primary hover:underline focus-visible:outline-2 focus-visible:outline-ring"><ShoppingCart aria-hidden="true" className="size-4 shrink-0" />{mark}</Link>
-        ) : <span className="text-muted-foreground">{mark}</span> : <span className="text-muted-foreground">Pas encore de bon</span>}
-      </div>
-      {props.canWrite ? <Button type="button" variant="ghost" size="icon-sm" aria-label={`Actions de la ligne ${line.position}`} onClick={onInspect}><MoreHorizontal aria-hidden="true" /></Button> : <span />}
+      {/* A line says its purchase order once it has one: « not yet » is every line's case until then. */}
+      {ordered && mark ? (
+        <div className={cn("col-span-full min-w-0 text-xs sheet:[grid-column:2/-1] sheet:row-start-2 sheet:pb-2", CELL_PAD)}>
+          {ordered.can_open ? (
+            <Link href={purchaseOrderHref(ordered.purchase_order_id)} className="inline-flex items-start gap-1 text-primary hover:underline focus-visible:outline-2 focus-visible:outline-ring"><ShoppingCart aria-hidden="true" className="size-4 shrink-0" />{mark}</Link>
+          ) : <span className="text-muted-foreground">{mark}</span>}
+        </div>
+      ) : null}
+      {error ? <p role="alert" className={cn("col-span-full text-sm text-danger sheet:[grid-column:2/-1] sheet:row-start-3 sheet:pb-2", CELL_PAD)}>{error}</p> : null}
+      {opened ? (
+        <div hidden={!inspected} className="col-span-full mt-1.5 min-w-0 border-t border-border pt-3 sheet:mt-0 sheet:[grid-column:2/-1] sheet:row-start-4 sheet:px-2.5 sheet:pb-4">
+          <MaterialRequestLineInspector {...props} />
+        </div>
+      ) : null}
     </li>
   );
 }
 
 /** Reuses the original catalogue and supplier controls: selection never applies or validates a proposal. */
-export function MaterialRequestLineInspector(props: LineRowProps) {
-  const { line, article, request, ordered, canWrite } = props;
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+function MaterialRequestLineInspector(props: WorkbenchProps) {
+  const { line, article, request, canWrite } = props;
   const material = effectiveLineMaterial(line, { ...request, material_confirmed: request.material_confirmed && line.imputation === "project" });
-  const ownSupplier = line.supplier_id ? props.supplierOptions.find((item) => item.id === line.supplier_id)?.label ?? "Fournisseur retiré de la liste" : null;
-  const inheritedSupplier = request.supplier_confirmed && request.presumed_supplier_id
-    ? props.supplierOptions.find((item) => item.id === request.presumed_supplier_id)?.label ?? "Fournisseur retiré de la liste"
-    : null;
+  const ownSupplier = supplierName(props.supplierOptions, line.supplier_id);
+  const inheritedSupplier = supplierFromRequest(request, props.supplierOptions);
   const values = [
     ["Article lié", line.product_id ? article ? article.reference ?? "Sans référence" : "Article rattaché" : "Non rattaché"],
     ["Libellé (source)", line.original_text ?? "Ligne ajoutée à la main"],
@@ -80,15 +186,17 @@ export function MaterialRequestLineInspector(props: LineRowProps) {
     ...(line.zone ? [["Repère", line.zone]] : []),
   ];
   return (
-    <aside aria-label={`Détails de la ligne ${line.position}`} className="min-w-0 border-t border-border pt-5 xl:border-t-0 xl:border-l xl:pt-0 xl:pl-6">
-      <h3 className="mb-6 font-display text-lg font-semibold text-foreground">Ligne {line.position} — {line.product_type || article?.designation || "À préciser"}</h3>
+    // Under its row: what the line is on the left, what can still be done to it on the right.
+    <aside aria-label={`Détails de la ligne ${line.position}`} className="min-w-0 max-w-5xl md:grid md:grid-cols-2 md:items-start md:gap-x-10">
+      {/* The row above already names the line. */}
+      <h3 className="sr-only">{line.product_type || article?.designation || "À préciser"}</h3>
       <dl className="space-y-3 text-sm">
         {values.map(([name, value]) => <div key={name} className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)] gap-4"><dt className="text-muted-foreground">{name}</dt><dd className="min-w-0 break-words font-medium text-foreground">{value}</dd></div>)}
       </dl>
-      {props.alerts.length > 0 ? <ul aria-label={`Points à régler, ligne ${line.position}`} className="mt-5 space-y-2 text-sm text-warning">{props.alerts.map((alert) => <li key={alert.code} className="flex gap-2">{alert.blocking ? <TriangleAlert aria-hidden="true" className="size-4 shrink-0" /> : <Info aria-hidden="true" className="size-4 shrink-0" />}{alert.message}</li>)}</ul> : null}
-      <div className="mt-3 space-y-4">
+      <AlertSummary position={line.position} alerts={props.alerts} className="mt-5 space-y-2 text-sm md:col-start-1" />
+      <div className="mt-3 space-y-4 md:col-start-2 md:row-span-2 md:row-start-1 md:mt-0">
         <MaterialRequestSupplierCell layout="inspector" line={line} editable={canWrite} supplierOptions={props.supplierOptions} ownSupplier={ownSupplier}
-          requestSupplierLabel={inheritedSupplier ? `${inheritedSupplier} (demande)` : null} proposal={props.supplierProposal} reference={props.supplierReference}
+          requestSupplierLabel={inheritedSupplier ? fromRequest(inheritedSupplier) : null} proposal={props.supplierProposal} reference={props.supplierReference}
           supplyTypeName={article?.supply_type_name ?? null} article={article} proposalRead={props.supplierProposalRead}
           onChooseTypeSupplier={props.onChooseTypeSupplier} onSave={props.onSave} onRetain={props.onRetainSupplier} />
         <dl className="text-sm"><div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)] gap-4"><dt className="text-muted-foreground">Imputation</dt><dd className="font-medium">{MATERIAL_REQUEST_IMPUTATION_LABELS[line.imputation]}{line.overhead_category ? ` · ${line.overhead_category}` : ""}</dd></div></dl>
@@ -97,15 +205,7 @@ export function MaterialRequestLineInspector(props: LineRowProps) {
         <MaterialRequestArticleCell compact line={line} article={article} canWrite={canWrite} canEditCatalogue={props.canEditCatalogue}
           proposals={props.proposals} change={props.change} notice={props.articleNotice} conflict={props.articleConflict}
           onLink={props.onLinkArticle} onUnlink={props.onUnlinkArticle} onOpenPanel={props.onOpenArticles} onRetryProposals={props.onRetryProposals} />
-        {line.status === "validated" && canWrite && !ordered ? <Button type="button" variant="outline" size="sm" loading={busy} aria-label={`Rouvrir la ligne ${line.position}`} onClick={async () => {
-          setBusy(true);
-          const result = await props.onReopen();
-          setBusy(false);
-          setError(result.ok ? null : result.message);
-        }}><RotateCcw aria-hidden="true" />Rouvrir</Button> : null}
         </div></details> : null}
-        {line.status === "draft" && canWrite ? <p className="text-sm text-muted-foreground">Modifiez et validez cette ligne dans le tableau.</p> : null}
-        {error ? <p role="alert" className="text-sm text-danger">{error}</p> : null}
       </div>
     </aside>
   );

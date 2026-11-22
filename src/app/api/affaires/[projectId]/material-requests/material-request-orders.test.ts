@@ -453,7 +453,7 @@ describe("9. an ordered line does not return to draft", () => {
     const fake = await ordered();
     const answer = await call(reopenRoute.POST, "POST", inRequest, { ids: [LINE_ELBOW] });
     expect([answer.status, answer.error?.code, answer.error?.message]).toEqual([
-      409, MATERIAL_REQUEST_LINE_ORDERED, "La ligne 1 est dans le bon C-2611-101 : elle ne peut plus être rouverte.",
+      409, MATERIAL_REQUEST_LINE_ORDERED, "La ligne Coude 90° DN 50 est dans le bon C-2611-101 : elle ne peut plus être rouverte.",
     ]);
     expect(fake.tables.material_request_lines.find((row) => row.id === LINE_ELBOW)?.status).toBe("validated");
   });
@@ -462,7 +462,7 @@ describe("9. an ordered line does not return to draft", () => {
     const fake = await ordered();
     const answer = await call(reopenRoute.POST, "POST", inRequest, { ids: [LINE_UNPRICED, LINE_TUBE, LINE_ELBOW] });
     expect([answer.status, answer.error?.message, answer.error?.details]).toEqual([
-      409, "Les lignes 1 et 4 sont dans les bons C-2611-101, C-2611-102 : elles ne peuvent plus être rouvertes.",
+      409, "Les lignes Coude 90° DN 50 et Tube DN 50 sont dans les bons C-2611-101, C-2611-102 : elles ne peuvent plus être rouvertes.",
       { line_ids: [LINE_ELBOW, LINE_TUBE], positions: [1, 4], references: ["C-2611-101", "C-2611-102"] },
     ]);
     expect(fake.tables.material_request_lines.find((row) => row.id === LINE_UNPRICED)?.status).toBe("validated");

@@ -99958,6 +99958,69 @@
                   ],
                   "additionalProperties": false
                 }
+              },
+              "send_context": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "changed": {
+                        "type": "boolean"
+                      },
+                      "sent_at": {
+                        "type": "string"
+                      },
+                      "changes": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "reason": {
+                              "type": "string",
+                              "enum": [
+                                "peer_changed",
+                                "peer_read_again",
+                                "peer_removed",
+                                "peer_appeared",
+                                "location_changed",
+                                "copy_changed"
+                              ]
+                            },
+                            "plan_name": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "reason",
+                            "plan_name"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "item_ids": {
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        }
+                      }
+                    },
+                    "required": [
+                      "changed",
+                      "sent_at",
+                      "changes",
+                      "item_ids"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
               }
             },
             "required": [
@@ -103292,6 +103355,205 @@
                     "type": "null"
                   }
                 ]
+              },
+              "plan_scope": {
+                "type": "object",
+                "properties": {
+                  "request_id": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "plan_name": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "location": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "building": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "level": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "generation": {
+                            "type": "integer",
+                            "exclusiveMinimum": 0,
+                            "maximum": 9007199254740991
+                          }
+                        },
+                        "required": [
+                          "building",
+                          "level",
+                          "generation"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "compared": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "job_id": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        "plan_name": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "read_at": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "request": {
+                          "type": "string",
+                          "enum": [
+                            "same",
+                            "earlier",
+                            "later"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "job_id",
+                        "plan_name",
+                        "read_at",
+                        "request"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "unread": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "plan_name": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "state": {
+                          "type": "string",
+                          "enum": [
+                            "queued",
+                            "running",
+                            "failed",
+                            "canceled",
+                            "not_started"
+                          ]
+                        },
+                        "compared_reading_at": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "plan_name",
+                        "state",
+                        "compared_reading_at"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "never_read": {
+                    "type": "array",
+                    "items": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  },
+                  "uncompared": {
+                    "type": "object",
+                    "properties": {
+                      "grouped": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      "outside_request": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      }
+                    },
+                    "required": [
+                      "grouped",
+                      "outside_request"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "level_contradictions": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "source_file_name": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "source_page": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        "read_level": {
+                          "type": "string"
+                        },
+                        "operator_level": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "source_file_name",
+                        "source_page",
+                        "read_level",
+                        "operator_level"
+                      ],
+                      "additionalProperties": false
+                    }
+                  }
+                },
+                "required": [
+                  "request_id",
+                  "plan_name",
+                  "location",
+                  "compared",
+                  "unread",
+                  "never_read",
+                  "uncompared",
+                  "level_contradictions"
+                ],
+                "additionalProperties": false
               },
               "impact": {
                 "type": "object",

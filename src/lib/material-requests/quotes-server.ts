@@ -29,9 +29,10 @@ import {
   type MaterialRequestQuoteStatus,
   type UpdateQuoteData,
 } from "./quote-contracts";
+import { byPosition, linesSubject, lineTitle } from "./line-names";
 import {
   FILE_COLUMNS,
-  linePositionsLabel,
+  type LineRef,
   readRequestLines,
   requireProjectAccess,
   requireRequest,
@@ -60,7 +61,6 @@ const QUOTE_LINES_PAGE = 1000;
 
 type QuoteRow = Omit<MaterialRequestQuote, "supplier_name" | "lines" | "files">;
 type QuoteLineRow = MaterialRequestQuoteLine & { quote_id: string };
-type LineRef = Pick<MaterialRequestLine, "id" | "position">;
 
 /**
  * The database ended a deadlock between two writes of the same request (a retaining and a validation of a shared
@@ -103,13 +103,16 @@ export async function requireOpenQuote(access: MaterialRequestAccess, requestId:
   return quote;
 }
 
-function byPosition(left: LineRef, right: LineRef): number {
-  return left.position - right.position || left.id.localeCompare(right.id);
-}
-
+/** The lines a refusal points at, in the order of the request: their ids and numbers for the caller, their names for the sentence. */
 function positionsOf(lines: readonly LineRef[]) {
   const sorted = [...lines].sort(byPosition);
-  return { positions: sorted.map((line) => line.position), line_ids: sorted.map((line) => line.id) };
+  const names = sorted.map((line) => lineTitle(line));
+  return {
+    positions: sorted.map((line) => line.position),
+    line_ids: sorted.map((line) => line.id),
+    /** « La ligne A », « Les lignes A et B »: how a sentence starts when it names them. */
+    named: (one: string, several: string) => `${linesSubject(names)} ${names.length === 1 ? one : several}`,
+  };
 }
 
 /** The lines of some quotes, page by page: a quote holds 300 lines at most, a request any number of quotes. */
@@ -235,10 +238,8 @@ function supplierInProgress(): ApiError {
 }
 
 function alreadyRetained(lines: readonly LineRef[]): ApiError {
-  const { positions, line_ids } = positionsOf(lines);
-  const message = positions.length === 1
-    ? `La ligne ${linePositionsLabel(positions)} a déjà un devis retenu : elle n’est plus à consulter.`
-    : `Les lignes ${linePositionsLabel(positions)} ont déjà un devis retenu : elles ne sont plus à consulter.`;
+  const { positions, line_ids, named } = positionsOf(lines);
+  const message = named("a déjà un devis retenu : elle n’est plus à consulter.", "ont déjà un devis retenu : elles ne sont plus à consulter.");
   return unprocessableEntity(message, { positions, line_ids }, MATERIAL_REQUEST_QUOTE_LINES_ALREADY_RETAINED);
 }
 
@@ -316,11 +317,9 @@ export async function createMaterialRequestQuote(
 async function linesNotInQuote(access: MaterialRequestAccess, requestId: string, lineIds: readonly string[]): Promise<ApiError> {
   const lines = (await readRequestLines(access, requestId)).filter((line) => lineIds.includes(line.id));
   if (lines.length < new Set(lineIds).size) return notFound(LINE_NOT_FOUND);
-  const { positions, line_ids } = positionsOf(lines);
+  const { positions, line_ids, named } = positionsOf(lines);
   return notFound(
-    positions.length === 1
-      ? `La ligne ${linePositionsLabel(positions)} n’est pas demandée dans ce devis.`
-      : `Les lignes ${linePositionsLabel(positions)} ne sont pas demandées dans ce devis.`,
+    named("n’est pas demandée dans ce devis.", "ne sont pas demandées dans ce devis."),
     { positions, line_ids },
   );
 }
@@ -406,11 +405,9 @@ async function retainRefusal(access: MaterialRequestAccess, request: MaterialReq
   const unpricedIds = new Set(quoteLines.filter((row) => row.unit_price_ht_cents === null).map((row) => row.line_id));
   const unpriced = asked.filter((line) => unpricedIds.has(line.id));
   if (unpriced.length > 0) {
-    const { positions, line_ids } = positionsOf(unpriced);
+    const { positions, line_ids, named } = positionsOf(unpriced);
     return unprocessableEntity(
-      positions.length === 1
-        ? `La ligne ${linePositionsLabel(positions)} de ce devis n’a pas de prix : chiffrez-la avant de le retenir.`
-        : `Les lignes ${linePositionsLabel(positions)} de ce devis n’ont pas de prix : chiffrez-les avant de le retenir.`,
+      named("de ce devis n’a pas de prix : chiffrez-la avant de le retenir.", "de ce devis n’ont pas de prix : chiffrez-les avant de le retenir."),
       { positions, line_ids },
       MATERIAL_REQUEST_QUOTE_LINES_UNPRICED,
     );
@@ -421,11 +418,9 @@ async function retainRefusal(access: MaterialRequestAccess, request: MaterialReq
   // still be asked and priced for drafts).
   const drafts = asked.filter((line) => line.status !== "validated");
   if (drafts.length > 0) {
-    const { positions, line_ids } = positionsOf(drafts);
+    const { positions, line_ids, named } = positionsOf(drafts);
     return unprocessableEntity(
-      positions.length === 1
-        ? `La ligne ${linePositionsLabel(positions)} n’est pas validée : validez-la avant de retenir ce devis.`
-        : `Les lignes ${linePositionsLabel(positions)} ne sont pas validées : validez-les avant de retenir ce devis.`,
+      named("n’est pas validée : validez-la avant de retenir ce devis.", "ne sont pas validées : validez-les avant de retenir ce devis."),
       { positions, line_ids },
       MATERIAL_REQUEST_QUOTE_LINES_NOT_VALIDATED,
     );
@@ -434,11 +429,12 @@ async function retainRefusal(access: MaterialRequestAccess, request: MaterialReq
   // that material on it, so that its price stays tied to it, and only once the office has confirmed it.
   const unconfirmed = asked.filter((line) => line.imputation === "project" && !(line.material ?? "").trim());
   if (unconfirmed.length > 0 && (!(request.presumed_material ?? "").trim() || !request.material_confirmed)) {
-    const { positions, line_ids } = positionsOf(unconfirmed);
+    const { positions, line_ids, named } = positionsOf(unconfirmed);
     return unprocessableEntity(
-      positions.length === 1
-        ? `La ligne ${linePositionsLabel(positions)} n’a pas de matière propre et la matière présumée de la demande n’est pas confirmée : confirmez-la avant de retenir ce devis.`
-        : `Les lignes ${linePositionsLabel(positions)} n’ont pas de matière propre et la matière présumée de la demande n’est pas confirmée : confirmez-la avant de retenir ce devis.`,
+      named(
+        "n’a pas de matière propre et la matière présumée de la demande n’est pas confirmée : confirmez-la avant de retenir ce devis.",
+        "n’ont pas de matière propre et la matière présumée de la demande n’est pas confirmée : confirmez-la avant de retenir ce devis.",
+      ),
       { positions, line_ids },
       MATERIAL_REQUEST_QUOTE_MATERIAL_UNCONFIRMED,
     );

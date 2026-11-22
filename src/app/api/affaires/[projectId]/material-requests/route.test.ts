@@ -939,7 +939,7 @@ describe("material requests of an affaire: splitting the message again", () => {
       replaced_ids: [LINE_READY, LINE_NO_QUANTITY, LINE_VALIDATED], lines: corrected,
     });
     expect([status, error?.code]).toEqual([409, "MATERIAL_REQUEST_LINES_KEPT"]);
-    expect(error?.message).toBe("Le message n’est pas redécoupé : la ligne 3 est validée. Corrigez les lignes dans le tableau.");
+    expect(error?.message).toBe("Le message n’est pas redécoupé : la ligne Bride DN 50 est validée. Corrigez les lignes dans le tableau.");
     expect(fake.writes).toEqual([]);
   });
 
@@ -947,7 +947,7 @@ describe("material requests of an affaire: splitting the message again", () => {
     [
       "priced by a retained quote",
       { material_request_lines: [line(LINE_READY, REQUEST, 1, { price_quote_id: "a0000000-0000-4000-8000-000000000001" }), line(LINE_NO_QUANTITY, REQUEST, 2)] },
-      "Le message n’est pas redécoupé : la ligne 1 est dans un devis. Corrigez les lignes dans le tableau.",
+      "Le message n’est pas redécoupé : la ligne Coude 45° DN 20 est dans un devis. Corrigez les lignes dans le tableau.",
     ],
     [
       "asked in a quote",
@@ -958,7 +958,7 @@ describe("material requests of an affaire: splitting the message again", () => {
           { tenant_id: TENANT, project_id: PROJECT, quote_id: "a0000000-0000-4000-8000-000000000003", line_id: LINE_NO_QUANTITY },
         ],
       },
-      "Le message n’est pas redécoupé : les lignes 1 et 2 sont dans un devis. Corrigez les lignes dans le tableau.",
+      "Le message n’est pas redécoupé : les lignes Coude 45° DN 20 et Coude 45° DN 20 sont dans un devis. Corrigez les lignes dans le tableau.",
     ],
   ])("replaces nothing while a draft line is %s", async (_label, tables, message) => {
     const fake = seed(OWNER, "engineer", { tables });

@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useId, useRef, useState, type ReactNode } from "react";
-import { Info, TriangleAlert } from "lucide-react";
+import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
+import { ChevronDown, Info, TriangleAlert } from "lucide-react";
 
 import { DecimalDraftInput } from "@/components/estimates/components/estimate-editor-row/DecimalDraftInput";
 import { Button } from "@/components/ui/button";
@@ -30,6 +30,54 @@ export function alertCellClass(alerts: CellAlerts): string {
   const tone = cellTone(alerts);
   if (tone === "blocking") return "bg-warning-light";
   return tone === "notice" ? "bg-warning-subtle" : "";
+}
+
+/** The row of a list that is the one shown beside it (a line, a quote, a purchase order): the application's blue. */
+export const SELECTED_ROW = "bg-primary/5 shadow-[inset_3px_0_0_var(--color-primary)]";
+
+/** The arrow that unfolds a line of the sheet: it points at the line while folded, up once unfolded. */
+export function FoldArrow({ open, className }: Readonly<{ open: boolean; className?: string }>) {
+  return (
+    <ChevronDown
+      aria-hidden="true"
+      className={cn("transition-transform duration-150 motion-reduce:transition-none", open ? "rotate-180" : "-rotate-90", className)}
+    />
+  );
+}
+
+/**
+ * One alert in words. A blocking alert and a remark differ by their icon and their wording as well as by their
+ * colour.
+ */
+export function AlertWords({
+  alert,
+  as: Tag = "p",
+  className,
+  ...rest
+}: Readonly<{ alert: MaterialRequestLineAlert; as?: "p" | "li"; className?: string; "aria-hidden"?: boolean }>) {
+  const Icon = alert.blocking ? TriangleAlert : Info;
+  return (
+    <Tag {...rest} className={cn("flex items-start gap-1 font-medium text-warning", className)}>
+      <Icon aria-hidden="true" className="mt-px size-3.5 shrink-0" />
+      <span>{alert.blocking ? alert.message : `À noter : ${alert.message}`}</span>
+    </Tag>
+  );
+}
+
+/** Every alert of a line, in words: under the fields of a card, and under its row once the line is unfolded. */
+export function AlertSummary({
+  position,
+  alerts,
+  className,
+}: Readonly<{ position: number; alerts: CellAlerts; className?: string }>) {
+  if (alerts.length === 0) return null;
+  return (
+    <ul aria-label={`Points à régler, ligne ${position}`} className={cn("space-y-0.5 text-xs", className)}>
+      {alerts.map((alert) => (
+        <AlertWords key={alert.code} as="li" alert={alert} className={cn(!alert.blocking && "font-normal")} />
+      ))}
+    </ul>
+  );
 }
 
 const CELL_CONTROL =
@@ -68,14 +116,7 @@ export function CellMessages({
   return (
     <div id={id} className={cn("space-y-0.5 text-xs leading-snug", quietAlerts && !error ? "sr-only" : "mt-1")}>
       {alerts.map((alert) => (
-        <p key={alert.code} className={cn("flex items-start gap-1 font-medium text-warning", quietAlerts && "sr-only")}>
-          {alert.blocking ? (
-            <TriangleAlert aria-hidden="true" className="mt-px size-3.5 shrink-0" />
-          ) : (
-            <Info aria-hidden="true" className="mt-px size-3.5 shrink-0" />
-          )}
-          <span>{alert.blocking ? alert.message : `À noter : ${alert.message}`}</span>
-        </p>
+        <AlertWords key={alert.code} alert={alert} className={cn(quietAlerts && "sr-only")} />
       ))}
       {error ? (
         <p role="alert" className="font-medium text-danger">
@@ -352,6 +393,7 @@ export function ChoiceCell({
   searchable = false,
   placeholder,
 }: Readonly<{
+  /** `options` should keep its identity between renders: a searchable choice indexes it. */
   searchable?: boolean;
   /**
    * Shown in the search field of a searchable choice while nothing is chosen: the field itself stays empty, so typing
@@ -393,12 +435,21 @@ export function ChoiceCell({
     if (!result.ok) setFailed({ value: next, message: result.message });
   };
 
+  // Only built for a searchable choice, and once for the same options: the combobox indexes what it is given.
+  const unknown = known ? null : shown;
+  const entries = useMemo(
+    () =>
+      searchable
+        ? [
+            ...(emptyLabel !== undefined ? [{ value: NO_CHOICE, label: emptyLabel }] : []),
+            ...(unknown === null ? [] : [{ value: unknown, label: unknownLabel ?? unknown }]),
+            ...options,
+          ]
+        : [],
+    [emptyLabel, options, searchable, unknown, unknownLabel],
+  );
+
   if (searchable) {
-    const entries = [
-      ...(emptyLabel !== undefined ? [{ value: NO_CHOICE, label: emptyLabel }] : []),
-      ...(known ? [] : [{ value: shown, label: unknownLabel ?? shown }]),
-      ...options,
-    ];
     return (
       <>
         <Combobox

@@ -323,7 +323,7 @@ export function AffairesDenseTable({
         aria-label="Liste des affaires"
         tabIndex={0}
       >
-        <table className="w-full text-sm">
+        <table className="sheet-table w-full text-sm">
           <caption className="sr-only">
             Liste des affaires et de leur dernière version de chiffrage
           </caption>
@@ -335,28 +335,28 @@ export function AffairesDenseTable({
               <th scope="col" className="w-10">
                 <span className="sr-only">Sélection</span>
               </th>
-              <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
+              <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">
                 Nom affaire
               </th>
-              <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
+              <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">
                 Client
               </th>
-              <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
+              <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">
                 Réf.
               </th>
-              <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
+              <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">
                 Statut courant
               </th>
-              <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
+              <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">
                 Version acceptée
               </th>
-              <th scope="col" className="px-4 py-3 text-center text-xs font-medium text-muted-foreground uppercase tracking-wider">
+              <th scope="col" className="px-4 py-3 text-center text-xs font-medium text-muted-foreground">
                 Approbation
               </th>
-              <th scope="col" className="px-4 py-3 text-right text-xs font-medium text-muted-foreground uppercase tracking-wider">
+              <th scope="col" className="px-4 py-3 text-right text-xs font-medium text-muted-foreground">
                 Total HT
               </th>
-              <th scope="col" className="px-4 py-3 text-right text-xs font-medium text-muted-foreground uppercase tracking-wider">
+              <th scope="col" className="px-4 py-3 text-right text-xs font-medium text-muted-foreground">
                 Date MAJ
               </th>
               <th scope="col" className="w-28">

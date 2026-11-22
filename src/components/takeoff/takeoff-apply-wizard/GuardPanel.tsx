@@ -182,8 +182,8 @@ export function GuardPanel({
       </div>
 
       <div className="max-h-[200px] overflow-auto rounded-xl border border-border">
-        <table className="min-w-full text-sm">
-          <thead className="bg-surface-subtle text-left text-xs uppercase tracking-wide text-muted-foreground">
+        <table className="sheet-table min-w-full text-sm">
+          <thead className="bg-surface-subtle text-left text-xs text-muted-foreground">
             <tr>
               <th className="px-3 py-2">Désignation</th>
               <th className="px-3 py-2">Blocage</th>

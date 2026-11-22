@@ -12,6 +12,20 @@ import { takeoffReviewContextResponseSchema } from "@/lib/takeoff/review-context
 import { mapSupabaseError, notFound } from "@/lib/http/api-response";
 import { requireEstimateEngineVersion, usesSaleCoefficients } from "@/lib/estimates/engine/capabilities";
 import { quantitySourceComparison } from "@/lib/takeoff/quantity-review-policy";
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
+
+/**
+ * Lot 3: what the send of an analysis of one plan compared that changed since (public.read_takeoff_send_drift, service
+ * role, after the member's own read of the job): null for any other analysis, or one not sent with a context. Read when
+ * its lines are read; it costs no writer anything.
+ */
+async function readSendContextDrift(tenantId: string, projectId: string | null | undefined, jobId: string) {
+  if (!projectId) return null;
+  const { data, error } = await createServiceRoleClient().rpc("read_takeoff_send_drift" as never,
+    { p_tenant_id: tenantId, p_project_id: projectId, p_job_id: jobId } as never);
+  if (error) throw mapSupabaseError(error, "Impossible de lire ce qui a changé depuis l’envoi du plan.");
+  return (data ?? null) as unknown;
+}
 
 /** Current authorized draft amounts, using the same engines as the estimate. */
 export async function getTakeoffReviewContext(jobId: string) {
@@ -19,8 +33,10 @@ export async function getTakeoffReviewContext(jobId: string) {
   const auth = await getAuthenticatedTakeoffContext();
   const versionId = detail.job.estimate_version_id;
   if (versionId === null) {
-    return takeoffReviewContextResponseSchema.parse({ version_id: null, posts: [], unlinked_item_ids: [], item_pricing: [] });
+    return takeoffReviewContextResponseSchema.parse({ version_id: null, posts: [], unlinked_item_ids: [], item_pricing: [],
+      send_context: null });
   }
+  const sendContext = await readSendContextDrift(auth.tenantId, detail.job.project_id, jobId);
   const context = await loadTakeoffDpgfComparisonContext({ jobId, versionId, auth });
   const versionRead = await auth.supabase.from("estimate_versions").select("*")
     .eq("id", versionId).eq("tenant_id", auth.tenantId).single();
@@ -30,7 +46,8 @@ export async function getTakeoffReviewContext(jobId: string) {
   const rows = computeTakeoffDpgfRows(context.comparisonInput).rows;
   // A historical sealed version is never recalculated at today's catalogue or labor rates.
   if (version.status !== "draft") {
-    return takeoffReviewContextResponseSchema.parse({ version_id: versionId, posts: [], unlinked_item_ids: [], item_pricing: [] });
+    return takeoffReviewContextResponseSchema.parse({ version_id: versionId, posts: [], unlinked_item_ids: [], item_pricing: [],
+      send_context: sendContext });
   }
   const [items, project] = await Promise.all([
     readAllEstimateItems({ supabase: auth.supabase, tenantId: auth.tenantId, versionId }),
@@ -81,7 +98,7 @@ export async function getTakeoffReviewContext(jobId: string) {
   await assertEstimateVersionUnchanged({ supabase: auth.supabase, version });
   const linked = new Set(matches.flatMap(match => match.item_ids));
   const included = new Set(context.takeoffItems.filter(item => !item.is_excluded).map(item => item.id));
-  return takeoffReviewContextResponseSchema.parse({ version_id: versionId,
+  return takeoffReviewContextResponseSchema.parse({ version_id: versionId, send_context: sendContext,
     unlinked_item_ids: context.takeoffItems.filter(item => !item.is_excluded && !linked.has(item.id)).map(item => item.id),
     item_pricing: buildTakeoffItemPricing(items, unitPrices, matches).filter(entry => included.has(entry.item_id)),
     posts: buildFinancialReviewPosts(items, amounts, matches, new Map(context.takeoffItems.flatMap(item => {

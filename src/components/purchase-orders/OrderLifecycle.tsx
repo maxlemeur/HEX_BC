@@ -284,7 +284,7 @@ function ConfirmationDialog({
               onChange={(event) => setNewFile(event.target.files?.[0] ?? null)} />
           </div>
         </div>
-        <table className="w-full text-sm">
+        <table className="sheet-table w-full text-sm">
           <thead>
             <tr className="text-left text-muted-foreground">
               <th className="py-1 font-medium">Ligne</th>

@@ -19,6 +19,7 @@ import {
 } from "@/lib/material-requests/quote-contracts";
 import type { PurchaseOrderPricePer } from "@/lib/purchase-orders/line-kinds";
 
+import { linesSubject } from "./format";
 import { uploadMaterialRequestQuoteFiles, type PhotoUploadStep } from "./photo-upload";
 import type { MaterialRequestEditorApi, SaveResult } from "./useMaterialRequestEditor";
 
@@ -29,15 +30,11 @@ export const QUOTE_PRICE_HELD =
   "Un prix saisi sur ce devis n’est pas enregistré : corrigez-le, ou appuyez sur Échap pour revenir au prix enregistré.";
 
 /**
- * A quote is retained only on validated lines: what is bought is what was checked. « La ligne 2 n’est pas validée :
- * validez-la avant de retenir ce devis. », or the plural.
+ * A quote is retained only on validated lines: what is bought is what was checked. « La ligne Coude 90° DN 50 n’est
+ * pas validée : validez-la avant de retenir ce devis. », or the plural. The lines are named by what they ask.
  */
-export function linesNotValidated(positions: readonly number[]): string {
-  if (positions.length === 1) {
-    return `La ligne ${positions[0]} n’est pas validée : validez-la avant de retenir ce devis.`;
-  }
-  const named = `${positions.slice(0, -1).join(", ")} et ${positions[positions.length - 1]}`;
-  return `Les lignes ${named} ne sont pas validées : validez-les avant de retenir ce devis.`;
+export function linesNotValidated(names: readonly string[]): string {
+  return `${linesSubject(names)} ${names.length === 1 ? "n’est pas validée : validez-la" : "ne sont pas validées : validez-les"} avant de retenir ce devis.`;
 }
 
 /** A price on screen cannot be read: a retain would apply the saved price, not the one shown. */
@@ -104,7 +101,7 @@ function isStale(error: unknown): boolean {
  * editor's queue, so that a quote is retained only after the prices and line changes made before it.
  */
 export function useMaterialRequestQuotes(editor: MaterialRequestEditorApi): MaterialRequestQuotesApi {
-  const { projectId, requestId, queueWrite, mergeServerLines, unvalidatedPositions } = editor;
+  const { projectId, requestId, queueWrite, mergeServerLines, unvalidatedNames } = editor;
   const [status, setStatus] = useState<QuotesStatus>("loading");
   const [items, setItems] = useState<MaterialRequestQuote[]>([]);
   const [attempt, setAttempt] = useState(0);
@@ -321,7 +318,7 @@ export function useMaterialRequestQuotes(editor: MaterialRequestEditorApi): Mate
       // answered before the retain's turn.
       if (holdsUnreadablePrice(quoteId)) return { ok: false, message: QUOTE_PRICE_UNREADABLE };
       if ((failed.current.get(quoteId)?.size ?? 0) > 0) return { ok: false, message: QUOTE_PRICE_HELD };
-      const drafts = unvalidatedPositions(lineIds);
+      const drafts = unvalidatedNames(lineIds);
       if (drafts.length > 0) return { ok: false, message: linesNotValidated(drafts) };
       try {
         // Read again at its turn: every price saved and every line validated or reopened before the gesture has
@@ -329,7 +326,7 @@ export function useMaterialRequestQuotes(editor: MaterialRequestEditorApi): Mate
         const outcome = await queueWrite(async (): Promise<RetainTurn> => {
           if (holdsUnreadablePrice(quoteId)) return { held: QUOTE_PRICE_UNREADABLE };
           if (holdsUnsavedPrice(quoteId)) return { held: QUOTE_PRICE_HELD };
-          const draftsNow = unvalidatedPositions(lineIds);
+          const draftsNow = unvalidatedNames(lineIds);
           if (draftsNow.length > 0) return { held: linesNotValidated(draftsNow) };
           return { retained: await retainMaterialRequestQuote(projectId, requestId, quoteId) };
         });
@@ -352,7 +349,7 @@ export function useMaterialRequestQuotes(editor: MaterialRequestEditorApi): Mate
         return { ok: false, message: materialRequestErrorMessage(error, "Le devis n’a pas pu être retenu.") };
       }
     },
-    [holdsUnreadablePrice, holdsUnsavedPrice, mergeServerLines, projectId, queueWrite, reload, requestId, unvalidatedPositions],
+    [holdsUnreadablePrice, holdsUnsavedPrice, mergeServerLines, projectId, queueWrite, reload, requestId, unvalidatedNames],
   );
 
   const closeQuote = useCallback(
