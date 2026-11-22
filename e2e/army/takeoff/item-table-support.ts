@@ -17,8 +17,11 @@ const text = (value: string) => `'${value.replaceAll("'", "''")}'`;
 
 /**
  * An affaire whose list holds `labels.length` items (in that order, unit « u »), read on one plan (pages 2 and 7): each
- * item's answer as `answers` says (measured: one positive row of 1 u on page 2; hypothesis: the same row, estimated;
- * uncertain: a candidate value, page 7 unreadable; not_found: nothing). The rows' rules are evaluated, none failing.
+ * item's answer as `answers` says (measured: one positive row of 1 u on page 2; hypothesis: the same row, then made an
+ * estimate; uncertain: a candidate value, page 7 unreadable; not_found: nothing). The rows' rules are evaluated, none
+ * failing. A publication counts every contribution's row (20261122113611_takeoff_item_answers_before_activation.sql
+ * refuses one its insert excludes), so an hypothesis row is published countable, then made an estimate and excluded as
+ * the hypothesis rule excludes a new one: what a member's later edit of the row leaves.
  */
 export async function seedPublishedItemTable(owner: DedicatedOwner, input: { name: string; labels: string[]; answers: SeededAnswer[] }):
   Promise<SeededItemTable> {
@@ -54,7 +57,8 @@ export async function seedPublishedItemTable(owner: DedicatedOwner, input: { nam
   });
   const rows = input.answers.flatMap((answer, index) => rowIds[index] ? [{ id: rowIds[index], designation: input.labels[index],
     quantity: 1, unit: "u", confidence: 0.9, evidence: "Symbole relevé (fictif)", source_file_name: "plan-1.pdf", source_page: 2,
-    metadata: answer === "hypothesis" ? { quantity_nature: "estimated" } : {} }] : []);
+    metadata: {} }] : []);
+  const hypotheses = input.answers.flatMap((answer, index) => answer === "hypothesis" ? [rowIds[index]!] : []);
   const result = { extracted_json: {}, warnings: [], tables: [], provider_meta: {}, confidence: null, token_count: 10, cost_cents: 0,
     duration_ms: 5, job_duration_ms: 6, run_metrics: [] };
   const plan = { entry_key: ids.plan, plan_file_id: ids.plan, name: "plan-1.pdf", logical_id: ids.plan, intake_document_id: null,
@@ -125,6 +129,10 @@ select count(*) from public.claim_observed_local_takeoff_job('${ids.job}', '${ow
 select answer_count from public.publish_takeoff_item_answers('${ids.job}', '${ids.token}', now(), 'modele-fictif',
   'takeoff-c-postes-v1', '{"schema_version":"v2","prompt_version":"takeoff-c-postes-v1"}'::jsonb, array[2, 7], ${literal(answers)},
   '[]'::jsonb, ${literal(result)}, ${literal(rows)}, null);
+-- The hypotheses made estimates, excluded as public.exclude_new_takeoff_hypothesis excludes a new estimated row.
+update public.takeoff_items set metadata = '{"quantity_nature":"estimated"}'::jsonb, is_excluded = true,
+  exclusion_reason = 'Hypothèse non présélectionnée : quantité estimée, sans mesure sur un plan. Incluez la ligne pour la compter.'
+where job_id = '${ids.job}' and id::text in (select jsonb_array_elements_text(${literal(hypotheses)}));
 -- The server evaluated the rules of the rows: none fails.
 update public.takeoff_items set rules_stale = false, rules_evaluated_at = now(), rule_results = '[]'::jsonb where job_id = '${ids.job}';
 
