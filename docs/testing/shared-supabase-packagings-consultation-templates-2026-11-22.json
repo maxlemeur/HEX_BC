@@ -1,0 +1,754 @@
+{
+  "date_utc": "2026-11-22",
+  "applied_and_verified": 2,
+  "applied": [
+    {
+      "file": "20261122092341_product_packagings.sql",
+      "pr": 462,
+      "source_commit": "614ee4bda07aea203d3ea945e6ea1d8f0fe61ec8",
+      "remote_version": "20261122105334",
+      "applied_at_utc": "2026-11-22T10:53:34Z",
+      "attempts": 1,
+      "bytes": 12544,
+      "sha256": "493d46cf320322c8cd2e77c87fe55daadbf61d73f8b5339e308978ebacaef20c",
+      "manifest_matches": true,
+      "stored_bytes": 12544,
+      "stored_sql_sha256": "493d46cf320322c8cd2e77c87fe55daadbf61d73f8b5339e308978ebacaef20c",
+      "stored_form": "full_file_including_final_lf",
+      "statement_count": 1,
+      "stored_equals_source": true
+    },
+    {
+      "file": "20261122093228_material_request_message_templates.sql",
+      "pr": 463,
+      "source_commit": "5a15da81ceb2fae6f3d200d37e61ba99bd8e91a9",
+      "remote_version": "20261122105354",
+      "applied_at_utc": "2026-11-22T10:53:54Z",
+      "attempts": 1,
+      "bytes": 13650,
+      "sha256": "2d9fc87c12d90c2cae7ea0b1c5aac62ce770924cd2501e1f9b79d0a5d2a5e0ac",
+      "manifest_matches": true,
+      "stored_bytes": 13650,
+      "stored_sql_sha256": "2d9fc87c12d90c2cae7ea0b1c5aac62ce770924cd2501e1f9b79d0a5d2a5e0ac",
+      "stored_form": "full_file_including_final_lf",
+      "statement_count": 1,
+      "stored_equals_source": true
+    }
+  ],
+  "history": {
+    "before": 424,
+    "after": 426,
+    "prior_424_version_name_pairs_identical": true,
+    "first_407_sha256": "8a37267e2f68e79acd5d4f1a3e6c5834d230ff71db9a12fbec90397c17d5debb",
+    "row_408_sha256": "eb1b0c1ceee7ac0ae0a6f909c83ed924dc512217b9bfa2d8403add8bbcd8ca84",
+    "row_424_sha256": "7893a5f2523e6fdc6a39740918aabb6e963124d0cc78edf1bf167e40f16d36e9",
+    "comparison_commit": "4137873f0272f2f532e889652c9cab7589b47600",
+    "comparison_method": "Avant application, rapprochement des noms du dépôt et de la base, avec ou sans préfixe de version de 8 à 14 chiffres. Un écart de nom ne prouve pas une absence de schéma.",
+    "repository_sql_files": 369,
+    "repository_files_with_split_history": [
+      "20261012030743_atomic_estimate_batch.sql",
+      "20261014114943_estimate_fixed_discount_and_template_parent_integrity.sql"
+    ],
+    "remote_rows_without_single_matching_filename": [
+      {
+        "version": "20260119205903",
+        "name": "init_schema"
+      },
+      {
+        "version": "20260126191049",
+        "name": "004_recreate_purchase_order_devis"
+      },
+      {
+        "version": "20260126191058",
+        "name": "005_align_devis_bucket"
+      },
+      {
+        "version": "20260130190345",
+        "name": "add_chiffrage_schema"
+      },
+      {
+        "version": "20260130194050",
+        "name": "add_estimate_version_fields"
+      },
+      {
+        "version": "20260201213920",
+        "name": "estimate_readonly_status_lock"
+      },
+      {
+        "version": "20260201221632",
+        "name": "add_estimate_fo_mo_fields"
+      },
+      {
+        "version": "20260202221409",
+        "name": "add_estimate_suggestion_rules"
+      },
+      {
+        "version": "20260221091117",
+        "name": "008_drop_redundant_indexes_s4"
+      },
+      {
+        "version": "20260221104020",
+        "name": "013_multitenant_core_s5_fix1"
+      },
+      {
+        "version": "20260221200232",
+        "name": "027_est_029_supply_types"
+      },
+      {
+        "version": "20260221200505",
+        "name": "028a_est_032_h_mo_majoration_columns"
+      },
+      {
+        "version": "20260221200525",
+        "name": "028b_est_032_snapshot_function"
+      },
+      {
+        "version": "20260221200550",
+        "name": "028c_est_032_bulk_update_function"
+      },
+      {
+        "version": "20260221200606",
+        "name": "028d_est_032_duplicate_version_function"
+      },
+      {
+        "version": "20260221200830",
+        "name": "est181_templates_core"
+      },
+      {
+        "version": "20260221201005",
+        "name": "est181_templates_rpc_fix"
+      },
+      {
+        "version": "20260221202120",
+        "name": "est181_templates_tenant_triggers_alignment"
+      },
+      {
+        "version": "20260221205459",
+        "name": "026_suggestion_scoring"
+      },
+      {
+        "version": "20260221210747",
+        "name": "025_estimate_templates_est181"
+      },
+      {
+        "version": "20260221221714",
+        "name": "est164_catalog_suggestions_v2"
+      },
+      {
+        "version": "20260221224326",
+        "name": "est164_catalogue_suggestions"
+      },
+      {
+        "version": "20260222160426",
+        "name": "est025_runtime_columns_sync"
+      },
+      {
+        "version": "20260225112741",
+        "name": "20260225120000_tkf026_takeoff_retry_queue"
+      },
+      {
+        "version": "20260304154935",
+        "name": "20260305_ux2_009_create_estimate_version_from_import_lines"
+      },
+      {
+        "version": "20260304171005",
+        "name": "20260305_ux2_010_mapping_memory_upsert"
+      },
+      {
+        "version": "20260304175942",
+        "name": "ux2_011_quick_create_from_import_lines"
+      },
+      {
+        "version": "20260305003905",
+        "name": "reapply_ux2_010_mapping_memory_upsert_20260305"
+      },
+      {
+        "version": "20260305123600",
+        "name": "est_e13_portal_email_tables"
+      },
+      {
+        "version": "20260306151957",
+        "name": "v3_015_add_director_role"
+      },
+      {
+        "version": "20260306152044",
+        "name": "v3_015_approval_workflow_rest"
+      },
+      {
+        "version": "20260306154520",
+        "name": "v3_015_list_affaires_approval_status_reapply"
+      },
+      {
+        "version": "20260307024431",
+        "name": "est394_explanation_sources_contract_alignment"
+      },
+      {
+        "version": "20260307095910",
+        "name": "v3_019_approval_queue_reviewer_state_fix"
+      },
+      {
+        "version": "20260307154447",
+        "name": "20260307182000_v3_020_correction_checklist_scope_prep"
+      },
+      {
+        "version": "20260310120452",
+        "name": "est433_duplicate_version_source_metadata_fix"
+      },
+      {
+        "version": "20260310120907",
+        "name": "est433_duplicate_version_source_metadata_fix"
+      },
+      {
+        "version": "20260310121148",
+        "name": "est433_duplicate_version_source_metadata_fix"
+      },
+      {
+        "version": "20261015222147",
+        "name": "atomic_estimate_batch_part_1"
+      },
+      {
+        "version": "20261015222301",
+        "name": "atomic_estimate_batch_part_2"
+      },
+      {
+        "version": "20261015222315",
+        "name": "estimate_fixed_discount_and_template_parent_integrity_part_1"
+      },
+      {
+        "version": "20261015222318",
+        "name": "estimate_fixed_discount_and_template_parent_integrity_part_2"
+      },
+      {
+        "version": "20261015222322",
+        "name": "estimate_fixed_discount_and_template_parent_integrity_part_3"
+      },
+      {
+        "version": "20261015222326",
+        "name": "estimate_fixed_discount_and_template_parent_integrity_part_4"
+      },
+      {
+        "version": "20261015222337",
+        "name": "estimate_fixed_discount_and_template_parent_integrity_part_5"
+      },
+      {
+        "version": "20261015222341",
+        "name": "estimate_fixed_discount_and_template_parent_integrity_part_6"
+      },
+      {
+        "version": "20261015222348",
+        "name": "estimate_fixed_discount_and_template_parent_integrity_part_7"
+      },
+      {
+        "version": "20261015222352",
+        "name": "estimate_fixed_discount_and_template_parent_integrity_part_8"
+      },
+      {
+        "version": "20261015233534",
+        "name": "estimate_fixed_discount_and_template_parent_integrity_part_9"
+      },
+      {
+        "version": "20261017183121",
+        "name": "shared_catchup_restore_latest_main_through_m3_20261017"
+      },
+      {
+        "version": "20261022112603",
+        "name": "provision_mergeone_backup_reader"
+      },
+      {
+        "version": "20261111190106",
+        "name": "20261111130710_optional_dossier_documents"
+      }
+    ],
+    "applied_at_source": "Version UTC attribuée par Supabase, à la seconde."
+  },
+  "precheck": {
+    "checked_at": "2026-11-22 10:53:18.196709+00",
+    "missing_tables": [],
+    "missing_functions": [],
+    "membership_unique": true,
+    "existing_target_tables": [],
+    "existing_target_functions": [],
+    "existing_products_unique": false,
+    "products_unit_not_null": true,
+    "products_primary_key": "PRIMARY KEY (id)",
+    "duplicate_groups": 0,
+    "other_product_lock_holders": 0,
+    "matching_history": 0
+  },
+  "tables": [
+    {
+      "relname": "material_request_message_templates",
+      "rls": true,
+      "forced": true,
+      "effective_table_grants": {
+        "anon": [],
+        "service_role": [
+          "SELECT",
+          "INSERT",
+          "UPDATE",
+          "DELETE",
+          "TRUNCATE",
+          "REFERENCES",
+          "TRIGGER",
+          "MAINTAIN"
+        ],
+        "authenticated": [
+          "SELECT",
+          "INSERT",
+          "UPDATE",
+          "DELETE"
+        ]
+      },
+      "effective_column_grants": {
+        "anon": {
+          "INSERT": [],
+          "SELECT": [],
+          "UPDATE": [],
+          "REFERENCES": []
+        },
+        "authenticated": {
+          "INSERT": [
+            "tenant_id",
+            "user_id",
+            "message_template",
+            "line_template",
+            "created_at",
+            "updated_at"
+          ],
+          "SELECT": [
+            "tenant_id",
+            "user_id",
+            "message_template",
+            "line_template",
+            "created_at",
+            "updated_at"
+          ],
+          "UPDATE": [
+            "tenant_id",
+            "user_id",
+            "message_template",
+            "line_template",
+            "created_at",
+            "updated_at"
+          ],
+          "REFERENCES": []
+        }
+      },
+      "policies": [
+        {
+          "name": "Members add their own message template",
+          "roles": [
+            "authenticated"
+          ],
+          "using": null,
+          "command": "INSERT",
+          "with_check": "((user_id = ( SELECT auth.uid() AS uid)) AND (tenant_id = ( SELECT current_tenant_id() AS current_tenant_id)))"
+        },
+        {
+          "name": "Members change their own message template",
+          "roles": [
+            "authenticated"
+          ],
+          "using": "((user_id = ( SELECT auth.uid() AS uid)) AND (tenant_id = ( SELECT current_tenant_id() AS current_tenant_id)))",
+          "command": "UPDATE",
+          "with_check": "((user_id = ( SELECT auth.uid() AS uid)) AND (tenant_id = ( SELECT current_tenant_id() AS current_tenant_id)))"
+        },
+        {
+          "name": "Members delete their own message template",
+          "roles": [
+            "authenticated"
+          ],
+          "using": "((user_id = ( SELECT auth.uid() AS uid)) AND (tenant_id = ( SELECT current_tenant_id() AS current_tenant_id)))",
+          "command": "DELETE",
+          "with_check": null
+        },
+        {
+          "name": "Members read their own message template",
+          "roles": [
+            "authenticated"
+          ],
+          "using": "((user_id = ( SELECT auth.uid() AS uid)) AND (tenant_id = ( SELECT current_tenant_id() AS current_tenant_id)))",
+          "command": "SELECT",
+          "with_check": null
+        }
+      ],
+      "triggers": [
+        {
+          "name": "enforce_material_request_message_template_write",
+          "enabled": "O",
+          "definition": "CREATE TRIGGER enforce_material_request_message_template_write BEFORE INSERT OR UPDATE ON public.material_request_message_templates FOR EACH ROW EXECUTE FUNCTION private.enforce_material_request_message_template_write()"
+        }
+      ]
+    },
+    {
+      "relname": "product_packagings",
+      "rls": true,
+      "forced": true,
+      "effective_table_grants": {
+        "anon": [],
+        "service_role": [
+          "SELECT",
+          "INSERT",
+          "UPDATE",
+          "DELETE",
+          "TRUNCATE",
+          "REFERENCES",
+          "TRIGGER",
+          "MAINTAIN"
+        ],
+        "authenticated": [
+          "SELECT",
+          "INSERT",
+          "UPDATE",
+          "DELETE"
+        ]
+      },
+      "effective_column_grants": {
+        "anon": {
+          "INSERT": [],
+          "SELECT": [],
+          "UPDATE": [],
+          "REFERENCES": []
+        },
+        "authenticated": {
+          "INSERT": [
+            "id",
+            "tenant_id",
+            "product_id",
+            "unit",
+            "label",
+            "label_key",
+            "quantity",
+            "is_usual",
+            "position",
+            "created_by",
+            "created_at",
+            "updated_at"
+          ],
+          "SELECT": [
+            "id",
+            "tenant_id",
+            "product_id",
+            "unit",
+            "label",
+            "label_key",
+            "quantity",
+            "is_usual",
+            "position",
+            "created_by",
+            "created_at",
+            "updated_at"
+          ],
+          "UPDATE": [
+            "id",
+            "tenant_id",
+            "product_id",
+            "unit",
+            "label",
+            "label_key",
+            "quantity",
+            "is_usual",
+            "position",
+            "created_by",
+            "created_at",
+            "updated_at"
+          ],
+          "REFERENCES": []
+        }
+      },
+      "policies": [
+        {
+          "name": "Article editors add product packagings",
+          "roles": [
+            "authenticated"
+          ],
+          "using": null,
+          "command": "INSERT",
+          "with_check": "((tenant_id = ( SELECT current_tenant_id() AS current_tenant_id)) AND (EXISTS ( SELECT 1\n   FROM products product\n  WHERE ((product.id = product_packagings.product_id) AND (product.tenant_id = product_packagings.tenant_id) AND can_edit_catalogue_record(product.tenant_id, product.created_by)))))"
+        },
+        {
+          "name": "Article editors change product packagings",
+          "roles": [
+            "authenticated"
+          ],
+          "using": "((tenant_id = ( SELECT current_tenant_id() AS current_tenant_id)) AND (EXISTS ( SELECT 1\n   FROM products product\n  WHERE ((product.id = product_packagings.product_id) AND (product.tenant_id = product_packagings.tenant_id) AND can_edit_catalogue_record(product.tenant_id, product.created_by)))))",
+          "command": "UPDATE",
+          "with_check": "((tenant_id = ( SELECT current_tenant_id() AS current_tenant_id)) AND (EXISTS ( SELECT 1\n   FROM products product\n  WHERE ((product.id = product_packagings.product_id) AND (product.tenant_id = product_packagings.tenant_id) AND can_edit_catalogue_record(product.tenant_id, product.created_by)))))"
+        },
+        {
+          "name": "Article editors remove product packagings",
+          "roles": [
+            "authenticated"
+          ],
+          "using": "((tenant_id = ( SELECT current_tenant_id() AS current_tenant_id)) AND (EXISTS ( SELECT 1\n   FROM products product\n  WHERE ((product.id = product_packagings.product_id) AND (product.tenant_id = product_packagings.tenant_id) AND can_edit_catalogue_record(product.tenant_id, product.created_by)))))",
+          "command": "DELETE",
+          "with_check": null
+        },
+        {
+          "name": "Tenant members read product packagings",
+          "roles": [
+            "authenticated"
+          ],
+          "using": "( SELECT is_tenant_member(product_packagings.tenant_id) AS is_tenant_member)",
+          "command": "SELECT",
+          "with_check": null
+        }
+      ],
+      "triggers": [
+        {
+          "name": "enforce_product_packaging_write",
+          "enabled": "O",
+          "definition": "CREATE TRIGGER enforce_product_packaging_write BEFORE INSERT OR UPDATE ON public.product_packagings FOR EACH ROW EXECUTE FUNCTION private.enforce_product_packaging_write()"
+        }
+      ]
+    },
+    {
+      "relname": "tenant_consultation_message_templates",
+      "rls": true,
+      "forced": true,
+      "effective_table_grants": {
+        "anon": [],
+        "service_role": [
+          "SELECT",
+          "INSERT",
+          "UPDATE",
+          "DELETE",
+          "TRUNCATE",
+          "REFERENCES",
+          "TRIGGER",
+          "MAINTAIN"
+        ],
+        "authenticated": []
+      },
+      "effective_column_grants": {
+        "anon": {
+          "INSERT": [],
+          "SELECT": [],
+          "UPDATE": [],
+          "REFERENCES": []
+        },
+        "authenticated": {
+          "INSERT": [],
+          "SELECT": [
+            "tenant_id",
+            "message_template",
+            "line_template"
+          ],
+          "UPDATE": [],
+          "REFERENCES": []
+        }
+      },
+      "policies": [
+        {
+          "name": "Members read their active tenant's message template",
+          "roles": [
+            "authenticated"
+          ],
+          "using": "(tenant_id = ( SELECT current_tenant_id() AS current_tenant_id))",
+          "command": "SELECT",
+          "with_check": null
+        }
+      ],
+      "triggers": []
+    }
+  ],
+  "functions": [
+    {
+      "signature": "private.consultation_template_admin_tenant()",
+      "security_definer": true,
+      "settings": [
+        "search_path=\"\""
+      ],
+      "body_md5": "462bf6ce91e1c470c0e116057fd3816f",
+      "public_execute": false,
+      "anon_execute": false,
+      "authenticated_execute": false,
+      "service_role_execute": true,
+      "body_matches_source": true
+    },
+    {
+      "signature": "private.enforce_material_request_message_template_write()",
+      "security_definer": false,
+      "settings": [
+        "search_path=\"\""
+      ],
+      "body_md5": "17a503f2a5e67c0743bfd39f8dcc8ad0",
+      "public_execute": false,
+      "anon_execute": false,
+      "authenticated_execute": false,
+      "service_role_execute": true,
+      "body_matches_source": true
+    },
+    {
+      "signature": "private.enforce_product_packaging_write()",
+      "security_definer": false,
+      "settings": [
+        "search_path=\"\""
+      ],
+      "body_md5": "cbf2f2af0742c1679d40c12c62a3901e",
+      "public_execute": false,
+      "anon_execute": false,
+      "authenticated_execute": false,
+      "service_role_execute": true,
+      "body_matches_source": true
+    },
+    {
+      "signature": "public.reset_tenant_consultation_message_template()",
+      "security_definer": true,
+      "settings": [
+        "search_path=\"\""
+      ],
+      "body_md5": "a4dc9c94d754fdea2e4c62eaea841d7e",
+      "public_execute": false,
+      "anon_execute": false,
+      "authenticated_execute": true,
+      "service_role_execute": true,
+      "body_matches_source": true
+    },
+    {
+      "signature": "public.save_tenant_consultation_message_template(text,text)",
+      "security_definer": true,
+      "settings": [
+        "search_path=\"\""
+      ],
+      "body_md5": "d6385ac19e34d523ca4cf20c7a54eff8",
+      "public_execute": false,
+      "anon_execute": false,
+      "authenticated_execute": true,
+      "service_role_execute": true,
+      "body_matches_source": true
+    }
+  ],
+  "constraints": [
+    {
+      "conname": "material_request_message_templates_membership_fkey",
+      "convalidated": true,
+      "definition": "FOREIGN KEY (tenant_id, user_id) REFERENCES tenant_memberships(tenant_id, user_id) ON DELETE CASCADE",
+      "confupdtype": "a",
+      "confdeltype": "c"
+    },
+    {
+      "conname": "material_request_message_templates_pkey",
+      "convalidated": true,
+      "definition": "PRIMARY KEY (tenant_id, user_id)",
+      "confupdtype": " ",
+      "confdeltype": " "
+    },
+    {
+      "conname": "product_packagings_article_unit_fkey",
+      "convalidated": true,
+      "definition": "FOREIGN KEY (product_id, tenant_id, unit) REFERENCES products(id, tenant_id, unit) ON UPDATE RESTRICT ON DELETE CASCADE",
+      "confupdtype": "r",
+      "confdeltype": "c"
+    },
+    {
+      "conname": "product_packagings_created_by_fkey",
+      "convalidated": true,
+      "definition": "FOREIGN KEY (created_by) REFERENCES profiles(id) ON DELETE SET NULL",
+      "confupdtype": "a",
+      "confdeltype": "n"
+    },
+    {
+      "conname": "product_packagings_pkey",
+      "convalidated": true,
+      "definition": "PRIMARY KEY (id)",
+      "confupdtype": " ",
+      "confdeltype": " "
+    },
+    {
+      "conname": "product_packagings_tenant_id_fkey",
+      "convalidated": true,
+      "definition": "FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE RESTRICT",
+      "confupdtype": "a",
+      "confdeltype": "r"
+    },
+    {
+      "conname": "products_id_tenant_unit_key",
+      "convalidated": true,
+      "definition": "UNIQUE (id, tenant_id, unit)",
+      "confupdtype": " ",
+      "confdeltype": " "
+    },
+    {
+      "conname": "tenant_consultation_message_templates_pkey",
+      "convalidated": true,
+      "definition": "PRIMARY KEY (tenant_id)",
+      "confupdtype": " ",
+      "confdeltype": " "
+    },
+    {
+      "conname": "tenant_consultation_message_templates_tenant_id_fkey",
+      "convalidated": true,
+      "definition": "FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE",
+      "confupdtype": "a",
+      "confdeltype": "c"
+    },
+    {
+      "conname": "tenant_consultation_message_templates_updated_by_fkey",
+      "convalidated": true,
+      "definition": "FOREIGN KEY (updated_by) REFERENCES profiles(id) ON DELETE SET NULL",
+      "confupdtype": "a",
+      "confdeltype": "n"
+    }
+  ],
+  "service_role_default_table_grants": [
+    {
+      "owner": "postgres",
+      "role": "service_role",
+      "grants": [
+        "DELETE",
+        "INSERT",
+        "MAINTAIN",
+        "REFERENCES",
+        "SELECT",
+        "TRIGGER",
+        "TRUNCATE",
+        "UPDATE"
+      ]
+    },
+    {
+      "owner": "supabase_admin",
+      "role": "service_role",
+      "grants": [
+        "DELETE",
+        "INSERT",
+        "MAINTAIN",
+        "REFERENCES",
+        "SELECT",
+        "TRIGGER",
+        "TRUNCATE",
+        "UPDATE"
+      ]
+    }
+  ],
+  "service_role_check": "Les huit privilèges effectifs de service_role dépassent les GRANT explicites. Les fichiers révoquent les droits de PUBLIC, anon et authenticated et conservent les privilèges par défaut de service_role.",
+  "security_advisors": {
+    "before": {
+      "rls_enabled_no_policy": 28,
+      "authenticated_security_definer_function_executable": 89,
+      "auth_leaked_password_protection": 1
+    },
+    "after": {
+      "rls_enabled_no_policy": 28,
+      "authenticated_security_definer_function_executable": 91,
+      "auth_leaked_password_protection": 1
+    },
+    "added": [
+      {
+        "name": "authenticated_security_definer_function_executable",
+        "level": "WARN",
+        "object": "public.reset_tenant_consultation_message_template"
+      },
+      {
+        "name": "authenticated_security_definer_function_executable",
+        "level": "WARN",
+        "object": "public.save_tenant_consultation_message_template"
+      }
+    ],
+    "removed": [],
+    "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0029_authenticated_security_definer_function_executable"
+  },
+  "business_row_writes": 0,
+  "application_journey_executed": false,
+  "deployed": false
+}
