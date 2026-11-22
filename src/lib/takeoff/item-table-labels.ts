@@ -84,6 +84,11 @@ export function itemReasonLabel(reason: string): string {
   }
 }
 
+/** A reason that keeps the line out of the bulk acceptance: said in orange, the colour of what blocks. */
+export function itemReasonBlocks(reason: string): boolean {
+  return reason.startsWith("anomaly:") || reason === "dpgf_gap" || reason === "unit_conflict";
+}
+
 const quantityFormat = new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 3 });
 export const formatItemQuantity = (quantity: number, unit: string | null) =>
   `${quantityFormat.format(quantity)}${unit ? ` ${unit}` : ""}`;

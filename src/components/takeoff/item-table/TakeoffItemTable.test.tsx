@@ -53,7 +53,7 @@ function readings() {
     fixtureReading(2, RDC, fixtureAnswer("measured", 1, { anomalies: ["hypothesis"] })),
     fixtureReading(2, R1, fixtureAnswer("not_found", null)),
     fixtureReading(3, RDC, fixtureAnswer("not_found", null)), fixtureReading(3, R1, fixtureAnswer("not_found", null)),
-    fixtureReading(4, RDC, fixtureAnswer("uncertain", null, { reasonText: "Le diamètre n’est pas lisible." })),
+    fixtureReading(4, RDC, fixtureAnswer("uncertain", null, { reasonCode: "diameter_unreadable", reasonText: "Le diamètre n’est pas lisible." })),
     fixtureReading(4, R1, fixtureAnswer("not_found", null)),
   ];
 }
@@ -94,9 +94,12 @@ describe("TakeoffItemTable", () => {
     expect(lavabo).toHaveTextContent("En lecture");
     expect(lavabo).toHaveTextContent("3 u");
     expect(lavabo).toHaveTextContent("partiel");
-    expect(lavabo).toHaveTextContent("1/2 plans");
+    expect(within(lavabo).getByRole("cell", { name: "1/2" })).toBeInTheDocument();
     expect(row("Receveur de douche")).toHaveTextContent("À mesurer");
-    expect(row("Receveur de douche")).toHaveTextContent("Aucun plan lu");
+    // Not found is an absence observed (« — »); an item no plan read has nothing in its cells, and no message either.
+    expect(within(row("Baignoire")).getByRole("cell", { name: "—" })).toBeInTheDocument();
+    expect(within(row("Receveur de douche")).queryByRole("cell", { name: "—" })).not.toBeInTheDocument();
+    expect(row("Receveur de douche")).not.toHaveTextContent("Rien à décider");
     expect(row("Vanne DN32")).toHaveTextContent("Incertain");
     expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
     expect(screen.queryByRole("toolbar", { name: "Gestes sur la sélection" })).not.toBeInTheDocument();
@@ -231,6 +234,43 @@ describe("TakeoffItemTable", () => {
       values: [{ item_id: fixtureItemId(3), quantity: 1, unit: "u" }, { item_id: fixtureItemId(4), quantity: 2.5, unit: "u" }],
       entry: { category: "hypothesis", note: "Selon le CCTP, une baignoire par logement." },
     });
+  });
+
+  it("says a missing value by a yellow cell, not by a message, and keeps orange for what blocks", async () => {
+    client.fetchItemTable.mockResolvedValue(fixtureItemTable({
+      items: [...ITEMS, fixturePoste(6, "Nourrice", { expectedUnit: null }),
+        fixturePoste(7, "Évacuation EU", { origin: "dpgf", expectedUnit: "ml", referenceQuantity: 30, dpgfReference: "3.2.1" })],
+      readings: [...SCENARIO, fixtureReading(6, RDC, fixtureAnswer("not_found", null)),
+        fixtureReading(7, RDC, fixtureAnswer("measured", 36, { observations: [{ observationId: "eu",
+          quantity: 36, unit: "ml", page: 1, evidence: "tracé", confidence: 0.9, method: "vector" }] }))],
+    }));
+    renderTable();
+    const nourrice = await screen.findByRole("row", { name: /Nourrice/ });
+    expect(within(nourrice).getByText("Unité à préciser").closest("td")).toHaveClass("bg-warning-subtle");
+    expect(within(nourrice).queryByText("À préciser")).not.toBeInTheDocument();
+
+    // A value typed takes the item's expected unit unless another is typed (shown as the field's placeholder).
+    fireEvent.change(screen.getByRole("textbox", { name: "Quantité saisie pour « Baignoire »" }), { target: { value: "1" } });
+    const expected = screen.getByRole("textbox", { name: "Unité saisie pour « Baignoire »" });
+    expect(expected).toHaveValue("");
+    expect(expected).toHaveAttribute("placeholder", "u");
+    expect(expected.closest("td")).not.toHaveClass("bg-warning-light");
+    expect(screen.getByRole("button", { name: "Enregistrer les saisies (1)" })).toBeInTheDocument();
+    // Without an expected unit, a value typed without its unit turns the unit's cell yellow and is not counted.
+    fireEvent.change(screen.getByRole("textbox", { name: "Quantité saisie pour « Nourrice »" }), { target: { value: "2" } });
+    const unit = screen.getByRole("textbox", { name: "Unité saisie pour « Nourrice »" });
+    expect(unit.closest("td")).toHaveClass("bg-warning-light");
+    expect(screen.getByRole("button", { name: "Enregistrer les saisies (1)" })).toBeInTheDocument();
+    fireEvent.change(unit, { target: { value: "u" } });
+    expect(unit.closest("td")).not.toHaveClass("bg-warning-light");
+    expect(screen.getByRole("button", { name: "Enregistrer les saisies (2)" })).toBeInTheDocument();
+
+    // The gap above 1 % and the anomaly keep the line out of the acceptance: orange; a remark stays quiet.
+    const eu = row("Évacuation EU");
+    expect(within(eu).getByText("+20 %")).toHaveClass("text-warning");
+    expect(within(eu).getByText("Écart à la DPGF à vérifier")).toHaveClass("text-warning");
+    expect(within(row("Évier")).getByText("Hypothèse")).toHaveClass("text-warning");
+    expect(within(row("Vanne DN32")).getByText("Motif de la lecture")).not.toHaveClass("text-warning");
   });
 
   it("asks for a new measure of one item: payer, setting, plans and items shown, then an explicit confirmation", async () => {

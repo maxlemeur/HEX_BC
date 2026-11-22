@@ -3,6 +3,7 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import useSWR from "swr";
+import { ChevronDown } from "lucide-react";
 
 import type { ChatGptReasoningEffort } from "@/lib/ai/chatgpt-model-preferences";
 import { isTakeoffApiError } from "@/lib/takeoff/client-http";
@@ -31,6 +32,7 @@ import {
   ITEM_DECISION_LABELS,
   ITEM_INELIGIBILITY_LABELS,
   ITEM_STATE_LABELS,
+  itemReasonBlocks,
   itemReasonLabel,
 } from "@/lib/takeoff/item-table-labels";
 import { itemTableAddressParams, readItemTableAddress, withItemTableParams, type ItemTableAddress } from "@/lib/takeoff/item-table-query";
@@ -68,6 +70,8 @@ import { ItemTableLineDetail } from "./ItemTableLineDetail";
  */
 
 const PREFIX = "poste";
+/** The line an address focuses, marked as the sheets of the application mark the line shown beside them. */
+const FOCUSED_ROW = "bg-primary/5 shadow-[inset_3px_0_0_var(--color-primary)]";
 type Gesture = "accept" | "set_aside" | "reinstate" | "entry" | "remeasure";
 type Draft = { quantity: string; unit: string };
 type Notice = { tone: "success" | "info" | "danger"; text: string };
@@ -178,8 +182,8 @@ export function TakeoffItemTable({ projectId, viewerKey, signature }: {
   const label = scopeLabel(address.scope, plans);
   const entryValues = Object.entries(drafts).flatMap(([itemId, draft]) => {
     const quantity = parseDecimal(draft.quantity);
-    return quantity !== null && draft.unit.trim() ? [{ itemId, label: draft.line.label, quantity, unit: draft.unit.trim(),
-      target: draft.line.targets }] : [];
+    const unit = draft.unit.trim() || draft.line.expectedUnit || "";
+    return quantity !== null && unit ? [{ itemId, label: draft.line.label, quantity, unit, target: draft.line.targets }] : [];
   });
 
   const refreshSelection = useCallback(async (current: ItemSelection) => {
@@ -269,7 +273,7 @@ export function TakeoffItemTable({ projectId, viewerKey, signature }: {
   }, [projectId, address.scope, address.filter, updateSelection]);
 
   const setDraft = (line: ItemTableResponseLine, change: Partial<Draft>) => setDrafts((current) => {
-    const previous = current[line.itemId] ?? { quantity: "", unit: line.expectedUnit ?? "", line };
+    const previous = current[line.itemId] ?? { quantity: "", unit: "", line };
     const next = { ...previous, ...change };
     const copy = { ...current };
     if (!next.quantity.trim()) delete copy[line.itemId];
@@ -290,7 +294,7 @@ export function TakeoffItemTable({ projectId, viewerKey, signature }: {
   const pageLines = data?.page.lines ?? [];
   const allOnPage = pageLines.length > 0 && pageLines.every(({ itemId }) => itemId in selection.items);
   const hasFilter = Object.keys(address.filter).length > 0 || address.scope.kind === "plan";
-  const columns = canReview ? 11 : 10;
+  const columns = canReview ? 14 : 11;
 
   return (
     <JourneyPanel headingId="postes-du-metre" title="Postes du métré">
@@ -394,11 +398,13 @@ export function TakeoffItemTable({ projectId, viewerKey, signature }: {
               </p>
             ) : (
               <div className="table-scroll" role="region" aria-label="Tableau des postes" tabIndex={0}>
-                <table className="data-table w-full" aria-label="Postes du métré">
+                {/* A sheet of cells (the shared `data-table` rules): one line per item, one value per cell, a field alone
+                    in its cell is the cell, a missing value is a yellow cell, orange only for what blocks. */}
+                <table className="data-table w-full whitespace-nowrap [&_td]:px-2.5 [&_th]:px-2.5" aria-label="Postes du métré">
                   <thead>
                     <tr>
                       {canReview ? (
-                        <th scope="col">
+                        <th scope="col" className="w-9">
                           <input type="checkbox" aria-label="Sélectionner les postes de la page" checked={allOnPage}
                             onChange={(event) => {
                               let next = selection;
@@ -408,15 +414,18 @@ export function TakeoffItemTable({ projectId, viewerKey, signature }: {
                         </th>
                       ) : null}
                       <th scope="col">Poste</th>
+                      <th scope="col">Famille</th>
                       <th scope="col">Unité</th>
                       <th scope="col">État</th>
+                      <th scope="col">Plans</th>
                       <th scope="col">Observé</th>
-                      <th scope="col">Retenu ou saisi</th>
-                      <th scope="col">DPGF et écart</th>
-                      <th scope="col">Couverture</th>
+                      <th scope="col">Retenu</th>
+                      {/* The value and its unit are typed apart, each a cell, under one heading. */}
+                      {canReview ? <th scope="colgroup" colSpan={2}>Saisie</th> : null}
+                      <th scope="col">DPGF</th>
                       <th scope="col">Motifs</th>
                       <th scope="col">Décision</th>
-                      <th scope="col"><span className="sr-only">Détail</span></th>
+                      <th scope="col" className="w-9"><span className="sr-only">Détail</span></th>
                     </tr>
                   </thead>
                   <tbody>
@@ -424,79 +433,113 @@ export function TakeoffItemTable({ projectId, viewerKey, signature }: {
                       const draft = drafts[line.itemId];
                       const focused = line.itemId === focusId;
                       const open = expanded[line.itemId] === true;
+                      const entryOpen = canReview && line.eligibility.enter_quantity.eligible;
+                      const typedQuantity = draft?.quantity ?? "";
+                      const typedUnit = draft?.unit ?? "";
+                      const quantityUnreadable = typedQuantity.trim() !== "" && parseDecimal(typedQuantity) === null;
+                      // The item's expected unit is the entry's unit unless another is typed: a cell without either is missing.
+                      const unitMissing = typedQuantity.trim() !== "" && !typedUnit.trim() && !line.expectedUnit;
+                      const reasons = [...new Map(line.reasons.map((reason) => [itemReasonLabel(reason), itemReasonBlocks(reason)]))];
                       return (
                         <Fragment key={line.itemId}>
                           <tr id={`poste-ligne-${line.itemId}`} data-testid={`poste-${line.itemId}`} aria-current={focused ? "true" : undefined}
-                            className={focused ? "bg-primary/5" : undefined}>
+                            className={focused ? FOCUSED_ROW : undefined}>
                             {canReview ? (
-                              <td>
+                              <td className="w-9">
                                 <input type="checkbox" aria-label={`Sélectionner le poste « ${line.label} »`}
                                   checked={line.itemId in selection.items}
                                   onChange={(event) => updateSelection(toggleItemSelection(selection, line, event.target.checked))} />
                               </td>
                             ) : null}
-                            <th scope="row" className="bg-inherit text-left font-medium">
-                              <button type="button" className="text-left underline-offset-2 hover:underline"
+                            <th scope="row" className="text-left font-medium">
+                              <button type="button" title={line.label}
+                                className="block max-w-[13rem] truncate text-left underline-offset-2 hover:underline"
                                 onClick={() => navigate({ focusItemId: line.itemId })}>
                                 {line.label}
                               </button>
-                              {line.family ? <span className="block text-xs text-muted-foreground">{line.family}</span> : null}
                             </th>
-                            <td>{line.expectedUnit ?? "À préciser"}</td>
+                            <td className="text-muted-foreground">
+                              {/* The item's own section; its whole path (the filter's family) on hover. */}
+                              <span className="block max-w-[9rem] truncate" title={line.family ?? undefined}>{line.sectionPath.at(-1)}</span>
+                            </td>
+                            <td className={line.expectedUnit ? undefined : "bg-warning-subtle"} title={line.expectedUnit ? undefined : "Unité à préciser"}>
+                              {line.expectedUnit ?? <span className="sr-only">Unité à préciser</span>}
+                            </td>
                             <td>{ITEM_STATE_LABELS[line.state]}</td>
-                            <td>
+                            <td className="tabular-nums">
+                              {line.coverage.expected > 0 ? `${line.coverage.answered}/${line.coverage.expected}` : null}
+                            </td>
+                            <td className="tabular-nums">
                               {line.observed ? (
                                 <>{formatItemQuantity(line.observed.quantity, line.observed.unit)}
-                                  {line.observed.partial ? <span className="block text-xs text-muted-foreground">partiel</span> : null}</>
-                              ) : "—"}
+                                  {line.observed.partial ? <span className="text-muted-foreground"> partiel</span> : null}</>
+                              ) : line.state === "not_found" ? "—" : null}
                             </td>
-                            <td>
-                              {canReview && line.eligibility.enter_quantity.eligible ? (
-                                <div className="flex items-center gap-1">
-                                  <Input size="sm" inputMode="decimal" className="w-20" aria-label={`Quantité saisie pour « ${line.label} »`}
-                                    value={draft?.quantity ?? ""} onChange={(event) => setDraft(line, { quantity: event.target.value })} />
-                                  <Input size="sm" className="w-14" aria-label={`Unité saisie pour « ${line.label} »`}
-                                    value={draft?.unit ?? line.expectedUnit ?? ""} maxLength={16}
-                                    onChange={(event) => setDraft(line, { unit: event.target.value })} />
-                                </div>
-                              ) : null}
+                            <td className="tabular-nums">
                               {line.retained ? (
-                                <span className="block">
-                                  {formatItemQuantity(line.retained.quantity, line.retained.unit)}
-                                  <span className="block text-xs text-muted-foreground">
-                                    {line.retained.source === "entered" ? "saisi" : line.retained.source === "mixed" ? "mesuré et saisi" : "retenu"}
-                                    {line.retained.partial ? ", partiel" : ""}
-                                  </span>
-                                </span>
-                              ) : !(canReview && line.eligibility.enter_quantity.eligible) ? "—" : null}
-                            </td>
-                            <td>
-                              {line.reference ? (
-                                <>{formatItemQuantity(line.reference.quantity, line.expectedUnit)}
-                                  {line.reference.dpgfReference ? <span className="block text-xs text-muted-foreground">Réf. {line.reference.dpgfReference}</span> : null}
-                                  {line.gap?.percent !== null && line.gap?.percent !== undefined ? (
-                                    <span className={`block text-xs ${line.gap.requiresReview ? "text-danger" : "text-muted-foreground"}`}>
-                                      Écart {formatItemPercent(line.gap.percent)}
+                                <>{formatItemQuantity(line.retained.quantity, line.retained.unit)}
+                                  {line.retained.source !== "measured" || line.retained.partial ? (
+                                    <span className="text-muted-foreground">
+                                      {line.retained.source === "entered" ? " saisi" : line.retained.source === "mixed" ? " mesuré et saisi" : ""}
+                                      {line.retained.partial ? " partiel" : ""}
                                     </span>
                                   ) : null}</>
-                              ) : "—"}
+                              ) : null}
+                            </td>
+                            {canReview ? (
+                              <td>
+                                {entryOpen ? (
+                                  <Input size="sm" inputMode="decimal" className="w-20" aria-label={`Quantité saisie pour « ${line.label} »`}
+                                    aria-invalid={quantityUnreadable || undefined}
+                                    value={typedQuantity} onChange={(event) => setDraft(line, { quantity: event.target.value })} />
+                                ) : null}
+                              </td>
+                            ) : null}
+                            {canReview ? (
+                              <td className={unitMissing ? "bg-warning-light" : undefined}>
+                                {entryOpen ? (
+                                  <Input size="sm" className="w-14" aria-label={`Unité saisie pour « ${line.label} »`}
+                                    required={unitMissing || undefined} value={typedUnit} placeholder={line.expectedUnit ?? undefined} maxLength={16}
+                                    onChange={(event) => setDraft(line, { unit: event.target.value })} />
+                                ) : null}
+                              </td>
+                            ) : null}
+                            <td className="tabular-nums">
+                              {line.reference ? (
+                                <>{line.reference.dpgfReference ? `${line.reference.dpgfReference} · ` : ""}
+                                  {formatItemQuantity(line.reference.quantity, line.expectedUnit)}
+                                  {line.gap?.percent !== null && line.gap?.percent !== undefined ? (
+                                    <><span className="text-muted-foreground"> · </span>
+                                      <span className={line.gap.requiresReview ? "font-medium text-warning" : "text-muted-foreground"}
+                                        title={line.gap.requiresReview ? "Écart à la DPGF à vérifier" : "Écart à la DPGF"}>
+                                        {formatItemPercent(line.gap.percent)}
+                                      </span></>
+                                  ) : null}</>
+                              ) : null}
                             </td>
                             <td>
-                              {line.coverage.expected === 0 ? "Aucun plan lu"
-                                : `${line.coverage.answered}/${formatItemCount(line.coverage.expected, "plan", "plans")}`}
+                              <span className="block max-w-[9rem] truncate" title={reasons.map(([text]) => text).join(" · ") || undefined}>
+                                {reasons.map(([text, blocks], index) => (
+                                  <Fragment key={text}>
+                                    {index > 0 ? <span className="text-muted-foreground"> · </span> : null}
+                                    <span className={blocks ? "font-medium text-warning" : "text-muted-foreground"}>{text}</span>
+                                  </Fragment>
+                                ))}
+                              </span>
                             </td>
-                            <td className="text-xs">{line.reasons.length ? [...new Set(line.reasons.map(itemReasonLabel))].join(" · ") : "—"}</td>
-                            <td>{ITEM_DECISION_LABELS[line.decision]}</td>
-                            <td>
-                              <Button variant="ghost" size="xs" aria-expanded={open} aria-controls={`poste-detail-ligne-${line.itemId}`}
+                            <td>{line.decision === "none" ? null : ITEM_DECISION_LABELS[line.decision]}</td>
+                            <td className="w-9">
+                              <Button variant="ghost" size="icon-xs" aria-expanded={open} aria-controls={`poste-detail-ligne-${line.itemId}`}
+                                aria-label={`Détail du poste « ${line.label} »`}
                                 onClick={() => setExpanded((current) => ({ ...current, [line.itemId]: !open }))}>
-                                {open ? "Masquer" : "Détail"}
+                                <ChevronDown aria-hidden="true"
+                                  className={`transition-transform duration-150 motion-reduce:transition-none ${open ? "rotate-180" : "-rotate-90"}`} />
                               </Button>
                             </td>
                           </tr>
                           {open ? (
                             <tr id={`poste-detail-ligne-${line.itemId}`}>
-                              <td colSpan={columns}>
+                              <td colSpan={columns} className="whitespace-normal">
                                 <ItemTableLineDetail line={line} projectId={projectId} names={data.names} canReview={canReview} busy={busy}
                                   onIncludeEntry={(target) => void runCommand({ command_version: ITEM_REVIEW_COMMAND_VERSION,
                                     intent_key: newIntent(), scope: address.scope, gesture: "include_entry", targets: [target.targets] }, "inclus")} />
