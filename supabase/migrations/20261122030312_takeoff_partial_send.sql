@@ -43,11 +43,13 @@ revoke all on function private.takeoff_job_is_plan_unit(uuid) from public, anon,
 -- mapping stamps):
 -- - peers: for a per-plan analysis, the readable analyses of the affaire's other plans. A plan is its source (its dossier
 --   piece, or the plan file itself: two working copies of one piece are one plan, takeoff_plan_location_sources); for each
---   other plan, its latest successful reading, when it is not sent yet (completed, without a version), with the state of
---   its lines (public.takeoff_rule_job_stamp). A reading replaced is never a peer: neither an earlier reading of this
---   analysis's own plan, nor one of another plan whose later reading succeeded (sent or not). A plan whose latest reading
---   was sent has no peer: its lines are the destination's when it is that version, another estimate's otherwise. A
---   grouped or standalone analysis has no peer here (lot 2: the destination only).
+--   other plan, its latest successful reading, when it is not sent yet (completed, without a version) and read a copy the
+--   affaire's confirmed preparation retains now, with the state of its lines (public.takeoff_rule_job_stamp). A reading
+--   replaced is never a peer: neither an earlier reading of this analysis's own plan, nor one of another plan whose later
+--   reading succeeded (sent or not), nor one of a plan replaced or set aside in the dossier since. A plan whose latest
+--   reading was sent has no peer: its lines are the destination's when it is that version, another estimate's otherwise.
+--   A grouped or standalone analysis is no peer, and has none (lot 2: the destination only); the preview names those
+--   not compared.
 -- - plans: each plan revision the controls read — of this takeoff, of its peers, and of the destination's takeoffs
 --   (attached to it, or carried over to it by a copy) — as their preparation attested it (plan file, digest of its bytes),
 --   with the operator's location of that revision (migration B; null when none was saved).
@@ -72,16 +74,27 @@ returns jsonb language sql stable set search_path = '' as $$
     where candidate.tenant_id = p_tenant and candidate.project_id = p_project and plan.file_id is not null
   ), own as (
     select readings.* from readings where readings.id = p_job
+  ), active_plans as (
+    -- The plans of the affaire's dossier now: those its confirmed preparation retains.
+    select private.takeoff_uuid_or_null(source.value -> 'document_id') as file_id
+    from public.takeoff_preparations as preparation
+    cross join lateral pg_catalog.jsonb_array_elements(case
+        when pg_catalog.jsonb_typeof(preparation.confirmed_snapshot #> '{preparation,sources}') = 'array'
+        then preparation.confirmed_snapshot #> '{preparation,sources}' else '[]'::jsonb end) as source(value)
+    where preparation.tenant_id = p_tenant and preparation.project_id = p_project
+      and source.value ->> 'kind' = 'plan' and source.value -> 'active' = 'true'::jsonb
   ), latest as (
-    select distinct on (other.source_kind, other.source_id) other.id, other.estimate_version_id
+    select distinct on (other.source_kind, other.source_id) other.id, other.estimate_version_id, other.file_id
     from readings as other cross join own
     where other.id <> own.id
       and other.status in ('completed'::public.takeoff_job_status, 'applied'::public.takeoff_job_status)
       and (other.source_kind, other.source_id) is distinct from (own.source_kind, own.source_id)
     order by other.source_kind, other.source_id, other.created_at desc, other.id desc
   ), peers as (
-    -- A plan whose latest reading was sent has no peer here: an earlier reading it replaced is never compared.
+    -- A plan whose latest reading was sent has no peer here: an earlier reading it replaced is never compared. Nor does a
+    -- plan whose latest reading read a copy the dossier no longer retains (a plan replaced or set aside since).
     select latest.id from latest where latest.estimate_version_id is null
+      and latest.file_id in (select active_plans.file_id from active_plans)
   ), evaluated as (
     select p_job as id
     union select peers.id from peers
@@ -140,8 +153,9 @@ revoke all on function private.takeoff_send_plan_name(jsonb) from public, anon, 
 
 -- What the application's preview reads (service role): the context, the stamps it stages with its command, and what the
 -- preview shows of it (outside the stamps: a plan's progress, a heartbeat or a name never makes a preview stale) — for a
--- per-plan analysis its request, its plan's name, the names of the plans its peers read, and the other units of its
--- request not read yet, each in its state as private.takeoff_unit_state decides it. The destination version is the
+-- per-plan analysis its request, its plan's name, the names of the plans its peers read, the other units of its request
+-- not read yet, each in its state as private.takeoff_unit_state decides it, the dossier's plans no analysis of one plan
+-- has read, and how many readings outside one analysis per plan are read, not sent and not compared. The destination version is the
 -- draft it would write, or the issued version a copy would start from; null for a first draft.
 create function public.read_takeoff_send_context(p_tenant_id uuid, p_project_id uuid, p_job_id uuid, p_version_id uuid)
 returns jsonb language sql stable security definer set search_path = '' as $$
@@ -150,6 +164,31 @@ returns jsonb language sql stable security definer set search_path = '' as $$
     where candidate.id = p_job_id and candidate.tenant_id = p_tenant_id and candidate.project_id = p_project_id
   ), computed as (
     select private.takeoff_send_context(p_tenant_id, p_project_id, p_job_id, p_version_id) as context
+  ), dossier_plans as (
+    -- The plans the affaire's confirmed preparation retains now, each by its source (its dossier piece, or itself).
+    select source.value ->> 'document_name' as name, plan.file_id,
+      coalesce(recorded.source_kind, 'plan_file') as source_kind, coalesce(recorded.source_id, plan.file_id) as source_id
+    from public.takeoff_preparations as preparation
+    cross join lateral pg_catalog.jsonb_array_elements(case
+        when pg_catalog.jsonb_typeof(preparation.confirmed_snapshot #> '{preparation,sources}') = 'array'
+        then preparation.confirmed_snapshot #> '{preparation,sources}' else '[]'::jsonb end) as source(value)
+    cross join lateral (select private.takeoff_uuid_or_null(source.value -> 'document_id') as file_id) as plan
+    left join public.takeoff_plan_location_sources as recorded on recorded.plan_file_id = plan.file_id
+      and recorded.tenant_id = p_tenant_id
+    where preparation.tenant_id = p_tenant_id and preparation.project_id = p_project_id
+      and source.value ->> 'kind' = 'plan' and source.value -> 'active' = 'true'::jsonb and plan.file_id is not null
+  ), plan_readings as (
+    -- Each analysis of one plan of the affaire, its request and the source of the plan it read.
+    select reading.launch_request_id, reading.status, private.takeoff_uuid_or_null(pg_catalog.to_jsonb(
+        pg_catalog.substr(reading.launch_unit_key, 6))) as file_id,
+      coalesce(recorded.source_kind, 'plan_file') as source_kind,
+      coalesce(recorded.source_id, private.takeoff_uuid_or_null(pg_catalog.to_jsonb(pg_catalog.substr(reading.launch_unit_key, 6))))
+        as source_id
+    from public.takeoff_jobs as reading
+    left join public.takeoff_plan_location_sources as recorded
+      on recorded.plan_file_id::text = pg_catalog.substr(reading.launch_unit_key, 6) and recorded.tenant_id = p_tenant_id
+    where reading.tenant_id = p_tenant_id and reading.project_id = p_project_id and reading.launch_unit_key like 'plan:%'
+      and private.takeoff_job_is_plan_unit(reading.launch_request_id)
   )
   select computed.context || pg_catalog.jsonb_build_object('stamps', private.takeoff_send_context_stamps(computed.context),
     'display', case when private.takeoff_job_is_plan_unit(job.launch_request_id) then pg_catalog.jsonb_build_object(
@@ -167,7 +206,22 @@ returns jsonb language sql stable security definer set search_path = '' as $$
         from public.takeoff_jobs as sibling
         where sibling.tenant_id = p_tenant_id and sibling.launch_request_id = job.launch_request_id and sibling.id <> job.id
           and private.takeoff_unit_state(sibling.status::text, sibling.analysis_outcome, sibling.error_code, sibling.started_at)
-            <> 'succeeded'), '[]'::jsonb)) end)
+            <> 'succeeded'), '[]'::jsonb),
+      -- The plans the dossier retains now that no analysis of one plan has read, outside this request (its units are
+      -- named above): never compared with this plan.
+      'never_read', coalesce((select pg_catalog.jsonb_agg(dossier_plan.name order by dossier_plan.name, dossier_plan.file_id)
+        from dossier_plans as dossier_plan
+        where not exists (select 1 from plan_readings as unit
+            where unit.launch_request_id = job.launch_request_id and unit.file_id = dossier_plan.file_id)
+          and not exists (select 1 from plan_readings as read
+            where read.status in ('completed'::public.takeoff_job_status, 'applied'::public.takeoff_job_status)
+              and (read.source_kind, read.source_id) = (dossier_plan.source_kind, dossier_plan.source_id))), '[]'::jsonb),
+      -- The analyses of the affaire outside one analysis per plan (lot 2's grouped readings, a reading outside any
+      -- request) that are read and not sent: their plans are not compared with this one.
+      'uncompared_readings', (select pg_catalog.count(*) from public.takeoff_jobs as other
+        where other.tenant_id = p_tenant_id and other.project_id = p_project_id and other.estimate_version_id is null
+          and other.status = 'completed'::public.takeoff_job_status
+          and not private.takeoff_job_is_plan_unit(other.launch_request_id))) end)
   from job cross join computed
 $$;
 revoke all on function public.read_takeoff_send_context(uuid, uuid, uuid, uuid) from public, anon, authenticated;
@@ -321,12 +375,14 @@ begin
     raise exception 'TAKEOFF_SEND_JOB_NOT_READY' using errcode = '40001',
       detail = pg_catalog.jsonb_build_object('reason', 'plan_context_required')::text;
   end if;
-  -- Its request's row, held now, after the job, as every writer of that row holds its job first (the worker's end and
-  -- its settlement, a call's reservation and its usage, a member's stop): the link and the application below update this
-  -- job twice, and the second update's foreign-key check takes a key share on that row. Without this lock, a sibling
-  -- unit's end that holds the row uncommitted keeps that check running until it commits; with it, the send waits for
-  -- that end, or that end for the send, on this row, in this order.
-  if plan_unit then
+  -- Its request's row, held now by the send (never by its preview's dry run, which a paid call's usage or a unit's end must
+  -- not wait for), after the job, as every writer of that row holds its job first (the worker's end and its settlement, a
+  -- call's reservation and its usage, a member's stop): the link and the application below update this job twice, and
+  -- the second update's foreign-key check takes a key share on that row. Without this lock, a sibling unit's end that
+  -- holds the row uncommitted keeps that check running until it commits; with it, the send waits for that end, or that
+  -- end for the send, on this row, in this order, and reads its context after it. A dry run reads it as it is: the send
+  -- checks it again.
+  if plan_unit and not p_dry_run then
     perform 1 from public.takeoff_launch_requests as request_row where request_row.id = job.launch_request_id
     for no key update;
   end if;

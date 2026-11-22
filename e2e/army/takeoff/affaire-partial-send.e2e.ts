@@ -20,9 +20,10 @@ import { signUpWorkerOwner, type WorkerUi } from "./worker-support";
 // controlled local provider). A request reads plans A, B and C one at a time; B's reading is held (a barrier the journey
 // releases). A's preview, opened while B is read and closed, creates nothing; A confirmed while B is read creates one
 // first draft with A's three valves on its page 2 and A's network, and the estimator lands on it. B, read later, brings
-// two valves from its page 1 to that draft: one valve line of 5 with both sources, its price untouched. C's line set
-// aside between B's preview and its confirmation refuses B's confirmation (« … un autre plan de l’affaire a changé »), with
-// nothing written, and the preview read again is confirmed. Written before the migration: red on 2c5424215 (the preview
+// two valves from its page 1 to that draft: one valve line of 5 with both sources, its price untouched. B's lease renewed
+// between A's preview and its confirmation changes nothing; C's line set aside, then a location corrected on B's plan,
+// between B's preview and its confirmation each refuse it (« … un autre plan de l’affaire a changé »), with nothing
+// written, and the preview read again, which shows that location, is confirmed. Written before the migration: red on 2c5424215 (the preview
 // of a per-plan analysis answered « L’envoi … d’une analyse par plan arrive avec une prochaine version »).
 
 const SEND = "Envoyer au tableau de chiffrage";
@@ -56,7 +57,8 @@ async function linesOf(versionId: string) {
 async function receiptContext(jobId: string) {
   const [row] = await querySql(`select coalesce((select write_plan -> 'context' from public.takeoff_send_receipts where job_id = '${jobId}'),
     'null'::jsonb);`);
-  return JSON.parse(row) as { unit: { request_id: string; key: string } | null; peers: string[] } | null;
+  return JSON.parse(row) as { unit: { request_id: string; key: string } | null; peers: string[];
+    locations: Array<{ plan_file_id: string; revision: number | null; building: string | null; level: string | null }> } | null;
 }
 
 armyTest("TKPS01 a plan is sent while the others are read: nothing before the confirmation, one first draft, then B adds its part to A's line",
@@ -100,9 +102,16 @@ armyTest("TKPS01 a plan is sent while the others are read: nothing before the co
       await expect(dialog).toBeHidden();
       expect(await versionsOf(dossier.projectId)).toBe(0);
 
-      // A confirmed while B is still read: one first draft, A's lines with their page, and the estimator lands on it.
+      // A confirmed while B is still read: one first draft, A's lines with their page, and the estimator lands on it. B's
+      // lease is renewed between A's preview and its confirmation (the worker's heartbeat): nothing A compares moves.
       dialog = await openSend(ui, dossier.projectId, jobA.id);
       await expect(dialog.getByRole("list", LINES, { exact: true }).getByRole("listitem", VALVE, { exact: true })).toContainText(/3 u$/);
+      const leaseOfB = async () => (await querySql(`select processing_lease_expires_at::text from public.takeoff_jobs
+        where id = '${jobB.id}';`)).find((line) => /\d{4}-/.test(line))?.trim();
+      const leaseBefore = await leaseOfB();
+      expect(await querySql(`select public.renew_takeoff_processing_lease(j.id, j.tenant_id, j.processing_lease_token, clock_timestamp(),
+        clock_timestamp() + interval '45 minutes') from public.takeoff_jobs j where j.id = '${jobB.id}';`)).toContain("t");
+      expect(await leaseOfB()).not.toBe(leaseBefore);
       await dialog.getByRole("button", "Créer le brouillon et envoyer", { exact: true }).click();
       await expect(ui.browser).toHaveURL(/\/dashboard\/estimates\/[0-9a-f-]{36}\/edit\?focusItemId=/, { timeout: 60_000 });
       await expect(ui.screen.getByText("Plan « plan-a.pdf » envoyé au tableau de chiffrage", { exact: true })).toBeVisible();
@@ -145,9 +154,26 @@ armyTest("TKPS01 a plan is sent while the others are read: nothing before the co
       expect((await linesOf(versionId)).find((line) => line.title === VALVE)?.quantity).toBe(3);
       expect(await receiptContext(jobB.id)).toBeNull();
 
-      // The preview read again (C's line set aside) is confirmed: one valve line of 5, both sources, its price untouched.
+      // The preview read again (C's line set aside). An operator then corrects the location of B's plan (another tab of the
+      // plans): B's confirmation is refused again, nothing written; the preview read again shows that location.
       await expect(dialog.getByRole("list", LINES, { exact: true }).getByRole("listitem", VALVE, { exact: true })).toContainText(/3 → 5 u$/,
         { timeout: 30_000 });
+      const [source] = (await querySql(`select source_kind || '|' || source_id from public.takeoff_plan_location_sources
+        where plan_file_id = '${planB.id}';`)).filter((line) => line.includes("|"));
+      const [sourceKind, sourceId] = source.trim().split("|");
+      expect(await querySql(`insert into public.takeoff_plan_locations (tenant_id, project_id, source_kind, source_id, content_hash, revision,
+          building_choice, building, building_set_by, building_set_at, building_set_revision, level_choice, level, level_set_by,
+          level_set_at, level_set_revision, plan_file_id, document_name, created_by, updated_by)
+        values ('${owner.tenantId}', '${dossier.projectId}', '${sourceKind}', '${sourceId}', '${planB.hash}', 1, 'value', 'A',
+          '${owner.userId}', now(), 1, 'value', 'R+1', '${owner.userId}', now(), 1, '${planB.id}', 'plan-b.pdf', '${owner.userId}',
+          '${owner.userId}') returning 'located';`)).toContain("located");
+      await dialog.getByRole("button", "Confirmer l'envoi", { exact: true }).click();
+      await expect(dialog.getByText("Le métré, le devis ou un autre plan de l’affaire a changé depuis l’aperçu : vérifiez le nouvel aperçu "
+        + "puis confirmez. Rien n’a été écrit.", { exact: true })).toBeVisible({ timeout: 30_000 });
+      expect((await linesOf(versionId)).find((line) => line.title === VALVE)?.quantity).toBe(3);
+      await expect(dialog.getByText("Localisation du plan saisie par un opérateur : bâtiment A, niveau R+1. Une page sans niveau lu est "
+        + "comparée sous ce niveau.", { exact: true })).toBeVisible({ timeout: 30_000 });
+      await expect(dialog.getByRole("list", LINES, { exact: true }).getByRole("listitem", VALVE, { exact: true })).toContainText(/3 → 5 u$/);
       await dialog.getByRole("button", "Confirmer l'envoi", { exact: true }).click();
       await expect(ui.browser).toHaveURL(new RegExp(`/dashboard/estimates/${versionId}/edit\\?focusItemId=`), { timeout: 60_000 });
       await expect(ui.screen.getByText("Plan « plan-b.pdf » envoyé au tableau de chiffrage", { exact: true })).toBeVisible();
@@ -158,7 +184,8 @@ armyTest("TKPS01 a plan is sent while the others are read: nothing before the co
       expect([valve.id, valve.price]).toEqual([valveBefore.id, valveBefore.price]);
       expect(valve.parts).toEqual([{ job_id: jobA.id, quantity: 3 }, { job_id: jobB.id, quantity: 2 }].sort((left, right) =>
         (left.job_id < right.job_id ? -1 : 1)));
-      expect(await receiptContext(jobB.id)).toMatchObject({ unit: { key: `plan:${planB.id}` }, peers: [jobC.id] });
+      expect(await receiptContext(jobB.id)).toMatchObject({ unit: { key: `plan:${planB.id}` }, peers: [jobC.id],
+        locations: [{ plan_file_id: planB.id, revision: 1, building: "A", level: "R+1" }] });
 
       await recordEvidence(ui.army, "TKPS01-partial-send", { projectId: dossier.projectId, versionId, jobs: { a: jobA.id, b: jobB.id, c: jobC.id },
         afterA, afterB, receipts: { a: await receiptContext(jobA.id), b: await receiptContext(jobB.id) }, screenshots: [previewA, previewB],

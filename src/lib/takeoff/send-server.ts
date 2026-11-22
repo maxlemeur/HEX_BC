@@ -432,11 +432,12 @@ async function computeSendPreview(ctx: Context, job: SendJob, request: {
   // provider among the jobs without a launch request; the send refuses a second one by name, between those jobs only
   // (20261121193413): two analyses of one request (two plans, or a plan read again) may both go to one draft.
   const sameLaunch = destination?.kind === "existing_draft" && job.plan_set_id && job.launch_request_id === null ? await (async () => {
-    const { data, error } = await service.from("takeoff_jobs").select("id").eq("tenant_id", ctx.tenantId)
+    const twins = service.from("takeoff_jobs").select("id").eq("tenant_id", ctx.tenantId)
       .eq("estimate_version_id", destination.version_id).eq("plan_set_id", job.plan_set_id!).eq("level", job.level as never)
       .is("launch_request_id" as never, null)
-      .filter("execution_provider", job.execution_provider === null ? "is" : "eq", job.execution_provider ?? "null")
-      .eq("preparation_snapshot->>preparation_revision" as never, (job.preparation_revision ?? "") as never).neq("id", job.id).limit(1);
+      .eq("preparation_snapshot->>preparation_revision" as never, (job.preparation_revision ?? "") as never).neq("id", job.id);
+    const { data, error } = await (job.execution_provider === null ? twins.is("execution_provider", null)
+      : twins.eq("execution_provider", job.execution_provider as never)).limit(1);
     if (error) failed(error, "Impossible de lire les métrés du brouillon.", job.id);
     return (data ?? []).length > 0;
   })() : false;
@@ -578,6 +579,8 @@ function planScopeOf(jobId: string, context: TakeoffSendContext): TakeoffSendPre
       generation: own.revision } : null,
     compared: context.display.peers,
     unread: context.display.unread,
+    never_read: context.display.never_read,
+    uncompared_readings: context.display.uncompared_readings,
   };
 }
 

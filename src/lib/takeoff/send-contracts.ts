@@ -91,9 +91,9 @@ export type TakeoffSendEstimateLine = z.infer<typeof takeoffSendEstimateLineSche
 /**
  * Lot 3: the send of one plan of a request read plan by plan, while its other plans may still be read. The plan sent;
  * the other plans of the affaire already read, which its controls compared it with; the plans of its request not read
- * yet, each in its state (never covered by the controls, never shown as checked); and the plan's location as an
- * operator set it (its generation), the level a page without one of its own is compared under. Null for any other
- * takeoff (a grouped or standalone analysis is sent as lot 2 sends it).
+ * yet, each in its state, the dossier's plans never read and the readings not compared (never covered by the controls,
+ * never shown as checked); and the plan's location as an operator set it (its generation), the level a page without one
+ * of its own is compared under. Null for any other takeoff (a grouped or standalone analysis is sent as lot 2 sends it).
  */
 export const takeoffSendPlanScopeSchema = z.object({
   request_id: uuid,
@@ -103,6 +103,10 @@ export const takeoffSendPlanScopeSchema = z.object({
   compared: z.array(z.object({ job_id: uuid, plan_name: z.string().nullable() }).strict()),
   unread: z.array(z.object({ plan_name: z.string().nullable(),
     state: z.enum(["queued", "running", "failed", "canceled", "not_started"]) }).strict()),
+  /** The dossier's plans no analysis of one plan has read yet (outside this request): not compared either. */
+  never_read: z.array(z.string().nullable()),
+  /** Readings of the affaire outside one analysis per plan (lot 2's grouped readings), read and not sent: not compared. */
+  uncompared_readings: z.number().int().nonnegative(),
 }).strict();
 export type TakeoffSendPlanScope = z.infer<typeof takeoffSendPlanScopeSchema>;
 

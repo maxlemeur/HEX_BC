@@ -103394,6 +103394,20 @@
                           ],
                           "additionalProperties": false
                         }
+                      },
+                      "never_read": {
+                        "type": "array",
+                        "items": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        }
+                      },
+                      "uncompared_readings": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
                       }
                     },
                     "required": [
@@ -103401,7 +103415,9 @@
                       "plan_name",
                       "location",
                       "compared",
-                      "unread"
+                      "unread",
+                      "never_read",
+                      "uncompared_readings"
                     ],
                     "additionalProperties": false
                   },

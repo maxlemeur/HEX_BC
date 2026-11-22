@@ -277,13 +277,16 @@ function crossTakeoffSummary(data: TakeoffSendPreviewResponse) {
   if (controls.cross_takeoff === null) {
     return "Doublons et couverture entre métrés : comparaison au devis disponible à l’envoi, une fois la destination choisie.";
   }
-  // The send of one plan is also compared with the affaire's other plans already read (« 2 autres plans déjà lus »).
-  const peers = data.plan_scope && data.plan_scope.compared.length > 0
-    ? plural(data.plan_scope.compared.length, "autre plan déjà lu", "autres plans déjà lus") : null;
-  const where = controls.evaluated_for === "existing_draft" ? `avec les métrés de ce brouillon${peers ? ` et ${peers}` : ""}`
+  // The send of one plan is also compared with the affaire's other plans already read (« 2 autres plans déjà lus »), and
+  // never with a plan not read or not compared, which the summary says.
+  const scope = data.plan_scope;
+  const peers = scope && scope.compared.length > 0 ? plural(scope.compared.length, "autre plan déjà lu", "autres plans déjà lus") : null;
+  const outside = scope && scope.unread.length + scope.never_read.length + scope.uncompared_readings > 0
+    ? ", hors plans non lus ou non comparés" : "";
+  const where = (controls.evaluated_for === "existing_draft" ? `avec les métrés de ce brouillon${peers ? ` et ${peers}` : ""}`
     : controls.evaluated_for === "version_copy" ? `avec les métrés de la version copiée${peers ? ` et ${peers}` : ""}`
       : peers ? `avec ${peers} de l’affaire, ce nouveau devis ne portant encore aucun autre métré`
-        : "pour ce nouveau devis, qui ne porte encore aucun autre métré";
+        : "pour ce nouveau devis, qui ne porte encore aucun autre métré") + outside;
   const { duplicates, coverage } = controls.cross_takeoff;
   if (duplicates === coverage) {
     return duplicates === "evaluated" ? `Doublons et couverture entre métrés : vérifiés ${where}.`
@@ -449,9 +452,9 @@ function PlanScope({ scope }: { scope: TakeoffSendPlanScope }) {
       </p>
       {scope.location && (scope.location.level || scope.location.building) ? (
         <p className="text-sm text-muted-foreground">
-          Localisation du plan{scope.location.building ? ` : bâtiment ${scope.location.building}` : ""}
-          {scope.location.level ? `${scope.location.building ? "," : " :"} niveau ${scope.location.level}` : ""} (corrigée par un
-          opérateur) : une page sans niveau lu est comparée sous ce niveau.
+          {`Localisation du plan saisie par un opérateur : ${[scope.location.building ? `bâtiment ${scope.location.building}` : null,
+            scope.location.level ? `niveau ${scope.location.level}` : null].filter(Boolean).join(", ")}.`}
+          {scope.location.level ? " Une page sans niveau lu est comparée sous ce niveau." : ""}
         </p>
       ) : null}
       {scope.compared.length > 0 ? (
@@ -472,6 +475,18 @@ function PlanScope({ scope }: { scope: TakeoffSendPlanScope }) {
             ))}
           </ul>
         </div>
+      ) : null}
+      {scope.never_read.length > 0 ? (
+        <p className="text-sm text-foreground">
+          {scope.never_read.length > 1 ? "Plans du dossier jamais lus un par un" : "Plan du dossier jamais lu un par un"} :{" "}
+          {scope.never_read.map((name) => `« ${name ?? "sans nom"} »`).join(", ")} : les contrôles entre plans ne les couvrent pas.
+        </p>
+      ) : null}
+      {scope.uncompared_readings > 0 ? (
+        <p className="text-sm text-foreground">
+          {plural(scope.uncompared_readings, "analyse groupée de l’affaire, lue et pas encore envoyée, n’est pas comparée",
+            "analyses groupées de l’affaire, lues et pas encore envoyées, ne sont pas comparées")} avec ce plan.
+        </p>
       ) : null}
     </section>
   );

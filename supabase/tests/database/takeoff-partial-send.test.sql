@@ -261,14 +261,29 @@ select is(pg_temp.refusal($$update public.takeoff_jobs set estimate_version_id =
   '40001 TAKEOFF_SEND_JOB_NOT_READY plan_context_unchecked', 'a direct link of a per-plan analysis is refused');
 
 -- 3. The context of A: no other plan read yet; its plan revision without a location; B and C named, not read.
+create temp table stamps_before as select pg_temp.context(pg_temp.a()) -> 'stamps' as stamps;
 select is(pg_temp.context(pg_temp.a()) -> 'peers', '[]'::jsonb, 'no other plan of the affaire is read yet');
 select is(pg_temp.context(pg_temp.a()) -> 'plans', jsonb_build_array(jsonb_build_object('job_id', pg_temp.a(), 'plan_file_id', pg_temp.f(101),
   'content_hash', pg_temp.digest(pg_temp.f(101)), 'location', null)), 'A''s plan revision, as its preparation attested it, without a location');
 select is(pg_temp.context(pg_temp.a()) -> 'display', jsonb_build_object('request_id', pg_temp.request(), 'plan_name', 'plan-a.pdf',
   'peers', '[]'::jsonb, 'unread', jsonb_build_array(jsonb_build_object('plan_name', 'plan-b.pdf', 'state', 'queued'),
-    jsonb_build_object('plan_name', 'plan-c.pdf', 'state', 'queued'))), 'the preview names B and C, still to read');
+    jsonb_build_object('plan_name', 'plan-c.pdf', 'state', 'queued')), 'never_read', '[]'::jsonb, 'uncompared_readings', 0),
+  'the preview names B and C, still to read');
+-- A plan D added to the dossier and retained by its confirmed preparation, read by no analysis: named, never compared.
+insert into public.plan_files (id, tenant_id, plan_set_id, file_name, file_path, file_type, file_size_bytes, page_count)
+values (pg_temp.f(104), pg_temp.f(10), pg_temp.f(40), 'plan-d.pdf',
+  concat_ws('/', pg_temp.f(10), pg_temp.f(40), pg_temp.f(104), 'plan-d.pdf'), 'application/pdf', 8, 1);
+set local session_replication_role = replica;
+update public.takeoff_preparations set confirmed_snapshot = jsonb_set(confirmed_snapshot, '{preparation,sources}',
+  (confirmed_snapshot #> '{preparation,sources}') || jsonb_build_array(jsonb_build_object('document_id', pg_temp.f(104),
+    'document_name', 'plan-d.pdf', 'kind', 'plan', 'active', true, 'confirmed', true, 'content_hash', pg_temp.digest(pg_temp.f(104)))))
+where project_id = pg_temp.f(20);
+set local session_replication_role = origin;
+select is(pg_temp.context(pg_temp.a()) #> '{display,never_read}', '["plan-d.pdf"]'::jsonb,
+  'a plan of the dossier that no analysis of one plan has read is named');
+select is(pg_temp.context(pg_temp.a()) -> 'stamps', (select stamps from stamps_before),
+  'and changes nothing the send compares');
 -- A heartbeat of a plan being read changes nothing a send compares: C claimed, its lease renewed.
-create temp table stamps_before as select pg_temp.context(pg_temp.a()) -> 'stamps' as stamps;
 set local session_replication_role = replica;
 update public.takeoff_jobs set status = 'processing', started_at = now(), processing_lease_token = pg_temp.f(900),
   processing_lease_expires_at = now() + interval '10 minutes' where id = pg_temp.c();
@@ -458,6 +473,15 @@ update public.takeoff_jobs set status = 'applied', estimate_version_id = pg_temp
 set local session_replication_role = origin;
 select is(pg_temp.context(pg_temp.f(1304)) -> 'peers', '[]'::jsonb,
   'a plan whose latest reading was sent has no peer: the reading it replaced is never compared');
+-- Plan A set aside in the dossier (its preparation no longer retains it): A2, its latest reading, is no peer of C.
+set local session_replication_role = replica;
+update public.takeoff_preparations set confirmed_snapshot = jsonb_set(confirmed_snapshot, '{preparation,sources}',
+  (select jsonb_agg(case when s ->> 'document_id' = pg_temp.f(101)::text then s || '{"active": false}'::jsonb else s end)
+    from jsonb_array_elements(confirmed_snapshot #> '{preparation,sources}') s))
+where project_id = pg_temp.f(20);
+set local session_replication_role = origin;
+select is(pg_temp.context(pg_temp.c()) -> 'peers', '[]'::jsonb,
+  'a plan the dossier no longer retains is never compared (red before: A2 stayed C''s peer)');
 -- A grouped or standalone analysis has no peer: the context of a job outside a request of format 2.
 set local session_replication_role = replica;
 insert into public.takeoff_jobs

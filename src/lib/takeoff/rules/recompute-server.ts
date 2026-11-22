@@ -415,6 +415,8 @@ export const TakeoffSendContextSchema = z.object({
     plan_name: z.string().nullable(),
     peers: z.array(z.object({ job_id: uuidString, plan_name: z.string().nullable() })),
     unread: z.array(z.object({ plan_name: z.string().nullable(), state: z.enum(["queued", "running", "failed", "canceled", "not_started"]) })),
+    never_read: z.array(z.string().nullable()),
+    uncompared_readings: z.number().int().nonnegative(),
   }).nullable(),
 });
 export type TakeoffSendContext = z.infer<typeof TakeoffSendContextSchema>;
