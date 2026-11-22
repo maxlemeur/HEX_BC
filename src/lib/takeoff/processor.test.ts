@@ -21,11 +21,19 @@ vi.mock("@/lib/takeoff/vectors/worker-server", async (importOriginal) => {
     takeoffVectorLocalGroupsHook: vi.fn(actual.takeoffVectorLocalGroupsHook) };
 });
 
+// Lot 4: the reading against a list of items is its own module's (poste-reading-job-server.test.ts); the processor only
+// hands a job of the second order to it. The order is read for real (no request: nothing read).
+vi.mock("@/lib/takeoff/poste-reading-job-server", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/takeoff/poste-reading-job-server")>();
+  return { ...actual, readTakeoffItemListOrder: vi.fn(actual.readTakeoffItemListOrder), processItemListLevelC: vi.fn() };
+});
+
 import { PDFDocument } from "pdf-lib";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { getChatGptHostId } from "@/lib/ai/chatgpt-local-store";
 import { resolveLocalTakeoffProvider, type LocalTakeoffProvider } from "@/lib/ai/chatgpt-takeoff";
 import { readTakeoffVectorPages, takeoffVectorLocalGroupsHook } from "@/lib/takeoff/vectors/worker-server";
+import { processItemListLevelC, readTakeoffItemListOrder } from "@/lib/takeoff/poste-reading-job-server";
 
 import type { StructuredCall, StructuredCallResult } from "@/lib/ai/structured-call";
 import { TakeoffError, TakeoffErrorCode } from "@/lib/takeoff/errors";
@@ -3489,5 +3497,68 @@ describe("an attempt of a plan of one analysis per plan", () => {
     await expect(processLevelA(JOB_ID, { supabase: mock.supabase as never, tenantId: TENANT_ID, userId: USER_ID, now: () => FIXED_NOW,
       resolveProvider: changed })).rejects.toMatchObject({ code: TakeoffErrorCode.CONFLICT });
     expect(mock.state.job).toMatchObject({ status: "processing" });
+  });
+});
+
+// Lot 4: a job whose request sealed the affaire's list of items reads its plan against that list; the free extraction
+// reads as before (src/lib/takeoff/poste-reading-job-server.ts holds the reading itself).
+describe("an attempt of the second measuring order", () => {
+  const REQUEST = "77777777-7777-4777-8777-777777777777";
+  // Its manifest is read by the reading itself, which these tests replace.
+  const ORDER = { requestId: REQUEST, revisionId: "99999999-9999-4999-8999-999999999999", revision: 3, itemCount: 4,
+    contentSha256: "e".repeat(64), manifest: {} as never };
+  // Its unit (one plan) is checked by the reading itself, which these tests replace.
+  const planUnit = { launch_request_id: REQUEST } as unknown as Partial<TakeoffJobRow>;
+  beforeEach(() => vi.stubEnv("MERGEONE_TAKEOFF_VECTORS", "0"));
+  afterEach(() => vi.unstubAllEnvs());
+
+  async function levelCJob(job: Partial<TakeoffJobRow>) {
+    return createTakeoffProcessorSupabaseMock({ job: { level: "C", source_file_name: "plan-fictif.pdf", source_file_path: DEFAULT_SOURCE_PATH_C,
+      source_file_type: "application/pdf", ...job }, downloadFile: { bytes: await createPdfArrayBuffer(2), mimeType: "application/pdf" } });
+  }
+
+  // Until the publication of a plan's answers is delivered (PR 3c), a job of the second order stops once claimed: its
+  // failure recorded under its lease, before its plan is downloaded or read and before any paid call.
+  // Closing round, point 8: with the vector reading and its classifier on, so that their assertions can fail.
+  it("stops a job of the second order once claimed, before reading its plan or making any paid call", async () => {
+    for (const [name, value] of Object.entries({ MERGEONE_TAKEOFF_VECTORS: "1", MERGEONE_TAKEOFF_DECISIONS: "1" })) vi.stubEnv(name, value);
+    const mock = await levelCJob(planUnit);
+    vi.mocked(readTakeoffItemListOrder).mockResolvedValueOnce(ORDER);
+    const call = vi.fn();
+    await expect(processLevelC(JOB_ID, { supabase: mock.supabase as never, tenantId: TENANT_ID, userId: USER_ID, now: () => FIXED_NOW,
+      resolveProvider: localProvider(call) })).rejects.toMatchObject({ code: TakeoffErrorCode.TAKEOFF_LEVEL_UNSUPPORTED, retryable: false,
+      message: expect.stringContaining("avant tout appel") });
+    expect(mock.state.job).toMatchObject({ status: "failed", error_code: "TAKEOFF_LEVEL_UNSUPPORTED", next_retry_at: null,
+      prompt_version: "takeoff-c-postes-v1" });
+    // Its plan is never downloaded; neither the PDF reader nor the vector reading and its classifier is invoked.
+    expect(mock.state.downloadRequests).toEqual([]);
+    expect(call).not.toHaveBeenCalled();
+    expect(processItemListLevelC).not.toHaveBeenCalled();
+    expect(readTakeoffVectorPages).not.toHaveBeenCalled();
+    expect(takeoffVectorLocalGroupsHook).not.toHaveBeenCalled();
+  });
+
+  it("ends a job whose measuring order cannot be read once it is claimed, with that prompt unknown to it", async () => {
+    const mock = await levelCJob(planUnit);
+    vi.mocked(readTakeoffItemListOrder).mockRejectedValueOnce(new TakeoffError({ code: TakeoffErrorCode.INTERNAL_ERROR, retryable: false,
+      message: "La commande de mesure de cette analyse est invalide (fixture)." }));
+    const call = vi.fn();
+    await expect(processLevelC(JOB_ID, { supabase: mock.supabase as never, tenantId: TENANT_ID, userId: USER_ID, now: () => FIXED_NOW,
+      resolveProvider: localProvider(call) })).rejects.toMatchObject({ code: TakeoffErrorCode.INTERNAL_ERROR });
+    expect(mock.state.job).toMatchObject({ status: "failed", error_code: "INTERNAL_ERROR", prompt_version: "takeoff-c-v1" });
+    expect(call).not.toHaveBeenCalled();
+    expect(processItemListLevelC).not.toHaveBeenCalled();
+  });
+
+  it("reads a job of the free extraction as before", async () => {
+    const mock = await levelCJob({});
+    const call = vi.fn().mockResolvedValue(buildProviderResult(buildTakeoffExchange([{ designation: "Tube cuivre", quantity: 12, unit: "m" }])));
+    await expect(processLevelC(JOB_ID, { supabase: mock.supabase as never, tenantId: TENANT_ID, userId: USER_ID, now: () => FIXED_NOW,
+      resolveProvider: localProvider(call) })).resolves.toMatchObject({ status: "completed" });
+    expect(readTakeoffItemListOrder).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(readTakeoffItemListOrder).mock.calls[0][1].launch_request_id ?? null).toBeNull();
+    expect(processItemListLevelC).not.toHaveBeenCalled();
+    expect(call).toHaveBeenCalled();
+    expect(mock.state.job.prompt_version).toBe("takeoff-c-v1");
   });
 });

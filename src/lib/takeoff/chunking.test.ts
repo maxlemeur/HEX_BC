@@ -7,6 +7,7 @@ import {
   getPdfPageCount,
   countLocatedUnmeasuredQuantities,
   mergeTakeoffChunkExchanges,
+  ownedChunkPages,
   remapChunkLocalPagesToAbsolute,
 } from "@/lib/takeoff/chunking";
 import type { TakeoffExchange } from "@/lib/takeoff/types";
@@ -210,5 +211,22 @@ describe("takeoff chunking", () => {
         }),
       ])
     );
+  });
+});
+
+describe("ownedChunkPages", () => {
+  it("gives every page of the PDF exactly one owner fragment, overlap pages to the fragment that starts on them", () => {
+    const chunks = buildPdfChunks(20, { thresholdPages: 15, chunkSizePages: 10, overlapPages: 2 });
+    const owned = ownedChunkPages(chunks);
+
+    expect(chunks.map((chunk) => [chunk.startPage, chunk.endPage])).toEqual([[1, 10], [9, 18], [17, 20]]);
+    expect(owned).toEqual([[1, 2, 3, 4, 5, 6, 7, 8], [9, 10, 11, 12, 13, 14, 15, 16], [17, 18, 19, 20]]);
+    expect(owned.flat()).toEqual(Array.from({ length: 20 }, (_, index) => index + 1));
+  });
+
+  it("keeps a single fragment's pages and fragments without overlap whole", () => {
+    expect(ownedChunkPages(buildPdfChunks(4, { thresholdPages: 15, chunkSizePages: 10, overlapPages: 2 }))).toEqual([[1, 2, 3, 4]]);
+    expect(ownedChunkPages(buildPdfChunks(5, { thresholdPages: 2, chunkSizePages: 2, overlapPages: 0 })))
+      .toEqual([[1, 2], [3, 4], [5]]);
   });
 });

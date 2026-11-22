@@ -93,16 +93,23 @@ export async function finalizeTakeoffResult(input: {
     });
   }
 
-  // The result and its notice have committed. Rule refresh is best effort; a
-  // job without a version refreshes the rules of its own affaire's job.
-  if (input.level !== TAKEOFF_LEVEL_A) {
-    const { estimate_version_id, project_id, id } = input.job;
-    const scope = estimate_version_id !== null
-      ? { estimateVersionId: estimate_version_id }
-      : project_id ? { projectId: project_id, jobId: id } : null;
-    if (scope) await recomputeTakeoffRulesQuietly({
-      tenantId: input.job.tenant_id, ...scope, context: "worker", supabase: input.supabase,
-    });
-  }
+  if (input.level !== TAKEOFF_LEVEL_A) await refreshTakeoffRulesAfterResult(input);
   return { resultId: data, itemsCount: input.itemsForInsert.length, warningsCount: input.exchange.warnings.length };
+}
+
+/**
+ * Once a result and its notice have committed: the rules refreshed, best effort; a job without a version refreshes the
+ * rules of its own affaire's job. The same for both measuring orders.
+ */
+export async function refreshTakeoffRulesAfterResult(input: {
+  supabase: Supabase;
+  job: Pick<TakeoffJobProcessingRow, "id" | "tenant_id" | "estimate_version_id" | "project_id">;
+}) {
+  const { estimate_version_id, project_id, id } = input.job;
+  const scope = estimate_version_id !== null
+    ? { estimateVersionId: estimate_version_id }
+    : project_id ? { projectId: project_id, jobId: id } : null;
+  if (scope) await recomputeTakeoffRulesQuietly({
+    tenantId: input.job.tenant_id, ...scope, context: "worker", supabase: input.supabase,
+  });
 }

@@ -1,5 +1,6 @@
 import { getAffaireDossierState, type AffaireDossierState, type AffaireIntakeReviewableDocument } from "@/lib/affaires/intake";
 import type { TakeoffExecutionSelection, TakeoffPreparationSource } from "@/lib/takeoff/preparation";
+import { describePosteReadingBounds, type PosteReadingBoundsFacts } from "@/lib/takeoff/poste-reading-bounds-text";
 
 /**
  * The launch requests of a takeoff (migration 20261121170448_takeoff_launch_requests.sql): one execution of an affaire's
@@ -370,9 +371,18 @@ export function describeTakeoffRelaunchWithoutPlans(plans: TakeoffRelaunchChoice
     : `l’analyse se relance quand ${waiting > 1 ? "ces plans ont de nouveau leur copie" : "ce plan a de nouveau sa copie"}.`}`;
 }
 
-/** The reason of a request, in French, as the affaire shows it. Names come from the dossier the reader already sees. */
-export function describeTakeoffLaunchReason(reason: TakeoffLaunchReason, pieces: ReadonlyArray<TakeoffLaunchPiece> = []): string {
+/**
+ * The reason of a request, in French, as the affaire shows it. Names come from the dossier the reader already sees. A
+ * request whose reading against the list of items passes its bounds (lot 4) also says the effective limits, from the
+ * facts its reason keeps.
+ */
+export function describeTakeoffLaunchReason(reason: TakeoffLaunchReason, pieces: ReadonlyArray<TakeoffLaunchPiece> = [],
+  readingBounds: PosteReadingBoundsFacts | null = null): string {
   const names = pieces.map((piece) => `« ${piece.name} »`).join(", ");
+  if (reason === "PLAN_SET_TOO_LARGE" && readingBounds) {
+    return `Métré non démarré — ${names ? `les plans ${names} dépassent` : "les plans dépassent"} les limites d’une lecture contre `
+      + `la liste des postes. ${describePosteReadingBounds(readingBounds)}`;
+  }
   switch (reason) {
     case "DOSSIER_EMPTY": return "Ajoutez le dossier de consultation : le métré démarrera quand il sera confirmé.";
     case "DOSSIER_PROCESSING": return "Classement des documents en cours : le métré démarrera quand le dossier sera confirmé.";
