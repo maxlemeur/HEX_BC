@@ -478,7 +478,7 @@ export function AnomalyHistoryClient({ tenantId }: { tenantId: string }) {
                   tabIndex={0}
                   className="hidden overflow-x-auto focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-ring md:block"
                 >
-                  <table className="w-full text-left text-sm">
+                  <table className="sheet-table w-full text-left text-sm">
                     <thead className="border-b border-border bg-surface-subtle">
                       <tr>
                         {[
@@ -624,7 +624,7 @@ export function AnomalyHistoryClient({ tenantId }: { tenantId: string }) {
               aria-label="Temps moyen de résolution par type d'anomalie"
               tabIndex={0}
             >
-              <table className="w-full text-left text-sm">
+              <table className="sheet-table w-full text-left text-sm">
                 <thead className="border-b border-border bg-surface-subtle">
                   <tr>
                     <th scope="col" className="px-4 py-2 font-medium text-muted-foreground">Type d&apos;anomalie</th>

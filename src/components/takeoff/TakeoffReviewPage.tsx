@@ -23,6 +23,8 @@ import { ConfidenceHeader } from "@/components/takeoff/ConfidenceHeader";
 import { requiresAcceptanceReason } from "@/lib/takeoff/rules/verification";
 import { TakeoffRulesRecovery } from "@/components/takeoff/review/TakeoffRulesRecovery";
 import { TakeoffPagesAlreadyInEstimateBanner, useTakeoffJobPageContributions } from "@/components/takeoff/review/TakeoffPagesAlreadyInEstimate";
+import { TakeoffSendContextNotice } from "@/components/takeoff/review/TakeoffSendContextNotice";
+import { useTakeoffReviewContext } from "@/components/takeoff/review/TakeoffReviewPolicyPanel";
 import { afterReviewSave, editReviewItem, reviewPatch, sourcePageSaved, type ReviewItem } from "@/lib/takeoff/review-item-edits";
 import {
   TakeoffReviewModeSwitch,
@@ -1009,6 +1011,8 @@ export default function TakeoffReviewPage({
   // warning, no decision), read again once it is applied here (the estimate then holds its lines) and after a saved
   // change of a line's source page. Exclusion needs no new read: the banner filters the pages by the lines on screen.
   const pagesInEstimate = useTakeoffJobPageContributions(jobId, versionId, { applied: hasAlreadyBeenApplied, revision: savedSourcePages });
+  // Read only for a takeoff on a version: what its send compared that changed since (lot 3).
+  const sendReview = useTakeoffReviewContext(jobId, items, versionId !== null);
   const readiness = takeoffApplyReadiness({
     jobStatus,
     hasDestination: versionId !== null,
@@ -1142,6 +1146,8 @@ export default function TakeoffReviewPage({
       >
       <TakeoffPagesAlreadyInEstimateBanner read={pagesInEstimate} items={items} applied={hasAlreadyBeenApplied}
         jobHref={(earlier) => takeoffReviewHref({ projectId, jobId: earlier.id, versionId: earlier.estimate_version_id })} />
+      {/* Lot 3: a plan sent whose comparison changed since names the lines it sent, to review. */}
+      <TakeoffSendContextNotice context={sendReview.context?.send_context} items={items} />
 
       {!versionId && <p className="text-sm text-muted-foreground">
         <strong>{TAKEOFF_CROSS_JOB_COMPARISON_LABEL}</strong>{" · "}{TAKEOFF_COMPARISON_DEFERRED} Les règles portent sur les mesures de ce métré.

@@ -56,6 +56,30 @@ describe("splitSourceText", () => {
       [{ original_text: "Tuyau DN 32 - 48 ml", quantity: 48, unit: "ml", dimension: "DN 32", product_type: "Tuyau" }],
     ],
     [
+      "a reference and a quantity note after spaced dashes stay with the articles",
+      "6 ml tube cuivre Ø22 – réf. DEMO-CU22-ML\nCoudes cuivre Ø22 – quantité à confirmer",
+      [
+        { original_text: "6 ml tube cuivre Ø22 – réf. DEMO-CU22-ML", quantity: 6, unit: "ml", dimension: "Ø 22", reference: "DEMO-CU22-ML", product_type: "tube cuivre" },
+        { original_text: "Coudes cuivre Ø22 – quantité à confirmer", dimension: "Ø 22", product_type: "Coudes cuivre" },
+      ],
+    ],
+    [
+      "a dashed segment with a reference and its own quantity keeps that quantity",
+      "6 coudes DN 32 - réf. ABC12 x 25",
+      [
+        { original_text: "6 coudes DN 32", quantity: 6, unit: "u", dimension: "DN 32", product_type: "coudes" },
+        { original_text: "réf. ABC12 x 25", quantity: 25, unit: "u", reference: "ABC12" },
+      ],
+    ],
+    [
+      "a quantity flagged by the technician remains doubtful between real articles",
+      "4 coudes DN 32 - quantité à vérifier - 2 vannes DN 20",
+      [
+        { original_text: "4 coudes DN 32 - quantité à vérifier", quantity: 4, quantity_doubtful: true, unit: "u", dimension: "DN 32", product_type: "coudes" },
+        { original_text: "2 vannes DN 20", quantity: 2, unit: "u", dimension: "DN 20", product_type: "vannes" },
+      ],
+    ],
+    [
       "reference and trailing multiplier",
       "tige filetée M8 ref = 700123 x 150",
       [{ original_text: "tige filetée M8 ref = 700123 x 150", quantity: 150, unit: "u", dimension: "M8", reference: "700123", product_type: "tige filetée" }],

@@ -185,7 +185,7 @@ export function TabularPdfReviewPanel({
                       aria-label={`Exemple de lignes, page ${table.source_page}`}
                       tabIndex={0}
                     >
-                      <table className="min-w-full text-left text-xs text-foreground-secondary">
+                      <table className="sheet-table min-w-full text-left text-xs text-foreground-secondary">
                         <caption className="sr-only">
                           Exemple de lignes du tableau page {table.source_page}
                         </caption>

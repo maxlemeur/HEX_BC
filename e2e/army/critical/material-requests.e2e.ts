@@ -105,12 +105,16 @@ armyTest(
     };
     const statuses = (detail: Detail) => detail.lines.map((line) => line.status);
 
-    // The screen: the message stays verbatim beside the work, and is pre-read on request only.
+    // The original keeps the message verbatim and only splits it on request.
     await browser.goto(`/dashboard/affaires/${ids.projectId}/demandes-materiel/${requestId}`, { waitUntil: "domcontentloaded" });
-    await expect(screen.getByText("Message reçu", { exact: true })).toBeVisible({ timeout: 60_000 });
+    const showOriginal = screen.getByRole("button", "Voir l’original", { exact: true });
+    const original = screen.getByRole("dialog", "Original de la demande", { exact: true });
+    await showOriginal.tap({ timeout: 60_000 });
+    await expect(original.getByRole("heading", "Message reçu", { exact: true })).toBeVisible();
     expect((await read()).lines).toEqual([]);
-    await screen.getByRole("button", "Découper le texte en lignes", { exact: true }).tap();
+    await original.getByRole("button", "Découper le texte en lignes", { exact: true }).tap();
     await expect.poll(async () => (await read()).lines.length, { timeout: 30_000 }).toBe(8);
+    await original.getByRole("button", "Fermer", { exact: true }).tap();
 
     const split = await read();
     expect(split.lines.map((line) => [
@@ -161,6 +165,8 @@ armyTest(
     await expect.poll(async () => (await read()).lines[2].status, { timeout: 30_000 }).toBe("validated");
 
     // A possible duplicate is kept one line at a time, never merged.
+    // No cell carries a duplicate: the line says it once unfolded, where it is kept.
+    await screen.getByRole("button", "Détails de la ligne 7", { exact: true }).tap();
     await screen.getByRole("button", "Doublon : garder la ligne 7", { exact: true }).tap();
     await expect.poll(async () => (await read()).lines[6].duplicate_acknowledged, { timeout: 30_000 }).toBe(true);
     const stillBlocked = await apiRequest<Envelope<never>>(browser, "POST", `${base}/${requestId}/lines/validate`, {
@@ -208,6 +214,7 @@ armyTest(
     expect(unconfirmed.body.error?.details?.blocked).toEqual([{ id: id(4), codes: ["material_unconfirmed"] }]);
 
     // The original: the stored photo is the dropped photo, its rotation is kept, HEIC is converted to JPEG.
+    await showOriginal.tap();
     const directory = path.resolve(".e2e/army/critical/artifacts/fixtures", army.runPrefix);
     await mkdir(directory, { recursive: true });
     const photo = path.join(directory, "demande-papier.png");
@@ -228,7 +235,7 @@ armyTest(
     }, `${base}/${requestId}/files/${stored.id}`);
     expect(storedSha).toEqual([200, createHash("sha256").update(PNG).digest("hex")]);
 
-    await screen.getByRole("button", "Tourner à droite", { exact: true }).tap();
+    await original.getByRole("button", "Tourner à droite", { exact: true }).tap();
     await expect.poll(async () => (await read()).files[0].rotation, { timeout: 30_000 }).toBe(90);
 
     // One large photo, or four ordinary ones, exceed what a request body may carry through the application:
@@ -407,8 +414,8 @@ armyTest(
 // - « 50 coudes DN50, 10 manchons DN15, » becomes one wrong line, without a warning;
 // - a corrected message cannot be split again without deleting each line by hand, or splitting it again
 //   adds lines after the old ones, or replaces a validated line;
-// - « Rattacher les références et noms connus (0) » and « Retenir les fournisseurs proposés (0) » stay grey
-//   without a word on why, or on what to do.
+// - with nothing to link or retain, the bulk actions leave the screen without a word on why, or on what to do
+//   (TI-690: a bulk action at zero is no longer shown as a grey button; its sentence stays).
 armyTest(
   "MR10 a corrected message is split again in place of its draft lines, never over a validated one, and the purchasing is one click from the affaire",
   { session: "army", tags: ["critical", "material-requests"], timeout: 300_000 },
@@ -441,15 +448,23 @@ armyTest(
 
     const page = `/dashboard/affaires/${ids.projectId}/demandes-materiel/${requestId}`;
     await browser.goto(page, { waitUntil: "domcontentloaded" });
-    await screen.getByRole("button", "Découper le texte en lignes", { exact: true }).tap({ timeout: 60_000 });
+    const showOriginal = screen.getByRole("button", "Voir l’original", { exact: true });
+    const original = screen.getByRole("dialog", "Original de la demande", { exact: true });
+    await showOriginal.tap({ timeout: 60_000 });
+    await original.getByRole("button", "Découper le texte en lignes", { exact: true }).tap();
     await expect.poll(readLines, { timeout: 30_000 }).toEqual([
       [1, "50 coudes DN50", 50, "u", "DN 50", "coudes"],
       [2, "10 manchons DN15,", 10, "u", "DN 15", "manchons"],
     ]);
     const first = (await read()).lines.map((line) => line.id);
 
-    // Grey buttons say why they are at zero, and what to do.
-    await expect(screen.getByRole("button", "Rattacher les références et noms connus (0)", { exact: true })).toBeDisabled();
+    // Bulk actions with nothing to do are not offered; the screen says why, and what to do.
+    await original.getByRole("button", "Fermer", { exact: true }).tap();
+    const proposalDetails = screen.getByRole("button", "Détails des propositions", { exact: true });
+    await expect(proposalDetails).toBeVisible({ timeout: 30_000 });
+    await expect(screen.getByRole("button", /^Rattacher les références et noms connus \(\d+\)$/)).toHaveCount(0);
+    await expect(screen.getByRole("button", /^Retenir les fournisseurs proposés \(\d+\)$/)).toHaveCount(0);
+    await proposalDetails.tap();
     await expect(screen.getByText(
       "Rien à rattacher d’un coup : aucune ligne ne porte une référence ou un nom usuel connus, sans réserve. Rattachez les articles ligne par ligne (« Rattacher », « Chercher ou créer ») ; un nom usuel mémorisé au rattachement sera reconnu ensuite.",
       { exact: true },
@@ -460,7 +475,8 @@ armyTest(
     )).toBeVisible();
 
     // The message is corrected: the lines do not follow by themselves, and splitting it again replaces them.
-    await screen.getByRole("button", "Modifier le message", { exact: true }).tap();
+    await showOriginal.tap();
+    await original.getByRole("button", "Modifier le message", { exact: true }).tap();
     await screen.getByLabel("Message reçu, tel quel", { exact: true }).fill("50 coudes DN50, 10 manchons DN15\n4 tés égaux DN50");
     await screen.getByRole("button", "Enregistrer le message", { exact: true }).tap();
     await expect(screen.getByText(
@@ -488,15 +504,21 @@ armyTest(
     const kept = await apiRequest<Envelope<never>>(browser, "POST", `${base}/${requestId}/lines/replace`, {
       replaced_ids: second.lines.map((line) => line.id), lines: [{ original_text: "1 coude DN50" }],
     });
+    // The refusal names the line by what it asks (its type and size, else the technician's words): no number shows on screen.
+    const keptLine = second.lines[0];
+    const keptName = keptLine.product_type?.trim()
+      ? [keptLine.product_type.trim(), keptLine.dimension?.trim()].filter(Boolean).join(" ")
+      : `« ${keptLine.original_text?.trim()} »`;
     expect([kept.status, kept.body.error?.code, kept.body.error?.message]).toEqual([
-      409, "MATERIAL_REQUEST_LINES_KEPT", "Le message n’est pas redécoupé : la ligne 1 est validée. Corrigez les lignes dans le tableau.",
+      409, "MATERIAL_REQUEST_LINES_KEPT", `Le message n’est pas redécoupé : la ligne ${keptName} est validée. Corrigez les lignes dans le tableau.`,
     ]);
     expect((await read()).lines.map((line) => [line.id, line.status])).toEqual(
       second.lines.map((line, index) => [line.id, index === 0 ? "validated" : "draft"]),
     );
     await browser.goto(page, { waitUntil: "domcontentloaded" });
-    await expect(screen.getByRole("button", "Modifier le message", { exact: true })).toBeVisible({ timeout: 60_000 });
-    await expect(screen.getByRole("button", "Redécouper le message", { exact: true })).toHaveCount(0);
+    await showOriginal.tap({ timeout: 60_000 });
+    await expect(original.getByRole("button", "Modifier le message", { exact: true })).toBeVisible();
+    await expect(original.getByRole("button", "Redécouper le message", { exact: true })).toHaveCount(0);
 
     await recordEvidence(army, "material-request-resplit", {
       ...ids, requestId, first, second: second.lines.map((line) => line.id), kept: kept.body.error,

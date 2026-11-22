@@ -180,8 +180,8 @@ export function PilotDecisionCard({
         aria-label="Critères go/no-go"
         tabIndex={0}
       >
-        <table className="w-full min-w-[560px] text-sm">
-          <thead className="bg-surface/60 text-left text-xs uppercase tracking-wide text-muted-foreground">
+        <table className="sheet-table w-full min-w-[560px] text-sm">
+          <thead className="bg-surface/60 text-left text-xs text-muted-foreground">
             <tr>
               <th className="px-3 py-2">Critère</th>
               <th className="px-3 py-2">Cible</th>

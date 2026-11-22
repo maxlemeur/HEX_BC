@@ -1,23 +1,23 @@
 "use client";
 
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
-import { Check, CheckCheck, Link2, Plus, Truck } from "lucide-react";
+import { CheckCheck, Link2, Plus, Truck } from "lucide-react";
 
 import { useToast } from "@/components/feedback/toast-provider";
 import { SupplyTypeSuppliersDialog } from "@/components/products/SupplyTypeSuppliersDialog";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import type { MaterialRequestLineAlert } from "@/lib/material-requests/alerts";
 import type { MaterialRequestBlockedLine, MaterialRequestOrderLink } from "@/lib/material-requests/client";
 import type { MaterialRequestLine } from "@/lib/material-requests/contracts";
 import { MEASUREMENT_UNITS } from "@/lib/units/normalize";
 import { cn } from "@/lib/utils";
 
-import { lineTitle } from "./format";
+import { linesSubject, lineTitle } from "./format";
 import { MaterialRequestArticleSheet } from "./MaterialRequestArticleSheet";
 import { MaterialRequestBulkBar } from "./MaterialRequestBulkBar";
-import { LINE_COLUMN_TITLES, LINE_GRID, MaterialRequestLineRow } from "./MaterialRequestLineRow";
-import { MaterialRequestLineInspector, MaterialRequestLineSummary } from "./MaterialRequestLineWorkbench";
+import { LINE_COLUMNS, LINE_GRID, MaterialRequestLineRow, type LineColumn } from "./MaterialRequestLineRow";
+import { MaterialRequestLineSummary } from "./MaterialRequestLineWorkbench";
 import type {
   ArticleLinkEntry,
   BulkLinkResult,
@@ -34,7 +34,7 @@ function BlockedReport({
   blocked,
   editor,
 }: Readonly<{ blocked: MaterialRequestBlockedLine[]; editor: MaterialRequestEditorApi }>) {
-  const linesById = new Map(editor.data.lines.map((line) => [line.id, line]));
+  const { linesById } = editor;
   return (
     <Alert variant="warning" role="alert">
       <AlertTitle>
@@ -50,7 +50,7 @@ function BlockedReport({
               .map((alert) => alert.message);
             return (
               <li key={entry.id}>
-                <span className="font-semibold">Ligne {line.position}</span> ({lineTitle(line)}) :{" "}
+                <span className="font-semibold">{lineTitle(line)}</span> :{" "}
                 {messages.length > 0 ? messages.join(" ") : "à vérifier sur la ligne."}
               </li>
             );
@@ -69,14 +69,11 @@ function WithheldNotice({
   withheld,
   editor,
 }: Readonly<{ withheld: WithheldLines; editor: MaterialRequestEditorApi }>) {
-  const positions = editor.data.lines
-    .filter((line) => withheld.lineIds.includes(line.id))
-    .map((line) => String(line.position));
-  if (positions.length === 0) return null;
-  const several = positions.length > 1;
-  const named = several
-    ? `Les lignes ${positions.slice(0, -1).join(", ")} et ${positions[positions.length - 1]}`
-    : `La ligne ${positions[0]}`;
+  // The lines are named by what they ask, as the sheet shows them: a number would point at nothing on screen.
+  const names = editor.data.lines.filter((line) => withheld.lineIds.includes(line.id)).map((line) => lineTitle(line));
+  if (names.length === 0) return null;
+  const several = names.length > 1;
+  const named = linesSubject(names);
   const sentence =
     withheld.action === "validate"
       ? several
@@ -163,40 +160,24 @@ function supplierHint(lines: readonly MaterialRequestLine[], read: (lineId: stri
   };
 }
 
+/** The column of the sheet that carries each field an alert names. */
+const ALERT_COLUMN: Record<NonNullable<MaterialRequestLineAlert["field"]>, LineColumn> = {
+  quantity: "quantity",
+  unit: "unit",
+  product_type: "type",
+  dimension: "dimension",
+  material: "material",
+};
+
 /**
- * One of the three things a line needs before it is quoted, in the order they are done: where it stands, the
- * shortcut that does the sure ones at once, and why that shortcut has nothing to do when it has not.
+ * Where an alert of a draft line is settled, inside its row: the cell of the field it names, the choice of its
+ * hint, or a gesture read once the line is unfolded (`unfold`). Without a place of its own (`selector` null), the
+ * words of the alert are read under the unfolded row.
  */
-function PreparationRow({
-  index,
-  name,
-  done,
-  progress,
-  hint,
-  action,
-}: Readonly<{ index: number; name: string; done: boolean; progress: string; hint: ReactNode; action: ReactNode }>) {
-  return (
-    <li className="flex flex-wrap items-center gap-x-4 gap-y-2 px-3 py-2.5 sm:px-4">
-      <span
-        aria-hidden="true"
-        className={cn(
-          "inline-flex size-6 shrink-0 items-center justify-center rounded-full font-mono text-xs font-semibold",
-          done ? "bg-success-light text-success" : "bg-muted text-foreground-secondary",
-        )}
-      >
-        {done ? <Check className="size-3.5" strokeWidth={3} /> : index}
-      </span>
-      <div className="min-w-0 flex-1 basis-56">
-        <p className="text-sm text-foreground">
-          <span className="font-semibold">{name}</span>
-          <span className="text-muted-foreground">{` · ${progress}`}</span>
-          {done ? <span className="sr-only"> (terminé)</span> : null}
-        </p>
-        {hint ? <div className="mt-0.5 text-xs leading-snug text-muted-foreground">{hint}</div> : null}
-      </div>
-      {action}
-    </li>
-  );
+function lineAlertTarget(alert: MaterialRequestLineAlert): { selector: string | null; unfold: boolean } {
+  if (alert.code === "quantity_doubtful") return { selector: '[data-line-field="quantity"] input[type="checkbox"]', unfold: false };
+  if (alert.field) return { selector: `[data-line-field="${ALERT_COLUMN[alert.field]}"] input:not([type="checkbox"])`, unfold: false };
+  return { selector: `[data-line-alert="${alert.code}"]`, unfold: true };
 }
 
 export function MaterialRequestLines({
@@ -204,9 +185,10 @@ export function MaterialRequestLines({
   materialListId,
   headingId,
   orderedLine,
+  orderStatusKnown,
+  onReviewPresumedMaterial,
   toolbar,
   canEditCatalogue = false,
-  original,
   nextAction,
 }: Readonly<{
   editor: MaterialRequestEditorApi;
@@ -214,36 +196,53 @@ export function MaterialRequestLines({
   headingId: string;
   /** The purchase order each ordered line went into (TI-691, delivery 3a). */
   orderedLine?: (lineId: string) => MaterialRequestOrderLink | null;
-  /** Read-only actions shown beside the validation button (message, previous requests). */
+  orderStatusKnown: boolean;
+  onReviewPresumedMaterial: () => void;
+  /** Actions shown beside the lines (original, message, previous requests). */
   toolbar?: ReactNode;
   /** May set a supply type's preferred supplier here (admins and engineers): the gap is filled in place. */
   canEditCatalogue?: boolean;
-  original?: ReactNode;
   nextAction?: ReactNode;
 }>) {
   const toast = useToast();
   const unitListId = useId();
-  const hintIds = useId();
   const [typeSuppliersOpen, setTypeSuppliersOpen] = useState(false);
   const [selection, setSelection] = useState<ReadonlySet<string>>(new Set());
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [linkReport, setLinkReport] = useState<string[] | null>(null);
   const [inspectedLineId, setInspectedLineId] = useState<string | null>(null);
-  const [preparationOpen, setPreparationOpen] = useState(false);
+  // The draft lines the office unfolded or folded itself; the others show what they hold (`MaterialRequestLineRow`).
+  const [unfolded, setUnfolded] = useState<ReadonlyMap<string, boolean>>(new Map());
+  /** The alert the count over the sheet leads to, until its line is drawn unfolded. */
+  const alertToFocus = useRef<{ lineId: string; selector: string | null } | null>(null);
   const [articleLineId, setArticleLineId] = useState<string | null>(null);
   const section = useRef<HTMLElement>(null);
-  const focusAddedLine = useRef(false);
+  const focusQuantity = useRef<{ position: number } | { afterCount: number } | null>(null);
   const { data, canWrite, alertsByLine } = editor;
   const lines = data.lines;
 
-  // A line added by hand is typed at once: the cursor goes to its quantity.
+  // Once an added or reopened line is editable, put the cursor in its quantity.
   useEffect(() => {
-    if (!focusAddedLine.current) return;
-    focusAddedLine.current = false;
+    const target = focusQuantity.current;
+    if (!target || ("afterCount" in target && lines.length <= target.afterCount)) return;
     const quantities = section.current?.querySelectorAll<HTMLInputElement>('input[aria-label^="Quantité, ligne"]');
-    quantities?.[quantities.length - 1]?.focus();
-  }, [lines.length]);
+    const input = "position" in target
+      ? section.current?.querySelector<HTMLInputElement>(`input[aria-label="Quantité, ligne ${target.position}"]`)
+      : quantities?.[quantities.length - 1];
+    if (!input) return;
+    focusQuantity.current = null;
+    input.focus();
+  }, [lines]);
+
+  // Once a line is unfolded for an alert, the cursor goes to what settles it, or to the row that now says it.
+  useEffect(() => {
+    const target = alertToFocus.current;
+    if (!target) return;
+    alertToFocus.current = null;
+    const row = document.getElementById(`material-request-line-${target.lineId}`);
+    ((target.selector ? row?.querySelector<HTMLElement>(target.selector) : null) ?? row)?.focus();
+  }, [unfolded]);
 
   const drafts = useMemo(() => lines.filter((line) => line.status === "draft"), [lines]);
   // A line that left the drafts (validated, removed) leaves the selection for good: reopened later, it
@@ -270,11 +269,13 @@ export function MaterialRequestLines({
     [alertsByLine, drafts, lineChanges],
   );
   const validatedCount = lines.length - drafts.length;
-  const heldCount = drafts.filter((line) => (alertsByLine.get(line.id) ?? []).some((alert) => alert.blocking)).length;
-  const remarkCount = drafts.filter((line) => {
-    const alerts = alertsByLine.get(line.id) ?? [];
-    return alerts.length > 0 && !alerts.some((alert) => alert.blocking);
-  }).length;
+  const heldLines = drafts.filter((line) => (alertsByLine.get(line.id) ?? []).some((alert) => alert.blocking));
+  const attentionLine = heldLines[0] ?? (clearIds.length === 0
+    ? drafts.find((line) => (alertsByLine.get(line.id) ?? []).length > 0)
+    : undefined);
+  const remarkCount = drafts.filter((line) => (alertsByLine.get(line.id) ?? []).length > 0).length - heldLines.length;
+  const alertsToReview = attentionLine ? alertsByLine.get(attentionLine.id) : undefined;
+  const attentionAlert = alertsToReview?.find((alert) => alert.blocking) ?? alertsToReview?.[0];
   const allSelected = drafts.length > 0 && selectedIds.length === drafts.length;
   // One gesture links only what the technician named without doubt: a reference written on the sheet or
   // a usual name the office taught, with no warning at all. A validated line is left alone (the link
@@ -313,10 +314,6 @@ export function MaterialRequestLines({
     canWrite && lines.length > 0 && proposedSuppliers.length === 0 && editor.supplierProposalsStatus === "ready"
       ? supplierHint(lines, editor.supplierReferenceKnown)
       : null;
-  const linkHintId = `${hintIds}-link`;
-  const supplierHintId = `${hintIds}-supplier`;
-  const validateHintId = `${hintIds}-validate`;
-  const selectAllHintId = `${hintIds}-select-all`;
   const chooseTypeSupplier = canWrite && canEditCatalogue ? () => setTypeSuppliersOpen(true) : null;
 
   const report = (result: SaveResult) => {
@@ -356,8 +353,25 @@ export function MaterialRequestLines({
     setLinkReport(bulkRetainReport(result));
   };
   const addLine = async () => {
-    focusAddedLine.current = true;
-    if (!(await guarded(() => editor.addLines([{}])))) focusAddedLine.current = false;
+    const target = { afterCount: lines.length };
+    focusQuantity.current = target;
+    if (!(await guarded(() => editor.addLines([{}]))) && focusQuantity.current === target) {
+      focusQuantity.current = null;
+    }
+  };
+  const reopenLine = async (line: MaterialRequestLine) => {
+    const target = { position: line.position };
+    focusQuantity.current = target;
+    const result = await editor.reopenLines([line.id]);
+    if (!result.ok && focusQuantity.current === target) focusQuantity.current = null;
+    return result;
+  };
+  const setLineUnfolded = (lineId: string, open: boolean) => setUnfolded((current) => new Map(current).set(lineId, open));
+  const focusLineAlert = (line: MaterialRequestLine, alert: MaterialRequestLineAlert) => {
+    const { selector, unfold } = lineAlertTarget(alert);
+    alertToFocus.current = { lineId: line.id, selector };
+    // A new map either way: the cursor moves once the sheet is drawn again.
+    setUnfolded((current) => (unfold ? new Map(current).set(line.id, true) : new Map(current)));
   };
   const toggle = (line: MaterialRequestLine, selected: boolean) =>
     setSelection((current) => {
@@ -367,182 +381,121 @@ export function MaterialRequestLines({
       return next;
     });
 
-  const linkedCount = lines.filter((line) => line.product_id).length;
-  // A retained quote prices a line from its own supplier.
-  const suppliedCount = lines.filter((line) => line.supplier_id || line.price_quote_id).length;
-  const BULK_BUTTON = "h-auto min-h-8 max-w-full whitespace-normal py-1";
-  const prepared = lines.length > 0 && drafts.length === 0 && linkedCount === lines.length && suppliedCount === lines.length;
-  const settled = lines.every((line) => line.status === "validated" || !canWrite);
-  const inspectedLine = lines.find((line) => line.id === inspectedLineId) ?? lines[lines.length - 1] ?? null;
-  const renderLine = (line: MaterialRequestLine, inspector = false) => {
-    const Component = inspector ? MaterialRequestLineInspector : line.status === "validated" || !canWrite ? MaterialRequestLineSummary : MaterialRequestLineRow;
+  /** The sheet's corner holds « Tout sélectionner » while there are drafts to select. */
+  const selectAll = canWrite && drafts.length > 0;
+  // The details of a validated line open under its row, on request, and its title closes them again: the sheet is
+  // the same whether lines are still edited or all settled.
+  const inspect = (line: MaterialRequestLine) => setInspectedLineId((current) => (current === line.id ? null : line.id));
+  const renderLine = (line: MaterialRequestLine) => {
+    const Component = line.status === "validated" || !canWrite ? MaterialRequestLineSummary : MaterialRequestLineRow;
     return (
       <Component
-                key={line.id}
-                line={line}
-                showFieldLabels={!settled}
-                inspected={inspectedLine?.id === line.id}
-                onInspect={() => setInspectedLineId(line.id)}
-                alerts={alertsByLine.get(line.id) ?? []}
-                request={data.request}
-                supplierOptions={data.supplierOptions}
-                canWrite={inspector && line.status === "draft" ? false : canWrite}
-                selected={selection.has(line.id)}
-                onSelectedChange={(selected) => toggle(line, selected)}
-                change={lineChanges.get(line.id)}
-                onSave={(patch) => editor.saveLine(line.id, patch)}
-                onForget={(fields) => editor.forgetLineFailure(line.id, fields)}
-                onDelete={() => editor.removeLine(line.id)}
-                onValidate={() => editor.validateLines([line.id])}
-                onReopen={() => editor.reopenLines([line.id])}
-                materialListId={materialListId}
-                unitListId={unitListId}
-                article={line.product_id ? (editor.articles[line.product_id] ?? null) : null}
-                proposals={proposalsOf(line.id)}
-                articleNotice={editor.articleNotices.get(line.id)}
-                articleConflict={editor.articleConflicts.get(line.id)}
-                onLinkArticle={(candidate, learnAlias) =>
-                  editor.linkArticle(line.id, {
-                    product_id: candidate.article.id,
-                    via: candidate.via,
-                    ...(learnAlias ? { learn_alias: true } : {}),
-                  })
-                }
-                onUnlinkArticle={() => editor.unlinkArticle(line.id)}
-                onOpenArticles={() => setArticleLineId(line.id)}
-                onRetryProposals={editor.retryProposals}
-                supplierProposal={line.supplier_id ? null : supplierProposalOf(line.id)}
-                supplierReference={line.supplier_id ? editor.supplierReferenceOf(line.id) : null}
-                supplierProposalRead={editor.supplierReferenceKnown(line.id)}
-                onChooseTypeSupplier={chooseTypeSupplier}
-                canEditCatalogue={canEditCatalogue}
-                onRetainSupplier={(supplierId) => editor.retainSupplier(line.id, supplierId)}
-                ordered={orderedLine?.(line.id) ?? null}
-              />
+        key={line.id}
+        line={line}
+        inspected={inspectedLineId === line.id}
+        onInspect={() => inspect(line)}
+        alerts={alertsByLine.get(line.id) ?? []}
+        request={data.request}
+        supplierOptions={data.supplierOptions}
+        canWrite={canWrite}
+        selected={selection.has(line.id)}
+        onSelectedChange={(selected) => toggle(line, selected)}
+        unfolded={unfolded.get(line.id) ?? null}
+        onUnfoldedChange={(open) => setLineUnfolded(line.id, open)}
+        change={lineChanges.get(line.id)}
+        onSave={(patch) => editor.saveLine(line.id, patch)}
+        onForget={(fields) => editor.forgetLineFailure(line.id, fields)}
+        onDelete={() => editor.removeLine(line.id)}
+        onValidate={() => editor.validateLines([line.id])}
+        onReopen={() => reopenLine(line)}
+        materialListId={materialListId}
+        unitListId={unitListId}
+        article={line.product_id ? (editor.articles[line.product_id] ?? null) : null}
+        proposals={proposalsOf(line.id)}
+        articleNotice={editor.articleNotices.get(line.id)}
+        articleConflict={editor.articleConflicts.get(line.id)}
+        onLinkArticle={(candidate, learnAlias) =>
+          editor.linkArticle(line.id, {
+            product_id: candidate.article.id,
+            via: candidate.via,
+            ...(learnAlias ? { learn_alias: true } : {}),
+          })
+        }
+        onUnlinkArticle={() => editor.unlinkArticle(line.id)}
+        onOpenArticles={() => setArticleLineId(line.id)}
+        onRetryProposals={editor.retryProposals}
+        supplierProposal={line.supplier_id ? null : supplierProposalOf(line.id)}
+        supplierReference={line.supplier_id ? editor.supplierReferenceOf(line.id) : null}
+        supplierProposalRead={editor.supplierReferenceKnown(line.id)}
+        onChooseTypeSupplier={chooseTypeSupplier}
+        canEditCatalogue={canEditCatalogue}
+        onRetainSupplier={(supplierId) => editor.retainSupplier(line.id, supplierId)}
+        ordered={orderedLine?.(line.id) ?? null}
+        orderStatusKnown={orderStatusKnown}
+      />
     );
   };
 
 
   return (
     <section ref={section} aria-labelledby={headingId} className="min-w-0">
-      <div className={cn("mr-workbench grid min-w-0 gap-6 py-5", settled && "xl:grid-cols-[minmax(0,1fr)_22rem]")}>
-      <div className={cn("min-w-0 space-y-4", settled && "mr-workbench-main")}>
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div className={prepared ? "sr-only" : "min-w-0"}>
-          <h2 id={headingId} className={prepared ? "sr-only" : "typo-h3 text-foreground"}>
-            Lignes
-          </h2>
-          <p className={prepared ? "sr-only" : "mt-1 text-sm text-muted-foreground"}>
-            {lines.length === 0
-              ? "Aucune ligne pour le moment."
-              : [
-                  plural(lines.length, "ligne", "lignes"),
-                  plural(validatedCount, "validée", "validées"),
-                  heldCount > 0 ? `${heldCount} à régler avant validation` : null,
-                  remarkCount > 0 ? `${remarkCount} avec une remarque, à valider une par une` : null,
-                ]
-                  .filter(Boolean)
-                  .join(" · ")}
-          </p>
+      <div className="mr-workbench min-w-0 py-5">
+      <div className="min-w-0 space-y-4">
+      {/*
+        One line says where the lines stand, and its last words lead to the first value to fix: what there is to fix
+        is said by the tint of its cell, not by a banner above the sheet.
+      */}
+      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+        <div className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1">
+          <h2 id={headingId} className="typo-h3 text-foreground">Lignes</h2>
+          {lines.length > 0 ? (
+            <p className="text-sm text-muted-foreground">
+              <span>{`${plural(lines.length, "ligne", "lignes")} · ${plural(validatedCount, "validée", "validées")}`}</span>
+              {canWrite && attentionLine && attentionAlert ? (
+                <>
+                  {" · "}
+                  <button
+                    type="button"
+                    disabled={busy}
+                    className="rounded-sm font-semibold text-warning underline underline-offset-4 hover:no-underline focus-visible:outline-2 focus-visible:outline-ring"
+                    title={attentionAlert.message}
+                    onClick={() => {
+                      if (attentionAlert.code === "material_unconfirmed") onReviewPresumedMaterial();
+                      else focusLineAlert(attentionLine, attentionAlert);
+                    }}
+                  >
+                    {heldLines.length > 0 ? `${heldLines.length} à compléter` : plural(remarkCount, "remarque à vérifier", "remarques à vérifier")}
+                  </button>
+                </>
+              ) : canWrite && drafts.length > 0 && clearIds.length === 0 ? (
+                <span title="Enregistrez les corrections pour pouvoir valider."> · corrections en cours</span>
+              ) : null}
+            </p>
+          ) : null}
         </div>
-        {prepared ? <div className="flex flex-wrap items-center gap-2 text-sm">
-          <button type="button" className="mr-2 flex items-center gap-2 text-left font-semibold focus-visible:outline-2 focus-visible:outline-ring" aria-expanded={preparationOpen} onClick={() => setPreparationOpen((value) => !value)}><Check aria-hidden="true" className="size-6 rounded-full bg-success p-1 text-white" />Préparation de la demande complète</button>
-          <Badge variant="success">Articles {linkedCount}/{lines.length}</Badge><Badge variant="success">Fournisseurs {suppliedCount}/{lines.length}</Badge><Badge variant="success">Validation {validatedCount}/{lines.length}</Badge>
-        </div> : null}
-        {toolbar ? <div className="flex flex-wrap items-center gap-2">{toolbar}</div> : null}
+        <div className="flex flex-wrap items-center gap-2">
+          {toolbar}
+          {canWrite ? (
+            <Button type="button" variant={lines.length === 0 ? "primary" : "outline"} size="sm" disabled={busy} onClick={() => void addLine()}>
+              <Plus aria-hidden="true" />
+              Ajouter une ligne
+            </Button>
+          ) : null}
+          {canWrite && drafts.length > 0 ? (
+            <Button
+              type="button"
+              variant="primary"
+              size="sm"
+              className="whitespace-normal"
+              disabled={clearIds.length === 0 || busy}
+              onClick={() => void validate(clearIds)}
+            >
+              <CheckCheck aria-hidden="true" />
+              Valider les lignes sans alerte ({clearIds.length})
+            </Button>
+          ) : null}
+        </div>
       </div>
-
-      {lines.length > 0 ? (
-        <ol hidden={prepared && !preparationOpen} role="list" aria-label="Préparation des lignes, dans l’ordre" className="divide-y divide-border rounded-lg border border-border bg-surface">
-          <PreparationRow
-            index={1}
-            name="Articles"
-            done={linkedCount === lines.length}
-            progress={`${linkedCount} sur ${plural(lines.length, "ligne", "lignes")} avec un article du catalogue`}
-            hint={linkNothing ? <p id={linkHintId}>{linkNothing}</p> : null}
-            action={
-              canWrite ? (
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className={BULK_BUTTON}
-                  disabled={sureLinks.length === 0 || busy}
-                  aria-describedby={linkNothing ? linkHintId : undefined}
-                  onClick={() => void linkSure()}
-                >
-                  <Link2 aria-hidden="true" />
-                  Rattacher les références et noms connus ({sureLinks.length})
-                </Button>
-              ) : null
-            }
-          />
-          <PreparationRow
-            index={2}
-            name="Fournisseurs"
-            done={suppliedCount === lines.length}
-            progress={`${suppliedCount} sur ${plural(lines.length, "ligne", "lignes")} avec un fournisseur`}
-            hint={
-              supplierNothing ? (
-                <div className="flex flex-wrap items-baseline gap-x-2">
-                  <p id={supplierHintId}>{supplierNothing.text}</p>
-                  {supplierNothing.missing > 0 && chooseTypeSupplier ? (
-                    <Button type="button" variant="link" size="xs" className="h-auto px-0" onClick={chooseTypeSupplier}>
-                      Choisir les fournisseurs des types
-                    </Button>
-                  ) : null}
-                </div>
-              ) : null
-            }
-            action={
-              canWrite ? (
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className={BULK_BUTTON}
-                  disabled={proposedSuppliers.length === 0 || busy}
-                  aria-describedby={supplierNothing ? supplierHintId : undefined}
-                  onClick={() => void retainProposed()}
-                >
-                  <Truck aria-hidden="true" />
-                  Retenir les fournisseurs proposés ({proposedSuppliers.length})
-                </Button>
-              ) : null
-            }
-          />
-          <PreparationRow
-            index={3}
-            name="Validation"
-            done={drafts.length === 0}
-            progress={`${validatedCount} sur ${plural(lines.length, "ligne validée", "lignes validées")}`}
-            hint={
-              canWrite && drafts.length > 0 && clearIds.length === 0 ? (
-                <p id={validateHintId}>
-                  Aucune ligne à valider d’un coup : chaque ligne en brouillon porte une alerte à régler, ou une remarque à
-                  lire avant de la valider par son propre bouton.
-                </p>
-              ) : null
-            }
-            action={
-              canWrite ? (
-                <Button
-                  type="button"
-                  variant="primary"
-                  size="sm"
-                  className={BULK_BUTTON}
-                  disabled={clearIds.length === 0 || busy}
-                  aria-describedby={drafts.length > 0 && clearIds.length === 0 ? validateHintId : undefined}
-                  onClick={() => void validate(clearIds)}
-                >
-                  <CheckCheck aria-hidden="true" />
-                  Valider les lignes sans alerte ({clearIds.length})
-                </Button>
-              ) : null
-            }
-          />
-        </ol>
-      ) : null}
       {canWrite && editor.supplierProposalsStatus === "error" ? (
         <div className="flex flex-wrap items-center gap-x-2 text-sm text-muted-foreground">
           <p>Fournisseurs proposés indisponibles.</p>
@@ -562,13 +515,6 @@ export function MaterialRequestLines({
         <Alert variant="danger">
           <AlertDescription>{error}</AlertDescription>
         </Alert>
-      ) : null}
-      {linkReport ? (
-        <div role="status" className="space-y-0.5 text-sm text-foreground">
-          {linkReport.map((sentence) => (
-            <p key={sentence}>{sentence}</p>
-          ))}
-        </div>
       ) : null}
       {editor.blocked ? <BlockedReport blocked={editor.blocked} editor={editor} /> : null}
       {editor.withheld ? <WithheldNotice withheld={editor.withheld} editor={editor} /> : null}
@@ -594,65 +540,121 @@ export function MaterialRequestLines({
       </datalist>
 
       {canWrite && drafts.length > 0 ? (
-        <div className="space-y-2">
-          <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-sm">
-            {/* The label is the checkbox's whole name: what follows it describes it. */}
-            <label className="flex w-fit items-center gap-2 font-medium text-foreground-secondary">
-              <input
-                type="checkbox"
-                className="size-4 accent-primary"
-                aria-describedby={selectAllHintId}
-                checked={allSelected}
-                onChange={(event) =>
-                  setSelection(event.currentTarget.checked ? new Set(drafts.map((line) => line.id)) : new Set())
-                }
-              />
-              Tout sélectionner
-            </label>
-            <span id={selectAllHintId} className="text-muted-foreground">
-              {`· ${plural(drafts.length, "ligne en brouillon", "lignes en brouillon")}, pour les remplir ou les valider ensemble`}
-            </span>
-          </div>
-          {/*
-            The form is shown once a line is checked: until then it could do nothing. It stays mounted, so that the
-            field chosen and the value typed survive a line unchecked then checked again.
-          */}
-          <div hidden={selectedIds.length === 0}>
-            <MaterialRequestBulkBar
-              selectedCount={selectedIds.length}
-              busy={busy}
-              materialListId={materialListId}
-              unitListId={unitListId}
-              onApply={(patch) => guarded(() => editor.applyToLines(selectedIds, patch))}
-              onValidate={() => void validate(selectedIds)}
-              onClear={() => setSelection(new Set())}
-            />
-          </div>
+        // The form is shown once a line is checked: until then it could do nothing. It stays mounted, so that the
+        // field chosen and the value typed survive a line unchecked then checked again.
+        <div hidden={selectedIds.length === 0}>
+          <MaterialRequestBulkBar
+            selectedCount={selectedIds.length}
+            busy={busy}
+            materialListId={materialListId}
+            unitListId={unitListId}
+            onApply={(patch) => guarded(() => editor.applyToLines(selectedIds, patch))}
+            onValidate={() => void validate(selectedIds)}
+            onClear={() => setSelection(new Set())}
+          />
         </div>
       ) : null}
 
       {lines.length > 0 ? (
         <>
-          {/* A table on the whole width at desktop width, cards below it: see `MaterialRequestLineRow`. */}
-          <div className="xl:rounded-lg xl:border xl:border-border xl:bg-surface">
+          {/* A sheet of cells on the whole width from 1080 px, cards below it: see `MaterialRequestLineRow`. */}
+          <div className="sheet:rounded-lg sheet:border sheet:border-border sheet:bg-surface">
+            {/*
+              The column titles only repeat, for the eye, the name each field already carries: they stay hidden from
+              assistive technologies. « Tout sélectionner » sits in the corner cell, over the lines' own checkboxes, as
+              in a spreadsheet; below the sheet's width the header is that one row, as it reads in a card list.
+            */}
             <div
-              aria-hidden="true"
               className={cn(
-                settled ? "xl:grid xl:grid-cols-[minmax(10rem,1.35fr)_4rem_minmax(8rem,1fr)_minmax(8rem,1fr)_6rem_minmax(7rem,0.8fr)_2rem] xl:gap-x-4" : LINE_GRID,
+                // Sizes come from classes the page enlarges (`material-request-workbench.css`), not from variants.
+                "text-xs",
+                // Below the sheet's width the header is the row of what acts on every line: nothing to show without it.
+                selectAll || sureLinks.length > 0 || proposedSuppliers.length > 0 ? "flex flex-wrap items-center gap-x-1.5 gap-y-1" : "hidden",
+                "sheet:items-stretch sheet:gap-0 sheet:rounded-t-lg sheet:border-b sheet:border-border sheet:bg-surface-subtle sheet:font-medium sheet:text-muted-foreground max-sheet:mb-3",
                 // Stuck under the application's top bar (60 px, itself stuck at the top of the window).
-                "hidden rounded-t-lg border-b border-border bg-surface-subtle px-4 py-3 text-xs font-medium text-muted-foreground",
-                !settled && "xl:hidden",
-                settled ? "xl:sticky xl:top-[60px] xl:z-10" : "xl:sticky xl:top-[60px] xl:z-10",
+                "sheet:sticky sheet:top-[60px] sheet:z-10",
+                LINE_GRID,
               )}
             >
-              {(settled ? ["Article", "Qté", "Dimension / matière", "Fournisseur", "Statut", "Bon", "Actions"] : LINE_COLUMN_TITLES).map((title, index) => (
-                <span key={title} className={cn("min-w-0", !settled && index < 2 && "text-right", index === 1 && "pr-2")}>
-                  {title}
-                </span>
-              ))}
+              {selectAll ? (
+                <>
+                  {/* In the sheet the box sits over the lines' boxes. */}
+                  <div className="flex items-center gap-2 sheet:justify-center sheet:border-r sheet:border-border">
+                    {/* The label is the checkbox's whole name: what follows it describes it. */}
+                    <label className="flex w-fit items-center gap-2 text-sm font-medium text-foreground-secondary" title="Tout sélectionner">
+                      <input
+                        type="checkbox"
+                        className="size-4 shrink-0 accent-primary"
+                        checked={allSelected}
+                        onChange={(event) =>
+                          setSelection(event.currentTarget.checked ? new Set(drafts.map((line) => line.id)) : new Set())
+                        }
+                      />
+                      <span className="sheet:sr-only">Tout sélectionner</span>
+                    </label>
+                  </div>
+                  <span className="text-sm text-muted-foreground sheet:hidden">{plural(drafts.length, "brouillon", "brouillons")}</span>
+                </>
+              ) : (
+                // Once no line is left to select, the corner stays, empty, over the lines' first column.
+                <div aria-hidden="true" className="hidden sheet:block sheet:border-r sheet:border-border" />
+              )}
+              {(Object.keys(LINE_COLUMNS) as LineColumn[]).map((column, index) => {
+                    // The corner cell, over the lines' boxes, is drawn above.
+                    if (column === "select") return null;
+                    const { title, short } = LINE_COLUMNS[column];
+                    // What settles a whole column at once sits in its header: every sure article, every proposed supplier.
+                    const all =
+                      column === "article" && sureLinks.length > 0
+                        ? { name: `Rattacher les références et noms connus (${sureLinks.length})`, verb: "rattacher", count: sureLinks.length, icon: Link2, run: linkSure }
+                        : column === "supplier" && proposedSuppliers.length > 0
+                          ? { name: `Retenir les fournisseurs proposés (${proposedSuppliers.length})`, verb: "retenir", count: proposedSuppliers.length, icon: Truck, run: retainProposed }
+                          : null;
+                    return (
+                      <div
+                        key={column}
+                        className={cn(
+                          "min-w-0 items-center gap-1.5 max-sheet:contents sheet:flex sheet:px-2 sheet:py-1.5 xl:px-2.5",
+                          index > 1 && "sheet:border-l sheet:border-border",
+                          column === "quantity" && "sheet:justify-end",
+                        )}
+                      >
+                        <span aria-hidden="true" className="hidden min-w-0 truncate sheet:block">
+                          {short ? (
+                            <>
+                              <span className="xl:hidden">{short}</span>
+                              <span className="max-xl:hidden">{title}</span>
+                            </>
+                          ) : (
+                            title
+                          )}
+                        </span>
+                        {all ? (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="xs"
+                            className="h-auto min-h-7 whitespace-normal text-left sheet:-my-1 sheet:ml-auto sheet:shrink-0 sheet:whitespace-nowrap sheet:px-1 sheet:text-primary"
+                            disabled={busy}
+                            aria-label={all.name}
+                            title={all.name}
+                            onClick={() => void all.run()}
+                          >
+                            <all.icon aria-hidden="true" className="sheet:hidden" />
+                            <span className="sheet:hidden">{all.name}</span>
+                            {/* In its column's header the gesture is said in two words: the column names what it acts on. */}
+                            <span aria-hidden="true" className="max-sheet:hidden">
+                              <span className="max-2xl:hidden">Tout </span>
+                              <span className="max-2xl:capitalize">{all.verb}</span> ({all.count})
+                            </span>
+                          </Button>
+                        ) : null}
+                      </div>
+                    );
+              })}
             </div>
           {/* `role="list"`: without it a list with no markers is not announced as one by Safari. */}
-          <ol role="list" aria-label="Lignes de la demande" className="space-y-3 xl:space-y-0">
+          <ol role="list" aria-label="Lignes de la demande" className="space-y-3 sheet:space-y-0">
             {lines.map((line) => renderLine(line))}
           </ol>
           </div>
@@ -662,29 +664,42 @@ export function MaterialRequestLines({
         <div className="rounded-lg border border-dashed border-border bg-surface-subtle px-4 py-6 text-center">
           <p className="text-sm text-muted-foreground">
             {data.request.source_text?.trim()
-              ? "Découpez le message reçu en lignes (« Découper le texte en lignes », sous le message) ; ou recopiez la demande ligne par ligne."
+              ? "Découpez le message reçu en lignes (« Découper le texte en lignes », dans l’original) ; ou recopiez la demande ligne par ligne."
               : "Collez le message du technicien (« Coller un message », dans l’original) pour le découper ; ou recopiez la demande ligne par ligne."}
           </p>
-          <Button
-            type="button"
-            variant="outline"
-            className="mt-3"
-            disabled={busy}
-            onClick={() => void addLine()}
-          >
-            <Plus aria-hidden="true" />
-            Ajouter une ligne
-          </Button>
         </div>
       ) : null}
-      {original ? <div className={settled ? "mr-workbench-original" : "pt-8"}>{original}</div> : null}
+      {/* The two bulk gestures sit in the header of their column; what says why one has nothing to do is read here. */}
+      {canWrite && lines.length > 0 && (linkNothing || supplierNothing || linkReport) ? (
+        <div className="space-y-2">
+          <div className="flex flex-wrap items-center gap-2 empty:hidden">
+            {supplierNothing && supplierNothing.missing > 0 && chooseTypeSupplier ? (
+              <Button type="button" variant="link" size="sm" className="h-auto px-0" onClick={chooseTypeSupplier}>
+                Choisir les fournisseurs des types
+              </Button>
+            ) : null}
+          </div>
+          {linkNothing || supplierNothing ? (
+            <details className="text-sm text-muted-foreground">
+              <summary role="button" className="w-fit cursor-pointer rounded-sm font-medium focus-visible:outline-2 focus-visible:outline-ring">
+                Détails des propositions
+              </summary>
+              <div className="mt-2 space-y-1">
+                {linkNothing ? <p>{linkNothing}</p> : null}
+                {supplierNothing ? <p>{supplierNothing.text}</p> : null}
+              </div>
+            </details>
+          ) : null}
+          {linkReport ? (
+            <div role="status" className="space-y-0.5 text-sm text-foreground">
+              {linkReport.map((sentence) => <p key={sentence}>{sentence}</p>)}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
       </div>
-      {lines.filter((line) => line.status === "validated" || !canWrite).map((line) => <div key={line.id} hidden={inspectedLine?.id !== line.id} className="min-w-0">{renderLine(line, true)}</div>)}
       </div>
-      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border py-5">
-        {canWrite && lines.length > 0 ? <Button type="button" variant="outline" disabled={busy} onClick={() => void addLine()}><Plus aria-hidden="true" />Ajouter une ligne</Button> : <span />}
-        {nextAction}
-      </div>
+      {nextAction ? <div className="flex justify-end border-t border-border py-5">{nextAction}</div> : null}
       {chooseTypeSupplier ? (
         <SupplyTypeSuppliersDialog
           open={typeSuppliersOpen}

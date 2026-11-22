@@ -12,7 +12,7 @@ export function PurchaseOrderDraftLinesTable({
 }: PurchaseOrderDraftLinesTableProps) {
   return (
     <div className="mt-3 overflow-x-auto">
-      <table className="w-full text-left text-sm text-muted-foreground">
+      <table className="sheet-table w-full text-left text-sm text-muted-foreground">
         <caption className="sr-only">
           Lignes à relire pour {supplierName}
         </caption>

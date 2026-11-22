@@ -19,11 +19,12 @@ const record = (value: unknown): Record<string, unknown> => value && typeof valu
  * posts, the important lines of the targeted review and its « Gros montants » and « Non chiffré » filters (TI-701) read
  * the same answer. A read that fails keeps the last answer, with the error.
  */
-export function useTakeoffReviewContext(jobId: string, items: readonly TakeoffJobItem[]) {
+export function useTakeoffReviewContext(jobId: string, items: readonly TakeoffJobItem[], enabled = true) {
   const [context, setContext] = useState<TakeoffReviewContext | null>(null);
   const [error, setError] = useState<string | null>(null);
   const revision = items.map(item => item.updated_at).join("|");
   useEffect(() => {
+    if (!enabled) return;
     const controller = new AbortController();
     void fetch(`/api/takeoff/jobs/${encodeURIComponent(jobId)}/review-context`, { signal: controller.signal, credentials: "same-origin" })
       .then(async response => {
@@ -35,7 +36,7 @@ export function useTakeoffReviewContext(jobId: string, items: readonly TakeoffJo
         setError(null);
       }).catch(() => { if (!controller.signal.aborted) setError("Montants de contrôle indisponibles : le risque financier reste à apprécier."); });
     return () => controller.abort();
-  }, [jobId, revision]);
+  }, [enabled, jobId, revision]);
   return { context, error };
 }
 
@@ -78,7 +79,7 @@ export function TakeoffReviewPolicyPanel({ items, providerMeta, context, error, 
     <details>
       <summary className="cursor-pointer font-medium">Couverture des bâtiments, étages, zones et réseaux</summary>
       {!coverage.known ? <p className="mt-2 text-warning">Périmètre attendu non renseigné : la complétude ne peut pas être établie.</p> :
-        <table className="mt-2 w-full text-left"><caption className="sr-only">Comparaison avec le périmètre attendu</caption>
+        <table className="sheet-table mt-2 w-full text-left"><caption className="sr-only">Comparaison avec le périmètre attendu</caption>
           <thead><tr><th>Périmètre</th><th>État</th><th>Éléments repérés</th></tr></thead>
           <tbody>{coverage.entries.map(entry => <tr key={`${entry.kind}:${entry.label}`}>
             <td>{entry.kind} · {entry.label}</td><td>{entry.status === "not_analysed" ? "Non analysé" : entry.status === "incomplete" ? "Incomplet" : "Analysé — à contrôler"}</td>

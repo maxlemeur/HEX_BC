@@ -77,9 +77,9 @@ export function WeeklySendPriorityQueue({ items, ownerOptions }: Readonly<Props>
         tabIndex={0}
         className="relative overflow-x-auto focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring"
       >
-        <table className="w-full min-w-[940px] text-sm">
+        <table className="sheet-table w-full min-w-[940px] text-sm">
           <thead>
-            <tr className="border-b border-border text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+            <tr className="border-b border-border text-left text-xs font-semibold text-muted-foreground">
               <th scope="col" className="px-4 py-3">Affaire</th>
               <th scope="col" className="py-3 pr-4">État</th>
               <th scope="col" className="py-3 pr-4">Échéance</th>

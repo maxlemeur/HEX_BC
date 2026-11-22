@@ -73,9 +73,9 @@ export function EstimateV3DraftSummary({
       </p>
       <div className="mt-4 grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
         <div className="min-w-0 overflow-x-auto">
-          <table className="w-full text-sm">
+          <table className="sheet-table w-full text-sm">
             <thead>
-              <tr className="border-b border-border text-left text-xs uppercase tracking-wide text-muted-foreground">
+              <tr className="border-b border-border text-left text-xs text-muted-foreground">
                 <th scope="col" className="py-2 pr-3 font-medium">Désignation</th>
                 <th scope="col" className="py-2 pr-3 font-medium">U</th>
                 <th scope="col" className="py-2 pr-3 text-right font-medium">Qté</th>

@@ -9,5 +9,14 @@
 @import "../styles/animations.css";
 @import "../styles/print.css";
 @import "../styles/legacy.css";
+@import "../styles/sheet-cells.css";
 @import "../styles/estimate-frozen.css";
 @import "../styles/assistant.css";
+
+/*
+ * The lines of a material request become a sheet of cells from 1080 px, between `lg` and `xl`: see
+ * `MaterialRequestLineRow`.
+ */
+@theme {
+  --breakpoint-sheet: 67.5rem;
+}

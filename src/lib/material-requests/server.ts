@@ -31,6 +31,7 @@ import {
   type UpdateMaterialRequestData,
 } from "./contracts";
 import { removeRequestOriginals } from "./files-server";
+import { linesSubject, lineTitle } from "./line-names";
 import { orderedAmong, orderedLineDatabaseRefusal, orderedLineIds, orderedLinesRefusal, requestOrderedRefusal } from "./orders-server";
 import { readArticleSummaries } from "./articles-server";
 import {
@@ -39,7 +40,6 @@ import {
   REQUEST_COLUMNS,
   assertSuppliersInTenant,
   assertTechnicianInTenant,
-  linePositionsLabel,
   listTenantTechnicians,
   pricedLineChanges,
   pricedLineDatabaseRefusal,
@@ -486,8 +486,8 @@ async function quotedLineIds(context: MaterialRequestContext, projectId: string,
 /** 409 naming the lines a split would throw away: validated ones, and those a quote asks for or prices. */
 function linesKeptRefusal(validated: readonly MaterialRequestLine[], quoted: readonly MaterialRequestLine[]): ApiError {
   const said = (lines: readonly MaterialRequestLine[], one: string, several: string) => {
-    const positions = linePositionsLabel(lines.map((line) => line.position));
-    return lines.length === 1 ? `la ligne ${positions} ${one}` : `les lignes ${positions} ${several}`;
+    const names = [...lines].sort(byPosition).map((line) => lineTitle(line));
+    return `${linesSubject(names, { capital: false })} ${names.length === 1 ? one : several}`;
   };
   const reasons = [
     validated.length > 0 ? said(validated, "est validée", "sont validées") : null,
@@ -695,7 +695,8 @@ export async function deleteMaterialRequestLine(
   const access = await requireProjectAccess(projectId, "write");
   const { data: current, error: readError } = await access.context.supabase
     .from("material_request_lines")
-    .select("id, position, price_quote_id")
+    // With what names the line: a refusal says which one by what it asks.
+    .select("id, position, price_quote_id, product_type, dimension, original_text")
     .eq("id", lineId)
     .eq("tenant_id", access.context.tenantId)
     .eq("project_id", access.project.id)
