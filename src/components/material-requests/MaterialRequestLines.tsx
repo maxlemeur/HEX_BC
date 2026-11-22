@@ -442,7 +442,8 @@ export function MaterialRequestLines({
 
 
   return (
-    <section ref={section} aria-labelledby={headingId} className="min-w-0">
+    // The mark a decided replacement looks for: a field under it that holds the cursor is being typed in.
+    <section ref={section} aria-labelledby={headingId} className="min-w-0" data-material-request-lines="">
       <div className="mr-workbench min-w-0 py-5">
       <div className="min-w-0 space-y-4">
       {/*

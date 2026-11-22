@@ -17,7 +17,8 @@ import type { MaterialRequestPhotoAnalysisAvailability } from "@/lib/material-re
  *     validated or priced (the server would refuse, after minutes of reading);
  *  5. lines are replaced although they are no longer the ones the office saw when it chose: one was added while the
  *     photos were being read, or a draft was corrected meanwhile (independent review: the ids were the same, and the
- *     correction was thrown away with a success message);
+ *     correction was thrown away with a success message), or the office is typing in a cell when the last photo
+ *     answers (review of pull request 494: a cell keeps its typing to itself until it is left);
  *  6. a photo without any article is reported as a failure, or creates an empty line;
  *  7. « Arrêter » creates lines anyway, or a refusal to run does not lead to the profile where the plan is connected.
  */
@@ -366,6 +367,34 @@ describe("AI reading of the photos of a material request", () => {
     expect(await within(reopened).findByRole("button", { name: "Remplacer la ligne" })).toBeDisabled();
     expect(within(reopened).getByText(/Une modification de ligne n’est pas enregistrée/)).toBeVisible();
     expect(within(reopened).getByRole("button", { name: "Ajouter à la suite" })).toBeEnabled();
+  });
+
+  it("replaces nothing while the office is typing in a line, and keeps what is typed (5)", async () => {
+    let release: (reply: Reply) => void = () => undefined;
+    const held = new Promise<Reply>((resolve) => {
+      release = resolve;
+    });
+    const { user, original } = await openOriginal({
+      [`GET ${BASE}`]: { data: detail({ lines: [line()] }) },
+      [analysisOf(FILE_1)]: () => held,
+      [`PATCH ${BASE}/lines/${LINE_A}`]: { data: { line: line({ product_type: "Raccord union double" }) } },
+    });
+
+    await user.click(within(original).getByRole("button", { name: "Analyser la photo avec l’IA" }));
+    await user.click(within(original).getByRole("button", { name: "Remplacer la ligne" }));
+    await within(original).findByText(/Lecture de la photo/);
+    await user.click(within(original).getByRole("button", { name: "Fermer" }));
+    // Typed, neither left nor confirmed with Enter: no write, and the line reads as it did at the choice.
+    const type = screen.getByLabelText("Type, ligne 1");
+    await user.type(type, " double");
+    expect(writes().some((call) => call.method === "PATCH")).toBe(false);
+    release(read(FILE_1, SHEET_1));
+
+    const status = await screen.findByText(/Une ligne était en cours de saisie à la fin de la lecture : rien n’a été remplacé\./);
+    expect(status).toBeInTheDocument();
+    expect(writes().some((call) => call.path === `${BASE}/lines/replace`)).toBe(false);
+    expect(screen.getByLabelText("Type, ligne 1")).toHaveValue("Raccord union double");
+    expect(screen.getByLabelText("Type, ligne 1")).toHaveFocus();
   });
 
   it("creates nothing once the office stops the reading (7)", async () => {
