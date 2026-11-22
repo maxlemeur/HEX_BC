@@ -85,6 +85,11 @@ export const MATERIAL_REQUEST_ORDER_NOTHING_READY = "MATERIAL_REQUEST_ORDER_NOTH
 export const MATERIAL_REQUEST_LINE_ALREADY_ORDERED = "MATERIAL_REQUEST_LINE_ALREADY_ORDERED";
 /** 422: the supplier of ready lines is archived; details.supplier_names names them. */
 export const MATERIAL_REQUEST_ORDER_SUPPLIER_INACTIVE = "MATERIAL_REQUEST_ORDER_SUPPLIER_INACTIVE";
+/**
+ * 422: a supplier's draft would total less than zero: the discount of a retained quote exceeds what the draft holds
+ * of it (its other lines ordered earlier in another draft). details.supplier_names names it; nothing is created.
+ */
+export const MATERIAL_REQUEST_ORDER_TOTAL_NEGATIVE = "MATERIAL_REQUEST_ORDER_TOTAL_NEGATIVE";
 /** 409: the key was used by another member; a new key is needed. */
 export const MATERIAL_REQUEST_ORDER_KEY_TAKEN = "MATERIAL_REQUEST_ORDER_KEY_TAKEN";
 /** 409: another write on the same lines was in progress; nothing was created, try again. */

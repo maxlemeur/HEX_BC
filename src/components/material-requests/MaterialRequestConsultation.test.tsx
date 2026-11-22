@@ -60,6 +60,9 @@ const euros = (cents: number) => formatEUR(cents).replace(/\s/g, " ");
  * 19. (TI-691, the owner's walk of 2026-11-14) a quote whose « Montant HT du devis » differs from the total of its
  *     lines (343 € for 340 €) is retained without a word: the gap is not shown, the retain does not ask to account
  *     for it, or the card does not say the order is made from the line prices.
+ * 19b. (the owner's quote of 22/11/2026, 276,30 € of lines and « Fdp » for 310,21 €) the gap cannot be counted as
+ *     shipping (or as a discount) in one gesture, the card does not total lines + shipping - discount, the gap stays
+ *     once they are, or a discount larger than the lines and the shipping lets the quote be retained.
  * TI-691, the member's own template and the company's (« paramétrer le texte pour l’envoi fournisseur ») and the
  * retouch before copying:
  * 20. the message does not follow the member's template, else the company's; a competitor's message names another
@@ -211,6 +214,8 @@ function quote(partial: Partial<Quote> = {}): Quote {
     requested_at: "2026-11-12T09:00:00.000Z",
     received_at: null,
     amount_ht_cents: null,
+    shipping_ht_cents: null,
+    discount_ht_cents: null,
     notes: null,
     retained_at: null,
     closed_at: null,
@@ -1470,13 +1475,49 @@ describe("consultation of suppliers", () => {
       `Écart de ${euros(300)} entre le montant du devis (${euros(26900)} HT) et le total des lignes (${euros(26600)} HT).`,
     )).toBeVisible();
     expect(within(card).getByText(
-      "Le bon de commande est fait au prix des lignes : un port ou une remise se reporte sur le bon de commande.",
+      "Le port et la remise s’ajoutent au bon de commande, en lignes « Port » et « Remise ».",
     )).toBeVisible();
 
     await user.click(within(card).getByRole("button", { name: "Retenir ce devis (Négoce Alpha)" }));
     expect(writes()).toEqual([]);
     await user.click(within(card).getByRole("button", { name: "Retenir avec cet écart (Négoce Alpha)" }));
     await waitFor(() => expect(writes()).toEqual([{ method: "POST", path: `${QUOTES}/${QUOTE_A}/retain`, body: null }]));
+  });
+
+  it("counts the gap as shipping in one gesture, totals lines + shipping - discount, and blocks a discount too large (19b)", async () => {
+    let stored = quote({
+      status: "received",
+      received_at: "2026-11-13T10:00:00.000Z",
+      amount_ht_cents: 20 * 1250 + 4 * 400 + 3391,
+      lines: [{ line_id: LINE_A, unit_price_ht_cents: 1250, price_per: 1 }, { line_id: LINE_B, unit_price_ht_cents: 400, price_per: 1 }],
+    });
+    const user = await openEditor({
+      [`GET ${BASE}`]: { data: detail({ lines: [line(VALIDATED), line({ ...TEE, ...VALIDATED })] }) },
+      [`GET ${PROPOSALS}`]: references({ [LINE_A]: "NA-4471", [LINE_B]: null }),
+      [`GET ${QUOTES}`]: () => ({ data: { items: [stored] } }),
+      [`PATCH ${QUOTES}/${QUOTE_A}`]: (body) => {
+        stored = { ...stored, ...(body as Partial<Quote>) };
+        return { data: { item: stored } };
+      },
+    });
+    const card = await screen.findByRole("article", { name: "Devis Négoce Alpha" });
+    expect(within(card).getByText(`+${euros(3391)} d’écart`)).toBeVisible();
+
+    await user.click(within(card).getByRole("button", { name: `Compter ${formatEUR(3391)} en port` }));
+    await waitFor(() => expect(writes()).toEqual([{ method: "PATCH", path: `${QUOTES}/${QUOTE_A}`, body: { shipping_ht_cents: 3391 } }]));
+    const row = (label: string) => within(card).getByText(label).closest("p")?.textContent?.replace(/\s/g, " ");
+    await waitFor(() => expect(row("Port :")).toBe(`Port : +${euros(3391)} HT`));
+    expect(row("Total du devis :")).toBe(`Total du devis : ${euros(26600 + 3391)} HT`);
+    expect(within(card).queryByText(/d’écart$/)).not.toBeInTheDocument();
+    expect(within(card).queryByText(/^Écart de/)).not.toBeInTheDocument();
+
+    // A discount above the lines and the shipping: the order would total less than zero.
+    const discount = within(card).getByRole("textbox", { name: "Remise HT, devis Négoce Alpha" });
+    await user.type(discount, "300");
+    await user.tab();
+    await waitFor(() => expect(row("Remise :")).toBe(`Remise : −${euros(30000)} HT`));
+    expect(within(card).getByRole("button", { name: "Retenir ce devis (Négoce Alpha)" })).toBeDisabled();
+    expect(within(card).getByText("Pour retenir ce devis, ramenez sa remise au montant de ses lignes et de son port, au plus.")).toBeVisible();
   });
 
   it("retains in one click a quote whose amount matches its lines, or gives none", async () => {

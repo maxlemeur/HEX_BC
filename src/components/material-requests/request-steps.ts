@@ -26,7 +26,8 @@ export type RequestStep = { key: RequestStepKey; label: string; state: RequestSt
 export type RequestNextAction = {
   step: RequestStepKey;
   title: string;
-  detail: string;
+  /** What the title does not already say; left out when the title says it all. */
+  detail?: string;
   /** Every line is in a purchase order: nothing is left to do on the request. */
   done?: boolean;
 };
@@ -151,8 +152,10 @@ function quotesStep(
       waiting: true,
       next: {
         step: "devis",
-        title: requested > 1 ? `Saisissez les prix des ${requested} devis attendus, à leur réception` : "Saisissez les prix du devis attendu, à sa réception",
-        detail: "Marquez le devis reçu, saisissez ses prix ligne par ligne, puis retenez-le.",
+        // One sentence: a detail repeating « saisissez les prix » said the same thing twice.
+        title: requested > 1
+          ? `À leur réception, saisissez les prix des ${requested} devis attendus, puis retenez-en un`
+          : "À sa réception, saisissez les prix du devis attendu, puis retenez-le",
       },
     };
   }

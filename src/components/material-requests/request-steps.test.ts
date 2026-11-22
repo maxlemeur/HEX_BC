@@ -59,7 +59,8 @@ describe("requestSteps", () => {
     expect(none.steps.map((step) => step.state)).toEqual(["done", "active", "upcoming"]);
 
     const waiting = requestSteps(input({ lines, quotes: [{ status: "requested" }] }));
-    expect(waiting.next.title).toBe("Saisissez les prix du devis attendu, à sa réception");
+    expect(waiting.next.title).toBe("À sa réception, saisissez les prix du devis attendu, puis retenez-le");
+    expect(waiting.next.detail).toBeUndefined();
     expect(waiting.steps[1].status).toBe("1 devis attendu");
 
     const received = requestSteps(input({ lines, quotes: [{ status: "requested" }, { status: "received" }, { status: "closed" }] }));
@@ -123,7 +124,7 @@ describe("requestSteps", () => {
 
     // Once the ready lines are in their order, the awaited quote is what is left.
     const later = requestSteps(input({ lines, quotes: [{ status: "requested" }], orders: { ready: 0, ordered: 1 } }));
-    expect(later.next).toMatchObject({ step: "devis", title: "Saisissez les prix du devis attendu, à sa réception" });
+    expect(later.next).toMatchObject({ step: "devis", title: "À sa réception, saisissez les prix du devis attendu, puis retenez-le" });
     expect(later.steps[2]).toMatchObject({ state: "active", status: "1 ligne sans bon de commande" });
   });
 

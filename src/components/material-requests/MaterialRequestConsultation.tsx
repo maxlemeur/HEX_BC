@@ -76,6 +76,7 @@ function retainBlocker(
   refusedPrices: number,
   unreadableNames: readonly string[],
   draftNames: readonly string[],
+  discountTooLarge = false,
 ): string | null {
   // What the fields show comes first: a retain applies the saved prices, never a text that cannot be read.
   if (unreadableNames.length > 0) return unreadableSentence(unreadableNames);
@@ -88,7 +89,16 @@ function retainBlocker(
       : "Pour retenir ce devis, marquez-le reçu.";
   }
   if (unpriced > 0) return `Pour retenir ce devis, saisissez le prix de chaque ligne (${missing}).`;
+  if (discountTooLarge) return "Pour retenir ce devis, ramenez sa remise au montant de ses lignes et de son port, au plus.";
   return draftNames.length > 0 ? linesNotValidated(draftNames) : null;
+}
+
+/**
+ * What a quote comes to: its lines, plus its shipping, minus its discount (the purchase order carries all three);
+ * null while a line has no amount.
+ */
+function withCharges(quote: MaterialRequestQuote, linesTotal: number | null): number | null {
+  return linesTotal === null ? null : linesTotal + (quote.shipping_ht_cents ?? 0) - (quote.discount_ht_cents ?? 0);
 }
 
 function lineAmount(
@@ -536,7 +546,7 @@ function QuoteCard({
   const ids = useId();
   const titleId = `${ids}-title`;
   const blockerId = `${ids}-blocker`;
-  const [busy, setBusy] = useState<"received" | "retain" | null>(null);
+  const [busy, setBusy] = useState<"received" | "retain" | "charge" | null>(null);
   const [error, setError] = useState<string | null>(null);
   /** The office asked to retain a quote whose amount differs from its lines: it confirms the gap first. */
   const [confirmingGap, setConfirmingGap] = useState(false);
@@ -552,21 +562,39 @@ function QuoteCard({
   const unreadableNames = asked.filter((line) => unreadable.has(line.id)).map((line) => lineTitle(line));
   // As the lines table shows them now; checked again by the hook at the retain's turn in the queue.
   const draftNames = asked.filter((line) => line.status !== "validated").map((line) => lineTitle(line));
-  const blocker = retainBlocker(quote, quotes.refusedPrices(quote.id), unreadableNames, draftNames);
   const amounts = quote.lines.map((entry) =>
     lineAmount(linesById.get(entry.line_id), entry.unit_price_ht_cents, entry.price_per),
   );
   const total = amounts.every((amount) => amount !== null)
     ? amounts.reduce<number>((sum, amount) => sum + (amount ?? 0), 0)
     : null;
+  const shipping = quote.shipping_ht_cents ?? 0;
+  const discount = quote.discount_ht_cents ?? 0;
+  const hasCharges = shipping > 0 || discount > 0;
+  const quoteTotal = withCharges(quote, total);
+  // The order that carries the discount keeps a total of at least zero (the database refuses the retain otherwise).
+  const discountTooLarge = total !== null && discount > total + shipping;
+  const blocker = retainBlocker(quote, quotes.refusedPrices(quote.id), unreadableNames, draftNames, discountTooLarge);
   const supplier = quote.supplier_name;
-  // TI-691: the amount the supplier wrote is free; the order is made from the line prices. A gap is said, and accounted
-  // for at the retain (shipping or a discount is carried to the purchase order by hand).
-  const gap = quote.amount_ht_cents !== null && total !== null ? quote.amount_ht_cents - total : null;
+  // TI-691: the amount the supplier wrote is free; the order is made from the line prices, plus the quote's shipping
+  // and minus its discount. A gap left is said, can be counted as shipping or discount, and is confirmed at the retain.
+  const gap = quote.amount_ht_cents !== null && quoteTotal !== null ? quote.amount_ht_cents - quoteTotal : null;
   const gapText =
-    gap !== null && gap !== 0 && total !== null && quote.amount_ht_cents !== null
-      ? `Écart de ${formatEUR(Math.abs(gap))} entre le montant du devis (${formatEUR(quote.amount_ht_cents)} HT) et le total des lignes (${formatEUR(total)} HT).`
+    gap !== null && gap !== 0 && quoteTotal !== null && quote.amount_ht_cents !== null
+      ? `Écart de ${formatEUR(Math.abs(gap))} entre le montant du devis (${formatEUR(quote.amount_ht_cents)} HT) et ${hasCharges ? "ses lignes, port et remise compris" : "le total des lignes"} (${formatEUR(quoteTotal)} HT).`
       : null;
+  /** The gap left becomes shipping (the supplier asks more) or a discount (less), added to what the quote holds. */
+  const countGap = async () => {
+    if (gap === null || gap === 0) return;
+    setBusy("charge");
+    setError(null);
+    const result = await quotes.saveDetails(
+      quote.id,
+      gap > 0 ? { shipping_ht_cents: shipping + gap } : { discount_ht_cents: discount - gap },
+    );
+    setBusy(null);
+    if (!result.ok) setError(result.message);
+  };
   // A gap that disappears (a price corrected) takes its pending confirmation with it.
   useEffect(() => {
     if (!gapText) setConfirmingGap(false);
@@ -656,12 +684,39 @@ function QuoteCard({
         })}
       </ul>
       </div>
-      {total !== null ? (
-        <p className="flex flex-wrap justify-between gap-2 text-sm font-semibold text-foreground"><span>Total des lignes :</span> <span>{formatEUR(total)} HT</span></p>
-      ) : null}
+      <div className="space-y-1 text-sm text-foreground">
+        {total !== null ? (
+          <p className={cn("flex flex-wrap justify-between gap-2", !hasCharges && "font-semibold")}><span>Total des lignes :</span> <span className="tabular-nums">{formatEUR(total)} HT</span></p>
+        ) : null}
+        {shipping > 0 ? (
+          <p className="flex flex-wrap justify-between gap-2"><span>Port :</span> <span className="tabular-nums">+{formatEUR(shipping)} HT</span></p>
+        ) : null}
+        {discount > 0 ? (
+          <p className="flex flex-wrap justify-between gap-2"><span>Remise :</span> <span className="tabular-nums">−{formatEUR(discount)} HT</span></p>
+        ) : null}
+        {hasCharges && quoteTotal !== null ? (
+          <p className="flex flex-wrap justify-between gap-2 font-semibold"><span>Total du devis :</span> <span className="tabular-nums">{formatEUR(quoteTotal)} HT</span></p>
+        ) : null}
+      </div>
 
       {editable ? (
-        <div className="grid min-w-0 gap-3 sm:grid-cols-[15rem_minmax(0,1fr)]">
+        <div className="grid min-w-0 gap-3 sm:grid-cols-3">
+          <label className="block min-w-0 space-y-1">
+            <span className="block text-xs text-muted-foreground">Port HT</span>
+            <CentsInput
+              label={`Port HT, devis ${supplier}`}
+              value={quote.shipping_ht_cents}
+              onCommit={(cents) => quotes.saveDetails(quote.id, { shipping_ht_cents: cents })}
+            />
+          </label>
+          <label className="block min-w-0 space-y-1">
+            <span className="block text-xs text-muted-foreground">Remise HT</span>
+            <CentsInput
+              label={`Remise HT, devis ${supplier}`}
+              value={quote.discount_ht_cents}
+              onCommit={(cents) => quotes.saveDetails(quote.id, { discount_ht_cents: cents })}
+            />
+          </label>
           <label className="block min-w-0 space-y-1">
             <span className="block text-xs text-muted-foreground">Montant HT du devis (facultatif)</span>
             <CentsInput
@@ -670,10 +725,10 @@ function QuoteCard({
               onCommit={(cents) => quotes.saveDetails(quote.id, { amount_ht_cents: cents })}
             />
           </label>
-          <label className="block min-w-0 space-y-1">
-            <span className="block text-xs text-muted-foreground">Remarques (délai, port…)</span>
+          <label className="block min-w-0 space-y-1 sm:col-span-3">
+            <span className="block text-xs text-muted-foreground">Remarques (délai…)</span>
             <TextCell
-              label={`Remarques (délai, port…), devis ${supplier}`}
+              label={`Remarques (délai…), devis ${supplier}`}
               value={quote.notes}
               maxLength={MATERIAL_REQUEST_QUOTE_NOTES_MAX}
               onCommit={(notes) => quotes.saveDetails(quote.id, { notes })}
@@ -686,10 +741,20 @@ function QuoteCard({
           {quote.notes ? <p className="break-words">Remarques : {quote.notes}</p> : null}
         </div>
       ) : null}
-      {gapText ? <div className="flex items-start gap-3 rounded-lg border border-warning-border bg-warning-subtle p-3 text-sm text-warning"><TriangleAlert aria-hidden="true" className="mt-0.5 size-5 shrink-0" /><div><p className="font-semibold">{gap !== null && gap > 0 ? "+" : ""}{formatEUR(gap ?? 0)} d’écart</p><p className="sr-only">{gapText}</p></div></div> : null}
-      {quote.amount_ht_cents !== null ? (
+      {gapText ? (
+        <div className="flex flex-wrap items-start gap-3 rounded-lg border border-warning-border bg-warning-subtle p-3 text-sm text-warning">
+          <TriangleAlert aria-hidden="true" className="mt-0.5 size-5 shrink-0" />
+          <div className="min-w-0 flex-1"><p className="font-semibold">{gap !== null && gap > 0 ? "+" : ""}{formatEUR(gap ?? 0)} d’écart</p><p className="sr-only">{gapText}</p></div>
+          {editable && gap !== null ? (
+            <Button type="button" size="sm" variant="outline" loading={busy === "charge"} disabled={busy !== null} onClick={() => void countGap()}>
+              {gap > 0 ? `Compter ${formatEUR(gap)} en port` : `Compter ${formatEUR(-gap)} en remise`}
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
+      {editable || hasCharges ? (
         <p className="text-xs text-muted-foreground">
-          Le bon de commande est fait au prix des lignes : un port ou une remise se reporte sur le bon de commande.
+          Le port et la remise s’ajoutent au bon de commande, en lignes « Port » et « Remise ».
         </p>
       ) : null}
 
@@ -748,7 +813,9 @@ function QuoteCard({
           {confirmingGap && gapText && blocker === null ? (
             <div role="alert" className="space-y-2 rounded-md border border-warning-border bg-warning-subtle p-2 text-sm text-foreground">
               <p>
-                {`Le devis annonce ${formatEUR(quote.amount_ht_cents ?? 0)} HT, ses lignes font ${formatEUR(total ?? 0)} HT. Le bon de commande sera fait au prix des lignes ; ajoutez-y le port ou la remise s’il le faut.`}
+                {hasCharges
+                  ? `Le devis annonce ${formatEUR(quote.amount_ht_cents ?? 0)} HT ; ses lignes, port et remise compris, font ${formatEUR(quoteTotal ?? 0)} HT. Le bon de commande reprendra les lignes, le port et la remise, sans cet écart.`
+                  : `Le devis annonce ${formatEUR(quote.amount_ht_cents ?? 0)} HT, ses lignes font ${formatEUR(quoteTotal ?? 0)} HT. Le bon de commande reprendra les prix des lignes, sans cet écart.`}
               </p>
               <div className="flex flex-wrap gap-2">
                 <Button
@@ -834,7 +901,7 @@ export function MaterialRequestConsultation({ editor, quotes, affaireName, headi
   const activeSupplierId = activeQuote?.supplier_id ?? freshGroups.find((group) => active === `supplier:${group.supplierId}`)?.supplierId;
   const totalOf = (quote: MaterialRequestQuote) => {
     const amounts = quote.lines.map((entry) => lineAmount(editor.linesById.get(entry.line_id), entry.unit_price_ht_cents, entry.price_per));
-    return amounts.every((amount) => amount !== null) ? amounts.reduce<number>((sum, amount) => sum + (amount ?? 0), 0) : null;
+    return withCharges(quote, amounts.every((amount) => amount !== null) ? amounts.reduce<number>((sum, amount) => sum + (amount ?? 0), 0) : null);
   };
   return (
     <section aria-labelledby={headingId} className="min-w-0 space-y-5">

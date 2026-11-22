@@ -51,6 +51,14 @@ export function supplierAlreadyConsulted(supplierName: string, forOtherLines = f
 
 export type QuoteCreationResult = { ok: true; quoteId: string } | Extract<SaveResult, { ok: false }>;
 
+/** What the quote card writes beside the prices: the supplier's total, its shipping and discount, the notes. */
+export type QuoteDetailsPatch = {
+  amount_ht_cents?: number | null;
+  shipping_ht_cents?: number | null;
+  discount_ht_cents?: number | null;
+  notes?: string | null;
+};
+
 export type MaterialRequestQuotesApi = {
   status: QuotesStatus;
   /** As the server answered them; the screen orders them itself. */
@@ -74,7 +82,7 @@ export type MaterialRequestQuotesApi = {
   setPriceUnreadable: (quoteId: string, lineId: string, unreadable: boolean) => void;
   /** Lines of the quote whose price field cannot be read, by id. */
   unreadablePrices: (quoteId: string) => readonly string[];
-  saveDetails: (quoteId: string, patch: { amount_ht_cents?: number | null; notes?: string | null }) => Promise<SaveResult>;
+  saveDetails: (quoteId: string, patch: QuoteDetailsPatch) => Promise<SaveResult>;
   markReceived: (quoteId: string) => Promise<SaveResult>;
   /**
    * Prices the request's lines from the quote; the competing quotes are closed by the server. Refused, here and at
@@ -298,7 +306,7 @@ export function useMaterialRequestQuotes(editor: MaterialRequestEditorApi): Mate
   );
 
   const saveDetails = useCallback(
-    (quoteId: string, patch: { amount_ht_cents?: number | null; notes?: string | null }) =>
+    (quoteId: string, patch: QuoteDetailsPatch) =>
       write(() => updateMaterialRequestQuote(projectId, requestId, quoteId, patch), "Le devis n’a pas pu être enregistré."),
     [projectId, requestId, write],
   );

@@ -20,6 +20,7 @@ import {
   MATERIAL_REQUEST_ORDER_NOT_READY_REASONS,
   MATERIAL_REQUEST_ORDER_NOTHING_READY,
   MATERIAL_REQUEST_ORDER_SUPPLIER_INACTIVE,
+  MATERIAL_REQUEST_ORDER_TOTAL_NEGATIVE,
   MATERIAL_REQUEST_ORDERED,
   type CreateMaterialRequestOrdersData,
   type MaterialRequestOrdersCreated,
@@ -99,6 +100,14 @@ function orderFunctionRefusal(error: SupabaseErrorLike): ApiError | null {
         : `Les fournisseurs ${names.join(", ")} sont archivés : réactivez-les`;
       return unprocessableEntity(`${subject} avant de commander ses lignes.`, { supplier_names: names },
         MATERIAL_REQUEST_ORDER_SUPPLIER_INACTIVE);
+    }
+    case MATERIAL_REQUEST_ORDER_TOTAL_NEGATIVE: {
+      const names = parseNames(error.details);
+      return unprocessableEntity(
+        `La remise du devis retenu${names.length > 0 ? ` chez ${names.join(", ")}` : ""} dépasse ce qu’il reste à commander de ce devis : annulez le brouillon qui contient ses autres lignes, puis recréez les brouillons pour les réunir.`,
+        { supplier_names: names },
+        MATERIAL_REQUEST_ORDER_TOTAL_NEGATIVE,
+      );
     }
     default:
       return null;

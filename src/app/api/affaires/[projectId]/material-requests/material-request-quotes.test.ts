@@ -133,8 +133,8 @@ function quote(id: string, supplierId: string, status: string, requestedAt: stri
   return {
     id, tenant_id: TENANT, project_id: PROJECT, request_id: REQUEST, supplier_id: supplierId, status, with_references: false,
     message: "Bonjour, pouvez-vous chiffrer ces articles ?", requested_at: requestedAt,
-    received_at: status === "requested" ? null : "2026-11-12T14:00:00.000Z", amount_ht_cents: null, notes: null,
-    retained_at: null, retained_by: null, closed_at: status === "closed" ? "2026-11-12T15:00:00.000Z" : null,
+    received_at: status === "requested" ? null : "2026-11-12T14:00:00.000Z", amount_ht_cents: null,
+    shipping_ht_cents: null, discount_ht_cents: null, notes: null, retained_at: null, retained_by: null, closed_at: status === "closed" ? "2026-11-12T15:00:00.000Z" : null,
     created_by: OWNER, created_at: requestedAt, updated_at: requestedAt, ...extra,
   };
 }
@@ -186,7 +186,8 @@ const updateQuoteInDatabase: FakeRpcHandler = (args, tables) => {
   const target = (tables.material_request_quotes ?? []).find((row) => row.id === args.p_quote_id);
   if (!target) return { data: null, error: { code: "P0002", message: "MATERIAL_REQUEST_QUOTE_NOT_FOUND" } };
   if (!OPEN.includes(String(target.status))) return { data: null, error: { code: "23514", message: "MATERIAL_REQUEST_QUOTE_READ_ONLY" } };
-  const changes = args.p_changes as { amount_ht_cents?: number | null; notes?: string | null; received?: true;
+  const changes = args.p_changes as { amount_ht_cents?: number | null; shipping_ht_cents?: number | null;
+    discount_ht_cents?: number | null; notes?: string | null; received?: true;
     lines?: Array<{ line_id: string; unit_price_ht_cents: number | null; price_per?: number }> };
   const mine = (tables.material_request_quote_lines ?? []).filter((row) => row.quote_id === target.id);
   if (changes.lines?.some((entry) => !mine.some((row) => row.line_id === entry.line_id))) {
@@ -197,6 +198,8 @@ const updateQuoteInDatabase: FakeRpcHandler = (args, tables) => {
     if (row) Object.assign(row, { unit_price_ht_cents: entry.unit_price_ht_cents, price_per: entry.price_per ?? row.price_per });
   }
   if ("amount_ht_cents" in changes) target.amount_ht_cents = changes.amount_ht_cents;
+  if ("shipping_ht_cents" in changes) target.shipping_ht_cents = changes.shipping_ht_cents;
+  if ("discount_ht_cents" in changes) target.discount_ht_cents = changes.discount_ht_cents;
   if ("notes" in changes) target.notes = changes.notes;
   if (changes.received && target.status === "requested") Object.assign(target, { status: "received", received_at: now() });
   return { data: null };
@@ -441,7 +444,7 @@ describe("recording a quote", () => {
     expect(item).toEqual({
       id: expect.any(String), request_id: REQUEST, supplier_id: DELTA, supplier_name: "Négoce Delta", status: "requested",
       with_references: false, message: createBody().message, requested_at: expect.any(String), received_at: null,
-      amount_ht_cents: null, notes: null, retained_at: null, closed_at: null,
+      amount_ht_cents: null, shipping_ht_cents: null, discount_ht_cents: null, notes: null, retained_at: null, closed_at: null,
       // In the order of the request, whatever the order given.
       lines: [{ line_id: LINE_TUBE, unit_price_ht_cents: null, price_per: 1 }, { line_id: LINE_VALVE, unit_price_ht_cents: null, price_per: 1 }],
       files: [],
@@ -575,7 +578,21 @@ describe("pricing a quote", () => {
     });
   });
 
+  it("writes the shipping and the discount the supplier quotes, and clears them with null", async () => {
+    const fake = seed(OWNER, "engineer");
+    const written = await call(quoteRoute.PATCH, "PATCH", ofQuote(QUOTE_ALPHA), { shipping_ht_cents: 3391, discount_ht_cents: 500 });
+    expect(written.status).toBe(200);
+    expect(fake.rpcArgs.find((entry) => entry.name === "update_material_request_quote")?.args.p_changes).toEqual({
+      shipping_ht_cents: 3391, discount_ht_cents: 500,
+    });
+    expect((written.data as { item: MaterialRequestQuote }).item).toMatchObject({ shipping_ht_cents: 3391, discount_ht_cents: 500, amount_ht_cents: 11800 });
+    const cleared = await call(quoteRoute.PATCH, "PATCH", ofQuote(QUOTE_ALPHA), { shipping_ht_cents: null });
+    expect((cleared.data as { item: MaterialRequestQuote }).item).toMatchObject({ shipping_ht_cents: null, discount_ht_cents: 500 });
+  });
+
   it.each<[string, unknown]>([
+    ["a negative shipping", { shipping_ht_cents: -1 }],
+    ["a discount in fractions of a cent", { discount_ht_cents: 12.5 }],
     ["a fraction of a cent", { amount_ht_cents: 1250.5 }],
     ["a negative price", { lines: [{ line_id: LINE_TUBE, unit_price_ht_cents: -1 }] }],
     ["a price in euros as text", { lines: [{ line_id: LINE_TUBE, unit_price_ht_cents: "18,90" }] }],
@@ -766,6 +783,20 @@ describe("retaining a quote", () => {
     const { status, error } = await call(retainRoute.POST, "POST", ofQuote(QUOTE_ALPHA));
     expect([status, error?.code, error?.details]).toEqual([422, "MATERIAL_REQUEST_QUOTE_LINES_UNPRICED", { positions: [2], line_ids: [LINE_TEE] }]);
   });
+
+  it("refuses with a sentence a discount larger than the quote's lines and shipping, which the database holds", async () => {
+    const fake = seed(OWNER, "engineer");
+    Object.assign(fake.tables.material_request_quotes.find((row) => row.id === QUOTE_ALPHA) ?? {}, { shipping_ht_cents: 900, discount_ht_cents: 999999 });
+    fake.supabase.rpc = (async () => ({
+      data: null, error: { code: "23514", message: "MATERIAL_REQUEST_QUOTE_DISCOUNT_TOO_LARGE", details: null, hint: null },
+    })) as typeof fake.supabase.rpc;
+    const { status, error } = await call(retainRoute.POST, "POST", ofQuote(QUOTE_ALPHA));
+    expect([status, error?.code, error?.message, error?.details]).toEqual([
+      422, "MATERIAL_REQUEST_QUOTE_DISCOUNT_TOO_LARGE",
+      "La remise de ce devis dépasse le montant de ses lignes et de son port : corrigez-la avant de le retenir.",
+      { shipping_ht_cents: 900, discount_ht_cents: 999999 },
+    ]);
+  });
 });
 
 describe("retained and closed quotes are read-only", () => {
@@ -828,7 +859,7 @@ describe("the list of quotes", () => {
     expect(items.find((entry) => entry.id === QUOTE_ALPHA)).toEqual({
       id: QUOTE_ALPHA, request_id: REQUEST, supplier_id: ALPHA, supplier_name: "Négoce Alpha", status: "received", with_references: true,
       message: "Bonjour, pouvez-vous chiffrer ces articles ?", requested_at: "2026-11-12T09:00:00.000Z", received_at: "2026-11-12T14:00:00.000Z",
-      amount_ht_cents: 11800, notes: null, retained_at: null, closed_at: null,
+      amount_ht_cents: 11800, shipping_ht_cents: null, discount_ht_cents: null, notes: null, retained_at: null, closed_at: null,
       lines: [{ line_id: LINE_ELBOW, unit_price_ht_cents: 1250, price_per: 1 }, { line_id: LINE_TEE, unit_price_ht_cents: 3400, price_per: 1 }],
       files: [{
         id: ALPHA_PDF, request_id: REQUEST, quote_id: QUOTE_ALPHA, file_name: "devis-alpha.pdf", mime_type: "application/pdf",

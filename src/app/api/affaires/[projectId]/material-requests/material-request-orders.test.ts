@@ -15,6 +15,7 @@ import {
   MATERIAL_REQUEST_ORDER_KEY_TAKEN,
   MATERIAL_REQUEST_ORDER_NOTHING_READY,
   MATERIAL_REQUEST_ORDER_SUPPLIER_INACTIVE,
+  MATERIAL_REQUEST_ORDER_TOTAL_NEGATIVE,
   MATERIAL_REQUEST_ORDERED,
   type MaterialRequestOrdersCreated,
   type MaterialRequestOrdersSummary,
@@ -406,6 +407,19 @@ describe("7. refusals in French", () => {
       422, MATERIAL_REQUEST_ORDER_SUPPLIER_INACTIVE, { supplier_names: ["Négoce Beta"] },
     ]);
     expect(answer.error?.message).toBe("Le fournisseur Négoce Beta est archivé : réactivez-le avant de commander ses lignes.");
+  });
+
+  it("names the supplier whose retained quote's discount exceeds what its draft holds of it", async () => {
+    seed(OWNER, "engineer", { rpc: { create_material_request_purchase_orders: (() => ({
+      data: null, error: { code: "23514", message: MATERIAL_REQUEST_ORDER_TOTAL_NEGATIVE, details: JSON.stringify(["Négoce Alpha"]) },
+    })) satisfies FakeRpcHandler } });
+    const answer = await call(ordersRoute.POST, "POST", inRequest, { idempotency_key: KEY });
+    expect([answer.status, answer.error?.code, answer.error?.details]).toEqual([
+      422, MATERIAL_REQUEST_ORDER_TOTAL_NEGATIVE, { supplier_names: ["Négoce Alpha"] },
+    ]);
+    expect(answer.error?.message).toBe(
+      "La remise du devis retenu chez Négoce Alpha dépasse ce qu’il reste à commander de ce devis : annulez le brouillon qui contient ses autres lignes, puis recréez les brouillons pour les réunir.",
+    );
   });
 
   it.each([
