@@ -3,6 +3,7 @@ import "server-only";
 import { createHash } from "node:crypto";
 
 import { readTenantCalcPolicy } from "@/lib/estimates/calc-policy-server";
+import { prepareCanonicalEstimateCreation } from "@/lib/estimates/canonical-v2-creation";
 import { requireEstimateEngineVersion } from "@/lib/estimates/engine/capabilities";
 import { DEFAULT_MAX_SECTION_DEPTH } from "@/lib/estimates/hierarchy";
 import { mapSupabaseError } from "@/lib/http/api-response";
@@ -19,16 +20,20 @@ import {
 import { readItemSendEarlierState, readItemSendFacts } from "@/lib/takeoff/item-send-facts-server";
 import {
   itemSendEngineFits,
+  itemSendPlanCanonical,
   planTakeoffItemSend,
   type ItemSendBlockerReason,
   type ItemSendBreakdown,
   type ItemSendChoice,
   type ItemSendDestinationState,
   type ItemSendDraftLine,
+  type ItemSendInput,
   type ItemSendLocationField,
   type ItemSendNotSentReason,
   type ItemSendOption,
+  type ItemSendPartNotSent,
   type ItemSendPlanLocation,
+  type ItemSendStamps,
   type ItemSendToResolveKind,
 } from "@/lib/takeoff/item-send-plan";
 import { projectItemSendRules, type ItemSendRuleEffectKind } from "@/lib/takeoff/item-send-rules";
@@ -37,7 +42,9 @@ import type { AnyTakeoffLaunchManifest, TakeoffPlanLaunchManifest } from "@/lib/
 import { listActiveTakeoffMappingRules } from "@/lib/takeoff/mapping-rules-server";
 import { readPlanPagesAlreadyInEstimate } from "@/lib/takeoff/page-contributions-server";
 import { readTakeoffJobPlanLocations } from "@/lib/takeoff/plan-location-server";
+import { TakeoffSendContextSchema } from "@/lib/takeoff/rules/recompute-server";
 import { takeoffJobIdSchema } from "@/lib/takeoff/schemas";
+import { firstDraftSettings } from "@/lib/takeoff/send-server";
 import { resolveTakeoffSendDestinations, type TakeoffSendVersion } from "@/lib/takeoff/send-plan";
 import { parseWithSchema, TAKEOFF_TENANT_ADMIN_ROLE } from "@/lib/takeoff/server-helpers";
 
@@ -46,6 +53,7 @@ import { parseWithSchema, TAKEOFF_TENANT_ADMIN_ROLE } from "@/lib/takeoff/server
 // quantities before and after, what it leaves out and why, and what the member must resolve first. It writes nothing:
 // no version, no section, no line, no receipt, no staged command. Its confirmation (and the writer that checks every
 // fact again under its locks) comes with a later pull request; the send of today's takeoffs is unchanged.
+// The right to write the affaire is checked first: without it, the member reads its reason and nothing else.
 
 type Context = AuthenticatedTakeoffContext & { tenantRole: string };
 type Service = ReturnType<typeof createServiceRoleClient>;
@@ -63,11 +71,12 @@ const BLOCKER_MESSAGES: Record<ItemSendBlockerReason, string> = {
     + "devis du moteur 3. Rien n’est écrit.",
   dpgf_import_required: "La liste des postes vient du DPGF, mais ce devis n’en contient aucune ligne : confirmez d’abord l’import du DPGF "
     + "depuis les documents de l’affaire, puis revenez à cet aperçu. Rien n’est importé ici.",
-  no_line: "Aucun poste de ce plan n’est à envoyer : chacun est écarté, non trouvé ou à compléter.",
+  no_line: "Aucun poste de ce plan n’est à envoyer : chacun est écarté, à accepter, non trouvé ou à compléter.",
 };
 
 const NOT_SENT_MESSAGES: Record<ItemSendNotSentReason, string> = {
   set_aside: "Écarté dans le tableau des postes.",
+  not_accepted: "Mesure à accepter dans le tableau des postes : seul ce qui est retenu part au devis.",
   not_found: "Non trouvé sur ce plan : rien n’est envoyé, jamais zéro.",
   uncertain: "Incertain : à compléter par une saisie ou à remesurer.",
   empty: "Aucune quantité mesurée à envoyer.",
@@ -80,17 +89,24 @@ const NOT_SENT_MESSAGES: Record<ItemSendNotSentReason, string> = {
   entry_suspended: "La quantité saisie est inférieure à la quantité retenue : la ligne n’est pas écrite tant qu’une décision ne la tranche pas.",
 };
 
+const PART_MESSAGES: Record<ItemSendPartNotSent["reason"], string> = {
+  ...NOT_SENT_MESSAGES,
+  page_held: "Sur une page déjà au devis par une autre analyse : en attente de sa décision de page.",
+};
+
 const TO_RESOLVE_MESSAGES: Record<ItemSendToResolveKind, string> = {
-  review_required: "Ce poste porte une anomalie que personne n’a tranchée : acceptez-le dans le tableau des postes ou laissez-le de côté.",
-  target_missing: "La ligne du devis de ce poste est introuvable (supprimée, déliée ou d’un import antérieur sans filiation prouvée) : "
-    + "choisissez la ligne, ou laissez le poste de côté.",
+  target_missing: "La ligne du devis de ce poste est introuvable (supprimée, déliée, d’un import antérieur sans filiation prouvée, ou déjà "
+    + "alimentée pour un autre poste) : choisissez la ligne, ou laissez le poste de côté.",
   target_multiple: "Plusieurs lignes du devis viennent de la même ligne du DPGF : choisissez celle qui reçoit le métré.",
-  unit_conflict: "L’unité de la ligne du devis diffère de celle de la mesure : la ligne n’est pas alimentée.",
+  identity_conflict: "La ligne du devis porte une autre identité quantitative (unité, base, réseau, matière ou diamètre) que cette "
+    + "mesure : elle n’est pas alimentée.",
   entered_quantity: "La quantité de cette ligne a été saisie à la main : conservez la saisie ou retenez la quantité du métré.",
   breakdown_mixed: "Ce poste est déjà envoyé dans ce devis avec un autre découpage : envoyez ce plan avec le même découpage.",
   page_decision: "Cette page est déjà au devis par une autre analyse : elle ne compte pas deux fois. Sa décision (remplacer ou garder "
     + "les deux) se prend à la confirmation ; d’ici là ses apports attendent.",
   section_depth: "La section de ce poste dépasse la profondeur des sections du devis : choisissez « Ensemble » ou laissez-le de côté.",
+  quantity_unwritable: "Le devis ne peut pas porter cette quantité telle quelle (trois décimales au plus, sous son plafond) : corrigez la "
+    + "saisie ou laissez le poste de côté ; rien n’est arrondi en silence.",
 };
 
 const RULE_MESSAGES: Record<ItemSendRuleEffectKind, string> = {
@@ -102,16 +118,6 @@ const RULE_MESSAGES: Record<ItemSendRuleEffectKind, string> = {
   assembly_indicated: "Règle « Remplacer par un ouvrage » : la quantité du poste est gardée, l’ouvrage n’est qu’indiqué.",
 };
 
-function canonicalJson(value: unknown): string {
-  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
-  if (value !== null && typeof value === "object") {
-    return `{${Object.entries(value as Record<string, unknown>).filter(([, entry]) => entry !== undefined)
-      .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
-      .map(([key, entry]) => `${JSON.stringify(key)}:${canonicalJson(entry)}`).join(",")}}`;
-  }
-  return JSON.stringify(value) ?? "null";
-}
-
 function failed(error: { message?: string } | null, message: string, jobId: string): never {
   throw toTakeoffError(mapSupabaseError(error as never, message), { fallbackCode: TakeoffErrorCode.INTERNAL_ERROR, retryable: false, jobId });
 }
@@ -120,18 +126,19 @@ const conflict = (jobId: string, guard: string, message: string, retryable = fal
   code: TakeoffErrorCode.CONFLICT, message, details: { guard }, retryable, jobId });
 
 type PreviewJob = { id: string; project_id: string; estimate_version_id: string | null; status: string; launch_request_id: string | null;
-  launch_unit_key: string | null };
+  launch_unit_key: string | null; sources: unknown };
 
 async function readPreviewJob(ctx: Context, jobId: string): Promise<PreviewJob> {
   const { data, error } = await ctx.supabase.from("takeoff_jobs")
-    .select("id, project_id, estimate_version_id, status, launch_request_id, launch_unit_key")
+    .select("id, project_id, estimate_version_id, status, launch_request_id, launch_unit_key, "
+      + "sources:preparation_snapshot->preparation->sources" as never)
     .eq("tenant_id", ctx.tenantId).eq("id", jobId).maybeSingle();
   if (error) failed(error, "Impossible de charger le métré.", jobId);
   if (!data) {
     throw new TakeoffError({ status: 404, code: TakeoffErrorCode.TAKEOFF_JOB_NOT_FOUND, message: "Job takeoff introuvable.",
       details: { job_id: jobId }, retryable: false, jobId });
   }
-  return data as PreviewJob;
+  return data as unknown as PreviewJob;
 }
 
 /** The plan this job read and the list it was asked about, from its request's sealed manifest (lot 3 format 2, lot 4 order). */
@@ -147,11 +154,21 @@ async function readSealedOrder(service: Service, tenantId: string, job: PreviewJ
   const plans = manifest as TakeoffPlanLaunchManifest;
   const unit = plans.units.find((candidate) => candidate.key === job.launch_unit_key);
   const plan = unit ? plans.plans.find((candidate) => candidate.entry_key === unit.plans[0]) : undefined;
-  if (!plan) {
+  if (!unit || !plan) {
     throw new TakeoffError({ status: 500, code: TakeoffErrorCode.INTERNAL_ERROR, retryable: false, jobId: job.id,
       message: "La demande de ce métré ne décrit pas le plan qu’il a lu.", details: { guard: "item_send_unit_missing" } });
   }
-  return { list: manifest.order.list, plan };
+  return { list: manifest.order.list, plan, unit };
+}
+
+/** The plan's document as the page guard compares it: its copy, its bytes, and the plan reference its preparation gives. */
+function planDocument(job: PreviewJob, plan: { plan_file_id: string; content_sha256: string; name: string }) {
+  const sources = Array.isArray(job.sources) ? job.sources as Array<Record<string, unknown>> : [];
+  const source = sources.find((entry) => typeof entry.document_id === "string"
+    && entry.document_id.toLowerCase() === plan.plan_file_id.toLowerCase());
+  const reference = typeof source?.logical_document_id === "string" && source.logical_document_id.trim()
+    ? source.logical_document_id.trim() : null;
+  return { plan_file_id: plan.plan_file_id, content_hash: plan.content_sha256, logical_document_id: reference, file_name: plan.name };
 }
 
 type PreviewVersion = TakeoffSendVersion & { calc_engine_version: number; max_section_depth: number };
@@ -173,53 +190,60 @@ async function readVersions(service: Service, tenantId: string, projectId: strin
 
 type DraftRow = { id: string; parent_id: string | null; item_type: string; position: number | null; title: string | null;
   unit_code: string | null; pricing_status: string | null; quantity: number | string | null; updated_at: string; source_provider: string | null;
-  mapped_row_id: string | null; import_id: string | null; dpgf_source_quantity: unknown; quantity_policy: unknown };
+  mapped_row_id: string | null; dpgf_source_quantity: unknown; quantity_policy: unknown };
 
-/** The draft's sections and lines, read with the member's session: only the columns the plan reads, never a price. */
-async function readDraft(ctx: Context, projectId: string, versionId: string, jobId: string) {
+/**
+ * The draft's sections and lines, read with the member's session: only the columns the plan reads, never a price. The
+ * raw row of each DPGF line comes from the database's lineage reader (public.read_estimate_dpgf_raw_rows): a live mapped
+ * row of the import the line names, or the lineage recorded when a remapping deleted it. No lineage, no proof.
+ */
+async function readDraft(ctx: Context, service: Service, projectId: string, versionId: string, jobId: string) {
   const { data, error } = await readAllRows(() => ctx.supabase.from("estimate_items")
-    .select("id, parent_id, item_type, position, title, unit_code, pricing_status, quantity, updated_at, source_provider, "
-      + "mapped_row_id:source_metadata->>mapped_row_id, import_id:source_metadata->>import_id, "
-      + "dpgf_source_quantity:source_metadata->dpgf_source_quantity, quantity_policy:source_metadata->takeoff_quantity_policy",
-    { count: "exact" })
+    .select(("id, parent_id, item_type, position, title, unit_code, pricing_status, quantity, updated_at, source_provider, "
+      + "mapped_row_id:source_metadata->>mapped_row_id, dpgf_source_quantity:source_metadata->dpgf_source_quantity, "
+      + "quantity_policy:source_metadata->takeoff_quantity_policy") as never, { count: "exact" })
     .eq("tenant_id", ctx.tenantId).eq("version_id", versionId), { pageSize: 1000 });
   if (error) failed(error as { message?: string }, "Impossible de lire le brouillon de devis.", jobId);
   const rows = (data ?? []) as unknown as DraftRow[];
-  const dpgfRows = rows.filter((row) => row.item_type === "line" && row.source_provider === "dpgf");
-  const mappedIds = [...new Set(dpgfRows.flatMap((row) => (row.mapped_row_id ? [row.mapped_row_id] : [])))];
-  // The raw row of each DPGF line, proven by its mapped row of the same import of this affaire: a remapping renews the
-  // mapped row, never the raw one.
-  const lineage = new Map<string, { import_id: string; raw_row_id: string | null }>();
-  if (mappedIds.length > 0) {
-    const { data: mapped, error: mappedError } = await readAllRowsInChunks(mappedIds, (chunk) => ctx.supabase.from("dpgf_rows_mapped")
-      .select("id, import_id, raw_row_id, dpgf_imports!inner(project_id)", { count: "exact" })
-      .eq("tenant_id", ctx.tenantId).eq("dpgf_imports.project_id", projectId).in("id", chunk));
-    if (mappedError) failed(mappedError as { message?: string }, "Impossible de lire la provenance des lignes du DPGF.", jobId);
-    for (const row of (mapped ?? []) as Array<{ id: string; import_id: string; raw_row_id: string | null }>) lineage.set(row.id, row);
-  }
+  const { data: lineage, error: lineageError } = await service.rpc("read_estimate_dpgf_raw_rows" as never,
+    { p_tenant_id: ctx.tenantId, p_version_id: versionId } as never);
+  if (lineageError) failed(lineageError, "Impossible de lire la provenance des lignes du DPGF.", jobId);
+  const proven = new Map(((lineage ?? []) as Array<{ estimate_item_id: string; import_id: string; mapped_row_id: string; raw_row_id: string }>)
+    .map((row) => [row.estimate_item_id, row]));
+  const mappedIds = [...new Set(rows.flatMap((row) => (row.item_type === "line" && row.source_provider === "dpgf" && row.mapped_row_id
+    && (row.dpgf_source_quantity === undefined || row.dpgf_source_quantity === null) ? [row.mapped_row_id] : [])))];
   const facts = mappedIds.length > 0
     ? await readDpgfMappedFacts({ supabase: ctx.supabase, tenantId: ctx.tenantId, projectId, mappedIds }) : new Map();
   const sections = rows.filter((row) => row.item_type === "section").map((row) => ({ id: row.id, parentId: row.parent_id,
     position: row.position, title: row.title }));
   const lines: ItemSendDraftLine[] = rows.filter((row) => row.item_type === "line").map((row) => {
-    const mapped = row.mapped_row_id ? lineage.get(row.mapped_row_id) : undefined;
-    const importId = row.import_id ?? mapped?.import_id ?? null;
+    const lineageRow = proven.get(row.id);
     const stated = typeof row.dpgf_source_quantity === "number" && Number.isFinite(row.dpgf_source_quantity) ? row.dpgf_source_quantity : null;
     return {
       id: row.id, parentId: row.parent_id, title: row.title, unitCode: row.unit_code, pricingStatus: row.pricing_status,
       quantity: Number(row.quantity ?? 0), updatedAt: row.updated_at,
       dpgf: row.source_provider === "dpgf" ? {
-        importId,
+        importId: lineageRow?.import_id ?? null,
         mappedRowId: row.mapped_row_id,
-        // Proven only when the mapped row belongs to the import the line names.
-        rawRowId: mapped && mapped.import_id === importId ? mapped.raw_row_id : null,
+        rawRowId: lineageRow?.raw_row_id ?? null,
         reference: row.dpgf_source_quantity !== undefined && row.dpgf_source_quantity !== null ? stated
           : (row.mapped_row_id ? facts.get(row.mapped_row_id)?.quantity ?? null : null),
         composition: readStoredDpgfComposition({ takeoff_quantity_policy: row.quantity_policy }),
       } : null,
     };
   });
-  return { sections, lines };
+  // The generation of the DPGF imports the draft's lines come from: a change of one refuses the confirmation.
+  const importIds = [...new Set(lines.flatMap((line) => (line.dpgf?.importId ? [line.dpgf.importId] : [])))];
+  const dpgf: Array<ItemSendStamps["dpgf"][number]> = [];
+  if (importIds.length > 0) {
+    const { data: imports, error: importsError } = await readAllRowsInChunks(importIds, (chunk) => ctx.supabase.from("dpgf_imports")
+      .select("id, updated_at, status, row_count", { count: "exact" }).eq("tenant_id", ctx.tenantId).eq("project_id", projectId).in("id", chunk));
+    if (importsError) failed(importsError as { message?: string }, "Impossible de lire les imports du DPGF.", jobId);
+    for (const row of (imports ?? []) as Array<{ id: string; updated_at: string; status: string; row_count: number }>) {
+      dpgf.push({ importId: row.id, updatedAt: row.updated_at, status: row.status, rowCount: row.row_count });
+    }
+  }
+  return { sections, lines, dpgf };
 }
 
 const LOCATION_STATES = new Set<ItemSendLocationField["state"]>(["proposed", "confirmed", "corrected", "unknown", "multiple"]);
@@ -232,6 +256,48 @@ async function readPlanLocation(jobId: string, planFileId: string): Promise<Item
   const field = (view: { value: string | null; state: string }): ItemSendLocationField => ({ value: view.value,
     state: LOCATION_STATES.has(view.state as ItemSendLocationField["state"]) ? view.state as ItemSendLocationField["state"] : "unknown" });
   return { building: field(plan.location.building), level: field(plan.location.level), generation: plan.annotation?.revision ?? null };
+}
+
+/**
+ * Whether some location of the affaire an operator confirmed names a building (lot 3's stored corrections). A building
+ * an operator kept from a plan's reading is counted too: the reading's value is not stored, so « Par niveau » errs toward
+ * « Non réparti » rather than toward a level without its building.
+ */
+async function affaireNamesBuilding(ctx: Context, projectId: string, jobId: string) {
+  const { data, error } = await ctx.supabase.from("takeoff_plan_locations").select("id").eq("tenant_id", ctx.tenantId)
+    .eq("project_id", projectId).in("building_choice", ["value", "reading"]).limit(1);
+  if (error) failed(error, "Impossible de lire les localisations de l’affaire.", jobId);
+  return (data ?? []).length > 0;
+}
+
+/** The stamps the writer compares again under its locks: the job's, the draft's peers and lot 3's send context. */
+async function readStamps(service: Service, ctx: Context, input: { projectId: string; jobId: string; versionId: string | null }) {
+  const { data: job, error: jobError } = await service.rpc("takeoff_rule_job_stamp" as never,
+    { p_tenant_id: ctx.tenantId, p_project_id: input.projectId, p_job_id: input.jobId } as never);
+  if (jobError || (job !== null && typeof job !== "string")) failed(jobError, "Impossible de lire l’état du métré.", input.jobId);
+  let peers: string | null = null;
+  if (input.versionId) {
+    const { data, error } = await service.rpc("takeoff_send_peers_stamp" as never,
+      { p_tenant_id: ctx.tenantId, p_version_id: input.versionId } as never);
+    if (error || typeof data !== "string") failed(error, "Impossible de lire l’état du devis.", input.jobId);
+    peers = data;
+  }
+  const { data: context, error: contextError } = await service.rpc("read_takeoff_send_context" as never, { p_tenant_id: ctx.tenantId,
+    p_project_id: input.projectId, p_job_id: input.jobId, p_version_id: input.versionId } as never);
+  const parsed = TakeoffSendContextSchema.safeParse(context);
+  if (contextError || !parsed.success) failed(contextError, "Impossible de lire les autres plans de l’affaire.", input.jobId);
+  return { job: job as string | null, peers, context: parsed.data.stamps };
+}
+
+/** The ouvrages the rules point to, by name. */
+async function assemblyNames(ctx: Context, ids: readonly string[], jobId: string) {
+  const names = new Map<string, string>();
+  if (ids.length === 0) return names;
+  const { data, error } = await readAllRowsInChunks([...new Set(ids)], (chunk) => ctx.supabase.from("estimate_assemblies")
+    .select("id, name", { count: "exact" }).eq("tenant_id", ctx.tenantId).in("id", chunk));
+  if (error) failed(error as { message?: string }, "Impossible de lire les ouvrages des règles.", jobId);
+  for (const row of (data ?? []) as Array<{ id: string; name: string }>) names.set(row.id, row.name);
+  return names;
 }
 
 const toChoice = (choice: NonNullable<ItemSendPreviewRequest["resolutions"]>[number]["choice"]): ItemSendChoice =>
@@ -247,10 +313,26 @@ export async function previewTakeoffItemSend(jobId: string, body: unknown): Prom
   return computeItemSendPreview(ctx, normalizedJobId, request);
 }
 
+/** A preview that says its reason and nothing else of the takeoff, its list or the affaire's estimates. */
+function reasonOnly(jobId: string, reason: ItemSendBlockerReason, engine: number | null = null): ItemSendPreviewResponse {
+  return { job_id: jobId, plan: null, list: null, destinations: [], destination: null, destination_label: null, version_created: false,
+    engine, breakdown: "together", blocked: { reason, message: BLOCKER_MESSAGES[reason], href: null }, sections: [], lines: [], not_sent: [],
+    parts_not_sent: [], to_resolve: [], not_added: [], page_contributions: [], rules: [], confirmable: false, focus_item_id: null,
+    plan_digest: null };
+}
+
 async function computeItemSendPreview(ctx: Context, jobId: string, request: ItemSendPreviewRequest): Promise<ItemSendPreviewResponse> {
   const service = createServiceRoleClient();
   const job = await readPreviewJob(ctx, jobId);
-  const { list, plan } = await readSealedOrder(service, ctx.tenantId, job);
+  // The right to write the affaire first: a member without it learns its reason, not the kind of its takeoff.
+  const { data: project, error: projectError } = await service.from("estimate_projects")
+    .select("id, user_id, is_archived").eq("tenant_id", ctx.tenantId).eq("id", job.project_id).maybeSingle();
+  if (projectError || !project) failed(projectError, "Impossible de lire l’affaire du métré.", jobId);
+  const canEdit = !project.is_archived && (ctx.tenantRole === TAKEOFF_TENANT_ADMIN_ROLE
+    || (ctx.tenantRole === "engineer" && project.user_id === ctx.userId));
+  if (!canEdit) return reasonOnly(jobId, "read_only");
+
+  const { list, plan, unit } = await readSealedOrder(service, ctx.tenantId, job);
   const facts = await readItemSendFacts(ctx, { jobId, projectId: job.project_id,
     list: { revisionId: list.revision_id, revision: list.revision, itemCount: list.item_count } });
   if (facts.state === "not_stored") {
@@ -258,26 +340,23 @@ async function computeItemSendPreview(ctx: Context, jobId: string, request: Item
       + "leur envoi au devis arrive avec une prochaine version. Rien n’est écrit.");
   }
   const reading = facts.reading;
-
-  const { data: project, error: projectError } = await service.from("estimate_projects")
-    .select("id, user_id, is_archived").eq("tenant_id", ctx.tenantId).eq("id", job.project_id).maybeSingle();
-  if (projectError || !project) failed(projectError, "Impossible de lire l’affaire du métré.", jobId);
-  const canEdit = !project.is_archived && (ctx.tenantRole === TAKEOFF_TENANT_ADMIN_ROLE
-    || (ctx.tenantRole === "engineer" && project.user_id === ctx.userId));
   const jobFacts = { id: jobId, status: job.status, sent: job.status === "applied" || job.estimate_version_id !== null, canEdit };
   const scopeItems = reading.items.filter((item) => reading.scope.includes(item.id));
-  const base = {
-    job: jobFacts, plan: { key: plan.logical_id, name: plan.name, location: null as ItemSendPlanLocation | null },
+  const base: Omit<ItemSendInput, "destination"> = {
+    job: jobFacts, plan: { key: plan.logical_id, name: plan.name, location: null },
     list: { revisionId: list.revision_id, revision: list.revision }, items: reading.items, scope: reading.scope, answers: reading.answers,
     affaireEntries: reading.affaireEntries, earlier: { targets: [], sections: [] }, pagesInEstimate: [], rules: new Map(),
-    breakdown: request.breakdown ?? "together" as ItemSendBreakdown,
+    breakdown: request.breakdown ?? "together", affaireNamesBuilding: false,
+    stamps: { job: null, peers: null, context: null, dpgf: [], firstDraftSettings: null },
     resolutions: (request.resolutions ?? []).map((resolution) => ({ key: resolution.key, choice: toChoice(resolution.choice) })),
   };
+  const shown = { plan: { key: plan.logical_id, name: plan.name }, list: { revision_id: list.revision_id, revision: list.revision },
+    projectId: job.project_id };
 
-  // A takeoff that cannot be sent from here gets its reason only: nothing of the affaire's estimates is read for it.
-  if (jobFacts.sent || job.status !== "completed" || !canEdit) {
+  // A takeoff already sent or not finished gets its reason: nothing of the affaire's estimates is read for it.
+  if (jobFacts.sent || job.status !== "completed") {
     const blocked = planTakeoffItemSend({ ...base, destination: { kind: "unresolved", reason: "choose_destination" } });
-    return respond(jobId, plan, list, blocked, { destinations: [], destination: null, label: null, versionCreated: false, projectId: job.project_id });
+    return respond(jobId, shown, blocked, { destinations: [], destination: null, label: null, versionCreated: false }, new Map(), null);
   }
 
   const versions = await readVersions(service, ctx.tenantId, job.project_id, jobId);
@@ -301,58 +380,80 @@ async function computeItemSendPreview(ctx: Context, jobId: string, request: Item
       && option.destination.version_id.toLowerCase() === chosen.version_id.toLowerCase())))?.label ?? null : null;
 
   let destination: ItemSendDestinationState;
-  let earlier = base.earlier as { targets: Awaited<ReturnType<typeof readItemSendEarlierState>>["targets"];
-    sections: Awaited<ReturnType<typeof readItemSendEarlierState>>["sections"] };
-  let pagesInEstimate: Array<{ page: number | null; earlierJobIds: string[]; estimateItemIds: string[] }> = [];
+  let earlier: ItemSendInput["earlier"] = base.earlier;
+  let pagesInEstimate: ItemSendInput["pagesInEstimate"] = [];
+  let stamps: ItemSendStamps = base.stamps;
+  let versionId: string | null = null;
   if (!chosen) {
     destination = { kind: "unresolved", reason: options.some((option) => option.destination.kind === "version_copy") ? "issued_only" : "choose_destination" };
   } else if (chosen.kind === "first_draft") {
     const policy = await readTenantCalcPolicy(ctx.supabase, ctx.tenantId);
-    destination = { kind: "first_draft", engine: policy.engine, maxSectionDepth: DEFAULT_MAX_SECTION_DEPTH };
+    let settings: Record<string, unknown> | null = null;
+    let maxSectionDepth = DEFAULT_MAX_SECTION_DEPTH;
+    if (itemSendEngineFits(policy.engine)) {
+      // The first draft as « Créer un devis » would create it: its settings are part of what a confirmation compares.
+      const prepared = await prepareCanonicalEstimateCreation({ supabase: ctx.supabase, tenantId: ctx.tenantId, actorUserId: ctx.userId,
+        project: { kind: "existing", id: job.project_id }, source: { kind: "blank", importId: null }, expectedCalcEngineVersion: policy.engine });
+      const payload = prepared.versionPayload as Record<string, unknown>;
+      settings = firstDraftSettings(payload, policy);
+      if (typeof payload.max_section_depth === "number") maxSectionDepth = payload.max_section_depth;
+    }
+    destination = { kind: "first_draft", engine: policy.engine, maxSectionDepth };
+    stamps = { ...stamps, firstDraftSettings: settings };
   } else {
     const version = versions.find((candidate) => candidate.id.toLowerCase() === chosen.version_id.toLowerCase())!;
+    versionId = version.id;
     const engine = requireEstimateEngineVersion(version);
-    const draft = await readDraft(ctx, job.project_id, version.id, jobId);
+    const draft = await readDraft(ctx, service, job.project_id, version.id, jobId);
     destination = { kind: "existing_draft", versionId: version.id, engine, maxSectionDepth: version.max_section_depth,
       sections: draft.sections, lines: draft.lines };
+    stamps = { ...stamps, dpgf: draft.dpgf };
     if (itemSendEngineFits(engine)) {
       earlier = await readItemSendEarlierState(ctx, { projectId: job.project_id, versionId: version.id });
-      const pages = [...new Set(reading.answers.flatMap((answer) => answer.observations.flatMap((observation) =>
-        (observation.role === "contribution" && observation.page !== null ? [observation.page] : []))))];
-      if (pages.length > 0) {
-        const found = await readPlanPagesAlreadyInEstimate(ctx, { jobId, versionId: version.id, pages,
-          document: { plan_file_id: plan.plan_file_id, content_hash: plan.content_sha256, logical_document_id: null, file_name: plan.name } });
-        pagesInEstimate = found.map((page) => ({ page: page.page, earlierJobIds: page.earlier.map((entry) => entry.job_id),
-          estimateItemIds: page.earlier.flatMap((entry) => entry.estimate_item_ids) }));
-      }
+      // Every page of the plan the answers stand on (an entry stands on the plan's own pages), always read: a page an
+      // earlier analysis brought holds any part of this plan.
+      const unitPages = unit.pages.length > 0 ? unit.pages
+        : unit.page_count ? Array.from({ length: unit.page_count }, (_, index) => index + 1) : [];
+      const pages = [...new Set([...unitPages, ...reading.answers.flatMap((answer) => [...answer.pages,
+        ...answer.observations.flatMap((observation) => (observation.page === null ? [] : [observation.page]))])])].sort((left, right) => left - right);
+      const found = await readPlanPagesAlreadyInEstimate(ctx, { jobId, versionId: version.id, pages: pages.length > 0 ? pages : [null],
+        document: planDocument(job, plan) });
+      pagesInEstimate = found.map((page) => ({ page: page.page, earlierJobIds: page.earlier.map((entry) => entry.job_id),
+        estimateItemIds: page.earlier.flatMap((entry) => entry.estimate_item_ids) }));
     }
   }
 
   // The breakdown asked, else the one this draft already holds for these items, else « Ensemble ».
   const earlierBreakdowns = new Set(earlier.targets.map((target) => target.breakdown));
   const breakdown: ItemSendBreakdown = request.breakdown ?? (earlierBreakdowns.size === 1 ? [...earlierBreakdowns][0] : "together");
-  const rules = projectItemSendRules(scopeItems, await listActiveTakeoffMappingRules({ supabase: ctx.supabase, tenantId: ctx.tenantId }));
+  const fits = destination.kind !== "unresolved" && itemSendEngineFits(destination.engine);
+  if (fits) stamps = { ...stamps, ...await readStamps(service, ctx, { projectId: job.project_id, jobId, versionId }) };
+  const ruleList = await listActiveTakeoffMappingRules({ supabase: ctx.supabase, tenantId: ctx.tenantId });
+  const rules = projectItemSendRules(scopeItems, ruleList);
   const location = breakdown === "together" ? null : await readPlanLocation(jobId, plan.plan_file_id);
-  const computed = planTakeoffItemSend({ ...base, plan: { ...base.plan, location }, destination, earlier, pagesInEstimate, rules, breakdown });
-  return respond(jobId, plan, list, computed, { destinations, destination: chosen, label,
-    versionCreated: chosen?.kind === "first_draft", projectId: job.project_id });
+  const namesBuilding = breakdown === "by_level" ? await affaireNamesBuilding(ctx, job.project_id, jobId) : false;
+  const computed = planTakeoffItemSend({ ...base, plan: { ...base.plan, location }, destination, earlier, pagesInEstimate, rules, breakdown,
+    affaireNamesBuilding: namesBuilding, stamps });
+  const assemblies = await assemblyNames(ctx, computed.rules.flatMap((rule) => (rule.assemblyId ? [rule.assemblyId] : [])), jobId);
+  return respond(jobId, shown, computed, { destinations, destination: chosen, label, versionCreated: chosen?.kind === "first_draft" },
+    assemblies, computed.writePlan ? createHash("sha256").update(itemSendPlanCanonical(computed.writePlan), "utf8").digest("hex") : null);
 }
 
-function respond(jobId: string, plan: { logical_id: string; name: string }, list: { revision_id: string; revision: number },
-  computed: ReturnType<typeof planTakeoffItemSend>, shown: {
+function respond(jobId: string, shown: { plan: { key: string; name: string }; list: { revision_id: string; revision: number }; projectId: string },
+  computed: ReturnType<typeof planTakeoffItemSend>, chosen: {
     destinations: ItemSendPreviewResponse["destinations"]; destination: ItemSendPreviewResponse["destination"]; label: string | null;
-    versionCreated: boolean; projectId: string;
-  }): ItemSendPreviewResponse {
+    versionCreated: boolean;
+  }, assemblies: ReadonlyMap<string, string>, digest: string | null): ItemSendPreviewResponse {
   // The first line written in document order, when it exists already; a line to create is named once created.
   const first = computed.targets[0];
   return {
     job_id: jobId,
-    plan: { key: plan.logical_id, name: plan.name },
-    list: { revision_id: list.revision_id, revision: list.revision },
-    destinations: shown.destinations,
-    destination: shown.destination,
-    destination_label: shown.label,
-    version_created: shown.versionCreated,
+    plan: shown.plan,
+    list: shown.list,
+    destinations: chosen.destinations,
+    destination: chosen.destination,
+    destination_label: chosen.label,
+    version_created: chosen.versionCreated,
     engine: computed.engine,
     breakdown: computed.breakdown,
     blocked: computed.blocker ? { reason: computed.blocker.reason, message: BLOCKER_MESSAGES[computed.blocker.reason],
@@ -380,16 +481,20 @@ function respond(jobId: string, plan: { logical_id: string; name: string }, list
     not_sent: computed.notSent.map((entry) => ({ item_id: entry.itemId, label: entry.label, reason: entry.reason,
       message: entry.reason === "rule_skip" && entry.ruleName ? `Ignoré par la règle de correspondance « ${entry.ruleName} ».`
         : NOT_SENT_MESSAGES[entry.reason] })),
+    parts_not_sent: computed.partsNotSent.map((part) => ({ item_id: part.itemId, kind: part.kind, observation_ids: part.observationIds,
+      pages: part.pages, quantity: part.quantity, unit: part.unit, reason: part.reason, message: PART_MESSAGES[part.reason] })),
     to_resolve: computed.toResolve.map((entry) => ({ key: entry.key, kind: entry.kind, item_id: entry.itemId, label: entry.label,
-      page: entry.page, held_item_ids: entry.heldItemIds, message: TO_RESOLVE_MESSAGES[entry.kind], options: entry.options.map(toOption),
-      facts: entry.facts })),
+      page: entry.page, held_item_ids: entry.heldItemIds,
+      earlier_lines: entry.earlierLines.map((line) => ({ estimate_item_id: line.estimateItemId, title: line.title, quantity: line.quantity })),
+      message: TO_RESOLVE_MESSAGES[entry.kind], options: entry.options.map(toOption), facts: entry.facts })),
     not_added: computed.notAdded.map((entry) => ({ item_id: entry.itemId, role: entry.role, quantity: entry.quantity, unit: entry.unit,
       page: entry.page })),
     page_contributions: computed.pageContributions.map((page) => ({ page: page.page, item_ids: page.itemIds })),
     rules: computed.rules.map((rule) => ({ item_id: rule.itemId, label: rule.label, rule_name: rule.ruleName, action: rule.action,
-      effect: rule.effect, message: RULE_MESSAGES[rule.effect] })),
+      effect: rule.effect, message: RULE_MESSAGES[rule.effect],
+      assembly: rule.assemblyId ? { id: rule.assemblyId, name: assemblies.get(rule.assemblyId) ?? null } : null })),
     confirmable: computed.confirmable,
     focus_item_id: first && first.line.kind !== "new_line" ? first.line.estimateItemId : null,
-    plan_digest: computed.writePlan ? createHash("sha256").update(canonicalJson(computed.writePlan), "utf8").digest("hex") : null,
+    plan_digest: digest,
   };
 }

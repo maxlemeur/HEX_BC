@@ -19,6 +19,8 @@ export type ItemSendRuleEffectKind = "none" | "renamed" | "categorized" | "skipp
 export type ItemSendRuleEffect = {
   ruleId: string | null;
   ruleName: string | null;
+  /** The rule's version (its last change), compared by the confirmation with its identifier. */
+  ruleVersion: string | null;
   action: ItemSendRuleAction;
   effect: ItemSendRuleEffectKind;
   /** The title of a line the send creates for the item: the rule's name for it, else the item's label. */
@@ -45,6 +47,7 @@ export function projectItemSendRules(items: ReadonlyArray<{ id: string; label: s
     created_at: new Date(Date.UTC(2000, 0, 1, 0, 0, index)).toISOString(), updated_at: new Date(Date.UTC(2000, 0, 1)).toISOString(),
   }));
   const { items: mapped } = computeTakeoffMappingPreview({ items: lines, rules: [...rules] });
+  const versions = new Map(rules.map((rule) => [rule.id, rule.updated_at]));
   const projected = new Map<string, ItemSendRuleEffect>();
   for (const entry of mapped) {
     const label = items.find((item) => item.id === entry.item_id)!.label.trim().replace(/\s+/g, " ");
@@ -52,6 +55,7 @@ export function projectItemSendRules(items: ReadonlyArray<{ id: string; label: s
     projected.set(entry.item_id, {
       ruleId: action === "none" ? null : entry.rule_id,
       ruleName: action === "none" ? null : entry.rule_name,
+      ruleVersion: action === "none" || !entry.rule_id ? null : versions.get(entry.rule_id) ?? null,
       action,
       effect: EFFECTS[action],
       designation: action === "rename" ? text(entry.action_params.designation) ?? label : label,

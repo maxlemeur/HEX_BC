@@ -141,10 +141,11 @@ export async function readPlanPagesAlreadyInEstimate(context: Context, input: {
   jobId: string;
   versionId: string;
   document: TakeoffPageDocument;
-  pages: readonly number[];
+  /** The plan's pages; a null page stands for the whole plan when its pages are unknown (it meets every page). */
+  pages: ReadonlyArray<number | null>;
 }) {
   const { estimateLines, earlierItems, jobSources } = await readPageInputs(context, { jobId: input.jobId, versionId: input.versionId, ownLines: [] });
-  const newLines = [...new Set(input.pages)].map((page) => ({ id: `page:${page}`, identity: { document: input.document, page } }));
+  const newLines = [...new Set(input.pages)].map((page) => ({ id: `page:${page ?? "all"}`, identity: { document: input.document, page } }));
   return findPagesAlreadyInEstimate({ jobId: input.jobId, newLines, estimateLines, earlierItems, jobSources }).pages;
 }
 

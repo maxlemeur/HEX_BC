@@ -253,7 +253,8 @@ describe("projectItemSendRules", () => {
       rule({ id: "11111111-1111-4111-8111-111111111111", name: "Prix lavabo", action: "set_price", action_params: { unit_price_cents: 9900 }, priority: 1 }),
       rule({ id: "22222222-2222-4222-8222-222222222222", name: "Renommer", action: "rename", action_params: { designation: "Autre" }, priority: 2 }),
     ]).get(ITEM.id);
-    expect(projected).toEqual({ ruleId: "11111111-1111-4111-8111-111111111111", ruleName: "Prix lavabo", action: "set_price",
+    expect(projected).toEqual({ ruleId: "11111111-1111-4111-8111-111111111111", ruleName: "Prix lavabo",
+      ruleVersion: "2026-02-25T09:00:00.000Z", action: "set_price",
       effect: "price_ignored", designation: "Lavabo céramique", categoryId: null, assemblyId: null });
   });
 
