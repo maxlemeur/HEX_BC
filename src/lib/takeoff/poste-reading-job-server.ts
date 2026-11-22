@@ -8,7 +8,7 @@ import type { TakeoffChunkingRuntimeConfig } from "@/lib/takeoff/chunking";
 import { TAKEOFF_PAID_CALL_ESTIMATE_TOKENS } from "@/lib/takeoff/launch-call-ledger";
 import { describeTakeoffLaunchReason, readTakeoffLaunchUnit, type AnyTakeoffLaunchManifest } from "@/lib/takeoff/launch-request";
 import { planPosteBatches } from "@/lib/takeoff/poste-exchange";
-import { boundPosteReadingRequest, posteReadingBoundsOfManifest } from "@/lib/takeoff/poste-reading-bounds";
+import { boundPosteReadingRequest, describePosteReadingBounds, posteReadingBoundsOfManifest } from "@/lib/takeoff/poste-reading-bounds";
 import { buildLevelCRunMetricRows } from "@/lib/takeoff/level-c-chunk-metrics";
 import { prepareLevelCReading, type ProcessLevelCMetricsSummary } from "@/lib/takeoff/level-c-reading";
 import type { Poste } from "@/lib/takeoff/poste-list";
@@ -81,9 +81,10 @@ export function takeoffItemListReadingNotDelivered(jobId: string) {
  * Before its first paid call, the whole request planned again with the settings the worker will use (the tenant's
  * fragmenting now, which may differ from the admission's; the pages counted on its own plan's PDF), every unit of its
  * manifest and every paid call counted (each fragment times each batch of the items, and the vector classifier's), within
- * the same bounds as its admission: the ceiling of a plan and of the request, each plan's share, the request's envelope;
- * then its own plan's calls against the attempt's budget (what its request has left). Beyond them it stops with the
- * bounds' own reason, nothing spent.
+ * the same bounds as its admission: the ceilings of a plan's and of the request's reading, each plan's share, the
+ * request's envelope; then its own plan's calls against the attempt's budget, what its sealed share has left (the
+ * ledger's balance). Beyond them it stops with the bounds' own reason, nothing spent: past a ceiling the plans to reduce,
+ * past the budget what is left (a request whose earlier attempts spent its share is relaunched).
  */
 function assertReadingWithinBounds(job: TakeoffJobProcessingRow, input: { manifest: AnyTakeoffLaunchManifest; items: readonly Poste[];
   pageCount: number; config: TakeoffChunkingRuntimeConfig & { maxTotalTokens: number }; planFile: { plan_file_id: string }; fileName: string }) {
@@ -99,11 +100,14 @@ function assertReadingWithinBounds(job: TakeoffJobProcessingRow, input: { manife
   const bounds = !request.ok ? request : attempt;
   if (bounds.ok) return;
   const exceeded = [...bounds.exceeded, ...bounds.units.flatMap((entry) => entry.exceeded)];
+  const tooLarge = exceeded.includes("calls") || exceeded.includes("answer_bytes");
   throw new TakeoffError({ status: 422, retryable: false, jobId: job.id, level: TAKEOFF_LEVEL_C,
-    code: exceeded.includes("calls") || exceeded.includes("answer_bytes") ? TakeoffErrorCode.TAKEOFF_FILE_TOO_LARGE
-      : TakeoffErrorCode.TAKEOFF_LEVEL_C_BUDGET_EXCEEDED,
-    message: describeTakeoffLaunchReason("PLAN_SET_TOO_LARGE", bounds.pieces, bounds),
-    details: { calls: bounds.calls, tokens: bounds.tokens, budget_tokens: bounds.requestBudgetTokens, exceeded } });
+    code: tooLarge ? TakeoffErrorCode.TAKEOFF_FILE_TOO_LARGE : TakeoffErrorCode.TAKEOFF_LEVEL_C_BUDGET_EXCEEDED,
+    message: tooLarge ? describeTakeoffLaunchReason("PLAN_SET_TOO_LARGE", bounds.pieces, bounds)
+      : `${describePosteReadingBounds({ ...bounds, ok: true })} Le budget qui reste à cette analyse ne permet plus ses appels : `
+        + "relancez-la depuis les options du métré.",
+    details: { reading_calls: bounds.readingCalls, calls: bounds.calls, tokens: bounds.tokens, budget_tokens: bounds.requestBudgetTokens,
+      exceeded } });
 }
 
 export type ProcessItemListResult = {
@@ -146,7 +150,11 @@ export async function processItemListLevelC(input: {
       message: "La lecture contre la liste des postes se fait plan par plan : une analyse groupée ne la lit pas." });
   }
   const planFile = unitPlanFile(job, sourceFile);
-  const { config, pageCount } = await prepareLevelCReading({ supabase: input.supabase, job, sourceFile });
+  const prepared = await prepareLevelCReading({ supabase: input.supabase, job, sourceFile });
+  const { pageCount, requestBudget } = prepared;
+  if (!requestBudget) throw failure(job.id, "Le budget de la demande de cette analyse est introuvable.");
+  // Its budget is what its sealed share has left (sized from its admitted calls), never the first format's per-job budget.
+  const config = { ...prepared.config, maxTotalTokens: requestBudget.remainingTokens, maxCostCents: requestBudget.remainingCostCents };
   if (!job.project_id) throw failure(job.id, "L’affaire de cette analyse est introuvable.");
   let items: Poste[];
   try {

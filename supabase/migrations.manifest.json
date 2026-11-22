@@ -371,6 +371,7 @@
     "20261121231238_takeoff_plan_dispatcher.sql": "a26d784a495f862ee6f2126d96bd2f8d71bfc7ab3264bafbd467106cb8fb4475",
     "20261122030312_takeoff_partial_send.sql": "7893a5f2523e6fdc6a39740918aabb6e963124d0cc78edf1bf167e40f16d36e9",
     "20261122080845_takeoff_item_answers.sql": "edc30c089ed080fa1c80eec44b1b1728c48e8f6ec6289f0012f3f02c4aff3a4d",
+    "20261122092341_product_packagings.sql": "493d46cf320322c8cd2e77c87fe55daadbf61d73f8b5339e308978ebacaef20c",
     "20261122100758_takeoff_item_review_decisions.sql": "31a3c09fd869fb443865f9dddbd20d88890a50bf559d7d48295e1af11d1ff54d"
   }
 }

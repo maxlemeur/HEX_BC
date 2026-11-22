@@ -38,7 +38,8 @@ export function AffaireDocumentPage({
   // while documents are added or analysed, without refreshing the router.
   const dossier = useAffaireDossier(projectId, { workspace: serverWorkspace });
   const workspace = dossier.workspace ?? serverWorkspace;
-  const uploadFeedback = useIntakeUploadFeedback(projectId, workspace.documents, dossier.reload);
+  const uploadFeedback = useIntakeUploadFeedback(projectId, workspace.documents, dossier.reload,
+    (workspace.pendingUploadIds?.length ?? 0) > 0);
   const [candidates, setCandidates] = useState<IntakeDpgfCandidate[] | null>(
     null,
   );
