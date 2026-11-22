@@ -1,13 +1,17 @@
 import { buildPdfChunks, type TakeoffChunkingRuntimeConfig } from "@/lib/takeoff/chunking";
-import type { TakeoffLaunchPiece } from "@/lib/takeoff/launch-request";
+import { takeoffPlanWeights, type AnyTakeoffLaunchManifest, type TakeoffLaunchPiece } from "@/lib/takeoff/launch-request";
 import { POSTE_EXCHANGE_LIMITS, posteExchangeOutputMaxBytes } from "@/lib/takeoff/poste-exchange";
+import type { PosteReadingBoundsFacts } from "@/lib/takeoff/poste-reading-bounds-text";
+
+export { describePosteReadingBounds } from "@/lib/takeoff/poste-reading-bounds-text";
 
 /**
  * The bounds of a request that reads its plans against a list of items (lot 4), checked on the whole request before its
  * admission: the calls its reading makes (each plan's fragments times the batches of items), the reservations of those
- * calls in the request's ledger (lot 3: every paid call reserves the ledger's estimate before it is sent, against its
- * plan's share and against the request) and the largest answers they can return. Beyond any bound the member is asked
- * to reduce the scope: nothing is sampled, no item or page is left out silently.
+ * calls in the request's ledger and the largest answers they can return. The ledger's rule (lot 3) decides the budget: a
+ * paid call starts only while its plan's share and its request still have a positive balance, so the last call of a plan
+ * must start before its share is spent at the ledger's estimate of a call. Beyond any bound the member is asked to
+ * reduce the scope: nothing is sampled, no item or page is left out silently.
  */
 export const POSTE_READING_LIMITS = {
   /** The calls one plan's reading makes at most (about one hour on a Mac at a minute and a half a call). */
@@ -20,17 +24,13 @@ export const POSTE_READING_LIMITS = {
 
 export type PosteReadingLimit = "calls" | "budget" | "answer_bytes";
 
-/** A unit of the request: one plan, its pages read (retained pages, else its page count) and its share of the budget. */
-export type PosteReadingUnitInput = { key: string; planId: string; name: string; pages: number; budgetTokens: number };
+/**
+ * A unit of the request: one plan (or, for a grouped analysis, all of them), its pages read (retained pages, else its
+ * page count) and its share of the budget.
+ */
+export type PosteReadingUnitInput = { key: string; pieces: TakeoffLaunchPiece[]; pages: number; budgetTokens: number };
 
-export type PosteReadingBounds = {
-  ok: boolean;
-  items: number;
-  plans: number;
-  calls: number;
-  /** The tokens the calls reserve together: calls times the ledger's estimate. */
-  tokens: number;
-  requestBudgetTokens: number;
+export type PosteReadingBounds = PosteReadingBoundsFacts & {
   answerBytes: number;
   units: Array<{ key: string; fragments: number; batches: number; calls: number; tokens: number; answerBytes: number;
     exceeded: PosteReadingLimit[] }>;
@@ -55,6 +55,8 @@ export function boundPosteReadingRequest(input: {
   if (!Number.isInteger(input.items) || input.items < 0) throw new Error("The items of a request are counted by a whole number.");
   const batchSizes = Array.from({ length: Math.ceil(input.items / POSTE_EXCHANGE_LIMITS.itemsPerCall) }, (_, index) =>
     Math.min(POSTE_EXCHANGE_LIMITS.itemsPerCall, input.items - index * POSTE_EXCHANGE_LIMITS.itemsPerCall));
+  // The last of `calls` calls starts only while the balance is still positive after the others took their estimate.
+  const cannotStart = (calls: number, budget: number) => calls > 0 && (calls - 1) * input.estimateTokensPerCall >= budget;
   const units = input.units.map((unit) => {
     const fragments = buildPdfChunks(unit.pages, input.chunking);
     const calls = fragments.length * batchSizes.length;
@@ -63,7 +65,7 @@ export function boundPosteReadingRequest(input: {
       sum + posteExchangeOutputMaxBytes(size, fragment.endPage - fragment.startPage + 1), 0), 0);
     const exceeded: PosteReadingLimit[] = [];
     if (calls > POSTE_READING_LIMITS.callsPerUnit) exceeded.push("calls");
-    if (tokens > unit.budgetTokens) exceeded.push("budget");
+    if (cannotStart(calls, unit.budgetTokens)) exceeded.push("budget");
     if (answerBytes > POSTE_READING_LIMITS.unitAnswerBytes) exceeded.push("answer_bytes");
     return { key: unit.key, fragments: fragments.length, batches: batchSizes.length, calls, tokens, answerBytes, exceeded };
   });
@@ -72,28 +74,40 @@ export function boundPosteReadingRequest(input: {
   const answerBytes = units.reduce((total, unit) => total + unit.answerBytes, 0);
   const exceeded: PosteReadingLimit[] = [];
   if (calls > POSTE_READING_LIMITS.callsPerRequest) exceeded.push("calls");
-  if (tokens > input.requestBudgetTokens) exceeded.push("budget");
+  if (cannotStart(calls, input.requestBudgetTokens)) exceeded.push("budget");
   if (answerBytes > POSTE_READING_LIMITS.requestAnswerBytes) exceeded.push("answer_bytes");
   const ownExceeded = input.units.filter((_, index) => units[index].exceeded.length > 0);
   const named = ownExceeded.length ? ownExceeded : exceeded.length ? input.units : [];
   const ok = exceeded.length === 0 && ownExceeded.length === 0;
   return {
-    ok, items: input.items, plans: input.units.length, calls, tokens, requestBudgetTokens: input.requestBudgetTokens, answerBytes,
-    units, exceeded, pieces: named.map((unit) => ({ id: unit.planId, name: unit.name })),
+    ok, items: input.items, plans: input.units.reduce((total, unit) => total + unit.pieces.length, 0), calls, tokens,
+    requestBudgetTokens: input.requestBudgetTokens, answerBytes, units, exceeded, pieces: named.flatMap((unit) => unit.pieces),
   };
+}
+
+/**
+ * The bounds of a sealed manifest that orders a list of items (none for the free extraction): each unit of one analysis
+ * per plan with the share it sealed, or a grouped analysis as one unit holding every plan with the request's envelope.
+ * A unit's pages are its retained pages, else its page count, else weighed as lot 3 weighs a plan of unknown count.
+ */
+export function posteReadingBoundsOfManifest(manifest: AnyTakeoffLaunchManifest, chunking: TakeoffChunkingRuntimeConfig,
+  estimateTokensPerCall: number): PosteReadingBounds | null {
+  if (manifest.order.kind !== "item_list") return null;
+  const pagesOf = new Map(manifest.plans.map((plan, index) => [plan.entry_key, takeoffPlanWeights(manifest.plans)[index]]));
+  const piece = (entryKey: string) => {
+    const plan = manifest.plans.find((entry) => entry.entry_key === entryKey);
+    return { id: plan?.plan_file_id ?? entryKey, name: plan?.name ?? entryKey };
+  };
+  const units: PosteReadingUnitInput[] = manifest.format_version === 2
+    ? manifest.units.map((unit) => ({ key: unit.key, pieces: unit.plans.map(piece), budgetTokens: unit.budget.tokens,
+      pages: unit.plans.reduce((total, key) => total + (pagesOf.get(key) ?? 1), 0) }))
+    : manifest.units.map((unit) => ({ key: unit.key, pieces: unit.plans.map(piece), budgetTokens: manifest.budget.tokens,
+      pages: unit.plans.reduce((total, key) => total + (pagesOf.get(key) ?? 1), 0) }));
+  return boundPosteReadingRequest({ items: manifest.order.list.item_count, units, requestBudgetTokens: manifest.budget.tokens,
+    chunking, estimateTokensPerCall });
 }
 
 /** The refusal of a request past its bounds: the plans to restrict, with the launch reason the member already reads. */
 export function posteReadingRefusal(bounds: PosteReadingBounds): { reason: "PLAN_SET_TOO_LARGE"; pieces: TakeoffLaunchPiece[] } | null {
   return bounds.ok ? null : { reason: "PLAN_SET_TOO_LARGE", pieces: bounds.pieces };
-}
-
-const count = (value: number, one: string, many: string) => `${value.toLocaleString("fr-FR")} ${value > 1 ? many : one}`;
-
-/** The effective limits of a request, in French, as the member reads them before confirming or after a refusal. */
-export function describePosteReadingBounds(bounds: PosteReadingBounds): string {
-  const text = `Lecture de ${count(bounds.items, "poste", "postes")} sur ${count(bounds.plans, "plan", "plans")} : `
-    + `${count(bounds.calls, "appel prévu", "appels prévus")}, ${bounds.tokens.toLocaleString("fr-FR")} jetons réservés pour un budget `
-    + `de ${bounds.requestBudgetTokens.toLocaleString("fr-FR")}.`;
-  return bounds.ok ? text : `${text} Réduisez les plans ou les pages à lire.`;
 }

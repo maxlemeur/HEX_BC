@@ -147,13 +147,16 @@ describe("posteVectorReadings and finishPlanReading", () => {
     const call = controlledPosteCall((entry) => entry.label === "Distribution EF" && entry.chunkId === "f1-b1"
       ? posteMeasured(entry, [{ page: 3, quantity: 12.5, unit: "ml" }]) : posteNotFound(entry));
     const reading = await read(call);
-    const network = (page: number, quantity: number, planFileId = "plan-a"): VectorPageOutcome => ({
-      document: { kind: "plan_file", plan_file_id: planFileId }, fileName: "Plan RDC.pdf", page, record: null, error: null,
+    const network = (page: number, quantity: number, planFileId = "plan-a", read = true): VectorPageOutcome => ({
+      document: { kind: "plan_file", plan_file_id: planFileId }, fileName: "Plan RDC.pdf", page, record: read ? {} as never : null,
+      error: null,
       items: [{ item: { designation: "EF cuivre DN 22", quantity, unit: "ml", confidence: 0.9, evidence: "Lecture vectorielle", category: "réseau" },
         geometry: { schema_version: 1, kind: "network", network: "EF", material: "cuivre", dn: 22, zone: null, level: null, groups: [],
           segments_m: [], polygon_m: null, length_m: quantity, area_m2: null, transform: null } as never }],
     });
-    const vectors = posteVectorReadings([network(103, 12.55), network(103, 80, "plan-b"), network(250, 4)], "plan-a");
+    // Another plan's page and a page whose vector reading failed (nothing persisted for it) give no reading.
+    const vectors = posteVectorReadings([network(103, 12.55), network(103, 80, "plan-b"), network(250, 4), network(104, 9, "plan-a", false)],
+      "plan-a");
 
     expect(vectors.map((entry) => [entry.key, entry.page, entry.quantity])).toEqual([["plan-a:103:0", 103, 12.55], ["plan-a:250:0", 250, 4]]);
     const { answers, unattachedVectorReadings } = finishPlanReading(reading, ITEMS, vectors);

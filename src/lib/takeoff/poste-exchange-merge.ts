@@ -25,7 +25,8 @@ export type PosteReasonCode = PosteModelReason | PosteWorkerReason;
 export const POSTE_MERGED_CHUNK = "plan";
 
 /**
- * contribution: a positive quantity of a measured reading on a page its fragment owns, counted in the answer's total;
+ * contribution: a positive quantity of a measured reading on a page its fragment owns, counted in a measured answer's total
+ * (an answer that is not measured has none: its positive readings are candidates);
  * candidate: an indication (a page, a candidate value) that is not a measure; alternative: another reading of an object
  * already read (an overlap page read by the fragment that does not own it, the vector reading of a network the model
  * measured): kept, never added.
@@ -291,6 +292,10 @@ function finalize(draft: Draft, sharedVectorReadings: ReadonlySet<string>): Post
   }
   if (draft.unreadable.size) draft.workerReasons.push(worker("PAGES_UNREADABLE"));
   if (draft.workerReasons.length && draft.outcome !== "uncertain") draft.outcome = "uncertain";
+  // Only a measured answer counts: the positive readings of any other answer are candidates, never contributions.
+  if (draft.outcome !== "measured") {
+    draft.observations = draft.observations.map((entry) => entry.role === "contribution" ? { ...entry, role: "candidate" } : entry);
+  }
   const reasons = draft.outcome === "not_found" ? draft.modelReasons
     : [...draft.modelReasons.filter((reason) => reason.code !== "NO_INDICATION"), ...draft.workerReasons];
   const measured = draft.outcome === "measured" ? oneUnitTotal(contributions) : null;

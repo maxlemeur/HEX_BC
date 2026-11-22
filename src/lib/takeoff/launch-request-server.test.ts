@@ -48,7 +48,8 @@ vi.mock("@/lib/takeoff/preparation-repository", () => ({ assertPreparationProjec
 vi.mock("@/lib/ai/chatgpt-local-store", () => ({ getChatGptHostId: vi.fn().mockResolvedValue("urn:uuid:aaaaaaaa-0000-4000-8000-000000000099"), readChatGptStore: vi.fn() }));
 vi.mock("@/lib/takeoff/feature-flags", () => ({
   takeoffModuleDefault: vi.fn(() => true),
-  getTakeoffLevelCProcessingConfigForTenant: vi.fn().mockResolvedValue({ maxPdfPages: 200, maxTotalTokens: 400000, maxCostCents: 2500 }),
+  getTakeoffLevelCProcessingConfigForTenant: vi.fn().mockResolvedValue({ maxPdfPages: 200, maxTotalTokens: 400000, maxCostCents: 2500,
+    thresholdPages: 15, chunkSizePages: 10, overlapPages: 2 }),
 }));
 vi.mock("@/lib/takeoff/local-dispatch", () => ({ runLocalTakeoffAttempts: vi.fn().mockResolvedValue(undefined) }));
 // The preparation as the dossier gives it is fixed here; its sealing is the real one a confirmation uses.
@@ -185,6 +186,12 @@ function dossier(input: { classification?: string; copy?: "same" | "older" | "le
   return { fake, admitted, recorded, document, copy };
 }
 
+/** The list of items a request seals once the second measuring order is active (lot 4), of `items` items. */
+function itemListOrder(items: number) {
+  return { kind: "item_list" as const, version: 2 as const, list: { revision_id: "aaaaaaaa-0000-4000-8000-0000000000f1", revision: 3,
+    content_sha256: "e".repeat(64), item_count: items } };
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(isLocalChatGptEnabled).mockReturnValue(true);
@@ -278,6 +285,28 @@ describe("evaluateTakeoffLaunchRequests", () => {
       execution_host_id: HOST, id: expect.stringMatching(/^[0-9a-f-]{36}$/) })]);
     expect(result.jobId).toBe(call.p_job[0].id);
     expect(runLocalTakeoffAttempts).toHaveBeenCalledWith(expect.objectContaining({ jobId: call.p_job[0].id }));
+  });
+
+  // Lot 4: a request that reads its plans against a list of items is bounded on the whole request before its admission:
+  // 1,700 items in batches of 40 make 43 calls on a one-page plan, more than one plan's reading may make and more than the
+  // budget lets start. The member is asked to reduce the scope; nothing is admitted, nothing is sampled.
+  it("refuses, naming the plan, a request whose reading against the list passes its bounds, and admits nothing", async () => {
+    const { admitted, recorded } = dossier({ perPlan: true });
+    vi.mocked(sealedMeasuringOrder).mockResolvedValueOnce({ order: itemListOrder(1_700) });
+    const [result] = await evaluateTakeoffLaunchRequests();
+    expect(result).toMatchObject({ requestId: REQUEST, outcome: "blocked", reason: "PLAN_SET_TOO_LARGE", jobId: null });
+    expect(admitted).toEqual([]);
+    expect(recorded).toEqual([expect.objectContaining({ p_state: "blocked", p_reason: "PLAN_SET_TOO_LARGE", p_details: {
+      pieces: [{ id: PLAN_FILE, name: "Plan RDC.pdf" }],
+      reading_bounds: { items: 1_700, plans: 1, calls: 43, tokens: 1_290_000, request_budget_tokens: 400_000 } } })]);
+  });
+
+  it("admits a request whose reading against the list stays within its bounds, its list sealed", async () => {
+    const { admitted } = dossier({ perPlan: true });
+    vi.mocked(sealedMeasuringOrder).mockResolvedValueOnce({ order: itemListOrder(120) });
+    const [result] = await evaluateTakeoffLaunchRequests();
+    expect(result).toMatchObject({ outcome: "admitted" });
+    expect((admitted[0] as { p_manifest: unknown }).p_manifest).toMatchObject({ format_version: 2, order: itemListOrder(120) });
   });
 
   // A whole plan whose stored page count is unknown: the sealing counts its pages on its bytes, and its unit gets them.
@@ -1021,6 +1050,15 @@ describe("launchTakeoffRelaunch", () => {
     expect(blocked.launched).toEqual([]);
   });
 
+  it("refuses a command of plans whose reading against the list passes its bounds, before any unit is admitted", async () => {
+    vi.mocked(sealedMeasuringOrder).mockResolvedValueOnce({ order: itemListOrder(1_700) });
+    const sealed = planCommand({ a: 3, b: 3 });
+    await expect(sealed.run([PLAN_FILE])).rejects.toMatchObject({ status: 422, message: "Métré non démarré — les plans « plan-a.pdf » "
+      + "dépassent les limites d’une lecture contre la liste des postes. Lecture de 1\u202f700 postes sur 1 plan : 43 appels prévus, "
+      + "environ 1\u202f290\u202f000 jetons pour un budget de 400\u202f000. Réduisez les plans ou les pages à lire." });
+    expect(sealed.launched).toEqual([]);
+  });
+
   it("lets a command start the first analysis of an affaire that has none", async () => {
     const { run, launched } = planCommand({ a: 3, b: 3 }, null, undefined, null);
     expect(await run([PLAN_FILE])).toMatchObject({ outcome: "admitted" });
@@ -1655,6 +1693,15 @@ describe("launchTakeoffRelaunch", () => {
       await expect(launch("aaaaaaaa-0000-4000-8000-0000000000bb")).rejects.toMatchObject({ status: 503, retryable: true,
         message: "Le métré de l’affaire est occupé par une autre opération. Réessayez dans un instant." });
     });
+
+  // Lot 4: a grouped command bounds its one unit, every plan of its preparation, before the database sees it.
+  it("refuses a grouped command whose reading against the list passes its bounds, and launches nothing", async () => {
+    const { launch, calls } = command({ data: [{ outcome: "admitted", request_id: REQUEST, job_id: "aaaaaaaa-0000-4000-8000-0000000000ee" }] });
+    vi.mocked(sealedMeasuringOrder).mockResolvedValueOnce({ order: itemListOrder(1_700) });
+    await expect(launch("aaaaaaaa-0000-4000-8000-0000000000bb")).rejects.toMatchObject({ status: 422,
+      message: expect.stringContaining("dépassent les limites d’une lecture contre la liste des postes") });
+    expect(calls).toEqual([]);
+  });
 
   // An analysis launched outside any request that has not ended: the command is answered with it, without a request.
   it("answers with the analysis outside any request that still runs, and starts nothing", async () => {

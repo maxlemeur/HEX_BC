@@ -120,7 +120,8 @@ describe("mergePosteReadings", () => {
     const { answers } = mergePosteReadings({ items: ITEMS, planPages: PLAN_PAGES, fragments });
 
     expect(answerOf(answers, WC)).toMatchObject({ outcome: "uncertain", quantity: null, candidate: { value: 1, unit: "u" } });
-    expect(roles(answerOf(answers, WC))).toEqual([[25, 2, "alternative", "model"], [25, 1, "contribution", "model"]]);
+    // An uncertain answer counts nothing: the owner's reading is a candidate, the other reading an alternative.
+    expect(roles(answerOf(answers, WC))).toEqual([[25, 2, "alternative", "model"], [25, 1, "candidate", "model"]]);
     expect(answerOf(answers, WC).reasons).toContainEqual({ code: "READINGS_DISAGREE", by: "worker", text: null, chunkId: "f1-b1" });
     expect(answerOf(answers, LAVABO)).toMatchObject({ outcome: "uncertain", quantity: null, candidate: null });
     expect(answerOf(answers, LAVABO).reasons.map((reason) => reason.code)).toContain("READINGS_DISAGREE");
@@ -137,7 +138,7 @@ describe("mergePosteReadings", () => {
     const lavabo = answerOf(mergePosteReadings({ items: ITEMS, planPages: PLAN_PAGES, fragments }).answers, LAVABO);
 
     expect(lavabo).toMatchObject({ outcome: "uncertain", quantity: null, candidate: { value: 3, unit: "u" } });
-    expect(roles(lavabo)).toEqual([[22, 3, "contribution", "model"], [30, null, "candidate", "model"]]);
+    expect(roles(lavabo)).toEqual([[22, 3, "candidate", "model"], [30, null, "candidate", "model"]]);
     expect(lavabo.reasons).toContainEqual({ code: "AMBIGUOUS_INDICATION", by: "model", text: "Symbole proche d’un lave-mains.",
       chunkId: "f3-b1" });
   });
@@ -224,6 +225,27 @@ describe("mergePosteReadings", () => {
     expect(roles(answerOf(answers, first))).toEqual([[21, 7, "contribution", "model"], [21, 30, "candidate", "vector"]]);
     expect(answerOf(answers, second)).toMatchObject({ outcome: "uncertain", candidate: null });
     expect(roles(answerOf(answers, second))).toEqual([[21, 30, "candidate", "vector"]]);
+  });
+
+  // Only a measured answer has contributions, and its quantity is their sum: what the publication command checks.
+  it("gives contributions to measured answers only, their sum its quantity", () => {
+    const fragments = read((call, key, local) => {
+      if (key === "P0001") return measured(key, local.pages, [{ page: local.owned[0], quantity: 2 }]);
+      if (key === "P0002" && fragmentOf(call) === 1) return measured(key, local.pages, [{ page: 1, quantity: 1 }]);
+      if (key === "P0002" && fragmentOf(call) === 2) return { post_id: key, outcome: "uncertain", searched_pages: local.pages,
+        reason_code: "ESTIMATE", reason_text: "Comptage estimé.", observations: [observation(1, 4)] };
+      return notFound(key, local.pages);
+    });
+    for (const answer of mergePosteReadings({ items: ITEMS, planPages: PLAN_PAGES, fragments }).answers) {
+      const contributions = answer.observations.filter((entry) => entry.role === "contribution");
+      if (answer.outcome === "measured") {
+        expect(contributions.length).toBeGreaterThan(0);
+        expect(answer.quantity?.value).toBe(contributions.reduce((sum, entry) => sum + entry.quantity!, 0));
+      } else {
+        expect(contributions).toEqual([]);
+        expect(answer.quantity).toBeNull();
+      }
+    }
   });
 
   it("keeps every observation read and traces each to its call", () => {

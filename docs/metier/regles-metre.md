@@ -138,6 +138,57 @@ n’est pas posée, une demande scelle l’extraction libre, comme avant. Une fo
 activée, une DPGF à préparer suspend l’admission avec un motif. Le Mac du mandat
 réessaie alors seul.
 
+**Lecture d’un plan contre la liste.** Avec le second ordre de mesure, chaque plan
+d’une analyse plan par plan est lu contre la liste que sa demande a scellée ; une
+analyse groupée ne la lit pas et s’arrête avant tout appel. Le serveur découpe le
+plan comme la lecture détaillée (au-delà de 15 pages, des fragments de 10 pages
+dont 2 en recouvrement) et la liste en lots de 40 postes : chaque appel joint un
+fragment et demande un lot. Le modèle reçoit pour chaque poste une clé opaque
+(`P0001`…), son libellé, son unité attendue, sa base de mesure, ses précisions
+(réseau, matière, diamètre) et ses sections ; jamais un identifiant, un prix, la
+quantité de référence de la DPGF ni une quantité du devis. Seul le CCTP est joint
+comme pièce de référence : la DPGF décrit déjà les postes, et son chiffre ne prouve
+pas la lecture du plan.
+
+Chaque poste reçoit une réponse par plan :
+
+- **Mesuré** : au moins une observation chiffrée sur une page du plan ; la quantité
+  est la somme de ses apports.
+- **Incertain** : un motif (indice ambigu, quantité partielle, échelle manquante,
+  diamètre illisible, estimation…), avec si possible une page candidate et une valeur
+  candidate, qui ne comptent jamais comme une mesure.
+- **Non trouvé** : toutes les pages cherchées sans indice ; la quantité reste vide
+  (« — »), jamais 0.
+
+Une réponse manquante, un poste qui n’était pas demandé, deux réponses pour un même
+poste, une page hors du fragment joint ou une page ni cherchée ni déclarée illisible
+arrêtent l’analyse du plan (« Extraction incomplète sur ce document. ») : rien n’est
+compté comme non trouvé à sa place. Chaque page appartient à un seul fragment : la
+lecture d’une page de recouvrement par l’autre fragment n’est jamais ajoutée, et si
+les deux lectures diffèrent, la réponse devient incertaine. Une page illisible rend
+la réponse incertaine : elle ne prouve ni une absence ni un total. Une unité lue
+différente de celle du poste, ou un comptage non entier d’un poste compté à l’unité,
+rend aussi la réponse incertaine. La lecture vectorielle d’un réseau se rattache au
+poste de même réseau, matière et diamètre ; elle confirme la mesure (écart d’au plus
+1 %) ou rend la réponse incertaine, reste une indication à vérifier quand le modèle
+n’a rien trouvé, et un simple candidat quand plusieurs postes peuvent la revendiquer.
+Elle ne s’ajoute jamais à la mesure. Un ouvrage du plan absent de la liste est signalé
+avec le résultat (« POSTE_HORS_LISTE »), sans créer de poste.
+
+Sur l’affaire, tant qu’un plan attendu n’est pas lu, le total d’un poste reste
+partiel et son absence n’est jamais certifiée. Quand tous ses plans sont lus, un
+plan incertain le rend « À vérifier », sinon une mesure le rend « Mesuré », et
+seulement des plans tous cherchés sans indice le rendent « Non trouvé ».
+
+**Bornes d’une lecture contre la liste.** Avant son admission, la demande entière
+est bornée : les appels prévus (fragments × lots, 40 au plus par plan et 200 par
+demande), la taille de leurs réponses et le budget. Chaque appel réserve 30 000
+jetons et ne démarre que si la part de son plan et la demande gardent un solde
+positif. Au-delà, la demande n’est pas admise : « Métré non démarré — les plans …
+dépassent les limites d’une lecture contre la liste des postes », avec les appels
+prévus et le budget. Rien n’est échantillonné ; réduire les plans ou les pages lus
+permet de la relancer.
+
 Une ligne de devis créée depuis un import garde dans sa provenance l’import et la
 ligne mappée. La ligne mappée nomme la ligne brute dont elle vient ; quand une
 nouvelle correspondance la supprime, la base garde ce lien. La ligne de devis et ses

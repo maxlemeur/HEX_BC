@@ -11,6 +11,7 @@ import type { Database, Json } from "@/types/database";
 import {
   ITEM_LIST_LIMITS,
   itemListEntries,
+  posteFromStoredEntry,
   proposeItemListRevision,
   storedItemListRevision,
   withAddedItem,
@@ -88,6 +89,29 @@ export async function readStoredItemList(client: Client, scope: PosteListScope):
     registeredKeys: new Set(continuities.map(({ source_key }) => source_key)),
     revision: storedItemListRevision(scope, { revision: row.revision, entries, aliases }),
   };
+}
+
+/**
+ * The items of a revision a launch request sealed (lot 4: the worker of one of its jobs reads them, with the server's
+ * client), in the revision's order: its row checked against the affaire and the count the request sealed, then its
+ * entries, every position present once. Nothing else of the list is read; a later revision changes nothing here.
+ */
+export async function readSealedItemListItems(client: Client, input: {
+  tenantId: string; projectId: string; revisionId: string; itemCount: number;
+}): Promise<Poste[]> {
+  const { data: row, error } = await client.from("takeoff_list_revisions").select("id, item_count")
+    .eq("id", input.revisionId).eq("tenant_id", input.tenantId).eq("project_id", input.projectId).maybeSingle();
+  if (error) throw mapSupabaseError(error, "Impossible de lire la liste des postes de cette analyse.");
+  if (!row || row.item_count !== input.itemCount) throw internalError("La liste des postes scellée par cette analyse est introuvable.");
+  const entries = await readOrdered<StoredItemListEntry & { position: number }>((from, to) => client.from("takeoff_list_revision_entries")
+    .select("item_id, position, source_key, label, expected_unit, measurement_basis, qualifiers, sections, synonyms, origin, reference_quantity",
+      { count: "exact" })
+    .eq("revision_id", input.revisionId).eq("tenant_id", input.tenantId).eq("project_id", input.projectId)
+    .order("position").range(from, to) as never);
+  if (entries.length !== input.itemCount || entries.some((entry, index) => entry.position !== index)) {
+    throw internalError("La liste des postes scellée par cette analyse est incomplète.");
+  }
+  return entries.map(posteFromStoredEntry);
 }
 
 /** The reasons a row of the DPGF was left out of the list as its structure, never as a reading of its content. */

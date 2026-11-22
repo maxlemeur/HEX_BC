@@ -181,14 +181,21 @@ export async function readPlanAgainstItemList(input: {
   return { fragments, planPages, calls: calls.length, pageCount, chunksCount: chunks.length, tokenUsage, costCents, durationMs, metrics };
 }
 
+/** The key of a vector reading: its plan's file, its page and its place among that page's quantities. */
+export function posteVectorKey(planFileId: string, page: number, index: number) {
+  return `${planFileId}:${page}:${index}`;
+}
+
 /**
  * The vector reading of one plan's file as the merge reads it: its network and insulation lengths and its surfaces, each
- * with a key that names its page and its place there (`plan:page:index`). Another file's pages are left out.
+ * with its key (`posteVectorKey`). Another file's pages are left out, and a page without a reading (whose quantities the
+ * vector persistence does not keep either).
  */
 export function posteVectorReadings(outcomes: readonly VectorPageOutcome[], planFileId: string): PosteVectorReading[] {
-  return outcomes.filter((outcome) => outcome.document.kind === "plan_file" && outcome.document.plan_file_id === planFileId)
+  return outcomes.filter((outcome) => outcome.record && outcome.document.kind === "plan_file"
+    && outcome.document.plan_file_id === planFileId)
     .flatMap((outcome) => outcome.items.map((record, index) => ({
-      key: `${planFileId}:${outcome.page}:${index}`, page: outcome.page, kind: record.geometry.kind,
+      key: posteVectorKey(planFileId, outcome.page, index), page: outcome.page, kind: record.geometry.kind,
       designation: record.item.designation, quantity: record.item.quantity, unit: record.item.unit, confidence: record.item.confidence,
       evidence: record.item.evidence,
     })));
