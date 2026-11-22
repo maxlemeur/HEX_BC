@@ -45,7 +45,13 @@ function ReadyEditor({
   editor,
   affaireName,
   canEditCatalogue,
-}: Readonly<{ editor: MaterialRequestEditorApi; affaireName: string; canEditCatalogue: boolean }>) {
+  canCreateSupplyType,
+}: Readonly<{
+  editor: MaterialRequestEditorApi;
+  affaireName: string;
+  canEditCatalogue: boolean;
+  canCreateSupplyType: boolean;
+}>) {
   const router = useRouter();
   const ids = useId();
   const materialListId = `${ids}-materials`;
@@ -185,6 +191,7 @@ function ReadyEditor({
                 setMaterialFocusRequest((current) => current + 1);
               }}
               canEditCatalogue={canEditCatalogue}
+              canCreateSupplyType={canCreateSupplyType}
               nextAction={<Button type="button" variant="outline" onClick={() => goToStep("devis")}><ArrowRight aria-hidden="true" />Consulter les devis</Button>}
               toolbar={
                 // The technician's previous requests are among the options of the request, behind its gear.
@@ -264,6 +271,7 @@ export function MaterialRequestEditor({
   requestId,
   affaireName = "",
   canEditCatalogue = false,
+  canCreateSupplyType = false,
 }: Readonly<{
   projectId: string;
   requestId: string;
@@ -271,6 +279,8 @@ export function MaterialRequestEditor({
   affaireName?: string;
   /** May set a supply type's preferred supplier from the request (admins and engineers). */
   canEditCatalogue?: boolean;
+  /** May add a supply type from the article a line names (admins only). */
+  canCreateSupplyType?: boolean;
 }>) {
   const state = useMaterialRequestEditor(projectId, requestId);
 
@@ -288,5 +298,12 @@ export function MaterialRequestEditor({
       </Alert>
     );
   }
-  return <ReadyEditor editor={state.editor} affaireName={affaireName} canEditCatalogue={canEditCatalogue} />;
+  return (
+    <ReadyEditor
+      editor={state.editor}
+      affaireName={affaireName}
+      canEditCatalogue={canEditCatalogue}
+      canCreateSupplyType={canCreateSupplyType}
+    />
+  );
 }
