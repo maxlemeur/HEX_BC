@@ -33,7 +33,7 @@ import { logCompletedAuditEvent } from "@/lib/takeoff/processing-audit";
 import { buildTakeoffItemAnswersPublication, publishTakeoffItemAnswers } from "@/lib/takeoff/poste-publication-server";
 import { finishPlanReading, posteVectorReadings, readPlanAgainstItemList } from "@/lib/takeoff/poste-reading";
 import { processItemListLevelC, readTakeoffItemListOrder } from "@/lib/takeoff/poste-reading-job-server";
-import { controlledPosteCall, posteMeasured, posteNotFound, readPosteManifest } from "@/lib/takeoff/poste-reading.test-fixtures";
+import { controlledPosteCall, orderSensitivePosteList, posteMeasured, posteNotFound, readPosteManifest } from "@/lib/takeoff/poste-reading.test-fixtures";
 import { boundPosteReadingRequest } from "@/lib/takeoff/poste-reading-bounds";
 import { TAKEOFF_PAID_CALL_ESTIMATE_TOKENS } from "@/lib/takeoff/launch-call-ledger";
 import { jsonbTextBytes } from "@/lib/takeoff/rules/jsonb-size";
@@ -472,6 +472,23 @@ describe("processItemListLevelC", () => {
     const call = controlledPosteCall();
     await expect(run({ call, order: askedOrder([LAVABO.id, "cccccccc-0000-4000-8000-000000000009"]) }))
       .rejects.toMatchObject({ code: TakeoffErrorCode.INTERNAL_ERROR, retryable: false });
+    expect(call.received).toHaveLength(0);
+    expect(publishTakeoffItemAnswers).not.toHaveBeenCalled();
+  });
+
+  // The twin of the admission's case (launch-request-server.test.ts): the items asked, read in the sealed list's order,
+  // make 4 batches on 11 fragments: 44 calls, above a plan's ceiling, refused before any call; the admission counts the same.
+  it("bounds the items a new measure asks in the sealed list's order, as its admission sized them: 44 calls, refused", async () => {
+    const call = controlledPosteCall();
+    const list = orderSensitivePosteList();
+    const asked = list.map(({ id }) => id).sort();
+    const manifest = planManifest([{ id: PLAN, pageCount: 90 }], undefined,
+      { ...ORDER, list: { ...ORDER.list, item_count: list.length, asked_item_ids: asked } });
+    const whole = { ...await sourceFile(), bytes: await pdf(90), sourcePageNumbersByPage: Array.from({ length: 90 }, (_, index) => index + 1) };
+    await expect(run({ call, supabase: database({ items: list, manifest }).client as never, sourceFile: whole,
+      order: { ...SEALED, itemCount: list.length, manifest, askedItemIds: asked } })).rejects.toMatchObject({
+      code: TakeoffErrorCode.TAKEOFF_FILE_TOO_LARGE, retryable: false, details: expect.objectContaining({ reading_calls: 44 }),
+      message: expect.stringContaining("Lecture de 48 postes sur 1 plan : 44 appels de lecture") });
     expect(call.received).toHaveLength(0);
     expect(publishTakeoffItemAnswers).not.toHaveBeenCalled();
   });

@@ -8,7 +8,7 @@ import type { TakeoffChunkingRuntimeConfig } from "@/lib/takeoff/chunking";
 import { TAKEOFF_PAID_CALL_ESTIMATE_TOKENS } from "@/lib/takeoff/launch-call-ledger";
 import { describeTakeoffLaunchReason, readTakeoffLaunchUnit, type AnyTakeoffLaunchManifest } from "@/lib/takeoff/launch-request";
 import { planPosteBatches } from "@/lib/takeoff/poste-exchange";
-import { boundPosteReadingRequest, describePosteReadingBounds, posteReadingBoundsOfManifest } from "@/lib/takeoff/poste-reading-bounds";
+import { boundPosteReadingRequest, describePosteReadingBounds, posteReadingBoundsOfManifest, postesAskedBy } from "@/lib/takeoff/poste-reading-bounds";
 import { buildLevelCRunMetricRows } from "@/lib/takeoff/level-c-chunk-metrics";
 import { prepareLevelCReading, type ProcessLevelCMetricsSummary } from "@/lib/takeoff/level-c-reading";
 import type { Poste } from "@/lib/takeoff/poste-list";
@@ -193,12 +193,11 @@ export async function processItemListLevelC(input: {
     throw failure(job.id, "La liste des postes scellée par cette analyse n’a pas pu être lue.");
   }
   // A new measure of a selection asks only its items (the database's rule, private.takeoff_request_asked_items): the
-  // reading, its bounds and its publication are those items, in the revision's order, each present.
-  if (input.order.askedItemIds) {
-    const asked = new Set(input.order.askedItemIds);
-    items = items.filter((item) => asked.has(item.id.toLowerCase()));
-    if (items.length !== asked.size) throw failure(job.id, "Un poste demandé par cette analyse n’est pas dans sa liste : relancez la lecture.");
-  }
+  // reading, its bounds and its publication are those items, in the revision's order (as its admission sized them), each
+  // present.
+  const asked = postesAskedBy(items, input.order.askedItemIds);
+  if (!asked) throw failure(job.id, "Un poste demandé par cette analyse n’est pas dans sa liste : relancez la lecture.");
+  items = asked;
   assertReadingWithinBounds(job, { manifest: input.order.manifest, items, pageCount, maxPage: Math.max(...readPages), config, planFile,
     fileName: sourceFile.fileName });
   // Each context file with its kind (the reading keeps the CCTP only); a file whose kind is not known is never attached.

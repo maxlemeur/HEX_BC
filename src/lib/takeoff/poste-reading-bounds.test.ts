@@ -31,8 +31,10 @@ import {
   posteAnswersMaxBytes,
   posteReadingBoundsOfManifest,
   posteReadingRefusal,
+  postesAskedBy,
   sizePosteReadingManifest,
 } from "@/lib/takeoff/poste-reading-bounds";
+import { orderSensitivePosteList } from "@/lib/takeoff/poste-reading.test-fixtures";
 import { describePosteReadingBounds, posteReadingBoundsDetails, readPosteReadingBoundsFacts } from "@/lib/takeoff/poste-reading-bounds-text";
 import { takeoffPreparationSourceSchema } from "@/lib/takeoff/preparation";
 
@@ -432,6 +434,37 @@ describe("posteReadingBoundsOfManifest", () => {
     const bounds = fromManifest(manifest([{ count: 6 }, { count: 6 }]))!;
     expect(bounds.units).toEqual([expect.objectContaining({ key: "grouped", fragments: 1, calls: 3 })]);
     expect(bounds).toMatchObject({ ok: true, plans: 2 });
+  });
+});
+
+// Lot 4 PR 4b: a new measure names the items it asks by identifier; the admission, its preview and the worker read and
+// size them in the sealed list's order (the batches split on count and bytes in that order), through one function.
+describe("the items a sealed order asks", () => {
+  const list = orderSensitivePosteList();
+  const byIdentifier = [...list].map(({ id }) => id).sort();
+
+  it("are the sealed list's items it names, in the list's order, whatever the order it names them in", () => {
+    expect(postesAskedBy(list, byIdentifier)).toEqual(list);
+    expect(postesAskedBy(list, [list[30].id, list[2].id.toUpperCase()])).toEqual([list[2], list[30]]);
+    expect(postesAskedBy(list, null)).toEqual(list);
+  });
+
+  it("are none when an item it names is not in the list, or is named twice", () => {
+    expect(postesAskedBy(list, [list[0].id, "cccccccc-0000-4000-8000-000000000009"])).toBeNull();
+    expect(postesAskedBy(list, [list[0].id, list[0].id])).toBeNull();
+  });
+
+  it("are bounded in the list's order: 4 batches, 44 calls on 11 fragments, past a plan's ceiling", () => {
+    const asked = postesAskedBy(list, byIdentifier)!;
+    expect(batchesOf(asked)).toHaveLength(4);
+    // What sizing them by identifier would have counted: 3 batches, 33 calls, within the ceiling.
+    expect(batchesOf([...list].sort((left, right) => left.id.localeCompare(right.id)))).toHaveLength(3);
+    const sealed = splitTakeoffLaunchManifest(manifest([{ count: 90 }], { ...LIST,
+      list: { ...LIST.list, item_count: list.length, asked_item_ids: byIdentifier } }));
+    const bounds = posteReadingBoundsOfManifest(sealed, CHUNKING, TAKEOFF_PAID_CALL_ESTIMATE_TOKENS, asked)!;
+    expect(bounds.units).toEqual([expect.objectContaining({ fragments: 11, batches: 4, readingCalls: 44,
+      exceeded: expect.arrayContaining(["calls"]) })]);
+    expect(bounds.ok).toBe(false);
   });
 });
 

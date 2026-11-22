@@ -22,6 +22,7 @@ import {
   launchTakeoffRelaunch, readAutomaticTakeoffPayerNotice, readBriefConfirmationPayerNotice, readDossierChangeSinceAnalysis,
 } from "@/lib/takeoff/launch-request-server";
 import { launchTakeoffItemRemeasure, planTakeoffItemRemeasure } from "@/lib/takeoff/item-remeasure-server";
+import { orderSensitivePosteList } from "@/lib/takeoff/poste-reading.test-fixtures";
 import { runLocalTakeoffAttempts } from "@/lib/takeoff/local-dispatch";
 import type { AnyTakeoffLaunchManifest } from "@/lib/takeoff/launch-request";
 import { createSupabaseFake, filterValue, servedRows, type FakeQuery } from "@/lib/takeoff/metre-m3.test-utils";
@@ -1173,6 +1174,24 @@ describe("launchTakeoffRelaunch", () => {
       expect(plan.predecessorJobId).toBe(LATEST_JOB);
       expect(plan.manifest.budget.tokens).toBeGreaterThan(0);
       expect(plan.manifest.budget.tokens).toBe(plan.bounds.requestBudgetTokens);
+    });
+
+    // The twin of the worker's case (poste-reading-job-server.test.ts): the admission and its preview size the items asked
+    // in the sealed list's order, as the worker reads them; by identifier they made 33 calls, and the worker 44.
+    it("sizes the items asked in the sealed list's order, as the worker reads them: 44 calls, refused before admission", async () => {
+      const list = orderSensitivePosteList();
+      vi.mocked(sealedMeasuringOrder).mockResolvedValueOnce({ order: itemListOrder(list.length), items: list });
+      remeasured.length = 0;
+      const { context } = planCommand({ a: 90, b: 3 }, { format: 2, plans: [PLAN_FILE], read: [PLAN_FILE] }, undefined,
+        "aaaaaaaa-0000-4000-8000-0000000000bb", null, {
+          tables: { takeoff_preparations: () => ({ data: { revision: 2 }, error: null }),
+            takeoff_jobs: () => ({ data: [{ id: LATEST_JOB }], error: null }) },
+          rpc: { launch_takeoff_item_remeasure: (args) => { remeasured.push(args as Record<string, unknown>); return { data: [], error: null }; } },
+        });
+      const planned = await planTakeoffItemRemeasure(context, { projectId: PROJECT, planKeys: [PLAN_FILE],
+        itemIds: list.map(({ id }) => id).sort(), selection: SELECTION });
+      expect(planned).toEqual({ refusal: expect.stringContaining("Lecture de 48 postes sur 1 plan : 44 appels de lecture") });
+      expect(remeasured).toEqual([]);
     });
 
     it("names a selection made on another list or plan as stale, before anything is admitted", async () => {

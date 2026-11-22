@@ -266,6 +266,19 @@ export function sizePosteReadingManifest<T extends AnyTakeoffLaunchManifest>(man
   return { manifest: sized, bounds: posteReadingBoundsOfManifest(sized, chunking, estimateTokensPerCall, items, vectorCalls)! };
 }
 
+/**
+ * The items a sealed order asks, in the sealed list's order: those its `asked_item_ids` names (a new measure of a
+ * selection, which names them by identifier), else every item. What the admission and its preview size and what the
+ * worker reads, its batches split on count and on bytes in that order: one order for all three. Null when an item it
+ * names is not in the list, or is named twice.
+ */
+export function postesAskedBy<T extends Poste>(items: readonly T[], askedItemIds: readonly string[] | null | undefined): T[] | null {
+  if (!askedItemIds) return [...items];
+  const asked = new Set(askedItemIds.map((id) => id.toLowerCase()));
+  const kept = items.filter((item) => asked.has(item.id.toLowerCase()));
+  return asked.size === askedItemIds.length && kept.length === asked.size ? kept : null;
+}
+
 /** The refusal of a request past its bounds: the plans to restrict, with the launch reason the member already reads. */
 export function posteReadingRefusal(bounds: PosteReadingBounds): { reason: "PLAN_SET_TOO_LARGE"; pieces: TakeoffLaunchPiece[] } | null {
   return bounds.ok ? null : { reason: "PLAN_SET_TOO_LARGE", pieces: bounds.pieces };

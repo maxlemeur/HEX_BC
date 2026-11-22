@@ -13,7 +13,7 @@ import {
   countUnstoredPlanPages, databaseError, dispatchLaunchRequestJobs, launchError, logicalPlanKey, planPagesPastLimit,
   planSetCopiesSetAside, planUnitJobs, readPlansAnalysedBefore, relaunchManifest, sealedPlanSetId,
 } from "@/lib/takeoff/launch-request-server";
-import { posteReadingRefusal, sizePosteReadingManifest, type PosteReadingBounds } from "@/lib/takeoff/poste-reading-bounds";
+import { posteReadingRefusal, postesAskedBy, sizePosteReadingManifest, type PosteReadingBounds } from "@/lib/takeoff/poste-reading-bounds";
 import {
   createTakeoffPreparationSnapshot, TakeoffPreparationNotReadyError, type TakeoffExecutionSelection, type TakeoffPreparationSnapshot,
 } from "@/lib/takeoff/preparation";
@@ -32,8 +32,9 @@ type Context = AuthenticatedTenantContext;
  * current confirmed preparation (whoever confirmed it) gives its content, restricted to the plans of the selection (one
  * analysis per plan, each its current copy); the member who confirms is its payer, on their own subscription, with the
  * setting of the dialog sealed in its selection. Its order seals the list's latest revision with the items asked, and
- * its budget is sized on those items alone (#467's rule: paid calls × the ledger's estimate × its margin, the ceilings
- * per plan and per request, the page limit per plan). It re-reads the latest analysis of its plans.
+ * its budget is sized on those items alone, in the sealed list's order as the worker reads them (postesAskedBy), by
+ * #467's rule (paid calls × the ledger's estimate × its margin, the ceilings per plan and per request, the page limit per
+ * plan). It re-reads the latest analysis of its plans.
  */
 export type TakeoffItemRemeasurePlan = {
   planSetId: string;
@@ -80,9 +81,10 @@ export async function planTakeoffItemRemeasure(context: Context, input: {
   if (!scope.length || scope.some((id) => !id)) {
     return { refusal: "Un plan de la sélection ne fait plus partie de la préparation confirmée : rouvrez l’aperçu.", stale: true };
   }
-  const items = new Map(order.items.map((item) => [item.id.toLowerCase(), item]));
+  // The order seals the items asked by identifier, in their canonical order; they are read and sized in the list's.
   const asked = [...new Set(input.itemIds.map((id) => id.toLowerCase()))].sort();
-  if (!asked.length || asked.some((id) => !items.has(id))) {
+  const askedItems = postesAskedBy(order.items, asked);
+  if (!asked.length || !askedItems) {
     return { refusal: "Un poste de la sélection n’est plus dans la liste : rafraîchissez la sélection.", stale: true };
   }
   let snapshot: TakeoffPreparationSnapshot;
@@ -115,8 +117,7 @@ export async function planTakeoffItemRemeasure(context: Context, input: {
   }
   const split = splitTakeoffLaunchManifest({ ...grouped, coverage: { ...grouped.coverage, plans_omitted: [...omitted.values()] } },
     countedPages);
-  const sized = sizePosteReadingManifest(split, config, TAKEOFF_PAID_CALL_ESTIMATE_TOKENS, asked.map((id) => items.get(id)!),
-    takeoffVectorGroupCallsBound);
+  const sized = sizePosteReadingManifest(split, config, TAKEOFF_PAID_CALL_ESTIMATE_TOKENS, askedItems, takeoffVectorGroupCallsBound);
   if (!sized.bounds) return { refusal: "La lecture de ces postes n’a pas pu être bornée : rouvrez l’aperçu." };
   const tooLarge = posteReadingRefusal(sized.bounds);
   if (tooLarge) return { refusal: describeTakeoffLaunchReason(tooLarge.reason, tooLarge.pieces, sized.bounds) };
