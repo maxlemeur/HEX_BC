@@ -11,10 +11,12 @@
 --    waits for the renewal, then finds the Mac held again and starts nothing; one live lease on the Mac.
 -- 6. Two units of one request reach for its last balance at once (a second process read one without the Mac): one call
 --    is reserved, the unit that does not hold the Mac reserves none.
--- 7. With lot 2's activations on and one analysis per plan withdrawn, the hosted recovery against a released worker's
---    direct claim (claim_local_takeoff_job: the job's row, then the tenant's admission lock, held until it commits) of a
---    job on another Mac, without a plan at work: the recovery takes no lock that claim holds, and neither waits for the
---    other.
+-- 7. With lot 2's activations on and one analysis per plan withdrawn, M3's orders (20261121020321): the hosted recovery
+--    takes the tenant's admission lock, then closes an overdue retry outside any request, while a released worker's direct
+--    claim (claim_local_takeoff_job) holds that retry's row and takes the same lock after its write. A third process holds
+--    the affaire's command key, which the claim's restart guard (20261121193413) takes while it holds the row, so that the
+--    recovery owns the tenant's lock before the claim reaches it. They deadlock, and PostgreSQL rolls one back whole: M3's
+--    order, not this migration's (it is not changed here).
 -- 8. One analysis per plan active again: a retry of an analysis outside any request, claimed through the Mac's slot, against
 --    a command naming it (20261121193413's restart guard). The claim takes the Mac's lock, the job, the slot, then the
 --    affaire's command key and its automatic request; the command takes the job (a key share), then the key. While a third
@@ -25,6 +27,8 @@
 -- 10. A stop on a request that has just closed, against a reread naming one of its jobs (the affaire's automatic request
 --    held, then a key share on the job through the new request's foreign key): the stale stop answers at once and takes
 --    no lock; a stop of a running request holds its jobs without excluding that key share. Neither deadlocks.
+-- 11. A Mac's first slotted claim, its slot's row inserted and uncommitted, against the renewal with an earlier clock of a
+--    job that never took the slot: the renewal waits for that row, then finds the Mac taken and is refused.
 -- Isolation justified: these interleavings exist only across sessions, which no journey drives deterministically. Each
 -- held transaction is stopped at a named point; the waits are bounded conditions. All values are fictional.
 begin;
@@ -90,6 +94,19 @@ $$;
 create function pg_temp.unit(project integer, ordinal integer) returns uuid language sql immutable as $$
   select pg_temp.f(1000 + 10 * project + ordinal)
 $$;
+-- The member's confirmed preparation of the affaire's three plans: the snapshot its commands seal.
+create function pg_temp.snapshot(project integer) returns jsonb language sql stable as $$
+  select jsonb_build_object('schema_version', 1, 'preparation_revision', 1, 'confirmed_by', pg_temp.f(1),
+    'confirmed_at', '2026-11-21T08:00:00Z', 'execution_selection', pg_temp.selection(),
+    'readiness', jsonb_build_object('status', 'ready', 'can_launch', true, 'blockers', '[]'::jsonb, 'reservations', '[]'::jsonb),
+    'preparation', jsonb_build_object('schema_version', 1,
+      'destination', '{"kind":"analysis_only","estimate_version_id":null}'::jsonb,
+      'processing', '{"level":"C","provider":"chatgpt"}'::jsonb,
+      'sources', (select jsonb_agg(jsonb_build_object('document_id', p.id, 'document_name', p.file_name, 'kind', 'plan', 'active', true,
+        'confirmed', true, 'plan_set_id', pg_temp.f(project + 20), 'file_path', p.file_path, 'page_count', p.page_count,
+        'source_updated_at', p.updated_at, 'pages', '[]'::jsonb, 'content_hash', encode(sha256(convert_to(p.id::text, 'UTF8')), 'hex'))
+        order by p.id) from public.plan_files p where p.plan_set_id = pg_temp.f(project + 20))))
+$$;
 -- The command of a request of the affaire's three plans (units in name order, which here is identifier order).
 create function pg_temp.launch_sql(project integer) returns text language sql stable as $$
   with plans as (
@@ -109,16 +126,7 @@ create function pg_temp.launch_sql(project integer) returns text language sql st
         'page_count', 1, 'content_sha256', encode(sha256(convert_to(p.id::text, 'UTF8')), 'hex')) order by p.ordinal) from plans p),
       'coverage', jsonb_build_object('plans_retained', 3, 'plans_omitted', '[]'::jsonb), 'references', '[]'::jsonb,
       'budget', jsonb_build_object('tokens', 400000, 'cost_cents', 2500)),
-    jsonb_build_object('schema_version', 1, 'preparation_revision', 1, 'confirmed_by', pg_temp.f(1),
-      'confirmed_at', '2026-11-21T08:00:00Z', 'execution_selection', pg_temp.selection(),
-      'readiness', jsonb_build_object('status', 'ready', 'can_launch', true, 'blockers', '[]'::jsonb, 'reservations', '[]'::jsonb),
-      'preparation', jsonb_build_object('schema_version', 1,
-        'destination', '{"kind":"analysis_only","estimate_version_id":null}'::jsonb,
-        'processing', '{"level":"C","provider":"chatgpt"}'::jsonb,
-        'sources', (select jsonb_agg(jsonb_build_object('document_id', p.id, 'document_name', p.file_name, 'kind', 'plan', 'active', true,
-          'confirmed', true, 'plan_set_id', pg_temp.f(project + 20), 'file_path', p.file_path, 'page_count', p.page_count,
-          'source_updated_at', p.updated_at, 'pages', '[]'::jsonb, 'content_hash', encode(sha256(convert_to(p.id::text, 'UTF8')), 'hex'))
-          order by p.id) from plans p))),
+    pg_temp.snapshot(project),
     (select jsonb_agg(jsonb_build_object('id', pg_temp.unit(project, p.ordinal::integer), 'plan_set_id', pg_temp.f(project + 20),
       'launch_unit_key', 'plan:' || p.id, 'source_file_name', p.file_name, 'source_file_type', 'application/pdf',
       'source_file_size_bytes', 8, 'prompt_version', 'fixture', 'execution_host_id', pg_temp.host()) order by p.ordinal) from plans p),
@@ -159,6 +167,13 @@ create function pg_temp.cancel_sql(job uuid) returns text language sql immutable
     where id = %L and status in ('pending', 'processing')$cancel$, job)
 $$;
 
+select is(extensions.dblink_exec('race_setup', (select format($prep$begin;
+  set local session_replication_role = replica;
+  insert into public.takeoff_preparations (tenant_id, project_id, revision, draft, confirmed_snapshot, confirmed_at, confirmed_by,
+    updated_by) values %s;
+  commit;$prep$, string_agg(format('(%L, %L, 1, %L::jsonb, %L::jsonb, now(), %L, %L)', pg_temp.tenant(), pg_temp.f(project),
+    pg_temp.snapshot(project) -> 'preparation', pg_temp.snapshot(project), pg_temp.f(1), pg_temp.f(1)), ', '))
+  from (values (20), (21), (22), (23), (24)) as affaire(project))), 'COMMIT', 'each affaire''s preparation is confirmed');
 select is((select x.outcome from extensions.dblink('race_setup', pg_temp.launch_sql(project)) as x(outcome text)), 'admitted',
   format('a request of three plans on affaire %s', project)) from (values (20), (21), (22), (23), (24)) as affaire(project);
 
@@ -317,25 +332,58 @@ select is((select count(*)::integer from private.takeoff_launch_usage where requ
 select is(extensions.dblink_exec('race_setup', 'begin; delete from private.takeoff_plan_dispatch_activation; commit'), 'COMMIT',
   'the owner withdraws one analysis per plan');
 create function pg_temp.other_host() returns text language sql immutable as $$ select 'urn:uuid:d5200000-0000-4000-8000-000000000098' $$;
-select is(extensions.dblink_exec('race_setup', format($standalone$begin;
+create function pg_temp.overdue() returns uuid language sql immutable as $$ select pg_temp.f(2102) $$;
+-- The retry waits on another Mac, live and idle for longer than the pickup grace: the recovery closes it as not started.
+select is(extensions.dblink_exec('race_setup', format($overdue$begin;
   set local session_replication_role = replica;
   insert into public.takeoff_jobs (id, tenant_id, project_id, plan_set_id, level, status, created_by, execution_provider,
-    execution_host_id, created_at)
-  values (%L, %L, %L, %L, 'C', 'pending', %L, 'chatgpt_local', %L, now());
-  commit;$standalone$, pg_temp.f(2101), pg_temp.tenant(), pg_temp.f(21), pg_temp.f(41), pg_temp.f(1), pg_temp.other_host())), 'COMMIT',
-  'a job outside any request waits on another Mac');
-select is(extensions.dblink_exec('race_a', 'begin'), 'BEGIN', 'a released worker claims it directly');
-select is((select x.claimed from extensions.dblink('race_a', format($claim$select count(*) from public.claim_local_takeoff_job(%L, %L, %L,
+    execution_host_id, retry_count, next_retry_at, analysis_queued_at, created_at)
+  values (%L, %L, %L, %L, 'C', 'failed', %L, 'chatgpt_local', %L, 0, clock_timestamp() - interval '20 minutes',
+    now() - interval '1 hour', now() - interval '1 hour');
+  insert into private.takeoff_local_host_activity (host_id, live_since, seen_at)
+  values (%L, now() - interval '1 hour', clock_timestamp());
+  commit;$overdue$, pg_temp.overdue(), pg_temp.tenant(), pg_temp.f(21), pg_temp.f(41), pg_temp.f(1), pg_temp.other_host(),
+  pg_temp.other_host())), 'COMMIT', 'an overdue retry outside any request waits on another Mac');
+insert into race_pids select 'race_setup', (select backend.pid from extensions.dblink('race_setup', 'select pg_backend_pid()') as backend(pid integer));
+select is((select count(*)::integer from extensions.dblink('race_setup', format(
+    'begin; select private.lock_takeoff_launch_commands(%L)', pg_temp.f(21))) as x(locked text)), 1,
+  'a third process holds the affaire''s command key');
+select is(extensions.dblink_exec('race_a', 'begin'), 'BEGIN', 'a released worker claims the retry directly');
+select is(extensions.dblink_send_query('race_a', format($claim$select count(*) from public.claim_local_takeoff_job(%L, %L, %L,
     clock_timestamp(), %L, clock_timestamp() + interval '30 minutes', 'modele-fictif', 'fixture')$claim$,
-    pg_temp.f(2101), pg_temp.tenant(), pg_temp.other_host(), pg_temp.f(971))) as x(claimed bigint)), 1::bigint,
-  'its claim holds the job''s row and the tenant''s admission lock');
+    pg_temp.overdue(), pg_temp.tenant(), pg_temp.other_host(), pg_temp.f(972))), 1, 'its claim is sent');
+select ok(pg_temp.waits_for('race_a', 'race_setup'), 'the claim holds the retry''s row and waits for the command key');
 select is(extensions.dblink_send_query('race_b', 'select count(*) from public.recover_stale_local_takeoff_jobs(now())'), 1,
   'the hosted recovery runs meanwhile');
-select ok(pg_temp.answered('race_b'), 'the recovery answers without waiting for the claim');
-select is((select count(*)::integer from extensions.dblink_get_result('race_b', false) as x(recovered bigint)), 1, 'with its count');
-select diag(concat('recovery: ', extensions.dblink_error_message('race_b')));
-select is((select count(*)::integer from extensions.dblink_get_result('race_b', false) as x(recovered bigint)), 0, 'and is done');
-select is(extensions.dblink_exec('race_a', 'rollback'), 'ROLLBACK', 'the claim ends');
+select ok(pg_temp.waits_for('race_b', 'race_a'), 'the recovery waits for that row to close the retry');
+select ok(exists (select 1 from pg_locks l where l.pid = (select pid from race_pids where label = 'race_b')
+    and l.locktype = 'advisory' and l.granted
+    and l.classid::bigint = (hashtextextended('takeoff-admission:' || pg_temp.tenant()::text, 0) >> 32) & 4294967295
+    and l.objid::bigint = hashtextextended('takeoff-admission:' || pg_temp.tenant()::text, 0) & 4294967295),
+  'holding the tenant''s admission lock');
+select is(extensions.dblink_exec('race_setup', 'commit'), 'COMMIT', 'the third process lets the command key go');
+select ok(pg_temp.answered('race_a'), 'the claim ends');
+select ok(pg_temp.answered('race_b'), 'and so does the recovery');
+create temp table m3_cycle as select
+  (select count(*)::integer from extensions.dblink_get_result('race_a', false) as x(claimed bigint)) as claim_rows,
+  extensions.dblink_error_message('race_a') as claim_error;
+update m3_cycle set claim_rows = claim_rows
+  + (select count(*)::integer from extensions.dblink_get_result('race_a', false) as x(claimed bigint));
+alter table m3_cycle add column recovery_rows integer, add column recovery_error text;
+update m3_cycle set recovery_rows = (select count(*)::integer from extensions.dblink_get_result('race_b', false) as x(recovered bigint)),
+  recovery_error = extensions.dblink_error_message('race_b');
+update m3_cycle set recovery_rows = recovery_rows
+  + (select count(*)::integer from extensions.dblink_get_result('race_b', false) as x(recovered bigint));
+select diag(format('claim: %s; recovery: %s', coalesce(nullif(split_part(claim_error, E'\n', 1), ''), 'OK'),
+  coalesce(nullif(split_part(recovery_error, E'\n', 1), ''), 'OK'))) from m3_cycle;
+select ok((claim_error like '%deadlock detected%') <> (recovery_error like '%deadlock detected%'), 'PostgreSQL rolls back one side whole')
+from m3_cycle;
+select is(extensions.dblink_exec('race_a', 'rollback'), 'ROLLBACK', 'the claim''s transaction ends');
+select ok(case when (select claim_error like '%deadlock detected%' from m3_cycle)
+    then (select status::text = 'failed' and analysis_outcome::text = 'failure' and error_code = 'TAKEOFF_WORKER_NOT_STARTED'
+      from public.takeoff_jobs where id = pg_temp.overdue())
+    else (select status::text = 'failed' and analysis_outcome is null from public.takeoff_jobs where id = pg_temp.overdue()) end,
+  'and the other''s write stands: the recovery closes the retry as not started when the claim is the one rolled back');
 
 -- 8. A retry outside any request claimed through the slot, against a command naming it.
 create function pg_temp.retry() returns uuid language sql immutable as $$ select pg_temp.f(2201) $$;
@@ -352,7 +400,6 @@ select is(extensions.dblink_exec('race_setup', format($retry$begin;
     now() - interval '1 hour', now() - interval '1 hour');
   commit;$retry$, pg_temp.host(), pg_temp.retry(), pg_temp.tenant(), pg_temp.f(22), pg_temp.f(42), pg_temp.f(1))), 'COMMIT',
   'affaire 22, whose request is closed, has a retry of an analysis launched outside any request');
-insert into race_pids select 'race_setup', (select backend.pid from extensions.dblink('race_setup', 'select pg_backend_pid()') as backend(pid integer));
 select is((select count(*)::integer from extensions.dblink('race_setup', format(
     'begin; select private.lock_takeoff_launch_commands(%L)', pg_temp.f(22))) as x(locked text)), 1,
   'a third process holds the affaire''s command key');
@@ -451,6 +498,35 @@ select is((select x.answer from extensions.dblink_get_result('race_b', false) as
   'and stops the rest: neither deadlocked');
 select diag(concat('stop: ', extensions.dblink_error_message('race_b')));
 select is((select count(*)::integer from extensions.dblink_get_result('race_b', false) as x(answer text)), 0, 'and is done');
+
+-- 11. The Mac without a slot row yet: a job outside any request waits, another that never took the slot ran and its lease
+-- lapsed (its worker's clock is behind).
+select is(extensions.dblink_exec('race_setup', format($first$begin;
+  delete from private.takeoff_host_slots where host_id = %1$L;
+  set local session_replication_role = replica;
+  update public.takeoff_jobs set processing_lease_expires_at = clock_timestamp() - interval '1 second'
+  where execution_host_id = %1$L and status = 'processing';
+  insert into public.takeoff_jobs (id, tenant_id, project_id, plan_set_id, level, status, created_by, execution_provider,
+    execution_host_id, processing_lease_token, processing_lease_expires_at, started_at, created_at)
+  values (%2$L, %4$L, %5$L, %6$L, 'C', 'pending', %7$L, 'chatgpt_local', %1$L, null, null, null, now()),
+    (%3$L, %4$L, %5$L, %6$L, 'C', 'processing', %7$L, 'chatgpt_local', %1$L, %8$L, clock_timestamp() - interval '1 second',
+      clock_timestamp() - interval '40 minutes', now() - interval '1 hour');
+  commit;$first$, pg_temp.host(), pg_temp.f(2103), pg_temp.f(2104), pg_temp.tenant(), pg_temp.f(21), pg_temp.f(41), pg_temp.f(1),
+  pg_temp.f(983))), 'COMMIT', 'the Mac has no slot row; a job waits, another ran without the slot');
+select is(extensions.dblink_exec('race_a', 'begin'), 'BEGIN', 'a process of the Mac claims the waiting job');
+select is((select x.claimed from extensions.dblink('race_a', pg_temp.claim_sql(pg_temp.f(2103), 984)) as x(claimed bigint)), 1::bigint,
+  'it inserts the Mac''s slot row and takes it, uncommitted');
+select is(extensions.dblink_send_query('race_b', format($renew$select public.renew_takeoff_processing_lease(%L, %L, %L,
+    clock_timestamp() - interval '1 hour', clock_timestamp() + interval '30 minutes')$renew$, pg_temp.f(2104), pg_temp.tenant(),
+    pg_temp.f(983))), 1, 'the other job''s worker renews meanwhile, with its earlier clock');
+select ok(pg_temp.waits_for('race_b', 'race_a'), 'the renewal waits for the Mac''s first slot row');
+select is(extensions.dblink_exec('race_a', 'commit'), 'COMMIT', 'the claim commits');
+select ok(pg_temp.answered('race_b'), 'the renewal goes on');
+select is((select count(*)::integer from extensions.dblink_get_result('race_b', false) as x(renewed boolean)), 0, 'and is refused');
+select ok(extensions.dblink_error_message('race_b') like '%TAKEOFF_HOST_SLOT_LOST%', 'as a lost Mac');
+select is((select count(*)::integer from extensions.dblink_get_result('race_b', false) as x(renewed boolean)), 0, 'and is done');
+select is((select count(*)::integer from public.takeoff_jobs where execution_host_id = pg_temp.host() and status = 'processing'
+  and processing_lease_expires_at > clock_timestamp()), 1, 'one live lease on the Mac');
 
 select is(extensions.dblink_exec('race_setup', $cleanup$
 begin;

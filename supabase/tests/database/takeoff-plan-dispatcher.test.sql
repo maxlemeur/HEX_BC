@@ -146,6 +146,17 @@ create function pg_temp.dispatch() returns uuid language sql as $$
   select job_id from public.dispatch_next_takeoff_host_job(pg_temp.host())
 $$;
 
+-- Each affaire's confirmed preparation of revision 1, the one its commands name: its plans are those its snapshot reads.
+create function pg_temp.confirm(project integer) returns void language sql as $$
+  insert into public.takeoff_preparations (tenant_id, project_id, revision, draft, confirmed_snapshot, confirmed_at, confirmed_by,
+    updated_by)
+  values (pg_temp.f(10), pg_temp.f(project), 1, pg_temp.snapshot(project) -> 'preparation', pg_temp.snapshot(project), now(),
+    pg_temp.f(1), pg_temp.f(1))
+$$;
+set local session_replication_role = replica;
+select pg_temp.confirm(20 + n) from generate_series(0, 9) as n;
+set local session_replication_role = origin;
+
 -- 1. Before the owner's activation of one analysis per plan (the automatic start and the notices are active).
 insert into private.takeoff_launch_activation (active_from) values (now() - interval '1 minute');
 insert into private.takeoff_completion_activation (active_from) values (now() - interval '1 minute');
@@ -154,6 +165,22 @@ select throws_ok($$select * from pg_temp.launch(20)$$, '22023', 'TAKEOFF_LAUNCH_
   'before its activation no request of format 2 is sealed');
 select is((select count(*)::integer from public.dispatch_next_takeoff_host_job(pg_temp.host())), 0,
   'before its activation the dispatcher answers nothing (the Mac keeps its former order)');
+-- A job claimed before the activation renews its lease every minute: its heartbeat writes nothing to any Mac's slot (the
+-- closing review's point 1; the probe for a plan at work is an index lookup, measured in the pull request).
+set local session_replication_role = replica;
+insert into public.takeoff_jobs (id, tenant_id, project_id, plan_set_id, level, status, created_by, execution_provider,
+  execution_host_id, processing_lease_token, processing_lease_expires_at, started_at)
+values (pg_temp.f(3990), pg_temp.f(10), pg_temp.f(28), pg_temp.f(48), 'C', 'processing', pg_temp.f(1), 'chatgpt_local',
+  'urn:uuid:d5100000-0000-4000-8000-000000000097', pg_temp.f(3991), clock_timestamp() + interval '30 minutes', clock_timestamp());
+set local session_replication_role = origin;
+select is(public.renew_takeoff_processing_lease(pg_temp.f(3990), pg_temp.f(10), pg_temp.f(3991), clock_timestamp(),
+  clock_timestamp() + interval '40 minutes'), true, 'a job claimed before the activation renews its lease as before');
+select is((select count(*)::integer from pg_locks where pid = pg_backend_pid() and relation = 'private.takeoff_host_slots'::regclass
+  and mode = 'RowExclusiveLock'), 0, 'without writing to any Mac''s slot');
+set local session_replication_role = replica;
+update public.takeoff_jobs set status = 'canceled', analysis_outcome = 'canceled', analysis_finished_at = now(),
+  processing_lease_token = null, processing_lease_expires_at = null where id = pg_temp.f(3990);
+set local session_replication_role = origin;
 
 -- 2. Activation; a request of three plans gives one request and three jobs, in one commit.
 insert into private.takeoff_plan_dispatch_activation (active_from) values (now() - interval '1 minute');
@@ -685,32 +712,34 @@ returns table (outcome text, request_id uuid, job_id uuid) language sql as $$
       join jsonb_array_elements(manifest -> 'units') with ordinality as u(value, position) using (position)),
     pg_temp.f(project + 20), 1, (select array_agg(f.id) from public.plan_files f where f.plan_set_id = pg_temp.f(project + 20)))
 $$;
--- The source of affaire 27's plan-1 (identifier 173), changed.
-create function pg_temp.with_plan_one(snapshot jsonb, source jsonb) returns jsonb language sql as $$
-  select jsonb_set(snapshot, '{preparation,sources}', (select jsonb_agg(case when s.value ->> 'document_id' = pg_temp.f(173)::text
-      then s.value || source else s.value end order by s.position)
+-- The source of an affaire's plan-1 (the third plan of its set: identifier 100 + 10 n + 3), changed.
+create function pg_temp.with_plan_one(project integer, snapshot jsonb, source jsonb) returns jsonb language sql as $$
+  select jsonb_set(snapshot, '{preparation,sources}', (select jsonb_agg(case
+      when s.value ->> 'document_id' = pg_temp.f(100 + 10 * (project - 20) + 3)::text then s.value || source else s.value end
+      order by s.position)
     from jsonb_array_elements(snapshot #> '{preparation,sources}') with ordinality as s(value, position)))
 $$;
 select throws_ok($$select * from pg_temp.plan_command_with(27, 3,
     jsonb_set(pg_temp.manifest(27), '{plans,0}', (pg_temp.manifest(27) #> '{plans,0}') - 'content_sha256'),
-    pg_temp.with_plan_one(pg_temp.snapshot(27), '{"content_hash": null}'))$$, '22023', 'TAKEOFF_LAUNCH_SEAL_INVALID',
+    pg_temp.with_plan_one(27, pg_temp.snapshot(27), '{"content_hash": null}'))$$, '22023', 'TAKEOFF_LAUNCH_SEAL_INVALID',
   'a plan without its digest is refused at the seal');
-select results_eq($$select outcome from pg_temp.plan_command_with(27, 4, pg_temp.manifest(27),
-    pg_temp.with_plan_one(pg_temp.snapshot(27), '{"pages": [7, 2]}'))$$, $$values ('admitted'::text)$$,
+-- On another affaire, so that the case stands on its own: affaire 28's plan-1 (identifier 183).
+select results_eq($$select outcome from pg_temp.plan_command_with(28, 4, pg_temp.manifest(28),
+    pg_temp.with_plan_one(28, pg_temp.snapshot(28), '{"pages": [7, 2]}'))$$, $$values ('admitted'::text)$$,
   'a plan whose source lists its pages 7 then 2 is admitted with the manifest''s pages 2 and 7');
 select is((select s -> 'pages' from public.takeoff_jobs j, jsonb_array_elements(j.preparation_snapshot #> '{preparation,sources}') s
-    where j.id = pg_temp.round_unit(27, 4, 1) and s ->> 'document_id' = pg_temp.f(173)::text), '[2, 7]'::jsonb,
+    where j.id = pg_temp.round_unit(28, 4, 1) and s ->> 'document_id' = pg_temp.f(183)::text), '[2, 7]'::jsonb,
   'its worker reads them in the manifest''s order');
 -- A reconciliation closes a request whose ends were not settled (written without their triggers here).
 set local session_replication_role = replica;
 update public.takeoff_jobs set status = 'canceled', analysis_outcome = 'canceled', analysis_finished_at = now(), next_retry_at = null
-where launch_request_id = pg_temp.request(27) and analysis_outcome is null;
+where launch_request_id = pg_temp.request(28) and analysis_outcome is null;
 set local session_replication_role = origin;
-select results_eq($$select state from public.reconcile_takeoff_launch_requests() where request_id = pg_temp.request(27)$$,
+select results_eq($$select state from public.reconcile_takeoff_launch_requests() where request_id = pg_temp.request(28)$$,
   $$values ('closed'::text)$$, 'a request whose units all ended is closed by the reconciliation, without any call');
-select is((select count(*)::integer from public.takeoff_completion_notifications where request_id = pg_temp.request(27)), 1,
+select is((select count(*)::integer from public.takeoff_completion_notifications where request_id = pg_temp.request(28)), 1,
   'with one notice');
-select is((select count(*)::integer from public.reconcile_takeoff_launch_requests() where request_id = pg_temp.request(27)), 0,
+select is((select count(*)::integer from public.reconcile_takeoff_launch_requests() where request_id = pg_temp.request(28)), 0,
   'and only once');
 -- The first analysis of an affaire, launched from its zone without naming any plan: M4's command, its identity, with the
 -- manifest of every plan the preparation retains, one unit each; its lost answer is replayed by the same receipt lookup a
@@ -722,6 +751,9 @@ insert into public.plan_files (id, tenant_id, plan_set_id, file_name, file_path,
 select pg_temp.f(2050 + k), pg_temp.f(10), pg_temp.f(2050), 'plan-' || k || '.pdf',
   concat_ws('/', pg_temp.f(10), pg_temp.f(2050), pg_temp.f(2050 + k), 'plan-' || k || '.pdf'), 'application/pdf', 8, 9
 from generate_series(1, 2) as k;
+set local session_replication_role = replica;
+select pg_temp.confirm(2030);
+set local session_replication_role = origin;
 select results_eq($$select outcome, job_id from public.launch_manual_takeoff_request(pg_temp.f(10), pg_temp.f(2030), pg_temp.f(1),
     pg_temp.f(2031), 'initial', null, pg_temp.host(), pg_temp.selection(), pg_temp.manifest(2030), pg_temp.snapshot(2030),
     pg_temp.jobs(2030), pg_temp.f(2050), 1)$$, $$values ('admitted'::text, pg_temp.unit(2030, 1))$$,
@@ -731,12 +763,82 @@ select results_eq($$select units_expected, manifest -> 'format_version' from pub
 select results_eq($$select outcome, job_id from public.replay_manual_takeoff_plan_request(pg_temp.f(10), pg_temp.f(2030), pg_temp.f(1),
     pg_temp.f(2031), 'initial', null, pg_temp.f(2050), 1, null)$$, $$values ('replayed'::text, pg_temp.unit(2030, 1))$$,
   'its lost answer is replayed without naming any plan');
-select results_eq($$select outcome from public.replay_manual_takeoff_plan_request(pg_temp.f(10), pg_temp.f(2030), pg_temp.f(1),
-    pg_temp.f(2031), 'initial', null, pg_temp.f(2050), 1, array[pg_temp.f(2051)])$$, $$values ('replayed'::text)$$,
-  'and so when the retry names plans: the receipt answers under either identity');
+-- Under the same key, another selection of plans is another command: a conflict, in both directions (the closing review's
+-- point 4: the assertion here once expected a retry naming one of its plans to replay).
+select throws_ok($$select * from public.replay_manual_takeoff_plan_request(pg_temp.f(10), pg_temp.f(2030), pg_temp.f(1),
+    pg_temp.f(2031), 'initial', null, pg_temp.f(2050), 1, array[pg_temp.f(2051)])$$, '23505', 'TAKEOFF_LAUNCH_INTENT_CONFLICT',
+  'a retry under the same key naming one of its plans is another command');
+select throws_ok($$select * from public.replay_manual_takeoff_plan_request(pg_temp.f(10), pg_temp.f(2030), pg_temp.f(1),
+    pg_temp.f(2031), 'initial', null, pg_temp.f(2050), 1, array[pg_temp.f(2099)])$$, '23505', 'TAKEOFF_LAUNCH_INTENT_CONFLICT',
+  'and so is one naming a plan it never read');
 select throws_ok($$select * from public.replay_manual_takeoff_plan_request(pg_temp.f(10), pg_temp.f(2030), pg_temp.f(1),
     pg_temp.f(2031), 'initial', null, pg_temp.f(2050), 2, null)$$, '23505', 'TAKEOFF_LAUNCH_INTENT_CONFLICT',
   'the same key for another command is still a conflict');
+-- The other direction: a command naming its plans (answered with the analysis that runs), then the same key naming none.
+select results_eq($$select outcome from public.launch_manual_takeoff_plan_request(pg_temp.f(10), pg_temp.f(2030), pg_temp.f(1),
+    pg_temp.f(2032), 'reread_plans', pg_temp.unit(2030, 1), pg_temp.host(), pg_temp.selection(), pg_temp.manifest(2030),
+    pg_temp.snapshot(2030), pg_temp.jobs(2030), pg_temp.f(2050), 1, array[pg_temp.f(2051), pg_temp.f(2052)])$$,
+  $$values ('already_running'::text)$$, 'a command naming the two plans meanwhile is answered with the analysis that runs');
+select results_eq($$select outcome from public.replay_manual_takeoff_plan_request(pg_temp.f(10), pg_temp.f(2030), pg_temp.f(1),
+    pg_temp.f(2032), 'reread_plans', pg_temp.unit(2030, 1), pg_temp.f(2050), 1, array[pg_temp.f(2052), pg_temp.f(2051)])$$,
+  $$values ('already_running'::text)$$, 'the same command repeated replays, whatever the order it names its plans in');
+select throws_ok($$select * from public.replay_manual_takeoff_plan_request(pg_temp.f(10), pg_temp.f(2030), pg_temp.f(1),
+    pg_temp.f(2032), 'reread_plans', pg_temp.unit(2030, 1), pg_temp.f(2050), 1, null)$$, '23505', 'TAKEOFF_LAUNCH_INTENT_CONFLICT',
+  'the same key naming no plan is another command');
+
+-- 15. The last SQL round, written before its fixes (red then). After a withdrawal, a cancelled plan whose stopped reading
+-- still holds the Mac keeps every other job of that Mac to the slot; a first analysis reads exactly the plans of the
+-- confirmed preparation it names.
+delete from private.takeoff_plan_dispatch_activation;
+-- The plans of the earlier sections are set aside (without their triggers), but for the two requests stopped below.
+set local session_replication_role = replica;
+update public.takeoff_jobs set status = 'canceled', analysis_outcome = 'canceled', analysis_finished_at = now(), next_retry_at = null
+where execution_host_id = pg_temp.host() and launch_unit_key like 'plan:%' and analysis_outcome is null
+  and launch_request_id not in (pg_temp.request(21), pg_temp.request(2030));
+set local session_replication_role = origin;
+-- The last plans of one analysis per plan at work on the Mac are stopped; the first one's reading still holds the Mac.
+select results_eq($$select request_state from public.stop_takeoff_launch_request(pg_temp.f(10), pg_temp.f(21), pg_temp.f(1),
+  pg_temp.request(21))$$, $$values ('closed'::text)$$, 'the request whose reading holds the Mac is stopped');
+select results_eq($$select request_state from public.stop_takeoff_launch_request(pg_temp.f(10), pg_temp.f(2030), pg_temp.f(1),
+  pg_temp.request(2030))$$, $$values ('closed'::text)$$, 'and so is the last other one');
+select is((select count(*)::integer from public.takeoff_jobs where execution_host_id = pg_temp.host() and launch_unit_key like 'plan:%'
+  and analysis_outcome is null and status in ('pending', 'processing', 'failed')), 0, 'no plan of one analysis per plan is left on the Mac');
+select results_eq($$select job_id, holder_token from private.takeoff_host_slots where host_id = pg_temp.host()$$,
+  $$values (pg_temp.round_unit(21, 2, 1), pg_temp.f(994))$$, 'but the stopped reading still holds the Mac, its call possibly running');
+select is(pg_temp.claim(pg_temp.f(3905), 996), 0, 'a job outside any request still waits for the Mac');
+select throws_ok($$select * from pg_temp.reserve(pg_temp.f(3906), 995, 'call:1')$$, '42501', 'TAKEOFF_LAUNCH_USAGE_LEASE_REQUIRED',
+  'and one running beside it pays nothing');
+select is(public.release_takeoff_host_slot(pg_temp.host(), pg_temp.f(994)), true, 'the stopped reading''s worker gives the Mac back');
+set local session_replication_role = replica;
+update public.takeoff_jobs set status = 'canceled', analysis_outcome = 'canceled', analysis_finished_at = now(),
+  processing_lease_token = null, processing_lease_expires_at = null where id = pg_temp.f(3906);
+set local session_replication_role = origin;
+select is(pg_temp.claim(pg_temp.f(3905), 996), 1, 'then a job outside any request claims the free Mac as before');
+-- A first analysis of every plan (M4's command) reads exactly the plans of the confirmed preparation it names: a snapshot,
+-- manifest and jobs that leave one out, alike, are refused. Affaire 2060 has two plans; its preparation reads both.
+insert into private.takeoff_plan_dispatch_activation (active_from) values (now() - interval '1 minute');
+insert into public.estimate_projects (id, tenant_id, user_id, name)
+values (pg_temp.f(2060), pg_temp.f(10), pg_temp.f(1), 'Affaire au dossier réduit (fictive)');
+insert into public.plan_sets (id, tenant_id, project_id, name) values (pg_temp.f(2080), pg_temp.f(10), pg_temp.f(2060), 'Plans du dossier');
+insert into public.plan_files (id, tenant_id, plan_set_id, file_name, file_path, file_type, file_size_bytes, page_count)
+values (pg_temp.f(2081), pg_temp.f(10), pg_temp.f(2080), 'plan-1.pdf',
+  concat_ws('/', pg_temp.f(10), pg_temp.f(2080), pg_temp.f(2081), 'plan-1.pdf'), 'application/pdf', 8, 9);
+-- The command of its one first plan, computed while the set holds it alone.
+create temp table narrowed as select pg_temp.manifest(2060) as manifest, pg_temp.snapshot(2060) as snapshot, pg_temp.jobs(2060) as jobs;
+insert into public.plan_files (id, tenant_id, plan_set_id, file_name, file_path, file_type, file_size_bytes, page_count)
+values (pg_temp.f(2082), pg_temp.f(10), pg_temp.f(2080), 'plan-2.pdf',
+  concat_ws('/', pg_temp.f(10), pg_temp.f(2080), pg_temp.f(2082), 'plan-2.pdf'), 'application/pdf', 8, 9);
+set local session_replication_role = replica;
+select pg_temp.confirm(2060);
+set local session_replication_role = origin;
+select throws_ok($$select * from public.launch_manual_takeoff_request(pg_temp.f(10), pg_temp.f(2060), pg_temp.f(1), pg_temp.f(2061),
+    'initial', null, pg_temp.host(), pg_temp.selection(), (select manifest from narrowed), (select snapshot from narrowed),
+    (select jobs from narrowed), pg_temp.f(2080), 1)$$, '22023', 'TAKEOFF_LAUNCH_SEAL_INVALID',
+  'a first analysis whose snapshot leaves out a plan of the confirmed preparation is refused');
+select is((select count(*)::integer from public.takeoff_launch_requests where project_id = pg_temp.f(2060)), 0, 'nothing is admitted');
+select results_eq($$select outcome from public.launch_manual_takeoff_request(pg_temp.f(10), pg_temp.f(2060), pg_temp.f(1),
+    pg_temp.f(2062), 'initial', null, pg_temp.host(), pg_temp.selection(), pg_temp.manifest(2060), pg_temp.snapshot(2060),
+    pg_temp.jobs(2060), pg_temp.f(2080), 1)$$, $$values ('admitted'::text)$$, 'the first analysis of both plans is admitted');
 
 select * from finish();
 rollback;

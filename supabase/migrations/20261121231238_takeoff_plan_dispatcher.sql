@@ -417,10 +417,40 @@ $$;
 -- names its plans (« relancer ce plan », « lire ce plan ajouté ») has its own identity, the plans named included, so that
 -- two commands on two plans never share a receipt. Its jobs are inserted in the order of their units, its answer names the
 -- first unit's job and its admission record all of them.
+-- The plans a member's command of one analysis per plan reads, against the affaire's confirmed preparation of the revision
+-- it names: every plan that preparation retains for a command that names none (the first analysis launched from the
+-- affaire's zone), some of them for a command that names its plans. Otherwise its seal is refused, nothing admitted.
+create function private.assert_takeoff_command_plans(p_tenant_id uuid, p_project_id uuid, p_preparation_revision integer,
+  p_snapshot jsonb, p_named_plans boolean)
+returns void language plpgsql stable security definer set search_path = '' as $$
+declare
+  confirmed jsonb;
+  read text[];
+  retained text[];
+begin
+  select p.confirmed_snapshot into confirmed from public.takeoff_preparations p
+  where p.tenant_id = p_tenant_id and p.project_id = p_project_id;
+  select coalesce(array_agg(s.value ->> 'document_id' order by s.value ->> 'document_id'), '{}') into read
+  from jsonb_array_elements(case when jsonb_typeof(p_snapshot #> '{preparation,sources}') = 'array'
+    then p_snapshot #> '{preparation,sources}' else '[]'::jsonb end) s(value)
+  where s.value -> 'active' = 'true'::jsonb and s.value ->> 'kind' = 'plan';
+  select coalesce(array_agg(s.value ->> 'document_id' order by s.value ->> 'document_id'), '{}') into retained
+  from jsonb_array_elements(case when jsonb_typeof(confirmed #> '{preparation,sources}') = 'array'
+    then confirmed #> '{preparation,sources}' else '[]'::jsonb end) s(value)
+  where s.value -> 'active' = 'true'::jsonb and s.value ->> 'kind' = 'plan';
+  if confirmed is null or confirmed -> 'preparation_revision' is distinct from to_jsonb(p_preparation_revision)
+    or p_snapshot -> 'preparation_revision' is distinct from to_jsonb(p_preparation_revision)
+    or not (read <@ retained) or (not p_named_plans and read is distinct from retained) then
+    raise exception 'TAKEOFF_LAUNCH_SEAL_INVALID' using errcode = '22023';
+  end if;
+end;
+$$;
+revoke all on function private.assert_takeoff_command_plans(uuid, uuid, integer, jsonb, boolean) from public, anon, authenticated, service_role;
+
 create function private.launch_manual_takeoff_command(
   p_tenant_id uuid, p_project_id uuid, p_actor uuid, p_intent_key uuid, p_intent text, p_predecessor_job_id uuid,
   p_host text, p_selection jsonb, p_manifest jsonb, p_snapshot jsonb, p_job jsonb, p_plan_set_id uuid,
-  p_preparation_revision integer, p_module_default boolean, p_digest text
+  p_preparation_revision integer, p_module_default boolean, p_digest text, p_named_plans boolean
 ) returns table (outcome text, request_id uuid, job_id uuid)
 language plpgsql security definer set search_path = '' as $$
 #variable_conflict use_column
@@ -511,6 +541,9 @@ begin
   if not private.takeoff_launch_payer_eligible(p_tenant_id, p_project_id, p_actor) then
     raise exception 'TAKEOFF_LAUNCH_PAYER_NOT_ELIGIBLE' using errcode = '42501';
   end if;
+  if p_manifest -> 'format_version' = '2'::jsonb then
+    perform private.assert_takeoff_command_plans(p_tenant_id, p_project_id, p_preparation_revision, p_snapshot, p_named_plans);
+  end if;
   begin
     insert into public.takeoff_launch_requests (tenant_id, project_id, origin, intent, intent_key, command_digest,
       predecessor_request_id, predecessor_job_id, state, payer_id, mandate_kind, mandated_at,
@@ -561,7 +594,7 @@ begin
   return query select 'admitted'::text, request.id, admitted_jobs[1];
 end;
 $$;
-revoke all on function private.launch_manual_takeoff_command(uuid, uuid, uuid, uuid, text, uuid, text, jsonb, jsonb, jsonb, jsonb, uuid, integer, boolean, text)
+revoke all on function private.launch_manual_takeoff_command(uuid, uuid, uuid, uuid, text, uuid, text, jsonb, jsonb, jsonb, jsonb, uuid, integer, boolean, text, boolean)
   from public, anon, authenticated, service_role;
 
 create or replace function public.launch_manual_takeoff_request(
@@ -573,7 +606,7 @@ language sql security definer set search_path = '' as $$
   select * from private.launch_manual_takeoff_command(p_tenant_id, p_project_id, p_actor, p_intent_key, p_intent,
     p_predecessor_job_id, p_host, p_selection, p_manifest, p_snapshot, p_job, p_plan_set_id, p_preparation_revision,
     p_module_default, private.takeoff_launch_command_digest(p_actor, p_intent, p_predecessor_job_id, p_plan_set_id,
-      p_preparation_revision))
+      p_preparation_revision), false)
 $$;
 
 create function private.takeoff_launch_plan_command_digest(p_actor uuid, p_intent text, p_predecessor_job_id uuid,
@@ -585,30 +618,43 @@ returns text language sql immutable set search_path = '' as $$
 $$;
 revoke all on function private.takeoff_launch_plan_command_digest(uuid, text, uuid, uuid, integer, uuid[]) from public, anon, authenticated, service_role;
 
--- A member's command's receipt, read first whatever the activation, under either identity the command can have had: M4's
--- (every plan of the preparation, a grouped analysis or the first analysis launched from the affaire's zone), or the one
--- scoped to the plans it names (`p_plan_file_ids`, when given). The same key for another command is a conflict.
+-- A member's command's receipt, read first whatever the activation. A command that names its plans (`p_plans_named`, by
+-- default whether plans are given) has one identity, scoped to them. A command that names none has M4's (every plan of the
+-- preparation: a grouped analysis, or the first analysis launched from the affaire's zone), or, once one analysis per plan
+-- was active when it was sent, the one scoped to the plans of the analysis it replaces (`p_plan_file_ids`, derived from
+-- that analysis). The same command repeated replays; under the same key, another command (another selection of plans
+-- included, in either direction) is a conflict.
 create function public.replay_manual_takeoff_plan_request(
   p_tenant_id uuid, p_project_id uuid, p_actor uuid, p_intent_key uuid, p_intent text, p_predecessor_job_id uuid,
-  p_plan_set_id uuid, p_preparation_revision integer, p_plan_file_ids uuid[]
+  p_plan_set_id uuid, p_preparation_revision integer, p_plan_file_ids uuid[], p_plans_named boolean default null
 ) returns table (outcome text, request_id uuid, job_id uuid)
 language plpgsql stable security definer set search_path = '' as $$
 #variable_conflict use_column
 declare
   receipt private.takeoff_launch_commands%rowtype;
+  scoped text := case when coalesce(array_length(p_plan_file_ids, 1), 0) > 0 then private.takeoff_launch_plan_command_digest(
+    p_actor, p_intent, p_predecessor_job_id, p_plan_set_id, p_preparation_revision, p_plan_file_ids) end;
   digest text := private.takeoff_launch_command_digest(p_actor, p_intent, p_predecessor_job_id, p_plan_set_id, p_preparation_revision);
 begin
-  select * into receipt from private.takeoff_launch_commands c
-  where c.tenant_id = p_tenant_id and c.project_id = p_project_id and c.intent_key = p_intent_key;
-  if found and coalesce(array_length(p_plan_file_ids, 1), 0) > 0 and receipt.command_digest = private.takeoff_launch_plan_command_digest(
-      p_actor, p_intent, p_predecessor_job_id, p_plan_set_id, p_preparation_revision, p_plan_file_ids) then
-    digest := receipt.command_digest;
+  if coalesce(p_plans_named, scoped is not null) then
+    if scoped is null then
+      raise exception 'TAKEOFF_LAUNCH_COMMAND_INVALID' using errcode = '22023';
+    end if;
+    digest := scoped;
+  else
+    select * into receipt from private.takeoff_launch_commands c
+    where c.tenant_id = p_tenant_id and c.project_id = p_project_id and c.intent_key = p_intent_key;
+    if found and receipt.command_digest = scoped then
+      digest := scoped;
+    end if;
   end if;
   return query select * from private.replay_takeoff_launch_command(p_tenant_id, p_project_id, p_intent_key, digest);
 end;
 $$;
-revoke all on function public.replay_manual_takeoff_plan_request(uuid, uuid, uuid, uuid, text, uuid, uuid, integer, uuid[]) from public, anon, authenticated;
-grant execute on function public.replay_manual_takeoff_plan_request(uuid, uuid, uuid, uuid, text, uuid, uuid, integer, uuid[]) to service_role;
+revoke all on function public.replay_manual_takeoff_plan_request(uuid, uuid, uuid, uuid, text, uuid, uuid, integer, uuid[], boolean)
+  from public, anon, authenticated;
+grant execute on function public.replay_manual_takeoff_plan_request(uuid, uuid, uuid, uuid, text, uuid, uuid, integer, uuid[], boolean)
+  to service_role;
 
 -- A command of format 2 on the plans it names: those plans, and only those, are its units.
 create function public.launch_manual_takeoff_plan_request(
@@ -629,7 +675,7 @@ begin
   return query select * from private.launch_manual_takeoff_command(p_tenant_id, p_project_id, p_actor, p_intent_key, p_intent,
     p_predecessor_job_id, p_host, p_selection, p_manifest, p_snapshot, p_jobs, p_plan_set_id, p_preparation_revision,
     p_module_default, private.takeoff_launch_plan_command_digest(p_actor, p_intent, p_predecessor_job_id, p_plan_set_id,
-      p_preparation_revision, p_plan_file_ids));
+      p_preparation_revision, p_plan_file_ids), true);
 end;
 $$;
 revoke all on function public.launch_manual_takeoff_plan_request(uuid, uuid, uuid, uuid, text, uuid, text, jsonb, jsonb, jsonb, jsonb, uuid, integer, uuid[], boolean)
@@ -866,12 +912,17 @@ returns boolean language sql stable security definer set search_path = '' as $$
 $$;
 revoke all on function private.takeoff_host_slot_busy(text, uuid) from public, anon, authenticated, service_role;
 
--- Whether a plan of one analysis per plan is still at work on the Mac (waiting, read, or failed with a retry): while one
--- is, every claim and renewal of that Mac keeps to its slot, whatever the activation (a withdrawal included).
+-- Whether one analysis per plan is still at work on the Mac: its slot held by an unexpired lease (whatever that job's
+-- status: a stopped reading's call may still run), or a plan of one analysis per plan waiting, read, or failed with a
+-- retry. While it is, every claim and renewal of that Mac keeps to its slot, whatever the activation (a withdrawal
+-- included). Two index lookups, whatever the number of jobs: the slot's key, and takeoff_jobs_host_plan_work_idx, which
+-- holds the live plans only. Before the activation both find nothing.
 create function private.takeoff_host_plan_work(p_host_id text)
 returns boolean language sql stable security definer set search_path = '' as $$
-  select exists (select 1 from public.takeoff_jobs j where j.execution_host_id = p_host_id
-    and j.launch_unit_key like 'plan:%' and j.analysis_outcome is null and j.status in ('pending', 'processing', 'failed'))
+  select exists (select 1 from private.takeoff_host_slots s where s.host_id = p_host_id and s.holder_token is not null
+      and s.expires_at > pg_catalog.clock_timestamp())
+    or exists (select 1 from public.takeoff_jobs j where j.execution_host_id = p_host_id
+      and j.launch_unit_key like 'plan:%' and j.analysis_outcome is null and j.status in ('pending', 'processing', 'failed'))
 $$;
 revoke all on function private.takeoff_host_plan_work(text) from public, anon, authenticated, service_role;
 
@@ -1968,9 +2019,13 @@ create function private.follow_takeoff_job_lease()
 returns trigger language plpgsql security definer set search_path = '' as $$
 begin
   if new.status = 'processing' and new.processing_lease_token is not distinct from old.processing_lease_token then
-    update private.takeoff_host_slots s set expires_at = new.processing_lease_expires_at
-    where s.host_id = new.execution_host_id and s.job_id = new.id and s.holder_token = new.processing_lease_token
-      and new.processing_lease_expires_at is not null;
+    -- A renewal: the slot follows it when this lease holds it; a job that holds no slot (every job before the activation)
+    -- writes nothing.
+    if new.processing_lease_expires_at is not null and exists (select 1 from private.takeoff_host_slots s
+        where s.host_id = new.execution_host_id and s.job_id = new.id and s.holder_token = new.processing_lease_token) then
+      update private.takeoff_host_slots s set expires_at = new.processing_lease_expires_at
+      where s.host_id = new.execution_host_id and s.job_id = new.id and s.holder_token = new.processing_lease_token;
+    end if;
     return null;
   end if;
   -- The worker's own end, or the recovery's closure of a lapsed lease, gives the Mac back; a member's cancellation does
@@ -2007,6 +2062,13 @@ begin
   end if;
   if plan_unit and old.status = 'failed' and old.next_retry_at <= private.takeoff_retry_expiry_floor() then
     raise exception 'TAKEOFF_JOB_RETRY_EXPIRED' using errcode = '55000';
+  end if;
+  -- The Mac's slot row, created here if it has none yet: an insert waits for a first claim of the Mac that inserted it
+  -- and has not committed (the row's key), so the row read next is the claim's, never a missing one. The Mac's advisory
+  -- lock would serialise the same, but a lapsed job renewing under it would wait for the recovery that holds it while the
+  -- recovery waits for that job's row.
+  if new.execution_host_id ~ '^urn:uuid:[0-9a-f-]{36}$' then
+    insert into private.takeoff_host_slots (host_id) values (new.execution_host_id) on conflict (host_id) do nothing;
   end if;
   select * into slot from private.takeoff_host_slots s where s.host_id = new.execution_host_id for update;
   if plan_unit or not renewal then
@@ -2052,6 +2114,10 @@ lock table public.takeoff_jobs in share row exclusive mode;
 -- it reads a job now is answered by takeoff_jobs_processing_lease_due_idx).
 create index takeoff_jobs_local_host_live_idx on public.takeoff_jobs (execution_host_id, status, next_retry_at)
   where execution_provider = 'chatgpt_local' and analysis_outcome is null and status in ('pending', 'processing', 'failed');
+-- The live plans of one analysis per plan of each Mac, and only those: whether one is at work there
+-- (private.takeoff_host_plan_work, asked at each claim and lease renewal of the Mac) is a lookup in it.
+create index takeoff_jobs_host_plan_work_idx on public.takeoff_jobs (execution_host_id)
+  where launch_unit_key like 'plan:%' and analysis_outcome is null and status in ('pending', 'processing', 'failed');
 
 lock table private.takeoff_launch_usage in access exclusive mode;
 -- The ledger's states (section 8): a call reserved before it is sent, observed once settled, unknown when its usage never
