@@ -264,6 +264,8 @@ describe("suppliers of request lines", () => {
 
     const retain = await screen.findByRole("button", { name: "Retenir le fournisseur proposé, ligne 1" });
     expect(screen.getByText("Négoce Alpha · fournisseur du type Inox")).toBeVisible();
+    // Read once the line is unfolded: a folded row keeps the article, its supplier and one gesture.
+    await user.click(screen.getByRole("button", { name: "Détails de la ligne 1" }));
     expect(retain).toHaveAccessibleDescription(expect.stringContaining("Réf. fournisseur : NA-4471"));
     // Shown is not chosen: nothing was written before the gesture.
     expect(writes()).toEqual([]);
@@ -360,7 +362,8 @@ describe("suppliers of request lines", () => {
     expect(screen.getByLabelText("Fournisseur, ligne 3")).toHaveValue("Négoce Alpha");
     expect(screen.getByLabelText("Fournisseur, ligne 4")).toHaveValue("Dépôt Gamma");
     expect(screen.getByLabelText("Fournisseur, ligne 5")).toHaveValue("");
-    expect(screen.getByRole("button", { name: /^Retenir les fournisseurs proposés \(\d+\)$/ })).toBeDisabled();
+    // Nothing left to retain: the bulk action leaves the screen instead of staying grey (TI-690).
+    expect(screen.queryByRole("button", { name: /^Retenir les fournisseurs proposés \(\d+\)$/ })).not.toBeInTheDocument();
     await waitFor(() => expect(reads(PROPOSALS)).toHaveLength(2));
   });
 
@@ -426,20 +429,21 @@ describe("suppliers of request lines", () => {
       { method: "POST", path: RETAIN, body: { choices: [{ line_id: LINE_B, supplier_id: ALPHA }] } },
     ]);
     await waitFor(() => expect(screen.getByLabelText("Fournisseur, ligne 1")).toHaveValue("Dépôt Gamma"));
-    expect(screen.getByText(/La ligne 1 n’a pas été modifiée/)).toBeVisible();
+    expect(screen.getByText(/^La ligne .+ n’a pas été modifiée/)).toBeVisible();
   });
 
   it("shows a reader each supplier with its reference, from the proposals' answer, and no control (4, 6)", async () => {
     // The detail renders before its supplier-reference response arrives, especially on CI.
     let releaseReferences!: (reply: Reply) => void;
     const references = new Promise<Reply>((resolve) => { releaseReferences = resolve; });
-    await openEditor({
+    const user = await openEditor({
       [`GET ${BASE}`]: {
         data: detail({ canWrite: false, lines: [line(), line({ id: LINE_B, position: 2, supplier_id: BETA })] }),
       },
       [`GET ${PROPOSALS}`]: () => references,
     });
 
+    await user.click(screen.getByRole("button", { name: "Afficher les détails de la ligne 2" }));
     const details = screen.getByRole("complementary", { name: "Détails de la ligne 2" });
     expect(within(details).getByText("Comptoir Bêta", { exact: true })).toBeVisible();
     expect(within(details).queryByText("Réf. fournisseur")).not.toBeInTheDocument();
@@ -450,7 +454,8 @@ describe("suppliers of request lines", () => {
     expect(await within(details).findByText("Réf. fournisseur")).toBeVisible();
     expect(await within(details).findByText("CB-90-50", { exact: true })).toBeVisible();
     const rows = within(screen.getByRole("list", { name: "Lignes de la demande" })).getAllByRole("listitem", { name: /^Ligne \d+$/ });
-    expect(within(rows[1]).getByText("Comptoir Bêta")).toBeVisible();
+    // In the row's own cell, before the details opened under it.
+    expect(within(rows[1]).getAllByText("Comptoir Bêta")[0]).toBeVisible();
     expect(screen.queryByRole("button", { name: /Retenir/ })).not.toBeInTheDocument();
     expect(screen.queryByText(/Négoce Alpha ·/)).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Fournisseur, ligne 1")).not.toBeInTheDocument();
@@ -477,7 +482,12 @@ describe("suppliers of request lines", () => {
     expect(screen.getByRole("alert")).toHaveTextContent("Choix refusé pour cet essai.");
     await user.click(screen.getByRole("button", { name: "Ajouter une ligne" }));
     await screen.findByLabelText("Quantité, ligne 3");
-    await user.click(screen.getByRole("button", { name: "Afficher les détails de la ligne 1" }));
+    // Among drafts the line asked for stays open (TI-690); its title closes it, and opens it again unchanged.
+    const title = screen.getByRole("button", { name: "Afficher les détails de la ligne 1" });
+    expect(title).toHaveAttribute("aria-pressed", "true");
+    await user.click(title);
+    expect(screen.queryByRole("complementary", { name: "Détails de la ligne 1" })).not.toBeInTheDocument();
+    await user.click(title);
     expect(screen.getByLabelText("Fournisseur, ligne 1")).toHaveValue("Comptoir Bêta");
     expect(screen.getByRole("alert")).toHaveTextContent("Choix refusé pour cet essai.");
     expect(writes().filter((call) => call.method === "PATCH")).toEqual([{ method: "PATCH", path: `${BASE}/lines/${LINE_A}`, body: { supplier_id: BETA } }]);
@@ -485,13 +495,15 @@ describe("suppliers of request lines", () => {
 
   it("does not replace an archived assigned supplier with the request's different presumed supplier", async () => {
     window.history.replaceState(null, "", "?etape=lignes");
-    await openEditor({
+    const user = await openEditor({
       [`GET ${BASE}`]: { data: { ...detail({ canWrite: false, request: { presumed_supplier_id: BETA, supplier_confirmed: true }, lines: [line({ supplier_id: ALPHA })] }), supplierOptions: SUPPLIERS.filter((item) => item.id !== ALPHA) } },
       [`GET ${PROPOSALS}`]: proposals({}),
     });
     const row = within(screen.getByRole("list", { name: "Lignes de la demande" })).getByRole("listitem", { name: "Ligne 1" });
-    expect(within(row).getByText("Fournisseur retiré de la liste")).toBeVisible();
+    // In the row's own cell: the details under the row, read on request, say it too.
+    expect(within(row).getAllByText("Fournisseur retiré de la liste")[0]).toBeVisible();
     expect(within(row).queryByText("Comptoir Bêta (demande)")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Afficher les détails de la ligne 1" }));
     expect(within(screen.getByRole("complementary", { name: "Détails de la ligne 1" })).getByText("Fournisseur retiré de la liste")).toBeVisible();
   });
 
@@ -535,7 +547,7 @@ describe("suppliers of request lines", () => {
       line({ id: LINE_B, position: 2, supplier_id: BETA }),
       line({ id: LINE_C, position: 3, supplier_id: ALPHA }),
     ];
-    await openEditor({
+    const user = await openEditor({
       [`GET ${BASE}`]: { data: detail({ lines }) },
       [`GET ${PROPOSALS}`]: proposals({}, {
         [LINE_A]: { supplier_sku: "CB-90-50", product_url: "https://fournisseur.example/coude-50" },
@@ -545,6 +557,8 @@ describe("suppliers of request lines", () => {
     });
 
     const rows = within(screen.getByRole("list", { name: "Lignes de la demande" })).getAllByRole("listitem", { name: /^Ligne \d+$/ });
+    // Read once the line is unfolded: a folded row keeps the article, its supplier and one gesture.
+    for (const toggle of screen.getAllByRole("button", { name: /^Détails de la ligne \d+$/ })) await user.click(toggle);
     expect(await within(rows[0]).findByText("Réf. fournisseur : CB-90-50")).toBeVisible();
     expect(screen.getByLabelText("Fournisseur, ligne 1")).toHaveValue("Comptoir Bêta");
     const sheet = within(rows[0]).getByRole("link", { name: "Fiche chez Comptoir Bêta" });
@@ -575,6 +589,8 @@ describe("suppliers of request lines", () => {
     await screen.findByText("Négoce Alpha · fournisseur du type Inox");
     expect(reads(PROPOSALS)).toHaveLength(1);
 
+    // Read once the line is unfolded: a folded row keeps the article, its supplier and one gesture.
+    await user.click(screen.getByRole("button", { name: "Détails de la ligne 1" }));
     await user.click(screen.getByRole("button", { name: "Délier l’article de la ligne 1" }));
     await waitFor(() => expect(reads(PROPOSALS)).toHaveLength(2));
 
@@ -598,6 +614,8 @@ describe("suppliers of request lines", () => {
       [`POST ${RETAIN}`]: retained([{ ...validated, supplier_id: ALPHA }]),
     });
 
+    // The supplier of a validated line is chosen under its row, on request.
+    await user.click(await screen.findByRole("button", { name: "Afficher les détails de la ligne 1" }));
     await user.click(await screen.findByRole("button", { name: "Retenir le fournisseur proposé, ligne 1" }));
 
     await waitFor(() => expect(screen.getByLabelText("Fournisseur, ligne 1")).toHaveValue("Négoce Alpha"));

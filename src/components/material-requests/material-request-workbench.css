@@ -7,30 +7,14 @@
 .material-request-editor .text-lg { font-size: 1.375rem; line-height: 1.4; }
 .material-request-editor .text-xl { font-size: 1.5rem; line-height: 1.35; }
 .material-request-editor .text-2xl { font-size: 1.875rem; line-height: 1.25; }
-.material-request-editor .mr-original-compact { padding: 1.25rem; }
-.material-request-editor .mr-original-compact summary { display: flex; align-items: center; gap: 0.75rem; cursor: pointer; list-style: none; }
-.material-request-editor .mr-original-compact summary::-webkit-details-marker { display: none; }
-.material-request-editor .mr-original-compact summary h2 { font-size: 1.25rem; }
-.material-request-editor .mr-original-compact details[open] > summary { margin-bottom: 1.5rem; }
 .material-request-editor .mr-quote-files { padding-top: 1rem; border-top: 1px solid var(--border); }
 .material-request-editor .mr-quote-files a { display: inline-flex; min-height: 2.5rem; align-items: center; padding: 0.5rem 0.75rem; background: var(--surface-subtle); border-radius: 0.5rem; }
-@media (min-width: 1280px) {
-  .material-request-editor .mr-workbench { min-height: 34rem; }
-  .material-request-editor .mr-workbench-main { display: flex; min-width: 0; flex-direction: column; }
-  .material-request-editor .mr-workbench-original { margin-top: auto; padding-top: 3rem; }
-  .material-request-editor .mr-source-text { display: grid; grid-template-columns: 8rem minmax(0,1fr) auto; align-items: center; gap: 1rem; }
-  .material-request-editor .mr-source-text > * { margin-top: 0; }
-  .material-request-editor .mr-source-text > :is([role="alert"],[role="status"]) { grid-column: 1 / -1; }
-  .material-request-editor .mr-source-text .mr-original-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 0.75rem; }
-}
 @media (max-width: 639px) {
   .material-request-page .typo-h1 { font-size: 1.65rem; }
   .material-request-editor .text-sm { font-size: 0.875rem; }
   .material-request-editor .text-xs { font-size: 0.8125rem; }
 }
 
-.material-request-editor .mr-supplier-workspace { min-height: 37.5rem; }
-.material-request-editor .mr-order-workspace { min-height: 34rem; }
 @media (min-width: 768px) {
  .material-request-editor .mr-request-actions { position: absolute; right: 0; top: 2.5rem; z-index: 20; border: 0; padding: 0; }
 }
@@ -68,27 +52,18 @@
 }
 .material-request-editor .mr-quote-files a { padding: 0.25rem 0; background: transparent; }
 @media (min-width: 1280px) {
-  .material-request-editor .mr-supplier-workspace nav > button { position: relative; padding-block: 1rem; }
+  .material-request-editor .mr-supplier-workspace nav > button { position: relative; }
   .material-request-editor .mr-supplier-workspace nav > button > span:first-child {
     justify-content: flex-start;
-    padding-right: 8.5rem;
+    padding-right: 7rem;
   }
   .material-request-editor .mr-supplier-workspace nav > button > span:nth-child(3) {
     position: absolute;
     right: 1.25rem;
-    top: 1rem;
+    top: 0.75rem;
     max-width: 8rem;
     margin: 0;
     text-align: right;
-  }
-  .material-request-editor .mr-orders { padding-top: 1rem; }
-  .material-request-editor .mr-orders h2,
-  .material-request-editor .mr-order-workspace .text-2xl { font-size: 2.25rem; }
-  .material-request-editor .mr-order-workspace { min-height: 36rem; }
-  .material-request-editor .mr-order-workspace a[aria-label^="Ouvrir le bon"] {
-    min-height: 3rem;
-    padding-inline: 1.75rem;
-    font-size: 1.125rem;
   }
 }
 
@@ -102,7 +77,32 @@
   .material-request-page { margin-top: -0.75rem; }
   .material-request-editor .mr-quote-card { padding: 1.25rem 1.5rem; }
   .material-request-editor .mr-quote-card > details { padding-top: 0.75rem; }
-  .material-request-editor .mr-quote-card li { padding-block: 0.75rem; }
   .material-request-editor .mr-quote-files { padding-top: 0.75rem; }
   .material-request-editor .mr-supplier-workspace > div > [role="group"] { padding-block: 0.5rem; }
+}
+
+/*
+ * Lines sheet (from 1080 px, the `sheet:` breakpoint): a field is a cell of a spreadsheet (`sheet-cell`, in
+ * `sheet-cells.css`), and a missing value is the tint of its cell. What a tinted cell asks, and the choice that
+ * settles it without a value, open under the cell (`mr-cell`) while the cursor is in it. The hint stays in the page
+ * (transparent, not removed) so that the choice it holds can take the focus.
+ */
+@media (min-width: 67.5rem) {
+  .material-request-editor .mr-cell-hint {
+    position: absolute;
+    top: 100%;
+    left: -1px;
+    z-index: 20;
+    width: max-content;
+    min-width: calc(100% + 2px);
+    max-width: 22rem;
+    padding: 0.5rem 0.625rem;
+    border: 1px solid var(--border-strong);
+    border-radius: 0 0 0.5rem 0.5rem;
+    background: var(--surface);
+    box-shadow: 0 8px 20px #0f172a1f;
+    opacity: 0;
+    pointer-events: none;
+  }
+  .material-request-editor .mr-cell:focus-within > .mr-cell-hint { opacity: 1; pointer-events: auto; }
 }

@@ -41,7 +41,7 @@ export function IntakeCadModel({ model, fileName, open = false }: { model: CadMo
         <header>
           <h3 id="cad-model-title">Objets de la maquette</h3>
         </header>
-        <table aria-label="Objets par nature">
+        <table className="sheet-table" aria-label="Objets par nature">
           <thead>
             <tr><th scope="col">Nature</th><th scope="col">Nombre</th><th scope="col">Longueur</th></tr>
           </thead>
@@ -66,7 +66,7 @@ export function IntakeCadModel({ model, fileName, open = false }: { model: CadMo
 
       <details open={open}>
         <summary>Objets et dimensions ({listed.toLocaleString("fr-FR")})</summary>
-        <table aria-label="Objets et dimensions" className="document-cad-objects">
+        <table aria-label="Objets et dimensions" className="sheet-table document-cad-objects">
           <thead>
             <tr><th scope="col">Objet</th><th scope="col">Nature</th><th scope="col">Dimensions</th></tr>
           </thead>

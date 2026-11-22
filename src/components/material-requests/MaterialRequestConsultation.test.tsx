@@ -372,7 +372,7 @@ describe("consultation of suppliers", () => {
     expect(message).toHaveAttribute("readonly");
     // The line without supplier is said apart, with what to do, and is in no message.
     expect(screen.getByText("Sans fournisseur : choisissez-le sur la ligne, à l’étape Lignes.")).toBeVisible();
-    expect(screen.getByText("Ligne 3 · Bride plate DN 50")).toBeVisible();
+    expect(screen.getByText("Bride plate DN 50")).toBeVisible();
     expect(screen.getByText("Aucune consultation envoyée pour le moment.")).toBeVisible();
 
     await user.click(screen.getByRole("button", { name: "Copier le message pour Négoce Alpha" }));
@@ -543,7 +543,7 @@ describe("consultation of suppliers", () => {
       "Bonjour, pouvez-vous me faire un prix pour l’affaire Résidence des Tilleuls :\n- 20 u Coude 90° — réf. NA-4471\n- 4 u réf NA-4471 x4\nMerci !",
     );
     await user.click(screen.getByRole("button", { name: "Mettre en concurrence les lignes de Négoce Alpha" }));
-    expect(screen.getByText("Ligne 2 : donnez-lui un type, à l’étape Lignes, avant de la mettre en concurrence.")).toBeVisible();
+    expect(screen.getByText("« réf NA-4471 x4 » : donnez-lui un type, à l’étape Lignes, avant de la mettre en concurrence.")).toBeVisible();
     await addCompetitor(user, "Comptoir Bêta");
 
     const message = screen.getByRole("textbox", { name: "Message pour Comptoir Bêta" });
@@ -711,7 +711,7 @@ describe("consultation of suppliers", () => {
     await user.type(first, "12,505");
     await user.tab();
     expect(retain).toBeDisabled();
-    expect(retain).toHaveAccessibleDescription("Le prix de la ligne 1 n’est pas lisible.");
+    expect(retain).toHaveAccessibleDescription("Le prix de la ligne Coude 90° DN 50 n’est pas lisible.");
     expect(writes()).toEqual([]);
 
     // Corrected: saved, and the quote may be retained on what the field shows.
@@ -727,7 +727,7 @@ describe("consultation of suppliers", () => {
     await user.clear(second);
     await user.type(second, "4,0x");
     expect(retain).toBeDisabled();
-    expect(retain).toHaveAccessibleDescription("Le prix de la ligne 2 n’est pas lisible.");
+    expect(retain).toHaveAccessibleDescription("Le prix de la ligne Té égal DN 50 n’est pas lisible.");
     await user.keyboard("{Escape}");
     expect(second).toHaveValue("4,00");
     expect(retain).toBeEnabled();
@@ -812,14 +812,14 @@ describe("consultation of suppliers", () => {
     const retain = await screen.findByRole("button", { name: "Retenir ce devis (Négoce Alpha)" });
     expect(retain).toBeDisabled();
     expect(retain).toHaveAccessibleDescription(
-      "Les lignes 1 et 2 ne sont pas validées : validez-les avant de retenir ce devis.",
+      "Les lignes Coude 90° DN 50 et Té égal DN 50 ne sont pas validées : validez-les avant de retenir ce devis.",
     );
 
     await openStep(user, 1);
     await user.click(screen.getByRole("button", { name: "Valider la ligne 1" }));
     await openStep(user, 2);
     await waitFor(() =>
-      expect(retain).toHaveAccessibleDescription("La ligne 2 n’est pas validée : validez-la avant de retenir ce devis."),
+      expect(retain).toHaveAccessibleDescription("La ligne Té égal DN 50 n’est pas validée : validez-la avant de retenir ce devis."),
     );
     await openStep(user, 1);
     await user.click(screen.getByRole("button", { name: "Valider la ligne 2" }));
@@ -837,6 +837,7 @@ describe("consultation of suppliers", () => {
     const user = await openEditor({
       [`GET ${BASE}`]: { data: detail({ lines: [line(VALIDATED), line({ ...TEE, ...VALIDATED })] }) },
       [`GET ${PROPOSALS}`]: references({ [LINE_A]: "NA-4471", [LINE_B]: null }),
+      [`GET ${BASE}/orders`]: { data: { ready_line_ids: [], not_ready: [], ordered: [], orders: [], can_create: true } },
       [`GET ${QUOTES}`]: {
         data: {
           items: [
@@ -859,15 +860,13 @@ describe("consultation of suppliers", () => {
 
     // The reopen is on its way: the line still reads validated, and the retain is queued behind it.
     await openStep(user, 1);
-    await user.click(screen.getByRole("button", { name: "Afficher les détails de la ligne 1" }));
-    await user.click(screen.getByRole("button", { name: "Actions sur la ligne" }));
-    await user.click(screen.getByRole("button", { name: "Rouvrir la ligne 1" }));
+    await user.click(await screen.findByRole("button", { name: "Modifier la ligne 1" }));
     await openStep(user, 2);
     await user.click(retain);
     reopened();
 
     expect(
-      await screen.findByText("Non enregistré : La ligne 1 n’est pas validée : validez-la avant de retenir ce devis."),
+      await screen.findByText("Non enregistré : La ligne Coude 90° DN 50 n’est pas validée : validez-la avant de retenir ce devis."),
     ).toBeVisible();
     expect(writes().map((call) => `${call.method} ${call.path}`)).toEqual([`POST ${BASE}/lines/reopen`]);
     expect(retain).toBeDisabled();
@@ -987,7 +986,7 @@ describe("consultation of suppliers", () => {
     await user.type(price, "20,0x");
     await user.selectOptions(within(card).getByRole("combobox", { name: "Prix donné pour, ligne 1, Négoce Alpha" }), "10");
     expect(writes()).toEqual([]);
-    expect(retain).toHaveAccessibleDescription("Le prix de la ligne 1 n’est pas lisible.");
+    expect(retain).toHaveAccessibleDescription("Le prix de la ligne Coude 90° DN 50 n’est pas lisible.");
 
     await user.clear(price);
     await user.type(price, "20,00");
@@ -1085,7 +1084,7 @@ describe("consultation of suppliers", () => {
     await user.selectOptions(lot, "100");
     releaseFirst();
     await waitFor(() => expect(within(card).getByRole("button", { name: "Retenir ce devis (Négoce Alpha)" })).toHaveAccessibleDescription(
-      "Le prix de la ligne 1 n’est pas lisible.",
+      "Le prix de la ligne Coude 90° DN 50 n’est pas lisible.",
     ));
     expect(lot).toHaveValue("100");
 
@@ -1481,8 +1480,8 @@ describe("consultation of suppliers", () => {
     const section = screen.getByRole("region", { name: "Dossier fournisseur" });
     const card = await within(section).findByRole("article", { name: "Devis Négoce Alpha" });
     const group = within(section).getByRole("group", { name: "Négoce Alpha" });
-    expect(within(group).getByText("Ligne 1 · Coude 90° DN 50")).toBeVisible();
-    expect(within(group).getByText("Ligne 2 · Té égal DN 50")).toBeVisible();
+    expect(within(group).getByText("Coude 90° DN 50")).toBeVisible();
+    expect(within(group).getByText("Té égal DN 50")).toBeVisible();
     expect(within(section).getByText("Sans fournisseur :")).toBeVisible();
     expect(within(card).getByText(euros(1250))).toBeVisible();
     expect(within(card).getByRole("link", { name: "devis-alpha.pdf" })).toBeVisible();
@@ -1536,8 +1535,10 @@ describe("consultation of suppliers", () => {
     expect(uploadToSignedUrlMock.mock.calls).toEqual([
       ["tenant/demande/devis/devis-alpha.pdf", "jeton-devis", pdf, { contentType: "application/pdf" }],
     ]);
-    // The original is read at the lines step: the quote's PDF is not among its photos.
+    // The original is read at the lines step, in its dialog: the quote's PDF is not among its photos.
     await openStep(user, 1);
-    expect(screen.getByText("Pas de photo de l’original.")).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Voir l’original" }));
+    const original = await screen.findByRole("dialog", { name: "Original de la demande" });
+    expect(within(original).getByText("Pas de photo de l’original.")).toBeVisible();
   });
 });

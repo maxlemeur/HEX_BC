@@ -157,14 +157,14 @@ export function BriefReviewPanel({
   return (
     <div className="brief-review-columns">
       <div className="brief-review-information">
-        <table className="brief-information-table" aria-label="Informations du brief">
+        <table className="sheet-table brief-information-table" aria-label="Informations du brief">
           <colgroup><col /><col className="brief-proof-column" /></colgroup>
           <thead><tr><th scope="col">Information</th><th scope="col">État de preuve</th></tr></thead>
           {groups.filter((group) => group.key !== "missing_elements").map(renderGroup)}
         </table>
         <div className="brief-reserves-heading"><h3><button type="button" aria-label="Examiner les preuves : Réserves à qualifier"
           aria-pressed={selected === "missing_elements"} aria-controls={inspectorId} onClick={() => inspect("missing_elements")}>Réserves à qualifier</button></h3></div>
-        <table className="brief-information-table brief-reserves-table" aria-label="Réserves du brief">
+        <table className="sheet-table brief-information-table brief-reserves-table" aria-label="Réserves du brief">
           <colgroup><col /><col className="brief-proof-column" /></colgroup>
           <thead className="sr-only"><tr><th scope="col">Réserve</th><th scope="col">État de preuve</th></tr></thead>
           {renderGroup(groups[groups.length - 1])}

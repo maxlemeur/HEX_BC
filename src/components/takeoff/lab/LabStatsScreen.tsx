@@ -265,7 +265,7 @@ export function LabStatsScreen() {
         <section aria-labelledby="lab-table" className="space-y-2 border-b border-border p-4">
           <h3 id="lab-table" className="text-sm font-semibold text-foreground">Tableau des configurations</h3>
           <div className="overflow-x-auto">
-            <table aria-labelledby="lab-table" className="w-full text-xs">
+            <table aria-labelledby="lab-table" className="sheet-table w-full text-xs">
               <thead className="text-left text-muted-foreground">
                 <tr>
                   <th className="py-1 pr-3 font-medium">Configuration</th><th className="py-1 pr-3 font-medium">Tâche</th>

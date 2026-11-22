@@ -51,6 +51,7 @@ import type {
   LineSupplierReference,
 } from "@/lib/material-requests/supplier-contracts";
 
+import { lineTitle } from "./format";
 import { uploadMaterialRequestPhotos, type PhotoUploadStep } from "./photo-upload";
 
 /**
@@ -165,6 +166,8 @@ export type MaterialRequestEditorApi = {
   projectId: string;
   requestId: string;
   data: MaterialRequestEditorData;
+  /** The lines of the request by id, for what names a line it only knows the id of (a quote, an order, a refusal). */
+  linesById: ReadonlyMap<string, MaterialRequestLine>;
   canWrite: boolean;
   alertContext: AlertContext;
   alertsByLine: ReadonlyMap<string, MaterialRequestLineAlert[]>;
@@ -249,10 +252,11 @@ export type MaterialRequestEditorApi = {
   /** Lines the server changed through another route (a retained quote prices them): they replace ours. */
   mergeServerLines: (lines: readonly MaterialRequestLine[]) => void;
   /**
-   * The numbers of those lines that are not validated, as the last answer left them (read at a write's turn in
-   * the queue, before any render). A line no longer in the request is not counted.
+   * Those lines that are not validated, as the last answer left them (read at a write's turn in the queue, before
+   * any render), named by what they ask and in the order of the request. A line no longer in the request is not
+   * counted.
    */
-  unvalidatedPositions: (lineIds: readonly string[]) => number[];
+  unvalidatedNames: (lineIds: readonly string[]) => string[];
 };
 
 export type MaterialRequestEditorState =
@@ -956,12 +960,12 @@ export function useMaterialRequestEditor(projectId: string, requestId: string): 
       freshSupplierRead(lineId) ? (supplierProposals.references[lineId] ?? null) : null,
     [freshSupplierRead, supplierProposals.references],
   );
-  const unvalidatedPositions = useCallback((lineIds: readonly string[]) => {
+  const unvalidatedNames = useCallback((lineIds: readonly string[]) => {
     const wanted = new Set(lineIds);
     return (latest.current?.lines ?? [])
       .filter((line) => wanted.has(line.id) && line.status !== "validated")
-      .map((line) => line.position)
-      .sort((left, right) => left - right);
+      .sort((left, right) => left.position - right.position)
+      .map((line) => lineTitle(line));
   }, []);
   const mergeServerLines = useCallback(
     (lines: readonly MaterialRequestLine[]) => {
@@ -984,6 +988,8 @@ export function useMaterialRequestEditor(projectId: string, requestId: string): 
     }
     return alerts;
   }, [alertContext]);
+  const lines = data?.lines;
+  const linesById = useMemo(() => new Map((lines ?? []).map((line) => [line.id, line])), [lines]);
   const dismissBlocked = useCallback(() => setBlocked(null), []);
   const dismissReopened = useCallback(() => setReopenedByRequestChange(null), []);
   const dismissWithheld = useCallback(() => setWithheld(null), []);
@@ -996,6 +1002,7 @@ export function useMaterialRequestEditor(projectId: string, requestId: string): 
       projectId,
       requestId,
       data,
+      linesById,
       canWrite: data.canWrite,
       alertContext,
       alertsByLine,
@@ -1019,7 +1026,7 @@ export function useMaterialRequestEditor(projectId: string, requestId: string): 
       supplierReferenceKnown: freshSupplierRead,
       queueWrite: enqueue,
       mergeServerLines,
-      unvalidatedPositions,
+      unvalidatedNames,
       ...actions,
     },
   };

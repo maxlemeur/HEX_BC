@@ -195,6 +195,32 @@ function typeSimilarity(line: ReadonlySet<string>, article: ReadonlySet<string>)
   return head !== undefined && found(head, article) ? Math.max(blended, 0.5) : blended;
 }
 
+/**
+ * The piece's name in the line, as written: its first word that is neither a stop word nor a number. Null when the
+ * article holds it, a typo or an abbreviation apart: a proposal that rests on the other words (the material, a
+ * trade name) may be another piece, and says so.
+ */
+function unnamedPiece(text: string | null | undefined, article: ReadonlySet<string>): string | null {
+  for (const raw of (text ?? "").split(/[^\p{L}\p{N}]+/u)) {
+    const folded = foldText(raw);
+    if (!folded || STOP_WORDS.has(folded) || /^\d+$/.test(folded)) continue;
+    const [word] = words(raw);
+    return word !== undefined && !found(word, article) ? raw.toLowerCase() : null;
+  }
+  return null;
+}
+
+/**
+ * The size a line and an article share, in the line's own writing first when it differs from the article's
+ * nominal diameter: « Ø 22, soit DN 20 » under a line written « Ø 22 », not a bare « DN 20 » that reads as another size.
+ */
+function sharedSizeLabel(written: string | null | undefined, lineSize: SizeReading | null, label: string) {
+  const own = written?.trim();
+  const compact = (text: string) => foldText(text).replace(/\s+/g, "");
+  if (!own || lineSize?.od == null || lineSize.dn === null || !label.startsWith("DN") || compact(own) === compact(label)) return label;
+  return `${own}, soit ${label}`;
+}
+
 function sizeLabel(size: SizeReading | null) {
   if (!size) return null;
   if (size.metric !== null) return `M${size.metric}`;
@@ -361,6 +387,9 @@ export function matchLine(
       } else {
         const similarity = typeSimilarity(lineWords, entry.words);
         if (similarity < MIN_TYPE_SIMILARITY) continue;
+        // Ranked on its other words: the first thing to check, before a unit or a draft.
+        const unnamed = unnamedPiece(line.product_type, entry.words);
+        if (unnamed) warnings.push(`L’article ne nomme pas « ${unnamed} » : vérifiez la pièce.`);
         score = similarity * 45;
         score += { same: 30, unknown: 10, different: 0 }[size];
         score += { same: 20, family: 14, unknown: 6, different: 0 }[material];
@@ -368,7 +397,7 @@ export function matchLine(
       }
     }
 
-    if (size === "same" && entry.sizeLabel) reasons.push(`Même dimension (${entry.sizeLabel})`);
+    if (size === "same" && entry.sizeLabel) reasons.push(`Même dimension (${sharedSizeLabel(line.dimension, lineSize, entry.sizeLabel)})`);
     if (via !== "reference") {
       if (material === "same") reasons.push("Même matière");
       if (precision === "same" && entry.gradeLabel) reasons.push(`Même nuance (${entry.gradeLabel})`);

@@ -57,7 +57,7 @@ export function DashboardAffaires({ data, query }: Readonly<{
         ))}
       </nav>
       <div aria-busy={isPending} className={cn("transition-opacity motion-reduce:transition-none", isPending && "opacity-60")}>
-        <table className="w-full table-fixed text-left text-sm" aria-label={title}>
+        <table className="sheet-table w-full table-fixed text-left text-sm" aria-label={title}>
           <thead className="border-b border-border-subtle bg-surface-subtle text-xs font-medium text-muted-foreground">
             <tr>
               <th scope="col" className="px-4 py-3 sm:w-[38%] sm:px-5">Affaire</th>

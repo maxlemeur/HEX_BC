@@ -1,8 +1,4 @@
-import {
-  MATERIAL_REQUEST_FILE_MAX_BYTES,
-  MATERIAL_REQUEST_MAX_FILES,
-  type MaterialRequestLine,
-} from "@/lib/material-requests/contracts";
+import { MATERIAL_REQUEST_FILE_MAX_BYTES, MATERIAL_REQUEST_MAX_FILES } from "@/lib/material-requests/contracts";
 import { MATERIAL_REQUEST_QUOTE_MAX_FILES } from "@/lib/material-requests/quote-contracts";
 import { formatEUR } from "@/lib/money";
 import { PURCHASE_ORDER_STATUS_LABELS } from "@/lib/purchase-orders/lifecycle";
@@ -15,18 +11,8 @@ export function formatDateOnly(value: string | null | undefined): string {
   return match ? `${match[3]}/${match[2]}/${match[1]}` : "";
 }
 
-function text(value: string | null | undefined): string | null {
-  const trimmed = (value ?? "").trim();
-  return trimmed.length > 0 ? trimmed : null;
-}
-
-/** How a line is named to the operator outside its row: its type and size, else the technician's words. */
-export function lineTitle(line: MaterialRequestLine): string {
-  const type = text(line.product_type);
-  if (type) return [type, text(line.dimension)].filter(Boolean).join(" ");
-  const original = text(line.original_text);
-  return original ? `« ${original} »` : "Sans désignation";
-}
+// How a line is named outside its row is shared with what the server answers.
+export { lineNamesLabel, linesSubject, lineTitle } from "@/lib/material-requests/line-names";
 
 export function formatQuantity(quantity: number | null): string {
   return quantity === null ? "" : String(quantity).replace(".", ",");

@@ -186,8 +186,8 @@ export function ProductCsvImport({ open, onClose, onImported }: Readonly<Product
                     aria-label="Aperçu des lignes valides"
                     tabIndex={0}
                   >
-                    <table className="w-full min-w-[760px] text-left text-sm">
-                      <thead className="bg-surface-subtle text-xs uppercase tracking-wide text-muted-foreground">
+                    <table className="sheet-table w-full min-w-[760px] text-left text-sm">
+                      <thead className="bg-surface-subtle text-xs text-muted-foreground">
                         <tr>
                           <th scope="col" className="px-3 py-2 font-semibold">Référence</th>
                           <th scope="col" className="px-3 py-2 font-semibold">Désignation</th>
@@ -227,8 +227,8 @@ export function ProductCsvImport({ open, onClose, onImported }: Readonly<Product
                     aria-label="Lignes rejetées"
                     tabIndex={0}
                   >
-                    <table className="w-full text-left text-sm">
-                      <thead className="sticky top-0 bg-danger-subtle text-xs uppercase tracking-wide text-danger">
+                    <table className="sheet-table w-full text-left text-sm">
+                      <thead className="sticky top-0 bg-danger-subtle text-xs text-danger">
                         <tr>
                           <th scope="col" className="px-3 py-2 font-semibold">Ligne</th>
                           <th scope="col" className="px-3 py-2 font-semibold">Désignation</th>
