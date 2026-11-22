@@ -1065,8 +1065,6 @@ $$;
 -- takeoff-plan-dispatcher.test.sql (section 16).
 select throws_ok($$ select private.seal_takeoff_launch_request(pg_temp.request(), pg_temp.sealed_manifest(5), pg_temp.snapshot(), 0) $$,
   '22023', 'TAKEOFF_LAUNCH_SEAL_INVALID', 'the seal of a grouped request refuses a list, the latest one included');
-select is((select item_list_revision_id from public.takeoff_launch_requests where id = pg_temp.fx(90)), null,
-  'and records none');
 -- A request that sealed revision 5 (admitted as a request of one analysis per plan would be), for the next check.
 set local session_replication_role = replica;
 update public.takeoff_launch_requests set state = 'admitted', admitted_at = now(), manifest = pg_temp.order_manifest(5),

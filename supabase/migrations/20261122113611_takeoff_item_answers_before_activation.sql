@@ -1,9 +1,10 @@
 -- Lot 4, B1's follow-up before the second measuring order can be activated (20261122080845_takeoff_item_answers.sql).
 --
--- 1. A contribution's row must be countable: a publication whose contribution names a row that today's readers skip
---    (excluded as given, or as the insert's hypothesis rule would exclude it) is refused with
---    TAKEOFF_ANSWERS_OBSERVATION_INVALID, as a measured answer nobody counts. Rebuilt on the only body of
---    private.takeoff_item_answers_refusal (20261122080845_takeoff_item_answers.sql); nothing else of it changes.
+-- 1. A contribution's row must be countable: a publication whose contribution's row is stored excluded (as given, as its
+--    typed column reads it, or as an insert trigger such as the hypothesis rule makes it) is refused with
+--    TAKEOFF_ANSWERS_OBSERVATION_INVALID, as a measured answer nobody counts. The rows are read as the first order's end
+--    stored them, in the publication's transaction, so nothing is left written. Rebuilt on the only body of
+--    public.publish_takeoff_item_answers (20261122080845_takeoff_item_answers.sql); nothing else of it changes.
 -- 2. A grouped request (format 1) never seals a list: its job could never publish answers plan by plan. The application
 --    already seals the free extraction for a grouped request; the database now refuses a list there too
 --    (TAKEOFF_LAUNCH_SEAL_INVALID).
@@ -16,155 +17,185 @@
 --
 -- What the previous application version and every first-format request see: nothing. The order check returns at its
 -- first statement for the free extraction, as before; the new checks run only for a list, which the seal refuses until
--- the second order is activated (private.takeoff_item_list_order_activation, empty). The refusal function is called only
--- by public.publish_takeoff_item_answers, which no released application calls. No table, column, index, policy, grant
+-- the second order is activated (private.takeoff_item_list_order_activation, empty). The publication is called by no
+-- released application. No table, column, index, policy, grant
 -- or trigger changes; creating the two functions takes no table lock (their bodies are validated at their first call).
 begin;
 
 set local lock_timeout = '5s';
 set local check_function_bodies = off;
 
--- 1. The refusals of a publication (20261122080845_takeoff_item_answers.sql), with the countable row of a contribution.
-create or replace function private.takeoff_item_answers_refusal(p_request public.takeoff_launch_requests, p_unit jsonb, p_pages integer[],
-  p_items jsonb, p_answers jsonb, p_findings jsonb, p_vector jsonb)
-returns text language plpgsql stable security definer set search_path = '' as $$
+-- 1. The worker's publication (20261122080845_takeoff_item_answers.sql), with the countable row of each contribution.
+create or replace function public.publish_takeoff_item_answers(
+  p_job_id uuid, p_lease_token uuid, p_completed_at timestamptz, p_model text, p_prompt_version text, p_exchange jsonb,
+  p_unit_pages integer[], p_answers jsonb, p_findings jsonb, p_result jsonb, p_items jsonb, p_vector jsonb default null
+)
+returns table (result_id uuid, replayed boolean, answer_count integer)
+language plpgsql security definer set search_path = '' as $$
 declare
+  job public.takeoff_jobs%rowtype;
+  request public.takeoff_launch_requests%rowtype;
+  published public.takeoff_item_answer_publications%rowtype;
   plan record;
-  plan_count integer;
+  unit jsonb;
+  digest text;
+  attempt text;
+  refusal text;
+  new_result uuid;
+  written integer;
+  linked integer;
 begin
-  if pg_catalog.jsonb_array_length(p_answers) > 20000 or pg_catalog.jsonb_array_length(p_items) > 20000
-    or coalesce(pg_catalog.cardinality(p_pages), 0) not between 1 and 2000 or pg_catalog.array_position(p_pages, null) is not null
-    or not private.takeoff_item_answer_findings_valid(p_findings)
-    or exists (select 1 from pg_catalog.jsonb_array_elements(p_answers) a(value)
-      where not private.takeoff_item_answer_well_formed(a.value)) then
-    return 'TAKEOFF_ANSWERS_INVALID';
+  if p_job_id is null or p_lease_token is null or p_completed_at is null
+    or pg_catalog.jsonb_typeof(p_exchange) is distinct from 'object'
+    or (p_exchange - array['schema_version', 'prompt_version']) <> '{}'::jsonb
+    or coalesce(p_exchange ->> 'schema_version', '') !~ '^[a-z0-9][a-z0-9._-]{0,31}$'
+    or coalesce(pg_catalog.char_length(p_prompt_version), 0) not between 1 and 64
+    or p_exchange ->> 'prompt_version' is distinct from p_prompt_version
+    or pg_catalog.jsonb_typeof(p_answers) is distinct from 'array' or pg_catalog.jsonb_typeof(p_items) is distinct from 'array'
+    or pg_catalog.jsonb_typeof(p_findings) is distinct from 'array' or pg_catalog.jsonb_typeof(p_result) is distinct from 'object'
+    or pg_catalog.jsonb_typeof(coalesce(p_result -> 'warnings', '[]'::jsonb)) is distinct from 'array'
+    or (p_vector is not null and pg_catalog.jsonb_typeof(p_vector) is distinct from 'object')
+    or pg_catalog.octet_length(p_answers::text) > 8388608 then
+    raise exception 'TAKEOFF_ANSWERS_INVALID' using errcode = '22023';
   end if;
-  -- The unit: one plan, its identity and its pages as sealed; the pages the worker read are those.
-  select count(*) into plan_count from private.takeoff_item_answer_plans(p_request.manifest, p_unit);
-  if plan_count <> 1 then
-    return 'TAKEOFF_ANSWERS_ORDER_INVALID';
+  -- Every argument, as the database received it (a replay sends the same values); the completion time as an instant.
+  digest := private.takeoff_sha256(pg_catalog.jsonb_build_object('completed_at', extract(epoch from p_completed_at),
+    'model', p_model, 'prompt_version', p_prompt_version, 'exchange', p_exchange, 'unit_pages', p_unit_pages,
+    'answers', p_answers, 'findings', p_findings, 'result', p_result, 'items', p_items, 'vector', p_vector));
+  attempt := pg_catalog.encode(pg_catalog.sha256(pg_catalog.convert_to(p_lease_token::text, 'UTF8')), 'hex');
+
+  select j.* into job from public.takeoff_jobs j where j.id = p_job_id for update;
+  if not found then
+    raise exception 'TAKEOFF_ANSWERS_LEASE_INVALID' using errcode = '55000';
   end if;
-  select * into plan from private.takeoff_item_answer_plans(p_request.manifest, p_unit);
-  if plan.plan_file_id is null or plan.logical_id is null or plan.content_sha256 is null or plan.pages is null then
-    return 'TAKEOFF_ANSWERS_SCOPE_UNKNOWN';
+  select p.* into published from public.takeoff_item_answer_publications p where p.job_id = p_job_id;
+  if found then
+    if published.attempt_sha256 is distinct from attempt then
+      raise exception 'TAKEOFF_ANSWERS_LEASE_INVALID' using errcode = '55000';
+    end if;
+    if published.content_sha256 is distinct from digest then
+      raise exception 'TAKEOFF_ANSWERS_ALREADY_PUBLISHED' using errcode = '23505';
+    end if;
+    return query select published.result_id, true, published.answer_count;
+    return;
   end if;
-  if array(select distinct p from pg_catalog.unnest(p_pages) p order by 1) is distinct from plan.pages
-    or pg_catalog.cardinality(p_pages) <> pg_catalog.cardinality(plan.pages) then
-    return 'TAKEOFF_ANSWERS_UNIT_PAGES_MISMATCH';
+  if job.status is distinct from 'processing' or job.execution_provider is distinct from 'chatgpt_local'
+    or job.processing_lease_token is distinct from p_lease_token
+    or not (job.processing_lease_expires_at > pg_catalog.clock_timestamp()) then
+    raise exception 'TAKEOFF_ANSWERS_LEASE_INVALID' using errcode = '55000';
   end if;
-  -- Coverage: two answers for one item, an answer for an item outside the sealed list, an item without its answer.
-  if exists (select 1 from private.takeoff_item_answers_parsed(p_answers) a group by a.item_id having count(*) > 1) then
-    return 'TAKEOFF_ANSWERS_ITEM_DUPLICATE';
+
+  -- The request's manifest and sealed list are written once, at its admission: read without a lock for the checks, which
+  -- then do not hold the request's row.
+  select r.* into request from public.takeoff_launch_requests r
+  where r.id = job.launch_request_id and r.tenant_id = job.tenant_id and r.project_id = job.project_id;
+  unit := case when found then private.takeoff_launch_unit(request.manifest, job.launch_unit_key) end;
+  if request.item_list_revision_id is null or unit is null then
+    raise exception 'TAKEOFF_ANSWERS_ORDER_INVALID' using errcode = '22023';
   end if;
-  if exists (select 1 from private.takeoff_item_answers_parsed(p_answers) a
-      where not exists (select 1 from public.takeoff_list_revision_entries e
-        where e.revision_id = p_request.item_list_revision_id and e.item_id = a.item_id)) then
-    return 'TAKEOFF_ANSWERS_ITEM_FOREIGN';
+  refusal := private.takeoff_item_answers_refusal(request, unit, p_unit_pages, p_items, p_answers, p_findings, p_vector);
+  if refusal is not null then
+    raise exception '%', refusal using errcode = '22023';
   end if;
-  if (select count(*) from public.takeoff_list_revision_entries e where e.revision_id = p_request.item_list_revision_id)
-      <> pg_catalog.jsonb_array_length(p_answers) then
-    return 'TAKEOFF_ANSWERS_ITEM_MISSING';
+  -- The request's row, as the job's end takes it anyway (its settlement), before anything is written.
+  perform 1 from public.takeoff_launch_requests r where r.id = request.id for update;
+  select * into plan from private.takeoff_item_answer_plans(request.manifest, unit);
+
+  new_result := public.finalize_local_takeoff_result(p_job_id, job.tenant_id, p_lease_token, p_completed_at, p_model,
+    p_prompt_version, p_result, p_items, p_vector);
+  if new_result is null then
+    raise exception 'TAKEOFF_ANSWERS_LEASE_INVALID' using errcode = '55000';
   end if;
-  -- Pages: every page an answer, an observation or a finding names is the unit's; each answer accounts for each page.
-  if exists (select 1 from private.takeoff_item_answers_parsed(p_answers) a
-      where not (a.searched_pages <@ plan.pages) or not (a.unreadable_pages <@ plan.pages)
-        or exists (select 1 from pg_catalog.jsonb_array_elements(a.observations) o(value)
-          where not ((o.value ->> 'page')::numeric::integer = any (plan.pages))))
-    or exists (select 1 from pg_catalog.jsonb_array_elements(p_findings) f(value)
-      where not ((f.value ->> 'page')::numeric::integer = any (plan.pages))) then
-    return 'TAKEOFF_ANSWERS_PAGE_OUTSIDE';
-  end if;
-  if exists (select 1 from private.takeoff_item_answers_parsed(p_answers) a
-      where not (plan.pages <@ (a.searched_pages || a.unreadable_pages))) then
-    return 'TAKEOFF_ANSWERS_COVERAGE_INCOMPLETE';
-  end if;
-  -- Each outcome's rule. Measured: its quantity is the sum of its contributions (at least one), no unreadable page, no
-  -- candidate value. Not found: no observation, no quantity nor candidate value, no unreadable page, a reason. Uncertain:
-  -- a reason, no quantity.
-  if exists (select 1 from private.takeoff_item_answers_parsed(p_answers) a
-      where a.outcome = 'measured' and (a.quantity is null or a.candidate_quantity is not null
-        or pg_catalog.cardinality(a.unreadable_pages) > 0
-        or not exists (select 1 from pg_catalog.jsonb_array_elements(a.observations) o(value) where o.value ->> 'role' = 'contribution')
-        or pg_catalog.round((select sum((o.value ->> 'quantity')::numeric) from pg_catalog.jsonb_array_elements(a.observations) o(value)
-          where o.value ->> 'role' = 'contribution'), 6) is distinct from pg_catalog.round(a.quantity, 6))) then
-    return 'TAKEOFF_ANSWERS_MEASURED_INVALID';
-  end if;
-  if exists (select 1 from private.takeoff_item_answers_parsed(p_answers) a
-      where a.outcome = 'not_found' and (pg_catalog.jsonb_array_length(a.observations) > 0 or a.quantity is not null
-        or a.candidate_quantity is not null or pg_catalog.cardinality(a.unreadable_pages) > 0
-        or pg_catalog.jsonb_array_length(a.reasons) = 0)) then
-    return 'TAKEOFF_ANSWERS_NOT_FOUND_INVALID';
-  end if;
-  if exists (select 1 from private.takeoff_item_answers_parsed(p_answers) a
-      where a.outcome = 'uncertain' and (pg_catalog.jsonb_array_length(a.reasons) = 0 or a.quantity is not null)) then
-    return 'TAKEOFF_ANSWERS_UNCERTAIN_INVALID';
-  end if;
-  -- The vector reading's rows, as today's vector reading writes them, but never countable: each excluded, none selected as
-  -- a source (no choice), none a row of the result.
-  if p_vector is not null and (
-      exists (select 1 from pg_catalog.unnest(array['pages', 'items', 'geometries', 'choices']) k(key)
-        where p_vector ? k.key and pg_catalog.jsonb_typeof(p_vector -> k.key) not in ('array', 'null'))
-      or pg_catalog.jsonb_array_length(case when pg_catalog.jsonb_typeof(p_vector -> 'choices') = 'array'
-        then p_vector -> 'choices' else '[]'::jsonb end) > 0
-      or exists (select 1 from pg_catalog.jsonb_array_elements(case when pg_catalog.jsonb_typeof(p_vector -> 'items') = 'array'
-          then p_vector -> 'items' else '[]'::jsonb end) v(value)
-        where pg_catalog.jsonb_typeof(v.value) is distinct from 'object' or not private.takeoff_item_answer_is_uuid(v.value -> 'id')
-          or v.value -> 'is_excluded' is distinct from 'true'::jsonb
-          or not private.takeoff_item_answer_is_number(v.value -> 'source_page', 1, 100000, true)
-          or exists (select 1 from pg_catalog.jsonb_array_elements(p_items) i(value) where lower(i.value ->> 'id') = lower(v.value ->> 'id')))) then
-    return 'TAKEOFF_ANSWERS_VECTOR_ROWS_INVALID';
-  end if;
-  -- Observations: a contribution belongs to a measured answer, has its quantity and unit and names its row of the
-  -- result (the row the existing readers count); only a contribution names one; a vector observation is never a contribution, has the vector method and names a vector row of this
-  -- publication on its page; a model observation names none.
+  -- That end keeps a failed vector reading to itself: an observation never names a row it did not write.
   if exists (select 1 from private.takeoff_item_answers_parsed(p_answers) a
       cross join lateral pg_catalog.jsonb_array_elements(a.observations) o(value)
-      where (o.value ->> 'role' = 'contribution' and (a.outcome <> 'measured' or o.value -> 'quantity' is null
-          or o.value -> 'quantity' = 'null'::jsonb or o.value -> 'unit' is null or o.value -> 'unit' = 'null'::jsonb
-          or o.value ->> 'takeoff_item_id' is null))
-        or (o.value ->> 'takeoff_item_id' is not null and o.value ->> 'role' <> 'contribution')
-        or (o.value ->> 'source' = 'vector' and (o.value ->> 'role' = 'contribution' or o.value ->> 'method' <> 'vector_reading'
-          or o.value ->> 'chunk_id' is not null or o.value ->> 'vector_key' is null
-          or not exists (select 1 from pg_catalog.jsonb_array_elements(case when pg_catalog.jsonb_typeof(p_vector -> 'items') = 'array'
-              then p_vector -> 'items' else '[]'::jsonb end) v(value)
-            where lower(v.value ->> 'id') = lower(o.value ->> 'vector_key')
-              and (v.value ->> 'source_page')::numeric::integer = (o.value ->> 'page')::numeric::integer)))
-        or (o.value ->> 'source' = 'model' and (o.value ->> 'vector_key' is not null or o.value ->> 'method' = 'vector_reading'))) then
-    return 'TAKEOFF_ANSWERS_OBSERVATION_INVALID';
+      where o.value ->> 'source' = 'vector' and not exists (select 1 from public.takeoff_items i
+        where i.id = (o.value ->> 'vector_key')::uuid and i.job_id = p_job_id and i.result_id = new_result and i.is_excluded)) then
+    raise exception 'TAKEOFF_ANSWERS_VECTOR_ROWS_INVALID' using errcode = '22023';
   end if;
-  -- Every row the result writes is the countable takeoff_items row of exactly one contribution, with its quantity and
-  -- page (its unit is the worker's normalized code of the contribution's; the row keeps the quantity to the thousandth,
-  -- the observation as read).
-  if exists (select 1 from pg_catalog.jsonb_array_elements(p_items) i(value)
-      where pg_catalog.jsonb_typeof(i.value) is distinct from 'object' or not private.takeoff_item_answer_is_uuid(i.value -> 'id')
-        or not private.takeoff_item_answer_is_number(i.value -> 'quantity', 0, 999999999.999, false, true)
-        or not private.takeoff_item_answer_is_text(i.value -> 'unit', null, 32)
-        or not private.takeoff_item_answer_is_number(i.value -> 'source_page', 1, 100000, true)
-        -- A row today's readers skip is no contribution: excluded as given, or as the insert's hypothesis rule
-        -- (public.exclude_new_takeoff_hypothesis) would exclude it.
-        or i.value -> 'is_excluded' = 'true'::jsonb
-        or public.takeoff_item_hypothesis_cause(coalesce(i.value -> 'metadata', '{}'::jsonb),
-          i.value ->> 'quantity_entry_category') in ('estimated', 'non_observable'))
-    or (select count(distinct lower(i.value ->> 'id')) from pg_catalog.jsonb_array_elements(p_items) i(value))
-      <> pg_catalog.jsonb_array_length(p_items) then
-    return 'TAKEOFF_ANSWERS_OBSERVATION_INVALID';
-  end if;
-  if (select count(*) from private.takeoff_item_answers_parsed(p_answers) a
-        cross join lateral pg_catalog.jsonb_array_elements(a.observations) o(value)
-        where o.value ->> 'takeoff_item_id' is not null) <> pg_catalog.jsonb_array_length(p_items)
-    or (select count(distinct (o.value ->> 'takeoff_item_id')::uuid) from private.takeoff_item_answers_parsed(p_answers) a
-        cross join lateral pg_catalog.jsonb_array_elements(a.observations) o(value)
-        where o.value ->> 'takeoff_item_id' is not null) <> pg_catalog.jsonb_array_length(p_items)
-    or exists (select 1 from private.takeoff_item_answers_parsed(p_answers) a
+  -- A contribution is counted only if its row is: read as that end stored it (its typed columns, its insert triggers,
+  -- the hypothesis rule among them), never as the worker sent it. A row stored excluded is a measure nobody counts.
+  if exists (select 1 from private.takeoff_item_answers_parsed(p_answers) a
       cross join lateral pg_catalog.jsonb_array_elements(a.observations) o(value)
-      left join lateral (select i.value from pg_catalog.jsonb_array_elements(p_items) i(value)
-        where (i.value ->> 'id')::uuid = (o.value ->> 'takeoff_item_id')::uuid) item on true
-      where o.value ->> 'takeoff_item_id' is not null and (item.value is null
-        or (item.value ->> 'quantity')::numeric <> (o.value ->> 'quantity')::numeric
-        or (item.value ->> 'source_page')::numeric::integer <> (o.value ->> 'page')::numeric::integer)) then
-    return 'TAKEOFF_ANSWERS_OBSERVATION_INVALID';
+      where o.value ->> 'role' = 'contribution' and not exists (select 1 from public.takeoff_items i
+        where i.id = (o.value ->> 'takeoff_item_id')::uuid and i.job_id = p_job_id and i.result_id = new_result
+          and not i.is_excluded)) then
+    raise exception 'TAKEOFF_ANSWERS_OBSERVATION_INVALID' using errcode = '22023';
   end if;
-  return null;
+
+  insert into public.takeoff_item_answer_publications (job_id, tenant_id, project_id, launch_request_id, launch_unit_key,
+    list_revision_id, result_id, exchange_version, prompt_version, pages, answer_count, unlisted_findings, content_sha256,
+    attempt_sha256)
+  values (job.id, job.tenant_id, job.project_id, request.id, job.launch_unit_key, request.item_list_revision_id, new_result,
+    p_exchange ->> 'schema_version', p_prompt_version, plan.pages, pg_catalog.jsonb_array_length(p_answers),
+    coalesce((select pg_catalog.jsonb_agg(pg_catalog.jsonb_build_object('page', (f.value ->> 'page')::numeric::integer,
+        'designation', f.value ->> 'designation', 'evidence', f.value ->> 'evidence', 'chunk_id', f.value ->> 'chunk_id')
+        order by f.position)
+      from pg_catalog.jsonb_array_elements(p_findings) with ordinality f(value, position)), '[]'::jsonb),
+    digest, attempt);
+
+  -- Each answer with its observations as given (a contribution names the row the result just wrote, a vector one the
+  -- vector reading's row), its digest, and the latest earlier reading of its item on its plan in the affaire, which it
+  -- replaces.
+  with parsed as materialized (
+    select a.*, pg_catalog.gen_random_uuid() as answer_id from private.takeoff_item_answers_parsed(p_answers) a
+  ), observations as materialized (
+    select a.answer_id, o.position::integer as ordinal, o.value ->> 'role' as role, o.value ->> 'source' as source,
+      (o.value ->> 'page')::numeric::integer as page, (o.value ->> 'quantity')::numeric as quantity, o.value ->> 'unit' as unit,
+      o.value ->> 'measurement_basis' as measurement_basis, o.value ->> 'evidence' as evidence,
+      (o.value ->> 'confidence')::numeric as confidence, o.value ->> 'method' as method, o.value ->> 'chunk_id' as chunk_id,
+      (o.value ->> 'vector_key')::uuid as vector_item_id, (o.value ->> 'takeoff_item_id')::uuid as takeoff_item_id
+    from parsed a
+    cross join lateral pg_catalog.jsonb_array_elements(a.observations) with ordinality o(value, position)
+  ), answers as materialized (
+    select a.*, previous.id as replaces_answer_id, coalesce(previous.reading_revision, 0) + 1 as reading_revision,
+      (select count(*) from observations o where o.answer_id = a.answer_id)::integer as observation_count,
+      (select count(*) from observations o where o.answer_id = a.answer_id and o.role = 'contribution')::integer
+        as contribution_count,
+      coalesce((select pg_catalog.jsonb_agg(pg_catalog.jsonb_build_object('ordinal', o.ordinal, 'role', o.role,
+          'source', o.source, 'page', o.page, 'quantity', o.quantity, 'unit', o.unit, 'measurement_basis', o.measurement_basis,
+          'evidence', o.evidence, 'confidence', o.confidence, 'method', o.method, 'chunk_id', o.chunk_id,
+          'vector_item_id', o.vector_item_id, 'takeoff_item_id', o.takeoff_item_id, 'occurrence_coverage', 'page_total')
+          order by o.ordinal)
+        from observations o where o.answer_id = a.answer_id), '[]'::jsonb) as observation_document
+    from parsed a
+    left join lateral (select h.id, h.reading_revision from public.takeoff_item_answers h
+      where h.tenant_id = job.tenant_id and h.project_id = job.project_id and h.item_id = a.item_id
+        and h.plan_logical_id = plan.logical_id
+      order by h.reading_revision desc limit 1) previous on true
+  ), inserted as (
+    insert into public.takeoff_item_answers (id, tenant_id, project_id, job_id, list_revision_id, item_id, plan_file_id,
+      plan_logical_id, plan_generation, plan_content_sha256, outcome, quantity, unit, candidate_quantity, candidate_unit,
+      searched_pages, unreadable_pages, reasons, reason_code, observation_count, contribution_count, replaces_answer_id,
+      reading_revision, content_sha256)
+    select a.answer_id, job.tenant_id, job.project_id, job.id, request.item_list_revision_id, a.item_id, plan.plan_file_id,
+      plan.logical_id, plan.generation, plan.content_sha256, a.outcome, a.quantity, a.unit, a.candidate_quantity,
+      a.candidate_unit, a.searched_pages, a.unreadable_pages, a.reasons, a.reasons #>> '{0,code}', a.observation_count,
+      a.contribution_count, a.replaces_answer_id, a.reading_revision,
+      private.takeoff_sha256(pg_catalog.jsonb_build_object('item_id', a.item_id, 'plan_file_id', plan.plan_file_id,
+        'plan_logical_id', plan.logical_id, 'plan_generation', plan.generation, 'plan_content_sha256', plan.content_sha256,
+        'outcome', a.outcome, 'quantity', a.quantity, 'unit', a.unit, 'candidate_quantity', a.candidate_quantity,
+        'candidate_unit', a.candidate_unit, 'searched_pages', a.searched_pages, 'unreadable_pages', a.unreadable_pages,
+        'reasons', a.reasons, 'observations', a.observation_document))
+    from answers a
+    order by a.ordinal
+    returning 1
+  ), observations_inserted as (
+    insert into public.takeoff_item_answer_observations (answer_id, tenant_id, project_id, job_id, ordinal, role, source, page,
+      quantity, unit, measurement_basis, evidence, confidence, method, chunk_id, vector_item_id, takeoff_item_id,
+      occurrence_coverage)
+    select o.answer_id, job.tenant_id, job.project_id, job.id, o.ordinal, o.role, o.source, o.page, o.quantity, o.unit,
+      o.measurement_basis, o.evidence, o.confidence, o.method, o.chunk_id, o.vector_item_id, o.takeoff_item_id, 'page_total'
+    from observations o
+    returning takeoff_item_id
+  )
+  select (select count(*) from inserted), (select count(*) from observations_inserted where takeoff_item_id is not null)
+  into written, linked;
+  -- Each answer and each row of the result was written with its observation (the checks above proved it; this states it).
+  if written <> pg_catalog.jsonb_array_length(p_answers) or linked <> pg_catalog.jsonb_array_length(p_items) then
+    raise exception 'TAKEOFF_ANSWERS_OBSERVATION_INVALID' using errcode = '22023';
+  end if;
+  return query select new_result, false, written;
 end;
 $$;
 
@@ -213,8 +244,10 @@ begin
 end;
 $$;
 
-revoke all on function private.takeoff_item_answers_refusal(public.takeoff_launch_requests, jsonb, integer[], jsonb, jsonb, jsonb, jsonb)
-  from public, anon, authenticated, service_role;
+revoke all on function public.publish_takeoff_item_answers(uuid, uuid, timestamptz, text, text, jsonb, integer[], jsonb, jsonb, jsonb,
+  jsonb, jsonb) from public, anon, authenticated;
+grant execute on function public.publish_takeoff_item_answers(uuid, uuid, timestamptz, text, text, jsonb, integer[], jsonb, jsonb,
+  jsonb, jsonb, jsonb) to service_role;
 revoke all on function private.assert_takeoff_launch_order(public.takeoff_launch_requests, jsonb)
   from public, anon, authenticated, service_role;
 

@@ -423,6 +423,15 @@ select throws_ok($$select * from pg_temp.publish(pg_temp.job(20, 1), 901, pg_tem
 select throws_ok($$select * from pg_temp.publish(pg_temp.job(20, 1), 901, pg_temp.valid(),
   jsonb_set(pg_temp.rows_(1), '{0,metadata}', '{"quantity_nature": "estimated"}'))$$,
   '22023', 'TAKEOFF_ANSWERS_OBSERVATION_INVALID', 'a contribution whose row the hypothesis rule would exclude is refused');
+-- The row as the writer stores it decides, not the JSON as given: a boolean written as a string is still excluded, and
+-- a category the writer does not store does not save an estimate from the hypothesis rule.
+select throws_ok($$select * from pg_temp.publish(pg_temp.job(20, 1), 901, pg_temp.valid(),
+  jsonb_set(jsonb_set(pg_temp.rows_(1), '{0,is_excluded}', '"true"'), '{0,exclusion_reason}', '"Écartée (fictif)."'))$$,
+  '22023', 'TAKEOFF_ANSWERS_OBSERVATION_INVALID', 'a contribution whose row is excluded by a string flag is refused');
+select throws_ok($$select * from pg_temp.publish(pg_temp.job(20, 1), 901, pg_temp.valid(),
+  jsonb_set(jsonb_set(pg_temp.rows_(1), '{0,metadata}', '{"quantity_nature": "estimated"}'), '{0,quantity_entry_category}',
+    '"site_survey"'))$$,
+  '22023', 'TAKEOFF_ANSWERS_OBSERVATION_INVALID', 'an estimate with a category the writer does not store is refused');
 select throws_ok($$select * from pg_temp.publish(pg_temp.job(20, 1), 901, pg_temp.valid(),
   jsonb_set(pg_temp.rows_(1), '{1,quantity}', '2'))$$,
   '22023', 'TAKEOFF_ANSWERS_OBSERVATION_INVALID', 'a row with another quantity than its contribution is refused');
