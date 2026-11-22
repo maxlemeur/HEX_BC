@@ -251,6 +251,18 @@ describe("consultation template", () => {
     expect(message).toBe("- 10 u Coude 90°, DN 50, Inox 316L");
   });
 
+  it("refuses the lines or the designation written only inside an optional part, where they could vanish (16)", () => {
+    const hiddenDesignation = custom("Bonjour,\n{lignes}\nMerci !", "- [{désignation} — réf. {référence}]");
+    expect(consultationTemplateRefusals(hiddenDesignation)).toEqual([
+      "Le modèle de ligne doit écrire {désignation} hors des crochets : une partie entre crochets disparaît quand l’un de ses champs est vide.",
+    ]);
+    expect(consultationTemplateRefusals(custom("Bonjour,[ pour {affaire} : {lignes}]", "- {désignation}"))).toEqual([
+      "Le modèle du message doit écrire {lignes} hors des crochets : une partie entre crochets disparaît quand l’un de ses champs est vide.",
+    ]);
+    // Written once outside the brackets, it may also appear inside them.
+    expect(consultationTemplateRefusals(custom("{lignes}", "- {désignation}[ ({désignation}, réf. {référence})]"))).toEqual([]);
+  });
+
   it("refuses a template without its lines or designation, or with its lines twice; other fields may repeat (8, 16)", () => {
     expect(consultationTemplateIssues(custom("Bonjour {affaire}", "{quantité} {quantite} {désignation}"))).toEqual({
       message: { unknown: [], duplicated: [], missing: ["{lignes}"] },

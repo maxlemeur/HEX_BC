@@ -239,7 +239,10 @@ export type ConsultationTemplateIssues = {
   unknown: string[];
   /** {lignes} written more than once (refused: the lines are written once at most; other fields may repeat). */
   duplicated: string[];
-  /** The field this template must write: {lignes} in the message, {désignation} in a line (refused without it). */
+  /**
+   * The field this template must write outside any optional part: {lignes} in the message, {désignation} in a line
+   * (refused without it: inside brackets it would vanish with an empty field, and the articles with it).
+   */
   missing: string[];
 };
 
@@ -259,8 +262,18 @@ function issuesOf(source: string, kind: TemplateKind): ConsultationTemplateIssue
     duplicated: [...seen.entries()]
       .filter(([field, count]) => field === "lignes" && count > 1)
       .map(([field]) => `{${field}}`),
-    missing: seen.has(REQUIRED[kind]) ? [] : [`{${REQUIRED[kind]}}`],
+    missing: writtenOutsideOptionalParts(source, kind, REQUIRED[kind]) ? [] : [`{${REQUIRED[kind]}}`],
   };
+}
+
+/** Whether a template writes this field outside every optional part, where no empty field can take it away. */
+function writtenOutsideOptionalParts(source: string, kind: TemplateKind, field: string): boolean {
+  return lineSegments(source, kind).some((segment) => segment.kind === "field" && segment.field === field);
+}
+
+/** Whether a template writes this field anywhere, optional parts included. */
+function writtenAnywhere(source: string, kind: TemplateKind, field: string): boolean {
+  return [...source.matchAll(FIELD)].some((match) => fieldOf(match[1], kind) === field);
 }
 
 /** What the editor flags (unknown fields) and what a save refuses ({lignes} twice, a required field missing). */
@@ -277,7 +290,13 @@ export function consultationTemplateRefusals(template: ConsultationTemplate): st
   const sentences: string[] = [];
   for (const [kind, label] of [["message", "Le modèle du message"], ["line", "Le modèle de ligne"]] as const) {
     const { duplicated, missing } = issues[kind];
-    if (missing.length > 0) sentences.push(`${label} doit contenir ${missing.join(", ")}.`);
+    if (missing.length > 0) {
+      sentences.push(
+        writtenAnywhere(template[kind], kind, REQUIRED[kind])
+          ? `${label} doit écrire ${missing.join(", ")} hors des crochets : une partie entre crochets disparaît quand l’un de ses champs est vide.`
+          : `${label} doit contenir ${missing.join(", ")}.`,
+      );
+    }
     if (duplicated.length > 0) {
       sentences.push(`${label} écrit ${duplicated.join(", ")} plusieurs fois : les lignes s’écrivent une fois au plus.`);
     }
