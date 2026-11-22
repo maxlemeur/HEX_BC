@@ -2,9 +2,8 @@ import { apiRequest, readEstimate, recordEvidence } from "../critical/fixtures";
 import { waitForHydration } from "../critical/hydration-support";
 import { querySql } from "../local/calculation-gate-support";
 import { signUpDedicatedOwner } from "../local/dedicated-owner";
-import { fictionalPlanPdf } from "./plan-dispatch-support";
 import {
-  acceptOnPlan, countOwnedReceipts, holdDraftElsewhere, readOwnedLines, readOwnedParts, readOwnedVersions, releaseDraftElsewhere,
+  acceptOnPlan, countOwnedReceipts, fictionalSendPlanPdf, holdDraftElsewhere, readOwnedLines, readOwnedParts, readOwnedVersions, releaseDraftElsewhere,
   seedItemSendAffaire,
 } from "./poste-send-support";
 import { describe, expect, nativeTest as test } from "./native-ui";
@@ -253,7 +252,7 @@ describe("Envoi d’un plan au devis, poste par poste", () => {
   test("POSTE-ENVOI02 « Par niveau » donne une ligne de 3 au rez-de-chaussée et une de 2 à l’étage", options, async ({ ui }) => {
     const { app, screen, army } = ui;
     const owner = await signUpDedicatedOwner(ui.browser, app.baseUrl!, army.runPrefix, { tag: "PSENDN", calcPolicy: "absent" });
-    const pdfs = { a: await fictionalPlanPdf(`${army.runPrefix} plan A`, 9), b: await fictionalPlanPdf(`${army.runPrefix} plan B`, 9) };
+    const pdfs = { a: await fictionalSendPlanPdf(`${army.runPrefix} plan A`), b: await fictionalSendPlanPdf(`${army.runPrefix} plan B`) };
     const seeded = await seedItemSendAffaire(owner, { name: `${army.runPrefix}-POSTE-NIVEAU`, labels: ["Lavabo"], plans: [
       { name: "plan-a.pdf", measures: { Lavabo: { quantity: 3, page: 2 } }, pdf: pdfs.a },
       { name: "plan-b.pdf", measures: { Lavabo: { quantity: 2, page: 2 } }, pdf: pdfs.b },
@@ -288,8 +287,15 @@ describe("Envoi d’un plan au devis, poste par poste", () => {
     await expect(dialog().getByRole("table", "Lignes du devis après l’envoi", { exact: true })).toContainText("R+1");
     await dialog().getByRole("button", /^Envoyer « plan-b\.pdf » dans /).click();
     await expect(ui.browser).toHaveURL(/\/dashboard\/estimates\/[0-9a-f-]{36}\/edit\?focusItemId=/, { timeout: 60_000 });
-    const lines = (await readOwnedLines(seeded.projectId)).filter((line) => line.item_type === "line");
-    expect(lines.map((line) => [line.title, line.quantity])).toEqual([["Lavabo", 3], ["Lavabo", 2]]);
+    // Each level has its section (positions count within a parent): 3 under the ground floor's, 2 under the first floor's.
+    const rows = await readOwnedLines(seeded.projectId);
+    const lines = rows.filter((line) => line.item_type === "line");
+    const levelOf = (line: (typeof rows)[number]) => {
+      const section = rows.find((candidate) => candidate.id === line.parent_id)?.title ?? "";
+      return section.includes("R+1") ? "R+1" : section.includes("RDC") ? "RDC" : section;
+    };
+    expect(lines.map((line) => [levelOf(line), line.title, line.quantity]).sort())
+      .toEqual([["R+1", "Lavabo", 2], ["RDC", "Lavabo", 3]]);
     const parts = await readOwnedParts(seeded.projectId);
     expect(parts.map(({ job_id, quantity, state }) => [job_id, quantity, state]).sort())
       .toEqual([[planA.jobId, 3, "live"], [planB.jobId, 2, "live"]].sort());

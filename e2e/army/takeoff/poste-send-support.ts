@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 
 import { createClient } from "@supabase/supabase-js";
+import { PDFDocument, StandardFonts } from "pdf-lib";
 
 import { createEmptyTakeoffPreparation } from "@/lib/takeoff/preparation";
 
@@ -30,6 +31,14 @@ export type SeededSend = {
   items: Record<string, string>;
   plans: Array<{ name: string; fileId: string; jobId: string; digest: string }>;
 };
+
+/** A fictional plan of `pages` pages, each saying its number. */
+export async function fictionalSendPlanPdf(label: string, pages = 9) {
+  const document = await PDFDocument.create();
+  const font = await document.embedFont(StandardFonts.Helvetica);
+  for (let page = 1; page <= pages; page += 1) document.addPage([595, 842]).drawText(`${label} — page ${page} (fictif)`, { x: 60, y: 760, size: 18, font });
+  return Buffer.from(await document.save());
+}
 
 const literal = (value: unknown) => `'${JSON.stringify(value).replaceAll("'", "''")}'::jsonb`;
 const text = (value: string) => `'${value.replaceAll("'", "''")}'`;
