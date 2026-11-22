@@ -31,10 +31,11 @@ set local check_function_bodies = off;
 
 -- 1. The send's own check, in its transaction: the version link of a per-plan analysis is admitted only while the send
 -- that checked its context holds this row (inserted just before the link, deleted just after; a rollback removes it).
--- No API role reads or writes it.
+-- No API role reads or writes it. Its keys are the job's and the version's, which the send holds already (the job for
+-- update, the version it locks or creates): their checks wait for nothing.
 create table private.takeoff_plan_send_checks (
-  job_id uuid primary key,
-  version_id uuid not null,
+  job_id uuid primary key references public.takeoff_jobs(id) on delete cascade,
+  version_id uuid not null references public.estimate_versions(id) on delete cascade,
   stamps jsonb not null,
   xact xid8 not null default pg_catalog.pg_current_xact_id()
 );
