@@ -14,6 +14,8 @@ export type TakeoffLaunchCommand = {
   predecessorJobId: string | null;
   planSetId: string;
   preparationRevision: number;
+  /** The plans the member chose to read (a command that names them); none for the plans of the analysis it replaces. */
+  planFileIds?: string[];
 };
 
 type Entry = { outstanding: TakeoffLaunchCommand | null; settled: string[] };
@@ -85,8 +87,10 @@ function toCommand(value: unknown): TakeoffLaunchCommand | null {
   return entry && typeof entry.intentKey === "string" && UUID.test(entry.intentKey) && typeof entry.planSetId === "string"
     && (entry.predecessorJobId === null || typeof entry.predecessorJobId === "string")
     && typeof entry.preparationRevision === "number" && Number.isInteger(entry.preparationRevision)
+    && (entry.planFileIds === undefined || (Array.isArray(entry.planFileIds) && entry.planFileIds.length > 0
+      && entry.planFileIds.every((id) => typeof id === "string" && UUID.test(id))))
     ? { intentKey: entry.intentKey, predecessorJobId: entry.predecessorJobId, planSetId: entry.planSetId,
-      preparationRevision: entry.preparationRevision }
+      preparationRevision: entry.preparationRevision, ...(entry.planFileIds ? { planFileIds: [...entry.planFileIds] } : {}) }
     : null;
 }
 

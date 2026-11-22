@@ -31,7 +31,8 @@ import { CheckIcon } from "lucide-react";
 import { LazyTakeoffPreparationPanel } from "@/components/takeoff/LazyTakeoffPreparationPanel";
 import { DETAILED_TAKEOFF_PROCESSING } from "@/lib/takeoff/preparation-from-dossier";
 import { isIntakeSyncedPlanSet } from "@/lib/takeoff/default-import-plan-set";
-import { buttonVariants } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
+import { describeTakeoffRelaunchChoice, type TakeoffRelaunchChoice } from "@/lib/takeoff/launch-request";
 import { cn } from "@/lib/utils";
 
 export type LaunchMetrePlanSetOption = {
@@ -210,6 +211,9 @@ function LaunchMetreDialogContent({
   const [launchAlreadyRunning, setLaunchAlreadyRunning] = useState(false);
   const [launchSuccessVersionLabel, setLaunchSuccessVersionLabel] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  // A relaunch whose analysis lost a plan's copy: the plans it may read instead, none chosen until the member ticks them.
+  const [planChoice, setPlanChoice] = useState<{ preparationRevision: number; choice: TakeoffRelaunchChoice } | null>(null);
+  const [chosenPlans, setChosenPlans] = useState<Set<string>>(new Set());
   const [selectedVersionId, setSelectedVersionId] = useState(initialVersionId);
   const [selectedPlanSetId, setSelectedPlanSetId] = useState<string | null>(
     initialPlanSetId ?? plansContext?.defaultPlanSetId ?? null,
@@ -341,10 +345,11 @@ function LaunchMetreDialogContent({
     [isSubmitting, launchSuccess, onOpenChange],
   );
 
-  const handleRequestLaunch = useCallback(async (preparationRevision: number, planFileCount: number) => {
+  const handleRequestLaunch = useCallback(async (preparationRevision: number, planFileCount: number, planFileIds?: string[]) => {
     if (!selectedPlanSet || !hasPlanFiles || launchMode.kind !== "request") return;
     setIsSubmitting(true);
     setErrorMessage(null);
+    setPlanChoice(null);
     const scope = { tenantId: user?.tenantId ?? null, userId: user?.profile?.id ?? null, projectId };
     let intentKey: string | null = null;
     try {
@@ -352,13 +357,21 @@ function LaunchMetreDialogContent({
       // dialogue now names it): its replay answers with its receipt. Only an answered affaire offers a new command.
       const command = readOutstandingTakeoffLaunch(scope) ?? beginTakeoffLaunch(scope, {
         predecessorJobId: launchMode.predecessorJobId, planSetId: selectedPlanSet.id, preparationRevision,
+        ...(planFileIds?.length ? { planFileIds } : {}),
       });
       intentKey = command.intentKey;
       const result = unwrapTakeoffActionResult(await relaunchTakeoffAction({
         projectId, planSetId: command.planSetId, preparationRevision: command.preparationRevision, intentKey: command.intentKey,
-        predecessorJobId: command.predecessorJobId,
+        predecessorJobId: command.predecessorJobId, ...(command.planFileIds ? { planFileIds: command.planFileIds } : {}),
       }));
       settleTakeoffLaunch(scope, command.intentKey);
+      // Nothing was recorded: a plan of the analysis has no copy now; the member chooses which of its other plans to read,
+      // a new command that names them.
+      if (result.outcome === "plans_to_choose" && result.choice) {
+        setPlanChoice({ preparationRevision: command.preparationRevision, choice: result.choice });
+        setChosenPlans(new Set());
+        return;
+      }
       const label = "Sans devis : la destination se choisit à l’envoi";
       const title = result.outcome === "already_running" ? "Une analyse de l’affaire est déjà en cours"
         : result.outcome === "replayed" ? "Analyse existante retrouvée" : "Analyse transmise au traitement";
@@ -586,6 +599,29 @@ function LaunchMetreDialogContent({
 
                 />
               ) : <div className="space-y-3 py-4 text-center"><p className="text-sm text-muted-foreground">Aucun jeu de plans exploitable n&apos;est disponible pour cette affaire.</p><Link href={`/dashboard/affaires/${projectId}/plans`} className={buttonVariants({ variant: "outline" })}>Voir les plans</Link>{planSetsLoadError && <button type="button" className={buttonVariants({ variant: "outline" })} onClick={() => void reloadPlanSets()}>Réessayer</button>}</div>}
+              {planChoice && (
+                <section aria-label="Plans à relire" className="space-y-3 rounded-md border p-3">
+                  <p className="text-sm">{describeTakeoffRelaunchChoice(planChoice.choice)}</p>
+                  <fieldset className="space-y-2">
+                    <legend className="text-sm font-medium">Choisissez les plans de l’analyse à relire</legend>
+                    {planChoice.choice.remaining.map((plan) => (
+                      <label key={plan.id} className="flex items-center gap-2 text-sm">
+                        <input type="checkbox" checked={chosenPlans.has(plan.id)} disabled={isSubmitting}
+                          onChange={(event) => setChosenPlans((current) => {
+                            const next = new Set(current);
+                            if (event.target.checked) next.add(plan.id); else next.delete(plan.id);
+                            return next;
+                          })} />
+                        <span>{plan.name}</span>
+                      </label>
+                    ))}
+                  </fieldset>
+                  <Button type="button" disabled={isSubmitting || chosenPlans.size === 0}
+                    onClick={() => void handleRequestLaunch(planChoice.preparationRevision, chosenPlans.size, [...chosenPlans].sort())}>
+                    Relancer les plans choisis
+                  </Button>
+                </section>
+              )}
               {errorMessage && <Alert variant="danger"><AlertDescription>{errorMessage}</AlertDescription></Alert>}
               {!hasTargetVersion && <Alert variant="warning"><AlertDescription>Créez d&apos;abord une première version pour lancer l&apos;analyse sur une cible de chiffrage.<div className="mt-3"><Link href={`/dashboard/estimates/new?projectId=${projectId}`} className={buttonVariants({ variant: "outline" })}>Créer une première version</Link></div></AlertDescription></Alert>}
             </div>

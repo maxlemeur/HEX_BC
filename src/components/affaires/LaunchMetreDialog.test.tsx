@@ -167,6 +167,32 @@ describe("LaunchMetreDialog", () => {
       expect(await screen.findByText("Analyse transmise au traitement")).toBeInTheDocument();
     });
 
+    // The analysis to relaunch read a plan that has no working copy now: nothing is recorded, the member reads why, by
+    // name, and chooses which of its other plans to read (none ticked in advance); that is a new command naming them.
+    it("offers the other plans of an analysis that lost a plan's copy, and relaunches only those the member ticks", async () => {
+      const user = userEvent.setup();
+      const kept = "66666666-6666-4666-8666-666666666666";
+      relaunchTakeoffMock.mockResolvedValueOnce({ ok: true, data: { outcome: "plans_to_choose", requestId: null, jobId: null,
+        choice: { withoutCopy: [{ name: "plan-a.pdf", reason: "removed" }], remaining: [{ id: kept, name: "plan-b.pdf" }] } } })
+        .mockResolvedValueOnce({ ok: true, data: { outcome: "admitted", requestId: "r3", jobId: "j3" } });
+      render(request());
+      await user.click(await screen.findByRole("button", { name: "Confirmer et lancer le métré" }));
+      expect(await screen.findByText("« plan-a.pdf » n’est plus dans le dossier de l’affaire : l’analyse ne peut pas être relancée "
+        + "telle quelle. Les autres plans peuvent être relus.")).toBeInTheDocument();
+      expect(screen.queryByText("Analyse transmise au traitement")).not.toBeInTheDocument();
+      const plan = screen.getByRole("checkbox", { name: "plan-b.pdf" });
+      expect(plan).not.toBeChecked();
+      const relaunch = screen.getByRole("button", { name: "Relancer les plans choisis" });
+      expect(relaunch).toBeDisabled();
+      await user.click(plan);
+      await user.click(relaunch);
+      expect(await screen.findByText("Analyse transmise au traitement")).toBeInTheDocument();
+      const [first, second] = relaunchTakeoffMock.mock.calls.map(([input]) => input as { intentKey: string; planFileIds?: string[] });
+      expect(first).not.toHaveProperty("planFileIds");
+      expect(second).toMatchObject({ planFileIds: [kept], predecessorJobId: predecessor, preparationRevision: 7 });
+      expect(second!.intentKey).not.toBe(first!.intentKey);
+    });
+
     it("replays a click whose answer was lost with the same key, and gives a new click after an answer a new one", async () => {
       const user = userEvent.setup();
       relaunchTakeoffMock.mockRejectedValueOnce(new Error("network"))
