@@ -19,6 +19,10 @@
 -- 8. The member gone to another tenant (their default) while the send waits: refused after the wait.
 -- 9. A second reading's send while the member's lease of the draft ends during the wait: the lease is read on the clock
 --    after the wait (DRAFT_LOCK_REQUIRED), the estimate unchanged.
+-- 10. A copy of a draft fed by item (a new version) while a send into it holds the affaire: the copy waits, then carries
+--     what the send wrote (…_takeoff_item_send_copy.sql).
+-- 11. A copy of that copy while a send into the copy is confirmed: the send waits, then writes into the first copy
+--     only; the second copy holds the first one as it was.
 -- The confirmation is the server's (the service role, the acting member its parameter); the tabs' reviews are the member's.
 -- The two first creations of a draft are cases 2 (one job, twice) and 4 (the import and the send). Isolation justified:
 -- these interleavings exist only across sessions, which no journey drives deterministically. All values are fictional.
@@ -620,6 +624,162 @@ select ok(extensions.dblink_error_message('race_b') like '%TAKEOFF_ITEM_SEND_DRA
 select is((select count(*)::integer from extensions.dblink_get_result('race_b', false) as x(answer text)), 0, 'and is done');
 select is((select string_agg(i.id || ':' || i.quantity || ':' || i.updated_at, ',' order by i.id) from public.estimate_items i
   where i.version_id = pg_temp.f(730)), (select rows_ from estimate_before), 'the estimate is unchanged');
+-- 10. Affaire 20: the second reading (job 1120) sent into V1 holds the affaire while V1 is copied as a new version (the
+--     copy of a draft fed by item, …_takeoff_item_send_copy.sql): the copy waits for the affaire, then carries what the
+--     send wrote (the new part; the part it replaced stays in V1's history only).
+-- The lavabo's part of a reading, as the writer reads it.
+create function pg_temp.parts_of(p_job uuid) returns jsonb language sql stable as $$
+  select coalesce(jsonb_agg(jsonb_build_object('answer_id', s.answer_id, 'answer_revision', s.answer_revision, 'kind', s.kind,
+      'observation_ids', case when s.observation_id is null then '[]'::jsonb else jsonb_build_array(s.observation_id) end,
+      'quantity', s.quantity, 'unit', s.unit, 'pages', to_jsonb(s.pages),
+      'identity', jsonb_build_object('unit', (private.normalize_unit(s.unit)).unit_code, 'basis', null, 'network', null,
+        'material', null, 'diameter', null)) order by s.observation_id), '[]'::jsonb)
+  from private.takeoff_item_send_job_parts(pg_temp.tenant(), pg_temp.f(20), p_job, array[2, 7]) as s
+  where s.item_id = pg_temp.f(300)
+$$;
+-- A reading of affaire 20's plan sent into a version whose line the lavabo feeds: that line, the reading's part replacing
+-- this plan's earlier part on the pages it covers.
+create function pg_temp.plan_into(p_job uuid, p_version uuid) returns jsonb language sql as $$
+  with line as (select i.id, i.updated_at, i.quantity from public.estimate_items i
+      join public.takeoff_item_send_targets t on t.estimate_item_id = i.id
+      where t.version_id = p_version and t.item_id = pg_temp.f(300)),
+    target as (select jsonb_build_object('key', pg_temp.f(300) || '|together', 'item_id', pg_temp.f(300), 'compartment_key', 'together',
+      'line', jsonb_build_object('kind', 'earlier_line', 'estimate_item_id', line.id, 'expected_updated_at', line.updated_at,
+        'expected_quantity', line.quantity),
+      'unit_code', 'u', 'quantity_after', (select sum((c.value ->> 'quantity')::numeric)
+        from jsonb_array_elements(pg_temp.parts_of(p_job)) c(value)),
+      'quantity', jsonb_build_object('kept_entry', false), 'rule', null, 'contributions', pg_temp.parts_of(p_job),
+      'replaces', coalesce((select jsonb_agg(jsonb_build_object('job_id', p.job_id, 'answer_id', p.answer_id,
+          'observation_ids', to_jsonb(p.observation_ids), 'quantity', p.quantity) order by p.id)
+        from public.takeoff_item_send_parts p join public.takeoff_item_send_targets t on t.id = p.target_id
+        where t.estimate_item_id = line.id and p.state = 'live' and p.plan_logical_id = pg_temp.plan_file(20)), '[]'::jsonb)) as value,
+      line.id as line_id, line.updated_at, line.quantity
+      from line)
+  select jsonb_build_object('format', 'takeoff_item_send', 'version', 1, 'job_id', p_job, 'plan_key', pg_temp.plan_file(20),
+    'list', jsonb_build_object('revision_id', pg_temp.f(400), 'revision', 1),
+    'destination', jsonb_build_object('kind', 'existing_draft', 'version_id', p_version),
+    'engine', 3, 'breakdown', 'together', 'sections', '[]'::jsonb, 'targets', jsonb_build_array(target.value),
+    'page_contributions', jsonb_build_array(jsonb_build_object('page', 2, 'item_ids', jsonb_build_array(pg_temp.f(300)),
+      'target_keys', jsonb_build_array(pg_temp.f(300) || '|together'),
+      'observation_ids', (select coalesce(jsonb_agg(o.value), '[]'::jsonb) from jsonb_array_elements(pg_temp.parts_of(p_job)) c(value)
+        cross join lateral jsonb_array_elements(c.value -> 'observation_ids') o(value)))),
+    'page_decisions', '[]'::jsonb, 'left_out', '[]'::jsonb, 'parts_not_sent', '[]'::jsonb,
+    'dependencies', jsonb_build_object(
+      'answers', (with pairs as (select p.* from private.takeoff_item_table_pairs(pg_temp.tenant(), pg_temp.f(20),
+          pg_temp.plan_file(20)) as p)
+        select coalesce(jsonb_agg(jsonb_build_object('item_id', a.item_id, 'answer_id', a.id, 'revision', a.content_sha256,
+            'decision_revision', case when pair.decision_effective in ('accepted', 'set_aside') then pair.decision_revision end,
+            'entry_revision', null) order by a.item_id), '[]'::jsonb)
+        from public.takeoff_item_answers a left join pairs pair on pair.answer_id = a.id where a.job_id = p_job),
+      'affaire_entries', '[]'::jsonb, 'rules', '[]'::jsonb, 'location_generation', null, 'plan_pages', '[2, 7]'::jsonb,
+      'earlier_targets', private.takeoff_item_send_earlier_targets(pg_temp.tenant(), p_version),
+      'lines', jsonb_build_array(jsonb_build_object('estimate_item_id', target.line_id, 'updated_at', target.updated_at,
+        'quantity', target.quantity, 'dpgf', null)),
+      'pages_in_estimate', (select coalesce(jsonb_agg(jsonb_build_object('page', h.value -> 'page',
+          'earlier_job_ids', h.value -> 'earlier_job_ids', 'estimate_item_ids', h.value -> 'estimate_item_ids')), '[]'::jsonb)
+        from jsonb_array_elements(private.takeoff_item_send_held_pages(pg_temp.tenant(), p_version, p_job, pg_temp.document(20),
+          array[2, 7])) h(value)),
+      'stamps', jsonb_build_object('job', public.takeoff_rule_job_stamp(pg_temp.tenant(), pg_temp.f(20), p_job),
+        'peers', public.takeoff_send_peers_stamp(pg_temp.tenant(), p_version),
+        'context', (select jsonb_build_object('peers', s.stamps ->> 'peers', 'locations', s.stamps ->> 'locations')
+          from (select private.takeoff_send_context_stamps(private.takeoff_send_context(pg_temp.tenant(), pg_temp.f(20), p_job,
+            p_version)) as stamps) s),
+        'dpgf', '[]'::jsonb, 'first_draft_settings', null,
+        'destination', (select jsonb_build_object('version_id', v.id, 'status', v.status, 'updated_at', v.updated_at)
+          from public.estimate_versions v where v.id = p_version),
+        'mapping', public.takeoff_mapping_rules_stamp(pg_temp.tenant())),
+      'resolutions', '[]'::jsonb))
+  from target
+$$;
+-- The lavabo of a reading accepted in the table of items, as the table freezes it (the plan's current answer).
+create function pg_temp.accept_reading(p_key integer, p_job uuid) returns jsonb language sql stable as $$
+  select jsonb_build_object('command_version', 1, 'intent_key', pg_temp.f(p_key), 'gesture', 'accept_measured',
+    'scope', '{"kind":"affaire"}'::jsonb,
+    'targets', jsonb_build_array(jsonb_build_object('item_id', pg_temp.f(300), 'entry_revision', 0,
+      'answers', (select jsonb_agg(jsonb_build_object('answer_id', a.id, 'decision_revision', 0, 'entry_revision', 0))
+        from public.takeoff_item_answers a where a.job_id = p_job and a.item_id = pg_temp.f(300)))),
+    'apply', jsonb_build_array(pg_temp.f(300)), 'skipped', '[]'::jsonb)
+$$;
+-- What a version holds of the send by item, by its line: its targets' items, its live parts (reading, quantity, pages),
+-- the line's quantity.
+create function pg_temp.held_by(p_version uuid) returns text language sql stable as $$
+  select concat_ws(' | ', (select string_agg(concat_ws(':', t.item_id, i.quantity), ',' order by t.item_id)
+      from public.takeoff_item_send_targets t join public.estimate_items i on i.id = t.estimate_item_id where t.version_id = p_version),
+    (select string_agg(concat_ws(':', p.job_id, p.quantity, p.pages::text), ',' order by p.job_id)
+      from public.takeoff_item_send_parts p where p.version_id = p_version and p.state = 'live'))
+$$;
+select is(extensions.dblink_exec('race_setup', format($rules$update public.takeoff_items set rules_stale = false,
+  rules_evaluated_at = now(), rule_results = '[]'::jsonb where job_id = %L$rules$, pg_temp.f(1120))), 'UPDATE 1',
+  'the second reading''s rules are evaluated');
+select is((select x.outcome::jsonb ->> 'outcome' from extensions.dblink('race_a', pg_temp.review_sql(20,
+  pg_temp.accept_reading(631, pg_temp.f(1120)))) as x(outcome text)), 'applied', 'its lavabo accepted');
+select is(extensions.dblink_exec('race_setup', format($lease$begin; delete from public.draft_locks where version_id = %1$L;
+  insert into public.draft_locks (version_id, user_id, tenant_id, expires_at, session_id)
+  values (%1$L, %2$L, %3$L, clock_timestamp() + interval '30 minutes', gen_random_uuid()); commit;$lease$,
+  pg_temp.f(730), pg_temp.f(1), pg_temp.tenant())), 'COMMIT', 'the member holds V1''s lease again');
+insert into plans values ('20-second-reading', pg_temp.plan_into(pg_temp.f(1120), pg_temp.f(730)), null);
+create temp table v1_before as select pg_temp.held_by(pg_temp.f(730)) as held;
+select is(extensions.dblink_exec('race_a', 'begin'), 'BEGIN', 'a tab confirms the second reading''s send into V1');
+select is(extensions.dblink_exec('race_a', pg_temp.as_server_sql()), 'SET', 'through the server');
+select is((select x.answer::jsonb ->> 'parts_replaced' from extensions.dblink('race_a', pg_temp.send_sql(828, '20-second-reading'))
+  as x(answer text)), '1', 'sent, replacing the first reading''s part, not yet committed');
+select is(extensions.dblink_send_query('race_c', format($copy$select public.duplicate_estimate_version(%L, false)::text$copy$,
+  pg_temp.f(730))), 1, 'another tab makes a new version of V1');
+select ok(pg_temp.waits_for('race_c', 'race_a'), 'the copy waits for the affaire');
+select is(extensions.dblink_exec('race_a', 'commit'), 'COMMIT', 'the send commits');
+select ok(pg_temp.answered('race_c'), 'the copy answers');
+create temp table copy_one as select x.version_id::uuid as version_id from extensions.dblink_get_result('race_c', false)
+  as x(version_id text);
+select is((select count(*)::integer from extensions.dblink_get_result('race_c', false) as x(version_id text)), 0, 'and is done');
+select isnt(pg_temp.held_by(pg_temp.f(730)), (select held from v1_before), 'V1 holds the second reading');
+select is(pg_temp.held_by((select version_id from copy_one)), pg_temp.held_by(pg_temp.f(730)),
+  'the copy made after the send holds what V1 holds: the second reading''s part, on its line');
+select is((select count(*)::integer from public.takeoff_item_send_parts p where p.version_id = (select version_id from copy_one)
+  and p.job_id = pg_temp.job(20)), 0, 'the part the send replaced stays in V1''s history, never in the copy');
+
+-- 11. Affaire 20: V1's copy copied again while a third reading (job 1220) is sent into the first copy: the send waits for
+--     the affaire, then writes into the first copy only; the second copy holds the first copy as it was.
+select is((select x.outcome from extensions.dblink('race_setup', replace(replace(pg_temp.relaunch_sql(20),
+  format('%L, ''reread_plans'', %L', pg_temp.f(620), pg_temp.job(20)), format('%L, ''reread_plans'', %L', pg_temp.f(670),
+  pg_temp.f(1120))), pg_temp.f(1120)::text || '", "plan_set_id"', pg_temp.f(1220)::text || '", "plan_set_id"'))
+  as x(outcome text)), 'admitted', 'a third reading of affaire 20''s plan');
+select is((select x.job from extensions.dblink('race_setup', format($dispatch$select job_id::text from
+  public.dispatch_next_takeoff_host_job(%L)$dispatch$, pg_temp.host())) as x(job text)), pg_temp.f(1220)::text, 'handed');
+select is((select x.claimed from extensions.dblink('race_setup', replace(pg_temp.claim_sql(20, 940), pg_temp.job(20)::text,
+  pg_temp.f(1220)::text)) as x(claimed bigint)), 1::bigint, 'claimed');
+select is((select split_part(x.answer, ':', 2) from extensions.dblink('race_setup', replace(replace(pg_temp.publish_sql(20, 940),
+  pg_temp.job(20)::text, pg_temp.f(1220)::text), pg_temp.f(820)::text, pg_temp.f(890)::text)) as x(answer text)), 'false',
+  'published');
+select is(extensions.dblink_exec('race_setup', format($rules$update public.takeoff_items set rules_stale = false,
+  rules_evaluated_at = now(), rule_results = '[]'::jsonb where job_id = %L$rules$, pg_temp.f(1220))), 'UPDATE 1',
+  'its rules are evaluated');
+select is((select x.outcome::jsonb ->> 'outcome' from extensions.dblink('race_a', pg_temp.review_sql(20,
+  pg_temp.accept_reading(632, pg_temp.f(1220)))) as x(outcome text)), 'applied', 'its lavabo accepted');
+select is(extensions.dblink_exec('race_setup', format($lease$begin; insert into public.draft_locks (version_id, user_id, tenant_id,
+  expires_at, session_id) values (%1$L, %2$L, %3$L, clock_timestamp() + interval '30 minutes', gen_random_uuid()); commit;$lease$,
+  (select version_id from copy_one), pg_temp.f(1), pg_temp.tenant())), 'COMMIT', 'the member holds the copy''s lease');
+insert into plans values ('20-third-reading', pg_temp.plan_into(pg_temp.f(1220), (select version_id from copy_one)), null);
+create temp table copy_one_before as select pg_temp.held_by((select version_id from copy_one)) as held;
+select is(extensions.dblink_exec('race_c', 'begin'), 'BEGIN', 'a tab copies the copy');
+select ok((select x.version_id from extensions.dblink('race_c', format($copy$select public.duplicate_estimate_version(%L, false)::text$copy$,
+  (select version_id from copy_one))) as x(version_id text)) is not null, 'copied, not yet committed');
+select is(extensions.dblink_send_query('race_b', pg_temp.send_sql(829, '20-third-reading')), 1,
+  'the third reading''s send into the first copy is confirmed meanwhile');
+select ok(pg_temp.waits_for('race_b', 'race_c'), 'the send waits for the affaire');
+select is(extensions.dblink_exec('race_c', 'commit'), 'COMMIT', 'the second copy commits');
+select ok(pg_temp.answered('race_b'), 'the send answers');
+select is((select x.answer::jsonb ->> 'parts_replaced' from extensions.dblink_get_result('race_b', false) as x(answer text)), '1',
+  'it is sent into the first copy, replacing the part the copy carried');
+select is((select count(*)::integer from extensions.dblink_get_result('race_b', false) as x(answer text)), 0, 'and is done');
+create temp table copy_two as select v.id as version_id from public.estimate_versions v where v.project_id = pg_temp.f(20)
+  and v.id not in (pg_temp.f(730), (select version_id from copy_one));
+select is(pg_temp.held_by((select version_id from copy_two)), (select held from copy_one_before),
+  'the second copy holds the first copy as it was before the send');
+select isnt(pg_temp.held_by((select version_id from copy_one)), (select held from copy_one_before),
+  'the first copy holds the third reading');
+select is((select count(*)::integer from public.takeoff_item_send_parts p where p.version_id = pg_temp.f(730)
+  and p.job_id = pg_temp.f(1220)), 0, 'and V1 holds nothing of it');
+
 select is(extensions.dblink_exec('race_setup', $cleanup$
 begin;
 set local session_replication_role = replica;

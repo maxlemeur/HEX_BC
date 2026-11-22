@@ -977,7 +977,11 @@ export function planTakeoffItemSend(input: ItemSendInput): ItemSendPlan {
 
     if (dpgfItem) {
       const candidates = dpgfCandidates(item);
-      let line = candidates.length === 1 ? candidates[0] : null;
+      // Beside the line the item's live DPGF target holds, another line of its row (a section copied in the editor, an
+      // ordinary line of the draft) is never asked about: the item's line is its target's, as the writer feeds it.
+      const fedLine = candidates.find((candidate) => input.earlier.targets.some((target) => lower(target.itemId) === lower(item.id)
+        && target.breakdown === "dpgf" && lower(target.estimateItemId) === lower(candidate.id)));
+      let line = candidates.length === 1 ? candidates[0] : fedLine ?? null;
       let resolution: ItemSendChoice["kind"] | null = null;
       if (!line) {
         const key = `target:${targetKey}`;

@@ -73,7 +73,7 @@ const STALE_MESSAGES: Record<string, string> = {
   dpgf_reference_unread: "La quantité du DPGF d’une ligne a changé depuis l’aperçu.",
   page_contributions_changed: "Les pages qu’apporterait l’envoi ne sont plus celles de l’aperçu.",
   sections_changed: "Les sections du devis ont changé depuis l’aperçu.",
-  copy_unread: "Ce brouillon est une copie de lignes envoyées par poste.",
+  copy_unread: "Une ligne de ce brouillon porte la marque d’un envoi par poste sans le détail de ses apports.",
 };
 
 function stale(jobId: string, reason: string | null) {
@@ -123,8 +123,8 @@ export function mapItemSendRpcError(error: ApplyTakeoffRpcError, jobId: string):
       return conflict(jobId, "item_send_draft_lock_required", "Ouvrez ce brouillon dans l’éditeur de devis pour qu’il vous soit réservé, "
         + `puis confirmez de nouveau. ${NOTHING}`, true);
     case "TAKEOFF_ITEM_SEND_COPY_UNREAD":
-      return refused(jobId, "item_send_copy_unread", "Ce brouillon est une copie de lignes envoyées par poste, sans le détail de leurs "
-        + `apports : un nouvel envoi y compterait deux fois. Choisissez un autre brouillon. ${NOTHING}`);
+      return refused(jobId, "item_send_copy_unread", "Une ligne de ce brouillon porte la marque d’un envoi par poste dont le détail "
+        + `des apports est perdu : un nouvel envoi y compterait deux fois. Choisissez un autre brouillon. ${NOTHING}`);
     case "TAKEOFF_ITEM_SEND_DPGF_IMPORT_REQUIRED":
       return refused(jobId, "item_send_dpgf_import_required", "La liste des postes vient du DPGF, mais ce devis n’en contient aucune "
         + `ligne : confirmez d’abord l’import du DPGF depuis les documents de l’affaire. ${NOTHING}`);

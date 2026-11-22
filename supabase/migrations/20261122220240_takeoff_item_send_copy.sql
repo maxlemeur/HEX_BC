@@ -1,6 +1,6 @@
 -- Lot 4, the copy of a draft fed by item: a copy keeps the contributions of the send by item.
 --
--- Migration C (20261122150219_takeoff_item_send_writer.sql) stores what a send by item leaves in a draft: its live targets
+-- Migration C (20261122205109_takeoff_item_send_writer.sql) stores what a send by item leaves in a draft: its live targets
 -- (one per item, breakdown and compartment, each holding one line), the journal of its parts, the sections it created
 -- and the page contributions, each under the receipt of the send that wrote it. A new version or a variant made from a
 -- version (public.duplicate_estimate_version, which today's send also uses to copy an issued version) copies every line
@@ -36,7 +36,16 @@
 --     (20260825200420_link_estimate_items_to_products.sql, the wrapper that carries the article links): it takes the
 --     affaire's row first (the spine's rank 2, as every writer of the affaire's versions takes it, before the source
 --     version's row the duplication locks), then carries C's rows after the article links. The duplication itself
---     (public.duplicate_estimate_version_without_product_id) is unchanged.
+--     (public.duplicate_estimate_version_without_product_id, latest body 20261112093830_unified_kfo.sql as
+--     20261121170448_takeoff_launch_requests.sql patched its affaire lock) is unchanged.
+-- Lock ranks of a copy, in the spine's order (docs/metier/regles-metre.md), never the reverse: 2. the affaire's row
+-- (for no key update, taken first by the wrapper; the duplication takes it again with the source version's row, at the
+-- same strength since 20261121170448, so that a worker's notice, whose foreign key checks the affaire, never waits for a
+-- copy: takeoff-copy-lock-cycle-race.test.sql); 3. the source
+-- version's row (for update); 5. the takeoffs linked to the source (for share, the duplication's). It never takes rank 1
+-- (the calc policy's key): a send (rank 1 shared, then the affaire) and a copy of the same affaire wait on each other at
+-- the affaire's row, in one order, whichever version either targets (takeoff-item-send-race.test.sql, cases 10 and 11).
+-- C's rows are read under the affaire's row: every writer of them holds it.
 -- Columns: takeoff_item_send_receipts.command_kind admits « copy »; takeoff_item_send_receipts.copied_from_receipt_id and
 -- takeoff_item_send_parts.copied_from_part_id name what a copy was made from. Neither has a foreign key: the source's rows
 -- go with their version (its cascade), and a set-null action would update a part, which C's write guard refuses
@@ -213,7 +222,8 @@ as $$
 declare
   new_version_id uuid;
 begin
-  -- The affaire's row first (the spine's rank 2), as every writer of the affaire's versions takes it, before the source
+  -- The affaire's row first (the spine's rank 2), at the strength the duplication and the send take it (no key update:
+  -- it excludes every send and copy of the affaire, never a foreign key's check, 20261121170448), before the source
   -- version's row the duplication locks (rank 3): a send into the source or into a copy and this copy wait on each
   -- other in one order. Only for a member of the version's tenant (the duplication checks the right itself).
   perform 1 from public.estimate_projects as project
@@ -221,7 +231,7 @@ begin
   join public.tenant_memberships as membership on membership.tenant_id = project.tenant_id
     and membership.user_id = (select auth.uid())
   where version.id = duplicate_estimate_version.source_version_id
-  for update of project;
+  for no key update of project;
 
   new_version_id := public.duplicate_estimate_version_without_product_id(
     source_version_id,

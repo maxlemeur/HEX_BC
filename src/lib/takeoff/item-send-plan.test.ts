@@ -939,3 +939,34 @@ describe("planTakeoffItemSend — closing of #484's last check", () => {
     expect(disjoint.targets[0].quantity.after).toBe(3);
   });
 });
+
+describe("planTakeoffItemSend — a draft whose fed line was copied (the copy of a draft fed by item)", () => {
+  // A section duplicated in the editor brings the member's own lines: the copy clears the item-send marker, no target
+  // holds it, and the preview reads it as any line of the draft. The send feeds the item's own target only.
+  it("feeds the item's target and leaves its duplicate, an ordinary line of the draft, out of the plan", () => {
+    const fed = line(1, { title: "Lavabo", quantity: 3 });
+    const duplicate = line(2, { title: "Lavabo", quantity: 3 });
+    const plan = planTakeoffItemSend(input({ items: [lavabo], answers: [measured(lavabo, [{ quantity: 2, page: 1 }])],
+      destination: draft([fed, duplicate]),
+      earlier: { targets: [{ itemId: lavabo.id, breakdown: "together", compartmentKey: "together", estimateItemId: fed.id,
+        parts: [part()] }], sections: [] } }));
+    expect(plan.toResolve).toEqual([]);
+    expect(plan.targets.map((target) => [target.line.kind, target.line.kind === "new_line" ? null : target.line.estimateItemId,
+      target.quantity.after])).toEqual([["earlier_line", fed.id, 5]]);
+    expect(JSON.stringify(plan.writePlan)).not.toContain(duplicate.id);
+  });
+
+  it("feeds a DPGF item's target line and never its copied twin of the same DPGF row", () => {
+    const ef = dpgfItem(40, "Lavabo", "u", "raw-40", "mapped-40", 4);
+    const fed = dpgfLine(41, "mapped-40", "raw-40", 4, { quantity: 4 });
+    const twin = dpgfLine(42, "mapped-40", "raw-40", 4, { quantity: 4 });
+    const plan = planTakeoffItemSend(input({ items: [ef], answers: [measured(ef, [{ quantity: 5, page: 1 }])],
+      plan: { key: "plan-a", name: "Plan A", location: null, pages: [1] }, destination: draft([fed, twin]),
+      earlier: { targets: [{ itemId: ef.id, breakdown: "dpgf", compartmentKey: "dpgf", estimateItemId: fed.id,
+        parts: [part({ planKey: "plan-a", pages: [1], quantity: 0.5, answerId: "answer-old", observationIds: ["obs-old"] })] }],
+        sections: [] } }));
+    expect(plan.toResolve).toEqual([]);
+    expect(plan.targets.map((target) => target.line.kind === "new_line" ? null : target.line.estimateItemId)).toEqual([fed.id]);
+    expect(JSON.stringify(plan.writePlan)).not.toContain(twin.id);
+  });
+});

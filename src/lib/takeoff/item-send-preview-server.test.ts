@@ -490,6 +490,23 @@ describe("confirmTakeoffItemSend", () => {
     expect(written).toEqual([]);
   });
 
+  it("answers stale when a line the plan feeds was typed by hand after the preview (follow-up of #484)", async () => {
+    const fed: Row = { id: LINE, tenant_id: TENANT, version_id: VERSION, parent_id: null, item_type: "line", position: 1, title: "Lavabo",
+      unit_code: "u", pricing_status: "priced", quantity: 3, updated_at: "2026-11-22T08:00:00.000Z", source_provider: "takeoff" };
+    setUp({ versions: [version(VERSION, 3)], items: [fed] });
+    vi.mocked(readItemSendEarlierState).mockResolvedValue({ targets: [{ itemId: LAVABO, breakdown: "together", compartmentKey: "together",
+      estimateItemId: LINE, parts: [{ jobId: "job-earlier", answerId: "answer-earlier", observationIds: ["obs-earlier"], quantity: 3,
+        unit: "u", basis: null, qualifiers: {}, pages: [9], planKey: "plan-earlier" }] }], sections: [], displaced: [], pagesInEstimate: [] });
+    const preview = await previewTakeoffItemSend(JOB, {});
+    expect([preview.confirmable, preview.lines]).toEqual([true, [expect.objectContaining({ estimate_item_id: LINE, quantity_before: 3 })]]);
+    // The member types the line's quantity in the editor meanwhile: the confirmation meets a line to settle that the
+    // preview did not show, a preview to read again, never a refusal of what the member confirmed.
+    Object.assign(fed, { quantity: 7, updated_at: "2026-11-22T09:00:00.000Z" });
+    const error = await refusal(confirmTakeoffItemSend(JOB, { request_id: REQUEST_ID, plan_digest: preview.plan_digest }));
+    expect([error.status, (error.details as { guard?: string }).guard]).toEqual([409, "item_send_preview_stale"]);
+    expect(written).toEqual([]);
+  });
+
   it("gives the member what to do for a refusal of the guard of the applied job, never the generic failure", () => {
     const error = mapItemSendRpcError({ message: "TAKEOFF_APPLY_LOCK_REQUIRED", code: "P0001" }, JOB);
     expect(error.message).not.toContain("a échoué");
