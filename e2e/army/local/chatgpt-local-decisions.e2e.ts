@@ -1228,7 +1228,9 @@ async function signInAs(ui: Parameters<typeof signIn>[0], email: string) {
   await signIn(ui, localOrigin, email);
 }
 async function uploadDossierPlan(ui: ReturnType<typeof hydratedUi>, projectId: string, name: string, email: string,
-  dossier: "empty" | "opened" = "empty", until: "classified" | "classifying" = "classified") {
+  dossier: "empty" | "opened" = "empty", until: "classified" | "classifying" = "classified",
+  /** Runs on the page once it is open, before the plan is added. */
+  onOpened?: () => Promise<void>) {
   const { client } = await localChatGptClient(email);
   const directory = path.resolve(".e2e/army/critical/artifacts/fixtures", projectId);
   await mkdir(directory, { recursive: true });
@@ -1238,6 +1240,7 @@ async function uploadDossierPlan(ui: ReturnType<typeof hydratedUi>, projectId: s
   if (dossier === "empty") {
     // An affaire without a dossier offers its drop surface on the page.
     await ui.app.open(`/dashboard/affaires/${projectId}`);
+    await onOpened?.();
     await ui.browser.locator('input[type="file"][aria-label="Ajouter des pièces à l\'affaire"]').first().setInputFiles(file);
   } else {
     // A dossier already opened adds its pieces from « Ajouter des pièces ».
@@ -1474,6 +1477,9 @@ if (!existsSync(liveProbePath)) test("AUTO04 a confirmation from a dialog shown 
     await confirm.click();
     const dialog = screen.getByRole("alertdialog", "Confirmer ce brief ?", { exact: true });
     await expect(dialog).toBeVisible();
+    // The dialog has answered who pays (its read at the opening) before its absence is read and the start turned on.
+    const confirmShown = dialog.getByRole("button", "Oui, confirmer", { exact: true });
+    await expect(confirmShown).toBeEnabled(DEV_SERVER_WORK);
     await expect(dialog).not.toContainText(PAYER_NOTICE);
     // The owner turns the automatic start on while the dialog is open: its confirmation was never told who pays.
     await activateOwnedAutomaticStart();
@@ -1636,5 +1642,56 @@ if (!existsSync(liveProbePath)) test("AUTO06 the affaire's zone: a reader sees w
     await browser.clearCookies({ domain: new URL(localOrigin).hostname });
     await deactivateOwnedAutomaticStart();
     for (const store of stores) await rm(store, { force: true });
+  }
+});
+
+if (!existsSync(liveProbePath)) test("AUTO07 a member who stays on the affaire while its brief arrives confirms it there and starts one analysis on their subscription", {
+  tags: ["critical", "local", "chatgpt", "intake", "premetre"], session: "army", trace: "off", timeout: 300_000,
+}, async ({ app, screen, browser }) => {
+  const owner = await createLocalChatGptOwner();
+  const store = await writePlanFixture(owner.email, null, false);
+  await activateOwnedAutomaticStart();
+  try {
+    await signInAs({ app, screen, browser }, owner.email);
+    const prefix = `ARMY-auto-stay-${Date.now()}`;
+    const army = { runPrefix: prefix, projectName: prefix, ownedEstimates: [] };
+    const ui = hydratedUi({ app, screen, browser }, localOrigin);
+    const ids = await createEstimateViaWizard(ui, { projectName: prefix, title: "Confirmation sur la page ouverte" }, army);
+    // The member adds the plan on the affaire's page and stays there: the page is the one rendered before the brief
+    // existed, marked before the plan is added, and nothing reloads it until the confirmation (the mark would be gone).
+    await uploadDossierPlan(ui, ids.projectId, `${prefix}-plan-rdc.pdf`, owner.email, "empty", "classified", async () => {
+      await browser.evaluate(() => { (window as unknown as { __auto07Page?: true }).__auto07Page = true; return true; });
+    });
+    await expect.poll(() => readOwnedPayerNoticeBasis(ids.projectId, owner.userId), DEV_SERVER_WORK)
+      .toEqual({ brief: "a_confirmer", active: true, payer: true });
+    expect(await readOwnedLaunchRequests(ids.projectId)).toEqual([]);
+    const readsBefore = await planReads();
+
+    // The brief reaches the page by the hub's own reads of the dossier; the member reviews it and confirms.
+    await expect(screen.getByText(/^1 pièce reçue · Brief à confirmer$/)).toBeVisible(DEV_SERVER_WORK);
+    await screen.getByRole("button", "Revoir le brief", { exact: true }).click();
+    await screen.getByRole("button", "Confirmer le brief", { exact: true }).click();
+    const dialog = screen.getByRole("alertdialog", "Confirmer ce brief ?", { exact: true });
+    // Who pays is read when the dialog opens, for the brief as it is now.
+    await expect(dialog).toContainText(PAYER_NOTICE, DEV_SERVER_WORK);
+    await dialog.getByRole("button", "Oui, confirmer", { exact: true }).click();
+    expect(await browser.evaluate(() => (window as unknown as { __auto07Page?: true }).__auto07Page === true)).toBe(true);
+
+    // One automatic request, one detailed analysis of the dossier's plan on the confirmer's subscription.
+    await expect.poll(async () => (await readOwnedLaunchRequests(ids.projectId)).map(request => [request.origin, request.state, request.outcome]),
+      { timeout: 180_000 }).toEqual([["automatic", "closed", "success"]]);
+    const [request] = await readOwnedLaunchRequests(ids.projectId);
+    expect(request).toMatchObject({ confirmed_by: owner.userId, payer_id: owner.userId, mandate_kind: "confirmation", units_expected: 1 });
+    const jobs = await readOwnedAffaireJobs(ids.projectId);
+    expect(jobs).toEqual([expect.objectContaining({ launch_request_id: request.id, estimate_version_id: null, created_by: owner.userId,
+      status: "completed", analysis_outcome: "success" })]);
+    expect(await planReads() - readsBefore).toBe(1);
+    expect(await forbiddenRequests()).toBe(0);
+    await recordEvidence(army, "AUTO07-confirmed-on-open-page", { ids, request, jobs, planReads: 1,
+      boundary: "Fictional dossier and ChatGPT transport fixture on an owned local backend; no API key or other provider." });
+  } finally {
+    await browser.clearCookies({ domain: new URL(localOrigin).hostname });
+    await deactivateOwnedAutomaticStart();
+    await rm(store, { force: true });
   }
 });

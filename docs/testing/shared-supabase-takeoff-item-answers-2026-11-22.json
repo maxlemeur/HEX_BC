@@ -1,0 +1,678 @@
+{
+  "date_utc": "2026-11-22",
+  "source_commit": "bb115b83fd0ac0fb8034060769bed0d410370d33",
+  "applied_and_verified": "1 of 1",
+  "applied": {
+    "file": "20261122080845_takeoff_item_answers.sql",
+    "pr": 461,
+    "remote_version": "20261122113328",
+    "applied_at_utc": "2026-11-22T11:33:28Z",
+    "attempts": 1,
+    "bytes": 73313,
+    "sha256": "edc30c089ed080fa1c80eec44b1b1728c48e8f6ec6289f0012f3f02c4aff3a4d",
+    "stored_form": "full_file_including_final_lf",
+    "stored_sql_sha256": "edc30c089ed080fa1c80eec44b1b1728c48e8f6ec6289f0012f3f02c4aff3a4d"
+  },
+  "history": {
+    "before": 426,
+    "after": 427,
+    "first_407_sha256": "8a37267e2f68e79acd5d4f1a3e6c5834d230ff71db9a12fbec90397c17d5debb",
+    "row_408_sql_sha256": "eb1b0c1ceee7ac0ae0a6f909c83ed924dc512217b9bfa2d8403add8bbcd8ca84",
+    "prior_426_rows_identical": true,
+    "rows_after_408": [
+      {
+        "hash": "3d95a24e2400d5a44dc22dd2c42bc877d01079f81dab524760b454a2bf321f45",
+        "name": "20261117193734_workbook_supplier_references",
+        "bytes": 10091,
+        "version": "20261121064149"
+      },
+      {
+        "hash": "22d213fd5c8ef66ce88e8e089c87ee659d1fac1fdb4aa888a7d6593400f18d8c",
+        "name": "20261117195542_product_reference_price_withdrawal",
+        "bytes": 14463,
+        "version": "20261121064717"
+      },
+      {
+        "hash": "d05d03911ffe7f86b54fa46c7415f46e49fd8d40efad92e5f53cd00d22a75737",
+        "name": "20261117200342_material_request_affaire_storage_cleanup",
+        "bytes": 9701,
+        "version": "20261121064816"
+      },
+      {
+        "hash": "f6b4bc854ac5e30f2898251748259e7ed2c20f66796473d14419b7ae899b1e57",
+        "name": "20261117201102_estimate_orders_in_affaire_supply_cost",
+        "bytes": 12436,
+        "version": "20261121064859"
+      },
+      {
+        "hash": "1194ff733be5a1cc0c294c8af103e3ad6d8b908cec8f55f3cae42bd673b5075e",
+        "name": "20261120204437_takeoff_jobs_by_affaire",
+        "bytes": 60289,
+        "version": "20261121064932"
+      },
+      {
+        "hash": "fe686c48545e814dbc9b25c9db49d1ad5ea22766b6c9c56761a32ed9494d1cb2",
+        "name": "20261121011212_takeoff_analysis_completion",
+        "bytes": 37029,
+        "version": "20261121065044"
+      },
+      {
+        "hash": "dbab0169bda43ff551d1973595106165d981171ccf3f5bda9295427a7c9cefc3",
+        "name": "20261121020321_takeoff_completion_before_activation",
+        "bytes": 37669,
+        "version": "20261121065131"
+      },
+      {
+        "hash": "a88febeb429035374fb0d6fa869cc668634ec4e39cdc75d6075a0be0367c487b",
+        "name": "20261121040445_takeoff_plan_locations",
+        "bytes": 37942,
+        "version": "20261121083406"
+      },
+      {
+        "hash": "b740982809201eb4c59b0e6c62d7c312649e4c6703025095716d4f2bdca371af",
+        "name": "20261121050138_takeoff_send_receipts",
+        "bytes": 110977,
+        "version": "20261121102941"
+      },
+      {
+        "hash": "dddbaaf69c7818e310b20f14b7af506fe85e6cb2d81fba4387cc5295c2e33c56",
+        "name": "20261121085058_takeoff_send_grouped_lines_and_parts",
+        "bytes": 99174,
+        "version": "20261121112355"
+      },
+      {
+        "hash": "a42ad6c51b8660c591d710ddbd3b39e860ad6890c860917ab2d067d4b58b7167",
+        "name": "20261121160259_read_takeoff_risk_alerts",
+        "bytes": 5966,
+        "version": "20261121175751"
+      },
+      {
+        "hash": "6b349bdb73d635acef5044efc7dd1897f8db8672fa07cc1ee5e52bbf2c7fd8f2",
+        "name": "20261121170448_takeoff_launch_requests",
+        "bytes": 103804,
+        "version": "20261121175931"
+      },
+      {
+        "hash": "d68a4199cd6f92c240fbb04f6e60aeaec3a7c504dfc81c10ce2a42ecf2cbc229",
+        "name": "20261121193413_takeoff_launch_exclusion_and_send_requests",
+        "bytes": 75112,
+        "version": "20261122074155"
+      },
+      {
+        "hash": "854e5f1eecea87a5fac95bac688db00aeffb5a5f2195b693bcaea2f1d83138d4",
+        "name": "20261121230719_takeoff_item_lists",
+        "bytes": 108478,
+        "version": "20261122074312"
+      },
+      {
+        "hash": "a26d784a495f862ee6f2126d96bd2f8d71bfc7ab3264bafbd467106cb8fb4475",
+        "name": "20261121231238_takeoff_plan_dispatcher",
+        "bytes": 140685,
+        "version": "20261122074519"
+      },
+      {
+        "hash": "7893a5f2523e6fdc6a39740918aabb6e963124d0cc78edf1bf167e40f16d36e9",
+        "name": "20261122030312_takeoff_partial_send",
+        "bytes": 98334,
+        "version": "20261122084903"
+      },
+      {
+        "hash": "493d46cf320322c8cd2e77c87fe55daadbf61d73f8b5339e308978ebacaef20c",
+        "name": "20261122092341_product_packagings",
+        "bytes": 12544,
+        "version": "20261122105334"
+      },
+      {
+        "hash": "2d9fc87c12d90c2cae7ea0b1c5aac62ce770924cd2501e1f9b79d0a5d2a5e0ac",
+        "name": "20261122093228_material_request_message_templates",
+        "bytes": 13650,
+        "version": "20261122105354"
+      },
+      {
+        "hash": "edc30c089ed080fa1c80eec44b1b1728c48e8f6ec6289f0012f3f02c4aff3a4d",
+        "name": "20261122080845_takeoff_item_answers",
+        "bytes": 73313,
+        "version": "20261122113328"
+      }
+    ],
+    "list_migrations_count": 427
+  },
+  "precheck": {
+    "requests_sealing_a_list": 0,
+    "list_order_activation_rows": 0,
+    "existing_relations": 0,
+    "existing_functions": 0,
+    "locks_held_now": 0,
+    "db_utc": "2026-11-22 11:33:15.244624+00",
+    "jobs": 0,
+    "processing": 0,
+    "items": 0,
+    "results": 0,
+    "requests": 0,
+    "audit_rows": 46772,
+    "health": {
+      "at": "2026-11-22T11:33:18.795Z",
+      "http": 200,
+      "ok": true,
+      "version": "0.7.0",
+      "db": "up"
+    },
+    "stamp_before": {
+      "body_md5": "1d8a241e758a2bc70c2ae8d5ce279c62",
+      "owner": "postgres",
+      "acl": "{postgres=X/postgres,service_role=X/postgres}",
+      "definer": false
+    }
+  },
+  "functions": [
+    {
+      "signature": "private.refuse_takeoff_item_answer_direct_write()",
+      "md5_prosrc": "00dfe97f425293c46b74e4e076a9ad75",
+      "matches_file": true,
+      "security_definer": false,
+      "execute_api_roles": []
+    },
+    {
+      "signature": "private.refuse_takeoff_item_answer_update()",
+      "md5_prosrc": "865cdfe60b1ac9958ae1e34213f1b507",
+      "matches_file": true,
+      "security_definer": false,
+      "execute_api_roles": []
+    },
+    {
+      "signature": "private.takeoff_item_answer_is_uuid(jsonb)",
+      "md5_prosrc": "885f0b09ee8cb685c9ab6b09795ce9e1",
+      "matches_file": true,
+      "security_definer": false,
+      "execute_api_roles": []
+    },
+    {
+      "signature": "private.takeoff_item_answer_is_text(jsonb,text,integer)",
+      "md5_prosrc": "83115c33133206c9a000af8fe3fbaa69",
+      "matches_file": true,
+      "security_definer": false,
+      "execute_api_roles": []
+    },
+    {
+      "signature": "private.takeoff_item_answer_is_number(jsonb,numeric,numeric,boolean,boolean)",
+      "md5_prosrc": "8eaa6e65d09b0a6bf50f0a100ab9b854",
+      "matches_file": true,
+      "security_definer": false,
+      "execute_api_roles": []
+    },
+    {
+      "signature": "private.takeoff_item_answer_pages_valid(jsonb)",
+      "md5_prosrc": "433c0cc3d0dfafb52187e9e16928497d",
+      "matches_file": true,
+      "security_definer": false,
+      "execute_api_roles": []
+    },
+    {
+      "signature": "private.takeoff_item_answer_value_valid(jsonb)",
+      "md5_prosrc": "89904b604e6032542ce84370018db9c0",
+      "matches_file": true,
+      "security_definer": false,
+      "execute_api_roles": []
+    },
+    {
+      "signature": "private.takeoff_item_answer_plans(jsonb,jsonb)",
+      "md5_prosrc": "2c463af4eaad5327655d4f4b56da3cd7",
+      "matches_file": true,
+      "security_definer": false,
+      "execute_api_roles": []
+    },
+    {
+      "signature": "private.takeoff_item_answer_well_formed(jsonb)",
+      "md5_prosrc": "193974ee17813ac2f9e5149fd22441b6",
+      "matches_file": true,
+      "security_definer": false,
+      "execute_api_roles": []
+    },
+    {
+      "signature": "private.takeoff_item_answer_findings_valid(jsonb)",
+      "md5_prosrc": "2ff4e772f9e1c15578cd6aa2287f0291",
+      "matches_file": true,
+      "security_definer": false,
+      "execute_api_roles": []
+    },
+    {
+      "signature": "private.takeoff_item_answers_parsed(jsonb)",
+      "md5_prosrc": "da363236da43ac9df76e67869e6c528b",
+      "matches_file": true,
+      "security_definer": false,
+      "execute_api_roles": []
+    },
+    {
+      "signature": "private.takeoff_item_answers_refusal(public.takeoff_launch_requests,jsonb,integer[],jsonb,jsonb,jsonb,jsonb)",
+      "md5_prosrc": "fb0a54ae56dc16d3f98c4a462b85bfc5",
+      "matches_file": true,
+      "security_definer": true,
+      "execute_api_roles": []
+    },
+    {
+      "signature": "public.publish_takeoff_item_answers(uuid,uuid,timestamptz,text,text,jsonb,integer[],jsonb,jsonb,jsonb,jsonb,jsonb)",
+      "md5_prosrc": "83888ec0430a3c72925bf9899285ae19",
+      "matches_file": true,
+      "security_definer": true,
+      "execute_api_roles": [
+        "service_role"
+      ]
+    },
+    {
+      "signature": "private.require_takeoff_item_answers_publication()",
+      "md5_prosrc": "4c35d3fe8c5330280173f991291c1763",
+      "matches_file": true,
+      "security_definer": true,
+      "execute_api_roles": []
+    },
+    {
+      "signature": "public.takeoff_rule_job_stamp(uuid,uuid,uuid)",
+      "md5_prosrc": "83c4b94756613eefd28a58ba1f8524ea",
+      "matches_file": true,
+      "security_definer": false,
+      "execute_api_roles": [
+        "service_role"
+      ]
+    },
+    {
+      "signature": "private.takeoff_item_answer_document(public.takeoff_item_answers)",
+      "md5_prosrc": "05d321291f660a8db67228eaf47cee85",
+      "matches_file": true,
+      "security_definer": true,
+      "execute_api_roles": []
+    },
+    {
+      "signature": "private.takeoff_item_reading_pairs(uuid,uuid,uuid)",
+      "md5_prosrc": "0d0641fbb572471b68444f50f359028a",
+      "matches_file": true,
+      "security_definer": true,
+      "execute_api_roles": []
+    },
+    {
+      "signature": "private.takeoff_item_reading_states(uuid,uuid,uuid)",
+      "md5_prosrc": "5d0825ac5c143ce338a993927d37247a",
+      "matches_file": true,
+      "security_definer": true,
+      "execute_api_roles": []
+    },
+    {
+      "signature": "public.read_takeoff_item_readings(uuid,uuid,uuid,text[],integer,integer)",
+      "md5_prosrc": "5568d1b7976df6c02315bc95c1766a61",
+      "matches_file": true,
+      "security_definer": true,
+      "execute_api_roles": [
+        "authenticated"
+      ]
+    },
+    {
+      "signature": "public.count_takeoff_item_readings(uuid,uuid,uuid)",
+      "md5_prosrc": "d7e2c087bd1382b7bba4f773f6b85dc2",
+      "matches_file": true,
+      "security_definer": true,
+      "execute_api_roles": [
+        "authenticated"
+      ]
+    },
+    {
+      "signature": "public.read_takeoff_item_answers(uuid,uuid,uuid,boolean,uuid,uuid,integer,integer,uuid,uuid)",
+      "md5_prosrc": "9b09e9e817192adffb540ee5b4536e60",
+      "matches_file": true,
+      "security_definer": true,
+      "execute_api_roles": [
+        "authenticated"
+      ]
+    }
+  ],
+  "tables": [
+    {
+      "name": "public.takeoff_item_answer_publications",
+      "rows": 0,
+      "columns": [
+        "job_id",
+        "tenant_id",
+        "project_id",
+        "launch_request_id",
+        "launch_unit_key",
+        "list_revision_id",
+        "result_id",
+        "exchange_version",
+        "prompt_version",
+        "pages",
+        "answer_count",
+        "unlisted_findings",
+        "content_sha256",
+        "attempt_sha256",
+        "published_at"
+      ],
+      "constraints": [
+        "takeoff_item_answer_publications_pkey",
+        "takeoff_item_answer_publications_job_fkey",
+        "takeoff_item_answer_publications_scope_key",
+        "takeoff_item_answer_publications_pages_check",
+        "takeoff_item_answer_publications_request_fkey",
+        "takeoff_item_answer_publications_revision_fkey",
+        "takeoff_item_answer_publications_result_id_fkey",
+        "takeoff_item_answer_publications_answer_count_check",
+        "takeoff_item_answer_publications_attempt_sha256_check",
+        "takeoff_item_answer_publications_content_sha256_check",
+        "takeoff_item_answer_publications_prompt_version_check",
+        "takeoff_item_answer_publications_exchange_version_check",
+        "takeoff_item_answer_publications_unlisted_findings_check"
+      ],
+      "deferred_foreign_keys": [
+        "takeoff_item_answer_publications_request_fkey",
+        "takeoff_item_answer_publications_result_id_fkey",
+        "takeoff_item_answer_publications_revision_fkey"
+      ],
+      "indexes": [
+        "takeoff_item_answer_publications_pkey",
+        "takeoff_item_answer_publications_scope_key",
+        "takeoff_item_answer_publications_result_idx",
+        "takeoff_item_answer_publications_request_idx",
+        "takeoff_item_answer_publications_revision_idx"
+      ],
+      "rls": true,
+      "select_policy": {
+        "takeoff_item_answer_publications_reader_select": [
+          "r",
+          "{authenticated}",
+          "( SELECT private.can_access_takeoff_scope(takeoff_item_answer_publications.tenant_id, takeoff_item_answer_publications.project_id, NULL::uuid, false) AS can_access_takeoff_scope)"
+        ]
+      },
+      "table_acl": "{postgres=arwdDxtm/postgres,service_role=arwd/postgres}",
+      "authenticated_select_columns": [
+        "job_id",
+        "tenant_id",
+        "project_id",
+        "launch_request_id",
+        "launch_unit_key",
+        "list_revision_id",
+        "result_id",
+        "exchange_version",
+        "prompt_version",
+        "pages",
+        "answer_count",
+        "unlisted_findings",
+        "content_sha256",
+        "published_at"
+      ],
+      "triggers": [
+        "takeoff_item_answer_publications_writer",
+        "takeoff_item_answer_publications_immutable"
+      ]
+    },
+    {
+      "name": "public.takeoff_item_answers",
+      "rows": 0,
+      "columns": [
+        "id",
+        "tenant_id",
+        "project_id",
+        "job_id",
+        "list_revision_id",
+        "item_id",
+        "plan_file_id",
+        "plan_logical_id",
+        "plan_generation",
+        "plan_content_sha256",
+        "outcome",
+        "quantity",
+        "unit",
+        "candidate_quantity",
+        "candidate_unit",
+        "searched_pages",
+        "unreadable_pages",
+        "reasons",
+        "reason_code",
+        "observation_count",
+        "contribution_count",
+        "replaces_answer_id",
+        "reading_revision",
+        "content_sha256",
+        "published_at"
+      ],
+      "constraints": [
+        "takeoff_item_answers_pkey",
+        "takeoff_item_answers_chain_key",
+        "takeoff_item_answers_item_fkey",
+        "takeoff_item_answers_scope_key",
+        "takeoff_item_answers_entry_fkey",
+        "takeoff_item_answers_unit_check",
+        "takeoff_item_answers_affaire_key",
+        "takeoff_item_answers_pages_check",
+        "takeoff_item_answers_reading_key",
+        "takeoff_item_answers_job_item_key",
+        "takeoff_item_answers_values_check",
+        "takeoff_item_answers_outcome_check",
+        "takeoff_item_answers_reasons_check",
+        "takeoff_item_answers_replaces_fkey",
+        "takeoff_item_answers_quantity_check",
+        "takeoff_item_answers_replaces_check",
+        "takeoff_item_answers_publication_fkey",
+        "takeoff_item_answers_reason_code_check",
+        "takeoff_item_answers_outcome_rule_check",
+        "takeoff_item_answers_candidate_unit_check",
+        "takeoff_item_answers_content_sha256_check",
+        "takeoff_item_answers_plan_generation_check",
+        "takeoff_item_answers_reading_revision_check",
+        "takeoff_item_answers_observation_count_check",
+        "takeoff_item_answers_candidate_quantity_check",
+        "takeoff_item_answers_contribution_count_check",
+        "takeoff_item_answers_plan_content_sha256_check"
+      ],
+      "deferred_foreign_keys": [
+        "takeoff_item_answers_entry_fkey",
+        "takeoff_item_answers_item_fkey"
+      ],
+      "indexes": [
+        "takeoff_item_answers_pkey",
+        "takeoff_item_answers_chain_key",
+        "takeoff_item_answers_entry_idx",
+        "takeoff_item_answers_scope_key",
+        "takeoff_item_answers_affaire_key",
+        "takeoff_item_answers_reading_key",
+        "takeoff_item_answers_job_item_key",
+        "takeoff_item_answers_replaces_uidx",
+        "takeoff_item_answers_generation_idx"
+      ],
+      "rls": true,
+      "select_policy": {
+        "takeoff_item_answers_reader_select": [
+          "r",
+          "{authenticated}",
+          "( SELECT private.can_access_takeoff_scope(takeoff_item_answers.tenant_id, takeoff_item_answers.project_id, NULL::uuid, false) AS can_access_takeoff_scope)"
+        ]
+      },
+      "table_acl": "{postgres=arwdDxtm/postgres,service_role=arwd/postgres,authenticated=r/postgres}",
+      "authenticated_select_columns": [
+        "id",
+        "tenant_id",
+        "project_id",
+        "job_id",
+        "list_revision_id",
+        "item_id",
+        "plan_file_id",
+        "plan_logical_id",
+        "plan_generation",
+        "plan_content_sha256",
+        "outcome",
+        "quantity",
+        "unit",
+        "candidate_quantity",
+        "candidate_unit",
+        "searched_pages",
+        "unreadable_pages",
+        "reasons",
+        "reason_code",
+        "observation_count",
+        "contribution_count",
+        "replaces_answer_id",
+        "reading_revision",
+        "content_sha256",
+        "published_at"
+      ],
+      "triggers": [
+        "takeoff_item_answers_writer",
+        "takeoff_item_answers_immutable"
+      ]
+    },
+    {
+      "name": "public.takeoff_item_answer_observations",
+      "rows": 0,
+      "columns": [
+        "id",
+        "answer_id",
+        "tenant_id",
+        "project_id",
+        "job_id",
+        "ordinal",
+        "role",
+        "source",
+        "page",
+        "quantity",
+        "unit",
+        "measurement_basis",
+        "evidence",
+        "confidence",
+        "method",
+        "chunk_id",
+        "vector_item_id",
+        "takeoff_item_id",
+        "occurrence_coverage"
+      ],
+      "constraints": [
+        "takeoff_item_answer_observations_pkey",
+        "takeoff_item_answer_observations_page_check",
+        "takeoff_item_answer_observations_role_check",
+        "takeoff_item_answer_observations_unit_check",
+        "takeoff_item_answer_observations_answer_fkey",
+        "takeoff_item_answer_observations_ordinal_key",
+        "takeoff_item_answer_observations_method_check",
+        "takeoff_item_answer_observations_source_check",
+        "takeoff_item_answer_observations_ordinal_check",
+        "takeoff_item_answer_observations_chunk_id_check",
+        "takeoff_item_answer_observations_evidence_check",
+        "takeoff_item_answer_observations_quantity_check",
+        "takeoff_item_answer_observations_role_rule_check",
+        "takeoff_item_answer_observations_confidence_check",
+        "takeoff_item_answer_observations_vector_item_id_fkey",
+        "takeoff_item_answer_observations_takeoff_item_id_fkey",
+        "takeoff_item_answer_observations_measurement_basis_check",
+        "takeoff_item_answer_observations_occurrence_coverage_check"
+      ],
+      "deferred_foreign_keys": [
+        "takeoff_item_answer_observations_takeoff_item_id_fkey",
+        "takeoff_item_answer_observations_vector_item_id_fkey"
+      ],
+      "indexes": [
+        "takeoff_item_answer_observations_pkey",
+        "takeoff_item_answer_observations_item_uidx",
+        "takeoff_item_answer_observations_ordinal_key",
+        "takeoff_item_answer_observations_vector_item_idx"
+      ],
+      "rls": true,
+      "select_policy": {
+        "takeoff_item_answer_observations_reader_select": [
+          "r",
+          "{authenticated}",
+          "( SELECT private.can_access_takeoff_scope(takeoff_item_answer_observations.tenant_id, takeoff_item_answer_observations.project_id, NULL::uuid, false) AS can_access_takeoff_scope)"
+        ]
+      },
+      "table_acl": "{postgres=arwdDxtm/postgres,service_role=arwd/postgres,authenticated=r/postgres}",
+      "authenticated_select_columns": [
+        "id",
+        "answer_id",
+        "tenant_id",
+        "project_id",
+        "job_id",
+        "ordinal",
+        "role",
+        "source",
+        "page",
+        "quantity",
+        "unit",
+        "measurement_basis",
+        "evidence",
+        "confidence",
+        "method",
+        "chunk_id",
+        "vector_item_id",
+        "takeoff_item_id",
+        "occurrence_coverage"
+      ],
+      "triggers": [
+        "takeoff_item_answer_observations_writer",
+        "takeoff_item_answer_observations_immutable"
+      ]
+    }
+  ],
+  "triggers": {
+    "existing_25_identical": true,
+    "takeoff_jobs_order": [
+      "aa0_guard_takeoff_plan_unit_send",
+      "aa1_require_takeoff_host_slot",
+      "aaa_enforce_takeoff_execution_owner",
+      "aaa_enforce_takeoff_job_identity_immutable",
+      "aab_enforce_takeoff_job_retry_state",
+      "aab_guard_open_takeoff_launch_job_delete",
+      "aab_guard_takeoff_job_launch_request",
+      "aac_assign_takeoff_job_scope",
+      "aac_enforce_authenticated_takeoff_job_fields",
+      "aac_guard_takeoff_job_outside_request",
+      "aad_enforce_takeoff_job_preparation",
+      "aad_guard_takeoff_job_restart_outside_request",
+      "aae_enforce_takeoff_job_preparation_processing",
+      "enforce_takeoff_apply_security",
+      "enforce_takeoff_job_admission",
+      "enforce_takeoff_job_reactivation",
+      "enforce_takeoff_processing_admission",
+      "record_prepared_takeoff_job_creation",
+      "set_takeoff_jobs_updated_at",
+      "stale_takeoff_rule_lines_on_completion",
+      "stale_takeoff_rule_peers_after_apply",
+      "takeoff_analysis_completion",
+      "takeoff_job_lease_follow",
+      "takeoff_launch_request_settlement",
+      "z_takeoff_analysis_outcome",
+      "zz_require_takeoff_item_answers"
+    ],
+    "added": {
+      "tgname": "zz_require_takeoff_item_answers",
+      "ddl": "CREATE CONSTRAINT TRIGGER zz_require_takeoff_item_answers AFTER UPDATE OF status ON public.takeoff_jobs DEFERRABLE INITIALLY DEFERRED FOR EACH ROW WHEN (((new.status = 'completed'::takeoff_job_status) AND (old.status IS DISTINCT FROM new.status) AND (new.launch_request_id IS NOT NULL))) EXECUTE FUNCTION private.require_takeoff_item_answers_publication()",
+      "tgenabled": "O",
+      "tgdeferrable": true,
+      "tginitdeferred": true
+    }
+  },
+  "activation_rows": {
+    "takeoff_completion_activation": 0,
+    "takeoff_launch_activation": 0,
+    "takeoff_item_list_order_activation": 0,
+    "takeoff_plan_dispatch_activation": 0
+  },
+  "activated": false,
+  "deployed": false,
+  "flags_changed": false,
+  "security_advisors": {
+    "new_findings": [
+      {
+        "level": "WARN",
+        "name": "authenticated_security_definer_function_executable",
+        "detail": "Function `public.count_takeoff_item_readings(p_tenant_id uuid, p_project_id uuid, p_plan_logical_id uuid)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/count_takeoff_item_readings`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+        "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0029_authenticated_security_definer_function_executable"
+      },
+      {
+        "level": "WARN",
+        "name": "authenticated_security_definer_function_executable",
+        "detail": "Function `public.read_takeoff_item_answers(p_tenant_id uuid, p_project_id uuid, p_job_id uuid, p_current_only boolean, p_after_item_id uuid, p_after_plan_logical_id uuid, p_after_reading_revision integer, p_limit integer, p_answer_id uuid, p_takeoff_item_id uuid)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/read_takeoff_item_answers`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+        "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0029_authenticated_security_definer_function_executable"
+      },
+      {
+        "level": "WARN",
+        "name": "authenticated_security_definer_function_executable",
+        "detail": "Function `public.read_takeoff_item_readings(p_tenant_id uuid, p_project_id uuid, p_plan_logical_id uuid, p_states text[], p_offset integer, p_limit integer)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/read_takeoff_item_readings`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+        "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0029_authenticated_security_definer_function_executable"
+      }
+    ]
+  }
+}

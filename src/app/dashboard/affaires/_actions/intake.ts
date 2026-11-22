@@ -13,6 +13,7 @@ import {
 } from "@/lib/affaires/intake";
 import {
   confirmAffaireBrief as confirmAffaireBriefServer,
+  readAffaireBriefPayerNotice as readAffaireBriefPayerNoticeServer,
   updateAffaireBrief as updateAffaireBriefServer,
   resolveAffaireBriefPlanGap as resolveAffaireBriefPlanGapServer,
 } from "@/lib/affaires/intake-brief-server";
@@ -63,6 +64,10 @@ const confirmAffaireBriefInputSchema = z.object({
 export type ConfirmAffaireBriefInput = z.infer<
   typeof confirmAffaireBriefInputSchema
 >;
+
+const readAffaireBriefPayerNoticeInputSchema = z.object({
+  projectId: z.string().uuid("projectId invalide."),
+});
 
 export async function reclassifyAffaireDocument(
   input: ReclassifyAffaireDocumentInput
@@ -158,6 +163,12 @@ export async function updateAffaireBrief(input: UpdateAffaireBriefInput) {
   revalidatePath(`/dashboard/affaires/${parsed.projectId}`);
 
   return result;
+}
+
+/** The payer notice the brief's confirmation dialog shows, read when it opens; it changes nothing. */
+export async function readAffaireBriefPayerNotice(input: { projectId: string }) {
+  const parsed = readAffaireBriefPayerNoticeInputSchema.parse(input);
+  return readAffaireBriefPayerNoticeServer(parsed);
 }
 
 export async function confirmAffaireBrief(input: ConfirmAffaireBriefInput) {

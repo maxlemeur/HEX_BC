@@ -1,5 +1,7 @@
 "use client";
 
+import type { ReactNode } from "react";
+
 import {
   AlertDialog,
   AlertDialogCancel,
@@ -21,6 +23,8 @@ export type AffaireConfirmDialogProps = {
   confirmDisabled?: boolean;
   cancelDisabled?: boolean;
   errorMessage?: string | null;
+  /** What the dialog shows under its message, before its buttons. */
+  children?: ReactNode;
   onConfirm: () => void;
   onCancel: () => void;
 };
@@ -39,6 +43,7 @@ export function AffaireConfirmDialog({
   confirmDisabled = false,
   cancelDisabled = false,
   errorMessage,
+  children,
   onConfirm,
   onCancel,
 }: Readonly<AffaireConfirmDialogProps>) {
@@ -57,6 +62,7 @@ export function AffaireConfirmDialog({
             <AlertDialogTitle>{title}</AlertDialogTitle>
             <AlertDialogDescription>{message}</AlertDialogDescription>
           </AlertDialogHeader>
+          {children}
           {errorMessage ? (
             <Alert variant="danger">
               <AlertDescription className="text-danger">{errorMessage}</AlertDescription>
