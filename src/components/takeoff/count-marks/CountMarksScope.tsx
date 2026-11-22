@@ -94,7 +94,9 @@ export type CountMarksAnswer = {
   scopePages: readonly number[];
 };
 
-export type CountMarksTarget = { answerId: string; itemId: string; label: string };
+export type CountMarksTarget = { answerId: string; itemId: string; label: string;
+  /** The pages the destination's answer read: a mark goes to it only from one of them (the command checks it). */
+  scopePages: number[] };
 
 /** What the plan shows of the page now: its size at scale 1 and its geometry, and how to bring a point to the centre. */
 export type CountMarksPlanFrame = {
@@ -138,7 +140,12 @@ export type CountMarksQuestion = {
  */
 export type CountMarksRefusedQuestion = { entryId: string; op: TakeoffCountMarkGesture["op"]; twins: string[]; additions: string[];
   /** The answer the twins are retained for: the shown one, or a reattribution's target (its marks are read for them). */
-  answerId: string };
+  answerId: string;
+  /** The refused gesture's page: the twins are on it. */
+  page: number };
+
+/** A retained mark a refusal named, read for its question: where it is, on which page. */
+export type CountMarkNeighbour = CountMarkPoint & { page: number };
 
 export type CountMarksStatus = "none" | "outside" | "loading" | "ready" | "refused" | "error" | "changing";
 
@@ -166,8 +173,10 @@ export type CountMarksContextValue = {
   shown: CountMarkShown[];
   removed: Removed | null;
   refusedQuestion: CountMarksRefusedQuestion | null;
-  /** The retained marks of another answer a refusal named (a reattribution's target), read for its question. */
-  refusedNeighbours: Record<string, CountMarkPoint>;
+  /** The retained marks a refusal named that the page shown does not hold (another page, a reattribution's target). */
+  refusedNeighbours: Record<string, CountMarkNeighbour>;
+  /** Brings a point of a page to the centre, that page's sheet shown first when it is another one. */
+  centreOn: (page: number, point: CountMarkPoint) => void;
   answerRefused: (answer: { object: "same"; sameAs: string } | { object: "distinct" } | "cancel") => void;
   /** The gestures being sent: they are changed once the save ends. */
   inFlight: ReadonlySet<string>;
@@ -272,7 +281,7 @@ function refusalSentence(error: unknown) {
 }
 
 export function CountMarksScope({ projectId, answer, page, itemLabels: labelsGiven, reader: given, onSaved, readOnly = false,
-  children }: {
+  onRefused, showPage, children }: {
   projectId: string;
   answer: CountMarksAnswer | null;
   page: number;
@@ -285,8 +294,15 @@ export function CountMarksScope({ projectId, answer, page, itemLabels: labelsGiv
    * reads them (their items' decisions, their quantities) reads again.
    */
   onSaved?: (answers: Array<{ answerId: string; itemId: string | null }>) => void;
-  /** Marks consulted only (an earlier reading's own): no gesture, whatever the server allows. */
+  /** Marks consulted only (an earlier reading's own): no gesture, whatever the server allows, drawn from the server alone. */
   readOnly?: boolean;
+  /**
+   * The screen that owns the marks (the detail), told of a refusal of the member's right met on any read or command of
+   * the marks: it withdraws itself with them. Returns whether it was one.
+   */
+  onRefused?: (caught: unknown) => boolean;
+  /** Shows another page of the plan (the question of a refusal names marks of the refused gesture's page). */
+  showPage?: (page: number) => void;
   children: ReactNode;
 }) {
   const reader = useMemo(() => given ?? createCountMarksReader(projectId), [given, projectId]);
@@ -298,7 +314,11 @@ export function CountMarksScope({ projectId, answer, page, itemLabels: labelsGiv
   const [reloading, setReloading] = useState(false);
   const [removed, setRemoved] = useState<Removed | null>(null);
   const [refusedQuestion, setRefusedQuestion] = useState<CountMarksRefusedQuestion | null>(null);
-  const [refusedNeighbours, setRefusedNeighbours] = useState<Record<string, CountMarkPoint>>({});
+  const [refusedNeighbours, setRefusedNeighbours] = useState<Record<string, CountMarkNeighbour>>({});
+  // A command refused for the member's right (403) stops editing at once, for the screen, whatever a later read says.
+  const [editStopped, setEditStopped] = useState(false);
+  // A point to centre once its page's sheet is drawn (the refused gesture's page, shown first).
+  const [pendingCentre, setPendingCentre] = useState<{ page: number; point: CountMarkPoint } | null>(null);
   const [inFlight, setInFlight] = useState<ReadonlySet<string>>(() => new Set());
   const [attempt, setAttempt] = useState(0);
   const [wantRemoved, setWantRemoved] = useState(false);
@@ -351,11 +371,22 @@ export function CountMarksScope({ projectId, answer, page, itemLabels: labelsGiv
     setQuestion(null);
     setDialog(null);
   }, []);
+  // A refusal of the member's right withdraws the marks and the screen that owns them (the detail), with its data and
+  // its decisions: never the marks alone.
+  const onRefusedRef = useRef(onRefused);
+  useLayoutEffect(() => {
+    onRefusedRef.current = onRefused;
+  });
+  const withdrawForRight = useCallback((error: unknown) => {
+    withdraw();
+    onRefusedRef.current?.(error);
+  }, [withdraw]);
   const refuse = useCallback((error: unknown) => {
     if (!isReadRefusal(error)) return false;
-    withdraw();
+    if (isRightRefusal(error)) withdrawForRight(error);
+    else withdraw();
     return true;
-  }, [withdraw]);
+  }, [withdraw, withdrawForRight]);
   /**
    * A refused read or command that ended later: a refusal of the member's right (401, 403) withdraws the marks at once
    * while this is still the screen that started it, whatever answer is shown now; a refusal for an answer gone (404)
@@ -364,13 +395,13 @@ export function CountMarksScope({ projectId, answer, page, itemLabels: labelsGiv
    */
   const refusedBy = useCallback((error: unknown, done: Completion) => {
     if (isRightRefusal(error)) {
-      if (done.ownScreen()) withdraw();
+      if (done.ownScreen()) withdrawForRight(error);
       return true;
     }
     if (!isReadRefusal(error)) return false;
     if (done.current()) withdraw();
     return true;
-  }, [withdraw]);
+  }, [withdraw, withdrawForRight]);
 
   /**
    * Every lot of the page's marks up to the bound, or the next lot after those loaded. Lots read at another revision than
@@ -489,7 +520,8 @@ export function CountMarksScope({ projectId, answer, page, itemLabels: labelsGiv
   }, [answerId, page, inScope, refused, readScreen, refusedBy, screen, start, writeSession, attempt]);
 
   const current = loaded && loaded.answerId === answerId && loaded.page === page ? loaded : null;
-  const draft = session && session.draft.answerId === answerId ? session.draft : null;
+  // A reading consulted only is drawn from the server's revision alone: the tab's stored session stays apart, untouched.
+  const draft = !readOnly && session && session.draft.answerId === answerId ? session.draft : null;
 
   // While a save is on its way, a member goes on making gestures; the gestures being sent are not changed until it ends.
   const savingRef = useRef(false);
@@ -545,7 +577,7 @@ export function CountMarksScope({ projectId, answer, page, itemLabels: labelsGiv
     [drawnSize, recorded]);
   const pointingBlocked = recorded && drawn && !sameCountPage(recorded, drawn.size)
     ? "Ce plan ne correspond plus à la page sur laquelle ces repères ont été posés : ils se consultent sans pointer." : null;
-  const canEdit = Boolean(current?.view.edit.allowed) && !refused && !readOnly;
+  const canEdit = Boolean(current?.view.edit.allowed) && !refused && !readOnly && !editStopped;
 
   const markOf = useCallback((markId: string | null) => (markId ? shown.find((mark) => mark.markId === markId) ?? null : null), [shown]);
   const describe = useCallback((mark: CountMarkShown) => {
@@ -829,7 +861,9 @@ export function CountMarksScope({ projectId, answer, page, itemLabels: labelsGiv
       setDialog({ kind, markId: mark.markId });
       return;
     }
-    const open = (known: readonly CountMarksTarget[]) => {
+    const open = (read: readonly CountMarksTarget[]) => {
+      // The command accepts a destination whose answer read the mark's page.
+      const known = read.filter((target) => target.scopePages.includes(page));
       if (!known.length) setNotice("Aucun autre poste de cette lecture ne peut recevoir ce repère.");
       else setDialog({ kind, markId: mark.markId });
     };
@@ -854,7 +888,19 @@ export function CountMarksScope({ projectId, answer, page, itemLabels: labelsGiv
       setNotice(IN_FLIGHT_NOTICE);
       return;
     }
-    updateDraft((value) => draftWithout(value, id, newKey()));
+    // Undone, a gesture made on an undecided mark leaves it undecided again: its page's pending verification goes with
+    // it (the command would refuse the whole batch), and the member is told.
+    const entry = sessionRef.current?.draft.entries.find((candidate) => candidate.id === id);
+    const verification = entry && entry.gesture.op !== "verify" && entry.from !== null && UNDECIDED_STATES.includes(entry.from)
+      ? sessionRef.current?.draft.entries.find((candidate) => candidate.gesture.op === "verify" && candidate.page === entry.page)
+      : undefined;
+    const undone = updateDraft((value) => {
+      const next = draftWithout(value, id, newKey());
+      return verification ? draftWithout(next, verification.id, newKey()) : next;
+    });
+    if (undone && verification && entry) {
+      setNotice(`La déclaration de la page ${entry.page} vérifiée est retirée : un repère y redevient à décider.`);
+    }
   }, [updateDraft]);
   const giveDistinct = useCallback((id: string) => {
     if (inFlightRef.current.has(id)) {
@@ -902,33 +948,53 @@ export function CountMarksScope({ projectId, answer, page, itemLabels: labelsGiv
       const entry = value.entries.find((candidate) => other in candidate.others);
       try {
         revisions[other] = (await reader.readPage({ answerId: other, page: entry?.page ?? next.page, limit: 1 })).revision;
-      } catch {
-        // The other answer is not read again: the command names it as before and refuses it if it changed.
+      } catch (error) {
+        // A refusal of the member's right reaches the screen that owns the marks; any other failure leaves that answer
+        // unread: the command names it as before and refuses it if it changed.
+        if (isRightRefusal(error)) {
+          if (done.ownScreen()) withdrawForRight(error);
+          return;
+        }
       }
     }
     if (!done.current()) return;
     updateDraft((draftValue) => rebaseCountMarkDraft(draftValue, { revision: next.view.revision, others: revisions }, newKey()),
       { bySave: true });
-  }, [reader, updateDraft]);
+  }, [reader, updateDraft, withdrawForRight]);
 
   /**
    * The page's next lots until every mark a refusal named is loaded (or the page ends), so that the member sees each one
    * before answering about it.
    */
-  const loadNamed = useCallback(async (markIds: readonly string[], done: Completion, of: string) => {
+  const loadNamed = useCallback(async (markIds: readonly string[], done: Completion, of: string, on: number) => {
     try {
-      if (of !== loadedRef.current?.answerId) {
-        // The retained marks of another answer (a reattribution's target) on this page, read until each one is found.
-        const found: Record<string, CountMarkPoint> = {};
+      if (of !== loadedRef.current?.answerId || on !== loadedRef.current.page) {
+        // The retained marks of another answer (a reattribution's target), or of another page than the one shown: read on
+        // the refused gesture's page, by lots until each one is found, all at one revision (read again once, then the
+        // member is told the marks are changing).
         const wanted = new Set(markIds);
-        let after: string | null = null;
-        do {
-          const read: CountMarksView = await reader.readPage({ answerId: of, page, states: ["retained"], after });
-          if (!done.current()) return;
-          for (const value of read.marks) if (wanted.has(value.markId)) found[value.markId] = { x: value.x, y: value.y };
-          after = read.nextAfter;
-        } while (after && markIds.some((markId) => !(markId in found)));
-        setRefusedNeighbours(found);
+        for (let attempt = 0; attempt < 2; attempt += 1) {
+          const found: Record<string, CountMarkNeighbour> = {};
+          let revision: number | null = null;
+          let after: string | null = null;
+          let mixed = false;
+          do {
+            const read: CountMarksView = await reader.readPage({ answerId: of, page: on, states: ["retained"], after });
+            if (!done.current()) return;
+            if (revision !== null && read.revision !== revision) {
+              mixed = true;
+              break;
+            }
+            revision = read.revision;
+            for (const value of read.marks) if (wanted.has(value.markId)) found[value.markId] = { x: value.x, y: value.y, page: on };
+            after = read.nextAfter;
+          } while (after && markIds.some((markId) => !(markId in found)));
+          if (!mixed) {
+            setRefusedNeighbours(found);
+            return;
+          }
+        }
+        setNotice(TAKEOFF_COUNT_MARKS_READ_CHANGING_MESSAGE);
         return;
       }
       let value = loadedRef.current;
@@ -949,17 +1015,39 @@ export function CountMarksScope({ projectId, answer, page, itemLabels: labelsGiv
     } catch (error) {
       // Another answer's page refused is not this one's: there, only a refusal of the member's right withdraws the marks.
       if (isRightRefusal(error)) {
-        if (done.ownScreen()) withdraw();
+        if (done.ownScreen()) withdrawForRight(error);
         return;
       }
       if (of === loadedRef.current?.answerId && refusedBy(error, done)) return;
       if (done.current()) setNotice("Les repères nommés par l’enregistrement n’ont pas pu être lus.");
     }
-  }, [page, readLots, reader, refusedBy, reload, withdraw]);
+  }, [readLots, reader, refusedBy, reload, withdrawForRight]);
+
+  /** A point of a page brought to the centre: that page's sheet shown first when it is another one. */
+  const centreOn = useCallback((onPage: number, point: CountMarkPoint) => {
+    const frameNow = frameRef.current;
+    if (frameNow && frameNow.page === onPage) {
+      frameNow.centre(point);
+      return;
+    }
+    setPendingCentre({ page: onPage, point });
+    showPage?.(onPage);
+  }, [showPage]);
+  useEffect(() => {
+    if (!pendingCentre || !planFrame || planFrame.page !== pendingCentre.page) return;
+    planFrame.centre(pendingCentre.point);
+    setPendingCentre(null);
+  }, [pendingCentre, planFrame]);
 
   const save = useCallback(async () => {
     const session_ = sessionRef.current;
     if (!draft?.entries.length || !session_ || savingRef.current || refuseGesture()) return;
+    // Never a batch the command must refuse: the page shown declared verified while a mark of it is still to decide.
+    if (draft.entries.some((entry) => entry.gesture.op === "verify" && entry.page === page)
+      && shown.some((mark) => UNDECIDED_STATES.includes(mark.state))) {
+      setNotice(`La page ${page} est déclarée vérifiée mais un repère y reste à décider : décidez-le ou annulez la déclaration.`);
+      return;
+    }
     // The reply belongs to the member and the answer that started the save, whatever is shown when it comes.
     const viewerId = session_.viewerId;
     const savedAnswer = draft.answerId;
@@ -1010,9 +1098,18 @@ export function CountMarksScope({ projectId, answer, page, itemLabels: labelsGiv
       // A failure obeys the same rule: what is shown hears of it only while it is still the saved answer. A refusal of the
       // member's right (a session lost, an operator no longer) for this screen reads what is shown again at once: it
       // withdraws the marks, or offers no gesture, whatever answer is shown now.
-      if (isRightRefusal(error) && done.ownScreen() && !done.current()) {
-        void reload();
-        return;
+      if (isRightRefusal(error) && done.ownScreen()) {
+        // A lost session withdraws at once; a 403 stops editing at once, whatever the read that follows says, and that
+        // read then decides what the member may still see (the 403 may come from the affaire's read check before the edit).
+        if (isTakeoffApiError(error) && error.status === 401) {
+          withdrawForRight(error);
+          return;
+        }
+        setEditStopped(true);
+        if (!done.current()) {
+          void reload();
+          return;
+        }
       }
       if (!done.current()) return;
       if (code === "TAKEOFF_MARKS_REVISION_CONFLICT") {
@@ -1032,8 +1129,8 @@ export function CountMarksScope({ projectId, answer, page, itemLabels: labelsGiv
           const of = entry.gesture.op === "reattribute" ? entry.gesture.to_answer_id : savedAnswer;
           setRefusedNeighbours({});
           setRefusedQuestion({ entryId: entry.id, op: entry.gesture.op, twins: named.data.twins,
-            additions: named.data.addedKeys.map((key) => draftMarkId(key)), answerId: of });
-          void loadNamed(named.data.twins, done, of);
+            additions: named.data.addedKeys.map((key) => draftMarkId(key)), answerId: of, page: entry.page });
+          void loadNamed(named.data.twins, done, of, entry.page);
         } else setAskWords(true);
       }
       setNotice(refusalSentence(error));
@@ -1047,7 +1144,8 @@ export function CountMarksScope({ projectId, answer, page, itemLabels: labelsGiv
       setInFlight(new Set());
       setSaving(false);
     }
-  }, [current, destinations, draft, loadNamed, onSaved, rebase, refuseGesture, reader, reload, screen, start, updateDraft]);
+  }, [current, destinations, draft, loadNamed, onSaved, page, rebase, refuseGesture, reader, reload, screen, shown, start, updateDraft,
+    withdrawForRight]);
 
   // One read per cursor: a second click on the same lot reads nothing, and a lot is appended once, after its cursor.
   const lotsCursor = useRef<string | null>(null);
@@ -1123,8 +1221,9 @@ export function CountMarksScope({ projectId, answer, page, itemLabels: labelsGiv
     });
   }, [answerId, page, readAgain, reader, refusedBy, removed?.nextAfter, screen, start]);
 
-  const shownTargets = useMemo(() => (destinations && destinations.answerId === answerId ? destinations.targets : []),
-    [answerId, destinations]);
+  // The destinations the command accepts for a mark of this page: an answer that read it.
+  const shownTargets = useMemo(() => (destinations && destinations.answerId === answerId
+    ? destinations.targets.filter((target) => target.scopePages.includes(page)) : []), [answerId, destinations, page]);
   const itemLabels = useMemo(() => ({ ...labelsGiven, ...Object.fromEntries(shownTargets.map(({ itemId, label }) => [itemId, label])) }),
     [labelsGiven, shownTargets]);
 
@@ -1134,7 +1233,7 @@ export function CountMarksScope({ projectId, answer, page, itemLabels: labelsGiv
   const value: CountMarksContextValue = {
     status, answer, page, loaded: current, reloading, shown, removed, draft, staleEntries, askWords, activeId, mode, question,
     notice, announcement, saving, canEdit, pointingBlocked, planFrame: drawn, itemLabels, targets: shownTargets, historyVersion, pageSize,
-    summary: current?.view.summary ?? null, reader, refusedQuestion, refusedNeighbours, answerRefused, inFlight, loadMoreRemoved,
+    summary: current?.view.summary ?? null, reader, refusedQuestion, refusedNeighbours, centreOn, answerRefused, inFlight, loadMoreRemoved,
     retry: () => {
       setFailure(null);
       setAttempt((value) => value + 1);

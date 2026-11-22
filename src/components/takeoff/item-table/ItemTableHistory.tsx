@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import useSWR from "swr";
 
 import { isTakeoffApiError } from "@/lib/takeoff/client-http";
@@ -44,8 +44,12 @@ export function itemHistoryLabel(event: ItemHistoryEvent): string {
  * The review history of a line, newest first: who accepted, set aside, reinstated, entered or included it, why and when,
  * read from the journal by pages (the affaire's read rule; no gesture is offered here). It is read again with the table
  * (its version), from its first page; a refused read withdraws the table, this history with it.
+ *
+ * Its first page is read for the member and the scope that asked (`scope`, in the request's key: another reader never
+ * shares it), and its refusal goes to the handler of the screen that started it, even once this history is gone (the
+ * member moved to another item): that handler decides whether it still concerns what is shown (lot 5 follow-ups).
  */
-export function ItemTableHistory({ projectId, itemId, plans, version, onRefused }: {
+export function ItemTableHistory({ projectId, itemId, plans, version, onRefused, scope = null }: {
   projectId: string;
   itemId: string;
   /** The names of the line's plans, by their key. */
@@ -53,12 +57,18 @@ export function ItemTableHistory({ projectId, itemId, plans, version, onRefused 
   /** Moves with each read of the table. */
   version: number;
   onRefused: (caught: unknown) => boolean;
+  /** The member and the scope that read the journal: a new reader of the same item reads its own. */
+  scope?: string | null;
 }) {
-  const first = useSWR(["item-history", projectId, itemId, version], () => fetchItemHistory(projectId, itemId,
-    { offset: 0, limit: ITEM_HISTORY_LIMIT.default }), { revalidateOnFocus: false, shouldRetryOnError: false });
-  useEffect(() => {
-    if (first.error) onRefused(first.error);
-  }, [first.error, onRefused]);
+  const first = useSWR(["item-history", projectId, itemId, version, scope], async () => {
+    try {
+      return await fetchItemHistory(projectId, itemId, { offset: 0, limit: ITEM_HISTORY_LIMIT.default });
+    } catch (caught) {
+      // The handler of the render that asked, whatever is mounted when the answer comes.
+      onRefused(caught);
+      throw caught;
+    }
+  }, { revalidateOnFocus: false, shouldRetryOnError: false });
   const [older, setOlder] = useState<ItemHistoryResponse[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);

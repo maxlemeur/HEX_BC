@@ -487,7 +487,7 @@ function ItemDetailView({ projectId, address, reader, tableQuery, onBack, onGest
             </p>
           </aside>
           <CountMarksScope projectId={projectId} answer={marksAnswer} page={opening.page} itemLabels={itemLabels} onSaved={marksSaved}
-            readOnly={earlierAnswer !== null}>
+            readOnly={earlierAnswer !== null} onRefused={onRefused} showPage={(next) => go({ page: next, observationId: null })}>
             <div className="flex min-h-0 min-w-0 flex-1 flex-col">
               <ItemDetailPlanPane resolution={line ? resolution : { state: "loading" }} page={opening.page} requestedMissing={opening.requestedMissing}
                 pagesOfInterest={pagesOfInterest} onPage={(page) => go({ page, observationId: null })} onDocumentState={setDocumentState}
@@ -513,7 +513,7 @@ function ItemDetailView({ projectId, address, reader, tableQuery, onBack, onGest
             {line ? (
               <ItemDetailEvidencePane ref={evidence} projectId={projectId} line={line} choice={choice} plan={view}
                 documentState={documentState} names={names} planNames={planNames} outsideFilter={!found && outside !== null}
-                historyVersion={version} onRefused={historyRefused}
+                historyVersion={version} onRefused={historyRefused} historyScope={`lecteur-${readerIdentity(reader)}`}
                 proof={chosen.kind === "reading" && !chosen.current ? resolution.state === "ready" ? "proven"
                   : resolution.state === "loading" ? "pending" : "unproven" : null}
                 decide={{ offer, onGesture: (requested) => gesture(requested, null) }}

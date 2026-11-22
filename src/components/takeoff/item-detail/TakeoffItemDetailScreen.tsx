@@ -156,12 +156,12 @@ export function TakeoffItemDetailScreen({ projectId, viewerKey }: {
   // « Revenir aux postes » names the item last shown itself, and forgets it.
   const opened = useRef(detail.kind === "detail" ? { query, itemId: detail.address.itemId } : null);
   useEffect(() => {
-    if (opened.current) rememberItemDetailOpener(projectId, opened.current.query, opened.current.itemId);
-  }, [projectId]);
+    if (opened.current) rememberItemDetailOpener(projectId, viewerKey, opened.current.query, opened.current.itemId);
+  }, [projectId, viewerKey]);
   const back = useCallback((href: string) => {
-    forgetItemDetailOpener(projectId);
+    forgetItemDetailOpener(projectId, viewerKey);
     router.replace(href, { scroll: false });
-  }, [projectId, router]);
+  }, [projectId, router, viewerKey]);
   const tableHref = itemTableReturnHref(projectId, query, detail.kind === "detail" ? { itemId: detail.address.itemId, offset: 0 } : null);
 
   /** Sends a command from what is shown; `own`, the confirmation it was confirmed in (none for an inclusion). */

@@ -126,11 +126,17 @@ describe("the destinations of a reattribution", () => {
       // The same job on another plan, and another item placed before the others in the list.
       { id: answerOf(5), item_id: item(5), job_id: JOB, plan_logical_id: LIST, list_revision_id: LIST, reading_revision: 1 },
       { id: answerOf(6), item_id: item(6), job_id: JOB, plan_logical_id: PLAN, list_revision_id: LIST, reading_revision: 1 },
-    ],
+      { id: answerOf(7), item_id: item(7), job_id: JOB, plan_logical_id: PLAN, list_revision_id: LIST, reading_revision: 1 },
+    ].map((answer) => ({ plan_content_sha256: "c".repeat(64), searched_pages: [2], unreadable_pages: answer.item_id === item(2) ? [7] : [],
+      ...answer })),
     takeoff_list_revision_entries: [
-      { revision_id: LIST, item_id: item(2), label: "Vanne (fictive)", position: 5 },
-      { revision_id: LIST, item_id: item(3), label: "Siphon (fictif)", position: 3 },
-      { revision_id: LIST, item_id: item(6), label: "Évier (fictif)", position: 1 },
+      { revision_id: LIST, item_id: item(1), label: "Lavabo (fictif)", position: 0, expected_unit: "u" },
+      { revision_id: LIST, item_id: item(2), label: "Vanne (fictive)", position: 5, expected_unit: "u" },
+      { revision_id: LIST, item_id: item(3), label: "Siphon (fictif)", position: 3, expected_unit: "u" },
+      { revision_id: LIST, item_id: item(6), label: "Évier (fictif)", position: 1, expected_unit: "u" },
+      // Review of #496: an item of another unit, which the edit command refuses as a destination (the counterexample of
+      // takeoff-count-marks.test.sql, « a mark counted in units cannot go to an item of another unit »).
+      { revision_id: LIST, item_id: item(7), label: "Revêtement (fictif)", position: 2, expected_unit: "m2" },
     ],
   };
   function tableClient() {
@@ -160,9 +166,10 @@ describe("the destinations of a reattribution", () => {
       context: { supabase: tableClient(), tenantId: TENANT, userId: MEMBER, tenantRole: "admin" },
       project: { id: PROJECT, tenant_id: TENANT, user_id: MEMBER, name: "Affaire", reference: null, client_name: null, is_archived: false },
     } as never);
+    // The other unit left out; each destination with the pages its answer read (the command checks the mark's page in it).
     expect(await readCountMarkTargets(PROJECT, { answerId: answerOf(1).toUpperCase() })).toEqual({ answerId: answerOf(1), targets: [
-      { answerId: answerOf(6), itemId: item(6), label: "Évier (fictif)" },
-      { answerId: answerOf(2), itemId: item(2), label: "Vanne (fictive)" },
+      { answerId: answerOf(6), itemId: item(6), label: "Évier (fictif)", scopePages: [2] },
+      { answerId: answerOf(2), itemId: item(2), label: "Vanne (fictive)", scopePages: [2, 7] },
     ] });
   });
 
@@ -173,5 +180,42 @@ describe("the destinations of a reattribution", () => {
     } as never);
     await expect(readCountMarkTargets(PROJECT, { answerId: answerOf(9) })).rejects.toMatchObject({ status: 404,
       code: "TAKEOFF_MARKS_ANSWER_NOT_FOUND" });
+  });
+});
+
+describe("the destinations of a reattribution, by unit as the edit command compares them", () => {
+  it("compares the expected units null-safe: no unit goes to no unit, never to a unit", async () => {
+    const PLAN = "a1000000-0000-4000-8000-000000000001";
+    const LIST = "a2000000-0000-4000-8000-000000000001";
+    const item = (n: number) => `b0000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
+    const answerOf = (n: number) => `a0000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
+    const rows: Record<string, Array<Record<string, unknown>>> = {
+      takeoff_item_answers: [1, 2, 3].map((n) => ({ id: answerOf(n), item_id: item(n), job_id: JOB, plan_logical_id: PLAN,
+        list_revision_id: LIST, reading_revision: 1, plan_content_sha256: "c".repeat(64), searched_pages: [2], unreadable_pages: [] })),
+      takeoff_list_revision_entries: [
+        { revision_id: LIST, item_id: item(1), label: "Sans unité (fictif)", position: 0, expected_unit: null },
+        { revision_id: LIST, item_id: item(2), label: "Sans unité aussi (fictif)", position: 1, expected_unit: null },
+        { revision_id: LIST, item_id: item(3), label: "À l’unité (fictif)", position: 2, expected_unit: "u" },
+      ],
+    };
+    const from = (table: string) => {
+      const filters: Array<(row: Record<string, unknown>) => boolean> = [];
+      const builder: Record<string, unknown> = {};
+      for (const name of ["select", "order"]) builder[name] = () => builder;
+      builder.eq = (column: string, value: unknown) => { filters.push((row) => column in row ? row[column] === value : true); return builder; };
+      builder.neq = (column: string, value: unknown) => { filters.push((row) => row[column] !== value); return builder; };
+      builder.in = (column: string, values: unknown[]) => { filters.push((row) => values.includes(row[column])); return builder; };
+      builder.range = () => builder;
+      const result = () => (rows[table] ?? []).filter((row) => filters.every((filter) => filter(row)));
+      builder.maybeSingle = () => Promise.resolve({ data: result()[0] ?? null, error: null });
+      builder.then = (resolve: (value: unknown) => unknown) => Promise.resolve({ data: result(), error: null }).then(resolve);
+      return builder;
+    };
+    vi.mocked(requireAffaireAccess).mockResolvedValue({
+      context: { supabase: { from }, tenantId: TENANT, userId: MEMBER, tenantRole: "admin" },
+      project: { id: PROJECT, tenant_id: TENANT, user_id: MEMBER, name: "Affaire", reference: null, client_name: null, is_archived: false },
+    } as never);
+    expect((await readCountMarkTargets(PROJECT, { answerId: answerOf(1) })).targets.map(({ itemId }) => itemId)).toEqual([item(2)]);
+    expect((await readCountMarkTargets(PROJECT, { answerId: answerOf(3) })).targets).toEqual([]);
   });
 });

@@ -45786,12 +45786,22 @@
                     },
                     "label": {
                       "type": "string"
+                    },
+                    "scopePages": {
+                      "type": "array",
+                      "items": {
+                        "type": "integer",
+                        "exclusiveMinimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      "description": "Pages cherchées et illisibles de la réponse de destination."
                     }
                   },
                   "required": [
                     "answerId",
                     "itemId",
-                    "label"
+                    "label",
+                    "scopePages"
                   ],
                   "additionalProperties": false
                 }

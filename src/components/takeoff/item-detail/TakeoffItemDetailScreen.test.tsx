@@ -330,12 +330,12 @@ describe("TakeoffItemDetailScreen, the way back", () => {
     fireEvent.keyDown(screen.getByRole("listbox", { name: "Postes" }), { key: "ArrowDown" });
     await settle();
     // The opener is the item first shown, whatever item the member moved to since.
-    expect(takeItemDetailOpener(DETAIL_PROJECT, TABLE)).toBe(ITEMS.notFound);
+    expect(takeItemDetailOpener(DETAIL_PROJECT, "tenant:member", TABLE)).toBe(ITEMS.notFound);
     cleanup();
     open(ITEMS.notFound, PLAN_RDC, JOB_RDC);
     await settle();
     fireEvent.click(screen.getByRole("button", { name: "Revenir aux postes" }));
-    expect(takeItemDetailOpener(DETAIL_PROJECT, TABLE)).toBeNull();
+    expect(takeItemDetailOpener(DETAIL_PROJECT, "tenant:member", TABLE)).toBeNull();
   });
 
   it("comes back to the table by the router, the table's filter kept and the item in focus", async () => {

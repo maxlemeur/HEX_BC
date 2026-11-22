@@ -364,10 +364,13 @@ const chunks = <T>(values: readonly T[], size = 200) =>
   Array.from({ length: Math.ceil(values.length / size) }, (_, index) => values.slice(index * size, (index + 1) * size));
 
 /**
- * The items a mark of an answer may be given to (lot 5 follow-ups): the other items the same reading answered — its job,
- * on its plan — whose answer no later reading of that item on that plan replaced, by their place in the reading's list,
- * whatever the table of items shows. Read with the member's session (the affaire's read rule); the edit command checks
- * again, under its locks, that the destination is an answer of the same reading.
+ * The items a mark of an answer may be given to (lot 5 follow-ups): what the edit command accepts as a destination
+ * (public.edit_takeoff_count_marks, `reattribute`) — another answer of the same plan and plan bytes, of an item of the
+ * source's sealed list whose expected unit is the source's (compared null-safe, as SQL compares them) — restricted further
+ * to the same reading (its job), whose answer no later reading of that item on that plan replaced, by their place in the
+ * reading's list, whatever the table of items shows. Each with the pages its answer read: the command checks that the
+ * mark's page is one of them, so the screen offers a destination only for a mark of those pages. Read with the member's
+ * session (the affaire's read rule); the command checks everything again under its locks.
  */
 export async function readCountMarkTargets(projectId: string, input: { answerId: string }): Promise<CountMarkTargets> {
   const access = await requireAffaireAccess(projectId, "read");
@@ -375,33 +378,39 @@ export async function readCountMarkTargets(projectId: string, input: { answerId:
   const { context, project } = access;
   const answerId = input.answerId.toLowerCase();
   const { data: source, error } = await client.from("takeoff_item_answers")
-    .select("id, item_id, job_id, plan_logical_id, list_revision_id")
+    .select("id, item_id, job_id, plan_logical_id, plan_content_sha256, list_revision_id")
     .eq("tenant_id", context.tenantId).eq("project_id", project.id).eq("id", answerId).maybeSingle();
   if (error) throw mapSupabaseError(error, READ_FAILURE);
   if (!source) throw notFound(NOT_READ, undefined, "TAKEOFF_MARKS_ANSWER_NOT_FOUND");
-  const answers = await allRows<{ id: string; item_id: string; reading_revision: number }>((from, to) => client
-    .from("takeoff_item_answers").select("id, item_id, reading_revision")
+  const answers = await allRows<{ id: string; item_id: string; reading_revision: number; plan_content_sha256: string;
+    searched_pages: number[] | null; unreadable_pages: number[] | null }>((from, to) => client.from("takeoff_item_answers")
+    .select("id, item_id, reading_revision, plan_content_sha256, searched_pages, unreadable_pages")
     .eq("tenant_id", context.tenantId).eq("project_id", project.id).eq("job_id", source.job_id)
     .eq("plan_logical_id", source.plan_logical_id).neq("item_id", source.item_id).order("id").range(from, to));
   const itemIds = [...new Set(answers.map(({ item_id }) => item_id))];
   const later = new Map<string, number>();
-  const labels = new Map<string, { label: string; position: number }>();
-  for (const ids of chunks(itemIds)) {
+  const labels = new Map<string, { label: string; position: number; unit: string | null }>();
+  for (const ids of chunks([...itemIds, source.item_id])) {
     const [readings, entries] = await Promise.all([
       allRows<{ item_id: string; reading_revision: number }>((from, to) => client.from("takeoff_item_answers")
         .select("item_id, reading_revision").eq("tenant_id", context.tenantId).eq("project_id", project.id)
         .eq("plan_logical_id", source.plan_logical_id).in("item_id", ids).order("id").range(from, to)),
-      allRows<{ item_id: string; label: string; position: number }>((from, to) => client.from("takeoff_list_revision_entries")
-        .select("item_id, label, position").eq("tenant_id", context.tenantId).eq("project_id", project.id)
+      allRows<{ item_id: string; label: string; position: number; expected_unit: string | null }>((from, to) => client
+        .from("takeoff_list_revision_entries").select("item_id, label, position, expected_unit")
+        .eq("tenant_id", context.tenantId).eq("project_id", project.id)
         .eq("revision_id", source.list_revision_id).in("item_id", ids).order("position").range(from, to)),
     ]);
     for (const reading of readings) later.set(reading.item_id, Math.max(later.get(reading.item_id) ?? 0, reading.reading_revision));
-    for (const entry of entries) labels.set(entry.item_id, { label: entry.label, position: entry.position });
+    for (const entry of entries) labels.set(entry.item_id, { label: entry.label, position: entry.position, unit: entry.expected_unit ?? null });
   }
+  // The source's own entry: a destination keeps its expected unit (null-safe: no unit goes to no unit only).
+  const unit = labels.get(source.item_id)?.unit ?? null;
   const targets = answers.flatMap((answer) => {
     const entry = labels.get(answer.item_id);
-    return entry && (later.get(answer.item_id) ?? 0) <= answer.reading_revision
-      ? [{ answerId: answer.id, itemId: answer.item_id, label: entry.label, position: entry.position }] : [];
+    return entry && (later.get(answer.item_id) ?? 0) <= answer.reading_revision && entry.unit === unit
+      && answer.plan_content_sha256 === source.plan_content_sha256
+      ? [{ answerId: answer.id, itemId: answer.item_id, label: entry.label, position: entry.position,
+        scopePages: [...new Set([...(answer.searched_pages ?? []), ...(answer.unreadable_pages ?? [])])].sort((a, b) => a - b) }] : [];
   }).sort((left, right) => left.position - right.position || left.answerId.localeCompare(right.answerId));
   return { answerId, targets: targets.map(({ position, ...target }) => { void position; return target; }) };
 }

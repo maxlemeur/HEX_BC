@@ -15,6 +15,7 @@ import {
 } from "@/components/takeoff/item-detail/ItemDetailOpenerFocus";
 
 const PROJECT = "e0000000-0000-4000-8000-000000000001";
+const VIEWER = "tenant:member-1";
 const NAMED = "b0000000-0000-4000-8000-000000000003";
 const OPENER = "b0000000-0000-4000-8000-000000000002";
 const TABLE = `posteLimit=25&posteFocus=${NAMED}`;
@@ -48,19 +49,19 @@ afterEach(() => {
 describe("the line a detail was opened from", () => {
   it("gets the keyboard back on the browser's back, over the line the address named, and the address names it", () => {
     // The detail was opened from the opener's line on this very address.
-    rememberItemDetailOpener(PROJECT, `poste=${OPENER}&plan=x&lecture=y&${TABLE}`, OPENER);
+    rememberItemDetailOpener(PROJECT, VIEWER, `poste=${OPENER}&plan=x&lecture=y&${TABLE}`, OPENER);
     const link = drawLines([NAMED, OPENER]);
     // The table gave the keyboard to the line its address named.
     link(NAMED).focus();
-    render(<ItemDetailOpenerFocus projectId={PROJECT} />);
+    render(<ItemDetailOpenerFocus projectId={PROJECT} viewerKey={VIEWER} />);
     expect(document.activeElement).toBe(link(OPENER));
     expect(replace).toHaveBeenCalledWith(`/dashboard/affaires/p/takeoff?posteLimit=25&posteFocus=${OPENER}`, { scroll: false });
-    expect(takeItemDetailOpener(PROJECT, TABLE)).toBeNull();
+    expect(takeItemDetailOpener(PROJECT, VIEWER, TABLE)).toBeNull();
   });
 
   it("waits for the line to be drawn, whichever comes first, the table's focus or the line", async () => {
-    rememberItemDetailOpener(PROJECT, TABLE, OPENER);
-    render(<ItemDetailOpenerFocus projectId={PROJECT} />);
+    rememberItemDetailOpener(PROJECT, VIEWER, TABLE, OPENER);
+    render(<ItemDetailOpenerFocus projectId={PROJECT} viewerKey={VIEWER} />);
     expect(replace).not.toHaveBeenCalled();
     let link: (id: string) => HTMLElement = () => document.body;
     await act(async () => {
@@ -73,26 +74,47 @@ describe("the line a detail was opened from", () => {
   });
 
   it("leaves a focus the member gave elsewhere, and only names the opener", () => {
-    rememberItemDetailOpener(PROJECT, TABLE, OPENER);
+    rememberItemDetailOpener(PROJECT, VIEWER, TABLE, OPENER);
     drawLines([NAMED, OPENER]);
     const field = document.createElement("input");
     document.body.append(field);
     field.focus();
-    render(<ItemDetailOpenerFocus projectId={PROJECT} />);
+    render(<ItemDetailOpenerFocus projectId={PROJECT} viewerKey={VIEWER} />);
     expect(document.activeElement).toBe(field);
     expect(replace).toHaveBeenCalledTimes(1);
   });
 
-  it("does nothing for another address of the table, nor after « Revenir aux postes », which forgets it", () => {
-    rememberItemDetailOpener(PROJECT, "posteLimit=50", OPENER);
+  // The independent reading of #496: another member in the same tab consumed the previous member's opener; a third
+  // line's « Détail » the member had focused was taken from them.
+  it("belongs to the member who opened the detail: another member's table neither takes nor uses it", () => {
+    rememberItemDetailOpener(PROJECT, VIEWER, TABLE, OPENER);
     const link = drawLines([NAMED, OPENER]);
     link(NAMED).focus();
-    render(<ItemDetailOpenerFocus projectId={PROJECT} />);
+    render(<ItemDetailOpenerFocus projectId={PROJECT} viewerKey="tenant:member-2" />);
+    expect(document.activeElement).toBe(link(NAMED));
+    expect(replace).not.toHaveBeenCalled();
+    expect(takeItemDetailOpener(PROJECT, VIEWER, TABLE)).toBe(OPENER);
+  });
+
+  it("leaves the keyboard on another line's « Détail » the member focused, taking it only from the line the address named", () => {
+    const third = "b0000000-0000-4000-8000-000000000004";
+    rememberItemDetailOpener(PROJECT, VIEWER, TABLE, OPENER);
+    const link = drawLines([NAMED, OPENER, third]);
+    link(third).focus();
+    render(<ItemDetailOpenerFocus projectId={PROJECT} viewerKey={VIEWER} />);
+    expect(document.activeElement).toBe(link(third));
+  });
+
+  it("does nothing for another address of the table, nor after « Revenir aux postes », which forgets it", () => {
+    rememberItemDetailOpener(PROJECT, VIEWER, "posteLimit=50", OPENER);
+    const link = drawLines([NAMED, OPENER]);
+    link(NAMED).focus();
+    render(<ItemDetailOpenerFocus projectId={PROJECT} viewerKey={VIEWER} />);
     expect(document.activeElement).toBe(link(NAMED));
     cleanup();
-    rememberItemDetailOpener(PROJECT, TABLE, OPENER);
-    forgetItemDetailOpener(PROJECT);
-    render(<ItemDetailOpenerFocus projectId={PROJECT} />);
+    rememberItemDetailOpener(PROJECT, VIEWER, TABLE, OPENER);
+    forgetItemDetailOpener(PROJECT, VIEWER);
+    render(<ItemDetailOpenerFocus projectId={PROJECT} viewerKey={VIEWER} />);
     expect(document.activeElement).toBe(link(NAMED));
     expect(replace).not.toHaveBeenCalled();
   });

@@ -519,7 +519,7 @@ function TakeoffActivityCenterView({
           the rest of the centre when its read is refused (an access removed). */}
       {refused ? null : <TakeoffItemTable projectId={projectId} viewerKey={viewerKey} signature={activitySignature} />}
       {/* Back from an item's detail by the browser: the keyboard on the « Détail » it was opened from. */}
-      {refused ? null : <ItemDetailOpenerFocus projectId={projectId} />}
+      {refused ? null : <ItemDetailOpenerFocus projectId={projectId} viewerKey={viewerKey} />}
 
       {showTracking ? (
         <section className="journey-panel" aria-labelledby="takeoff-tracking-heading">

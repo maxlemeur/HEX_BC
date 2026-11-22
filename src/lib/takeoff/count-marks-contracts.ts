@@ -82,11 +82,17 @@ export const countMarkTargetsQuerySchema = z.object({ reponse: uuid }).strict();
 
 /**
  * The items a mark of an answer may be given to: the other items the same reading (its job, on its plan) answered, whose
- * answer no later reading replaced, in the order of that reading's list; whatever the table of items shows.
+ * answer no later reading replaced, of the same expected unit, in the order of that reading's list; whatever the table of
+ * items shows. Each with the pages its answer read: a mark goes to it only from one of them.
  */
 export const countMarkTargetsSchema = z.object({
   answerId: uuid,
-  targets: z.array(z.object({ answerId: uuid, itemId: uuid, label: z.string() }).strict()),
+  targets: z.array(z.object({
+    answerId: uuid,
+    itemId: uuid,
+    label: z.string(),
+    scopePages: z.array(z.number().int().positive()).describe("Pages cherchées et illisibles de la réponse de destination."),
+  }).strict()),
 }).strict();
 export type CountMarkTargets = z.infer<typeof countMarkTargetsSchema>;
 

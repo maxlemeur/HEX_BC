@@ -756,7 +756,7 @@ describe("the counted marks of the item", () => {
   // one's save (only the last item read again was kept); the keyboard fell to the document once « Enregistrer » went; a
   // page was declared verified while its sheet was still drawing.
   const marksRoutes = (viewer: string, marksOf: (answerId: string) => unknown[] = () => [],
-    targetsOf: (answerId: string) => Array<{ answerId: string; itemId: string; label: string }> = () => []) => {
+    targetsOf: (answerId: string) => Array<{ answerId: string; itemId: string; label: string; scopePages: number[] }> = () => []) => {
     const revisions: Record<string, number> = {};
     const ok = (data: unknown) => new Response(JSON.stringify({ ok: true, data }), { status: 200 });
     const summary = (answerId: string) => ({ revision: revisions[answerId] ?? 1, unit: "u", counted: true, proposed: 0, toAttribute: 0,
@@ -826,7 +826,7 @@ describe("the counted marks of the item", () => {
       positionRevision: 0, createdBy: viewer, createdJobId: null, createdAt: "2026-11-22T09:00:00Z", movedBy: null, movedAt: null,
       state: "retained", priorState: null, reasonCode: null, reasonText: null, decidedBy: viewer, decidedAt: null,
       possibleDuplicates: [], others: [], proposals: [] }],
-    (answerId) => answerId === basin ? [{ answerId: siphon, itemId: ITEMS.notFound, label: "Siphon de sol" }] : []);
+    (answerId) => answerId === basin ? [{ answerId: siphon, itemId: ITEMS.notFound, label: "Siphon de sol", scopePages: [2] }] : []);
     // The siphon's reading of the same plan, by the same job, accepted: the item a mark of the basin is given to.
     const readings = DETAIL_READINGS.map((value) => value.itemId === ITEMS.notFound && value.planKey === PLAN_RDC
       ? { ...value, decision: { kind: "accepted" as const, revision: 1, actorId: viewer, at: "2026-11-21T10:00:00.000Z" }, decisionRevision: 1 }
@@ -909,6 +909,66 @@ describe("TakeoffItemDetail, a refusal of the member's right", () => {
     await settle();
     await act(async () => held.refuse(new ItemDetailPlanError(null, 500)));
     expect(onRefused).not.toHaveBeenCalled();
+  });
+});
+
+// The independent reading of #496, written before the fixes: the first journal request of an item, refused for the right
+// once the member moved on, reached nobody (its observer had unmounted); the same request, shared by a new reader of the
+// same item, gave that reader the previous one's refusal; a marks read refused for the right withdrew the marks only.
+describe("TakeoffItemDetail, review of #496", () => {
+  const forbidden = () => new Response(JSON.stringify({ ok: false, error: { code: "FORBIDDEN", message: "Refus" } }), { status: 403 });
+  /** The journal of an item held: its first page answers when the test says. */
+  function holdJournal(itemId: string) {
+    const regular = globalThis.fetch;
+    const held: { complete: (value: Response) => void } = { complete: () => undefined };
+    let first = true;
+    vi.stubGlobal("fetch", vi.fn(async (url: unknown, init?: RequestInit) => {
+      if (first && String(url).includes(`/items/${itemId}/history`)) {
+        first = false;
+        return new Promise<Response>((resolve) => { held.complete = resolve; });
+      }
+      return regular(url as RequestInfo, init);
+    }));
+    return held;
+  }
+
+  it("withdraws the detail when the first journal read of an item left is refused for the right", async () => {
+    const held = holdJournal(ITEMS.basin);
+    const { onRefused } = open(address({}));
+    await settle();
+    fireEvent.keyDown(list(), { key: "ArrowDown" });
+    await settle();
+    expect(selected()).not.toContain("Lavabo céramique");
+    await act(async () => held.complete(forbidden()));
+    await settle();
+    expect(onRefused).toHaveBeenCalledWith(expect.objectContaining({ status: 403 }));
+  });
+
+  it("gives a new reader of the same item its own journal, never the previous reader's refusal", async () => {
+    const held = holdJournal(ITEMS.basin);
+    const refuse = vi.fn(() => true);
+    const cache = new Map();
+    const page = (reader: ItemDetailReader) => (
+      <SWRConfig value={{ provider: () => cache, dedupingInterval: 0 }}>
+        <Page initial={address({})} reader={reader} onBack={vi.fn()} onRefused={refuse} />
+      </SWRConfig>
+    );
+    const shown = render(page(fixtureItemDetailReader({}).reader));
+    await settle();
+    shown.rerender(page(fixtureItemDetailReader({}).reader));
+    await settle();
+    await act(async () => held.complete(forbidden()));
+    await settle();
+    expect(refuse).not.toHaveBeenCalled();
+  });
+
+  it("withdraws the detail, not only its marks, when a read of the marks is refused for the right", async () => {
+    const regular = globalThis.fetch;
+    vi.stubGlobal("fetch", vi.fn(async (url: unknown, init?: RequestInit) => (String(url).includes("count-marks")
+      ? forbidden() : regular(url as RequestInfo, init))));
+    const { onRefused } = open(address({ planKey: PLAN_RDC, jobId: JOB_RDC, page: 2 }));
+    await settle();
+    expect(onRefused).toHaveBeenCalledWith(expect.objectContaining({ status: 403 }));
   });
 });
 
