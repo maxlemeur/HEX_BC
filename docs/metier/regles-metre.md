@@ -138,6 +138,28 @@ n’est pas posée, une demande scelle l’extraction libre, comme avant. Une fo
 activée, une DPGF à préparer suspend l’admission avec un motif. Le Mac du mandat
 réessaie alors seul.
 
+**Réponses des postes sur un plan.** Une analyse qui lit un plan contre la liste
+scellée de sa demande donne une réponse par poste de cette liste
+(`supabase/migrations/20261122080845_takeoff_item_answers.sql`) : mesuré, incertain ou
+non trouvé. Chaque réponse garde les pages cherchées et celles qui n’ont pas pu être
+lues, qui couvrent ensemble toutes les pages lues du plan, ses motifs dans l’ordre (le
+premier est le motif principal) et le plan tel que la demande l’a scellé (sa copie, son
+identité, sa génération, l’empreinte de son fichier). Un poste mesuré porte sa quantité,
+la somme de ses apports. Un poste incertain peut porter une valeur candidate, jamais une
+mesure. Un poste non trouvé n’a ni quantité (jamais 0) ni observation, et seulement si
+toutes ses pages ont pu être lues : une page illisible rend la réponse incertaine. Chaque
+observation a son rôle : un apport (compté), un candidat ou une alternative (une autre
+lecture d’un objet déjà lu, jamais additionnée). Seul un apport peut être une ligne de la
+revue des quantités ; une lecture vectorielle n’est jamais un apport. Ce que la lecture
+voit hors de la liste reste un avertissement du résultat, jamais un poste. Le Mac publie
+les réponses d’un plan en une fois, sous son bail, avec le résultat et la fin de
+l’analyse : une réponse qui manque, un poste étranger, une page hors du plan, une quantité
+qui n’est pas la somme de ses apports sont refusés et rien n’est écrit. L’analyse ne peut
+pas se terminer en succès autrement. Une nouvelle lecture du même poste sur le même plan
+remplace la précédente, qui reste consultable. Tous les lecteurs de l’affaire lisent les
+réponses, et voient « en lecture » un poste dont le plan est en cours d’analyse ; personne
+ne les modifie. La revue de ces réponses s’enregistre à part.
+
 Une ligne de devis créée depuis un import garde dans sa provenance l’import et la
 ligne mappée. La ligne mappée nomme la ligne brute dont elle vient ; quand une
 nouvelle correspondance la supprime, la base garde ce lien. La ligne de devis et ses
