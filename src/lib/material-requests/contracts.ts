@@ -2,6 +2,8 @@ import { z } from "zod";
 
 import type { PurchaseOrderPricePer } from "@/lib/purchase-orders/line-kinds";
 
+import type { MaterialRequestUsualPackaging } from "./usual-packaging";
+
 /**
  * Material requests ("demandes de matériel", TI-690): what a field technician asks the office for, on a
  * scrap of paper, in a text message or over the phone, rewritten by the office into clean lines.
@@ -165,6 +167,11 @@ export type MaterialRequestArticleSummary = {
   /** Created from a request line: the catalogue shows « Nouveau » until it is validated. */
   created_from_material_request: boolean;
   supply_type_name: string | null;
+  /**
+   * TI-690: the article's usual sale packaging (« Barre » of 6 ml), null when it has none. Proposes to round a line in
+   * its unit up to whole packagings and fills a template's {conditionnement}; see usual-packaging.ts.
+   */
+  usual_packaging: MaterialRequestUsualPackaging | null;
 };
 
 /** A proposal: nothing is linked until the office chooses it. */

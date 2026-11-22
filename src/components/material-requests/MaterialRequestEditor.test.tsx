@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildClarificationMessage } from "@/lib/material-requests/alerts";
 import type {
   MaterialRequest,
+  MaterialRequestArticleSummary,
   MaterialRequestFile,
   MaterialRequestLine,
   MaterialRequestLineInput,
@@ -67,6 +68,12 @@ import type {
  * 26. (TI-690, one row per line) a line is held by what no cell can carry (a possible duplicate) and its folded row
  *     says nothing of it; or the count that leads to the first value to fix focuses a choice that is not shown;
  *     or the page names a line by a number that no longer appears on it.
+ * 27. (TI-690, the owner's request of 2026-11-22) the usual packaging of a line's article is not shown beside its
+ *     quantity, or the rounding to whole packagings is not offered, rounds by itself, writes another quantity than
+ *     the whole packagings, or is offered where it cannot or must not apply: a line in another unit, an exact
+ *     multiple, a validated or priced line, a reader; or the quantity asked before the rounding cannot be found again.
+ * 28. (review of PR #478) the rounding overwrites a quantity just typed, whether its save is on its way or was refused;
+ *     or the focus falls to the page once the rounding or the way back is done, and nothing says the new quantity.
  */
 
 const { routerPushMock, splitSourceTextMock, storageFromMock, uploadToSignedUrlMock } = vi.hoisted(() => ({
@@ -200,13 +207,14 @@ function detail(options: {
   lines?: MaterialRequestLine[];
   files?: MaterialRequestFile[];
   canWrite?: boolean;
+  articles?: Record<string, MaterialRequestArticleSummary>;
 }) {
   return {
     request: request(options.request),
     technician: TECHNICIAN,
     files: options.files ?? [],
     lines: options.lines ?? [],
-    articles: {},
+    articles: options.articles ?? {},
     canWrite: options.canWrite ?? true,
     materialOptions: ["Laiton brut", "PVC pression"],
     supplierOptions: [{ id: "99999999-9999-4999-8999-999999999999", name: "Négoce Exemple", label: "Négoce Exemple" }],
@@ -2021,5 +2029,147 @@ describe("a lighter lines table (TI-690)", () => {
     expect(screen.queryByRole("button", { name: /^Rattacher les références et noms connus/ })).not.toBeInTheDocument();
     await user.click(disclosure);
     expect(screen.getByText(/^Rien à rattacher d’un coup : aucune ligne ne porte une référence ou un nom usuel connus/)).toBeVisible();
+  });
+});
+
+describe("the usual packaging of a line's article (TI-690) (27)", () => {
+  const TUBE = "12121212-1212-4121-8121-121212121212";
+  const tube: MaterialRequestArticleSummary = {
+    id: TUBE, reference: null, designation: "Tube cuivre écroui Ø 22", product_type: "Tube cuivre", material: "Cuivre",
+    dimensions: "Ø 22", unit: "ml", catalogue_status: "validated", created_from_material_request: false,
+    supply_type_name: null, usual_packaging: { label: "Barre", quantity: 6, unit: "ml" },
+  };
+  const tubeLine = (patch: Partial<MaterialRequestLine> = {}) =>
+    line({ quantity: 14, unit: "m.l.", product_type: "Tube cuivre", dimension: "Ø 22", material: "Cuivre", product_id: TUBE, product_match: "manual", ...patch });
+
+  beforeEach(() => {
+    window.history.replaceState(null, "", "?etape=lignes");
+  });
+  afterEach(() => {
+    cleanup();
+    window.history.replaceState(null, "", window.location.pathname);
+    vi.unstubAllGlobals();
+  });
+
+  it("shows the usual packaging beside the quantity and rounds up to whole packagings only when the office asks", async () => {
+    const user = await openEditor({
+      [`GET ${BASE}`]: { data: detail({ lines: [tubeLine()], articles: { [TUBE]: tube } }) },
+      [`PATCH ${BASE}/lines/${LINE_A}`]: (body) => ({ data: { line: tubeLine(body as Partial<MaterialRequestLine>) } }),
+    });
+
+    const row = screen.getByRole("listitem", { name: "Ligne 1" });
+    expect(within(row).getByText("Usuel : Barre de 6 ml")).toBeVisible();
+    // Nothing is rounded by itself.
+    expect(writes()).toEqual([]);
+    expect(screen.getByLabelText("Quantité, ligne 1")).toHaveValue("14");
+
+    await user.click(within(row).getByRole("button", { name: "Arrondir à 3 barres (18 ml), ligne 1" }));
+
+    await waitFor(() => expect(writes()).toHaveLength(1));
+    expect(writes()[0]).toEqual({ method: "PATCH", path: `${BASE}/lines/${LINE_A}`, body: { quantity: 18 } });
+    await waitFor(() => expect(screen.getByLabelText("Quantité, ligne 1")).toHaveValue("18"));
+    expect(within(row).queryByRole("button", { name: /^Arrondir/ })).not.toBeInTheDocument();
+    // What was asked before stays in sight, and one click asks for it again.
+    expect(within(row).getByText(/14 ml demandés/)).toBeVisible();
+    await user.click(within(row).getByRole("button", { name: "Revenir à 14 ml, ligne 1" }));
+    await waitFor(() => expect(writes()).toHaveLength(2));
+    expect(writes()[1].body).toEqual({ quantity: 14 });
+    await waitFor(() => expect(screen.getByLabelText("Quantité, ligne 1")).toHaveValue("14"));
+    expect(within(row).getByRole("button", { name: "Arrondir à 3 barres (18 ml), ligne 1" })).toBeVisible();
+  });
+
+  it("does not round over a quantity typed while its save is on its way (28)", async () => {
+    let release: (reply: { data: unknown }) => void = () => undefined;
+    const user = await openEditor({
+      [`GET ${BASE}`]: { data: detail({ lines: [tubeLine()], articles: { [TUBE]: tube } }) },
+      [`PATCH ${BASE}/lines/${LINE_A}`]: () => new Promise((resolve) => { release = resolve; }),
+    });
+
+    const quantity = screen.getByLabelText("Quantité, ligne 1");
+    await user.clear(quantity);
+    await user.type(quantity, "20");
+    // Still in the cell: the click blurs it, which commits 20; the rounding must not follow it.
+    await user.click(screen.getByRole("button", { name: "Arrondir à 3 barres (18 ml), ligne 1" }));
+    await waitFor(() => expect(writes()).toHaveLength(1));
+    expect(writes()[0].body).toEqual({ quantity: 20 });
+    expect(screen.getByRole("button", { name: "Arrondir à 3 barres (18 ml), ligne 1" })).toHaveAttribute("aria-disabled", "true");
+
+    release({ data: { line: tubeLine({ quantity: 20 }) } });
+    expect(await screen.findByRole("button", { name: "Arrondir à 4 barres (24 ml), ligne 1" })).not.toHaveAttribute("aria-disabled", "true");
+    expect(writes()).toHaveLength(1);
+  });
+
+  it("does not round under a typed quantity whose save was refused (28)", async () => {
+    const user = await openEditor({
+      [`GET ${BASE}`]: { data: detail({ lines: [tubeLine()], articles: { [TUBE]: tube } }) },
+      [`PATCH ${BASE}/lines/${LINE_A}`]: { status: 500, error: { code: "INTERNAL", message: "Enregistrement impossible pour le moment." } },
+    });
+
+    const quantity = screen.getByLabelText("Quantité, ligne 1");
+    await user.clear(quantity);
+    await user.type(quantity, "20");
+    await user.tab();
+    expect(await screen.findByRole("alert")).toHaveTextContent("Enregistrement impossible pour le moment.");
+    const round = screen.getByRole("button", { name: "Arrondir à 3 barres (18 ml), ligne 1" });
+    expect(round).toHaveAttribute("aria-disabled", "true");
+    await user.click(round);
+    expect(writes()).toHaveLength(1);
+    expect(screen.getByLabelText("Quantité, ligne 1")).toHaveValue("20");
+  });
+
+  it("keeps the focus on the next gesture and says the new quantity (28)", async () => {
+    const user = await openEditor({
+      [`GET ${BASE}`]: { data: detail({ lines: [tubeLine()], articles: { [TUBE]: tube } }) },
+      [`PATCH ${BASE}/lines/${LINE_A}`]: (body) => ({ data: { line: tubeLine(body as Partial<MaterialRequestLine>) } }),
+    });
+    const row = screen.getByRole("listitem", { name: "Ligne 1" });
+
+    await user.click(within(row).getByRole("button", { name: "Arrondir à 3 barres (18 ml), ligne 1" }));
+    await waitFor(() => expect(within(row).getByRole("button", { name: "Revenir à 14 ml, ligne 1" })).toHaveFocus());
+    expect(within(row).getByText("Quantité arrondie à 18 ml.")).toHaveAttribute("aria-live", "polite");
+
+    await user.click(within(row).getByRole("button", { name: "Revenir à 14 ml, ligne 1" }));
+    await waitFor(() => expect(within(row).getByRole("button", { name: "Arrondir à 3 barres (18 ml), ligne 1" })).toHaveFocus());
+    expect(within(row).getByText("Quantité remise à 14 ml.")).toHaveAttribute("aria-live", "polite");
+  });
+
+  it("offers no rounding for an exact multiple, and shows nothing for a line in another unit", async () => {
+    await openEditor({
+      [`GET ${BASE}`]: {
+        data: detail({
+          lines: [tubeLine({ quantity: 18 }), tubeLine({ id: LINE_B, position: 2, unit: "u" })],
+          articles: { [TUBE]: tube },
+        }),
+      },
+    });
+
+    const first = screen.getByRole("listitem", { name: "Ligne 1" });
+    expect(within(first).getByText("Usuel : Barre de 6 ml")).toBeVisible();
+    expect(within(first).queryByRole("button", { name: /^Arrondir/ })).not.toBeInTheDocument();
+    const second = screen.getByRole("listitem", { name: "Ligne 2" });
+    expect(within(second).queryByText(/^Usuel/)).not.toBeInTheDocument();
+    expect(within(second).queryByRole("button", { name: /^Arrondir/ })).not.toBeInTheDocument();
+  });
+
+  it("offers no rounding on a validated or priced line, nor to a reader", async () => {
+    await openEditor({
+      [`GET ${BASE}`]: {
+        data: detail({
+          lines: [
+            tubeLine({ status: "validated", validated_at: "2026-11-10T09:00:00.000Z" }),
+            tubeLine({ id: LINE_B, position: 2, unit_price_ht_cents: 1250, price_quote_id: "13131313-1313-4131-8131-131313131313" }),
+          ],
+          articles: { [TUBE]: tube },
+        }),
+      },
+    });
+    expect(screen.queryByRole("button", { name: /^Arrondir/ })).not.toBeInTheDocument();
+    cleanup();
+    vi.unstubAllGlobals();
+
+    await openEditor({
+      [`GET ${BASE}`]: { data: detail({ lines: [tubeLine()], articles: { [TUBE]: tube }, canWrite: false }) },
+    });
+    expect(screen.queryByRole("button", { name: /^Arrondir/ })).not.toBeInTheDocument();
   });
 });

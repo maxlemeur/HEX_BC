@@ -141,6 +141,8 @@ const articleSummary: z.ZodType<MaterialRequestArticleSummary> = z.object({
   material: z.string().nullable(), dimensions: z.string().nullable(), unit: z.string().nullable(),
   catalogue_status: z.enum(["draft", "validated"]), created_from_material_request: z.boolean(),
   supply_type_name: z.string().nullable(),
+  // TI-690: the article's usual sale packaging, null when it has none.
+  usual_packaging: z.object({ label: z.string(), quantity: z.number().positive(), unit: z.string() }).nullable(),
 });
 const candidate: z.ZodType<MaterialRequestArticleCandidate> = z.object({
   article: articleSummary, score: z.number().int().min(0).max(100), via: z.enum(["reference", "alias", "ranked"]),
