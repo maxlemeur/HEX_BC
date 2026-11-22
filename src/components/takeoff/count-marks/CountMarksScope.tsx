@@ -2,7 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
-import { useCompletions, type Completion, type CompletionTarget } from "@/components/takeoff/item-detail/useCompletions";
+import { isRightRefusal, useCompletions, type Completion, type CompletionTarget } from "@/components/takeoff/item-detail/useCompletions";
 import { isTakeoffApiError } from "@/lib/takeoff/client-http";
 import {
   TAKEOFF_COUNT_MARK_EDIT_REFUSALS,
@@ -80,6 +80,8 @@ const IN_FLIGHT_NOTICE = "Ce geste est en cours d’enregistrement : modifiez-le
 const PAGE_NOT_SHOWN_NOTICE = "Une page se vérifie sur son plan affiché : ouvrez-la avant de la déclarer vérifiée.";
 const PAGE_NOT_DRAWN_NOTICE = "Le plan de cette page n’est pas encore dessiné : déclarez-la vérifiée une fois affichée.";
 const NOTHING_IN_FRAME_NOTICE = "Aucune partie de la page n’est dans le cadre : ramenez-la pour y pointer un repère au clavier.";
+/** The states a member still decides on a page before declaring it verified. */
+const UNDECIDED_STATES: readonly string[] = ["proposed", "to_attribute"];
 const UNSAVED_REATTRIBUTION_NOTICE = "Enregistrez d’abord cet ajout : un repère non enregistré ne s’affecte pas à un autre poste.";
 
 /** Lots read at two revisions, again: no view is published; what was shown stays, and the member is told. */
@@ -134,7 +136,9 @@ export type CountMarksQuestion = {
  * about each, whether it is the same object or a distinct one. twins: marks the database knows; additions: marks added in
  * the session (by their key).
  */
-export type CountMarksRefusedQuestion = { entryId: string; op: TakeoffCountMarkGesture["op"]; twins: string[]; additions: string[] };
+export type CountMarksRefusedQuestion = { entryId: string; op: TakeoffCountMarkGesture["op"]; twins: string[]; additions: string[];
+  /** The answer the twins are retained for: the shown one, or a reattribution's target (its marks are read for them). */
+  answerId: string };
 
 export type CountMarksStatus = "none" | "outside" | "loading" | "ready" | "refused" | "error" | "changing";
 
@@ -162,6 +166,8 @@ export type CountMarksContextValue = {
   shown: CountMarkShown[];
   removed: Removed | null;
   refusedQuestion: CountMarksRefusedQuestion | null;
+  /** The retained marks of another answer a refusal named (a reattribution's target), read for its question. */
+  refusedNeighbours: Record<string, CountMarkPoint>;
   answerRefused: (answer: { object: "same"; sameAs: string } | { object: "distinct" } | "cancel") => void;
   /** The gestures being sent: they are changed once the save ends. */
   inFlight: ReadonlySet<string>;
@@ -265,20 +271,22 @@ function refusalSentence(error: unknown) {
   return "La modification n’a pas pu être enregistrée. Réessayez.";
 }
 
-export function CountMarksScope({ projectId, answer, page, itemLabels, targets, reader: given, onSaved, children }: {
+export function CountMarksScope({ projectId, answer, page, itemLabels: labelsGiven, reader: given, onSaved, readOnly = false,
+  children }: {
   projectId: string;
   answer: CountMarksAnswer | null;
   page: number;
   itemLabels: Record<string, string>;
-  targets: CountMarksTarget[];
   /** The readers to use; by default the affaire's routes. */
   reader?: CountMarksReader;
   /**
    * Called once a save changed answers' marks, with every answer its command named (the one saved, maybe no longer the
-   * one shown, and the others a move or a reattribution changed): what reads them (their items' decisions, their
-   * quantities) reads again.
+   * one shown, and the others a move or a reattribution changed), and the item of each when the screen knows it: what
+   * reads them (their items' decisions, their quantities) reads again.
    */
-  onSaved?: (answerIds: string[]) => void;
+  onSaved?: (answers: Array<{ answerId: string; itemId: string | null }>) => void;
+  /** Marks consulted only (an earlier reading's own): no gesture, whatever the server allows. */
+  readOnly?: boolean;
   children: ReactNode;
 }) {
   const reader = useMemo(() => given ?? createCountMarksReader(projectId), [given, projectId]);
@@ -290,6 +298,7 @@ export function CountMarksScope({ projectId, answer, page, itemLabels, targets, 
   const [reloading, setReloading] = useState(false);
   const [removed, setRemoved] = useState<Removed | null>(null);
   const [refusedQuestion, setRefusedQuestion] = useState<CountMarksRefusedQuestion | null>(null);
+  const [refusedNeighbours, setRefusedNeighbours] = useState<Record<string, CountMarkPoint>>({});
   const [inFlight, setInFlight] = useState<ReadonlySet<string>>(() => new Set());
   const [attempt, setAttempt] = useState(0);
   const [wantRemoved, setWantRemoved] = useState(false);
@@ -306,6 +315,9 @@ export function CountMarksScope({ projectId, answer, page, itemLabels, targets, 
   const [refused, setRefused] = useState(false);
   const [dialog, setDialog] = useState<CountMarksDialog>(null);
   const [panelOpen, setPanelOpen] = useState(true);
+  // The items a mark of this answer may be given to: the other items of its reading, read from the server when the member
+  // first asks to give one (whatever the table of items shows).
+  const [destinations, setDestinations] = useState<{ answerId: string; targets: CountMarksTarget[] } | null>(null);
   const frameRef = useRef<CountMarksPlanFrame | null>(null);
   frameRef.current = planFrame;
 
@@ -342,6 +354,21 @@ export function CountMarksScope({ projectId, answer, page, itemLabels, targets, 
   const refuse = useCallback((error: unknown) => {
     if (!isReadRefusal(error)) return false;
     withdraw();
+    return true;
+  }, [withdraw]);
+  /**
+   * A refused read or command that ended later: a refusal of the member's right (401, 403) withdraws the marks at once
+   * while this is still the screen that started it, whatever answer is shown now; a refusal for an answer gone (404)
+   * only while that answer is shown. Either is then settled (a refusal for a previous screen stays discarded); any
+   * other failure is the caller's, told only while what started it is shown.
+   */
+  const refusedBy = useCallback((error: unknown, done: Completion) => {
+    if (isRightRefusal(error)) {
+      if (done.ownScreen()) withdraw();
+      return true;
+    }
+    if (!isReadRefusal(error)) return false;
+    if (done.current()) withdraw();
     return true;
   }, [withdraw]);
 
@@ -421,15 +448,14 @@ export function CountMarksScope({ projectId, answer, page, itemLabels, targets, 
       }
       return next;
     } catch (error) {
-      if (!done.current()) return null;
-      if (isReadRefusal(error)) withdraw();
-      else if (isChanging(error)) setNotice(TAKEOFF_COUNT_MARKS_READ_CHANGING_MESSAGE);
+      if (refusedBy(error, done) || !done.current()) return null;
+      if (isChanging(error)) setNotice(TAKEOFF_COUNT_MARKS_READ_CHANGING_MESSAGE);
       else setFailure("error");
       return null;
     } finally {
       if (done.current()) setReloading(false);
     }
-  }, [readScreen, screen, start, withdraw]);
+  }, [readScreen, refusedBy, screen, start]);
   const readAgain = useCallback(() => {
     void reload({ say: true });
   }, [reload]);
@@ -452,16 +478,15 @@ export function CountMarksScope({ projectId, answer, page, itemLabels, targets, 
           ?? emptyCountMarkDraft(answerId, next.view.revision, newKey()) });
       }
     }).catch((error: unknown) => {
-      if (!active || !done.current()) return;
-      if (isReadRefusal(error)) withdraw();
-      else setFailure(isChanging(error) ? "changing" : "error");
+      if (refusedBy(error, done) || !active || !done.current()) return;
+      setFailure(isChanging(error) ? "changing" : "error");
     }).finally(() => {
       if (active && done.current()) setReloading(false);
     });
     return () => {
       active = false;
     };
-  }, [answerId, page, inScope, refused, readScreen, screen, start, withdraw, writeSession, attempt]);
+  }, [answerId, page, inScope, refused, readScreen, refusedBy, screen, start, writeSession, attempt]);
 
   const current = loaded && loaded.answerId === answerId && loaded.page === page ? loaded : null;
   const draft = session && session.draft.answerId === answerId ? session.draft : null;
@@ -509,7 +534,9 @@ export function CountMarksScope({ projectId, answer, page, itemLabels, targets, 
   }, [unsaved]);
 
   const shown = useMemo(() => (current ? shownCountMarks(current.marks, draft, page) : []), [current, draft, page]);
-  const staleEntries = useMemo(() => staleDraftEntries(draft, current?.marks ?? [], page), [current, draft, page]);
+  // A gesture on a removed mark is judged against the removed marks read with the page.
+  const staleEntries = useMemo(() => staleDraftEntries(draft, [...(current?.marks ?? []), ...(removed?.marks ?? [])], page),
+    [current, draft, page, removed]);
 
   const recorded = current?.view.geometry ?? null;
   const drawn = planFrame && planFrame.page === page ? planFrame : null;
@@ -518,7 +545,7 @@ export function CountMarksScope({ projectId, answer, page, itemLabels, targets, 
     [drawnSize, recorded]);
   const pointingBlocked = recorded && drawn && !sameCountPage(recorded, drawn.size)
     ? "Ce plan ne correspond plus à la page sur laquelle ces repères ont été posés : ils se consultent sans pointer." : null;
-  const canEdit = Boolean(current?.view.edit.allowed) && !refused;
+  const canEdit = Boolean(current?.view.edit.allowed) && !refused && !readOnly;
 
   const markOf = useCallback((markId: string | null) => (markId ? shown.find((mark) => mark.markId === markId) ?? null : null), [shown]);
   const describe = useCallback((mark: CountMarkShown) => {
@@ -547,12 +574,12 @@ export function CountMarksScope({ projectId, answer, page, itemLabels, targets, 
     if (!current) return true;
     if (!canEdit) {
       setNotice(current.view.edit.reason === "sent" ? TAKEOFF_COUNT_MARKS_PLAN_SENT_MESSAGE
-        : current.view.edit.reason === "replaced" ? "Une lecture plus récente de ce poste sur ce plan a remplacé celle-ci : ses repères se consultent seulement."
+        : current.view.edit.reason === "replaced" || readOnly ? "Une lecture plus récente de ce poste sur ce plan a remplacé celle-ci : ses repères se consultent seulement."
           : "Un opérateur du métré de l’affaire peut corriger ces repères.");
       return true;
     }
     return false;
-  }, [canEdit, current]);
+  }, [canEdit, current, readOnly]);
 
   const startAdd = useCallback(() => {
     if (refuseGesture()) return;
@@ -629,11 +656,13 @@ export function CountMarksScope({ projectId, answer, page, itemLabels, targets, 
       return;
     }
     const restoredTo = mark.mark?.priorState ?? "proposed";
+    // A removed mark restored from the removed list is not in the page's lots: the session keeps it as read, to show it.
+    const asRead = kind === "restore" && mark.mark && !current?.marks.some(({ markId }) => markId === mark.markId) ? mark.mark : null;
     updateDraft((value) => draftDecide(value, { id: newKey(), op: kind, markId: mark.markId, page, state: mark.state, restoredTo,
-      word }, intentKey));
+      word, mark: asRead }, intentKey));
     setAnnouncement(word?.object === "same" ? "Même objet qu’un repère retenu, non enregistré."
       : kind === "retain" ? "Repère retenu, non enregistré." : "Repère rétabli, non enregistré.");
-  }, [geometryForAdd, others, page, updateDraft]);
+  }, [current, geometryForAdd, others, page, updateDraft]);
 
   /** A gesture near a retained mark asks the member's word first; elsewhere it goes into the session at once. */
   const propose = useCallback((kind: CountMarksQuestion["kind"], mark: CountMarkShown | null, point: CountMarkPoint) => {
@@ -712,10 +741,17 @@ export function CountMarksScope({ projectId, answer, page, itemLabels, targets, 
       return;
     }
     // A retain or a restore leaving the mark retained beside a retained one asks the member's word.
-    const restoresRetained = op === "retain" || (mark.mark?.priorState ?? "proposed") === "retained";
+    // A proposal restored on a page the session declares verified would leave it undecided: the verification stands first.
+    const restoredTo = mark.mark?.priorState ?? "proposed";
+    if (op === "restore" && UNDECIDED_STATES.includes(restoredTo)
+      && draft?.entries.some((entry) => entry.gesture.op === "verify" && entry.page === page)) {
+      setNotice(`La page ${page} est déclarée vérifiée dans vos modifications : annulez cette déclaration pour y rétablir un repère à décider.`);
+      return;
+    }
+    const restoresRetained = op === "retain" || restoredTo === "retained";
     if (restoresRetained) propose(op, mark, mark);
     else commit(op, mark, mark, null);
-  }, [activeId, commit, markOf, propose, refuseGesture, removedMarks]);
+  }, [activeId, commit, draft, markOf, page, propose, refuseGesture, removedMarks]);
 
   const reattribute = useCallback(async (markId: string, target: CountMarksTarget) => {
     if (refuseGesture()) return;
@@ -735,11 +771,15 @@ export function CountMarksScope({ projectId, answer, page, itemLabels, targets, 
         toAnswerId: target.answerId, toRevision: read.revision, distinct: false }, newKey()));
       if (given) setAnnouncement(`Repère affecté à « ${target.label} », non enregistré.`);
     } catch (error) {
+      if (isRightRefusal(error)) {
+        if (done.ownScreen()) withdraw();
+        return;
+      }
       if (!done.current()) return;
       setNotice(isTakeoffApiError(error) && error.status === 404 ? `« ${target.label} » n’a pas de lecture sur cette page : le repère ne peut pas lui être affecté.`
         : "Le poste choisi n’a pas pu être lu. Réessayez.");
     }
-  }, [answerId, markOf, page, reader, refuseGesture, screen, start, updateDraft]);
+  }, [answerId, markOf, page, reader, refuseGesture, screen, start, updateDraft, withdraw]);
 
   const verifyPage = useCallback(() => {
     if (refuseGesture()) return;
@@ -752,13 +792,18 @@ export function CountMarksScope({ projectId, answer, page, itemLabels, targets, 
       setNotice(PAGE_NOT_DRAWN_NOTICE);
       return;
     }
-    if (shown.some((mark) => mark.state === "proposed" || mark.state === "to_attribute")) {
-      setNotice(TAKEOFF_COUNT_MARK_EDIT_REFUSALS.TAKEOFF_MARKS_UNDECIDED);
+    const undecided = shown.filter((mark) => mark.state === "proposed" || mark.state === "to_attribute");
+    if (undecided.length) {
+      // A removed mark restored to a proposal in this session is one of them: say so, it is not on the page as read.
+      setNotice(undecided.some((mark) => mark.unsaved && draft?.entries.some((entry) => entry.markId === mark.markId
+        && entry.gesture.op === "restore"))
+        ? "Un repère rétabli reste à décider sur cette page : retenez-le ou retirez-le avant de la déclarer vérifiée."
+        : TAKEOFF_COUNT_MARK_EDIT_REFUSALS.TAKEOFF_MARKS_UNDECIDED);
       return;
     }
     updateDraft((value) => draftVerify(value, { id: newKey(), page }, newKey()));
     setAnnouncement(`Page ${page} déclarée vérifiée, non enregistrée.`);
-  }, [drawn, page, pointingBlocked, refuseGesture, shown, updateDraft]);
+  }, [draft, drawn, page, pointingBlocked, refuseGesture, shown, updateDraft]);
 
   const openDialog = useCallback((kind: "remove" | "reattribute", markId?: string | null) => {
     if (refuseGesture()) return;
@@ -779,13 +824,30 @@ export function CountMarksScope({ projectId, answer, page, itemLabels, targets, 
       setNotice(UNSAVED_REATTRIBUTION_NOTICE);
       return;
     }
-    if (kind === "reattribute" && !targets.length) {
-      setNotice("Aucun autre poste de cette lecture ne peut recevoir ce repère.");
+    setActiveId(mark.markId);
+    if (kind === "remove") {
+      setDialog({ kind, markId: mark.markId });
       return;
     }
-    setActiveId(mark.markId);
-    setDialog({ kind, markId: mark.markId });
-  }, [activeId, markOf, refuseGesture, targets.length]);
+    const open = (known: readonly CountMarksTarget[]) => {
+      if (!known.length) setNotice("Aucun autre poste de cette lecture ne peut recevoir ce repère.");
+      else setDialog({ kind, markId: mark.markId });
+    };
+    if (destinations && destinations.answerId === answerId) {
+      open(destinations.targets);
+      return;
+    }
+    if (!answerId) return;
+    const done = start({ screen, item: answerId, reading: String(page) });
+    reader.readTargets({ answerId }).then((read) => {
+      if (!done.ownScreen()) return;
+      setDestinations({ answerId: read.answerId, targets: read.targets });
+      if (done.current()) open(read.targets);
+    }).catch((error: unknown) => {
+      if (refusedBy(error, done)) return;
+      if (done.current()) setNotice("Les postes de cette lecture n’ont pas pu être lus. Réessayez.");
+    });
+  }, [activeId, answerId, destinations, markOf, page, reader, refuseGesture, refusedBy, screen, start]);
 
   const withoutEntry = useCallback((id: string) => {
     if (inFlightRef.current.has(id)) {
@@ -853,23 +915,47 @@ export function CountMarksScope({ projectId, answer, page, itemLabels, targets, 
    * The page's next lots until every mark a refusal named is loaded (or the page ends), so that the member sees each one
    * before answering about it.
    */
-  const loadNamed = useCallback(async (markIds: readonly string[], done: Completion) => {
-    let value = loadedRef.current;
-    const missing = (loaded: Loaded) => markIds.some((markId) => !loaded.marks.some((mark) => mark.markId === markId));
-    while (value && value.nextAfter && missing(value) && done.current()) {
-      const previous: Loaded = value;
-      const next = await readLots({ answerId: previous.answerId, page: previous.page }, previous);
-      if (!done.current()) return;
-      if (next.view.revision !== previous.view.revision) {
-        // Read at another revision: the screen is read again, its removed marks included.
-        await reload({ say: true });
+  const loadNamed = useCallback(async (markIds: readonly string[], done: Completion, of: string) => {
+    try {
+      if (of !== loadedRef.current?.answerId) {
+        // The retained marks of another answer (a reattribution's target) on this page, read until each one is found.
+        const found: Record<string, CountMarkPoint> = {};
+        const wanted = new Set(markIds);
+        let after: string | null = null;
+        do {
+          const read: CountMarksView = await reader.readPage({ answerId: of, page, states: ["retained"], after });
+          if (!done.current()) return;
+          for (const value of read.marks) if (wanted.has(value.markId)) found[value.markId] = { x: value.x, y: value.y };
+          after = read.nextAfter;
+        } while (after && markIds.some((markId) => !(markId in found)));
+        setRefusedNeighbours(found);
         return;
       }
-      loadedRef.current = next;
-      setLoaded(next);
-      value = next;
+      let value = loadedRef.current;
+      const missing = (loaded: Loaded) => markIds.some((markId) => !loaded.marks.some((mark) => mark.markId === markId));
+      while (value && value.nextAfter && missing(value) && done.current()) {
+        const previous: Loaded = value;
+        const next = await readLots({ answerId: previous.answerId, page: previous.page }, previous);
+        if (!done.current()) return;
+        if (next.view.revision !== previous.view.revision) {
+          // Read at another revision: the screen is read again, its removed marks included.
+          await reload({ say: true });
+          return;
+        }
+        loadedRef.current = next;
+        setLoaded(next);
+        value = next;
+      }
+    } catch (error) {
+      // Another answer's page refused is not this one's: there, only a refusal of the member's right withdraws the marks.
+      if (isRightRefusal(error)) {
+        if (done.ownScreen()) withdraw();
+        return;
+      }
+      if (of === loadedRef.current?.answerId && refusedBy(error, done)) return;
+      if (done.current()) setNotice("Les repères nommés par l’enregistrement n’ont pas pu être lus.");
     }
-  }, [readLots, reload]);
+  }, [page, readLots, reader, refusedBy, reload, withdraw]);
 
   const save = useCallback(async () => {
     const session_ = sessionRef.current;
@@ -906,7 +992,12 @@ export function CountMarksScope({ projectId, answer, page, itemLabels, targets, 
         entries: value.entries.filter(({ id }) => !sent.has(id)) }));
       // What reads the marks of every answer the command named reads again, for their items, while this is the screen
       // that saved: a reattribution reopens its target's acceptance too.
-      if (done.ownScreen()) onSaved?.(Object.keys(command.revisions));
+      if (done.ownScreen()) {
+        const itemOf = (other: string) => other === savedAnswer ? null
+          : (destinations?.targets.find((target) => target.answerId === other)?.itemId
+            ?? current?.marks.flatMap((value) => value.others).find((value) => value.answerId === other)?.itemId ?? null);
+        onSaved?.(Object.keys(command.revisions).map((other) => ({ answerId: other, itemId: itemOf(other) })));
+      }
       if (!done.current()) return;
       setNotice(`${draft.entries.length > 1 ? `${draft.entries.length} modifications enregistrées` : "Modification enregistrée"}.`);
       setAnnouncement(answerSummary ? `Enregistré : ${answerSummary.retained} repère${answerSummary.retained > 1 ? "s" : ""} retenu${answerSummary.retained > 1 ? "s" : ""}.`
@@ -916,7 +1007,13 @@ export function CountMarksScope({ projectId, answer, page, itemLabels, targets, 
     } catch (error) {
       const code = isTakeoffApiError(error) ? error.code : null;
       if (code === "TAKEOFF_MARKS_INTENT_CONFLICT") settle((value) => ({ ...value, intentKey: newKey() }));
-      // A failure obeys the same rule: what is shown hears of it only while it is still the saved answer.
+      // A failure obeys the same rule: what is shown hears of it only while it is still the saved answer. A refusal of the
+      // member's right (a session lost, an operator no longer) for this screen reads what is shown again at once: it
+      // withdraws the marks, or offers no gesture, whatever answer is shown now.
+      if (isRightRefusal(error) && done.ownScreen() && !done.current()) {
+        void reload();
+        return;
+      }
       if (!done.current()) return;
       if (code === "TAKEOFF_MARKS_REVISION_CONFLICT") {
         // Read again, say what changed, keep every gesture: they are saved again on what was read.
@@ -931,9 +1028,12 @@ export function CountMarksScope({ projectId, answer, page, itemLabels, targets, 
         const named = isTakeoffApiError(error) ? countMarkDuplicateDetailSchema.safeParse(error.details) : null;
         const entry = named?.success ? sentEntries[named.data.gesture - 1] : undefined;
         if (named?.success && entry) {
+          // A reattribution is refused beside the marks its target retains: those are read from the target's page.
+          const of = entry.gesture.op === "reattribute" ? entry.gesture.to_answer_id : savedAnswer;
+          setRefusedNeighbours({});
           setRefusedQuestion({ entryId: entry.id, op: entry.gesture.op, twins: named.data.twins,
-            additions: named.data.addedKeys.map((key) => draftMarkId(key)) });
-          void loadNamed(named.data.twins, done);
+            additions: named.data.addedKeys.map((key) => draftMarkId(key)), answerId: of });
+          void loadNamed(named.data.twins, done, of);
         } else setAskWords(true);
       }
       setNotice(refusalSentence(error));
@@ -947,7 +1047,7 @@ export function CountMarksScope({ projectId, answer, page, itemLabels, targets, 
       setInFlight(new Set());
       setSaving(false);
     }
-  }, [draft, loadNamed, onSaved, rebase, refuseGesture, reader, reload, screen, start, updateDraft]);
+  }, [current, destinations, draft, loadNamed, onSaved, rebase, refuseGesture, reader, reload, screen, start, updateDraft]);
 
   // One read per cursor: a second click on the same lot reads nothing, and a lot is appended once, after its cursor.
   const lotsCursor = useRef<string | null>(null);
@@ -970,14 +1070,13 @@ export function CountMarksScope({ projectId, answer, page, itemLabels, targets, 
       }
       setLoaded(next);
     }).catch((error: unknown) => {
-      if (!done.current()) return;
-      if (isReadRefusal(error)) withdraw();
-      else setNotice("La suite des repères n’a pas pu être lue.");
+      if (refusedBy(error, done) || !done.current()) return;
+      setNotice("La suite des repères n’a pas pu être lue.");
     }).finally(() => {
       if (lotsCursor.current === cursor) lotsCursor.current = null;
       if (done.current()) setReloading(false);
     });
-  }, [answerId, current, page, readLots, reload, screen, start, withdraw]);
+  }, [answerId, current, page, readLots, refusedBy, reload, screen, start]);
 
   const showRemoved = useCallback((show: boolean) => {
     setWantRemoved(show);
@@ -996,11 +1095,10 @@ export function CountMarksScope({ projectId, answer, page, itemLabels, targets, 
       }
       setRemoved(removedOf(read));
     }).catch((error: unknown) => {
-      if (!done.current()) return;
-      if (isReadRefusal(error)) withdraw();
-      else setNotice("Les repères retirés n’ont pas pu être lus.");
+      if (refusedBy(error, done) || !done.current()) return;
+      setNotice("Les repères retirés n’ont pas pu être lus.");
     });
-  }, [answerId, inScope, page, readAgain, reader, screen, start, withdraw]);
+  }, [answerId, inScope, page, readAgain, reader, refusedBy, screen, start]);
 
   /** The next lot of the removed marks, after the last one read, to the last cursor; one read per cursor. */
   const removedCursor = useRef<string | null>(null);
@@ -1018,21 +1116,25 @@ export function CountMarksScope({ projectId, answer, page, itemLabels, targets, 
       setRemoved((value) => (value && value.nextAfter === cursor ? { marks: [...value.marks, ...read.marks], total: read.total,
         nextAfter: read.nextAfter, revision: read.revision } : value));
     }).catch((error: unknown) => {
-      if (!done.current()) return;
-      if (isReadRefusal(error)) withdraw();
-      else setNotice("La suite des repères retirés n’a pas pu être lue.");
+      if (refusedBy(error, done) || !done.current()) return;
+      setNotice("La suite des repères retirés n’a pas pu être lue.");
     }).finally(() => {
       if (removedCursor.current === cursor) removedCursor.current = null;
     });
-  }, [answerId, page, readAgain, reader, removed?.nextAfter, screen, start, withdraw]);
+  }, [answerId, page, readAgain, reader, refusedBy, removed?.nextAfter, screen, start]);
+
+  const shownTargets = useMemo(() => (destinations && destinations.answerId === answerId ? destinations.targets : []),
+    [answerId, destinations]);
+  const itemLabels = useMemo(() => ({ ...labelsGiven, ...Object.fromEntries(shownTargets.map(({ itemId, label }) => [itemId, label])) }),
+    [labelsGiven, shownTargets]);
 
   const status: CountMarksStatus = !answer ? "none" : refused ? "refused" : !inScope ? "outside"
     : current ? "ready" : failure === "error" ? "error" : failure === "changing" ? "changing" : "loading";
 
   const value: CountMarksContextValue = {
     status, answer, page, loaded: current, reloading, shown, removed, draft, staleEntries, askWords, activeId, mode, question,
-    notice, announcement, saving, canEdit, pointingBlocked, planFrame: drawn, itemLabels, targets, historyVersion, pageSize,
-    summary: current?.view.summary ?? null, reader, refusedQuestion, answerRefused, inFlight, loadMoreRemoved,
+    notice, announcement, saving, canEdit, pointingBlocked, planFrame: drawn, itemLabels, targets: shownTargets, historyVersion, pageSize,
+    summary: current?.view.summary ?? null, reader, refusedQuestion, refusedNeighbours, answerRefused, inFlight, loadMoreRemoved,
     retry: () => {
       setFailure(null);
       setAttempt((value) => value + 1);

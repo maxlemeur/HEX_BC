@@ -255,10 +255,20 @@ function RefusedQuestionDialog({ marks, numbers }: { marks: CountMarksContextVal
   // Each mark by its number in the list and its place on the page, so that two neighbours are told apart; one not loaded
   // yet is being read (the scope reads the page's next lots for it).
   const loaded = (markId: string) => marks.shown.find((mark) => mark.markId === markId) ?? null;
+  // A reattribution's target retains the marks named: read from its page, named by its item and their place.
+  const targetLabel = marks.targets.find((target) => target.answerId === asked.answerId)?.label ?? "l’autre poste";
+  const neighbour = (markId: string) => asked.answerId !== marks.answer?.answerId ? marks.refusedNeighbours[markId] ?? null : null;
   const named = (markId: string) => {
     if (isDraftMarkId(markId)) return "votre ajout non enregistré";
+    const other = neighbour(markId);
+    if (other) return `le repère retenu de « ${targetLabel} » (${countMarkPlace(other)})`;
     const mark = loaded(markId);
     return mark && numbers[markId] ? `le repère ${numbers[markId]} (${countMarkPlace(mark)})` : "un repère retenu hors de la liste chargée";
+  };
+  const show = (markId: string) => {
+    const other = neighbour(markId);
+    if (other) marks.planFrame?.centre(other);
+    else marks.select(markId, { announce: false });
   };
   const asThat = (markId: string) => { const text = named(markId); return text.startsWith("un ") ? `qu’${text}` : `que ${text}`; };
   const sameLabel = (markId: string) => isDraftMarkId(markId) ? "Même objet que votre ajout non enregistré : retirer l’ajout"
@@ -281,9 +291,9 @@ function RefusedQuestionDialog({ marks, numbers }: { marks: CountMarksContextVal
           {/* A non-decision gesture onto a known object is withdrawn once (whatever the neighbour). */}
           {(decides ? neighbours : neighbours.slice(0, 1)).map((markId) => (
             // Choosing one (by the keyboard or the pointer) centres it on the plan.
-            <Button key={markId} variant="outline" onFocus={() => marks.select(markId, { announce: false })}
+            <Button key={markId} variant="outline" onFocus={() => show(markId)}
               onClick={() => {
-                marks.select(markId, { announce: false });
+                show(markId);
                 marks.answerRefused({ object: "same", sameAs: markId });
               }}>
               {sameLabel(markId)}

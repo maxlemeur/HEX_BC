@@ -8,7 +8,7 @@ import { CountMarksPanel } from "@/components/takeoff/count-marks/CountMarksPane
 import { CountMarksScope, type CountMarksAnswer } from "@/components/takeoff/count-marks/CountMarksScope";
 import { CountMarksTools } from "@/components/takeoff/count-marks/CountMarksTools";
 import { ItemDetailEvidencePane } from "@/components/takeoff/item-detail/ItemDetailEvidencePane";
-import { useCompletions } from "@/components/takeoff/item-detail/useCompletions";
+import { isRightRefusal, useCompletions } from "@/components/takeoff/item-detail/useCompletions";
 import {
   ItemDetailPlanPane,
   type ItemDetailDocumentState,
@@ -170,6 +170,11 @@ function ItemDetailView({ projectId, address, reader, tableQuery, onBack, onGest
       setLoad({ state: alone?.line ? "ready" : "missing" });
       setRevision((value) => value + 1);
     }).catch((caught: unknown) => {
+      // A refusal of the member's right is the screen's at once, whatever item is shown now.
+      if (isRightRefusal(caught)) {
+        if (done.ownScreen()) onRefused(caught);
+        return;
+      }
       if (!done.current()) return;
       if (!onRefused(caught)) setLoad({ state: "error" });
     });
@@ -216,7 +221,7 @@ function ItemDetailView({ projectId, address, reader, tableQuery, onBack, onGest
       setFresh((current) => ({ ...current, [target]: read?.line ?? null }));
       if (read) setRights(read.canReview);
     }).catch((caught: unknown) => {
-      if (latest() && done.current()) onRefused(caught);
+      if (isRightRefusal(caught) ? done.ownScreen() : latest() && done.current()) onRefused(caught);
     });
   }, [begin, onRefused, reader]);
   useEffect(() => {
@@ -245,8 +250,13 @@ function ItemDetailView({ projectId, address, reader, tableQuery, onBack, onGest
     reader.resolvePlan(asked).then((view) => {
       if (done.current()) setResolved({ key, resolution: { state: "ready", view } });
     }).catch((error: unknown) => {
-      if (!done.current()) return;
       const failure = error instanceof ItemDetailPlanError ? error : new ItemDetailPlanError(null, null);
+      // A refusal of the member's right is the screen's at once, whatever item or reading is shown now.
+      if (isRightRefusal(failure)) {
+        if (done.ownScreen()) planRefused(failure);
+        return;
+      }
+      if (!done.current()) return;
       if (failure.code === "TAKEOFF_ITEM_DETAIL_READING_NOT_FOUND") {
         setRefusedReading(key);
         setResolved({ key, resolution: { state: "none" } });
@@ -312,6 +322,10 @@ function ItemDetailView({ projectId, address, reader, tableQuery, onBack, onGest
         queue.add(page);
         setRevision((value) => value + 1);
       } catch (caught) {
+        if (isRightRefusal(caught)) {
+          if (done.ownScreen()) onRefused(caught);
+          return;
+        }
         if (!done.current() || navigation.current !== asked) return;
         if (!onRefused(caught)) setNotice("La page suivante des postes n’a pas pu être lue.");
         return;
@@ -342,11 +356,12 @@ function ItemDetailView({ projectId, address, reader, tableQuery, onBack, onGest
     onGesture!({ gesture: requested, line, initial, key });
   }, [key, line, offer, onGesture]);
 
-  // The journal of the item shown: a refusal of one of its reads withdraws the detail only while that item is shown.
+  // The journal of the item shown: a refusal of one of its reads withdraws the detail while that item is shown; a
+  // refusal of the member's right, while this screen is the one that read it, whatever item is shown now.
   const historyRefused = useMemo(() => {
     if (!line) return onRefused;
     const done = begin({ screen: DETAIL_SCREEN, item: line.itemId });
-    return (caught: unknown) => (done.current() ? onRefused(caught) : true);
+    return (caught: unknown) => ((isRightRefusal(caught) ? done.ownScreen() : done.current()) ? onRefused(caught) : true);
   }, [begin, line, onRefused]);
 
   // The page is told what is shown and what it offers, so that a confirmation never outlives what opened it.
@@ -401,22 +416,23 @@ function ItemDetailView({ projectId, address, reader, tableQuery, onBack, onGest
   // its own marks are not readable by its job yet.
   const reading = choice.kind === "reading" && choice.current ? choice.reading : null;
   const earlierReading = choice.kind === "reading" && !choice.current && choice.reading.answer ? choice : null;
+  // An earlier reading's own answer, as the server proved it with its plan (the job answered the item there): its marks,
+  // read only, on its own copy of the plan.
+  const earlierAnswer = earlierReading && view?.reading?.jobId === earlierReading.jobId ? view.reading.answer ?? null : null;
+  const earlierJob = earlierReading?.jobId ?? null;
   const marksAnswer = useMemo<CountMarksAnswer | null>(() => (reading?.answer ? { answerId: reading.answer.answerId,
     jobId: reading.answer.jobId, scopePages: [...new Set([...reading.answer.searchedPages, ...reading.answer.unreadablePages])] }
-    : null), [reading]);
+    : earlierAnswer && earlierJob ? { answerId: earlierAnswer.answerId, jobId: earlierJob, scopePages: earlierAnswer.scopePages }
+      : null), [earlierAnswer, earlierJob, reading]);
   const itemLabels = Object.fromEntries(shownLines.map((entry) => [entry.itemId, entry.label]));
-  const marksTargets = marksAnswer ? shownLines.flatMap((entry) => entry.itemId === itemId ? [] : entry.readings
-    .filter((other) => other.planKey === reading?.planKey && other.answer?.jobId === marksAnswer.jobId)
-    .map((other) => ({ answerId: other.answer!.answerId, itemId: entry.itemId, label: entry.label }))) : [];
-  // The item of each answer the detail knows (the answer shown, the targets of a reattribution, every reading of the queue
-  // loaded): a save names every answer its command changed, maybe once another item is shown, and each one's item is read
-  // again — the saved answer's, and a reattribution's or a move's other items, whose acceptance it reopens too.
+  // The item of each answer the detail knows (the answer shown, every reading of the queue loaded): a save names every
+  // answer its command changed, with the item when the marks know it (a reattribution's target, another item holding a
+  // moved mark), maybe once another item is shown, and each one's item is read again, its acceptance reopened too.
   const answerItems = useRef<Record<string, string>>({});
   for (const entry of shownLines) for (const other of entry.readings) if (other.answer) answerItems.current[other.answer.answerId] = entry.itemId;
-  for (const target of marksTargets) answerItems.current[target.answerId] = target.itemId;
   if (marksAnswer) answerItems.current[marksAnswer.answerId] = itemId;
-  const marksSaved = useCallback((answerIds: readonly string[]) => {
-    const items = new Set(answerIds.flatMap((answerId) => answerItems.current[answerId] ?? []));
+  const marksSaved = useCallback((answers: ReadonlyArray<{ answerId: string; itemId: string | null }>) => {
+    const items = new Set(answers.flatMap(({ answerId, itemId: named }) => named ?? answerItems.current[answerId] ?? []));
     for (const target of items) rereadItem(target);
   }, [rereadItem]);
 
@@ -470,8 +486,8 @@ function ItemDetailView({ projectId, address, reader, tableQuery, onBack, onGest
               ↑ ↓ poste · Entrée preuve · Échap tableau{canReview ? " · V accepter · E écarter · I inclure · F2 saisir" : ""}
             </p>
           </aside>
-          <CountMarksScope projectId={projectId} answer={marksAnswer} page={opening.page} itemLabels={itemLabels} targets={marksTargets}
-            onSaved={marksSaved}>
+          <CountMarksScope projectId={projectId} answer={marksAnswer} page={opening.page} itemLabels={itemLabels} onSaved={marksSaved}
+            readOnly={earlierAnswer !== null}>
             <div className="flex min-h-0 min-w-0 flex-1 flex-col">
               <ItemDetailPlanPane resolution={line ? resolution : { state: "loading" }} page={opening.page} requestedMissing={opening.requestedMissing}
                 pagesOfInterest={pagesOfInterest} onPage={(page) => go({ page, observationId: null })} onDocumentState={setDocumentState}
@@ -481,7 +497,8 @@ function ItemDetailView({ projectId, address, reader, tableQuery, onBack, onGest
               {earlierReading ? (
                 <p className="flex shrink-0 flex-wrap items-center gap-2 border-t border-border bg-surface px-3 py-2 text-xs text-foreground-secondary"
                   data-testid="reperes-lecture-ancienne">
-                  Les repères comptés sont ceux de la lecture actuelle de ce poste, sur sa propre copie du plan.
+                  {earlierAnswer ? "Repères de cette lecture plus ancienne, sur sa propre copie du plan, en lecture seule."
+                    : "Les repères comptés sont ceux de la lecture actuelle de ce poste, sur sa propre copie du plan."}
                   <Button size="xs" variant="outline" onClick={() => go({ planKey: earlierReading.planKey,
                     jobId: earlierReading.reading.answer!.jobId, page: null, answerId: null, observationId: null })}>
                     Ouvrir la lecture actuelle

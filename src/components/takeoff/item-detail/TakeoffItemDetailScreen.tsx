@@ -1,10 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useId, useMemo, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
 import { TakeoffItemDetail, type ItemDetailGestureRequest, type ItemDetailShown } from "@/components/takeoff/item-detail/TakeoffItemDetail";
-import { useCompletions } from "@/components/takeoff/item-detail/useCompletions";
+import { forgetItemDetailOpener, rememberItemDetailOpener } from "@/components/takeoff/item-detail/ItemDetailOpenerFocus";
+import { isRightRefusal, useCompletions } from "@/components/takeoff/item-detail/useCompletions";
 import { AcceptMeasuredDialog, EntryDialog, SetAsideDialog } from "@/components/takeoff/item-table/ItemTableGestureDialogs";
 import { isTakeoffReadRefusal } from "@/components/takeoff/useTakeoffRequestActivity";
 import { Alert } from "@/components/ui/alert";
@@ -151,7 +152,16 @@ export function TakeoffItemDetailScreen({ projectId, viewerKey }: {
   const [inFlight, setInFlight] = useState<readonly Pending[]>([]);
   const [notice, setNotice] = useState<Notice | null>(null);
 
-  const back = useCallback((href: string) => router.replace(href, { scroll: false }), [router]);
+  // The line whose « Détail » opened this detail: the browser's back gives it the keyboard again (ItemDetailOpenerFocus).
+  // « Revenir aux postes » names the item last shown itself, and forgets it.
+  const opened = useRef(detail.kind === "detail" ? { query, itemId: detail.address.itemId } : null);
+  useEffect(() => {
+    if (opened.current) rememberItemDetailOpener(projectId, opened.current.query, opened.current.itemId);
+  }, [projectId]);
+  const back = useCallback((href: string) => {
+    forgetItemDetailOpener(projectId);
+    router.replace(href, { scroll: false });
+  }, [projectId, router]);
   const tableHref = itemTableReturnHref(projectId, query, detail.kind === "detail" ? { itemId: detail.address.itemId, offset: 0 } : null);
 
   /** Sends a command from what is shown; `own`, the confirmation it was confirmed in (none for an inclusion). */
@@ -163,6 +173,9 @@ export function TakeoffItemDetailScreen({ projectId, viewerKey }: {
       const result = await sendItemReviewCommand(projectId, command);
       if (completion.current()) setNotice(resultNotice(result, done));
     } catch (caught) {
+      // A refusal of the member's right withdraws this screen at once, whatever item is shown now; any other failure is
+      // said only while what started the command is shown.
+      if (isRightRefusal(caught) && completion.ownScreen() && withdrawOnRefusal(caught)) return;
       if (!completion.current() || withdrawOnRefusal(caught)) return;
       setNotice(itemReviewStaleLines(caught)
         ? { tone: "danger", text: "Rien n’a été appliqué : le poste a changé depuis son affichage. Il est relu : vérifiez-le, puis décidez de nouveau." }

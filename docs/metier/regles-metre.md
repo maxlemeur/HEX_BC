@@ -347,15 +347,27 @@ ouvert entre-temps, un autre poste garde sa page et ses gestes. Si un autre memb
 les repères entre-temps, ils sont relus, l’écran dit ce qui a changé et garde chaque geste
 pour l’enregistrer de nouveau ; la page, ses repères retirés, l’historique et le compte sont
 toujours montrés à une seule révision, sinon l’écran les relit. Les gestes non enregistrés
-restent dans l’onglet pour ce membre et ce poste. Un ajout non enregistré ne s’affecte pas
-à un autre poste : il s’enregistre d’abord. À côté d’un repère retenu, l’écran demande
-« Même objet » ou « Objet distinct » et ne décide jamais seul, y compris pour un repère
-retenu que seul l’enregistrement trouve : chaque choix nomme son repère par son numéro et sa
-place, le charge s’il ne l’est pas encore et le centre quand il est choisi.
+restent dans l’onglet pour ce membre et ce poste. Un repère rétabli depuis la liste des
+retirés est dessiné et listé aussitôt, avant l’enregistrement, et se décide comme les
+autres ; une page ne se déclare pas vérifiée tant qu’un repère rétabli y reste à décider, et
+un repère à décider ne se rétablit pas sur une page que la session déclare vérifiée : l’écran
+le dit. Un repère s’affecte à tout autre poste de la même lecture (son analyse, sur son
+plan) dont la réponse n’a pas été remplacée, quel que soit le tableau des postes affiché. Un
+ajout non enregistré ne s’affecte pas à un autre poste : il s’enregistre d’abord. À côté
+d’un repère retenu, l’écran demande « Même objet » ou « Objet distinct » et ne décide jamais
+seul, y compris pour un repère retenu que seul l’enregistrement trouve : chaque choix nomme
+son repère par son numéro et sa place, le charge s’il ne l’est pas encore et le centre quand
+il est choisi ; pour une affectation, ce sont les repères retenus du poste qui reçoit le
+repère, lus sur sa page. Un refus du droit du membre (session perdue, droit retiré) qui
+revient pour cet écran le retire aussitôt, quel que soit le poste affiché ; un refus
+revenu pour un membre ou une portée précédents reste sans effet.
 Un lecteur, un plan déjà envoyé au devis et une lecture remplacée montrent les repères, le
 compte et l’historique, sans geste ; la commande refuse elle-même une modification d’un
 plan envoyé, sous ses verrous (un envoi et une modification s’excluent). Ouvert sur une
-lecture plus ancienne, le détail ne montre pas de repères et mène à la lecture actuelle. Tant qu’un envoi ne vérifie pas la
+lecture plus ancienne, le détail montre ses propres repères en lecture seule, sur sa propre
+copie du plan, une fois que le serveur a prouvé la réponse que cette analyse a donnée pour
+le poste sur ce plan, et mène à la lecture actuelle. Le retour du navigateur depuis le
+détail rend le clavier au « Détail » de la ligne qui l’a ouvert. Tant qu’un envoi ne vérifie pas la
 révision des repères, une quantité comptée sur le plan est montrée et n’est jamais
 envoyée : le tableau des postes et l’envoi gardent la quantité qu’ils retiennent.
 

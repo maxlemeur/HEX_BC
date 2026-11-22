@@ -5,7 +5,7 @@ vi.mock("@/lib/affaires/access-server", () => ({ requireAffaireAccess: vi.fn() }
 
 import { requireAffaireAccess } from "@/lib/affaires/access-server";
 import { countMarksEditRequestSchema } from "./count-marks-contracts";
-import { editCountMarksAsMember, readCountMarksView } from "./count-marks-server";
+import { editCountMarksAsMember, readCountMarkTargets, readCountMarksView } from "./count-marks-server";
 
 // The routes of an item's counted marks (lot 5) over a database double: what the server adds to the database's own
 // judgement. Review of #485, written before the fixes:
@@ -104,5 +104,74 @@ describe("the edit", () => {
     const upper = ANSWER.toUpperCase();
     expect(countMarksEditRequestSchema.safeParse({ ...command, revisions: { [ANSWER]: 2, [upper]: 1 } }).success).toBe(false);
     expect(countMarksEditRequestSchema.safeParse(command).success).toBe(true);
+  });
+});
+
+// Follow-ups of lot 5: a reattribution offered only the items of the table's page and filter. Its destinations are the
+// other items the same reading answered (its job, on its plan) whose answer no later reading replaced, whatever the
+// table shows, by their place in the reading's list. Fictional identifiers and labels.
+describe("the destinations of a reattribution", () => {
+  const PLAN = "a1000000-0000-4000-8000-000000000001";
+  const LIST = "a2000000-0000-4000-8000-000000000001";
+  const item = (n: number) => `b0000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
+  const answerOf = (n: number) => `a0000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
+  type Row = Record<string, unknown>;
+  const tables: Record<string, Row[]> = {
+    takeoff_item_answers: [
+      { id: answerOf(1), item_id: item(1), job_id: JOB, plan_logical_id: PLAN, list_revision_id: LIST, reading_revision: 1 },
+      // Two other items of the same reading, one of them read again since by a later job: its answer is replaced.
+      { id: answerOf(2), item_id: item(2), job_id: JOB, plan_logical_id: PLAN, list_revision_id: LIST, reading_revision: 1 },
+      { id: answerOf(3), item_id: item(3), job_id: JOB, plan_logical_id: PLAN, list_revision_id: LIST, reading_revision: 1 },
+      { id: answerOf(4), item_id: item(3), job_id: MARK, plan_logical_id: PLAN, list_revision_id: LIST, reading_revision: 2 },
+      // The same job on another plan, and another item placed before the others in the list.
+      { id: answerOf(5), item_id: item(5), job_id: JOB, plan_logical_id: LIST, list_revision_id: LIST, reading_revision: 1 },
+      { id: answerOf(6), item_id: item(6), job_id: JOB, plan_logical_id: PLAN, list_revision_id: LIST, reading_revision: 1 },
+    ],
+    takeoff_list_revision_entries: [
+      { revision_id: LIST, item_id: item(2), label: "Vanne (fictive)", position: 5 },
+      { revision_id: LIST, item_id: item(3), label: "Siphon (fictif)", position: 3 },
+      { revision_id: LIST, item_id: item(6), label: "Évier (fictif)", position: 1 },
+    ],
+  };
+  function tableClient() {
+    const from = (table: string) => {
+      const filters: Array<(row: Row) => boolean> = [];
+      let range: [number, number] | null = null;
+      const builder: Record<string, unknown> = {};
+      builder.select = () => builder;
+      builder.eq = (column: string, value: unknown) => { filters.push((row) => column in row ? row[column] === value : true); return builder; };
+      builder.neq = (column: string, value: unknown) => { filters.push((row) => row[column] !== value); return builder; };
+      builder.in = (column: string, values: unknown[]) => { filters.push((row) => values.includes(row[column])); return builder; };
+      builder.order = () => builder;
+      builder.range = (start: number, end: number) => { range = [start, end]; return builder; };
+      const rows = () => {
+        const matching = (tables[table] ?? []).filter((row) => filters.every((filter) => filter(row)));
+        return range ? matching.slice(range[0], range[1] + 1) : matching;
+      };
+      builder.maybeSingle = () => Promise.resolve({ data: rows()[0] ?? null, error: null });
+      builder.then = (resolve: (value: unknown) => unknown) => Promise.resolve({ data: rows(), error: null }).then(resolve);
+      return builder;
+    };
+    return { from, rpc: () => { throw new Error("no command here"); } };
+  }
+
+  it("are the reading's other items whose answer stands, in the list's order, whatever the table shows", async () => {
+    vi.mocked(requireAffaireAccess).mockResolvedValue({
+      context: { supabase: tableClient(), tenantId: TENANT, userId: MEMBER, tenantRole: "admin" },
+      project: { id: PROJECT, tenant_id: TENANT, user_id: MEMBER, name: "Affaire", reference: null, client_name: null, is_archived: false },
+    } as never);
+    expect(await readCountMarkTargets(PROJECT, { answerId: answerOf(1).toUpperCase() })).toEqual({ answerId: answerOf(1), targets: [
+      { answerId: answerOf(6), itemId: item(6), label: "Évier (fictif)" },
+      { answerId: answerOf(2), itemId: item(2), label: "Vanne (fictive)" },
+    ] });
+  });
+
+  it("refuses an answer the member may not read", async () => {
+    vi.mocked(requireAffaireAccess).mockResolvedValue({
+      context: { supabase: tableClient(), tenantId: TENANT, userId: MEMBER, tenantRole: "admin" },
+      project: { id: PROJECT, tenant_id: TENANT, user_id: MEMBER, name: "Affaire", reference: null, client_name: null, is_archived: false },
+    } as never);
+    await expect(readCountMarkTargets(PROJECT, { answerId: answerOf(9) })).rejects.toMatchObject({ status: 404,
+      code: "TAKEOFF_MARKS_ANSWER_NOT_FOUND" });
   });
 });

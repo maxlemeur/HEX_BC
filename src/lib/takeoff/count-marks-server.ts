@@ -29,6 +29,7 @@ import {
   TAKEOFF_COUNT_MARKS_READ_CHANGING_MESSAGE,
   type CountMarkDuplicateDetail,
   type CountMarkHistoryEvent,
+  type CountMarkTargets,
   type CountMarksEditRequest,
   type CountMarksHistory,
   type CountMarksView,
@@ -345,4 +346,62 @@ export async function readCountMarksHistory(projectId: string, query: { answerId
     viewerId: access.context.userId,
     names: await memberNames(access, eventsShown.map(({ actorId }) => actorId)),
   };
+}
+
+/** Every row a read gives, by ranges of 1,000 (the API's ceiling per request), so that a large reading is never cut. */
+async function allRows<T>(read: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: unknown }>) {
+  const rows: T[] = [];
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await read(from, from + 999);
+    if (error) throw mapSupabaseError(error as Parameters<typeof mapSupabaseError>[0], READ_FAILURE);
+    rows.push(...(data ?? []));
+    if ((data ?? []).length < 1000) return rows;
+  }
+}
+
+/** The values of a list by chunks small enough for a filter of the API. */
+const chunks = <T>(values: readonly T[], size = 200) =>
+  Array.from({ length: Math.ceil(values.length / size) }, (_, index) => values.slice(index * size, (index + 1) * size));
+
+/**
+ * The items a mark of an answer may be given to (lot 5 follow-ups): the other items the same reading answered — its job,
+ * on its plan — whose answer no later reading of that item on that plan replaced, by their place in the reading's list,
+ * whatever the table of items shows. Read with the member's session (the affaire's read rule); the edit command checks
+ * again, under its locks, that the destination is an answer of the same reading.
+ */
+export async function readCountMarkTargets(projectId: string, input: { answerId: string }): Promise<CountMarkTargets> {
+  const access = await requireAffaireAccess(projectId, "read");
+  const client = clientOf(access);
+  const { context, project } = access;
+  const answerId = input.answerId.toLowerCase();
+  const { data: source, error } = await client.from("takeoff_item_answers")
+    .select("id, item_id, job_id, plan_logical_id, list_revision_id")
+    .eq("tenant_id", context.tenantId).eq("project_id", project.id).eq("id", answerId).maybeSingle();
+  if (error) throw mapSupabaseError(error, READ_FAILURE);
+  if (!source) throw notFound(NOT_READ, undefined, "TAKEOFF_MARKS_ANSWER_NOT_FOUND");
+  const answers = await allRows<{ id: string; item_id: string; reading_revision: number }>((from, to) => client
+    .from("takeoff_item_answers").select("id, item_id, reading_revision")
+    .eq("tenant_id", context.tenantId).eq("project_id", project.id).eq("job_id", source.job_id)
+    .eq("plan_logical_id", source.plan_logical_id).neq("item_id", source.item_id).order("id").range(from, to));
+  const itemIds = [...new Set(answers.map(({ item_id }) => item_id))];
+  const later = new Map<string, number>();
+  const labels = new Map<string, { label: string; position: number }>();
+  for (const ids of chunks(itemIds)) {
+    const [readings, entries] = await Promise.all([
+      allRows<{ item_id: string; reading_revision: number }>((from, to) => client.from("takeoff_item_answers")
+        .select("item_id, reading_revision").eq("tenant_id", context.tenantId).eq("project_id", project.id)
+        .eq("plan_logical_id", source.plan_logical_id).in("item_id", ids).order("id").range(from, to)),
+      allRows<{ item_id: string; label: string; position: number }>((from, to) => client.from("takeoff_list_revision_entries")
+        .select("item_id, label, position").eq("tenant_id", context.tenantId).eq("project_id", project.id)
+        .eq("revision_id", source.list_revision_id).in("item_id", ids).order("position").range(from, to)),
+    ]);
+    for (const reading of readings) later.set(reading.item_id, Math.max(later.get(reading.item_id) ?? 0, reading.reading_revision));
+    for (const entry of entries) labels.set(entry.item_id, { label: entry.label, position: entry.position });
+  }
+  const targets = answers.flatMap((answer) => {
+    const entry = labels.get(answer.item_id);
+    return entry && (later.get(answer.item_id) ?? 0) <= answer.reading_revision
+      ? [{ answerId: answer.id, itemId: answer.item_id, label: entry.label, position: entry.position }] : [];
+  }).sort((left, right) => left.position - right.position || left.answerId.localeCompare(right.answerId));
+  return { answerId, targets: targets.map(({ position, ...target }) => { void position; return target; }) };
 }

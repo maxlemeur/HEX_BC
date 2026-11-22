@@ -79,6 +79,8 @@ function double(first: CountMarksView, options: { readError?: unknown } = {}): D
       return state.edit(command);
     }) as CountMarksReader["edit"],
     readHistory: vi.fn(async () => ({ answerId: ANSWER, events: [], next: null, viewerId: VIEWER, names: {} })) as CountMarksReader["readHistory"],
+    // The other items of the reading, read from the server whatever the table shows.
+    readTargets: vi.fn(async (input: { answerId: string }) => ({ answerId: input.answerId, targets })) as CountMarksReader["readTargets"],
   };
   return state;
 }
@@ -95,7 +97,7 @@ function mount(reader: CountMarksReader, options: { page?: number; frame?: ItemD
   const pageFrame = options.frame ?? frame();
   const result = render(
     <CountMarksScope projectId={PROJECT} answer={answer} page={options.page ?? 7} itemLabels={{ [OTHER_ITEM]: "Lavabo double" }}
-      targets={targets} reader={reader}>
+      reader={reader}>
       <div><CountMarksTools /><CountMarksLayer frame={pageFrame} /><CountMarksPanel /></div>
     </CountMarksScope>,
   );
@@ -283,7 +285,7 @@ describe("review of #485", () => {
 
   it("verifies a page only on its sheet displayed", async () => {
     const served = double(view([mark(1, { state: "retained" })]));
-    render(<CountMarksScope projectId={PROJECT} answer={answer} page={7} itemLabels={{}} targets={[]} reader={served.reader}>
+    render(<CountMarksScope projectId={PROJECT} answer={answer} page={7} itemLabels={{}} reader={served.reader}>
       <CountMarksPanel />
     </CountMarksScope>);
     const grid = await screen.findByTestId("reperes-liste");
@@ -393,7 +395,7 @@ describe("closing review of #485", () => {
       release = () => resolve({ replayed: false, commandId: id(900), revisions: { [ANSWER]: 4 }, added: [], summaries: {} });
     });
     const show = (answerId: string) => (
-      <CountMarksScope projectId={PROJECT} answer={{ ...answer, answerId }} page={7} itemLabels={{}} targets={[]} reader={served.reader}>
+      <CountMarksScope projectId={PROJECT} answer={{ ...answer, answerId }} page={7} itemLabels={{}} reader={served.reader}>
         <CountMarksTools /><CountMarksLayer frame={frame()} /><CountMarksPanel />
       </CountMarksScope>
     );
@@ -615,6 +617,176 @@ describe("closing review of #485", () => {
     expect(screen.queryByTestId("reperes-reticule")).toBeNull();
     key(screen.getByTestId("reperes-calque"), "Enter");
     expect(screen.queryByRole("button", { name: /Enregistrer/ })).toBeNull();
+  });
+});
+
+// Follow-ups of #483 and #485 (lot 5), written before the fixes (fictional marks):
+// - a mark restored from the removed list was neither drawn nor listed until saved: a restored proposal could not be
+//   retained in the same session, and the page could be declared verified with it undecided (the whole save refused);
+// - a refusal for a possible duplicate beside the retained marks of a reattribution's target named marks the screen
+//   could not load, show or centre.
+describe("follow-ups of lot 5", () => {
+  /** A page served as the database serves it: the lots in the states asked, the removed marks on demand. */
+  function byStates(first: CountMarksView) {
+    const served = double(first);
+    served.reader.readPage = vi.fn(async (input) => {
+      served.reads.push(input);
+      const states = input.states ?? ["proposed", "to_attribute", "retained"];
+      const marks = first.marks.filter((value) => states.includes(value.state));
+      return { ...first, answerId: input.answerId, marks, total: marks.length, loaded: marks.length, nextAfter: null };
+    }) as CountMarksReader["readPage"];
+    return served;
+  }
+  const removedProposal = mark(2, { x: 0.3, y: 0.3, state: "removed", priorState: "proposed", reasonCode: "duplicate" });
+
+  it("shows a mark restored from the removed list on the plan and in the list, to retain in the same session", async () => {
+    const served = byStates(view([mark(1, { state: "retained" }), removedProposal]));
+    mount(served.reader);
+    const grid = await screen.findByTestId("reperes-liste");
+    expect(within(grid).queryByText("Proposé")).toBeNull();
+    fireEvent.click(screen.getByRole("checkbox"));
+    fireEvent.click(within(await screen.findByTestId("reperes-retires")).getByRole("button", { name: "Rétablir" }));
+    // Restored, not saved: the proposal is drawn and listed, operable like the others, and nothing says it changed.
+    expect(screen.getAllByTestId("repere").find((element) => element.dataset.mark === id(2))).toHaveAttribute("data-state", "proposed");
+    expect(list().querySelector(`#repere-${id(2)}`)).not.toBeNull();
+    expect(screen.getByTestId("reperes-session")).not.toHaveTextContent("à revoir");
+    // The page is not declared verified while it is undecided, and the screen says why.
+    key(grid, "p");
+    expect(screen.getByTestId("reperes-avis")).toHaveTextContent("Un repère rétabli reste à décider sur cette page");
+    expect(screen.getByTestId("reperes-session")).toHaveTextContent("1 modification non enregistrée");
+    key(grid, "End");
+    expect(grid).toHaveAttribute("aria-activedescendant", `repere-${id(2)}`);
+    key(grid, "r");
+    expect(screen.getByTestId("reperes-session")).toHaveTextContent("2 modifications non enregistrées");
+    key(grid, "p");
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Enregistrer (3)" }));
+    });
+    expect(served.edits[0]!.gestures).toEqual([{ op: "restore", answer_id: ANSWER, mark_id: id(2) },
+      { op: "retain", answer_id: ANSWER, mark_id: id(2) }, { op: "verify", answer_id: ANSWER, pages: [7] }]);
+  });
+
+  it("offers every other item of the sealed reading as a destination, whatever the table shows", async () => {
+    const served = double(view([mark(1)]));
+    const third = { answerId: "a0000000-0000-4000-8000-000000000003", itemId: "b0000000-0000-4000-8000-000000000003",
+      label: "Robinet (fictif)" };
+    served.reader.readTargets = vi.fn(async (input: { answerId: string }) => ({ answerId: input.answerId,
+      targets: [...targets, third] })) as CountMarksReader["readTargets"];
+    // The detail gives no destination: the screen reads the reading's, once.
+    render(<CountMarksScope projectId={PROJECT} answer={answer} page={7} itemLabels={{}} reader={served.reader}>
+      <CountMarksTools /><CountMarksLayer frame={frame()} /><CountMarksPanel />
+    </CountMarksScope>);
+    const grid = await screen.findByTestId("reperes-liste");
+    key(grid, "Home");
+    key(grid, "a");
+    expect(await screen.findByRole("radio", { name: "Robinet (fictif)" })).toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: "Lavabo double" })).toBeInTheDocument();
+    expect(served.reader.readTargets).toHaveBeenCalledWith({ answerId: ANSWER });
+    fireEvent.click(screen.getByRole("radio", { name: "Robinet (fictif)" }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Affecter" }));
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Enregistrer (1)" }));
+    });
+    expect(served.edits[0]!.gestures).toEqual([{ op: "reattribute", answer_id: ANSWER, mark_id: id(1), to_answer_id: third.answerId }]);
+  });
+
+  it("loads, names and centres a duplicate neighbour retained for a reattribution's target, the source's marks kept", async () => {
+    const served = double(view([mark(1)]));
+    const steady = served.reader.readPage;
+    served.reader.readPage = vi.fn(async (input) => {
+      if (input.answerId !== OTHER_ANSWER) return steady(input);
+      served.reads.push(input);
+      const marks = input.states?.includes("retained") ? [mark(20, { state: "retained", x: 0.501 })] : [];
+      return view(marks, { answerId: OTHER_ANSWER, revision: 11 });
+    }) as typeof steady;
+    // The target already retains a mark beside the one given to it: the database names it.
+    served.edit = async () => { throw new TakeoffApiError("x", 409, { gesture: 1, twins: [id(20)], addedKeys: [] },
+      "TAKEOFF_MARKS_OBJECT_DUPLICATE"); };
+    const { pageFrame } = mount(served.reader);
+    const grid = await screen.findByTestId("reperes-liste");
+    key(grid, "Home");
+    key(grid, "a");
+    fireEvent.click(await screen.findByRole("radio", { name: "Lavabo double" }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Affecter" }));
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Enregistrer (1)" }));
+    });
+    const question = await screen.findByTestId("reperes-question-refus");
+    const choice = await within(question).findByRole("button",
+      { name: "Même objet que le repère retenu de « Lavabo double » (50,1 % × 50,0 %) : ne pas affecter" });
+    expect(served.reads).toContainEqual(expect.objectContaining({ answerId: OTHER_ANSWER, page: 7, states: ["retained"] }));
+    vi.mocked(pageFrame.centre).mockClear();
+    fireEvent.focus(choice);
+    expect(pageFrame.centre).toHaveBeenCalledWith(expect.objectContaining({ x: 0.501, y: 0.5 }));
+    fireEvent.click(choice);
+    // The reattribution is withdrawn; the source's mark stays listed, as it was.
+    expect(screen.queryByTestId("reperes-session")).toBeNull();
+    expect(list().querySelector(`#repere-${id(1)}`)).not.toBeNull();
+  });
+
+  it("withdraws the marks at once when a read of this screen is refused for the right, whatever answer is shown", async () => {
+    const served = double(view([mark(1)]));
+    const steady = served.reader.readPage;
+    let refuse: (error: unknown) => void = () => undefined;
+    let first = true;
+    served.reader.readPage = vi.fn(async (input) => {
+      if (input.answerId === ANSWER && first) {
+        first = false;
+        return new Promise((_, reject) => { refuse = reject; });
+      }
+      return steady(input);
+    }) as typeof steady;
+    const show = (answerId: string, project = PROJECT) => (
+      <CountMarksScope projectId={project} answer={{ ...answer, answerId }} page={7} itemLabels={{}} reader={served.reader}>
+        <CountMarksTools /><CountMarksLayer frame={frame()} /><CountMarksPanel />
+      </CountMarksScope>
+    );
+    const shown = render(show(ANSWER));
+    shown.rerender(show(OTHER_ANSWER));
+    expect(await screen.findByTestId("reperes-liste")).toBeInTheDocument();
+    await act(async () => refuse(new TakeoffApiError("Accès refusé.", 403, null, "FORBIDDEN")));
+    expect(screen.getByTestId("reperes-refus")).toBeInTheDocument();
+    expect(screen.queryByTestId("reperes-liste")).toBeNull();
+  });
+
+  it("discards a refusal of the right for a previous scope", async () => {
+    const served = double(view([mark(1)]));
+    const steady = served.reader.readPage;
+    let refuse: (error: unknown) => void = () => undefined;
+    let first = true;
+    served.reader.readPage = vi.fn(async (input) => {
+      if (first) {
+        first = false;
+        return new Promise((_, reject) => { refuse = reject; });
+      }
+      return steady(input);
+    }) as typeof steady;
+    const show = (project: string) => (
+      <CountMarksScope projectId={project} answer={answer} page={7} itemLabels={{}} reader={served.reader}>
+        <CountMarksPanel />
+      </CountMarksScope>
+    );
+    const shown = render(show(PROJECT));
+    shown.rerender(show("e0000000-0000-4000-8000-000000000002"));
+    expect(await screen.findByTestId("reperes-liste")).toBeInTheDocument();
+    await act(async () => refuse(new TakeoffApiError("Accès refusé.", 403, null, "FORBIDDEN")));
+    expect(screen.getByTestId("reperes-liste")).toBeInTheDocument();
+  });
+
+  it("refuses to restore a proposal on a page the session declares verified, and says so", async () => {
+    const served = byStates(view([mark(1, { state: "retained" }), removedProposal]));
+    mount(served.reader);
+    const grid = await screen.findByTestId("reperes-liste");
+    key(grid, "p");
+    expect(screen.getByTestId("reperes-session")).toHaveTextContent("1 modification non enregistrée");
+    fireEvent.click(screen.getByRole("checkbox"));
+    fireEvent.click(within(await screen.findByTestId("reperes-retires")).getByRole("button", { name: "Rétablir" }));
+    expect(screen.getByTestId("reperes-avis")).toHaveTextContent("La page 7 est déclarée vérifiée dans vos modifications");
+    expect(screen.getByTestId("reperes-session")).toHaveTextContent("1 modification non enregistrée");
   });
 });
 

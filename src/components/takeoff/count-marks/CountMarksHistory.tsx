@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { useCountMarks } from "@/components/takeoff/count-marks/CountMarksScope";
+import { isRightRefusal } from "@/components/takeoff/item-detail/useCompletions";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { COUNT_MARKS_HISTORY_LIMIT, type CountMarkHistoryEvent } from "@/lib/takeoff/count-marks-contracts";
@@ -54,6 +55,11 @@ export function CountMarksHistory({ markNumbers }: { markNumbers: Record<string,
         next: later ? null : page.next, names: { ...(previous?.names ?? {}), ...page.names }, viewerId: page.viewerId });
       setFailed(false);
     } catch (error) {
+      // A refusal of the member's right withdraws the marks at once while this is the screen that read the journal.
+      if (isRightRefusal(error)) {
+        if (done.ownScreen()) refuse?.(error);
+        return;
+      }
       if (!done.current()) return;
       if (!refuse?.(error)) setFailed(true);
     } finally {
