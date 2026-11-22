@@ -27,6 +27,7 @@ import { IntakeCategoryCard, categorySort } from "./IntakeCategoryCard";
 import { IntakeDocumentTable } from "./IntakeDocumentTable";
 import { GoogleDriveImport } from "./GoogleDriveImport";
 import { IntakeMissingPieces } from "./IntakeMissingPieces";
+import { useDossierPoll } from "./useAffaireDossier";
 import { CircleAlertIcon, CircleCheckBigIcon, FunnelIcon, PlusIcon, } from "lucide-react";
 
 type IntakeWorkspaceProps = {
@@ -47,6 +48,10 @@ const FOCUS_DOCUMENT_PARAM = "intakeDocument";
 const FOCUS_BRIEF_BLOCK_PARAM = "briefBlock";
 const FOCUS_BRIEF_ENTRY_PARAM = "briefEntry";
 const FILTER_A_REVOIR = "a_revoir";
+const AUTO_REFRESH_INTERVAL_MS = 4_000;
+const AUTO_REFRESH_MAX_MS = 60_000;
+const UPLOAD_REFRESH_INTERVAL_MS = 2_000;
+const UPLOAD_REFRESH_MAX_ATTEMPTS = 15;
 
 function parseBriefBlockSearchParam(
   value: string | null
@@ -144,6 +149,7 @@ export function IntakeWorkspace({
   }, [onReload]);
 
   const lastScrolledFocusKeyRef = useRef<string | null>(null);
+  const hasProcessingDocs = workspace?.documents.some(isAffaireIntakeDocumentProcessing) ?? false;
 
   useEffect(() => {
     setActiveFilter(searchParams.get(FILTER_PARAM));
@@ -209,14 +215,34 @@ export function IntakeWorkspace({
     };
   }, [focusBriefBlock, focusBriefEntry, focusDocumentId, workspace?.documents]);
 
-  // The upload and its analysis are followed by the page's one wait on the dossier (useAffaireDossier), which says
-  // on the page when the analysis lasts longer than the server's limits.
+  // Follows the classification, then the upload, through reads of the dossier.
+  const classification = useDossierPoll(hasProcessingDocs || (workspace?.pendingUploadIds?.length ?? 0) > 0, onReload,
+    { intervalMs: AUTO_REFRESH_INTERVAL_MS, maxMs: AUTO_REFRESH_MAX_MS });
   useEffect(() => {
-    if (pendingUploadId && workspace?.uploadId === pendingUploadId) {
+    if (classification.expired) setAnnouncement("La classification prend plus de temps que prévu. Rafraichissez la page manuellement.");
+  }, [classification.expired]);
+
+  const upload = useDossierPoll(pendingUploadId !== null && workspace?.uploadId !== pendingUploadId, onReload, {
+    intervalMs: UPLOAD_REFRESH_INTERVAL_MS, maxMs: UPLOAD_REFRESH_INTERVAL_MS * UPLOAD_REFRESH_MAX_ATTEMPTS,
+  });
+  useEffect(() => {
+    if (!pendingUploadId) {
+      return;
+    }
+
+    if (workspace?.uploadId === pendingUploadId) {
       setPendingUploadId(null);
       setAnnouncement("");
+      return;
     }
-  }, [pendingUploadId, workspace?.uploadId]);
+
+    if (upload.expired) {
+      setPendingUploadId(null);
+      setAnnouncement(
+        "L'upload est terminé mais le workspace n'est pas encore à jour. Rafraîchissez la page si nécessaire."
+      );
+    }
+  }, [pendingUploadId, upload.expired, workspace?.uploadId]);
 
   useEffect(() => {
     const handleOpenSurface = (event: Event) => {

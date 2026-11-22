@@ -46,6 +46,7 @@ import { IntakeDocumentCard } from "./IntakeDocumentCard";
 import { IntakeDropzone } from "./IntakeDropzone";
 import { SupplierDocumentsHint } from "./SupplierDocumentsHint";
 import { useIntakeUploadFeedback, type IntakeUploadFeedbackState } from "./IntakeUploadFeedback";
+import { useDossierPoll } from "./useAffaireDossier";
 import { GoogleDriveImport, openGoogleDriveImport } from "./GoogleDriveImport";
 import { PlanDossierSyncNotice } from "@/components/takeoff/PlanDossierSyncNotice";
 import {
@@ -91,7 +92,8 @@ export function AffaireDocumentDesk({
   uploadRequestId?: number;
 }) {
   const params = useSearchParams();
-  const localUploadFeedback = useIntakeUploadFeedback(projectId, workspace.documents);
+  const batchPending = (workspace.pendingUploadIds?.length ?? 0) > 0;
+  const localUploadFeedback = useIntakeUploadFeedback(projectId, workspace.documents, onReload, batchPending);
   const uploadFeedback = sharedUploadFeedback ?? localUploadFeedback;
   const [filter, setFilter] = useState(
     params.has("intakeDocument") || (params.get("intakeFilter") !== "a_revoir" && !workspace.documents.some((document) => dossierDocumentState(document) === "review")) ? "all" : "review",
@@ -166,6 +168,7 @@ export function AffaireDocumentDesk({
   const details = documents.find(
     (document) => document.documentId === detailsId,
   );
+  const processing = counts.processing > 0;
 
   useEffect(() => {
     if (previousUploadRequest.current === uploadRequestId) return;
@@ -173,8 +176,9 @@ export function AffaireDocumentDesk({
     if (canManage) setAddFiles(true);
   }, [uploadRequestId, canManage]);
 
-  // The analyses are followed by the page's one wait on the dossier (useAffaireDossier): reads, never a refresh of the
-  // router, which holds back what a classification brings to the screen (TI-722).
+  // Follows the analyses for two minutes. A read, not a refresh of the router: a refresh in flight
+  // holds back what a classification brings to the screen (TI-722).
+  useDossierPoll(processing || batchPending, onReload, { intervalMs: 5000, maxMs: 120_000 });
   useEffect(() => {
     const openUpload = (event: Event) => {
       const detail = (event as CustomEvent<CockpitOpenSurfaceEventDetail>)

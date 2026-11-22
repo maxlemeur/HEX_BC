@@ -89,7 +89,6 @@ import { AffaireDossierOverview, AffaireWorkbench, affaireSectionFromLocation, t
 import { buildAffaireJourney } from "./AffaireJourneyPanel.model";
 import { IntakeUploadFeedback, useIntakeUploadFeedback } from "./IntakeUploadFeedback";
 import { useAffaireDossier } from "./useAffaireDossier";
-import { DossierFollowNotice } from "./DossierFollowNotice";
 import { useHubCockpitSuggestions, type HubCockpitInput } from "./useHubCockpitSuggestions";
 import "./AffaireWorkbench.css";
 import { type AffaireHubPlansSummaryData } from "@/lib/affaires/hub-plans-summary";
@@ -488,7 +487,6 @@ export function AffaireHub({
   // navigation.
   const dossier = useAffaireDossier(summary.project.id, { workspace: serverIntakeWorkspace, plansSummary: serverPlansSummary }, { plans: takeoffEnabled, live: liveDossier });
   const intakeWorkspace = dossier.workspace;
-  const dossierFollow = useMemo(() => ({ state: dossier.follow, onRefresh: dossier.refresh }), [dossier.follow, dossier.refresh]);
   const plansSummary = dossier.plansSummary;
   const plansError = dossier.plansFromRead ? undefined : sectionErrors?.plansSummary;
   // Over a read, the suggestions follow the dossier on screen, computed as the server does.
@@ -505,7 +503,8 @@ export function AffaireHub({
   });
   const cockpitSuggestions = cockpit.suggestions;
   const noteCockpitPreference = cockpit.notePreference;
-  const uploadFeedback = useIntakeUploadFeedback(summary.project.id, intakeWorkspace?.documents);
+  const uploadFeedback = useIntakeUploadFeedback(summary.project.id, intakeWorkspace?.documents, dossier.reload,
+    (intakeWorkspace?.pendingUploadIds?.length ?? 0) > 0);
   const [documentsOpen, setDocumentsOpen] = useState(false);
   const [documentsRequested, setDocumentsRequested] = useState(false);
   const [addingDocuments, setAddingDocuments] = useState(false);
@@ -1179,7 +1178,6 @@ export function AffaireHub({
             onOpenRegister={() => selectSection("register")}
             estimateHref={summary.currentVersion ? `/dashboard/estimates/${summary.currentVersion.id}${isReadOnlyReview || summary.currentVersion.status !== "draft" ? "" : "/edit"}` : isReadOnlyReview ? null : `/dashboard/estimates/new?projectId=${summary.project.id}`}
             versionLabel={summary.currentVersion ? `V${summary.currentVersion.versionNumber}${summary.lineCount === 0 ? " non chiffrée" : " · " + summary.lineCount + " lignes"}` : "Aucun devis"}
-            dossierFollow={dossierFollow}
           />
         </div> : null}
       {/* Unified Import Flow (full-width, replaces grid when active) */}
@@ -1309,7 +1307,6 @@ export function AffaireHub({
               )}
               {!isFreshStartState && intakeWorkspace !== undefined && (
                 <div id="brief" hidden={activeSection !== "dossier" || !detailsOpen} className="scroll-mt-24">
-                  <DossierFollowNotice follow={dossierFollow} />
                   <BriefDraftCard
                     projectId={summary.project.id}
                     briefDraft={intakeWorkspace?.briefDraft ?? null}

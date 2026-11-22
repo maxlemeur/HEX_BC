@@ -7,7 +7,6 @@ import type { AffaireIntakeWorkspace } from "@/lib/affaires/intake-workspace-ser
 import { useToast } from "@/components/feedback/toast-provider";
 import { AffaireDocumentDesk } from "./AffaireDocumentDesk";
 import { useIntakeUploadFeedback, IntakeUploadFeedback } from "./IntakeUploadFeedback";
-import { DossierFollowNotice } from "./DossierFollowNotice";
 import { useAffaireDossier } from "./useAffaireDossier";
 import type { IntakeDpgfCandidate } from "./unified-import-flow/types";
 
@@ -39,7 +38,8 @@ export function AffaireDocumentPage({
   // while documents are added or analysed, without refreshing the router.
   const dossier = useAffaireDossier(projectId, { workspace: serverWorkspace });
   const workspace = dossier.workspace ?? serverWorkspace;
-  const uploadFeedback = useIntakeUploadFeedback(projectId, workspace.documents);
+  const uploadFeedback = useIntakeUploadFeedback(projectId, workspace.documents, dossier.reload,
+    (workspace.pendingUploadIds?.length ?? 0) > 0);
   const [candidates, setCandidates] = useState<IntakeDpgfCandidate[] | null>(
     null,
   );
@@ -82,8 +82,6 @@ export function AffaireDocumentPage({
       /></>
     );
   return (
-    <>
-    <DossierFollowNotice follow={{ state: dossier.follow, onRefresh: dossier.refresh }} />
     <AffaireDocumentDesk
       projectId={projectId}
       projectName={projectName}
@@ -112,6 +110,5 @@ export function AffaireDocumentPage({
           ]);
       }}
     />
-    </>
   );
 }

@@ -42,7 +42,14 @@ function fixture(options: {
   briefError?: boolean;
   /** The affaire's uploads whose analysis has not ended, as the server stored them. */
   pendingUploads?: Array<{ id: string; status: "queued" | "processing" }>;
+  /**
+   * The batch's run writes the brief then records its end (intake-analysis-server.ts) right after the first of the
+   * brief's and the batches' queries has been answered: the end falls between the two queries of one read.
+   */
+  endsBetweenQueries?: boolean;
 } = {}) {
+  let analysisEnded = false;
+  const answered = () => { if (options.endsBetweenQueries) analysisEnded = true; };
   const requests: string[] = [];
   const client = createClient("http://127.0.0.1:54321", "army-fictional-anon", {
     auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
@@ -60,8 +67,8 @@ function fixture(options: {
           user_id: options.denied ? "99999999-9999-4999-8999-999999999999" : USER_ID,
           name: "ARMY loading", reference: "ARMY-LOAD", client_name: "ARMY fictional", is_archived: false };
       } else if (table === "affaire_intake_uploads" && url.searchParams.get("status") === "in.(queued,processing)") {
-        await options.uploadGate;
-        data = options.pendingUploads ?? [];
+        data = analysisEnded ? [] : options.pendingUploads ?? [];
+        answered();
       } else if (table === "affaire_intake_uploads") {
         await options.uploadGate;
         data = options.noUpload ? null : { id: UPLOAD_ID, tenant_id: TENANT_ID, project_id: PROJECT_ID,
@@ -81,6 +88,7 @@ function fixture(options: {
         }
       } else if (table === "affaire_briefs") {
         await options.briefGate;
+        answered();
         status = options.briefError ? 500 : 200;
         data = options.briefError
           ? { code: "XX001", message: "ARMY brief unavailable", details: "", hint: "" }
@@ -144,13 +152,23 @@ describe("affaire workspace independent reads", () => {
     }
   });
 
-  // The page waits on this record (intake-follow.ts): a batch's analysis ends when its run stores the upload's last
+  // The page keeps reading while a batch is pending: a batch's analysis ends when its run stores the upload's last
   // status, after it wrote the brief. An older batch still running counts as much as the latest.
   it("names the affaire's batches whose analysis has not ended, an older one included", async () => {
     const OLDER = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
     fixture({ pendingUploads: [{ id: OLDER, status: "processing" }, { id: UPLOAD_ID, status: "queued" }] });
     const workspace = await fetchAffaireIntakeWorkspace(PROJECT_ID);
     expect(workspace.pendingUploadIds).toEqual([OLDER, UPLOAD_ID]);
+  });
+
+  // A read that took the brief before the batches could see the brief absent, then the batch finished: the page would
+  // stop reading with no brief. Read the batches first, a batch seen finished comes with the brief written before.
+  it("reads the batches before the brief, so a batch's end is never seen without the brief written before it", async () => {
+    const f = fixture({ pendingUploads: [{ id: UPLOAD_ID, status: "processing" }], endsBetweenQueries: true });
+    const workspace = await fetchAffaireIntakeWorkspace(PROJECT_ID);
+    // The run ended after the batches were read: the read says the batch is still pending, and the page reads again.
+    expect(workspace.pendingUploadIds).toEqual([UPLOAD_ID]);
+    expect(f.requests.indexOf("affaire_briefs")).toBeGreaterThan(f.requests.indexOf("affaire_intake_uploads"));
   });
 
   it("keeps the no-upload branch limited to its brief", async () => {
@@ -167,7 +185,8 @@ describe("affaire workspace independent reads", () => {
     const workspace = await pending;
     expect(workspace).toMatchObject({ projectId: PROJECT_ID, uploadId: null, documents: [], missingPieces: [], briefDraft: null,
       pendingUploadIds: [] });
-    expect(f.requests.toSorted()).toEqual(["estimate_projects", "affaire_intake_uploads", "affaire_briefs"].toSorted());
+    // The latest upload, then the pending batches, then the brief.
+    expect(f.requests.toSorted()).toEqual(["estimate_projects", "affaire_intake_uploads", "affaire_intake_uploads", "affaire_briefs"].toSorted());
     expect(getIntakeAnalysisAvailability).not.toHaveBeenCalled();
     expect(hasStoredStandalonePlan).not.toHaveBeenCalled();
   });

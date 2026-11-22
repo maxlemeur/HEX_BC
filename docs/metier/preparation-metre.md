@@ -119,17 +119,13 @@ la base en garantit l’unicité et l’admission (migration
   fenêtre « Confirmer ce brief ? » lit cette mention à son ouverture, pour ce
   membre et le brief tel qu’il est alors (la même règle pour tout appelant :
   seulement un brief à confirmer, un membre qui peut payer, l’activation en
-  place), et non sur la page affichée avant l’arrivée du brief. La page de
-  l’affaire relit le dossier tant que le serveur n’a pas enregistré la fin de
-  l’analyse d’un lot de pièces (le statut final de son dépôt, écrit après le
-  brief) ou d’une pièce réanalysée seule, une lecture toutes les quatre
-  secondes ; chaque nouveau lot relance l’attente, quelle que soit la
-  précédente, et un classement en échec ne l’arrête pas. Elle dit « Analyse des
-  pièces en cours : le brief est en préparation. » ; si cette fin n’arrive pas
-  dans les limites du serveur (un bail de traitement et la plus longue attente
-  avant reprise, quinze minutes), elle dit que le brief est peut-être prêt et
-  propose « Actualiser ». Un membre resté sur l’affaire pendant l’analyse voit
-  donc le brief arriver, le confirme et voit la mention. Pendant la lecture,
+  place), et non sur la page affichée avant l’arrivée du brief. L’analyse d’un
+  lot de pièces classe les pièces, écrit le brief, puis enregistre la fin du
+  lot (le statut final de son dépôt) : la lecture du dossier lit les lots en
+  cours avant le brief, et les relectures de la page continuent tant qu’un lot
+  de l’affaire est en cours, en plus de leurs conditions habituelles. Un membre
+  resté sur l’affaire pendant l’analyse voit donc le brief arriver, le confirme
+  et voit la mention. Pendant la lecture,
   la fenêtre l’indique et « Oui, confirmer » attend. Si la lecture échoue, elle
   dit qu’elle n’a pas pu vérifier le forfait, propose « Réessayer » et laisse
   confirmer sans démarrer d’analyse. Le mandat n’est payable que si la
