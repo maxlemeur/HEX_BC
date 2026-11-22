@@ -20,10 +20,17 @@ contract take precedence over historical reports and procedures.
   request and its automatic merge without repeated approval. Keep implementation
   focused. Analysis-only requests end with findings. Ask only for a missing
   decision or an action outside the authorized scope.
-- Deployment, shared/remote migrations, access changes and destructive actions
-  require the explicit go of the owner, the person who gave the current request.
-  So does merging a pull request you were not asked to deliver (someone else's,
-  Dependabot, a release). Tool permissions alone do not provide it.
+- Deployment, activation (a flag, a row in an activation table), access changes
+  and destructive actions require the explicit go of the owner, the person who
+  gave the current request. So does merging a pull request you were not asked to
+  deliver (someone else's, Dependabot, a release). Tool permissions alone do not
+  provide it.
+- Shared migrations carry a standing go (owner, 2026-11-22): once a migration is
+  on `main` through a reviewed pull request, activates nothing and removes
+  nothing (no deleted row, dropped column or table), apply it to the shared
+  database without asking, by the [Supabase runbook](supabase/README.md), and
+  publish its receipt. Quote this rule as the go in the brief of the agent that
+  applies. Any other migration waits for an explicit go.
 
 ## Product and data contracts
 
@@ -52,7 +59,9 @@ contract take precedence over historical reports and procedures.
 - Ordered `supabase/migrations/` are schema truth; `supabase/schema.sql` is a pointer.
   Never rewrite applied migrations. For schema changes, follow the
   [Supabase runbook](supabase/README.md): timestamped migrations, manifest and Git
-  guards, restamping only unapplied changes when needed. Regenerate types with
+  guards, restamping only unapplied changes when needed. Write a migration the
+  version in production keeps working on (add first, switch in a later release),
+  so that it never waits for a deployment. Regenerate types with
   `npm run supabase:types`; `database.generated.ts` is generated and `database.ts`
   holds explicit refinements.
 
@@ -135,17 +144,28 @@ contract take precedence over historical reports and procedures.
   [write acknowledgement](e2e/README.md#démarrer-un-parcours-local) and
   [retention/exemptions](supabase/README.md#données-de-test); journeys do not delete
   their affaires, but shared test drafts have scheduled retention.
-- Keep persistent workspaces under `~/Projects/.workspaces/mergeone/`, reuse
-  compatible caches and keep project artifacts in `outputs/`, referencing native
+- Keep persistent workspaces under `~/Projects/.workspaces/mergeone/`; a worktree
+  T3 Code or Claude Code created stays where that tool put it. Reuse compatible
+  caches and keep project artifacts in the canonical checkout's `outputs/`
+  (`~/Projects/mergeone/outputs/`), from a worktree too, referencing native
   evidence without copying media. Before cleanup, check active use, preserve unique
   work/evidence and write a compact recovery receipt. Clean up temporary verification
   workspaces on success or failure.
+- An orchestration that spans sessions keeps two files under `outputs/<task>/`:
+  `STATE.md`, rewritten in place (merged, applied, running, waiting for the
+  owner, and the owner's standing decisions with their date), and an append-only
+  log. A new session reads `STATE.md` first.
 
 ## Review and delivery
 
 - Use an independent read-only reviewer for substantial changes, especially money,
   authorization, migrations, concurrency, public contracts or cross-module behavior.
   Give it a stable diff, the contract, consumers and actual check results.
+  Two rounds at most: one full reading, then one check of the fixes. A finding
+  blocks when it loses or corrupts data, widens a right, changes an amount or
+  stops the requested outcome from working; every other finding goes to a
+  follow-up pull request named in the description. After the second round the
+  agent delivering the task decides and records why.
 - A change is complete when the requested outcome works, required checks pass,
   the scoped diff is reviewed and task-owned files are committed and pushed.
   Before committing, fetch and reconcile with `origin/main` without force or loss
@@ -153,10 +173,16 @@ contract take precedence over historical reports and procedures.
   Conventional Commits in English, with the Linear id when one exists (`TI-681`).
   Report any blocker instead of claiming completion.
 - Deliver each finished task as one pull request: open it ready for review,
-  never as a draft, with the template, then enable its automatic merge
-  (`gh pr merge --auto --squash`). It merges by itself once the required checks
-  are green. Push once per finished task or review round, not per commit: a new
-  push cancels the runs in progress and starts every check again.
+  never as a draft, with the template, so that its checks run during the
+  independent review. Enable its automatic merge (`gh pr merge --auto --squash`)
+  when that review says merge, or at once when the change needs none. It merges
+  by itself once the required checks are green. Push once per finished task or
+  review round, not per commit: a new push cancels the runs in progress and
+  starts every check again.
+- Split a task too large for one reading into pull requests that each merge on
+  their own: the migration and its SQL tests first, then the code that uses it.
+  Two open pull requests never replace the same SQL function: the second starts
+  from `main` once the first is merged.
 - Read the checks of your pull request and find the cause of a red one before
   reacting to it: a new push starts every check again, a rerun only the failed
   jobs. See the [guide](docs/testing/tester-army-ci.md#check-rouge-sur-une-pull-request).
