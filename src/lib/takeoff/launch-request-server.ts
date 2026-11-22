@@ -38,7 +38,7 @@ import {
   type TakeoffExecutionSelection, type TakeoffPreparation, type TakeoffPreparationSnapshot,
 } from "@/lib/takeoff/preparation";
 import { sealedMeasuringOrder } from "@/lib/takeoff/item-list-seal-server";
-import { itemListReadingRefusal, itemListReadingRefusalDetails, itemListReadingTooLarge } from "@/lib/takeoff/poste-reading-admission-server";
+import { itemListReadingRefusalDetails, itemListReadingTooLarge, sealItemListReading } from "@/lib/takeoff/poste-reading-admission-server";
 import type { Poste } from "@/lib/takeoff/poste-list";
 import { readPosteReadingBoundsFacts, type PosteReadingBoundsFacts } from "@/lib/takeoff/poste-reading-bounds-text";
 import { reopenDeducedPlanCandidates, resolveDeducedPlanVersions } from "@/lib/takeoff/preparation-from-dossier";
@@ -366,7 +366,9 @@ async function sealAutomaticSnapshot(service: Service, input: {
       .map((id) => ({ id, name: named.get(id) ?? id })) };
   }
   try {
-    sealed.assertReadPlans(resolved, { maxPages: await getPlanSetMaxPdfPages({ supabase: service, tenantId: input.tenantId, level: "C" }) });
+    // Read plan by plan, the page limit of a reading is each plan's; a grouped analysis reads all the pages in one job.
+    sealed.assertReadPlans(resolved, { maxPages: await getPlanSetMaxPdfPages({ supabase: service, tenantId: input.tenantId, level: "C" }),
+      perPlan: input.perPlan });
   } catch (error) {
     return planRefusal(error);
   }
@@ -384,7 +386,8 @@ async function sealAutomaticSnapshot(service: Service, input: {
   let sourceFile: Sealed["sourceFile"];
   try {
     sourceFile = await resolvePlanSetSourceFile({ supabase: service, tenantId: input.tenantId, planSetId: input.planSet.id,
-      jobId: input.jobId, maxPages: config.maxPdfPages, selectedFileIds: plans.map((source) => source.document_id) });
+      jobId: input.jobId, maxPages: config.maxPdfPages, selectedFileIds: plans.map((source) => source.document_id),
+      pagesPerPlan: input.perPlan });
   } catch (error) {
     if (error instanceof TakeoffError && error.code === TakeoffErrorCode.TAKEOFF_FILE_TOO_LARGE) {
       return { state: "blocked", reason: "PLAN_SET_TOO_LARGE", pieces: plans.map((source) => ({ id: source.document_id, name: source.document_name })) };
@@ -430,6 +433,16 @@ async function countUnstoredPlanPages(service: Service, sources: TakeoffPreparat
     counted.set(source.document_id, pages);
   }
   return counted;
+}
+
+/** A command whose plans, each read by its own analysis, pass the page limit of a reading: named. */
+function planPagesPastLimit(plans: ReadonlyArray<{ document_id: string; document_name: string }>, maxPages: number) {
+  const names = plans.map((plan) => `« ${plan.document_name} »`).join(", ");
+  return new TakeoffError({ status: 422, code: TakeoffErrorCode.TAKEOFF_FILE_TOO_LARGE, retryable: false,
+    message: plans.length === 1
+      ? `Le plan ${names} dépasse les ${maxPages} pages qu’une analyse lit : retirez-le de la préparation ou réduisez-le, puis relancez.`
+      : `Les plans ${names} dépassent chacun les ${maxPages} pages qu’une analyse lit : retirez-les de la préparation ou réduisez-les, puis relancez.`,
+    details: { pieces: plans.map((plan) => ({ id: plan.document_id, name: plan.document_name })), max_pdf_pages: maxPages } });
 }
 
 /** The plan set's copies a preparation does not read: a revision the members set aside, or an identical copy of a plan it reads. */
@@ -570,15 +583,17 @@ async function evaluateClaimedRequest(service: Service, claim: ClaimedRequest, t
   if ("reason" in sealed) return refuse(sealed);
   // Once the owner activated one analysis per plan, the same seal is admitted as one unit per plan, each with its job.
   const split = perPlan ? splitTakeoffLaunchManifest(sealed.manifest, sealed.pageCounts) : null;
-  // Lot 4: a reading against the list of items within its bounds only (never sampled).
-  const tooLarge = await itemListReadingRefusal(split ?? sealed.manifest,
-    () => getTakeoffLevelCProcessingConfigForTenant(claim.tenant_id, { supabase: service }), sealed.items);
+  // Lot 4: a reading against the list of items within its bounds only (never sampled), its budget sized from its calls.
+  const chunking = () => getTakeoffLevelCProcessingConfigForTenant(claim.tenant_id, { supabase: service });
+  const ofUnits = split ? await sealItemListReading(split, chunking, sealed.items) : null;
+  const grouped = split ? null : await sealItemListReading(sealed.manifest, chunking, sealed.items);
+  const tooLarge = ofUnits?.refusal ?? grouped?.refusal;
   if (tooLarge) return refuse(tooLarge);
-  const units = split ? await planUnitJobs(service, { tenantId: claim.tenant_id, planSetId: planSet!.id,
-    jobKey: `takeoff-request:${claim.request_id}`, manifest: split, hostId }) : null;
+  const units = ofUnits ? await planUnitJobs(service, { tenantId: claim.tenant_id, planSetId: planSet!.id,
+    jobKey: `takeoff-request:${claim.request_id}`, manifest: ofUnits.manifest, hostId }) : null;
   const { data, error: admitError } = await service.rpc("admit_takeoff_launch_request", {
     p_request_id: claim.request_id, p_token: token, p_mark: claim.mark,
-    p_manifest: (units?.manifest ?? sealed.manifest) as unknown as Json, p_snapshot: sealed.snapshot as unknown as Json,
+    p_manifest: (units?.manifest ?? grouped?.manifest ?? sealed.manifest) as unknown as Json, p_snapshot: sealed.snapshot as unknown as Json,
     p_job: units ? units.jobs as unknown as Json : launchJobPayload(jobId, planSet!.id, sealed.sourceFile, hostId),
     p_module_default: takeoffModuleDefault(),
   });
@@ -783,9 +798,9 @@ export async function launchTakeoffRelaunch(input: {
     jobId, maxPages: config.maxPdfPages, selectedFileIds: plans.map((source) => source.document_id) });
   // A grouped command (one analysis per plan not active): the free extraction.
   const order = await relaunchOrder(service, context, input.projectId, false);
-  const { manifest } = await relaunchManifest(service, context, input.planSetId, snapshot, config, intent,
+  const relaunched = await relaunchManifest(service, context, input.planSetId, snapshot, config, intent,
     planSetCopiesSetAside(snapshot.preparation.sources, input.planSetId), order.order);
-  const tooLarge = await itemListReadingRefusal(manifest, async () => config, order.items);
+  const { manifest, refusal: tooLarge } = await sealItemListReading(relaunched.manifest, async () => config, order.items);
   if (tooLarge) throw itemListReadingTooLarge(tooLarge);
   const { data, error } = await service.rpc("launch_manual_takeoff_request", {
     ...command, p_host: owner.execution_host_id, p_selection: snapshot.execution_selection as unknown as Json,
@@ -947,10 +962,18 @@ async function launchTakeoffPlanCommand(service: Service, input: RelaunchInput,
     }
     throw error;
   }
-  // The dossier's limits on every plan the command reads, before its units (each is checked again on its own).
+  // Read plan by plan, each plan within the page limit of a reading now, on its stored count or its pages counted on its
+  // bytes (the count its sizing weighs): a plan past it is named.
+  const countedPages = await countUnstoredPlanPages(service, snapshot.preparation.sources);
+  const pastLimit = snapshot.preparation.sources.filter((source) => source.kind === "plan" && source.active
+    && (source.page_count ?? countedPages.get(source.document_id) ?? 0) > config.maxPdfPages);
+  if (pastLimit.length) throw planPagesPastLimit(pastLimit, config.maxPdfPages);
+  // The dossier's limits on every plan the command reads, before its units (each is checked again on its own): read plan
+  // by plan, the page limit is each plan's.
   const jobKey = `takeoff-request-command:${input.projectId}:${input.intentKey}`;
   await resolvePlanSetSourceFile({ supabase: service, tenantId: context.tenantId, planSetId: input.planSetId,
-    jobId: deriveDeterministicJobId(context.tenantId, `${jobKey}:scope`), maxPages: config.maxPdfPages, selectedFileIds: scope });
+    jobId: deriveDeterministicJobId(context.tenantId, `${jobKey}:scope`), maxPages: config.maxPdfPages, selectedFileIds: scope,
+    pagesPerPlan: true });
   // Not read by this command: the plan set's copies set aside, and the plans an earlier analysis read (they stay its),
   // except the plans it reads again, at any copy (a plan of the dossier replaced since is read at its new copy).
   // A plan read before is one of the plan set now (a plan whose copy and piece left it is not left out by this command,
@@ -964,9 +987,8 @@ async function launchTakeoffPlanCommand(service: Service, input: RelaunchInput,
     if (scope.includes(plan.id) || reading.has(logicalPlanKey(plan)) || !held(plan) || omitted.has(plan.id)) continue;
     omitted.set(plan.id, { ...plan, reason: "not_requested" });
   }
-  const split = splitTakeoffLaunchManifest({ ...grouped, coverage: { ...grouped.coverage, plans_omitted: [...omitted.values()] } },
-    await countUnstoredPlanPages(service, snapshot.preparation.sources));
-  const tooLarge = await itemListReadingRefusal(split, async () => config, order.items);
+  const { manifest: split, refusal: tooLarge } = await sealItemListReading(splitTakeoffLaunchManifest({ ...grouped,
+    coverage: { ...grouped.coverage, plans_omitted: [...omitted.values()] } }, countedPages), async () => config, order.items);
   if (tooLarge) throw itemListReadingTooLarge(tooLarge);
   const units = await planUnitJobs(service, { tenantId: context.tenantId, planSetId: input.planSetId, jobKey,
     hostId: owner.execution_host_id, manifest: split });

@@ -119,10 +119,11 @@ describe("buildAffaireTakeoffZone", () => {
     // Lot 4: a reading against the list of items past its bounds says the plans to restrict and the effective limits.
     it("says the effective limits of a reading against the list that passes its bounds", () => {
       const pieces = [{ id: "44444444-4444-4444-8444-444444444444", name: "Plan R+1.pdf" }];
-      const readingBounds = { ok: false, items: 1_700, plans: 1, calls: 43, tokens: 1_290_000, requestBudgetTokens: 400_000 };
+      const readingBounds = { ok: false, items: 1_700, plans: 1, readingCalls: 43, classifierCalls: 0, minutes: 65, maxRequestCalls: 480,
+        maxPlanCalls: 40 };
       const model = zone({ data: data({ request: request({ reason: "PLAN_SET_TOO_LARGE", pieces, readingBounds }) }) });
       expect(model?.message).toBe(describeTakeoffLaunchReason("PLAN_SET_TOO_LARGE", pieces, readingBounds));
-      expect(model?.message).toContain("43 appels prévus");
+      expect(model?.message).toContain("43 appels de lecture, environ 1 h 05 sur un Mac");
     });
 
     it("tells a reservation from an analysis its Mac took, and follows both", () => {
