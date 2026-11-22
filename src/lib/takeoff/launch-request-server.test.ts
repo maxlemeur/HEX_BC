@@ -21,6 +21,7 @@ import {
   assumeTakeoffLaunchRequest, confirmAffaireBriefWithTakeoff, describeDossierChangeSinceAnalysis, evaluateTakeoffLaunchRequests,
   launchTakeoffRelaunch, readAutomaticTakeoffPayerNotice, readBriefConfirmationPayerNotice, readDossierChangeSinceAnalysis,
 } from "@/lib/takeoff/launch-request-server";
+import { launchTakeoffItemRemeasure, planTakeoffItemRemeasure } from "@/lib/takeoff/item-remeasure-server";
 import { runLocalTakeoffAttempts } from "@/lib/takeoff/local-dispatch";
 import type { AnyTakeoffLaunchManifest } from "@/lib/takeoff/launch-request";
 import { createSupabaseFake, filterValue, servedRows, type FakeQuery } from "@/lib/takeoff/metre-m3.test-utils";
@@ -981,7 +982,8 @@ describe("launchTakeoffRelaunch", () => {
    */
   function planCommand(pages: { a: number | null; b: number }, previous: { format: 1 | 2; plans: string[]; read: string[] } | null = null,
     bytes?: Uint8Array, predecessorJobId: string | null = "aaaaaaaa-0000-4000-8000-0000000000bb",
-    refusal: { code: string; message: string } | null = null) {
+    refusal: { code: string; message: string } | null = null,
+    extra: { tables?: Parameters<typeof createSupabaseFake>[0]["tables"]; rpc?: Parameters<typeof createSupabaseFake>[0]["rpc"] } = {}) {
     const launched: Array<Record<string, unknown>> = [];
     const launchedAll: Array<Record<string, unknown>> = [];
     const planRow = (id: string, name: string, pageCount: number | null) => ({ id, tenant_id: TENANT, plan_set_id: PLAN_SET,
@@ -1009,7 +1011,8 @@ describe("launchTakeoffRelaunch", () => {
         takeoff_plan_location_sources: (query: FakeQuery) => servedRows(rows.map((row) => ({ plan_file_id: row.id, plan_set_id: PLAN_SET,
           tenant_id: TENANT, source_kind: "plan_file", source_id: row.id })), query),
         // The affaire's analyses: those of its previous request, if any.
-        takeoff_jobs: () => ({ data: previous ? { id: "aaaaaaaa-0000-4000-8000-0000000000bb" } : null, error: null }) },
+        takeoff_jobs: () => ({ data: previous ? { id: "aaaaaaaa-0000-4000-8000-0000000000bb" } : null, error: null }),
+        ...extra.tables },
       storage: { [PLAN_FILES_BUCKET]: () => (bytes ? { data: new Blob([Uint8Array.from(bytes)]), error: null }
         : { data: null, error: { message: "Object not found", statusCode: "404" } }) },
       rpc: {
@@ -1028,6 +1031,7 @@ describe("launchTakeoffRelaunch", () => {
           if (refusal) return { data: null, error: refusal };
           return { data: [{ outcome: "admitted", request_id: REQUEST, job_id: (args as { p_job: Array<{ id: string }> }).p_job[0].id }], error: null };
         },
+        ...extra.rpc,
       },
     });
     vi.mocked(createServiceRoleClient).mockReturnValue(fake.client as never);
@@ -1047,7 +1051,7 @@ describe("launchTakeoffRelaunch", () => {
     // replaces, never any plan.
     const runFromDialogue = () => launchTakeoffRelaunch({ context, projectId: PROJECT, planSetId: PLAN_SET, preparationRevision: 2,
       intentKey: "aaaaaaaa-0000-4000-8000-0000000000af", predecessorJobId });
-    return { run, runFromDialogue, launched, launchedAll, rows };
+    return { run, runFromDialogue, launched, launchedAll, rows, context };
   }
 
   // The first analysis of a confirmed dossier, launched from the affaire's zone once one analysis per plan is active: the
@@ -1125,6 +1129,112 @@ describe("launchTakeoffRelaunch", () => {
       + "lecture, environ 1 h 05 sur un Mac. Au plus 480 appels de lecture par demande, 40 par plan et 154 pages par plan : "
       + "réduisez les plans ou les pages à lire." });
     expect(sealed.launched).toEqual([]);
+  });
+
+  // Lot 4 PR 4b: a new measure of a selection reads the items asked only, on the plans named, from the affaire's confirmed
+  // preparation; its reading is sized on those items, and its order seals them (asked_item_ids, in their canonical order).
+  describe("the new measure of a selection", () => {
+    const LATEST_JOB = "aaaaaaaa-0000-4000-8000-0000000000e9";
+    const remeasured: Array<Record<string, unknown>> = [];
+    const setup = (outcome: Record<string, unknown> | { code: string; message: string } = { outcome: "admitted", request_id: REQUEST,
+      job_id: "aaaaaaaa-0000-4000-9000-000000000001", stale: null }) => {
+      remeasured.length = 0;
+      return planCommand({ a: 3, b: 3 }, { format: 2, plans: [PLAN_FILE], read: [PLAN_FILE] }, undefined,
+        "aaaaaaaa-0000-4000-8000-0000000000bb", null, {
+          tables: { takeoff_preparations: () => ({ data: { revision: 2 }, error: null }),
+            takeoff_jobs: () => ({ data: [{ id: LATEST_JOB }], error: null }) },
+          rpc: { launch_takeoff_item_remeasure: (args) => {
+            remeasured.push(args as Record<string, unknown>);
+            return "code" in outcome ? { data: null, error: outcome } : { data: [outcome], error: null };
+          } },
+        });
+    };
+    const ids = itemListSeal(1_700).items.map(({ id }) => id);
+
+    it("plans the items asked on the plans named, sized on them alone, the other plans left as the preparation has them", async () => {
+      vi.mocked(sealedMeasuringOrder).mockResolvedValueOnce(itemListSeal(1_700));
+      const { context } = setup();
+      const planned = await planTakeoffItemRemeasure(context, { projectId: PROJECT, planKeys: [PLAN_FILE],
+        itemIds: [ids[7].toUpperCase(), ids[3], ids[7]], selection: SELECTION });
+      if (!("plan" in planned)) throw new Error(`expected a plan: ${planned.refusal}`);
+      const { plan } = planned;
+      // The whole list of 1,700 items is refused on this plan (above); two of them are read in one paid call or so.
+      expect(plan.bounds.items).toBe(2);
+      expect(plan.bounds.ok).toBe(true);
+      expect(plan.manifest.order).toMatchObject({ kind: "item_list", list: { item_count: 1_700, asked_item_ids: [ids[3], ids[7]] } });
+      expect(plan.askedItemIds).toEqual([ids[3], ids[7]]);
+      expect(plan.manifest.plans.map(({ plan_file_id: id }) => id)).toEqual([PLAN_FILE]);
+      expect(plan.planFileIds).toEqual([PLAN_FILE]);
+      expect(plan.snapshot.preparation.sources.filter((source) => source.kind === "plan" && source.active)
+        .map((source) => source.document_id)).toEqual([PLAN_FILE]);
+      expect(plan.snapshot.confirmed_by).toBe(PAYER);
+      expect(plan.snapshot.execution_selection).toEqual(SELECTION);
+      expect(plan.preparationRevision).toBe(2);
+      expect(plan.predecessorJobId).toBe(LATEST_JOB);
+      expect(plan.manifest.budget.tokens).toBeGreaterThan(0);
+      expect(plan.manifest.budget.tokens).toBe(plan.bounds.requestBudgetTokens);
+    });
+
+    it("names a selection made on another list or plan as stale, before anything is admitted", async () => {
+      vi.mocked(sealedMeasuringOrder).mockResolvedValueOnce(itemListSeal(12));
+      const { context } = setup();
+      await expect(planTakeoffItemRemeasure(context, { projectId: PROJECT, planKeys: [PLAN_FILE],
+        itemIds: ["cccccccc-0000-4000-8000-000000000001"], selection: SELECTION }))
+        .resolves.toEqual({ refusal: "Un poste de la sélection n’est plus dans la liste : rafraîchissez la sélection.", stale: true });
+      vi.mocked(sealedMeasuringOrder).mockResolvedValueOnce(itemListSeal(12));
+      await expect(planTakeoffItemRemeasure(context, { projectId: PROJECT, planKeys: ["cccccccc-0000-4000-8000-000000000002"],
+        itemIds: [ids[1]], selection: SELECTION }))
+        .resolves.toEqual({ refusal: "Un plan de la sélection ne fait plus partie de la préparation confirmée : rouvrez l’aperçu.", stale: true });
+      expect(remeasured).toEqual([]);
+    });
+
+    it("admits it with the targets the member saw, then starts its units; or answers stale with the items named", async () => {
+      vi.mocked(sealedMeasuringOrder).mockResolvedValueOnce(itemListSeal(12));
+      const { context } = setup();
+      const planned = await planTakeoffItemRemeasure(context, { projectId: PROJECT, planKeys: [PLAN_FILE], itemIds: [ids[1]],
+        selection: SELECTION });
+      if (!("plan" in planned)) throw new Error("expected a plan");
+      const targets = [{ item_id: ids[1], answers: ["dddddddd-0000-4000-8000-000000000001"] }];
+      await expect(launchTakeoffItemRemeasure(context, { projectId: PROJECT, intentKey: "aaaaaaaa-0000-4000-8000-0000000000aa",
+        plan: planned.plan, selection: SELECTION, targets })).resolves.toEqual({ outcome: "admitted", requestId: REQUEST });
+      expect(remeasured).toEqual([expect.objectContaining({ p_tenant_id: TENANT, p_project_id: PROJECT, p_actor: PAYER,
+        p_intent_key: "aaaaaaaa-0000-4000-8000-0000000000aa", p_predecessor_job_id: LATEST_JOB, p_host: HOST, p_plan_set_id: PLAN_SET,
+        p_preparation_revision: 2, p_plan_file_ids: [PLAN_FILE], p_targets: targets, p_selection: SELECTION })]);
+      const sent = remeasured[0] as { p_manifest: AnyTakeoffLaunchManifest; p_jobs: Array<{ launch_unit_key: string }> };
+      expect(sent.p_jobs.map(({ launch_unit_key: key }) => key)).toEqual(sent.p_manifest.units.map(({ key }) => key));
+      expect(runLocalTakeoffAttempts).toHaveBeenCalled();
+
+      vi.mocked(sealedMeasuringOrder).mockResolvedValueOnce(itemListSeal(12));
+      const stale = setup({ outcome: "stale", request_id: null, job_id: null, stale: [ids[1]] });
+      const again = await planTakeoffItemRemeasure(stale.context, { projectId: PROJECT, planKeys: [PLAN_FILE], itemIds: [ids[1]],
+        selection: SELECTION });
+      if (!("plan" in again)) throw new Error("expected a plan");
+      vi.mocked(runLocalTakeoffAttempts).mockClear();
+      await expect(launchTakeoffItemRemeasure(stale.context, { projectId: PROJECT, intentKey: "aaaaaaaa-0000-4000-8000-0000000000ab",
+        plan: again.plan, selection: SELECTION, targets })).resolves.toEqual({ outcome: "stale", stale: [ids[1]] });
+      expect(runLocalTakeoffAttempts).not.toHaveBeenCalled();
+    });
+
+    it("says each refusal of the admission in French, never the database's code", async () => {
+      for (const [error, expected] of [
+        [{ code: "22023", message: "TAKEOFF_ITEM_REMEASURE_INVALID" }, { status: 422, message: "La demande de nouvelle mesure est invalide : rouvrez l’aperçu." }],
+        [{ code: "55000", message: "TAKEOFF_ITEM_REMEASURE_INACTIVE" }, { status: 503 }],
+        [{ code: "22023", message: "TAKEOFF_LAUNCH_SEAL_INVALID" }, { status: 409,
+          message: "La préparation du métré ou la liste des postes a changé depuis l’aperçu : rouvrez-le avant de confirmer." }],
+        [{ code: "42501", message: "TAKEOFF_LAUNCH_PAYER_NOT_ELIGIBLE" }, { status: 403 }],
+        [{ code: "23505", message: "TAKEOFF_LAUNCH_INTENT_CONFLICT" }, { status: 409 }],
+      ] as const) {
+        vi.mocked(sealedMeasuringOrder).mockResolvedValueOnce(itemListSeal(12));
+        const { context } = setup(error);
+        const planned = await planTakeoffItemRemeasure(context, { projectId: PROJECT, planKeys: [PLAN_FILE], itemIds: [ids[1]],
+          selection: SELECTION });
+        if (!("plan" in planned)) throw new Error("expected a plan");
+        const refused = await launchTakeoffItemRemeasure(context, { projectId: PROJECT, intentKey: "aaaaaaaa-0000-4000-8000-0000000000aa",
+          plan: planned.plan, selection: SELECTION, targets: [] }).then(() => null, (caught: unknown) => caught);
+        expect(refused).toMatchObject(expected);
+        expect(String((refused as Error).message)).not.toMatch(/TAKEOFF_/);
+      }
+    });
   });
 
   it("lets a command start the first analysis of an affaire that has none", async () => {

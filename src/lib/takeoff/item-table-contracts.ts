@@ -148,6 +148,9 @@ const lineSchema = z.object({
     decision: decisionSchema.nullable(),
     entry: entrySchema.nullable(),
     sent: z.boolean().describe("Le plan de la réponse est envoyé au devis : aucun geste en bloc n’écrit ses lignes."),
+    attempt: z.object({ unit: z.enum(["queued", "running", "failed", "canceled"]), reason: z.string().max(500).nullable() }).strict()
+      .nullable().describe("Une nouvelle lecture de ce plan, après la réponse courante : en cours, ou terminée sans réponse (avec son motif). "
+        + "La réponse courante reste celle affichée et décidée."),
   }).strict()),
   targets: itemReviewTargetSchema,
   remeasurePlans: z.array(planKey),
@@ -297,6 +300,11 @@ export const itemRemeasurePreviewSchema = z.object({
     z.object({ state: z.literal("ready"), model: z.string(), reasoningEffort: chatGptReasoningEffortSchema.nullable() }).strict(),
     z.object({ state: z.literal("unavailable"), reason: z.string() }).strict(),
   ]),
+  reading: z.discriminatedUnion("state", [
+    z.object({ state: z.literal("ready"), summary: z.string(), calls: count, budgetTokens: count }).strict(),
+    z.object({ state: z.literal("refused"), reason: z.string() }).strict(),
+  ]).describe("Ce que la demande lira et réservera (appels payants, budget en jetons), calculé comme son admission le calcule ; "
+    + "ou le motif qui l’en empêche."),
   running: z.boolean().describe("Une demande de l’affaire est en cours : la confirmation garde la sélection prête."),
   previewDigest: z.string().regex(/^[0-9a-f]{64}$/),
   skipped: z.array(z.object({ itemId: uuid, label: z.string(), reason: z.enum(ITEM_INELIGIBILITIES) }).strict())
@@ -313,7 +321,8 @@ export const itemRemeasureCommandSchema = z.object({
   plan_keys: z.array(planKey).min(1).max(200),
   setting: z.object({ reasoning_effort: chatGptReasoningEffortSchema.nullable() }).strict().nullable()
     .describe("Réglage ponctuel de cette demande ; nul : celui de Mon profil. Jamais enregistré dans le profil."),
-  preview_digest: z.string().regex(/^[0-9a-f]{64}$/).describe("Empreinte de l’aperçu confirmé : payeur, plans, postes et réglage."),
+  preview_digest: z.string().regex(/^[0-9a-f]{64}$/)
+    .describe("Empreinte de l’aperçu confirmé : payeur et réglage, plans, postes et leurs lectures, appels et budget."),
 }).strict();
 
 export type ItemRemeasureCommand = z.infer<typeof itemRemeasureCommandSchema>;

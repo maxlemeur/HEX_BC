@@ -6,10 +6,12 @@ import { register } from "tsx/cjs/api";
 
 // Test-only entrypoint of the owned takeoff journeys (lot 3, one analysis per plan): a member's explicit command, as the
 // server runs it from the affaire's options — `launch` a request of the plans it names (launchTakeoffRelaunch), or
-// `stop` the rest of a running request (stopTakeoffLaunchRequest) —, signed in as that member, on this host. What the
-// command hands to after() is not run here: the journey's own worker serves the Mac's queue with a controlled provider.
+// `stop` the rest of a running request (stopTakeoffLaunchRequest) — or from the table of items — `remeasure` a selection
+// of items: its preview, then its confirmation (lot 4 PR 4b, previewItemRemeasure and runItemRemeasure) —, signed in as
+// that member, on this host (the application under test has no local ChatGPT runtime to pay with). What the command
+// hands to after() is not run here: the journey's own worker serves the Mac's queue with a controlled provider.
 const [verb, projectId, ...rest] = process.argv.slice(2);
-assert(["launch", "stop"].includes(verb ?? ""));
+assert(["launch", "stop", "remeasure"].includes(verb ?? ""));
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 assert(uuid.test(projectId ?? ""));
 assert.equal(process.env.E2E_ARMY_TAKEOFF_WORKER, "1");
@@ -42,6 +44,7 @@ const runtime = register({ namespace: "army-owned-takeoff-command" });
 const { saveChatGptStore } = runtime.require("../../src/lib/ai/chatgpt-local-store.ts", import.meta.url);
 const { getAuthenticatedContext } = runtime.require("../../src/lib/auth/tenant-context.ts", import.meta.url);
 const { launchTakeoffRelaunch, stopTakeoffLaunchRequest } = runtime.require("../../src/lib/takeoff/launch-request-server.ts", import.meta.url);
+const { previewItemRemeasure, runItemRemeasure } = runtime.require("../../src/lib/takeoff/item-review-commands-server.ts", import.meta.url);
 const owner = { tenantId: project.data.tenant_id, userId: project.data.user_id };
 await saveChatGptStore(owner, { selectedId: "army", profiles: [{
   id: "army", clientId: "army", issuer: "army", subject: "army", email: process.env.E2E_LOGIN_EMAIL,
@@ -65,6 +68,27 @@ try {
     result = await run(async () => launchTakeoffRelaunch({ context: await getAuthenticatedContext(), projectId, planSetId, intentKey,
       preparationRevision: Number(revision ?? "1"), planFileIds, predecessorJobId: predecessor && predecessor !== "-" ? predecessor : null,
       host: app.host }));
+  } else if (verb === "remeasure") {
+    // The items of the affaire's table selected, and the confirmation's key: the preview the dialog shows, then its
+    // explicit confirmation with that preview's digest (the member's own subscription, the profile's setting). With the
+    // plans and the digest of a confirmation sent before, the same body is sent again, as the dialog resends a lost answer.
+    const [items, intentKey, planKeys, digest] = rest;
+    const itemIds = (items ?? "").split(",");
+    assert(itemIds.length > 0 && itemIds.every((id) => uuid.test(id)) && uuid.test(intentKey ?? ""));
+    assert((planKeys === undefined) === (digest === undefined) && (digest === undefined || /^[0-9a-f]{64}$/.test(digest)));
+    const scope = { kind: "affaire" };
+    result = await run(async () => {
+      if (planKeys !== undefined) {
+        return runItemRemeasure(projectId, { command_version: 1, intent_key: intentKey, scope, item_ids: itemIds,
+          plan_keys: planKeys.split(","), setting: null, preview_digest: digest });
+      }
+      const preview = await previewItemRemeasure(projectId, { scope, itemIds });
+      const command = { command_version: 1, intent_key: intentKey, scope, item_ids: itemIds,
+        plan_keys: preview.plans.map(({ key }) => key), setting: null, preview_digest: preview.previewDigest };
+      const admitted = await runItemRemeasure(projectId, command);
+      return { ...admitted, sent: { planKeys: command.plan_keys, digest: command.preview_digest },
+        preview: { plans: preview.plans, items: preview.items, reading: preview.reading, subscription: preview.subscription.state } };
+    });
   } else {
     const [requestId] = rest;
     assert(uuid.test(requestId ?? ""));

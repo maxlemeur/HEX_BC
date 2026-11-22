@@ -210,7 +210,8 @@ export function RemeasureDialog({ scopeLabel, busy, onClose, preview, loadError,
   const effortId = useId();
   const [effort, setEffort] = useState<ChatGptReasoningEffort | "">("");
   const ready = preview?.subscription.state === "ready" ? preview.subscription : null;
-  const canConfirm = Boolean(ready && preview && !preview.running && preview.items.length > 0 && preview.plans.length > 0 && !busy);
+  const reading = preview?.reading.state === "ready" ? preview.reading : null;
+  const canConfirm = Boolean(ready && reading && preview && !preview.running && preview.items.length > 0 && preview.plans.length > 0 && !busy);
   return (
     <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
       <DialogContent size="md">
@@ -254,6 +255,14 @@ export function RemeasureDialog({ scopeLabel, busy, onClose, preview, loadError,
               <p className="font-medium">{formatItemCount(preview.items.length, "poste mesuré", "postes mesurés")}</p>
               <ul className="max-h-32 list-disc overflow-y-auto pl-5">{preview.items.map((item) => <li key={item.itemId}>{item.label}</li>)}</ul>
             </div>
+            {reading ? (
+              <p data-testid="poste-remeasure-reading">
+                {reading.summary} Budget réservé sur votre forfait : {formatItemCount(reading.budgetTokens, "jeton", "jetons")} au plus
+                ({formatItemCount(reading.calls, "appel payant", "appels payants")}).
+              </p>
+            ) : preview.reading.state === "refused" ? (
+              <p className="text-danger" role="alert">{preview.reading.reason}</p>
+            ) : null}
             {preview.skipped.length ? (
               <p>
                 Non repris : {preview.skipped.map((item) => `${item.label} (${ITEM_INELIGIBILITY_LABELS[item.reason]})`).join(", ")}.

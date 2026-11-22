@@ -33,7 +33,7 @@ import { logCompletedAuditEvent } from "@/lib/takeoff/processing-audit";
 import { buildTakeoffItemAnswersPublication, publishTakeoffItemAnswers } from "@/lib/takeoff/poste-publication-server";
 import { finishPlanReading, posteVectorReadings, readPlanAgainstItemList } from "@/lib/takeoff/poste-reading";
 import { processItemListLevelC, readTakeoffItemListOrder } from "@/lib/takeoff/poste-reading-job-server";
-import { controlledPosteCall, posteMeasured, posteNotFound } from "@/lib/takeoff/poste-reading.test-fixtures";
+import { controlledPosteCall, posteMeasured, posteNotFound, readPosteManifest } from "@/lib/takeoff/poste-reading.test-fixtures";
 import { boundPosteReadingRequest } from "@/lib/takeoff/poste-reading-bounds";
 import { TAKEOFF_PAID_CALL_ESTIMATE_TOKENS } from "@/lib/takeoff/launch-call-ledger";
 import { jsonbTextBytes } from "@/lib/takeoff/rules/jsonb-size";
@@ -76,7 +76,8 @@ function planManifest(plans: ManifestPlan[], budget = { tokens: 400_000, cost_ce
 }
 /** The job's own plan: its 4 retained pages of 6, its share the whole envelope, 4 vector pages. */
 const MANIFEST = planManifest([{ id: PLAN, pages: [3, 4, 5, 6], pageCount: 6, vectorPages: 4 }]);
-const SEALED = { requestId: REQUEST, revisionId: REVISION, revision: 3, itemCount: 4, contentSha256: "e".repeat(64), manifest: MANIFEST };
+const SEALED = { requestId: REQUEST, revisionId: REVISION, revision: 3, itemCount: 4, contentSha256: "e".repeat(64), manifest: MANIFEST,
+  askedItemIds: null };
 
 /** Rows as PostgREST serves them, one row (or none) for a single read. */
 function served(rows: Array<Record<string, unknown>>, query: FakeQuery) {
@@ -197,6 +198,16 @@ describe("readTakeoffItemListOrder", () => {
     await expect(readTakeoffItemListOrder(database().client as never, job())).resolves.toEqual(SEALED);
     await expect(readTakeoffItemListOrder(database({ order: { kind: "free_extraction", version: 1, list: null }, recorded: null }).client as never,
       job())).resolves.toBeNull();
+  });
+
+  it("gives the items a new measure of a selection asks, and refuses a list that names them in another shape", async () => {
+    const asked = { ...ORDER, list: { ...ORDER.list, asked_item_ids: [VANNE.id.toUpperCase(), LAVABO.id] } };
+    await expect(readTakeoffItemListOrder(database({ order: asked }).client as never, job())).resolves.toMatchObject({
+      askedItemIds: [VANNE.id, LAVABO.id], itemCount: 4 });
+    for (const shape of [[], "x", [1]]) {
+      await expect(readTakeoffItemListOrder(database({ order: { ...ORDER, list: { ...ORDER.list, asked_item_ids: shape } } }).client as never,
+        job())).rejects.toMatchObject({ code: TakeoffErrorCode.INTERNAL_ERROR, retryable: false });
+    }
   });
 
   it("tries a failed read of the request again, and reads nothing else", async () => {
@@ -418,6 +429,13 @@ describe("buildTakeoffItemAnswersPublication", () => {
   });
 });
 
+/** The order of a new measure of a selection, as its sealed manifest carries it and the worker reads it. */
+function askedOrder(ids: string[]) {
+  const order = { ...ORDER, list: { ...ORDER.list, asked_item_ids: ids } };
+  return { ...SEALED, manifest: planManifest([{ id: PLAN, pages: [3, 4, 5, 6], pageCount: 6, vectorPages: 4 }], undefined, order),
+    askedItemIds: ids };
+}
+
 describe("processItemListLevelC", () => {
   async function run(overrides: Partial<Parameters<typeof processItemListLevelC>[0]> = {}) {
     return processItemListLevelC({ supabase: database().client as never, job: job(), sourceFile: await sourceFile(), call: script,
@@ -439,6 +457,23 @@ describe("processItemListLevelC", () => {
       pageCount: 4, chunksCount: 1 });
     expect(logCompletedAuditEvent).toHaveBeenCalledWith(expect.objectContaining({ resultId: "dddddddd-0000-4000-8000-000000000001" }));
     expect(recomputeTakeoffRulesQuietly).toHaveBeenCalledWith(expect.objectContaining({ tenantId: TENANT, projectId: PROJECT, jobId: JOB }));
+  });
+
+  it("reads and publishes only the items a new measure of a selection asks, in the list's order", async () => {
+    const call = controlledPosteCall();
+    await run({ call, order: askedOrder([LAVABO.id, VANNE.id]) });
+    const asked = call.received.flatMap(({ prompt }) => readPosteManifest(prompt).requested_posts.map(({ label }) => label));
+    expect([...new Set(asked)].sort()).toEqual([LAVABO.label, VANNE.label].sort());
+    const [, published] = vi.mocked(publishTakeoffItemAnswers).mock.calls[0];
+    expect(published.p_answers.map((answer) => answer.item_id)).toEqual([LAVABO.id, VANNE.id]);
+  });
+
+  it("stops before any paid call when an item its request asks is not in its sealed list", async () => {
+    const call = controlledPosteCall();
+    await expect(run({ call, order: askedOrder([LAVABO.id, "cccccccc-0000-4000-8000-000000000009"]) }))
+      .rejects.toMatchObject({ code: TakeoffErrorCode.INTERNAL_ERROR, retryable: false });
+    expect(call.received).toHaveLength(0);
+    expect(publishTakeoffItemAnswers).not.toHaveBeenCalled();
   });
 
   it("attaches the CCTP only, never the DPGF", async () => {

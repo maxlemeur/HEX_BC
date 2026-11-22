@@ -6,6 +6,7 @@ import { randomUUID } from "node:crypto";
 import { expect } from "e2e";
 
 import { armyTest, recordEvidence } from "../critical/fixtures";
+import { waitForHydration } from "../critical/hydration-support";
 import { querySql } from "../local/calculation-gate-support";
 import {
   activateOwnedPlanDispatch, deactivateOwnedPlanDispatch, readOwnedPlanItems, readOwnedPlanJobs, runOwnedPlanDispatch,
@@ -173,3 +174,125 @@ armyTest("TKPR02 B failed, an answer omitted, a reading cut short: B publishes n
     await deactivateOwnedPlanDispatch();
   }
 });
+
+/** The id of each item of the affaire's list, by its label. */
+async function itemIdsByLabel(projectId: string) {
+  const rows = JSON.parse((await querySql(`select coalesce(json_object_agg(e.label, e.item_id), '{}'::json)
+    from public.takeoff_list_revision_entries e join public.takeoff_list_revisions r on r.id = e.revision_id
+    where r.project_id = '${projectId}';`)).find((line) => line.trim().startsWith("{")) ?? "{}") as Record<string, string>;
+  return rows;
+}
+
+/** Each answer of the affaire: its item, plan file, job, reading revision and the answer it replaces. */
+async function ownedAnswers(projectId: string) {
+  return JSON.parse((await querySql(`select coalesce(json_agg(json_build_object('id', a.id, 'item_id', a.item_id,
+    'plan_file_id', a.plan_file_id, 'plan_logical_id', a.plan_logical_id, 'job_id', a.job_id, 'outcome', a.outcome,
+    'reading_revision', a.reading_revision, 'replaces', a.replaces_answer_id) order by a.item_id, a.plan_file_id, a.reading_revision), '[]'::json)
+    from public.takeoff_item_answers a where a.project_id = '${projectId}';`)).find((line) => line.trim().startsWith("[")) ?? "[]") as
+    Array<{ id: string; item_id: string; plan_file_id: string; plan_logical_id: string; job_id: string; outcome: string;
+      reading_revision: number; replaces: string | null }>;
+}
+
+// Lot 4, PR 4b: a new measure of a selection. After the first reading of both plans (the WC not found anywhere), the member
+// selects the WC in the table and opens its new measure: the preview names the plans, the item, the paid calls and the
+// budget sized on it alone (this application has no local ChatGPT runtime to pay with: the dialog says so and offers no
+// confirmation). The member's confirmation, run by the server with the member's own subscription on this Mac, is admitted
+// for the WC alone on both plans; the WC reads « En lecture » at once, the other items keep their answers. The Mac reads
+// both plans against the WC only (the controlled provider answers the items its prompt asks: two on A, none on B); the
+// table then shows the WC measured, its new readings to decide, and the lavabo and the tap as they were.
+armyTest("TKPR03 a new measure of one item reads it alone on its plans, and the table shows its new readings to decide", options,
+  async (ui) => {
+    await ui.app.open("/dashboard/affaires");
+    const owner = await signUpWorkerOwner(ui, "TKPR3");
+    await activateOwnedPlanDispatch();
+    await activateOwnedItemListOrder();
+    try {
+      const { dossier, jobA, jobB } = await admittedRequest(ui, owner, { done: false });
+      const [planA, planB] = dossier.plans.map((plan) => plan.id);
+      await runOwnedPlanDispatch(ui, owner, dossier.projectId, {
+        itemAnswers: { [jobA.id]: { items: { [LAVABO]: { quantity: 3, unit: "u", page: 2 } } } } });
+      expect((await readOwnedPlanJobs(dossier.projectId)).map((job) => job.status)).toEqual(["completed", "completed"]);
+      const ids = await itemIdsByLabel(dossier.projectId);
+      const before = await ownedAnswers(dossier.projectId);
+      expect(before).toHaveLength(6);
+
+      // The member selects the WC (not found on both plans) and opens its new measure.
+      const { screen } = ui;
+      const row = (label: string) => screen.getByTestId(`poste-${ids[label]}`);
+      await ui.app.open(`/dashboard/affaires/${dossier.projectId}/takeoff`);
+      await waitForHydration(ui.browser);
+      await expect(screen.getByRole("table", "Postes du métré", { exact: true })).toBeVisible();
+      await expect(row(WC)).toContainText("Non trouvé");
+      await screen.getByRole("checkbox", `Sélectionner le poste « ${WC} »`, { exact: true }).check();
+      await screen.getByRole("button", "Demander une nouvelle mesure (1)", { exact: true }).click();
+      const preview = screen.getByTestId("poste-remeasure-preview");
+      await expect(preview).toContainText("1 poste mesuré");
+      await expect(preview).toContainText("plan-a.pdf");
+      await expect(preview).toContainText("plan-b.pdf");
+      await expect(screen.getByTestId("poste-remeasure-reading")).toContainText("Lecture de 1 poste sur 2 plans");
+      await expect(screen.getByTestId("poste-remeasure-reading")).toContainText("Budget réservé sur votre forfait");
+      await expect(screen.getByRole("button", "Confirmer la demande sur mon forfait", { exact: true })).toBeDisabled();
+      await screen.getByRole("button", "Annuler", { exact: true }).click();
+
+      // The member's confirmation, run by the server on this Mac: admitted for the WC alone, on both plans.
+      const intentKey = randomUUID();
+      const confirmed = await runOwnedTakeoffCommand(owner, ["remeasure", dossier.projectId, ids[WC], intentKey]);
+      expect(confirmed).toMatchObject({ result: { outcome: "admitted", preview: { subscription: "ready",
+        items: [{ itemId: ids[WC], label: WC }], reading: { state: "ready", calls: 2 } } } });
+      const requestId = confirmed.result!.requestId!;
+      const [sealed] = await querySql(`select (r.manifest #> '{order,list,asked_item_ids}')::text || '|' || r.payer_id
+        from public.takeoff_launch_requests r where r.id = '${requestId}';`);
+      expect(sealed).toBe(`["${ids[WC]}"]|${owner.userId}`);
+      const remeasure = (await readOwnedPlanJobs(dossier.projectId)).filter((job) => job.launch_request_id === requestId);
+      expect(remeasure.map((job) => job.plans)).toEqual([[planA], [planB]]);
+      // The same confirmation sent again (a lost answer: the dialog resends its body) answers what it answered.
+      const { planKeys, digest } = confirmed.result!.sent!;
+      expect(await runOwnedTakeoffCommand(owner, ["remeasure", dossier.projectId, ids[WC], intentKey, planKeys.join(","), digest]))
+        .toMatchObject({ result: { outcome: "replayed", requestId } });
+
+      // The WC reads « En lecture » at once; the lavabo and the tap keep their answers.
+      await ui.browser.reload();
+      await waitForHydration(ui.browser);
+      await expect(row(WC)).toContainText("En lecture");
+      await expect(row(LAVABO)).toContainText("Mesuré");
+      await expect(row(ROBINET)).toContainText("Non trouvé");
+
+      // The Mac reads both plans against the WC only: two on A, nothing on B.
+      const [newA, newB] = remeasure;
+      const passed = await runOwnedPlanDispatch(ui, owner, dossier.projectId, {
+        itemAnswers: { [newA.id]: { items: { [WC]: { quantity: 2, unit: "u", page: 1 } } } } });
+      expect(passed.calls.map((call) => call.jobId).sort()).toEqual([newA.id, newB.id].sort());
+      expect((await readOwnedPlanJobs(dossier.projectId)).filter((job) => job.launch_request_id === requestId)
+        .map((job) => [job.status, job.analysis_outcome])).toEqual([["completed", "success"], ["completed", "success"]]);
+      const after = await ownedAnswers(dossier.projectId);
+      // Each new reading answered the WC alone, replacing its reading on that plan; every other answer is the one before.
+      const added = after.filter((answer) => !before.some((earlier) => earlier.id === answer.id));
+      expect(added.map(({ item_id, plan_file_id, plan_logical_id, outcome, reading_revision }) =>
+        [item_id, plan_file_id, plan_logical_id, outcome, reading_revision]).sort()).toEqual([
+        [ids[WC], planA, planA, "measured", 2], [ids[WC], planB, planB, "not_found", 2]].sort());
+      for (const answer of added) {
+        expect(answer.replaces).toBe(before.find((earlier) => earlier.item_id === ids[WC] && earlier.plan_file_id === answer.plan_file_id)!.id);
+      }
+      expect(after.filter((answer) => answer.item_id !== ids[WC]).map(({ id }) => id).sort())
+        .toEqual(before.filter((answer) => answer.item_id !== ids[WC]).map(({ id }) => id).sort());
+
+      // The table shows the WC measured, its new readings to decide; the lavabo and the tap as they were.
+      await ui.browser.reload();
+      await waitForHydration(ui.browser);
+      await expect(row(WC)).toContainText("Mesuré");
+      await expect(row(WC)).toContainText("À vérifier");
+      expect(Number((await querySql(`select count(*) from public.takeoff_item_answer_decisions where answer_id in
+        (${added.map(({ id }) => `'${id}'`).join(", ")});`)).find((line) => /^\s*\d+\s*$/.test(line)))).toBe(0);
+      await expect(row(LAVABO)).toContainText("Mesuré");
+      await expect(row(ROBINET)).toContainText("Non trouvé");
+      await screen.getByRole("button", `Détail du poste « ${WC} »`, { exact: true }).click();
+      const detail = screen.getByTestId(`poste-detail-${ids[WC]}`);
+      await expect(detail).toContainText("Mesuré");
+      await expect(detail).toContainText("Non trouvé");
+      await recordEvidence(ui.army, "takeoff-item-remeasure", { requestId, jobs: [jobA.id, jobB.id, newA.id, newB.id],
+        added: added.map(({ plan_file_id, outcome }) => [plan_file_id === planA ? "A" : "B", outcome]) });
+    } finally {
+      await deactivateOwnedItemListOrder();
+      await deactivateOwnedPlanDispatch();
+    }
+  });

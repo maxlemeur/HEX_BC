@@ -54,7 +54,7 @@ function read(itemId: string, planKey: string, value: ItemAnswerView | "queued" 
   decision: ItemReadingInput["decision"] = null, extra: Partial<ItemReadingInput> = {}): ItemReadingInput {
   const plan = PLANS.find(({ key }) => key === planKey);
   const base = { itemId, planKey, planName: plan?.name ?? "Plan", location: null, decision, decisionRevision: decision?.revision ?? 0,
-    entry: null, sent: false };
+    entry: null, sent: false, attempt: null };
   const reading: ItemReadingInput = typeof value === "string"
     ? { ...base, unit: value, reading: value === "failed" ? "ended" : "in_flight", answer: null }
     : { ...base, unit: "succeeded", reading: "answered", answer: value };

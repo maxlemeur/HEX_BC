@@ -5,6 +5,8 @@ vi.mock("next/headers", () => ({ headers: async () => new Headers({ host: "local
 vi.mock("@/lib/affaires/access-server", () => ({ requireAffaireAccess: vi.fn() }));
 vi.mock("@/lib/ai/chatgpt-takeoff", () => ({ readLocalChatGptSubscription: vi.fn() }));
 vi.mock("./launch-request-server", () => ({ readAffaireTakeoffLaunchState: vi.fn() }));
+vi.mock("./item-remeasure-server", () => ({ planTakeoffItemRemeasure: vi.fn(), launchTakeoffItemRemeasure: vi.fn(),
+  readTakeoffItemRemeasureReceipt: vi.fn() }));
 vi.mock("./item-table-server", () => ({ loadItemLines: vi.fn(), itemReviewerRight: vi.fn() }));
 vi.mock("@/lib/takeoff/rules/recompute-server", () => ({ recomputeTakeoffRulesQuietly: vi.fn(async () => ({ lines: 1, skipped: 0 })) }));
 
@@ -15,6 +17,12 @@ import { buildItemLines, type ItemReviewTarget, type ItemTableRow } from "./item
 import type { ItemReviewCommand } from "./item-table-contracts";
 import { FIXTURE_PLANS, fixtureAnswer, fixtureItemId, fixturePoste, fixtureReading } from "./item-table.test-fixtures";
 import { itemReviewerRight, loadItemLines } from "./item-table-server";
+import {
+  launchTakeoffItemRemeasure,
+  planTakeoffItemRemeasure,
+  readTakeoffItemRemeasureReceipt,
+  type TakeoffItemRemeasurePlan,
+} from "./item-remeasure-server";
 import { readAffaireTakeoffLaunchState } from "./launch-request-server";
 import { previewItemRemeasure, runItemRemeasure, runItemReviewCommand } from "./item-review-commands-server";
 
@@ -36,6 +44,13 @@ const rows = (): ItemTableRow[] => [
 let lines = buildItemLines(rows(), { plans: FIXTURE_PLANS, scope: { kind: "affaire" } });
 const targetsOf = (ids: number[]) => lines.filter(({ itemId }) => ids.map(fixtureItemId).includes(itemId)).map(({ targets }) => targets);
 
+// The plan of a request reading the selection: what the preview shows (its calls and budget) and what the admission seals.
+const PLANNED = { planSetId: "99999999-9999-4999-8999-999999999999", preparationRevision: 3, planFileIds: [], planKeys: [],
+  predecessorJobId: JOB, listRevisionId: "44444444-4444-4444-8444-444444444444", askedItemIds: [], snapshot: {},
+  manifest: { budget: { tokens: 66_000, cost_cents: 0 } },
+  bounds: { ok: true, items: 1, plans: 2, readingCalls: 2, classifierCalls: 0, minutes: 2, maxRequestCalls: 200, maxPlanCalls: 100,
+    maxPlanPages: 2000, calls: 2, tokens: 60_000, requestBudgetTokens: 66_000, answerBytes: 1_000, units: [], exceeded: [] },
+} as unknown as TakeoffItemRemeasurePlan;
 const review = vi.fn();
 let jobs: Array<{ id: string; estimate_version_id: string | null; project_id: string }> = [];
 const access = { context: { userId: MEMBER, tenantId: TENANT, supabase: {
@@ -64,6 +79,9 @@ beforeEach(() => {
   vi.mocked(readLocalChatGptSubscription).mockResolvedValue({ issue: null, selection: { profileId: "p", model: "modele-a",
     reasoningEffort: "medium", hostId: "h", authorizationId: "a" } });
   vi.mocked(readAffaireTakeoffLaunchState).mockResolvedValue({ request: null } as never);
+  vi.mocked(planTakeoffItemRemeasure).mockResolvedValue({ plan: PLANNED });
+  vi.mocked(readTakeoffItemRemeasureReceipt).mockResolvedValue(null);
+  vi.mocked(launchTakeoffItemRemeasure).mockResolvedValue({ outcome: "admitted", requestId: "55555555-5555-4555-8555-555555555555" });
 });
 
 describe("runItemReviewCommand", () => {
@@ -194,10 +212,71 @@ describe("remeasure of a selection", () => {
       .toMatchObject({ status: 409, code: "TAKEOFF_ITEM_REVIEW_STALE" });
   });
 
-  it("admits nothing while the manual request cannot take a selection of items (its own pull request)", async () => {
+  it("shows the paid calls and the budget its admission reserves, as planned on the items asked", async () => {
     const preview = await previewItemRemeasure(PROJECT, { scope: { kind: "affaire" }, itemIds: [fixtureItemId(3)] });
+    expect(preview.reading).toEqual({ state: "ready", calls: 2, budgetTokens: 66_000,
+      summary: "Lecture de 1 poste sur 2 plans : 2 appels de lecture, environ 2 min sur un Mac." });
+    expect(planTakeoffItemRemeasure).toHaveBeenCalledWith(access.context, { projectId: PROJECT, planKeys: ["plan-r1", "plan-rdc"],
+      itemIds: [fixtureItemId(3)], selection: null });
+  });
+
+  it("says why a reading that cannot be bounded is refused, before anything is paid", async () => {
+    vi.mocked(planTakeoffItemRemeasure).mockResolvedValue({ refusal: "Ces plans ne peuvent pas être lus seuls avec la préparation confirmée : revoyez les options du métré." });
+    const preview = await previewItemRemeasure(PROJECT, { scope: { kind: "affaire" }, itemIds: [fixtureItemId(3)] });
+    expect(preview.reading).toEqual({ state: "refused",
+      reason: "Ces plans ne peuvent pas être lus seuls avec la préparation confirmée : revoyez les options du métré." });
     expect(await refusal(runItemRemeasure(PROJECT, { command_version: 1, intent_key: INTENT, scope: { kind: "affaire" },
-      item_ids: [fixtureItemId(3)], plan_keys: preview.plans.map(({ key }) => key), setting: { reasoning_effort: "high" },
-      preview_digest: preview.previewDigest }))).toMatchObject({ status: 503, code: "TAKEOFF_ITEM_REVIEW_UNAVAILABLE" });
+      item_ids: [fixtureItemId(3)], plan_keys: preview.plans.map(({ key }) => key), setting: null, preview_digest: preview.previewDigest })))
+      .toMatchObject({ status: 422, code: "VALIDATION_ERROR" });
+    expect(launchTakeoffItemRemeasure).not.toHaveBeenCalled();
+  });
+
+  it("admits the confirmation with the effort chosen for it alone and the readings the member saw", async () => {
+    const preview = await previewItemRemeasure(PROJECT, { scope: { kind: "affaire" }, itemIds: [fixtureItemId(2)] });
+    expect(preview.items).toEqual([{ itemId: fixtureItemId(2), label: "Baignoire" }]);
+    await expect(runItemRemeasure(PROJECT, { command_version: 1, intent_key: INTENT, scope: { kind: "affaire" },
+      item_ids: [fixtureItemId(2)], plan_keys: preview.plans.map(({ key }) => key), setting: { reasoning_effort: "high" },
+      preview_digest: preview.previewDigest })).resolves.toEqual({ outcome: "admitted", requestId: "55555555-5555-4555-8555-555555555555" });
+    const sealed = { profileId: "p", model: "modele-a", reasoningEffort: "high", hostId: "h", authorizationId: "a" };
+    expect(planTakeoffItemRemeasure).toHaveBeenLastCalledWith(access.context, { projectId: PROJECT,
+      planKeys: preview.plans.map(({ key }) => key), itemIds: [fixtureItemId(2)], selection: sealed });
+    const answer = lines.find(({ itemId }) => itemId === fixtureItemId(2))!.readings[0].answer!.answerId.toLowerCase();
+    expect(launchTakeoffItemRemeasure).toHaveBeenCalledWith(access.context, { projectId: PROJECT, intentKey: INTENT, plan: PLANNED,
+      selection: sealed, targets: [{ item_id: fixtureItemId(2), answers: [answer] }], host: "localhost:3000" });
+  });
+
+  it("answers stale with the items the database found read again, by their labels; nothing is admitted", async () => {
+    vi.mocked(launchTakeoffItemRemeasure).mockResolvedValue({ outcome: "stale", stale: [fixtureItemId(2).toUpperCase()] });
+    const preview = await previewItemRemeasure(PROJECT, { scope: { kind: "affaire" }, itemIds: [fixtureItemId(2)] });
+    expect(await refusal(runItemRemeasure(PROJECT, { command_version: 1, intent_key: INTENT, scope: { kind: "affaire" },
+      item_ids: [fixtureItemId(2)], plan_keys: preview.plans.map(({ key }) => key), setting: null, preview_digest: preview.previewDigest })))
+      .toMatchObject({ status: 409, code: "TAKEOFF_ITEM_REVIEW_STALE",
+        details: { stale: [{ itemId: fixtureItemId(2).toUpperCase(), label: "Baignoire" }] } });
+  });
+
+  it("replays a lost answer of the same confirmation from its receipt, and refuses another under its key", async () => {
+    const receipt = { requestId: "55555555-5555-4555-8555-555555555555", payerId: MEMBER, askedItemIds: [fixtureItemId(2)],
+      planKeys: ["plan-rdc"], reasoningEffort: "high" };
+    vi.mocked(readTakeoffItemRemeasureReceipt).mockResolvedValue(receipt);
+    const confirmation = { command_version: 1 as const, intent_key: INTENT, scope: { kind: "affaire" as const },
+      item_ids: [fixtureItemId(2)], plan_keys: ["plan-rdc"], setting: { reasoning_effort: "high" as const }, preview_digest: "b".repeat(64) };
+    await expect(runItemRemeasure(PROJECT, confirmation)).resolves.toEqual({ outcome: "replayed", requestId: receipt.requestId });
+    expect(launchTakeoffItemRemeasure).not.toHaveBeenCalled();
+    for (const other of [{ ...confirmation, item_ids: [fixtureItemId(1)] }, { ...confirmation, plan_keys: ["plan-r1"] },
+      { ...confirmation, setting: { reasoning_effort: "low" as const } }]) {
+      expect(await refusal(runItemRemeasure(PROJECT, other))).toMatchObject({ status: 409, code: "TAKEOFF_LAUNCH_INTENT_CONFLICT" });
+    }
+    vi.mocked(readTakeoffItemRemeasureReceipt).mockResolvedValue({ ...receipt, payerId: "99999999-9999-4999-8999-999999999990" });
+    expect(await refusal(runItemRemeasure(PROJECT, confirmation))).toMatchObject({ status: 409, code: "TAKEOFF_LAUNCH_INTENT_CONFLICT" });
+  });
+
+  it("answers a receipt to nobody who lost the right to launch on the affaire", async () => {
+    vi.mocked(itemReviewerRight).mockResolvedValue(false);
+    vi.mocked(readTakeoffItemRemeasureReceipt).mockResolvedValue({ requestId: "55555555-5555-4555-8555-555555555555", payerId: MEMBER,
+      askedItemIds: [fixtureItemId(2)], planKeys: ["plan-rdc"], reasoningEffort: null });
+    expect(await refusal(runItemRemeasure(PROJECT, { command_version: 1, intent_key: INTENT, scope: { kind: "affaire" },
+      item_ids: [fixtureItemId(2)], plan_keys: ["plan-rdc"], setting: null, preview_digest: "b".repeat(64) })))
+      .toMatchObject({ status: 403, code: "TAKEOFF_ITEM_REVIEW_FORBIDDEN" });
+    expect(readTakeoffItemRemeasureReceipt).not.toHaveBeenCalled();
   });
 });

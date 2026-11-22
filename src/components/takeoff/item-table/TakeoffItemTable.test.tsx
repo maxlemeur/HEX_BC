@@ -447,12 +447,57 @@ describe("TakeoffItemTable", () => {
     expect(preview).toHaveTextContent("Réglage de Mon profil : modele-a · effort moyen.");
     expect(preview).toHaveTextContent("Plan RDC");
     expect(preview).toHaveTextContent("1 poste mesuré");
+    // What its admission reads and reserves on the member's subscription, sized on the items asked.
+    expect(screen.getByTestId("poste-remeasure-reading")).toHaveTextContent(
+      "1 poste lu sur 2 plans, en 2 appels payants. Budget réservé sur votre forfait : 66 000 jetons au plus (2 appels payants).");
     fireEvent.change(within(preview).getByRole("combobox", { name: "Effort pour cette demande seulement" }), { target: { value: "high" } });
+    const reads = client.fetchItemTable.mock.calls.length;
     fireEvent.click(screen.getByRole("button", { name: "Confirmer la demande sur mon forfait" }));
     await waitFor(() => expect(client.sendItemRemeasure).toHaveBeenCalledTimes(1));
     expect(client.sendItemRemeasure.mock.calls[0][1]).toMatchObject({ item_ids: [fixtureItemId(5)], plan_keys: [RDC, R1],
       setting: { reasoning_effort: "high" }, preview_digest: "a".repeat(64) });
     expect(await screen.findByTestId("poste-notice")).toHaveTextContent("Nouvelle mesure demandée");
+    // The table is read again at once: the items asked now read « En lecture » on their plans.
+    await waitFor(() => expect(client.fetchItemTable.mock.calls.length).toBeGreaterThan(reads));
+  });
+
+  it("says why the reading of the selection is refused before anything is paid, and offers no confirmation", async () => {
+    client.previewItemRemeasure.mockResolvedValue(fixtureRemeasurePreview({ reading: { state: "refused",
+      reason: "Ces plans ne peuvent pas être lus seuls avec la préparation confirmée : revoyez les options du métré." } }));
+    renderTable();
+    await screen.findByRole("row", { name: /Baignoire/ });
+    tick("Baignoire");
+    fireEvent.click(screen.getByRole("button", { name: "Demander une nouvelle mesure (1)" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("revoyez les options du métré");
+    expect(screen.queryByTestId("poste-remeasure-reading")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Confirmer la demande sur mon forfait" })).toBeDisabled();
+  });
+
+  it("names the items a confirmation found read again since the preview, and applies nothing", async () => {
+    client.previewItemRemeasure.mockResolvedValue(fixtureRemeasurePreview());
+    client.sendItemRemeasure.mockRejectedValue(new TakeoffApiError("Des postes de la sélection ont changé depuis son affichage.", 409,
+      { stale: [{ itemId: fixtureItemId(3), label: "Baignoire" }] }, "TAKEOFF_ITEM_REVIEW_STALE"));
+    renderTable();
+    await screen.findByRole("row", { name: /Baignoire/ });
+    tick("Baignoire");
+    fireEvent.click(screen.getByRole("button", { name: "Demander une nouvelle mesure (1)" }));
+    await screen.findByTestId("poste-remeasure-preview");
+    fireEvent.click(screen.getByRole("button", { name: "Confirmer la demande sur mon forfait" }));
+    expect(await screen.findByTestId("poste-notice")).toHaveTextContent("Rien n’a été appliqué : Baignoire a changé depuis la sélection.");
+  });
+
+  it("shows in the detail the earlier reading kept, and that its new measure did not end, with its reason", async () => {
+    client.fetchItemTable.mockResolvedValue(table({ readings: SCENARIO.map((reading) => reading.itemId === fixtureItemId(3)
+      && reading.planKey === RDC ? { ...reading, unit: "failed" as const,
+        attempt: { unit: "failed" as const, reason: "Le service d’analyse n’a pas pu terminer le métré." } } : reading) }));
+    renderTable();
+    await screen.findByRole("row", { name: /Baignoire/ });
+    fireEvent.click(screen.getByRole("button", { name: "Détail du poste « Baignoire »" }));
+    const detail = await screen.findByTestId(`poste-detail-${fixtureItemId(3)}`);
+    expect(within(detail).getByTestId(`poste-reading-attempt-${RDC}`)).toHaveTextContent(
+      "La nouvelle mesure de ce plan n’a pas abouti : Le service d’analyse n’a pas pu terminer le métré. La lecture précédente ci-dessous reste celle retenue.");
+    expect(detail).toHaveTextContent("Plan RDC · A · RDC · Non trouvé");
+    expect(within(detail).queryByTestId(`poste-reading-attempt-${R1}`)).not.toBeInTheDocument();
   });
 
   it("keeps the selection ready, without a confirmation, while another analysis of the affaire runs", async () => {

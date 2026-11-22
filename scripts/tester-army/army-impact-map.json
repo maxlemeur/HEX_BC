@@ -993,11 +993,15 @@
     },
     {
       "id": "takeoff-poste-reading",
-      "note": "Lecture d'un plan contre la liste scellée des postes et publication de ses réponses (lot 4, PR 3b/3c, TKPR01, TKPR02) : réponses partielles pendant qu'un autre plan est lu, aucun faux « non trouvé », un plan en échec, une réponse omise ou tronquée ne publie rien.",
+      "note": "Lecture d'un plan contre la liste scellée des postes et publication de ses réponses (lot 4, PR 3b/3c, TKPR01, TKPR02) : réponses partielles pendant qu'un autre plan est lu, aucun faux « non trouvé », un plan en échec, une réponse omise ou tronquée ne publie rien. Nouvelle mesure d'une sélection (PR 4b, TKPR03) : admise pour les seuls postes demandés, lue sur leurs plans, montrée à décider.",
       "paths": [
         "src/lib/takeoff/poste-*.ts",
         "src/lib/takeoff/item-answers*.ts",
         "supabase/migrations/*_takeoff_item_answers.sql",
+        "supabase/migrations/*_takeoff_item_remeasure_admission.sql",
+        "src/lib/takeoff/item-review-commands-server.ts",
+        "src/lib/takeoff/item-remeasure-server.ts",
+        "scripts/tester-army/takeoff-request-command.mjs",
         "scripts/tester-army/takeoff-plan-dispatch.mjs",
         "e2e/army/takeoff/plan-dispatch-support.ts",
         "e2e/army/takeoff/poste-reading-support.ts"

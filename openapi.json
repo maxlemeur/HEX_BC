@@ -44959,6 +44959,44 @@
                               "sent": {
                                 "type": "boolean",
                                 "description": "Le plan de la réponse est envoyé au devis : aucun geste en bloc n’écrit ses lignes."
+                              },
+                              "attempt": {
+                                "anyOf": [
+                                  {
+                                    "type": "object",
+                                    "properties": {
+                                      "unit": {
+                                        "type": "string",
+                                        "enum": [
+                                          "queued",
+                                          "running",
+                                          "failed",
+                                          "canceled"
+                                        ]
+                                      },
+                                      "reason": {
+                                        "anyOf": [
+                                          {
+                                            "type": "string",
+                                            "maxLength": 500
+                                          },
+                                          {
+                                            "type": "null"
+                                          }
+                                        ]
+                                      }
+                                    },
+                                    "required": [
+                                      "unit",
+                                      "reason"
+                                    ],
+                                    "additionalProperties": false
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ],
+                                "description": "Une nouvelle lecture de ce plan, après la réponse courante : en cours, ou terminée sans réponse (avec son motif). La réponse courante reste celle affichée et décidée."
                               }
                             },
                             "required": [
@@ -44969,7 +45007,8 @@
                               "answer",
                               "decision",
                               "entry",
-                              "sent"
+                              "sent",
+                              "attempt"
                             ],
                             "additionalProperties": false
                           }
@@ -46295,6 +46334,44 @@
                         "sent": {
                           "type": "boolean",
                           "description": "Le plan de la réponse est envoyé au devis : aucun geste en bloc n’écrit ses lignes."
+                        },
+                        "attempt": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "unit": {
+                                  "type": "string",
+                                  "enum": [
+                                    "queued",
+                                    "running",
+                                    "failed",
+                                    "canceled"
+                                  ]
+                                },
+                                "reason": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "maxLength": 500
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                }
+                              },
+                              "required": [
+                                "unit",
+                                "reason"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "description": "Une nouvelle lecture de ce plan, après la réponse courante : en cours, ou terminée sans réponse (avec son motif). La réponse courante reste celle affichée et décidée."
                         }
                       },
                       "required": [
@@ -46305,7 +46382,8 @@
                         "answer",
                         "decision",
                         "entry",
-                        "sent"
+                        "sent",
+                        "attempt"
                       ],
                       "additionalProperties": false
                     }
@@ -47024,7 +47102,7 @@
           "preview_digest": {
             "type": "string",
             "pattern": "^[0-9a-f]{64}$",
-            "description": "Empreinte de l’aperçu confirmé : payeur, plans, postes et réglage."
+            "description": "Empreinte de l’aperçu confirmé : payeur et réglage, plans, postes et leurs lectures, appels et budget."
           }
         },
         "required": [
@@ -47282,6 +47360,57 @@
                   }
                 ]
               },
+              "reading": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "state": {
+                        "type": "string",
+                        "const": "ready"
+                      },
+                      "summary": {
+                        "type": "string"
+                      },
+                      "calls": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      "budgetTokens": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      }
+                    },
+                    "required": [
+                      "state",
+                      "summary",
+                      "calls",
+                      "budgetTokens"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "state": {
+                        "type": "string",
+                        "const": "refused"
+                      },
+                      "reason": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "state",
+                      "reason"
+                    ],
+                    "additionalProperties": false
+                  }
+                ],
+                "description": "Ce que la demande lira et réservera (appels payants, budget en jetons), calculé comme son admission le calcule ; ou le motif qui l’en empêche."
+              },
               "running": {
                 "type": "boolean",
                 "description": "Une demande de l’affaire est en cours : la confirmation garde la sélection prête."
@@ -47339,6 +47468,7 @@
               "plans",
               "payer",
               "subscription",
+              "reading",
               "running",
               "previewDigest",
               "skipped"

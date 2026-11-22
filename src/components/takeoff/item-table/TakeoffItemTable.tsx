@@ -340,7 +340,11 @@ export function TakeoffItemTable({ projectId, viewerKey, signature }: {
       setNotice(result.outcome === "already_running"
         ? { tone: "info", text: "Une analyse de l’affaire est en cours : la sélection reste prête pour la nouvelle mesure." }
         : { tone: "success", text: "Nouvelle mesure demandée : les postes seront lus de nouveau sur votre forfait." });
-      if (result.outcome !== "already_running") updateSelection(emptyItemSelection(selection.scope));
+      if (result.outcome !== "already_running") {
+        updateSelection(emptyItemSelection(selection.scope));
+        // The items asked read « En lecture » on their plans now: the table shows it at once.
+        void refresh();
+      }
       setDialog(null);
     } catch (caught) {
       setDialog(null);
@@ -348,7 +352,7 @@ export function TakeoffItemTable({ projectId, viewerKey, signature }: {
     } finally {
       setBusy(false);
     }
-  }, [dialog, preview.value, projectId, selection, updateSelection, failure]);
+  }, [dialog, preview.value, projectId, selection, updateSelection, failure, refresh]);
 
   const selectFilter = useCallback(async () => {
     try {

@@ -3508,7 +3508,7 @@ describe("an attempt of the second measuring order", () => {
   const REQUEST = "77777777-7777-4777-8777-777777777777";
   // Its manifest is read by the reading itself, which these tests replace.
   const ORDER = { requestId: REQUEST, revisionId: "99999999-9999-4999-8999-999999999999", revision: 3, itemCount: 4,
-    contentSha256: "e".repeat(64), manifest: {} as never };
+    contentSha256: "e".repeat(64), askedItemIds: null, manifest: {} as never };
   // Its unit (one plan) is checked by the reading itself, which these tests replace.
   const planUnit = { launch_request_id: REQUEST } as unknown as Partial<TakeoffJobRow>;
   beforeEach(() => vi.stubEnv("MERGEONE_TAKEOFF_VECTORS", "0"));

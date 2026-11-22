@@ -130,7 +130,14 @@ export type ItemReadingInput = {
   entry: ItemEntryView | null;
   /** The answer's plan was sent to an estimate (its job applied): its rows are the estimate's, no bulk gesture writes them. */
   sent: boolean;
+  /**
+   * A later reading asked of this plan (a new measure) that is not the current answer's: running, or ended without an
+   * answer (failed or stopped) with its reason in French. The current answer stays the one shown and decided.
+   */
+  attempt: ItemReadingAttempt | null;
 };
+
+export type ItemReadingAttempt = { unit: "queued" | "running" | "failed" | "canceled"; reason: string | null };
 
 /** A quantity entered by a member for the whole item (affaire) or for its answer on one plan. */
 export type ItemEntryView = {
@@ -395,6 +402,7 @@ function buildLine(row: ItemTableRow, plans: readonly ItemTablePlan[], scope: It
       // In a plan's scope the entry of the plan is the line's own: it is not also a part of a reading.
       entry: scope.kind === "plan" ? null : reading.entry,
       sent: reading.sent,
+      attempt: reading.attempt,
     };
   });
   const aggregate = aggregateItemReadings(row.readings.map(asPlanReading));

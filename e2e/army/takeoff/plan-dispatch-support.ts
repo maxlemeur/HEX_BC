@@ -147,7 +147,10 @@ function childEnv(owner: WorkerOwner, extra: Record<string, string> = {}) {
     E2E_LOGIN_EMAIL: owner.email, E2E_LOGIN_PASSWORD: owner.password, ...extra } as NodeJS.ProcessEnv;
 }
 
-export type CommandAnswer = { result?: { outcome: string; requestId?: string; jobId?: string | null; state?: string; canceledUnits?: number };
+export type CommandAnswer = { result?: { outcome: string; requestId?: string | null; jobId?: string | null; state?: string; canceledUnits?: number;
+    sent?: { planKeys: string[]; digest: string };
+    preview?: { plans: Array<{ key: string; name: string }>; items: Array<{ itemId: string; label: string }>;
+      reading: { state: string; calls?: number; budgetTokens?: number; summary?: string; reason?: string }; subscription: string } };
   rejected?: string; status?: number | null; deferred: number };
 
 /** A member's explicit command, run by the server as from the affaire's options. */

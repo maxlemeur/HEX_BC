@@ -53,6 +53,7 @@ const reads: string[] = [];
 let tableRows: Array<Record<string, unknown>> = [];
 let takeoffRows: Array<Record<string, unknown>> = [];
 let events: Array<Record<string, unknown>> = [];
+let jobRows: Array<Record<string, unknown>> = [];
 const ranges: Array<[number, number]> = [];
 
 function memberClient() {
@@ -61,6 +62,7 @@ function memberClient() {
     const data = table === "takeoff_items" ? takeoffRows
       : table === "takeoff_list_revisions" ? [{ id: "44444444-4444-4444-8444-444444444444", revision: 2, item_count: 2 }]
         : table === "takeoff_item_review_events" ? events
+          : table === "takeoff_jobs" ? jobRows
           : table === "profiles" ? [{ id: MEMBER, full_name: " Léa Martin " }] : (() => { throw new Error(`Unexpected read of ${table}.`); })();
     const builder: Record<string, unknown> = {};
     // The journal is read as PostgREST reads it: its filters, its order and its range (both ends included).
@@ -115,6 +117,7 @@ beforeEach(() => {
   reads.length = 0;
   ranges.length = 0;
   events = [];
+  jobRows = [];
   tableRows = [tableRow(0), tableRow(1)];
   takeoffRows = [{ id: rowId(0), quantity: 3, unit: "u", is_verified: false, is_excluded: false, rules_stale: false, rule_results: [], confidence: 0.4, evidence: "Symboles",
     source_page: 1, metadata: {}, quantity_entry_category: null }];
@@ -160,6 +163,37 @@ describe("readAffaireItemTable", () => {
     const table = await readAffaireItemTable(PROJECT, { ...query, scope: { kind: "affaire" }, filter: {}, focusItemId: null, offset: 100 });
     expect(calls.filter(({ name }) => name === "read_takeoff_item_table").map(({ args }) => args.p_offset)).toEqual([100, 0]);
     expect(table.page.lines).toHaveLength(1);
+  });
+});
+
+describe("a new measure of a plan after its answer", () => {
+  // The pair's latest job asked is a later one than its answer's: a new measure of the item on that plan.
+  const LATER = "66666666-6666-4666-8666-666666666666";
+  const laterReading = (index: number, unit: string) => tableRow(index, { readings: [{ ...tableRow(index).readings[0], job_id: LATER,
+    unit_state: unit, reading: "answered" }] });
+
+  it("shows the earlier answer, and that the new measure did not end, with its reason in French", async () => {
+    tableRows = [laterReading(1, "failed")];
+    jobRows = [{ id: LATER, error_code: "AI_PROVIDER" }];
+    const line = (await readAffaireItemLine(PROJECT, itemId(1)))!.line;
+    expect(line.readings[0].answer?.outcome).toBe("not_found");
+    expect(line.readings[0].attempt).toEqual({ unit: "failed", reason: "Le service d’analyse n’a pas pu terminer le métré." });
+    expect(reads).toContain("takeoff_jobs");
+  });
+
+  it("gives a reason of its own words, never an internal code, for a failure the screen does not name", async () => {
+    tableRows = [laterReading(1, "failed")];
+    jobRows = [{ id: LATER, error_code: "TAKEOFF_SOMETHING_INTERNAL" }];
+    expect((await readAffaireItemLine(PROJECT, itemId(1)))!.line.readings[0].attempt)
+      .toEqual({ unit: "failed", reason: "L’analyse a été interrompue pour une raison non répertoriée." });
+  });
+
+  it("says a new measure still runs, and reads no job for it; none when the answer is the latest reading", async () => {
+    tableRows = [laterReading(1, "running")];
+    expect((await readAffaireItemLine(PROJECT, itemId(1)))!.line.readings[0].attempt).toEqual({ unit: "running", reason: null });
+    tableRows = [tableRow(1)];
+    expect((await readAffaireItemLine(PROJECT, itemId(1)))!.line.readings[0].attempt).toBeNull();
+    expect(reads).not.toContain("takeoff_jobs");
   });
 });
 

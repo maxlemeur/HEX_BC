@@ -58,7 +58,7 @@ export function fixtureReading(item: number, planKey: string, value: ItemAnswerV
   decision: ItemAnswerDecision | null = null): ItemReadingInput {
   const plan = FIXTURE_PLANS.find(({ key }) => key === planKey);
   const base = { itemId: fixtureItemId(item), planKey, planName: plan?.name ?? "Plan", location: plan?.location?.label ?? null,
-    decision, decisionRevision: decision?.revision ?? 0, entry: null, sent: false };
+    decision, decisionRevision: decision?.revision ?? 0, entry: null, sent: false, attempt: null };
   return typeof value === "string"
     ? { ...base, unit: value, reading: value === "failed" ? "ended" : "in_flight", answer: null }
     : { ...base, unit: "succeeded", reading: "answered", answer: value };
@@ -153,6 +153,7 @@ export function fixtureRemeasurePreview(extra: Partial<ItemRemeasurePreview> = {
     plans: [{ key: "plan-rdc", name: "Plan RDC" }, { key: "plan-r1", name: "Plan R+1" }],
     payer: { memberId: FIXTURE_MEMBER, name: "Léa Martin" },
     subscription: { state: "ready", model: "modele-a", reasoningEffort: "medium" },
+    reading: { state: "ready", summary: "1 poste lu sur 2 plans, en 2 appels payants.", calls: 2, budgetTokens: 66_000 },
     running: false,
     previewDigest: "a".repeat(64),
     skipped: [],

@@ -346,7 +346,8 @@ Localisation et Décision s’ajoutent, et l’adresse de la page les garde avec
 en vue. Une adresse choisit une vue, jamais un geste, un payeur ni un droit.
 
 **États.** « À mesurer » : aucun plan n’a été interrogé sur ce poste, par exemple un
-poste ajouté après le lancement. « En lecture », « Lecture incomplète » et « Échec de
+poste ajouté après le lancement. Un poste qu’aucune demande n’a posé à un plan n’est pas
+attendu sur ce plan : dans la portée de ce plan, le tableau ne le montre pas. « En lecture », « Lecture incomplète » et « Échec de
 lecture » décrivent un travail sans verdict : la quantité observée reste partielle et
 aucune absence n’est certifiée sur l’affaire tant qu’un plan reste à lire. Un plan encore
 en attente ou en lecture garde le poste « En lecture » ; sinon il est en « Échec de
@@ -398,6 +399,17 @@ propres relations. Elle relit les postes visés une fois ces clés tenues : ce q
 et juge est ce qui est enregistré à ce moment. Les lectures du tableau ne prennent aucun
 verrou.
 
+L’admission d’une nouvelle mesure (`public.launch_takeoff_item_remeasure`) prend, dans cet
+ordre : la ligne de la préparation du métré de l’affaire (`FOR SHARE`, avant la ligne de
+l’affaire, comme une modification de la préparation et l’attestation d’une analyse la
+prennent : une modification attend la fin de l’admission), la ligne de l’affaire (`FOR
+SHARE`, comme un lancement), la clé de revue de l’affaire (où la sélection est comparée),
+puis les verrous de la commande de lancement qu’elle appelle : l’analyse relue (`FOR KEY
+SHARE`), la clé de lancement `takeoff-launch:<affaire>`, la demande automatique de
+l’affaire (`FOR UPDATE`), la clé de la liste `takeoff-item-list:<affaire>` au scellement,
+les lignes qu’elle écrit (la demande, ses analyses, son reçu), et en dernier la clé du
+dossier quand un démarrage automatique est ouvert.
+
 - **Accepter les mesurés sans anomalie** : seulement les postes mesurés à couverture
   complète, sans hypothèse, contrôle en échec ou à recalculer, confiance sous le seuil du
   tenant, preuve localisée manquante, remarque de la lecture, ligne dans une autre unité
@@ -428,11 +440,30 @@ verrou.
   envoi.
 - **Demander à l’IA de mesurer de nouveau** : un aperçu nomme le membre qui confirme,
   qui paie sur son propre forfait ChatGPT, le réglage de Mon profil, les plans et les
-  postes ; un effort ponctuel peut être choisi sans changer le profil. Un seul poste
-  suffit, et un poste jamais mesuré l’est sur les plans lus de l’affaire. Pendant une
-  analyse de l’affaire, la sélection reste prête. La confirmation de l’aperçu est le
-  consentement ; l’admission de la demande vient avec une prochaine évolution, d’ici là
-  rien n’est lancé.
+  postes, les appels payants et le budget réservé, calculés sur les seuls postes demandés ;
+  un effort ponctuel peut être choisi sans changer le profil. Un seul poste suffit, et un
+  poste jamais mesuré l’est sur les plans lus de l’affaire. Pendant une analyse de
+  l’affaire, la sélection reste prête. La confirmation de l’aperçu est le consentement :
+  le serveur prépare une demande d’une analyse par plan, de la préparation confirmée de
+  l’affaire telle qu’elle est, qui ne lit que les postes demandés (la demande les nomme ;
+  sans ce nom, une demande lit toute la liste, comme toutes celles d’avant). La base
+  l’admet ou dit pourquoi : elle vérifie d’abord toute la commande (chaque poste une fois,
+  1 000 au plus), le droit actuel du membre de lancer le métré de l’affaire (avant toute
+  réponse, une réponse rejouée comprise), l’identité de chaque plan telle qu’elle l’a
+  enregistrée pour son fichier, et que chaque plan lu est un plan de la préparation
+  confirmée, avec les mêmes pages et le même contenu. Puis elle compare, sous ses verrous,
+  la révision de la liste et, pour chaque poste, ses réponses courantes sur ces plans avec
+  celles que le membre a vues : un poste relu, retiré ou ajouté depuis l’aperçu rend la
+  demande périmée, rien n’est admis et le tableau nomme ces postes. Elle compare encore une
+  fois l’admission faite : une lecture qui a publié pendant l’admission, ou une révision de
+  la liste enregistrée pendant qu’elle attendait, donnent la même réponse qu’une
+  confirmation envoyée après elles, sans demande ni reçu. La même confirmation renvoyée
+  (double clic, réponse perdue) rend la même réponse ; une autre sous la même clé (autres
+  postes, autres réponses vues, autres plans, autre réglage) est refusée. Les postes
+  demandés passent « En lecture » sur leurs plans, aussitôt dans le tableau ; les autres
+  gardent leur réponse et leur décision. La nouvelle réponse remplace la lecture du plan et
+  reste à décider ; une décision prise sur la lecture d’avant reste attachée à celle-ci. Un
+  plan déjà envoyé au devis se mesure de nouveau sans que rien de son envoi change.
 - **Saisie complémentaire** : dans les cellules des postes non trouvés ou incertains,
   une valeur et une unité par poste, puis une seule catégorie pour la sélection, avec
   la note obligatoire d’une hypothèse. Le résultat de la lecture reste consultable ; une
@@ -442,7 +473,9 @@ Le détail d’un poste montre chaque plan, ses pages cherchées et illisibles, 
 ses motifs, ses lignes positives telles qu’elles sont revues, la décision et son auteur,
 l’historique de la revue (qui a accepté, écarté, réintégré, saisi ou inclus, quand et
 pourquoi, page par page), et mène à la revue ciblée existante pour la preuve et la
-correction. La quantité observée reste la lecture brute du modèle ; la quantité retenue
+correction. Quand une nouvelle mesure d’un plan est en cours ou n’a pas abouti (échec,
+arrêt), le détail montre la lecture précédente, qui reste celle retenue et décidée, et dit
+que la nouvelle mesure n’a pas abouti, avec son motif. La quantité observée reste la lecture brute du modèle ; la quantité retenue
 est celle des lignes positives telles qu’elles sont revues (une correction ciblée y
 compte), et une acceptation qu’une correction ciblée a retirée redevient une décision à
 prendre ; une ligne relue non vérifiée n’est jamais retenue, quelle que soit la décision

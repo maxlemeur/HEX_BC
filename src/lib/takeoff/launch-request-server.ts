@@ -65,7 +65,7 @@ import type { Database, Json } from "@/types/database";
 type Service = SupabaseClient<Database>;
 type Context = AuthenticatedTenantContext;
 
-function databaseError(error: { code?: string; message: string }, message: string): never {
+export function databaseError(error: { code?: string; message: string }, message: string): never {
   throw mapSupabaseError({ ...error, code: error.code ?? "UNKNOWN" }, message);
 }
 
@@ -73,7 +73,7 @@ function databaseError(error: { code?: string; message: string }, message: strin
  * The named refusals of the launch functions, in French, mapped once for every caller; any other error is the database's
  * (`fallback` is its message).
  */
-function launchError(error: { code?: string; message: string }, fallback: string): never {
+export function launchError(error: { code?: string; message: string }, fallback: string): never {
   const refusal = (status: 403 | 404 | 409 | 422, code: TakeoffErrorCode, message: string, retryable = false) =>
     new TakeoffError({ status, code, retryable, message });
   switch (error.message) {
@@ -280,7 +280,7 @@ async function readPlanSetFiles(service: Service, tenantId: string, planSetId: s
 }
 
 /** The plan set a request sealed: that of the plans its sealed preparation reads (kept when its analysis is deleted). */
-function sealedPlanSetId(snapshot: unknown) {
+export function sealedPlanSetId(snapshot: unknown) {
   const sources = (snapshot as { preparation?: { sources?: unknown } } | null)?.preparation?.sources;
   const plan = (Array.isArray(sources) ? sources : []).find((source) => {
     const entry = source as { kind?: unknown; active?: unknown; plan_set_id?: unknown };
@@ -420,7 +420,7 @@ async function sealAutomaticSnapshot(service: Service, input: {
  * refuses the command by name, as the automatic sealing refuses it: weighed as one page, a whole PDF would take a share
  * of the envelope it cannot be read with.
  */
-async function countUnstoredPlanPages(service: Service, sources: TakeoffPreparationSnapshot["preparation"]["sources"]) {
+export async function countUnstoredPlanPages(service: Service, sources: TakeoffPreparationSnapshot["preparation"]["sources"]) {
   const counted = new Map<string, number>();
   for (const source of sources) {
     if (source.kind !== "plan" || !source.active || source.page_count != null) continue;
@@ -440,7 +440,7 @@ async function countUnstoredPlanPages(service: Service, sources: TakeoffPreparat
 }
 
 /** A command whose plans, each read by its own analysis, pass the page limit of a reading: named. */
-function planPagesPastLimit(plans: ReadonlyArray<{ document_id: string; document_name: string }>, maxPages: number) {
+export function planPagesPastLimit(plans: ReadonlyArray<{ document_id: string; document_name: string }>, maxPages: number) {
   const names = plans.map((plan) => `« ${plan.document_name} »`).join(", ");
   return new TakeoffError({ status: 422, code: TakeoffErrorCode.TAKEOFF_FILE_TOO_LARGE, retryable: false,
     message: plans.length === 1
@@ -450,7 +450,7 @@ function planPagesPastLimit(plans: ReadonlyArray<{ document_id: string; document
 }
 
 /** The plan set's copies a preparation does not read: a revision the members set aside, or an identical copy of a plan it reads. */
-function planSetCopiesSetAside(sources: TakeoffPreparationSnapshot["preparation"]["sources"], planSetId: string):
+export function planSetCopiesSetAside(sources: TakeoffPreparationSnapshot["preparation"]["sources"], planSetId: string):
   TakeoffLaunchManifest["coverage"]["plans_omitted"] {
   const read = sources.filter((source) => source.kind === "plan" && source.active);
   return sources.filter((source) => source.kind === "plan" && !source.active && source.plan_set_id === planSetId)
@@ -460,7 +460,7 @@ function planSetCopiesSetAside(sources: TakeoffPreparationSnapshot["preparation"
 }
 
 /** A plan's logical identity across its copies: its dossier piece, or the copy itself for a plan uploaded to the plan set. */
-function logicalPlanKey(plan: { id: string; intake_document_id: string | null }) {
+export function logicalPlanKey(plan: { id: string; intake_document_id: string | null }) {
   return plan.intake_document_id ? `piece:${plan.intake_document_id}` : `copy:${plan.id}`;
 }
 
@@ -480,7 +480,7 @@ const UNIT_JOB_COLUMNS = "id, launch_request_id, launch_unit_key, status, starte
  * derived from its job by the rule the database applies (deriveTakeoffRequestUnits, held to private.takeoff_unit_state
  * by unit-state-parity.test.ts). A command that does not name them leaves them to the analysis that read them.
  */
-async function readPlansAnalysedBefore(service: Service, tenantId: string, projectId: string): Promise<PlanReadBefore[]> {
+export async function readPlansAnalysedBefore(service: Service, tenantId: string, projectId: string): Promise<PlanReadBefore[]> {
   const read = await readAllRows(() => service.from("takeoff_launch_requests")
     .select(`id, created_at, manifest, takeoff_jobs!takeoff_jobs_launch_request_fkey(${UNIT_JOB_COLUMNS})` as never, { count: "exact" })
     .eq("tenant_id", tenantId).eq("project_id", projectId).in("state", ["admitted", "closed"]), { pageSize: 1000 });
@@ -666,7 +666,7 @@ function launchJobPayload(jobId: string, planSetId: string, sourceFile: Awaited<
  * command) and the unit, never from a name, a page or a digest alone; the plan's own source. The dossier's limits were
  * checked on all its plans when the request was sealed; each plan is checked again here on its own.
  */
-async function planUnitJobs(service: Service, input: {
+export async function planUnitJobs(service: Service, input: {
   tenantId: string; planSetId: string; jobKey: string; manifest: TakeoffPlanLaunchManifest; hostId: string;
 }) {
   const config = await getTakeoffLevelCProcessingConfigForTenant(input.tenantId, { supabase: service });
@@ -699,7 +699,7 @@ function intakeDocumentsByPlanFile(files: Array<{ id: string; metadata: unknown 
  * job is recorded either way (the activity shows it). A request of plans hands its units to the Mac's dispatcher, which
  * reads them one at a time in their recorded order.
  */
-async function dispatchLaunchRequestJobs(input: { jobIds: string[]; host?: string | null }) {
+export async function dispatchLaunchRequestJobs(input: { jobIds: string[]; host?: string | null }) {
   if (input.host !== undefined) assertLocalChatGptHost(input.host);
   const correlationId = randomUUID();
   const run = () => runLocalTakeoffAttempts({ jobId: input.jobIds[0], correlationId, trigger: "create" });
@@ -854,7 +854,7 @@ async function relaunchOrder(service: Service, context: Context, projectId: stri
   return order;
 }
 
-async function relaunchManifest(service: Service, context: Context, planSetId: string, snapshot: TakeoffPreparationSnapshot,
+export async function relaunchManifest(service: Service, context: Context, planSetId: string, snapshot: TakeoffPreparationSnapshot,
   config: { maxTotalTokens: number; maxCostCents: number }, intent: TakeoffLaunchManifest["intent"],
   omittedPlans: TakeoffLaunchManifest["coverage"]["plans_omitted"], order: TakeoffLaunchOrder) {
   const files = await readAllRows(() => context.supabase.from("plan_files").select("id, metadata", { count: "exact" })

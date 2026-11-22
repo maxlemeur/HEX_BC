@@ -211,15 +211,19 @@ export function boundPosteReadingRequest(input: {
  * The bounds of a sealed manifest that orders a list of items (none for the free extraction): each unit of one analysis
  * per plan with the share it sealed, or a grouped analysis as one unit holding every plan with the request's envelope.
  * A unit's pages are its retained pages, else its page count, else weighed as lot 3 weighs a plan of unknown count;
- * `countedPages` gives the pages a worker counted on a unit's own PDF (by unit key), in their place. `items`: the sealed
- * revision's items (their batches are counted by their bytes); `vectorCalls`: the most calls the vector classifier may
- * make on a unit of so many vector pages.
+ * `countedPages` gives the pages a worker counted on a unit's own PDF (by unit key), in their place. `items`: the items
+ * the order asks (its asked_item_ids when it names some, else every item of the sealed revision; their batches are
+ * counted by their bytes); `vectorCalls`: the most calls the vector classifier may make on a unit of so many vector pages.
  */
 export function posteReadingBoundsOfManifest(manifest: AnyTakeoffLaunchManifest, chunking: TakeoffChunkingRuntimeConfig,
   estimateTokensPerCall: number, items: readonly Poste[], vectorCalls: (vectorPages: number) => number = () => 0,
   countedPages: ReadonlyMap<string, number> = new Map()): PosteReadingBounds | null {
   if (manifest.order.kind !== "item_list") return null;
-  if (items.length !== manifest.order.list.item_count) throw new Error("The items bounded are not the list the manifest sealed.");
+  const asked = manifest.order.list.asked_item_ids;
+  if (asked ? items.length !== asked.length || items.some((item) => !asked.includes(item.id.toLowerCase()))
+    : items.length !== manifest.order.list.item_count) {
+    throw new Error("The items bounded are not the ones the manifest asks.");
+  }
   const pagesOf = new Map(manifest.plans.map((plan, index) => [plan.entry_key, takeoffPlanWeights(manifest.plans)[index]]));
   const piece = (entryKey: string) => {
     const plan = manifest.plans.find((entry) => entry.entry_key === entryKey);

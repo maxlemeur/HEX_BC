@@ -5,8 +5,15 @@
 --    changes no reading) and is admitted; the review's decision stands.
 -- 3. A confirmation while a new reading publishes a replacement of a selected reading: it compares once its locks are
 --    held, and answers stale; nothing is admitted.
--- 4. A confirmation while the affaire's plan is withdrawn from its preparation: it is refused by the launch's seal,
---    nothing admitted.
+-- 4. A confirmation compared while a new reading of the affaire still runs, whose last publication commits after the
+--    comparison and before the launch looks for a running analysis (the confirmation waits for the launch's key): the
+--    admission compares again under the launch's locks and answers stale; nothing is admitted, no receipt.
+-- 5. A list edit that removes the selected item while the confirmation waits at the seal (for the list key): the
+--    confirmation answers stale naming it, as the same confirmation started after the edit does; nothing is written.
+-- 6. A preparation edit in flight when the confirmation starts: the confirmation waits for it, then is refused (the
+--    plan is no longer confirmed); nothing admitted.
+-- 7. A preparation edit that withdraws the plan once the confirmation compared it (the confirmation waits at the seal):
+--    the edit waits until the admission ends; the analysis reads the preparation the admission compared.
 -- Isolation justified: these interleavings exist only across sessions, which no journey drives deterministically. Each
 -- held transaction is stopped at a named point; the waits are bounded conditions. All values are fictional.
 begin;
@@ -83,8 +90,12 @@ create function pg_temp.job(n integer) returns uuid language sql immutable as $$
 create function pg_temp.digest(plan uuid) returns text language sql immutable as $$
   select encode(sha256(convert_to(plan::text, 'UTF8')), 'hex')
 $$;
-create function pg_temp.snapshot(p_revision integer default 1) returns jsonb language sql stable as $$
-  select jsonb_build_object('schema_version', 1, 'preparation_revision', p_revision, 'confirmed_by', pg_temp.f(1),
+-- The affaire's preparation revision as committed now (1 before it is stored).
+create function pg_temp.prep_revision() returns integer language sql stable as $$
+  select coalesce((select revision from public.takeoff_preparations where project_id = pg_temp.f(20)), 1)
+$$;
+create function pg_temp.snapshot(p_revision integer default null) returns jsonb language sql stable as $$
+  select jsonb_build_object('schema_version', 1, 'preparation_revision', coalesce(p_revision, pg_temp.prep_revision()), 'confirmed_by', pg_temp.f(1),
     'confirmed_at', '2026-11-22T08:00:00Z', 'execution_selection', pg_temp.selection(),
     'readiness', jsonb_build_object('status', 'ready', 'can_launch', true, 'blockers', '[]'::jsonb, 'reservations', '[]'::jsonb),
     'preparation', jsonb_build_object('schema_version', 1,
@@ -95,13 +106,16 @@ create function pg_temp.snapshot(p_revision integer default 1) returns jsonb lan
           'source_updated_at', f.updated_at, 'content_hash', pg_temp.digest(f.id), 'pages', '[2, 7]'::jsonb))
         from public.plan_files f where f.plan_set_id = pg_temp.f(40))))
 $$;
-create function pg_temp.manifest(asked integer[] default null) returns jsonb language sql stable as $$
+-- The list sealed: the revision given, else the affaire's latest.
+create function pg_temp.manifest(asked integer[] default null, p_revision integer default null) returns jsonb
+language sql stable as $$
   select jsonb_build_object('format_version', 2, 'intent', 'initial',
     'order', (select jsonb_build_object('kind', 'item_list', 'version', 2, 'list', jsonb_build_object('revision_id', r.id,
       'revision', r.revision, 'content_sha256', r.content_sha256, 'item_count', r.item_count)
       || case when asked is null then '{}'::jsonb else jsonb_build_object('asked_item_ids',
         (select jsonb_agg(pg_temp.f(i)::text order by pg_temp.f(i)) from unnest(asked) i)) end)
-      from public.takeoff_list_revisions r where r.id = pg_temp.f(400)),
+      from public.takeoff_list_revisions r where r.project_id = pg_temp.f(20)
+        and (p_revision is null or r.id = pg_temp.f(p_revision)) order by r.revision desc limit 1),
     'dispatch', jsonb_build_object('order', 'display_name', 'version', 1),
     'units', jsonb_build_array(jsonb_build_object('key', 'plan:' || pg_temp.f(100), 'ordinal', 1, 'plans', jsonb_build_array(pg_temp.f(100)),
       'pages', '[2, 7]'::jsonb, 'page_count', 9, 'vector_pages', 0, 'budget', jsonb_build_object('tokens', 400000, 'cost_cents', 2500))),
@@ -119,9 +133,9 @@ $$;
 create function pg_temp.launch_sql(intent text, key integer, n integer, predecessor uuid default null) returns text
 language sql stable as $$
   select format($launch$select outcome from public.launch_manual_takeoff_plan_request(%L, %L, %L, %L, %L, %L, %L, %L::jsonb,
-    %L::jsonb, %L::jsonb, %L::jsonb, %L, 1, %L::uuid[])$launch$,
+    %L::jsonb, %L::jsonb, %L::jsonb, %L, %s, %L::uuid[])$launch$,
     pg_temp.tenant(), pg_temp.f(20), pg_temp.f(1), pg_temp.f(key), intent, predecessor, pg_temp.host(), pg_temp.selection(),
-    pg_temp.manifest(), pg_temp.snapshot(), pg_temp.jobs(n), pg_temp.f(40), array[pg_temp.f(100)])
+    pg_temp.manifest(), pg_temp.snapshot(), pg_temp.jobs(n), pg_temp.f(40), pg_temp.prep_revision(), array[pg_temp.f(100)])
 $$;
 -- Each item's current answers on the plan, as committed now (its greatest reading).
 create function pg_temp.targets(items integer[]) returns jsonb language sql stable as $$
@@ -131,14 +145,15 @@ create function pg_temp.targets(items integer[]) returns jsonb language sql stab
   from unnest(items) i
 $$;
 -- The server's statement: a new measure of these items on the plan, re-reading its latest analysis.
-create function pg_temp.remeasure_sql(key integer, items integer[], n integer, predecessor uuid, targets jsonb default null)
+create function pg_temp.remeasure_sql(key integer, items integer[], n integer, predecessor uuid, targets jsonb default null,
+  p_revision integer default null)
 returns text language sql stable as $$
   select format($remeasure$select outcome || ':' || coalesce(pg_catalog.array_to_string(stale, ','), '')
-    from public.launch_takeoff_item_remeasure(%L, %L, %L, %L, %L, %L, %L::jsonb, %L::jsonb, %L::jsonb, %L::jsonb, %L, 1, %L::uuid[],
+    from public.launch_takeoff_item_remeasure(%L, %L, %L, %L, %L, %L, %L::jsonb, %L::jsonb, %L::jsonb, %L::jsonb, %L, %s, %L::uuid[],
       %L::jsonb)$remeasure$,
     pg_temp.tenant(), pg_temp.f(20), pg_temp.f(1), pg_temp.f(key), predecessor, pg_temp.host(), pg_temp.selection(),
-    pg_temp.manifest(items), pg_temp.snapshot(), pg_temp.jobs(n), pg_temp.f(40), array[pg_temp.f(100)],
-    coalesce(targets, pg_temp.targets(items)))
+    pg_temp.manifest(items, p_revision), pg_temp.snapshot(), pg_temp.jobs(n), pg_temp.f(40), pg_temp.prep_revision(),
+    array[pg_temp.f(100)], coalesce(targets, pg_temp.targets(items)))
 $$;
 create function pg_temp.claim_sql(n integer, token integer) returns text language sql stable as $$
   select format($claim$select count(*) from public.claim_observed_local_takeoff_job(%L, %L, %L, clock_timestamp(), %L,
@@ -191,7 +206,10 @@ select is((select split_part(x.answer, ':', 2) from extensions.dblink('race_setu
 create temp table race_pids(label text primary key, pid integer);
 insert into race_pids
 select session.name, (select backend.pid from extensions.dblink(session.name, 'select pg_backend_pid()') as backend(pid integer))
-from (values ('race_a'), ('race_b')) as session(name);
+from (values ('race_setup'), ('race_a'), ('race_b')) as session(name);
+create function pg_temp.receipts(key integer) returns integer language sql stable as $$
+  select count(*)::integer from private.takeoff_launch_commands where intent_key = pg_temp.f(key)
+$$;
 create function pg_temp.waits_for(p_waiting text, p_holding text) returns boolean language plpgsql as $$
 declare
   waiting integer := (select pid from race_pids where label = p_waiting);
@@ -293,24 +311,110 @@ select is((select x.answer from extensions.dblink_get_result('race_b') as x(answ
 select is((select count(*)::integer from extensions.dblink_get_result('race_b') as x(answer text)), 0, 'and is done');
 select is(pg_temp.requests(), 4, 'nothing admitted');
 
--- 4. A confirmation while the plan is withdrawn from the affaire's preparation: refused by the launch's seal.
-select is(extensions.dblink_exec('race_a', 'begin'), 'BEGIN', 'a session holds the affaire''s review key');
-select is((select x.held from extensions.dblink('race_a', pg_temp.hold_review_key_sql()) as x(held text)), '', 'held');
-select is(extensions.dblink_send_query('race_b', pg_temp.remeasure_sql(730, array[301], 7, pg_temp.job(5))), 1,
-  'a new measure is confirmed on the preparation as it was');
-select ok(pg_temp.waits_for('race_b', 'race_a'), 'it waits for the review key');
-select is(extensions.dblink_exec('race_setup', (select format($withdraw$begin;
-  set local session_replication_role = replica;
-  update public.takeoff_preparations set revision = 2, confirmed_snapshot = %L::jsonb
-  where project_id = %L;
-  commit;$withdraw$, jsonb_set(pg_temp.snapshot(2), '{preparation,sources,0,active}', 'false'::jsonb), pg_temp.f(20)))), 'COMMIT',
-  'meanwhile the plan is withdrawn from the confirmed preparation');
+-- 4. A confirmation compared while a new reading still runs, whose publication commits after the comparison and before
+--    the launch looks for a running analysis: compared again under the launch's locks, stale.
+select is((select x.outcome from extensions.dblink('race_setup', pg_temp.launch_sql('reread_plans', 502, 8, pg_temp.job(5)))
+  as x(outcome text)), 'admitted', 'the plan is read once more');
+select is((select x.claimed from extensions.dblink('race_setup', pg_temp.claim_sql(8, 908)) as x(claimed bigint)), 1::bigint,
+  'and claimed');
+create temp table seen_running as select pg_temp.targets(array[300]) as targets;
+select is(extensions.dblink_exec('race_a', 'begin'), 'BEGIN', 'a session holds the affaire''s launch key');
+select is((select x.held from extensions.dblink('race_a', format('select pg_advisory_xact_lock(hashtextextended(%L, 0))::text',
+  'takeoff-launch:' || pg_temp.f(20))) as x(held text)), '', 'held');
+select is(extensions.dblink_send_query('race_b', pg_temp.remeasure_sql(740, array[300], 9, pg_temp.job(5),
+  (select targets from seen_running))), 1, 'a new measure of the first item, re-reading the older analysis, is confirmed');
+select ok(pg_temp.waits_for('race_b', 'race_a'), 'compared, it waits for the launch''s key');
+select is((select split_part(x.answer, ':', 2) from extensions.dblink('race_setup', pg_temp.publish_sql(8, 908, array[300], array[301]))
+  as x(answer text)), 'false', 'meanwhile the running reading publishes its answers and ends');
 select is(extensions.dblink_exec('race_a', 'commit'), 'COMMIT', 'the key is released');
 select ok(pg_temp.answered('race_b'), 'the confirmation answers');
-select is((select count(*)::integer from extensions.dblink_get_result('race_b', false) as x(answer text)), 0, 'with an error');
-select matches(extensions.dblink_error_message('race_b'), 'TAKEOFF_LAUNCH_SEAL_INVALID', 'refused by the launch''s seal');
+select is((select x.answer from extensions.dblink_get_result('race_b') as x(answer text)), 'stale:' || pg_temp.f(300)::text,
+  'stale: the reading it compared was replaced before the launch could see the analysis running');
+select is((select count(*)::integer from extensions.dblink_get_result('race_b') as x(answer text)), 0, 'and is done');
+select is(pg_temp.requests(), 5, 'nothing admitted');
+select is((select count(*)::integer from public.takeoff_jobs where id = pg_temp.job(9)), 0, 'not even its analysis');
+select is(pg_temp.receipts(740), 0, 'nor a receipt under its key');
+
+-- 5. A list edit while the confirmation waits at the seal: a list writer holds the list key and records a revision
+--    without the second item; the confirmation of that item, compared before, answers stale naming it, as the same
+--    confirmation started after the edit does. Nothing is written: no request, no receipt.
+select is(extensions.dblink_exec('race_a', 'begin'), 'BEGIN', 'a list writer begins');
+select is((select x.held from extensions.dblink('race_a', format('select count(*) from private.lock_takeoff_item_list(%L)', pg_temp.f(20)))
+  as x(held bigint)), 1::bigint, 'and holds the list key');
+select is(extensions.dblink_send_query('race_b', pg_temp.remeasure_sql(730, array[301], 10, pg_temp.job(8))), 1,
+  'a new measure of the second item is confirmed on the list''s revision 1');
+select ok(pg_temp.waits_for('race_b', 'race_a'), 'compared, it waits for the list key at the seal');
+select is(extensions.dblink_exec('race_a', format($revision$
+  set local session_replication_role = replica;
+  insert into public.takeoff_list_revisions (id, tenant_id, project_id, revision, cause, sources, item_count, content_sha256,
+    gesture_sha256, intent_key, created_by)
+  select %1$L, tenant_id, project_id, 2, 'proposal', sources, 1, repeat('2', 64), repeat('b', 64), %2$L, created_by
+  from public.takeoff_list_revisions where id = %3$L;
+  insert into public.takeoff_list_revision_entries (revision_id, tenant_id, project_id, item_id, position, source_key, label,
+    expected_unit, origin_kind, origin)
+  select %1$L, tenant_id, project_id, item_id, position, source_key, label, expected_unit, origin_kind, origin
+  from public.takeoff_list_revision_entries where revision_id = %3$L and item_id = %4$L;
+  commit;$revision$, pg_temp.f(401), pg_temp.f(411), pg_temp.f(400), pg_temp.f(300))), 'COMMIT',
+  'the writer records revision 2 without the second item, and commits');
+select ok(pg_temp.answered('race_b'), 'the confirmation answers');
+select is((select x.answer from extensions.dblink_get_result('race_b', false) as x(answer text)), 'stale:' || pg_temp.f(301)::text,
+  'stale, naming the item the list removed');
 select is((select count(*)::integer from extensions.dblink_get_result('race_b', false) as x(answer text)), 0, 'and is done');
-select is(pg_temp.requests(), 4, 'nothing admitted');
+select is(pg_temp.requests(), 5, 'nothing admitted');
+select is(pg_temp.receipts(730), 0, 'no receipt under its key');
+select is((select x.answer from extensions.dblink('race_b', pg_temp.remeasure_sql(731, array[301], 10, pg_temp.job(8), null, 400))
+  as x(answer text)), 'stale:' || pg_temp.f(301)::text, 'the same confirmation started after the edit answers the same');
+select is(pg_temp.receipts(731), 0, 'and records nothing either');
+
+-- 6. A preparation edit in flight when a confirmation starts (on the list's latest revision, the first item): the
+--    confirmation waits for the preparation's row, then reads the edit committed and is refused.
+select is(extensions.dblink_exec('race_setup', 'begin'), 'BEGIN', 'a member edits the preparation');
+select is(extensions.dblink_exec('race_setup', format($withdraw$update public.takeoff_preparations set revision = 2,
+    draft = jsonb_set(draft, '{sources,0,active}', 'false'), confirmed_snapshot = null, confirmed_at = null, confirmed_by = null
+  where project_id = %L$withdraw$, pg_temp.f(20))), 'UPDATE 1', 'the plan withdrawn, the confirmation undone, not yet committed');
+select is(extensions.dblink_send_query('race_b', pg_temp.remeasure_sql(732, array[300], 10, pg_temp.job(8))), 1,
+  'a new measure of the first item is confirmed on the preparation as it was');
+select ok(pg_temp.waits_for('race_b', 'race_setup'), 'it waits for the preparation''s edit');
+select is(extensions.dblink_exec('race_setup', 'commit'), 'COMMIT', 'the edit commits');
+select ok(pg_temp.answered('race_b'), 'the confirmation answers');
+select is((select count(*)::integer from extensions.dblink_get_result('race_b', false) as x(answer text)), 0, 'with an error');
+select matches(extensions.dblink_error_message('race_b'), 'TAKEOFF_LAUNCH_SEAL_INVALID', 'refused: the plan is no longer confirmed');
+select is((select count(*)::integer from extensions.dblink_get_result('race_b', false) as x(answer text)), 0, 'and is done');
+select is(pg_temp.requests(), 5, 'nothing admitted');
+select is(pg_temp.receipts(732), 0, 'no receipt');
+
+-- 7. A preparation edit once the confirmation compared it: the preparation confirmed again (revision 3); the
+--    confirmation compares it and waits for the list key at the seal; the edit that withdraws the plan then waits for the
+--    admission, which reads the preparation as compared; the edit commits after it.
+select is(extensions.dblink_exec('race_setup', (select format($prep$begin;
+  set local session_replication_role = replica;
+  update public.takeoff_preparations set revision = 3, draft = %L::jsonb, confirmed_snapshot = %L::jsonb, confirmed_at = now(),
+    confirmed_by = %L where project_id = %L;
+  commit;$prep$, pg_temp.snapshot(3) -> 'preparation', pg_temp.snapshot(3), pg_temp.f(1), pg_temp.f(20)))), 'COMMIT',
+  'the preparation is confirmed again');
+select is(extensions.dblink_exec('race_a', 'begin'), 'BEGIN', 'a list writer begins');
+select is((select x.held from extensions.dblink('race_a', format('select count(*) from private.lock_takeoff_item_list(%L)', pg_temp.f(20)))
+  as x(held bigint)), 1::bigint, 'and holds the list key');
+select is(extensions.dblink_send_query('race_b', pg_temp.remeasure_sql(733, array[300], 11, pg_temp.job(8))), 1,
+  'a new measure of the first item is confirmed on revision 3');
+select ok(pg_temp.waits_for('race_b', 'race_a'), 'compared, it waits for the list key at the seal');
+select is(extensions.dblink_send_query('race_setup', format($withdraw$update public.takeoff_preparations set revision = 4,
+    draft = jsonb_set(draft, '{sources,0,active}', 'false'), confirmed_snapshot = null, confirmed_at = null, confirmed_by = null
+  where project_id = %L$withdraw$, pg_temp.f(20))), 1, 'meanwhile a member withdraws the plan from the preparation');
+select ok(pg_temp.waits_for('race_setup', 'race_b'), 'the edit waits for the admission');
+select is(extensions.dblink_exec('race_a', 'commit'), 'COMMIT', 'the list key is released');
+select ok(pg_temp.answered('race_b'), 'the confirmation answers');
+select is((select x.answer from extensions.dblink_get_result('race_b', false) as x(answer text)), 'admitted:',
+  'admitted on the preparation it compared');
+select is((select count(*)::integer from extensions.dblink_get_result('race_b', false) as x(answer text)), 0, 'and is done');
+select ok(pg_temp.answered('race_setup'), 'then the edit ends');
+select is((select x.status from extensions.dblink_get_result('race_setup', false) as x(status text)), 'UPDATE 1', 'committed after it');
+select is((select count(*)::integer from extensions.dblink_get_result('race_setup', false) as x(status text)), 0, 'and is done');
+select is((select j.preparation_snapshot #> '{preparation,sources,0,active}' from public.takeoff_jobs j where j.id = pg_temp.job(11)),
+  'true'::jsonb, 'its analysis reads the plan the preparation confirmed when it was compared');
+select is((select j.preparation_snapshot ->> 'preparation_revision' from public.takeoff_jobs j where j.id = pg_temp.job(11)), '3',
+  'at that revision');
+select is(pg_temp.requests(), 6, 'one request admitted');
 
 select is(extensions.dblink_exec('race_setup', $cleanup$
 begin;
