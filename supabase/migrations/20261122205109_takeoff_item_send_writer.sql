@@ -21,8 +21,12 @@
 -- (src/lib/takeoff/item-send-plan.ts) from the stored facts and the member's choices; the command reads every fact again
 -- under its locks, derives each part, its identity, what is replaced and the pages written, computes each line's
 -- quantity itself, and writes only quantities (and what engine 3 derives from them). Trust boundary: SQL takes nothing
--- from the plan that changes an amount; what only the server computes (the mapping rules' projection, a first draft's
--- settings) it binds by comparison: see the command's comment. Two readers give the server the same facts the command
+-- from the plan that changes an amount — a part's pages, sent or left out, included; what only the server computes (the
+-- mapping rules' projection, a first draft's settings) it binds by comparison: see the command's comment. The plan's
+-- shape is one contract with the planner: every key SQL reads is present and no other key than those the planner
+-- writes (private.takeoff_item_send_keys); the planner's own plans are run through it (item-send-contract.test.ts and the
+-- vectors of takeoff-item-send.test.sql). The quantitative identity is compared in one fold on both sides, whatever the
+-- database's locale (src/lib/takeoff/item-send-fold.ts and the ICU root collation, required at apply time). Two readers give the server the same facts the command
 -- reads (public.read_takeoff_item_send_facts, public.read_takeoff_item_send_draft), with the member's session.
 --
 -- Four functions are replaced on their latest bodies, each answering as before for every job not read against a list
@@ -43,8 +47,9 @@
 --     applies a job to a version — today's grouped send (public.send_takeoff_job), the send of one plan for today's
 --     formats, the legacy application and its DPGF composition (public.apply_takeoff_job_guarded_atomic,
 --     private.takeoff_compose_dpgf_targets) — flips the job to applied in its transaction and passes this guard, which
---     refuses a version holding a live target of the send by item (TAKEOFF_APPLY_ITEM_SEND_VERSION): its lines would
---     be counted beside the parts kept per item. A version without a live target is judged as before.
+--     refuses a version holding a target of the send by item, with its line or with a live part when a deletion of the
+--     same transaction emptied its link (TAKEOFF_APPLY_ITEM_SEND_VERSION): its lines would be counted beside the parts
+--     kept per item. A version no send by item fed is judged as before. Its lease is read on the clock after the waits.
 -- A line a send by item writes carries source_metadata.takeoff_item_send (the item, its breakdown and compartment): a
 -- copy of the draft carries it without the contributions, and the command refuses such a draft
 -- (TAKEOFF_ITEM_SEND_COPY_UNREAD) until the copy of contributions is delivered, so that nothing is counted twice. Such a
@@ -424,7 +429,7 @@ begin
       where dl.version_id = new.estimate_version_id
         and dl.tenant_id = new.tenant_id
         and dl.user_id = caller_id
-        and dl.expires_at > statement_timestamp()
+        and dl.expires_at > clock_timestamp()
     ) then
       raise exception 'TAKEOFF_APPLY_LOCK_REQUIRED' using errcode = 'P0001';
     end if;
@@ -449,9 +454,12 @@ begin
     -- not read the pages and the parts of a send by item: they would count a page twice, or compose a DPGF line it fed
     -- without them. Every path that applies a takeoff job to a version passes here (today's send of a grouped analysis,
     -- of one plan or outside a request, the application of a job launched on a version, its DPGF composition): it is
-    -- refused, nothing written. A version without a live target is judged exactly as before.
+    -- refused, nothing written. A target counts with or without its line: a writer that deleted the fed lines first in
+    -- this transaction (« Remplacer la section ») left their targets without a line but with their live parts, and the
+    -- refusal rolls the deletion back. A version no send by item fed is judged exactly as before.
     if not item_list_job and exists (select 1 from public.takeoff_item_send_targets as target
-        where target.version_id = new.estimate_version_id and target.estimate_item_id is not null) then
+        where target.version_id = new.estimate_version_id and (target.estimate_item_id is not null
+          or exists (select 1 from public.takeoff_item_send_parts as part where part.target_id = target.id and part.state = 'live'))) then
       raise exception 'TAKEOFF_APPLY_ITEM_SEND_VERSION' using errcode = 'P0001',
         detail = pg_catalog.jsonb_build_object('reason', 'item_send_version')::text;
     end if;
@@ -870,20 +878,90 @@ $$;
 revoke all on function private.takeoff_item_send_job_parts(uuid, uuid, uuid, integer[])
   from public, anon, authenticated, service_role;
 
--- The quantitative identity of an item's parts, as the planner forms it (identityOf in item-send-plan.ts): the unit code
--- of the referential, the basis (the parts' one, else the item's) and the item's network, material and diameter, each
--- compared as the reading compares them: without case, accents or punctuation (folded), a diameter as written (only its
--- case and its spaces). Twin vectors in takeoff-item-send.test.sql.
+-- The quantitative identity of an item's parts, as the planner forms it (src/lib/takeoff/item-send-fold.ts, one rule on
+-- both sides whatever the database's locale): the unit code of the referential, the basis (the parts' one, else the
+-- item's) and the item's network, material and diameter, each in its comparison form.
+--   - folded: compatibility decomposition (NFKD: ligatures, widths), lower case (ICU's root mapping), combining marks
+--     removed (Unicode 17.0's general category M, the same frozen table as the planner's), every run of anything but a
+--     letter or a decimal digit made one space (ICU's alphanumeric class), trimmed; null if empty;
+--   - diameter: as written, only its case and its white space (JavaScript's \s) not compared, canonical composition.
+-- Both read the ICU root collation, never the database's: a database without it refuses this migration.
+do $icu$
+begin
+  if not exists (select 1 from pg_catalog.pg_collation as root
+      where root.collname = 'und-x-icu' and root.collnamespace = 'pg_catalog'::regnamespace) then
+    raise exception 'TAKEOFF_ITEM_SEND_ICU_REQUIRED' using
+      detail = 'The comparison forms of the send by item read the ICU root collation (pg_catalog."und-x-icu").';
+  end if;
+end;
+$icu$;
+
 create function private.takeoff_item_send_folded(p_value text)
 returns text language sql immutable set search_path = '' as $$
-  select nullif(pg_catalog.btrim(pg_catalog.regexp_replace(pg_catalog.lower(pg_catalog.regexp_replace(
-    normalize(coalesce(p_value, ''), NFD), '[̀-ͯ]', '', 'g')), '[^[:alnum:]]+', ' ', 'g')), '')
+  select nullif(pg_catalog.btrim(pg_catalog.regexp_replace(pg_catalog.regexp_replace(
+      pg_catalog.lower(normalize(coalesce(p_value, ''), NFKD) collate pg_catalog."und-x-icu"),
+      '[' ||
+    '\u0300-\u036F\u0483-\u0489\u0591-\u05BD\u05BF\u05C1-\u05C2\u05C4-\u05C5\u05C7\u0610-\u061A'
+    ||     '\u064B-\u065F\u0670\u06D6-\u06DC\u06DF-\u06E4\u06E7-\u06E8\u06EA-\u06ED\u0711\u0730-\u074A'
+    ||     '\u07A6-\u07B0\u07EB-\u07F3\u07FD\u0816-\u0819\u081B-\u0823\u0825-\u0827\u0829-\u082D\u0859-\u085B'
+    ||     '\u0897-\u089F\u08CA-\u08E1\u08E3-\u0903\u093A-\u093C\u093E-\u094F\u0951-\u0957\u0962-\u0963'
+    ||     '\u0981-\u0983\u09BC\u09BE-\u09C4\u09C7-\u09C8\u09CB-\u09CD\u09D7\u09E2-\u09E3\u09FE\u0A01-\u0A03'
+    ||     '\u0A3C\u0A3E-\u0A42\u0A47-\u0A48\u0A4B-\u0A4D\u0A51\u0A70-\u0A71\u0A75\u0A81-\u0A83\u0ABC'
+    ||     '\u0ABE-\u0AC5\u0AC7-\u0AC9\u0ACB-\u0ACD\u0AE2-\u0AE3\u0AFA-\u0AFF\u0B01-\u0B03\u0B3C\u0B3E-\u0B44'
+    ||     '\u0B47-\u0B48\u0B4B-\u0B4D\u0B55-\u0B57\u0B62-\u0B63\u0B82\u0BBE-\u0BC2\u0BC6-\u0BC8\u0BCA-\u0BCD'
+    ||     '\u0BD7\u0C00-\u0C04\u0C3C\u0C3E-\u0C44\u0C46-\u0C48\u0C4A-\u0C4D\u0C55-\u0C56\u0C62-\u0C63'
+    ||     '\u0C81-\u0C83\u0CBC\u0CBE-\u0CC4\u0CC6-\u0CC8\u0CCA-\u0CCD\u0CD5-\u0CD6\u0CE2-\u0CE3\u0CF3'
+    ||     '\u0D00-\u0D03\u0D3B-\u0D3C\u0D3E-\u0D44\u0D46-\u0D48\u0D4A-\u0D4D\u0D57\u0D62-\u0D63\u0D81-\u0D83'
+    ||     '\u0DCA\u0DCF-\u0DD4\u0DD6\u0DD8-\u0DDF\u0DF2-\u0DF3\u0E31\u0E34-\u0E3A\u0E47-\u0E4E\u0EB1'
+    ||     '\u0EB4-\u0EBC\u0EC8-\u0ECE\u0F18-\u0F19\u0F35\u0F37\u0F39\u0F3E-\u0F3F\u0F71-\u0F84\u0F86-\u0F87'
+    ||     '\u0F8D-\u0F97\u0F99-\u0FBC\u0FC6\u102B-\u103E\u1056-\u1059\u105E-\u1060\u1062-\u1064\u1067-\u106D'
+    ||     '\u1071-\u1074\u1082-\u108D\u108F\u109A-\u109D\u135D-\u135F\u1712-\u1715\u1732-\u1734\u1752-\u1753'
+    ||     '\u1772-\u1773\u17B4-\u17D3\u17DD\u180B-\u180D\u180F\u1885-\u1886\u18A9\u1920-\u192B\u1930-\u193B'
+    ||     '\u1A17-\u1A1B\u1A55-\u1A5E\u1A60-\u1A7C\u1A7F\u1AB0-\u1ADD\u1AE0-\u1AEB\u1B00-\u1B04\u1B34-\u1B44'
+    ||     '\u1B6B-\u1B73\u1B80-\u1B82\u1BA1-\u1BAD\u1BE6-\u1BF3\u1C24-\u1C37\u1CD0-\u1CD2\u1CD4-\u1CE8\u1CED'
+    ||     '\u1CF4\u1CF7-\u1CF9\u1DC0-\u1DFF\u20D0-\u20F0\u2CEF-\u2CF1\u2D7F\u2DE0-\u2DFF\u302A-\u302F'
+    ||     '\u3099-\u309A\uA66F-\uA672\uA674-\uA67D\uA69E-\uA69F\uA6F0-\uA6F1\uA802\uA806\uA80B\uA823-\uA827'
+    ||     '\uA82C\uA880-\uA881\uA8B4-\uA8C5\uA8E0-\uA8F1\uA8FF\uA926-\uA92D\uA947-\uA953\uA980-\uA983'
+    ||     '\uA9B3-\uA9C0\uA9E5\uAA29-\uAA36\uAA43\uAA4C-\uAA4D\uAA7B-\uAA7D\uAAB0\uAAB2-\uAAB4\uAAB7-\uAAB8'
+    ||     '\uAABE-\uAABF\uAAC1\uAAEB-\uAAEF\uAAF5-\uAAF6\uABE3-\uABEA\uABEC-\uABED\uFB1E\uFE00-\uFE0F'
+    ||     '\uFE20-\uFE2F\U000101FD\U000102E0\U00010376-\U0001037A\U00010A01-\U00010A03\U00010A05-\U00010A06'
+    ||     '\U00010A0C-\U00010A0F\U00010A38-\U00010A3A\U00010A3F\U00010AE5-\U00010AE6\U00010D24-\U00010D27'
+    ||     '\U00010D69-\U00010D6D\U00010EAB-\U00010EAC\U00010EFA-\U00010EFF\U00010F46-\U00010F50'
+    ||     '\U00010F82-\U00010F85\U00011000-\U00011002\U00011038-\U00011046\U00011070\U00011073-\U00011074'
+    ||     '\U0001107F-\U00011082\U000110B0-\U000110BA\U000110C2\U00011100-\U00011102\U00011127-\U00011134'
+    ||     '\U00011145-\U00011146\U00011173\U00011180-\U00011182\U000111B3-\U000111C0\U000111C9-\U000111CC'
+    ||     '\U000111CE-\U000111CF\U0001122C-\U00011237\U0001123E\U00011241\U000112DF-\U000112EA'
+    ||     '\U00011300-\U00011303\U0001133B-\U0001133C\U0001133E-\U00011344\U00011347-\U00011348'
+    ||     '\U0001134B-\U0001134D\U00011357\U00011362-\U00011363\U00011366-\U0001136C\U00011370-\U00011374'
+    ||     '\U000113B8-\U000113C0\U000113C2\U000113C5\U000113C7-\U000113CA\U000113CC-\U000113D0\U000113D2'
+    ||     '\U000113E1-\U000113E2\U00011435-\U00011446\U0001145E\U000114B0-\U000114C3\U000115AF-\U000115B5'
+    ||     '\U000115B8-\U000115C0\U000115DC-\U000115DD\U00011630-\U00011640\U000116AB-\U000116B7'
+    ||     '\U0001171D-\U0001172B\U0001182C-\U0001183A\U00011930-\U00011935\U00011937-\U00011938'
+    ||     '\U0001193B-\U0001193E\U00011940\U00011942-\U00011943\U000119D1-\U000119D7\U000119DA-\U000119E0'
+    ||     '\U000119E4\U00011A01-\U00011A0A\U00011A33-\U00011A39\U00011A3B-\U00011A3E\U00011A47'
+    ||     '\U00011A51-\U00011A5B\U00011A8A-\U00011A99\U00011B60-\U00011B67\U00011C2F-\U00011C36'
+    ||     '\U00011C38-\U00011C3F\U00011C92-\U00011CA7\U00011CA9-\U00011CB6\U00011D31-\U00011D36\U00011D3A'
+    ||     '\U00011D3C-\U00011D3D\U00011D3F-\U00011D45\U00011D47\U00011D8A-\U00011D8E\U00011D90-\U00011D91'
+    ||     '\U00011D93-\U00011D97\U00011EF3-\U00011EF6\U00011F00-\U00011F01\U00011F03\U00011F34-\U00011F3A'
+    ||     '\U00011F3E-\U00011F42\U00011F5A\U00013440\U00013447-\U00013455\U0001611E-\U0001612F'
+    ||     '\U00016AF0-\U00016AF4\U00016B30-\U00016B36\U00016F4F\U00016F51-\U00016F87\U00016F8F-\U00016F92'
+    ||     '\U00016FE4\U00016FF0-\U00016FF1\U0001BC9D-\U0001BC9E\U0001CF00-\U0001CF2D\U0001CF30-\U0001CF46'
+    ||     '\U0001D165-\U0001D169\U0001D16D-\U0001D172\U0001D17B-\U0001D182\U0001D185-\U0001D18B'
+    ||     '\U0001D1AA-\U0001D1AD\U0001D242-\U0001D244\U0001DA00-\U0001DA36\U0001DA3B-\U0001DA6C\U0001DA75'
+    ||     '\U0001DA84\U0001DA9B-\U0001DA9F\U0001DAA1-\U0001DAAF\U0001E000-\U0001E006\U0001E008-\U0001E018'
+    ||     '\U0001E01B-\U0001E021\U0001E023-\U0001E024\U0001E026-\U0001E02A\U0001E08F\U0001E130-\U0001E136'
+    ||     '\U0001E2AE\U0001E2EC-\U0001E2EF\U0001E4EC-\U0001E4EF\U0001E5EE-\U0001E5EF\U0001E6E3\U0001E6E6'
+    ||     '\U0001E6EE-\U0001E6EF\U0001E6F5\U0001E8D0-\U0001E8D6\U0001E944-\U0001E94A\U000E0100-\U000E01EF'
+      || ']', '', 'g') collate pg_catalog."und-x-icu",
+    '[^[:alnum:]]+', ' ', 'g'), ' '), '')
 $$;
 revoke all on function private.takeoff_item_send_folded(text) from public, anon, authenticated, service_role;
 
 create function private.takeoff_item_send_diameter(p_value text)
 returns text language sql immutable set search_path = '' as $$
-  select nullif(pg_catalog.lower(pg_catalog.btrim(pg_catalog.regexp_replace(normalize(coalesce(p_value, ''), NFC), '\s+', ' ', 'g'))), '')
+  select nullif(pg_catalog.lower(pg_catalog.btrim(pg_catalog.regexp_replace(normalize(coalesce(p_value, ''), NFC),
+    '[\t\n\v\f\r \u00A0\u1680\u2000-\u200A\u2028\u2029\u202F\u205F\u3000\uFEFF]+', ' ', 'g'), ' ')
+    collate pg_catalog."und-x-icu"), '')
 $$;
 revoke all on function private.takeoff_item_send_diameter(text) from public, anon, authenticated, service_role;
 
@@ -1098,15 +1176,34 @@ returns boolean language sql immutable set search_path = '' as $$
 $$;
 revoke all on function private.takeoff_item_send_text(jsonb, integer) from public, anon, authenticated, service_role;
 
+-- The keys of an object of the plan: every key SQL reads is present, and no other key than those the planner writes
+-- (src/lib/takeoff/item-send-plan.ts, ItemSendWritePlan): a key renamed on one side is a refused plan, never a value
+-- read as missing. The contract test runs the planner's own plans through it (item-send-contract.test.ts and the
+-- vectors of takeoff-item-send.test.sql).
+create function private.takeoff_item_send_keys(p_value jsonb, p_required text[], p_optional text[] default '{}')
+returns boolean language sql immutable set search_path = '' as $$
+  select pg_catalog.jsonb_typeof(p_value) = 'object' and p_value ?& p_required
+    and not exists (select 1 from pg_catalog.jsonb_object_keys(p_value) as key(name)
+      where not (key.name = any(p_required) or key.name = any(p_optional)))
+$$;
+revoke all on function private.takeoff_item_send_keys(jsonb, text[], text[]) from public, anon, authenticated, service_role;
+
 create function private.takeoff_item_send_plan_valid(p_plan jsonb)
 returns boolean language sql immutable set search_path = '' as $$
-  select pg_catalog.jsonb_typeof(p_plan) = 'object' and pg_catalog.octet_length(p_plan::text) <= 8388608
+  select coalesce(private.takeoff_item_send_keys(p_plan, array['format', 'version', 'job_id', 'plan_key', 'list', 'destination',
+      'engine', 'breakdown', 'sections', 'targets', 'page_contributions', 'page_decisions', 'left_out', 'parts_not_sent',
+      'dependencies'], array['choices_sha256'])
+    and pg_catalog.octet_length(p_plan::text) <= 8388608
     and p_plan ->> 'format' = 'takeoff_item_send' and p_plan -> 'version' = '1'::jsonb and p_plan -> 'engine' = '3'::jsonb
+    and (not (p_plan ? 'choices_sha256') or coalesce(p_plan ->> 'choices_sha256' ~ '^[0-9a-f]{64}$', false))
     and private.takeoff_item_send_uuid(p_plan -> 'job_id') and private.takeoff_item_send_uuid(p_plan -> 'plan_key')
+    and private.takeoff_item_send_keys(p_plan -> 'list', array['revision_id', 'revision'])
     and private.takeoff_item_send_uuid(p_plan #> '{list,revision_id}')
     and pg_catalog.jsonb_typeof(p_plan #> '{list,revision}') = 'number'
-    and ((p_plan #>> '{destination,kind}' = 'existing_draft' and private.takeoff_item_send_uuid(p_plan #> '{destination,version_id}'))
-      or (p_plan #>> '{destination,kind}' = 'first_draft' and (p_plan -> 'destination') - 'kind' = '{}'::jsonb))
+    and ((p_plan #>> '{destination,kind}' = 'existing_draft'
+        and private.takeoff_item_send_keys(p_plan -> 'destination', array['kind', 'version_id'])
+        and private.takeoff_item_send_uuid(p_plan #> '{destination,version_id}'))
+      or (p_plan #>> '{destination,kind}' = 'first_draft' and private.takeoff_item_send_keys(p_plan -> 'destination', array['kind'])))
     and coalesce(p_plan ->> 'breakdown' in ('together', 'by_level', 'by_building'), false)
     and pg_catalog.jsonb_typeof(p_plan -> 'sections') = 'array' and pg_catalog.jsonb_array_length(p_plan -> 'sections') <= 500
     and pg_catalog.jsonb_typeof(p_plan -> 'targets') = 'array'
@@ -1114,7 +1211,8 @@ returns boolean language sql immutable set search_path = '' as $$
     and pg_catalog.jsonb_typeof(p_plan -> 'page_contributions') = 'array'
     and pg_catalog.jsonb_typeof(p_plan -> 'page_decisions') = 'array'
     and pg_catalog.jsonb_typeof(p_plan -> 'left_out') = 'array' and pg_catalog.jsonb_typeof(p_plan -> 'parts_not_sent') = 'array'
-    and pg_catalog.jsonb_typeof(p_plan -> 'dependencies') = 'object'
+    and private.takeoff_item_send_keys(p_plan -> 'dependencies', array['answers', 'affaire_entries', 'rules', 'location_generation',
+      'plan_pages', 'earlier_targets', 'lines', 'pages_in_estimate', 'stamps', 'resolutions'])
     and pg_catalog.jsonb_typeof(p_plan #> '{dependencies,answers}') = 'array'
     and pg_catalog.jsonb_typeof(p_plan #> '{dependencies,affaire_entries}') = 'array'
     and pg_catalog.jsonb_typeof(p_plan #> '{dependencies,rules}') = 'array'
@@ -1123,27 +1221,79 @@ returns boolean language sql immutable set search_path = '' as $$
     and pg_catalog.jsonb_typeof(p_plan #> '{dependencies,lines}') = 'array'
     and pg_catalog.jsonb_typeof(p_plan #> '{dependencies,pages_in_estimate}') = 'array'
     and pg_catalog.jsonb_typeof(p_plan #> '{dependencies,resolutions}') = 'array'
-    and pg_catalog.jsonb_typeof(p_plan #> '{dependencies,stamps}') = 'object'
+    and private.takeoff_item_send_keys(p_plan #> '{dependencies,stamps}', array['job', 'peers', 'context', 'dpgf',
+      'first_draft_settings', 'destination', 'mapping'])
     and pg_catalog.jsonb_typeof(p_plan #> '{dependencies,stamps,dpgf}') = 'array'
+    and pg_catalog.jsonb_typeof(p_plan #> '{dependencies,stamps,first_draft_settings}') in ('object', 'null')
+    and (pg_catalog.jsonb_typeof(p_plan #> '{dependencies,stamps,context}') = 'null'
+      or private.takeoff_item_send_keys(p_plan #> '{dependencies,stamps,context}', array['peers', 'locations']))
+    and (pg_catalog.jsonb_typeof(p_plan #> '{dependencies,stamps,destination}') = 'null'
+      or private.takeoff_item_send_keys(p_plan #> '{dependencies,stamps,destination}', array['version_id', 'status', 'updated_at']))
+    and not exists (select 1 from pg_catalog.jsonb_array_elements(p_plan #> '{dependencies,stamps,dpgf}') as d(value)
+      where private.takeoff_item_send_keys(d.value, array['import_id', 'mapping_id', 'rows_sha256', 'updated_at', 'status',
+        'row_count']) is not true)
+    and not exists (select 1 from pg_catalog.jsonb_array_elements(p_plan #> '{dependencies,answers}') as a(value)
+      where private.takeoff_item_send_keys(a.value, array['item_id', 'answer_id', 'revision', 'decision_revision',
+        'entry_revision']) is not true)
+    and not exists (select 1 from pg_catalog.jsonb_array_elements(p_plan #> '{dependencies,affaire_entries}') as a(value)
+      where private.takeoff_item_send_keys(a.value, array['item_id', 'revision']) is not true)
+    and not exists (select 1 from pg_catalog.jsonb_array_elements(p_plan #> '{dependencies,rules}') as r(value)
+      where private.takeoff_item_send_keys(r.value, array['item_id', 'rule_id', 'rule_version'], array['action', 'effect'])
+        is not true)
+    and not exists (select 1 from pg_catalog.jsonb_array_elements(p_plan #> '{dependencies,earlier_targets}') as t(value)
+      where (private.takeoff_item_send_keys(t.value, array['estimate_item_id', 'item_id', 'compartment_key', 'breakdown', 'parts'])
+        and pg_catalog.jsonb_typeof(t.value -> 'parts') = 'array'
+        and not exists (select 1 from pg_catalog.jsonb_array_elements(t.value -> 'parts') as p(value)
+          where (private.takeoff_item_send_keys(p.value, array['job_id', 'answer_id', 'observation_ids', 'quantity', 'pages',
+            'plan_key', 'identity'])
+            and private.takeoff_item_send_keys(p.value -> 'identity', array['unit', 'basis', 'network', 'material', 'diameter']))
+            is not true)) is not true)
+    and not exists (select 1 from pg_catalog.jsonb_array_elements(p_plan #> '{dependencies,lines}') as l(value)
+      where (private.takeoff_item_send_keys(l.value, array['estimate_item_id', 'updated_at', 'quantity', 'dpgf'])
+        and (pg_catalog.jsonb_typeof(l.value -> 'dpgf') = 'null'
+          or private.takeoff_item_send_keys(l.value -> 'dpgf', array['import_id', 'raw_row_id', 'reference']))) is not true)
+    and not exists (select 1 from pg_catalog.jsonb_array_elements(p_plan #> '{dependencies,pages_in_estimate}') as g(value)
+      where private.takeoff_item_send_keys(g.value, array['page', 'earlier_job_ids', 'estimate_item_ids']) is not true)
+    and not exists (select 1 from pg_catalog.jsonb_array_elements(p_plan #> '{dependencies,resolutions}') as r(value)
+      where (private.takeoff_item_send_keys(r.value, array['key', 'choice'])
+        and private.takeoff_item_send_text(r.value -> 'key', 400)
+        and ((r.value #>> '{choice,kind}' = 'line' and private.takeoff_item_send_keys(r.value -> 'choice', array['kind', 'estimate_item_id'])
+            and private.takeoff_item_send_uuid(r.value #> '{choice,estimate_item_id}'))
+          or (r.value #>> '{choice,kind}' in ('new_line', 'keep_entry', 'use_retained', 'leave_out')
+            and private.takeoff_item_send_keys(r.value -> 'choice', array['kind'])))) is not true)
     and not exists (select 1 from pg_catalog.jsonb_array_elements(p_plan -> 'targets') as t(value)
-      where (pg_catalog.jsonb_typeof(t.value) = 'object' and private.takeoff_item_send_text(t.value -> 'key', 1000)
+      where (private.takeoff_item_send_keys(t.value, array['key', 'item_id', 'compartment_key', 'line', 'unit_code', 'quantity_after',
+          'quantity', 'rule', 'contributions', 'replaces'])
+        and private.takeoff_item_send_text(t.value -> 'key', 1000)
         and private.takeoff_item_send_uuid(t.value -> 'item_id') and private.takeoff_item_send_text(t.value -> 'compartment_key', 400)
         and private.takeoff_item_send_text(t.value -> 'unit_code', 32) and pg_catalog.jsonb_typeof(t.value -> 'quantity_after') = 'number'
-        and pg_catalog.jsonb_typeof(t.value -> 'quantity') = 'object'
-        and coalesce(pg_catalog.jsonb_typeof(t.value -> 'rule'), 'null') in ('null', 'object')
+        and private.takeoff_item_send_keys(t.value -> 'quantity', array['kept_entry'], array['reference', 'entered', 'earlier',
+          'replaced', 'added', 'measured', 'retained', 'rounded_from', 'gap'])
+        and (pg_catalog.jsonb_typeof(t.value -> 'rule') = 'null'
+          or private.takeoff_item_send_keys(t.value -> 'rule', array['rule_id', 'rule_version', 'category_id'],
+            array['action', 'effect', 'assembly_id']))
         and pg_catalog.jsonb_typeof(t.value -> 'replaces') = 'array'
+        and not exists (select 1 from pg_catalog.jsonb_array_elements(t.value -> 'replaces') as r(value)
+          where private.takeoff_item_send_keys(r.value, array['job_id', 'answer_id', 'observation_ids', 'quantity']) is not true)
         and ((t.value #>> '{line,kind}' in ('dpgf_line', 'earlier_line')
+            and private.takeoff_item_send_keys(t.value -> 'line', array['kind', 'estimate_item_id', 'expected_updated_at',
+              'expected_quantity'])
             and private.takeoff_item_send_uuid(t.value #> '{line,estimate_item_id}')
             and pg_catalog.jsonb_typeof(t.value #> '{line,expected_updated_at}') = 'string'
             and pg_catalog.jsonb_typeof(t.value #> '{line,expected_quantity}') = 'number')
-          or (t.value #>> '{line,kind}' = 'new_line' and private.takeoff_item_send_text(t.value #> '{line,section_key}', 2000)
+          or (t.value #>> '{line,kind}' = 'new_line'
+            and private.takeoff_item_send_keys(t.value -> 'line', array['kind', 'section_key', 'section_id', 'title'],
+              array['unit_code', 'order'])
+            and private.takeoff_item_send_text(t.value #> '{line,section_key}', 2000)
             and (coalesce(t.value #> '{line,section_id}', 'null'::jsonb) = 'null'::jsonb
               or private.takeoff_item_send_uuid(t.value #> '{line,section_id}'))
             and private.takeoff_item_send_text(t.value #> '{line,title}', 4000)))
         and pg_catalog.jsonb_typeof(t.value -> 'contributions') = 'array'
         and pg_catalog.jsonb_array_length(t.value -> 'contributions') between 1 and 500
         and not exists (select 1 from pg_catalog.jsonb_array_elements(t.value -> 'contributions') as c(value)
-          where (pg_catalog.jsonb_typeof(c.value) = 'object' and private.takeoff_item_send_uuid(c.value -> 'answer_id')
+          where (private.takeoff_item_send_keys(c.value, array['answer_id', 'answer_revision', 'kind', 'observation_ids', 'quantity',
+              'unit', 'pages', 'identity'])
+            and private.takeoff_item_send_uuid(c.value -> 'answer_id')
             and coalesce(c.value ->> 'answer_revision' ~ '^[0-9a-f]{64}$', false)
             and coalesce(c.value ->> 'kind' in ('measured', 'entered'), false)
             and pg_catalog.jsonb_typeof(c.value -> 'observation_ids') = 'array'
@@ -1153,16 +1303,30 @@ returns boolean language sql immutable set search_path = '' as $$
             and pg_catalog.jsonb_typeof(c.value -> 'pages') = 'array'
             and not exists (select 1 from pg_catalog.jsonb_array_elements(c.value -> 'pages') as g(value)
               where (pg_catalog.jsonb_typeof(g.value) = 'number' and (g.value #>> '{}') ~ '^[1-9][0-9]{0,8}$') is not true)
-            and pg_catalog.jsonb_typeof(c.value -> 'identity') = 'object'
+            and private.takeoff_item_send_keys(c.value -> 'identity', array['unit', 'basis', 'network', 'material', 'diameter'])
             and private.takeoff_item_send_text(c.value #> '{identity,unit}', 32)) is not true)) is not true)
     and not exists (select 1 from pg_catalog.jsonb_array_elements(p_plan -> 'sections') as s(value)
-      where (pg_catalog.jsonb_typeof(s.value) = 'object' and private.takeoff_item_send_text(s.value -> 'key', 2000)
+      where (private.takeoff_item_send_keys(s.value, array['key', 'title', 'parent_key', 'parent_id'])
+        and private.takeoff_item_send_text(s.value -> 'key', 2000)
         and private.takeoff_item_send_text(s.value -> 'title', 4000)
         and (coalesce(s.value -> 'parent_key', 'null'::jsonb) = 'null'::jsonb or private.takeoff_item_send_text(s.value -> 'parent_key', 2000))
         and (coalesce(s.value -> 'parent_id', 'null'::jsonb) = 'null'::jsonb or private.takeoff_item_send_uuid(s.value -> 'parent_id'))) is not true)
+    and not exists (select 1 from pg_catalog.jsonb_array_elements(p_plan -> 'page_contributions') as g(value)
+      where (private.takeoff_item_send_keys(g.value, array['page', 'item_ids', 'target_keys', 'observation_ids'])
+        and pg_catalog.jsonb_typeof(g.value -> 'page') = 'number'
+        and pg_catalog.jsonb_typeof(g.value -> 'item_ids') = 'array' and pg_catalog.jsonb_typeof(g.value -> 'target_keys') = 'array'
+        and pg_catalog.jsonb_typeof(g.value -> 'observation_ids') = 'array') is not true)
+    and not exists (select 1 from pg_catalog.jsonb_array_elements(p_plan -> 'left_out') as l(value)
+      where private.takeoff_item_send_keys(l.value, array['item_id', 'reason'], array['rule_id', 'rule_version']) is not true)
+    and not exists (select 1 from pg_catalog.jsonb_array_elements(p_plan -> 'parts_not_sent') as l(value)
+      where (private.takeoff_item_send_keys(l.value, array['item_id', 'kind', 'observation_ids', 'pages', 'quantity', 'reason'],
+          array['unit'])
+        and pg_catalog.jsonb_typeof(l.value -> 'observation_ids') = 'array' and pg_catalog.jsonb_typeof(l.value -> 'pages') = 'array')
+        is not true)
+    -- A page decision names its page (null: a part whose page is unknown, on every page).
     and not exists (select 1 from pg_catalog.jsonb_array_elements(p_plan -> 'page_decisions') as d(value)
-      where (pg_catalog.jsonb_typeof(d.value) = 'object'
-        and (coalesce(d.value -> 'page', 'null'::jsonb) = 'null'::jsonb
+      where (private.takeoff_item_send_keys(d.value, array['page', 'decision'], array['reason_code', 'note'])
+        and (d.value -> 'page' = 'null'::jsonb
           or (pg_catalog.jsonb_typeof(d.value -> 'page') = 'number' and (d.value ->> 'page') ~ '^[1-9][0-9]{0,8}$'))
         and ((d.value ->> 'decision' = 'replace' and coalesce(d.value -> 'reason_code', 'null'::jsonb) = 'null'::jsonb)
           or (d.value ->> 'decision' = 'keep_both'
@@ -1174,7 +1338,7 @@ returns boolean language sql immutable set search_path = '' as $$
     and (select pg_catalog.count(*) = pg_catalog.count(distinct coalesce(d.value -> 'page', 'null'::jsonb))
       from pg_catalog.jsonb_array_elements(p_plan -> 'page_decisions') as d(value))
     and (select pg_catalog.count(*) = pg_catalog.count(distinct t.value ->> 'key')
-      from pg_catalog.jsonb_array_elements(p_plan -> 'targets') as t(value))
+      from pg_catalog.jsonb_array_elements(p_plan -> 'targets') as t(value)), false)
 $$;
 revoke all on function private.takeoff_item_send_plan_valid(jsonb) from public, anon, authenticated, service_role;
 
@@ -1496,6 +1660,16 @@ begin
     or (actor_role <> 'admin'::public.tenant_role and project.user_id is distinct from actor) then
     raise exception 'TAKEOFF_ITEM_SEND_PROJECT_NOT_WRITABLE' using errcode = '42501';
   end if;
+  -- And this tenant is still the one the actor works in, as the application resolves it (public.current_tenant_id(),
+  -- readActiveTenantMembership: the default membership first, then the oldest, among active tenants): a tenant suspended,
+  -- or the member gone to another tenant, during the waits refuses, before any answer.
+  if (select membership.tenant_id from public.tenant_memberships as membership
+      join public.tenants as tenant_row on tenant_row.id = membership.tenant_id and tenant_row.is_active
+      where membership.user_id = actor
+      order by membership.is_default desc, membership.created_at asc limit 1) is distinct from tenant then
+    raise exception 'TAKEOFF_ITEM_SEND_PROJECT_NOT_WRITABLE' using errcode = '42501',
+      detail = pg_catalog.jsonb_build_object('reason', 'tenant_changed')::text;
+  end if;
   if coalesce(private.takeoff_module_enabled(tenant, coalesce(p_module_default, false)), false) is not true then
     raise exception 'TAKEOFF_ITEM_SEND_MODULE_DISABLED' using errcode = '55000';
   end if;
@@ -1543,11 +1717,11 @@ begin
       raise exception 'TAKEOFF_ITEM_SEND_ENGINE_NOT_V3' using errcode = '22023';
     end if;
     if exists (select 1 from public.draft_locks as lock_row where lock_row.version_id = target_version
-      and lock_row.user_id <> actor and lock_row.expires_at > pg_catalog.statement_timestamp()) then
+      and lock_row.user_id <> actor and lock_row.expires_at > pg_catalog.clock_timestamp()) then
       raise exception 'TAKEOFF_ITEM_SEND_DRAFT_LOCKED' using errcode = '55P03';
     end if;
     if not exists (select 1 from public.draft_locks as lock_row where lock_row.version_id = target_version
-      and lock_row.user_id = actor and lock_row.expires_at > pg_catalog.statement_timestamp()) then
+      and lock_row.user_id = actor and lock_row.expires_at > pg_catalog.clock_timestamp()) then
       raise exception 'TAKEOFF_ITEM_SEND_DRAFT_LOCK_REQUIRED' using errcode = '55P03';
     end if;
   end if;
@@ -1773,12 +1947,21 @@ begin
         detail = pg_catalog.jsonb_build_object('reason', 'mapping_changed', 'item_id', target ->> 'item_id')::text;
     end if;
     -- The item's stored parts now: each part the plan sends is one of them, exactly (its unit compared by its canonical
-    -- code), and the others are the ones the plan holds or leaves out by page.
+    -- code), each named once, and the others are the ones the plan holds or leaves out by page, each named once.
     select pg_catalog.count(*)::integer into stored_count from pg_catalog.jsonb_array_elements(job_parts) as stored(value)
     where stored.value ->> 'item_id' = target ->> 'item_id';
     select pg_catalog.count(*)::integer into listed_count from pg_catalog.jsonb_array_elements(plan -> 'parts_not_sent') as listed(value)
     where listed.value ->> 'item_id' = target ->> 'item_id' and listed.value ->> 'reason' in ('page_held', 'left_out');
     if stored_count = 0 or stored_count <> pg_catalog.jsonb_array_length(target -> 'contributions') + listed_count
+      or (select pg_catalog.count(distinct pg_catalog.jsonb_build_array(c.value -> 'kind', c.value -> 'answer_id',
+          case when c.value ->> 'kind' = 'entered' then 'null'::jsonb else c.value -> 'observation_ids' end))
+        from pg_catalog.jsonb_array_elements(target -> 'contributions') as c(value))
+        <> pg_catalog.jsonb_array_length(target -> 'contributions')
+      or (select pg_catalog.count(distinct pg_catalog.jsonb_build_array(listed.value -> 'kind',
+          case when listed.value ->> 'kind' = 'entered' then 'null'::jsonb else listed.value -> 'observation_ids' end))
+        from pg_catalog.jsonb_array_elements(plan -> 'parts_not_sent') as listed(value)
+        where listed.value ->> 'item_id' = target ->> 'item_id' and listed.value ->> 'reason' in ('page_held', 'left_out'))
+        <> listed_count
       or exists (select 1 from pg_catalog.jsonb_array_elements(target -> 'contributions') as c(value)
         where (select pg_catalog.count(*) from pg_catalog.jsonb_array_elements(job_parts) as stored(value)
           where stored.value ->> 'item_id' = target ->> 'item_id' and stored.value ->> 'answer_id' = c.value ->> 'answer_id'
@@ -1789,6 +1972,23 @@ begin
               or pg_catalog.jsonb_build_array(stored.value -> 'observation_id') = c.value -> 'observation_ids')
             and stored.value -> 'pages' = pg_catalog.to_jsonb(array(select distinct (g.value #>> '{}')::integer
               from pg_catalog.jsonb_array_elements(c.value -> 'pages') as g(value) order by 1))) <> 1) then
+      raise exception 'TAKEOFF_ITEM_SEND_PREVIEW_STALE' using errcode = '40001',
+        detail = pg_catalog.jsonb_build_object('reason', 'item_changed', 'item_id', target ->> 'item_id')::text;
+    end if;
+    -- And each part the plan holds or leaves out by page is one of the stored parts it does not send, exactly: its kind, its
+    -- observation, its quantity and its pages as stored (never the plan's).
+    if exists (select 1 from pg_catalog.jsonb_array_elements(plan -> 'parts_not_sent') as listed(value)
+        where listed.value ->> 'item_id' = target ->> 'item_id' and listed.value ->> 'reason' in ('page_held', 'left_out')
+          and (select pg_catalog.count(*) from pg_catalog.jsonb_array_elements(job_parts) as stored(value)
+            where stored.value ->> 'item_id' = target ->> 'item_id' and stored.value ->> 'kind' = listed.value ->> 'kind'
+              and (stored.value ->> 'kind' = 'entered'
+                or pg_catalog.jsonb_build_array(stored.value -> 'observation_id') = listed.value -> 'observation_ids')
+              and (stored.value ->> 'quantity')::numeric = (listed.value ->> 'quantity')::numeric
+              and stored.value -> 'pages' = pg_catalog.to_jsonb(array(select distinct (g.value #>> '{}')::integer
+                from pg_catalog.jsonb_array_elements(listed.value -> 'pages') as g(value) order by 1))
+              and not exists (select 1 from pg_catalog.jsonb_array_elements(target -> 'contributions') as c(value)
+                where c.value ->> 'kind' = stored.value ->> 'kind' and (stored.value ->> 'kind' = 'entered'
+                  or pg_catalog.jsonb_build_array(stored.value -> 'observation_id') = c.value -> 'observation_ids'))) <> 1) then
       raise exception 'TAKEOFF_ITEM_SEND_PREVIEW_STALE' using errcode = '40001',
         detail = pg_catalog.jsonb_build_object('reason', 'item_changed', 'item_id', target ->> 'item_id')::text;
     end if;
@@ -1853,16 +2053,19 @@ begin
       raise exception 'TAKEOFF_ITEM_SEND_INVALID' using errcode = '22023';
     end if;
     -- What this confirmation covers on its plan: the pages its answer searched (an entry: every page of the plan's unit),
-    -- less those it leaves out and those held without a decision, and the pages a « replace » decision carries.
+    -- less the pages of the stored parts it does not send (held or left out: their stored pages, never the plan's) and
+    -- those held without a decision, and the pages a « replace » decision carries.
     covered := array(select distinct x from pg_catalog.unnest(
         case when exists (select 1 from pg_catalog.jsonb_array_elements(target -> 'contributions') as c(value)
             where c.value ->> 'kind' = 'entered') then unit_pages
           else (select a.searched_pages from public.takeoff_item_answers as a
             where a.job_id = target_job_id and a.item_id = (target ->> 'item_id')::uuid) end) as x
-      where not exists (select 1 from pg_catalog.jsonb_array_elements(plan -> 'parts_not_sent') as listed(value)
-          cross join lateral pg_catalog.jsonb_array_elements(listed.value -> 'pages') as g(value)
-          where listed.value ->> 'item_id' = target ->> 'item_id' and listed.value ->> 'reason' in ('page_held', 'left_out')
-            and (g.value #>> '{}')::integer = x)
+      where not exists (select 1 from pg_catalog.jsonb_array_elements(job_parts) as stored(value)
+          cross join lateral pg_catalog.jsonb_array_elements(stored.value -> 'pages') as g(value)
+          where stored.value ->> 'item_id' = target ->> 'item_id' and (g.value #>> '{}')::integer = x
+            and not exists (select 1 from pg_catalog.jsonb_array_elements(target -> 'contributions') as c(value)
+              where c.value ->> 'kind' = stored.value ->> 'kind' and (stored.value ->> 'kind' = 'entered'
+                or pg_catalog.jsonb_build_array(stored.value -> 'observation_id') = c.value -> 'observation_ids')))
         and not exists (select 1 from pg_catalog.jsonb_array_elements(held) as entry(value)
           where (entry.value -> 'page' = 'null'::jsonb or (entry.value ->> 'page')::integer = x)
             and ((entry.value ->> 'today')::boolean or exists (select 1 from pg_catalog.jsonb_array_elements(entry.value -> 'parts') as p(value)
@@ -1873,7 +2076,13 @@ begin
         where d.value ->> 'decision' = 'replace' and d.value ->> 'page' is not null
       order by 1);
 
-    added := (select pg_catalog.sum((c.value ->> 'quantity')::numeric) from pg_catalog.jsonb_array_elements(target -> 'contributions') as c(value));
+    -- What the plan adds: the stored quantity of each part it sends (the plan's copy was only compared above).
+    added := (select pg_catalog.sum((stored.value ->> 'quantity')::numeric)
+      from pg_catalog.jsonb_array_elements(target -> 'contributions') as c(value)
+      join pg_catalog.jsonb_array_elements(job_parts) as stored(value) on stored.value ->> 'item_id' = target ->> 'item_id'
+        and stored.value ->> 'answer_id' = c.value ->> 'answer_id' and stored.value ->> 'kind' = c.value ->> 'kind'
+        and (stored.value ->> 'kind' = 'entered'
+          or pg_catalog.jsonb_build_array(stored.value -> 'observation_id') = c.value -> 'observation_ids'));
     factor := private.takeoff_item_send_length_factor(target ->> 'unit_code');
     target_replaced := '{}'::uuid[];
     live_target_id := null;
@@ -2001,6 +2210,14 @@ begin
         and ((p.plan_logical_id = plan_key and ((pg_catalog.cardinality(p.pages) > 0 and p.pages <@ covered)
             or (pg_catalog.cardinality(p.pages) = 0 and unit_pages <@ covered)))
           or p.id = any(page_replaced));
+      -- A DPGF line of the item where the DPGF line an earlier send fed was deleted: the parts left live on that target
+      -- leave with this send (kept in their history), never live beside the new ones, as a recreated new line retires its.
+      if target #>> '{line,kind}' = 'dpgf_line' then
+        target_replaced := target_replaced || coalesce((select pg_catalog.array_agg(p.id order by p.id)
+          from public.takeoff_item_send_parts as p join public.takeoff_item_send_targets as t on t.id = p.target_id
+          where t.version_id = target_version and t.item_id = (target ->> 'item_id')::uuid and t.breakdown = 'dpgf'
+            and t.compartment_key = 'dpgf' and t.estimate_item_id is null and p.state = 'live'), '{}'::uuid[]);
+      end if;
       -- What the line keeps of the item has one identity, this one, or nothing is added to it (the planner's earlierOf):
       -- the parts this confirmation replaces leave the line and are not compared.
       if exists (select 1 from public.takeoff_item_send_parts as p where p.target_id = live_target_id and p.state = 'live'
@@ -2088,20 +2305,32 @@ begin
     computed := computed || pg_catalog.jsonb_build_object(target ->> 'key', pg_catalog.jsonb_build_object('after', after,
       'target_id', live_target_id, 'line_id', line.id, 'before', line.quantity, 'identity', identity));
   end loop;
-  -- The page contributions the plan shows are those of the parts it writes, page by page, item by item: the pages are the
-  -- parts', never the caller's.
-  if (select coalesce(pg_catalog.jsonb_agg(pg_catalog.jsonb_build_object('page', derived.page, 'item_ids', derived.items)
-        order by derived.page), '[]'::jsonb)
-      from (select page.value as page, pg_catalog.to_jsonb(pg_catalog.array_agg(distinct (t.value ->> 'item_id')::uuid
-          order by (t.value ->> 'item_id')::uuid)) as items
+  -- The page contributions the plan shows are those of the parts it writes, page by page, each whole: its items, its
+  -- targets and its observations, derived from the parts read again above, never the caller's.
+  if (select coalesce(pg_catalog.jsonb_agg(pg_catalog.jsonb_build_object('page', derived.page, 'item_ids', derived.items,
+          'target_keys', derived.keys, 'observation_ids', derived.observations) order by derived.page), '[]'::jsonb)
+      from (select page.value as page,
+          pg_catalog.to_jsonb(pg_catalog.array_agg(distinct (t.value ->> 'item_id')::uuid order by (t.value ->> 'item_id')::uuid))
+            as items,
+          pg_catalog.to_jsonb(pg_catalog.array_agg(distinct t.value ->> 'key' order by t.value ->> 'key')) as keys,
+          pg_catalog.to_jsonb(coalesce((select pg_catalog.array_agg(o.id order by o.id) from (
+              select private.takeoff_uuid_or_null(observation.value) as id
+              from pg_catalog.jsonb_array_elements(plan -> 'targets') as t2(value)
+              cross join lateral pg_catalog.jsonb_array_elements(t2.value -> 'contributions') as c2(value)
+              cross join lateral pg_catalog.jsonb_array_elements(c2.value -> 'observation_ids') as observation(value)
+              where c2.value -> 'pages' @> pg_catalog.jsonb_build_array(page.value)) as o), '{}'::uuid[])) as observations
         from pg_catalog.jsonb_array_elements(plan -> 'targets') as t(value)
         cross join lateral pg_catalog.jsonb_array_elements(t.value -> 'contributions') as c(value)
         cross join lateral pg_catalog.jsonb_array_elements(c.value -> 'pages') as g(value)
         cross join lateral (select (g.value #>> '{}')::integer as value) as page
         group by page.value) as derived)
     is distinct from (select coalesce(pg_catalog.jsonb_agg(pg_catalog.jsonb_build_object('page', (listed.value ->> 'page')::integer,
-          'item_ids', pg_catalog.to_jsonb(array(select distinct private.takeoff_uuid_or_null(i.value)
-            from pg_catalog.jsonb_array_elements(listed.value -> 'item_ids') as i(value) order by 1)))
+          'item_ids', pg_catalog.to_jsonb(array(select private.takeoff_uuid_or_null(i.value)
+            from pg_catalog.jsonb_array_elements(listed.value -> 'item_ids') as i(value) order by 1)),
+          'target_keys', pg_catalog.to_jsonb(array(select k.value #>> '{}'
+            from pg_catalog.jsonb_array_elements(listed.value -> 'target_keys') as k(value) order by 1)),
+          'observation_ids', pg_catalog.to_jsonb(array(select private.takeoff_uuid_or_null(o.value)
+            from pg_catalog.jsonb_array_elements(listed.value -> 'observation_ids') as o(value) order by 1)))
         order by (listed.value ->> 'page')::integer), '[]'::jsonb)
       from pg_catalog.jsonb_array_elements(plan -> 'page_contributions') as listed(value)) then
     raise exception 'TAKEOFF_ITEM_SEND_PREVIEW_STALE' using errcode = '40001',

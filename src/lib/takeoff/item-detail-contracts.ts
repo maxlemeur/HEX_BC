@@ -48,6 +48,10 @@ export const itemDetailPlanViewSchema = z.object({
     jobId: uuid,
     status: z.string(),
     finishedAt: timestamp.nullable(),
+    answer: z.object({
+      answerId: uuid,
+      scopePages: z.array(page).describe("Pages cherchées et illisibles de la réponse : la portée de ses repères."),
+    }).strict().optional().describe("La réponse que cette analyse a donnée pour le poste sur ce plan (lot 5)."),
   }).strict().nullable(),
   document: z.discriminatedUnion("kind", [
     z.object({ kind: z.literal("attested"), href: z.string().startsWith("/api/") })
@@ -60,8 +64,12 @@ export const itemDetailPlanViewSchema = z.object({
 
 export type ItemDetailPlanView = z.infer<typeof itemDetailPlanViewSchema>;
 
-/** What the detail asks: a plan read by an analysis (plan + reading), the dossier's plan, or a dossier piece. */
+/**
+ * What the detail asks: a plan read by an analysis (plan + reading), the dossier's plan, or a dossier piece; `itemId`, the
+ * item shown, required with a reading (a reading is resolved only for an item that analysis answered on that plan).
+ */
 export type ItemDetailPlanRequest = {
+  itemId: string | null;
   planKey: string | null;
   jobId: string | null;
   source: { documentId: string; generation: string | null } | null;

@@ -127,6 +127,8 @@ export type ItemReadingInput = {
   answer: ItemAnswerView | null;
   decision: ItemAnswerDecision | null;
   decisionRevision: number;
+  /** The answer's counted marks revision (lot 5; 0 without marks): what an acceptance certifies, frozen with a selection. */
+  marksRevision?: number;
   entry: ItemEntryView | null;
   /** The answer's plan was sent to an estimate (its job applied): its rows are the estimate's, no bulk gesture writes them. */
   sent: boolean;
@@ -189,7 +191,9 @@ export type ItemReviewTarget = {
   /** The revision of the entry of the scope (0 without one). */
   entryRevision: number;
   /** Each answer with its decision's revision and, in the affaire's scope, its plan's entry's revision (0 without one). */
-  answers: Array<{ answerId: string; answerRevision: string; decisionRevision: number; entryRevision: number }>;
+  answers: Array<{ answerId: string; answerRevision: string; decisionRevision: number; entryRevision: number;
+    /** The answer's counted marks revision the selection saw (absent: 0). */
+    marksRevision?: number }>;
 };
 
 export type ItemTableLine = {
@@ -210,7 +214,7 @@ export type ItemTableLine = {
   reasons: string[];
   planCount: number;
   decision: ItemLineDecision;
-  readings: Array<Omit<ItemReadingInput, "itemId" | "reading" | "decisionRevision">>;
+  readings: Array<Omit<ItemReadingInput, "itemId" | "reading" | "decisionRevision" | "marksRevision">>;
   targets: ItemReviewTarget;
   remeasurePlans: string[];
   eligibility: Record<ItemReviewGesture, ItemGestureEligibility>;
@@ -443,9 +447,9 @@ function buildLine(row: ItemTableRow, plans: readonly ItemTablePlan[], scope: It
       itemId: item.id,
       entryRevision: row.entry?.revision ?? 0,
       // Every entry that enters the total is frozen with the selection: in the affaire's scope, each plan's entry.
-      answers: row.readings.flatMap(({ answer, decisionRevision, entry }) => answer
+      answers: row.readings.flatMap(({ answer, decisionRevision, marksRevision, entry }) => answer
         ? [{ answerId: answer.answerId, answerRevision: answer.revision, decisionRevision,
-          entryRevision: scope.kind === "plan" ? 0 : entry?.revision ?? 0 }] : []),
+          entryRevision: scope.kind === "plan" ? 0 : entry?.revision ?? 0, marksRevision: marksRevision ?? 0 }] : []),
     },
   };
   return { ...base, ...eligibility(base, plans, scope) };
@@ -526,23 +530,33 @@ export function freezeItemSelection(lines: readonly ItemTableLine[], requested: 
   return { count: items.length, items, eligible, missing: requested ? [...new Set(requested)].filter((id) => !found.has(id)) : [] };
 }
 
-const answerKey = (answer: ItemReviewTarget["answers"][number]) =>
-  `${answer.answerId.toLowerCase()}#${answer.decisionRevision}#${answer.entryRevision}`;
+/**
+ * An answer as a command compares it: its decision's and its entry's revisions and, for an acceptance only, its counted
+ * marks' (lot 5): an acceptance certifies the count of its marks, a set aside, a reinstatement, a quantity entered or an
+ * entry included certify none. SQL's predicate (public.review_takeoff_items), on the vectors of
+ * takeoff-item-acceptance-marks.test.sql.
+ */
+const answerKey = (gesture: ItemReviewGesture) => (answer: ItemReviewTarget["answers"][number]) =>
+  `${answer.answerId.toLowerCase()}#${answer.decisionRevision}#${answer.entryRevision}`
+    + (gesture === "accept_measured" ? `#${answer.marksRevision ?? 0}` : "");
 
 /**
  * The targets of a command that no longer describe what the table holds: an item gone from the scope, an answer read
- * again or arrived, a decision or an entry written since. The database is the judge (it compares again under its lock);
- * the server uses this to word what it sends.
+ * again or arrived, a decision or an entry written since, the marks of an answer to accept corrected since. The
+ * database is the judge (it compares again under its lock, on the same predicate); the server uses this to word what it
+ * sends. Identifiers are compared in any case, as the database compares them.
  */
-export function checkItemReviewTargets(lines: readonly ItemTableLine[], targets: readonly ItemReviewTarget[]) {
-  const byId = new Map(lines.map((line) => [line.itemId, line]));
+export function checkItemReviewTargets(lines: readonly ItemTableLine[], targets: readonly ItemReviewTarget[],
+  gesture: ItemReviewGesture) {
+  const byId = new Map(lines.map((line) => [line.itemId.toLowerCase(), line]));
+  const key = answerKey(gesture);
   const stale = targets.flatMap((target) => {
-    const line = byId.get(target.itemId);
+    const line = byId.get(target.itemId.toLowerCase());
     if (!line) return [{ itemId: target.itemId, label: null as string | null }];
     const current = line.targets;
     const same = current.entryRevision === target.entryRevision && current.answers.length === target.answers.length
-      && current.answers.map(answerKey).sort().join() === target.answers.map(answerKey).sort().join();
-    return same ? [] : [{ itemId: target.itemId, label: line.label as string | null }];
+      && current.answers.map(key).sort().join() === target.answers.map(key).sort().join();
+    return same ? [] : [{ itemId: line.itemId, label: line.label as string | null }];
   });
   return { stale };
 }
@@ -558,13 +572,13 @@ export type ItemReviewPlan =
  */
 export function planItemReviewCommand(lines: readonly ItemTableLine[], command: { gesture: Exclude<ItemReviewGesture, "remeasure">;
   targets: readonly ItemReviewTarget[] }): ItemReviewPlan {
-  const { stale } = checkItemReviewTargets(lines, command.targets);
+  const { stale } = checkItemReviewTargets(lines, command.targets, command.gesture);
   if (stale.length) return { kind: "stale", stale };
-  const byId = new Map(lines.map((line) => [line.itemId, line]));
+  const byId = new Map(lines.map((line) => [line.itemId.toLowerCase(), line]));
   const apply: Extract<ItemReviewPlan, { kind: "planned" }>["apply"] = [];
   const skipped: Extract<ItemReviewPlan, { kind: "planned" }>["skipped"] = [];
   for (const target of command.targets) {
-    const line = byId.get(target.itemId)!;
+    const line = byId.get(target.itemId.toLowerCase())!;
     const verdict = line.eligibility[command.gesture];
     if (verdict.eligible) apply.push({ itemId: line.itemId, label: line.label });
     else skipped.push({ itemId: line.itemId, label: line.label, reason: verdict.reason! });

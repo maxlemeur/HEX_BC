@@ -40,6 +40,8 @@ type OrderHeader = { id: string; total_ht_cents: number; project_id?: string | n
 // - a double click, or a retry of the same creation, creates a second set of drafts;
 // - a shipping line added on a draft does not count in its total;
 // - the printed order of a draft without a site shows an empty address instead of how it is delivered.
+// - (TI-691, owner's decision of 22/11/2026) the site contacts entered on the affaire's fiche are not saved as typed,
+//   or a draft made from its request prints the request's date and technician instead of them in its instructions.
 
 /** Records each body the page sends to create the drafts; the request itself is the page's. */
 async function observeCreations(browser: Browser) {
@@ -90,6 +92,20 @@ armyTest(
     const betaName = `${army.runPrefix} Comptoir Bêta`;
     const alpha = await supplier(alphaName);
     const beta = await supplier(betaName);
+
+    // The office enters two site contacts on the affaire's fiche; the drafts print them in their instructions.
+    await browser.goto(`/dashboard/affaires/${ids.projectId}`, { waitUntil: "domcontentloaded" });
+    await screen.getByRole("button", "Modifier la fiche", { exact: true }).tap({ timeout: 60_000 });
+    await screen.getByRole("button", "Ajouter un contact", { exact: true }).tap();
+    await screen.getByLabel("Nom, contact 1", { exact: true }).fill("Jean Fictif");
+    await screen.getByLabel("Rôle, contact 1", { exact: true }).fill("chef de chantier");
+    await screen.getByLabel("Téléphone, contact 1", { exact: true }).fill("06 00 00 00 01");
+    await screen.getByRole("button", "Ajouter un contact", { exact: true }).tap();
+    await screen.getByLabel("Nom, contact 2", { exact: true }).fill("Marie Fictive");
+    await screen.getByLabel("Téléphone, contact 2", { exact: true }).fill("07 00 00 00 02");
+    await screen.getByRole("button", "Enregistrer", { exact: true }).tap();
+    await expect(screen.getByRole("button", "Modifier la fiche", { exact: true })).toBeVisible({ timeout: 30_000 });
+    const contactsLine = "Contacts sur site : Jean Fictif (chef de chantier) : 06 00 00 00 01 ; Marie Fictive : 07 00 00 00 02";
 
     // A request delivered on site: elbows and screws for the affaire, gloves for overhead (PPE).
     const created = await apiRequest<Envelope<Detail>>(browser, "POST", base, {
@@ -253,6 +269,9 @@ armyTest(
     await expect(screen.getByText(/^3,42\s€ les 100$/)).toBeVisible();
     await expect(screen.getByText("Port", { exact: true })).toBeVisible();
     await expect(screen.getByText(/Demande du/)).toHaveCount(0);
+    // Its instructions are the affaire's site contacts, not the request's date and technician.
+    await expect(screen.getByText(contactsLine, { exact: true })).toBeVisible();
+    await expect(screen.getByText(/Demande de matériel du/)).toHaveCount(0);
 
     await recordEvidence(army, "material-request-orders", {
       ...ids, requestId, suppliers: { alpha, beta }, lines: { elbows, screws, gloves },

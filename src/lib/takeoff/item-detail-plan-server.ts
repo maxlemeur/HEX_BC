@@ -67,15 +67,18 @@ export async function resolveItemDetailPlan(projectId: string, request: ItemDeta
   if (request.jobId && !request.planKey) {
     throw unprocessableEntity("Le plan de cette lecture n’est pas indiqué.", undefined, "TAKEOFF_ITEM_DETAIL_ADDRESS_INVALID");
   }
+  if (request.jobId && !request.itemId) {
+    throw unprocessableEntity("Le poste de cette lecture n’est pas indiqué.", undefined, "TAKEOFF_ITEM_DETAIL_ADDRESS_INVALID");
+  }
   const key = (request.source?.documentId ?? request.planKey)?.toLowerCase();
   if (!key) throw unprocessableEntity("Le plan à afficher n’est pas indiqué.", undefined, "TAKEOFF_ITEM_DETAIL_ADDRESS_INVALID");
   const context = await getAuthenticatedTakeoffContext();
   const { project } = await requireAffaireAccess(projectId, "read");
-  if (request.jobId) return readingPlan(context, project.id, request.jobId.toLowerCase(), key);
+  if (request.jobId) return readingPlan(context, project.id, request.jobId.toLowerCase(), key, request.itemId!.toLowerCase());
   return dossierPlan(context, project.id, { key, pieceOnly: request.source !== null, generation: request.source?.generation ?? null });
 }
 
-async function readingPlan(context: Context, projectId: string, jobId: string, key: string): Promise<ItemDetailPlanView> {
+async function readingPlan(context: Context, projectId: string, jobId: string, key: string, itemId: string): Promise<ItemDetailPlanView> {
   const { data: job, error } = await context.supabase.from("takeoff_jobs")
     .select("id, plan_set_id, estimate_version_id, status, completed_at, preparation_snapshot")
     .eq("tenant_id", context.tenantId).eq("project_id", projectId).eq("id", jobId).maybeSingle();
@@ -99,6 +102,16 @@ async function readingPlan(context: Context, projectId: string, jobId: string, k
   if (matching.length === 0) throw notFound("Ce plan n’a pas été lu par cette analyse.", undefined, "TAKEOFF_ITEM_DETAIL_PLAN_NOT_FOUND");
   const source = matching[0]!;
   const fileId = source.document_id.toLowerCase();
+  // A reading of this item: that analysis answered it on this plan (its current answer, or an earlier one an old bookmark
+  // names), as the member reads the answers. A job that read the plan for other items only is not this item's reading.
+  const planLogicalId = logical(source.document_id);
+  const { data: answered, error: answerError } = UUID.test(planLogicalId) ? await context.supabase.from("takeoff_item_answers")
+    .select("id, searched_pages, unreadable_pages").eq("tenant_id", context.tenantId).eq("project_id", projectId).eq("job_id", jobId)
+    .eq("item_id", itemId).eq("plan_logical_id", planLogicalId).limit(1) : { data: [], error: null };
+  if (answerError) readFailure(answerError, "Impossible de lire les réponses de cette lecture.");
+  if (!answered?.length) {
+    throw notFound("Cette lecture n’a pas lu ce poste sur ce plan.", undefined, "TAKEOFF_ITEM_DETAIL_READING_NOT_FOUND");
+  }
 
   // The one rule of the attested bytes' route (with the generation of the copy as the member reads it), then whether the
   // copy's row still exists, to tell a copy the plan centre hides from this member from a copy gone.
@@ -120,7 +133,11 @@ async function readingPlan(context: Context, projectId: string, jobId: string, k
       pageCount: source.page_count,
       pagesRead: [...source.pages].sort((left, right) => left - right),
     },
-    reading: { jobId, status: job.status, finishedAt: job.completed_at },
+    // The answer that job gave for the item on that plan, proven above, with the pages it covered: its marks' scope (an
+    // earlier reading shows its own marks, read only).
+    reading: { jobId, status: job.status, finishedAt: job.completed_at, answer: { answerId: answered[0]!.id,
+      scopePages: [...new Set([...(answered[0]!.searched_pages ?? []), ...(answered[0]!.unreadable_pages ?? [])])]
+        .sort((left, right) => left - right) } },
     document,
   };
 }

@@ -1937,7 +1937,7 @@
           "Demandes de matériel"
         ],
         "summary": "Ouvrir une demande de matériel",
-        "description": "La demande, son technicien, ses originaux, ses lignes dans l'ordre, le résumé de chaque article rattaché à une ligne (articles, par identifiant), les matières connues du catalogue du tenant et ses fournisseurs actifs.",
+        "description": "La demande, son technicien, ses originaux, ses lignes dans l'ordre, le résumé de chaque article rattaché à une ligne (articles, par identifiant), les matières connues du catalogue du tenant et ses fournisseurs actifs. photoAnalysis dit à qui peut écrire si l'analyse IA des photos peut lui être proposée : disabled (instance sans IA, rien n'est proposé), unavailable (forfait ChatGPT à connecter, message à afficher) ou available ; null pour un lecteur.",
         "parameters": [
           {
             "name": "projectId",
@@ -2823,6 +2823,136 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/affaires/{projectId}/material-requests/{requestId}/files/{fileId}/analysis": {
+      "post": {
+        "tags": [
+          "Demandes de matériel"
+        ],
+        "summary": "Lire un original avec l'IA",
+        "description": "Fait lire une photo de la demande par un modèle de vision, sur le forfait ChatGPT de l'appelant, et répond des lignes en brouillon dans l'ordre de lecture : les mots du technicien (original_text) à côté de ce qui a été lu (quantité, unité, dimension, type, matière, précision, référence, zone). Rien n'est écrit : l'écran ajoute ces lignes par POST lines ou lines/replace, et le bureau relit chaque ligne face à la photo. Un champ qui n'est pas écrit sur la photo reste absent ; une quantité raturée ou arrondie est marquée quantity_doubtful. Une photo par appel, de 15 Mo au plus ; la rotation d'affichage de la photo est indiquée au modèle, ses octets partent tels quels. Seuls les originaux de la demande se lisent : le fichier d'un devis, une photo dont le dépôt n'a pas abouti ou en cours de suppression répondent 404. Une photo sans article répond lines vide.",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "description": "Affaire du tenant actif.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/MaterialRequestProjectId"
+            }
+          },
+          {
+            "name": "requestId",
+            "in": "path",
+            "description": "Demande de cette affaire.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/MaterialRequestId"
+            }
+          },
+          {
+            "name": "fileId",
+            "in": "path",
+            "description": "Original ou fichier d'un devis de cette demande.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/MaterialRequestFileId"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Lignes lues, non enregistrées.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiMaterialRequestPhotoAnalysis"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requete invalide ou payload non conforme.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentification requise.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "FORBIDDEN : l'écriture demande le propriétaire de l'affaire ou un administrateur, avec le rôle admin ou engineer.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiMaterialRequestError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NOT_FOUND : affaire d'un autre tenant ou archivée, ou identifiant d'une autre affaire.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiMaterialRequestError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "MATERIAL_REQUEST_PHOTO_ANALYSIS_UNAVAILABLE : aucune lecture ne peut être lancée pour l'appelant ici (instance sans IA, forfait ChatGPT à connecter ou à reconnecter) ; le message dit quoi faire. details.status : disabled ou unavailable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiMaterialRequestError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "MATERIAL_REQUEST_PHOTO_TOO_LARGE : la photo est trop lourde pour être envoyée au modèle.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiMaterialRequestError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Erreur interne serveur.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "MATERIAL_REQUEST_PHOTO_ANALYSIS_FAILED : la lecture n'a pas donné de lignes. details.reason : AI_QUOTA, AI_RATE_LIMIT, AI_REQUEST_REJECTED, TIMEOUT, INVALID_ANSWER ou PROVIDER_ERROR. Rien n'est réessayé automatiquement.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiMaterialRequestError"
                 }
               }
             }
@@ -4557,7 +4687,7 @@
             }
           },
           "422": {
-            "description": "MATERIAL_REQUEST_ORDER_NOTHING_READY : aucune ligne prête. MATERIAL_REQUEST_ORDER_SUPPLIER_INACTIVE : le fournisseur de lignes prêtes est archivé (details.supplier_names). Rien n'est créé.",
+            "description": "MATERIAL_REQUEST_ORDER_NOTHING_READY : aucune ligne prête. MATERIAL_REQUEST_ORDER_SUPPLIER_INACTIVE : le fournisseur de lignes prêtes est archivé (details.supplier_names). MATERIAL_REQUEST_ORDER_TOTAL_NEGATIVE : la remise d'un devis retenu dépasse ce que son brouillon contient de ce devis (details.supplier_names). Rien n'est créé.",
             "content": {
               "application/json": {
                 "schema": {
@@ -5129,7 +5259,7 @@
             }
           },
           "422": {
-            "description": "MATERIAL_REQUEST_QUOTE_NOT_RECEIVED : le devis n'est pas encore reçu. MATERIAL_REQUEST_QUOTE_LINES_UNPRICED : des lignes n'ont pas de prix (details : positions, line_ids). MATERIAL_REQUEST_QUOTE_LINES_ALREADY_RETAINED : une ligne a déjà un devis retenu. MATERIAL_REQUEST_QUOTE_LINES_NOT_VALIDATED : des lignes ne sont pas validées (details : positions, line_ids). MATERIAL_REQUEST_QUOTE_WITHOUT_LINES : le devis ne demande plus aucune ligne. MATERIAL_REQUEST_QUOTE_MATERIAL_UNCONFIRMED : des lignes sans matière propre et la matière présumée de la demande n'est pas confirmée (details : positions, line_ids). Rien n'est écrit.",
+            "description": "MATERIAL_REQUEST_QUOTE_NOT_RECEIVED : le devis n'est pas encore reçu. MATERIAL_REQUEST_QUOTE_LINES_UNPRICED : des lignes n'ont pas de prix (details : positions, line_ids). MATERIAL_REQUEST_QUOTE_LINES_ALREADY_RETAINED : une ligne a déjà un devis retenu. MATERIAL_REQUEST_QUOTE_LINES_NOT_VALIDATED : des lignes ne sont pas validées (details : positions, line_ids). MATERIAL_REQUEST_QUOTE_WITHOUT_LINES : le devis ne demande plus aucune ligne. MATERIAL_REQUEST_QUOTE_MATERIAL_UNCONFIRMED : des lignes sans matière propre et la matière présumée de la demande n'est pas confirmée (details : positions, line_ids). MATERIAL_REQUEST_QUOTE_DISCOUNT_TOO_LARGE : la remise dépasse les lignes et le port du devis (details : shipping_ht_cents, discount_ht_cents). Rien n'est écrit.",
             "content": {
               "application/json": {
                 "schema": {
@@ -5344,13 +5474,490 @@
         }
       }
     },
+    "/api/affaires/{projectId}/takeoff/count-marks": {
+      "get": {
+        "tags": [
+          "Takeoff"
+        ],
+        "summary": "Lire les repères comptés d’un poste sur une page de son plan",
+        "description": "Lecteurs de l’affaire. Les repères d’une réponse (un poste lu sur un plan) sur une page de sa portée, par lots dans un ordre stable (curseur apres), dans les états demandés (proposés, à attribuer, retenus par défaut ; retirés et nouvelle lecture sur demande), avec la géométrie de la page enregistrée, la révision des repères de la réponse et le total serveur des états demandés, à part du nombre chargé. Joint le décompte serveur de la réponse (nombre proposé, nombre relu sur la portée vérifiée, quantité retenue d’un poste compté en pièces, null et jamais 0) et ce que le membre peut faire : corriger s’il est opérateur du métré de l’affaire, sinon lecture seule, de même pour un plan déjà envoyé au devis ou une lecture remplacée. La page et le décompte sont rendus à une même révision : relus tant qu’ils diffèrent, puis refusés en 409 (TAKEOFF_MARKS_READ_CHANGING) s’ils changent encore. Une quantité comptée sur le plan est montrée et n’est jamais envoyée : le tableau des postes et l’envoi lisent ce qu’ils lisaient. Une réponse que le membre ne lit pas, ou une page hors de sa portée, est introuvable. N’écrit rien.",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "description": "Affaire cible.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/GetAffaireTakeoffCountMarksProjectIdParameter"
+            }
+          },
+          {
+            "name": "reponse",
+            "in": "query",
+            "description": "Réponse (poste lu sur un plan) dont les repères sont lus.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/GetAffaireTakeoffCountMarksReponseParameter"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "description": "Page originale du plan, depuis 1.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/GetAffaireTakeoffCountMarksPageParameter"
+            }
+          },
+          {
+            "name": "apres",
+            "in": "query",
+            "description": "Dernier repère du lot précédent : le lot suivant commence après lui.",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/GetAffaireTakeoffCountMarksApresParameter"
+            }
+          },
+          {
+            "name": "etats",
+            "in": "query",
+            "description": "États demandés, séparés par des virgules : proposed, to_attribute, retained, removed, pending.",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/GetAffaireTakeoffCountMarksEtatsParameter"
+            }
+          },
+          {
+            "name": "limite",
+            "in": "query",
+            "description": "Repères par lot (1000 par défaut).",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/GetAffaireTakeoffCountMarksLimiteParameter"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Un lot de repères, le décompte serveur et le droit de les corriger.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiTakeoffCountMarksResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requete invalide ou payload non conforme.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentification requise.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Acces interdit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Ressource introuvable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Les repères changent pendant leur lecture (TAKEOFF_MARKS_READ_CHANGING) : relire.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiGenericErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Erreur interne serveur.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Takeoff"
+        ],
+        "summary": "Corriger les repères comptés d’un poste",
+        "description": "Opérateur du métré de l’affaire (administrateur du tenant, ou ingénieur à qui l’affaire appartient). N gestes en une commande : ajouter (géométrie de la page pour son premier repère), déplacer, retirer avec un motif (note obligatoire pour « Autre motif »), rétablir, retenir, affecter à un autre poste de la même lecture, déclarer des pages vérifiées (toujours en dernier). Chaque réponse modifiée est nommée avec la révision de ses repères affichée : une révision dépassée refuse tout (409), rien n’est écrit. Un geste qui laisserait un repère retenu à moins de 4 points d’un autre repère retenu de la même réponse demande le mot du membre (« Même objet » avec le repère retenu, pour retenir ou rétablir, ou « Objet distinct ») : sans lui, refus TAKEOFF_MARKS_OBJECT_DUPLICATE, dont le détail nomme le geste (sa place dans la commande), les repères retenus à côté et les ajouts de la même commande parmi eux (par leur clé) ; l’écran ne le décide jamais. Un plan déjà envoyé au devis est en lecture seule (TAKEOFF_MARKS_PLAN_SENT), refusé par la commande sous ses verrous, après le rejeu de la clé d’intention : la même clé d’intention avec le même contenu rend le même reçu, même après l’envoi. Une réponse nommée deux fois (à la casse près) est refusée. N’écrit ni ligne de l’analyse, ni décision, ni saisie du tableau des postes, ni devis.",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "description": "Affaire cible.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/EditAffaireTakeoffCountMarksProjectIdParameter"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "Clé d’intention, révision attendue de chaque réponse modifiée, gestes dans l’ordre.",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EditAffaireTakeoffCountMarksRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Le reçu : nouvelles révisions, repères ajoutés par clé, décompte de chaque réponse modifiée.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiTakeoffCountMarksEditResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requete invalide ou payload non conforme.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentification requise.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Acces interdit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Ressource introuvable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Révision dépassée, mot « même objet » ou « objet distinct » manquant, repère retenu pour un autre poste, lecture remplacée, page qui n’est plus celle du plan, plan déjà envoyé ou clé d’intention déjà employée pour un autre contenu : rien n’est écrit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiGenericErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Gestes illisibles ou hors des bornes de la commande.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiGenericErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Erreur interne serveur.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/affaires/{projectId}/takeoff/count-marks/history": {
+      "get": {
+        "tags": [
+          "Takeoff"
+        ],
+        "summary": "Lire l’historique des repères d’un poste",
+        "description": "Lecteurs de l’affaire. Le journal des repères d’une réponse, dans l’ordre (révision, puis ordre des gestes), par pages après la position donnée : qui (l’analyse ou un membre), quand, quel geste, la page, avant et après, le motif, et ce qui fondait un repère retenu tel que le journal l’a gardé. Une réponse que le membre ne lit pas est introuvable. N’écrit rien.",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "description": "Affaire cible.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/GetAffaireTakeoffCountMarksHistoryProjectIdParameter"
+            }
+          },
+          {
+            "name": "reponse",
+            "in": "query",
+            "description": "Réponse dont le journal est lu.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/GetAffaireTakeoffCountMarksHistoryReponseParameter"
+            }
+          },
+          {
+            "name": "apresRevision",
+            "in": "query",
+            "description": "Révision du dernier événement lu.",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/GetAffaireTakeoffCountMarksHistoryApresRevisionParameter"
+            }
+          },
+          {
+            "name": "apresOrdre",
+            "in": "query",
+            "description": "Ordre du dernier événement lu dans sa révision.",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/GetAffaireTakeoffCountMarksHistoryApresOrdreParameter"
+            }
+          },
+          {
+            "name": "limite",
+            "in": "query",
+            "description": "Événements par page (50 par défaut).",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/GetAffaireTakeoffCountMarksHistoryLimiteParameter"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Une page du journal et la position de la suivante.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiTakeoffCountMarksHistoryResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requete invalide ou payload non conforme.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentification requise.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Acces interdit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Ressource introuvable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflit metier ou de concurrence.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Erreur interne serveur.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/affaires/{projectId}/takeoff/count-marks/targets": {
+      "get": {
+        "tags": [
+          "Takeoff"
+        ],
+        "summary": "Lire les postes auxquels affecter un repère",
+        "description": "Lecteurs de l’affaire. Les autres postes de la même lecture (son analyse, sur son plan) dont la réponse n’a pas été remplacée par une lecture plus récente, dans l’ordre de la liste lue, quel que soit le tableau des postes affiché : les destinations d’une affectation de repère, que la commande de correction vérifie de nouveau.",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "description": "Affaire cible.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/GetAffaireTakeoffCountMarksTargetsProjectIdParameter"
+            }
+          },
+          {
+            "name": "reponse",
+            "in": "query",
+            "description": "Réponse dont un repère est affecté.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/GetAffaireTakeoffCountMarksTargetsReponseParameter"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Les postes de la même lecture qui peuvent recevoir un repère.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiTakeoffCountMarkTargetsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requete invalide ou payload non conforme.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentification requise.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Acces interdit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Ressource introuvable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflit metier ou de concurrence.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Erreur interne serveur.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/affaires/{projectId}/takeoff/item-detail/plan": {
       "get": {
         "tags": [
           "Takeoff"
         ],
         "summary": "Résoudre le plan affiché par le détail d’un poste",
-        "description": "Lecteurs de l’affaire. Une résolution par plan et par lecture, jamais par poste ni par repère. Avec une lecture (une analyse de cette affaire que le membre lit), la copie que cette analyse a scellée pour ce plan, son empreinte et ses pages, même remplacée depuis : ses octets sont ceux qu’elle a attestés (vérifiés à chaque demande), sinon l’original est dit indisponible, jamais remplacé par une copie plus récente. Sans lecture, le plan retenu au dossier : l’unique copie actuelle de sa pièce, telle que le lecteur de localisation la décide pour le membre, signée pour lui par la lecture du centre de plans au moment de la demande ; une génération nommée doit l’être encore. Mêmes droits que les routes qui servent les octets : module Métré actif pour le tenant, et une copie que ces routes ne serviraient pas à ce membre (sa ligne, sa signature) est dite « non accessible », à part de « aucune copie » ; des octets absents du stockage sont dits absents. Les copies du dossier sont celles que les sources enregistrées pour l’affaire désignent : une copie d’une pièce d’une autre affaire est introuvable, par la copie comme par la pièce. source ne nomme qu’une pièce du dossier. Une analyse d’une autre affaire, un plan que cette lecture n’a pas lu, un plan étranger au dossier ou une pièce supprimée est introuvable. Rien n’est gardé : chaque ouverture d’un plan le résout de nouveau. N’écrit rien, ne lance rien.",
+        "description": "Lecteurs de l’affaire. Une résolution par plan et par lecture, jamais par poste ni par repère. Avec une lecture (une analyse de cette affaire que le membre lit), la copie que cette analyse a scellée pour ce plan, son empreinte et ses pages, même remplacée depuis : ses octets sont ceux qu’elle a attestés (vérifiés à chaque demande), sinon l’original est dit indisponible, jamais remplacé par une copie plus récente. Sans lecture, le plan retenu au dossier : l’unique copie actuelle de sa pièce, telle que le lecteur de localisation la décide pour le membre, signée pour lui par la lecture du centre de plans au moment de la demande ; une génération nommée doit l’être encore. Mêmes droits que les routes qui servent les octets : module Métré actif pour le tenant, et une copie que ces routes ne serviraient pas à ce membre (sa ligne, sa signature) est dite « non accessible », à part de « aucune copie » ; des octets absents du stockage sont dits absents. Les copies du dossier sont celles que les sources enregistrées pour l’affaire désignent : une copie d’une pièce d’une autre affaire est introuvable, par la copie comme par la pièce. source ne nomme qu’une pièce du dossier. Une analyse d’une autre affaire, un plan que cette lecture n’a pas lu, une lecture qui n’a pas répondu pour le poste demandé, un plan étranger au dossier ou une pièce supprimée est introuvable. Rien n’est gardé : chaque ouverture d’un plan le résout de nouveau. N’écrit rien, ne lance rien.",
         "parameters": [
           {
             "name": "projectId",
@@ -5377,6 +5984,15 @@
             "required": false,
             "schema": {
               "$ref": "#/components/schemas/GetAffaireTakeoffItemDetailPlanLectureParameter"
+            }
+          },
+          {
+            "name": "poste",
+            "in": "query",
+            "description": "Poste montré ; demandé avec une lecture, qui n’est résolue que si cette analyse a répondu pour ce poste sur ce plan.",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/GetAffaireTakeoffItemDetailPlanPosteParameter"
             }
           },
           {
@@ -36296,6 +36912,34 @@
                   ],
                   "additionalProperties": false
                 }
+              },
+              "photoAnalysis": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "status": {
+                        "type": "string",
+                        "enum": [
+                          "disabled",
+                          "unavailable",
+                          "available"
+                        ]
+                      },
+                      "message": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "status",
+                      "message"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
               }
             },
             "required": [
@@ -36306,7 +36950,8 @@
               "articles",
               "canWrite",
               "materialOptions",
-              "supplierOptions"
+              "supplierOptions",
+              "photoAnalysis"
             ],
             "additionalProperties": false
           }
@@ -37052,6 +37697,108 @@
             },
             "required": [
               "deleted"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "ok",
+          "data"
+        ],
+        "additionalProperties": false
+      },
+      "ApiMaterialRequestPhotoAnalysis": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "file_id": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "lines": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "original_text": {},
+                    "quantity": {
+                      "anyOf": [
+                        {
+                          "type": "number",
+                          "exclusiveMinimum": 0,
+                          "maximum": 1000000
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "quantity_doubtful": {
+                      "type": "boolean"
+                    },
+                    "unit": {},
+                    "dimension": {},
+                    "no_dimension": {
+                      "type": "boolean"
+                    },
+                    "product_type": {},
+                    "material": {},
+                    "material_precision": {},
+                    "reference": {},
+                    "supplier_id": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "zone": {},
+                    "imputation": {
+                      "type": "string",
+                      "enum": [
+                        "project",
+                        "overhead"
+                      ]
+                    },
+                    "overhead_category": {},
+                    "duplicate_acknowledged": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "original_text",
+                    "unit",
+                    "dimension",
+                    "product_type",
+                    "material",
+                    "material_precision",
+                    "reference",
+                    "zone",
+                    "overhead_category"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "model": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "file_id",
+              "lines",
+              "model"
             ],
             "additionalProperties": false
           }
@@ -41135,7 +41882,8 @@
                       "enum": [
                         "not_validated",
                         "no_supplier",
-                        "not_priced"
+                        "not_priced",
+                        "waiting_quote"
                       ]
                     }
                   },
@@ -41465,6 +42213,30 @@
                         }
                       ]
                     },
+                    "shipping_ht_cents": {
+                      "anyOf": [
+                        {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "discount_ht_cents": {
+                      "anyOf": [
+                        {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
                     "notes": {
                       "type": [
                         "string",
@@ -41627,6 +42399,8 @@
                     "requested_at",
                     "received_at",
                     "amount_ht_cents",
+                    "shipping_ht_cents",
+                    "discount_ht_cents",
                     "notes",
                     "retained_at",
                     "closed_at",
@@ -41739,6 +42513,30 @@
                     ]
                   },
                   "amount_ht_cents": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "shipping_ht_cents": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "discount_ht_cents": {
                     "anyOf": [
                       {
                         "type": "integer",
@@ -41912,6 +42710,8 @@
                   "requested_at",
                   "received_at",
                   "amount_ht_cents",
+                  "shipping_ht_cents",
+                  "discount_ht_cents",
                   "notes",
                   "retained_at",
                   "closed_at",
@@ -41942,6 +42742,30 @@
         "type": "object",
         "properties": {
           "amount_ht_cents": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 2147483647
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "shipping_ht_cents": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 2147483647
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "discount_ht_cents": {
             "anyOf": [
               {
                 "type": "integer",
@@ -42090,6 +42914,30 @@
                       }
                     ]
                   },
+                  "shipping_ht_cents": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "discount_ht_cents": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
                   "notes": {
                     "type": [
                       "string",
@@ -42252,6 +43100,8 @@
                   "requested_at",
                   "received_at",
                   "amount_ht_cents",
+                  "shipping_ht_cents",
+                  "discount_ht_cents",
                   "notes",
                   "retained_at",
                   "closed_at",
@@ -42340,245 +43190,19 @@
                       }
                     ]
                   },
-                  "notes": {
-                    "type": [
-                      "string",
-                      "null"
-                    ]
-                  },
-                  "retained_at": {
-                    "type": [
-                      "string",
-                      "null"
-                    ]
-                  },
-                  "closed_at": {
-                    "type": [
-                      "string",
-                      "null"
-                    ]
-                  },
-                  "lines": {
-                    "type": "array",
-                    "items": {
-                      "type": "object",
-                      "properties": {
-                        "line_id": {
-                          "type": "string",
-                          "format": "uuid",
-                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                        },
-                        "unit_price_ht_cents": {
-                          "anyOf": [
-                            {
-                              "type": "integer",
-                              "minimum": 0,
-                              "maximum": 9007199254740991
-                            },
-                            {
-                              "type": "null"
-                            }
-                          ]
-                        },
-                        "price_per": {
-                          "anyOf": [
-                            {
-                              "type": "number",
-                              "const": 1
-                            },
-                            {
-                              "type": "number",
-                              "const": 10
-                            },
-                            {
-                              "type": "number",
-                              "const": 100
-                            },
-                            {
-                              "type": "number",
-                              "const": 1000
-                            }
-                          ]
-                        }
+                  "shipping_ht_cents": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
                       },
-                      "required": [
-                        "line_id",
-                        "unit_price_ht_cents",
-                        "price_per"
-                      ],
-                      "additionalProperties": false
-                    }
-                  },
-                  "files": {
-                    "type": "array",
-                    "items": {
-                      "type": "object",
-                      "properties": {
-                        "id": {
-                          "type": "string",
-                          "format": "uuid",
-                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                        },
-                        "request_id": {
-                          "type": "string",
-                          "format": "uuid",
-                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                        },
-                        "quote_id": {
-                          "anyOf": [
-                            {
-                              "type": "string",
-                              "format": "uuid",
-                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                            },
-                            {
-                              "type": "null"
-                            }
-                          ]
-                        },
-                        "file_name": {
-                          "type": "string"
-                        },
-                        "mime_type": {
-                          "type": "string",
-                          "enum": [
-                            "application/pdf",
-                            "image/jpeg",
-                            "image/png",
-                            "image/webp"
-                          ]
-                        },
-                        "byte_size": {
-                          "type": "integer",
-                          "exclusiveMinimum": 0,
-                          "maximum": 9007199254740991
-                        },
-                        "rotation": {
-                          "anyOf": [
-                            {
-                              "type": "number",
-                              "const": 0
-                            },
-                            {
-                              "type": "number",
-                              "const": 90
-                            },
-                            {
-                              "type": "number",
-                              "const": 180
-                            },
-                            {
-                              "type": "number",
-                              "const": 270
-                            }
-                          ]
-                        },
-                        "created_at": {
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "id",
-                        "request_id",
-                        "quote_id",
-                        "file_name",
-                        "mime_type",
-                        "byte_size",
-                        "rotation",
-                        "created_at"
-                      ],
-                      "additionalProperties": false
-                    }
-                  }
-                },
-                "required": [
-                  "id",
-                  "request_id",
-                  "supplier_id",
-                  "supplier_name",
-                  "status",
-                  "with_references",
-                  "message",
-                  "requested_at",
-                  "received_at",
-                  "amount_ht_cents",
-                  "notes",
-                  "retained_at",
-                  "closed_at",
-                  "lines",
-                  "files"
-                ],
-                "additionalProperties": false
-              }
-            },
-            "required": [
-              "item"
-            ],
-            "additionalProperties": false
-          }
-        },
-        "required": [
-          "ok",
-          "data"
-        ],
-        "additionalProperties": false
-      },
-      "ApiMaterialRequestQuoteRetained": {
-        "type": "object",
-        "properties": {
-          "ok": {
-            "type": "boolean",
-            "const": true
-          },
-          "data": {
-            "type": "object",
-            "properties": {
-              "item": {
-                "type": "object",
-                "properties": {
-                  "id": {
-                    "type": "string",
-                    "format": "uuid",
-                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                  },
-                  "request_id": {
-                    "type": "string",
-                    "format": "uuid",
-                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                  },
-                  "supplier_id": {
-                    "type": "string",
-                    "format": "uuid",
-                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                  },
-                  "supplier_name": {
-                    "type": "string"
-                  },
-                  "status": {
-                    "type": "string",
-                    "enum": [
-                      "requested",
-                      "received",
-                      "retained",
-                      "closed"
+                      {
+                        "type": "null"
+                      }
                     ]
                   },
-                  "with_references": {
-                    "type": "boolean"
-                  },
-                  "message": {
-                    "type": "string"
-                  },
-                  "requested_at": {
-                    "type": "string"
-                  },
-                  "received_at": {
-                    "type": [
-                      "string",
-                      "null"
-                    ]
-                  },
-                  "amount_ht_cents": {
+                  "discount_ht_cents": {
                     "anyOf": [
                       {
                         "type": "integer",
@@ -42752,6 +43376,284 @@
                   "requested_at",
                   "received_at",
                   "amount_ht_cents",
+                  "shipping_ht_cents",
+                  "discount_ht_cents",
+                  "notes",
+                  "retained_at",
+                  "closed_at",
+                  "lines",
+                  "files"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "item"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "ok",
+          "data"
+        ],
+        "additionalProperties": false
+      },
+      "ApiMaterialRequestQuoteRetained": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "item": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "request_id": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "supplier_id": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "supplier_name": {
+                    "type": "string"
+                  },
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "requested",
+                      "received",
+                      "retained",
+                      "closed"
+                    ]
+                  },
+                  "with_references": {
+                    "type": "boolean"
+                  },
+                  "message": {
+                    "type": "string"
+                  },
+                  "requested_at": {
+                    "type": "string"
+                  },
+                  "received_at": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "amount_ht_cents": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "shipping_ht_cents": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "discount_ht_cents": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "notes": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "retained_at": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "closed_at": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "lines": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "line_id": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        "unit_price_ht_cents": {
+                          "anyOf": [
+                            {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 9007199254740991
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "price_per": {
+                          "anyOf": [
+                            {
+                              "type": "number",
+                              "const": 1
+                            },
+                            {
+                              "type": "number",
+                              "const": 10
+                            },
+                            {
+                              "type": "number",
+                              "const": 100
+                            },
+                            {
+                              "type": "number",
+                              "const": 1000
+                            }
+                          ]
+                        }
+                      },
+                      "required": [
+                        "line_id",
+                        "unit_price_ht_cents",
+                        "price_per"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "files": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        "request_id": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        "quote_id": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "file_name": {
+                          "type": "string"
+                        },
+                        "mime_type": {
+                          "type": "string",
+                          "enum": [
+                            "application/pdf",
+                            "image/jpeg",
+                            "image/png",
+                            "image/webp"
+                          ]
+                        },
+                        "byte_size": {
+                          "type": "integer",
+                          "exclusiveMinimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "rotation": {
+                          "anyOf": [
+                            {
+                              "type": "number",
+                              "const": 0
+                            },
+                            {
+                              "type": "number",
+                              "const": 90
+                            },
+                            {
+                              "type": "number",
+                              "const": 180
+                            },
+                            {
+                              "type": "number",
+                              "const": 270
+                            }
+                          ]
+                        },
+                        "created_at": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "request_id",
+                        "quote_id",
+                        "file_name",
+                        "mime_type",
+                        "byte_size",
+                        "rotation",
+                        "created_at"
+                      ],
+                      "additionalProperties": false
+                    }
+                  }
+                },
+                "required": [
+                  "id",
+                  "request_id",
+                  "supplier_id",
+                  "supplier_name",
+                  "status",
+                  "with_references",
+                  "message",
+                  "requested_at",
+                  "received_at",
+                  "amount_ht_cents",
+                  "shipping_ht_cents",
+                  "discount_ht_cents",
                   "notes",
                   "retained_at",
                   "closed_at",
@@ -43322,6 +44224,1976 @@
         ],
         "additionalProperties": false
       },
+      "GetAffaireTakeoffCountMarksProjectIdParameter": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      },
+      "GetAffaireTakeoffCountMarksReponseParameter": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      },
+      "GetAffaireTakeoffCountMarksPageParameter": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 100000
+      },
+      "GetAffaireTakeoffCountMarksApresParameter": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      },
+      "GetAffaireTakeoffCountMarksEtatsParameter": {
+        "type": "string",
+        "maxLength": 100
+      },
+      "GetAffaireTakeoffCountMarksLimiteParameter": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 1000
+      },
+      "ApiTakeoffCountMarksResponse": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "answerId": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "page": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 100000
+              },
+              "revision": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991,
+                "description": "Révision des repères de la réponse, à renvoyer avec une modification."
+              },
+              "geometry": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "version": {
+                        "type": "number",
+                        "const": 1
+                      },
+                      "view_box": {
+                        "readOnly": true,
+                        "type": "array",
+                        "prefixItems": [
+                          {
+                            "type": "number"
+                          },
+                          {
+                            "type": "number"
+                          },
+                          {
+                            "type": "number"
+                          },
+                          {
+                            "type": "number"
+                          }
+                        ],
+                        "items": false,
+                        "minItems": 4,
+                        "maxItems": 4
+                      },
+                      "rotation": {
+                        "anyOf": [
+                          {
+                            "type": "number",
+                            "const": 0
+                          },
+                          {
+                            "type": "number",
+                            "const": 90
+                          },
+                          {
+                            "type": "number",
+                            "const": 180
+                          },
+                          {
+                            "type": "number",
+                            "const": 270
+                          }
+                        ]
+                      },
+                      "user_unit": {
+                        "type": "number",
+                        "exclusiveMinimum": 0
+                      },
+                      "width": {
+                        "type": "number",
+                        "exclusiveMinimum": 0
+                      },
+                      "height": {
+                        "type": "number",
+                        "exclusiveMinimum": 0
+                      },
+                      "plan_file_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                      },
+                      "plan_generation": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "version",
+                      "view_box",
+                      "rotation",
+                      "user_unit",
+                      "width",
+                      "height",
+                      "plan_file_id",
+                      "plan_generation"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "La page de preuve telle qu’enregistrée ; null tant qu’aucun repère n’y est posé."
+              },
+              "total": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991,
+                "description": "Total serveur des repères dans les états demandés, à part du nombre chargé."
+              },
+              "loaded": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "nextAfter": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "marks": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "markId": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "x": {
+                      "type": "number"
+                    },
+                    "y": {
+                      "type": "number"
+                    },
+                    "box": {
+                      "anyOf": [
+                        {
+                          "minItems": 4,
+                          "maxItems": 4,
+                          "type": "array",
+                          "items": {
+                            "type": "number"
+                          }
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "origin": {
+                      "type": "string",
+                      "enum": [
+                        "machine",
+                        "manual"
+                      ]
+                    },
+                    "positionRevision": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "createdBy": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "createdJobId": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "createdAt": {
+                      "type": "string"
+                    },
+                    "movedBy": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "movedAt": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "state": {
+                      "type": "string",
+                      "enum": [
+                        "proposed",
+                        "to_attribute",
+                        "retained",
+                        "removed",
+                        "pending"
+                      ]
+                    },
+                    "priorState": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "enum": [
+                            "proposed",
+                            "to_attribute",
+                            "retained",
+                            "removed",
+                            "pending"
+                          ]
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "reasonCode": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "reasonText": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "decidedBy": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "decidedAt": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "possibleDuplicates": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                      }
+                    },
+                    "others": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "answerId": {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                          },
+                          "itemId": {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                          },
+                          "state": {
+                            "type": "string",
+                            "enum": [
+                              "proposed",
+                              "to_attribute",
+                              "retained",
+                              "removed",
+                              "pending"
+                            ]
+                          },
+                          "revision": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
+                          }
+                        },
+                        "required": [
+                          "answerId",
+                          "itemId",
+                          "state",
+                          "revision"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "proposals": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "proposalId": {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                          },
+                          "answerId": {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                          },
+                          "jobId": {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                          },
+                          "observationId": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "format": "uuid",
+                                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "generation": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
+                          },
+                          "sourceKey": {
+                            "type": "string"
+                          },
+                          "method": {
+                            "type": "string"
+                          },
+                          "methodVersion": {
+                            "type": "string"
+                          },
+                          "state": {
+                            "type": "string",
+                            "enum": [
+                              "proposed",
+                              "to_attribute"
+                            ]
+                          },
+                          "x": {
+                            "type": "number"
+                          },
+                          "y": {
+                            "type": "number"
+                          },
+                          "box": {
+                            "anyOf": [
+                              {
+                                "minItems": 4,
+                                "maxItems": 4,
+                                "type": "array",
+                                "items": {
+                                  "type": "number"
+                                }
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "rawCentre": {
+                            "anyOf": [
+                              {
+                                "minItems": 2,
+                                "maxItems": 2,
+                                "type": "array",
+                                "items": {
+                                  "type": "number"
+                                }
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "rawBox": {
+                            "anyOf": [
+                              {
+                                "minItems": 4,
+                                "maxItems": 4,
+                                "type": "array",
+                                "items": {
+                                  "type": "number"
+                                }
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "rawFrame": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "sourceRef": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "subtype": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "diameterMm": {
+                            "type": [
+                              "number",
+                              "null"
+                            ]
+                          },
+                          "diameterSource": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "confidence": {
+                            "type": [
+                              "number",
+                              "null"
+                            ]
+                          },
+                          "publishedAt": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "proposalId",
+                          "answerId",
+                          "jobId",
+                          "observationId",
+                          "generation",
+                          "sourceKey",
+                          "method",
+                          "methodVersion",
+                          "state",
+                          "x",
+                          "y",
+                          "box",
+                          "rawCentre",
+                          "rawBox",
+                          "rawFrame",
+                          "sourceRef",
+                          "subtype",
+                          "diameterMm",
+                          "diameterSource",
+                          "confidence",
+                          "publishedAt"
+                        ],
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "required": [
+                    "markId",
+                    "x",
+                    "y",
+                    "box",
+                    "origin",
+                    "positionRevision",
+                    "createdBy",
+                    "createdJobId",
+                    "createdAt",
+                    "movedBy",
+                    "movedAt",
+                    "state",
+                    "priorState",
+                    "reasonCode",
+                    "reasonText",
+                    "decidedBy",
+                    "decidedAt",
+                    "possibleDuplicates",
+                    "others",
+                    "proposals"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "summary": {
+                "type": "object",
+                "properties": {
+                  "revision": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "unit": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "counted": {
+                    "type": "boolean"
+                  },
+                  "proposed": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "toAttribute": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "retained": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "removed": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "pending": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "reread": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "scopePages": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "verifiedPages": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "quantity": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "Quantité retenue d’un poste compté en pièces, portée entière vérifiée ; null, jamais 0."
+                  },
+                  "state": {
+                    "type": "string",
+                    "enum": [
+                      "none",
+                      "to_check",
+                      "to_verify_again",
+                      "verified",
+                      "no_mark_retained"
+                    ]
+                  },
+                  "pages": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "page": {
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 100000
+                        },
+                        "proposed": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "toAttribute": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "retained": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "removed": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "pending": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "reread": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "changedRevision": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "verifiedRevision": {
+                          "anyOf": [
+                            {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 9007199254740991
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "state": {
+                          "type": "string",
+                          "enum": [
+                            "none",
+                            "to_check",
+                            "to_verify_again",
+                            "verified",
+                            "no_mark_retained"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "page",
+                        "proposed",
+                        "toAttribute",
+                        "retained",
+                        "removed",
+                        "pending",
+                        "reread",
+                        "changedRevision",
+                        "verifiedRevision",
+                        "state"
+                      ],
+                      "additionalProperties": false
+                    }
+                  }
+                },
+                "required": [
+                  "revision",
+                  "unit",
+                  "counted",
+                  "proposed",
+                  "toAttribute",
+                  "retained",
+                  "removed",
+                  "pending",
+                  "reread",
+                  "scopePages",
+                  "verifiedPages",
+                  "quantity",
+                  "state",
+                  "pages"
+                ],
+                "additionalProperties": false
+              },
+              "edit": {
+                "type": "object",
+                "properties": {
+                  "allowed": {
+                    "type": "boolean"
+                  },
+                  "reason": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "forbidden",
+                          "sent",
+                          "replaced"
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "allowed",
+                  "reason"
+                ],
+                "additionalProperties": false
+              },
+              "viewerId": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "names": {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                },
+                "additionalProperties": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "answerId",
+              "page",
+              "revision",
+              "geometry",
+              "total",
+              "loaded",
+              "nextAfter",
+              "marks",
+              "summary",
+              "edit",
+              "viewerId",
+              "names"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "ok",
+          "data"
+        ],
+        "additionalProperties": false
+      },
+      "ApiGenericErrorResponse": {},
+      "EditAffaireTakeoffCountMarksProjectIdParameter": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      },
+      "EditAffaireTakeoffCountMarksRequest": {
+        "type": "object",
+        "properties": {
+          "intentKey": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "revisions": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            },
+            "additionalProperties": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 1000000
+            }
+          },
+          "gestures": {
+            "minItems": 1,
+            "maxItems": 500,
+            "type": "array",
+            "items": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "op": {
+                      "type": "string",
+                      "const": "add"
+                    },
+                    "answer_id": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "key": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "page": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 100000
+                    },
+                    "x": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    },
+                    "y": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    },
+                    "box": {
+                      "readOnly": true,
+                      "type": "array",
+                      "prefixItems": [
+                        {
+                          "type": "number",
+                          "minimum": 0,
+                          "maximum": 1
+                        },
+                        {
+                          "type": "number",
+                          "minimum": 0,
+                          "maximum": 1
+                        },
+                        {
+                          "type": "number",
+                          "minimum": 0,
+                          "maximum": 1
+                        },
+                        {
+                          "type": "number",
+                          "minimum": 0,
+                          "maximum": 1
+                        }
+                      ],
+                      "items": false,
+                      "minItems": 4,
+                      "maxItems": 4
+                    },
+                    "geometry": {
+                      "type": "object",
+                      "properties": {
+                        "version": {
+                          "type": "number",
+                          "const": 1
+                        },
+                        "view_box": {
+                          "readOnly": true,
+                          "type": "array",
+                          "prefixItems": [
+                            {
+                              "type": "number"
+                            },
+                            {
+                              "type": "number"
+                            },
+                            {
+                              "type": "number"
+                            },
+                            {
+                              "type": "number"
+                            }
+                          ],
+                          "items": false,
+                          "minItems": 4,
+                          "maxItems": 4
+                        },
+                        "rotation": {
+                          "anyOf": [
+                            {
+                              "type": "number",
+                              "const": 0
+                            },
+                            {
+                              "type": "number",
+                              "const": 90
+                            },
+                            {
+                              "type": "number",
+                              "const": 180
+                            },
+                            {
+                              "type": "number",
+                              "const": 270
+                            }
+                          ]
+                        },
+                        "user_unit": {
+                          "type": "number",
+                          "exclusiveMinimum": 0
+                        },
+                        "width": {
+                          "type": "number",
+                          "exclusiveMinimum": 0
+                        },
+                        "height": {
+                          "type": "number",
+                          "exclusiveMinimum": 0
+                        }
+                      },
+                      "required": [
+                        "version",
+                        "view_box",
+                        "rotation",
+                        "user_unit",
+                        "width",
+                        "height"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "object": {
+                      "type": "string",
+                      "const": "distinct"
+                    }
+                  },
+                  "required": [
+                    "op",
+                    "answer_id",
+                    "key",
+                    "page",
+                    "x",
+                    "y"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "op": {
+                      "type": "string",
+                      "const": "move"
+                    },
+                    "mark_id": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "x": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    },
+                    "y": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    },
+                    "box": {
+                      "readOnly": true,
+                      "type": "array",
+                      "prefixItems": [
+                        {
+                          "type": "number",
+                          "minimum": 0,
+                          "maximum": 1
+                        },
+                        {
+                          "type": "number",
+                          "minimum": 0,
+                          "maximum": 1
+                        },
+                        {
+                          "type": "number",
+                          "minimum": 0,
+                          "maximum": 1
+                        },
+                        {
+                          "type": "number",
+                          "minimum": 0,
+                          "maximum": 1
+                        }
+                      ],
+                      "items": false,
+                      "minItems": 4,
+                      "maxItems": 4
+                    },
+                    "object": {
+                      "type": "string",
+                      "const": "distinct"
+                    }
+                  },
+                  "required": [
+                    "op",
+                    "mark_id",
+                    "x",
+                    "y"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "op": {
+                      "type": "string",
+                      "const": "remove"
+                    },
+                    "answer_id": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "mark_id": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "reason": {
+                      "type": "string",
+                      "enum": [
+                        "duplicate",
+                        "not_this_item",
+                        "legend_or_detail",
+                        "not_installed",
+                        "outside_scope",
+                        "other"
+                      ]
+                    },
+                    "note": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 500
+                    }
+                  },
+                  "required": [
+                    "op",
+                    "answer_id",
+                    "mark_id",
+                    "reason"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "op": {
+                          "type": "string",
+                          "const": "restore"
+                        },
+                        "answer_id": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        "mark_id": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        "object": {
+                          "type": "string",
+                          "const": "same"
+                        },
+                        "same_as": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        }
+                      },
+                      "required": [
+                        "op",
+                        "answer_id",
+                        "mark_id",
+                        "object",
+                        "same_as"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "op": {
+                          "type": "string",
+                          "const": "restore"
+                        },
+                        "answer_id": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        "mark_id": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        "object": {
+                          "type": "string",
+                          "const": "distinct"
+                        }
+                      },
+                      "required": [
+                        "op",
+                        "answer_id",
+                        "mark_id"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                },
+                {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "op": {
+                          "type": "string",
+                          "const": "retain"
+                        },
+                        "answer_id": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        "mark_id": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        "object": {
+                          "type": "string",
+                          "const": "same"
+                        },
+                        "same_as": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        }
+                      },
+                      "required": [
+                        "op",
+                        "answer_id",
+                        "mark_id",
+                        "object",
+                        "same_as"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "op": {
+                          "type": "string",
+                          "const": "retain"
+                        },
+                        "answer_id": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        "mark_id": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        "object": {
+                          "type": "string",
+                          "const": "distinct"
+                        }
+                      },
+                      "required": [
+                        "op",
+                        "answer_id",
+                        "mark_id"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "op": {
+                      "type": "string",
+                      "const": "reattribute"
+                    },
+                    "answer_id": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "mark_id": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "to_answer_id": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "object": {
+                      "type": "string",
+                      "const": "distinct"
+                    }
+                  },
+                  "required": [
+                    "op",
+                    "answer_id",
+                    "mark_id",
+                    "to_answer_id"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "op": {
+                      "type": "string",
+                      "const": "verify"
+                    },
+                    "answer_id": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "pages": {
+                      "readOnly": true,
+                      "minItems": 1,
+                      "maxItems": 1000,
+                      "type": "array",
+                      "items": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 100000
+                      }
+                    }
+                  },
+                  "required": [
+                    "op",
+                    "answer_id",
+                    "pages"
+                  ],
+                  "additionalProperties": false
+                }
+              ]
+            }
+          }
+        },
+        "required": [
+          "intentKey",
+          "revisions",
+          "gestures"
+        ],
+        "additionalProperties": false
+      },
+      "ApiTakeoffCountMarksEditResponse": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "replayed": {
+                "type": "boolean"
+              },
+              "commandId": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "revisions": {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                },
+                "additionalProperties": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                }
+              },
+              "added": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "key": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "markId": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    }
+                  },
+                  "required": [
+                    "key",
+                    "markId"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "summaries": {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                },
+                "additionalProperties": {
+                  "type": "object",
+                  "properties": {
+                    "revision": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "unit": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "counted": {
+                      "type": "boolean"
+                    },
+                    "proposed": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "toAttribute": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "retained": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "removed": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "pending": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "reread": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "scopePages": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "verifiedPages": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "quantity": {
+                      "anyOf": [
+                        {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "Quantité retenue d’un poste compté en pièces, portée entière vérifiée ; null, jamais 0."
+                    },
+                    "state": {
+                      "type": "string",
+                      "enum": [
+                        "none",
+                        "to_check",
+                        "to_verify_again",
+                        "verified",
+                        "no_mark_retained"
+                      ]
+                    },
+                    "pages": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "page": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": 100000
+                          },
+                          "proposed": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
+                          },
+                          "toAttribute": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
+                          },
+                          "retained": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
+                          },
+                          "removed": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
+                          },
+                          "pending": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
+                          },
+                          "reread": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
+                          },
+                          "changedRevision": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
+                          },
+                          "verifiedRevision": {
+                            "anyOf": [
+                              {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 9007199254740991
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "state": {
+                            "type": "string",
+                            "enum": [
+                              "none",
+                              "to_check",
+                              "to_verify_again",
+                              "verified",
+                              "no_mark_retained"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "page",
+                          "proposed",
+                          "toAttribute",
+                          "retained",
+                          "removed",
+                          "pending",
+                          "reread",
+                          "changedRevision",
+                          "verifiedRevision",
+                          "state"
+                        ],
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "required": [
+                    "revision",
+                    "unit",
+                    "counted",
+                    "proposed",
+                    "toAttribute",
+                    "retained",
+                    "removed",
+                    "pending",
+                    "reread",
+                    "scopePages",
+                    "verifiedPages",
+                    "quantity",
+                    "state",
+                    "pages"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": [
+              "replayed",
+              "commandId",
+              "revisions",
+              "added",
+              "summaries"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "ok",
+          "data"
+        ],
+        "additionalProperties": false
+      },
+      "GetAffaireTakeoffCountMarksHistoryProjectIdParameter": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      },
+      "GetAffaireTakeoffCountMarksHistoryReponseParameter": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      },
+      "GetAffaireTakeoffCountMarksHistoryApresRevisionParameter": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 9007199254740991
+      },
+      "GetAffaireTakeoffCountMarksHistoryApresOrdreParameter": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 9007199254740991
+      },
+      "GetAffaireTakeoffCountMarksHistoryLimiteParameter": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 100
+      },
+      "ApiTakeoffCountMarksHistoryResponse": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "answerId": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "events": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "eventId": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "revision": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "ordinal": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "gesture": {
+                      "type": "string",
+                      "enum": [
+                        "proposed",
+                        "add",
+                        "move",
+                        "remove",
+                        "restore",
+                        "retain",
+                        "reattribute_out",
+                        "reattribute_in",
+                        "verify",
+                        "same_object"
+                      ]
+                    },
+                    "markId": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "page": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 100000
+                    },
+                    "before": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "propertyNames": {
+                            "type": "string"
+                          },
+                          "additionalProperties": {}
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "after": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "propertyNames": {
+                            "type": "string"
+                          },
+                          "additionalProperties": {}
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "reasonCode": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "reasonText": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "evidence": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "method": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "methodVersion": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "generation": {
+                            "anyOf": [
+                              {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 9007199254740991
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "observation": {
+                            "anyOf": [
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "page": {
+                                    "anyOf": [
+                                      {
+                                        "type": "integer",
+                                        "minimum": 1,
+                                        "maximum": 100000
+                                      },
+                                      {
+                                        "type": "null"
+                                      }
+                                    ]
+                                  },
+                                  "quantity": {
+                                    "type": [
+                                      "number",
+                                      "null"
+                                    ]
+                                  },
+                                  "unit": {
+                                    "type": [
+                                      "string",
+                                      "null"
+                                    ]
+                                  },
+                                  "evidence": {
+                                    "type": [
+                                      "string",
+                                      "null"
+                                    ]
+                                  }
+                                },
+                                "required": [
+                                  "page",
+                                  "quantity",
+                                  "unit",
+                                  "evidence"
+                                ],
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          }
+                        },
+                        "required": [
+                          "method",
+                          "methodVersion",
+                          "generation",
+                          "observation"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "actorKind": {
+                      "type": "string",
+                      "enum": [
+                        "member",
+                        "worker"
+                      ]
+                    },
+                    "actorId": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "occurredAt": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "eventId",
+                    "revision",
+                    "ordinal",
+                    "gesture",
+                    "markId",
+                    "page",
+                    "before",
+                    "after",
+                    "reasonCode",
+                    "reasonText",
+                    "evidence",
+                    "actorKind",
+                    "actorId",
+                    "occurredAt"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "next": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "revision": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      "ordinal": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      }
+                    },
+                    "required": [
+                      "revision",
+                      "ordinal"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Position à donner pour la page suivante ; null à la fin du journal."
+              },
+              "viewerId": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "names": {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                },
+                "additionalProperties": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "answerId",
+              "events",
+              "next",
+              "viewerId",
+              "names"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "ok",
+          "data"
+        ],
+        "additionalProperties": false
+      },
+      "GetAffaireTakeoffCountMarksTargetsProjectIdParameter": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      },
+      "GetAffaireTakeoffCountMarksTargetsReponseParameter": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      },
+      "ApiTakeoffCountMarkTargetsResponse": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "answerId": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "targets": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "answerId": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "itemId": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "label": {
+                      "type": "string"
+                    },
+                    "scopePages": {
+                      "type": "array",
+                      "items": {
+                        "type": "integer",
+                        "exclusiveMinimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      "description": "Pages cherchées et illisibles de la réponse de destination."
+                    }
+                  },
+                  "required": [
+                    "answerId",
+                    "itemId",
+                    "label",
+                    "scopePages"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": [
+              "answerId",
+              "targets"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "ok",
+          "data"
+        ],
+        "additionalProperties": false
+      },
       "GetAffaireTakeoffItemDetailPlanProjectIdParameter": {
         "type": "string",
         "format": "uuid",
@@ -43332,6 +46204,11 @@
         "maxLength": 200
       },
       "GetAffaireTakeoffItemDetailPlanLectureParameter": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      },
+      "GetAffaireTakeoffItemDetailPlanPosteParameter": {
         "type": "string",
         "format": "uuid",
         "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
@@ -43448,6 +46325,31 @@
                           "string",
                           "null"
                         ]
+                      },
+                      "answer": {
+                        "description": "La réponse que cette analyse a donnée pour le poste sur ce plan (lot 5).",
+                        "type": "object",
+                        "properties": {
+                          "answerId": {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                          },
+                          "scopePages": {
+                            "type": "array",
+                            "items": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0,
+                              "maximum": 9007199254740991
+                            },
+                            "description": "Pages cherchées et illisibles de la réponse : la portée de ses repères."
+                          }
+                        },
+                        "required": [
+                          "answerId",
+                          "scopePages"
+                        ],
+                        "additionalProperties": false
                       }
                     },
                     "required": [
@@ -43556,7 +46458,6 @@
         ],
         "additionalProperties": false
       },
-      "ApiGenericErrorResponse": {},
       "GetAffaireTakeoffItemListProjectIdParameter": {
         "type": "string",
         "format": "uuid",
@@ -45127,6 +48028,12 @@
                                     "minimum": 0,
                                     "maximum": 9007199254740991,
                                     "description": "Révision de la saisie du plan qui tient lieu de cette réponse dans la portée de l’affaire (0 sans saisie ou dans la portée d’un plan)."
+                                  },
+                                  "marksRevision": {
+                                    "description": "Révision des repères comptés de la réponse que la sélection a vue (0 sans repères ; absente, comptée 0) : une acceptance la compare.",
+                                    "type": "integer",
+                                    "minimum": 0,
+                                    "maximum": 9007199254740991
                                   }
                                 },
                                 "required": [
@@ -46463,6 +49370,12 @@
                               "minimum": 0,
                               "maximum": 9007199254740991,
                               "description": "Révision de la saisie du plan qui tient lieu de cette réponse dans la portée de l’affaire (0 sans saisie ou dans la portée d’un plan)."
+                            },
+                            "marksRevision": {
+                              "description": "Révision des repères comptés de la réponse que la sélection a vue (0 sans repères ; absente, comptée 0) : une acceptance la compare.",
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 9007199254740991
                             }
                           },
                           "required": [
@@ -47567,6 +50480,12 @@
                             "minimum": 0,
                             "maximum": 9007199254740991,
                             "description": "Révision de la saisie du plan qui tient lieu de cette réponse dans la portée de l’affaire (0 sans saisie ou dans la portée d’un plan)."
+                          },
+                          "marksRevision": {
+                            "description": "Révision des repères comptés de la réponse que la sélection a vue (0 sans repères ; absente, comptée 0) : une acceptance la compare.",
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
                           }
                         },
                         "required": [
@@ -47696,6 +50615,12 @@
                             "minimum": 0,
                             "maximum": 9007199254740991,
                             "description": "Révision de la saisie du plan qui tient lieu de cette réponse dans la portée de l’affaire (0 sans saisie ou dans la portée d’un plan)."
+                          },
+                          "marksRevision": {
+                            "description": "Révision des repères comptés de la réponse que la sélection a vue (0 sans repères ; absente, comptée 0) : une acceptance la compare.",
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
                           }
                         },
                         "required": [
@@ -47839,6 +50764,12 @@
                             "minimum": 0,
                             "maximum": 9007199254740991,
                             "description": "Révision de la saisie du plan qui tient lieu de cette réponse dans la portée de l’affaire (0 sans saisie ou dans la portée d’un plan)."
+                          },
+                          "marksRevision": {
+                            "description": "Révision des repères comptés de la réponse que la sélection a vue (0 sans repères ; absente, comptée 0) : une acceptance la compare.",
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
                           }
                         },
                         "required": [
@@ -47968,6 +50899,12 @@
                             "minimum": 0,
                             "maximum": 9007199254740991,
                             "description": "Révision de la saisie du plan qui tient lieu de cette réponse dans la portée de l’affaire (0 sans saisie ou dans la portée d’un plan)."
+                          },
+                          "marksRevision": {
+                            "description": "Révision des repères comptés de la réponse que la sélection a vue (0 sans repères ; absente, comptée 0) : une acceptance la compare.",
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
                           }
                         },
                         "required": [
@@ -48156,6 +51093,12 @@
                             "minimum": 0,
                             "maximum": 9007199254740991,
                             "description": "Révision de la saisie du plan qui tient lieu de cette réponse dans la portée de l’affaire (0 sans saisie ou dans la portée d’un plan)."
+                          },
+                          "marksRevision": {
+                            "description": "Révision des repères comptés de la réponse que la sélection a vue (0 sans repères ; absente, comptée 0) : une acceptance la compare.",
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
                           }
                         },
                         "required": [
@@ -48515,6 +51458,12 @@
                                 "minimum": 0,
                                 "maximum": 9007199254740991,
                                 "description": "Révision de la saisie du plan qui tient lieu de cette réponse dans la portée de l’affaire (0 sans saisie ou dans la portée d’un plan)."
+                              },
+                              "marksRevision": {
+                                "description": "Révision des repères comptés de la réponse que la sélection a vue (0 sans repères ; absente, comptée 0) : une acceptance la compare.",
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 9007199254740991
                               }
                             },
                             "required": [

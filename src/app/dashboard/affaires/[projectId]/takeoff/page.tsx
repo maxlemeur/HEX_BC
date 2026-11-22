@@ -2,11 +2,13 @@ import { Suspense } from "react";
 import { notFound, redirect } from "next/navigation";
 
 import { JourneyPageHeader } from "@/components/journey/JourneyPage";
+import { Breadcrumbs } from "@/components/layout/breadcrumbs";
 import { NavigationLink as Link } from "@/components/navigation/NavigationFeedback";
 import { buttonVariants } from "@/components/ui/button";
 import { TakeoffItemListPanel } from "@/components/takeoff/TakeoffItemListPanel";
 import TakeoffActivityCenter from "@/components/takeoff/TakeoffActivityCenter";
 import { TakeoffFlowHierarchyPanel } from "@/components/takeoff/TakeoffFlowHierarchyPanel";
+import { TakeoffItemDetailScreen } from "@/components/takeoff/item-detail/TakeoffItemDetailScreen";
 import { getUserContext } from "@/lib/auth/server";
 import {
   fetchAffaireHubPlansSummary,
@@ -15,9 +17,11 @@ import {
   fetchProjectVersionList,
 } from "@/lib/affaires/server";
 import { isTakeoffEnabled } from "@/lib/takeoff/feature-flags";
+import { itemTableReturnHref } from "@/lib/takeoff/item-detail-address";
 import { buildTakeoffLaunchContext } from "@/lib/takeoff/launch-context";
 import { isTakeoffLaunchActive } from "@/lib/takeoff/launch-request-server";
 import { fetchPlanSetsForProject } from "@/lib/takeoff/plans";
+import { TAKEOFF_ITEM_DETAIL_PARAMS } from "@/lib/takeoff/review-href";
 
 type Props = {
   params: Promise<{ projectId: string }>;
@@ -48,6 +52,32 @@ export default async function AffaireTakeoffPage({ params, searchParams }: Props
   if (launchRequestsActive && query.launch === "1") {
     const planSet = typeof query.launchPlanSet === "string" ? `&launchPlanSet=${encodeURIComponent(query.launchPlanSet)}` : "";
     redirect(`${takeoffZoneHref}&metreOptions=1${planSet}#metre`);
+  }
+
+  // The detail of an item opened from the table of items (`?poste=…`): the same page, its address and its reads
+  // (the table's routes, which check the member's access to the affaire), the table one step back.
+  if (query[TAKEOFF_ITEM_DETAIL_PARAMS.itemId] !== undefined) {
+    const project = await fetchAffaireProjectBasic(projectId).catch((err: unknown) => {
+      if (err !== null && typeof err === "object" && "code" in err && (err as { code: string }).code === "NOT_FOUND") notFound();
+      throw err;
+    });
+    const search = new URLSearchParams();
+    for (const [name, value] of Object.entries(query)) {
+      for (const entry of Array.isArray(value) ? value : value === undefined ? [] : [value]) search.append(name, entry);
+    }
+    return (
+      <div className="space-y-3">
+        <Breadcrumbs items={[
+          { label: "Affaires", href: "/dashboard/affaires" },
+          { label: project.name, href: `/dashboard/affaires/${projectId}` },
+          { label: "Métrés", href: itemTableReturnHref(projectId, search, null) },
+          { label: "Détail du poste" },
+        ]} />
+        <Suspense>
+          <TakeoffItemDetailScreen projectId={projectId} viewerKey={`${tenantId}:${profile?.id ?? ""}`} />
+        </Suspense>
+      </div>
+    );
   }
 
   const [

@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import useSWR from "swr";
@@ -7,6 +8,7 @@ import { ChevronDown } from "lucide-react";
 
 import type { ChatGptReasoningEffort } from "@/lib/ai/chatgpt-model-preferences";
 import { isTakeoffApiError } from "@/lib/takeoff/client-http";
+import { itemTableLineDetailHref } from "@/lib/takeoff/item-detail-address";
 import { isTakeoffReadRefusal } from "../useTakeoffRequestActivity";
 import { ITEM_AGGREGATE_STATES } from "@/lib/takeoff/item-answer-aggregation";
 import { ITEM_LINE_DECISIONS, type ItemSetAsideReason, type ItemTableScope } from "@/lib/takeoff/item-table";
@@ -256,7 +258,10 @@ export function TakeoffItemTable({ projectId, viewerKey, signature }: {
   useEffect(() => {
     if (!focusId || scrolledFocus.current === focusId || !lines?.some(({ itemId }) => itemId === focusId)) return;
     scrolledFocus.current = focusId;
-    document.getElementById(`poste-ligne-${focusId}`)?.scrollIntoView?.({ block: "center" });
+    const row = document.getElementById(`poste-ligne-${focusId}`);
+    row?.scrollIntoView?.({ block: "center" });
+    // Back from the item's detail (nothing holds the focus): the keyboard is given back to the line's « Détail ».
+    if (document.activeElement === document.body) row?.querySelector<HTMLElement>("[data-poste-detail-link]")?.focus({ preventScroll: true });
   }, [focusId, lines]);
 
   const counts = itemSelectionCounts(selection);
@@ -529,7 +534,7 @@ export function TakeoffItemTable({ projectId, viewerKey, signature }: {
                       <th scope="col">DPGF</th>
                       <th scope="col">Motifs</th>
                       <th scope="col">Décision</th>
-                      <th scope="col" className="w-9"><span className="sr-only">Détail</span></th>
+                      <th scope="col"><span className="sr-only">Détail</span></th>
                     </tr>
                   </thead>
                   <tbody>
@@ -632,7 +637,12 @@ export function TakeoffItemTable({ projectId, viewerKey, signature }: {
                               </span>
                             </td>
                             <td>{line.decision === "none" ? null : ITEM_DECISION_LABELS[line.decision]}</td>
-                            <td className="w-9">
+                            <td className="whitespace-nowrap">
+                              {/* The item on its plan, the second depth of the review; the way back restores this page. */}
+                              <Link data-poste-detail-link="" prefetch={false} className="mr-1 text-xs underline underline-offset-2"
+                                aria-label={`Détail de « ${line.label} » sur le plan`} href={itemTableLineDetailHref(projectId, line, searchParams)}>
+                                Détail
+                              </Link>
                               <Button variant="ghost" size="icon-xs" aria-expanded={open} aria-controls={`poste-detail-ligne-${line.itemId}`}
                                 aria-label={`Détail du poste « ${line.label} »`}
                                 onClick={() => setExpanded((current) => ({ ...current, [line.itemId]: !open }))}>

@@ -50,6 +50,7 @@ import { IntakeWorkspace } from "./IntakeWorkspace";
 import { AffaireTakeoffZone, AFFAIRE_TAKEOFF_ZONE_ID } from "./AffaireTakeoffZone";
 import { MarginAnalysisWidget } from "./MarginAnalysisWidget";
 import { AffairePersistedProjectDetails } from "./AffairePersistedProjectDetails";
+import { toSiteContactDrafts } from "./AffaireProjectDetailsCard";
 import { PlansMetresCard } from "./PlansMetresCard";
 import {
   shouldRenderPlansSection,
@@ -490,6 +491,16 @@ export function AffaireHub({
   const plansSummary = dossier.plansSummary;
   const plansError = dossier.plansFromRead ? undefined : sectionErrors?.plansSummary;
   // Over a read, the suggestions follow the dossier on screen, computed as the server does.
+  // The fiche's values as the server answered them: a new object only when they change, so that a render of the hub
+  // while the fiche is edited does not throw away what is being typed (its contacts included).
+  const projectDetailsValues = useMemo(() => ({
+    projectName: summary.project.name,
+    clientName: summary.project.clientName ?? "",
+    siteAddress: summary.project.siteAddress ?? "",
+    siteContacts: toSiteContactDrafts(summary.project.siteContacts),
+    reference: summary.project.reference ?? "",
+  }), [summary.project]);
+
   const cockpitInput = useMemo<HubCockpitInput>(() => ({
     projectId: summary.project.id, takeoffEnabled, isReadOnlyReview, plansSummary, registerSummary: registerSummary ?? null,
     approvalSummary: approvalSummary ?? null, hasIntakeWorkspaceError: false, intakeWorkspace: intakeWorkspace ?? null,
@@ -1087,12 +1098,7 @@ export function AffaireHub({
         <div>
           <AffairePersistedProjectDetails
             projectId={summary.project.id}
-            initialValues={{
-              projectName: summary.project.name,
-              clientName: summary.project.clientName ?? "",
-              siteAddress: summary.project.siteAddress ?? "",
-              reference: summary.project.reference ?? "",
-            }}
+            initialValues={projectDetailsValues}
             editing={editingProject}
             onEditingChange={setEditingProject}
             actionsPortalTarget={actionsPortalTarget}

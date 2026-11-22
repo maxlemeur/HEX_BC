@@ -308,7 +308,9 @@ compte propriétaire, son port et son dossier d'artefacts
   (LOCAL08), les trois parcours « ChatGPT local » et V3C08 ;
 - [`chatgpt-local-decisions.e2e.ts`](../../e2e/army/local/chatgpt-local-decisions.e2e.ts) :
   assistance Decisions (DEC01, TRI01), écran Vecteurs du labo (VEC01), reprise
-  des prix (PRX02), réanalyse des pièces (INTRETRY01, INTWORD01) et démarrage
+  des prix (PRX02), analyse IA de la photo d’une demande de matériel (MRIA01 :
+  la photo lue devient des lignes en brouillon, ajoutées puis remplacées au
+  choix du bureau), réanalyse des pièces (INTRETRY01, INTWORD01) et démarrage
   automatique du métré à la confirmation du dossier (AUTO01 à AUTO05) et sa zone
   sur l’affaire (AUTO06 : motif lu par un directeur, prise en charge par un
   opérateur, relance sans version ni brouillon, ancien lien de lancement), chacun

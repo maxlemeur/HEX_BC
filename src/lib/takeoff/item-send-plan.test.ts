@@ -324,6 +324,9 @@ describe("planTakeoffItemSend — DPGF targets and entries", () => {
       destination: draft([dpgfLine(22, "mapped-22", "raw-22", 1)]),
       resolutions: [{ key: deleted.toResolve[0].key, choice: { kind: "line", estimateItemId: lineId(22) } }] }));
     expect(chosen.targets[0].line).toEqual(expect.objectContaining({ estimateItemId: lineId(22) }));
+    // Closing 5 of #484's last check: the choice reaches the writer in its spelling (estimate_item_id), never the planner's.
+    expect(chosen.writePlan?.dependencies.resolutions).toEqual([{ key: deleted.toResolve[0].key,
+      choice: { kind: "line", estimate_item_id: lineId(22) } }]);
     // A line that was not offered is never written.
     const forged = planTakeoffItemSend(input({ items: [ef], answers: [measured(ef, [{ quantity: 5, page: 1 }])],
       destination: draft([dpgfLine(22, "mapped-22", "raw-22", 1)]),
@@ -900,5 +903,39 @@ describe("planTakeoffItemSend — fix round 1 of #484, twins of the writer's rul
     expect(plan.writePlan!.dependencies.rules).toEqual([{ item_id: lavabo.id, rule_id: "rule-1", rule_version: "2026-01-02T00:00:00.000Z",
       action: "rename", effect: "renamed" }]);
     expect(plan.targets[0].line).toEqual(expect.objectContaining({ title: "Lavabo PMR" }));
+  });
+});
+
+describe("planTakeoffItemSend — closing of #484's last check", () => {
+  const ef = dpgfItem(40, "Lavabo", "u", "raw-40", "mapped-40", 4);
+  const douche = templateItem(3, "Receveur de douche", "u");
+  const entered = (quantity: number): ItemSendAnswer => ({ ...measured(douche, []), outcome: "uncertain",
+    entry: { revision: 1, quantity, unit: "u", category: "site_survey", included: true } });
+
+  it("retires the part left on the item's DPGF target whose line was deleted, with its raw row now on another line (closing 6)", () => {
+    const old = part({ planKey: "plan-a", pages: [1], observationIds: ["obs-old"], quantity: 3, answerId: "answer-old" });
+    const plan = planTakeoffItemSend(input({ items: [ef], answers: [measured(ef, [{ quantity: 5, page: 1 }])],
+      plan: { key: "plan-a", name: "Plan A", location: null, pages: [1] },
+      destination: draft([dpgfLine(41, "mapped-40", "raw-40", 4)]),
+      earlier: { targets: [], sections: [], displaced: [{ itemId: ef.id, breakdown: "dpgf", compartmentKey: "dpgf", parts: [old] }] } }));
+    expect(plan.targets[0]).toEqual(expect.objectContaining({ line: expect.objectContaining({ kind: "dpgf_line", estimateItemId: lineId(41) }),
+      replaces: [{ jobId: OTHER_JOB, answerId: "answer-old", observationIds: ["obs-old"], quantity: 3 }] }));
+    expect(plan.targets[0].quantity.after).toBe(5);
+  });
+
+  it("replaces two measured pages of this plan with one entry, and keeps a disjoint earlier page (the review's vectors)", () => {
+    const target = line(1, { quantity: 3 });
+    const replaced = [part({ planKey: "plan-a", pages: [2], observationIds: ["obs-2"], quantity: 2 }),
+      part({ planKey: "plan-a", pages: [7], observationIds: ["obs-7"], quantity: 1 })];
+    const entry = planTakeoffItemSend(input({ items: [douche], answers: [entered(6)], destination: draft([target]),
+      plan: { key: "plan-a", name: "Plan A", pages: [2, 7], location: null },
+      earlier: { targets: [{ itemId: douche.id, breakdown: "together", compartmentKey: "together", estimateItemId: target.id,
+        parts: replaced }], sections: [] } }));
+    expect([entry.targets[0].replaces.length, entry.targets[0].quantity.after]).toEqual([2, 6]);
+    const disjoint = planTakeoffItemSend(input({ items: [lavabo], answers: [measured(lavabo, [{ quantity: 1, page: 7 }], { searchedPages: [7] })],
+      plan: { key: "plan-a", name: "Plan A", location: null, pages: [7] }, destination: draft([line(40, { quantity: 2 })]),
+      earlier: { targets: [{ itemId: lavabo.id, breakdown: "together", compartmentKey: "together", estimateItemId: lineId(40),
+        parts: [part({ planKey: "plan-a", pages: [2], quantity: 2 })] }], sections: [] } }));
+    expect(disjoint.targets[0].quantity.after).toBe(3);
   });
 });

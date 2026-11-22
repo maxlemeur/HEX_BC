@@ -27,6 +27,15 @@ import {
 import { importLinkedDpgfSourceResponseSchema } from "@/lib/estimates/linked-dpgf-contracts";
 import { itemDetailPlanViewSchema } from "@/lib/takeoff/item-detail-contracts";
 import {
+  COUNT_MARKS_HISTORY_LIMIT,
+  COUNT_MARKS_PAGE_LIMIT,
+  countMarksEditRequestSchema,
+  countMarksEditResultSchema,
+  countMarksHistorySchema,
+  countMarkTargetsSchema,
+  countMarksViewSchema,
+} from "@/lib/takeoff/count-marks-contracts";
+import {
   priceReuseApplyInputSchema, priceReuseApplySchema, priceReuseArbitrationInputSchema, priceReuseArbitrationSchema,
   priceReusePreviewInputSchema, priceReusePreviewSchema,
 } from "@/lib/estimates/price-reuse-contracts";
@@ -612,12 +621,13 @@ const takeoffOperationsContracts: RouteContract[] = [
     method: "get",
     path: "/api/affaires/{projectId}/takeoff/item-detail/plan",
     summary: "Résoudre le plan affiché par le détail d’un poste",
-    description: "Lecteurs de l’affaire. Une résolution par plan et par lecture, jamais par poste ni par repère. Avec une lecture (une analyse de cette affaire que le membre lit), la copie que cette analyse a scellée pour ce plan, son empreinte et ses pages, même remplacée depuis : ses octets sont ceux qu’elle a attestés (vérifiés à chaque demande), sinon l’original est dit indisponible, jamais remplacé par une copie plus récente. Sans lecture, le plan retenu au dossier : l’unique copie actuelle de sa pièce, telle que le lecteur de localisation la décide pour le membre, signée pour lui par la lecture du centre de plans au moment de la demande ; une génération nommée doit l’être encore. Mêmes droits que les routes qui servent les octets : module Métré actif pour le tenant, et une copie que ces routes ne serviraient pas à ce membre (sa ligne, sa signature) est dite « non accessible », à part de « aucune copie » ; des octets absents du stockage sont dits absents. Les copies du dossier sont celles que les sources enregistrées pour l’affaire désignent : une copie d’une pièce d’une autre affaire est introuvable, par la copie comme par la pièce. source ne nomme qu’une pièce du dossier. Une analyse d’une autre affaire, un plan que cette lecture n’a pas lu, un plan étranger au dossier ou une pièce supprimée est introuvable. Rien n’est gardé : chaque ouverture d’un plan le résout de nouveau. N’écrit rien, ne lance rien.",
+    description: "Lecteurs de l’affaire. Une résolution par plan et par lecture, jamais par poste ni par repère. Avec une lecture (une analyse de cette affaire que le membre lit), la copie que cette analyse a scellée pour ce plan, son empreinte et ses pages, même remplacée depuis : ses octets sont ceux qu’elle a attestés (vérifiés à chaque demande), sinon l’original est dit indisponible, jamais remplacé par une copie plus récente. Sans lecture, le plan retenu au dossier : l’unique copie actuelle de sa pièce, telle que le lecteur de localisation la décide pour le membre, signée pour lui par la lecture du centre de plans au moment de la demande ; une génération nommée doit l’être encore. Mêmes droits que les routes qui servent les octets : module Métré actif pour le tenant, et une copie que ces routes ne serviraient pas à ce membre (sa ligne, sa signature) est dite « non accessible », à part de « aucune copie » ; des octets absents du stockage sont dits absents. Les copies du dossier sont celles que les sources enregistrées pour l’affaire désignent : une copie d’une pièce d’une autre affaire est introuvable, par la copie comme par la pièce. source ne nomme qu’une pièce du dossier. Une analyse d’une autre affaire, un plan que cette lecture n’a pas lu, une lecture qui n’a pas répondu pour le poste demandé, un plan étranger au dossier ou une pièce supprimée est introuvable. Rien n’est gardé : chaque ouverture d’un plan le résout de nouveau. N’écrit rien, ne lance rien.",
     tags: ["Takeoff"],
     pathParameters: [{ name: "projectId", schema: uuidSchema, description: "Affaire cible." }],
     queryParameters: [
       { name: "plan", schema: z.string().max(200), description: "Identité logique du plan (pièce du dossier, ou copie déposée dans le jeu de plans)." },
       { name: "lecture", schema: uuidSchema, description: "Analyse dont la copie scellée est montrée ; demande le plan." },
+      { name: "poste", schema: uuidSchema, description: "Poste montré ; demandé avec une lecture, qui n’est résolue que si cette analyse a répondu pour ce poste sur ce plan." },
       { name: "source", schema: uuidSchema, description: "Pièce du dossier d’un plan qu’aucune analyse n’a scellé, seule, sans plan ni lecture." },
       { name: "generation", schema: z.string().max(200), description: "Génération de la pièce nommée par source." },
     ],
@@ -625,6 +635,76 @@ const takeoffOperationsContracts: RouteContract[] = [
       schemaName: "ApiTakeoffItemDetailPlanResponse", schema: z.object({ ok: z.literal(true), data: itemDetailPlanViewSchema }), io: "output",
     } }],
     extraErrors: [{ status: "422", description: "Combinaison de paramètres qui ne désigne pas un plan." }, { status: "503", description: "Le stockage n’a pas répondu à la signature du plan : réessayer." }],
+  },
+  {
+    id: "get-affaire-takeoff-count-marks",
+    method: "get",
+    path: "/api/affaires/{projectId}/takeoff/count-marks",
+    summary: "Lire les repères comptés d’un poste sur une page de son plan",
+    description: "Lecteurs de l’affaire. Les repères d’une réponse (un poste lu sur un plan) sur une page de sa portée, par lots dans un ordre stable (curseur apres), dans les états demandés (proposés, à attribuer, retenus par défaut ; retirés et nouvelle lecture sur demande), avec la géométrie de la page enregistrée, la révision des repères de la réponse et le total serveur des états demandés, à part du nombre chargé. Joint le décompte serveur de la réponse (nombre proposé, nombre relu sur la portée vérifiée, quantité retenue d’un poste compté en pièces, null et jamais 0) et ce que le membre peut faire : corriger s’il est opérateur du métré de l’affaire, sinon lecture seule, de même pour un plan déjà envoyé au devis ou une lecture remplacée. La page et le décompte sont rendus à une même révision : relus tant qu’ils diffèrent, puis refusés en 409 (TAKEOFF_MARKS_READ_CHANGING) s’ils changent encore. Une quantité comptée sur le plan est montrée et n’est jamais envoyée : le tableau des postes et l’envoi lisent ce qu’ils lisaient. Une réponse que le membre ne lit pas, ou une page hors de sa portée, est introuvable. N’écrit rien.",
+    tags: ["Takeoff"],
+    pathParameters: [{ name: "projectId", schema: uuidSchema, description: "Affaire cible." }],
+    queryParameters: [
+      { name: "reponse", schema: uuidSchema, description: "Réponse (poste lu sur un plan) dont les repères sont lus.", required: true },
+      { name: "page", schema: z.number().int().min(1).max(100_000), description: "Page originale du plan, depuis 1.", required: true },
+      { name: "apres", schema: uuidSchema, description: "Dernier repère du lot précédent : le lot suivant commence après lui." },
+      { name: "etats", schema: z.string().max(100), description: "États demandés, séparés par des virgules : proposed, to_attribute, retained, removed, pending." },
+      { name: "limite", schema: z.number().int().min(1).max(COUNT_MARKS_PAGE_LIMIT.max), description: `Repères par lot (${COUNT_MARKS_PAGE_LIMIT.default} par défaut).` },
+    ],
+    success: [{ status: "200", description: "Un lot de repères, le décompte serveur et le droit de les corriger.", schema: {
+      schemaName: "ApiTakeoffCountMarksResponse", schema: z.object({ ok: z.literal(true), data: countMarksViewSchema }), io: "output",
+    } }],
+    extraErrors: [{ status: "409", description: "Les repères changent pendant leur lecture (TAKEOFF_MARKS_READ_CHANGING) : relire." }],
+  },
+  {
+    id: "edit-affaire-takeoff-count-marks",
+    method: "post",
+    path: "/api/affaires/{projectId}/takeoff/count-marks",
+    summary: "Corriger les repères comptés d’un poste",
+    description: "Opérateur du métré de l’affaire (administrateur du tenant, ou ingénieur à qui l’affaire appartient). N gestes en une commande : ajouter (géométrie de la page pour son premier repère), déplacer, retirer avec un motif (note obligatoire pour « Autre motif »), rétablir, retenir, affecter à un autre poste de la même lecture, déclarer des pages vérifiées (toujours en dernier). Chaque réponse modifiée est nommée avec la révision de ses repères affichée : une révision dépassée refuse tout (409), rien n’est écrit. Un geste qui laisserait un repère retenu à moins de 4 points d’un autre repère retenu de la même réponse demande le mot du membre (« Même objet » avec le repère retenu, pour retenir ou rétablir, ou « Objet distinct ») : sans lui, refus TAKEOFF_MARKS_OBJECT_DUPLICATE, dont le détail nomme le geste (sa place dans la commande), les repères retenus à côté et les ajouts de la même commande parmi eux (par leur clé) ; l’écran ne le décide jamais. Un plan déjà envoyé au devis est en lecture seule (TAKEOFF_MARKS_PLAN_SENT), refusé par la commande sous ses verrous, après le rejeu de la clé d’intention : la même clé d’intention avec le même contenu rend le même reçu, même après l’envoi. Une réponse nommée deux fois (à la casse près) est refusée. N’écrit ni ligne de l’analyse, ni décision, ni saisie du tableau des postes, ni devis.",
+    tags: ["Takeoff"],
+    pathParameters: [{ name: "projectId", schema: uuidSchema, description: "Affaire cible." }],
+    body: { schema: countMarksEditRequestSchema, description: "Clé d’intention, révision attendue de chaque réponse modifiée, gestes dans l’ordre." },
+    success: [{ status: "200", description: "Le reçu : nouvelles révisions, repères ajoutés par clé, décompte de chaque réponse modifiée.", schema: {
+      schemaName: "ApiTakeoffCountMarksEditResponse", schema: z.object({ ok: z.literal(true), data: countMarksEditResultSchema }), io: "output",
+    } }],
+    extraErrors: [
+      { status: "409", description: "Révision dépassée, mot « même objet » ou « objet distinct » manquant, repère retenu pour un autre poste, lecture remplacée, page qui n’est plus celle du plan, plan déjà envoyé ou clé d’intention déjà employée pour un autre contenu : rien n’est écrit." },
+      { status: "422", description: "Gestes illisibles ou hors des bornes de la commande." },
+    ],
+  },
+  {
+    id: "get-affaire-takeoff-count-marks-history",
+    method: "get",
+    path: "/api/affaires/{projectId}/takeoff/count-marks/history",
+    summary: "Lire l’historique des repères d’un poste",
+    description: "Lecteurs de l’affaire. Le journal des repères d’une réponse, dans l’ordre (révision, puis ordre des gestes), par pages après la position donnée : qui (l’analyse ou un membre), quand, quel geste, la page, avant et après, le motif, et ce qui fondait un repère retenu tel que le journal l’a gardé. Une réponse que le membre ne lit pas est introuvable. N’écrit rien.",
+    tags: ["Takeoff"],
+    pathParameters: [{ name: "projectId", schema: uuidSchema, description: "Affaire cible." }],
+    queryParameters: [
+      { name: "reponse", schema: uuidSchema, description: "Réponse dont le journal est lu.", required: true },
+      { name: "apresRevision", schema: z.number().int().min(0), description: "Révision du dernier événement lu." },
+      { name: "apresOrdre", schema: z.number().int().min(0), description: "Ordre du dernier événement lu dans sa révision." },
+      { name: "limite", schema: z.number().int().min(1).max(COUNT_MARKS_HISTORY_LIMIT.max), description: `Événements par page (${COUNT_MARKS_HISTORY_LIMIT.default} par défaut).` },
+    ],
+    success: [{ status: "200", description: "Une page du journal et la position de la suivante.", schema: {
+      schemaName: "ApiTakeoffCountMarksHistoryResponse", schema: z.object({ ok: z.literal(true), data: countMarksHistorySchema }), io: "output",
+    } }],
+  },
+  {
+    id: "get-affaire-takeoff-count-marks-targets",
+    method: "get",
+    path: "/api/affaires/{projectId}/takeoff/count-marks/targets",
+    summary: "Lire les postes auxquels affecter un repère",
+    description: "Lecteurs de l’affaire. Les autres postes de la même lecture (son analyse, sur son plan) dont la réponse n’a pas été remplacée par une lecture plus récente, dans l’ordre de la liste lue, quel que soit le tableau des postes affiché : les destinations d’une affectation de repère, que la commande de correction vérifie de nouveau.",
+    tags: ["Takeoff"],
+    pathParameters: [{ name: "projectId", schema: uuidSchema, description: "Affaire cible." }],
+    queryParameters: [
+      { name: "reponse", schema: uuidSchema, description: "Réponse dont un repère est affecté.", required: true },
+    ],
+    success: [{ status: "200", description: "Les postes de la même lecture qui peuvent recevoir un repère.", schema: {
+      schemaName: "ApiTakeoffCountMarkTargetsResponse", schema: z.object({ ok: z.literal(true), data: countMarkTargetsSchema }), io: "output",
+    } }],
   },
   {
     id: "get-takeoff-activity-center-requests",

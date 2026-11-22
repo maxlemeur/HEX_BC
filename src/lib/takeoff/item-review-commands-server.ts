@@ -120,15 +120,28 @@ async function refreshRulesOfJobs(access: AffaireAccess, jobIds: readonly string
   }
 }
 
-export async function runItemReviewCommand(projectId: string, command: ItemReviewCommand): Promise<ItemReviewResult> {
-  assertCommandShape(command);
+/** A command's identifiers as the database writes and compares them as text (its targets against what it applies). */
+function lowerIdentifiers(command: ItemReviewCommand): ItemReviewCommand {
+  const targets = command.targets.map((target) => ({ ...target, itemId: target.itemId.toLowerCase(),
+    answers: target.answers.map((answer) => ({ ...answer, answerId: answer.answerId.toLowerCase() })) }));
+  return command.gesture === "enter_quantity"
+    ? { ...command, targets, values: command.values.map((value) => ({ ...value, item_id: value.item_id.toLowerCase() })) }
+    : { ...command, targets };
+}
+
+export async function runItemReviewCommand(projectId: string, received: ItemReviewCommand): Promise<ItemReviewResult> {
+  assertCommandShape(received);
+  const command = lowerIdentifiers(received);
   const access = await requireReviewer(projectId);
-  const itemIds = command.targets.map(({ itemId }) => itemId.toLowerCase());
+  const itemIds = command.targets.map(({ itemId }) => itemId);
   const { lines } = await loadItemLines(access, { scope: command.scope, itemIds });
   const labels = new Map(lines.map((line) => [line.itemId, line.label]));
   const plan = planItemReviewCommand(lines, { gesture: command.gesture, targets: command.targets });
-  // A stale selection still goes to the database: the same command already recorded answers what it answered.
-  const apply = plan.kind === "planned" ? plan.apply.map(({ itemId }) => itemId) : [];
+  // A stale selection still goes to the database, the same command already recorded answering what it answered; it goes
+  // with every item to apply, never with none, so that the database records no command that applied nothing on a stale
+  // selection: it answers the receipt of the same command, refuses the selection as stale (its predicate is the
+  // planner's), or applies the whole selection it finds current and eligible under its lock.
+  const apply = plan.kind === "planned" ? plan.apply.map(({ itemId }) => itemId) : itemIds;
   const skipped = plan.kind === "planned" ? plan.skipped.map(({ itemId, label, reason }) => ({ item_id: itemId, label, reason })) : [];
   const { data, error } = await (access.context.supabase as unknown as Client).rpc("review_takeoff_items", {
     p_tenant_id: access.context.tenantId, p_project_id: access.project.id,
@@ -139,7 +152,7 @@ export async function runItemReviewCommand(projectId: string, command: ItemRevie
       scope: command.scope.kind === "plan" ? { kind: "plan", plan_logical_id: command.scope.planKey } : { kind: "affaire" },
       targets: command.targets.map((target) => ({ item_id: target.itemId, entry_revision: target.entryRevision,
         answers: target.answers.map((answer) => ({ answer_id: answer.answerId, decision_revision: answer.decisionRevision,
-          entry_revision: answer.entryRevision })) })),
+          entry_revision: answer.entryRevision, ...(answer.marksRevision !== undefined ? { marks_revision: answer.marksRevision } : {}) })) })),
       apply,
       skipped,
       ...(command.gesture === "set_aside" ? { reason: command.reason, ...(command.note?.trim() ? { note: command.note.trim() } : {}) } : {}),

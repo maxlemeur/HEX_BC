@@ -15,6 +15,10 @@
 -- 6. Two tabs confirm the same job at once (two requests) while a bulk review of the affaire is sent: the second
 --    confirmation waits for the affaire and is told the job is sent; the review waits for the affaire's review key and
 --    finds the plan closed; one receipt, one target, the job applied once.
+-- 7. The actor's tenant suspended while the send waits for the affaire: refused after the wait, before any answer.
+-- 8. The member gone to another tenant (their default) while the send waits: refused after the wait.
+-- 9. A second reading's send while the member's lease of the draft ends during the wait: the lease is read on the clock
+--    after the wait (DRAFT_LOCK_REQUIRED), the estimate unchanged.
 -- The confirmation is the server's (the service role, the acting member its parameter); the tabs' reviews are the member's.
 -- The two first creations of a draft are cases 2 (one job, twice) and 4 (the import and the send). Isolation justified:
 -- these interleavings exist only across sessions, which no journey drives deterministically. All values are fictional.
@@ -326,7 +330,9 @@ returns jsonb language sql as $$
     'sections', '[{"key": "list:", "title": "Métré", "parent_key": null, "parent_id": null}]'::jsonb,
     'targets', jsonb_build_array(pg_temp.new_line(p_project, p_item, p_quantity)),
     'page_contributions', jsonb_build_array(jsonb_build_object('page', 2, 'item_ids', jsonb_build_array(pg_temp.f(p_item)),
-      'target_keys', jsonb_build_array(pg_temp.f(p_item) || '|together'), 'observation_ids', '[]'::jsonb)),
+      'target_keys', jsonb_build_array(pg_temp.f(p_item) || '|together'),
+      'observation_ids', (select coalesce(jsonb_agg(o.value), '[]'::jsonb) from jsonb_array_elements(pg_temp.parts(p_project, p_item)) c(value)
+        cross join lateral jsonb_array_elements(c.value -> 'observation_ids') o(value)))),
     'page_decisions', '[]'::jsonb, 'left_out', '[]'::jsonb, 'parts_not_sent', '[]'::jsonb,
     'dependencies', jsonb_build_object(
       'answers', (with pairs as (select p.* from private.takeoff_item_table_pairs(pg_temp.tenant(), pg_temp.f(p_project),
@@ -527,6 +533,93 @@ select is(pg_temp.written(20), '1/1/1/1/applied', 'one receipt, one target, one 
 select results_eq($$select i.quantity from public.estimate_items i join public.takeoff_item_send_targets t on t.estimate_item_id = i.id
   where t.project_id = pg_temp.f(20)$$, $$values (3::numeric)$$, 'the line holds the corrected measure, written once');
 
+
+-- 7. Affaire 20: the actor's tenant suspended while the send waits for the affaire (closing 7 of the last check). The job
+--    is sent already: without the change the send is told so; with it, it is refused first, by the actor's tenant.
+create function pg_temp.hold_affaire_sql(p_project integer) returns text language sql stable as $$
+  select format($hold$select 1 from public.estimate_projects where id = %L for update$hold$, pg_temp.f(p_project))
+$$;
+select is(extensions.dblink_exec('race_setup', 'begin'), 'BEGIN', 'an administrator of the platform suspends the tenant');
+select is((select x.held from extensions.dblink('race_setup', pg_temp.hold_affaire_sql(20)) as x(held integer)), 1,
+  'holding the affaire');
+select is(extensions.dblink_send_query('race_b', pg_temp.send_sql(825, '20-fourth')), 1, 'the plan''s send is confirmed meanwhile');
+select ok(pg_temp.waits_for('race_b', 'race_setup'), 'the send waits for the affaire');
+select is(extensions.dblink_exec('race_setup', format($suspend$update public.tenants set is_active = false where id = %L$suspend$,
+  pg_temp.tenant())), 'UPDATE 1', 'the tenant suspended');
+select is(extensions.dblink_exec('race_setup', 'commit'), 'COMMIT', 'while the send waits');
+select ok(pg_temp.answered('race_b'), 'the send answers');
+select is((select count(*)::integer from extensions.dblink_get_result('race_b', false) as x(answer text)), 0, 'it writes nothing');
+select ok(extensions.dblink_error_message('race_b') like '%TAKEOFF_ITEM_SEND_PROJECT_NOT_WRITABLE%tenant_changed%',
+  'the tenant is read after the wait: a suspended tenant never sends, never replays');
+select is((select count(*)::integer from extensions.dblink_get_result('race_b', false) as x(answer text)), 0, 'and is done');
+select is(extensions.dblink_exec('race_setup', format($restore$update public.tenants set is_active = true where id = %L$restore$,
+  pg_temp.tenant())), 'UPDATE 1', 'the tenant active again');
+select is(pg_temp.written(20), '1/1/1/1/applied', 'nothing more written');
+
+-- 8. Affaire 20: the member goes to another tenant (it becomes their default) while the send waits for the affaire.
+select is(extensions.dblink_exec('race_setup', 'begin'), 'BEGIN', 'the member is given another tenant, their default');
+select is((select x.held from extensions.dblink('race_setup', pg_temp.hold_affaire_sql(20)) as x(held integer)), 1,
+  'holding the affaire');
+select is(extensions.dblink_send_query('race_b', pg_temp.send_sql(826, '20-fourth')), 1, 'the plan''s send is confirmed meanwhile');
+select ok(pg_temp.waits_for('race_b', 'race_setup'), 'the send waits for the affaire');
+select is(extensions.dblink_exec('race_setup', format($switch$insert into public.tenants (id, name, slug, is_active)
+    values ('d5800000-0000-4000-8000-000000000071', 'Autre entreprise (fictive)', 'autre-entreprise-fictive-envoi', true);
+  update public.tenant_memberships set is_default = false where user_id = %1$L;
+  insert into public.tenant_memberships (tenant_id, user_id, role, is_default)
+    values ('d5800000-0000-4000-8000-000000000071', %1$L, 'admin', true)$switch$, pg_temp.f(1))), 'INSERT 0 1',
+  'the other tenant is now the member''s');
+select is(extensions.dblink_exec('race_setup', 'commit'), 'COMMIT', 'while the send waits');
+select ok(pg_temp.answered('race_b'), 'the send answers');
+select is((select count(*)::integer from extensions.dblink_get_result('race_b', false) as x(answer text)), 0, 'it writes nothing');
+select ok(extensions.dblink_error_message('race_b') like '%TAKEOFF_ITEM_SEND_PROJECT_NOT_WRITABLE%tenant_changed%',
+  'the actor''s active tenant is read after the wait: a member gone to another tenant never sends here');
+select is((select count(*)::integer from extensions.dblink_get_result('race_b', false) as x(answer text)), 0, 'and is done');
+-- The member back in their tenant (the other one goes with the fixtures' cleanup, as every tenant of the member).
+select is(extensions.dblink_exec('race_setup', format($back$begin;
+  update public.tenant_memberships set is_default = false where user_id = %1$L;
+  update public.tenant_memberships set is_default = true where user_id = %1$L and tenant_id = %2$L;
+  commit;$back$, pg_temp.f(1), pg_temp.tenant())), 'COMMIT', 'the member back in their tenant');
+select is(pg_temp.written(20), '1/1/1/1/applied', 'nothing more written');
+
+-- 9. Affaire 20: a second reading of its plan (job 1120) confirmed while the member's lease of V1 ends during the wait
+--    (closing 10): the lease is read on the clock after the wait, the send is refused, the estimate unchanged.
+create function pg_temp.republish_sql(project integer, token integer) returns text language sql stable as $$
+  select replace(replace(pg_temp.publish_sql(project, token), pg_temp.job(project)::text, pg_temp.f(1100 + project)::text),
+    pg_temp.f(800 + project)::text, pg_temp.f(850 + project)::text)
+$$;
+select is((select x.outcome from extensions.dblink('race_setup', pg_temp.relaunch_sql(20)) as x(outcome text)), 'admitted',
+  'a second reading of affaire 20''s plan');
+select is((select x.job from extensions.dblink('race_setup', format($dispatch$select job_id::text from
+  public.dispatch_next_takeoff_host_job(%L)$dispatch$, pg_temp.host())) as x(job text)), pg_temp.f(1120)::text, 'handed');
+select is((select x.claimed from extensions.dblink('race_setup', replace(pg_temp.claim_sql(20, 930), pg_temp.job(20)::text,
+  pg_temp.f(1120)::text)) as x(claimed bigint)), 1::bigint, 'claimed');
+select is((select split_part(x.answer, ':', 2) from extensions.dblink('race_setup', pg_temp.republish_sql(20, 930)) as x(answer text)),
+  'false', 'published');
+-- Its plan as far as the lease is read (a well-formed plan of this job on V1 as it is now; what follows the lease is not
+-- reached): the parts compared later need not match.
+insert into plans select '20-late', jsonb_set(jsonb_set(body, '{job_id}', to_jsonb(pg_temp.f(1120))), '{dependencies,stamps,destination}',
+  (select jsonb_build_object('version_id', v.id, 'status', v.status, 'updated_at', v.updated_at) from public.estimate_versions v
+    where v.id = pg_temp.f(730))) from plans where name = '20-fourth';
+create temp table estimate_before as select string_agg(i.id || ':' || i.quantity || ':' || i.updated_at, ',' order by i.id) as rows_
+from public.estimate_items i where i.version_id = pg_temp.f(730);
+select is(extensions.dblink_exec('race_setup', format($lease$begin; delete from public.draft_locks where version_id = %1$L;
+  insert into public.draft_locks (version_id, user_id, tenant_id, expires_at, session_id)
+  values (%1$L, %2$L, %3$L, clock_timestamp() + interval '2 seconds', gen_random_uuid()); commit;$lease$,
+  pg_temp.f(730), pg_temp.f(1), pg_temp.tenant())), 'COMMIT', 'the member''s lease of V1 ends in two seconds');
+select is(extensions.dblink_exec('race_setup', 'begin'), 'BEGIN', 'a session holds the affaire');
+select is((select x.held from extensions.dblink('race_setup', pg_temp.hold_affaire_sql(20)) as x(held integer)), 1,
+  'holding it');
+select is(extensions.dblink_send_query('race_b', pg_temp.send_sql(827, '20-late')), 1, 'the second reading''s send is confirmed');
+select ok(pg_temp.waits_for('race_b', 'race_setup'), 'the send waits for the affaire');
+select pg_sleep(3);
+select is(extensions.dblink_exec('race_setup', 'commit'), 'COMMIT', 'the affaire released after the lease ended');
+select ok(pg_temp.answered('race_b'), 'the send answers');
+select is((select count(*)::integer from extensions.dblink_get_result('race_b', false) as x(answer text)), 0, 'it writes nothing');
+select ok(extensions.dblink_error_message('race_b') like '%TAKEOFF_ITEM_SEND_DRAFT_LOCK_REQUIRED%',
+  'a lease valid on entry and ended during the wait never authorises the write');
+select is((select count(*)::integer from extensions.dblink_get_result('race_b', false) as x(answer text)), 0, 'and is done');
+select is((select string_agg(i.id || ':' || i.quantity || ':' || i.updated_at, ',' order by i.id) from public.estimate_items i
+  where i.version_id = pg_temp.f(730)), (select rows_ from estimate_before), 'the estimate is unchanged');
 select is(extensions.dblink_exec('race_setup', $cleanup$
 begin;
 set local session_replication_role = replica;

@@ -100,6 +100,30 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
+// The last reading of #496 (lot 5 follow-ups): a row's journal opened, the table unmounted and shown again on the same
+// journal while its first read was still on its way; that read's refusal reached only the table no longer shown.
+describe("TakeoffItemTable, a journal's refusal", () => {
+  it("withdraws the table shown again on the same journal, the first read's refusal reaching whoever shows it now", async () => {
+    const cache = new Map();
+    let reject: (error: unknown) => void = () => undefined;
+    client.fetchItemHistory.mockImplementation(() => new Promise((_, rejecting) => { reject = rejecting; }));
+    const draw = (present: boolean) => (
+      <SWRConfig value={{ provider: () => cache, dedupingInterval: 2000 }}>
+        {present ? <TakeoffItemTable projectId={FIXTURE_ITEM_PROJECT} viewerKey="tenant:member" /> : null}
+      </SWRConfig>
+    );
+    const shown = render(draw(true));
+    fireEvent.click(await screen.findByRole("button", { name: "Détail du poste « WC »" }));
+    await waitFor(() => expect(client.fetchItemHistory).toHaveBeenCalledTimes(1));
+    shown.rerender(draw(false));
+    shown.rerender(draw(true));
+    fireEvent.click(await screen.findByRole("button", { name: "Détail du poste « WC »" }));
+    expect(client.fetchItemHistory).toHaveBeenCalledTimes(1);
+    await act(async () => reject(refused()));
+    await waitFor(() => expect(screen.queryByRole("table", { name: "Postes du métré" })).toBeNull());
+  });
+});
+
 describe("TakeoffItemTable", () => {
   it("shows a reader every item with its state, its partial total and its coverage, without any gesture", async () => {
     client.fetchItemTable.mockResolvedValue(table({ canReview: false }));
@@ -472,6 +496,23 @@ describe("TakeoffItemTable", () => {
     expect(client.fetchItemTable.mock.calls[0][1]).toMatchObject({ focusItemId: fixtureItemId(1) });
     fireEvent.change(screen.getByRole("combobox", { name: "État" }), { target: { value: "not_found" } });
     expect(replace).toHaveBeenCalledWith(expect.stringContaining("posteState=not_found"), { scroll: false });
+  });
+
+  it("opens an item's detail on its plan from its line, and gives the keyboard back to that line when the detail closes", async () => {
+    searchParams = new URLSearchParams("posteState=measured&tab=jobs");
+    renderTable();
+    const link = await screen.findByRole("link", { name: "Détail de « Lavabo » sur le plan" });
+    const lavabo = table().page.lines.find(({ label }) => label === "Lavabo")!;
+    const jobId = lavabo.readings.find(({ planKey }) => planKey === RDC)!.answer!.jobId;
+    expect(link).toHaveAttribute("href",
+      `/dashboard/affaires/${FIXTURE_ITEM_PROJECT}/takeoff?posteState=measured&tab=jobs&poste=${fixtureItemId(0)}&plan=${RDC}&lecture=${jobId}`);
+    expect(link).not.toHaveFocus();
+    cleanup();
+    // Back from the detail, the table opens on the item it showed last, its « Détail » holding the keyboard.
+    searchParams = new URLSearchParams(`posteState=measured&tab=jobs&posteFocus=${fixtureItemId(1)}`);
+    renderTable();
+    const back = await screen.findByRole("link", { name: "Détail de « WC » sur le plan" });
+    await waitFor(() => expect(back).toHaveFocus());
   });
 
   it("says the list is not recorded yet instead of an empty table", async () => {

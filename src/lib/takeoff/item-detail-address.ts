@@ -1,3 +1,5 @@
+import type { ItemTableResponseLine } from "@/lib/takeoff/item-table-contracts";
+import { itemTableAddressParams, readItemTableAddress, withItemTableParams } from "@/lib/takeoff/item-table-query";
 import {
   TAKEOFF_ITEM_DETAIL_PARAMS as P,
   takeoffItemDetailHref,
@@ -104,27 +106,36 @@ export function itemDetailHref(projectId: string, address: ItemDetailAddress, fr
   return takeoffItemDetailHref({ projectId, ...address, from });
 }
 
-/**
- * The parameters of the table of items on the affaire's takeoff page (lot 4: `readItemTableAddress(params, "poste")`)
- * that the way back sets: the item to focus and the table's page that holds it.
- */
-export const ITEM_TABLE_RETURN_PARAMS = { focus: "posteFocus", offset: "posteOffset" } as const;
+/** The prefix of the table of items' parameters on the affaire's takeoff page (TakeoffItemTable). */
+export const ITEM_TABLE_PARAM_PREFIX = "poste";
 
 /**
  * The way back to the items: the detail's parameters removed, the table's filter, sort and page size kept as they were,
- * the item last shown in focus on the page of the table that holds it (its place in the frozen queue). The selection
- * lives in the tab (lot 4) and is not in the address.
+ * the item last shown in focus on the page of the table that holds it (its place in the frozen queue), by the table's own
+ * parameters (itemTableAddressParams). The selection lives in the tab (lot 4) and is not in the address.
  */
 export function itemTableReturnHref(projectId: string, query: string | URLSearchParams,
   focus: { itemId: string; offset: number } | null) {
-  const next = withoutTakeoffItemDetail(query);
-  if (focus) {
-    next.set(ITEM_TABLE_RETURN_PARAMS.focus, focus.itemId);
-    if (focus.offset > 0) next.set(ITEM_TABLE_RETURN_PARAMS.offset, String(focus.offset));
-    else next.delete(ITEM_TABLE_RETURN_PARAMS.offset);
-  }
+  const kept = withoutTakeoffItemDetail(query).toString();
+  const next = focus ? withItemTableParams(kept, itemTableAddressParams({ focusItemId: focus.itemId, offset: focus.offset },
+    ITEM_TABLE_PARAM_PREFIX)) : new URLSearchParams(kept);
   const search = next.toString();
   return `/dashboard/affaires/${projectId}/takeoff${search ? `?${search}` : ""}`;
+}
+
+/**
+ * The detail of a line of the table (its « Détail »), on the page's address as it is: the plan the table is filtered on
+ * when the item has it, else the first plan that answered for it, else its first reading or none (the detail then opens
+ * the dossier's plan to measure); the reading of that plan's answer. The table's parameters stay, the way back reads them.
+ */
+export function itemTableLineDetailHref(projectId: string, line: Pick<ItemTableResponseLine, "itemId" | "readings" | "remeasurePlans">,
+  query: string | URLSearchParams) {
+  const scope = readItemTableAddress(new URLSearchParams(query), ITEM_TABLE_PARAM_PREFIX).scope;
+  const scoped = scope.kind === "plan" ? scope.planKey : null;
+  const reading = scoped ? line.readings.find(({ planKey }) => planKey === scoped) ?? null
+    : line.readings.find(({ answer }) => answer !== null) ?? line.readings[0] ?? null;
+  const planKey = reading?.planKey ?? (scoped && line.remeasurePlans.includes(scoped) ? scoped : null);
+  return takeoffItemDetailHref({ projectId, itemId: line.itemId, planKey, jobId: reading?.answer?.jobId ?? null, from: query });
 }
 
 /** The first line of the table's page that holds the item at `index` of the queue (pages of `limit` lines). */
@@ -166,20 +177,21 @@ export function resolveHistoricalReviewLink(link: TakeoffReviewHrefInput, matche
   return { kind: "choice", historicalHref, options: unique.map((match) => ({ itemId: match.itemId, href: href(match) })) };
 }
 
-/** A stand-in item, so that a plan request is read by the address's rules: the request names no item. */
+/** A stand-in item, so that a plan request naming no item (the dossier's plan) is read by the address's rules. */
 const PLAN_REQUEST_ITEM = "00000000-0000-4000-8000-000000000000";
 
 /**
  * The plan a detail asks the server to resolve (GET …/takeoff/item-detail/plan), read from the same parameters as the
- * detail's address: a plan and its reading, a plan of the dossier, or a dossier piece and its generation. Null when the
- * combination is invalid by the address's own rules.
+ * detail's address: a plan and its reading, a plan of the dossier, or a dossier piece and its generation, and the item
+ * shown (`poste`), required with a reading. Null when the combination is invalid by the address's own rules.
  */
-export function readItemDetailPlanRequest(params: Params): { planKey: string | null; jobId: string | null;
+export function readItemDetailPlanRequest(params: Params): { itemId: string | null; planKey: string | null; jobId: string | null;
   source: { documentId: string; generation: string | null } | null } | null {
-  const read = readItemDetailAddress({ getAll: (name) => (name === P.itemId ? [PLAN_REQUEST_ITEM] : params.getAll(name)) });
+  const named = params.getAll(P.itemId).length > 0;
+  const read = readItemDetailAddress(named ? params : { getAll: (name) => (name === P.itemId ? [PLAN_REQUEST_ITEM] : params.getAll(name)) });
   if (read.kind !== "detail") return null;
   const { planKey, jobId, source } = read.address;
   if (!planKey && !source) return null;
-  if (jobId && !planKey) return null;
-  return { planKey, jobId, source };
+  if (jobId && (!planKey || !named)) return null;
+  return { itemId: named ? read.address.itemId : null, planKey, jobId, source };
 }

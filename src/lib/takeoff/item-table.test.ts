@@ -1,3 +1,6 @@
+import fs from "node:fs";
+import path from "node:path";
+
 import { describe, expect, it } from "vitest";
 
 import {
@@ -130,7 +133,7 @@ describe("buildItemLines", () => {
     const [line] = lines([row(poste("a", 0, "Lavabo"), "measured", "pending",
       [read("a", "plan-a", decided, null, { decisionRevision: 3 })])]);
     expect(line.targets).toEqual({ itemId: "a", entryRevision: 0,
-      answers: [{ answerId: decided.answerId, answerRevision: "digest", decisionRevision: 3, entryRevision: 0 }] });
+      answers: [{ answerId: decided.answerId, answerRevision: "digest", decisionRevision: 3, entryRevision: 0, marksRevision: 0 }] });
   });
 
   it("freezes in the affaire's scope the revision of each plan's entry that enters the total, and of none in a plan's", () => {
@@ -141,13 +144,13 @@ describe("buildItemLines", () => {
     const readings = [read("a", "plan-a", measured), read("a", "plan-b", entered, null, { entry: planEntry })];
     const [affaire] = lines([row(poste("a", 0, "Lavabo"), "measured", "pending", readings)]);
     expect(affaire.targets.answers).toEqual([
-      { answerId: measured.answerId, answerRevision: "digest", decisionRevision: 0, entryRevision: 0 },
-      { answerId: entered.answerId, answerRevision: "digest", decisionRevision: 0, entryRevision: 2 },
+      { answerId: measured.answerId, answerRevision: "digest", decisionRevision: 0, entryRevision: 0, marksRevision: 0 },
+      { answerId: entered.answerId, answerRevision: "digest", decisionRevision: 0, entryRevision: 2, marksRevision: 0 },
     ]);
     // The plan's entry changed from 5 to 7 (revision 3) after the selection: the selection no longer describes the line.
     const [changed] = lines([row(poste("a", 0, "Lavabo"), "measured", "pending",
       [readings[0], { ...readings[1], entry: { ...planEntry, revision: 3, quantity: 7 } }])]);
-    expect(checkItemReviewTargets([changed], [affaire.targets]).stale).toEqual([{ itemId: "a", label: "Lavabo" }]);
+    expect(checkItemReviewTargets([changed], [affaire.targets], "accept_measured").stale).toEqual([{ itemId: "a", label: "Lavabo" }]);
     const [plan] = lines([row(poste("a", 0, "Lavabo"), "not_found", "entered", [readings[1]], planEntry)],
       { kind: "plan", planKey: "plan-b" });
     expect(plan.targets).toMatchObject({ entryRevision: 2, answers: [{ answerId: entered.answerId, entryRevision: 0 }] });
@@ -364,8 +367,58 @@ describe("the frozen selection and the review commands", () => {
       if (value.item.id === "item-4") return { ...value, readings: [...value.readings, read("item-4", "plan-b", answer("measured", 1))] };
       return value;
     }));
-    expect(checkItemReviewTargets(changed, targets).stale.map(({ itemId }) => itemId).sort()).toEqual(["item-1", "item-2", "item-4"]);
-    expect(checkItemReviewTargets(view, targets).stale).toEqual([]);
+    expect(checkItemReviewTargets(changed, targets, "accept_measured").stale.map(({ itemId }) => itemId).sort()).toEqual(["item-1", "item-2", "item-4"]);
+    expect(checkItemReviewTargets(view, targets, "accept_measured").stale).toEqual([]);
+  });
+
+  // When marks changed since the selection make it stale, by gesture, judged by the planner and by the database
+  // (public.review_takeoff_items) on the same cases: the vectors are the pgTAP suite's, read in its file. Review of #485:
+  // a set aside planned stale on marks alone went to the database with nothing to apply, which recorded it as done.
+  describe("the counted marks of a selection (lot 5), against SQL's", () => {
+    const sql = fs.readFileSync(path.join(process.cwd(), "supabase/tests/database/takeoff-item-acceptance-marks.test.sql"), "utf8");
+    const quote = "$marks_stale$";
+    const start = sql.indexOf(quote);
+    const vectors = JSON.parse(sql.slice(start + quote.length, sql.indexOf(quote, start + quote.length))) as Array<{
+      position: number; gesture: "accept_measured" | "set_aside" | "reinstate"; marks: "same" | "changed"; stale: boolean }>;
+
+    it("reads every vector of the pgTAP suite, in order, over the three gestures", () => {
+      expect(start).toBeGreaterThan(-1);
+      expect(vectors.map(({ position }) => position)).toEqual(vectors.map((_, index) => index + 1));
+      expect(new Set(vectors.map(({ gesture }) => gesture))).toEqual(new Set(["accept_measured", "set_aside", "reinstate"]));
+    });
+
+    it.each(vectors)("vector $position: $gesture, marks $marks since the selection", ({ gesture, marks, stale }) => {
+      // The item as the gesture finds it (to accept, or set aside to reinstate), its marks at revision 3 when selected.
+      const decided = rows.map((value) => value.item.id === "item-1" && gesture === "reinstate"
+        ? { ...value, readings: value.readings.map((reading) => ({ ...reading, decision: setAside(1), decisionRevision: 1 })) } : value);
+      const at = (revision: number) => lines(decided.map((value) => value.item.id === "item-1"
+        ? { ...value, readings: value.readings.map((reading) => ({ ...reading, marksRevision: revision })) } : value));
+      const targets = at(3).filter(({ itemId }) => itemId === "item-1").map(({ targets }) => targets);
+      expect(targets[0]!.answers.every(({ marksRevision }) => marksRevision === 3)).toBe(true);
+      const current = at(marks === "changed" ? 4 : 3);
+      expect(current.find(({ itemId }) => itemId === "item-1")!.eligibility[gesture].eligible).toBe(true);
+      expect(checkItemReviewTargets(current, targets, gesture).stale.length > 0).toBe(stale);
+      expect(planItemReviewCommand(current, { gesture, targets })).toEqual(stale
+        ? { kind: "stale", stale: [{ itemId: "item-1", label: "Poste 1" }] }
+        : { kind: "planned", apply: [{ itemId: "item-1", label: "Poste 1" }], skipped: [] });
+    });
+
+    it("never for a quantity entered or an entry included: they certify no count either", () => {
+      const targets = view.filter(({ itemId }) => itemId === "item-0").map(({ targets }) => targets);
+      const corrected = lines(rows.map((value) => value.item.id === "item-0"
+        ? { ...value, readings: value.readings.map((reading) => ({ ...reading, marksRevision: 2 })) } : value));
+      expect(checkItemReviewTargets(corrected, targets, "enter_quantity").stale).toEqual([]);
+      expect(checkItemReviewTargets(corrected, targets, "include_entry").stale).toEqual([]);
+      expect(checkItemReviewTargets(corrected, targets, "accept_measured").stale.map(({ itemId }) => itemId)).toEqual(["item-0"]);
+    });
+  });
+
+  it("names an item of the selection in any case: its identifier written in capitals is the same item", () => {
+    const targets = view.filter(({ itemId }) => itemId === "item-1").map(({ targets }) => ({ ...targets,
+      itemId: targets.itemId.toUpperCase(), answers: targets.answers.map((value) => ({ ...value, answerId: value.answerId.toUpperCase() })) }));
+    expect(checkItemReviewTargets(view, targets, "set_aside").stale).toEqual([]);
+    expect(planItemReviewCommand(view, { gesture: "set_aside", targets }))
+      .toEqual({ kind: "planned", apply: [{ itemId: "item-1", label: "Poste 1" }], skipped: [] });
   });
 
   it("applies the eligible lines and names the others with their reason", () => {

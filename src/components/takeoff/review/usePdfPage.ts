@@ -3,7 +3,14 @@
 import { useEffect, useRef, useState, type RefObject } from "react";
 import type { PDFDocumentLoadingTask, PDFDocumentProxy, PDFPageProxy, RenderTask } from "pdfjs-dist";
 
-import { pdfCanvasPixels, pdfCanvasScale, type PdfPageFailure, type PdfPageSize } from "@/lib/takeoff/pdf-page-geometry";
+import {
+  normalizePdfRotation,
+  pdfCanvasPixels,
+  pdfCanvasScale,
+  type PdfPageFailure,
+  type PdfPageRotation,
+  type PdfPageSize,
+} from "@/lib/takeoff/pdf-page-geometry";
 
 export type { PdfPageFailure } from "@/lib/takeoff/pdf-page-geometry";
 
@@ -27,9 +34,14 @@ export type PdfPageSource = {
   url: () => Promise<string | null>;
 };
 
+/** What pdf.js reads of the page shown: its view box (CropBox), its own rotation and its UserUnit. */
+export type PdfPageGeometry = { viewBox: readonly [number, number, number, number]; rotation: PdfPageRotation; userUnit: number };
+
 export type PdfPageState = {
   /** The page shown, at scale 1, once read from the document loaded for the current source. */
   size: PdfPageSize | null;
+  /** The same page's geometry, for a caller that records points on it. */
+  geometry: PdfPageGeometry | null;
   pageCount: number | null;
   /** The document or the page is being read. */
   loading: boolean;
@@ -38,7 +50,15 @@ export type PdfPageState = {
 };
 
 type LoadedDocument = { key: string; document: PDFDocumentProxy };
-type LoadedPage = { key: string; number: number; page: PDFPageProxy; size: PdfPageSize };
+type LoadedPage = { key: string; number: number; page: PDFPageProxy; size: PdfPageSize; geometry: PdfPageGeometry | null };
+
+/** The page's geometry when pdf.js gives one that is whole (four finite numbers of a view box, a positive UserUnit). */
+function geometryOf(proxy: PDFPageProxy): PdfPageGeometry | null {
+  const view = Array.isArray(proxy.view) ? proxy.view : [];
+  const userUnit = typeof proxy.userUnit === "number" && proxy.userUnit > 0 ? proxy.userUnit : 1;
+  if (view.length !== 4 || !view.every(Number.isFinite) || !(view[2]! > view[0]!) || !(view[3]! > view[1]!)) return null;
+  return { viewBox: [view[0]!, view[1]!, view[2]!, view[3]!], rotation: normalizePdfRotation(proxy.rotate), userUnit };
+}
 
 async function openPdf(url: string): Promise<PDFDocumentLoadingTask> {
   const pdfjs = await import("pdfjs-dist");
@@ -129,7 +149,8 @@ export function usePdfPage({ source, page, scale, canvas }: {
     loaded.document.getPage(page).then((proxy) => {
       if (!active) return;
       const unit = proxy.getViewport({ scale: 1 });
-      setShown({ key: loaded.key, number: page, page: proxy, size: { width: unit.width, height: unit.height } });
+      setShown({ key: loaded.key, number: page, page: proxy, size: { width: unit.width, height: unit.height },
+        geometry: geometryOf(proxy) });
     }).catch(() => {
       if (!active) return;
       clear(canvas.current);
@@ -184,6 +205,7 @@ export function usePdfPage({ source, page, scale, canvas }: {
   const current = shown && document && shown.key === key && shown.number === page ? shown : null;
   return {
     size: current?.size ?? null,
+    geometry: current?.geometry ?? null,
     pageCount: document?.document.numPages ?? null,
     loading: opening || (document !== null && page !== null && current === null && pageFailure === null),
     // A failure never coexists with a render in progress.

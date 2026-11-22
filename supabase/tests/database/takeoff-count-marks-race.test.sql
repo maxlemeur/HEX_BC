@@ -16,6 +16,15 @@
 -- 8. Two commands under one intention on disjoint answers: the second waits at its receipt for the first; the first rolls
 --    back and its author loses the right meanwhile: the second, no longer waiting, is refused all the same.
 -- 9. Two adds of one new page in one edit, the first with the page's geometry, the second without: accepted.
+-- Review of #485 (…_takeoff_item_acceptance_marks_revision.sql):
+-- 10. An edit holds an answer's marks state when the table's acceptance of that item arrives, with the revision its
+--     selection saw: the acceptance waits for the marks, then answers stale; no row is verified.
+-- 11. An acceptance holds the marks state when an edit arrives: the edit waits; the acceptance is recorded on the revision
+--     it saw, and the edit's revision then makes it a decision to take again.
+-- 12. An edit holds its answer's job when the plan is sent: the send waits, then commits after the correction.
+-- 13. A send holds the job when an edit arrives: the edit waits, then reads the plan sent and is refused
+--     (TAKEOFF_MARKS_PLAN_SENT); nothing of it is written.
+-- 14. An edit's answer lost, the plan sent since: the same intention sent again answers its receipt.
 -- Isolation justified: these interleavings exist only across sessions, which no journey drives deterministically. Each
 -- held transaction is stopped at a named point; the waits are bounded conditions. All values are fictional.
 begin;
@@ -472,6 +481,124 @@ select is(extensions.dblink_exec('race_b', 'commit'), 'COMMIT', 'its transaction
 select results_eq($$select (s ->> 'pending')::integer, (s ->> 'retained')::integer, (s ->> 'revision')::integer
   from (select private.takeoff_count_mark_summary(pg_temp.answer(304)) s) x$$, $$values (1, 1, 1)$$,
   'the fifth item keeps the member''s mark, one more pending');
+
+
+-- 10–14. Review of #485. The rows' rules evaluated (none fails), the owner an engineer of the affaire again.
+select is(extensions.dblink_exec('race_setup', format($rules$begin;
+  update public.takeoff_items set rules_stale = false, rules_evaluated_at = now(), rule_results = '[]'::jsonb where job_id = %L;
+  %s;
+  commit;$rules$, pg_temp.job(), pg_temp.set_role_sql(1, 'engineer'))), 'COMMIT', 'the rows'' rules are evaluated');
+-- The table's acceptance of an item, as a selection read now (its marks revision included) builds it.
+create function pg_temp.accept_sql(item integer, key integer, marks_revision integer) returns text language sql stable as $$
+  select format($review$select public.review_takeoff_items(%L, %L, %L::jsonb)::text$review$, pg_temp.tenant(), pg_temp.f(20),
+    jsonb_build_object('command_version', 1, 'intent_key', pg_temp.f(key), 'gesture', 'accept_measured',
+      'scope', '{"kind":"affaire"}'::jsonb, 'apply', jsonb_build_array(pg_temp.f(item)), 'skipped', '[]'::jsonb,
+      'targets', jsonb_build_array(jsonb_build_object('item_id', pg_temp.f(item), 'entry_revision', 0,
+        'answers', jsonb_build_array(jsonb_build_object('answer_id', pg_temp.answer(item), 'decision_revision', 0,
+          'entry_revision', 0, 'marks_revision', marks_revision))))))
+$$;
+create function pg_temp.mark_of(item integer) returns jsonb language sql stable as $$
+  select pg_temp.add(pg_temp.answer(item), 900 + item, 2, 0.15, 0.85)
+$$;
+
+-- 10. An edit holds the third item's marks when its acceptance arrives.
+create temp table third_before as select coalesce(pg_temp.revision(302), 0) as revision;
+select ok(pg_temp.begin_as('race_a', 1), 'the owner adds a mark to the third item');
+select is((select x.answer::jsonb -> 'revisions' from extensions.dblink('race_a', pg_temp.edit_sql(791,
+  pg_temp.at(pg_temp.answer(302), (select revision from third_before)), jsonb_build_array(pg_temp.mark_of(302))))
+  as x(answer text)), pg_temp.at(pg_temp.answer(302), (select revision from third_before) + 1), 'not yet committed');
+select ok(pg_temp.begin_as('race_b', 1), 'the table accepts the item meanwhile, with the marks its selection saw');
+select is(extensions.dblink_send_query('race_b', pg_temp.accept_sql(302, 792, (select revision from third_before))), 1, 'sent');
+select ok(pg_temp.waits_for('race_b', 'race_a'), 'the acceptance waits for the answer''s marks');
+select is(extensions.dblink_exec('race_a', 'commit'), 'COMMIT', 'the edit commits');
+select ok(pg_temp.answered('race_b'), 'the acceptance answers');
+select is((select x.outcome::jsonb from extensions.dblink_get_result('race_b', false) as x(outcome text)),
+  jsonb_build_object('outcome', 'stale', 'stale', jsonb_build_array(pg_temp.f(302))), 'stale: the marks changed under it');
+select diag(concat('acceptance after an edit: ', extensions.dblink_error_message('race_b')));
+select is((select count(*)::integer from extensions.dblink_get_result('race_b', false) as x(outcome text)), 0, 'and is done');
+select is(extensions.dblink_exec('race_b', 'commit'), 'COMMIT', 'its transaction ends');
+select results_eq($$select is_verified, (select count(*)::integer from public.takeoff_item_answer_decisions
+  where answer_id = pg_temp.answer(302)) from public.takeoff_items where id = pg_temp.f(802)$$, $$values (false, 0)$$,
+  'no row verified, no decision');
+
+-- 11. An acceptance holds the fourth item's marks when an edit arrives.
+create temp table fourth_before as select coalesce(pg_temp.revision(303), 0) as revision;
+select ok(pg_temp.begin_as('race_b', 1), 'the table accepts the fourth item');
+select is((select x.outcome::jsonb ->> 'outcome' from extensions.dblink('race_b', pg_temp.accept_sql(303, 793,
+  (select revision from fourth_before))) as x(outcome text)), 'applied', 'applied, not yet committed');
+select ok(pg_temp.begin_as('race_a', 1), 'an operator corrects its marks meanwhile');
+select is(extensions.dblink_send_query('race_a', pg_temp.edit_sql(794, pg_temp.at(pg_temp.answer(303),
+  (select revision from fourth_before)), jsonb_build_array(pg_temp.mark_of(303)))), 1, 'from the revision both saw');
+select ok(pg_temp.waits_for('race_a', 'race_b'), 'the edit waits for the acceptance');
+select is(extensions.dblink_exec('race_b', 'commit'), 'COMMIT', 'the acceptance commits');
+select ok(pg_temp.answered('race_a'), 'the edit answers');
+select is((select x.answer::jsonb -> 'revisions' from extensions.dblink_get_result('race_a', false) as x(answer text)),
+  pg_temp.at(pg_temp.answer(303), (select revision from fourth_before) + 1), 'on the next revision');
+select diag(concat('edit after an acceptance: ', extensions.dblink_error_message('race_a')));
+select is((select count(*)::integer from extensions.dblink_get_result('race_a', false) as x(answer text)), 0, 'and is done');
+select is(extensions.dblink_exec('race_a', 'commit'), 'COMMIT', 'the edit commits');
+select results_eq($$select d.kind, d.marks_revision, p.decision_effective from public.takeoff_item_answer_decisions d
+  join private.takeoff_item_table_pairs(pg_temp.tenant(), pg_temp.f(20), null) p on p.answer_id = d.answer_id
+  where d.answer_id = pg_temp.answer(303)$$, $$select 'accepted'::text, revision, 'none'::text from fourth_before$$,
+  'the acceptance stands on the marks it saw, and is a decision to take again now that they changed');
+
+-- 12. An edit holds the job of its answer when the plan is sent.
+create temp table second_before as select coalesce(pg_temp.revision(301), 0) as revision;
+select ok(pg_temp.begin_as('race_a', 1), 'the owner adds a mark to the second item');
+select is((select x.answer::jsonb -> 'revisions' from extensions.dblink('race_a', pg_temp.edit_sql(795,
+  pg_temp.at(pg_temp.answer(301), (select revision from second_before)), jsonb_build_array(pg_temp.mark_of(301))))
+  as x(answer text)), pg_temp.at(pg_temp.answer(301), (select revision from second_before) + 1), 'not yet committed');
+select is(extensions.dblink_exec('race_b', 'begin'), 'BEGIN', 'the plan is sent meanwhile');
+select is(extensions.dblink_exec('race_b', 'set local session_replication_role = replica'), 'SET', 'as the send writes its job');
+select is(extensions.dblink_send_query('race_b', format($send$with s as (update public.takeoff_jobs
+  set status = 'applied' where id = %L returning status) select status::text from s$send$, pg_temp.job())), 1, 'its job applied');
+select ok(pg_temp.waits_for('race_b', 'race_a'), 'the send waits for the edit');
+select is(extensions.dblink_exec('race_a', 'commit'), 'COMMIT', 'the edit commits first');
+select ok(pg_temp.answered('race_b'), 'the send goes on');
+select is((select x.status from extensions.dblink_get_result('race_b', false) as x(status text)), 'applied', 'and applies the job');
+select is((select count(*)::integer from extensions.dblink_get_result('race_b', false) as x(status text)), 0, 'and is done');
+select is(extensions.dblink_exec('race_b', 'commit'), 'COMMIT', 'the send commits');
+select is(pg_temp.revision(301), (select revision from second_before) + 1, 'the correction made before the send stands');
+
+-- 13. A send holds the job when an edit arrives.
+select is(extensions.dblink_exec('race_setup', format($back$begin; set local session_replication_role = replica;
+  update public.takeoff_jobs set status = 'completed' where id = %L; commit;$back$, pg_temp.job())), 'COMMIT',
+  'the job completed again, for the next case');
+select is(extensions.dblink_exec('race_b', 'begin'), 'BEGIN', 'the plan is sent');
+select is(extensions.dblink_exec('race_b', 'set local session_replication_role = replica'), 'SET', 'as the send writes its job');
+select is((select x.status from extensions.dblink('race_b', format($send$with s as (update public.takeoff_jobs
+  set status = 'applied' where id = %L returning status) select status::text from s$send$, pg_temp.job())) as x(status text)), 'applied',
+  'its job applied, not yet committed');
+select ok(pg_temp.begin_as('race_a', 1), 'the owner corrects the second item meanwhile');
+select is(extensions.dblink_send_query('race_a', pg_temp.edit_sql(796, pg_temp.at(pg_temp.answer(301),
+  (select revision from second_before) + 1), jsonb_build_array(pg_temp.add(pg_temp.answer(301), 797, 2, 0.35, 0.85)))), 1, 'sent');
+select ok(pg_temp.waits_for('race_a', 'race_b'), 'the edit waits for the send');
+select is(extensions.dblink_exec('race_b', 'commit'), 'COMMIT', 'the send commits');
+select ok(pg_temp.answered('race_a'), 'the edit answers');
+select is((select count(*)::integer from extensions.dblink_get_result('race_a', false) as x(answer text)), 0, 'with no result');
+select ok(extensions.dblink_error_message('race_a') like '%TAKEOFF_MARKS_PLAN_SENT%', 'refused: the plan is sent');
+select is((select count(*)::integer from extensions.dblink_get_result('race_a', false) as x(answer text)), 0, 'and is done');
+select is(extensions.dblink_exec('race_a', 'rollback'), 'ROLLBACK', 'its transaction ends');
+select is(pg_temp.revision(301), (select revision from second_before) + 1, 'nothing of it was written');
+
+-- 14. An edit's answer lost, the plan sent since: the same intention again answers its receipt.
+select is(extensions.dblink_exec('race_setup', format($back$begin; set local session_replication_role = replica;
+  update public.takeoff_jobs set status = 'completed' where id = %L; commit;$back$, pg_temp.job())), 'COMMIT', 'completed again');
+create temp table fifth_before as select coalesce(pg_temp.revision(304), 0) as revision;
+create temp table lost_edit as select pg_temp.edit_sql(798, pg_temp.at(pg_temp.answer(304), (select revision from fifth_before)),
+  jsonb_build_array(pg_temp.mark_of(304))) as statement;
+select ok(pg_temp.begin_as('race_a', 1), 'the owner corrects the fifth item');
+create temp table lost_receipt as select (x.answer::jsonb ->> 'command_id')::uuid as id
+from extensions.dblink('race_a', (select statement from lost_edit)) as x(answer text);
+select is(extensions.dblink_exec('race_a', 'commit'), 'COMMIT', 'it commits; its answer is lost on the way');
+select is(extensions.dblink_exec('race_setup', format($send$begin; set local session_replication_role = replica;
+  update public.takeoff_jobs set status = 'applied' where id = %L; commit;$send$, pg_temp.job())), 'COMMIT', 'the plan is sent');
+select ok(pg_temp.begin_as('race_b', 1), 'the server sends the same edit again');
+select results_eq($$select (x.answer::jsonb ->> 'replayed')::boolean, (x.answer::jsonb ->> 'command_id')::uuid
+  from extensions.dblink('race_b', (select statement from lost_edit)) as x(answer text)$$,
+  $$select true, id from lost_receipt$$, 'its receipt, replayed, not a refusal');
+select is(extensions.dblink_exec('race_b', 'commit'), 'COMMIT', 'its transaction ends');
+select is(pg_temp.revision(304), (select revision from fifth_before) + 1, 'nothing written twice');
 
 select is(extensions.dblink_exec('race_setup', $cleanup$
 begin;

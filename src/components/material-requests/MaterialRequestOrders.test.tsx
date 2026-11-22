@@ -348,6 +348,21 @@ describe("purchase orders from a request", () => {
     expect(creations()).toEqual([]);
   });
 
+  it("says that a line waits for the other lines of its discounted quote (Codex review of PR #490)", async () => {
+    const { section } = await openEditor({
+      [`GET ${BASE}`]: { data: detail(LINES.slice(0, 4)) },
+      [`GET ${ORDERS}`]: { data: {
+        ready_line_ids: [], not_ready: [{ line_id: LINE_D, reason: "not_validated" }, { line_id: LINE_A, reason: "waiting_quote" }],
+        ordered: [], orders: [], can_create: true,
+      } },
+    });
+    const reasons = await within(section()).findByRole("list", { name: "Lignes pas encore à commander" });
+    expect(within(reasons).getAllByRole("listitem").map((item) => item.textContent)).toContain(
+      "Coude 90° DN 50 : attend les autres lignes de son devis, qui porte une remise : validez-les (étape Lignes) pour commander l’ensemble avec la remise",
+    );
+    expect(within(section()).getByRole("button", { name: "Créer les brouillons de commande (0)" })).toBeDisabled();
+  });
+
   it("shows a reader the orders and the reasons, and nothing that creates (7)", async () => {
     const { user, section } = await openEditor({
       [`GET ${BASE}`]: { data: detail(LINES, false) },

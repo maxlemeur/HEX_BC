@@ -1008,7 +1008,7 @@ export function LineRow({
           aria-readonly="true"
           className={toCellClassName(navigation, supplierCell, "estimate-cell estimate-col--fo")}
           onKeyDown={(event) => {
-            if (event.target === event.currentTarget && event.key === "Enter") {
+            if (event.target === event.currentTarget && event.key === "Enter" && !event.ctrlKey && !event.metaKey) {
               event.preventDefault();
               event.stopPropagation();
               if (!isReadOnly && !isPendingCreate && !hideEditingActions) onOpenSupplierComparisonPanel(item.id);

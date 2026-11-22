@@ -310,7 +310,8 @@ describe("previewTakeoffItemSend", () => {
     const preview = await previewTakeoffItemSend(JOB, {});
     expect(preview.blocked?.reason).toBe("read_only");
     expect([preview.plan, preview.list, preview.destinations, preview.lines]).toEqual([null, null, [], []]);
-    expect(readTables()).toEqual(["member:takeoff_jobs", "service:estimate_projects"]);
+    // The affaire's owner and archive flag are read with the member's session, never the service role's, before the right.
+    expect(readTables()).toEqual(["member:estimate_projects", "member:takeoff_jobs"]);
     expect(readItemSendFacts).not.toHaveBeenCalled();
     expect(listActiveTakeoffMappingRules).not.toHaveBeenCalled();
   });
@@ -431,7 +432,8 @@ describe("confirmTakeoffItemSend", () => {
     expect([preview.lines, preview.confirmable, preview.plan_digest]).toEqual([[], false, null]);
     expect(preview.not_sent).toEqual([expect.objectContaining({ item_id: LAVABO, reason: "rule_skip" })]);
     const error = await refusal(confirmTakeoffItemSend(JOB, { request_id: REQUEST_ID, plan_digest: "a".repeat(64) }));
-    expect(error.status).toBe(422);
+    // Nothing to send now where a confirmation was asked: a preview to read again (closing of #484), nothing written.
+    expect([error.status, (error.details as { guard?: string }).guard]).toEqual([409, "item_send_preview_stale"]);
     expect(written).toEqual([]);
     expect(calls.writes).toEqual([]);
   });
@@ -443,18 +445,55 @@ describe("confirmTakeoffItemSend", () => {
     expect(written).toEqual([]);
   });
 
-  it("answers a key's receipt for the same plan, and a conflict for another one, without calling the writer", async () => {
+  /** A receipt of this intention key, as committed for the plan the preview showed (its author, its affaire). */
+  async function committedReceipt(overrides: Row = {}) {
     setUp({});
     const preview = await previewTakeoffItemSend(JOB, {});
     const state = await computeItemSendState({ ...(await getAuthenticatedTakeoffContext()), tenantRole: "admin" } as never, JOB, {});
-    setUp({ receipts: [{ id: "efefefef-efef-4fef-8fef-efefefefefef", tenant_id: TENANT, request_id: REQUEST_ID, job_id: JOB,
-      write_plan: JSON.parse(JSON.stringify(state.writePlan)), result: { job_id: JOB, version_id: VERSION, version_created: true,
-        lines_written: 1, parts_written: 1, parts_replaced: 0, focus_item_id: LINE } }] });
+    return { preview, receipt: { id: "efefefef-efef-4fef-8fef-efefefefefef", tenant_id: TENANT, request_id: REQUEST_ID, job_id: JOB,
+      project_id: PROJECT, actor_id: MEMBER, write_plan: JSON.parse(JSON.stringify(state.writePlan)), result: { job_id: JOB,
+        version_id: VERSION, version_created: true, lines_written: 1, parts_written: 1, parts_replaced: 0, focus_item_id: LINE },
+      ...overrides } };
+  }
+
+  it("answers a key's receipt for the same plan, and a conflict for another one, without calling the writer", async () => {
+    const { preview, receipt } = await committedReceipt();
+    setUp({ receipts: [receipt] });
     expect(await confirmTakeoffItemSend(JOB, { request_id: REQUEST_ID, plan_digest: preview.plan_digest }))
       .toEqual(expect.objectContaining({ receipt_id: "efefefef-efef-4fef-8fef-efefefefefef", replayed: true }));
     const error = await refusal(confirmTakeoffItemSend(JOB, { request_id: REQUEST_ID, plan_digest: "b".repeat(64) }));
     expect([error.status, (error.details as { guard?: string }).guard]).toEqual([409, "item_send_request_conflict"]);
     expect(written).toEqual([]);
+  });
+
+  it("replays only the same choices, of the same author, still allowed to write (closing 9)", async () => {
+    const { preview, receipt } = await committedReceipt();
+    setUp({ receipts: [receipt] });
+    const changed = await refusal(confirmTakeoffItemSend(JOB, { request_id: REQUEST_ID, plan_digest: preview.plan_digest,
+      breakdown: "by_level" }));
+    expect([changed.status, (changed.details as { guard?: string }).guard]).toEqual([409, "item_send_request_conflict"]);
+    setUp({ receipts: [{ ...receipt, actor_id: "22222222-2222-4222-8222-222222222223" }] });
+    const another = await refusal(confirmTakeoffItemSend(JOB, { request_id: REQUEST_ID, plan_digest: preview.plan_digest }));
+    expect([another.status, (another.details as { guard?: string }).guard]).toEqual([409, "item_send_request_conflict"]);
+    setUp({ receipts: [receipt], role: "viewer" });
+    const demoted = await refusal(confirmTakeoffItemSend(JOB, { request_id: REQUEST_ID, plan_digest: preview.plan_digest }));
+    expect([demoted.status, (demoted.details as { guard?: string }).guard]).toEqual([403, "item_send_project_not_writable"]);
+    expect(written).toEqual([]);
+  });
+
+  it("answers stale when the only accepted item was set aside after the preview (closing, small)", async () => {
+    setUp({});
+    const preview = await previewTakeoffItemSend(JOB, {});
+    vi.mocked(readItemSendFacts).mockResolvedValue({ state: "stored", reading: reading(lavabo, { decision: { kind: "set_aside", revision: 2 } }) });
+    const error = await refusal(confirmTakeoffItemSend(JOB, { request_id: REQUEST_ID, plan_digest: preview.plan_digest }));
+    expect([error.status, (error.details as { guard?: string }).guard]).toEqual([409, "item_send_preview_stale"]);
+    expect(written).toEqual([]);
+  });
+
+  it("gives the member what to do for a refusal of the guard of the applied job, never the generic failure", () => {
+    const error = mapItemSendRpcError({ message: "TAKEOFF_APPLY_LOCK_REQUIRED", code: "P0001" }, JOB);
+    expect(error.message).not.toContain("a échoué");
+    expect(error.message).toMatch(/[a-zàâçéèêëîïôûùüÿœ]/);
   });
 
   it("tells the member, in French, every refusal of the writer; nothing was written", () => {

@@ -1482,7 +1482,12 @@ export function useEstimateEditorState({
     reloadItems,
     v3Writer: isV3 ? ESTIMATE_V3_EDITOR_WRITER : undefined,
   });
-  const { pasteRows: handlePasteRows } = pasteController.actions;
+  const {
+    pasteRows: handlePasteRows,
+    insertLineBelow: handleInsertLineBelow,
+    duplicateLineBelow: handleDuplicateLineBelow,
+    insertSectionBelow: handleInsertSectionBelow,
+  } = pasteController.actions;
 
   const structureController = useEstimateEditorStructureController({
     document: editorDocument,
@@ -1610,6 +1615,9 @@ export function useEstimateEditorState({
       onBulkSetCategory: handleBulkSetCategory,
       onBulkSetLaborRole: handleBulkSetLaborRole,
       onPasteRows: handlePasteRows,
+      onInsertLineBelow: handleInsertLineBelow,
+      onDuplicateLineBelow: handleDuplicateLineBelow,
+      onInsertSectionBelow: handleInsertSectionBelow,
       onUndo: handleUndo,
       onRedo: handleRedo,
       canUndo,
@@ -1656,6 +1664,9 @@ export function useEstimateEditorState({
       handleBulkSetCategory,
       handleBulkSetLaborRole,
       handlePasteRows,
+      handleInsertLineBelow,
+      handleDuplicateLineBelow,
+      handleInsertSectionBelow,
       handleUndo,
       handleRedo,
       handleDeleteItem,
