@@ -45,7 +45,7 @@ const OWNER = "aaaaaaaa-0000-4000-8000-000000000001";
  * the first call that reaches that point (the list's write function, or a read of its stored revisions) waits there
  * until `release`; `held` resolves when it arrives.
  */
-function listDatabase(hold: "record" | "history", options: { armed?: boolean } = {}) {
+function listDatabase(hold: "record" | "history" | "registry-page", options: { armed?: boolean } = {}) {
   type Revision = { id: string; revision: number; cause: string; sources: unknown; item_count: number; content_sha256: string;
     created_by: string; created_at: string; intent_key: string; gesture_sha256: string };
   const revisions: Revision[] = [];
@@ -81,6 +81,8 @@ function listDatabase(hold: "record" | "history", options: { armed?: boolean } =
     let limit = Infinity;
     const read = async (range?: [number, number]) => {
       if (table === "takeoff_list_revisions" && filters.intent_key === undefined) await wait("history");
+      // A later page of the affaire's registry of origins (PostgREST serves 1,000 rows a page).
+      if (table === "takeoff_list_item_sources" && range && range[0] > 0) await wait("registry-page");
       const all = rows(table, filters);
       return { data: range ? all.slice(range[0], range[1] + 1) : all.slice(0, limit), error: null, count: all.length };
     };
@@ -121,7 +123,7 @@ function listDatabase(hold: "record" | "history", options: { armed?: boolean } =
     }
     return { data: [{ revision_id: row.id, revision: row.revision, content_sha256: row.content_sha256, replayed: false }], error: null };
   };
-  return { client: { from, rpc } as never, revisions, held, release, arm: () => { waited = false; } };
+  return { client: { from, rpc } as never, revisions, registry, held, release, arm: () => { waited = false; } };
 }
 
 const importRow = { id: "import-a", filename: "plomberie.csv", source_format: "csv", status: "completed", row_count: 1 };
@@ -278,6 +280,35 @@ describe("the item list of an affaire", () => {
     expect(first).toMatchObject({ revision: 3, replayed: false });
     await expect(second).resolves.toEqual({ ...first, replayed: true });
     expect(database.revisions.map(({ revision }) => revision)).toEqual([1, 2, 3]);
+  });
+
+  // The list's registry of origins holds more than a page: the second click reads its first page, the first click then
+  // records its item, and the second page counts one more origin. The count check still refuses that read; the second
+  // click then answers with the first one's receipt, never a server error.
+  it("answers the second of two identical additions with the first one's receipt when its read of the list moved", async () => {
+    const database = listDatabase("registry-page", { armed: false });
+    vi.mocked(requireAffaireAccess).mockResolvedValue({
+      context: { userId: OWNER, tenantId: "tenant", tenantRole: "engineer", supabase: database.client },
+      project: { id: "project", user_id: OWNER },
+    } as never);
+    vi.mocked(createServiceRoleClient).mockReturnValue(database.client);
+    const addition = (expectedRevision: number, intentKey: string, label: string) => ({ expectedRevision, intentKey, label,
+      expectedUnit: "u", measurementBasis: null, qualifiers: {}, sectionOfItemId: null });
+    await addItemListPoste("project", addition(0, "8f7c1d9e-0000-4000-8000-0000000000a5", "Clapet anti-retour"));
+    // Origins of items retired over the affaire's revisions: 1,001 registered in all.
+    for (let index = database.registry.length; index < 1001; index += 1) {
+      database.registry.push({ source_key: `retired:${String(index).padStart(4, "0")}`, item_id: OWNER, kind: "origin",
+        accepted_in_revision: 1, accepted_by: OWNER, accepted_at: stamped });
+    }
+    database.arm();
+    const gesture = addition(2, "8f7c1d9e-0000-4000-8000-0000000000a6", "Purgeur automatique");
+    const second = addItemListPoste("project", gesture);
+    await database.held;
+    const first = await addItemListPoste("project", gesture);
+    database.release();
+    expect(first).toMatchObject({ revision: 3, replayed: false });
+    await expect(second).resolves.toEqual({ ...first, replayed: true });
+    expect(database.registry).toHaveLength(1002);
   });
 
   // Two identical acceptances of the proposed first list: the second gets the first one's receipt.
