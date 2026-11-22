@@ -900,14 +900,19 @@ plan (voir le dernier point). La base en décide (migration
   reprise hébergée, à partir de ce qui est enregistré, sans appel.
 - **Relancer un plan** lit seulement les plans demandés : par défaut le plan de
   l’analyse qu’elle remplace (ou les plans d’une analyse groupée, dans une demande
-  ou lancée hors de toute demande), chacun à sa copie de travail actuelle : un plan
-  que le dossier a remplacé depuis (une nouvelle génération de sa pièce est une
-  nouvelle copie, sous un nouvel identifiant) se relit à sa nouvelle copie,
-  retrouvée par la pièce du dossier que la base a notée pour chaque copie et garde
-  après sa suppression ; un plan qui n’a pas de copie de travail dans le jeu
-  (sorti du dossier, déposé dans le jeu sans pièce et retiré depuis, ou dont la
-  copie manque ou est illisible pour l’instant) refuse la commande, qui le dit :
-  l’analyse se relance quand il a de nouveau sa copie ; un plan
+  ou lancée hors de toute demande), chacun à sa copie de travail actuelle, selon la
+  décision du lecteur des localisations de plan (génération et source de la pièce du
+  dossier, suppression de la copie) : un plan que le dossier a remplacé depuis (une
+  nouvelle génération de sa pièce est une nouvelle copie, sous un nouvel
+  identifiant, et l’ancienne copie peut rester dans le jeu jusqu’à son nettoyage) se
+  relit à sa copie actuelle, retrouvée par la pièce du dossier que la base a notée
+  pour chaque copie et garde après sa suppression. Une copie déposée dans le jeu est
+  son propre plan, quelles que soient ses métadonnées. Quand un plan de l’analyse
+  n’a plus de copie de travail (sorti du dossier, ou copie manquante ou illisible
+  pour l’instant), l’analyse ne se relance pas telle quelle et rien n’est
+  enregistré : la fenêtre le dit, en nommant le plan, et propose de choisir parmi
+  ses autres plans ceux à relire (aucun coché d’avance), par une commande qui les
+  nomme ; sans autre plan, la commande est refusée en le disant ; un plan
   ajouté au dossier après l’analyse se lit par une commande qui le nomme et
   nomme l’analyse qu’elle complète : une commande sans analyse nommée est la
   première analyse de l’affaire, refusée quand l’affaire en a déjà une (la base
@@ -923,12 +928,10 @@ plan (voir le dernier point). La base en décide (migration
   et que la commande ne nomme pas sont notés comme non demandés, avec la
   génération lue : pour chaque plan (sa pièce du dossier, quelle que soit sa
   copie), sa dernière lecture réussie, quelle que soit la demande qui l’a faite ;
-  une relecture en échec, arrêtée ou non démarrée laisse la lecture précédente.
-  Chaque commande note ainsi ce qui a été lu avant elle : les demandes se lisent
-  de la plus récente à la plus ancienne, tant qu’un plan qu’une demande plus
-  récente a nommé reste sans lecture réussie. Une analyse groupée plus récente ne
-  note pas les plans lus avant elle : un plan absent de son manifeste n’est pas
-  repris d’une analyse plus ancienne (un plan qu’elle a nommé sans le lire l’est).
+  une relecture en échec, arrêtée ou non démarrée, ou une analyse plus récente qui
+  ne l’a pas lu, laisse la lecture précédente. Toutes les demandes analysées de
+  l’affaire sont lues, avec leurs unités, en une lecture (une de plus par millier
+  de demandes), l’état de chaque unité dérivé de son job par la règle de la base.
   L’affaire ne les montre pas comme ajoutés depuis, mais signale encore leur
   remplacement ou leur retrait ; un plan jamais lu reste signalé comme ajouté, et
   un plan que la commande relit n’est pas noté à son ancienne copie. Les copies
@@ -936,10 +939,11 @@ plan (voir le dernier point). La base en décide (migration
   Son identité nomme ses plans (celle d’une première analyse de tous les plans
   est celle du lot 2) ; le rejeu de la même clé ne dépense rien de plus et est
   répondu avant toute lecture de la préparation, sous l’identité du reçu, quelle
-  que soit l’activation au moment du rejeu ; une relance envoyée avant le
-  remplacement d’un de ses plans garde l’identité des copies qu’elle lisait
-  alors, et son rejeu après le remplacement répond par son reçu ; une autre
-  sélection de plans sous la même clé est une autre commande, refusée.
+  que soit l’activation au moment du rejeu, et avant toute lecture du jeu de plans :
+  il est cherché sous les copies que l’analyse remplacée avait lues, puis, si une
+  autre identité tient la clé, sous chaque identité que la même relance a pu avoir
+  depuis (les copies que les remplacements successifs de ses plans ont données) ;
+  une autre sélection de plans sous la même clé est une autre commande, refusée.
 - **L’envoi au tableau de chiffrage** d’une analyse par plan reste fermé jusqu’à
   l’envoi partiel : la revue dit qu’il arrive plus tard, et la base refuse de la
   rattacher à une version. Une analyse groupée s’envoie comme avant.

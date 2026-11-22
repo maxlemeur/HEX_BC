@@ -333,6 +333,28 @@ function sealedManifestEntries(input: Pick<TakeoffLaunchManifestInput, "sources"
   return { plans, references };
 }
 
+/**
+ * A relaunch that cannot read the plans of the analysis it replaces as they were (lot 3): the plans that have no working
+ * copy now, named as the member may read them, with why (their piece left the dossier, or its copy is missing for now),
+ * and the plans of that analysis that remain to read, which the member chooses (nothing is recorded until then).
+ */
+export type TakeoffRelaunchChoice = {
+  withoutCopy: Array<{ name: string; reason: "removed" | "copy_missing" }>;
+  remaining: Array<{ id: string; name: string }>;
+};
+
+/** Why the analysis is not relaunched as it was, in French. */
+export function describeTakeoffRelaunchChoice(choice: TakeoffRelaunchChoice) {
+  const removed = choice.withoutCopy.filter(({ reason }) => reason === "removed").map(({ name }) => `« ${name} »`);
+  const missing = choice.withoutCopy.filter(({ reason }) => reason === "copy_missing").map(({ name }) => `« ${name} »`);
+  const parts = [
+    removed.length ? `${removed.join(", ")} ${removed.length > 1 ? "ne sont plus" : "n’est plus"} dans le dossier de l’affaire` : null,
+    missing.length ? `${missing.join(", ")} ${missing.length > 1 ? "n’ont" : "n’a"} pas de copie de travail pour l’instant `
+      + "(manquante ou illisible)" : null,
+  ].filter(Boolean);
+  return `${parts.join(" ; ")} : l’analyse ne peut pas être relancée telle quelle. Les autres plans peuvent être relus.`;
+}
+
 /** The reason of a request, in French, as the affaire shows it. Names come from the dossier the reader already sees. */
 export function describeTakeoffLaunchReason(reason: TakeoffLaunchReason, pieces: ReadonlyArray<TakeoffLaunchPiece> = []): string {
   const names = pieces.map((piece) => `« ${piece.name} »`).join(", ");

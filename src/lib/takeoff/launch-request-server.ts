@@ -26,9 +26,9 @@ import { deriveDeterministicJobId } from "@/lib/takeoff/job-creation-input";
 import { resolvePlanSetSourceFile } from "@/lib/takeoff/job-creation-repository";
 import {
   buildTakeoffLaunchManifest, decideTakeoffLaunch, describeTakeoffLaunchReason, isTakeoffLaunchReason, splitTakeoffLaunchManifest,
-  takeoffPlanUnitKey,
   TAKEOFF_AUTOMATIC_PAYER_NOTICE, TAKEOFF_GROUPED_UNIT_KEY,
   type AnyTakeoffLaunchManifest, type TakeoffLaunchManifest, type TakeoffLaunchOrder, type TakeoffLaunchPiece, type TakeoffLaunchReason,
+  type TakeoffRelaunchChoice,
   type TakeoffLaunchRequestState, type TakeoffPlanLaunchManifest,
 } from "@/lib/takeoff/launch-request";
 import { runLocalTakeoffAttempts } from "@/lib/takeoff/local-dispatch";
@@ -49,7 +49,10 @@ import { getPlanFileDisplayName } from "@/lib/takeoff/plan-file-display-name";
 import { getTakeoffPromptVersion } from "@/lib/takeoff/prompts";
 import { selectProjectImportPlanSet } from "@/lib/takeoff/default-import-plan-set";
 import { persistTakeoffDispatchOutcome } from "@/lib/takeoff/dispatch-state";
-import { maskTakeoffDossierChange, maskTakeoffPieces } from "@/lib/takeoff/request-activity";
+import {
+  deriveTakeoffRequestUnits, isTakeoffSourceVisible, maskTakeoffDossierChange, maskTakeoffPieces, parseTakeoffRequestManifest,
+  type TakeoffRequestUnitJobRow,
+} from "@/lib/takeoff/request-activity";
 import { readTakeoffVisibleSources } from "@/lib/takeoff/source-visibility-server";
 import type { Database, Json } from "@/types/database";
 
@@ -361,7 +364,8 @@ async function sealAutomaticSnapshot(service: Service, input: {
     }
     throw error;
   }
-  const intake = intakeDocumentsByPlanFile(input.planSet.files);
+  const intake = intakeDocumentsByPlanFile(input.planSet.files, await recordedPlanPieces(service, input.tenantId, input.planSet.id,
+    input.planSet.files.map((file) => file.id)));
   const omittedPlans: TakeoffLaunchManifest["coverage"]["plans_omitted"] = [
     ...planSetCopiesSetAside(snapshot.preparation.sources, input.planSet.id),
     ...input.unsupportedPlans.map((plan) => ({ ...plan, reason: "unsupported_format" as const })),
@@ -417,61 +421,52 @@ function logicalPlanKey(plan: { id: string; intake_document_id: string | null })
 
 type PlanReadBefore = { id: string; name: string; intake_document_id: string | null; generation: string | null };
 
-/** The affaire's requests that sealed what they read, read from the latest, a few at a time. */
-const ANALYSED_REQUESTS_PAGE = 10;
+/** The columns of a unit's job its state is derived from (request-activity.ts, TakeoffRequestUnitJobRow). */
+const UNIT_JOB_COLUMNS = "id, launch_request_id, launch_unit_key, status, started_at, next_retry_at, analysis_outcome, error_code, updated_at";
 
 /**
  * The last successful reading of each plan the affaire's analyses read, whichever request read it: the plans whose unit
  * a request actually read (every plan of a grouped analysis whose one unit was read), and those a request set aside in
  * turn as read before it, each with the dossier piece and generation sealed with it. A plan is one logical plan across
- * its copies (its dossier piece): its latest successful reading is kept, never an older copy beside it. A plan whose
- * latest reading did not succeed (its unit failed, was cancelled, or never started) keeps the reading of an earlier
- * request; one never read is not among them. The requests are read from the latest, and only as far back as a plan
- * named by a later one still has no successful reading (each request sets aside what was read before it). A command
- * that does not name them leaves them to the analysis that read them.
+ * its copies (its recorded dossier piece): its latest successful reading is kept, never an older copy beside it. A plan
+ * whose latest reading did not succeed (its unit failed, was cancelled, or never started), or that a later analysis did
+ * not read at all, keeps the reading of an earlier request; one never read is not among them. Every analysed request of
+ * the affaire is read, with its units' jobs, in one statement (one more per thousand requests), and each unit's state is
+ * derived from its job by the rule the database applies (deriveTakeoffRequestUnits, held to private.takeoff_unit_state
+ * by unit-state-parity.test.ts). A command that does not name them leaves them to the analysis that read them.
  */
 async function readPlansAnalysedBefore(service: Service, tenantId: string, projectId: string): Promise<PlanReadBefore[]> {
+  const read = await readAllRows(() => service.from("takeoff_launch_requests")
+    .select(`id, created_at, manifest, takeoff_jobs!takeoff_jobs_launch_request_fkey(${UNIT_JOB_COLUMNS})` as never, { count: "exact" })
+    .eq("tenant_id", tenantId).eq("project_id", projectId).in("state", ["admitted", "closed"]), { pageSize: 1000 });
+  if (read.error) databaseError(read.error, "Impossible de lire les analyses de l’affaire.");
+  const requests = ((read.data ?? []) as unknown as Array<{ id: string; created_at: string; manifest: unknown;
+    takeoff_jobs: TakeoffRequestUnitJobRow[] | null }>)
+    .sort((left, right) => right.created_at.localeCompare(left.created_at) || right.id.localeCompare(left.id));
   const known = new Map<string, PlanReadBefore>();
-  // Plans a later request named without reading them, whose reading is looked for further back.
-  const pending = new Set<string>();
-  const seen = new Set<string>();
-  for (let from = 0; ; from += ANALYSED_REQUESTS_PAGE) {
-    const { data, error } = await service.from("takeoff_launch_requests").select("id, manifest").eq("tenant_id", tenantId)
-      .eq("project_id", projectId).in("state", ["admitted", "closed"])
-      .order("created_at", { ascending: false }).order("id", { ascending: false }).range(from, from + ANALYSED_REQUESTS_PAGE - 1);
-    if (error) databaseError(error, "Impossible de lire les analyses de l’affaire.");
-    const rows = (data ?? []) as Array<{ id: string; manifest: unknown }>;
-    for (const row of rows) {
-      // A request listed twice (a request admitted meanwhile shifts the pages) is read once.
-      if (seen.has(row.id)) continue;
-      seen.add(row.id);
-      const manifest = row.manifest as AnyTakeoffLaunchManifest | null | undefined;
-      if (!manifest || !Array.isArray(manifest.plans)) continue;
-      const { data: units, error: unitsError } = await service.rpc("read_takeoff_launch_request_units",
-        { p_tenant_id: tenantId, p_project_id: projectId, p_request_id: row.id });
-      if (unitsError) databaseError(unitsError, "Impossible de lire les analyses de l’affaire.");
-      const answer = units as { format?: string; units?: Array<{ key?: string; state?: string }> } | null;
-      const readKeys = new Set((answer?.units ?? []).filter((unit) => unit.state === "succeeded").map((unit) => unit.key));
-      const wasRead = (planFileId: string) => (answer?.format === "per_plan" ? readKeys.has(takeoffPlanUnitKey(planFileId)) : readKeys.size > 0);
-      const keep = (plan: PlanReadBefore) => {
-        const key = logicalPlanKey(plan);
-        if (!known.has(key)) known.set(key, plan);
-        pending.delete(key);
-      };
-      for (const plan of manifest.plans) {
-        const entry = { id: plan.plan_file_id, name: plan.name, intake_document_id: plan.intake_document_id ?? null,
-          generation: plan.generation ?? null };
-        if (wasRead(plan.plan_file_id)) keep(entry);
-        else if (!known.has(logicalPlanKey(entry))) pending.add(logicalPlanKey(entry));
+  const keep = (plan: PlanReadBefore) => {
+    const key = logicalPlanKey(plan);
+    if (!known.has(key)) known.set(key, plan);
+  };
+  for (const request of requests) {
+    const manifest = request.manifest as AnyTakeoffLaunchManifest | null | undefined;
+    if (!manifest || !Array.isArray(manifest.plans)) continue;
+    const units = deriveTakeoffRequestUnits({ requestId: request.id, manifest: parseTakeoffRequestManifest(manifest),
+      jobs: request.takeoff_jobs ?? [] });
+    const succeeded = (units?.units ?? []).filter((unit) => unit.state === "succeeded");
+    const wasRead = (planFileId: string) => (units?.format === "per_plan"
+      ? succeeded.some((unit) => unit.planFileId === planFileId.toLowerCase()) : succeeded.length > 0);
+    for (const plan of manifest.plans) {
+      if (wasRead(plan.plan_file_id)) {
+        keep({ id: plan.plan_file_id, name: plan.name, intake_document_id: plan.intake_document_id ?? null, generation: plan.generation ?? null });
       }
-      for (const plan of manifest.coverage?.plans_omitted ?? []) {
-        if (plan.reason !== "not_requested") continue;
-        keep({ id: plan.id, name: plan.name, intake_document_id: plan.intake_document_id ?? null, generation: plan.generation ?? null });
-      }
-      if (pending.size === 0) return [...known.values()];
     }
-    if (rows.length < ANALYSED_REQUESTS_PAGE) return [...known.values()];
+    for (const plan of manifest.coverage?.plans_omitted ?? []) {
+      if (plan.reason !== "not_requested") continue;
+      keep({ id: plan.id, name: plan.name, intake_document_id: plan.intake_document_id ?? null, generation: plan.generation ?? null });
+    }
   }
+  return [...known.values()];
 }
 
 /** A request this Mac's claim returned, with what its evaluation needs: the mandate's selection and its payer's right. */
@@ -624,11 +619,30 @@ async function planUnitJobs(service: Service, input: {
   return { manifest: input.manifest, jobs };
 }
 
-/** The dossier piece and generation behind each working copy of a plan set (its metadata from the plan sync). */
-function intakeDocumentsByPlanFile(files: Array<{ id: string; metadata: unknown }>) {
+/**
+ * The dossier piece behind each copy of a plan set, as the database recorded the copy's source at its insert
+ * (`takeoff_plan_location_sources`, the source kind « intake_document »): a copy uploaded to the plan set is its own plan,
+ * whatever its metadata names. Kept once a copy is gone. Read by the server, after the affaire's access check.
+ */
+async function recordedPlanPieces(service: Service, tenantId: string, planSetId: string, fileIds: readonly string[]) {
+  const ids = [...new Set(fileIds.map((id) => id.toLowerCase()))];
+  if (ids.length === 0) return new Map<string, string>();
+  const { data, error } = await service.from("takeoff_plan_location_sources").select("plan_file_id, source_kind, source_id")
+    .eq("tenant_id", tenantId).eq("plan_set_id", planSetId).in("plan_file_id", ids);
+  if (error) databaseError(error, "Impossible de lire les plans de l’affaire.");
+  return new Map((data ?? []).filter((row) => row.source_kind === "intake_document")
+    .map((row) => [row.plan_file_id.toLowerCase(), row.source_id.toLowerCase()]));
+}
+
+/**
+ * The dossier piece and generation behind each working copy of a plan set: its recorded piece (`recordedPlanPieces`) and
+ * the generation its metadata from the plan sync names.
+ */
+function intakeDocumentsByPlanFile(files: Array<{ id: string; metadata: unknown }>, pieces: ReadonlyMap<string, string>) {
   return new Map(files.flatMap((file) => {
+    const piece = pieces.get(file.id.toLowerCase());
     const metadata = (file.metadata ?? {}) as Record<string, unknown>;
-    return typeof metadata.intake_document_id === "string" ? [[file.id, { intakeDocumentId: metadata.intake_document_id,
+    return piece ? [[file.id, { intakeDocumentId: piece,
       generation: typeof metadata.intake_generation === "string" ? metadata.intake_generation : null }] as const] : [];
   }));
 }
@@ -656,9 +670,14 @@ async function dispatchLaunchRequestJobs(input: { jobIds: string[]; host?: strin
 
 /**
  * `already_running` names the analysis that runs: a request's, or one launched outside any request before the activation
- * (no `requestId` then).
+ * (no `requestId` then). `plans_to_choose` records nothing: a plan of the analysis it replaces has no working copy now,
+ * and the member chooses which of its other plans to read (`choice`), by a command that names them.
  */
-export type TakeoffRelaunchResult = { outcome: "admitted" | "replayed" | "already_running"; requestId: string | null; jobId: string | null };
+export type TakeoffRelaunchResult = {
+  outcome: "admitted" | "replayed" | "already_running" | "plans_to_choose"; requestId: string | null; jobId: string | null;
+  choice?: TakeoffRelaunchChoice;
+};
+
 
 /**
  * A manual request created, sealed and admitted in one commit from the member's confirmed preparation, naming the
@@ -695,22 +714,35 @@ export async function launchTakeoffRelaunch(input: {
     // None for a first analysis (the database's arguments carry no nullability in their generated type).
     p_predecessor_job_id: (input.predecessorJobId ?? null) as string,
     p_plan_set_id: input.planSetId, p_preparation_revision: input.preparationRevision };
-  // The command's receipt first: a double click or a replay gets what it answered whatever changed since, the activation
-  // included. A command naming its plans has one identity, scoped to them; one naming none, M4's or the one scoped to the
-  // plans of the analysis it replaces (derived here, not named): another selection under the same key is a conflict.
-  // Those plans are read at their current copies; the same command sent before the dossier replaced one of them holds
-  // the copies it then read, and is answered by that receipt.
-  const { scope, sealed, withoutCopy } = await relaunchPlanScope(service, input);
+  // The command's receipt first, before any read of the plan set: a double click or a replay gets what it answered
+  // whatever changed since, the activation included. A command naming its plans has one identity, scoped to them; one
+  // naming none, M4's or the one scoped to the plans of the analysis it replaces (derived here, not named). It is looked
+  // up under the copies that analysis read; when another identity holds the key, under each identity the same command
+  // can have had since (the copies the dossier's replacements of those plans went through). Another selection of plans
+  // under the same key is a conflict.
+  const commandPlans = await relaunchCommandPlans(service, input);
   const replay = (planFileIds: string[] | null) => service.rpc("replay_manual_takeoff_plan_request",
     { ...command, p_plan_file_ids: planFileIds as string[], p_plans_named: Boolean(input.planFileIds?.length) });
-  let { data: replayed, error: replayError } = await replay(scope);
-  if (replayError?.message === "TAKEOFF_LAUNCH_INTENT_CONFLICT" && sealed) ({ data: replayed, error: replayError } = await replay(sealed));
+  let { data: replayed, error: replayError } = await replay(commandPlans.ids);
+  if (replayError?.message === "TAKEOFF_LAUNCH_INTENT_CONFLICT" && commandPlans.derived) {
+    for (const identity of await relaunchIdentities(service, context.tenantId, input.planSetId, commandPlans.ids!)) {
+      const answer = await replay(identity);
+      if (answer.error?.message === "TAKEOFF_LAUNCH_INTENT_CONFLICT") continue;
+      ({ data: replayed, error: replayError } = answer);
+      break;
+    }
+  }
   if (replayError) launchError(replayError, "Impossible de relancer le métré.");
   const recorded = (replayed as Array<{ outcome: string; request_id: string; job_id: string | null }> | null)?.[0];
   if (recorded) {
     return { outcome: recorded.outcome as TakeoffRelaunchResult["outcome"], requestId: recorded.request_id, jobId: recorded.job_id };
   }
-  if (await isTakeoffPlanDispatchActive(service)) return launchTakeoffPlanCommand(service, input, command, scope, withoutCopy);
+  if (await isTakeoffPlanDispatchActive(service)) {
+    // No receipt: the plans of the analysis it replaces are read at their current copies.
+    const current = commandPlans.derived
+      ? await currentPlanCopies(service, context, input.projectId, input.planSetId, commandPlans.ids!) : null;
+    return launchTakeoffPlanCommand(service, input, command, current?.scope ?? commandPlans.ids, current, commandPlans.names);
+  }
   // Plans are named one by one only by one analysis per plan.
   if (input.planFileIds?.length) {
     throw new TakeoffError({ status: 422, code: TakeoffErrorCode.VALIDATION_ERROR, retryable: false,
@@ -722,7 +754,7 @@ export async function launchTakeoffRelaunch(input: {
   const plans = snapshot.preparation.sources.filter((source) => source.active && source.kind === "plan");
   const sourceFile = await resolvePlanSetSourceFile({ supabase: context.supabase, tenantId: context.tenantId, planSetId: input.planSetId,
     jobId, maxPages: config.maxPdfPages, selectedFileIds: plans.map((source) => source.document_id) });
-  const manifest = await relaunchManifest(context, input.planSetId, snapshot, config, intent,
+  const manifest = await relaunchManifest(service, context, input.planSetId, snapshot, config, intent,
     planSetCopiesSetAside(snapshot.preparation.sources, input.planSetId), await relaunchOrder(service, context, input.projectId));
   const { data, error } = await service.rpc("launch_manual_takeoff_request", {
     ...command, p_host: owner.execution_host_id, p_selection: snapshot.execution_selection as unknown as Json,
@@ -772,85 +804,135 @@ async function relaunchOrder(service: Service, context: Context, projectId: stri
   return order.order;
 }
 
-async function relaunchManifest(context: Context, planSetId: string, snapshot: TakeoffPreparationSnapshot,
+async function relaunchManifest(service: Service, context: Context, planSetId: string, snapshot: TakeoffPreparationSnapshot,
   config: { maxTotalTokens: number; maxCostCents: number }, intent: TakeoffLaunchManifest["intent"],
   omittedPlans: TakeoffLaunchManifest["coverage"]["plans_omitted"], order: TakeoffLaunchOrder) {
   const files = await readAllRows(() => context.supabase.from("plan_files").select("id, metadata", { count: "exact" })
     .eq("tenant_id", context.tenantId).eq("plan_set_id", planSetId).order("id"));
   if (files.error) databaseError(files.error, "Impossible de lire les plans de l’affaire.");
-  return buildTakeoffLaunchManifest({ intent, sources: snapshot.preparation.sources, intakeDocumentByPlanFile: intakeDocumentsByPlanFile(files.data ?? []),
+  const pieces = await recordedPlanPieces(service, context.tenantId, planSetId, (files.data ?? []).map((file) => file.id));
+  return buildTakeoffLaunchManifest({ intent, sources: snapshot.preparation.sources,
+    intakeDocumentByPlanFile: intakeDocumentsByPlanFile(files.data ?? [], pieces),
     omittedPlans, omittedReferences: [], preparationRevision: snapshot.preparation_revision,
     budget: { tokens: config.maxTotalTokens, cost_cents: config.maxCostCents }, order });
 }
 
 /**
- * The plans a command of one analysis per plan reads (`scope`): those it names, else the plans the analysis it replaces
- * read (its unit's plan, or every plan of a grouped analysis, inside a request or not), each at its current working
- * copy in the command's plan set; none for a first analysis that names no plan (it reads every plan of its
- * preparation), or for an analysis that names no plan of the affaire. Read from the analysis itself, before any
- * preparation: the command's identity holds them. When the dossier replaced one of those plans since (a new generation
- * of its piece is a new copy), `sealed` keeps the copies the analysis read: the identity of the same command sent before
- * that replacement. `withoutCopy`: the plans of that analysis with no working copy in the plan set now.
+ * The plans a command's identity names (`ids`): those it names, else the plans the analysis it replaces read (its unit's
+ * plan, or every plan of a grouped analysis, inside a request or not), as that analysis read them (`derived`); none for
+ * a first analysis that names no plan (it reads every plan of its preparation), or for an analysis that names no plan of
+ * the affaire. Read from the analysis alone, before any read of the plan set: the command's receipt is looked up with
+ * them. `names`: each plan of that analysis as it named it.
  */
-async function relaunchPlanScope(service: Service, input: RelaunchInput): Promise<{
-  scope: string[] | null; sealed: string[] | null; withoutCopy: string[];
+async function relaunchCommandPlans(service: Service, input: RelaunchInput): Promise<{
+  ids: string[] | null; derived: boolean; names: Map<string, string>;
 }> {
-  if (input.planFileIds?.length) {
-    return { scope: [...new Set(input.planFileIds.map((id) => id.toLowerCase()))].sort(), sealed: null, withoutCopy: [] };
-  }
-  if (!input.predecessorJobId) return { scope: null, sealed: null, withoutCopy: [] };
+  const names = new Map<string, string>();
+  if (input.planFileIds?.length) return { ids: [...new Set(input.planFileIds.map((id) => id.toLowerCase()))].sort(), derived: false, names };
+  if (!input.predecessorJobId) return { ids: null, derived: false, names };
   const { data: predecessor, error } = await service.from("takeoff_jobs").select("launch_unit_key, preparation_snapshot")
     .eq("tenant_id", input.context.tenantId).eq("project_id", input.projectId).eq("id", input.predecessorJobId!).maybeSingle();
   if (error) databaseError(error, "Impossible de lire l’analyse à relancer.");
+  const sources = ((predecessor?.preparation_snapshot as { preparation?: { sources?: Array<{ document_id?: unknown;
+    document_name?: unknown; kind?: unknown; active?: unknown }> } } | null)?.preparation?.sources ?? []);
+  for (const source of sources) {
+    if (typeof source.document_id === "string" && typeof source.document_name === "string") {
+      names.set(source.document_id.toLowerCase(), source.document_name);
+    }
+  }
   const key = predecessor?.launch_unit_key;
   const read = key?.startsWith("plan:") ? [key.slice("plan:".length)]
-    : ((predecessor?.preparation_snapshot as { preparation?: { sources?: Array<{ document_id?: unknown; kind?: unknown; active?: unknown }> } } | null)
-      ?.preparation?.sources ?? []).flatMap((source) => source.active === true && source.kind === "plan" && typeof source.document_id === "string"
-        && !source.document_id.startsWith("upload:") ? [source.document_id] : []);
-  if (!read.length) return { scope: null, sealed: null, withoutCopy: [] };
-  const sealed = [...new Set(read.map((id) => id.toLowerCase()))].sort();
-  const { copies, withoutCopy } = await currentPlanCopies(service, { tenantId: input.context.tenantId, planSetId: input.planSetId,
-    plans: sealed });
-  const scope = [...new Set(copies)].sort();
-  return { scope, sealed: scope.join() === sealed.join() ? null : sealed, withoutCopy };
+    : sources.flatMap((source) => source.active === true && source.kind === "plan" && typeof source.document_id === "string"
+      && !source.document_id.startsWith("upload:") ? [source.document_id] : []);
+  if (!read.length) return { ids: null, derived: false, names };
+  return { ids: [...new Set(read.map((id) => id.toLowerCase()))].sort(), derived: true, names };
 }
 
 /**
- * Each plan copy an analysis read, at its dossier piece's current working copy in the plan set: the same copy while it
- * is there, else the one copy the dossier sync made of that piece since (a new generation is a new copy, under a new
- * identifier). The piece of each copy is the one the database recorded at its insert and keeps once the copy is gone
- * (`takeoff_plan_location_sources`, from the copy's own `intake_document_id`, as a request seals it), so that an
- * analysis outside any request is resolved as one of a request. A plan uploaded to the plan set, a piece that left the
- * dossier or one with several current copies keeps the copy read, and the command then refuses it; `withoutCopy` names
- * those with no working copy in the plan set now: a piece that left the dossier, but also one whose copy is missing for
- * now (being made again by the dossier sync, unreadable on Google Drive), or a copy of another plan set.
+ * The other identities a command naming no plan can have had since the analysis it replaces: the copies its plans had
+ * after each replacement the dossier made since (each a new copy of a piece, recorded at its insert in
+ * `takeoff_plan_location_sources` and kept once the copy is gone), the latest first, without the copies the analysis read
+ * (already looked up). Read only when another identity holds the command's key: two statements, whatever the history.
  */
-async function currentPlanCopies(service: Service, input: { tenantId: string; planSetId: string; plans: string[] }) {
-  const files = await readAllRows(() => service.from("plan_files").select("id, metadata", { count: "exact" })
-    .eq("tenant_id", input.tenantId).eq("plan_set_id", input.planSetId).order("id"));
-  if (files.error) databaseError(files.error, "Impossible de lire les plans de l’affaire.");
-  // A copy the dossier sync reserved for its cleanup is no longer the piece's working copy.
-  const live = new Set((files.data ?? []).filter((file) => {
-    const metadata = file.metadata && typeof file.metadata === "object" && !Array.isArray(file.metadata)
-      ? file.metadata as Record<string, unknown> : {};
-    return metadata.intake_cleanup_pending !== true;
-  }).map((file) => file.id.toLowerCase()));
-  if (input.plans.every((id) => live.has(id))) return { copies: input.plans, withoutCopy: [] };
-  // The sources of the analysis's copies and of the plan set's current ones: at most twice the plan set's twenty files.
-  const recorded = await service.from("takeoff_plan_location_sources").select("plan_file_id, source_kind, source_id")
-    .eq("tenant_id", input.tenantId).eq("plan_set_id", input.planSetId).in("plan_file_id", [...new Set([...input.plans, ...live])]);
-  if (recorded.error) databaseError(recorded.error, "Impossible de lire les plans de l’affaire.");
-  const pieceOf = new Map((recorded.data ?? []).filter((row) => row.source_kind === "intake_document")
+async function relaunchIdentities(service: Service, tenantId: string, planSetId: string, sealed: string[]) {
+  const columns = "plan_file_id, source_kind, source_id, recorded_at";
+  const own = await service.from("takeoff_plan_location_sources").select(columns).eq("tenant_id", tenantId)
+    .eq("plan_set_id", planSetId).in("plan_file_id", sealed);
+  if (own.error) databaseError(own.error, "Impossible de lire les plans de l’affaire.");
+  const pieceOf = new Map((own.data ?? []).filter((row) => row.source_kind === "intake_document")
     .map((row) => [row.plan_file_id.toLowerCase(), row.source_id.toLowerCase()]));
-  const withoutCopy: string[] = [];
-  const copies = input.plans.map((id) => {
-    if (live.has(id)) return id;
+  if (pieceOf.size === 0) return [];
+  const copies = await service.from("takeoff_plan_location_sources").select(columns).eq("tenant_id", tenantId)
+    .eq("plan_set_id", planSetId).eq("source_kind", "intake_document").in("source_id", [...new Set(pieceOf.values())]);
+  if (copies.error) databaseError(copies.error, "Impossible de lire les plans de l’affaire.");
+  const timeline = (copies.data ?? []).map((row) => ({ id: row.plan_file_id.toLowerCase(), piece: row.source_id.toLowerCase(),
+    at: Date.parse(row.recorded_at) })).sort((left, right) => left.at - right.at || left.id.localeCompare(right.id));
+  const at = (time: number) => [...new Set(sealed.map((id) => {
     const piece = pieceOf.get(id);
-    const now = piece ? [...live].filter((copy) => pieceOf.get(copy) === piece) : [];
-    if (now.length === 0) withoutCopy.push(id);
+    return (piece ? timeline.filter((copy) => copy.piece === piece && copy.at <= time).at(-1)?.id : undefined) ?? id;
+  }))].sort();
+  const seen = new Set([sealed.join()]);
+  return [...new Set(timeline.map(({ at: time }) => time))].sort((left, right) => right - left).flatMap((time) => {
+    const identity = at(time);
+    if (seen.has(identity.join())) return [];
+    seen.add(identity.join());
+    return [identity];
+  });
+}
+
+type CurrentPlanCopies = { scope: string[]; withoutCopy: Array<{ id: string; piece: string | null; removed: boolean }> };
+
+/**
+ * Each plan copy an analysis read, at its piece's current working copy in the plan set, by the plan-location reader's
+ * own decision (read_takeoff_plan_location_source, under the member's session: the dossier piece's generation and
+ * source, the copy's deletion): the same copy while it is current; else the one current copy of its piece (a new
+ * generation is a new copy, under a new identifier; an older copy can still be in the plan set until the sync reserves
+ * it for its cleanup). A copy with no piece (an upload to the plan set) or with several current copies keeps its own
+ * identity, and the command then refuses it; `withoutCopy` names the plans with no current copy at all, and whether their
+ * piece left the dossier (or only its copy is missing for now).
+ */
+async function currentPlanCopies(service: Service, context: Context, projectId: string, planSetId: string,
+  plans: string[]): Promise<CurrentPlanCopies> {
+  const sourceOf = async (planFileId: string) => {
+    const { data, error } = await context.supabase.rpc("read_takeoff_plan_location_source",
+      { p_project_id: projectId, p_plan_file_id: planFileId });
+    if (error) databaseError(error, "Impossible de lire les plans de l’affaire.");
+    const row = ((data ?? []) as Array<{ source_kind: string; source_id: string; current_copy: boolean | null }>)[0];
+    return row ? { piece: row.source_kind === "intake_document" ? row.source_id.toLowerCase() : null, current: row.current_copy === true }
+      : null;
+  };
+  const sealed = await Promise.all(plans.map(async (id) => ({ id, source: await sourceOf(id) })));
+  const pieces = [...new Set(sealed.flatMap(({ source }) => (source && !source.current && source.piece ? [source.piece] : [])))];
+  const currentOf = new Map<string, string[]>();
+  if (pieces.length) {
+    const { data, error } = await service.from("takeoff_plan_location_sources").select("plan_file_id, source_id")
+      .eq("tenant_id", context.tenantId).eq("plan_set_id", planSetId).eq("source_kind", "intake_document").in("source_id", pieces);
+    if (error) databaseError(error, "Impossible de lire les plans de l’affaire.");
+    const candidates = (data ?? []).map((row) => ({ id: row.plan_file_id.toLowerCase(), piece: row.source_id.toLowerCase() }))
+      .filter(({ id }) => !plans.includes(id));
+    for (const candidate of await Promise.all(candidates.map(async (copy) => ({ ...copy, source: await sourceOf(copy.id) })))) {
+      if (candidate.source?.current) currentOf.set(candidate.piece, [...(currentOf.get(candidate.piece) ?? []), candidate.id]);
+    }
+  }
+  const gone: Array<{ id: string; piece: string | null }> = [];
+  const scope = sealed.map(({ id, source }) => {
+    if (source?.current) return id;
+    const now = source?.piece ? currentOf.get(source.piece) ?? [] : [];
+    if (now.length === 0) gone.push({ id, piece: source?.piece ?? null });
     return now.length === 1 ? now[0]! : id;
   });
-  return { copies, withoutCopy };
+  // Whether the piece of a plan without a copy is still a plan of the dossier: only the wording of the refusal depends on it.
+  const goneIds = [...new Set(gone.flatMap(({ piece }) => (piece ? [piece] : [])))];
+  const dossier = goneIds.length ? await service.from("affaire_intake_documents")
+    .select("id, deleted_at, deletion_token, upload_status, classification_status, document_kind")
+    .eq("tenant_id", context.tenantId).eq("project_id", projectId).in("id", goneIds) : { data: [], error: null };
+  if (dossier.error) databaseError(dossier.error, "Impossible de lire le dossier de l’affaire.");
+  const stillPlans = new Set(((dossier.data ?? []) as Array<{ id: string; deleted_at: string | null; deletion_token: string | null;
+    upload_status: string; classification_status: string; document_kind: string }>)
+    .filter((piece) => !piece.deleted_at && !piece.deletion_token && piece.upload_status === "uploaded"
+      && piece.classification_status === "classified" && piece.document_kind === "plans").map((piece) => piece.id.toLowerCase()));
+  return { scope: [...new Set(scope)].sort(),
+    withoutCopy: gone.map(({ id, piece }) => ({ id, piece, removed: !piece || !stillPlans.has(piece) })) };
 }
 
 /**
@@ -860,7 +942,8 @@ async function currentPlanCopies(service: Service, input: { tenantId: string; pl
  * refusals, in its own order (an automatic start that can still begin, then an affaire that has an analysis).
  */
 async function launchTakeoffPlanCommand(service: Service, input: RelaunchInput,
-  command: Record<string, unknown>, named: string[] | null, withoutCopy: string[] = []): Promise<TakeoffRelaunchResult> {
+  command: Record<string, unknown>, named: string[] | null, current: CurrentPlanCopies | null = null,
+  names: ReadonlyMap<string, string> = new Map()): Promise<TakeoffRelaunchResult> {
   const { context } = input;
   if (input.predecessorJobId && !named) {
     throw new TakeoffError({ status: 422, code: TakeoffErrorCode.VALIDATION_ERROR, retryable: false,
@@ -873,12 +956,26 @@ async function launchTakeoffPlanCommand(service: Service, input: RelaunchInput,
     .map((source) => source.document_id).sort();
   const active = new Set(confirmed.preparation.sources.filter((source) => source.active && source.kind === "plan").map((source) => source.document_id));
   const missing = scope.filter((id) => !active.has(id));
-  // A plan of the analysis it replaces with no working copy now cannot be confirmed with it: the member is told why,
-  // never asked to confirm the options with a plan that has no copy (it may come back once the dossier gives one).
-  if (missing.some((id) => withoutCopy.includes(id))) {
-    throw new TakeoffError({ status: 422, code: TakeoffErrorCode.VALIDATION_ERROR, retryable: false,
-      message: "Un plan de l’analyse à relancer n’a pas de copie de travail dans les plans de l’affaire : il est sorti du "
-        + "dossier, ou sa copie manque ou est illisible. L’analyse se relance quand ce plan a de nouveau sa copie." });
+  // A plan of the analysis it replaces with no working copy now cannot be confirmed with it: that analysis is not
+  // relaunched as it was. The member is told why, by name, and chooses which of its other plans to read (a command that
+  // names them: another scope, under its own identity); never asked to confirm the options with a plan that has no copy.
+  const withoutCopy = current?.withoutCopy.filter(({ id }) => missing.includes(id)) ?? [];
+  if (withoutCopy.length > 0) {
+    const remaining = scope.filter((id) => !current!.withoutCopy.some((plan) => plan.id === id) && active.has(id));
+    if (remaining.length === 0) {
+      throw new TakeoffError({ status: 422, code: TakeoffErrorCode.VALIDATION_ERROR, retryable: false,
+        message: "Un plan de l’analyse à relancer n’a pas de copie de travail dans les plans de l’affaire : il est sorti du "
+          + "dossier, ou sa copie manque ou est illisible. L’analyse se relance quand ce plan a de nouveau sa copie." });
+    }
+    const visible = await readTakeoffVisibleSources({ supabase: context.supabase, tenantId: context.tenantId, projectId: input.projectId,
+      ids: withoutCopy.flatMap(({ id, piece }) => [id, piece]) });
+    const confirmedName = new Map(confirmed.preparation.sources.map((source) => [source.document_id, source.document_name]));
+    return { outcome: "plans_to_choose", requestId: null, jobId: null, choice: {
+      withoutCopy: withoutCopy.map(({ id, piece, removed }, index) => ({
+        name: isTakeoffSourceVisible(visible, id, piece) ? names.get(id) ?? `Plan ${index + 1}` : `Plan ${index + 1}`,
+        reason: removed ? "removed" : "copy_missing" })),
+      remaining: remaining.map((id) => ({ id, name: confirmedName.get(id) ?? names.get(id) ?? "Plan" })),
+    } };
   }
   if (missing.length > 0) {
     throw new TakeoffError({ status: 422, code: TakeoffErrorCode.VALIDATION_ERROR, retryable: false,
@@ -905,7 +1002,7 @@ async function launchTakeoffPlanCommand(service: Service, input: RelaunchInput,
     jobId: deriveDeterministicJobId(context.tenantId, `${jobKey}:scope`), maxPages: config.maxPdfPages, selectedFileIds: scope });
   // Not read by this command: the plan set's copies set aside, and the plans an earlier analysis read (they stay its),
   // except the plans it reads again, at any copy (a plan of the dossier replaced since is read at its new copy).
-  const grouped = await relaunchManifest(context, input.planSetId, snapshot, config, intent,
+  const grouped = await relaunchManifest(service, context, input.planSetId, snapshot, config, intent,
     planSetCopiesSetAside(confirmed.preparation.sources, input.planSetId), await relaunchOrder(service, context, input.projectId));
   const reading = new Set(grouped.plans.map((plan) => logicalPlanKey({ id: plan.plan_file_id, intake_document_id: plan.intake_document_id })));
   const omitted = new Map(grouped.coverage.plans_omitted.map((plan) => [plan.id, plan]));
