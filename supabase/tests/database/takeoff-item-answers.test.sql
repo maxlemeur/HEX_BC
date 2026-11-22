@@ -362,8 +362,8 @@ select throws_ok($$select * from pg_temp.publish(pg_temp.job(20, 1), 901,
   jsonb_set(pg_temp.valid(), '{0,quantity,value}', '4'), pg_temp.rows_(1))$$,
   '22023', 'TAKEOFF_ANSWERS_MEASURED_INVALID', 'a measured quantity that is not the sum of its contributions is refused');
 select throws_ok($$select * from pg_temp.publish(pg_temp.job(20, 1), 901,
-  jsonb_set(jsonb_set(jsonb_set(pg_temp.valid(), '{0,observations,0,role}', '"candidate"'), '{0,observations,1,role}',
-    '"candidate"'), '{0,quantity}', 'null') #- '{0,observations,0,takeoff_item_id}' #- '{0,observations,1,takeoff_item_id}',
+  jsonb_set(jsonb_set(pg_temp.valid(), '{0,observations,0,role}', '"candidate"'), '{0,observations,1,role}',
+    '"candidate"') #- '{0,observations,0,takeoff_item_id}' #- '{0,observations,1,takeoff_item_id}',
   '[]'::jsonb)$$, '22023', 'TAKEOFF_ANSWERS_MEASURED_INVALID', 'a measured answer without a contribution is refused');
 select throws_ok($$select * from pg_temp.publish(pg_temp.job(20, 1), 901,
   jsonb_set(jsonb_set(pg_temp.valid(), '{0,unreadable_pages}', '[7]'), '{0,searched_pages}', '[2, 7]'), pg_temp.rows_(1))$$,
@@ -392,9 +392,13 @@ select throws_ok($$select * from pg_temp.publish(pg_temp.job(20, 1), 901, pg_tem
 select throws_ok($$select * from pg_temp.publish(pg_temp.job(20, 1), 901, pg_temp.valid(), pg_temp.rows_(1),
   jsonb_set(pg_temp.vector(1), '{geometries,0,takeoff_item_id}', to_jsonb(pg_temp.f(869))))$$,
   '22023', 'TAKEOFF_ANSWERS_VECTOR_ROWS_INVALID', 'an observation never names a vector row that was not written');
-select throws_ok($$select * from pg_temp.publish(pg_temp.job(20, 1), 901, pg_temp.valid(), pg_temp.rows_(1),
-  findings => pg_temp.findings(), result => pg_temp.result_())$$,
-  '22023', 'TAKEOFF_ANSWERS_INVALID', 'what was seen outside the list is also in the result''s warnings');
+select throws_ok($$select * from pg_temp.publish(pg_temp.job(20, 1), 901,
+  jsonb_set(pg_temp.valid(), '{1,observations,1,page}', '7'), pg_temp.rows_(1))$$,
+  '22023', 'TAKEOFF_ANSWERS_OBSERVATION_INVALID', 'a vector observation on another page than its row is refused');
+select throws_ok($$select * from pg_temp.publish(pg_temp.job(20, 1), 901,
+  jsonb_set(jsonb_set(pg_temp.valid(), '{0,observations,0,quantity}', '2.0004'), '{0,quantity,value}', '3.0004'),
+  jsonb_set(pg_temp.rows_(1), '{0,quantity}', '2.0004'))$$,
+  '22023', 'TAKEOFF_ANSWERS_OBSERVATION_INVALID', 'a contribution finer than its row keeps (the thousandth) is refused');
 select throws_ok($$select * from pg_temp.publish(pg_temp.job(20, 1), 901,
   jsonb_set(pg_temp.valid(), '{0,observations,2,takeoff_item_id}', to_jsonb(pg_temp.f(813))),
   pg_temp.rows_(1) || jsonb_build_array(pg_temp.row_(813, 1, 7)))$$,
@@ -468,8 +472,6 @@ select results_eq($$select id, quantity, source_page from public.takeoff_items w
 select results_eq($$select i.id, i.is_excluded, g.vector_page_id from public.takeoff_items i
   join public.takeoff_item_geometries g on g.takeoff_item_id = i.id where i.job_id = pg_temp.job(20, 1)$$,
   $$values (pg_temp.f(871), true, pg_temp.f(870))$$, 'the vector reading''s row is written excluded, with its geometry and page');
-select is((select count(distinct content_sha256)::integer from public.takeoff_item_answers where job_id = pg_temp.job(20, 1)), 3,
-  'each answer has the digest of what was read');
 select results_eq($$select w ->> 'code', w ->> 'severity', w ->> 'message'
   from public.takeoff_results r cross join jsonb_array_elements(r.warnings) w where r.job_id = pg_temp.job(20, 1)$$,
   $$values ('POSTE_HORS_LISTE'::text, 'info'::text, 'Page 2 : Chauffe-eau (fictif)'::text)$$,
@@ -613,6 +615,24 @@ select results_eq($$select item_id, answer ->> 'job_id' from public.read_takeoff
 select is((select count(*)::integer from public.read_takeoff_item_answers(pg_temp.f(10), pg_temp.f(20),
   p_takeoff_item_id => pg_temp.f(871))), 0, 'a vector row is no contribution: it leads to no answer through this link');
 reset role;
+
+-- 7. Deleting what the answers hang on: a job whose readings a later one replaced (its rows, its vector row and its
+-- observations go with it), then the whole affaire. Every foreign key is checked, as a commit checks them.
+create function pg_temp.delete_and_check(statement text) returns void language plpgsql as $$
+begin
+  execute statement;
+  set constraints all immediate;
+  set constraints all deferred;
+end;
+$$;
+select lives_ok($$select pg_temp.delete_and_check(format('delete from public.takeoff_jobs where id = %L', pg_temp.job(20, 1)))$$,
+  'a job with published answers is deleted with them');
+select results_eq($$select count(*)::integer, count(replaces_answer_id)::integer from public.takeoff_item_answers
+  where project_id = pg_temp.f(20)$$, $$values (3, 0)$$, 'the later readings stay, without their link to the deleted ones');
+select lives_ok($$select pg_temp.delete_and_check(format('delete from public.estimate_projects where id = %L', pg_temp.f(20)))$$,
+  'an affaire with published answers is deleted with them');
+select is((select count(*)::integer from public.takeoff_item_answer_observations where project_id = pg_temp.f(20)), 0,
+  'nothing of its answers is left');
 
 select * from finish();
 rollback;

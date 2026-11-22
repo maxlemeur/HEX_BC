@@ -46,6 +46,8 @@ export const TAKEOFF_ITEM_ANSWERS_REFUSALS = [
   "TAKEOFF_ANSWERS_UNCERTAIN_INVALID",
   "TAKEOFF_ANSWERS_VECTOR_ROWS_INVALID",
   "TAKEOFF_ANSWERS_OBSERVATION_INVALID",
+  /** At the commit: the first order's end of a job whose request sealed a list, without its publication. */
+  "TAKEOFF_ANSWERS_REQUIRED",
 ] as const;
 export type TakeoffItemAnswersRefusal = (typeof TAKEOFF_ITEM_ANSWERS_REFUSALS)[number];
 

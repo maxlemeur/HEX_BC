@@ -27,7 +27,8 @@
 --   - public.takeoff_rule_job_stamp (20261120204437_takeoff_jobs_by_affaire.sql, its only body) gives the same text for
 --     a job without answers; with answers it also tells each answer and the current reading of its item on its plan.
 --   - The new foreign keys reference takeoff_jobs, takeoff_results, takeoff_items, takeoff_launch_requests and the list
---     relations: deleting a row of those probes one new index, empty for every row a released writer can delete.
+--     relations: deleting a row of those probes the new indexes on it (two for a takeoff_items row), empty for every row
+--     a released writer can delete; the keys without a cascade are checked at the commit of that deletion.
 --
 -- Locks: every lock this migration needs is taken first, in one statement, without waiting (nowait): a busy table
 -- refuses the migration at once, nothing applied, and the migration never waits while it holds a lock. They are held for
@@ -83,7 +84,9 @@ create table public.takeoff_item_answer_publications (
   launch_request_id uuid not null,
   launch_unit_key text not null,
   list_revision_id uuid not null,
-  result_id uuid not null references public.takeoff_results (id),
+  -- The keys without a cascade wait for the commit: deleting a job, an affaire or a tenant deletes these rows through a
+  -- longer cascade than the rows they reference, so they are checked once every cascade has run.
+  result_id uuid not null references public.takeoff_results (id) deferrable initially deferred,
   -- The versions of the reading: the exchange's schema and the prompt (also the evidence's version).
   exchange_version text not null check (exchange_version ~ '^[a-z0-9][a-z0-9._-]{0,31}$'),
   prompt_version text not null check (pg_catalog.char_length(prompt_version) between 1 and 64),
@@ -93,7 +96,7 @@ create table public.takeoff_item_answer_publications (
   -- What the reading saw outside the list: [{page, designation, evidence, chunk_id}], never an item or an answer (the
   -- result's warnings tell them too, code POSTE_HORS_LISTE).
   unlisted_findings jsonb not null check (pg_catalog.jsonb_typeof(unlisted_findings) = 'array'
-    and pg_catalog.jsonb_array_length(unlisted_findings) <= 200),
+    and pg_catalog.jsonb_array_length(unlisted_findings) <= 2000),
   -- The digest of the publication as the database received it (computed here only): the same content replays.
   content_sha256 text not null check (content_sha256 ~ '^[0-9a-f]{64}$'),
   -- The digest of the attempt's lease token: only the attempt that published replays. Never granted to members.
@@ -102,9 +105,9 @@ create table public.takeoff_item_answer_publications (
   constraint takeoff_item_answer_publications_job_fkey foreign key (job_id, tenant_id)
     references public.takeoff_jobs (id, tenant_id) on delete cascade,
   constraint takeoff_item_answer_publications_request_fkey foreign key (launch_request_id, tenant_id, project_id)
-    references public.takeoff_launch_requests (id, tenant_id, project_id),
+    references public.takeoff_launch_requests (id, tenant_id, project_id) deferrable initially deferred,
   constraint takeoff_item_answer_publications_revision_fkey foreign key (list_revision_id, tenant_id, project_id)
-    references public.takeoff_list_revisions (id, tenant_id, project_id),
+    references public.takeoff_list_revisions (id, tenant_id, project_id) deferrable initially deferred,
   constraint takeoff_item_answer_publications_scope_key unique (job_id, tenant_id, project_id, list_revision_id)
 );
 create index takeoff_item_answer_publications_result_idx on public.takeoff_item_answer_publications (result_id);
@@ -114,7 +117,7 @@ create index takeoff_item_answer_publications_revision_idx on public.takeoff_ite
 -- 3. One answer per item of the sealed list on the unit's plan. The plan is named as its request sealed it: the copy
 --    read, its logical identity (its dossier piece, or the copy), its generation and the digest of its bytes. Pages are
 --    the plan's original pages, 1-based: those searched and those that could not be read together are exactly the pages
---    the unit reads. A measured answer has its quantity, the sum of its contributions; an uncertain one may have a
+--    the unit reads (a page tried and not read may be in both). A measured answer has its quantity, the sum of its contributions; an uncertain one may have a
 --    candidate value, never a quantity; « not found » has neither (a SQL NULL, never 0) and no observation. Its reasons
 --    are ordered, the first being the primary one. A reading of an item on a plan replaces the latest earlier reading of
 --    that item on that plan (any job, any generation): reading_revision numbers them, the greatest is the current one.
@@ -162,14 +165,17 @@ create table public.takeoff_item_answers (
   constraint takeoff_item_answers_replaces_check check (replaces_answer_id is distinct from id),
   constraint takeoff_item_answers_publication_fkey foreign key (job_id, tenant_id, project_id, list_revision_id)
     references public.takeoff_item_answer_publications (job_id, tenant_id, project_id, list_revision_id) on delete cascade,
+  -- Checked at the commit, as the publication's keys (section 2).
   constraint takeoff_item_answers_entry_fkey foreign key (list_revision_id, item_id)
-    references public.takeoff_list_revision_entries (revision_id, item_id),
+    references public.takeoff_list_revision_entries (revision_id, item_id) deferrable initially deferred,
   constraint takeoff_item_answers_item_fkey foreign key (item_id, tenant_id, project_id)
-    references public.takeoff_list_items (id, tenant_id, project_id),
+    references public.takeoff_list_items (id, tenant_id, project_id) deferrable initially deferred,
   constraint takeoff_item_answers_job_item_key unique (job_id, item_id, plan_file_id),
   constraint takeoff_item_answers_reading_key unique (tenant_id, project_id, item_id, plan_logical_id, reading_revision),
   constraint takeoff_item_answers_chain_key unique (id, tenant_id, project_id, item_id, plan_logical_id),
   constraint takeoff_item_answers_scope_key unique (id, tenant_id, project_id, job_id),
+  -- What a review decision references (lot 4, B2): the answer in its tenant and affaire.
+  constraint takeoff_item_answers_affaire_key unique (id, tenant_id, project_id),
   -- The reading replaced is of the same item on the same plan; a deleted job's reading leaves the link empty.
   constraint takeoff_item_answers_replaces_fkey foreign key (replaces_answer_id, tenant_id, project_id, item_id, plan_logical_id)
     references public.takeoff_item_answers (id, tenant_id, project_id, item_id, plan_logical_id)
@@ -211,8 +217,9 @@ create table public.takeoff_item_answer_observations (
   chunk_id text check (chunk_id ~ '^[a-z0-9][a-z0-9-]{0,31}$'),
   -- A vector observation: the vector reading's row written with it (an excluded takeoff_items row, never selected as a
   -- source, with its geometry and its page), as today's vector reading writes it.
-  vector_item_id uuid references public.takeoff_items (id),
-  takeoff_item_id uuid references public.takeoff_items (id),
+  -- Both checked at the commit, as the publication's keys (section 2): a job's rows go before its observations.
+  vector_item_id uuid references public.takeoff_items (id) deferrable initially deferred,
+  takeoff_item_id uuid references public.takeoff_items (id) deferrable initially deferred,
   occurrence_coverage text not null check (occurrence_coverage in ('page_total')),
   constraint takeoff_item_answer_observations_role_rule_check check (
     (role <> 'contribution' or (quantity is not null and unit is not null))
@@ -411,7 +418,7 @@ returns boolean language plpgsql immutable set search_path = '' as $$
 declare
   entry jsonb;
 begin
-  if pg_catalog.jsonb_typeof(p_findings) is distinct from 'array' or pg_catalog.jsonb_array_length(p_findings) > 200 then
+  if pg_catalog.jsonb_typeof(p_findings) is distinct from 'array' or pg_catalog.jsonb_array_length(p_findings) > 2000 then
     return false;
   end if;
   for entry in select pg_catalog.jsonb_strip_nulls(f.value) from pg_catalog.jsonb_array_elements(p_findings) f(value) loop
@@ -559,8 +566,8 @@ begin
         or (o.value ->> 'source' = 'model' and (o.value ->> 'vector_key' is not null or o.value ->> 'method' = 'vector_reading'))) then
     return 'TAKEOFF_ANSWERS_OBSERVATION_INVALID';
   end if;
-  -- Every row the result writes is the takeoff_items row of exactly one contribution, with its quantity and page (its
-  -- unit is the worker's normalized code of the contribution's).
+  -- Every row the result writes is the takeoff_items row of exactly one contribution, with its quantity (to the
+  -- thousandth, which the row keeps) and page (its unit is the worker's normalized code of the contribution's).
   if exists (select 1 from pg_catalog.jsonb_array_elements(p_items) i(value)
       where pg_catalog.jsonb_typeof(i.value) is distinct from 'object' or not private.takeoff_item_answer_is_uuid(i.value -> 'id')
         or not private.takeoff_item_answer_is_number(i.value -> 'quantity', 0, 999999999.999, false, true)
@@ -582,6 +589,7 @@ begin
         where (i.value ->> 'id')::uuid = (o.value ->> 'takeoff_item_id')::uuid) item on true
       where o.value ->> 'takeoff_item_id' is not null and (item.value is null
         or (item.value ->> 'quantity')::numeric <> (o.value ->> 'quantity')::numeric
+        or (o.value ->> 'quantity')::numeric <> pg_catalog.round((o.value ->> 'quantity')::numeric, 3)
         or (item.value ->> 'source_page')::numeric::integer <> (o.value ->> 'page')::numeric::integer)) then
     return 'TAKEOFF_ANSWERS_OBSERVATION_INVALID';
   end if;
@@ -596,17 +604,17 @@ $$;
 --    keeps a failed vector reading to itself; here it is never left behind an observation).
 --    The job alone names the unit: the request, its unit, the plan and its pages and the list are those the request
 --    sealed, never the worker's word. The worker gives the pages it read (they must be the unit's), the versions of the
---    exchange, the answers, what it saw outside the list (also its result's POSTE_HORS_LISTE warnings, one each), and what
---    the first order's end takes.
+--    exchange, the answers, what it saw outside the list (its result's warnings tell it too, as the worker writes them),
+--    and what the first order's end takes.
 --    Answers: the result, false, the number of answers; the same publication of the same attempt again answers the same,
 --    replayed, writing nothing. Refuses, with its code and nothing written: a lease that is not this job's valid one, or
 --    another attempt's publication (TAKEOFF_ANSWERS_LEASE_INVALID); another content for the same attempt
 --    (TAKEOFF_ANSWERS_ALREADY_PUBLISHED); a job that is not a unit of a request that sealed a list
 --    (TAKEOFF_ANSWERS_ORDER_INVALID); and every case of private.takeoff_item_answers_refusal.
---    Locks, in the takeoff order: the job's row (rank 5, for update), then its request's row (rank 6, for update, as the
---    job's end takes it anyway), then the job's result and its rows (rank 8, through that function); the foreign keys take
---    a key share of the job, the request, the rows just written, the list's immutable rows and the reading replaced. No
---    other key.
+--    Locks, in the takeoff order: the job's row (rank 5, for update), then, once the publication is known to be exact, its
+--    request's row (rank 6, for update, as the job's end takes it anyway), then what that function and the job's end take
+--    (its result and rows, rank 8; the triggers of the end: the Mac's slot and the ledger, rank 7, as today's end takes
+--    them); the foreign keys take a key share of rows held, just written or immutable. None of lot 4's advisory keys.
 create function public.publish_takeoff_item_answers(
   p_job_id uuid, p_lease_token uuid, p_completed_at timestamptz, p_model text, p_prompt_version text, p_exchange jsonb,
   p_unit_pages integer[], p_answers jsonb, p_findings jsonb, p_result jsonb, p_items jsonb, p_vector jsonb default null
@@ -636,10 +644,7 @@ begin
     or pg_catalog.jsonb_typeof(p_findings) is distinct from 'array' or pg_catalog.jsonb_typeof(p_result) is distinct from 'object'
     or pg_catalog.jsonb_typeof(coalesce(p_result -> 'warnings', '[]'::jsonb)) is distinct from 'array'
     or (p_vector is not null and pg_catalog.jsonb_typeof(p_vector) is distinct from 'object')
-    or pg_catalog.octet_length(p_answers::text) > 8388608
-    -- What was seen outside the list is in the result's warnings too, one each.
-    or (select count(*) from pg_catalog.jsonb_array_elements(coalesce(p_result -> 'warnings', '[]'::jsonb)) w(value)
-      where w.value ->> 'code' = 'POSTE_HORS_LISTE') <> pg_catalog.jsonb_array_length(p_findings) then
+    or pg_catalog.octet_length(p_answers::text) > 8388608 then
     raise exception 'TAKEOFF_ANSWERS_INVALID' using errcode = '22023';
   end if;
   -- Every argument, as the database received it (a replay sends the same values); the completion time as an instant.
@@ -669,9 +674,10 @@ begin
     raise exception 'TAKEOFF_ANSWERS_LEASE_INVALID' using errcode = '55000';
   end if;
 
+  -- The request's manifest and sealed list are written once, at its admission: read without a lock for the checks, which
+  -- then do not hold the request's row.
   select r.* into request from public.takeoff_launch_requests r
-  where r.id = job.launch_request_id and r.tenant_id = job.tenant_id and r.project_id = job.project_id
-  for update;
+  where r.id = job.launch_request_id and r.tenant_id = job.tenant_id and r.project_id = job.project_id;
   unit := case when found then private.takeoff_launch_unit(request.manifest, job.launch_unit_key) end;
   if request.item_list_revision_id is null or unit is null then
     raise exception 'TAKEOFF_ANSWERS_ORDER_INVALID' using errcode = '22023';
@@ -680,6 +686,8 @@ begin
   if refusal is not null then
     raise exception '%', refusal using errcode = '22023';
   end if;
+  -- The request's row, as the job's end takes it anyway (its settlement), before anything is written.
+  perform 1 from public.takeoff_launch_requests r where r.id = request.id for update;
   select * into plan from private.takeoff_item_answer_plans(request.manifest, unit);
 
   new_result := public.finalize_local_takeoff_result(p_job_id, job.tenant_id, p_lease_token, p_completed_at, p_model,
