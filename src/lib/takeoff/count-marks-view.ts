@@ -183,6 +183,20 @@ export function draftDistinct(draft: CountMarkDraft, id: string, intentKey: stri
   }), intentKey);
 }
 
+/**
+ * « Same object » given to a retain or a restore the database refused beside a retained mark it named: the mark is that
+ * retained one. Only a mark the database knows is named (never an addition of the session).
+ */
+export function draftSameAs(draft: CountMarkDraft, id: string, sameAs: string, intentKey: string): CountMarkDraft {
+  if (isDraftMarkId(sameAs)) throw new Error("Un repère non enregistré ne peut pas être nommé comme le même objet.");
+  return withEntries(draft, draft.entries.map((entry) => {
+    const { gesture } = entry;
+    if (entry.id !== id || (gesture.op !== "retain" && gesture.op !== "restore")) return entry;
+    return { ...entry, to: "withdrawn" as const, gesture: { op: gesture.op, answer_id: gesture.answer_id, mark_id: gesture.mark_id,
+      object: "same" as const, same_as: sameAs } };
+  }), intentKey);
+}
+
 /** Whether a gesture can take « distinct object » and does not carry a word yet. */
 export function draftEntryAsksWord(entry: CountMarkDraftEntry) {
   const { gesture } = entry;
@@ -190,10 +204,15 @@ export function draftEntryAsksWord(entry: CountMarkDraftEntry) {
     || gesture.op === "restore") && gesture.object === undefined;
 }
 
+/** The gestures of a session in the order its command sends them: as made, every verification last. */
+export function draftCommandEntries(draft: CountMarkDraft) {
+  return [...draft.entries.filter((entry) => entry.gesture.op !== "verify"),
+    ...draft.entries.filter((entry) => entry.gesture.op === "verify")];
+}
+
 /** The command of a session: its gestures in the order made, every verification last, each answer it changes named. */
 export function draftCommand(draft: CountMarkDraft) {
-  const gestures = [...draft.entries.filter((entry) => entry.gesture.op !== "verify"),
-    ...draft.entries.filter((entry) => entry.gesture.op === "verify")].map((entry) => entry.gesture);
+  const gestures = draftCommandEntries(draft).map((entry) => entry.gesture);
   const revisions: Record<string, number> = {};
   for (const entry of draft.entries) Object.assign(revisions, entry.others);
   revisions[draft.answerId] = draft.revision;

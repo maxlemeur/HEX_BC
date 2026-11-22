@@ -202,25 +202,116 @@ describe("the list and its keys", () => {
 });
 
 describe("review of #485", () => {
-  it("keeps every gesture a member makes while a save is pending: refused and said, never lost", async () => {
-    const served = double(view([mark(1, { x: 0.2 }), mark(2, { x: 0.6 })]));
+  it("keeps a gesture made while a save is on its way, saved next; a gesture being sent is not changed meanwhile", async () => {
+    const served = double(view([mark(1, { x: 0.1 }), mark(2, { x: 0.8 })]));
     let finish = () => {};
     served.edit = () => new Promise((resolve) => {
       finish = () => resolve({ replayed: false, commandId: id(900), revisions: { [ANSWER]: 4 }, added: [], summaries: {} });
     });
     mount(served.reader);
     const grid = await screen.findByTestId("reperes-liste");
-    key(grid, "ArrowDown");
+    key(grid, "Home");
     key(grid, "r");
     fireEvent.click(screen.getByRole("button", { name: "Enregistrer (1)" }));
-    // The save is on its way: a gesture now is refused, and the member is told.
-    key(grid, "ArrowDown");
+    key(grid, "End");
     key(grid, "r");
-    expect(screen.getByTestId("reperes-avis")).toHaveTextContent("Enregistrement en cours");
-    await act(async () => finish());
-    await waitFor(() => expect(screen.queryByTestId("reperes-session")).toBeNull());
-    expect(served.edits).toHaveLength(1);
+    expect(screen.getByTestId("reperes-session")).toHaveTextContent("2 modifications non enregistrées");
+    expect(screen.getByTestId("reperes-session")).toHaveTextContent("en cours d’enregistrement");
+    const sending = within(screen.getByTestId("reperes-session")).getAllByRole("button", { name: "Annuler ce geste" })[0]!;
+    expect(sending).toBeDisabled();
     expect(served.edits[0]!.gestures).toEqual([{ op: "retain", answer_id: ANSWER, mark_id: id(1) }]);
+    await act(async () => finish());
+    expect(screen.getByTestId("reperes-session")).toHaveTextContent("1 modification non enregistrée");
+    expect(screen.getByTestId("reperes-session")).toHaveTextContent("Retenue du repère 2");
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Enregistrer (1)" }));
+    });
+    expect(served.edits[1]).toMatchObject({ revisions: { [ANSWER]: 4 }, gestures: [{ op: "retain", answer_id: ANSWER, mark_id: id(2) }] });
+  });
+
+  it("never shows a page read at two revisions: the member is told, and reads again", async () => {
+    const served = double(view([]));
+    let n = 0;
+    const steady = served.reader.readPage;
+    served.reader.readPage = vi.fn(async (input) => {
+      if (n >= 4) return steady(input);
+      n += 1;
+      return view([mark(n)], { revision: n, nextAfter: n % 2 ? id(n) : null });
+    }) as typeof steady;
+    mount(served.reader);
+    expect(await screen.findByTestId("reperes-changent")).toHaveTextContent("Les repères de ce poste changent pendant leur lecture");
+    expect(n).toBe(4);
+    expect(screen.queryAllByTestId("repere")).toEqual([]);
+    expect(screen.queryByTestId("reperes-liste")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Relire" }));
+    expect(await screen.findByTestId("reperes-liste")).toBeInTheDocument();
+  });
+
+  it("asks « same object » or « distinct » about each retained mark the database names when it refuses a gesture", async () => {
+    const served = double(view([mark(1)]));
+    // A retained mark beside the proposal, not among the marks loaded (beyond the lots read).
+    served.edit = async () => { throw new TakeoffApiError("x", 409, { gesture: 1, twins: [id(9)], addedKeys: [] },
+      "TAKEOFF_MARKS_OBJECT_DUPLICATE"); };
+    mount(served.reader);
+    const grid = await screen.findByTestId("reperes-liste");
+    key(grid, "Home");
+    key(grid, "r");
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Enregistrer (1)" }));
+    });
+    const question = await screen.findByTestId("reperes-question-refus");
+    expect(within(question).getByRole("button", { name: "Objet distinct" })).toBeInTheDocument();
+    served.edit = async () => ({ replayed: false, commandId: id(900), revisions: { [ANSWER]: 4 }, added: [], summaries: {} });
+    fireEvent.click(within(question).getByRole("button", { name: "Même objet qu’un repère retenu hors de la liste chargée" }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Enregistrer (1)" }));
+    });
+    expect(served.edits[1]!.gestures).toEqual([{ op: "retain", answer_id: ANSWER, mark_id: id(1), object: "same", same_as: id(9) }]);
+  });
+
+  it("starts the cross at the centre of the part of the page shown, and gives it the keyboard from the list", async () => {
+    // Zoom 4: the frame shows the top-left quarter of the page across and down.
+    mount(double(view([mark(1)])).reader, { frame: frame({ scale: 4 }) });
+    const grid = await screen.findByTestId("reperes-liste");
+    grid.focus();
+    key(grid, "n");
+    const cross = screen.getByTestId("reperes-reticule");
+    expect(parseFloat(cross.style.left)).toBe(12.5);
+    expect(parseFloat(cross.style.top)).toBe(12.5);
+    expect(document.activeElement).toBe(screen.getByTestId("reperes-calque"));
+  });
+
+  it("verifies a page only on its sheet displayed", async () => {
+    const served = double(view([mark(1, { state: "retained" })]));
+    render(<CountMarksScope projectId={PROJECT} answer={answer} page={7} itemLabels={{}} targets={[]} reader={served.reader}>
+      <CountMarksPanel />
+    </CountMarksScope>);
+    const grid = await screen.findByTestId("reperes-liste");
+    key(grid, "p");
+    expect(screen.queryByTestId("reperes-session")).toBeNull();
+    expect(screen.getByTestId("reperes-avis")).toHaveTextContent("Une page se vérifie sur son plan affiché");
+  });
+
+  it("reaches every removed mark, to the last cursor", async () => {
+    const served = double(view([]));
+    served.reader.readPage = vi.fn(async (input) => (input.states?.includes("removed")
+      ? view([mark(input.after ? 2 : 1, { state: "removed", reasonCode: "duplicate" })], { total: 2, nextAfter: input.after ? null : id(1) })
+      : view([]))) as CountMarksReader["readPage"];
+    mount(served.reader);
+    await screen.findByTestId("reperes-liste");
+    fireEvent.click(screen.getByRole("checkbox"));
+    const removed = await screen.findByTestId("reperes-retires");
+    expect(removed).toHaveTextContent("1 autre repère retiré.");
+    await act(async () => {
+      fireEvent.click(within(removed).getByRole("button", { name: "Afficher la suite" }));
+    });
+    expect(within(screen.getByTestId("reperes-retires")).getAllByRole("button", { name: "Rétablir" })).toHaveLength(2);
+  });
+
+  it("says no mark is retained once the last one is removed, before the page is verified again", async () => {
+    mount(double(view([], { summary: summary({ retained: 0, removed: 1, quantity: null, state: "to_verify_again" }) })).reader);
+    expect(await screen.findByTestId("reperes-etat")).toHaveTextContent("À vérifier à nouveau · Aucun repère retenu");
+    expect(screen.getByTestId("reperes-quantite")).toHaveTextContent("—");
   });
 
   it("asks for the marks of a newer reading in every lot, and shows them to retain", async () => {

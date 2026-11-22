@@ -127,6 +127,8 @@ export type ItemReadingInput = {
   answer: ItemAnswerView | null;
   decision: ItemAnswerDecision | null;
   decisionRevision: number;
+  /** The answer's counted marks revision (lot 5; 0 without marks): what an acceptance certifies, frozen with a selection. */
+  marksRevision?: number;
   entry: ItemEntryView | null;
   /** The answer's plan was sent to an estimate (its job applied): its rows are the estimate's, no bulk gesture writes them. */
   sent: boolean;
@@ -189,7 +191,9 @@ export type ItemReviewTarget = {
   /** The revision of the entry of the scope (0 without one). */
   entryRevision: number;
   /** Each answer with its decision's revision and, in the affaire's scope, its plan's entry's revision (0 without one). */
-  answers: Array<{ answerId: string; answerRevision: string; decisionRevision: number; entryRevision: number }>;
+  answers: Array<{ answerId: string; answerRevision: string; decisionRevision: number; entryRevision: number;
+    /** The answer's counted marks revision the selection saw (absent: 0). */
+    marksRevision?: number }>;
 };
 
 export type ItemTableLine = {
@@ -210,7 +214,7 @@ export type ItemTableLine = {
   reasons: string[];
   planCount: number;
   decision: ItemLineDecision;
-  readings: Array<Omit<ItemReadingInput, "itemId" | "reading" | "decisionRevision">>;
+  readings: Array<Omit<ItemReadingInput, "itemId" | "reading" | "decisionRevision" | "marksRevision">>;
   targets: ItemReviewTarget;
   remeasurePlans: string[];
   eligibility: Record<ItemReviewGesture, ItemGestureEligibility>;
@@ -443,9 +447,9 @@ function buildLine(row: ItemTableRow, plans: readonly ItemTablePlan[], scope: It
       itemId: item.id,
       entryRevision: row.entry?.revision ?? 0,
       // Every entry that enters the total is frozen with the selection: in the affaire's scope, each plan's entry.
-      answers: row.readings.flatMap(({ answer, decisionRevision, entry }) => answer
+      answers: row.readings.flatMap(({ answer, decisionRevision, marksRevision, entry }) => answer
         ? [{ answerId: answer.answerId, answerRevision: answer.revision, decisionRevision,
-          entryRevision: scope.kind === "plan" ? 0 : entry?.revision ?? 0 }] : []),
+          entryRevision: scope.kind === "plan" ? 0 : entry?.revision ?? 0, marksRevision: marksRevision ?? 0 }] : []),
     },
   };
   return { ...base, ...eligibility(base, plans, scope) };
@@ -527,7 +531,7 @@ export function freezeItemSelection(lines: readonly ItemTableLine[], requested: 
 }
 
 const answerKey = (answer: ItemReviewTarget["answers"][number]) =>
-  `${answer.answerId.toLowerCase()}#${answer.decisionRevision}#${answer.entryRevision}`;
+  `${answer.answerId.toLowerCase()}#${answer.decisionRevision}#${answer.entryRevision}#${answer.marksRevision ?? 0}`;
 
 /**
  * The targets of a command that no longer describe what the table holds: an item gone from the scope, an answer read

@@ -23,9 +23,11 @@ import {
 import {
   COUNT_MARKS_HISTORY_LIMIT,
   COUNT_MARKS_PAGE_LIMIT,
+  countMarkDuplicateDetailSchema,
   TAKEOFF_COUNT_MARK_EVENT_GESTURES,
-  TAKEOFF_COUNT_MARKS_PLAN_SENT,
-  TAKEOFF_COUNT_MARKS_PLAN_SENT_MESSAGE,
+  TAKEOFF_COUNT_MARKS_READ_CHANGING,
+  TAKEOFF_COUNT_MARKS_READ_CHANGING_MESSAGE,
+  type CountMarkDuplicateDetail,
   type CountMarkHistoryEvent,
   type CountMarksEditRequest,
   type CountMarksHistory,
@@ -46,6 +48,8 @@ type Client = SupabaseClient<Database>;
 type EditArgs = Database["public"]["Functions"]["edit_takeoff_count_marks"]["Args"];
 
 const READ_FAILURE = "Impossible de lire les repères du poste.";
+/** Reads of a page and its count tried before saying the marks are changing. */
+const VIEW_READ_ATTEMPTS = 3;
 const EDIT_FAILURE = "Impossible d'enregistrer les repères du poste.";
 const NOT_READ = "Ce poste n’a pas de lecture sur cette page du plan dans cette affaire.";
 
@@ -157,10 +161,17 @@ export async function readCountMarksView(projectId: string, query: { answerId: s
   states?: readonly TakeoffCountMarkState[]; afterMarkId?: string | null; limit?: number }): Promise<CountMarksView> {
   const access = await requireAffaireAccess(projectId, "read");
   const answerId = query.answerId.toLowerCase();
-  const [page, counted, facts] = await Promise.all([marksPage(access, { ...query, answerId }), summaries(access, [answerId]),
-    answerFacts(access, [answerId])]);
-  const summary = counted[answerId];
+  const facts = await answerFacts(access, [answerId]);
   const fact = facts.get(answerId);
+  // The page and the count are two reads: they are answered together only at one revision of the answer's marks.
+  let read: { page: TakeoffCountMarksPage | null; summary: TakeoffCountMarkSummary | undefined } | null = null;
+  for (let attempt = 0; attempt < VIEW_READ_ATTEMPTS && !read; attempt += 1) {
+    const [page, counted] = await Promise.all([marksPage(access, { ...query, answerId }), summaries(access, [answerId])]);
+    const summary = counted[answerId];
+    if (!page || !summary || page.revision === summary.revision) read = { page, summary };
+  }
+  if (!read) throw conflict(TAKEOFF_COUNT_MARKS_READ_CHANGING_MESSAGE, undefined, TAKEOFF_COUNT_MARKS_READ_CHANGING);
+  const { page, summary } = read;
   if (!page || !summary || !fact) throw notFound(NOT_READ, undefined, "TAKEOFF_MARKS_ANSWER_NOT_FOUND");
   const reason: TakeoffCountMarksReadOnlyReason | null = !mayOperate(access) ? "forbidden" : fact.sent ? "sent"
     : fact.replaced ? "replaced" : null;
@@ -168,7 +179,19 @@ export async function readCountMarksView(projectId: string, query: { answerId: s
   return { ...page, summary, edit: { allowed: reason === null, reason }, viewerId: access.context.userId, names };
 }
 
-function refusalError(code: TakeoffCountMarkEditRefusal) {
+/** What a refusal for a possible duplicate names, read from the command's detail; null when it names nothing readable. */
+function duplicateDetail(detail: string | null | undefined): CountMarkDuplicateDetail | null {
+  try {
+    const value = asRecord(JSON.parse(detail ?? "null"));
+    const parsed = countMarkDuplicateDetailSchema.safeParse(value ? { gesture: value.gesture, twins: value.twins,
+      addedKeys: value.added_keys } : null);
+    return parsed.success ? parsed.data : null;
+  } catch {
+    return null;
+  }
+}
+
+function refusalError(code: TakeoffCountMarkEditRefusal, details?: unknown) {
   const message = TAKEOFF_COUNT_MARK_EDIT_REFUSALS[code];
   switch (code) {
     case "TAKEOFF_MARKS_FORBIDDEN":
@@ -182,7 +205,8 @@ function refusalError(code: TakeoffCountMarkEditRefusal) {
     case "TAKEOFF_MARKS_ATTRIBUTION_TAKEN":
     case "TAKEOFF_MARKS_OBJECT_DUPLICATE":
     case "TAKEOFF_MARKS_PAGE_GEOMETRY_CONFLICT":
-      return conflict(message, undefined, code);
+    case "TAKEOFF_MARKS_PLAN_SENT":
+      return conflict(message, details, code);
     default:
       return badRequest(message, undefined, code);
   }
@@ -197,6 +221,7 @@ async function runEdit(access: AffaireAccess, command: { intentKey: string; revi
   });
   if (error) {
     const refusal = takeoffCountMarkEditRefusal(error.message);
+    if (refusal === "TAKEOFF_MARKS_OBJECT_DUPLICATE") throw refusalError(refusal, duplicateDetail(error.details) ?? undefined);
     throw refusal ? refusalError(refusal) : mapSupabaseError(error, EDIT_FAILURE);
   }
   return parseTakeoffCountMarkEditResult(data);
@@ -217,24 +242,15 @@ export async function editAnswerCountMarks(projectId: string, command: {
 }
 
 /**
- * The edit of the detail of an item: the database's command, after the route's own refusal of an answer whose plan was
- * already sent to an estimate (a correction after the send is a revision of the contribution, lot 5 PR 4). That check
- * reads the answers' jobs before the command, outside its locks: a send committed between the two leaves the marks of a
- * sent plan corrected, and no amount changes, since the send never reads marks.
+ * The edit of the detail of an item: the database's command. It refuses a plan already sent to an estimate
+ * (TAKEOFF_MARKS_PLAN_SENT) itself, under its locks and after the replay of the intention: a send and an edit exclude
+ * each other, and the same intention sent again after a lost answer gets its receipt even once the plan is sent.
  */
 export async function editCountMarksAsMember(projectId: string, command: CountMarksEditRequest): Promise<TakeoffCountMarkEditResult> {
-  // A member who may not operate is refused before anything is read of the answers; the command checks the right again.
+  // A member who may not operate is refused before the command; the command checks the right again.
   const access = await requireAffaireAccess(projectId, "read");
   if (!mayOperate(access)) throw refusalError("TAKEOFF_MARKS_FORBIDDEN");
-  const named = new Set(Object.keys(command.revisions).map((value) => value.toLowerCase()));
-  for (const gesture of command.gestures) {
-    if ("answer_id" in gesture) named.add(gesture.answer_id.toLowerCase());
-    if (gesture.op === "reattribute") named.add(gesture.to_answer_id.toLowerCase());
-  }
-  const facts = await answerFacts(access, [...named]);
-  if ([...facts.values()].some(({ sent }) => sent)) {
-    throw conflict(TAKEOFF_COUNT_MARKS_PLAN_SENT_MESSAGE, undefined, TAKEOFF_COUNT_MARKS_PLAN_SENT);
-  }
+  // The database names answers in lower case; an answer named twice in two cases is refused, never merged (the schema).
   const revisions = Object.fromEntries(Object.entries(command.revisions).map(([answerId, revision]) => [answerId.toLowerCase(), revision]));
   return runEdit(access, { intentKey: command.intentKey, revisions, gestures: command.gestures as readonly TakeoffCountMarkGesture[] });
 }

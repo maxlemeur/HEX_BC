@@ -54,10 +54,19 @@ export function CountMarksLayer({ frame }: { frame: ItemDetailPageFrame }) {
   const press = useRef<{ x: number; y: number } | null>(null);
   const setPlanFrame = marks?.setPlanFrame;
 
-  // The scope knows the page drawn: its size and geometry, and how to centre a mark.
+  // The scope knows the page drawn: its size and geometry, the part of it the frame shows, and how to centre a mark.
+  const shownRegion = visibleCountRegion({ frame: frame.frame, offset: frame.offset, scale: frame.scale, size: frame.size });
+  const [rx0, ry0, rx1, ry1] = shownRegion ? [shownRegion.x0, shownRegion.y0, shownRegion.x1, shownRegion.y1] : [0, 0, 0, 0];
+  const hasRegion = shownRegion !== null;
   useEffect(() => {
-    setPlanFrame?.({ page: frame.page, size: frame.size, geometry: frame.geometry, centre: frame.centre });
-  }, [frame.centre, frame.geometry, frame.page, frame.size, setPlanFrame]);
+    setPlanFrame?.({ page: frame.page, size: frame.size, geometry: frame.geometry, centre: frame.centre,
+      visible: hasRegion ? { x0: rx0, y0: ry0, x1: rx1, y1: ry1 } : null });
+  }, [frame.centre, frame.geometry, frame.page, frame.size, hasRegion, rx0, rx1, ry0, ry1, setPlanFrame]);
+  // A pointing mode takes the keyboard on the plan, wherever it was started from (the toolbar, the list).
+  const pointing = marks?.mode.kind !== undefined && marks.mode.kind !== "idle";
+  useEffect(() => {
+    if (pointing) layer.current?.focus({ preventScroll: true });
+  }, [pointing]);
   useEffect(() => () => setPlanFrame?.(null), [setPlanFrame]);
 
   if (!marks || marks.status !== "ready") return null;

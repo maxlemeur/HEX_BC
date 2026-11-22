@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import {
+  TAKEOFF_COUNT_MARK_EDIT_REFUSALS,
   TAKEOFF_COUNT_MARK_REMOVAL_REASONS,
   TAKEOFF_COUNT_MARK_STATES,
   TAKEOFF_COUNT_MARK_SUMMARY_STATES,
@@ -25,8 +26,23 @@ const box = z.tuple([unit, unit, unit, unit]).readonly();
 
 /** The refusal of the route itself, before the command: the answer's plan was sent to an estimate (its job applied). */
 export const TAKEOFF_COUNT_MARKS_PLAN_SENT = "TAKEOFF_MARKS_PLAN_SENT";
-export const TAKEOFF_COUNT_MARKS_PLAN_SENT_MESSAGE =
-  "Ce plan a déjà été envoyé au devis : ses repères se consultent ici, une correction passera par une révision de l’apport.";
+export const TAKEOFF_COUNT_MARKS_PLAN_SENT_MESSAGE = TAKEOFF_COUNT_MARK_EDIT_REFUSALS.TAKEOFF_MARKS_PLAN_SENT;
+
+/** A page of marks and its count read at two revisions, again and again: the screen keeps what it had and says so. */
+export const TAKEOFF_COUNT_MARKS_READ_CHANGING = "TAKEOFF_MARKS_READ_CHANGING";
+export const TAKEOFF_COUNT_MARKS_READ_CHANGING_MESSAGE = "Les repères de ce poste changent pendant leur lecture : relisez-les dans un instant.";
+
+/**
+ * What a refusal for a possible duplicate names (the command's detail): the gesture by its place in the command (from 1),
+ * the retained marks beside it, and the additions of the same command among them by their key (their identity died with
+ * the refusal).
+ */
+export const countMarkDuplicateDetailSchema = z.object({
+  gesture: z.number().int().min(1).max(500),
+  twins: z.array(uuid).max(500),
+  addedKeys: z.array(uuid).max(500),
+}).strict();
+export type CountMarkDuplicateDetail = z.infer<typeof countMarkDuplicateDetailSchema>;
 
 /** Why the member may only read the marks shown: no operator right, a plan already sent, or a later reading. */
 export const TAKEOFF_COUNT_MARKS_READ_ONLY_REASONS = ["forbidden", "sent", "replaced"] as const;
@@ -100,7 +116,9 @@ export const countMarkGestureSchema = z.union([
 export const countMarksEditRequestSchema = z.object({
   intentKey: uuid,
   revisions: z.record(uuid, z.number().int().min(0).max(1_000_000))
-    .refine((value) => Object.keys(value).length >= 1 && Object.keys(value).length <= 50, "Entre 1 et 50 réponses."),
+    .refine((value) => Object.keys(value).length >= 1 && Object.keys(value).length <= 50, "Entre 1 et 50 réponses.")
+    .refine((value) => new Set(Object.keys(value).map((key) => key.toLowerCase())).size === Object.keys(value).length,
+      "Une réponse nommée deux fois."),
   gestures: z.array(countMarkGestureSchema).min(1).max(500),
 }).strict();
 export type CountMarksEditRequest = z.infer<typeof countMarksEditRequestSchema>;

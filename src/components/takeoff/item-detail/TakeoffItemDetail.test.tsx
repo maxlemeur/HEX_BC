@@ -484,3 +484,53 @@ describe("TakeoffItemDetail, the keyboard of the list", () => {
     expect(screen.getByTestId("poste-detail-notice").textContent).toBe("Un opérateur du métré de l’affaire peut revoir ce poste.");
   });
 });
+
+// Review of #485, written before the fixes: the counted marks of an earlier reading read the current answer's over the
+// earlier plan; a save that reopens the item's acceptance left its decision shown.
+describe("the counted marks of the item", () => {
+  it("are read only for the item's current reading: an earlier reading shows none, and the way to the current one", async () => {
+    const fetch = vi.fn<(url: RequestInfo | URL) => Promise<Response>>(async () => new Response(null, { status: 404 }));
+    vi.stubGlobal("fetch", fetch);
+    const { calls } = open(address({ planKey: PLAN_RDC, jobId: JOB_EARLIER, page: 2 }));
+    await settle();
+    expect(calls.plans[0]?.jobId).toBe(JOB_EARLIER);
+    expect(fetch.mock.calls.map((call) => String(call[0])).filter((url) => url.includes("count-marks"))).toEqual([]);
+    expect(screen.getByTestId("reperes-lecture-ancienne")).toHaveTextContent("ceux de la lecture actuelle");
+    fireEvent.click(screen.getByRole("button", { name: "Ouvrir la lecture actuelle" }));
+    await settle();
+    expect(readItemDetailAddress(new URLSearchParams(window.location.search))).toMatchObject({ kind: "detail",
+      address: { jobId: basinLine.readings[0]!.answer!.jobId } });
+  });
+
+  it("read the item again after a save of its marks, keeping the focus on the marks", async () => {
+    const answerId = basinLine.readings[0]!.answer!.answerId;
+    const markId = "d0000000-0000-4000-8000-000000000010";
+    const viewer = "c0000000-0000-4000-8000-000000000010";
+    let revision = 1;
+    const summary = () => ({ revision, unit: "u", counted: true, proposed: 0, toAttribute: 0, retained: 1, removed: 0, pending: 0,
+      reread: 0, scopePages: 2, verifiedPages: 0, quantity: null, state: "to_check", pages: [] });
+    const ok = (data: unknown) => new Response(JSON.stringify({ ok: true, data }), { status: 200 });
+    vi.stubGlobal("fetch", vi.fn(async (_url: unknown, init?: RequestInit) => {
+      if (init?.method === "POST") {
+        revision += 1;
+        return ok({ replayed: false, commandId: markId, revisions: { [answerId]: revision }, added: [], summaries: { [answerId]: summary() } });
+      }
+      return ok({ answerId, page: 2, revision, geometry: null, total: 1, loaded: 1, nextAfter: null, marks: [{ markId, x: 0.2, y: 0.2,
+        box: null, origin: "manual", positionRevision: 0, createdBy: viewer, createdJobId: null, createdAt: "2026-11-22T09:00:00Z",
+        movedBy: null, movedAt: null, state: "retained", priorState: null, reasonCode: null, reasonText: null, decidedBy: viewer,
+        decidedAt: null, possibleDuplicates: [], others: [], proposals: [] }], summary: summary(), edit: { allowed: true, reason: null },
+        viewerId: viewer, names: {} });
+    }));
+    const { calls } = open(address({ planKey: PLAN_RDC, jobId: JOB_RDC, page: 2 }));
+    await settle();
+    const grid = screen.getByTestId("reperes-liste");
+    grid.focus();
+    fireEvent.keyDown(grid, { key: "p" });
+    const linesRead = calls.lines.length;
+    fireEvent.click(screen.getByRole("button", { name: "Enregistrer (1)" }));
+    await settle();
+    expect(revision).toBe(2);
+    expect(calls.lines.length).toBeGreaterThan(linesRead);
+    expect(calls.lines.at(-1)).toBe(ITEMS.basin);
+  });
+});

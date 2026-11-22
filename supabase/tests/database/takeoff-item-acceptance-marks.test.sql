@@ -10,6 +10,9 @@
 --    it was set aside still asks a new decision.
 -- 3. An answer without marks keeps its acceptance (revision 0 on both sides), as before this migration.
 -- 4. What the table retains and what the send reads do not move: the rows, their verification, the answers' quantities.
+-- 5. Review of #485: a selection frozen before a correction of the marks accepts nothing (stale, no row verified); an
+--    edit of a plan already sent is refused under its locks, while the replay of an intention still answers its receipt;
+--    a refusal for a possible duplicate names the gesture, the retained marks beside it and this command's additions.
 -- Isolation justified: the rule and its readers are the database's; a journey cannot reach an acceptance on marks yet
 -- (no screen accepts from the detail). All values are fictional.
 begin;
@@ -280,7 +283,8 @@ create function pg_temp.target(item integer) returns jsonb language sql stable a
     'entry_revision', coalesce((select e.revision from public.takeoff_item_entries e where e.item_id = pg_temp.f(item)
       and e.plan_logical_id is null), 0),
     'answers', coalesce((select jsonb_agg(jsonb_build_object('answer_id', a.id, 'decision_revision', coalesce(d.revision, 0),
-        'entry_revision', coalesce(pe.revision, 0)))
+        'entry_revision', coalesce(pe.revision, 0), 'marks_revision', coalesce((select (m.summary ->> 'revision')::integer
+          from public.read_takeoff_count_mark_summaries(pg_temp.f(10), pg_temp.f(20), array[a.id]) m), 0)))
       from public.takeoff_item_answers a left join public.takeoff_item_answer_decisions d on d.answer_id = a.id
       left join public.takeoff_item_entries pe on pe.item_id = a.item_id and pe.plan_logical_id = a.plan_logical_id
       where a.id = pg_temp.answer(item)), '[]'::jsonb))
@@ -355,6 +359,90 @@ select results_eq($$select kind, marks_revision from public.takeoff_item_answer_
   $$values ('accepted'::text, 2)$$, 'its acceptance comes back on revision 2');
 select results_eq($$select * from pg_temp.lavabo_line()$$, $$values ('pending'::text, null::text, 3)$$,
   'and the marks have changed since: a decision to take again');
+reset role;
+
+
+-- 5. A selection frozen before a correction of the marks (another operator retained a mark since): stale, nothing
+--    applied, no row verified (the reviewer's case of #485).
+select pg_temp.sign_in(1);
+set local role authenticated;
+select is(pg_temp.review('set_aside', 620, '{"reason":"duplicate"}'::jsonb) ->> 'outcome', 'applied', 'the lavabo is set aside');
+select is(pg_temp.review('reinstate', 621) ->> 'outcome', 'applied', 'and reinstated, to decide');
+reset role;
+set local session_replication_role = replica;
+-- The rows as a member's review leaves them before an acceptance: not verified, their rules evaluated again (a set aside
+-- and a reinstatement make them wait for the server), so that only the marks can make a selection stale below.
+update public.takeoff_items set is_verified = false, verified_at = null, verified_by = null, rules_stale = false,
+  rules_evaluated_at = now(), rule_results = '[]'::jsonb where job_id = pg_temp.job(1);
+set local session_replication_role = origin;
+select pg_temp.sign_in(1);
+set local role authenticated;
+create temporary table selected_before as select pg_temp.target(300) as target;
+select is((selected_before.target -> 'answers' -> 0 ->> 'marks_revision')::integer, 3, 'the selection saw the marks of revision 3')
+from selected_before;
+select is((pg_temp.edit(622, 3, jsonb_build_array(jsonb_build_object('op', 'retain', 'answer_id', pg_temp.lavabo(),
+  'mark_id', pg_temp.m('lav-3')))) -> 'revisions' ->> pg_temp.lavabo()::text)::integer, 4,
+  'another operator retains a mark after the selection: revision 4');
+select is(pg_temp.review('accept_measured', 623, jsonb_build_object('targets', (select jsonb_build_array(target) from selected_before)))
+  ->> 'outcome', 'stale', 'the frozen selection accepts nothing');
+select is((select count(*)::integer from public.takeoff_items where job_id = pg_temp.job(1) and is_verified), 0,
+  'and verifies no row');
+select is((select kind from public.takeoff_item_answer_decisions where answer_id = pg_temp.lavabo()), 'none', 'the decision is unchanged');
+select is(pg_temp.review('accept_measured', 635, jsonb_build_object('targets', jsonb_build_array(pg_temp.target(300)
+  #- '{answers,0,marks_revision}'))) ->> 'outcome', 'stale',
+  'a selection without the marks revision (an older client) reads it as 0: on marks, stale');
+select is(pg_temp.review('accept_measured', 624) ->> 'outcome', 'applied', 'a selection read now accepts it');
+select results_eq($$select kind, marks_revision from public.takeoff_item_answer_decisions where answer_id = pg_temp.lavabo()$$,
+  $$values ('accepted'::text, 4)$$, 'on the marks it saw');
+reset role;
+
+-- The duplicate refusal names what it refuses: an add 1 point from the retained lav-1, after an add of this command at
+-- the same place (both within 4 points).
+create function pg_temp.duplicate_detail(intent integer, revision integer, gestures jsonb) returns jsonb language plpgsql as $$
+declare
+  detail text;
+begin
+  perform pg_temp.edit(intent, revision, gestures);
+  return null;
+exception when unique_violation then
+  get stacked diagnostics detail = pg_exception_detail;
+  return detail::jsonb;
+end;
+$$;
+select pg_temp.sign_in(1);
+set local role authenticated;
+create temporary table duplicate_refusal as select pg_temp.duplicate_detail(627, 4, jsonb_build_array(
+  jsonb_build_object('op', 'add', 'answer_id', pg_temp.lavabo(), 'key', pg_temp.f(628), 'page', 2, 'x', 0.70, 'y', 0.70,
+    'object', 'distinct'),
+  jsonb_build_object('op', 'add', 'answer_id', pg_temp.lavabo(), 'key', pg_temp.f(629), 'page', 2, 'x', 0.1005, 'y', 0.2))) as detail;
+select is((select detail ->> 'gesture' from duplicate_refusal), '2', 'it names the gesture refused, by its place in the command');
+select is((select detail -> 'twins' from duplicate_refusal), jsonb_build_array(pg_temp.m('lav-1')),
+  'and the retained mark beside it');
+select is((select detail -> 'added_keys' from duplicate_refusal), '[]'::jsonb, 'no addition of this command beside it');
+create temporary table duplicate_added as select pg_temp.duplicate_detail(630, 4, jsonb_build_array(
+  jsonb_build_object('op', 'add', 'answer_id', pg_temp.lavabo(), 'key', pg_temp.f(631), 'page', 2, 'x', 0.70, 'y', 0.70),
+  jsonb_build_object('op', 'add', 'answer_id', pg_temp.lavabo(), 'key', pg_temp.f(632), 'page', 2, 'x', 0.7005, 'y', 0.70))) as detail;
+select results_eq($$select detail ->> 'gesture', detail -> 'twins', detail -> 'added_keys' from duplicate_added$$,
+  $$values ('2'::text, '[]'::jsonb, jsonb_build_array(pg_temp.f(631)::text))$$,
+  'an addition of the same command is named by its key: its identity dies with the refusal');
+select is(private_revision.revision, 4, 'nothing was written') from (select (m.summary ->> 'revision')::integer as revision
+  from public.read_takeoff_count_mark_summaries(pg_temp.f(10), pg_temp.f(20), array[pg_temp.lavabo()]) m) private_revision;
+
+-- A plan already sent is read-only for the edit, under its locks; the replay of an intention still answers its receipt.
+create temporary table before_send as select pg_temp.edit(633, 4, jsonb_build_array(jsonb_build_object('op', 'verify',
+  'answer_id', pg_temp.lavabo(), 'pages', jsonb_build_array(2)))) as receipt;
+reset role;
+set local session_replication_role = replica;
+update public.takeoff_jobs set status = 'applied' where id = pg_temp.job(1);
+set local session_replication_role = origin;
+select pg_temp.sign_in(1);
+set local role authenticated;
+select is((pg_temp.edit(633, 4, jsonb_build_array(jsonb_build_object('op', 'verify', 'answer_id', pg_temp.lavabo(),
+  'pages', jsonb_build_array(2)))) ->> 'replayed')::boolean, true, 'the same intention, after the send, answers its receipt');
+select throws_ok($$select pg_temp.edit(634, 5, jsonb_build_array(jsonb_build_object('op', 'verify', 'answer_id', pg_temp.lavabo(),
+  'pages', jsonb_build_array(7))))$$, '55000', 'TAKEOFF_MARKS_PLAN_SENT', 'a new edit of a sent plan is refused');
+select is((select (m.summary ->> 'revision')::integer from public.read_takeoff_count_mark_summaries(pg_temp.f(10), pg_temp.f(20),
+  array[pg_temp.lavabo()]) m), 5, 'and writes nothing');
 reset role;
 
 -- 3. An answer without marks: an acceptance on revision 0 (its state row created by the lock), as before.

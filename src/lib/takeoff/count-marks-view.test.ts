@@ -10,6 +10,7 @@ import {
   countPageGeometry,
   draftAdd,
   draftCommand,
+  draftCommandEntries,
   draftCountPreview,
   draftDecide,
   draftDistinct,
@@ -18,6 +19,7 @@ import {
   draftMove,
   draftReattribute,
   draftRemove,
+  draftSameAs,
   draftVerify,
   emptyCountMarkDraft,
   inCountRegion,
@@ -136,6 +138,18 @@ describe("a correction session", () => {
   it("never puts the identifier of a mark not saved yet in a stored field", () => {
     expect(() => draftDecide(start(), { id: keys(), op: "retain", markId: id(2), page: 2, state: "proposed", restoredTo: "retained",
       word: { object: "same", sameAs: draftMarkId(id(50)) } }, keys())).toThrow();
+  });
+
+  it("names in a retain refused for a possible duplicate the retained mark the database named, never an addition", () => {
+    let draft = draftAdd(start(), { key: id(50), page: 2, point: { x: 0.1, y: 0.1 }, geometry: null, distinct: false }, keys());
+    draft = draftVerify(draft, { id: keys(), page: 2 }, keys());
+    draft = draftDecide(draft, { id: id(61), op: "retain", markId: id(2), page: 2, state: "proposed", restoredTo: "retained",
+      word: null }, keys());
+    // The command's order: the add, the retain, then the verification.
+    expect(draftCommandEntries(draft).map(({ gesture }) => gesture.op)).toEqual(["add", "retain", "verify"]);
+    const answered = draftSameAs(draft, id(61), id(3), keys());
+    expect(draftCommand(answered).gestures[1]).toEqual({ op: "retain", answer_id: ANSWER, mark_id: id(2), object: "same", same_as: id(3) });
+    expect(() => draftSameAs(draft, id(61), draftMarkId(id(50)), keys())).toThrow();
   });
 
   it("is made again on the marks read since, its gestures kept as typed", () => {

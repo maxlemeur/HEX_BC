@@ -25,7 +25,10 @@ import {
   takeoffCountMarkSummaryLabel,
   type TakeoffCountMarkRemovalReason,
 } from "@/lib/takeoff/count-marks";
-import { TAKEOFF_COUNT_MARKS_READ_ONLY_LABELS } from "@/lib/takeoff/count-marks-contracts";
+import {
+  TAKEOFF_COUNT_MARKS_READ_CHANGING_MESSAGE,
+  TAKEOFF_COUNT_MARKS_READ_ONLY_LABELS,
+} from "@/lib/takeoff/count-marks-contracts";
 import {
   COUNT_MARK_SHOWN_STATE_LABELS,
   COUNT_MARKS_LIST_KEYS_HELP,
@@ -104,7 +107,10 @@ function CountSummary({ marks }: { marks: CountMarksContextValue }) {
           </dd>
         </div>
       </dl>
-      <p className="font-medium text-foreground" data-testid="reperes-etat">{takeoffCountMarkSummaryLabel(summary)}</p>
+      <p className="font-medium text-foreground" data-testid="reperes-etat">
+        {takeoffCountMarkSummaryLabel(summary)}
+        {summary.retained === 0 && summary.removed > 0 && summary.state !== "no_mark_retained" ? " · Aucun repère retenu" : ""}
+      </p>
       <p className="text-muted-foreground">
         Compté sur le plan, ce nombre n’est pas envoyé au devis : le tableau des postes et l’envoi gardent la quantité qu’ils retiennent.
       </p>
@@ -242,6 +248,46 @@ function QuestionDialog({ marks, numbers }: { marks: CountMarksContextValue; num
   );
 }
 
+function RefusedQuestionDialog({ marks, numbers }: { marks: CountMarksContextValue; numbers: Record<string, number> }) {
+  const asked = marks.refusedQuestion;
+  if (!asked) return null;
+  const decides = asked.op === "retain" || asked.op === "restore";
+  const named = (markId: string) => isDraftMarkId(markId) ? "votre ajout non enregistré"
+    : numbers[markId] ? `le repère ${numbers[markId]}` : "un repère retenu hors de la liste chargée";
+  const asThat = (markId: string) => { const text = named(markId); return text.startsWith("un ") ? `qu’${text}` : `que ${text}`; };
+  const sameLabel = (markId: string) => isDraftMarkId(markId) ? "Même objet que votre ajout non enregistré : retirer l’ajout"
+    : decides ? `Même objet ${asThat(markId)}`
+      : asked.op === "add" ? `Même objet ${asThat(markId)} : ne rien ajouter`
+        : asked.op === "move" ? `Même objet ${asThat(markId)} : annuler le déplacement`
+          : `Même objet ${asThat(markId)} : ne pas affecter`;
+  const neighbours = [...asked.twins, ...asked.additions];
+  return (
+    <Dialog open onOpenChange={(open) => { if (!open) marks.answerRefused("cancel"); }}>
+      <DialogContent size="sm">
+        <DialogHeader>
+          <DialogTitle>Même objet ou objet distinct ?</DialogTitle>
+          <DialogDescription>
+            À moins de 4 points de ce geste, l’enregistrement a trouvé ce qui est déjà retenu pour ce poste :
+            {" "}{neighbours.map(named).join(", ")}. Dites s’il s’agit du même objet ou d’un objet distinct : l’écran ne le décide pas.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="flex flex-col gap-2" data-testid="reperes-question-refus">
+          {/* A non-decision gesture onto a known object is withdrawn once (whatever the neighbour). */}
+          {(decides ? neighbours : neighbours.slice(0, 1)).map((markId) => (
+            <Button key={markId} variant="outline" onClick={() => marks.answerRefused({ object: "same", sameAs: markId })}>
+              {sameLabel(markId)}
+            </Button>
+          ))}
+          <Button onClick={() => marks.answerRefused({ object: "distinct" })}>Objet distinct</Button>
+        </div>
+        <DialogFooter>
+          <DialogClose render={<Button variant="ghost" />}>Annuler</DialogClose>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function MarksList({ marks, numbers }: { marks: CountMarksContextValue; numbers: Record<string, number> }) {
   const grid = useRef<HTMLTableElement>(null);
   const listed = useMemo(() => marks.shown.filter((mark) => mark.state !== "removed" && mark.state !== "withdrawn"), [marks.shown]);
@@ -355,7 +401,13 @@ function RemovedList({ marks }: { marks: CountMarksContextValue }) {
           ) : null}
         </li>
       ))}
-      {removed.total > removed.marks.length ? <li className="px-3 py-1 text-muted-foreground">{removed.total - removed.marks.length} autres repères retirés.</li> : null}
+      {removed.total > removed.marks.length ? (
+        <li className="flex items-center gap-2 px-3 py-1 text-muted-foreground">
+          {removed.total - removed.marks.length > 1 ? `${removed.total - removed.marks.length} autres repères retirés.`
+            : "1 autre repère retiré."}
+          {removed.nextAfter ? <Button size="xs" variant="ghost" onClick={marks.loadMoreRemoved}>Afficher la suite</Button> : null}
+        </li>
+      ) : null}
     </ul>
   );
 }
@@ -370,11 +422,14 @@ function DraftBar({ marks, numbers }: { marks: CountMarksContextValue; numbers: 
         {entries.map((entry) => (
           <li key={entry.id} className="flex flex-wrap items-center gap-2">
             <span>{entryLabel(entry, numbers)}</span>
+            {marks.inFlight.has(entry.id) ? <span className="text-muted-foreground">en cours d’enregistrement</span> : null}
             {marks.staleEntries.has(entry.id) ? <span className="text-danger">à revoir : ce repère a changé</span> : null}
             {marks.askWords && draftEntryAsksWord(entry) ? (
               <Button size="xs" variant="outline" onClick={() => marks.giveDistinct(entry.id)}>Objet distinct</Button>
             ) : null}
-            <Button size="xs" variant="ghost" onClick={() => marks.withoutEntry(entry.id)}>Annuler ce geste</Button>
+            <Button size="xs" variant="ghost" disabled={marks.inFlight.has(entry.id)} onClick={() => marks.withoutEntry(entry.id)}>
+              Annuler ce geste
+            </Button>
           </li>
         ))}
       </ul>
@@ -417,6 +472,11 @@ export function CountMarksPanel() {
         </p>
       ) : marks.status === "error" ? (
         <div className="px-3 py-2"><Alert variant="danger">Les repères de ce poste n’ont pas pu être lus.</Alert></div>
+      ) : marks.status === "changing" ? (
+        <p className="flex items-center gap-2 px-3 py-2 text-xs text-foreground" data-testid="reperes-changent">
+          {TAKEOFF_COUNT_MARKS_READ_CHANGING_MESSAGE}
+          <Button size="xs" variant="outline" onClick={marks.retry}>Relire</Button>
+        </p>
       ) : marks.status === "loading" || !loaded ? (
         <p className="flex items-center gap-2 px-3 py-2 text-xs text-muted-foreground"><Spinner aria-label="Chargement" />Chargement des repères…</p>
       ) : (
@@ -476,6 +536,7 @@ export function CountMarksPanel() {
           onConfirm={(target) => { marks.closeDialog(); void marks.reattribute(dialogMark.markId, target); }} />
       ) : null}
       <QuestionDialog marks={marks} numbers={numbers} />
+      <RefusedQuestionDialog marks={marks} numbers={numbers} />
     </section>
   );
 }

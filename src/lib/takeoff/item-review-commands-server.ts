@@ -139,7 +139,7 @@ export async function runItemReviewCommand(projectId: string, command: ItemRevie
       scope: command.scope.kind === "plan" ? { kind: "plan", plan_logical_id: command.scope.planKey } : { kind: "affaire" },
       targets: command.targets.map((target) => ({ item_id: target.itemId, entry_revision: target.entryRevision,
         answers: target.answers.map((answer) => ({ answer_id: answer.answerId, decision_revision: answer.decisionRevision,
-          entry_revision: answer.entryRevision })) })),
+          entry_revision: answer.entryRevision, ...(answer.marksRevision !== undefined ? { marks_revision: answer.marksRevision } : {}) })) })),
       apply,
       skipped,
       ...(command.gesture === "set_aside" ? { reason: command.reason, ...(command.note?.trim() ? { note: command.note.trim() } : {}) } : {}),

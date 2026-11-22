@@ -336,18 +336,25 @@ sur les pages vérifiées) et quantité retenue. Les mêmes repères forment une
 clavier (↑ ↓ pour changer de repère et le centrer, R retenir, Suppr retirer avec un
 motif, T rétablir, D déplacer, A affecter à un autre poste, N ajouter, P déclarer la page
 vérifiée ; sur le plan, les flèches déplacent le réticule d’un point, Maj de dix, Entrée
-pose, Échap quitte). Les gestes s’accumulent puis s’enregistrent en une seule commande,
-sous la révision affichée ; si un autre membre a modifié les repères entre-temps, ils sont
-relus, l’écran dit ce qui a changé et garde chaque geste pour l’enregistrer de nouveau.
-Les gestes non enregistrés restent dans l’onglet pour ce membre et ce poste. À côté d’un
-repère retenu, l’écran demande « Même objet » ou « Objet distinct » et ne décide jamais
-seul. Un lecteur, un plan déjà envoyé au devis et une lecture remplacée montrent les
-repères, le compte et l’historique, sans geste. Tant qu’un envoi ne vérifie pas la
+pose, Échap quitte ; le réticule part du centre de la partie visible du plan). Une page ne
+se déclare vérifiée que sur son plan affiché. Les gestes s’accumulent puis s’enregistrent
+en une seule commande, sous la révision affichée ; pendant un enregistrement, le membre
+continue, et seuls les gestes envoyés sont retirés de la liste une fois enregistrés. Si un
+autre membre a modifié les repères entre-temps, ils sont relus, l’écran dit ce qui a changé
+et garde chaque geste pour l’enregistrer de nouveau ; une page n’est jamais montrée à deux
+révisions à la fois. Les gestes non enregistrés restent dans l’onglet pour ce membre et ce
+poste. À côté d’un repère retenu, l’écran demande « Même objet » ou « Objet distinct » et
+ne décide jamais seul, y compris pour un repère retenu que seul l’enregistrement trouve.
+Un lecteur, un plan déjà envoyé au devis et une lecture remplacée montrent les repères, le
+compte et l’historique, sans geste ; la commande refuse elle-même une modification d’un
+plan envoyé, sous ses verrous (un envoi et une modification s’excluent). Ouvert sur une
+lecture plus ancienne, le détail ne montre pas de repères et mène à la lecture actuelle. Tant qu’un envoi ne vérifie pas la
 révision des repères, une quantité comptée sur le plan est montrée et n’est jamais
 envoyée : le tableau des postes et l’envoi gardent la quantité qu’ils retiennent.
 
 Une acceptance du tableau des postes retient aussi la révision des repères de la réponse
-acceptée. Si les repères changent ensuite (un repère ajouté, déplacé, retiré, rétabli,
+acceptée, et compare celle que la sélection a vue : des repères modifiés depuis rendent la
+sélection périmée, rien n’est accepté. Si les repères changent ensuite (un repère ajouté, déplacé, retiré, rétabli,
 retenu, affecté à un autre poste, une page vérifiée, une nouvelle lecture machine), même à
 nombre égal, l’acceptance n’est plus une décision : le poste redevient « à décider » dans
 le tableau, ses compteurs et la commande, et s’accepte de nouveau sur les repères actuels.

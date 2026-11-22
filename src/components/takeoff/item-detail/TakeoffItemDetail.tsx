@@ -144,7 +144,15 @@ function ItemDetailView({ projectId, address, reader, tableQuery, onBack, onGest
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [itemId, queue, reader]);
 
-  const line = found?.page.lines[found.index] ?? (outside?.line.itemId === itemId ? outside.line : null);
+  // A save of the item's marks reads the item again (its decision and quantities): that line stands for it until it moves.
+  const [refreshed, setRefreshed] = useState<{ itemId: string; line: ItemDetailLine } | null>(null);
+  const refreshItem = useCallback(() => {
+    void reader.readLine(itemId).then((read) => {
+      if (read) setRefreshed({ itemId, line: read.line });
+    }).catch(() => undefined);
+  }, [itemId, reader]);
+  const line = (refreshed?.itemId === itemId ? refreshed.line : null) ?? found?.page.lines[found.index]
+    ?? (outside?.line.itemId === itemId ? outside.line : null);
   const context = found?.page ?? (anchor !== null ? queue.page(anchor) : null);
   const canReview = found ? found.page.canReview : outside?.canReview ?? false;
   // A notice belongs to the item it was said for.
@@ -291,8 +299,10 @@ function ItemDetailView({ projectId, address, reader, tableQuery, onBack, onGest
   const shownLines = revision >= 0 ? [...(outside && outside.line.itemId === itemId && !found ? [outside.line] : []), ...(context?.lines ?? [])] : [];
 
   // The counted marks of the reading shown (lot 5): its answer, the items of the queue by their label, and the items of
-  // the same reading a mark may be given to.
-  const reading = choice.kind === "reading" ? choice.reading : null;
+  // the same reading a mark may be given to. Only the item's current reading: an earlier one's plan is another sheet, and
+  // its own marks are not readable by its job yet.
+  const reading = choice.kind === "reading" && choice.current ? choice.reading : null;
+  const earlierReading = choice.kind === "reading" && !choice.current && choice.reading.answer ? choice : null;
   const marksAnswer = useMemo<CountMarksAnswer | null>(() => (reading?.answer ? { answerId: reading.answer.answerId,
     jobId: reading.answer.jobId, scopePages: [...new Set([...reading.answer.searchedPages, ...reading.answer.unreadablePages])] }
     : null), [reading]);
@@ -351,13 +361,24 @@ function ItemDetailView({ projectId, address, reader, tableQuery, onBack, onGest
               ↑ ↓ poste · Entrée preuve · Échap tableau{canReview ? " · V accepter · E écarter · I inclure · F2 saisir" : ""}
             </p>
           </aside>
-          <CountMarksScope projectId={projectId} answer={marksAnswer} page={opening.page} itemLabels={itemLabels} targets={marksTargets}>
+          <CountMarksScope projectId={projectId} answer={marksAnswer} page={opening.page} itemLabels={itemLabels} targets={marksTargets}
+            onSaved={refreshItem}>
             <div className="flex min-h-0 min-w-0 flex-1 flex-col">
               <ItemDetailPlanPane resolution={line ? resolution : { state: "loading" }} page={opening.page} requestedMissing={opening.requestedMissing}
                 pagesOfInterest={pagesOfInterest} onPage={(page) => go({ page })} onDocumentState={setDocumentState}
                 emptyMessage="Aucun plan n’est associé à ce poste pour le moment."
                 tools={<CountMarksTools />} layer={(frame) => <CountMarksLayer frame={frame} />} />
               <CountMarksPanel />
+              {earlierReading ? (
+                <p className="flex shrink-0 flex-wrap items-center gap-2 border-t border-border bg-surface px-3 py-2 text-xs text-foreground-secondary"
+                  data-testid="reperes-lecture-ancienne">
+                  Les repères comptés sont ceux de la lecture actuelle de ce poste, sur sa propre copie du plan.
+                  <Button size="xs" variant="outline" onClick={() => go({ planKey: earlierReading.planKey,
+                    jobId: earlierReading.reading.answer!.jobId, page: null, answerId: null, observationId: null })}>
+                    Ouvrir la lecture actuelle
+                  </Button>
+                </p>
+              ) : null}
             </div>
           </CountMarksScope>
           <div data-testid="poste-detail-evidence-panel" data-narrow-collapsed={String(!panels.evidence)}

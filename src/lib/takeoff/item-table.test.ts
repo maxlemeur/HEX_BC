@@ -130,7 +130,7 @@ describe("buildItemLines", () => {
     const [line] = lines([row(poste("a", 0, "Lavabo"), "measured", "pending",
       [read("a", "plan-a", decided, null, { decisionRevision: 3 })])]);
     expect(line.targets).toEqual({ itemId: "a", entryRevision: 0,
-      answers: [{ answerId: decided.answerId, answerRevision: "digest", decisionRevision: 3, entryRevision: 0 }] });
+      answers: [{ answerId: decided.answerId, answerRevision: "digest", decisionRevision: 3, entryRevision: 0, marksRevision: 0 }] });
   });
 
   it("freezes in the affaire's scope the revision of each plan's entry that enters the total, and of none in a plan's", () => {
@@ -141,8 +141,8 @@ describe("buildItemLines", () => {
     const readings = [read("a", "plan-a", measured), read("a", "plan-b", entered, null, { entry: planEntry })];
     const [affaire] = lines([row(poste("a", 0, "Lavabo"), "measured", "pending", readings)]);
     expect(affaire.targets.answers).toEqual([
-      { answerId: measured.answerId, answerRevision: "digest", decisionRevision: 0, entryRevision: 0 },
-      { answerId: entered.answerId, answerRevision: "digest", decisionRevision: 0, entryRevision: 2 },
+      { answerId: measured.answerId, answerRevision: "digest", decisionRevision: 0, entryRevision: 0, marksRevision: 0 },
+      { answerId: entered.answerId, answerRevision: "digest", decisionRevision: 0, entryRevision: 2, marksRevision: 0 },
     ]);
     // The plan's entry changed from 5 to 7 (revision 3) after the selection: the selection no longer describes the line.
     const [changed] = lines([row(poste("a", 0, "Lavabo"), "measured", "pending",
@@ -366,6 +366,14 @@ describe("the frozen selection and the review commands", () => {
     }));
     expect(checkItemReviewTargets(changed, targets).stale.map(({ itemId }) => itemId).sort()).toEqual(["item-1", "item-2", "item-4"]);
     expect(checkItemReviewTargets(view, targets).stale).toEqual([]);
+  });
+
+  it("finds a selection stale when the counted marks of an answer changed since (lot 5)", () => {
+    const targets = view.filter(({ itemId }) => itemId === "item-2").map(({ targets }) => targets);
+    const corrected = lines(rows.map((value) => value.item.id === "item-2"
+      ? { ...value, readings: value.readings.map((reading) => ({ ...reading, marksRevision: 2 })) } : value));
+    expect(checkItemReviewTargets(corrected, targets).stale.map(({ itemId }) => itemId)).toEqual(["item-2"]);
+    expect(targets[0]!.answers.every(({ marksRevision }) => marksRevision === 0)).toBe(true);
   });
 
   it("applies the eligible lines and names the others with their reason", () => {

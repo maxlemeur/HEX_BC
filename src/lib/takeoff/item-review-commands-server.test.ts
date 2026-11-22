@@ -95,7 +95,8 @@ describe("runItemReviewCommand", () => {
     expect(args).toEqual({ p_tenant_id: TENANT, p_project_id: PROJECT, p_command: {
       command_version: 1, intent_key: INTENT, gesture: "accept_measured", scope: { kind: "affaire" },
       targets: targetsOf([1, 2]).map((target) => ({ item_id: target.itemId, entry_revision: 0,
-        answers: target.answers.map((answer) => ({ answer_id: answer.answerId, decision_revision: 0, entry_revision: 0 })) })),
+        answers: target.answers.map((answer) => ({ answer_id: answer.answerId, decision_revision: 0, entry_revision: 0,
+          marks_revision: 0 })) })),
       apply: [fixtureItemId(1)], skipped: [{ item_id: fixtureItemId(2), label: "Baignoire", reason: "not_measured" }] } });
     expect(result).toEqual({ outcome: "applied", applied: [{ itemId: fixtureItemId(1), label: "WC", answers: 1 }],
       skipped: [{ itemId: fixtureItemId(2), label: "Baignoire", reason: "not_measured" }] });

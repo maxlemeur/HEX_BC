@@ -5350,7 +5350,7 @@
           "Takeoff"
         ],
         "summary": "Lire les repères comptés d’un poste sur une page de son plan",
-        "description": "Lecteurs de l’affaire. Les repères d’une réponse (un poste lu sur un plan) sur une page de sa portée, par lots dans un ordre stable (curseur apres), dans les états demandés (proposés, à attribuer, retenus par défaut ; retirés et nouvelle lecture sur demande), avec la géométrie de la page enregistrée, la révision des repères de la réponse et le total serveur des états demandés, à part du nombre chargé. Joint le décompte serveur de la réponse (nombre proposé, nombre relu sur la portée vérifiée, quantité retenue d’un poste compté en pièces, null et jamais 0) et ce que le membre peut faire : corriger s’il est opérateur du métré de l’affaire, sinon lecture seule, de même pour un plan déjà envoyé au devis ou une lecture remplacée. Une quantité comptée sur le plan est montrée et n’est jamais envoyée : le tableau des postes et l’envoi lisent ce qu’ils lisaient. Une réponse que le membre ne lit pas, ou une page hors de sa portée, est introuvable. N’écrit rien.",
+        "description": "Lecteurs de l’affaire. Les repères d’une réponse (un poste lu sur un plan) sur une page de sa portée, par lots dans un ordre stable (curseur apres), dans les états demandés (proposés, à attribuer, retenus par défaut ; retirés et nouvelle lecture sur demande), avec la géométrie de la page enregistrée, la révision des repères de la réponse et le total serveur des états demandés, à part du nombre chargé. Joint le décompte serveur de la réponse (nombre proposé, nombre relu sur la portée vérifiée, quantité retenue d’un poste compté en pièces, null et jamais 0) et ce que le membre peut faire : corriger s’il est opérateur du métré de l’affaire, sinon lecture seule, de même pour un plan déjà envoyé au devis ou une lecture remplacée. La page et le décompte sont rendus à une même révision : relus tant qu’ils diffèrent, puis refusés en 409 (TAKEOFF_MARKS_READ_CHANGING) s’ils changent encore. Une quantité comptée sur le plan est montrée et n’est jamais envoyée : le tableau des postes et l’envoi lisent ce qu’ils lisaient. Une réponse que le membre ne lit pas, ou une page hors de sa portée, est introuvable. N’écrit rien.",
         "parameters": [
           {
             "name": "projectId",
@@ -5459,11 +5459,11 @@
             }
           },
           "409": {
-            "description": "Conflit metier ou de concurrence.",
+            "description": "Les repères changent pendant leur lecture (TAKEOFF_MARKS_READ_CHANGING) : relire.",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ApiFailureResponse"
+                  "$ref": "#/components/schemas/ApiGenericErrorResponse"
                 }
               }
             }
@@ -5485,7 +5485,7 @@
           "Takeoff"
         ],
         "summary": "Corriger les repères comptés d’un poste",
-        "description": "Opérateur du métré de l’affaire (administrateur du tenant, ou ingénieur à qui l’affaire appartient). N gestes en une commande : ajouter (géométrie de la page pour son premier repère), déplacer, retirer avec un motif (note obligatoire pour « Autre motif »), rétablir, retenir, affecter à un autre poste de la même lecture, déclarer des pages vérifiées (toujours en dernier). Chaque réponse modifiée est nommée avec la révision de ses repères affichée : une révision dépassée refuse tout (409), rien n’est écrit. Un geste qui laisserait un repère retenu à moins de 4 points d’un autre repère retenu de la même réponse demande le mot du membre (« Même objet » avec le repère retenu, pour retenir ou rétablir, ou « Objet distinct ») : sans lui, refus TAKEOFF_MARKS_OBJECT_DUPLICATE ; l’écran ne le décide jamais. Un plan déjà envoyé au devis est en lecture seule (TAKEOFF_MARKS_PLAN_SENT). La même clé d’intention avec le même contenu rend le même reçu. N’écrit ni ligne de l’analyse, ni décision, ni saisie du tableau des postes, ni devis.",
+        "description": "Opérateur du métré de l’affaire (administrateur du tenant, ou ingénieur à qui l’affaire appartient). N gestes en une commande : ajouter (géométrie de la page pour son premier repère), déplacer, retirer avec un motif (note obligatoire pour « Autre motif »), rétablir, retenir, affecter à un autre poste de la même lecture, déclarer des pages vérifiées (toujours en dernier). Chaque réponse modifiée est nommée avec la révision de ses repères affichée : une révision dépassée refuse tout (409), rien n’est écrit. Un geste qui laisserait un repère retenu à moins de 4 points d’un autre repère retenu de la même réponse demande le mot du membre (« Même objet » avec le repère retenu, pour retenir ou rétablir, ou « Objet distinct ») : sans lui, refus TAKEOFF_MARKS_OBJECT_DUPLICATE, dont le détail nomme le geste (sa place dans la commande), les repères retenus à côté et les ajouts de la même commande parmi eux (par leur clé) ; l’écran ne le décide jamais. Un plan déjà envoyé au devis est en lecture seule (TAKEOFF_MARKS_PLAN_SENT), refusé par la commande sous ses verrous, après le rejeu de la clé d’intention : la même clé d’intention avec le même contenu rend le même reçu, même après l’envoi. Une réponse nommée deux fois (à la casse près) est refusée. N’écrit ni ligne de l’analyse, ni décision, ni saisie du tableau des postes, ni devis.",
         "parameters": [
           {
             "name": "projectId",
@@ -44394,6 +44394,7 @@
         ],
         "additionalProperties": false
       },
+      "ApiGenericErrorResponse": {},
       "EditAffaireTakeoffCountMarksProjectIdParameter": {
         "type": "string",
         "format": "uuid",
@@ -45155,7 +45156,6 @@
         ],
         "additionalProperties": false
       },
-      "ApiGenericErrorResponse": {},
       "GetAffaireTakeoffCountMarksHistoryProjectIdParameter": {
         "type": "string",
         "format": "uuid",
@@ -47283,6 +47283,12 @@
                                     "minimum": 0,
                                     "maximum": 9007199254740991,
                                     "description": "Révision de la saisie du plan qui tient lieu de cette réponse dans la portée de l’affaire (0 sans saisie ou dans la portée d’un plan)."
+                                  },
+                                  "marksRevision": {
+                                    "description": "Révision des repères comptés de la réponse que la sélection a vue (0 sans repères ; absente, comptée 0) : une acceptance la compare.",
+                                    "type": "integer",
+                                    "minimum": 0,
+                                    "maximum": 9007199254740991
                                   }
                                 },
                                 "required": [
@@ -48619,6 +48625,12 @@
                               "minimum": 0,
                               "maximum": 9007199254740991,
                               "description": "Révision de la saisie du plan qui tient lieu de cette réponse dans la portée de l’affaire (0 sans saisie ou dans la portée d’un plan)."
+                            },
+                            "marksRevision": {
+                              "description": "Révision des repères comptés de la réponse que la sélection a vue (0 sans repères ; absente, comptée 0) : une acceptance la compare.",
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 9007199254740991
                             }
                           },
                           "required": [
@@ -49723,6 +49735,12 @@
                             "minimum": 0,
                             "maximum": 9007199254740991,
                             "description": "Révision de la saisie du plan qui tient lieu de cette réponse dans la portée de l’affaire (0 sans saisie ou dans la portée d’un plan)."
+                          },
+                          "marksRevision": {
+                            "description": "Révision des repères comptés de la réponse que la sélection a vue (0 sans repères ; absente, comptée 0) : une acceptance la compare.",
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
                           }
                         },
                         "required": [
@@ -49852,6 +49870,12 @@
                             "minimum": 0,
                             "maximum": 9007199254740991,
                             "description": "Révision de la saisie du plan qui tient lieu de cette réponse dans la portée de l’affaire (0 sans saisie ou dans la portée d’un plan)."
+                          },
+                          "marksRevision": {
+                            "description": "Révision des repères comptés de la réponse que la sélection a vue (0 sans repères ; absente, comptée 0) : une acceptance la compare.",
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
                           }
                         },
                         "required": [
@@ -49995,6 +50019,12 @@
                             "minimum": 0,
                             "maximum": 9007199254740991,
                             "description": "Révision de la saisie du plan qui tient lieu de cette réponse dans la portée de l’affaire (0 sans saisie ou dans la portée d’un plan)."
+                          },
+                          "marksRevision": {
+                            "description": "Révision des repères comptés de la réponse que la sélection a vue (0 sans repères ; absente, comptée 0) : une acceptance la compare.",
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
                           }
                         },
                         "required": [
@@ -50124,6 +50154,12 @@
                             "minimum": 0,
                             "maximum": 9007199254740991,
                             "description": "Révision de la saisie du plan qui tient lieu de cette réponse dans la portée de l’affaire (0 sans saisie ou dans la portée d’un plan)."
+                          },
+                          "marksRevision": {
+                            "description": "Révision des repères comptés de la réponse que la sélection a vue (0 sans repères ; absente, comptée 0) : une acceptance la compare.",
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
                           }
                         },
                         "required": [
@@ -50312,6 +50348,12 @@
                             "minimum": 0,
                             "maximum": 9007199254740991,
                             "description": "Révision de la saisie du plan qui tient lieu de cette réponse dans la portée de l’affaire (0 sans saisie ou dans la portée d’un plan)."
+                          },
+                          "marksRevision": {
+                            "description": "Révision des repères comptés de la réponse que la sélection a vue (0 sans repères ; absente, comptée 0) : une acceptance la compare.",
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
                           }
                         },
                         "required": [
@@ -50671,6 +50713,12 @@
                                 "minimum": 0,
                                 "maximum": 9007199254740991,
                                 "description": "Révision de la saisie du plan qui tient lieu de cette réponse dans la portée de l’affaire (0 sans saisie ou dans la portée d’un plan)."
+                              },
+                              "marksRevision": {
+                                "description": "Révision des repères comptés de la réponse que la sélection a vue (0 sans repères ; absente, comptée 0) : une acceptance la compare.",
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 9007199254740991
                               }
                             },
                             "required": [

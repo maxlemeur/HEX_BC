@@ -60,17 +60,34 @@ describe("Repères comptés d’un poste", () => {
 
       // What the table of items and the send read, before any correction.
       // The table of items as its readers see it: every line of its page (observed, retained, decision, gestures) and its facets.
+      // Each line's frozen selection also carries its answers' counted marks revision (an acceptance compares it): that
+      // field follows the marks, by design, and is compared on its own below; everything else must not move.
+      type TableLine = { itemId: string; targets: { answers: Array<{ marksRevision?: number } & Record<string, unknown>> } & Record<string, unknown> };
       const table = async () => {
-        const { body } = await apiRequest<Envelope<{ page: { lines: Array<{ itemId: string }> }; facets: unknown }>>(ui.browser, "GET",
+        const { body } = await apiRequest<Envelope<{ page: { lines: TableLine[] }; facets: unknown }>>(ui.browser, "GET",
           `/api/affaires/${seeded.projectId}/takeoff/items`);
         expect(body.data.page.lines.map(({ itemId }) => itemId).sort()).toEqual([seeded.basin, seeded.valve].sort());
-        return { lines: body.data.page.lines, facets: body.data.facets };
+        return { lines: body.data.page.lines.map((line) => ({ ...line, targets: { ...line.targets,
+          answers: line.targets.answers.map((answer) => Object.fromEntries(Object.entries(answer)
+            .filter(([field]) => field !== "marksRevision"))) } })), facets: body.data.facets };
       };
+      const selectedMarks = async () => Object.fromEntries((await apiRequest<Envelope<{ page: { lines: TableLine[] } }>>(ui.browser,
+        "GET", `/api/affaires/${seeded.projectId}/takeoff/items`)).body.data.page.lines
+        .map((line) => [line.itemId, line.targets.answers.map(({ marksRevision }) => marksRevision)]));
       const rows = async () => (await apiRequest<Envelope<unknown>>(ui.browser, "GET", `/api/takeoff/jobs/${seeded.jobId}/items`)).body;
       const planSend = async () => (await apiRequest<unknown>(ui.browser, "POST", `/api/takeoff/jobs/${seeded.jobId}/send-to-estimate/preview`, {})).body;
       const itemSend = async () => (await apiRequest<unknown>(ui.browser, "POST", `/api/takeoff/jobs/${seeded.jobId}/item-send/preview`, {})).body;
       const before = { table: await table(), rows: await rows(), planSend: await planSend(), itemSend: await itemSend(),
         stored: await readSentInputs(seeded.projectId, seeded.jobId) };
+      expect(await selectedMarks()).toEqual({ [seeded.basin]: [1], [seeded.valve]: [1] });
+      // The plan's send (the route released before the items' one) would write the lavabo's row as read: 1 u, not a
+      // count of marks; the send by item does not read its answers yet (its reader is a stub until it is wired).
+      const legacy = before.planSend as { ok: boolean; data: { fingerprint: string; lines: Array<{ designation: string; quantity: number;
+        unit: string }> } };
+      expect(legacy.ok).toBe(true);
+      expect(legacy.data.fingerprint).toMatch(/^[0-9a-f]{64}$/);
+      expect(legacy.data.lines).toEqual(expect.arrayContaining([expect.objectContaining({ designation: "Lavabo", quantity: 1, unit: "u" })]));
+      expect(before.itemSend).toMatchObject({ ok: false, error: { details: { guard: "item_send_answers_not_stored" } } });
 
       // One command: two retained, one removed with its reason, one added, page 7's object removed, both pages verified.
       const added = randomUUID();
@@ -121,6 +138,8 @@ describe("Repères comptés d’un poste", () => {
         actorKind: "member", actorId: owner.userId });
       expect(history[0]).toMatchObject({ actorKind: "worker", actorId: null });
 
+      // The selection follows the marks the member corrected (revision 1 to 4), the other item's not.
+      expect(await selectedMarks()).toEqual({ [seeded.basin]: [4], [seeded.valve]: [1] });
       // A quantity counted from marks is shown, never sent: what the table and the send read has not moved.
       expect({ table: await table(), rows: await rows(), planSend: await planSend(), itemSend: await itemSend(),
         stored: await readSentInputs(seeded.projectId, seeded.jobId) }).toEqual(before);
