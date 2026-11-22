@@ -149,8 +149,8 @@ la somme de ses apports. Un poste incertain peut porter une valeur candidate, ja
 mesure. Un poste non trouvé n’a ni quantité (jamais 0) ni observation, et seulement si
 toutes ses pages ont pu être lues : une page illisible rend la réponse incertaine. Chaque
 observation a son rôle : un apport (compté), un candidat ou une alternative (une autre
-lecture d’un objet déjà lu, jamais additionnée). Seul un apport peut être une ligne de la
-revue des quantités ; une lecture vectorielle n’est jamais un apport. Ce que la lecture
+lecture d’un objet déjà lu, jamais additionnée). Chaque apport est une ligne de la revue
+des quantités, et seuls les apports le sont ; une lecture vectorielle n’est jamais un apport. Ce que la lecture
 voit hors de la liste reste un avertissement du résultat, jamais un poste. Le Mac publie
 les réponses d’un plan en une fois, sous son bail, avec le résultat et la fin de
 l’analyse : une réponse qui manque, un poste étranger, une page hors du plan, une quantité

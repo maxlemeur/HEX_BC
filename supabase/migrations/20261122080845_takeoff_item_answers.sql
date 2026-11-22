@@ -5,8 +5,8 @@
 -- found, with the pages it searched and those it could not read, its ordered reasons, its quantity (measured) or its
 -- candidate value (uncertain), its observations, and the reading of the same item on the same plan it replaces. An
 -- answer exists without any quantity: « not found » stores a SQL NULL, never 0. Each observation has its own identity and
--- role: a contribution (counted), a candidate or an alternative (never counted). Only a contribution may be one of the
--- job's takeoff_items rows, the rows the existing readers sum (their quantity stays positive and not null; none of their
+-- role: a contribution (counted), a candidate or an alternative (never counted). Every contribution is one of the job's
+-- takeoff_items rows, the rows the existing readers sum (their quantity stays positive and not null; none of their
 -- constraints changes); candidates and alternatives have none. The raw reading is immutable; the state of its review is
 -- another relation (lot 4, B2), which references these answers.
 --
@@ -190,7 +190,7 @@ create index takeoff_item_answers_entry_idx on public.takeoff_item_answers (list
 -- 4. The observations of an answer, each with its own identity, in the order the reading gave them, with its role:
 --    a contribution (a positive quantity of a measured answer, counted in its total), a candidate (an indication: a page,
 --    a candidate value; every positive reading of an answer that is not measured), an alternative (another reading of an
---    object already read: an overlap page, the vector reading of what the model measured; kept, never added). Only a
+--    object already read: an overlap page, the vector reading of what the model measured; kept, never added). Every
 --    contribution is one of the job's countable takeoff_items rows, the rows the existing readers sum (that row is what a
 --    review then corrects; this one keeps the reading as it was); candidates and alternatives have none. A vector
 --    observation is never a contribution (marks on a plan stay proposals until a bench qualifies them) and names the
@@ -222,7 +222,7 @@ create table public.takeoff_item_answer_observations (
   takeoff_item_id uuid references public.takeoff_items (id) deferrable initially deferred,
   occurrence_coverage text not null check (occurrence_coverage in ('page_total')),
   constraint takeoff_item_answer_observations_role_rule_check check (
-    (role <> 'contribution' or (quantity is not null and unit is not null))
+    (role <> 'contribution' or (quantity is not null and unit is not null and takeoff_item_id is not null))
     and (takeoff_item_id is null or role = 'contribution')
     and (source <> 'vector' or (vector_item_id is not null and method = 'vector_reading' and role <> 'contribution'
       and chunk_id is null))
@@ -549,13 +549,14 @@ begin
           or exists (select 1 from pg_catalog.jsonb_array_elements(p_items) i(value) where lower(i.value ->> 'id') = lower(v.value ->> 'id')))) then
     return 'TAKEOFF_ANSWERS_VECTOR_ROWS_INVALID';
   end if;
-  -- Observations: a contribution belongs to a measured answer and has its quantity and unit; only a contribution names a
-  -- row of the result; a vector observation is never a contribution, has the vector method and names a vector row of this
+  -- Observations: a contribution belongs to a measured answer, has its quantity and unit and names its row of the
+  -- result (the row the existing readers count); only a contribution names one; a vector observation is never a contribution, has the vector method and names a vector row of this
   -- publication on its page; a model observation names none.
   if exists (select 1 from private.takeoff_item_answers_parsed(p_answers) a
       cross join lateral pg_catalog.jsonb_array_elements(a.observations) o(value)
       where (o.value ->> 'role' = 'contribution' and (a.outcome <> 'measured' or o.value -> 'quantity' is null
-          or o.value -> 'quantity' = 'null'::jsonb or o.value -> 'unit' is null or o.value -> 'unit' = 'null'::jsonb))
+          or o.value -> 'quantity' = 'null'::jsonb or o.value -> 'unit' is null or o.value -> 'unit' = 'null'::jsonb
+          or o.value ->> 'takeoff_item_id' is null))
         or (o.value ->> 'takeoff_item_id' is not null and o.value ->> 'role' <> 'contribution')
         or (o.value ->> 'source' = 'vector' and (o.value ->> 'role' = 'contribution' or o.value ->> 'method' <> 'vector_reading'
           or o.value ->> 'chunk_id' is not null or o.value ->> 'vector_key' is null

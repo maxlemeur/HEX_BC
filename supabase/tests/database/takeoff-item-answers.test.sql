@@ -409,6 +409,9 @@ select throws_ok($$select * from pg_temp.publish(pg_temp.job(20, 1), 901,
   jsonb_set(jsonb_set(pg_temp.valid(), '{1,observations,0,role}', '"contribution"'), '{1,observations,0,takeoff_item_id}',
     to_jsonb(pg_temp.f(813))), pg_temp.rows_(1) || jsonb_build_array(pg_temp.row_(813, 1, 2)))$$,
   '22023', 'TAKEOFF_ANSWERS_OBSERVATION_INVALID', 'an answer that is not measured counts nothing: no contribution');
+select throws_ok($$select * from pg_temp.publish(pg_temp.job(20, 1), 901,
+  pg_temp.valid() #- '{0,observations,0,takeoff_item_id}' #- '{0,observations,1,takeoff_item_id}', '[]'::jsonb)$$,
+  '22023', 'TAKEOFF_ANSWERS_OBSERVATION_INVALID', 'a contribution without its row of the result is refused');
 select throws_ok($$select * from pg_temp.publish(pg_temp.job(20, 1), 901, pg_temp.valid(),
   pg_temp.rows_(1) || jsonb_build_array(pg_temp.row_(899, 1, 2)))$$,
   '22023', 'TAKEOFF_ANSWERS_OBSERVATION_INVALID', 'a row of the result that is no contribution''s is refused');
