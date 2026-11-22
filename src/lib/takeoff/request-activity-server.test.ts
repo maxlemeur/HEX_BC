@@ -119,7 +119,7 @@ type JobState = "pending" | "processing" | "completed" | "failed";
 
 /** One admitted request of `count` plans in format 2, its jobs in `states` (the rest queued), as each client reads them. */
 function seed(input: { count: number; states?: JobState[]; requestState?: string; hiddenJobs?: number[]; older?: number;
-  role?: "engineer" | "director"; lines?: Array<{ excluded: boolean }> }) {
+  role?: "engineer" | "director"; lines?: Array<{ excluded: boolean }>; itemList?: boolean }) {
   const plans = Array.from({ length: input.count }, (_, index) => ({
     entry_key: id("50000000", index + 1), name: `Plan ${String.fromCharCode(65 + index)}.pdf`, plan_file_id: id("50000000", index + 1),
     logical_id: id("50000000", index + 1), intake_document_id: null, pages: [index + 1],
@@ -128,6 +128,8 @@ function seed(input: { count: number; states?: JobState[]; requestState?: string
     format_version: 2,
     units: plans.map((plan, index) => ({ key: `plan:${plan.entry_key}`, ordinal: index + 1, plans: [plan.entry_key], pages: plan.pages })),
     plans, coverage: { plans_retained: input.count, plans_omitted: [] },
+    // The sealed order's kind, as the server selects it (`order_kind:manifest->order->>kind`).
+    ...(input.itemList ? { order_kind: "item_list" } : {}),
   };
   const request = (requestId: string, createdAt: string, state: string): Row => ({
     id: requestId, tenant_id: TENANT, project_id: PROJECT, origin: requestId === REQUEST ? "automatic" : "manual",
@@ -235,6 +237,26 @@ describe("readTakeoffRequestActivity: one light projection", () => {
     expect(db.rpcCalls.filter(([name]) => name === "service:rpc:read_takeoff_launch_unknown_calls")).toEqual([
       ["service:rpc:read_takeoff_launch_unknown_calls", expect.objectContaining({ p_tenant_id: TENANT, p_project_id: PROJECT,
         p_request_ids: expect.arrayContaining([REQUEST]) })]]);
+  });
+
+  it("says a request read against the list, and reads the send's write rule once, only for such a request", async () => {
+    seed({ count: 2, states: ["completed", "processing"], itemList: true });
+    db.rpc.takeoff_item_list_may_write = true;
+    const answer = await read();
+    expect(takeoffRequestActivityResponseSchema.safeParse(answer).success).toBe(true);
+    expect(answer.current?.order).toBe("item_list");
+    expect(answer.current?.jobs.map((job) => job.canSendItems)).toEqual([true, false]);
+    expect(db.rpcCalls.filter(([name]) => name === "service:rpc:takeoff_item_list_may_write")).toEqual([
+      ["service:rpc:takeoff_item_list_may_write", { p_tenant_id: TENANT, p_project_id: PROJECT, p_actor: OWNER }]]);
+    // Without the write right, no entry; a request of today's formats reads no right at all.
+    db.rpcCalls = [];
+    db.rpc.takeoff_item_list_may_write = false;
+    expect((await read()).current?.jobs.some((job) => job.canSendItems)).toBe(false);
+    seed({ count: 2, states: ["completed", "processing"] });
+    db.rpcCalls = [];
+    const free = await read();
+    expect([free.current?.order, free.current?.jobs.some((job) => job.canSendItems)]).toEqual(["free", false]);
+    expect(db.rpcCalls.some(([name]) => name === "service:rpc:takeoff_item_list_may_write")).toBe(false);
   });
 
   it("computes the dossier's difference once, then again only when the dossier moved", async () => {

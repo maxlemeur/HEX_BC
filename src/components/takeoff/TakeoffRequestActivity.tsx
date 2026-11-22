@@ -1,5 +1,6 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 
@@ -25,6 +26,11 @@ import { takeoffReviewHref } from "@/lib/takeoff/review-href";
 import { describeTakeoffJobFailure } from "@/lib/takeoff/visible-status";
 
 import { useTakeoffRequestActivity } from "./useTakeoffRequestActivity";
+
+const TakeoffItemSendDialog = dynamic(
+  () => import("@/components/takeoff/item-send/TakeoffItemSendDialog").then((module) => module.TakeoffItemSendDialog),
+  { ssr: false },
+);
 
 const clock = new Intl.DateTimeFormat("fr-FR", { timeStyle: "medium", timeZone: "Europe/Paris" });
 const formatClock = (value: string) => clock.format(new Date(value));
@@ -66,16 +72,35 @@ function describeDates(request: Activity) {
 
 type LocationTarget = { setId: string; fileId: string; name: string };
 type Command = { jobId: string; kind: "resubmit" | "cancel" };
+type SendTarget = { jobId: string; name: string };
+
+/**
+ * Whether a read says this member sends a plan read against the list at all: a plan of such a request, read to its end and
+ * not sent, is sendable exactly when the member writes the affaire's list (the rule `canSendItems` applies). Null when the
+ * read holds no such plan.
+ */
+function takeoffItemSendRight(read: TakeoffRequestActivityResponse): boolean | null {
+  for (const request of [read.current, ...read.history]) {
+    if (request?.order !== "item_list") continue;
+    for (const job of request.jobs) {
+      const unit = request.units?.units.find((candidate) => candidate.jobId === job.jobId);
+      if (unit?.state === "succeeded" && !job.applied && job.estimateVersionId === null) return job.canSendItems;
+    }
+  }
+  return null;
+}
 
 /**
  * The plans of one request, in the recorded order: each one's state, its last transition, why it stopped and what the
  * member may do (by the one resume policy), « Revoir [plan] » as soon as it is read, and its building and level.
  */
-function RequestUnits({ projectId, request, onLocate, onCommand, pending }: {
+function RequestUnits({ projectId, request, onLocate, onCommand, onSendItems, pending }: {
   projectId: string;
   request: Activity;
   onLocate: (target: LocationTarget) => void;
   onCommand: (command: Command) => void;
+  /** A plan read against the list of items: the send of its retained items (lot 4). */
+  onSendItems: (target: SendTarget) => void;
   pending: Command | null;
 }) {
   const units = request.units;
@@ -157,6 +182,14 @@ function RequestUnits({ projectId, request, onLocate, onCommand, pending }: {
                 <Button type="button" variant="ghost" size="sm" aria-label={`Bâtiment et niveau de ${name}`}
                   onClick={() => onLocate({ setId: job.planSetId!, fileId: unit.planFileId!, name })}>
                   Bâtiment et niveau
+                </Button>
+              ) : null}
+              {/* A plan read against the list of items is sent item by item, from its own screen; today's formats
+                  keep today's send, from their review. */}
+              {!grouped && job?.canSendItems ? (
+                <Button type="button" size="sm" aria-label={`Envoyer ce plan au devis : « ${name} »`}
+                  onClick={() => onSendItems({ jobId: unit.jobId, name })}>
+                  Envoyer ce plan au devis
                 </Button>
               ) : null}
               {job?.canResubmit ? (
@@ -261,6 +294,7 @@ export function TakeoffRequestActivity({ projectId, viewerKey, live, linked, onS
     viewerKey, projectId, view: "history", offset: historyOffset, poll: false, enabled: linked === null,
   });
   const [locating, setLocating] = useState<LocationTarget | null>(null);
+  const [sending, setSending] = useState<SendTarget | null>(null);
   const [pending, setPending] = useState<Command | null>(null);
   const [commandError, setCommandError] = useState<string | null>(null);
   // The older executions are not polled: they are read again when the latest one moved (a new request, a closure).
@@ -326,6 +360,18 @@ export function TakeoffRequestActivity({ projectId, viewerKey, live, linked, onS
   }
 
   const coverage = current ? describeTakeoffRequestActivityCoverage(current) : null;
+  // The send stays open only while the freshest read that concerns it still lets this member send that plan: the freshest
+  // read naming the plan, and the freshest one saying whether the member sends at all (the current read and the history
+  // are read apart, each at its own time).
+  const reads = [live.data, linked || history.refused ? undefined : history.data]
+    .filter((read): read is TakeoffRequestActivityResponse => read !== undefined)
+    .sort((left, right) => right.observedAt.localeCompare(left.observedAt));
+  const sendable = sending !== null && (() => {
+    const named = reads.map((read) => [read.current, ...read.history].flatMap((request) => request?.jobs ?? [])
+      .find((job) => job.jobId === sending.jobId)).find((job) => job !== undefined);
+    const right = reads.map(takeoffItemSendRight).find((value) => value !== null) ?? null;
+    return named?.canSendItems === true && right !== false;
+  })();
   const observedAt = live.data?.observedAt;
   const failedRead = Boolean(live.error) && Boolean(live.data);
 
@@ -359,7 +405,7 @@ export function TakeoffRequestActivity({ projectId, viewerKey, live, linked, onS
           <RequestNotes projectId={projectId} request={current} onChanged={onChanged} />
           {commandError ? <p className="text-sm text-danger" role="alert">{commandError}</p> : null}
           <RequestUnits projectId={projectId} request={current} onLocate={setLocating} onCommand={(command) => void runCommand(command)}
-            pending={pending} />
+            onSendItems={setSending} pending={pending} />
           {linked ? (
             <button type="button" className="journey-text-action min-h-11 sm:min-h-9" onClick={onShowLatest}>
               Voir la dernière analyse de l’affaire
@@ -384,7 +430,7 @@ export function TakeoffRequestActivity({ projectId, viewerKey, live, linked, onS
                   <div className="mt-3 space-y-3">
                     <RequestNotes projectId={projectId} request={request} onChanged={onChanged} />
                     <RequestUnits projectId={projectId} request={request} onLocate={setLocating}
-                      onCommand={(command) => void runCommand(command)} pending={pending} />
+                      onCommand={(command) => void runCommand(command)} onSendItems={setSending} pending={pending} />
                   </div>
                 </details>
               </li>
@@ -407,6 +453,10 @@ export function TakeoffRequestActivity({ projectId, viewerKey, live, linked, onS
       {locating ? (
         <TakeoffPlanLocationDialog setId={locating.setId} fileId={locating.fileId} documentName={locating.name}
           open onOpenChange={(open) => { if (!open) setLocating(null); }} onSaved={() => undefined} />
+      ) : null}
+      {sending && sendable ? (
+        <TakeoffItemSendDialog open jobId={sending.jobId} planName={sending.name} viewerKey={viewerKey}
+          onOpenChange={(open) => { if (!open) setSending(null); }} onSent={onChanged} />
       ) : null}
     </section>
   );

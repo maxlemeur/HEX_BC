@@ -32,6 +32,7 @@ export default async function AffaireTakeoffReviewPage({ params, searchParams }:
         jobId={jobId}
         versionId={scope.versionId} canEdit={scope.canEdit}
         projectId={projectId}
+        viewerKey={`${tenantId}:${profile?.id ?? ""}`}
       />
       <TakeoffPlanLocationsPanel jobId={jobId} />
     </div>

@@ -136,7 +136,7 @@ export const itemSendPreviewResponseSchema = z.object({
     label: z.string().nullable(),
     page: z.number().int().positive().nullable(),
     held_item_ids: z.array(uuid),
-    /** The estimate's lines already on a page waiting for its decision. */
+    /** The estimate's lines already on a page waiting for its decision; for a quantity typed by hand, the line typed. */
     earlier_lines: z.array(z.object({ estimate_item_id: uuid, title: z.string().nullable(), quantity: z.number() }).strict()),
     message: z.string(),
     options: z.array(optionSchema),

@@ -25,7 +25,7 @@ export function fixtureActivityJob(letter: string, overrides: Partial<TakeoffReq
   return {
     jobId: fixtureJob(letter), planSetId: FIXTURE_PLAN_SET, estimateVersionId: null, lastTransitionAt: "2026-11-21T09:05:00.000Z",
     itemCount: 0, applied: false, errorCode: null,
-    retryCount: 0, resume: null, canCancel: false, canResubmit: false, ...overrides,
+    retryCount: 0, resume: null, canCancel: false, canResubmit: false, canSendItems: false, ...overrides,
   };
 }
 
@@ -34,7 +34,7 @@ export function fixtureRequest(units: TakeoffRequestUnitView[] | null, jobs: Tak
   const coverage = { expected: units?.length ?? 0, queued: 0, running: 0, succeeded: 0, failed: 0, canceled: 0, not_started: 0 };
   for (const unit of units ?? []) coverage[unit.state] += 1;
   return {
-    id: FIXTURE_REQUEST, origin: "automatic", intent: "initial", state: units ? "admitted" : "blocked", outcome: null, reason: null,
+    id: FIXTURE_REQUEST, origin: "automatic", intent: "initial", order: "free", state: units ? "admitted" : "blocked", outcome: null, reason: null,
     createdAt: "2026-11-21T09:00:00.000Z", admittedAt: units ? "2026-11-21T09:00:05.000Z" : null, closedAt: null,
     units: units ? { format: "per_plan", units, coverage, unknownCalls: null } : null,
     groupedPlans: [], plansOmitted: [], jobs, action: null, dossierChanged: null, ...overrides,

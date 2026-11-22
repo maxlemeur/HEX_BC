@@ -1,5 +1,6 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
@@ -64,6 +65,29 @@ import {
 } from "./ItemTableGestureDialogs";
 import { ItemTableLineDetail } from "./ItemTableLineDetail";
 import { useCompletions, type Completion } from "@/components/takeoff/item-detail/useCompletions";
+
+const TakeoffItemSendDialog = dynamic(
+  () => import("@/components/takeoff/item-send/TakeoffItemSendDialog").then((module) => module.TakeoffItemSendDialog),
+  { ssr: false },
+);
+const readingDate = new Intl.DateTimeFormat("fr-FR", { day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" });
+
+/**
+ * In a plan's scope, the analyses of that plan whose answers the page shows (usually one; a new measure of some items
+ * adds another), each sent or not: a plan read against the list is sent to the estimate from here, one analysis at a time.
+ */
+function planSends(lines: readonly ItemTableResponseLine[], planKey: string) {
+  const jobs = new Map<string, { jobId: string; sent: boolean; readAt: string }>();
+  for (const line of lines) {
+    for (const reading of line.readings) {
+      if (reading.planKey !== planKey || !reading.answer) continue;
+      const known = jobs.get(reading.answer.jobId);
+      jobs.set(reading.answer.jobId, { jobId: reading.answer.jobId, sent: (known?.sent ?? true) && reading.sent,
+        readAt: reading.answer.readAt });
+    }
+  }
+  return [...jobs.values()].sort((left, right) => left.readAt.localeCompare(right.readAt));
+}
 
 /**
  * The table of items of an affaire's takeoff: a line per item of the list, with its state, its observed quantity, the
@@ -256,6 +280,8 @@ export function TakeoffItemTable({ projectId, viewerKey, signature }: {
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<Notice | null>(null);
   const [preview, setPreview] = useState<{ value: ItemRemeasurePreview | null; error: string | null }>({ value: null, error: null });
+  // The send belongs to the plan's scope it was opened from: another scope (a filter, the browser's history) closes it.
+  const [sending, setSending] = useState<{ jobId: string; planName: string; scope: string } | null>(null);
 
   // The table's completions (useCompletions, the detail's one rule): each is addressed to what started it — the screen (the
   // member, the affaire, the scope) and the selection held, or the selection with its filter — and changes what is shown
@@ -428,6 +454,9 @@ export function TakeoffItemTable({ projectId, viewerKey, signature }: {
   );
 
   const pageLines = data?.page.lines ?? [];
+  const planScope = address.scope.kind === "plan" ? address.scope : null;
+  const planName = planScope ? plans.find(({ key: planKey }) => planKey === planScope.planKey)?.name ?? "choisi" : null;
+  const sends = planScope ? planSends(pageLines, planScope.planKey) : [];
   const allOnPage = pageLines.length > 0 && pageLines.every(({ itemId }) => itemId in selection.items);
   const hasFilter = Object.keys(address.filter).length > 0 || address.scope.kind === "plan";
   const columns = canReview ? 14 : 11;
@@ -534,6 +563,22 @@ export function TakeoffItemTable({ projectId, viewerKey, signature }: {
             ) : (
               <p className="text-sm text-muted-foreground">Un opérateur du métré de l’affaire peut revoir ces postes.</p>
             )}
+
+            {planScope && sends.length > 0 ? (
+              <div className="flex flex-wrap items-center gap-2" data-testid="poste-plan-send">
+                {sends.every(({ sent }) => sent) ? (
+                  <p className="text-sm" data-testid="poste-plan-sent">
+                    Plan « {planName} » envoyé au devis : ses postes ne se modifient plus en bloc.
+                  </p>
+                ) : null}
+                {canReview ? sends.filter(({ sent }) => !sent).map((send) => (
+                  <Button key={send.jobId} size="sm" variant="secondary"
+                    onClick={() => setSending({ jobId: send.jobId, planName: planName ?? "", scope: scopeKey })}>
+                    Envoyer ce plan au devis{sends.length > 1 ? ` (lecture du ${readingDate.format(new Date(send.readAt))})` : ""}
+                  </Button>
+                )) : null}
+              </div>
+            ) : null}
 
             {notice ? (
               <p className={`text-sm ${notice.tone === "danger" ? "text-danger" : notice.tone === "success" ? "text-success" : ""}`}
@@ -766,6 +811,11 @@ export function TakeoffItemTable({ projectId, viewerKey, signature }: {
             for (const { itemId } of result.applied) delete copy[itemId];
             return copy;
           }))} />
+      ) : null}
+      {/* Withdrawn on the freshest read of the table: another scope, the right gone, or its plan now sent. */}
+      {sending && sending.scope === scopeKey && canReview && !sends.some((send) => send.jobId === sending.jobId && send.sent) ? (
+        <TakeoffItemSendDialog open jobId={sending.jobId} planName={sending.planName} viewerKey={viewerKey}
+          onOpenChange={(open) => { if (!open) setSending(null); }} onSent={() => void refresh()} />
       ) : null}
       {dialog?.gesture === "remeasure" ? (
         <RemeasureDialog scopeLabel={label} busy={busy} preview={preview.value} loadError={preview.error}

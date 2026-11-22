@@ -57,12 +57,19 @@ const jobSchema = z.object({
   resume: takeoffActivityResumeSchema.nullable().describe("Décision de reprise d’une analyse arrêtée, la même que son détail."),
   canCancel: z.boolean(),
   canResubmit: z.boolean().describe("Vrai si et seulement si resume.action vaut retry_now."),
+  canSendItems: z.boolean().describe(
+    "Ce membre peut envoyer au devis les postes retenus de ce plan : lu contre la liste des postes, terminé, pas encore envoyé, "
+    + "et le membre écrit l’affaire (son propriétaire ingénieur ou un administrateur). Le serveur revérifie tout à l’aperçu.",
+  ),
 });
 
 export const takeoffRequestActivitySchema = z.object({
   id: uuid,
   origin: z.enum(["automatic", "manual"]),
   intent: z.enum(["initial", "reread_plans", "remeasure_items"]),
+  order: z.enum(["free", "item_list"]).describe(
+    "Ce que la demande a posé : une lecture libre (envoi d’aujourd’hui), ou la liste des postes de l’affaire (envoi poste par poste).",
+  ),
   state: z.enum(TAKEOFF_LAUNCH_REQUEST_STATES),
   outcome: z.enum(["success", "failure", "canceled", "partial"]).nullable(),
   reason: z.object({ code: z.string(), message: z.string() }).nullable()

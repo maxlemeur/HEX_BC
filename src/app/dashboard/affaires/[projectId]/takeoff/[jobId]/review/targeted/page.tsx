@@ -18,7 +18,7 @@ type Props = {
  */
 export default async function AffaireTakeoffTargetedReviewPage({ params, searchParams }: Props) {
   const [{ projectId, jobId }, { versionId }] = await Promise.all([params, searchParams]);
-  const { tenantId } = await getUserContext();
+  const { tenantId, profile } = await getUserContext();
 
   if (!tenantId) notFound();
   if (!(await isTakeoffEnabled(tenantId))) notFound();
@@ -26,5 +26,6 @@ export default async function AffaireTakeoffTargetedReviewPage({ params, searchP
   const scope = await resolveTakeoffReviewScope({ projectId, jobId, versionId });
   if (!scope) notFound();
 
-  return <TakeoffTargetedReview jobId={jobId} versionId={scope.versionId} canEdit={scope.canEdit} projectId={projectId} />;
+  return <TakeoffTargetedReview jobId={jobId} versionId={scope.versionId} canEdit={scope.canEdit} projectId={projectId}
+    viewerKey={`${tenantId}:${profile?.id ?? ""}`} />;
 }
