@@ -252,9 +252,11 @@ async function readReferenceDocuments(input: Input, projectId: string, sources: 
 }
 
 /** Never replaces an unavailable reference with an intake snippet or another document. */
-export async function loadPreparationReferenceFiles(input: Input): Promise<{ files: ReferenceFile[]; sourceHints: string[] }> {
+export async function loadPreparationReferenceFiles(input: Input): Promise<{ files: ReferenceFile[]; sourceHints: string[];
+  /** Each file's kind, name and indice, in the files' order (lot 4: the reading against the list attaches the CCTP only). */
+  references: Array<{ kind: "dpgf" | "cctp" | "other"; name: string; revision: string | null }> }> {
   const sources = input.snapshot.preparation.sources.filter((source) => source.active && source.kind !== "plan");
-  if (!sources.length) return { files: [], sourceHints: [] };
+  if (!sources.length) return { files: [], sourceHints: [], references: [] };
   if (sources.length > PREPARATION_REFERENCE_LIMITS.files) rejectSize(input.job);
   if (new Set(sources.map((source) => source.document_id)).size !== sources.length) rejectSource(input.job, "Une pièce de référence est sélectionnée plusieurs fois.");
   let projectId = input.job.project_id;
@@ -276,6 +278,7 @@ export async function loadPreparationReferenceFiles(input: Input): Promise<{ fil
   }
   const files: ReferenceFile[] = [];
   const sourceHints: string[] = [];
+  const references: Array<{ kind: "dpgf" | "cctp" | "other"; name: string; revision: string | null }> = [];
   for (const source of sources) {
     const document = documents.get(source.document_id)!;
     const format = classifyPreparationReferenceFormat(document);
@@ -313,9 +316,10 @@ export async function loadPreparationReferenceFiles(input: Input): Promise<{ fil
       });
     }
     files.push({ data: reading.data.toString("base64"), mimeType: reading.mimeType });
+    references.push({ kind: source.kind as "dpgf" | "cctp" | "other", name: document.file_name, revision: source.revision ?? null });
     sourceHints.push(`Pièce de référence jointe ${files.length} : ${JSON.stringify({ document_id: source.document_id, document_name: document.file_name, kind: source.kind, revision: source.revision })}. ${reading.provenance}`);
   }
   // A reference deleted or revised during its download must be confirmed again.
   await readReferenceDocuments(input, projectId, sources);
-  return { files, sourceHints };
+  return { files, sourceHints, references };
 }

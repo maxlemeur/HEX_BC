@@ -189,6 +189,7 @@ export function MaterialRequestLines({
   onReviewPresumedMaterial,
   toolbar,
   canEditCatalogue = false,
+  canCreateSupplyType = false,
   nextAction,
 }: Readonly<{
   editor: MaterialRequestEditorApi;
@@ -202,6 +203,8 @@ export function MaterialRequestLines({
   toolbar?: ReactNode;
   /** May set a supply type's preferred supplier here (admins and engineers): the gap is filled in place. */
   canEditCatalogue?: boolean;
+  /** May add a supply type while creating the article a line names (admins only). */
+  canCreateSupplyType?: boolean;
   nextAction?: ReactNode;
 }>) {
   const toast = useToast();
@@ -715,6 +718,7 @@ export function MaterialRequestLines({
         <MaterialRequestArticleSheet
           editor={editor}
           line={articleLine}
+          canCreateSupplyType={canCreateSupplyType}
           onOpenChange={(open) => {
             if (!open) setArticleLineId(null);
           }}

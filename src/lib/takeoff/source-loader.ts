@@ -52,6 +52,8 @@ export type DownloadedTakeoffFile = {
   preparationSnapshot?: TakeoffPreparationSnapshot;
   contextFiles?: Array<{ data: string; mimeType: string }>;
   contextSourceHints?: string[];
+  /** Each context file's kind, name and indice, in the same order (lot 4: the reading against the list keeps the CCTP only). */
+  contextReferences?: Array<{ kind: "dpgf" | "cctp" | "other"; name: string; revision: string | null }>;
   sourcePlanFilePageCounts?: Array<{
     filePath: string;
     pageCount: number;
@@ -186,7 +188,7 @@ export async function loadTakeoffSource(input: {
       maxPages: await getPlanSetMaxPdfPages({ supabase: input.supabase, tenantId: input.job.tenant_id, level: input.level }),
     });
     const context = await loadPreparationReferenceFiles({ supabase: input.supabase, job: input.job, snapshot: preparationSnapshot });
-    return { ...source, contextFiles: context.files, contextSourceHints: context.sourceHints };
+    return { ...source, contextFiles: context.files, contextSourceHints: context.sourceHints, contextReferences: context.references };
   }
   if (planSetId) {
     const { data: planFilesData, error: planFilesError } = await readAllRows(() => input.supabase

@@ -168,7 +168,8 @@ export async function readAffaireTakeoffZone(context: AuthenticatedTenantContext
     confirmedBeforeActivation: launch.confirmedBeforeActivation,
     request: request ? {
       id: request.id, origin: request.origin, state: request.state, mandateRevision: request.mandateRevision,
-      reason: request.reason, pieces: request.pieces, hasPayer: request.hasPayer, payerIsViewer: request.payerIsViewer,
+      reason: request.reason, pieces: request.pieces, readingBounds: request.readingBounds ?? null, hasPayer: request.hasPayer,
+      payerIsViewer: request.payerIsViewer,
       createdAt: request.createdAt, admittedAt: request.admittedAt, closedAt: request.closedAt, outcome: request.outcome,
       units: request.units, action: request.action, canStart: canStart.data === true,
       jobs: inManifestOrder((requestJobs.data ?? []) as JobRow[], manifest).map(toJob),

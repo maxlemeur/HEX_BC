@@ -116,6 +116,15 @@ describe("buildAffaireTakeoffZone", () => {
       expect(model!.links).toContainEqual(expect.objectContaining({ kind: "documents", label: "Voir le dossier" }));
     });
 
+    // Lot 4: a reading against the list of items past its bounds says the plans to restrict and the effective limits.
+    it("says the effective limits of a reading against the list that passes its bounds", () => {
+      const pieces = [{ id: "44444444-4444-4444-8444-444444444444", name: "Plan R+1.pdf" }];
+      const readingBounds = { ok: false, items: 1_700, plans: 1, calls: 43, tokens: 1_290_000, requestBudgetTokens: 400_000 };
+      const model = zone({ data: data({ request: request({ reason: "PLAN_SET_TOO_LARGE", pieces, readingBounds }) }) });
+      expect(model?.message).toBe(describeTakeoffLaunchReason("PLAN_SET_TOO_LARGE", pieces, readingBounds));
+      expect(model?.message).toContain("43 appels prévus");
+    });
+
     it("tells a reservation from an analysis its Mac took, and follows both", () => {
       const evaluating = zone({ data: data({ request: request({ state: "evaluating", reason: null, hasPayer: true }) }) });
       expect(evaluating).toMatchObject({ status: "En préparation", live: true, options: { mode: "save_only" } });
