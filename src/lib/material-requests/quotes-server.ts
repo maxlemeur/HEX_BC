@@ -470,7 +470,7 @@ export async function retainMaterialRequestQuote(
     if (error.message === MATERIAL_REQUEST_QUOTE_DISCOUNT_TOO_LARGE) {
       const now = await requireQuote(access, request.id, quote.id);
       throw unprocessableEntity(
-        "La remise de ce devis dépasse le montant de ses lignes et de son port : corrigez-la avant de le retenir.",
+        "La remise de ce devis dépasse le montant de ses lignes et de son port, hors taxes ou TVA comprise : corrigez-la avant de le retenir.",
         { shipping_ht_cents: now.shipping_ht_cents, discount_ht_cents: now.discount_ht_cents },
         MATERIAL_REQUEST_QUOTE_DISCOUNT_TOO_LARGE,
       );

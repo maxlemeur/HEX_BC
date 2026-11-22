@@ -793,7 +793,7 @@ describe("retaining a quote", () => {
     const { status, error } = await call(retainRoute.POST, "POST", ofQuote(QUOTE_ALPHA));
     expect([status, error?.code, error?.message, error?.details]).toEqual([
       422, "MATERIAL_REQUEST_QUOTE_DISCOUNT_TOO_LARGE",
-      "La remise de ce devis dépasse le montant de ses lignes et de son port : corrigez-la avant de le retenir.",
+      "La remise de ce devis dépasse le montant de ses lignes et de son port, hors taxes ou TVA comprise : corrigez-la avant de le retenir.",
       { shipping_ht_cents: 900, discount_ht_cents: 999999 },
     ]);
   });

@@ -37,6 +37,16 @@ export function linesNotValidated(names: readonly string[]): string {
   return `${linesSubject(names)} ${names.length === 1 ? "n’est pas validée : validez-la" : "ne sont pas validées : validez-les"} avant de retenir ce devis.`;
 }
 
+/**
+ * The shipping or the discount typed on the quote was refused, or cannot be read: a retain would freeze the saved
+ * amount, and the purchase order would carry it instead of the one shown.
+ */
+export const QUOTE_CHARGE_HELD =
+  "Le port ou la remise saisi sur ce devis n’est pas enregistré : corrigez-le, ou appuyez sur Échap pour revenir au montant enregistré.";
+
+/** A quote's shipping or discount, as the card writes them one at a time. */
+export type QuoteChargeKind = "shipping_ht_cents" | "discount_ht_cents";
+
 /** A price on screen cannot be read: a retain would apply the saved price, not the one shown. */
 export const QUOTE_PRICE_UNREADABLE = "Un prix saisi sur ce devis n’est pas lisible : corrigez-le, ou appuyez sur Échap.";
 
@@ -83,10 +93,20 @@ export type MaterialRequestQuotesApi = {
   /** Lines of the quote whose price field cannot be read, by id. */
   unreadablePrices: (quoteId: string) => readonly string[];
   saveDetails: (quoteId: string, patch: QuoteDetailsPatch) => Promise<SaveResult>;
+  /**
+   * The shipping or the discount of a quote. A refusal is kept until the amount is saved or given up
+   * (`forgetChargeFailure`): the quote is not retained meanwhile, here and at the retain's turn in the queue.
+   */
+  saveCharge: (quoteId: string, kind: QuoteChargeKind, cents: number | null) => Promise<SaveResult>;
+  /** The office gave up an amount that could not be saved (Escape): the field shows the saved one again. */
+  forgetChargeFailure: (quoteId: string, kind: QuoteChargeKind) => void;
+  /** The shipping or discount field shows text that cannot be read: the quote is not retained while it is so. */
+  setChargeUnreadable: (quoteId: string, kind: QuoteChargeKind, unreadable: boolean) => void;
   markReceived: (quoteId: string) => Promise<SaveResult>;
   /**
    * Prices the request's lines from the quote; the competing quotes are closed by the server. Refused, here and at
-   * its turn in the queue, while a price is unsaved or unreadable or one of `lineIds` is not validated.
+   * its turn in the queue, while a price, the shipping or the discount is unsaved or unreadable, or one of `lineIds`
+   * is not validated.
    */
   retainQuote: (quoteId: string, lineIds: readonly string[]) => Promise<SaveResult>;
   closeQuote: (quoteId: string) => Promise<SaveResult>;
@@ -121,6 +141,8 @@ export function useMaterialRequestQuotes(editor: MaterialRequestEditorApi): Mate
   const failed = useRef(new Map<string, Set<string>>());
   const [refused, setRefused] = useState<ReadonlyMap<string, number>>(new Map());
   const unreadable = useRef(new Map<string, Set<string>>());
+  /** Per quote, its shipping or discount whose last save was refused, or whose field cannot be read. */
+  const heldCharges = useRef(new Map<string, Set<string>>());
   const [unreadableShown, setUnreadableShown] = useState<ReadonlyMap<string, readonly string[]>>(new Map());
   const leaving = useRef<AbortController | null>(null);
 
@@ -244,6 +266,49 @@ export function useMaterialRequestQuotes(editor: MaterialRequestEditorApi): Mate
     [projectId, queueWrite, reload, requestId, upsert],
   );
 
+  const holdsChargeEdit = useCallback((quoteId: string) => (heldCharges.current.get(quoteId)?.size ?? 0) > 0, []);
+
+  const markCharge = useCallback((quoteId: string, key: string, held: boolean) => {
+    const keys = heldCharges.current.get(quoteId) ?? new Set<string>();
+    if (held) keys.add(key);
+    else keys.delete(key);
+    heldCharges.current.set(quoteId, keys);
+  }, []);
+
+  const saveCharge = useCallback(
+    async (quoteId: string, kind: QuoteChargeKind, cents: number | null): Promise<SaveResult> => {
+      try {
+        // Marked inside the queued call: a retain queued behind it reads the outcome at its own turn.
+        const item = await queueWrite(async () => {
+          try {
+            const saved = await updateMaterialRequestQuote(projectId, requestId, quoteId, { [kind]: cents });
+            markCharge(quoteId, kind, false);
+            return saved;
+          } catch (error) {
+            markCharge(quoteId, kind, true);
+            throw error;
+          }
+        });
+        upsert(item);
+        return { ok: true };
+      } catch (error) {
+        if (isStale(error)) reload();
+        return { ok: false, message: materialRequestErrorMessage(error, "Le montant n’a pas pu être enregistré.") };
+      }
+    },
+    [markCharge, projectId, queueWrite, reload, requestId, upsert],
+  );
+
+  const forgetChargeFailure = useCallback(
+    (quoteId: string, kind: QuoteChargeKind) => markCharge(quoteId, kind, false),
+    [markCharge],
+  );
+
+  const setChargeUnreadable = useCallback(
+    (quoteId: string, kind: QuoteChargeKind, flag: boolean) => markCharge(quoteId, `${kind}:unreadable`, flag),
+    [markCharge],
+  );
+
   const savePrice = useCallback(
     async (quoteId: string, lineId: string, cents: number | null, per: PurchaseOrderPricePer): Promise<SaveResult> => {
       const byLine = pending.current.get(quoteId) ?? new Map<string, PriceWrites>();
@@ -326,6 +391,7 @@ export function useMaterialRequestQuotes(editor: MaterialRequestEditorApi): Mate
       // answered before the retain's turn.
       if (holdsUnreadablePrice(quoteId)) return { ok: false, message: QUOTE_PRICE_UNREADABLE };
       if ((failed.current.get(quoteId)?.size ?? 0) > 0) return { ok: false, message: QUOTE_PRICE_HELD };
+      if (holdsChargeEdit(quoteId)) return { ok: false, message: QUOTE_CHARGE_HELD };
       const drafts = unvalidatedNames(lineIds);
       if (drafts.length > 0) return { ok: false, message: linesNotValidated(drafts) };
       try {
@@ -334,6 +400,7 @@ export function useMaterialRequestQuotes(editor: MaterialRequestEditorApi): Mate
         const outcome = await queueWrite(async (): Promise<RetainTurn> => {
           if (holdsUnreadablePrice(quoteId)) return { held: QUOTE_PRICE_UNREADABLE };
           if (holdsUnsavedPrice(quoteId)) return { held: QUOTE_PRICE_HELD };
+          if (holdsChargeEdit(quoteId)) return { held: QUOTE_CHARGE_HELD };
           const draftsNow = unvalidatedNames(lineIds);
           if (draftsNow.length > 0) return { held: linesNotValidated(draftsNow) };
           return { retained: await retainMaterialRequestQuote(projectId, requestId, quoteId) };
@@ -357,7 +424,7 @@ export function useMaterialRequestQuotes(editor: MaterialRequestEditorApi): Mate
         return { ok: false, message: materialRequestErrorMessage(error, "Le devis n’a pas pu être retenu.") };
       }
     },
-    [holdsUnreadablePrice, holdsUnsavedPrice, mergeServerLines, projectId, queueWrite, reload, requestId, unvalidatedNames],
+    [holdsChargeEdit, holdsUnreadablePrice, holdsUnsavedPrice, mergeServerLines, projectId, queueWrite, reload, requestId, unvalidatedNames],
   );
 
   const closeQuote = useCallback(
@@ -407,6 +474,9 @@ export function useMaterialRequestQuotes(editor: MaterialRequestEditorApi): Mate
       setPriceUnreadable,
       unreadablePrices,
       saveDetails,
+      saveCharge,
+      forgetChargeFailure,
+      setChargeUnreadable,
       markReceived,
       retainQuote,
       closeQuote,
@@ -414,6 +484,9 @@ export function useMaterialRequestQuotes(editor: MaterialRequestEditorApi): Mate
     }),
     [
       addFiles,
+      forgetChargeFailure,
+      saveCharge,
+      setChargeUnreadable,
       closeQuote,
       createQuote,
       forgetPriceFailure,

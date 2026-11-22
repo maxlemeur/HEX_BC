@@ -44,7 +44,13 @@ import {
 import { photoUploadStepLabel, type PhotoUploadStep } from "./photo-upload";
 import { useConsultationTemplate, type ConsultationTemplateState } from "./useConsultationTemplate";
 import type { MaterialRequestEditorApi, SaveResult } from "./useMaterialRequestEditor";
-import { QUOTE_PRICE_HELD, linesNotValidated, type MaterialRequestQuotesApi } from "./useMaterialRequestQuotes";
+import {
+  QUOTE_CHARGE_HELD,
+  QUOTE_PRICE_HELD,
+  linesNotValidated,
+  type MaterialRequestQuotesApi,
+  type QuoteChargeKind,
+} from "./useMaterialRequestQuotes";
 
 /*
  * « Consultation » (TI-691, lot 2 « l'achat », delivery 2): the office asks suppliers for a price with a short
@@ -89,8 +95,23 @@ function retainBlocker(
       : "Pour retenir ce devis, marquez-le reçu.";
   }
   if (unpriced > 0) return `Pour retenir ce devis, saisissez le prix de chaque ligne (${missing}).`;
-  if (discountTooLarge) return "Pour retenir ce devis, ramenez sa remise au montant de ses lignes et de son port, au plus.";
+  if (discountTooLarge) return "Pour retenir ce devis, ramenez sa remise au montant de ses lignes et de son port, hors taxes et TVA comprise, au plus.";
   return draftNames.length > 0 ? linesNotValidated(draftNames) : null;
+}
+
+/** The 20 % tax a purchase order line takes, rounded per line (a whole number of cents never ends in ,5 here). */
+function orderLineTax(cents: number): number {
+  return Math.round(cents / 5);
+}
+
+/**
+ * The draft that carries the quote's discount would total less than zero, before or after tax (each line's tax
+ * rounded on its own, as the order computes it; the database refuses the retain alike).
+ */
+function discountExceeds(lineAmounts: readonly number[], shipping: number, discount: number): boolean {
+  const lines = lineAmounts.reduce((sum, amount) => sum + amount, 0);
+  const tax = lineAmounts.reduce((sum, amount) => sum + orderLineTax(amount), 0);
+  return discount > lines + shipping || orderLineTax(discount) > tax + orderLineTax(shipping);
 }
 
 /**
@@ -538,6 +559,27 @@ function QuotePriceEntry({
   );
 }
 
+/**
+ * The draft of a shipping or discount field, told to the quotes: a quote is not retained while the field shows text
+ * that cannot be read, nor, once refused, an amount that is not saved (until it is saved or given up with Escape).
+ */
+function useChargeField(quotes: MaterialRequestQuotesApi, quoteId: string, kind: QuoteChargeKind) {
+  const { setChargeUnreadable, forgetChargeFailure } = quotes;
+  const field = useCentsDraft(
+    kind === "shipping_ht_cents"
+      ? quotes.items.find((item) => item.id === quoteId)?.shipping_ht_cents ?? null
+      : quotes.items.find((item) => item.id === quoteId)?.discount_ht_cents ?? null,
+    () => forgetChargeFailure(quoteId, kind),
+  );
+  const { unreadable } = field;
+  useEffect(() => {
+    setChargeUnreadable(quoteId, kind, unreadable);
+  }, [kind, quoteId, setChargeUnreadable, unreadable]);
+  // A field that goes away (the quote retained or closed elsewhere) holds nothing back.
+  useEffect(() => () => setChargeUnreadable(quoteId, kind, false), [kind, quoteId, setChargeUnreadable]);
+  return field;
+}
+
 function QuoteCard({
   editor,
   quotes,
@@ -573,8 +615,14 @@ function QuoteCard({
   const hasCharges = shipping > 0 || discount > 0;
   const quoteTotal = withCharges(quote, total);
   // The order that carries the discount keeps a total of at least zero (the database refuses the retain otherwise).
-  const discountTooLarge = total !== null && discount > total + shipping;
-  const blocker = retainBlocker(quote, quotes.refusedPrices(quote.id), unreadableNames, draftNames, discountTooLarge);
+  const discountTooLarge = total !== null && discountExceeds(amounts.map((amount) => amount ?? 0), shipping, discount);
+  // The shipping and discount fields: what they show must be what is saved before the quote is retained.
+  const shippingField = useChargeField(quotes, quote.id, "shipping_ht_cents");
+  const discountField = useChargeField(quotes, quote.id, "discount_ht_cents");
+  const chargeHeld = shippingField.shownError !== null || discountField.shownError !== null;
+  const blocker = chargeHeld
+    ? QUOTE_CHARGE_HELD
+    : retainBlocker(quote, quotes.refusedPrices(quote.id), unreadableNames, draftNames, discountTooLarge);
   const supplier = quote.supplier_name;
   // TI-691: the amount the supplier wrote is free; the order is made from the line prices, plus the quote's shipping
   // and minus its discount. A gap left is said, can be counted as shipping or discount, and is confirmed at the retain.
@@ -588,10 +636,9 @@ function QuoteCard({
     if (gap === null || gap === 0) return;
     setBusy("charge");
     setError(null);
-    const result = await quotes.saveDetails(
-      quote.id,
-      gap > 0 ? { shipping_ht_cents: shipping + gap } : { discount_ht_cents: discount - gap },
-    );
+    const result = gap > 0
+      ? await quotes.saveCharge(quote.id, "shipping_ht_cents", shipping + gap)
+      : await quotes.saveCharge(quote.id, "discount_ht_cents", discount - gap);
     setBusy(null);
     if (!result.ok) setError(result.message);
   };
@@ -703,18 +750,20 @@ function QuoteCard({
         <div className="grid min-w-0 gap-3 sm:grid-cols-3">
           <label className="block min-w-0 space-y-1">
             <span className="block text-xs text-muted-foreground">Port HT</span>
-            <CentsInput
+            <CentsField
               label={`Port HT, devis ${supplier}`}
               value={quote.shipping_ht_cents}
-              onCommit={(cents) => quotes.saveDetails(quote.id, { shipping_ht_cents: cents })}
+              field={shippingField}
+              onCommit={() => void shippingField.commit((cents) => quotes.saveCharge(quote.id, "shipping_ht_cents", cents))}
             />
           </label>
           <label className="block min-w-0 space-y-1">
             <span className="block text-xs text-muted-foreground">Remise HT</span>
-            <CentsInput
+            <CentsField
               label={`Remise HT, devis ${supplier}`}
               value={quote.discount_ht_cents}
-              onCommit={(cents) => quotes.saveDetails(quote.id, { discount_ht_cents: cents })}
+              field={discountField}
+              onCommit={() => void discountField.commit((cents) => quotes.saveCharge(quote.id, "discount_ht_cents", cents))}
             />
           </label>
           <label className="block min-w-0 space-y-1">

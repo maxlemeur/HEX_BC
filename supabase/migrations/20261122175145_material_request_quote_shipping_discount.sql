@@ -10,7 +10,8 @@
 --    when the quote names none. Written like the total and the notes (update_material_request_quote, or a direct
 --    update by a writer) while the quote is requested or received; read-only once it is retained or closed
 --    (MATERIAL_REQUEST_QUOTE_READ_ONLY). A quote is retained only with a discount no larger than its lines and its
---    shipping (MATERIAL_REQUEST_QUOTE_DISCOUNT_TOO_LARGE): the draft that carries them keeps a total >= 0.
+--    shipping, before and after the 20 % tax rounded per line (MATERIAL_REQUEST_QUOTE_DISCOUNT_TOO_LARGE): the draft
+--    that carries them keeps its totals >= 0.
 --    private.guard_material_request_quote_charges() holds both rules beside enforce_material_request_quote_write,
 --    which is left as it is.
 -- 2. public.purchase_order_items.material_request_quote_id: the retained quote a shipping or discount line comes from
@@ -78,22 +79,31 @@ create function private.guard_material_request_quote_charges()
 returns trigger language plpgsql security invoker set search_path = '' as $$
 declare
   lines_total numeric;
+  lines_tax numeric;
 begin
   if old.status in ('retained', 'closed')
     and (new.shipping_ht_cents, new.discount_ht_cents) is distinct from (old.shipping_ht_cents, old.discount_ht_cents)
   then
     raise exception using errcode = '23514', message = 'MATERIAL_REQUEST_QUOTE_READ_ONLY';
   end if;
-  -- Retaining: the draft that will carry the discount keeps a total >= 0. Its lines are priced (the retaining checks
-  -- it before it changes the status); each amount is quantity x price / price_per, half away from zero to the cent,
-  -- as the order computes it.
+  -- Retaining: the draft that will carry the discount keeps its totals >= 0, before and after tax. Its lines are priced
+  -- (the retaining checks it before it changes the status); each amount is quantity x price / price_per, and each
+  -- line's tax at the 20 % the creation gives it, both half away from zero to the cent, as the order computes them
+  -- (normalize_purchase_order_item): a discount equal to two lines of 5,02 € passes before tax (0), not after
+  -- (2 x 1,00 € - 2,01 €).
   if new.status = 'retained' and old.status <> 'retained' and coalesce(new.discount_ht_cents, 0) > 0 then
-    select coalesce(sum(pg_catalog.round(line.quantity * quote_line.unit_price_ht_cents / quote_line.price_per)), 0)
-      into lines_total
-    from public.material_request_quote_lines quote_line
-    join public.material_request_lines line on line.id = quote_line.line_id
-    where quote_line.quote_id = new.id;
-    if new.discount_ht_cents > lines_total + coalesce(new.shipping_ht_cents, 0) then
+    select coalesce(sum(priced.amount), 0), coalesce(sum(pg_catalog.round(priced.amount * 2000 / 10000)), 0)
+      into lines_total, lines_tax
+    from (
+      select pg_catalog.round(line.quantity * quote_line.unit_price_ht_cents / quote_line.price_per) as amount
+      from public.material_request_quote_lines quote_line
+      join public.material_request_lines line on line.id = quote_line.line_id
+      where quote_line.quote_id = new.id
+    ) priced;
+    if new.discount_ht_cents > lines_total + coalesce(new.shipping_ht_cents, 0)
+      or pg_catalog.round(new.discount_ht_cents::numeric * 2000 / 10000)
+        > lines_tax + pg_catalog.round(coalesce(new.shipping_ht_cents, 0)::numeric * 2000 / 10000)
+    then
       raise exception using errcode = '23514', message = 'MATERIAL_REQUEST_QUOTE_DISCOUNT_TOO_LARGE';
     end if;
   end if;

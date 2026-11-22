@@ -4,8 +4,9 @@
 --  1. a quote's shipping or discount is not written by update_material_request_quote (nor cleared by null), or a
 --     negative, decimal or text amount is accepted; a viewer writes them; they change once the quote is retained or
 --     closed, through the function or by a direct update;
---  2. a quote is retained with a discount larger than its lines and its shipping (its draft would total < 0), or one
---     equal to them is refused;
+--  2. a quote is retained with a discount larger than its lines and its shipping (its draft would total < 0), or with
+--     one equal to them before tax whose tax, rounded once, exceeds theirs, rounded per line (its draft could never be
+--     made); or one equal to them, tax included, is refused;
 --  3. a draft made from the request misses the shipping or the discount of the retained quote that priced its lines,
 --     carries a zero or empty one, takes another supplier's, puts them before the articles, with another amount, kind,
 --     quantity, unit, tax rate or quote, or totals otherwise than lines + shipping - discount;
@@ -332,6 +333,46 @@ select is(pg_temp.pls_run('a9330000-0000-4000-8000-000000000001',
   format($$select public.update_material_request_quote(%L::uuid, '{"shipping_ht_cents": 2147483648}')$$,
     current_setting('test.quote_split'))),
   '22023 MATERIAL_REQUEST_QUOTE_CHANGES_INVALID', '1 an amount the column cannot hold is refused as invalid');
+
+-- 2. Request 603: two lines of 5,02 € and 10,04 € off: zero before tax, -0,01 € of tax (2 x 1,00 € - 2,01 €).
+insert into public.material_requests (id, project_id, requested_on, needed_on, delivery_place, created_by) values
+  ('a9330000-0000-4000-8000-000000000603', 'a9330000-0000-4000-8000-000000000201', '2026-11-12', '2026-11-22', 'site',
+    'a9330000-0000-4000-8000-000000000001');
+insert into public.material_request_lines (id, request_id, position, quantity, unit, dimension, no_dimension, product_type,
+  material, imputation) values
+  ('a9330000-0000-4000-8000-000000000706', 'a9330000-0000-4000-8000-000000000603', 1, 1, 'u', 'DN 15', false, 'Bouchon',
+    'Laiton', 'project'),
+  ('a9330000-0000-4000-8000-000000000707', 'a9330000-0000-4000-8000-000000000603', 2, 1, 'u', 'DN 15', false, 'Mamelon',
+    'Laiton', 'project');
+update public.material_request_lines set status = 'validated' where request_id = 'a9330000-0000-4000-8000-000000000603';
+select is(pg_temp.pls_run('a9330000-0000-4000-8000-000000000001',
+  $$select public.create_material_request_quote('a9330000-0000-4000-8000-000000000603', 'a9330000-0000-4000-8000-000000000301',
+    false, 'Bonjour', array['a9330000-0000-4000-8000-000000000706', 'a9330000-0000-4000-8000-000000000707']::uuid[])$$),
+  'ok 1', 'fixture: the owner asks Alpha for two fittings');
+select set_config('test.quote_tax', (select id::text from public.material_request_quotes
+  where request_id = 'a9330000-0000-4000-8000-000000000603'), true);
+select is(pg_temp.pls_run('a9330000-0000-4000-8000-000000000001',
+  $$select public.update_material_request_quote(current_setting('test.quote_tax')::uuid, jsonb_build_object('received', true,
+    'discount_ht_cents', 1004, 'lines', jsonb_build_array(
+      jsonb_build_object('line_id', 'a9330000-0000-4000-8000-000000000706', 'unit_price_ht_cents', 502),
+      jsonb_build_object('line_id', 'a9330000-0000-4000-8000-000000000707', 'unit_price_ht_cents', 502))))$$),
+  'ok 1', 'fixture: Alpha answers 10,04 € off two lines of 5,02 €');
+select is(pg_temp.pls_run('a9330000-0000-4000-8000-000000000001',
+  $$select * from public.retain_material_request_quote(current_setting('test.quote_tax')::uuid)$$),
+  '23514 MATERIAL_REQUEST_QUOTE_DISCOUNT_TOO_LARGE', '2 a discount whose tax would exceed its lines'' is not retained');
+select is(pg_temp.pls_run('a9330000-0000-4000-8000-000000000001',
+  format($$select public.update_material_request_quote(%L::uuid, '{"discount_ht_cents": 1000}')$$, current_setting('test.quote_tax'))),
+  'ok 1', 'fixture: the discount becomes 10,00 € (tax 2,00 €, the lines'' 2,00 €)');
+select is(pg_temp.pls_run('a9330000-0000-4000-8000-000000000001',
+  $$select * from public.retain_material_request_quote(current_setting('test.quote_tax')::uuid)$$), 'ok 0',
+  '2 a discount equal to the lines'' tax is retained');
+select is(pg_temp.pls_run('a9330000-0000-4000-8000-000000000001',
+  $$select public.create_material_request_purchase_orders('a9330000-0000-4000-8000-000000000603',
+    'a9330000-0000-4000-8000-00000000a006')$$), 'ok 1', '2 and its draft is made');
+select is((select array[po.total_ht_cents, po.total_tax_cents] from public.purchase_orders po
+  where exists (select 1 from public.purchase_order_items oi where oi.purchase_order_id = po.id
+    and oi.material_request_line_id = 'a9330000-0000-4000-8000-000000000706')), array[4, 0],
+  '2 at 0,04 € before tax and nothing of tax');
 
 -- 7. Rights and shape of the new objects.
 select ok((select bool_and(not has_function_privilege(role_name, p.oid, 'EXECUTE')

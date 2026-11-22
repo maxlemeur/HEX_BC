@@ -63,6 +63,8 @@ const euros = (cents: number) => formatEUR(cents).replace(/\s/g, " ");
  * 19b. (the owner's quote of 22/11/2026, 276,30 € of lines and « Fdp » for 310,21 €) the gap cannot be counted as
  *     shipping (or as a discount) in one gesture, the card does not total lines + shipping - discount, the gap stays
  *     once they are, or a discount larger than the lines and the shipping lets the quote be retained.
+ * 19c. (Codex review of PR #490) a shipping or discount whose save was refused, or whose text cannot be read, lets the
+ *     quote be retained on the saved amount, which the purchase order would then carry instead of the one shown.
  * TI-691, the member's own template and the company's (« paramétrer le texte pour l’envoi fournisseur ») and the
  * retouch before copying:
  * 20. the message does not follow the member's template, else the company's; a competitor's message names another
@@ -1517,7 +1519,55 @@ describe("consultation of suppliers", () => {
     await user.tab();
     await waitFor(() => expect(row("Remise :")).toBe(`Remise : −${euros(30000)} HT`));
     expect(within(card).getByRole("button", { name: "Retenir ce devis (Négoce Alpha)" })).toBeDisabled();
-    expect(within(card).getByText("Pour retenir ce devis, ramenez sa remise au montant de ses lignes et de son port, au plus.")).toBeVisible();
+    expect(within(card).getByText("Pour retenir ce devis, ramenez sa remise au montant de ses lignes et de son port, hors taxes et TVA comprise, au plus.")).toBeVisible();
+  });
+
+  it("holds the retain while a shipping or discount shown is not saved, until it is saved or given up (19c)", async () => {
+    let stored = quote({
+      status: "received",
+      received_at: "2026-11-13T10:00:00.000Z",
+      lines: [{ line_id: LINE_A, unit_price_ht_cents: 1250, price_per: 1 }, { line_id: LINE_B, unit_price_ht_cents: 400, price_per: 1 }],
+    });
+    let refuse = true;
+    const user = await openEditor({
+      [`GET ${BASE}`]: { data: detail({ lines: [line(VALIDATED), line({ ...TEE, ...VALIDATED })] }) },
+      [`GET ${PROPOSALS}`]: references({ [LINE_A]: "NA-4471", [LINE_B]: null }),
+      [`GET ${QUOTES}`]: () => ({ data: { items: [stored] } }),
+      [`PATCH ${QUOTES}/${QUOTE_A}`]: (body) => {
+        if (refuse) return { status: 503, error: { code: "SERVICE_UNAVAILABLE", message: "Service indisponible." } };
+        stored = { ...stored, ...(body as Partial<Quote>) };
+        return { data: { item: stored } };
+      },
+    });
+    const card = await screen.findByRole("article", { name: "Devis Négoce Alpha" });
+    const retain = within(card).getByRole("button", { name: "Retenir ce devis (Négoce Alpha)" });
+    const held = "Le port ou la remise saisi sur ce devis n’est pas enregistré : corrigez-le, ou appuyez sur Échap pour revenir au montant enregistré.";
+    expect(retain).toBeEnabled();
+
+    // Refused: the amount stays typed with the reason, and the quote is not retained on the saved (empty) shipping.
+    const shippingField = within(card).getByRole("textbox", { name: "Port HT, devis Négoce Alpha" });
+    await user.type(shippingField, "33,91");
+    await user.tab();
+    await waitFor(() => expect(retain).toBeDisabled());
+    expect(within(card).getByText(held)).toBeVisible();
+    expect(shippingField).toHaveValue("33,91");
+
+    // Saved at the next try: the retain is free again.
+    refuse = false;
+    await user.clear(shippingField);
+    await user.type(shippingField, "33,91");
+    await user.tab();
+    await waitFor(() => expect(retain).toBeEnabled());
+    expect(stored.shipping_ht_cents).toBe(3391);
+
+    // Text that cannot be read holds it too, until Escape gives the saved amount back.
+    const discountField = within(card).getByRole("textbox", { name: "Remise HT, devis Négoce Alpha" });
+    await user.type(discountField, "1,234");
+    await waitFor(() => expect(retain).toBeDisabled());
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(retain).toBeEnabled());
+    expect(discountField).toHaveValue("");
+    expect(writes().filter((call) => call.method === "POST")).toEqual([]);
   });
 
   it("retains in one click a quote whose amount matches its lines, or gives none", async () => {
