@@ -165,6 +165,27 @@ async function isPlanUnit(service: Service, tenantId: string, job: SendJob): Pro
   return (data as { format_version?: string | null } | null)?.format_version === "2";
 }
 
+/**
+ * Lot 4: whether the analysis was read against the affaire's list of items (its launch request names a revision of the
+ * list). Such a job is sent item by item only (the send by item, src/lib/takeoff/item-send-confirm-server.ts): the
+ * database refuses to link it from today's send (private.guard_takeoff_plan_unit_send, reason item_list_job), so today's
+ * preview and confirmation say so first, in the member's words.
+ */
+async function readsAgainstItemList(service: Service, tenantId: string, job: SendJob): Promise<boolean> {
+  if (job.launch_request_id === null) return false;
+  const { data, error } = await service.from("takeoff_launch_requests" as never).select("item_list_revision_id" as never)
+    .eq("tenant_id" as never, tenantId as never).eq("id" as never, job.launch_request_id as never).maybeSingle();
+  if (error) failed(error as { message?: string }, "Impossible de lire la demande d’analyse du métré.", job.id);
+  return typeof (data as { item_list_revision_id?: unknown } | null)?.item_list_revision_id === "string";
+}
+
+const ITEM_LIST_JOB_MESSAGE = "Ce métré a été lu contre la liste des postes : il s’envoie poste par poste. Rien n’a été écrit.";
+
+function itemListJobError(jobId: string) {
+  return new TakeoffError({ status: 409, code: TakeoffErrorCode.CONFLICT, retryable: false, jobId, message: ITEM_LIST_JOB_MESSAGE,
+    details: { guard: "send_item_list_job" } });
+}
+
 async function readVersions(service: Service, tenantId: string, projectId: string): Promise<TakeoffSendVersion[]> {
   const { data, error } = await readAllRows(() => service.from("estimate_versions")
     .select("id, version_number, status, title, variant_label, updated_at", { count: "exact" })
@@ -304,6 +325,8 @@ async function computeSendPreview(ctx: Context, job: SendJob, request: {
   const early: TakeoffSendBlocker | null = job.status === "applied" || job.estimate_version_id !== null ? "already_sent"
     : job.status !== "completed" ? "not_completed" : !canEdit ? "read_only" : null;
   if (early) return reasonOnly(early);
+  // A job read against the list goes item by item: nothing of today's send is computed for it.
+  if (await readsAgainstItemList(service, ctx.tenantId, job)) throw itemListJobError(job.id);
 
   // The mapping rules' state, read before the rules themselves: a rule changed after it refuses the send.
   const { data: mappingStamp, error: mappingStampError } = await service.rpc("takeoff_mapping_rules_stamp" as never,
@@ -687,7 +710,9 @@ export function mapSendTakeoffRpcError(error: ApplyTakeoffRpcError, jobId: strin
     case "TAKEOFF_SEND_PREVIEW_STALE": return staleError(detailReason(error.details), jobId);
     case "ESTIMATE_CALC_POLICY_CONTEXT_CHANGED": return staleError("destination_changed", jobId);
     case "TAKEOFF_SEND_ALREADY_SENT": return conflict(BLOCKER_MESSAGES.already_sent, "send_already_sent");
-    case "TAKEOFF_SEND_JOB_NOT_READY": return conflict(BLOCKER_MESSAGES.not_completed, "send_not_ready");
+    case "TAKEOFF_SEND_JOB_NOT_READY":
+      return detailReason(error.details) === "item_list_job" ? itemListJobError(jobId)
+        : conflict(BLOCKER_MESSAGES.not_completed, "send_not_ready");
     case "TAKEOFF_SEND_DRAFT_LOCKED": return conflict(BLOCKER_MESSAGES.draft_locked, "send_draft_locked", true);
     case "TAKEOFF_SEND_REQUEST_CONFLICT":
       return conflict("Cette confirmation a déjà servi à un autre envoi : rouvrez l’aperçu puis confirmez.", "send_request_conflict");

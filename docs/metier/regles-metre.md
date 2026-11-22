@@ -1402,7 +1402,10 @@ inchangé, sauf vers un devis alimenté poste par poste : l'envoi groupé, l'env
 d'aujourd'hui et l'application héritée (avec sa composition DPGF) refusent une version qui tient une
 cible de l'envoi par poste — avec sa ligne, ou avec une part vivante quand le même envoi a d'abord
 vidé la section (« Remplacer la section ») —, car leurs lignes compteraient à côté des parts gardées
-par poste.
+par poste. Une analyse lue contre la liste ne part que poste par poste : l'envoi d'aujourd'hui la
+refuse, à l'aperçu comme à la confirmation, et le membre lit « Ce métré a été lu contre la liste des
+postes : il s’envoie poste par poste. Rien n’a été écrit. » (`send_item_list_job`) ; la base refuse
+de même de la rattacher à une version hors de l'envoi par poste.
 
 - **Unité d'envoi.** Ce qui est retenu de ce plan, confirmé pour ce seul job : une mesure acceptée
   dans le tableau des postes, ou une saisie retenue. Une mesure que personne n'a acceptée, avec ou
