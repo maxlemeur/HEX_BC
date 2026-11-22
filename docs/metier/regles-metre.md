@@ -420,7 +420,8 @@ Localisation et Décision s’ajoutent, et l’adresse de la page les garde avec
 en vue. Une adresse choisit une vue, jamais un geste, un payeur ni un droit.
 
 **États.** « À mesurer » : aucun plan n’a été interrogé sur ce poste, par exemple un
-poste ajouté après le lancement. « En lecture », « Lecture incomplète » et « Échec de
+poste ajouté après le lancement. Un poste qu’aucune demande n’a posé à un plan n’est pas
+attendu sur ce plan : dans la portée de ce plan, le tableau ne le montre pas. « En lecture », « Lecture incomplète » et « Échec de
 lecture » décrivent un travail sans verdict : la quantité observée reste partielle et
 aucune absence n’est certifiée sur l’affaire tant qu’un plan reste à lire. Un plan encore
 en attente ou en lecture garde le poste « En lecture » ; sinon il est en « Échec de
@@ -478,6 +479,21 @@ analyses des réponses qu’elle nomme (`FOR SHARE`), puis ces réponses (`FOR K
 identifiants : un envoi, ou tout autre écrivain de la ligne d’une de ces analyses, attend la
 fin de sa transaction, jamais davantage. Les lectures du tableau ne prennent aucun verrou.
 
+L’admission d’une nouvelle mesure (`public.launch_takeoff_item_remeasure`) prend, dans cet
+ordre : la ligne de l’affaire (`FOR SHARE`, attendue, comme tout lancement ; une affaire
+supprimée entre-temps est dite introuvable), puis la ligne de la préparation du métré de
+l’affaire (`FOR SHARE NOWAIT`, après la ligne de l’affaire et jamais attendue : une
+préparation en cours de modification fait refuser l’admission, rien n’est écrit, pas même un
+reçu, et la même confirmation réussit une fois la modification enregistrée ; tenue ensuite,
+une modification de la préparation ou la suppression de l’affaire brouillon qui arrive après
+attend la fin de l’admission sans rien tenir dont elle ait besoin), la clé de revue de
+l’affaire (où la sélection est comparée), puis les verrous de la commande de lancement
+qu’elle appelle : l’analyse relue (`FOR KEY SHARE`), la clé de lancement
+`takeoff-launch:<affaire>`, la demande automatique de l’affaire (`FOR UPDATE`), la clé de la
+liste `takeoff-item-list:<affaire>` au scellement, les lignes qu’elle écrit (la demande, ses
+analyses, son reçu), et en dernier la clé du dossier quand un démarrage automatique est
+ouvert. La relecture d’un reçu (`public.replay_takeoff_item_remeasure`) ne prend aucun verrou.
+
 - **Accepter les mesurés sans anomalie** : seulement les postes mesurés à couverture
   complète, sans hypothèse, contrôle en échec ou à recalculer, confiance sous le seuil du
   tenant, preuve localisée manquante, remarque de la lecture, ligne dans une autre unité
@@ -508,11 +524,43 @@ fin de sa transaction, jamais davantage. Les lectures du tableau ne prennent auc
   envoi.
 - **Demander à l’IA de mesurer de nouveau** : un aperçu nomme le membre qui confirme,
   qui paie sur son propre forfait ChatGPT, le réglage de Mon profil, les plans et les
-  postes ; un effort ponctuel peut être choisi sans changer le profil. Un seul poste
-  suffit, et un poste jamais mesuré l’est sur les plans lus de l’affaire. Pendant une
-  analyse de l’affaire, la sélection reste prête. La confirmation de l’aperçu est le
-  consentement ; l’admission de la demande vient avec une prochaine évolution, d’ici là
-  rien n’est lancé.
+  postes, les appels payants et le budget réservé, calculés sur les seuls postes demandés.
+  La demande utilise le réglage de Mon profil tel quel : un effort pour une seule demande
+  n’est pas encore proposé, car le Mac lit une demande avec le réglage du profil de son
+  payeur et refuse celle qui en scelle un autre ; une confirmation qui en nomme un autre
+  est refusée sans rien écrire. Un seul poste suffit, et un poste jamais mesuré l’est sur
+  les plans lus de l’affaire. Pendant une analyse de
+  l’affaire, la sélection reste prête. La confirmation de l’aperçu est le consentement :
+  le serveur prépare une demande d’une analyse par plan, de la préparation confirmée de
+  l’affaire telle qu’elle est, qui ne lit que les postes demandés (la demande les nomme ;
+  sans ce nom, une demande lit toute la liste, comme toutes celles d’avant). Les postes
+  demandés sont lus et comptés dans l’ordre de la liste scellée, à l’aperçu, à l’admission et
+  à la lecture : les appels et le budget annoncés sont ceux que la lecture fera. Ce que le
+  membre a vu part avec la sélection : la révision de la liste du tableau et, pour chaque
+  poste, ses lectures telles que sa ligne les montrait quand il a été coché ; l’aperçu puis
+  la confirmation les comparent avec les lectures enregistrées et nomment tout poste relu
+  depuis, sans rien admettre. La base l’admet ou dit pourquoi : elle vérifie d’abord toute
+  la commande (chaque poste une fois, chacun une entrée de la révision scellée, 1 000 au
+  plus), le droit actuel du membre de lancer le métré de l’affaire (avant toute réponse, une
+  réponse rejouée comprise), l’identité de chaque plan telle qu’elle l’a enregistrée pour son
+  fichier, et que chaque plan lu est un plan de la préparation confirmée, avec les mêmes
+  pages, le même contenu et, lu en entier, le même nombre de pages quand il est connu. Puis
+  elle compare, sous ses verrous, la révision de la liste et, pour chaque poste, ses
+  réponses courantes sur ces plans avec celles que le membre a vues : un poste relu, retiré
+  ou ajouté depuis l’aperçu rend la demande périmée, rien n’est admis et le tableau nomme
+  ces postes. Elle compare encore une fois l’admission faite : une lecture qui a publié
+  pendant l’admission, ou une révision de la liste enregistrée pendant qu’elle attendait,
+  donnent la même réponse qu’une confirmation envoyée après elles, sans demande ni reçu. Le
+  plan admis est celui que le membre a confirmé : préparé de nouveau pour l’admission avec
+  d’autres révisions, plans, appels ou budget, il est périmé. La même confirmation renvoyée
+  (double clic, réponse perdue) rend la même réponse, avant tout nouveau calcul ; une autre
+  sous la même clé (autres postes, autres réponses vues, autres plans, autre aperçu, autre
+  réglage) est refusée. Tant que la lecture plan par plan n’est pas activée, l’aperçu dit
+  que la nouvelle mesure n’est pas encore ouverte. Les postes
+  demandés passent « En lecture » sur leurs plans, aussitôt dans le tableau ; les autres
+  gardent leur réponse et leur décision. La nouvelle réponse remplace la lecture du plan et
+  reste à décider ; une décision prise sur la lecture d’avant reste attachée à celle-ci. Un
+  plan déjà envoyé au devis se mesure de nouveau sans que rien de son envoi change.
 - **Saisie complémentaire** : dans les cellules des postes non trouvés ou incertains,
   une valeur et une unité par poste, puis une seule catégorie pour la sélection, avec
   la note obligatoire d’une hypothèse. Le résultat de la lecture reste consultable ; une
@@ -522,7 +570,9 @@ Le détail d’un poste montre chaque plan, ses pages cherchées et illisibles, 
 ses motifs, ses lignes positives telles qu’elles sont revues, la décision et son auteur,
 l’historique de la revue (qui a accepté, écarté, réintégré, saisi ou inclus, quand et
 pourquoi, page par page), et mène à la revue ciblée existante pour la preuve et la
-correction. La quantité observée reste la lecture brute du modèle ; la quantité retenue
+correction. Quand une nouvelle mesure d’un plan est en cours ou n’a pas abouti (échec,
+arrêt), le détail montre la lecture précédente, qui reste celle retenue et décidée, et dit
+que la nouvelle mesure n’a pas abouti, avec son motif. La quantité observée reste la lecture brute du modèle ; la quantité retenue
 est celle des lignes positives telles qu’elles sont revues (une correction ciblée y
 compte), et une acceptation qu’une correction ciblée a retirée redevient une décision à
 prendre ; une ligne relue non vérifiée n’est jamais retenue, quelle que soit la décision

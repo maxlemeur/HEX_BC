@@ -40,7 +40,9 @@ import {
   type ItemTableResponse,
 } from "./item-table-contracts";
 import { QUANTITY_ENTRY_CATEGORIES, type QuantityEntryCategory } from "./quantity-entry";
-import { isTakeoffUnitState } from "./launch-request-coverage";
+import { isTakeoffUnitState, type TakeoffUnitState } from "./launch-request-coverage";
+import { toPublicFailureCode } from "./request-activity";
+import { describeTakeoffJobFailure } from "./visible-status";
 
 /**
  * The one reader of the table of items (lot 4). The database pages, filters, orders and counts the table under the
@@ -196,6 +198,28 @@ function rawReadings(row: TableRow) {
   return Array.isArray(row.readings) ? row.readings.map((entry) => asRecord(entry) ?? {}) : [];
 }
 
+/**
+ * The reasons, in French, of the later readings that ended without an answer (a new measure that failed or was stopped),
+ * read under the member's own rights: the public reason of a plan's analysis, never its code.
+ */
+async function endedAttemptReasons(client: Client, tenantId: string, jobIds: readonly string[]) {
+  const reasons = new Map<string, string>();
+  for (let start = 0; start < jobIds.length; start += ROWS_PER_READ) {
+    const { data, error } = await client.from("takeoff_jobs").select("id, error_code")
+      .eq("tenant_id", tenantId).in("id", jobIds.slice(start, start + ROWS_PER_READ));
+    if (error) readFailure(error);
+    for (const row of data ?? []) reasons.set(row.id, describeTakeoffJobFailure(toPublicFailureCode(row.error_code, true)));
+  }
+  return reasons;
+}
+
+/** A later reading asked of the plan than its current answer's: in flight, or ended without an answer. */
+function laterAttempt(reading: Record<string, unknown>, answerJobId: string | null, unit: TakeoffUnitState) {
+  const jobId = typeof reading.job_id === "string" ? reading.job_id : null;
+  if (!answerJobId || !jobId || jobId.toLowerCase() === answerJobId.toLowerCase() || unit === "succeeded") return null;
+  return { jobId, unit: unit === "not_started" ? "canceled" as const : unit };
+}
+
 /** The rows of the database as the model reads them, with each answer's anomalies. */
 async function tableRows(access: AffaireAccess, rows: readonly TableRow[]): Promise<ItemTableRow[]> {
   const client = access.context.supabase as unknown as Client;
@@ -210,10 +234,16 @@ async function tableRows(access: AffaireAccess, rows: readonly TableRow[]): Prom
   }
   const contributionIds = [...answers.values()].flatMap((answer) => answer.observations
     .flatMap((observation) => observation.role === "contribution" && observation.takeoffItemId ? [observation.takeoffItemId] : []));
-  const [contributions, lowConfidenceThreshold, marksRevisions] = await Promise.all([
+  const endedAttempts = rows.flatMap((row) => rawReadings(row).flatMap((reading) => {
+    const answerJobId = reading.answer ? answers.get(String(asRecord(reading.answer)?.answer_id))?.jobId ?? null : null;
+    const attempt = isTakeoffUnitState(reading.unit_state) ? laterAttempt(reading, answerJobId, reading.unit_state) : null;
+    return attempt && (attempt.unit === "failed" || attempt.unit === "canceled") ? [attempt.jobId] : [];
+  }));
+  const [contributions, lowConfidenceThreshold, marksRevisions, attemptReasons] = await Promise.all([
     contributionIds.length ? contributionRows(client, access.context.tenantId, contributionIds) : new Map<string, ItemContributionRow>(),
     answers.size ? getTakeoffLowConfidenceThresholdForTenant(access.context.tenantId) : Promise.resolve(0),
     answers.size ? countMarksRevisions(client, [...answers.keys()]) : new Map<string, number>(),
+    endedAttempts.length ? endedAttemptReasons(client, access.context.tenantId, [...new Set(endedAttempts)]) : new Map<string, string>(),
   ]);
   return rows.map((row): ItemTableRow => {
     if (!isState(row.state) || !isDecision(row.decision)) throw new TypeError("Poste illisible.");
@@ -221,6 +251,7 @@ async function tableRows(access: AffaireAccess, rows: readonly TableRow[]): Prom
       const answer = reading.answer ? answers.get(String(asRecord(reading.answer)?.answer_id)) ?? null : null;
       const unit = reading.unit_state;
       if (!isTakeoffUnitState(unit)) throw new TypeError("Lecture de poste illisible.");
+      const attempt = laterAttempt(reading, answer?.jobId ?? null, unit);
       return {
         itemId: row.item_id,
         planKey: String(reading.plan_logical_id),
@@ -234,6 +265,8 @@ async function tableRows(access: AffaireAccess, rows: readonly TableRow[]): Prom
         marksRevision: answer ? marksRevisions.get(answer.answerId) ?? 0 : 0,
         entry: entryOf(reading.entry),
         sent: reading.sent === true,
+        attempt: attempt ? { unit: attempt.unit, reason: attempt.unit === "failed" || attempt.unit === "canceled"
+          ? attemptReasons.get(attempt.jobId) ?? describeTakeoffJobFailure(null) : null } : null,
       };
     });
     return {
@@ -341,12 +374,13 @@ const plansOf = (facets: ItemTableFacets): ItemTablePlan[] => facets.plans.map((
  */
 export async function loadItemLines(access: AffaireAccess, input: { scope: ItemTableScope; itemIds: readonly string[];
   withPlans?: boolean }) {
-  const [rows, facets] = await Promise.all([
+  const [rows, facets, list] = await Promise.all([
     readRows(access, { scope: input.scope, itemIds: input.itemIds, offset: 0, limit: ITEM_REVIEW_LIMITS.items }),
     input.withPlans ? readFacets(access, { kind: "affaire" }) : Promise.resolve(emptyFacets()),
+    input.withPlans ? latestList(access) : Promise.resolve(null),
   ]);
   const plans = plansOf(facets);
-  return { lines: buildItemLines(await tableRows(access, rows), { plans, scope: input.scope }), plans };
+  return { lines: buildItemLines(await tableRows(access, rows), { plans, scope: input.scope }), plans, list };
 }
 
 /** A page of the table for any reader of the affaire; the gestures it offers are for its takeoff operators. */

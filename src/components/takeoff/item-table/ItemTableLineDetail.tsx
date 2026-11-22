@@ -76,6 +76,14 @@ export function ItemTableLineDetail({ line, projectId, names, canReview, busy, o
                   {reading.planName}{reading.location ? ` · ${reading.location}` : ""} ·{" "}
                   {answer ? OUTCOME_LABELS[answer.outcome] : ITEM_UNIT_STATE_LABELS[reading.unit]}
                 </p>
+                {answer && reading.attempt ? (
+                  <p className="mt-1 text-sm" data-testid={`poste-reading-attempt-${reading.planKey}`}>
+                    {reading.attempt.unit === "queued" || reading.attempt.unit === "running"
+                      ? "Nouvelle mesure en cours sur ce plan : la lecture ci-dessous reste celle retenue tant qu’elle n’a pas abouti."
+                      : `La nouvelle mesure de ce plan n’a pas abouti${reading.attempt.reason ? ` : ${reading.attempt.reason}` : "."}`
+                        + " La lecture précédente ci-dessous reste celle retenue."}
+                  </p>
+                ) : null}
                 {answer ? (
                   <div className="mt-1 space-y-1 text-sm">
                     <p>

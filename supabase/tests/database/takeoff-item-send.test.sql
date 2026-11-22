@@ -1629,5 +1629,47 @@ select ok(not private.takeoff_item_send_plan_valid(jsonb_set(c.plan, '{dependenc
     jsonb_build_object('kind', 'line', 'estimateItemId', c.plan #> '{dependencies,resolutions,0,choice,estimate_item_id}'))),
   'contract: the planner''s former spelling of a chosen line is refused') from contract_plans c where c.name = 'chosen';
 
+
+-- Lot 4 PR 4b (…_takeoff_item_remeasure_admission.sql): a plan sent by item, then one item of it measured again. The new
+-- measure is admitted on that plan for the lavabo alone; nothing of what was sent changes (receipts, targets, parts,
+-- pages, the drafts' lines, the sent jobs), before or after its publication; the new answer replaces the lavabo's reading
+-- on the plan and is undecided.
+create temp table sent_footprint as select pg_temp.footprint() as value;
+create temp table sent_jobs as select j.id, j.status::text as status, j.estimate_version_id, j.updated_at from public.takeoff_jobs j
+where j.project_id = pg_temp.f(20) and j.estimate_version_id is not null;
+select ok((select count(*) from sent_jobs) > 0, 'a reading of the plan was sent by item');
+create temp table seen_lavabo as select coalesce(jsonb_agg(p.answer_id), '[]'::jsonb) as answers, (array_agg(p.answer_id))[1] as answer_id
+from private.takeoff_item_reading_pairs(pg_temp.f(10), pg_temp.f(20), pg_temp.f(100)) p
+where p.item_id = pg_temp.f(300) and p.answer_id is not null;
+create temp table latest_list as select r.id, r.revision, r.content_sha256, r.item_count from public.takeoff_list_revisions r
+where r.project_id = pg_temp.f(20) order by r.revision desc limit 1;
+select results_eq($$select outcome from public.launch_takeoff_item_remeasure(pg_temp.f(10), pg_temp.f(20), pg_temp.f(1),
+    pg_temp.f(790), pg_temp.latest_job(20), pg_temp.host(), pg_temp.selection(),
+    pg_temp.manifest(20, (select jsonb_build_object('kind', 'item_list', 'version', 2, 'list', jsonb_build_object('revision_id', l.id,
+      'revision', l.revision, 'content_sha256', l.content_sha256, 'item_count', l.item_count,
+      'asked_item_ids', jsonb_build_array(pg_temp.f(300)::text))) from latest_list l)),
+    (select p.confirmed_snapshot from public.takeoff_preparations p where p.project_id = pg_temp.f(20)),
+    jsonb_build_array(jsonb_build_object('id', pg_temp.f(1090), 'plan_set_id', pg_temp.f(40), 'launch_unit_key', 'plan:' || pg_temp.f(100),
+      'source_file_name', 'plan-1.pdf', 'source_file_type', 'application/pdf', 'source_file_size_bytes', 8, 'prompt_version', 'fixture',
+      'execution_host_id', pg_temp.host())),
+    pg_temp.f(40), (select p.revision from public.takeoff_preparations p where p.project_id = pg_temp.f(20)), array[pg_temp.f(100)],
+    jsonb_build_array(jsonb_build_object('item_id', pg_temp.f(300), 'answers', (select answers from seen_lavabo))),
+    jsonb_build_object('preview_digest', repeat('c', 64), 'setting', null))$$,
+  $$values ('admitted'::text)$$, 'a new measure of the lavabo on the plan sent by item is admitted');
+select is(pg_temp.footprint(), (select value from sent_footprint), 'nothing of the send changed');
+select results_eq($$select j.id, j.status::text, j.estimate_version_id, j.updated_at from public.takeoff_jobs j
+    where j.id in (select id from sent_jobs) order by j.id$$, $$select * from sent_jobs order by id$$, 'nor the sent jobs');
+select is((select job_id from public.dispatch_next_takeoff_host_job(pg_temp.host())), pg_temp.f(1090), 'its plan is handed');
+select is(pg_temp.claim(pg_temp.f(1090), 990), 1, 'and claimed');
+select results_eq($$select replayed, answer_count from pg_temp.publish(pg_temp.f(1090), 990, jsonb_build_array(jsonb_build_object(
+    'item_id', pg_temp.f(300), 'outcome', 'not_found', 'reasons', jsonb_build_array(jsonb_build_object('code', 'NO_INDICATION',
+      'by', 'model', 'text', 'Aucun indice (fictif).', 'chunk_id', 'f1-b1')),
+    'searched_pages', '[2, 7]'::jsonb, 'unreadable_pages', '[]'::jsonb, 'observations', '[]'::jsonb)), '[]'::jsonb, null,
+    array[2, 7], '[]'::jsonb)$$, $$values (false, 1)$$, 'it publishes the lavabo alone');
+select is(pg_temp.footprint(), (select value from sent_footprint), 'and nothing of the send changed after it either');
+select results_eq($$select a.replaces_answer_id, (select count(*)::integer from public.takeoff_item_answer_decisions d where d.answer_id = a.id)
+    from public.takeoff_item_answers a where a.job_id = pg_temp.f(1090)$$,
+  $$select answer_id, 0 from seen_lavabo$$, 'the new answer replaces the lavabo''s reading on the plan, undecided');
+
 select * from finish();
 rollback;

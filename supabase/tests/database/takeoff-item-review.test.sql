@@ -267,7 +267,8 @@ insert into item_state_vectors values
   (7, 'one plan read, the other ended without an answer', 2, 1, 0, 0, 1, 'incomplete'),
   (8, 'no plan answered, none still read', 2, 0, 0, 0, 0, 'failed'),
   (9, 'one plan ended without an answer, the other still read', 2, 0, 1, 0, 0, 'reading'),
-  (10, 'three plans read, measured and not found', 3, 3, 0, 0, 2, 'measured');
+  (10, 'three plans read, measured and not found', 3, 3, 0, 0, 2, 'measured'),
+  (11, 'one plan asked and read, nothing found; no request asked the item on the other', 1, 1, 0, 0, 0, 'not_found');
 select is(private.takeoff_item_state(v.expected, v.answered, v.in_flight, v.uncertain, v.measured), v.state,
   'vector ' || v.position || ': ' || v.label)
 from item_state_vectors v order by v.position;

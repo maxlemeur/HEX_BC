@@ -211,15 +211,19 @@ export function boundPosteReadingRequest(input: {
  * The bounds of a sealed manifest that orders a list of items (none for the free extraction): each unit of one analysis
  * per plan with the share it sealed, or a grouped analysis as one unit holding every plan with the request's envelope.
  * A unit's pages are its retained pages, else its page count, else weighed as lot 3 weighs a plan of unknown count;
- * `countedPages` gives the pages a worker counted on a unit's own PDF (by unit key), in their place. `items`: the sealed
- * revision's items (their batches are counted by their bytes); `vectorCalls`: the most calls the vector classifier may
- * make on a unit of so many vector pages.
+ * `countedPages` gives the pages a worker counted on a unit's own PDF (by unit key), in their place. `items`: the items
+ * the order asks (its asked_item_ids when it names some, else every item of the sealed revision; their batches are
+ * counted by their bytes); `vectorCalls`: the most calls the vector classifier may make on a unit of so many vector pages.
  */
 export function posteReadingBoundsOfManifest(manifest: AnyTakeoffLaunchManifest, chunking: TakeoffChunkingRuntimeConfig,
   estimateTokensPerCall: number, items: readonly Poste[], vectorCalls: (vectorPages: number) => number = () => 0,
   countedPages: ReadonlyMap<string, number> = new Map()): PosteReadingBounds | null {
   if (manifest.order.kind !== "item_list") return null;
-  if (items.length !== manifest.order.list.item_count) throw new Error("The items bounded are not the list the manifest sealed.");
+  const asked = manifest.order.list.asked_item_ids;
+  if (asked ? items.length !== asked.length || items.some((item) => !asked.includes(item.id.toLowerCase()))
+    : items.length !== manifest.order.list.item_count) {
+    throw new Error("The items bounded are not the ones the manifest asks.");
+  }
   const pagesOf = new Map(manifest.plans.map((plan, index) => [plan.entry_key, takeoffPlanWeights(manifest.plans)[index]]));
   const piece = (entryKey: string) => {
     const plan = manifest.plans.find((entry) => entry.entry_key === entryKey);
@@ -260,6 +264,19 @@ export function sizePosteReadingManifest<T extends AnyTakeoffLaunchManifest>(man
       budget: { ...manifest.budget, tokens: shares.reduce((sum, tokens) => sum + tokens, 0) } }
     : { ...manifest, budget: { ...manifest.budget, tokens: shares.reduce((sum, tokens) => sum + tokens, 0) } }) as T;
   return { manifest: sized, bounds: posteReadingBoundsOfManifest(sized, chunking, estimateTokensPerCall, items, vectorCalls)! };
+}
+
+/**
+ * The items a sealed order asks, in the sealed list's order: those its `asked_item_ids` names (a new measure of a
+ * selection, which names them by identifier), else every item. What the admission and its preview size and what the
+ * worker reads, its batches split on count and on bytes in that order: one order for all three. Null when an item it
+ * names is not in the list, or is named twice.
+ */
+export function postesAskedBy<T extends Poste>(items: readonly T[], askedItemIds: readonly string[] | null | undefined): T[] | null {
+  if (!askedItemIds) return [...items];
+  const asked = new Set(askedItemIds.map((id) => id.toLowerCase()));
+  const kept = items.filter((item) => asked.has(item.id.toLowerCase()));
+  return asked.size === askedItemIds.length && kept.length === asked.size ? kept : null;
 }
 
 /** The refusal of a request past its bounds: the plans to restrict, with the launch reason the member already reads. */

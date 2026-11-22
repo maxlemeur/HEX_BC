@@ -2,7 +2,7 @@
 
 import { useId, useState, type KeyboardEvent } from "react";
 
-import { CHATGPT_REASONING_EFFORT_LABELS, CHATGPT_REASONING_EFFORTS, type ChatGptReasoningEffort } from "@/lib/ai/chatgpt-model-preferences";
+import { CHATGPT_REASONING_EFFORT_LABELS } from "@/lib/ai/chatgpt-model-preferences";
 import { ITEM_SET_ASIDE_REASONS, type ItemSetAsideReason } from "@/lib/takeoff/item-table";
 import { ITEM_SET_ASIDE_NOTE, type ItemRemeasurePreview } from "@/lib/takeoff/item-table-contracts";
 import {
@@ -205,12 +205,11 @@ export function EntryDialog({ scopeLabel, busy, onClose, values, onConfirm }: Ba
 export function RemeasureDialog({ scopeLabel, busy, onClose, preview, loadError, onConfirm }: Base & {
   preview: ItemRemeasurePreview | null;
   loadError: string | null;
-  onConfirm: (effort: ChatGptReasoningEffort | null) => void;
+  onConfirm: () => void;
 }) {
-  const effortId = useId();
-  const [effort, setEffort] = useState<ChatGptReasoningEffort | "">("");
   const ready = preview?.subscription.state === "ready" ? preview.subscription : null;
-  const canConfirm = Boolean(ready && preview && !preview.running && preview.items.length > 0 && preview.plans.length > 0 && !busy);
+  const reading = preview?.reading.state === "ready" ? preview.reading : null;
+  const canConfirm = Boolean(ready && reading && preview && !preview.running && preview.items.length > 0 && preview.plans.length > 0 && !busy);
   return (
     <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
       <DialogContent size="md">
@@ -232,20 +231,12 @@ export function RemeasureDialog({ scopeLabel, busy, onClose, preview, loadError,
               <p>
                 Réglage de Mon profil : {ready.model} · effort{" "}
                 {ready.reasoningEffort ? CHATGPT_REASONING_EFFORT_LABELS[ready.reasoningEffort].toLocaleLowerCase("fr") : "par défaut"}.
+                {/* The Mac reads a request with its payer's profile as it is: no effort is offered for one request alone. */}
+                {" "}La demande l’utilise tel quel.
               </p>
             ) : (
               <p className="text-danger" role="alert">{preview.subscription.state === "unavailable" ? preview.subscription.reason : null}</p>
             )}
-            {ready ? (
-              <Field>
-                <FieldLabel htmlFor={effortId}>Effort pour cette demande seulement</FieldLabel>
-                <NativeSelect id={effortId} value={effort} onChange={(event) => setEffort(event.target.value as ChatGptReasoningEffort | "")}>
-                  <option value="">Celui de Mon profil</option>
-                  {CHATGPT_REASONING_EFFORTS.map((value) => <option key={value} value={value}>{CHATGPT_REASONING_EFFORT_LABELS[value]}</option>)}
-                </NativeSelect>
-                <FieldDescription>Ce réglage n’est pas enregistré dans Mon profil.</FieldDescription>
-              </Field>
-            ) : null}
             <div>
               <p className="font-medium">{formatItemCount(preview.plans.length, "plan lu", "plans lus")}</p>
               <ul className="list-disc pl-5">{preview.plans.map((plan) => <li key={plan.key}>{plan.name}</li>)}</ul>
@@ -254,6 +245,14 @@ export function RemeasureDialog({ scopeLabel, busy, onClose, preview, loadError,
               <p className="font-medium">{formatItemCount(preview.items.length, "poste mesuré", "postes mesurés")}</p>
               <ul className="max-h-32 list-disc overflow-y-auto pl-5">{preview.items.map((item) => <li key={item.itemId}>{item.label}</li>)}</ul>
             </div>
+            {reading ? (
+              <p data-testid="poste-remeasure-reading">
+                {reading.summary} Budget réservé sur votre forfait : {formatItemCount(reading.budgetTokens, "jeton", "jetons")} au plus
+                ({formatItemCount(reading.calls, "appel payant", "appels payants")}).
+              </p>
+            ) : preview.reading.state === "refused" ? (
+              <p className="text-danger" role="alert">{preview.reading.reason}</p>
+            ) : null}
             {preview.skipped.length ? (
               <p>
                 Non repris : {preview.skipped.map((item) => `${item.label} (${ITEM_INELIGIBILITY_LABELS[item.reason]})`).join(", ")}.
@@ -266,7 +265,7 @@ export function RemeasureDialog({ scopeLabel, busy, onClose, preview, loadError,
         ) : null}
         <DialogFooter>
           <DialogClose disabled={busy} render={<Button variant="outline" />}>Annuler</DialogClose>
-          <Button disabled={!canConfirm} onClick={() => onConfirm(effort || null)}>
+          <Button disabled={!canConfirm} onClick={onConfirm}>
             Confirmer la demande sur mon forfait
           </Button>
         </DialogFooter>
