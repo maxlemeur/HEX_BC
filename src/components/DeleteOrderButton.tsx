@@ -38,8 +38,10 @@ export function DeleteOrderButton({
     }).catch(() => null);
 
     if (response?.ok) {
-      router.push("/dashboard/orders");
-      router.refresh();
+      // Replace, without refresh: a refresh right after the push re-rendered the deleted order's page while the list
+      // was loading (React warned of a use() left halfway in development), and the list reads its orders afresh.
+      // Replace also keeps the deleted order out of the history: Back does not lead to a page that no longer exists.
+      router.replace("/dashboard/orders");
       return;
     }
 
