@@ -82,7 +82,7 @@ $$;
 select is((select count(*)::integer from pg_temp.parent_triggers() where not internal or on_insert), 0,
   'on an existing table, no trigger of this migration but its foreign keys'' own, and none fires on an insert');
 select results_eq($$select relation, count(*)::integer from pg_temp.parent_triggers() group by relation order by relation$$,
-  $$values ('estimate_projects'::text, 6), ('takeoff_item_answer_observations', 2), ('takeoff_item_answers', 6)$$,
+  $$values ('estimate_projects'::text, 6), ('takeoff_item_answer_observations', 2), ('takeoff_item_answers', 8)$$,
   'deleting or rekeying an affaire, an answer or an observation checks the new tables: two triggers for each foreign key');
 
 -- The count units: the repository's rule (src/lib/takeoff/units.ts, the same cases in count-marks.test.ts).
@@ -657,6 +657,12 @@ select results_eq($$select (r ->> 'replayed')::boolean, r -> 'revisions', r #>> 
     jsonb_build_object('mark_id', pg_temp.m('lav-1'), 'x', 0.12, 'y', 0.21)))) r) x$$,
   $$values (true, pg_temp.at(pg_temp.lavabo(), 3), 'to_verify_again'::text, 'null'::jsonb, 3)$$,
   'a replay of the move answers the count as the move left it, not the current one');
+select results_eq($$select r #>> array['summaries', pg_temp.lavabo()::text, 'state'],
+  (select jsonb_agg((x ->> 'page')::integer) from jsonb_array_elements(r #> array['summaries', pg_temp.lavabo()::text, 'pages']) x)
+  from (select pg_temp.edit(603, pg_temp.at(pg_temp.lavabo(), 3), jsonb_build_array(pg_temp.g('verify',
+    jsonb_build_object('answer_id', pg_temp.lavabo(), 'pages', '[2]'::jsonb)))) r) x$$,
+  $$values ('verified'::text, '[2]'::jsonb)$$,
+  'a receipt holds each answer''s totals and the pages its edit changed, not every page of the scope');
 
 -- The last marks removed: no retained quantity (a SQL NULL), never a written zero.
 select results_eq($$select r #>> array['summaries', pg_temp.lavabo()::text, 'state'],
@@ -709,52 +715,138 @@ select results_eq($$select r -> 'revisions' from (select pg_temp.edit(608, pg_te
 reset role;
 
 -- 5. A later machine generation: the lavabo, already reviewed, keeps its marks (the generation waits there, pending);
--- the bathtub, untouched, takes it.
+-- the bathtub, untouched, takes it. Only the same source key joins a known mark; another key, however close, is its own
+-- pending mark, flagged as a possible duplicate of the known mark beside it (both ways).
 create temp table second_generation as select pg_temp.publish_marks(901, 2, '[]'::jsonb, jsonb_build_array(
   pg_temp.mark(2, 0.90, 0.90, jsonb_build_array(pg_temp.proposal(300, 'lav-g2-1'))),
   pg_temp.mark(2, 0.13, 0.22, jsonb_build_array(pg_temp.proposal(300, 'lav-1'))),
   pg_temp.mark(2, 0.5203, 0.2602, jsonb_build_array(pg_temp.proposal(300, 'lav-g2-3'))),
   pg_temp.mark(7, 0.25, 0.35, jsonb_build_array(pg_temp.proposal(302, 'bai-g2-1'))))) as answer;
-select results_eq($$select (answer ->> 'marks')::integer, (answer ->> 'reused')::integer, (answer ->> 'proposals')::integer
-  from second_generation$$, $$values (2, 2, 4)$$,
-  'one object reported again (its source key, or its place within 4 points) is another proposal of its mark, not a new mark');
+select results_eq($$select (answer ->> 'marks')::integer, (answer ->> 'joined')::integer, (answer ->> 'flagged')::integer,
+  (answer ->> 'proposals')::integer from second_generation$$, $$values (3, 1, 1, 4)$$,
+  'the same source key joins its mark; a new key next to a known mark is a new mark, flagged, never merged');
 select results_eq($$select p.source_key, p.mark_id = pg_temp.m(m.key) from public.takeoff_count_mark_proposals p
   join (values ('lav-1', 'lav-1'), ('lav-g2-3', 'lav-3')) as m(source, key) on m.source = p.source_key
-  where p.generation = 2 order by 1$$, $$values ('lav-1'::text, true), ('lav-g2-3', true)$$,
-  'the first lavabo and the third one keep their identity');
+  where p.generation = 2 order by 1$$, $$values ('lav-1'::text, true), ('lav-g2-3', false)$$,
+  'the first lavabo keeps its identity; the object beside the third one is another mark');
 select results_eq($$select (a ->> 'answer_id')::uuid, (a ->> 'effective')::boolean, (a ->> 'revision')::integer
   from second_generation, jsonb_array_elements(answer -> 'answers') a order by (a ->> 'effective')::boolean$$,
   $$values (pg_temp.lavabo(), false, 8), (pg_temp.baignoire(), true, 1)$$,
   'the reviewed lavabo keeps its revision; the bathtub takes the generation');
-insert into marks_by_key select p.source_key, p.mark_id from public.takeoff_count_mark_proposals p where p.generation = 2;
+insert into marks_by_key select p.source_key, p.mark_id from public.takeoff_count_mark_proposals p where p.generation = 2
+  and p.source_key <> 'lav-1';
+select results_eq($$select t.mark_id = pg_temp.m('lav-g2-3'), t.twin_mark_id = pg_temp.m('lav-3')
+  from public.takeoff_count_mark_twins t where t.answer_id = pg_temp.lavabo() order by t.mark_id = pg_temp.m('lav-g2-3') desc$$,
+  $$values (true, true), (false, false)$$, 'the possible duplicate is recorded both ways, for the lavabo');
 select results_eq($$select s ->> 'state', (s ->> 'pending')::integer, (s ->> 'retained')::integer
-  from (select private.takeoff_count_mark_summary(pg_temp.lavabo()) s) x$$, $$values ('to_verify_again'::text, 1, 0)$$,
-  'the lavabo''s count is unchanged, one mark pending');
+  from (select private.takeoff_count_mark_summary(pg_temp.lavabo()) s) x$$, $$values ('to_verify_again'::text, 2, 0)$$,
+  'the lavabo''s count is unchanged, two marks pending');
 select pg_temp.sign_in(1);
 set local role authenticated;
-select results_eq($$select (r ->> 'total')::integer, r #>> '{marks,0,state}' from (select public.read_takeoff_count_marks(pg_temp.f(10),
-  pg_temp.f(20), pg_temp.lavabo(), 2, array['pending']) r) x$$, $$values (1, 'pending'::text)$$, 'a reader finds it pending');
+select results_eq($$select (r ->> 'total')::integer,
+  (select m -> 'possible_duplicates' from jsonb_array_elements(r -> 'marks') m where (m ->> 'mark_id')::uuid = pg_temp.m('lav-g2-3'))
+  from (select public.read_takeoff_count_marks(pg_temp.f(10), pg_temp.f(20), pg_temp.lavabo(), 2, array['pending']) r) x$$,
+  $$values (2, jsonb_build_array(pg_temp.m('lav-3')))$$, 'a reader finds them pending, the flagged one with its possible duplicate');
 select throws_ok($$select pg_temp.edit(609, pg_temp.at(pg_temp.lavabo(), 8), jsonb_build_array(pg_temp.g('move',
   jsonb_build_object('mark_id', pg_temp.m('lav-g2-1'), 'x', 0.91, 'y', 0.9))))$$, '22023', 'TAKEOFF_MARKS_STATE_INVALID',
   'a pending mark is retained before it is moved');
--- A member adds a mark on the object the generation also found: retaining the pending one beside it would count it twice.
+-- A member adds a mark on the object the generation also found: retaining the pending one beside it asks which it is.
 create temp table hand_mark as select (a ->> 'mark_id')::uuid as id from (select pg_temp.edit(609, pg_temp.at(pg_temp.lavabo(), 8),
   jsonb_build_array(pg_temp.g('add', jsonb_build_object('answer_id', pg_temp.lavabo(), 'key', pg_temp.f(704), 'page', 2,
     'x', 0.9001, 'y', 0.9002)))) r) x, jsonb_array_elements(r -> 'added') a;
+grant select on hand_mark to authenticated;
 select throws_ok($$select pg_temp.edit(611, pg_temp.at(pg_temp.lavabo(), 9), jsonb_build_array(pg_temp.retain(pg_temp.lavabo(),
   pg_temp.m('lav-g2-1'))))$$, '23505', 'TAKEOFF_MARKS_OBJECT_DUPLICATE',
-  'a pending mark on an object already retained (within 4 points) is not retained beside it');
+  'a pending mark on an object already retained (within 4 points) is not retained without the member saying which it is');
 select results_eq($$select r #>> array['summaries', pg_temp.lavabo()::text, 'pending'],
   r #>> array['summaries', pg_temp.lavabo()::text, 'retained']
-  from (select pg_temp.edit(612, pg_temp.at(pg_temp.lavabo(), 9), jsonb_build_array(
-    pg_temp.g('remove', jsonb_build_object('answer_id', pg_temp.lavabo(), 'mark_id', (select id from hand_mark),
-      'reason', 'duplicate')),
-    pg_temp.retain(pg_temp.lavabo(), pg_temp.m('lav-g2-1')))) r) x$$, $$values ('0'::text, '1'::text)$$,
-  'once the member''s mark is removed, the machine''s is retained: one object, one mark');
-select throws_ok($$select pg_temp.edit(613, pg_temp.at(pg_temp.lavabo(), 10), jsonb_build_array(pg_temp.g('restore',
-  jsonb_build_object('answer_id', pg_temp.lavabo(), 'mark_id', (select id from hand_mark)))))$$, '23505',
-  'TAKEOFF_MARKS_OBJECT_DUPLICATE', 'and restoring the member''s mark beside it is refused until one is chosen');
+  from (select pg_temp.edit(612, pg_temp.at(pg_temp.lavabo(), 9), jsonb_build_array(pg_temp.g('retain',
+    jsonb_build_object('answer_id', pg_temp.lavabo(), 'mark_id', pg_temp.m('lav-g2-1'), 'object', 'same',
+      'same_as', (select id from hand_mark))))) r) x$$, $$values ('1'::text, '1'::text)$$,
+  '« same object »: the machine''s proposal joins the member''s mark, one object, one mark');
+reset role;
+select results_eq($$select p.mark_id = (select id from hand_mark), e.gesture, e.after ->> 'same_as' = (select id from hand_mark)::text
+  from public.takeoff_count_mark_proposals p, public.takeoff_count_mark_events e
+  where p.source_key = 'lav-g2-1' and e.answer_id = pg_temp.lavabo() and e.revision = 10$$,
+  $$values (true, 'same_object'::text, true)$$, 'its proposal now belongs to the member''s mark, journaled');
+select pg_temp.sign_in(1);
+set local role authenticated;
+select results_eq($$select r #>> array['summaries', pg_temp.lavabo()::text, 'retained']
+  from (select pg_temp.edit(613, pg_temp.at(pg_temp.lavabo(), 10), jsonb_build_array(pg_temp.retain(pg_temp.lavabo(),
+    pg_temp.m('lav-g2-3')))) r) x$$, $$values ('2'::text)$$,
+  'a flagged mark whose possible duplicate is not retained is retained as it is');
+select throws_ok($$select pg_temp.edit(617, pg_temp.at(pg_temp.lavabo(), 11), jsonb_build_array(pg_temp.g('restore',
+  jsonb_build_object('answer_id', pg_temp.lavabo(), 'mark_id', pg_temp.m('lav-3')))))$$, '23505', 'TAKEOFF_MARKS_OBJECT_DUPLICATE',
+  'restoring the third lavabo beside the retained mark on its object asks which it is');
+select results_eq($$select r #>> array['summaries', pg_temp.lavabo()::text, 'retained']
+  from (select pg_temp.edit(618, pg_temp.at(pg_temp.lavabo(), 11), jsonb_build_array(pg_temp.g('restore',
+    jsonb_build_object('answer_id', pg_temp.lavabo(), 'mark_id', pg_temp.m('lav-3'), 'object', 'distinct')))) r) x$$,
+  $$values ('3'::text)$$, '« distinct object »: both stand');
+reset role;
+select results_eq($$select e.gesture, e.after ->> 'object', e.actor_id from public.takeoff_count_mark_events e
+  where e.answer_id = pg_temp.lavabo() and e.revision = 12$$, $$values ('restore'::text, 'distinct'::text, pg_temp.f(1))$$,
+  'journaled as distinct, decided by the owner');
+
+-- Nothing ambiguous refuses a publication, and its result depends neither on the order of its marks nor on new
+-- identifiers: one mark within 4 points of two known marks is flagged with both; one with a known key joins.
+create function pg_temp.outcome(marks jsonb) returns text language plpgsql as $$
+declare
+  described text;
+  known uuid[] := array(select id from public.takeoff_count_marks);
+begin
+  begin
+    perform public.publish_takeoff_count_marks(pg_temp.job(1), pg_temp.f(901), 3, '[]'::jsonb, marks);
+    select string_agg(p.source_key || '=' || case when p.mark_id = any (known) then p.mark_id::text else 'new' end
+        || ' twins:' || coalesce((select string_agg(t.twin_mark_id::text, ',' order by t.twin_mark_id::text)
+          from public.takeoff_count_mark_twins t where t.answer_id = p.answer_id and t.mark_id = p.mark_id), ''),
+        '; ' order by p.source_key)
+    into described from public.takeoff_count_mark_proposals p where p.generation = 3;
+    raise exception 'rolled back' using errcode = 'P0001', detail = described;
+  exception when sqlstate 'P0001' then
+    get stacked diagnostics described = pg_exception_detail;
+  end;
+  return described;
+end;
+$$;
+select is(pg_temp.outcome(jsonb_build_array(
+    pg_temp.mark(2, 0.5201, 0.2601, jsonb_build_array(pg_temp.proposal(300, 'lav-g3-x'))),
+    pg_temp.mark(2, 0.40, 0.40, jsonb_build_array(pg_temp.proposal(300, 'lav-g2-1'))))),
+  pg_temp.outcome(jsonb_build_array(
+    pg_temp.mark(2, 0.40, 0.40, jsonb_build_array(pg_temp.proposal(300, 'lav-g2-1'))),
+    pg_temp.mark(2, 0.5201, 0.2601, jsonb_build_array(pg_temp.proposal(300, 'lav-g3-x'))))),
+  'the same generation in another order has the same result');
+select is(pg_temp.outcome(jsonb_build_array(
+    pg_temp.mark(2, 0.5201, 0.2601, jsonb_build_array(pg_temp.proposal(300, 'lav-g3-x'))),
+    pg_temp.mark(2, 0.40, 0.40, jsonb_build_array(pg_temp.proposal(300, 'lav-g2-1'))))),
+  format('lav-g2-1=%s twins:; lav-g3-x=new twins:%s', (select id from hand_mark),
+    (select string_agg(id::text, ',' order by id::text) from marks_by_key where key in ('lav-3', 'lav-g2-3'))),
+  'a known key joins its mark (the member''s, since « same object »); a mark near two known ones is flagged with both');
+
+-- What supported a retained mark is kept in the journal within a byte budget: eight proposals citing long observations.
+insert into public.takeoff_item_answer_observations (answer_id, tenant_id, project_id, job_id, ordinal, role, source, page, quantity,
+  unit, evidence, confidence, method, occurrence_coverage)
+select pg_temp.lavabo(), pg_temp.f(10), pg_temp.f(20), pg_temp.job(1), 9 + n, 'candidate', 'model', 2, 1, 'u',
+  repeat('Symbole de lavabo fictif, ' || n || '. ', 130), 0.5, 'symbol_count', 'page_total'
+from generate_series(1, 8) as n;
+select is((select (answer ->> 'marks')::integer from (select pg_temp.publish_marks(901, 4, '[]'::jsonb, jsonb_build_array(
+  pg_temp.mark(2, 0.05, 0.95, (select jsonb_agg(pg_temp.proposal(300, 'big-' || n, 'proposed',
+    jsonb_build_object('observation_ordinal', 9 + n)) order by n) from generate_series(1, 8) as n)))) as answer) x), 1,
+  'a generation proposes one mark with eight proposals, each citing a long observation');
+insert into marks_by_key select p.source_key, p.mark_id from public.takeoff_count_mark_proposals p where p.source_key = 'big-1';
+select pg_temp.sign_in(1);
+set local role authenticated;
+select is((pg_temp.edit(619, pg_temp.at(pg_temp.lavabo(), 12), jsonb_build_array(pg_temp.retain(pg_temp.lavabo(), pg_temp.m('big-1'))))
+  #>> array['summaries', pg_temp.lavabo()::text, 'retained']), '4', 'it is retained: its evidence fits the budget');
+reset role;
+select results_eq($$select jsonb_array_length(e.evidence) between 1 and 7, pg_catalog.octet_length(e.evidence::text) <= 32768,
+  e.evidence #>> '{0,observation,role}', e.evidence #>> '{0,observation,method}', e.evidence #>> '{0,observation,unit}',
+  (e.evidence #>> '{0,observation,quantity}')::numeric, left(e.evidence #>> '{0,observation,evidence}', 25)
+  from public.takeoff_count_mark_events e where e.answer_id = pg_temp.lavabo() and e.revision = 13$$,
+  $$values (true, true, 'candidate'::text, 'symbol_count'::text, 'u'::text, 1::numeric, 'Symbole de lavabo fictif,'::text)$$,
+  'the first proposals that fit 32,768 bytes are kept, each with what its observation said');
 -- A surface item: its marks locate the objects, they never give a quantity.
+select pg_temp.sign_in(1);
+set local role authenticated;
 select results_eq($$select r #>> array['summaries', pg_temp.baignoire()::text, 'state'],
   (r #>> array['summaries', pg_temp.baignoire()::text, 'counted'])::boolean,
   (r #>> array['summaries', pg_temp.baignoire()::text, 'retained'])::integer,
@@ -798,8 +890,8 @@ set local role authenticated;
 select throws_ok($$select pg_temp.edit(610, pg_temp.at(pg_temp.lavabo(), 9), jsonb_build_array(pg_temp.g('add',
   jsonb_build_object('answer_id', pg_temp.lavabo(), 'key', pg_temp.f(703), 'page', 2, 'x', 0.5, 'y', 0.5))))$$, '22023',
   'TAKEOFF_MARKS_ANSWER_REPLACED', 'a replaced reading''s marks are not edited');
-select is((public.read_takeoff_count_marks(pg_temp.f(10), pg_temp.f(20), pg_temp.lavabo(), 2) ->> 'total')::integer, 1,
-  'they stay readable');
+select is((public.read_takeoff_count_marks(pg_temp.f(10), pg_temp.f(20), pg_temp.lavabo(), 2) ->> 'total')::integer, 4,
+  'they stay readable: the four marks retained on page 2');
 reset role;
 
 -- Nobody writes these relations directly.
@@ -840,16 +932,23 @@ select results_eq($$select (select count(*)::integer from public.takeoff_count_m
   (select count(*)::integer from public.takeoff_count_answer_states where answer_id in (select id from answer_ids where round = 1)),
   (select count(*)::integer from public.takeoff_count_mark_events where answer_id = pg_temp.lavabo()) > 0$$,
   $$values (0, 0, 0, true)$$, 'their attributions, proposals and states are gone; their journal stays');
+select results_eq($$select (select count(*)::integer from public.takeoff_count_mark_attributions where answer_id = pg_temp.plinthe()),
+  (select count(*)::integer from public.takeoff_count_answer_states where answer_id = pg_temp.plinthe()),
+  (select revision from public.takeoff_count_answer_states where answer_id = pg_temp.plinthe())$$,
+  $$values (1, 1, 1)$$, 'the second reading''s marks, attribution and state are untouched by the first job''s deletion');
 select pg_temp.sign_in(3);
 set local role authenticated;
 select ok((select count(*) from public.read_takeoff_count_mark_events(pg_temp.f(10), pg_temp.f(20), pg_temp.lavabo())) > 0,
   'a reader still reads who did what');
-select results_eq($$select e.mark_id = pg_temp.m('lav-1'), p ->> 'source_key', p ->> 'method', p ->> 'method_version', p ->> 'raw_frame',
-  p #>> '{raw_centre,0}', (p ->> 'observation_id') is not null, (p ->> 'observation_page')::integer
+select results_eq($$select p ->> 'source_key', p ->> 'method', p ->> 'method_version', p ->> 'raw_frame',
+  p #>> '{raw_centre,0}', (p ->> 'observation_id') is not null, (p #>> '{observation,page}')::integer,
+  p #>> '{observation,role}', (p #>> '{observation,quantity}')::numeric, p #>> '{observation,unit}',
+  p #>> '{observation,evidence}', p #>> '{observation,method}'
   from public.read_takeoff_count_mark_events(pg_temp.f(10), pg_temp.f(20), pg_temp.lavabo()) e,
     jsonb_array_elements(e.evidence) p
   where e.gesture = 'retain' and e.mark_id = pg_temp.m('lav-1') and p ->> 'generation' = '1'$$,
-  $$values (true, 'lav-1'::text, 'symbol_count'::text, 'banc-1'::text, 'tile:1'::text, '120'::text, true, 2)$$,
+  $$values ('lav-1'::text, 'symbol_count'::text, 'banc-1'::text, 'tile:1'::text, '120'::text, true, 2, 'contribution'::text,
+    2::numeric, 'u'::text, 'Symboles LAV fictifs'::text, 'symbol_count'::text)$$,
   'what supported a retained mark is read with the decision that retained it, after its job is gone');
 reset role;
 select lives_ok($$select pg_temp.delete_and_check(format('delete from public.estimate_projects where id = %L', pg_temp.f(20)))$$,

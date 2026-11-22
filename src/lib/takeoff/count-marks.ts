@@ -53,7 +53,7 @@ export const TAKEOFF_COUNT_MARK_REMOVAL_REASONS = ["duplicate", "not_this_item",
   "outside_scope", "other"] as const;
 export type TakeoffCountMarkRemovalReason = (typeof TAKEOFF_COUNT_MARK_REMOVAL_REASONS)[number];
 
-export const TAKEOFF_COUNT_MARK_REASON_LABELS: Record<TakeoffCountMarkRemovalReason | "reattributed", string> = {
+export const TAKEOFF_COUNT_MARK_REASON_LABELS: Record<TakeoffCountMarkRemovalReason | "reattributed" | "same_object", string> = {
   duplicate: "Doublon",
   not_this_item: "Pas ce poste",
   legend_or_detail: "Légende ou détail",
@@ -61,7 +61,16 @@ export const TAKEOFF_COUNT_MARK_REASON_LABELS: Record<TakeoffCountMarkRemovalRea
   outside_scope: "Hors du périmètre",
   other: "Autre motif",
   reattributed: "Affecté à un autre poste",
+  same_object: "Même objet qu'un repère retenu",
 };
+
+/**
+ * The member's word when a mark would be retained beside a retained mark of the same answer within 4 points (a possible
+ * duplicate): « same » (with same_as, the retained mark: the proposals join it, this mark is withdrawn for the answer) or
+ * « distinct » (both stand). The machine never decides it.
+ */
+export const TAKEOFF_COUNT_MARK_OBJECT_WORDS = { same: "Même objet", distinct: "Objet distinct" } as const;
+export type TakeoffCountMarkObjectWord = keyof typeof TAKEOFF_COUNT_MARK_OBJECT_WORDS;
 
 /** The gestures of an edit, as public.edit_takeoff_count_marks takes them (every verify after every other gesture). */
 export type TakeoffCountMarkBox = readonly [number, number, number, number];
@@ -75,14 +84,18 @@ export type TakeoffCountPageGeometry = {
   width: number;
   height: number;
 };
+export type TakeoffCountMarkObjectDecision =
+  | { object?: undefined; same_as?: undefined }
+  | { object: "distinct"; same_as?: undefined }
+  | { object: "same"; same_as: string };
 export type TakeoffCountMarkGesture =
   | { op: "add"; answer_id: string; key: string; page: number; x: number; y: number; box?: TakeoffCountMarkBox;
     geometry?: TakeoffCountPageGeometry }
   | { op: "move"; mark_id: string; x: number; y: number; box?: TakeoffCountMarkBox }
   | { op: "remove"; answer_id: string; mark_id: string; reason: TakeoffCountMarkRemovalReason; note?: string }
-  | { op: "restore"; answer_id: string; mark_id: string }
-  | { op: "retain"; answer_id: string; mark_id: string }
-  | { op: "reattribute"; answer_id: string; mark_id: string; to_answer_id: string }
+  | ({ op: "restore"; answer_id: string; mark_id: string } & TakeoffCountMarkObjectDecision)
+  | ({ op: "retain"; answer_id: string; mark_id: string } & TakeoffCountMarkObjectDecision)
+  | { op: "reattribute"; answer_id: string; mark_id: string; to_answer_id: string; object?: "distinct" }
   | { op: "verify"; answer_id: string; pages: readonly number[] };
 
 /** The refusals of an edit, each with nothing written, and the French sentence a member reads. */
@@ -102,7 +115,7 @@ export const TAKEOFF_COUNT_MARK_EDIT_REFUSALS = {
   TAKEOFF_MARKS_STATE_INVALID: "Ce geste n'est pas possible pour ce repère dans son état actuel.",
   TAKEOFF_MARKS_ATTRIBUTION_TAKEN: "Ce repère est déjà retenu pour un autre poste : affectez-le plutôt à ce poste.",
   TAKEOFF_MARKS_OBJECT_DUPLICATE:
-    "Un autre repère retenu pour ce poste désigne déjà cet objet : choisissez lequel garder avant d'en retenir un second.",
+    "Un repère retenu pour ce poste est tout proche : dites s'il s'agit du même objet ou d'un objet distinct.",
   TAKEOFF_MARKS_TARGET_INCOMPATIBLE:
     "Ce repère ne peut pas être affecté à ce poste : autre plan, page non lue ou autre unité.",
   TAKEOFF_MARKS_UNDECIDED: "Décidez de chaque repère proposé sur cette page avant de la déclarer vérifiée.",
@@ -120,8 +133,6 @@ export const TAKEOFF_COUNT_MARK_PUBLICATION_REFUSALS = [
   "TAKEOFF_MARKS_PAGE_OUTSIDE",
   "TAKEOFF_MARKS_PAGE_GEOMETRY_REQUIRED",
   "TAKEOFF_MARKS_PAGE_GEOMETRY_CONFLICT",
-  /** One mark of the generation on two known marks, or two of its marks on one: a doubt between neighbours. */
-  "TAKEOFF_MARKS_OBJECT_AMBIGUOUS",
 ] as const;
 
 /** The edit refusal a database error names, when it is one of the command's own. */
@@ -343,6 +354,8 @@ export type TakeoffCountMark = {
   reasonText: string | null;
   decidedBy: string | null;
   decidedAt: string | null;
+  /** The marks of the same answer a machine generation found within 4 points of this one: possible duplicates. */
+  possibleDuplicates: string[];
   /** Its attributions to other answers (competing items), each with that answer's marks revision. */
   others: Array<{ answerId: string; itemId: string; state: TakeoffCountMarkState; revision: number }>;
   proposals: TakeoffCountMarkProposal[];
@@ -410,6 +423,8 @@ function mark(entry: unknown): TakeoffCountMark {
       : oneOf(TAKEOFF_COUNT_MARK_STATES, row.prior_state, "état antérieur"),
     reasonCode: optionalText(row.reason_code),
     reasonText: optionalText(row.reason_text),
+    possibleDuplicates: Array.isArray(row.possible_duplicates)
+      ? row.possible_duplicates.map((other) => id(other, "doublon possible")) : invalid("doublons possibles"),
     decidedBy: optionalId(row.decided_by, "auteur de la décision"),
     decidedAt: optionalText(row.decided_at),
     others: Array.isArray(row.others) ? row.others.map((other) => {
@@ -460,6 +475,7 @@ export type TakeoffCountMarkEditResult = {
   revisions: Record<string, number>;
   /** The marks added, by the caller's key. */
   added: Array<{ key: string; markId: string }>;
+  /** Each changed answer's totals and state as the command committed them, and only the pages this edit changed. */
   summaries: Record<string, TakeoffCountMarkSummary>;
 };
 

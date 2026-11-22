@@ -109,6 +109,7 @@ describe("the database's documents", () => {
       marks: [{ mark_id: uuid(20), x: 0.5, y: 0.25, box: null, origin: "machine", position_revision: 1, created_by: null,
         created_job_id: uuid(1010), created_at: "2026-11-22T09:00:00+00:00", moved_by: null, moved_at: null, state: "proposed",
         prior_state: null, reason_code: null, reason_text: null, decided_by: null, decided_at: null,
+        possible_duplicates: [uuid(22)],
         others: [{ answer_id: uuid(2), item_id: uuid(301), state: "proposed", revision: 1 }],
         proposals: [{ proposal_id: uuid(30), answer_id: uuid(1), job_id: uuid(1010), observation_id: null, generation: 1,
           source_key: "lav-3", method: "symbol_count", method_version: "banc-1", state: "proposed", x: 0.5, y: 0.25, box: null,
@@ -116,7 +117,7 @@ describe("the database's documents", () => {
           diameter_source: "label", confidence: 0.8, published_at: "2026-11-22T09:00:00+00:00" }] }],
     });
     expect(page).toMatchObject({ total: 3, loaded: 1, nextAfter: uuid(20), geometry: { rotation: 0, plan_file_id: uuid(100) } });
-    expect(page.marks[0]).toMatchObject({ origin: "machine", state: "proposed",
+    expect(page.marks[0]).toMatchObject({ origin: "machine", state: "proposed", possibleDuplicates: [uuid(22)],
       others: [{ answerId: uuid(2), state: "proposed" }], proposals: [{ sourceKey: "lav-3", diameterMm: 32, rawCentre: [120, 340] }] });
   });
 

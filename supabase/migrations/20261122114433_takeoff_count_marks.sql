@@ -31,7 +31,8 @@
 -- undecided, and is never 0: a verified scope without a retained mark is « Aucun repère retenu », a SQL NULL. Machine
 -- marks alone never give a quantity, and marks give one only to an item counted in pieces (its sealed unit, by the
 -- repository's count rule): for a length or a surface they locate the objects and the summary keeps its three numbers.
--- One object is one mark: two centres of one page within 4 points of each other at scale 1 are one object for an answer.
+-- One object, one mark: a machine generation joins a known mark only by its source key; two marks of one page within 4
+-- points of each other at scale 1 are possible duplicates, recorded, and only a member says whether they are one object.
 -- A grouped page total of lot 4 is a figure of the answer, never added to these.
 --
 -- For the review decisions (lot 4, B2, not on main when this was written): private.takeoff_count_marks_revision gives an
@@ -83,6 +84,11 @@ revoke all on function private.refuse_takeoff_count_mark_direct_write() from pub
 create function private.refuse_takeoff_count_mark_update()
 returns trigger language plpgsql set search_path = pg_catalog as $$
 begin
+  -- A member's « same object » decision moves a proposal to the mark it names (on its page: the key checks it); nothing
+  -- else of a fact ever changes.
+  if tg_table_name = 'takeoff_count_mark_proposals' and (to_jsonb(new) - 'mark_id') = (to_jsonb(old) - 'mark_id') then
+    return new;
+  end if;
   raise exception 'TAKEOFF_MARKS_IMMUTABLE' using errcode = '42501';
 end;
 $$;
@@ -116,9 +122,11 @@ create table public.takeoff_count_pages (
   -- The visible page at scale 1: the box turned by the rotation, times UserUnit (to a millionth of each side).
   constraint takeoff_count_pages_dimensions_check check (
     pg_catalog.abs(width - user_unit * case when rotation in (0, 180) then view_box[3] - view_box[1]
-      else view_box[4] - view_box[2] end) <= 0.000001 * width
+      else view_box[4] - view_box[2] end)
+      <= 0.000001 * user_unit * case when rotation in (0, 180) then view_box[3] - view_box[1] else view_box[4] - view_box[2] end
     and pg_catalog.abs(height - user_unit * case when rotation in (0, 180) then view_box[4] - view_box[2]
-      else view_box[3] - view_box[1] end) <= 0.000001 * height),
+      else view_box[3] - view_box[1] end)
+      <= 0.000001 * user_unit * case when rotation in (0, 180) then view_box[4] - view_box[2] else view_box[3] - view_box[1] end),
   constraint takeoff_count_pages_affaire_fkey foreign key (project_id, tenant_id)
     references public.estimate_projects (id, tenant_id) on delete cascade,
   constraint takeoff_count_pages_page_key unique (tenant_id, project_id, plan_logical_id, plan_content_sha256, page),
@@ -201,7 +209,7 @@ create table public.takeoff_count_mark_attributions (
   state text not null check (state in ('proposed', 'to_attribute', 'retained', 'removed')),
   prior_state text check (prior_state in ('proposed', 'to_attribute', 'retained')),
   reason_code text check (reason_code in ('duplicate', 'not_this_item', 'legend_or_detail', 'not_installed',
-    'outside_scope', 'other', 'reattributed')),
+    'outside_scope', 'other', 'reattributed', 'same_object')),
   reason_text text check (reason_text = pg_catalog.btrim(reason_text) and pg_catalog.char_length(reason_text) between 1 and 500),
   decided_by uuid,
   decided_at timestamptz,
@@ -285,7 +293,7 @@ create table public.takeoff_count_mark_commands (
   attempt_sha256 text check (attempt_sha256 ~ '^[0-9a-f]{64}$'),
   content_sha256 text not null check (content_sha256 ~ '^[0-9a-f]{64}$'),
   revisions jsonb not null check (pg_catalog.jsonb_typeof(revisions) = 'object'),
-  result jsonb not null check (pg_catalog.jsonb_typeof(result) = 'object' and pg_catalog.octet_length(result::text) <= 8388608),
+  result jsonb not null check (pg_catalog.jsonb_typeof(result) = 'object' and pg_catalog.octet_length(result::text) <= 1048576),
   created_at timestamptz not null default pg_catalog.clock_timestamp(),
   constraint takeoff_count_mark_commands_kind_rule_check check (
     (kind = 'edit') = (intent_key is not null and actor_id is not null)
@@ -313,7 +321,7 @@ create table public.takeoff_count_mark_events (
   command_id uuid not null references public.takeoff_count_mark_commands (id) on delete cascade
     deferrable initially deferred,
   gesture text not null check (gesture in ('proposed', 'add', 'move', 'remove', 'restore', 'retain', 'reattribute_out',
-    'reattribute_in', 'verify')),
+    'reattribute_in', 'verify', 'same_object')),
   mark_id uuid,
   page integer not null check (page between 1 and 100000),
   before jsonb check (before is null or (pg_catalog.jsonb_typeof(before) = 'object'
@@ -321,13 +329,13 @@ create table public.takeoff_count_mark_events (
   after jsonb check (after is null or (pg_catalog.jsonb_typeof(after) = 'object'
     and pg_catalog.octet_length(after::text) <= 4000)),
   reason_code text check (reason_code in ('duplicate', 'not_this_item', 'legend_or_detail', 'not_installed',
-    'outside_scope', 'other', 'reattributed')),
+    'outside_scope', 'other', 'reattributed', 'same_object')),
   reason_text text check (pg_catalog.char_length(reason_text) between 1 and 500),
   previous_event_id uuid,
-  -- For a gesture that retains a mark: its source proposals as they were (at most 16), kept here when the job that
-  -- proposed them is deleted.
+  -- For a gesture that retains a mark: its source proposals as they were, each with what its observation said (the
+  -- first that fit 32,768 bytes), kept here when the job that proposed them is deleted.
   evidence jsonb check (evidence is null or (pg_catalog.jsonb_typeof(evidence) = 'array'
-    and pg_catalog.jsonb_array_length(evidence) <= 16 and pg_catalog.octet_length(evidence::text) <= 32768)),
+    and pg_catalog.octet_length(evidence::text) <= 32768)),
   actor_kind text not null check (actor_kind in ('member', 'worker')),
   actor_id uuid,
   occurred_at timestamptz not null default pg_catalog.clock_timestamp(),
@@ -340,13 +348,32 @@ create index takeoff_count_mark_events_affaire_idx on public.takeoff_count_mark_
 create index takeoff_count_mark_events_command_idx on public.takeoff_count_mark_events (command_id);
 create index takeoff_count_mark_events_mark_idx on public.takeoff_count_mark_events (mark_id) where mark_id is not null;
 
+-- 8b. The possible duplicates: a mark a machine generation made for an answer within 4 points of a mark already known for
+--     that answer on the same page (attributed to it, or proposed for it), recorded both ways. A fact for the readers,
+--     never a merge: the member says which it is when retaining one (« same object » or « distinct object »).
+create table public.takeoff_count_mark_twins (
+  answer_id uuid not null,
+  mark_id uuid not null references public.takeoff_count_marks (id) on delete cascade,
+  twin_mark_id uuid not null references public.takeoff_count_marks (id) on delete cascade,
+  tenant_id uuid not null,
+  project_id uuid not null,
+  generation integer not null check (generation between 1 and 1000),
+  created_at timestamptz not null default pg_catalog.clock_timestamp(),
+  primary key (answer_id, mark_id, twin_mark_id),
+  constraint takeoff_count_mark_twins_pair_check check (mark_id <> twin_mark_id),
+  constraint takeoff_count_mark_twins_answer_fkey foreign key (answer_id, tenant_id, project_id)
+    references public.takeoff_item_answers (id, tenant_id, project_id) on delete cascade
+);
+create index takeoff_count_mark_twins_mark_idx on public.takeoff_count_mark_twins (mark_id);
+create index takeoff_count_mark_twins_twin_idx on public.takeoff_count_mark_twins (twin_mark_id);
+
 do $$
 declare
   relation text;
 begin
   foreach relation in array array['takeoff_count_pages', 'takeoff_count_marks', 'takeoff_count_answer_states',
     'takeoff_count_answer_pages', 'takeoff_count_mark_attributions', 'takeoff_count_mark_proposals',
-    'takeoff_count_mark_commands', 'takeoff_count_mark_events']
+    'takeoff_count_mark_commands', 'takeoff_count_mark_events', 'takeoff_count_mark_twins']
   loop
     execute format('alter table public.%I enable row level security', relation);
     execute format('revoke all on public.%I from public, anon, authenticated, service_role', relation);
@@ -354,7 +381,7 @@ begin
     execute format('create trigger %I before insert or update or delete on public.%I for each row execute function '
       || 'private.refuse_takeoff_count_mark_direct_write()', relation || '_writer', relation);
     if relation in ('takeoff_count_pages', 'takeoff_count_mark_proposals', 'takeoff_count_mark_commands',
-      'takeoff_count_mark_events') then
+      'takeoff_count_mark_events', 'takeoff_count_mark_twins') then
       execute format('create trigger %I before update on public.%I for each row execute function '
         || 'private.refuse_takeoff_count_mark_update()', relation || '_immutable', relation);
     end if;
@@ -532,20 +559,39 @@ returns boolean language sql stable security definer set search_path = '' as $$
       and private.takeoff_count_same_object(p_mark.page_id, k.x, k.y, p_mark.x, p_mark.y))
 $$;
 
+-- Whether the mark a « same object » decision names is a retained mark of the answer on the same object (within 4 points).
+create function private.takeoff_count_mark_is_twin_of(p_mark public.takeoff_count_marks, p_answer_id uuid, p_same_as uuid)
+returns boolean language sql stable security definer set search_path = '' as $$
+  select exists (select 1 from public.takeoff_count_mark_attributions t
+    join public.takeoff_count_marks k on k.id = t.mark_id
+    where t.mark_id = p_same_as and t.mark_id <> p_mark.id and t.answer_id = p_answer_id and t.state = 'retained'
+      and t.page_id = p_mark.page_id and private.takeoff_count_same_object(p_mark.page_id, k.x, k.y, p_mark.x, p_mark.y))
+$$;
+
 -- What supported a mark: its source proposals (at most 16, by generation), with their observation's ordinal and page,
 -- copied into the journal by the gesture that retains it.
 create function private.takeoff_count_mark_evidence(p_mark_id uuid)
 returns jsonb language sql stable security definer set search_path = '' as $$
-  select coalesce(pg_catalog.jsonb_agg(pg_catalog.jsonb_build_object('proposal_id', e.id, 'answer_id', e.answer_id,
-      'job_id', e.job_id, 'generation', e.generation, 'source_key', e.source_key, 'method', e.method,
-      'method_version', e.method_version, 'state', e.proposed_state, 'x', e.x, 'y', e.y, 'box', pg_catalog.to_jsonb(e.box),
-      'raw_centre', pg_catalog.to_jsonb(e.raw_centre), 'raw_box', pg_catalog.to_jsonb(e.raw_box), 'raw_frame', e.raw_frame,
-      'source_ref', e.source_ref, 'subtype', e.subtype, 'diameter_mm', e.diameter_mm, 'diameter_source', e.diameter_source,
-      'confidence', e.confidence, 'observation_id', e.observation_id, 'observation_ordinal', e.ordinal,
-      'observation_page', e.page) order by e.generation, e.answer_id, e.source_key), '[]'::jsonb)
-  from (select p.*, o.ordinal, o.page from public.takeoff_count_mark_proposals p
+  with docs as (
+    select p.generation, p.answer_id, p.source_key, pg_catalog.jsonb_build_object('proposal_id', p.id,
+      'answer_id', p.answer_id, 'job_id', p.job_id, 'generation', p.generation, 'source_key', p.source_key,
+      'method', p.method, 'method_version', p.method_version, 'state', p.proposed_state, 'x', p.x, 'y', p.y,
+      'box', pg_catalog.to_jsonb(p.box), 'raw_centre', pg_catalog.to_jsonb(p.raw_centre), 'raw_box', pg_catalog.to_jsonb(p.raw_box),
+      'raw_frame', p.raw_frame, 'source_ref', p.source_ref, 'subtype', p.subtype, 'diameter_mm', p.diameter_mm,
+      'diameter_source', p.diameter_source, 'confidence', p.confidence, 'observation_id', p.observation_id,
+      'observation', case when o.id is not null then pg_catalog.jsonb_build_object('ordinal', o.ordinal, 'page', o.page,
+        'role', o.role, 'source', o.source, 'quantity', o.quantity, 'unit', o.unit, 'measurement_basis', o.measurement_basis,
+        'evidence', o.evidence, 'method', o.method, 'chunk_id', o.chunk_id) end) as doc
+    from public.takeoff_count_mark_proposals p
     left join public.takeoff_item_answer_observations o on o.id = p.observation_id
-    where p.mark_id = p_mark_id order by p.generation, p.answer_id, p.source_key limit 16) e
+    where p.mark_id = p_mark_id
+  ), sized as (
+    -- The array's text: each element, two bytes for its separator or its bracket.
+    select d.doc, pg_catalog.row_number() over w as n,
+      sum(pg_catalog.octet_length(d.doc::text) + 2) over (w rows between unbounded preceding and current row) as running
+    from docs d window w as (order by d.generation, d.answer_id, d.source_key)
+  )
+  select coalesce(pg_catalog.jsonb_agg(s.doc order by s.n), '[]'::jsonb) from sized s where s.running <= 32768
 $$;
 
 -- One event of an answer's journal in a command: the next ordinal of that answer in the command, chained to its
@@ -696,20 +742,19 @@ $$;
 --     source_key, observation_ordinal?, x?, y?, box?, raw_centre?, raw_box?, raw_frame?, source_ref?, subtype?,
 --     diameter_mm?, diameter_source?, confidence?}]}], 1 to 20,000 marks of 1 to 8 proposals, one source key per item. A
 --     proposal names its item: the job's answer for that item, on the job's plan; the mark's page must be in that answer's
---     scope; its observation, by its ordinal, is one of that answer's, on the mark's page. A mark that names an object
---     already known for one of its answers (attributed to it, or proposed for it by an earlier generation) on the same
---     page, by the same source key or within 4 points, is that mark: its proposals join it, no new mark is made.
+--     scope; its observation, by its ordinal, is one of that answer's, on the mark's page. A proposal whose source key an
+--     earlier generation gave for the same answer on the same page joins that mark; any other is a new mark, recorded as a
+--     possible duplicate of each mark already known for its answer within 4 points (both ways), never merged.
 --     By the attempt that published the job's answers: the digest of its lease token is the answers' publication's
 --     (B1), whether this is called in that transaction or after it.
---     Answers {replayed, command_id, answers: [{answer_id, item_id, effective, revision}], marks (new), reused,
---     proposals}; the same
+--     Answers {replayed, command_id, answers: [{answer_id, item_id, effective, revision}], marks (new), joined (proposals
+--     joined by their key), flagged (new marks with a possible duplicate), proposals}; the same
 --     publication again answers the same, replayed, writing nothing. Refuses, with nothing written: an attempt that did
 --     not publish the job's answers (TAKEOFF_MARKS_LEASE_INVALID), another content for the same generation
 --     (TAKEOFF_MARKS_ALREADY_PUBLISHED), an item without an answer in the job (TAKEOFF_MARKS_ITEM_FOREIGN), an
 --     observation that is not its answer's (TAKEOFF_MARKS_OBSERVATION_FOREIGN), a page outside the answer
 --     (TAKEOFF_MARKS_PAGE_OUTSIDE), a page without or against its geometry (TAKEOFF_MARKS_PAGE_GEOMETRY_REQUIRED, _CONFLICT),
---     a doubt between neighbours (one mark of the generation on two known marks, or two on one:
---     TAKEOFF_MARKS_OBJECT_AMBIGUOUS), anything else malformed (TAKEOFF_MARKS_INVALID).
+--     anything else malformed (TAKEOFF_MARKS_INVALID). Nothing about neighbouring marks refuses a publication.
 --     An answer whose marks revision is still 0 takes the generation: one attribution per mark (proposed, or to attribute
 --     when every proposal of the mark for that answer says so), revision 1, one event per page. Any other answer (changed
 --     by an earlier generation or by a member) keeps its marks as they are: the generation's marks and proposals are
@@ -803,9 +848,8 @@ declare
   page_ids jsonb := '{}'::jsonb;
   page_number integer;
   locked integer;
-  locked_conflict boolean;
-  reuse jsonb;
   reused integer;
+  flagged integer;
   marks_written integer;
   proposals_written integer;
   answer_body jsonb;
@@ -891,64 +935,40 @@ begin
         from pg_catalog.jsonb_array_elements(p_pages) g(value) where (g.value ->> 'page')::numeric::integer = page_number)));
   end loop;
 
-  -- One object stays one mark: a proposal that names an object already known for its answer (a mark attributed to it, or
-  -- proposed for it by an earlier generation) on the same page, by the same source key or within 4 points of it, becomes
-  -- another proposal of that mark. The key wins over the distance, then the nearest. A mark of this generation that would
-  -- join two known marks, or two marks of it that would join one, is a doubt between neighbours: refused, visible.
+  -- One object stays one mark by its source key only: a proposal whose source key an earlier generation gave for the same
+  -- answer on the same page is a proposal of that mark. Every other proposal of an incoming mark, however close to a known
+  -- mark, belongs to a new mark of this generation; when that new mark lies within 4 points of a mark already known for
+  -- its answer (attributed to it, or proposed for it), the pair is recorded as a possible duplicate, both ways, and nothing
+  -- more: the member says which it is. Nothing here refuses, nor depends on the order of the marks given or on the
+  -- identifiers made.
   with incoming as materialized (
     select m.position, (page_ids ->> ((m.value ->> 'page')::numeric::integer)::text)::uuid as page_id,
-      (m.value ->> 'x')::numeric as x, (m.value ->> 'y')::numeric as y,
-      (by_item ->> lower(p.value ->> 'item_id'))::uuid as answer_id, p.value ->> 'source_key' as source_key
+      (m.value ->> 'x')::numeric as mark_x, (m.value ->> 'y')::numeric as mark_y,
+      case when pg_catalog.jsonb_typeof(m.value -> 'box') = 'array' then private.takeoff_count_mark_box(m.value -> 'box') end
+        as mark_box,
+      (by_item ->> lower(p.value ->> 'item_id'))::uuid as answer_id, pg_catalog.jsonb_strip_nulls(p.value) as proposal
     from pg_catalog.jsonb_array_elements(p_marks) with ordinality m(value, position)
     cross join lateral pg_catalog.jsonb_array_elements(m.value -> 'proposals') p(value)
-  ), known as (
-    select i.position, i.answer_id, i.source_key, k.id as mark_id,
-      exists (select 1 from public.takeoff_count_mark_proposals q where q.mark_id = k.id and q.answer_id = i.answer_id
-        and q.source_key = i.source_key) as by_key,
-      pg_catalog.power((k.x - i.x) * g.width, 2) + pg_catalog.power((k.y - i.y) * g.height, 2) as distance
+  ), keyed as materialized (
+    select i.*, (select q.mark_id from public.takeoff_count_mark_proposals q
+        where q.answer_id = i.answer_id and q.page_id = i.page_id and q.source_key = i.proposal ->> 'source_key'
+        order by q.generation desc limit 1) as known_mark
     from incoming i
-    join public.takeoff_count_pages g on g.id = i.page_id
-    join public.takeoff_count_marks k on k.page_id = i.page_id
-      and k.id in (select t.mark_id from public.takeoff_count_mark_attributions t where t.answer_id = i.answer_id
-          and t.page_id = i.page_id
-        union select q.mark_id from public.takeoff_count_mark_proposals q where q.answer_id = i.answer_id and q.page_id = i.page_id)
-  ), chosen as (
-    select distinct on (c.position, c.answer_id, c.source_key) c.position, c.mark_id
-    from known c where c.by_key or c.distance <= 16
-    order by c.position, c.answer_id, c.source_key, c.by_key desc, c.distance, c.mark_id
-  )
-  select pg_catalog.jsonb_object_agg(x.position::text, x.mark_id), count(*)::integer,
-    coalesce(bool_or(x.marks > 1), false) or exists (select 1 from chosen c group by c.mark_id having count(distinct c.position) > 1)
-  into reuse, reused, locked_conflict
-  from (select c.position, (array_agg(distinct c.mark_id))[1] as mark_id, count(distinct c.mark_id) as marks
-    from chosen c group by c.position) x;
-  if locked_conflict then
-    raise exception 'TAKEOFF_MARKS_OBJECT_AMBIGUOUS' using errcode = '22023';
-  end if;
-  reuse := coalesce(reuse, '{}'::jsonb);
-
-  with given as materialized (
-    select m.position, coalesce((reuse ->> m.position::text)::uuid, pg_catalog.gen_random_uuid()) as mark_id,
-      reuse ? m.position::text as reused,
-      (page_ids ->> ((m.value ->> 'page')::numeric::integer)::text)::uuid as page_id,
-      (m.value ->> 'x')::numeric as x, (m.value ->> 'y')::numeric as y,
-      case when pg_catalog.jsonb_typeof(m.value -> 'box') = 'array' then private.takeoff_count_mark_box(m.value -> 'box') end
-        as box,
-      m.value -> 'proposals' as proposals
-    from pg_catalog.jsonb_array_elements(p_marks) with ordinality m(value, position)
+  ), new_marks as materialized (
+    select n.position, pg_catalog.gen_random_uuid() as mark_id, n.page_id, n.mark_x, n.mark_y, n.mark_box
+    from (select distinct k.position, k.page_id, k.mark_x, k.mark_y, k.mark_box from keyed k where k.known_mark is null) n
+  ), placed as materialized (
+    select k.*, coalesce(k.known_mark, n.mark_id) as mark_id, k.known_mark is null as is_new,
+      coalesce((k.proposal ->> 'x')::numeric, k.mark_x) as x, coalesce((k.proposal ->> 'y')::numeric, k.mark_y) as y,
+      case when pg_catalog.jsonb_typeof(k.proposal -> 'box') = 'array' then private.takeoff_count_mark_box(k.proposal -> 'box')
+        else k.mark_box end as box
+    from keyed k left join new_marks n on n.position = k.position and k.known_mark is null
   ), marks_inserted as (
     insert into public.takeoff_count_marks (id, tenant_id, project_id, page_id, origin, x, y, box, position_revision,
       created_job_id)
-    select g.mark_id, job.tenant_id, job.project_id, g.page_id, 'machine', g.x, g.y, g.box, 1, p_job_id
-    from given g where not g.reused order by g.position
+    select n.mark_id, job.tenant_id, job.project_id, n.page_id, 'machine', n.mark_x, n.mark_y, n.mark_box, 1, p_job_id
+    from new_marks n
     returning id
-  ), proposed as materialized (
-    select g.mark_id, g.page_id, (by_item ->> lower(p.value ->> 'item_id'))::uuid as answer_id,
-      pg_catalog.jsonb_strip_nulls(p.value) as proposal,
-      coalesce((p.value ->> 'x')::numeric, g.x) as x, coalesce((p.value ->> 'y')::numeric, g.y) as y,
-      case when pg_catalog.jsonb_typeof(p.value -> 'box') = 'array' then private.takeoff_count_mark_box(p.value -> 'box')
-        else g.box end as box
-    from given g cross join lateral pg_catalog.jsonb_array_elements(g.proposals) p(value)
   ), proposals_inserted as (
     insert into public.takeoff_count_mark_proposals (tenant_id, project_id, mark_id, page_id, answer_id, job_id,
       observation_id, generation, source_key, method, method_version, proposed_state, x, y, box, raw_centre, raw_box,
@@ -964,13 +984,30 @@ begin
         then private.takeoff_count_mark_numbers(r.proposal -> 'raw_box', 4, -10000000, 10000000) end,
       r.proposal ->> 'raw_frame', r.proposal ->> 'source_ref', r.proposal ->> 'subtype',
       (r.proposal ->> 'diameter_mm')::numeric, r.proposal ->> 'diameter_source', (r.proposal ->> 'confidence')::numeric
-    from proposed r
+    from placed r
     returning id
+  ), twins_found as materialized (
+    select distinct r.answer_id, r.mark_id, k.id as twin_mark_id
+    from placed r
+    join public.takeoff_count_pages g on g.id = r.page_id
+    join public.takeoff_count_marks k on k.page_id = r.page_id
+      and k.id in (select t.mark_id from public.takeoff_count_mark_attributions t where t.answer_id = r.answer_id
+          and t.page_id = r.page_id
+        union select q.mark_id from public.takeoff_count_mark_proposals q where q.answer_id = r.answer_id and q.page_id = r.page_id)
+    where r.is_new
+      and pg_catalog.power((k.x - r.mark_x) * g.width, 2) + pg_catalog.power((k.y - r.mark_y) * g.height, 2) <= 16
+  ), twins_inserted as (
+    insert into public.takeoff_count_mark_twins (answer_id, mark_id, twin_mark_id, tenant_id, project_id, generation)
+    select t.answer_id, t.mark_id, t.twin_mark_id, job.tenant_id, job.project_id, p_generation from twins_found t
+    union all
+    select t.answer_id, t.twin_mark_id, t.mark_id, job.tenant_id, job.project_id, p_generation from twins_found t
+    on conflict do nothing
+    returning 1
   ), attributions_inserted as (
     insert into public.takeoff_count_mark_attributions (mark_id, answer_id, tenant_id, project_id, page_id, state)
     select r.mark_id, r.answer_id, job.tenant_id, job.project_id, r.page_id,
       case when bool_or(r.proposal ->> 'state' = 'proposed') then 'proposed' else 'to_attribute' end
-    from proposed r where r.answer_id = any (effective)
+    from placed r where r.answer_id = any (effective)
     group by r.mark_id, r.answer_id, r.page_id
     on conflict (mark_id, answer_id) do nothing
     returning answer_id as attributed_answer, page_id as attributed_page, state as attributed_state
@@ -998,8 +1035,10 @@ begin
     select e.event_answer, e.event_page, job.tenant_id, job.project_id, 1 from events_inserted e
     returning 1
   )
-  select (select count(*) from marks_inserted), (select count(*) from proposals_inserted), (select count(*) from pages_changed)
-  into marks_written, proposals_written, locked;
+  select (select count(*) from marks_inserted), (select count(*) from proposals_inserted),
+    (select count(*) from pages_changed) + 0 * (select count(*) from twins_inserted),
+    (select count(*) from placed where not is_new), (select count(distinct (t.answer_id, t.mark_id)) from twins_found t)
+  into marks_written, proposals_written, locked, reused, flagged;
 
   -- Each answer that took the generation is at revision 1, its last event its journal's head.
   update public.takeoff_count_answer_states s set revision = 1, updated_at = pg_catalog.clock_timestamp(),
@@ -1008,8 +1047,8 @@ begin
   where s.answer_id = any (effective)
     and exists (select 1 from public.takeoff_count_mark_events e where e.command_id = this_command and e.answer_id = s.answer_id);
 
-  answer_body := pg_catalog.jsonb_build_object('command_id', this_command, 'marks', marks_written, 'reused', reused,
-    'proposals', proposals_written,
+  answer_body := pg_catalog.jsonb_build_object('command_id', this_command, 'marks', marks_written, 'joined', reused,
+    'flagged', flagged, 'proposals', proposals_written,
     'answers', coalesce((select pg_catalog.jsonb_agg(pg_catalog.jsonb_build_object('answer_id', a.id, 'item_id', a.item_id,
         'effective', a.id = any (effective), 'revision', private.takeoff_count_marks_revision(a.id)) order by a.id)
       from public.takeoff_item_answers a where a.id = any (named)), '[]'::jsonb));
@@ -1029,18 +1068,22 @@ $$;
 --         for the answer (key: the caller's identifier for it, answered with the mark's own);
 --       {op: move, mark_id, x, y, box?}: the same mark elsewhere on its page; every answer it is attributed to changes;
 --       {op: remove, answer_id, mark_id, reason, note?}: out of the answer's view, with its reason (a note for other);
---       {op: restore, answer_id, mark_id}: back to the state it had before its removal;
---       {op: retain, answer_id, mark_id}: kept for the answer (one proposed, one to attribute, or one of a pending
---         generation of that answer);
---       {op: reattribute, answer_id, mark_id, to_answer_id}: from one item to another item of the first answer's sealed
+--       {op: restore, answer_id, mark_id, object?, same_as?}: back to the state it had before its removal;
+--       {op: retain, answer_id, mark_id, object?, same_as?}: kept for the answer (one proposed, one to attribute, or one of a
+--         pending generation of that answer);
+--         object: « same » (with same_as, the retained mark of the same object: the mark's proposals for the answer join
+--         that one, the mark is withdrawn for the answer) or « distinct » (it is retained beside it); required when a
+--         retained mark of the answer stands within 4 points, else refused (TAKEOFF_MARKS_OBJECT_DUPLICATE);
+--       {op: reattribute, answer_id, mark_id, to_answer_id, object?}: from one item to another item of the first answer's sealed
 --         order, on the same plan's bytes, the page in the other answer's scope, the same expected unit: removed from the
 --         first (reattributed), retained for the second;
 --       {op: verify, answer_id, pages}: the member inspected these pages of the answer's scope for this item; nothing on
 --         them may stay undecided (proposed or to attribute) for it.
 --     The right: an operator of the affaire (its admin, or the engineer who owns it), checked again after every wait. The
 --     answers: current readings of the affaire (a replaced reading's marks are history).
---     A gesture that makes a mark retained (retain, restore to retained, reattribute) is refused while another mark
---     retained for that answer stands on the same object (within 4 points): the member chooses which one stays.
+--     A gesture that makes a mark retained (retain, restore to retained, reattribute) beside another mark retained for that
+--     answer within 4 points needs the member's word: « same object » or « distinct object » (a reattribution takes only
+--     « distinct »); without it, it is refused. The right is checked again after the receipt's own wait too.
 --     Answers {replayed, command_id, revisions: {"<answer_id>": new revision}, added: [{key, mark_id}],
 --     summaries: {"<answer_id>": summary}}, the counts as the command committed them; the same intention key with the
 --     same content answers that receipt, replayed, writing nothing. Refuses, with nothing written: TAKEOFF_MARKS_INVALID,
@@ -1094,8 +1137,12 @@ begin
         or (gesture ? 'note' and (not private.takeoff_item_answer_is_text(gesture -> 'note', null, 500)
           or (gesture ->> 'note') <> pg_catalog.btrim(gesture ->> 'note')))
         or (gesture ->> 'reason' = 'other' and not gesture ? 'note')))
-      or (op in ('restore', 'retain') and (gesture - array['op', 'answer_id', 'mark_id']) <> '{}'::jsonb)
-      or (op = 'reattribute' and ((gesture - array['op', 'answer_id', 'mark_id', 'to_answer_id']) <> '{}'::jsonb
+      or (op in ('restore', 'retain') and ((gesture - array['op', 'answer_id', 'mark_id', 'object', 'same_as']) <> '{}'::jsonb
+        or coalesce(gesture ->> 'object', 'distinct') not in ('same', 'distinct')
+        or (coalesce(gesture ->> 'object', '') = 'same') <> (gesture ? 'same_as')
+        or (gesture ? 'same_as' and not private.takeoff_item_answer_is_uuid(gesture -> 'same_as'))))
+      or (op = 'reattribute' and ((gesture - array['op', 'answer_id', 'mark_id', 'to_answer_id', 'object']) <> '{}'::jsonb
+        or coalesce(gesture ->> 'object', 'distinct') <> 'distinct'
         or not private.takeoff_item_answer_is_uuid(gesture -> 'to_answer_id')
         or not p_revisions ? lower(gesture ->> 'to_answer_id')))
       or (op = 'verify' and ((gesture - array['op', 'answer_id', 'pages']) <> '{}'::jsonb
@@ -1183,7 +1230,7 @@ begin
       join public.takeoff_item_answers a on a.id = (g.value ->> 'answer_id')::uuid
       where g.value ->> 'op' = 'add'
       order by a.plan_logical_id, a.plan_content_sha256, (g.value ->> 'page')::numeric::integer,
-        (pg_catalog.jsonb_typeof(g.value -> 'geometry') = 'object') desc, g.n) x
+        coalesce(pg_catalog.jsonb_typeof(g.value -> 'geometry') = 'object', false) desc, g.n) x
     order by x.plan_logical_id, x.plan_content_sha256, x.page
   loop
     select a.* into this_answer from public.takeoff_item_answers a where a.id = (this_gesture ->> 'answer_id')::uuid;
@@ -1193,7 +1240,9 @@ begin
   select count(*) into locked from (select m.id from public.takeoff_count_marks m
     where m.tenant_id = p_tenant_id and m.project_id = p_project_id
       and m.id in (select (g.value ->> 'mark_id')::uuid from pg_catalog.jsonb_array_elements(p_gestures) g(value)
-        where pg_catalog.jsonb_typeof(g.value -> 'mark_id') = 'string')
+          where pg_catalog.jsonb_typeof(g.value -> 'mark_id') = 'string'
+        union select (g.value ->> 'same_as')::uuid from pg_catalog.jsonb_array_elements(p_gestures) g(value)
+          where pg_catalog.jsonb_typeof(g.value -> 'same_as') = 'string')
     order by m.id for update) s;
 
   -- The right once more, after the last wait (the locks above, a page another command was creating) and before anything
@@ -1308,44 +1357,91 @@ begin
       if this_attribution.state <> 'removed' then
         raise exception 'TAKEOFF_MARKS_STATE_INVALID' using errcode = '22023';
       end if;
-      if this_attribution.prior_state = 'retained' and exists (select 1 from public.takeoff_count_mark_attributions t
-          where t.mark_id = this_mark.id and t.answer_id <> this_answer.id and t.state = 'retained') then
-        raise exception 'TAKEOFF_MARKS_ATTRIBUTION_TAKEN' using errcode = '23505';
+      if this_gesture ->> 'object' = 'same' then
+        -- « Same object »: the removed mark is the retained one it names; its proposals for this answer join that mark,
+        -- and it stays removed, for that reason.
+        if not private.takeoff_count_mark_is_twin_of(this_mark, this_answer.id, (this_gesture ->> 'same_as')::uuid) then
+          raise exception 'TAKEOFF_MARKS_STATE_INVALID' using errcode = '22023';
+        end if;
+        update public.takeoff_count_mark_proposals q set mark_id = (this_gesture ->> 'same_as')::uuid
+        where q.mark_id = this_mark.id and q.answer_id = this_answer.id;
+        update public.takeoff_count_mark_attributions t set reason_code = 'same_object', reason_text = null, decided_by = actor,
+          decided_at = pg_catalog.clock_timestamp()
+        where t.mark_id = this_mark.id and t.answer_id = this_answer.id;
+        changed := changed || pg_catalog.jsonb_build_object(this_answer.id::text, true);
+        perform private.takeoff_count_mark_event(this_command, p_tenant_id, p_project_id, this_answer.id, next_revision,
+          'same_object', this_mark.id, page_number,
+          pg_catalog.jsonb_build_object('state', 'removed', 'reason', this_attribution.reason_code),
+          pg_catalog.jsonb_build_object('state', 'removed', 'object', 'same', 'same_as', (this_gesture ->> 'same_as')::uuid),
+          'same_object', null, actor, private.takeoff_count_mark_evidence((this_gesture ->> 'same_as')::uuid));
+      else
+        if this_attribution.prior_state = 'retained' and exists (select 1 from public.takeoff_count_mark_attributions t
+            where t.mark_id = this_mark.id and t.answer_id <> this_answer.id and t.state = 'retained') then
+          raise exception 'TAKEOFF_MARKS_ATTRIBUTION_TAKEN' using errcode = '23505';
+        end if;
+        -- Back to retained beside a retained mark of the same object: the member says which it is (« distinct object »
+        -- here, « same object » above).
+        if this_attribution.prior_state = 'retained' and this_gesture ->> 'object' is distinct from 'distinct'
+          and private.takeoff_count_mark_has_twin(this_mark, this_answer.id) then
+          raise exception 'TAKEOFF_MARKS_OBJECT_DUPLICATE' using errcode = '23505';
+        end if;
+        update public.takeoff_count_mark_attributions t set state = this_attribution.prior_state, prior_state = null,
+          reason_code = null, reason_text = null, decided_by = actor, decided_at = pg_catalog.clock_timestamp()
+        where t.mark_id = this_mark.id and t.answer_id = this_answer.id;
+        changed := changed || pg_catalog.jsonb_build_object(this_answer.id::text, true);
+        perform private.takeoff_count_mark_event(this_command, p_tenant_id, p_project_id, this_answer.id, next_revision,
+          'restore', this_mark.id, page_number,
+          pg_catalog.jsonb_build_object('state', 'removed', 'reason', this_attribution.reason_code),
+          pg_catalog.jsonb_strip_nulls(pg_catalog.jsonb_build_object('state', this_attribution.prior_state,
+            'object', this_gesture ->> 'object')), null, null, actor,
+          case when this_attribution.prior_state = 'retained' then private.takeoff_count_mark_evidence(this_mark.id) end);
       end if;
-      if this_attribution.prior_state = 'retained' and private.takeoff_count_mark_has_twin(this_mark, this_answer.id) then
-        raise exception 'TAKEOFF_MARKS_OBJECT_DUPLICATE' using errcode = '23505';
-      end if;
-      update public.takeoff_count_mark_attributions t set state = this_attribution.prior_state, prior_state = null,
-        reason_code = null, reason_text = null, decided_by = actor, decided_at = pg_catalog.clock_timestamp()
-      where t.mark_id = this_mark.id and t.answer_id = this_answer.id;
-      changed := changed || pg_catalog.jsonb_build_object(this_answer.id::text, true);
-      perform private.takeoff_count_mark_event(this_command, p_tenant_id, p_project_id, this_answer.id, next_revision,
-        'restore', this_mark.id, page_number,
-        pg_catalog.jsonb_build_object('state', 'removed', 'reason', this_attribution.reason_code),
-        pg_catalog.jsonb_build_object('state', this_attribution.prior_state), null, null, actor,
-        case when this_attribution.prior_state = 'retained' then private.takeoff_count_mark_evidence(this_mark.id) end);
     elsif op = 'retain' then
       if this_attribution.mark_id is not null and this_attribution.state not in ('proposed', 'to_attribute') then
         raise exception 'TAKEOFF_MARKS_STATE_INVALID' using errcode = '22023';
       end if;
-      if exists (select 1 from public.takeoff_count_mark_attributions t
-          where t.mark_id = this_mark.id and t.answer_id <> this_answer.id and t.state = 'retained') then
-        raise exception 'TAKEOFF_MARKS_ATTRIBUTION_TAKEN' using errcode = '23505';
+      if this_gesture ->> 'object' = 'same' then
+        -- « Same object »: the mark is the retained one it names; its proposals for this answer join that mark, and it is
+        -- withdrawn for the answer (removed, for that reason, if a generation had attributed it).
+        if not private.takeoff_count_mark_is_twin_of(this_mark, this_answer.id, (this_gesture ->> 'same_as')::uuid) then
+          raise exception 'TAKEOFF_MARKS_STATE_INVALID' using errcode = '22023';
+        end if;
+        update public.takeoff_count_mark_proposals q set mark_id = (this_gesture ->> 'same_as')::uuid
+        where q.mark_id = this_mark.id and q.answer_id = this_answer.id;
+        if this_attribution.mark_id is not null then
+          update public.takeoff_count_mark_attributions t set state = 'removed', prior_state = this_attribution.state,
+            reason_code = 'same_object', reason_text = null, decided_by = actor, decided_at = pg_catalog.clock_timestamp()
+          where t.mark_id = this_mark.id and t.answer_id = this_answer.id;
+        end if;
+        changed := changed || pg_catalog.jsonb_build_object(this_answer.id::text, true);
+        perform private.takeoff_count_mark_event(this_command, p_tenant_id, p_project_id, this_answer.id, next_revision,
+          'same_object', this_mark.id, page_number,
+          pg_catalog.jsonb_build_object('state', coalesce(this_attribution.state, 'pending')),
+          pg_catalog.jsonb_build_object('state', 'withdrawn', 'object', 'same', 'same_as', (this_gesture ->> 'same_as')::uuid),
+          'same_object', null, actor, private.takeoff_count_mark_evidence((this_gesture ->> 'same_as')::uuid));
+      else
+        if exists (select 1 from public.takeoff_count_mark_attributions t
+            where t.mark_id = this_mark.id and t.answer_id <> this_answer.id and t.state = 'retained') then
+          raise exception 'TAKEOFF_MARKS_ATTRIBUTION_TAKEN' using errcode = '23505';
+        end if;
+        -- Beside a retained mark of the same object (within 4 points): the member says which it is.
+        if this_gesture ->> 'object' is distinct from 'distinct'
+          and private.takeoff_count_mark_has_twin(this_mark, this_answer.id) then
+          raise exception 'TAKEOFF_MARKS_OBJECT_DUPLICATE' using errcode = '23505';
+        end if;
+        insert into public.takeoff_count_mark_attributions (mark_id, answer_id, tenant_id, project_id, page_id, state,
+          decided_by, decided_at)
+        values (this_mark.id, this_answer.id, p_tenant_id, p_project_id, this_mark.page_id, 'retained', actor,
+          pg_catalog.clock_timestamp())
+        on conflict (mark_id, answer_id) do update set state = 'retained', decided_by = excluded.decided_by,
+          decided_at = excluded.decided_at;
+        changed := changed || pg_catalog.jsonb_build_object(this_answer.id::text, true);
+        perform private.takeoff_count_mark_event(this_command, p_tenant_id, p_project_id, this_answer.id, next_revision,
+          'retain', this_mark.id, page_number,
+          pg_catalog.jsonb_build_object('state', coalesce(this_attribution.state, 'pending')),
+          pg_catalog.jsonb_strip_nulls(pg_catalog.jsonb_build_object('state', 'retained', 'object', this_gesture ->> 'object')),
+          null, null, actor, private.takeoff_count_mark_evidence(this_mark.id));
       end if;
-      if private.takeoff_count_mark_has_twin(this_mark, this_answer.id) then
-        raise exception 'TAKEOFF_MARKS_OBJECT_DUPLICATE' using errcode = '23505';
-      end if;
-      insert into public.takeoff_count_mark_attributions (mark_id, answer_id, tenant_id, project_id, page_id, state,
-        decided_by, decided_at)
-      values (this_mark.id, this_answer.id, p_tenant_id, p_project_id, this_mark.page_id, 'retained', actor,
-        pg_catalog.clock_timestamp())
-      on conflict (mark_id, answer_id) do update set state = 'retained', decided_by = excluded.decided_by,
-        decided_at = excluded.decided_at;
-      changed := changed || pg_catalog.jsonb_build_object(this_answer.id::text, true);
-      perform private.takeoff_count_mark_event(this_command, p_tenant_id, p_project_id, this_answer.id, next_revision,
-        'retain', this_mark.id, page_number,
-        pg_catalog.jsonb_build_object('state', coalesce(this_attribution.state, 'pending')),
-        pg_catalog.jsonb_build_object('state', 'retained'), null, null, actor, private.takeoff_count_mark_evidence(this_mark.id));
     elsif op = 'reattribute' then
       select a.* into target_answer from public.takeoff_item_answers a where a.id = (this_gesture ->> 'to_answer_id')::uuid;
       if this_attribution.state not in ('proposed', 'to_attribute', 'retained') then
@@ -1363,7 +1459,7 @@ begin
           where e.revision_id = this_answer.list_revision_id and e.item_id = target_answer.item_id) then
         raise exception 'TAKEOFF_MARKS_TARGET_INCOMPATIBLE' using errcode = '22023';
       end if;
-      if private.takeoff_count_mark_has_twin(this_mark, target_answer.id) then
+      if this_gesture ->> 'object' is distinct from 'distinct' and private.takeoff_count_mark_has_twin(this_mark, target_answer.id) then
         raise exception 'TAKEOFF_MARKS_OBJECT_DUPLICATE' using errcode = '23505';
       end if;
       select t.* into other_attribution from public.takeoff_count_mark_attributions t
@@ -1391,7 +1487,8 @@ begin
       perform private.takeoff_count_mark_event(this_command, p_tenant_id, p_project_id, target_answer.id,
         (held ->> target_answer.id::text)::integer + 1, 'reattribute_in', this_mark.id, page_number,
         pg_catalog.jsonb_build_object('state', coalesce(other_attribution.state, 'none'), 'from_answer_id', this_answer.id),
-        pg_catalog.jsonb_build_object('state', 'retained'), null, null, actor, private.takeoff_count_mark_evidence(this_mark.id));
+        pg_catalog.jsonb_strip_nulls(pg_catalog.jsonb_build_object('state', 'retained', 'object', this_gesture ->> 'object')),
+        null, null, actor, private.takeoff_count_mark_evidence(this_mark.id));
     elsif op = 'verify' then
       for page_number in select (p.value #>> '{}')::numeric::integer from pg_catalog.jsonb_array_elements(this_gesture -> 'pages') p(value)
         order by 1
@@ -1440,9 +1537,16 @@ begin
 
   answers_revisions := coalesce((select pg_catalog.jsonb_object_agg(k, (held ->> k)::integer + 1)
     from pg_catalog.jsonb_object_keys(changed) k), '{}'::jsonb);
+  -- The receipt: for each changed answer, its totals and state, and the pages this edit changed (never every page of a
+  -- scope), as they are when the command commits.
   receipt := pg_catalog.jsonb_build_object('command_id', this_command, 'revisions', answers_revisions, 'added', added,
-    'summaries', coalesce((select pg_catalog.jsonb_object_agg(k, private.takeoff_count_mark_summary(k::uuid))
-      from pg_catalog.jsonb_object_keys(changed) k), '{}'::jsonb));
+    'summaries', coalesce((select pg_catalog.jsonb_object_agg(k, (x.summary - 'pages') || pg_catalog.jsonb_build_object('pages',
+        coalesce((select pg_catalog.jsonb_agg(p.value order by (p.value ->> 'page')::integer)
+          from pg_catalog.jsonb_array_elements(x.summary -> 'pages') p(value)
+          where (p.value ->> 'page')::integer in (select e.page from public.takeoff_count_mark_events e
+            where e.command_id = this_command and e.answer_id = k::uuid)), '[]'::jsonb)))
+      from pg_catalog.jsonb_object_keys(changed) k
+      cross join lateral (select private.takeoff_count_mark_summary(k::uuid) as summary) x), '{}'::jsonb));
   begin
     insert into public.takeoff_count_mark_commands (id, tenant_id, project_id, kind, intent_key, actor_id, content_sha256,
       revisions, result)
@@ -1454,6 +1558,11 @@ begin
     -- The same intention key, sent with another content over other answers, committed first.
     raise exception 'TAKEOFF_MARKS_INTENT_CONFLICT' using errcode = '23505';
   end;
+  -- That insert may have waited for another command under the same intention (which then rolled back): the right once
+  -- more, after this last wait.
+  if private.can_access_takeoff_scope(p_tenant_id, p_project_id, null, true) is not true then
+    raise exception 'TAKEOFF_MARKS_FORBIDDEN' using errcode = '42501';
+  end if;
   return receipt || pg_catalog.jsonb_build_object('replayed', false);
 end;
 $$;
@@ -1469,6 +1578,8 @@ returns jsonb language sql stable security definer set search_path = '' as $$
     'origin', p_mark.origin, 'position_revision', p_mark.position_revision, 'created_by', p_mark.created_by,
     'created_job_id', p_mark.created_job_id, 'created_at', p_mark.created_at, 'moved_by', p_mark.moved_by,
     'moved_at', p_mark.moved_at,
+    'possible_duplicates', coalesce((select pg_catalog.jsonb_agg(w.twin_mark_id order by w.twin_mark_id)
+      from public.takeoff_count_mark_twins w where w.answer_id = p_answer_id and w.mark_id = p_mark.id), '[]'::jsonb),
     'state', coalesce(t.state, 'pending'), 'prior_state', t.prior_state, 'reason_code', t.reason_code,
     'reason_text', t.reason_text, 'decided_by', t.decided_by, 'decided_at', t.decided_at,
     'others', coalesce((select pg_catalog.jsonb_agg(pg_catalog.jsonb_build_object('answer_id', o.answer_id,
@@ -1574,6 +1685,7 @@ begin
     'private.takeoff_count_mark_event(uuid, uuid, uuid, uuid, integer, text, uuid, integer, jsonb, jsonb, text, text, uuid, jsonb)',
     'private.takeoff_count_unit_counts(text)', 'private.takeoff_count_same_object(uuid, numeric, numeric, numeric, numeric)',
     'private.takeoff_count_mark_has_twin(public.takeoff_count_marks, uuid)', 'private.takeoff_count_mark_evidence(uuid)',
+    'private.takeoff_count_mark_is_twin_of(public.takeoff_count_marks, uuid, uuid)',
     'private.takeoff_count_mark_summary(uuid)', 'private.takeoff_count_marks_revision(uuid)',
     'private.lock_takeoff_count_marks_revision(uuid)',
     'private.takeoff_count_mark_publication_well_formed(jsonb, jsonb)',

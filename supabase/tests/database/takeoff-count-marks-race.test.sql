@@ -13,6 +13,9 @@
 -- 6. Access removed while an edit waits, on both paths: a replay that waited answers no receipt, and a fresh edit that
 --    waited for another to create its page writes nothing; both are refused (TAKEOFF_MARKS_FORBIDDEN).
 -- 7. The locking form of the marks revision (for the review decisions) holds the answer's state: an edit waits for it.
+-- 8. Two commands under one intention on disjoint answers: the second waits at its receipt for the first; the first rolls
+--    back and its author loses the right meanwhile: the second, no longer waiting, is refused all the same.
+-- 9. Two adds of one new page in one edit, the first with the page's geometry, the second without: accepted.
 -- Isolation justified: these interleavings exist only across sessions, which no journey drives deterministically. Each
 -- held transaction is stopped at a named point; the waits are bounded conditions. All values are fictional.
 begin;
@@ -35,7 +38,7 @@ create temp table race_connection as select format('host=%s port=%s dbname=%s us
 select is(extensions.dblink_connect(session.name, (select connection from race_connection)), 'OK', format('%s connected', session.name))
 from (values ('race_setup'), ('race_a'), ('race_b')) as session(name);
 
--- Affaire 20, its plan 100 read on its pages 2, 5 and 7, a list of five items (300 to 304) in its revision 400; its owner,
+-- Affaire 20, its plan 100 read on its pages 2, 5, 7 and 9, a list of five items (300 to 304) in its revision 400; its owner,
 -- an engineer (1), and the tenant's admin (2).
 select is(extensions.dblink_exec('race_setup', $setup$
 begin;
@@ -116,7 +119,7 @@ create function pg_temp.snapshot() returns jsonb language sql stable as $$
       'processing', '{"level":"C","provider":"chatgpt"}'::jsonb,
       'sources', (select jsonb_agg(jsonb_build_object('document_id', f.id, 'document_name', f.file_name, 'kind', 'plan',
           'active', true, 'confirmed', true, 'plan_set_id', f.plan_set_id, 'file_path', f.file_path, 'page_count', f.page_count,
-          'source_updated_at', f.updated_at, 'content_hash', pg_temp.digest(f.id), 'pages', '[2, 5, 7]'::jsonb))
+          'source_updated_at', f.updated_at, 'content_hash', pg_temp.digest(f.id), 'pages', '[2, 5, 7, 9]'::jsonb))
         from public.plan_files f where f.plan_set_id = pg_temp.f(40))))
 $$;
 create function pg_temp.launch_sql() returns text language sql stable as $$
@@ -129,10 +132,10 @@ create function pg_temp.launch_sql() returns text language sql stable as $$
         from public.takeoff_list_revisions r where r.id = pg_temp.f(400)),
       'dispatch', jsonb_build_object('order', 'display_name', 'version', 1),
       'units', jsonb_build_array(jsonb_build_object('key', 'plan:' || pg_temp.f(100), 'ordinal', 1,
-        'plans', jsonb_build_array(pg_temp.f(100)), 'pages', '[2, 5, 7]'::jsonb, 'page_count', 9, 'vector_pages', 0,
+        'plans', jsonb_build_array(pg_temp.f(100)), 'pages', '[2, 5, 7, 9]'::jsonb, 'page_count', 9, 'vector_pages', 0,
         'budget', jsonb_build_object('tokens', 400000, 'cost_cents', 2500))),
       'plans', jsonb_build_array(jsonb_build_object('entry_key', pg_temp.f(100), 'plan_file_id', pg_temp.f(100), 'name', 'plan-1.pdf',
-        'logical_id', pg_temp.f(100), 'generation', null, 'content_sha256', pg_temp.digest(pg_temp.f(100)), 'pages', '[2, 5, 7]'::jsonb,
+        'logical_id', pg_temp.f(100), 'generation', null, 'content_sha256', pg_temp.digest(pg_temp.f(100)), 'pages', '[2, 5, 7, 9]'::jsonb,
         'page_count', 9)),
       'coverage', jsonb_build_object('plans_retained', 1, 'plans_omitted', '[]'::jsonb), 'references', '[]'::jsonb,
       'budget', jsonb_build_object('tokens', 400000, 'cost_cents', 2500)),
@@ -152,11 +155,11 @@ $$;
 create function pg_temp.publish_answers_sql(token integer) returns text language sql stable as $$
   select format($publish$select replayed::text from public.publish_takeoff_item_answers(%L, %L,
     '2026-11-22T09:00:00Z', 'modele-fictif', 'takeoff-c-postes-v1',
-    '{"schema_version": "v2", "prompt_version": "takeoff-c-postes-v1"}'::jsonb, array[2, 5, 7], %L::jsonb, '[]'::jsonb, %L::jsonb,
+    '{"schema_version": "v2", "prompt_version": "takeoff-c-postes-v1"}'::jsonb, array[2, 5, 7, 9], %L::jsonb, '[]'::jsonb, %L::jsonb,
     %L::jsonb)$publish$,
     pg_temp.job(), pg_temp.f(token),
     (select jsonb_agg(jsonb_build_object('item_id', pg_temp.f(300 + k), 'outcome', 'measured', 'reasons', '[]'::jsonb,
-        'searched_pages', '[2, 5, 7]'::jsonb, 'unreadable_pages', '[]'::jsonb, 'quantity', jsonb_build_object('value', 2, 'unit', 'u'),
+        'searched_pages', '[2, 5, 7, 9]'::jsonb, 'unreadable_pages', '[]'::jsonb, 'quantity', jsonb_build_object('value', 2, 'unit', 'u'),
         'observations', jsonb_build_array(jsonb_build_object('page', 2, 'evidence', 'Symboles fictifs', 'method', 'symbol_count',
           'confidence', 0.9, 'quantity', 2, 'unit', 'u', 'role', 'contribution', 'source', 'model', 'chunk_id', 'f1-b1',
           'takeoff_item_id', pg_temp.f(800 + k)))) order by k) from generate_series(0, 4) as k),
@@ -410,6 +413,35 @@ select is((select x.answer::jsonb -> 'revisions' from extensions.dblink_get_resu
   pg_temp.at(pg_temp.answer(301), 2), 'and goes on');
 select is((select count(*)::integer from extensions.dblink_get_result('race_b', false) as x(answer text)), 0, 'and is done');
 select is(extensions.dblink_exec('race_b', 'commit'), 'COMMIT', 'its transaction ends');
+
+-- 8. One intention on disjoint answers: the receipt's wait is followed by the right once more.
+select ok(pg_temp.begin_as('race_a', 2), 'the admin sends an edit of the third item');
+select is((select x.answer::jsonb -> 'revisions' from extensions.dblink('race_a', pg_temp.edit_sql(771,
+  pg_temp.at(pg_temp.answer(302), 2), jsonb_build_array(pg_temp.add(pg_temp.answer(302), 772, 2, 0.15, 0.85)))) as x(answer text)),
+  pg_temp.at(pg_temp.answer(302), 3), 'not yet committed');
+select ok(pg_temp.begin_as('race_b', 2), 'and, from another tab, another edit under the same intention, of the fourth item');
+select is(extensions.dblink_send_query('race_b', pg_temp.edit_sql(771, pg_temp.at(pg_temp.answer(303), 1),
+  jsonb_build_array(pg_temp.add(pg_temp.answer(303), 773, 2, 0.85, 0.15)))), 1, 'its edit is sent');
+select ok(pg_temp.waits_for('race_b', 'race_a'), 'the second waits at its receipt for the first');
+select is(extensions.dblink_exec('race_setup', pg_temp.set_role_sql(2, 'director')), 'UPDATE 1', 'the admin becomes a director meanwhile');
+select is(extensions.dblink_exec('race_a', 'rollback'), 'ROLLBACK', 'the first edit rolls back');
+select ok(pg_temp.answered('race_b'), 'the second answers');
+select is((select count(*)::integer from extensions.dblink_get_result('race_b', false) as x(answer text)), 0, 'with no receipt');
+select ok(extensions.dblink_error_message('race_b') like '%TAKEOFF_MARKS_FORBIDDEN%', 'refused: the right is checked after that wait');
+select is((select count(*)::integer from extensions.dblink_get_result('race_b', false) as x(answer text)), 0, 'and is done');
+select is(extensions.dblink_exec('race_b', 'rollback'), 'ROLLBACK', 'its transaction ends');
+select results_eq($$select pg_temp.revision(302), pg_temp.revision(303),
+  (select count(*)::integer from public.takeoff_count_mark_commands where intent_key = pg_temp.f(771))$$, $$values (2, 1, 0)$$,
+  'nothing of either was written');
+select is(extensions.dblink_exec('race_setup', pg_temp.set_role_sql(2, 'admin')), 'UPDATE 1', 'the admin is an admin again');
+
+-- 9. Page 9 is new: its first add gives its geometry, the second does not.
+select ok(pg_temp.begin_as('race_a', 1), 'the owner adds two marks on page 9');
+select is((select x.answer::jsonb -> 'revisions' from extensions.dblink('race_a', pg_temp.edit_sql(781,
+  pg_temp.at(pg_temp.answer(300), 5), jsonb_build_array(pg_temp.add(pg_temp.answer(300), 782, 9, 0.2, 0.2),
+  pg_temp.add(pg_temp.answer(300), 783, 9, 0.8, 0.8) - 'geometry'))) as x(answer text)), pg_temp.at(pg_temp.answer(300), 6),
+  'accepted: the page takes the geometry the first add carries');
+select is(extensions.dblink_exec('race_a', 'commit'), 'COMMIT', 'and commits');
 
 -- 4. The first change of the fifth item (revision 0 to 1) while the worker publishes a generation that names it.
 -- A review command read its marks revision first, under the locking form: its state row exists, at revision 0, so the

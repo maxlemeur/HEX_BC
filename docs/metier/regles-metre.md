@@ -270,11 +270,12 @@ des repères pour un poste (« proposé », ou « à attribuer » quand elle ne 
 lequel) ; un membre les retient, les retire avec un motif, les rétablit, les déplace,
 les affecte à un autre poste de la même commande, du même plan et de la même unité, en
 ajoute, puis déclare vérifiées les pages qu’il a relues. Un objet ne compte que pour un
-seul poste à la fois, et une seule fois : deux centres à moins de 4 points l’un de
-l’autre sur la page à l’échelle 1 désignent le même objet, une nouvelle lecture machine
-qui le retrouve (même clé de source ou même place) s’ajoute à son repère, et retenir ou
-rétablir un second repère sur un objet déjà retenu est refusé tant que le membre n’a pas
-choisi lequel garder. Le compte d’un poste sur un plan n’existe que pour un poste compté
+seul poste à la fois, et une seule fois. Une nouvelle lecture machine ne rejoint un
+repère connu que par la même clé de source ; tout autre repère, même tout proche, reste
+le sien, en attente, signalé comme doublon possible d’un repère du même poste à moins de
+4 points sur la page à l’échelle 1. La machine ne fusionne jamais deux repères : pour en
+retenir ou en rétablir un à côté d’un repère retenu, le membre dit « même objet » (sa
+proposition rejoint le repère retenu) ou « objet distinct » (les deux restent). Le compte d’un poste sur un plan n’existe que pour un poste compté
 à l’unité (son unité scellée : u, pce, ens, lot…), quand toutes les pages lues pour lui
 sont vérifiées et qu’un repère au moins est retenu : c’est le nombre de repères retenus,
 jamais additionné au compte groupé par page de la lecture. Pour une longueur ou une
