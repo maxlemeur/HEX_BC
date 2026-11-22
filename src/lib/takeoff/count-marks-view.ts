@@ -135,7 +135,8 @@ export type CountMarkObjectAnswer = { object: "same"; sameAs: string } | { objec
 /** A removed mark restored to the state it had, or a proposed one retained, with the member's word when one is needed. */
 export function draftDecide(draft: CountMarkDraft, input: { id: string; op: "restore" | "retain"; markId: string; page: number;
   state: CountMarkShownState; restoredTo: CountMarkShownState; word: CountMarkObjectAnswer }, intentKey: string): CountMarkDraft {
-  // A mark not saved yet has no identity the database knows: it is never named in a stored field.
+  // A mark not saved yet has no identity the database knows: it is never named in a stored field, decided or as the same.
+  if (isDraftMarkId(input.markId)) throw new Error("Un repère non enregistré se décide une fois enregistré.");
   if (input.word?.object === "same" && isDraftMarkId(input.word.sameAs)) {
     throw new Error("Un repère non enregistré ne peut pas être nommé comme le même objet.");
   }
@@ -147,9 +148,10 @@ export function draftDecide(draft: CountMarkDraft, input: { id: string; op: "res
     gesture, others: {} }], intentKey);
 }
 
-/** A mark given to another item of the same reading, whose answer then retains it. */
+/** A mark given to another item of the same reading, whose answer then retains it: a mark the database knows only. */
 export function draftReattribute(draft: CountMarkDraft, input: { id: string; markId: string; page: number;
   state: CountMarkShownState; toAnswerId: string; toRevision: number; distinct: boolean }, intentKey: string): CountMarkDraft {
+  if (isDraftMarkId(input.markId)) throw new Error("Un repère non enregistré ne s’affecte pas à un autre poste : enregistrez-le d’abord.");
   const gesture: TakeoffCountMarkGesture = { op: "reattribute", answer_id: draft.answerId, mark_id: input.markId,
     to_answer_id: input.toAnswerId, ...(input.distinct ? { object: "distinct" as const } : {}) };
   return withEntries(draft, [...draft.entries, { id: input.id, page: input.page, markId: input.markId, from: input.state,
@@ -265,15 +267,19 @@ export function shownCountMarks(marks: readonly TakeoffCountMark[], draft: Count
 export const COUNT_MARK_DRAWN_STATES: readonly CountMarkShownState[] = ["proposed", "to_attribute", "retained", "pending"];
 export const isDrawnCountMark = (mark: Pick<CountMarkShown, "state">) => COUNT_MARK_DRAWN_STATES.includes(mark.state);
 
-/** The part of the visible page the frame shows, normalised (clamped to the page). */
+/**
+ * The part of the visible page the frame shows, normalised (clamped to the page); null when the frame shows none of it
+ * (the sheet panned beyond the frame): clamping an empty part would give a point nobody sees.
+ */
 export function visibleCountRegion(input: { frame: { width: number; height: number }; offset: CountMarkPoint; scale: number;
   size: CountMarkPageSize }) {
   const width = input.size.width * input.scale;
   const height = input.size.height * input.scale;
   if (!(width > 0) || !(height > 0)) return null;
   const clamp = (value: number) => Math.min(1, Math.max(0, value));
-  return { x0: clamp(-input.offset.x / width), y0: clamp(-input.offset.y / height),
+  const region = { x0: clamp(-input.offset.x / width), y0: clamp(-input.offset.y / height),
     x1: clamp((input.frame.width - input.offset.x) / width), y1: clamp((input.frame.height - input.offset.y) / height) };
+  return region.x1 > region.x0 && region.y1 > region.y0 ? region : null;
 }
 
 export type CountRegion = NonNullable<ReturnType<typeof visibleCountRegion>>;

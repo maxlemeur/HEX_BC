@@ -45,6 +45,8 @@ export type ItemDetailPageFrame = {
   offset: PdfPoint;
   frame: { width: number; height: number };
   centre: (point: PdfPoint) => void;
+  /** Whether the sheet is drawn: this page's render at this scale completed (a known size alone is not a page seen). */
+  painted: boolean;
 };
 
 /** opening: the bytes are asked; served: the route served them (the attested route checks their digest); failed. */
@@ -139,9 +141,10 @@ export function ItemDetailPlanPane({ resolution, page, requestedMissing, pagesOf
     const offset = { x: frameSize.width / 2 - point.x * pageSize.width * scale, y: frameSize.height / 2 - point.y * pageSize.height * scale };
     setShownView((value) => ({ key: viewKey, view: { ...(value.key === viewKey ? value.view : FITTED), offset } }));
   }, [frameSize, pageSize, scale, viewKey]);
+  const painted = !reader.loading && !reader.rendering;
   const pageFrame = useMemo<ItemDetailPageFrame | null>(() => (pageSize && scale > 0 && !reader.failure
-    ? { page, size: pageSize, geometry: reader.geometry, scale, offset: current.offset, frame: frameSize, centre } : null),
-  [centre, current.offset, frameSize, page, pageSize, reader.failure, reader.geometry, scale]);
+    ? { page, size: pageSize, geometry: reader.geometry, scale, offset: current.offset, frame: frameSize, centre, painted } : null),
+  [centre, current.offset, frameSize, page, pageSize, painted, reader.failure, reader.geometry, scale]);
   const onPointerDown = (event: ReactPointerEvent) => {
     drag.current = { x: event.clientX - current.offset.x, y: event.clientY - current.offset.y };
   };

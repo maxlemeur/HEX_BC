@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 
 import { useCountMarks, type CountMarksContextValue, type CountMarksTarget } from "@/components/takeoff/count-marks/CountMarksScope";
 import { CountMarksHistory } from "@/components/takeoff/count-marks/CountMarksHistory";
@@ -252,8 +252,14 @@ function RefusedQuestionDialog({ marks, numbers }: { marks: CountMarksContextVal
   const asked = marks.refusedQuestion;
   if (!asked) return null;
   const decides = asked.op === "retain" || asked.op === "restore";
-  const named = (markId: string) => isDraftMarkId(markId) ? "votre ajout non enregistré"
-    : numbers[markId] ? `le repère ${numbers[markId]}` : "un repère retenu hors de la liste chargée";
+  // Each mark by its number in the list and its place on the page, so that two neighbours are told apart; one not loaded
+  // yet is being read (the scope reads the page's next lots for it).
+  const loaded = (markId: string) => marks.shown.find((mark) => mark.markId === markId) ?? null;
+  const named = (markId: string) => {
+    if (isDraftMarkId(markId)) return "votre ajout non enregistré";
+    const mark = loaded(markId);
+    return mark && numbers[markId] ? `le repère ${numbers[markId]} (${countMarkPlace(mark)})` : "un repère retenu hors de la liste chargée";
+  };
   const asThat = (markId: string) => { const text = named(markId); return text.startsWith("un ") ? `qu’${text}` : `que ${text}`; };
   const sameLabel = (markId: string) => isDraftMarkId(markId) ? "Même objet que votre ajout non enregistré : retirer l’ajout"
     : decides ? `Même objet ${asThat(markId)}`
@@ -274,7 +280,12 @@ function RefusedQuestionDialog({ marks, numbers }: { marks: CountMarksContextVal
         <div className="flex flex-col gap-2" data-testid="reperes-question-refus">
           {/* A non-decision gesture onto a known object is withdrawn once (whatever the neighbour). */}
           {(decides ? neighbours : neighbours.slice(0, 1)).map((markId) => (
-            <Button key={markId} variant="outline" onClick={() => marks.answerRefused({ object: "same", sameAs: markId })}>
+            // Choosing one (by the keyboard or the pointer) centres it on the plan.
+            <Button key={markId} variant="outline" onFocus={() => marks.select(markId, { announce: false })}
+              onClick={() => {
+                marks.select(markId, { announce: false });
+                marks.answerRefused({ object: "same", sameAs: markId });
+              }}>
               {sameLabel(markId)}
             </Button>
           ))}
@@ -401,10 +412,11 @@ function RemovedList({ marks }: { marks: CountMarksContextValue }) {
           ) : null}
         </li>
       ))}
-      {removed.total > removed.marks.length ? (
+      {/* The next lot follows the cursor, never a count: a lot is read once, and the last removed mark stays reachable. */}
+      {removed.nextAfter || removed.total > removed.marks.length ? (
         <li className="flex items-center gap-2 px-3 py-1 text-muted-foreground">
-          {removed.total - removed.marks.length > 1 ? `${removed.total - removed.marks.length} autres repères retirés.`
-            : "1 autre repère retiré."}
+          {removed.total > removed.marks.length ? (removed.total - removed.marks.length > 1
+            ? `${removed.total - removed.marks.length} autres repères retirés.` : "1 autre repère retiré.") : null}
           {removed.nextAfter ? <Button size="xs" variant="ghost" onClick={marks.loadMoreRemoved}>Afficher la suite</Button> : null}
         </li>
       ) : null}
@@ -412,11 +424,13 @@ function RemovedList({ marks }: { marks: CountMarksContextValue }) {
   );
 }
 
-function DraftBar({ marks, numbers }: { marks: CountMarksContextValue; numbers: Record<string, number> }) {
+function DraftBar({ marks, numbers, focused }: { marks: CountMarksContextValue; numbers: Record<string, number>;
+  focused: { current: boolean } }) {
   const entries = marks.draft?.entries ?? [];
   if (!entries.length) return null;
   return (
-    <div className="flex flex-col gap-1 border-t border-border bg-surface px-3 py-2 text-xs" data-testid="reperes-session">
+    <div className="flex flex-col gap-1 border-t border-border bg-surface px-3 py-2 text-xs" data-testid="reperes-session"
+      onFocus={() => { focused.current = true; }} onBlur={() => { focused.current = false; }}>
       <p className="font-medium text-foreground">{plural(entries.length, "modification non enregistrée", "modifications non enregistrées")}</p>
       <ul className="flex flex-col gap-1">
         {entries.map((entry) => (
@@ -448,6 +462,19 @@ export function CountMarksPanel() {
   const [tab, setTab] = useState<"list" | "history">("list");
   const [withRemoved, setWithRemoved] = useState(false);
   const refusal = useRef<HTMLParagraphElement>(null);
+  const panel = useRef<HTMLElement>(null);
+  const heading = useRef<HTMLHeadingElement>(null);
+  // « Enregistrer » goes once its gestures are saved (the session bar with it): a keyboard that was in the bar goes where
+  // the member continues, the list's current row (the grid holds it), else the panel's heading, never to the document.
+  const barFocused = useRef(false);
+  const hasBar = Boolean(marks?.draft?.entries.length);
+  useLayoutEffect(() => {
+    if (hasBar || !barFocused.current) return;
+    barFocused.current = false;
+    if (document.activeElement && document.activeElement !== document.body) return;
+    const grid = panel.current?.querySelector<HTMLElement>("[data-testid='reperes-liste']");
+    (grid ?? heading.current)?.focus({ preventScroll: true });
+  }, [hasBar]);
   const status = marks?.status;
   useEffect(() => {
     if (status === "refused") refusal.current?.focus();
@@ -458,7 +485,7 @@ export function CountMarksPanel() {
   const loaded = marks.loaded;
 
   return (
-    <section id={COUNT_MARKS_PANEL_ID} aria-label="Repères du poste" hidden={!marks.panelOpen}
+    <section ref={panel} id={COUNT_MARKS_PANEL_ID} aria-label="Repères du poste" hidden={!marks.panelOpen}
       className="flex max-h-[28rem] shrink-0 flex-col border-t border-border bg-surface" data-testid="reperes-panneau">
       <p role="status" aria-live="polite" className="sr-only" data-testid="reperes-annonce">{marks.announcement}</p>
       {marks.status === "refused" ? (
@@ -482,7 +509,7 @@ export function CountMarksPanel() {
       ) : (
         <>
           <header className="flex flex-wrap items-center gap-2 border-b border-border px-3 py-1.5">
-            <h2 className="text-sm font-semibold text-foreground">Repères du poste</h2>
+            <h2 ref={heading} tabIndex={-1} className="text-sm font-semibold text-foreground">Repères du poste</h2>
             <span className="text-xs text-muted-foreground" data-testid="reperes-charges">
               Page {marks.page} : {loaded.marks.length} chargé{loaded.marks.length > 1 ? "s" : ""} sur {loaded.view.total} au total
             </span>
@@ -521,7 +548,7 @@ export function CountMarksPanel() {
               </>
             ) : <CountMarksHistory markNumbers={numbers} />}
           </div>
-          <DraftBar marks={marks} numbers={numbers} />
+          <DraftBar marks={marks} numbers={numbers} focused={barFocused} />
           <p className="shrink-0 border-t border-border px-3 py-1.5 text-[11px] text-muted-foreground" data-testid="reperes-touches">
             {marks.canEdit ? `${COUNT_MARKS_LIST_KEYS_HELP} · ${COUNT_MARKS_PLAN_KEYS_HELP}` : "↑ ↓ repère · Début Fin"}
           </p>

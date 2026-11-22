@@ -60,8 +60,8 @@ export function CountMarksLayer({ frame }: { frame: ItemDetailPageFrame }) {
   const hasRegion = shownRegion !== null;
   useEffect(() => {
     setPlanFrame?.({ page: frame.page, size: frame.size, geometry: frame.geometry, centre: frame.centre,
-      visible: hasRegion ? { x0: rx0, y0: ry0, x1: rx1, y1: ry1 } : null });
-  }, [frame.centre, frame.geometry, frame.page, frame.size, hasRegion, rx0, rx1, ry0, ry1, setPlanFrame]);
+      visible: hasRegion ? { x0: rx0, y0: ry0, x1: rx1, y1: ry1 } : null, painted: frame.painted });
+  }, [frame.centre, frame.geometry, frame.page, frame.painted, frame.size, hasRegion, rx0, rx1, ry0, ry1, setPlanFrame]);
   // A pointing mode takes the keyboard on the plan, wherever it was started from (the toolbar, the list).
   const pointing = marks?.mode.kind !== undefined && marks.mode.kind !== "idle";
   useEffect(() => {

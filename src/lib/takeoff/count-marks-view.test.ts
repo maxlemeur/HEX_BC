@@ -96,6 +96,29 @@ describe("a correction session", () => {
     expect(command.intentKey).toBe(draft.intentKey);
   });
 
+  // Closing review of #485: a reattribution of an addition not saved yet sent its display identifier as a mark's. Every
+  // builder given one either changes the addition itself (a move), drops it (a removal), or refuses it; the command never
+  // carries one.
+  it("never puts the display identifier of an addition not saved yet into a stored field, whichever gesture builds", () => {
+    let draft = draftAdd(start(), { key: id(60), page: 7, point: { x: 0.2, y: 0.3 }, geometry: null, distinct: false }, keys());
+    const addition = draftMarkId(id(60));
+    draft = draftMove(draft, { id: keys(), markId: addition, page: 7, state: "retained", point: { x: 0.25, y: 0.3 }, distinct: true,
+      others: {} }, keys());
+    expect(draft.entries).toHaveLength(1);
+    expect(() => draftReattribute(draft, { id: keys(), markId: addition, page: 7, state: "retained", toAnswerId: OTHER, toRevision: 9,
+      distinct: false }, keys())).toThrow(/non enregistré/);
+    expect(() => draftDecide(draft, { id: keys(), op: "retain", markId: addition, page: 7, state: "retained", restoredTo: "proposed",
+      word: null }, keys())).toThrow(/non enregistré/);
+    expect(() => draftDecide(draft, { id: keys(), op: "retain", markId: id(1), page: 7, state: "proposed", restoredTo: "proposed",
+      word: { object: "same", sameAs: addition } }, keys())).toThrow(/non enregistré/);
+    expect(() => draftSameAs(draft, draft.entries[0]!.id, addition, keys())).toThrow(/non enregistré/);
+    const command = draftCommand(draftVerify(draftDistinct(draft, id(60), keys()), { id: keys(), page: 7 }, keys()));
+    expect(JSON.stringify(command)).not.toContain("draft:");
+    expect(command.gestures[0]).toMatchObject({ op: "add", key: id(60), x: 0.25, object: "distinct" });
+    expect(draftRemove(draft, { id: keys(), markId: addition, page: 7, state: "retained", reason: "duplicate", note: null }, keys())
+      .entries).toEqual([]);
+  });
+
   it("changes its intention key with every change of its gestures", () => {
     const draft = start();
     const added = draftAdd(draft, { key: id(50), page: 2, point: { x: 0.2, y: 0.3 }, geometry: null, distinct: false }, keys());
@@ -217,6 +240,11 @@ describe("what the screen shows of a page", () => {
     expect(inCountRegion({ x: 0.1, y: 0.25 }, region)).toBe(false);
     expect(visibleCountRegion({ frame: { width: 800, height: 400 }, offset: { x: 0, y: 0 }, scale: 0, size: { width: 800, height: 400 } }))
       .toBeNull();
+    // The sheet panned entirely beyond the frame: no part of it is shown, never a clamped edge (closing review of #485).
+    expect(visibleCountRegion({ frame: { width: 800, height: 400 }, offset: { x: 1700, y: 0 }, scale: 2,
+      size: { width: 800, height: 400 } })).toBeNull();
+    expect(visibleCountRegion({ frame: { width: 800, height: 400 }, offset: { x: 0, y: -900 }, scale: 2,
+      size: { width: 800, height: 400 } })).toBeNull();
   });
 });
 

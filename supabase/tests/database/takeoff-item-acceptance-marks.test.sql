@@ -13,6 +13,7 @@
 -- 5. Review of #485: a selection frozen before a correction of the marks accepts nothing (stale, no row verified); an
 --    edit of a plan already sent is refused under its locks, while the replay of an intention still answers its receipt;
 --    a refusal for a possible duplicate names the gesture, the retained marks beside it and this command's additions.
+-- 6. Marks changed since a selection make it stale for an acceptance only, on the vectors the planner runs.
 -- Isolation justified: the rule and its readers are the database's; a journey cannot reach an acceptance on marks yet
 -- (no screen accepts from the detail). All values are fictional.
 begin;
@@ -394,6 +395,54 @@ select is(pg_temp.review('accept_measured', 635, jsonb_build_object('targets', j
 select is(pg_temp.review('accept_measured', 624) ->> 'outcome', 'applied', 'a selection read now accepts it');
 select results_eq($$select kind, marks_revision from public.takeoff_item_answer_decisions where answer_id = pg_temp.lavabo()$$,
   $$values ('accepted'::text, 4)$$, 'on the marks it saw');
+
+-- 6. When marks changed since the selection make it stale, by gesture: for an acceptance only (it certifies the count; a
+--    set aside or a reinstatement certifies none). The planner (src/lib/takeoff/item-table.ts) runs the same vectors:
+--    item-table.test.ts reads them here, keep one vector per line. Each runs from the accepted lavabo above and is
+--    undone: the preparation of its gesture (an acceptance to take again after a correction, a set aside to reinstate),
+--    the selection, a correction after it when the marks change, then the command on that selection.
+create function pg_temp.touch_marks(intent integer, x numeric) returns jsonb language sql as $$
+  select pg_temp.edit(intent, (select (m.summary ->> 'revision')::integer
+      from public.read_takeoff_count_mark_summaries(pg_temp.f(10), pg_temp.f(20), array[pg_temp.lavabo()]) m),
+    jsonb_build_array(jsonb_build_object('op', 'add', 'answer_id', pg_temp.lavabo(), 'key', pg_temp.f(intent), 'page', 2,
+      'x', x, 'y', 0.9, 'object', 'distinct')))
+$$;
+create function pg_temp.marks_vector(gesture text, marks text, base integer) returns text language plpgsql as $$
+declare
+  frozen jsonb;
+  outcome text;
+begin
+  begin
+    if gesture = 'accept_measured' then perform pg_temp.touch_marks(base + 1, 0.80); end if;
+    if gesture = 'reinstate' then perform pg_temp.review('set_aside', base + 2, '{"reason":"duplicate"}'::jsonb); end if;
+    frozen := pg_temp.target(300);
+    if marks = 'changed' then perform pg_temp.touch_marks(base + 3, 0.85); end if;
+    outcome := pg_temp.review(gesture, base + 4, jsonb_build_object('targets', jsonb_build_array(frozen))
+      || case when gesture = 'set_aside' then '{"reason":"duplicate"}'::jsonb else '{}'::jsonb end) ->> 'outcome';
+    raise exception 'MARKS_VECTOR_UNDONE' using detail = outcome;
+  exception when raise_exception then
+    if sqlerrm <> 'MARKS_VECTOR_UNDONE' then raise; end if;
+    get stacked diagnostics outcome = pg_exception_detail;
+  end;
+  return outcome;
+end;
+$$;
+select is(pg_temp.marks_vector(v.gesture, v.marks, 700 + 10 * v.position), case when v.stale then 'stale' else 'applied' end,
+  format('marks vector %s: %s, marks %s since the selection', v.position, v.gesture, v.marks))
+from jsonb_to_recordset($marks_stale$[
+  {"position": 1, "gesture": "accept_measured", "marks": "same", "stale": false},
+  {"position": 2, "gesture": "accept_measured", "marks": "changed", "stale": true},
+  {"position": 3, "gesture": "set_aside", "marks": "same", "stale": false},
+  {"position": 4, "gesture": "set_aside", "marks": "changed", "stale": false},
+  {"position": 5, "gesture": "reinstate", "marks": "same", "stale": false},
+  {"position": 6, "gesture": "reinstate", "marks": "changed", "stale": false}
+]$marks_stale$::jsonb) as v(position integer, gesture text, marks text, stale boolean)
+order by v.position;
+select results_eq($$select d.kind, d.marks_revision, private_revision.revision from public.takeoff_item_answer_decisions d,
+    lateral (select (m.summary ->> 'revision')::integer as revision
+      from public.read_takeoff_count_mark_summaries(pg_temp.f(10), pg_temp.f(20), array[pg_temp.lavabo()]) m) private_revision
+    where d.answer_id = pg_temp.lavabo()$$,
+  $$values ('accepted'::text, 4, 4)$$, 'the vectors leave the lavabo as they found it');
 reset role;
 
 -- The duplicate refusal names what it refuses: an add 1 point from the retained lav-1, after an add of this command at

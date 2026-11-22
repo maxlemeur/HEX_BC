@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { useCountMarks } from "@/components/takeoff/count-marks/CountMarksScope";
 import { Button } from "@/components/ui/button";
@@ -25,24 +25,42 @@ export function CountMarksHistory({ markNumbers }: { markNumbers: Record<string,
   const answerId = marks?.answer?.answerId ?? null;
   const version = marks?.historyVersion ?? 0;
   const refuse = marks?.refuse;
+  const start = marks?.start;
+  const screen = marks?.screen ?? "";
+  const readAgain = marks?.readAgain;
+  // The journal as the page shown was read: to its revision (read again with the page).
+  const revision = marks?.loaded?.view.revision ?? null;
   const [read, setRead] = useState<Read | null>(null);
   const [loading, setLoading] = useState(false);
   const [failed, setFailed] = useState(false);
+  const reading = useRef<string | null>(null);
 
   const load = useCallback(async (after: Read["next"], previous: Read | null) => {
-    if (!reader || !answerId) return;
+    if (!reader || !answerId || !start || revision === null) return;
+    // One read per position; its answer is this answer's, shown only while it is.
+    const position = `${answerId}:${revision}:${after ? `${after.revision}.${after.ordinal}` : "start"}`;
+    if (reading.current === position) return;
+    reading.current = position;
+    const done = start({ screen, item: answerId });
     setLoading(true);
     try {
       const page = await reader.readHistory({ answerId, after, limit: COUNT_MARKS_HISTORY_LIMIT.default });
-      setRead({ events: [...(previous?.events ?? []), ...page.events], next: page.next,
-        names: { ...(previous?.names ?? {}), ...page.names }, viewerId: page.viewerId });
+      if (!done.current()) return;
+      // An event after the page's revision: the screen is read again (the gestures kept, the member told), the journal
+      // with it; until then it shows the events of the page's revision only.
+      const later = page.events.some((event) => event.revision > revision);
+      if (later) readAgain?.();
+      setRead({ events: [...(previous?.events ?? []), ...page.events.filter((event) => event.revision <= revision)],
+        next: later ? null : page.next, names: { ...(previous?.names ?? {}), ...page.names }, viewerId: page.viewerId });
       setFailed(false);
     } catch (error) {
+      if (!done.current()) return;
       if (!refuse?.(error)) setFailed(true);
     } finally {
-      setLoading(false);
+      if (reading.current === position) reading.current = null;
+      if (done.current()) setLoading(false);
     }
-  }, [answerId, reader, refuse]);
+  }, [answerId, readAgain, reader, refuse, revision, screen, start]);
 
   useEffect(() => {
     setRead(null);
