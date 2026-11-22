@@ -16,6 +16,18 @@ export const takeoffReviewContextResponseSchema = z.object({
     unit_price_cents: z.number().int().refine(Number.isSafeInteger).nullable(),
     lot: z.object({ id: z.string().uuid(), title: z.string() }).nullable(),
   })),
+  /**
+   * Lot 3: for an analysis of one plan that was sent, what its send compared that changed since (a peer's
+   * lines, a peer read again, a location or a copy of a plan revision), with the lines it sent; null otherwise. Absent
+   * from a server before it (optional).
+   */
+  send_context: z.object({
+    changed: z.boolean(),
+    sent_at: z.string(),
+    changes: z.array(z.object({ reason: z.enum(["peer_changed", "peer_replaced", "location_changed", "copy_changed"]),
+      plan_name: z.string().nullable() })),
+    item_ids: z.array(z.string().uuid()),
+  }).nullable().optional(),
 }).refine((context) => context.version_id !== null
   || (context.posts.length === 0 && context.item_pricing.length === 0 && context.unlinked_item_ids.length === 0),
   "Les comparaisons chiffrées nécessitent un devis.");

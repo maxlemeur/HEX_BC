@@ -135,6 +135,11 @@ function setUp(versions: Array<{ id: string; dpgf: boolean | number }>, options:
   levelContradictions?: unknown[];
   /** The affaire's other takeoffs, as the service reads them (eq filters applied); none read when undefined. */
   twins?: Array<Record<string, unknown>>;
+  /**
+   * The format of the job's launch request as the service reads it (its manifest): 2, a request of one analysis per plan,
+   * by default when the context names one; 1, lot 2's grouped request.
+   */
+  requestFormat?: number;
 } = {}) {
   // What the service staged, by request: the member's session runs it as public.send_takeoff_job does.
   const staged = new Map<string, Record<string, unknown>>();
@@ -207,6 +212,12 @@ function setUp(versions: Array<{ id: string; dpgf: boolean | number }>, options:
       // The member's membership and the tenant as the database holds them now.
       tenant_memberships: () => ({ data: { role: membership.role }, error: null }),
       tenants: () => ({ data: { is_active: true }, error: null }),
+      // The job's launch request, by its identifier: the format its manifest was sealed with.
+      takeoff_launch_requests: (query: { filters: Array<{ column: string; value: unknown }> }) => {
+        const format = options.requestFormat ?? (options.context?.display ? 2 : undefined);
+        const asked = query.filters.find((filter) => filter.column === "id")?.value;
+        return { data: format !== undefined && asked === REQUEST ? { format_version: String(format) } : null, error: null };
+      },
     },
     rpc: {
       takeoff_mapping_rules_stamp: () => ({ data: "a".repeat(32), error: null }),
@@ -275,10 +286,10 @@ describe("previewTakeoffSend — one analysis per plan", () => {
   const planContext = (unread: Array<{ plan_name: string; state: string; compared_reading_at?: string | null }>, peers = "c".repeat(32)) => ({
     peers: [{ job_id: OTHER_JOB, stamp: "d".repeat(32) }],
     plans: [{ job_id: JOB, plan_file_id: PLAN_FILE, content_hash: "e".repeat(64), location: { id: LOCATION, revision: 2,
-      building_choice: "reading", building: null, level_choice: "value", level: "R+1" } }],
+      building_choice: "reading", building: null, level_choice: "value", level: "R+1" }, current_copy: true }],
     stamps: { peers, locations: "f".repeat(32) },
     display: { request_id: REQUEST, plan_name: "plan-a.pdf",
-      peers: [{ job_id: OTHER_JOB, plan_name: "plan-b.pdf", read_at: "2026-11-22T09:00:00Z", earlier_request: false }],
+      peers: [{ job_id: OTHER_JOB, plan_name: "plan-b.pdf", read_at: "2026-11-22T09:00:00Z", request: "same" }],
       unread: unread.map((plan) => ({ compared_reading_at: null, ...plan })), never_read: ["plan-d.pdf"],
       uncompared: { grouped: 1, outside_request: 0 } },
   });
@@ -293,7 +304,7 @@ describe("previewTakeoffSend — one analysis per plan", () => {
     expect(preview.estimate_lines).toEqual([expect.objectContaining({ change: "created", title: "Lavabo", quantity: 3 })]);
     expect(preview.plan_scope).toEqual({ request_id: REQUEST, plan_name: "plan-a.pdf",
       location: { building: null, level: "R+1", generation: 2 },
-      compared: [{ job_id: OTHER_JOB, plan_name: "plan-b.pdf", read_at: "2026-11-22T09:00:00Z", earlier_request: false }],
+      compared: [{ job_id: OTHER_JOB, plan_name: "plan-b.pdf", read_at: "2026-11-22T09:00:00Z", request: "same" }],
       unread: [{ plan_name: "plan-c.pdf", state: "running", compared_reading_at: null }],
       never_read: ["plan-d.pdf"], uncompared: { grouped: 1, outside_request: 0 }, level_contradictions: [contradiction] });
     // The dry run carries the stamps the database computed, never a hash of this server's.
@@ -312,15 +323,24 @@ describe("previewTakeoffSend — one analysis per plan", () => {
     expect(read.fingerprint).not.toBe(queued.fingerprint);
   });
 
-  // Fix round 1, point 6: the grouped analysis of a request of format 1 (lot 2), not a standalone one. Its preview has no
-  // plan scope at all (the key is absent, the shape a page of the previous version reads).
-  it("previews a grouped analysis of a request as lot 2 does: no plan scope", async () => {
-    const fake = setUp([], { job: { launch_request_id: REQUEST } });
+  // The grouped analysis of a request of format 1 (lot 2), not a standalone one: its request's manifest says so, and this
+  // server reads it. Its preview has no plan scope at all (the key is absent, the shape a page of the previous version
+  // reads), even from an evaluation whose context would name one. Red before: the server took the scope from the
+  // evaluation alone (fix round 2, point 5).
+  it("previews a grouped analysis of a request as lot 2 does: no plan scope, by its request's format", async () => {
+    const context = planContext([{ plan_name: "plan-c.pdf", state: "queued" }]);
+    const fake = setUp([], { job: { launch_request_id: REQUEST, launch_unit_key: "grouped" }, requestFormat: 1, context });
     const preview = await previewTakeoffSend(JOB, {});
     expect(preview.blocked).toBeNull();
     expect(preview).not.toHaveProperty("plan_scope");
     expect(preview.estimate_lines).toEqual([expect.objectContaining({ change: "created", title: "Lavabo", quantity: 3 })]);
-    expect(fake.staged()[0].expected).toMatchObject({ context: NO_CONTEXT.stamps });
+    expect(fake.staged()[0].expected).toMatchObject({ context: context.stamps });
+  });
+
+  it("names the scope of a unit of a request of one analysis per plan", async () => {
+    setUp([], { job: { launch_request_id: REQUEST, launch_unit_key: `plan:${PLAN_FILE}` }, requestFormat: 2,
+      context: planContext([{ plan_name: "plan-c.pdf", state: "queued" }]) });
+    expect((await previewTakeoffSend(JOB, {})).plan_scope).toMatchObject({ request_id: REQUEST, plan_name: "plan-a.pdf" });
   });
 });
 

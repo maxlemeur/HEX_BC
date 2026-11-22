@@ -23,8 +23,11 @@ import { signUpWorkerOwner, type WorkerUi } from "./worker-support";
 // two valves from its page 1 to that draft: one valve line of 5 with both sources, its price untouched. B's lease renewed
 // between A's preview and its confirmation changes nothing; C's line set aside, then a location corrected on B's plan,
 // between B's preview and its confirmation each refuse it (« … un autre plan de l’affaire a changé »), with nothing
-// written, and the preview read again, which shows that location, is confirmed. Written before the migration: red on 2c5424215 (the preview
-// of a per-plan analysis answered « L’envoi … d’une analyse par plan arrive avec une prochaine version »).
+// written, and the preview read again, which shows that location, is confirmed. C's line put back after B's send: B's
+// review names that change and the line B sent (« Contexte modifié depuis l’envoi : à revoir »), the estimate untouched;
+// A, compared with no other plan, has nothing changed. Written before the migration: red on 2c5424215 (the preview of a
+// per-plan analysis answered « L’envoi … d’une analyse par plan arrive avec une prochaine version »); the step after B's
+// send, red on 427c6fd9f (no such reading).
 
 const SEND = "Envoyer au tableau de chiffrage";
 const LINES = "Lignes du devis après l’envoi";
@@ -189,8 +192,33 @@ armyTest("TKPS01 a plan is sent while the others are read: nothing before the co
       expect(await receiptContext(jobB.id)).toMatchObject({ unit: { key: `plan:${planB.id}` }, peers: [jobC.id],
         locations: [{ plan_file_id: planB.id, revision: 1, building: "A", level: "R+1" }] });
 
+      // What B's send compared changes afterwards: C's line is put back (another tab of C's review). The send is not undone
+      // and nothing is written to the estimate; B's review, read again, names the change and the line B sent, to review.
+      // A, whose send compared no other plan, has nothing changed.
+      const reread = await apiRequest<{ ok: boolean; data: { items: { data: Array<{ id: string; updated_at: string }> } } }>(ui.browser,
+        "GET", `/api/takeoff/jobs/${jobC.id}?items_limit=50`);
+      expect([reread.status, reread.body.ok]).toEqual([200, true]);
+      const faucetNow = reread.body.data.items.data.find((item) => item.id === faucet.id)!;
+      const restored = await apiRequest<{ ok: boolean }>(ui.browser, "PATCH", `/api/takeoff/jobs/${jobC.id}/items`, { items: [{
+        item_id: faucet.id, updated_at: faucetNow.updated_at, fields: { is_excluded: false, exclusion_reason: null } }] });
+      expect([restored.status, restored.body.ok]).toEqual([200, true]);
+      await ui.app.open(takeoffReviewHref({ projectId: dossier.projectId, jobId: jobB.id, versionId }));
+      await waitForHydration(ui.browser);
+      const changedSinceSend = ui.screen.getByRole("region", "Contexte modifié depuis l’envoi : à revoir", { exact: true });
+      await expect(changedSinceSend).toBeVisible({ timeout: 30_000 });
+      await expect(changedSinceSend.getByRole("list", "Changements depuis l’envoi", { exact: true }).getByRole("listitem"))
+        .toHaveText(["les lignes de « plan-c.pdf », avec lesquelles ce plan a été comparé, ont changé"]);
+      await expect(changedSinceSend.getByRole("list", "Lignes envoyées à revoir", { exact: true }).getByRole("listitem"))
+        .toHaveText([`« ${VALVE} » (2 u)`]);
+      const flaggedB = await ui.app.screenshot("takeoff-partial-send-b-context-changed");
+      expect((await linesOf(versionId)).map(({ title, quantity }) => [title, quantity])).toEqual([[NETWORK, 4], [VALVE, 5]]);
+      const reviewA = await apiRequest<{ ok: boolean; data: { send_context: { changed: boolean } | null } }>(ui.browser, "GET",
+        `/api/takeoff/jobs/${jobA.id}/review-context`);
+      expect([reviewA.status, reviewA.body.ok, reviewA.body.data.send_context?.changed]).toEqual([200, true, false]);
+
       await recordEvidence(ui.army, "TKPS01-partial-send", { projectId: dossier.projectId, versionId, jobs: { a: jobA.id, b: jobB.id, c: jobC.id },
-        afterA, afterB, receipts: { a: await receiptContext(jobA.id), b: await receiptContext(jobB.id) }, screenshots: [previewA, previewB],
+        afterA, afterB, receipts: { a: await receiptContext(jobA.id), b: await receiptContext(jobB.id) },
+        screenshots: [previewA, previewB, flaggedB],
         boundary: "Fictional plans and a controlled local provider on an owned local backend, one analysis per plan active." });
     } finally {
       writeFileSync(release, "released");

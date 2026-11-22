@@ -99958,6 +99958,67 @@
                   ],
                   "additionalProperties": false
                 }
+              },
+              "send_context": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "changed": {
+                        "type": "boolean"
+                      },
+                      "sent_at": {
+                        "type": "string"
+                      },
+                      "changes": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "reason": {
+                              "type": "string",
+                              "enum": [
+                                "peer_changed",
+                                "peer_replaced",
+                                "location_changed",
+                                "copy_changed"
+                              ]
+                            },
+                            "plan_name": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "reason",
+                            "plan_name"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "item_ids": {
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        }
+                      }
+                    },
+                    "required": [
+                      "changed",
+                      "sent_at",
+                      "changes",
+                      "item_ids"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
               }
             },
             "required": [
@@ -103364,15 +103425,20 @@
                             "null"
                           ]
                         },
-                        "earlier_request": {
-                          "type": "boolean"
+                        "request": {
+                          "type": "string",
+                          "enum": [
+                            "same",
+                            "earlier",
+                            "later"
+                          ]
                         }
                       },
                       "required": [
                         "job_id",
                         "plan_name",
                         "read_at",
-                        "earlier_request"
+                        "request"
                       ],
                       "additionalProperties": false
                     }

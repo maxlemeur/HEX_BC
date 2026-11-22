@@ -437,6 +437,10 @@ function SendPreviewBody({ data, headline, disabled, onDestinationChange, onSect
   );
 }
 
+/** Whose reading a plan compared is, by when it was read: never « précédente » for a later request's reading. */
+const COMPARED_REQUEST_LABELS: Record<TakeoffSendPlanScope["compared"][number]["request"], string | null> = {
+  same: null, earlier: "par une demande précédente", later: "par une demande plus récente",
+};
 const readingDate = new Intl.DateTimeFormat("fr-FR", { day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" });
 /** « lu le 22 novembre à 10:04 », or nothing when the time is unknown. */
 function readOn(at: string | null) {
@@ -494,7 +498,7 @@ function PlanScope({ scope }: { scope: TakeoffSendPlanScope }) {
           <ul aria-label="Plans comparés" className="mt-1 list-disc space-y-0.5 pl-5 text-muted-foreground">
             {scope.compared.map((plan) => (
               <li key={plan.job_id}>
-                « {plan.plan_name ?? "sans nom"} »{[readOn(plan.read_at), plan.earlier_request ? "par une demande précédente" : null]
+                « {plan.plan_name ?? "sans nom"} »{[readOn(plan.read_at), COMPARED_REQUEST_LABELS[plan.request]]
                   .filter(Boolean).map((part) => `, ${part}`).join("")}
               </li>
             ))}

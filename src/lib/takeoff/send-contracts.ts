@@ -103,9 +103,12 @@ export const takeoffSendPlanScopeSchema = z.object({
   plan_name: z.string().nullable(),
   location: z.object({ building: z.string().nullable(), level: z.string().nullable(), generation: z.number().int().positive() })
     .strict().nullable(),
-  /** Each reading compared: its plan, when it was read, and whether it comes from an earlier request. */
+  /**
+   * Each reading compared: its plan, when it was read, and whose: this plan's request's, or another request's read before
+   * (« earlier ») or after (« later ») this plan's own reading.
+   */
   compared: z.array(z.object({ job_id: uuid, plan_name: z.string().nullable(), read_at: z.string().nullable(),
-    earlier_request: z.boolean() }).strict()),
+    request: z.enum(["same", "earlier", "later"]) }).strict()),
   /** The units of this request not read; for a plan whose earlier reading is compared, when that reading was made. */
   unread: z.array(z.object({ plan_name: z.string().nullable(),
     state: z.enum(["queued", "running", "failed", "canceled", "not_started"]), compared_reading_at: z.string().nullable() }).strict()),

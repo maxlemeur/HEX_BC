@@ -335,34 +335,38 @@ describe("the send of one plan: the other plans read and the operator's level", 
   const anchors = { version: 1, texts: ["Bureau 101", "Salle de réunion", "Local technique", "Circulation C2", "Archives"]
     .map((text, index) => [text, 12 + index * 1.3, 4 + index * 0.9]),
   lines: Array.from({ length: 30 }, (_, index) => [10, 2 + index * 0.7, 13 + (index % 5), 2 + index * 0.7]) };
-  const line = (job: string, plan: string) => ({
+  const line = (job: string, plan: string, ruleInputs = true) => ({
     id: `${job.slice(0, -2)}9${job.slice(-1)}`, job_id: job, designation: "EF Inox 316L DN 22", unit: "ml", quantity: 5,
     is_excluded: false, exclusion_reason: null, updated_at: "2026-11-22T10:00:00.000Z",
-    metadata: { rule_inputs: { version: 1, source: "vector", kind: "network", network: "EF", material: "inox-316l", dn: "DN 22",
-      non_observable: null, model_quantity: 5 } },
+    metadata: ruleInputs ? { rule_inputs: { version: 1, source: "vector", kind: "network", network: "EF", material: "inox-316l", dn: "DN 22",
+      non_observable: null, model_quantity: 5 } } : {},
     source_file_name: `${plan}.pdf`, source_page: 1, rule_results: [], rules_stale: true, rules_stale_at: "2026-11-22T10:00:00.000Z",
     rules_evaluated_at: null, quantity_entry_category: null, is_verified: false,
   });
 
-  async function evaluatePlan(input: { peers: boolean; readingLevel: string | null; operatorLevels?: { a: string | null; b: string | null } }) {
+  async function evaluatePlan(input: { peers: boolean; readingLevel: string | null; operatorLevels?: { a: string | null; b: string | null };
+    ruleInputs?: boolean }) {
     const reading = { schema_version: 1, reading_version: 1, mode: "layers", size_pt: [1190, 842], rotate: 0,
       location: { zone: "Z1", level: input.readingLevel, source: input.readingLevel ? "file_name" : null },
       scale: { status: "format", reason: null, denominator: 50, cartouche: null, format: { cartouche: null, page_mm: [420, 297], matches: null },
         cotes: [], calibration: null },
       legend: [], detection: null, groups: [], groups_total: 0, labels: null, surfaces: [] };
-    const lines = [line(A, PLAN_A), line(B, PLAN_B)];
+    const lines = [line(A, PLAN_A, input.ruleInputs ?? true), line(B, PLAN_B, input.ruleInputs ?? true)];
     const planOf = (job: string) => (job === A ? PLAN_A : PLAN_B);
+    // By the jobs a query names: a list of them, or one (an equality filter).
     const ofJobs = (query: { filters: Array<{ column: string; value: unknown }> }) => {
       const jobs = query.filters.find((filter) => filter.column === "job_id")?.value;
-      return Array.isArray(jobs) ? lines.filter((row) => jobs.includes(row.job_id)) : lines;
+      return Array.isArray(jobs) ? lines.filter((row) => jobs.includes(row.job_id))
+        : typeof jobs === "string" ? lines.filter((row) => row.job_id === jobs) : lines;
     };
     const location = (level: string | null | undefined) => (level
       ? { id: "58585858-5858-4585-8585-585858585851", revision: 3, building_choice: "reading", building: null, level_choice: "value", level }
       : null);
     const context = {
       peers: input.peers ? [{ job_id: B, stamp: "b-read" }] : [],
-      plans: [{ job_id: A, plan_file_id: PLAN_A, content_hash: "a".repeat(64), location: location(input.operatorLevels?.a) },
-        ...(input.peers ? [{ job_id: B, plan_file_id: PLAN_B, content_hash: "b".repeat(64), location: location(input.operatorLevels?.b) }] : [])],
+      plans: [{ job_id: A, plan_file_id: PLAN_A, content_hash: "a".repeat(64), location: location(input.operatorLevels?.a), current_copy: true },
+        ...(input.peers ? [{ job_id: B, plan_file_id: PLAN_B, content_hash: "b".repeat(64), location: location(input.operatorLevels?.b),
+          current_copy: true }] : [])],
       stamps: { peers: "p", locations: "l" }, display: null };
     const fake = createSupabaseFake({
       tables: {
@@ -422,6 +426,15 @@ describe("the send of one plan: the other plans read and the operator's level", 
     // and the preview is told which page contradicts the level set (fix round 1, point 8).
     const contradicted = await evaluatePlan({ peers: true, readingLevel: "R+1", operatorLevels: { a: "R+2", b: null } });
     expect(contradicted.overlap).toMatchObject({ status: "fail", code: "ZONE_OVERLAP_DUPLICATE" });
+    expect(contradicted.contradictions).toEqual([{ source_file_name: `${PLAN_A}.pdf`, source_page: 1, read_level: "R+1",
+      operator_level: "R+2" }]);
+  });
+
+  it("names a page's contradiction even when none of the plan's lines carries rule inputs", async () => {
+    // Its pages are read for the contradiction alone, whatever its lines carry (fix round 2, point 7). Red before: the
+    // page query covered only the jobs with rule inputs, so this plan's contradiction was missed.
+    const contradicted = await evaluatePlan({ peers: false, readingLevel: "R+1", operatorLevels: { a: "R+2", b: null }, ruleInputs: false });
+    expect(contradicted.overlap).toBeNull();
     expect(contradicted.contradictions).toEqual([{ source_file_name: `${PLAN_A}.pdf`, source_page: 1, read_level: "R+1",
       operator_level: "R+2" }]);
   });

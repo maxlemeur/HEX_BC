@@ -151,6 +151,20 @@ async function readSendJob(ctx: Context, jobId: string): Promise<SendJob> {
   return data as unknown as SendJob;
 }
 
+/**
+ * Lot 3: whether the analysis is one plan's — a unit of a request of format 2, as the database classifies it
+ * (private.takeoff_job_is_plan_unit). Only such an analysis has a plan scope; a grouped analysis (a request of format 1) or
+ * one launched without a request is previewed as lot 2 previews it, whatever the evaluation's context says.
+ */
+async function isPlanUnit(service: Service, tenantId: string, job: SendJob): Promise<boolean> {
+  if (job.launch_request_id === null) return false;
+  const { data, error } = await service.from("takeoff_launch_requests" as never)
+    .select("format_version:manifest->>format_version" as never)
+    .eq("tenant_id" as never, tenantId as never).eq("id" as never, job.launch_request_id as never).maybeSingle();
+  if (error) failed(error as { message?: string }, "Impossible de lire la demande d’analyse du métré.", job.id);
+  return (data as { format_version?: string | null } | null)?.format_version === "2";
+}
+
 async function readVersions(service: Service, tenantId: string, projectId: string): Promise<TakeoffSendVersion[]> {
   const { data, error } = await readAllRows(() => service.from("estimate_versions")
     .select("id, version_number, status, title, variant_label, updated_at", { count: "exact" })
@@ -539,7 +553,8 @@ async function computeSendPreview(ctx: Context, job: SendJob, request: {
     price_rules_ignored: priceRulesIgnored.map((rule) => [rule.takeoff_item_id, rule.action]), blocker, outcome, outcome_pending: outcomePending,
   });
 
-  const planScope = rules ? planScopeOf(job.id, rules.context, rules.levelContradictions) : null;
+  const planScope = rules && await isPlanUnit(service, ctx.tenantId, job)
+    ? planScopeOf(job.id, rules.context, rules.levelContradictions) : null;
   const response: TakeoffSendPreviewResponse = {
     job_id: job.id, fingerprint, destinations,
     destination: destination ?? null, destination_label: option?.label ?? null,

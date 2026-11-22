@@ -19,11 +19,12 @@ const record = (value: unknown): Record<string, unknown> => value && typeof valu
  * posts, the important lines of the targeted review and its « Gros montants » and « Non chiffré » filters (TI-701) read
  * the same answer. A read that fails keeps the last answer, with the error.
  */
-export function useTakeoffReviewContext(jobId: string, items: readonly TakeoffJobItem[]) {
+export function useTakeoffReviewContext(jobId: string, items: readonly TakeoffJobItem[], enabled = true) {
   const [context, setContext] = useState<TakeoffReviewContext | null>(null);
   const [error, setError] = useState<string | null>(null);
   const revision = items.map(item => item.updated_at).join("|");
   useEffect(() => {
+    if (!enabled) return;
     const controller = new AbortController();
     void fetch(`/api/takeoff/jobs/${encodeURIComponent(jobId)}/review-context`, { signal: controller.signal, credentials: "same-origin" })
       .then(async response => {
@@ -35,7 +36,7 @@ export function useTakeoffReviewContext(jobId: string, items: readonly TakeoffJo
         setError(null);
       }).catch(() => { if (!controller.signal.aborted) setError("Montants de contrôle indisponibles : le risque financier reste à apprécier."); });
     return () => controller.abort();
-  }, [jobId, revision]);
+  }, [enabled, jobId, revision]);
   return { context, error };
 }
 
