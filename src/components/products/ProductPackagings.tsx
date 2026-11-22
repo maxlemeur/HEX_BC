@@ -38,6 +38,9 @@ type PackagingsState =
 type RowDraft = { label: string; quantity: string };
 type AddDraft = RowDraft & { isUsual: boolean };
 
+/** The notice that says why nothing can be added: the form's unit field refers to it (aria-describedby). */
+export const PRODUCT_PACKAGINGS_UNIT_NOTICE_ID = "product-packagings-unit-notice";
+
 const EMPTY_ADD_DRAFT: AddDraft = { label: "", quantity: "", isUsual: false };
 const QUANTITY_REFUSAL = "La quantité doit être un nombre supérieur à zéro, avec trois décimales au plus.";
 
@@ -193,7 +196,7 @@ export function ProductPackagings({
   };
 
   const saveRow = async (item: ProductPackaging) => {
-    if (busy || !isDirty(item)) return;
+    if (busy || pendingUsual || !isDirty(item)) return;
     const read = readPackaging(rowDraft(item), items.filter((other) => other.id !== item.id));
     if ("refusal" in read) {
       setSaved(null);
@@ -211,16 +214,26 @@ export function ProductPackagings({
     }
   };
 
-  // Never disabled while it saves: the saves leave one after another, and the last answer speaks.
+  // Not disabled while its own saves are on their way: they leave one after another, and the last answer speaks.
+  // The other writes (add, change, remove) wait for them, and they wait for the other writes, so an answer never
+  // describes a list older than the one on screen. Only the marks are taken from the answer, as a second guard.
   const chooseUsual = async (item: ProductPackaging, value: boolean) => {
+    if (busy) return;
     setPendingUsual({ id: item.id, value });
     setError(null);
     setSaved(null);
     const outcome = await saveUsual(() => updateProductPackaging(productId, item.id, { is_usual: value }));
     if (outcome.ok) {
+      const marks = new Map(outcome.value.items.map((answered) => [answered.id, answered.is_usual]));
       setState((previous) =>
         previous?.status === "ready" && previous.productId === productId
-          ? { ...previous, list: { ...previous.list, items: outcome.value.items } }
+          ? {
+              ...previous,
+              list: {
+                ...previous.list,
+                items: previous.list.items.map((shown) => ({ ...shown, is_usual: marks.get(shown.id) ?? shown.is_usual })),
+              },
+            }
           : previous,
       );
     }
@@ -231,7 +244,7 @@ export function ProductPackagings({
   };
 
   const remove = async (item: ProductPackaging) => {
-    if (busy) return;
+    if (busy || pendingUsual) return;
     start(`remove-${item.id}`);
     try {
       apply(await deleteProductPackaging(productId, item.id), item.id);
@@ -244,7 +257,7 @@ export function ProductPackagings({
   };
 
   const add = async () => {
-    if (busy) return;
+    if (busy || pendingUsual) return;
     const read = readPackaging(addDraft, items);
     if ("refusal" in read) {
       setSaved(null);
@@ -272,7 +285,8 @@ export function ProductPackagings({
 
   const headingId = `${ids}-heading`;
   const hintId = `${ids}-hint`;
-  const unitNoticeId = `${ids}-unit-notice`;
+  /** A write is on its way: the others wait. */
+  const writing = busy !== null || pendingUsual !== null;
   const suggestionsId = `${ids}-suggestions`;
   const unitInWords = unitLabel ? `en ${unitLabel}` : "dans l’unité de l’article";
 
@@ -285,11 +299,16 @@ export function ProductPackagings({
         Quantité d’unités de l’article dans un conditionnement, {unitInWords} : « Barre » et 6 pour une barre de
         6 mètres d’un article au mètre linéaire.{canEdit ? " Chaque changement est enregistré aussitôt." : ""}
       </p>
-      {canEdit && addBlocker ? (
-        <p id={unitNoticeId} className="mt-2 flex items-start gap-1.5 text-xs font-medium text-warning">
-          <AlertTriangleIcon aria-hidden="true" className="mt-px size-3.5 shrink-0" />
-          <span>{addBlocker}</span>
-        </p>
+      {/* Always rendered once the list is read, so that the notice is announced when it appears. */}
+      {canEdit ? (
+        <div role="status" aria-live="polite">
+          {addBlocker ? (
+            <p id={PRODUCT_PACKAGINGS_UNIT_NOTICE_ID} className="mt-2 flex items-start gap-1.5 text-xs font-medium text-warning">
+              <AlertTriangleIcon aria-hidden="true" className="mt-px size-3.5 shrink-0" />
+              <span>{addBlocker}</span>
+            </p>
+          ) : null}
+        </div>
       ) : null}
       {current === null ? <p className="mt-2 text-sm text-muted-foreground">Chargement…</p> : null}
       {current?.status === "error" ? (
@@ -324,6 +343,8 @@ export function ProductPackagings({
             const dirty = isDirty(item);
             const rowPrefix = `${ids}-row-${item.id}`;
             const rowUnit = packagingUnitLabel(item.unit);
+            // What tells this row's controls from the others' for a screen reader: the packaging as stored.
+            const named = describePackaging(item, item.unit);
             return (
               <li key={item.id} className="flex flex-wrap items-center gap-2 px-3 py-2">
                 <div className="min-w-0 flex-1 basis-40">
@@ -332,7 +353,7 @@ export function ProductPackagings({
                     list={suggestionsId}
                     autoComplete="off"
                     maxLength={PRODUCT_PACKAGING_LABEL_MAX}
-                    aria-label="Conditionnement"
+                    aria-label={`Conditionnement : ${named}`}
                     value={draft.label}
                     onChange={(event) => setDrafts((previous) => ({ ...previous, [item.id]: { ...draft, label: event.target.value } }))}
                     onKeyDown={onEnter(() => void saveRow(item))}
@@ -342,7 +363,7 @@ export function ProductPackagings({
                   <QuantityInput
                     id={`${rowPrefix}-quantity`}
                     unitLabel={rowUnit}
-                    ariaLabel={rowUnit ? `Quantité en ${rowUnit}` : "Quantité"}
+                    ariaLabel={`${rowUnit ? `Quantité en ${rowUnit}` : "Quantité"} : ${named}`}
                     describedBy={hintId}
                     value={draft.quantity}
                     onChange={(quantity) => setDrafts((previous) => ({ ...previous, [item.id]: { ...draft, quantity } }))}
@@ -353,7 +374,9 @@ export function ProductPackagings({
                   <input
                     type="checkbox"
                     className="size-4 accent-primary"
+                    aria-label={`Usuel : ${named}`}
                     checked={isUsualShown(item)}
+                    disabled={busy !== null}
                     onChange={(event) => void chooseUsual(item, event.target.checked)}
                   />
                   Usuel
@@ -364,8 +387,8 @@ export function ProductPackagings({
                       type="button"
                       size="sm"
                       loading={busy === item.id}
-                      disabled={busy !== null && busy !== item.id}
-                      aria-label={`Enregistrer ${item.label}`}
+                      disabled={pendingUsual !== null || (busy !== null && busy !== item.id)}
+                      aria-label={`Enregistrer : ${named}`}
                       onClick={() => void saveRow(item)}
                     >
                       Enregistrer
@@ -376,8 +399,8 @@ export function ProductPackagings({
                     variant="ghost"
                     size="icon-sm"
                     loading={busy === `remove-${item.id}`}
-                    disabled={busy !== null && busy !== `remove-${item.id}`}
-                    aria-label={`Retirer le conditionnement ${describePackaging(item, item.unit)}`}
+                    disabled={pendingUsual !== null || (busy !== null && busy !== `remove-${item.id}`)}
+                    aria-label={`Retirer le conditionnement ${named}`}
                     onClick={() => void remove(item)}
                   >
                     <XIcon aria-hidden="true" />
@@ -439,7 +462,13 @@ export function ProductPackagings({
                 Conditionnement usuel
               </label>
               <div className="flex flex-wrap gap-2">
-                <Button type="button" size="sm" loading={busy === "add"} disabled={busy !== null && busy !== "add"} onClick={() => void add()}>
+                <Button
+                  type="button"
+                  size="sm"
+                  loading={busy === "add"}
+                  disabled={pendingUsual !== null || (busy !== null && busy !== "add")}
+                  onClick={() => void add()}
+                >
                   Ajouter ce conditionnement
                 </Button>
                 <Button
@@ -463,7 +492,7 @@ export function ProductPackagings({
               variant="outline"
               size="sm"
               leftIcon={<PlusIcon aria-hidden="true" />}
-              disabled={busy !== null}
+              disabled={writing}
               onClick={() => {
                 setError(null);
                 setSaved(null);

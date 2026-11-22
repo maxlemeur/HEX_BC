@@ -5,7 +5,7 @@ import { AlertTriangleIcon, ChevronDownIcon, PlusIcon, XIcon } from "lucide-reac
 
 import { fetchApi } from "@/components/catalogue/api";
 import { ProductAliases } from "@/components/products/ProductAliases";
-import { ProductPackagings } from "@/components/products/ProductPackagings";
+import { PRODUCT_PACKAGINGS_UNIT_NOTICE_ID, ProductPackagings } from "@/components/products/ProductPackagings";
 import { ProductReferenceSuggestion } from "@/components/products/ProductReferenceSuggestion";
 import { ProductSuppliers } from "@/components/products/ProductSuppliers";
 import { Alert } from "@/components/ui/alert";
@@ -569,6 +569,8 @@ export function ProductFormModal({
                     className={cn(blocksValidation("unit") && MISSING_FOR_VALIDATION_CLASS)}
                     aria-describedby={describedBy(
                       blocksValidation("unit") && VALIDATION_HINT_IDS.unit,
+                      // The packagings section says there why the unit should not change (its notice, when shown).
+                      product && PRODUCT_PACKAGINGS_UNIT_NOTICE_ID,
                     )}
                     value={form.unit}
                     onChange={(event) => setField("unit", event.target.value)}

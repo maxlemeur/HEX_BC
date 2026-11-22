@@ -717,7 +717,7 @@ export const materialRequestOperations: OpenApiOperationDefinition[] = [
     responses: {
       "201": success("ApiProductPackagingCreated", "Conditionnement ajouté ; liste entière de l'article.", productPackagings),
       ...catalogueEditorRefusals,
-      "409": refusal(packagingDuplicate),
+      "409": refusal(`${packagingDuplicate} PRODUCT_PACKAGING_UNIT_CHANGED : l'unité de l'article a changé pendant l'ajout ; rien n'est écrit, recharger l'article.`),
       "422": refusal("PRODUCT_PACKAGING_UNIT_REQUIRED : l'article n'a pas d'unité (brouillon) ; rien n'est écrit."),
     },
   },

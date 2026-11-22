@@ -191,11 +191,11 @@ armyTest(
     await browser.goto(`/dashboard/products?product_id=${draft.id}`, { waitUntil: "domcontentloaded" });
     const packagingRows = packagings().getByRole("list", "Conditionnements de l’article", { exact: true }).getByRole("listitem");
     await expect(packagingRows).toHaveCount(2, { timeout: 60_000 });
-    await expect(packagingRows.nth(0).getByRole("combobox", "Conditionnement", { exact: true })).toHaveValue("Boîte");
-    await expect(packagingRows.nth(0).getByRole("checkbox", "Usuel", { exact: true })).toBeChecked({ checked: false });
-    await expect(packagingRows.nth(1).getByRole("combobox", "Conditionnement", { exact: true })).toHaveValue("Carton");
-    await expect(packagingRows.nth(1).getByRole("textbox", "Quantité en u", { exact: true })).toHaveValue("2,5");
-    await expect(packagingRows.nth(1).getByRole("checkbox", "Usuel", { exact: true })).toBeChecked();
+    await expect(packagingRows.nth(0).getByRole("combobox", "Conditionnement : Boîte de 50 u", { exact: true })).toHaveValue("Boîte");
+    await expect(packagingRows.nth(0).getByRole("checkbox", "Usuel : Boîte de 50 u", { exact: true })).toBeChecked({ checked: false });
+    await expect(packagingRows.nth(1).getByRole("combobox", "Conditionnement : Carton de 2,5 u", { exact: true })).toHaveValue("Carton");
+    await expect(packagingRows.nth(1).getByRole("textbox", "Quantité en u : Carton de 2,5 u", { exact: true })).toHaveValue("2,5");
+    await expect(packagingRows.nth(1).getByRole("checkbox", "Usuel : Carton de 2,5 u", { exact: true })).toBeChecked();
     const unitChange = await apiRequest<Envelope<never>>(browser, "POST", "/api/products", {
       action: "update", id: draft.id, item: { unit: "kg" },
     });

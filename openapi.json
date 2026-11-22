@@ -22696,7 +22696,7 @@
             }
           },
           "409": {
-            "description": "CONFLICT : « Ce conditionnement existe déjà pour cet article. » (même libellé, casse et accents ignorés, et même quantité), ou un autre conditionnement a été marqué usuel au même moment ; rien n'est écrit.",
+            "description": "CONFLICT : « Ce conditionnement existe déjà pour cet article. » (même libellé, casse et accents ignorés, et même quantité), ou un autre conditionnement a été marqué usuel au même moment ; rien n'est écrit. PRODUCT_PACKAGING_UNIT_CHANGED : l'unité de l'article a changé pendant l'ajout ; rien n'est écrit, recharger l'article.",
             "content": {
               "application/json": {
                 "schema": {

@@ -84,6 +84,14 @@ async function readPackagings(context: AuthenticatedTenantContext, productId: st
 }
 
 function writeError(error: SupabaseErrorLike, fallback: string) {
+  // The article's unit changed between the screen's read and this write: the packaging would carry the former unit.
+  if (error.code === "23503" && error.message.includes("product_packagings_article_unit_fkey")) {
+    return conflict(
+      "L’unité de l’article vient de changer : rechargez l’article avant d’ajouter ce conditionnement.",
+      undefined,
+      "PRODUCT_PACKAGING_UNIT_CHANGED",
+    );
+  }
   if (error.code === "23505") {
     return conflict(error.message.includes("product_packagings_one_usual_idx") ? USUAL_TAKEN : PRODUCT_PACKAGING_DUPLICATE);
   }

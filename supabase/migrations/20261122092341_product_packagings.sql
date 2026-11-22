@@ -26,9 +26,13 @@
 -- - Adding a packaging, or marking one usual, locks the article row first: positions and the usual mark are
 --   decided one writer at a time, and the statement that moves the mark clears the former one, so a move that fails
 --   keeps it. The partial unique index stays the backstop.
+-- - Cost on products: unit is now part of a unique key, so changing an article's unit takes a FOR UPDATE row lock
+--   (it waits for, and blocks, the foreign key checks of tables pointing at products(id)) and is no longer a HOT
+--   update. Acceptable: units change rarely.
 -- Regression: supabase/tests/database/product-packagings.test.sql, product-packagings-usual-race.test.sql.
 
 begin;
+set local lock_timeout = '5s';
 
 do $preflight$
 begin
@@ -95,13 +99,16 @@ create index product_packagings_created_by_idx on public.product_packagings (cre
 
 -- Runs as the caller: an article the caller cannot read is one that does not exist; the policies then decide
 -- whether the caller may change that article. The article row is locked (for no key update: the caller may change
--- it, or the policies refuse the write anyway) before a position is given or the usual mark is taken.
+-- it, or the policies refuse the write anyway) before its unit is read, a position is given or the usual mark is
+-- taken: a concurrent change of the unit is waited for, and the packaging takes the new unit.
 create function private.enforce_product_packaging_write()
 returns trigger language plpgsql security invoker set search_path = '' as $$
 declare
   article record;
 begin
   if tg_op = 'INSERT' then
+    -- The lock first; the read after it is a new statement, which sees the unit as last committed.
+    perform 1 from public.products product where product.id = new.product_id for no key update;
     select product.tenant_id, product.unit into article from public.products product where product.id = new.product_id;
     if not found then
       raise exception using errcode = '23514', message = 'PRODUCT_PACKAGING_PRODUCT_NOT_FOUND';
@@ -109,7 +116,6 @@ begin
     if pg_catalog.btrim(coalesce(article.unit, '')) = '' then
       raise exception using errcode = '23514', message = 'PRODUCT_PACKAGING_UNIT_REQUIRED';
     end if;
-    perform 1 from public.products product where product.id = new.product_id for no key update;
     new.tenant_id := article.tenant_id;
     new.unit := article.unit;
     new.position := coalesce(

@@ -1,10 +1,16 @@
--- Sale packagings of an article: two members mark two different packagings usual at the same time (migration
--- 20261122092341_product_packagings.sql). Isolation justified: the failure needs two sessions whose writes
--- interleave, which no journey does deterministically. Written before the article lock.
--- Without a lock, the second move clears the usual packaging it can see (the former one, as last committed), then
--- collides with the first move's uncommitted mark on the unique index and fails once the first commits: one move
--- is lost with an error the office did not cause. With the lock, the second move waits for the first, then sees its
--- mark, takes it, and the article ends with exactly one usual packaging: the last one chosen.
+-- Sale packagings of an article, written by two sessions at once (migration 20261122092341_product_packagings.sql).
+-- Isolation justified: the failures need two sessions whose writes interleave, which no journey does
+-- deterministically. Both cases were written before the code that makes them pass.
+-- 1. Two members mark two different packagings usual. Without a lock, the second move clears the usual packaging it
+--    can see (the former one, as last committed), then collides with the first move's uncommitted mark on the
+--    unique index and fails once the first commits: one move is lost with an error the office did not cause. With
+--    the article lock, the second move waits for the first, then sees its mark, takes it, and the article ends with
+--    exactly one usual packaging: the last one chosen.
+-- 2. A member adds the first packaging of an article while another one changes its unit. Reading the unit before
+--    locking the article, the packaging took the former unit and failed on the foreign key once the change
+--    committed. Locking first, it waits for the change, then takes the new unit.
+-- Remote statements do not raise (fail_on_error false): a red step is reported and the committed fixtures are still
+-- removed at the end.
 begin;
 create extension if not exists pgtap with schema extensions;
 create extension if not exists dblink with schema extensions;
@@ -19,7 +25,8 @@ select is(extensions.dblink_connect('usual_setup', (select connection from usual
 select is(extensions.dblink_connect('usual_first', (select connection from usual_race_connection)), 'OK', 'first session connected');
 select is(extensions.dblink_connect('usual_second', (select connection from usual_race_connection)), 'OK', 'second session connected');
 
--- A fictional admin of their own tenant; an article in ml with three packagings, « Barre » usual.
+-- A fictional admin of their own tenant. Article 301 in ml with three packagings, « Barre » usual; article 302 in ml
+-- without any.
 select is(extensions.dblink_exec('usual_setup', $setup$
 begin;
 insert into auth.users (instance_id, id, aud, role, email, encrypted_password, email_confirmed_at, raw_app_meta_data, raw_user_meta_data,
@@ -27,14 +34,17 @@ insert into auth.users (instance_id, id, aud, role, email, encrypted_password, e
 values ('00000000-0000-0000-0000-000000000000', 'a7c0a6e1-0000-4000-8000-000000000001', 'authenticated', 'authenticated',
   'usual-race@example.test', '', now(), '{}'::jsonb, '{}'::jsonb, now(), now(), '', '', '', '');
 insert into public.products (id, tenant_id, designation, unit, unit_price_cents)
-select 'a7c0a6e1-0000-4000-8000-000000000301', m.tenant_id, 'Tube de la course (fictif)', 'ml', 1000
-from public.tenant_memberships m where m.user_id = 'a7c0a6e1-0000-4000-8000-000000000001' and m.is_default and m.role = 'admin';
+select article.id, m.tenant_id, article.designation, 'ml', 1000
+from public.tenant_memberships m
+cross join (values ('a7c0a6e1-0000-4000-8000-000000000301'::uuid, 'Tube de la course (fictif)'),
+  ('a7c0a6e1-0000-4000-8000-000000000302'::uuid, 'Fil de la course (fictif)')) as article(id, designation)
+where m.user_id = 'a7c0a6e1-0000-4000-8000-000000000001' and m.is_default and m.role = 'admin';
 insert into public.product_packagings (id, product_id, label, quantity, is_usual) values
   ('a7c0a6e1-0000-4000-8000-000000000401', 'a7c0a6e1-0000-4000-8000-000000000301', 'Barre', 6, true),
   ('a7c0a6e1-0000-4000-8000-000000000402', 'a7c0a6e1-0000-4000-8000-000000000301', 'Touret', 100, false),
   ('a7c0a6e1-0000-4000-8000-000000000403', 'a7c0a6e1-0000-4000-8000-000000000301', 'Couronne', 50, false);
 commit;
-$setup$), 'COMMIT', 'fixture article and packagings committed');
+$setup$, false), 'COMMIT', 'fixture articles and packagings committed');
 select is((select count(*)::integer from public.product_packagings where product_id = 'a7c0a6e1-0000-4000-8000-000000000301'), 3,
   'the fixture article has three packagings');
 
@@ -43,26 +53,26 @@ select is(extensions.dblink_exec(session, $claims$
 set role authenticated;
 set request.jwt.claim.sub = 'a7c0a6e1-0000-4000-8000-000000000001';
 set request.jwt.claims = '{"sub":"a7c0a6e1-0000-4000-8000-000000000001","role":"authenticated"}'
-$claims$), 'SET', format('%s session signed in as the admin', session))
+$claims$, false), 'SET', format('%s session signed in as the admin', session))
 from unnest(array['usual_first', 'usual_second']) as session;
 
--- The first session marks « Touret » usual and holds its transaction open.
+-- ---------------------------------------------------------------------------
+-- 1. Two usual moves.
+-- ---------------------------------------------------------------------------
 select is(extensions.dblink_exec('usual_first', $first$
 begin;
 update public.product_packagings set is_usual = true where id = 'a7c0a6e1-0000-4000-8000-000000000402';
-$first$), 'UPDATE 1', 'the first move is made, not committed yet');
--- The second session marks « Couronne » usual meanwhile.
+$first$, false), 'UPDATE 1', 'the first move is made, not committed yet');
 select is(extensions.dblink_send_query('usual_second',
   $$update public.product_packagings set is_usual = true where id = 'a7c0a6e1-0000-4000-8000-000000000403'$$), 1,
   'the second move starts');
 select pg_sleep(0.3);
 select is(extensions.dblink_is_busy('usual_second'), 1, 'the second move waits for the first, on the article');
-select is(extensions.dblink_exec('usual_first', 'commit'), 'COMMIT', 'the first move commits');
-select pg_sleep(0.3);
-select is(extensions.dblink_is_busy('usual_second'), 0, 'the second move is done');
-select is(extensions.dblink_error_message('usual_second'), 'OK', 'the second move succeeds');
-select is((select status from extensions.dblink_get_result('usual_second', false) as x(status text)), 'UPDATE 1',
+select is(extensions.dblink_exec('usual_first', 'commit', false), 'COMMIT', 'the first move commits');
+-- dblink_get_result waits for the second move to finish.
+select is((select string_agg(status, ',') from extensions.dblink_get_result('usual_second', false) as x(status text)), 'UPDATE 1',
   'the second move updated its packaging');
+select is(extensions.dblink_error_message('usual_second'), 'OK', 'the second move succeeds');
 select is((select count(*)::integer from extensions.dblink_get_result('usual_second', false) as x(status text)), 0,
   'the second move has nothing more to answer');
 select is(
@@ -72,11 +82,38 @@ select is(
   'the article ends with one usual packaging: the last one chosen'
 );
 
--- Clean the committed synthetic fixtures: the article (its packagings go with it), the personal tenant, the profile
--- and the user.
+-- ---------------------------------------------------------------------------
+-- 2. The first packaging of an article whose unit is changing.
+-- ---------------------------------------------------------------------------
+select is(extensions.dblink_exec('usual_first', $first$
+begin;
+update public.products set unit = 'kg' where id = 'a7c0a6e1-0000-4000-8000-000000000302';
+$first$, false), 'UPDATE 1', 'the unit change is made, not committed yet');
+select is(extensions.dblink_send_query('usual_second',
+  $$insert into public.product_packagings (product_id, label, quantity) values ('a7c0a6e1-0000-4000-8000-000000000302', 'Bobine', 25)$$), 1,
+  'the first packaging is being added');
+select pg_sleep(0.3);
+select is(extensions.dblink_is_busy('usual_second'), 1, 'the packaging waits for the unit change, on the article');
+select is(extensions.dblink_exec('usual_first', 'commit', false), 'COMMIT', 'the unit change commits');
+select is((select string_agg(status, ',') from extensions.dblink_get_result('usual_second', false) as x(status text)), 'INSERT 0 1',
+  'the packaging is added');
+select is(extensions.dblink_error_message('usual_second'), 'OK', 'the packaging is not refused by the foreign key');
+select is((select count(*)::integer from extensions.dblink_get_result('usual_second', false) as x(status text)), 0,
+  'the insert has nothing more to answer');
+select is(
+  (select array_agg(row(label, unit)::text) from public.product_packagings where product_id = 'a7c0a6e1-0000-4000-8000-000000000302'),
+  array[row('Bobine', 'kg')::text],
+  'the packaging is in the article''s new unit'
+);
+
+-- A red step may leave a session inside a transaction that holds locks: end them before cleaning.
+select extensions.dblink_exec(session, 'rollback', false) from unnest(array['usual_first', 'usual_second']) as session;
+
+-- Clean the committed synthetic fixtures: the articles (their packagings go with them), the personal tenant, the
+-- profile and the user.
 select is(extensions.dblink_exec('usual_setup', $cleanup$
 begin;
-delete from public.products where id = 'a7c0a6e1-0000-4000-8000-000000000301';
+delete from public.products where id in ('a7c0a6e1-0000-4000-8000-000000000301', 'a7c0a6e1-0000-4000-8000-000000000302');
 set local session_replication_role = replica;
 do $clean$
 declare
@@ -100,9 +137,8 @@ $clean$;
 delete from public.profiles where id = 'a7c0a6e1-0000-4000-8000-000000000001';
 delete from auth.users where id = 'a7c0a6e1-0000-4000-8000-000000000001';
 commit;
-$cleanup$), 'COMMIT', 'synthetic fixtures cleaned');
-select is((select count(*)::integer from public.product_packagings where product_id = 'a7c0a6e1-0000-4000-8000-000000000301'), 0,
-  'no fixture packaging is left');
+$cleanup$, false), 'COMMIT', 'synthetic fixtures cleaned');
+select is((select count(*)::integer from public.products where id::text like 'a7c0a6e1-%'), 0, 'no fixture article is left');
 select is(extensions.dblink_disconnect('usual_setup'), 'OK', 'fixture session disconnected');
 select is(extensions.dblink_disconnect('usual_first'), 'OK', 'first session disconnected');
 select is(extensions.dblink_disconnect('usual_second'), 'OK', 'second session disconnected');

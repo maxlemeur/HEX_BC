@@ -1,4 +1,4 @@
-import { readAllRows } from "@/lib/supabase/read-all";
+import { readAllRows, readAllRowsInChunks } from "@/lib/supabase/read-all";
 import type { PostgrestError, SupabaseClient } from "@supabase/supabase-js";
 import { z } from "zod";
 import { maxPriceValidTo } from "@/lib/catalogue/price-validity";
@@ -56,6 +56,7 @@ export type ProductPriceTemplateImportInput = z.infer<typeof productPriceTemplat
 type ExistingProduct = {
   id: string;
   reference: string | null;
+  unit: string;
 };
 
 type ExistingSupplier = {
@@ -147,6 +148,46 @@ async function getAuthenticatedSupabase(): Promise<RuntimeSupabase> {
   return supabase;
 }
 
+/**
+ * The unit of an article that has sale packagings does not change (foreign key ON UPDATE RESTRICT). Checked before
+ * any write, so the file is refused as a whole, naming up to five of those articles; a packaging added after this
+ * check is still refused by the database, and mapDatabaseError words that refusal.
+ */
+async function refuseUnitChangesOfArticlesWithPackagings(
+  supabase: RuntimeSupabase,
+  products: ReadonlyArray<{ reference: string; unit: string }>,
+  existingByReference: ReadonlyMap<string, ExistingProduct>,
+) {
+  const changing = new Map<string, ExistingProduct>();
+  for (const product of products) {
+    const existing = existingByReference.get(normalizedReference(product.reference));
+    if (existing && existing.unit !== product.unit) changing.set(existing.id, existing);
+  }
+  if (changing.size === 0) return;
+
+  const { data, error } = await readAllRowsInChunks([...changing.keys()], (chunk) => supabase
+    .from("product_packagings")
+    .select("id, product_id", { count: "exact" })
+    .in("product_id", chunk));
+  if (error) throw mapDatabaseError(error, "Impossible de vérifier les conditionnements des produits du fichier.");
+
+  // In the order of the file.
+  const withPackagings = new Set(((data ?? []) as Array<{ product_id: string }>).map((row) => row.product_id));
+  const held = [...changing.values()]
+    .filter((product) => withPackagings.has(product.id))
+    .map((product) => product.reference ?? product.id);
+  if (held.length === 0) return;
+
+  const others = held.length - 5;
+  throw new CatalogueApiError({
+    status: 409,
+    code: PRODUCT_UNIT_HAS_PACKAGINGS,
+    message: `Retirez les conditionnements de vente avant de changer l’unité de ces articles : ${held.slice(0, 5).join(", ")}${
+      others > 0 ? ` et ${others} autre${others > 1 ? "s" : ""}` : ""}.`,
+    details: { references: held },
+  });
+}
+
 export async function importProductPriceTemplate(
   rawInput: ProductPriceTemplateImportInput
 ): Promise<ProductPriceTemplateImportResult> {
@@ -154,7 +195,7 @@ export async function importProductPriceTemplate(
   const supabase = await getAuthenticatedSupabase();
 
   const [productsResult, suppliersResult] = await Promise.all([
-    readAllRows(() => supabase.from("products").select("id, reference", { count: "exact" })),
+    readAllRows(() => supabase.from("products").select("id, reference, unit", { count: "exact" })),
     readAllRows(() => supabase.from("suppliers").select("id, name", { count: "exact" }).eq("is_active", true)),
   ]);
 
@@ -248,6 +289,8 @@ export async function importProductPriceTemplate(
         .join(". "),
     });
   }
+
+  await refuseUnitChangesOfArticlesWithPackagings(supabase, input.products, productLookup.values);
 
   let createdProducts = 0;
   let updatedProducts = 0;

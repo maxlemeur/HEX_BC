@@ -50,8 +50,11 @@ export type FakeSupabaseOptions = {
   failSign?: (path: string) => boolean;
   /** Updates the database refuses, as a CHECK or a trigger would (SQLSTATE 23514): the message it raises. */
   refuseUpdate?: (table: string, values: FakeRow) => string | false;
-  /** Inserts the database refuses, as a trigger would (SQLSTATE 23514): the message it raises. */
-  refuseInsert?: (table: string, values: unknown) => string | false;
+  /**
+   * Inserts the database refuses: the message a trigger raises (SQLSTATE 23514), or another SQLSTATE with its
+   * message (a foreign key, 23503).
+   */
+  refuseInsert?: (table: string, values: unknown) => string | { code: string; message: string } | false;
   /**
    * The download stream delivers its bytes but its cancellation never settles, as the runtime's response
    * body does once it has been read to its end.
@@ -236,7 +239,8 @@ export function createFakeSupabase(options: FakeSupabaseOptions) {
         const refusal = options.refuseInsert?.(table, payload);
         if (refusal) {
           events.push(`refused insert ${table}`);
-          return { data: null, error: { code: "23514", message: refusal, details: null, hint: null } };
+          const { code, message } = typeof refusal === "string" ? { code: "23514", message: refusal } : refusal;
+          return { data: null, error: { code, message, details: null, hint: null } };
         }
         const inserted = (Array.isArray(payload) ? payload : [payload]).map((values) =>
           completeInsert(table, values as FakeRow),

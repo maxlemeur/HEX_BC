@@ -17,7 +17,10 @@ import { ProductFormModal, type ProductRecord } from "@/components/products/Prod
  *     it (their quantities are in the current unit); a packaging is added while a unit change is not saved yet;
  *     a draft without a unit offers to add packagings;
  *  7. a new article (nothing stored yet) asks the server for packagings it cannot have;
- *  8. a list that could not be read is shown as « no packaging ».
+ *  8. a list that could not be read is shown as « no packaging »;
+ *  9. the controls of two rows bear the same accessible name, or the unit notice is neither tied to the unit field
+ *     nor announced when it appears;
+ * 10. an answer to a « usuel » choice, older than a packaging added meanwhile, hides that packaging.
  */
 
 const PRODUCT_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
@@ -42,11 +45,11 @@ const PRODUCT: ProductRecord = {
 
 type Packaging = { id: string; label: string; quantity: number; is_usual: boolean; unit: string };
 type Reply = { status: number; body: unknown };
-let routes: Record<string, Reply | Reply[]> = {};
+let routes: Record<string, Reply | Reply[] | (() => Promise<Reply>)> = {};
 const fetchMock = vi.fn(async (input: string, init?: RequestInit) => {
   const key = `${init?.method ?? "GET"} ${input}`;
   const entry = routes[key];
-  const reply = (Array.isArray(entry) ? entry.shift() : entry) ?? {
+  const reply = (typeof entry === "function" ? await entry() : Array.isArray(entry) ? entry.shift() : entry) ?? {
     status: 404,
     body: { ok: false, error: { code: "NOT_FOUND", message: "Introuvable." } },
   };
@@ -106,11 +109,11 @@ describe("ProductFormModal, sale packagings", () => {
     const list = await within(region).findByRole("list", { name: "Conditionnements de l’article" });
     const rows = within(list).getAllByRole("listitem");
     expect(rows).toHaveLength(2);
-    expect(within(rows[0]).getByRole("combobox", { name: "Conditionnement" })).toHaveValue("Barre");
-    expect(within(rows[0]).getByRole("textbox", { name: "Quantité en ml" })).toHaveValue("6");
-    expect(within(rows[0]).getByRole("checkbox", { name: "Usuel" })).toBeChecked();
-    expect(within(rows[1]).getByRole("textbox", { name: "Quantité en ml" })).toHaveValue("100");
-    expect(within(rows[1]).getByRole("checkbox", { name: "Usuel" })).not.toBeChecked();
+    expect(within(rows[0]).getByRole("combobox", { name: "Conditionnement : Barre de 6 ml" })).toHaveValue("Barre");
+    expect(within(rows[0]).getByRole("textbox", { name: "Quantité en ml : Barre de 6 ml" })).toHaveValue("6");
+    expect(within(rows[0]).getByRole("checkbox", { name: "Usuel : Barre de 6 ml" })).toBeChecked();
+    expect(within(rows[1]).getByRole("textbox", { name: "Quantité en ml : Touret de 100 ml" })).toHaveValue("100");
+    expect(within(rows[1]).getByRole("checkbox", { name: "Usuel : Touret de 100 ml" })).not.toBeChecked();
     expect(within(region).getByText(/Quantité d’unités de l’article dans un conditionnement/)).toBeVisible();
   });
 
@@ -162,7 +165,7 @@ describe("ProductFormModal, sale packagings", () => {
       { label: "Barre", quantity: 6, is_usual: true },
     ]);
     const rows = within(region).getAllByRole("listitem");
-    expect(within(rows[1]).getByRole("checkbox", { name: "Usuel" })).toBeChecked();
+    expect(within(rows[1]).getByRole("checkbox", { name: "Usuel : Barre de 6 ml" })).toBeChecked();
   });
 
   it.each([
@@ -197,10 +200,10 @@ describe("ProductFormModal, sale packagings", () => {
     const region = await section();
     await within(region).findByDisplayValue("Touret");
     const rows = within(region).getAllByRole("listitem");
-    await user.click(within(rows[1]).getByRole("checkbox", { name: "Usuel" }));
+    await user.click(within(rows[1]).getByRole("checkbox", { name: "Usuel : Touret de 100 ml" }));
 
-    await waitFor(() => expect(within(rows[0]).getByRole("checkbox", { name: "Usuel" })).not.toBeChecked());
-    expect(within(rows[1]).getByRole("checkbox", { name: "Usuel" })).toBeChecked();
+    await waitFor(() => expect(within(rows[0]).getByRole("checkbox", { name: "Usuel : Barre de 6 ml" })).not.toBeChecked());
+    expect(within(rows[1]).getByRole("checkbox", { name: "Usuel : Touret de 100 ml" })).toBeChecked();
     expect(sentBodies("PATCH")).toEqual([{ url: `${URL}/${REEL}`, body: { is_usual: true } }]);
   });
 
@@ -215,10 +218,10 @@ describe("ProductFormModal, sale packagings", () => {
     const region = await section();
     await within(region).findByDisplayValue("Touret");
     const rows = within(region).getAllByRole("listitem");
-    const quantity = within(rows[0]).getByRole("textbox", { name: "Quantité en ml" });
+    const quantity = within(rows[0]).getByRole("textbox", { name: "Quantité en ml : Barre de 6 ml" });
     await user.clear(quantity);
     await user.type(quantity, "3");
-    await user.click(within(rows[0]).getByRole("button", { name: "Enregistrer Barre" }));
+    await user.click(within(rows[0]).getByRole("button", { name: "Enregistrer : Barre de 6 ml" }));
 
     await waitFor(() => expect(sentBodies("PATCH")).toEqual([{ url: `${URL}/${BAR}`, body: { label: "Barre", quantity: 3 } }]));
     expect(await within(region).findByText("Conditionnement enregistré.")).toBeVisible();
@@ -263,8 +266,52 @@ describe("ProductFormModal, sale packagings", () => {
         "Retirez les conditionnements de vente avant de changer l’unité de l’article : leurs quantités sont exprimées en ml.",
       ),
     ).toBeVisible();
-    expect(within(region).getByRole("textbox", { name: "Quantité en ml" })).toHaveValue("6");
+    expect(within(region).getByRole("textbox", { name: "Quantité en ml : Barre de 6 ml" })).toHaveValue("6");
     expect(within(region).queryByRole("button", { name: "Ajouter un conditionnement" })).not.toBeInTheDocument();
+    // Tied to the unit field, and announced when it appears (9).
+    expect(screen.getByLabelText("Unité")).toHaveAccessibleDescription(
+      "Retirez les conditionnements de vente avant de changer l’unité de l’article : leurs quantités sont exprimées en ml.",
+    );
+    expect(
+      within(region)
+        .getByText("Retirez les conditionnements de vente avant de changer l’unité de l’article : leurs quantités sont exprimées en ml.")
+        .closest('[role="status"]'),
+    ).not.toBeNull();
+  });
+
+  it("keeps the « usuel » choices and the other writes from crossing, so an older answer hides nothing (10)", async () => {
+    const user = userEvent.setup({ delay: null });
+    let releaseUsual: (reply: Reply) => void = () => {};
+    let releaseAdd: (reply: Reply) => void = () => {};
+    const coil: Packaging = { id: COIL, label: "Couronne", quantity: 50, is_usual: false, unit: "ml" };
+    routes = {
+      [`GET ${URL}`]: answer([bar, reel]),
+      [`PATCH ${URL}/${REEL}`]: () => new Promise<Reply>((resolve) => { releaseUsual = resolve; }),
+      [`POST ${URL}`]: () => new Promise<Reply>((resolve) => { releaseAdd = resolve; }),
+    };
+    renderForm();
+
+    const region = await section();
+    await within(region).findByDisplayValue("Touret");
+    await user.click(within(region).getByRole("checkbox", { name: "Usuel : Touret de 100 ml" }));
+    // While the choice is on its way, nothing else is written.
+    expect(within(region).getByRole("button", { name: "Ajouter un conditionnement" })).toBeDisabled();
+    expect(within(region).getByRole("button", { name: "Retirer le conditionnement Barre de 6 ml" })).toBeDisabled();
+    releaseUsual(answer([{ ...bar, is_usual: false }, { ...reel, is_usual: true }]));
+    await waitFor(() => expect(within(region).getByRole("button", { name: "Ajouter un conditionnement" })).toBeEnabled());
+
+    await user.click(within(region).getByRole("button", { name: "Ajouter un conditionnement" }));
+    await user.type(within(region).getByRole("combobox", { name: "Nouveau conditionnement" }), "Couronne");
+    await user.type(within(region).getByRole("textbox", { name: "Quantité du nouveau conditionnement en ml" }), "50");
+    await user.click(within(region).getByRole("button", { name: "Ajouter ce conditionnement" }));
+    // While the packaging is being added, no « usuel » choice leaves.
+    expect(within(region).getByRole("checkbox", { name: "Usuel : Barre de 6 ml" })).toBeDisabled();
+    releaseAdd(answer([{ ...bar, is_usual: false }, { ...reel, is_usual: true }, coil], true, 201));
+
+    await within(region).findByDisplayValue("Couronne");
+    expect(within(region).getAllByRole("listitem")).toHaveLength(3);
+    expect(within(region).getByRole("checkbox", { name: "Usuel : Barre de 6 ml" })).toBeEnabled();
+    expect(sentBodies("PATCH")).toEqual([{ url: `${URL}/${REEL}`, body: { is_usual: true } }]);
   });
 
   it("adds no packaging while a change of unit is not saved (6)", async () => {

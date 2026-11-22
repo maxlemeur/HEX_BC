@@ -74,6 +74,7 @@ describe("product price template server", () => {
                 {
                   id: PRODUCT_ID,
                   reference: "TUB-I4L-SOUDE-15",
+                  unit: "ml",
                 },
               ],
               error: null,
@@ -138,9 +139,10 @@ describe("product price template server", () => {
     });
   });
 
-  // Sale packagings carry their article's unit (foreign key ON UPDATE RESTRICT). Failure mode: a file that changes the
-  // unit of an article with packagings fails with « Impossible d'actualiser les produits du fichier. » and no reason.
-  it("says which rule refused a file that changes the unit of an article with packagings", async () => {
+  // Sale packagings carry their article's unit (foreign key ON UPDATE RESTRICT). Failure mode: a packaging added
+  // between the check below and the write makes the file fail with « Impossible d'actualiser les produits du
+  // fichier. » and no reason.
+  it("says which rule refused a file whose unit change met a packaging added meanwhile", async () => {
     const upsert = vi.fn().mockResolvedValue({
       error: {
         code: "23503",
@@ -155,13 +157,16 @@ describe("product price template server", () => {
       from: vi.fn((table: string) => {
         if (table === "products") {
           return {
-            select: vi.fn().mockResolvedValue({ data: [{ id: PRODUCT_ID, reference: "TUB-I4L-SOUDE-15" }], error: null }),
+            select: vi.fn().mockResolvedValue({ data: [{ id: PRODUCT_ID, reference: "TUB-I4L-SOUDE-15", unit: "ml" }], error: null }),
             upsert,
             insert,
           };
         }
         if (table === "suppliers") {
           return { select: vi.fn(() => ({ eq: vi.fn().mockResolvedValue({ data: [], error: null }) })) };
+        }
+        if (table === "product_packagings") {
+          return { select: vi.fn(() => ({ in: vi.fn().mockResolvedValue({ data: [], error: null }) })) };
         }
         throw new Error(`Unexpected table: ${table}`);
       }),
@@ -175,6 +180,48 @@ describe("product price template server", () => {
       message:
         "Un article du fichier a des conditionnements de vente : retirez-les avant de changer son unité, leurs quantités sont exprimées dans l’unité actuelle.",
     });
+    expect(insert).not.toHaveBeenCalled();
+  });
+
+  // Failure mode: a file that changes the unit of articles with packagings is refused without naming them, or after
+  // some products of the file were written.
+  it("refuses, before any write, a file that changes the unit of articles with packagings, and names them", async () => {
+    const references = ["TUB-A", "TUB-B", "TUB-C", "TUB-D", "TUB-E", "TUB-F", "TUB-G"];
+    const stored = references.map((reference, index) => ({
+      id: `22222222-2222-4222-8222-22222222220${index}`, reference, unit: "ml",
+    }));
+    const packagingsIn = vi.fn().mockResolvedValue({
+      data: stored.slice(0, 6).map((product) => ({ id: `p-${product.id}`, product_id: product.id })),
+      error: null,
+    });
+    const upsert = vi.fn().mockResolvedValue({ error: null });
+    const insert = vi.fn().mockResolvedValue({ error: null });
+    const supabase = {
+      ...authenticatedClient(),
+      from: vi.fn((table: string) => {
+        if (table === "products") return { select: vi.fn().mockResolvedValue({ data: stored, error: null }), upsert, insert };
+        if (table === "suppliers") {
+          return { select: vi.fn(() => ({ eq: vi.fn().mockResolvedValue({ data: [], error: null }) })) };
+        }
+        if (table === "product_packagings") return { select: vi.fn(() => ({ in: packagingsIn })) };
+        throw new Error(`Unexpected table: ${table}`);
+      }),
+      rpc: vi.fn(),
+    };
+    vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
+
+    await expect(importProductPriceTemplate({
+      // TUB-G changes unit without packagings; a product whose unit stays is not checked.
+      products: [...references.map((reference) => ({ ...productRow, reference, unit: "kg" })), { ...productRow, reference: "NEW-1" }],
+      prices: [],
+    })).rejects.toMatchObject({
+      status: 409,
+      code: "PRODUCT_UNIT_HAS_PACKAGINGS",
+      message:
+        "Retirez les conditionnements de vente avant de changer l’unité de ces articles : TUB-A, TUB-B, TUB-C, TUB-D, TUB-E et 1 autre.",
+    });
+    expect(packagingsIn).toHaveBeenCalledWith("product_id", stored.map((product) => product.id));
+    expect(upsert).not.toHaveBeenCalled();
     expect(insert).not.toHaveBeenCalled();
   });
 

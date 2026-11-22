@@ -22,7 +22,8 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
  *  6. marking a packaging usual leaves another one marked in the answer the screen keeps;
  *  7. a packaging is changed or removed through the URL of another article;
  *  8. an article without a unit gets a packaging, or the refusal does not say why;
- *  9. the screen is not told the unit each packaging is expressed in.
+ *  9. the screen is not told the unit each packaging is expressed in;
+ * 10. a packaging added while the article's unit changes is refused with a bare 400 instead of a sentence.
  */
 
 const TENANT = "10000000-0000-4000-8000-000000000001";
@@ -43,9 +44,14 @@ const BOX = "c0000000-0000-4000-8000-000000000003";
 
 type Role = "admin" | "engineer" | "viewer" | "director";
 
-function seed(actor: string, role: Role, options: { sharedOpen?: boolean } = {}) {
+function seed(
+  actor: string,
+  role: Role,
+  options: { sharedOpen?: boolean; refuseInsert?: Parameters<typeof createFakeSupabase>[0]["refuseInsert"] } = {},
+) {
   const fake = createFakeSupabase({
     userId: actor,
+    refuseInsert: options.refuseInsert,
     tables: {
       tenant_memberships: [fakeMembership(actor, actor === OUTSIDER ? OTHER_TENANT : TENANT, role)],
       tenant_catalogue_policies: options.sharedOpen ? [{ tenant_id: TENANT, engineers_can_edit_shared: true }] : [],
@@ -247,5 +253,20 @@ describe("sale packagings of an article", () => {
       message: "Renseignez et enregistrez l’unité de l’article avant d’ajouter ses conditionnements de vente.",
     });
     expect(fake.writes).toEqual([]);
+  });
+
+  it("a packaging whose article changed unit meanwhile is refused with a sentence that says to reload", async () => {
+    seed(ADMIN, "admin", {
+      refuseInsert: (table) => table === "product_packagings" && {
+        code: "23503",
+        message: 'insert or update on table "product_packagings" violates foreign key constraint "product_packagings_article_unit_fkey"',
+      },
+    });
+    const refused = await call(packagingsRoute.POST, "POST", { productId: SHARED_PRODUCT }, { label: "Couronne", quantity: 50 });
+    expect(refused.status).toBe(409);
+    expect(refused.error).toMatchObject({
+      code: "PRODUCT_PACKAGING_UNIT_CHANGED",
+      message: "L’unité de l’article vient de changer : rechargez l’article avant d’ajouter ce conditionnement.",
+    });
   });
 });
