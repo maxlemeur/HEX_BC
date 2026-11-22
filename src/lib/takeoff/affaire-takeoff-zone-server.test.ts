@@ -171,6 +171,32 @@ describe("readAffaireTakeoffZone", () => {
     expect(canStartAsked).toEqual([{ p_request_id: REQUEST, p_actor: VIEWER }, { p_request_id: REQUEST, p_actor: VIEWER }]);
   });
 
+  // One analysis per plan: the request's analyses come in the order its manifest records (its plans' names), so that the
+  // analysis a later command replaces by default is its first unit, never the one whose key sorts first; a plan a command
+  // did not name because an earlier analysis read it is shown as such.
+  it("lists a request's analyses in its manifest's order and shows the plans an earlier analysis read", async () => {
+    const [firstPlan, secondPlan] = ["bbbbbbbb-0000-4000-8000-0000000000f2", "bbbbbbbb-0000-4000-8000-0000000000f1"];
+    const perPlan = { ...manifest, format_version: 2,
+      units: [{ key: `plan:${firstPlan}`, ordinal: 1, plans: [firstPlan] }, { key: `plan:${secondPlan}`, ordinal: 2, plans: [secondPlan] }],
+      coverage: { plans_retained: 2, references_omitted: [],
+        plans_omitted: [{ id: ALTERNATE, name: "Plan lu avant.pdf", reason: "not_requested", generation: "g1" }] } };
+    vi.mocked(createServiceRoleClient).mockReturnValue(createSupabaseFake({
+      tables: { takeoff_launch_requests: () => ({ data: { manifest: perPlan }, error: null }) },
+      rpc: { takeoff_launch_request_can_start: () => ({ data: false, error: null }),
+        takeoff_running_analysis_outside_request: () => ({ data: null, error: null }) } }).client as never);
+    const analysis = (id: string, plan: string) => ({ id, status: "completed", estimate_version_id: null, plan_set_id: PLAN_SET,
+      launch_unit_key: `plan:${plan}`, source_file_name: `${plan}.pdf`, source_file_path: `${TENANT}/${PLAN_SET}/${plan}/plan.pdf`,
+      processing_strategy: "sync", provider_batch_state: null, error_code: null, created_at: "2026-11-21T08:05:00Z",
+      completed_at: "2026-11-21T08:30:00Z", analysis_finished_at: "2026-11-21T08:30:00Z" });
+    const first = analysis("bbbbbbbb-0000-4000-8000-000000000071", firstPlan);
+    const second = analysis("bbbbbbbb-0000-4000-8000-000000000072", secondPlan);
+    // The database returns them by their keys: the second plan's sorts first.
+    const jobs = (query: FakeQuery) => filterValue(query, "launch_request_id") === REQUEST ? [second, first] : [];
+    const data = await read({ owner: true }, jobs);
+    expect(data.request?.jobs.map((job) => job.id)).toEqual([first.id, second.id]);
+    expect(data.request?.coverage?.plansOmitted).toEqual([{ name: "Plan lu avant.pdf", reason: "not_requested" }]);
+  });
+
   it("counts nothing as running once every analysis outside a request ended", async () => {
     await expect(read({ owner: true }).then((data) => data.unrequestedRunning)).resolves.toBe(false);
   });

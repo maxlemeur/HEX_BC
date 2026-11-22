@@ -101,7 +101,7 @@ export type TakeoffRequestManifest = {
 };
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const OMITTED_REASONS = new Set(["alternate", "identical_copy", "unsupported_format"]);
+const OMITTED_REASONS = new Set(["alternate", "identical_copy", "unsupported_format", "not_requested"]);
 const PUBLIC_CODES = new Set<string>(TAKEOFF_PUBLIC_FAILURE_CODES);
 const PLAN_PUBLIC_CODES = new Set<string>(TAKEOFF_PLAN_PUBLIC_FAILURE_CODES);
 

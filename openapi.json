@@ -84304,7 +84304,8 @@
                               "enum": [
                                 "alternate",
                                 "identical_copy",
-                                "unsupported_format"
+                                "unsupported_format",
+                                "not_requested"
                               ]
                             }
                           },
@@ -84966,7 +84967,8 @@
                             "enum": [
                               "alternate",
                               "identical_copy",
-                              "unsupported_format"
+                              "unsupported_format",
+                              "not_requested"
                             ]
                           }
                         },
