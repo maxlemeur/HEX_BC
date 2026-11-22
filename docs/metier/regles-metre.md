@@ -242,6 +242,23 @@ démarré — les plans … dépassent les limites d’une lecture contre la lis
 avec les appels prévus, leur durée sur un Mac et les plafonds. Rien n’est
 échantillonné ; réduire les plans ou les pages lus permet de la relancer.
 
+**Réponses enregistrées et leur publication.** Les réponses d’un plan sont enregistrées
+(`supabase/migrations/20261122080845_takeoff_item_answers.sql`) avec les pages cherchées
+et celles qui n’ont pas pu être lues, qui couvrent ensemble toutes les pages lues du
+plan, leurs motifs dans l’ordre (le premier est le motif principal) et le plan tel que
+la demande l’a scellé (sa copie, son identité, sa génération, l’empreinte de son
+fichier). Une réponse non trouvée n’a aucune observation. Chaque observation garde son
+rôle : un apport (compté), un candidat ou une alternative (jamais additionnée). Chaque
+apport d’une réponse mesurée est une ligne de la revue des quantités, et seuls les
+apports le sont ; une lecture vectorielle n’est jamais un apport. Le Mac publie les
+réponses d’un plan en une fois, sous son bail, avec le résultat et la fin de
+l’analyse : une réponse qui manque, un poste étranger, une page hors du plan, une
+quantité qui n’est pas la somme de ses apports sont refusés et rien n’est écrit ;
+l’analyse ne peut pas se terminer en succès autrement. Une nouvelle lecture du même
+poste sur le même plan remplace la précédente, qui reste consultable. Tous les lecteurs
+de l’affaire lisent les réponses, et voient « en lecture » un poste dont le plan est en
+cours d’analyse ; personne ne les modifie. La revue de ces réponses s’enregistre à part.
+
 Une ligne de devis créée depuis un import garde dans sa provenance l’import et la
 ligne mappée. La ligne mappée nomme la ligne brute dont elle vient ; quand une
 nouvelle correspondance la supprime, la base garde ce lien. La ligne de devis et ses
