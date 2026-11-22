@@ -80,16 +80,22 @@ export type TakeoffItemAnswersCursor = { itemId: string; planLogicalId: string; 
 
 /**
  * Every answer of the affaire, the replaced ones too, in a stable order (item, plan, reading), after the cursor given:
- * one job's only, or the current readings only, when asked.
+ * one job's only, the current readings only, one answer by its id, or the answer a takeoff_items row contributes to.
  */
 export async function readAffaireItemAnswers(projectId: string, query: {
   jobId?: string | null; currentOnly?: boolean; after?: TakeoffItemAnswersCursor | null; limit?: number;
+  /** One answer by its id, replaced or not: an old link shows that reading's own evidence. */
+  answerId?: string | null;
+  /** The answer a takeoff_items row contributes to (an old link to a row, or to an estimate line through its provenance). */
+  takeoffItemId?: string | null;
 } = {}): Promise<{ projectId: string; answers: Array<TakeoffItemAnswer & { isCurrent: boolean }>; next: TakeoffItemAnswersCursor | null }> {
   const { context, project } = await requireAffaireAccess(projectId, "read");
   const limit = Math.min(Math.max(query.limit ?? 200, 1), 500);
   const { data, error } = await (context.supabase as unknown as Client).rpc("read_takeoff_item_answers", {
     p_tenant_id: context.tenantId, p_project_id: project.id,
     ...(query.jobId ? { p_job_id: query.jobId } : {}),
+    ...(query.answerId ? { p_answer_id: query.answerId } : {}),
+    ...(query.takeoffItemId ? { p_takeoff_item_id: query.takeoffItemId } : {}),
     p_current_only: query.currentOnly ?? false,
     ...(query.after ? { p_after_item_id: query.after.itemId, p_after_plan_logical_id: query.after.planLogicalId,
       p_after_reading_revision: query.after.readingRevision } : {}),

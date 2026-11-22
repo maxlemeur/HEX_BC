@@ -975,10 +975,13 @@ language sql stable security definer set search_path = '' as $$
 $$;
 
 -- Every answer of an affaire, the replaced ones too, paged in a stable order (item, plan, reading) after the position
--- given; optionally one job's answers, or the current readings only.
+-- given; optionally one job's answers, the current readings only, one answer by its id (an old link shows that
+-- reading's own evidence, replaced or not), or the answer a takeoff_items row contributes to (an old link to a row, or
+-- to an estimate line through the row its provenance names, opens that item).
 create function public.read_takeoff_item_answers(p_tenant_id uuid, p_project_id uuid, p_job_id uuid default null,
   p_current_only boolean default false, p_after_item_id uuid default null, p_after_plan_logical_id uuid default null,
-  p_after_reading_revision integer default null, p_limit integer default 200)
+  p_after_reading_revision integer default null, p_limit integer default 200, p_answer_id uuid default null,
+  p_takeoff_item_id uuid default null)
 returns table (answer_id uuid, item_id uuid, plan_logical_id uuid, reading_revision integer, is_current boolean, answer jsonb)
 language sql stable security definer set search_path = '' as $$
   select a.id, a.item_id, a.plan_logical_id, a.reading_revision, not later.exists_later,
@@ -990,6 +993,9 @@ language sql stable security definer set search_path = '' as $$
   where (select private.can_access_takeoff_scope(p_tenant_id, p_project_id, null, false))
     and a.tenant_id = p_tenant_id and a.project_id = p_project_id
     and (p_job_id is null or a.job_id = p_job_id)
+    and (p_answer_id is null or a.id = p_answer_id)
+    and (p_takeoff_item_id is null or exists (select 1 from public.takeoff_item_answer_observations o
+      where o.answer_id = a.id and o.takeoff_item_id = p_takeoff_item_id))
     and (not coalesce(p_current_only, false) or not later.exists_later)
     and (p_after_item_id is null
       or (a.item_id, a.plan_logical_id, a.reading_revision) > (p_after_item_id, p_after_plan_logical_id, p_after_reading_revision))
@@ -1008,7 +1014,7 @@ begin
   end loop;
   foreach routine in array array['public.read_takeoff_item_readings(uuid, uuid, uuid, text[], integer, integer)',
     'public.count_takeoff_item_readings(uuid, uuid, uuid)',
-    'public.read_takeoff_item_answers(uuid, uuid, uuid, boolean, uuid, uuid, integer, integer)']
+    'public.read_takeoff_item_answers(uuid, uuid, uuid, boolean, uuid, uuid, integer, integer, uuid, uuid)']
   loop
     execute format('revoke all on function %s from public, anon, service_role', routine);
     execute format('grant execute on function %s to authenticated', routine);

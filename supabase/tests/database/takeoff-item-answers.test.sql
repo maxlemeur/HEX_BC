@@ -54,7 +54,7 @@ select is(has_function_privilege('service_role',
   'public.publish_takeoff_item_answers(uuid, uuid, timestamptz, text, text, jsonb, integer[], jsonb, jsonb, jsonb, jsonb, jsonb)', 'EXECUTE'),
   true, 'the worker publishes');
 select is(has_function_privilege('authenticated', fn, 'EXECUTE'), true, fn || ': a member''s session reads through it')
-from unnest(array['public.read_takeoff_item_answers(uuid, uuid, uuid, boolean, uuid, uuid, integer, integer)',
+from unnest(array['public.read_takeoff_item_answers(uuid, uuid, uuid, boolean, uuid, uuid, integer, integer, uuid, uuid)',
   'public.read_takeoff_item_readings(uuid, uuid, uuid, text[], integer, integer)',
   'public.count_takeoff_item_readings(uuid, uuid, uuid)']) as fn;
 
@@ -602,6 +602,16 @@ select results_eq($$select answer_id from public.read_takeoff_item_answers(pg_te
   'the next page starts after the last answer read');
 select results_eq($$select * from pg_temp.states(20)$$, $$values ('measured'::text), ('uncertain'), ('not_found')$$,
   'the items take the second reading''s state');
+select results_eq($$select answer_id, is_current, jsonb_array_length(answer -> 'observations')
+  from public.read_takeoff_item_answers(pg_temp.f(10), pg_temp.f(20), p_answer_id => (select id from public.takeoff_item_answers
+    where job_id = pg_temp.job(20, 1) and item_id = pg_temp.f(300)))$$,
+  $$select id, false, 3 from public.takeoff_item_answers where job_id = pg_temp.job(20, 1) and item_id = pg_temp.f(300)$$,
+  'a replaced answer is read by its id, with its own evidence');
+select results_eq($$select item_id, answer ->> 'job_id' from public.read_takeoff_item_answers(pg_temp.f(10), pg_temp.f(20),
+  p_takeoff_item_id => pg_temp.f(812))$$, $$values (pg_temp.f(300), pg_temp.job(20, 1)::text)$$,
+  'a takeoff_items row leads to the item and the answer it contributes to');
+select is((select count(*)::integer from public.read_takeoff_item_answers(pg_temp.f(10), pg_temp.f(20),
+  p_takeoff_item_id => pg_temp.f(871))), 0, 'a vector row is no contribution: it leads to no answer through this link');
 reset role;
 
 select * from finish();
