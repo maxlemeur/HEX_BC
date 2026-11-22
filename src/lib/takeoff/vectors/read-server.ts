@@ -35,35 +35,55 @@ const GEOMETRY_PAGE_ROWS = 500;
 /** Life of a direct upload's signed URL, as a plan file's (plans.ts): the viewer opens the PDF as soon as it reads the pages. */
 const SOURCE_URL_TTL_SECONDS = 60 * 10;
 
-export async function readAttestedTakeoffPlan(jobId: string, fileId: string): Promise<ArrayBuffer> {
-  jobId = parseWithSchema(takeoffJobIdSchema, jobId, "Identifiant du métré invalide.").toLowerCase();
-  fileId = parseWithSchema(takeoffJobIdSchema, fileId, "Identifiant du plan invalide.").toLowerCase();
-  const { supabase, tenantId } = await getAuthenticatedTakeoffContext();
-  const missing = () => new TakeoffError({ status: 404, code: TakeoffErrorCode.NOT_FOUND,
-    message: "Le plan d’origine n’est plus disponible.", retryable: false, jobId });
+/**
+ * Whether the attested bytes of a plan a takeoff sealed can be served to this member, and what they must be: the one rule
+ * of the byte route below and of the detail of an item (item-detail-plan-server.ts), checked with the member's session up
+ * to the object itself. `copy_unreadable`: the sealed copy's row is not readable by this member (gone, or hidden by the
+ * plan centre's rule); `not_attested`: the takeoff never attested its plans (launched on a version and never sent), or its
+ * plan is not one of its sealed, confirmed plans.
+ */
+export async function checkAttestedTakeoffPlan(supabase: AuthenticatedTakeoffContext["supabase"], tenantId: string, jobId: string,
+  fileId: string): Promise<{ ok: true; filePath: string; contentHash: string; generation: string | null }
+  | { ok: false; reason: "not_attested" | "copy_unreadable" }> {
   const { data: job, error } = await supabase.from("takeoff_jobs").select("plan_set_id,preparation_snapshot,estimate_version_id")
     .eq("id", jobId).eq("tenant_id", tenantId).maybeSingle();
   if (error) readError(jobId, "Impossible de lire le métré du plan.", error);
-  if (!job?.plan_set_id || !job.preparation_snapshot) throw missing();
+  if (!job?.plan_set_id || !job.preparation_snapshot) return { ok: false, reason: "not_attested" };
   // Lot 2 M2: a takeoff sent from its affaire keeps serving the plans it attested to the readers it had (a director
   // reads no plan object directly); a takeoff launched on a version never did.
   if (job.estimate_version_id !== null) {
     const { data: sent, error: sentError } = await supabase.from("takeoff_send_receipts").select("id")
       .eq("tenant_id", tenantId).eq("job_id", jobId).eq("command_kind", "send").maybeSingle();
     if (sentError) readError(jobId, "Impossible de lire l’envoi du métré.", sentError);
-    if (!sent) throw missing();
+    if (!sent) return { ok: false, reason: "not_attested" };
   }
 
   const snapshot = parsePreparationSnapshot(job.preparation_snapshot);
   const source = snapshot?.preparation.sources.find(candidate => candidate.document_id === fileId
     && candidate.plan_set_id === job.plan_set_id && candidate.kind === "plan" && candidate.active && candidate.confirmed);
-  if (!source?.content_hash || !source.file_path) throw missing();
-  const { data: file, error: fileError } = await supabase.from("plan_files").select("file_path,file_name")
+  if (!source?.content_hash || !source.file_path) return { ok: false, reason: "not_attested" };
+  const { data: file, error: fileError } = await supabase.from("plan_files").select("file_path,file_name,metadata")
     .eq("id", fileId).eq("tenant_id", tenantId).eq("plan_set_id", job.plan_set_id).maybeSingle();
   if (fileError) readError(jobId, "Impossible de lire le plan du métré.", fileError);
   if (!file || file.file_path !== source.file_path || file.file_path !== buildPlanFileStoragePath({
     tenantId, setId: job.plan_set_id, fileId, fileName: sanitizePlanPdfFilename(file.file_name),
-  })) throw missing();
+  })) return { ok: false, reason: "copy_unreadable" };
+  // The copy's own generation, as the member reads its row: never a date, nothing for a copy they may not read.
+  const generation = (file.metadata && typeof file.metadata === "object" ? file.metadata as Record<string, unknown> : {}).intake_generation;
+  return { ok: true, filePath: file.file_path, contentHash: source.content_hash,
+    generation: typeof generation === "string" || typeof generation === "number" ? String(generation) : null };
+}
+
+export async function readAttestedTakeoffPlan(jobId: string, fileId: string): Promise<ArrayBuffer> {
+  jobId = parseWithSchema(takeoffJobIdSchema, jobId, "Identifiant du métré invalide.").toLowerCase();
+  fileId = parseWithSchema(takeoffJobIdSchema, fileId, "Identifiant du plan invalide.").toLowerCase();
+  const { supabase, tenantId } = await getAuthenticatedTakeoffContext();
+  const missing = () => new TakeoffError({ status: 404, code: TakeoffErrorCode.NOT_FOUND,
+    message: "Le plan d’origine n’est plus disponible.", retryable: false, jobId });
+  const attested = await checkAttestedTakeoffPlan(supabase, tenantId, jobId, fileId);
+  if (!attested.ok) throw missing();
+  const file = { file_path: attested.filePath };
+  const source = { content_hash: attested.contentHash };
 
   // Return the very bytes we verified. A URL for this key could serve a replacement after the check. The stored size is
   // read first, so that an object larger than a plan may be is never downloaded into memory.
