@@ -51,7 +51,7 @@ export function MaterialRequestSteps({ model, active, canWrite, idBase, onGoTo }
       </Tabs.List>
       {!next.done ? (
         <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-sm">
-          <p className="text-muted-foreground"><span className="font-medium text-foreground">{reading && standing ? `${standing.label} · ${standing.status}` : next.title}</span>{reading ? null : ` · ${next.detail}`}</p>
+          <p className="text-muted-foreground"><span className="font-medium text-foreground">{reading && standing ? `${standing.label} · ${standing.status}` : next.title}</span>{reading || !next.detail ? null : ` · ${next.detail}`}</p>
           {next.step !== active ? <Button type="button" size="sm" variant="outline" onClick={() => onGoTo(next.step)}>
             {`Aller à l’étape ${steps[REQUEST_STEP_KEYS.indexOf(next.step)].label}`}<ArrowRight aria-hidden="true" />
           </Button> : null}

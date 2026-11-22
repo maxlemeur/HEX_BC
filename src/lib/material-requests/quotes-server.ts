@@ -14,6 +14,7 @@ import type { Json } from "@/types/database";
 import type { MaterialRequest, MaterialRequestFile, MaterialRequestLine } from "./contracts";
 import {
   MATERIAL_REQUEST_QUOTE_BUSY,
+  MATERIAL_REQUEST_QUOTE_DISCOUNT_TOO_LARGE,
   MATERIAL_REQUEST_QUOTE_LINES_ALREADY_RETAINED,
   MATERIAL_REQUEST_QUOTE_LINES_NOT_VALIDATED,
   MATERIAL_REQUEST_QUOTE_LINES_UNPRICED,
@@ -50,7 +51,7 @@ import {
  */
 
 const QUOTE_COLUMNS =
-  "id, request_id, supplier_id, status, with_references, message, requested_at, received_at, amount_ht_cents, notes, retained_at, closed_at";
+  "id, request_id, supplier_id, status, with_references, message, requested_at, received_at, amount_ht_cents, shipping_ht_cents, discount_ht_cents, notes, retained_at, closed_at";
 const QUOTE_NOT_FOUND = "Devis introuvable dans cette demande.";
 const LINE_NOT_FOUND = "Ligne introuvable dans cette demande.";
 const SUPPLIER_NOT_FOUND = "Fournisseur introuvable.";
@@ -343,7 +344,7 @@ async function quoteFunctionRefusal(
 }
 
 /**
- * Prices, total, notes and reception of a quote still in progress, in one database call: a key left out is left
+ * Prices, total, shipping, discount, notes and reception of a quote still in progress, in one database call: a key left out is left
  * alone, null clears it, `received: true` marks it received (the database dates it). Each priced line is one of the
  * quote's (404 otherwise); a retained or closed quote is read-only (409).
  */
@@ -365,6 +366,8 @@ export async function updateMaterialRequestQuote(
 
   const changes: { [key: string]: Json } = {};
   if (input.amount_ht_cents !== undefined) changes.amount_ht_cents = input.amount_ht_cents;
+  if (input.shipping_ht_cents !== undefined) changes.shipping_ht_cents = input.shipping_ht_cents;
+  if (input.discount_ht_cents !== undefined) changes.discount_ht_cents = input.discount_ht_cents;
   if (input.notes !== undefined) changes.notes = input.notes;
   if (input.lines !== undefined) changes.lines = input.lines;
   if (input.received) changes.received = true;
@@ -463,6 +466,15 @@ export async function retainMaterialRequestQuote(
   if (error) {
     const busy = quoteWriteBusy(error);
     if (busy) throw busy;
+    // The purchase order that carries the discount would total less than zero.
+    if (error.message === MATERIAL_REQUEST_QUOTE_DISCOUNT_TOO_LARGE) {
+      const now = await requireQuote(access, request.id, quote.id);
+      throw unprocessableEntity(
+        "La remise de ce devis dépasse le montant de ses lignes et de son port, hors taxes ou TVA comprise : corrigez-la avant de le retenir.",
+        { shipping_ht_cents: now.shipping_ht_cents, discount_ht_cents: now.discount_ht_cents },
+        MATERIAL_REQUEST_QUOTE_DISCOUNT_TOO_LARGE,
+      );
+    }
     // Another session changed the quote or its lines since they were read: the refusal says what stands now.
     if (error.code === "23514" && error.message.startsWith("MATERIAL_REQUEST_QUOTE_")) {
       const now = await retainRefusal(access, await requireRequest(access, request.id), await requireQuote(access, request.id, quote.id));

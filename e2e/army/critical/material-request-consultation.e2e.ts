@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 
@@ -23,6 +23,7 @@ type Detail = { request: { id: string }; lines: Line[]; files: StoredFile[] };
 type Quote = {
   id: string; supplier_id: string; status: "requested" | "received" | "retained" | "closed"; with_references: boolean;
   message: string; received_at: string | null; retained_at: string | null; closed_at: string | null;
+  amount_ht_cents: number | null; shipping_ht_cents: number | null; discount_ht_cents: number | null;
   lines: Array<{ line_id: string; unit_price_ht_cents: number | null; price_per: number }>; files: StoredFile[];
 };
 
@@ -40,6 +41,9 @@ type Quote = {
 //   open; a closed quote can still be changed.
 // - (TI-691, 2026-11-22) a competitor the supplier list does not hold cannot be created from the competition's
 //   search, is created under another name, is not the recipient selected, or its consultation records another text.
+// - (TI-691, the owner's quote of 22/11/2026, « Fdp » in the notes) the gap between the supplier's total and its lines
+//   cannot be counted as shipping from the card, the shipping or the discount is saved as another amount, or the
+//   draft made from the request misses them, puts them before the articles or totals otherwise.
 // The clipboard is the browser's own: the journey records what the screen hands it and what the browser answered,
 // and asserts the sentence the screen shows for that answer.
 
@@ -416,6 +420,23 @@ armyTest(
     ]);
     expect((await read()).lines.map((line) => [line.status, line.price_quote_id])).toEqual([["draft", null], ["draft", null]]);
 
+    // The supplier totals 124,00 € with 1,00 € off: the 9,85 € left over its lines and discount is its shipping, which
+    // the office counts from the gap in one gesture. The card then totals lines + shipping - discount, without a gap.
+    const discountField = betaCard.getByLabel(`Remise HT, devis ${betaName}`, { exact: true });
+    await discountField.fill("1");
+    await discountField.press("Tab");
+    const amountField = betaCard.getByLabel(`Montant HT du devis (facultatif), ${betaName}`, { exact: true });
+    await amountField.fill("124");
+    await amountField.press("Tab");
+    await betaCard.getByRole("button", /^Compter 9,85\s€ en port$/).tap({ timeout: 30_000 });
+    await expect.poll(async () => {
+      const quote = (await quotes()).find((entry) => entry.id === betaQuote.id)!;
+      return [quote.amount_ht_cents, quote.shipping_ht_cents, quote.discount_ht_cents];
+    }, { timeout: 30_000 }).toEqual([12400, 985, 100]);
+    await expect(betaCard.getByText("Total du devis :", { exact: true })).toBeVisible();
+    await expect(betaCard.getByText(/^124,00\s€ HT$/)).toBeVisible();
+    await expect(betaCard.getByText(/d’écart$/)).toHaveCount(0);
+
     // Validated at the lines step, the quote may be retained back at the quotes: it kept what was typed there.
     await openStep(1);
     await screen.getByRole("button", "Valider les lignes sans alerte (2)", { exact: true }).tap();
@@ -460,6 +481,29 @@ armyTest(
       lines: [{ line_id: lineIds[0], unit_price_ht_cents: 999, price_per: 1 }],
     });
     expect([changed.status, changed.body.error?.code]).toEqual([409, "MATERIAL_REQUEST_QUOTE_READ_ONLY"]);
+    const recharged = await apiRequest<Envelope<never>>(browser, "PATCH", `${one}/quotes/${betaQuote.id}`, { shipping_ht_cents: 1 });
+    expect([recharged.status, recharged.body.error?.code]).toEqual([409, "MATERIAL_REQUEST_QUOTE_READ_ONLY"]);
+
+    // The draft made from the request carries the retained quote's shipping and discount after its articles.
+    const ordered = await apiRequest<Envelope<{ orders: Array<{ id: string; line_count: number; total_ht_cents: number }> }>>(
+      browser, "POST", `${one}/orders`, { idempotency_key: randomUUID() },
+    );
+    expect(ordered.status, JSON.stringify(ordered.body.error ?? null)).toBe(201);
+    const madeOrders = ordered.body.data.orders;
+    (army.ownedPurchaseOrders ??= []).push(...madeOrders.map((order) => ({ orderId: order.id, projectId: ids.projectId, versionId: ids.versionId })));
+    expect(madeOrders.map((order) => [order.line_count, order.total_ht_cents])).toEqual([[2, 11515 + 985 - 100]]);
+    const draftItems = await apiRequest<Envelope<{ items: Array<{
+      line_kind?: string; designation: string; quantity: number; unit_price_ht_cents: number; line_total_ht_cents: number;
+    }> }>>(browser, "GET", `/api/orders?view=items&order_id=${madeOrders[0].id}`);
+    expect(draftItems.status, JSON.stringify(draftItems.body.error ?? null)).toBe(200);
+    // In the order's own order (its positions).
+    const sortedItems = draftItems.body.data.items;
+    expect(sortedItems.map((item) => [item.line_kind, item.line_total_ht_cents])).toEqual([
+      ["article", 11500], ["article", 15], ["shipping", 985], ["discount", -100],
+    ]);
+    expect(sortedItems.slice(2).map((item) => [item.designation, item.quantity, item.unit_price_ht_cents])).toEqual([
+      ["Port", 1, 985], ["Remise", 1, 100],
+    ]);
 
     await recordEvidence(army, "material-request-consultation", {
       ...ids, requestId, suppliers: { alpha, beta, delta }, elbow, tee, lineIds,
