@@ -646,6 +646,7 @@
         "e2e/army/takeoff/contracts.e2e.ts",
         "e2e/army/takeoff/intake-dossier.e2e.ts",
         "e2e/army/takeoff/page-once.e2e.ts",
+        "e2e/army/takeoff/poste-reading.e2e.ts",
         "e2e/army/takeoff/quantity-rules.e2e.ts",
         "e2e/army/takeoff/targeted-policy.e2e.ts",
         "e2e/army/takeoff/worker-lifecycle.e2e.ts"
@@ -987,6 +988,21 @@
       "journeys": [
         "e2e/army/takeoff/poste-list.e2e.ts",
         "e2e/army/takeoff/plumbing-template.e2e.ts"
+      ]
+    },
+    {
+      "id": "takeoff-poste-reading",
+      "note": "Lecture d'un plan contre la liste scellée des postes et publication de ses réponses (lot 4, PR 3b/3c, TKPR01, TKPR02) : réponses partielles pendant qu'un autre plan est lu, aucun faux « non trouvé », un plan en échec, une réponse omise ou tronquée ne publie rien.",
+      "paths": [
+        "src/lib/takeoff/poste-*.ts",
+        "src/lib/takeoff/item-answers*.ts",
+        "supabase/migrations/*_takeoff_item_answers.sql",
+        "scripts/tester-army/takeoff-plan-dispatch.mjs",
+        "e2e/army/takeoff/plan-dispatch-support.ts",
+        "e2e/army/takeoff/poste-reading-support.ts"
+      ],
+      "journeys": [
+        "e2e/army/takeoff/poste-reading.e2e.ts"
       ]
     },
     {

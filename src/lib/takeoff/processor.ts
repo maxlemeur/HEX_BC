@@ -23,7 +23,7 @@ import {
 import { processLevelCChunks, type ProcessLevelCMetricsSummary } from "@/lib/takeoff/level-c-reading";
 import { POSTE_EXCHANGE_PROMPT_VERSION } from "@/lib/takeoff/poste-exchange";
 import {
-  readTakeoffItemListOrder, takeoffItemListReadingNotDelivered, type TakeoffItemListOrder,
+  processItemListLevelC, readTakeoffItemListOrder, type TakeoffItemListOrder,
 } from "@/lib/takeoff/poste-reading-job-server";
 import { assertPdfResultIsInterpretable } from "@/lib/takeoff/pdf-reading-guards";
 import { logCompletedAuditEvent, logFailedAuditEvent, logProcessingAuditEvent } from "@/lib/takeoff/processing-audit";
@@ -287,9 +287,6 @@ async function processTakeoffLevel(
     // Even preflight failures must become visible, terminal job failures.
     if ("error" in resolved) throw resolved.error;
     if ("error" in itemList) throw itemList.error;
-    // Until the publication of a plan's answers is delivered (lot 4 PR 3c), a job of the second order stops here, claimed,
-    // before its plan is read and before any paid call.
-    if (itemList.order) throw takeoffItemListReadingNotDelivered(normalizedJobId);
     const localProvider = resolved.provider;
     const call: StructuredCall = async <T>(providerOptions: StructuredCallOptions<T>) => {
       await assertProviderTenantActive();
@@ -331,6 +328,12 @@ async function processTakeoffLevel(
             } }),
         })
         : [];
+      // Lot 4: a plan read against its request's sealed list ends with the publication of its answers (awaited here, so
+      // that its failure is recorded below under the lease).
+      if (itemList.order) {
+        return await processItemListLevelC({ supabase: context.supabase, job, sourceFile, call, model, order: itemList.order,
+          userId: actorUserId, processingStartedAt, now, renewLease: renewProcessingLease, readVectors });
+      }
       const levelCResult = await processLevelCChunks({
         supabase: context.supabase,
         job,

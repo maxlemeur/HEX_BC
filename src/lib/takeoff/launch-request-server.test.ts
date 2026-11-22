@@ -311,7 +311,7 @@ describe("evaluateTakeoffLaunchRequests", () => {
     expect(recorded).toEqual([expect.objectContaining({ p_state: "blocked", p_reason: "PLAN_SET_TOO_LARGE", p_details: {
       pieces: [{ id: PLAN_FILE, name: "Plan RDC.pdf" }],
       reading_bounds: { items: 1_700, plans: 1, reading_calls: 43, classifier_calls: 0, minutes: 65, max_request_calls: 480,
-        max_plan_calls: 40 } } })]);
+        max_plan_calls: 40, max_plan_pages: 154 } } })]);
   });
 
   // Budget task: the budget of a reading against the list is sized from the calls it is admitted for, twice their
@@ -1122,8 +1122,8 @@ describe("launchTakeoffRelaunch", () => {
     const sealed = planCommand({ a: 3, b: 3 });
     await expect(sealed.run([PLAN_FILE])).rejects.toMatchObject({ status: 422, message: "Métré non démarré — les plans « plan-a.pdf » "
       + "dépassent les limites d’une lecture contre la liste des postes. Lecture de 1\u202f700 postes sur 1 plan : 43 appels de "
-      + "lecture, environ 1 h 05 sur un Mac. Au plus 480 appels de lecture par demande et 40 par plan : réduisez les plans ou les "
-      + "pages à lire." });
+      + "lecture, environ 1 h 05 sur un Mac. Au plus 480 appels de lecture par demande, 40 par plan et 154 pages par plan : "
+      + "réduisez les plans ou les pages à lire." });
     expect(sealed.launched).toEqual([]);
   });
 
