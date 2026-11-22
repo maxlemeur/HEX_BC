@@ -899,7 +899,12 @@ plan (voir le dernier point). La base en décide (migration
   demande dont toutes les unités ont fini sans être fermée est fermée par la
   reprise hébergée, à partir de ce qui est enregistré, sans appel.
 - **Relancer un plan** lit seulement les plans demandés : par défaut le plan de
-  l’analyse qu’elle remplace (ou les plans d’une analyse groupée) ; un plan
+  l’analyse qu’elle remplace (ou les plans d’une analyse groupée), chacun à sa
+  copie de travail actuelle : un plan que le dossier a remplacé depuis (une
+  nouvelle génération de sa pièce est une nouvelle copie, sous un nouvel
+  identifiant) se relit à sa nouvelle copie, retrouvée par sa pièce du dossier ;
+  un plan sorti du dossier, ou déposé dans le jeu sans pièce et retiré depuis,
+  refuse la commande contre la préparation confirmée ; un plan
   ajouté au dossier après l’analyse se lit par une commande qui le nomme et
   nomme l’analyse qu’elle complète : une commande sans analyse nommée est la
   première analyse de l’affaire, refusée quand l’affaire en a déjà une (la base
@@ -911,17 +916,22 @@ plan (voir le dernier point). La base en décide (migration
   octets ne se lisent pas refuse la commande, nommé, comme le scellement
   automatique. Les
   limites du jeu de plans s’appliquent à l’ensemble des plans demandés, avant
-  leurs unités. Les plans dont l’analyse précédente de l’affaire a réellement lu
-  l’unité et que la commande ne nomme pas sont notés comme non demandés,
-  avec la génération qu’elle a lue : l’affaire ne les montre pas comme ajoutés
-  depuis, mais signale encore leur remplacement ou leur retrait ; un plan jamais
-  lu reste signalé comme ajouté. Les copies écartées du jeu de plans sont notées
-  comme telles.
+  leurs unités. Les plans qu’une analyse antérieure de l’affaire a réellement lus
+  et que la commande ne nomme pas sont notés comme non demandés, avec la
+  génération lue : pour chaque plan (sa pièce du dossier, quelle que soit sa
+  copie), sa dernière lecture réussie, quelle que soit la demande qui l’a faite ;
+  une relecture en échec, arrêtée ou non démarrée laisse la lecture précédente.
+  L’affaire ne les montre pas comme ajoutés depuis, mais signale encore leur
+  remplacement ou leur retrait ; un plan jamais lu reste signalé comme ajouté, et
+  un plan que la commande relit n’est pas noté à son ancienne copie. Les copies
+  écartées du jeu de plans sont notées comme telles.
   Son identité nomme ses plans (celle d’une première analyse de tous les plans
   est celle du lot 2) ; le rejeu de la même clé ne dépense rien de plus et est
   répondu avant toute lecture de la préparation, sous l’identité du reçu, quelle
-  que soit l’activation au moment du rejeu ; une autre sélection de plans sous la
-  même clé est une autre commande, refusée.
+  que soit l’activation au moment du rejeu ; une relance envoyée avant le
+  remplacement d’un de ses plans garde l’identité des copies qu’elle lisait
+  alors, et son rejeu après le remplacement répond par son reçu ; une autre
+  sélection de plans sous la même clé est une autre commande, refusée.
 - **L’envoi au tableau de chiffrage** d’une analyse par plan reste fermé jusqu’à
   l’envoi partiel : la revue dit qu’il arrive plus tard, et la base refuse de la
   rattacher à une version. Une analyse groupée s’envoie comme avant.
