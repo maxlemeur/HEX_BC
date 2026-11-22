@@ -1614,9 +1614,9 @@ $function$;
 --    own, never in the payload of a mapped row (the catalogue linking rewrites that payload whole). The confirmation
 --    names the exact mapped rows it read and is refused, under its import's lock, when the import holds others (a
 --    mapping written meanwhile from another tab) or when they hold other values than those its digest describes. Its
---    proof is that digest: the import's rows whole, as the confirmation consumed them (public.dpgf_import_rows_sha256).
---    Any later change of them (a new mapping and its new rows, a value rewritten in place, a catalogue link added to a
---    payload) leaves it unproven. An estimate created from the import afterwards by a path that records nothing (the
+--    proof is that digest: the import's rows whole, as the confirmation consumed them (public.dpgf_import_rows_sha256),
+--    but for the catalogue linker's keys. Any later change of them (a new mapping and its new rows, a value rewritten in
+--    place, another key added to a payload) leaves it unproven; linking the rows to the catalogue does not. An estimate created from the import afterwards by a path that records nothing (the
 --    previous application version) supersedes it too.
 create table public.dpgf_import_confirmations (
   id uuid primary key default gen_random_uuid(),
@@ -1666,7 +1666,7 @@ create trigger dpgf_import_confirmations_writer before insert or delete on publi
 -- import, whatever its status, in the order the server reads them (created_at, then id: fetchMappedRowsForImport), each
 -- with its position in that order, its identifier, its status and its whole payload, and its raw row's identifier,
 -- index and whole payload, as the database stores them (the text of the stored JSONB: a number as it was written, 1.50
--- stays 1.50). Each field is prefixed by its length in bytes (« - » for a missing one), each row is hashed, then the list
+-- stays 1.50), the mapped row's payload without the catalogue linker's four keys. Each field is prefixed by its length in bytes (« - » for a missing one), each row is hashed, then the list
 -- of the rows' digests in their order. The structure preview reads it for the rows a member reviews, the confirmation
 -- that writes the mapping reads it for the rows it has just written, and the record recomputes it in the statement that
 -- checks the rows and stores it as the proof. The server's role (after its own access check), and the functions below.
@@ -1680,8 +1680,12 @@ returns text language sql stable security invoker set search_path = '' as $$
       from pg_catalog.unnest(array[o.position::text, o.id::text, o.status, o.payload::text, o.raw_row_id::text,
         o.raw_row_index::text, o.raw_payload::text]) with ordinality as f(value, n)), 'UTF8')), 'hex') as row_sha256
     from (
-      select pg_catalog.row_number() over (order by m.created_at, m.id) as position, m.id, m.status, m.payload, m.raw_row_id,
-        r.row_index as raw_row_index, r.payload as raw_payload
+      select pg_catalog.row_number() over (order by m.created_at, m.id) as position, m.id, m.status,
+        -- The keys only the catalogue linker writes (src/lib/catalogue/server.ts, update_payload), after a confirmation:
+        -- a link to the catalogue is not a change of the rows the confirmation consumed (the estimate's normaliser does
+        -- not read them from an import's rows).
+        m.payload - array['product_id', 'catalogue_item_id', 'product_match_type', 'catalogue_match_type'] as payload,
+        m.raw_row_id, r.row_index as raw_row_index, r.payload as raw_payload
       from public.dpgf_rows_mapped m
       left join public.dpgf_rows_raw r on r.id = m.raw_row_id
       where m.tenant_id = p_tenant_id and m.import_id = p_import_id

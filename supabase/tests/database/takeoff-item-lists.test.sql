@@ -353,6 +353,18 @@ select ok(pg_temp.digest_changes(
   format($$update public.dpgf_rows_mapped set created_at = '2026-11-21 08:00:02+00' where id = %L$$, pg_temp.fx(192)),
   format($$update public.dpgf_rows_mapped set created_at = '2026-11-21 08:00:00+00' where id = %L$$, pg_temp.fx(192))),
   'the order the server reads the rows in');
+-- The catalogue linker's four keys, written after a confirmation, are not part of it: the digest stays the pinned one.
+update public.dpgf_rows_mapped set payload = payload || jsonb_build_object('product_id', 'produit-fictif',
+  'catalogue_item_id', 'article-fictif', 'product_match_type', 'reference', 'catalogue_match_type', 'reference')
+where id = pg_temp.fx(192);
+select is(pg_temp.rows_digest(190), '18122f5ee1369fa6ed96c7518606f8977fc57f463379d895ce2a4ca4a5749930',
+  'a catalogue link leaves the digest unchanged');
+update public.dpgf_rows_mapped set payload = payload - array['product_id', 'catalogue_item_id', 'product_match_type',
+  'catalogue_match_type'] where id = pg_temp.fx(192);
+select ok(pg_temp.digest_changes(
+  format($$update public.dpgf_rows_mapped set payload = payload || '{"product_note":"fictive"}' where id = %L$$, pg_temp.fx(192)),
+  format($$update public.dpgf_rows_mapped set payload = payload - 'product_note' where id = %L$$, pg_temp.fx(192))),
+  'any other key of the payload');
 select has_index('public', 'dpgf_import_confirmations', 'dpgf_import_confirmations_mapping_idx', array['mapping_id'],
   'a mapping''s deletion finds its confirmations by an index');
 insert into public.dpgf_imports (id, tenant_id, user_id, project_id, filename, source_format, status, row_count, parse_mode)
@@ -402,20 +414,28 @@ select results_eq($$ select proof_current, superseded, row_count, exclusions -> 
   $$ values (true, false, 2, 'user_ignored'::text) $$, 'its proof matches what the import holds');
 select is((select proof_sha256 from public.dpgf_import_confirmations where import_id = pg_temp.fx(60)),
   (select digest from reviewed_rows), 'its proof is the digest of the rows it consumed');
--- The catalogue linking rewrites the payload with keys of its own (the estimate's lines read them): the rows the
--- confirmation consumed are no longer those, until the payload is the same again.
-update public.dpgf_rows_mapped set payload = payload || '{"product_id":"fictif"}' where id = pg_temp.fx(72);
+-- The catalogue linker's update after the confirmation (src/lib/catalogue/server.ts, update_payload): the same payload
+-- with its four keys. The decisions stay established.
+update public.dpgf_rows_mapped set payload = payload || jsonb_build_object('product_id', 'produit-fictif',
+  'catalogue_item_id', 'article-fictif', 'product_match_type', 'reference', 'catalogue_match_type', 'reference')
+where id = pg_temp.fx(72);
+select results_eq($$ select proof_current, superseded from public.read_dpgf_import_confirmation(pg_temp.fx(10),
+  pg_temp.fx(60)) $$, $$ values (true, false) $$, 'a catalogue link after the confirmation keeps its decisions established');
+-- Any other key is part of the rows.
+update public.dpgf_rows_mapped set payload = payload || '{"product_note":"fictive"}' where id = pg_temp.fx(72);
 select is((select proof_current from public.read_dpgf_import_confirmation(pg_temp.fx(10), pg_temp.fx(60))), false,
-  'a key the catalogue linking adds: the decisions are no longer proven');
-update public.dpgf_rows_mapped set payload = payload - 'product_id' where id = pg_temp.fx(72);
+  'another key added to a payload: the decisions are no longer proven');
+update public.dpgf_rows_mapped set payload = payload - 'product_note' where id = pg_temp.fx(72);
 select is((select proof_current from public.read_dpgf_import_confirmation(pg_temp.fx(10), pg_temp.fx(60))), true,
   'the same payload again: proven again');
 update public.dpgf_rows_mapped set payload = jsonb_set(payload, '{mapped_row,quantity}', '"3"') where id = pg_temp.fx(72);
 select is((select proof_current from public.read_dpgf_import_confirmation(pg_temp.fx(10), pg_temp.fx(60))), false,
-  'a quantity changed: the decisions are no longer proven');
+  'a quantity changed on a linked row: the decisions are no longer proven');
 update public.dpgf_rows_mapped set payload = jsonb_set(payload, '{mapped_row,quantity}', '"2"') where id = pg_temp.fx(72);
 select is((select proof_current from public.read_dpgf_import_confirmation(pg_temp.fx(10), pg_temp.fx(60))), true,
   'the same facts again: proven again');
+update public.dpgf_rows_mapped set payload = payload - array['product_id', 'catalogue_item_id', 'product_match_type',
+  'catalogue_match_type'] where id = pg_temp.fx(72);
 -- A confirmation of the previous version with a mapping: a new mapping and new mapped rows, no decision recorded.
 insert into public.dpgf_mappings (id, tenant_id, import_id, status, column_mapping)
 values (pg_temp.fx(73), pg_temp.fx(10), pg_temp.fx(60), 'validated', '{"Designation":"designation","Qte":"quantity"}');

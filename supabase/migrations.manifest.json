@@ -367,6 +367,6 @@
     "20261121160259_read_takeoff_risk_alerts.sql": "a42ad6c51b8660c591d710ddbd3b39e860ad6890c860917ab2d067d4b58b7167",
     "20261121170448_takeoff_launch_requests.sql": "6b349bdb73d635acef5044efc7dd1897f8db8672fa07cc1ee5e52bbf2c7fd8f2",
     "20261121193413_takeoff_launch_exclusion_and_send_requests.sql": "d68a4199cd6f92c240fbb04f6e60aeaec3a7c504dfc81c10ce2a42ecf2cbc229",
-    "20261121230719_takeoff_item_lists.sql": "35fc14aede6b90e30826a58bc431042dcfd34688cc8fd7076a6862e0b469d234"
+    "20261121230719_takeoff_item_lists.sql": "8ba514d330c452ab897834c6c9f16135bef9c3e47c11296837597af0191714d9"
   }
 }
