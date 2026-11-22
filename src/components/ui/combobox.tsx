@@ -30,6 +30,11 @@ type ComboboxProps = {
   onCreate?: (query: string) => void
   /** Words of that entry, e.g. « Créer le fournisseur « X » ». */
   createLabel?: (query: string) => string
+  /**
+   * Text the field starts with, as if typed (the create entry is offered for it), e.g. a name kept after its creation
+   * was refused. Read once: give the field a new `key` to start it again with another text.
+   */
+  defaultInputValue?: string
   /** Put on the input: pair it with `<FieldLabel htmlFor>`. */
   id?: string
   /** Submits the selected value through a hidden input. */
@@ -81,6 +86,7 @@ function Combobox({
   onQueryChange,
   onCreate,
   createLabel = (query) => `Créer « ${query} »`,
+  defaultInputValue,
   id,
   name,
   placeholder = "Rechercher…",
@@ -126,7 +132,7 @@ function Combobox({
   )
 
   // What is being typed, for the entry that creates it; emptied once a choice is made or the text cleared.
-  const [query, setQuery] = React.useState("")
+  const [query, setQuery] = React.useState(defaultInputValue ?? "")
   const creatable = React.useMemo(() => {
     const typed = query.trim()
     if (!onCreate || typed === "") return null
@@ -148,6 +154,7 @@ function Combobox({
     <ComboboxPrimitive.Root<string>
       items={items}
       value={currentValue || null}
+      defaultInputValue={defaultInputValue}
       onValueChange={(nextValue) => {
         if (nextValue === CREATE_VALUE) {
           if (creatable !== null) onCreate?.(creatable)

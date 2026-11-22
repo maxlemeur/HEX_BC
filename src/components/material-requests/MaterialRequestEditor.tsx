@@ -211,6 +211,7 @@ function ReadyEditor({
               quotes={quotes}
               affaireName={affaireName}
               headingId={`${ids}-consultation`}
+              canCreateSupplier={canEditCatalogue}
               onGoToLines={() => goToStep("lignes")}
               onGoToOrders={() => goToStep("commande")}
             />
