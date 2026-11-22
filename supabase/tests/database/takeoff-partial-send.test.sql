@@ -264,7 +264,8 @@ select is(pg_temp.refusal($$update public.takeoff_jobs set estimate_version_id =
 create temp table stamps_before as select pg_temp.context(pg_temp.a()) -> 'stamps' as stamps;
 select is(pg_temp.context(pg_temp.a()) -> 'peers', '[]'::jsonb, 'no other plan of the affaire is read yet');
 select is(pg_temp.context(pg_temp.a()) -> 'plans', jsonb_build_array(jsonb_build_object('job_id', pg_temp.a(), 'plan_file_id', pg_temp.f(101),
-  'content_hash', pg_temp.digest(pg_temp.f(101)), 'location', null)), 'A''s plan revision, as its preparation attested it, without a location');
+  'content_hash', pg_temp.digest(pg_temp.f(101)), 'location', null, 'current_copy', true)),
+  'A''s plan revision, as its preparation attested it, without a location, the dossier''s current copy');
 select is(pg_temp.context(pg_temp.a()) -> 'display', jsonb_build_object('request_id', pg_temp.request(), 'plan_name', 'plan-a.pdf',
   'peers', '[]'::jsonb, 'unread', jsonb_build_array(
     jsonb_build_object('plan_name', 'plan-b.pdf', 'state', 'queued', 'compared_reading_at', null),
@@ -409,13 +410,31 @@ select results_eq($$select title, trim_scale(quantity), source_job_id, source_pa
     where version_id = pg_temp.f(705) and item_type = 'line' order by title$$,
   $$values ('Réseau EF'::text, 4::numeric, pg_temp.a(), 1), ('Vanne d''arrêt DN20'::text, 3::numeric, pg_temp.a(), 2)$$,
   'A''s lines, each with its page');
-select is((select write_plan -> 'context' from public.takeoff_send_receipts where job_id = pg_temp.a()),
+select is((select (write_plan -> 'context') - 'checked' from public.takeoff_send_receipts where job_id = pg_temp.a()),
   jsonb_build_object('stamps', (select body #> '{expected,context}' from commands where name = 'A'),
     'unit', jsonb_build_object('request_id', pg_temp.request(), 'key', 'plan:' || pg_temp.f(101)),
     'peers', jsonb_build_array(pg_temp.b()),
     'locations', jsonb_build_array(jsonb_build_object('plan_file_id', pg_temp.f(101), 'content_hash', pg_temp.digest(pg_temp.f(101)),
       'location_id', pg_temp.f(3001), 'revision', 1, 'building', null, 'level', 'R+1'))),
   'the receipt records the unit sent, the plan read it was compared with, and the location generation it was sent under');
+-- Fix round 2, point 3: and, whole, what its comparison read, which a read compares later with the current state.
+select is((select write_plan #> '{context,checked,peers}' from public.takeoff_send_receipts where job_id = pg_temp.a()),
+  jsonb_build_array(jsonb_build_object('job_id', pg_temp.b(), 'stamp',
+    public.takeoff_rule_job_stamp(pg_temp.f(10), pg_temp.f(20), pg_temp.b()))), 'each peer, with the stamp of its lines');
+select is((select jsonb_agg(jsonb_build_object('job_id', plan -> 'job_id', 'level', plan #> '{location,level}',
+    'current_copy', plan -> 'current_copy') order by plan ->> 'job_id')
+    from public.takeoff_send_receipts cross join jsonb_array_elements(write_plan #> '{context,checked,plans}') as plan
+    where job_id = pg_temp.a()),
+  jsonb_build_array(jsonb_build_object('job_id', pg_temp.a(), 'level', 'R+1', 'current_copy', true),
+    jsonb_build_object('job_id', pg_temp.b(), 'level', null, 'current_copy', true)),
+  'each plan revision, with its location and copy: A''s at R+1, B''s without a location');
+create function pg_temp.drift(p_job uuid) returns jsonb language sql stable as $$
+  select public.read_takeoff_send_drift(pg_temp.f(10), pg_temp.f(20), p_job)
+$$;
+select is(pg_temp.drift(pg_temp.a()) - 'sent_at', jsonb_build_object('changed', false, 'changes', '[]'::jsonb,
+    'item_ids', (select jsonb_agg(to_jsonb(id) order by id) from public.takeoff_items where job_id = pg_temp.a())),
+  'read right after its send, nothing A compared has changed; the lines it sent are named');
+select is(pg_temp.drift(pg_temp.b()), null::jsonb, 'a plan not sent has nothing to compare');
 
 -- 6. B, sent to the same draft, adds its part to A's valve line. A is no longer B's peer (sent): it is the destination's.
 create temp table price_before as select unit_price_ht_cents, pricing_status from public.estimate_items
@@ -437,6 +456,24 @@ insert into commands values ('B', pg_temp.b_command(606));
 select pg_temp.sign_in(1);
 set local role authenticated;
 insert into shown select 'B', pg_temp.preview('B') -> 'outcome';
+reset role;
+-- B's plan's copy set aside meanwhile (its cleanup reserved), then given back: refused, then previewed again below.
+set local session_replication_role = replica;
+update public.plan_files set metadata = metadata || '{"intake_cleanup_pending": "true"}'::jsonb where id = pg_temp.f(102);
+set local session_replication_role = origin;
+select pg_temp.sign_in(1);
+set local role authenticated;
+select is(pg_temp.refusal($$select pg_temp.confirm('B', (select outcome from shown where name = 'B'))$$),
+  '40001 TAKEOFF_SEND_PREVIEW_STALE location_changed',
+  'B''s plan no longer the dossier''s current copy since its preview: refused (fix round 2, point 2)');
+reset role;
+set local session_replication_role = replica;
+update public.plan_files set metadata = metadata - 'intake_cleanup_pending' where id = pg_temp.f(102);
+set local session_replication_role = origin;
+update commands set body = pg_temp.b_command(608) where name = 'B';
+select pg_temp.sign_in(1);
+set local role authenticated;
+update shown set outcome = pg_temp.preview('B') -> 'outcome' where name = 'B';
 reset role;
 -- A location of B's plan corrected meanwhile: refused.
 insert into public.takeoff_plan_locations (id, tenant_id, project_id, source_kind, source_id, content_hash, revision,
@@ -468,12 +505,28 @@ select results_eq($$select unit_price_ht_cents, pricing_status from public.estim
     and title = 'Vanne d''arrêt DN20'$$, $$select * from price_before$$, 'its price and pricing status are untouched by B''s send');
 select is((select write_plan #> '{context,locations,0,building}' from public.takeoff_send_receipts where job_id = pg_temp.b()),
   '"A"'::jsonb, 'B''s receipt records the building its plan was sent under');
+-- What A compared since its send: B, its peer, was sent since (its own send compared it with A: not a change of A's), and
+-- B's plan was located after A's send read it without a location (a change).
+select is(pg_temp.drift(pg_temp.a()) -> 'changes', jsonb_build_array(jsonb_build_object('reason', 'location_changed',
+    'plan_name', 'plan-b.pdf')), 'A''s lines are flagged for B''s location only, never for B''s own send');
+select is(pg_temp.drift(pg_temp.b()) -> 'changed', 'false'::jsonb, 'B, sent on what it read, has nothing changed');
+-- The dossier's copy of a plan a send read, set aside since (its cleanup reserved): flagged.
+set local session_replication_role = replica;
+update public.plan_files set metadata = metadata || '{"intake_cleanup_pending": "true"}'::jsonb where id = pg_temp.f(102);
+set local session_replication_role = origin;
+select is(pg_temp.drift(pg_temp.b()) -> 'changes', jsonb_build_array(jsonb_build_object('reason', 'copy_changed',
+    'plan_name', 'plan-b.pdf')), 'B''s lines are flagged once its plan''s copy is no longer the dossier''s current one');
+set local session_replication_role = replica;
+update public.plan_files set metadata = metadata - 'intake_cleanup_pending' where id = pg_temp.f(102);
+set local session_replication_role = origin;
 
 -- 7. C read last: A and B are sent, so C has no peer, and nothing of its request is left to read.
 select pg_temp.read(pg_temp.c(), jsonb_build_array(
   jsonb_build_object('id', pg_temp.f(2031), 'designation', 'Réseau EF', 'quantity', 6, 'unit', 'ml', 'page', 1)));
 select is(pg_temp.context(pg_temp.c()) -> 'peers', '[]'::jsonb, 'with A and B sent, C has no peer');
 select is(pg_temp.context(pg_temp.c()) #> '{display,unread}', '[]'::jsonb, 'and nothing of its request is left to read');
+select is(pg_temp.drift(pg_temp.a()) -> 'changes', jsonb_build_array(jsonb_build_object('reason', 'location_changed',
+    'plan_name', 'plan-b.pdf')), 'C, read only after A''s send, changes nothing A compared: its own send compares it');
 
 -- 8. A later request reads A and C again (A2, C2, a minute later): A2 is read, C2 still waits. For each other plan, its
 -- latest successful reading not sent is the peer; a plan's earlier reading is never its own peer (a reading replaced).
@@ -495,8 +548,8 @@ from public.takeoff_jobs j join (values (pg_temp.a(), pg_temp.f(1304), 'complete
 set local session_replication_role = origin;
 -- Fix round 1, point 7: A2's preview compares it with C (C2, its plan's reread, still waits) and says so on C2's line.
 select is(pg_temp.context(pg_temp.f(1304)) #> '{display,peers}', jsonb_build_array(jsonb_build_object('job_id', pg_temp.c(),
-    'plan_name', 'plan-c.pdf', 'read_at', (select completed_at from public.takeoff_jobs where id = pg_temp.c()), 'earlier_request', true)),
-  'A2 is compared with C, read by an earlier request');
+    'plan_name', 'plan-c.pdf', 'read_at', (select completed_at from public.takeoff_jobs where id = pg_temp.c()), 'request', 'earlier')),
+  'A2 is compared with C, read by an earlier request, before A2');
 select is(pg_temp.context(pg_temp.f(1304)) #> '{display,unread}', jsonb_build_array(jsonb_build_object('plan_name', 'plan-c.pdf',
     'state', 'queued', 'compared_reading_at', (select completed_at from public.takeoff_jobs where id = pg_temp.c()))),
   'C2, its plan''s reread, is not read: the preview names the earlier reading it compared instead');
@@ -511,6 +564,8 @@ select is((select jsonb_agg(peer -> 'job_id') from jsonb_array_elements(pg_temp.
   jsonb_build_array(pg_temp.f(1306)), 'A2''s peer is C''s latest reading (C2), not C');
 select is((select jsonb_agg(peer -> 'job_id') from jsonb_array_elements(pg_temp.context(pg_temp.c()) -> 'peers') as peer),
   jsonb_build_array(pg_temp.f(1304)), 'C, an earlier reading of its plan, is compared with A2 only');
+select is(pg_temp.context(pg_temp.c()) #> '{display,peers,0,request}', '"later"'::jsonb,
+  'and A2, another request''s reading made after C''s, is never said to be a previous request''s (fix round 2, point 6; red before: it was)');
 -- C2 sent (its plan's latest reading is on a version): C, the reading it replaced, is no peer of A2 either. Red before
 -- the fix of the selection: the latest unsent reading of plan C, C, was A2's peer beside C2 on its version.
 set local session_replication_role = replica;
@@ -562,6 +617,8 @@ select pg_temp.copy_of_e(106);
 select is((select jsonb_agg(peer -> 'job_id') from jsonb_array_elements(pg_temp.context(pg_temp.c()) -> 'peers') as peer),
   jsonb_build_array(pg_temp.f(1304)),
   'its reading of the replaced copy is no longer compared, whatever the preparation names (red before: it stayed C''s peer)');
+select ok(pg_temp.context(pg_temp.c()) #> '{display,never_read}' ? 'plan-e.pdf',
+  'and the new copy is named never read at once, though no manifest or preparation names it yet (fix round 2, point 6; red before: it vanished)');
 -- The preparation confirmed again, on the new copy.
 set local session_replication_role = replica;
 update public.takeoff_preparations set confirmed_snapshot = jsonb_set(confirmed_snapshot, '{preparation,sources}',
@@ -573,8 +630,9 @@ where project_id = pg_temp.f(20);
 set local session_replication_role = origin;
 select is((select jsonb_agg(peer -> 'job_id') from jsonb_array_elements(pg_temp.context(pg_temp.c()) -> 'peers') as peer),
   jsonb_build_array(pg_temp.f(1304)), 'still not compared');
-select ok(pg_temp.context(pg_temp.c()) #> '{display,never_read}' ? 'plan-e-v2.pdf',
-  'and the new copy is named never read, though the replaced copy of its piece was read (red before: it was hidden)');
+select is((select count(*)::integer from jsonb_array_elements_text(pg_temp.context(pg_temp.c()) #> '{display,never_read}') as name
+    where name = 'plan-e.pdf'), 1,
+  'and is named never read once, by its file, though the replaced copy of its piece was read (red before: it was hidden)');
 -- A grouped or standalone analysis has no peer: the context of a job outside a request of format 2.
 set local session_replication_role = replica;
 insert into public.takeoff_jobs
