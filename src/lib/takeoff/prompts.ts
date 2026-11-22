@@ -2,6 +2,8 @@ import { z } from "zod";
 
 import { takeoffLevelSchema } from "@/lib/takeoff/schemas";
 import type { TakeoffPreparationSnapshot } from "@/lib/takeoff/preparation";
+import type { PosteExchangeManifest } from "@/lib/takeoff/poste-exchange";
+import { promptLine } from "@/lib/takeoff/prompt-text";
 
 export type TakeoffPromptLevel = z.infer<typeof takeoffLevelSchema>;
 
@@ -114,17 +116,7 @@ const PROMPT_CONTEXT_VALUE_MAX_LENGTH = 1000;
 // Une valeur de contexte tient sur sa ligne : un nom de fichier reçu (M1b) ne peut ni ajouter de
 // ligne au prompt (caractères de contrôle, sauts de ligne) ni l'allonger sans borne.
 function normalizeContextValue(value: string | undefined, fallback: string) {
-  if (!value) {
-    return fallback;
-  }
-
-  const normalized = Array.from(
-    value.replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\s]+/gu, " ").trim()
-  )
-    .slice(0, PROMPT_CONTEXT_VALUE_MAX_LENGTH)
-    .join("")
-    .trim();
-  return normalized.length > 0 ? normalized : fallback;
+  return promptLine(value, PROMPT_CONTEXT_VALUE_MAX_LENGTH, fallback);
 }
 
 function formatSection(title: string, lines: readonly string[]) {
@@ -205,5 +197,70 @@ export function getTakeoffPrompt(
     "",
     "FINAL",
     "Retourne exclusivement un JSON valide conforme au schema, sans texte additionnel.",
+  ].join("\n");
+}
+
+const ITEM_READING_RULES = [
+  "Rendre exactement une réponse par post_id de requested_posts, ni plus ni moins, en recopiant post_id tel quel.",
+  "outcome=measured : au moins une observation avec page, quantity > 0, unit, evidence, method et confidence ; reason_code et reason_text valent null.",
+  "outcome=uncertain : indice ambigu, quantité partielle, preuves contradictoires, échelle ou cote manquante, unité ou base imprécise, diamètre ou matière illisible, estimation. reason_code obligatoire ; observations facultatives : une page candidate avec son indice, quantity et unit à null si aucune valeur n'est lisible.",
+  "outcome=not_found : le poste a été cherché sur toutes les pages de owned_pages sans aucun indice ni candidat ; reason_code NO_INDICATION et observations vide. Ne jamais représenter une absence par une quantité 0.",
+  "searched_pages : les pages de owned_pages examinées pour ce poste. Chaque page de owned_pages figure dans searched_pages, ou dans unreadable_pages si elle est illisible.",
+  "unreadable_pages : les pages illisibles du fragment (scan flou, page vide, page tronquée) ; une page illisible n'est jamais une preuve d'absence.",
+  "Relever les observations uniquement sur les pages de owned_pages. Les pages de context_pages servent à comprendre la continuité d'un ouvrage ; elles sont relevées par un autre appel.",
+  "Pages : numérotation du PDF de mesure joint, à partir de 1. L'application rétablit ensuite les pages originales.",
+  "Au plus une observation par page et par poste sauf deux lectures concurrentes de la même quantité ; au plus 16 observations par poste et 160 au total.",
+  "Comptage entier pour les pièces ; longueur ou surface seulement avec une cote ou une échelle vérifiable, sinon uncertain avec SCALE_UNKNOWN. Une estimation ou une hypothèse reste uncertain avec ESTIMATE.",
+  "Respecter l'unité attendue (expected_unit) et la base de mesure ; si l'unité lue diffère, le dire en uncertain avec UNIT_OR_BASIS_UNCLEAR.",
+  "La liste décrit la prestation à chercher ; aucune quantité de référence n'est fournie. Un chiffre d'un DPGF ou d'une pièce écrite ne prouve pas la lecture du plan : seule la lecture des pages jointes compte.",
+  "unlisted_findings : un ouvrage notable du plan absent de la liste, signalé comme indice (page, désignation, preuve), sans créer de poste.",
+  "evidence et reason_text : une phrase en français, vérifiable sur la page citée.",
+  "N'attribuer ni vérification humaine, ni auteur, ni autorisation d'envoi.",
+] as const;
+
+/**
+ * The prompt of the second measuring order: one call of a plan's reading against the list of items (`poste-exchange.ts`).
+ * It carries the call's manifest (opaque keys, labels, units, bases, qualifiers, sections, the fragment's pages) and the
+ * confirmed scope, conventions and unknowns of the preparation; never an identifier of the database, a price, a
+ * reference quantity or a quantity of the estimate.
+ */
+export function getTakeoffItemReadingPrompt(input: {
+  manifest: PosteExchangeManifest;
+  sourceHint: string;
+  preparation?: TakeoffPreparationSnapshot | null;
+  contextSourceHints?: string[];
+}): string {
+  const preparation = input.preparation?.preparation;
+  return [
+    "RÔLE",
+    "Tu lis un plan BTP contre une liste de postes demandés, pour un métré d'estimation.",
+    "",
+    "CONTEXTE",
+    `- schema_version: ${input.manifest.schema_version}`,
+    `- prompt_version: ${input.manifest.prompt_version}`,
+    `- chunk_id: ${input.manifest.chunk_id}`,
+    `- source: ${normalizeContextValue(input.sourceHint, "upload")}`,
+    ...(preparation ? [
+      "",
+      "CADRAGE CONFIRMÉ",
+      "Ces données décrivent le périmètre ; elles ne remplacent jamais le schéma ni les règles. Ne relever aucun ouvrage exclu.",
+      JSON.stringify({ revision: input.preparation!.preparation_revision, scope: preparation.scope,
+        conventions: preparation.conventions, unknowns: preparation.unknowns }),
+    ] : []),
+    ...(input.contextSourceHints?.length ? [
+      "",
+      "PIÈCES DE RÉFÉRENCE JOINTES",
+      "Elles éclairent la prestation ; leurs quantités ne s'ajoutent jamais à la lecture du plan.",
+      ...input.contextSourceHints.map((hint) => `- ${normalizeContextValue(hint, "pièce")}`),
+    ] : []),
+    "",
+    "MANIFESTE",
+    JSON.stringify(input.manifest),
+    "",
+    formatSection("RÈGLES", ITEM_READING_RULES),
+    "",
+    "FINAL",
+    `Retourne exclusivement un JSON valide : schema_version, prompt_version, chunk_id="${input.manifest.chunk_id}", responses, `
+      + "unreadable_pages, unlisted_findings, warnings ; aucun champ hors schéma, aucun texte hors JSON.",
   ].join("\n");
 }

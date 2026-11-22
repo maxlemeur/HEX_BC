@@ -1,0 +1,353 @@
+import { z } from "zod";
+
+import type { TakeoffPdfChunk } from "@/lib/takeoff/chunking";
+import type { Poste, PosteQualifiers } from "@/lib/takeoff/poste-list";
+import { promptLine } from "@/lib/takeoff/prompt-text";
+
+/**
+ * The exchange of the second measuring order (lot 4): one plan read against the affaire's sealed list of items
+ * (« postes »). For every call the server builds a bounded manifest, one fragment of the plan's PDF and one batch of
+ * items, and the model answers every item of the batch: measured, uncertain or not found, with the pages it searched,
+ * its reason and its localized evidence, also without a quantity. The model is never given an identifier of the
+ * database, a price, a reference quantity of the DPGF or a quantity of the estimate: its items are named by opaque keys
+ * of the request (`P0001`…), mapped back by the server. Every answer is checked against the call that asked it before
+ * anything else reads it (`validatePosteExchangeOutput`); a missing answer, a foreign key, a page outside the fragment or
+ * a page left unsearched stops the plan's analysis with an explicit error, never a silent « not found ».
+ */
+export const POSTE_EXCHANGE_SCHEMA_VERSION = "v2";
+export const POSTE_EXCHANGE_PROMPT_VERSION = "takeoff-c-postes-v1";
+
+/**
+ * The bounds of one call. A batch holds at most `itemsPerCall` items; an answer at most `observationsPerAnswer`
+ * observations (about one per page of a fragment) and the whole answer at most `observationsPerCall`; the texts are short
+ * (the evidence and the reason are one sentence). `pages` is the most pages a fragment can hold (the tenant's PDF page
+ * limit). Starting values, to measure on the bench before the second order is activated.
+ */
+export const POSTE_EXCHANGE_LIMITS = {
+  itemsPerCall: 40,
+  pages: 200,
+  labelChars: 600,
+  qualifierChars: 120,
+  basisChars: 80,
+  sectionTitles: 8,
+  sectionTitleChars: 120,
+  unitChars: 16,
+  evidenceChars: 160,
+  reasonChars: 160,
+  observationsPerAnswer: 16,
+  observationsPerCall: 160,
+  unlistedFindings: 20,
+  designationChars: 160,
+  warnings: 20,
+  warningChars: 300,
+  /** A quantity read on a plan stays below this: a larger figure is not a reading. */
+  quantity: 1_000_000_000,
+} as const;
+
+/** How the model read an observation; the worker adds `vector_reading` for the vector reading of the original PDF. */
+export const POSTE_OBSERVATION_METHODS = ["symbol_count", "table_reading", "annotation", "scaled_measure", "other"] as const;
+export type PosteObservationMethod = (typeof POSTE_OBSERVATION_METHODS)[number];
+
+/** Why an answer is uncertain, as the model may say it. */
+export const POSTE_UNCERTAIN_REASONS = [
+  "AMBIGUOUS_INDICATION", "PARTIAL_QUANTITY", "CONTRADICTORY_EVIDENCE", "SCALE_UNKNOWN", "UNIT_OR_BASIS_UNCLEAR",
+  "QUALIFIER_UNREADABLE", "ESTIMATE", "OTHER",
+] as const;
+/** Why an answer is « not found »: every page of the fragment was searched without any indication. */
+export const POSTE_NOT_FOUND_REASONS = ["NO_INDICATION"] as const;
+export type PosteModelReason = (typeof POSTE_UNCERTAIN_REASONS)[number] | (typeof POSTE_NOT_FOUND_REASONS)[number];
+
+export const POSTE_ANSWER_OUTCOMES = ["measured", "uncertain", "not_found"] as const;
+export type PosteAnswerOutcome = (typeof POSTE_ANSWER_OUTCOMES)[number];
+
+const L = POSTE_EXCHANGE_LIMITS;
+const page = z.number().int().min(1).max(L.pages);
+const pages = z.array(page).max(L.pages);
+const text = (max: number) => z.string().trim().min(1).max(max);
+const confidence = z.number().finite().min(0).max(1);
+const itemKey = z.string().regex(/^P\d{4,5}$/);
+const quantity = z.number().finite().gt(0).lt(L.quantity);
+
+/** An observation of a measured answer: a page of the fragment, a positive quantity and its unit. */
+const measuredObservation = z.object({
+  page, evidence: text(L.evidenceChars), method: z.enum(POSTE_OBSERVATION_METHODS), confidence,
+  quantity, unit: text(L.unitChars), measurement_basis: text(L.basisChars).nullable(),
+}).strict();
+/** An indication of an uncertain answer: a page candidate, with a candidate value when the model has one. */
+const indication = z.object({
+  page, evidence: text(L.evidenceChars), method: z.enum(POSTE_OBSERVATION_METHODS), confidence,
+  quantity: quantity.nullable(), unit: text(L.unitChars).nullable(), measurement_basis: text(L.basisChars).nullable(),
+}).strict();
+
+export const PosteExchangeAnswerSchema = z.discriminatedUnion("outcome", [
+  z.object({
+    post_id: itemKey, outcome: z.literal("measured"), searched_pages: pages.min(1),
+    reason_code: z.null(), reason_text: z.null(),
+    observations: z.array(measuredObservation).min(1).max(L.observationsPerAnswer),
+  }).strict(),
+  z.object({
+    post_id: itemKey, outcome: z.literal("uncertain"), searched_pages: pages,
+    reason_code: z.enum(POSTE_UNCERTAIN_REASONS), reason_text: text(L.reasonChars),
+    observations: z.array(indication).max(L.observationsPerAnswer),
+  }).strict(),
+  z.object({
+    post_id: itemKey, outcome: z.literal("not_found"), searched_pages: pages.min(1),
+    reason_code: z.enum(POSTE_NOT_FOUND_REASONS), reason_text: text(L.reasonChars),
+    observations: z.array(indication).max(0),
+  }).strict(),
+]);
+
+/** The model's answer to one call: one response per requested item, the pages it could not read, and what it saw outside the list. */
+export const PosteExchangeOutputSchema = z.object({
+  schema_version: z.literal(POSTE_EXCHANGE_SCHEMA_VERSION),
+  prompt_version: z.literal(POSTE_EXCHANGE_PROMPT_VERSION),
+  chunk_id: z.string().regex(/^f\d{1,3}-b\d{1,4}$/),
+  responses: z.array(PosteExchangeAnswerSchema).max(L.itemsPerCall),
+  unreadable_pages: pages,
+  unlisted_findings: z.array(z.object({
+    page, designation: text(L.designationChars), evidence: text(L.evidenceChars),
+  }).strict()).max(L.unlistedFindings),
+  warnings: z.array(z.object({
+    code: z.string().regex(/^[A-Z][A-Z0-9_]{0,63}$/), message: text(L.warningChars),
+    severity: z.enum(["info", "warning", "error"]),
+  }).strict()).max(L.warnings),
+}).strict().superRefine((output, context) => {
+  const observations = output.responses.reduce((sum, response) => sum + response.observations.length, 0);
+  if (observations > L.observationsPerCall) {
+    context.addIssue({ code: "custom", path: ["responses"],
+      message: `Au plus ${L.observationsPerCall} observations par réponse (${observations} reçues).` });
+  }
+});
+
+export type PosteExchangeAnswer = z.infer<typeof PosteExchangeAnswerSchema>;
+export type PosteExchangeOutput = z.infer<typeof PosteExchangeOutputSchema>;
+
+/** An item as the model receives it: its opaque key, never its identifier, its reference quantity or a price. */
+export type PosteExchangeRequestedItem = {
+  post_id: string;
+  label: string;
+  expected_unit: string | null;
+  measurement_basis: string | null;
+  qualifiers: PosteQualifiers;
+  section: string[];
+};
+
+/** What one call asks, as the prompt carries it (internal field names, never the screen's words). */
+export type PosteExchangeManifest = {
+  schema_version: typeof POSTE_EXCHANGE_SCHEMA_VERSION;
+  prompt_version: typeof POSTE_EXCHANGE_PROMPT_VERSION;
+  /** The sealed list's revision number: what the request asks, never its identifier. */
+  list_revision: number;
+  chunk_id: string;
+  /** Pages of the attached PDF, numbered from 1: all of them, those the call answers for, and those read as context. */
+  page_scope: { pages: number[]; owned_pages: number[]; context_pages: number[] };
+  requested_posts: PosteExchangeRequestedItem[];
+};
+
+/** One call of a plan's reading, as the server keeps it: what it sends, and how its answer maps back. */
+export type PosteExchangeCall = {
+  manifest: PosteExchangeManifest;
+  /** 1-based, fragments first then batches: the call's place in the plan's reading. */
+  ordinal: number;
+  /** The fragment of the plan's PDF it attaches (pages of that PDF, 1-based). */
+  fragment: TakeoffPdfChunk;
+  /** The pages of that PDF the call answers for (each page has one owner fragment). */
+  ownedPages: number[];
+  /** The item each opaque key names. */
+  itemIdByKey: ReadonlyMap<string, string>;
+};
+
+export type PosteExchangeRefusalCode =
+  | "INVALID_OUTPUT" | "OUTPUT_VERSION" | "OUTPUT_TOO_LARGE" | "FOREIGN_ITEM" | "DUPLICATE_ANSWER" | "MISSING_ANSWER"
+  | "PAGE_OUTSIDE_SLICE" | "UNPROCESSED_PAGES";
+
+/** An answer that cannot be published: the plan's analysis stops with it, nothing of the call is kept. */
+export class PosteExchangeRefusal extends Error {
+  constructor(readonly code: PosteExchangeRefusalCode, readonly details: { chunkId: string; keys?: string[]; pages?: number[] }) {
+    super(describePosteExchangeRefusal(code, details));
+    this.name = "PosteExchangeRefusal";
+  }
+}
+
+/** The opaque key of the item at `position` (0-based) of a request's items. */
+export function posteExchangeKey(position: number) {
+  return `P${String(position + 1).padStart(4, "0")}`;
+}
+
+/** The key of a call: its fragment and its batch, 1-based. */
+export function posteExchangeChunkId(fragmentIndex: number, batchIndex: number) {
+  return `f${fragmentIndex + 1}-b${batchIndex + 1}`;
+}
+
+/** A requested item as the model reads it: its texts on one line and bounded, nothing else of the stored entry. */
+export function posteExchangeRequestedItem(key: string, item: Poste): PosteExchangeRequestedItem {
+  const qualifiers = Object.fromEntries(Object.entries(item.qualifiers ?? {})
+    .map(([name, value]) => [name, promptLine(value, L.qualifierChars)])
+    .filter(([, value]) => value)) as PosteQualifiers;
+  return {
+    post_id: key,
+    label: promptLine(item.label, L.labelChars, "(sans libellé)"),
+    expected_unit: promptLine(item.expectedUnit, L.unitChars) || null,
+    measurement_basis: promptLine(item.measurementBasis, L.basisChars) || null,
+    qualifiers,
+    section: item.sections.slice(0, L.sectionTitles).map((section) => promptLine(section.title, L.sectionTitleChars))
+      .filter(Boolean),
+  };
+}
+
+const range = (first: number, last: number) =>
+  Array.from({ length: Math.max(0, last - first + 1) }, (_, offset) => first + offset);
+
+/**
+ * The calls of one plan's reading: every fragment of its PDF crossed with every batch of the requested items, in the
+ * list's order. Each fragment answers for the pages it owns (`ownedPages`, from `ownedChunkPages`) and reads the others
+ * as context; each item keeps one opaque key over all the calls of the plan.
+ */
+export function planPosteExchangeCalls(input: {
+  listRevision: number;
+  items: readonly Poste[];
+  fragments: readonly TakeoffPdfChunk[];
+  ownedPages: readonly (readonly number[])[];
+}): PosteExchangeCall[] {
+  if (input.items.length === 0) throw new Error("A reading against the list needs at least one item.");
+  if (input.fragments.length === 0 || input.fragments.length !== input.ownedPages.length) {
+    throw new Error("Each fragment of the plan needs its owned pages.");
+  }
+  const keyed = input.items.map((item, position) => ({ key: posteExchangeKey(position), item }));
+  const batches: Array<typeof keyed> = [];
+  for (let start = 0; start < keyed.length; start += L.itemsPerCall) batches.push(keyed.slice(start, start + L.itemsPerCall));
+  const calls: PosteExchangeCall[] = [];
+  input.fragments.forEach((fragment, fragmentIndex) => {
+    const offset = fragment.startPage - 1;
+    const local = range(1, fragment.endPage - fragment.startPage + 1);
+    const owned = input.ownedPages[fragmentIndex].map((value) => value - offset);
+    const ownedSet = new Set(owned);
+    batches.forEach((batch, batchIndex) => {
+      calls.push({
+        ordinal: calls.length + 1,
+        fragment: { ...fragment },
+        ownedPages: [...input.ownedPages[fragmentIndex]],
+        itemIdByKey: new Map(batch.map(({ key, item }) => [key, item.id])),
+        manifest: {
+          schema_version: POSTE_EXCHANGE_SCHEMA_VERSION,
+          prompt_version: POSTE_EXCHANGE_PROMPT_VERSION,
+          list_revision: input.listRevision,
+          chunk_id: posteExchangeChunkId(fragmentIndex, batchIndex),
+          page_scope: { pages: local, owned_pages: owned, context_pages: local.filter((value) => !ownedSet.has(value)) },
+          requested_posts: batch.map(({ key, item }) => posteExchangeRequestedItem(key, item)),
+        },
+      });
+    });
+  });
+  return calls;
+}
+
+/**
+ * The largest answer the schema admits for one call of `items` items on a fragment of `fragmentPages` pages: every text at
+ * its bound in two-byte characters, every list full, the longest numbers. What the bounds of a request are measured on.
+ */
+export function posteExchangeWorstCaseOutput(items: number, fragmentPages: number): PosteExchangeOutput {
+  const long = (chars: number) => "é".repeat(chars);
+  const pagesList = range(L.pages - fragmentPages + 1, L.pages);
+  const observation = { page: L.pages, evidence: long(L.evidenceChars), method: "scaled_measure" as const,
+    confidence: 1.2345678901234567e-7, quantity: 999_999_999.9999999, unit: long(L.unitChars), measurement_basis: long(L.basisChars) };
+  let left = L.observationsPerCall;
+  const responses = Array.from({ length: items }, () => {
+    const count = Math.min(L.observationsPerAnswer, left);
+    left -= count;
+    return { post_id: "P99999", outcome: "uncertain" as const, searched_pages: pagesList,
+      reason_code: "UNIT_OR_BASIS_UNCLEAR" as const, reason_text: long(L.reasonChars),
+      observations: Array.from({ length: count }, () => observation) };
+  });
+  return {
+    schema_version: POSTE_EXCHANGE_SCHEMA_VERSION, prompt_version: POSTE_EXCHANGE_PROMPT_VERSION, chunk_id: "f999-b9999",
+    responses, unreadable_pages: pagesList,
+    unlisted_findings: Array.from({ length: L.unlistedFindings }, () => ({ page: L.pages, designation: long(L.designationChars),
+      evidence: long(L.evidenceChars) })),
+    warnings: Array.from({ length: L.warnings }, () => ({ code: `W${"9".repeat(63)}`, message: long(L.warningChars),
+      severity: "warning" as const })),
+  };
+}
+
+/** The most bytes the answer to one call can take (UTF-8 JSON), measured on `posteExchangeWorstCaseOutput`. */
+export function posteExchangeOutputMaxBytes(items: number, fragmentPages: number) {
+  return Buffer.byteLength(JSON.stringify(posteExchangeWorstCaseOutput(items, fragmentPages)), "utf8");
+}
+
+/**
+ * Checks the answer of one call against the call (section 3.2 of the exchange contract): its version and key, one
+ * response for each requested item and none other, every page inside the attached fragment, and every page the call
+ * owns either searched or declared unreadable for each item. Throws the first refusal; nothing of the call is used then.
+ */
+export function validatePosteExchangeOutput(call: PosteExchangeCall, output: PosteExchangeOutput): void {
+  const chunkId = call.manifest.chunk_id;
+  const refuse = (code: PosteExchangeRefusalCode, extra: { keys?: string[]; pages?: number[] } = {}): never => {
+    throw new PosteExchangeRefusal(code, { chunkId, ...extra });
+  };
+  if (output.schema_version !== call.manifest.schema_version || output.prompt_version !== call.manifest.prompt_version
+    || output.chunk_id !== chunkId) refuse("OUTPUT_VERSION");
+  const items = call.manifest.requested_posts.length;
+  if (Buffer.byteLength(JSON.stringify(output), "utf8") > posteExchangeOutputMaxBytes(items, call.manifest.page_scope.pages.length)) {
+    refuse("OUTPUT_TOO_LARGE");
+  }
+  const requested = new Set(call.manifest.requested_posts.map((entry) => entry.post_id));
+  const foreign = output.responses.map((response) => response.post_id).filter((key) => !requested.has(key));
+  if (foreign.length) refuse("FOREIGN_ITEM", { keys: [...new Set(foreign)] });
+  const answered = new Set<string>();
+  const twice = new Set<string>();
+  for (const response of output.responses) {
+    if (answered.has(response.post_id)) twice.add(response.post_id);
+    answered.add(response.post_id);
+  }
+  if (twice.size) refuse("DUPLICATE_ANSWER", { keys: [...twice] });
+  const missing = [...requested].filter((key) => !answered.has(key));
+  if (missing.length) refuse("MISSING_ANSWER", { keys: missing });
+
+  const scope = new Set(call.manifest.page_scope.pages);
+  const cited = [
+    ...output.unreadable_pages, ...output.unlisted_findings.map((finding) => finding.page),
+    ...output.responses.flatMap((response) => [...response.searched_pages, ...response.observations.map((entry) => entry.page)]),
+  ];
+  const outside = [...new Set(cited.filter((value) => !scope.has(value)))].sort((left, right) => left - right);
+  if (outside.length) refuse("PAGE_OUTSIDE_SLICE", { pages: outside });
+
+  // Every page the call answers for is searched for each item, or declared unreadable for all of them: a page left out
+  // would make an absence or a total stand for pages nobody read.
+  const unreadable = new Set(output.unreadable_pages);
+  const owned = call.manifest.page_scope.owned_pages.filter((value) => !unreadable.has(value));
+  const unprocessedKeys: string[] = [];
+  const unprocessedPages = new Set<number>();
+  for (const response of output.responses) {
+    const searched = new Set(response.searched_pages);
+    const left = owned.filter((value) => !searched.has(value));
+    if (!left.length) continue;
+    unprocessedKeys.push(response.post_id);
+    left.forEach((value) => unprocessedPages.add(value));
+  }
+  if (unprocessedKeys.length) {
+    refuse("UNPROCESSED_PAGES", { keys: unprocessedKeys, pages: [...unprocessedPages].sort((left, right) => left - right) });
+  }
+}
+
+const plural = (count: number, one: string, many: string) => `${count} ${count > 1 ? many : one}`;
+
+/**
+ * The refusal of an answer, in French, as the plan's analysis records it (the member reads « Extraction incomplète sur
+ * ce document. », the public reason of its code). Pages are those of the attached fragment, keys the request's own.
+ */
+export function describePosteExchangeRefusal(code: PosteExchangeRefusalCode, details: { chunkId: string; keys?: string[]; pages?: number[] }) {
+  const keys = details.keys?.length ?? 0;
+  const pagesText = details.pages?.length ? ` (pages ${details.pages.join(", ")})` : "";
+  const prefix = `Lecture du plan contre la liste des postes refusée, appel ${details.chunkId} : `;
+  const suffix = " Relancez la lecture de ce plan.";
+  switch (code) {
+    case "INVALID_OUTPUT": return `${prefix}la réponse ne respecte pas le format attendu.${suffix}`;
+    case "OUTPUT_VERSION": return `${prefix}la réponse ne correspond pas à la version ou à l’appel demandés.${suffix}`;
+    case "OUTPUT_TOO_LARGE": return `${prefix}la réponse dépasse la taille admise.${suffix}`;
+    case "FOREIGN_ITEM": return `${prefix}${plural(keys, "réponse porte", "réponses portent")} sur un poste qui n’était pas demandé.${suffix}`;
+    case "DUPLICATE_ANSWER": return `${prefix}${plural(keys, "poste a", "postes ont")} reçu plusieurs réponses.${suffix}`;
+    case "MISSING_ANSWER": return `${prefix}${plural(keys, "poste demandé", "postes demandés")} sans réponse : aucun n’est compté comme non trouvé.${suffix}`;
+    case "PAGE_OUTSIDE_SLICE": return `${prefix}la réponse cite des pages hors du fragment lu${pagesText}.${suffix}`;
+    case "UNPROCESSED_PAGES": return `${prefix}${keys > 1 ? `${keys} postes n’ont pas été cherchés` : "1 poste n’a pas été cherché"} sur toutes les pages${pagesText}.${suffix}`;
+  }
+}
