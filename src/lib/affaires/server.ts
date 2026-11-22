@@ -3,6 +3,7 @@ import { normalizeEstimateCurrency, type SupportedEstimateCurrency } from "@/lib
 import { readAllRows } from "@/lib/supabase/read-all";
 import { cache } from "react";
 
+import { readAffaireSiteContacts, type AffaireSiteContact } from "@/lib/affaires/site-contacts";
 import { affaireOwnerFilter } from "@/lib/affaires/access-server";
 import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
 import { normalizeAffaireCounters } from "@/lib/affaires/status-counts";
@@ -153,7 +154,7 @@ export type AffaireDashboardOverviewResult = {
 
 type AffaireHubProjectRow = Pick<
   EstimateProjectRow,
-  "id" | "tenant_id" | "user_id" | "name" | "reference" | "client_name" | "site_address" | "is_archived"
+  "id" | "tenant_id" | "user_id" | "name" | "reference" | "client_name" | "site_address" | "site_contacts" | "is_archived"
 >;
 
 type AffaireHubVersionRow = Pick<
@@ -200,6 +201,8 @@ export type AffaireHubProject = {
   reference: string | null;
   clientName: string | null;
   siteAddress?: string | null;
+  /** TI-691: the people to call on site, printed on the purchase orders made from its material requests. */
+  siteContacts?: AffaireSiteContact[];
 };
 
 export type AffaireHubVersionSummary = {
@@ -884,7 +887,7 @@ export const findReadableAffaireProject = cache(async (
 ): Promise<AffaireHubProjectRow | null> => {
   let query = context.supabase
     .from("estimate_projects")
-    .select("id, tenant_id, user_id, name, reference, client_name, site_address, is_archived")
+    .select("id, tenant_id, user_id, name, reference, client_name, site_address, site_contacts, is_archived")
     .eq("id", projectId)
     .eq("tenant_id", context.tenantId)
     .eq("is_archived", false);
@@ -1154,6 +1157,7 @@ async function fetchAffaireHubSummaryWithContext(
       reference: project.reference,
       clientName: project.client_name,
       siteAddress: project.site_address ?? null,
+      siteContacts: readAffaireSiteContacts(project.site_contacts),
     },
     currentVersion: await currentVersionSummaryPromise,
     acceptedVersion: acceptedVersion ? toAffaireHubVersionSummary(acceptedVersion) : null,
