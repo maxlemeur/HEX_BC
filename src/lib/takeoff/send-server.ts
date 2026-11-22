@@ -24,7 +24,7 @@ import { buildTakeoffPageReplacementProposal } from "@/lib/takeoff/page-replacem
 import { parseApplyTakeoffPayload } from "@/lib/takeoff/query-parsers";
 import { failurePartners, isLineId, leftOutByPartners } from "@/lib/takeoff/rules/partner-exclusions";
 import { ruleFailuresReopen, ruleOverrideFailureKeys } from "@/lib/takeoff/rules/failure-keys";
-import { evaluateTakeoffRulesForDestination, recomputeTakeoffRulesQuietly } from "@/lib/takeoff/rules/recompute-server";
+import { evaluateTakeoffRulesForDestination, recomputeTakeoffRulesQuietly, type TakeoffSendContext } from "@/lib/takeoff/rules/recompute-server";
 import { takeoffJobIdSchema } from "@/lib/takeoff/schemas";
 import {
   takeoffSendPreviewRequestSchema,
@@ -56,6 +56,11 @@ import type { Json } from "@/types/database";
 // differs from the one the user confirmed, and hands the database what it computed — the state it computed it from and
 // the outcome the member saw (public.send_takeoff_job) —, which reads that state again under its locks and refuses any
 // other outcome.
+// Lot 3 (migration C): an analysis of one plan is sent the same way while the affaire's other plans are still read. Its
+// controls also compare it with the other plans already read, and a page without a level of its own takes the level an
+// operator set for its plan revision; the database computes that context (the plans read, the locations) for the
+// preview and again under the send's locks, and refuses the send when it moved (« peers_changed », « location_changed »).
+// The plans of its request not read yet are named in the preview, never shown as checked.
 
 type Context = AuthenticatedTakeoffContext & { tenantRole: string };
 type Service = ReturnType<typeof createServiceRoleClient>;
@@ -74,8 +79,6 @@ const BLOCKER_MESSAGES: Record<TakeoffSendBlocker, string> = {
   read_only: "Ce métré est accessible en lecture seule.",
   rules_unbounded: "Les contrôles de ce métré ne peuvent pas être enregistrés pour ce devis : contactez le support.",
   draft_locked: "Ce brouillon est ouvert par un autre membre : l’envoi y sera possible quand il l’aura libéré.",
-  plan_send_pending: "L’envoi au tableau de chiffrage d’une analyse par plan arrive avec une prochaine version : relisez son "
-    + "résultat dans la revue ; rien n’est écrit.",
 };
 
 const PRICE_ACTIONS = new Set(["set_price", "apply_assembly"]);
@@ -124,12 +127,12 @@ export function withoutPriceEffects(preview: TakeoffPreviewConversionResponse): 
 
 type SendJob = { id: string; project_id: string; estimate_version_id: string | null; status: string; level: string;
   plan_set_id: string | null; execution_provider: string | null; preparation_revision: string | null;
-  /** A plan's unit of one analysis per plan (« plan:… »), whose send stays closed (the database refuses it too). */
-  launch_unit_key: string | null };
+  /** The launch request of the analysis (lot 2 M4), null for one launched without a request. */
+  launch_request_id: string | null };
 
 async function readSendJob(ctx: Context, jobId: string): Promise<SendJob> {
   const { data, error } = await ctx.supabase.from("takeoff_jobs" as never)
-    .select("id, project_id, estimate_version_id, status, level, plan_set_id, execution_provider, launch_unit_key, preparation_revision:preparation_snapshot->>preparation_revision" as never)
+    .select("id, project_id, estimate_version_id, status, level, plan_set_id, execution_provider, launch_request_id, preparation_revision:preparation_snapshot->>preparation_revision" as never)
     .eq("tenant_id" as never, ctx.tenantId as never).eq("id" as never, jobId as never).maybeSingle();
   if (error) failed(error, "Impossible de charger le métré.", jobId);
   if (!data) {
@@ -185,7 +188,9 @@ type StagedParts = {
   destination: Record<string, unknown>;
   section: { kind: "new"; id: string; title: string } | { kind: "existing"; id: string };
   expected: { versions: Array<{ id: string; status: string; updated_at: string }>; job_stamp: string; peers_stamp: string | null;
-    mapping_stamp: string };
+    mapping_stamp: string;
+    /** Lot 3 (migration C): the stamps of the context the database computed (other plans read, locations), checked again. */
+    context: { peers: string; locations: string } };
   mapping_plan: ReturnType<typeof buildTakeoffAtomicMappingPlan>;
   page_decisions: unknown[];
   rule_results: unknown[];
@@ -268,14 +273,13 @@ async function computeSendPreview(ctx: Context, job: SendJob, request: {
       new_section_title: takeoffSendSectionTitle(null), blocked: { reason: blocker, message: BLOCKER_MESSAGES[blocker] }, engine: null,
       lines: [], left_out: [], price_rules_ignored: [], reservations: [], estimate_lines: null, outcome_pending: null,
       controls: { evaluated_for: null, not_evaluated_reason: null, cross_takeoff: null, blocked_items: [], medium_items: [], threshold: 0 },
-      page_proposal: null,
+      page_proposal: null, plan_scope: null,
       impact: { sent_count: 0, accumulated_count: 0, version_created: false, section_created: false }, ...extra } });
 
   // A takeoff that cannot be sent from here (already sent, not finished, or read by someone who cannot write the affaire)
   // gets its reason only: nothing of the affaire's versions nor of its estimates is read for it.
   const early: TakeoffSendBlocker | null = job.status === "applied" || job.estimate_version_id !== null ? "already_sent"
-    : job.status !== "completed" ? "not_completed" : !canEdit ? "read_only"
-      : job.launch_unit_key?.startsWith("plan:") ? "plan_send_pending" : null;
+    : job.status !== "completed" ? "not_completed" : !canEdit ? "read_only" : null;
   if (early) return reasonOnly(early);
 
   // The mapping rules' state, read before the rules themselves: a rule changed after it refuses the send.
@@ -424,10 +428,16 @@ async function computeSendPreview(ctx: Context, job: SendJob, request: {
       ? [{ takeoff_item_id: item.item_id, designation: item.transformed.designation, kind: "to_review" as const }] : [];
   });
 
-  const sameLaunch = destination?.kind === "existing_draft" && job.plan_set_id ? await (async () => {
-    const { data } = await service.from("takeoff_jobs").select("id").eq("tenant_id", ctx.tenantId)
+  // The historical receipt of a launch on a version holds one job per version, plan set, preparation revision, level and
+  // provider among the jobs without a launch request; the send refuses a second one by name, between those jobs only
+  // (20261121193413): two analyses of one request (two plans, or a plan read again) may both go to one draft.
+  const sameLaunch = destination?.kind === "existing_draft" && job.plan_set_id && job.launch_request_id === null ? await (async () => {
+    const { data, error } = await service.from("takeoff_jobs").select("id").eq("tenant_id", ctx.tenantId)
       .eq("estimate_version_id", destination.version_id).eq("plan_set_id", job.plan_set_id!).eq("level", job.level as never)
+      .is("launch_request_id" as never, null)
+      .filter("execution_provider", job.execution_provider === null ? "is" : "eq", job.execution_provider ?? "null")
       .eq("preparation_snapshot->>preparation_revision" as never, (job.preparation_revision ?? "") as never).neq("id", job.id).limit(1);
+    if (error) failed(error, "Impossible de lire les métrés du brouillon.", job.id);
     return (data ?? []).length > 0;
   })() : false;
   let blocker: TakeoffSendBlocker | null = !destination ? "choose_destination"
@@ -458,7 +468,8 @@ async function computeSendPreview(ctx: Context, job: SendJob, request: {
     }
     parts = { destination: staged,
       section: sectionChoice.kind === "existing" ? sectionChoice : { kind: "new", id: randomUUID(), title: newSectionTitle },
-      expected: { versions: expectedVersions, job_stamp: rules.jobStamp, peers_stamp: rules.peersStamp, mapping_stamp: mappingStamp },
+      expected: { versions: expectedVersions, job_stamp: rules.jobStamp, peers_stamp: rules.peersStamp, mapping_stamp: mappingStamp,
+        context: rules.context.stamps },
       mapping_plan: mappingPlan, page_decisions: pageDecisions, rule_results: ruleWrites, rule_transforms: rules.transforms,
       accumulations: accumulationList, price_rules_ignored: priceRulesIgnored };
   }
@@ -508,9 +519,10 @@ async function computeSendPreview(ctx: Context, job: SendJob, request: {
   const draftSettings = parts?.destination.kind === "first_draft"
     ? firstDraftSettings(parts.destination.version_payload as Record<string, unknown>, policy) : null;
   const fingerprint = sha256({
-    format_version: 3, job_id: job.id, destination, engine, draft_settings: draftSettings,
+    format_version: 4, job_id: job.id, destination, engine, draft_settings: draftSettings,
     section: sectionChoice.kind === "existing" ? sectionChoice : { kind: "new", title: newSectionTitle },
-    expected: { versions: expectedVersions, job_stamp: rules?.jobStamp ?? null, peers_stamp: rules?.peersStamp ?? null, mapping_stamp: mappingStamp },
+    expected: { versions: expectedVersions, job_stamp: rules?.jobStamp ?? null, peers_stamp: rules?.peersStamp ?? null, mapping_stamp: mappingStamp,
+      context: rules?.context.stamps ?? null },
     mapping_plan: mappingPlan, rules: ruleWrites.map((write) => [write.id, write.results]), transforms: rules?.transforms ?? [],
     accumulations: accumulationList, page_proposal: pageProposal, page_decisions: pageDecisions,
     blocked: blockedItems.map((item) => [item.item_id, item.reasons]),
@@ -540,6 +552,7 @@ async function computeSendPreview(ctx: Context, job: SendJob, request: {
         ...(item.source_file_name !== undefined ? { source_file_name: item.source_file_name } : {}) })),
       threshold },
     page_proposal: pageProposal,
+    plan_scope: rules ? planScopeOf(job.id, rules.context) : null,
     impact: { sent_count: sentItems.length, accumulated_count: accumulations.size,
       version_created: destination?.kind === "first_draft" || destination?.kind === "version_copy",
       section_created: sectionChoice.kind === "new" },
@@ -547,6 +560,25 @@ async function computeSendPreview(ctx: Context, job: SendJob, request: {
   if (blocker || !destination || !parts || !outcome) return { response, command: null };
   return { response, command: { ...parts, target: destination, outcome, blocked_items: blockedItems, guard_items: guardItems, threshold,
     engine } };
+}
+
+/**
+ * What the preview says of the send of one plan of a request read plan by plan (null for any other takeoff): the plan,
+ * the other plans read that its controls compared it with, the plans of its request not read yet, and the location an
+ * operator set for its plan revision, from the context the database computed. Display only: the fingerprint holds the
+ * context's stamps, never a plan's progress.
+ */
+function planScopeOf(jobId: string, context: TakeoffSendContext): TakeoffSendPreviewResponse["plan_scope"] {
+  if (!context.display) return null;
+  const own = context.plans.find((plan) => plan.job_id === jobId && plan.location !== null)?.location ?? null;
+  return {
+    request_id: context.display.request_id,
+    plan_name: context.display.plan_name,
+    location: own ? { building: own.building_choice === "value" ? own.building : null, level: own.level_choice === "value" ? own.level : null,
+      generation: own.revision } : null,
+    compared: context.display.peers,
+    unread: context.display.unread,
+  };
 }
 
 /**
@@ -589,6 +621,10 @@ const STALE_MESSAGES: Record<string, string> = {
   mapping_changed: "Les règles de correspondance ont changé depuis l’aperçu : vérifiez le nouvel aperçu puis confirmez.",
   accumulation_changed: "Une ligne du devis qui devait recevoir ce métré a changé : vérifiez le nouvel aperçu puis confirmez.",
   outcome_changed: "Les lignes que l’envoi écrirait ne sont plus celles de l’aperçu : vérifiez le nouvel aperçu puis confirmez.",
+  peers_changed: "Un autre plan de l’affaire a été lu ou modifié depuis l’aperçu : les contrôles entre plans sont recalculés. "
+    + "Vérifiez le nouvel aperçu puis confirmez ; rien n’a été écrit.",
+  location_changed: "La localisation d’un plan a été corrigée depuis l’aperçu : les contrôles sont recalculés. Vérifiez le nouvel "
+    + "aperçu puis confirmez ; rien n’a été écrit.",
 };
 
 function staleError(reason: string | null, jobId: string) {

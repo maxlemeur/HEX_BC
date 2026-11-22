@@ -238,9 +238,12 @@ async function readVersionPeerJobs(supabase: ServiceClient, tenantId: string, ve
 
 /**
  * Reads the lines, vector pages and geometries of these jobs (and, for a version, its DPGF lines for the surface
- * control) and evaluates the fixed rules on them together. Null when no line carries rule inputs.
+ * control) and evaluates the fixed rules on them together. Null when no line carries rule inputs. `planLevels`: the
+ * level an operator set for a plan revision a job read (`${job_id}|${plan_file_id}`), the level of a page whose own
+ * reading gives none (lot 3, migration C: a send's evaluation only); a page's own level always comes first.
  */
-async function evaluateRulesOfJobs(input: { supabase: ServiceClient; tenantId: string; jobs: JobRow[]; surfaceVersionId: string | null }) {
+async function evaluateRulesOfJobs(input: { supabase: ServiceClient; tenantId: string; jobs: JobRow[]; surfaceVersionId: string | null;
+  planLevels?: ReadonlyMap<string, string> }) {
   const { supabase, tenantId, jobs } = input;
   if (jobs.length === 0) return null;
   const jobIds = jobs.map((job) => job.id);
@@ -275,9 +278,11 @@ async function evaluateRulesOfJobs(input: { supabase: ServiceClient; tenantId: s
   for (const row of (pageData ?? []) as unknown as PageRow[]) {
     const reading = VectorPageRecordSchema.safeParse(row.reading);
     const anchors = AnchorsSchema.safeParse(row.rule_anchors);
+    const planLevel = row.plan_file_id ? input.planLevels?.get(`${row.job_id}|${row.plan_file_id}`) ?? null : null;
     pages.push({
       key: row.id, job_id: row.job_id, order: (jobOrder.get(row.job_id) ?? 0) * 10_000 + row.source_page,
-      level: reading.success ? reading.data.location.level : null, zone: reading.success ? reading.data.location.zone : null,
+      level: (reading.success ? reading.data.location.level : null) ?? planLevel,
+      zone: reading.success ? reading.data.location.zone : null,
       scale: reading.success ? { status: reading.data.scale.status, reason: reading.data.scale.reason } : null,
       denominator: reading.success ? reading.data.scale.denominator : null, anchors: anchors.success ? anchors.data : null,
       // TI-682 (lot D): the plan page it reads, by its document (a plan file, or the job's upload) and its job's preparation.
@@ -389,13 +394,52 @@ export async function recomputeTakeoffRulesQuietly(input: TakeoffRuleRecomputeIn
   return null;
 }
 
+const uuidString = z.string().uuid();
+
+/**
+ * What a send's controls read besides the takeoff and its destination (lot 3, migration C), as the database computes it
+ * (public.read_takeoff_send_context), never computed here: for an analysis of one plan, the readable analyses of the
+ * affaire's other plans (its peers); each plan revision read with the operator's location; the two stamps the send
+ * compares again under its locks; and what the preview shows of it (a request's plans not read yet, by name and state).
+ */
+export const TakeoffSendContextSchema = z.object({
+  peers: z.array(z.object({ job_id: uuidString, stamp: z.string().nullable() })),
+  plans: z.array(z.object({
+    job_id: uuidString, plan_file_id: uuidString.nullable(), content_hash: z.string(),
+    location: z.object({ id: uuidString, revision: z.number().int().positive(), building_choice: z.string(), building: z.string().nullable(),
+      level_choice: z.string(), level: z.string().nullable() }).nullable(),
+  })),
+  stamps: z.object({ peers: z.string(), locations: z.string() }),
+  display: z.object({
+    request_id: uuidString,
+    plan_name: z.string().nullable(),
+    peers: z.array(z.object({ job_id: uuidString, plan_name: z.string().nullable() })),
+    unread: z.array(z.object({ plan_name: z.string().nullable(), state: z.enum(["queued", "running", "failed", "canceled", "not_started"]) })),
+  }).nullable(),
+});
+export type TakeoffSendContext = z.infer<typeof TakeoffSendContextSchema>;
+
+/** The level an operator set for each plan revision of the context (`${job_id}|${plan_file_id}`): « À préciser » sets none. */
+export function takeoffSendPlanLevels(context: Pick<TakeoffSendContext, "plans">) {
+  const levels = new Map<string, string>();
+  for (const plan of context.plans) {
+    if (plan.plan_file_id && plan.location?.level_choice === "value" && plan.location.level) {
+      levels.set(`${plan.job_id}|${plan.plan_file_id}`, plan.location.level);
+    }
+  }
+  return levels;
+}
+
 /**
  * Lot 2 M2: the rules of a takeoff of an affaire evaluated against the destination it is about to be sent to, without
  * writing anything. The cross-job controls (zone overlap, coverage) read the takeoffs the destination version already
  * holds, the surface control its DPGF lines; a first draft holds none, so the evaluation is complete, never deferred.
- * The stamps are read before the lines: the send command compares them again under its locks, so a change after this
- * reading refuses the send instead of writing results computed from an older state. Every line with rule inputs gets
- * its results (written by the send command in its transaction), whether or not they differ from the stored ones.
+ * Lot 3 (migration C): they also read, for an analysis of one plan, the readable analyses of the affaire's other plans
+ * (its peers, never written from here), and a page without a level of its own takes the level an operator set for its
+ * plan revision. The stamps are read before the lines: the send command compares them again under its locks, so a change
+ * after this reading refuses the send instead of writing results computed from an older state. Every line with rule
+ * inputs gets its results (written by the send command in its transaction), whether or not they differ from the stored
+ * ones.
  */
 export async function evaluateTakeoffRulesForDestination(input: {
   tenantId: string;
@@ -407,6 +451,8 @@ export async function evaluateTakeoffRulesForDestination(input: {
   jobStamp: string | null;
   /** The destination's takeoffs, attached or carried over (takeoff_send_peers_stamp), as the send checks them again. */
   peersStamp: string | null;
+  /** The plans read besides the destination's, and their locations, with the stamps the send checks them again by. */
+  context: TakeoffSendContext;
   writes: RuleResultWrite[];
   transforms: Array<{ item_id: string; transform: TakeoffFrameTransform | null }>;
   /** The results of this takeoff's lines that carry rule inputs; empty when none does (nothing was evaluated). */
@@ -425,7 +471,13 @@ export async function evaluateTakeoffRulesForDestination(input: {
     if (error || typeof data !== "string") failed("Impossible de lire l’état du devis pour les règles.", error);
     peersStamp = data;
   }
-  const empty = { jobStamp: jobStamp as string | null, peersStamp, writes: [], transforms: [], results: new Map() };
+  const { data: contextData, error: contextError } = await supabase.rpc("read_takeoff_send_context" as never, {
+    p_tenant_id: input.tenantId, p_project_id: input.projectId, p_job_id: input.jobId,
+    p_version_id: input.destinationVersionId } as never);
+  const parsedContext = TakeoffSendContextSchema.safeParse(contextData);
+  if (contextError || !parsedContext.success) failed("Impossible de lire les autres plans de l’affaire pour les règles.", contextError);
+  const context = parsedContext.data;
+  const empty = { jobStamp: jobStamp as string | null, peersStamp, context, writes: [], transforms: [], results: new Map() };
   if (jobStamp === null) return empty;
 
   const own = await supabase.from("takeoff_jobs" as never).select(JOB_SELECT as never)
@@ -436,8 +488,22 @@ export async function evaluateTakeoffRulesForDestination(input: {
   // The destination's peers: the takeoffs its lines come from, attached to it or carried over by the copy it is (or will
   // be, for a copy: those of the version it copies).
   const peers = input.destinationVersionId ? (await readVersionPeerJobs(supabase, input.tenantId, input.destinationVersionId)).jobs : [];
-  const jobs = [...peers, ...((own.data ?? []) as unknown as JobRow[])];
-  const evaluated = await evaluateRulesOfJobs({ supabase, tenantId: input.tenantId, jobs, surfaceVersionId: input.destinationVersionId });
+  // The affaire's other plans already read (a per-plan analysis only), as the context named them: each completed, without
+  // a version; one that was sent or changed meanwhile is no longer what the stamp says, and the send refuses.
+  const planPeerIds = context.peers.map((peer) => peer.job_id);
+  let planPeers: JobRow[] = [];
+  if (planPeerIds.length > 0) {
+    const read = await readAllRowsInChunks(planPeerIds, (chunk) => supabase.from("takeoff_jobs" as never)
+      .select(JOB_SELECT as never, { count: "exact" }).eq("tenant_id" as never, input.tenantId as never)
+      .eq("project_id" as never, input.projectId as never).in("id" as never, chunk as never)
+      .is("estimate_version_id" as never, null).eq("status" as never, "completed" as never));
+    if (read.error) failed("Impossible de lire les autres plans de l’affaire pour les règles.", read.error);
+    planPeers = ((read.data ?? []) as unknown as JobRow[]).sort((left, right) => (left.created_at < right.created_at ? -1
+      : left.created_at > right.created_at ? 1 : left.id < right.id ? -1 : 1));
+  }
+  const jobs = [...peers, ...planPeers, ...((own.data ?? []) as unknown as JobRow[])];
+  const evaluated = await evaluateRulesOfJobs({ supabase, tenantId: input.tenantId, jobs, surfaceVersionId: input.destinationVersionId,
+    planLevels: takeoffSendPlanLevels(context) });
   if (!evaluated) return empty;
   const { items, geometries, evaluation } = evaluated;
   const writes: RuleResultWrite[] = [];
@@ -456,5 +522,5 @@ export async function evaluateTakeoffRulesForDestination(input: {
     results.set(item.id, payload.results);
     writes.push({ id: item.id, ...payload, expected_updated_at: item.updated_at, expected_stale_at: item.rules_stale_at });
   }
-  return { jobStamp: jobStamp as string, peersStamp, writes, transforms, results };
+  return { jobStamp: jobStamp as string, peersStamp, context, writes, transforms, results };
 }

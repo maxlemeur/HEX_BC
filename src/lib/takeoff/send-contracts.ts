@@ -55,8 +55,6 @@ export type TakeoffSendRequest = z.infer<typeof takeoffSendRequestSchema>;
 export const TAKEOFF_SEND_BLOCKERS = [
   "not_completed", "already_sent", "no_line", "dpgf_reconciliation_required", "copy_pages_already_in_estimate",
   "preparation_already_sent", "choose_destination", "read_only", "rules_unbounded", "draft_locked",
-  // Lot 3: one analysis per plan is read and reviewed now; its send to the estimate comes with the partial send.
-  "plan_send_pending",
 ] as const;
 export type TakeoffSendBlocker = (typeof TAKEOFF_SEND_BLOCKERS)[number];
 
@@ -89,6 +87,24 @@ export const takeoffSendEstimateLineSchema = z.object({
   takeoff_item_ids: z.array(uuid),
 }).strict();
 export type TakeoffSendEstimateLine = z.infer<typeof takeoffSendEstimateLineSchema>;
+
+/**
+ * Lot 3: the send of one plan of a request read plan by plan, while its other plans may still be read. The plan sent;
+ * the other plans of the affaire already read, which its controls compared it with; the plans of its request not read
+ * yet, each in its state (never covered by the controls, never shown as checked); and the plan's location as an
+ * operator set it (its generation), the level a page without one of its own is compared under. Null for any other
+ * takeoff (a grouped or standalone analysis is sent as lot 2 sends it).
+ */
+export const takeoffSendPlanScopeSchema = z.object({
+  request_id: uuid,
+  plan_name: z.string().nullable(),
+  location: z.object({ building: z.string().nullable(), level: z.string().nullable(), generation: z.number().int().positive() })
+    .strict().nullable(),
+  compared: z.array(z.object({ job_id: uuid, plan_name: z.string().nullable() }).strict()),
+  unread: z.array(z.object({ plan_name: z.string().nullable(),
+    state: z.enum(["queued", "running", "failed", "canceled", "not_started"]) }).strict()),
+}).strict();
+export type TakeoffSendPlanScope = z.infer<typeof takeoffSendPlanScopeSchema>;
 
 const ruleFailureSchema = z.object({ rule: z.enum(TAKEOFF_RULE_IDS), code: z.string(), reason: z.string(), acceptable: z.boolean() }).strict();
 const guardReasonSchema = z.enum(["low_confidence", "missing_evidence", "missing_source_page", "rule_failed", "rules_stale"]);
@@ -146,6 +162,7 @@ export const takeoffSendPreviewResponseSchema = z.object({
     threshold: z.number(),
   }).strict(),
   page_proposal: takeoffPageReplacementResponseSchema.nullable(),
+  plan_scope: takeoffSendPlanScopeSchema.nullable(),
   impact: z.object({ sent_count: z.number().int().nonnegative(), accumulated_count: z.number().int().nonnegative(),
     version_created: z.boolean(), section_created: z.boolean() }).strict(),
 }).strict();

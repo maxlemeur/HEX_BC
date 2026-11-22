@@ -295,6 +295,8 @@ describe("reading the plan page of each vector page", () => {
         takeoff_rule_job_stamp: () => ({ data: "stamp-read", error: null }),
         takeoff_send_peers_stamp: () => ({ data: "peers-read", error: null }),
         takeoff_rule_version_stamp: () => ({ data: "stamp-read", error: null }),
+        // A standalone analysis: no other plan read, no location (lot 3, migration C).
+        read_takeoff_send_context: () => ({ data: { peers: [], plans: [], stamps: { peers: "p", locations: "l" }, display: null }, error: null }),
       },
     });
     const evaluated = await evaluateTakeoffRulesForDestination({ tenantId: "t", projectId: "p", jobId: M2, destinationVersionId: "v",
@@ -319,6 +321,104 @@ describe("reading the plan page of each vector page", () => {
       .map((query) => query.filters.find((filter) => filter.column === "job_id")?.value as string[]);
     expect(filters.flat()).toHaveLength(1002);
     expect(Math.max(...filters.map((ids) => ids.length))).toBeLessThanOrEqual(IN_FILTER_CHUNK_SIZE);
+  });
+});
+
+// Lot 3, migration C: the send of one plan while the affaire's other plans are read. Its controls compare it with the other
+// plans already read that the database's context names (never one it does not name: still read, or sent), and a page
+// without a level of its own is compared under the level an operator set for its plan revision.
+describe("the send of one plan: the other plans read and the operator's level", () => {
+  const [A, B] = ["56565656-5656-4565-8565-565656565651", "56565656-5656-4565-8565-565656565652"];
+  const [PLAN_A, PLAN_B] = ["57575757-5757-4575-8575-575757575751", "57575757-5757-4575-8575-575757575752"];
+  const anchors = { version: 1, texts: ["Bureau 101", "Salle de réunion", "Local technique", "Circulation C2", "Archives"]
+    .map((text, index) => [text, 12 + index * 1.3, 4 + index * 0.9]),
+  lines: Array.from({ length: 30 }, (_, index) => [10, 2 + index * 0.7, 13 + (index % 5), 2 + index * 0.7]) };
+  const line = (job: string, plan: string) => ({
+    id: `${job.slice(0, -2)}9${job.slice(-1)}`, job_id: job, designation: "EF Inox 316L DN 22", unit: "ml", quantity: 5,
+    is_excluded: false, exclusion_reason: null, updated_at: "2026-11-22T10:00:00.000Z",
+    metadata: { rule_inputs: { version: 1, source: "vector", kind: "network", network: "EF", material: "inox-316l", dn: "DN 22",
+      non_observable: null, model_quantity: 5 } },
+    source_file_name: `${plan}.pdf`, source_page: 1, rule_results: [], rules_stale: true, rules_stale_at: "2026-11-22T10:00:00.000Z",
+    rules_evaluated_at: null, quantity_entry_category: null, is_verified: false,
+  });
+
+  async function evaluatePlan(input: { peers: boolean; readingLevel: string | null; operatorLevels?: { a: string | null; b: string | null } }) {
+    const reading = { schema_version: 1, reading_version: 1, mode: "layers", size_pt: [1190, 842], rotate: 0,
+      location: { zone: "Z1", level: input.readingLevel, source: input.readingLevel ? "file_name" : null },
+      scale: { status: "format", reason: null, denominator: 50, cartouche: null, format: { cartouche: null, page_mm: [420, 297], matches: null },
+        cotes: [], calibration: null },
+      legend: [], detection: null, groups: [], groups_total: 0, labels: null, surfaces: [] };
+    const lines = [line(A, PLAN_A), line(B, PLAN_B)];
+    const planOf = (job: string) => (job === A ? PLAN_A : PLAN_B);
+    const ofJobs = (query: { filters: Array<{ column: string; value: unknown }> }) => {
+      const jobs = query.filters.find((filter) => filter.column === "job_id")?.value;
+      return Array.isArray(jobs) ? lines.filter((row) => jobs.includes(row.job_id)) : lines;
+    };
+    const location = (level: string | null | undefined) => (level
+      ? { id: "58585858-5858-4585-8585-585858585851", revision: 3, building_choice: "reading", building: null, level_choice: "value", level }
+      : null);
+    const context = {
+      peers: input.peers ? [{ job_id: B, stamp: "b-read" }] : [],
+      plans: [{ job_id: A, plan_file_id: PLAN_A, content_hash: "a".repeat(64), location: location(input.operatorLevels?.a) },
+        ...(input.peers ? [{ job_id: B, plan_file_id: PLAN_B, content_hash: "b".repeat(64), location: location(input.operatorLevels?.b) }] : [])],
+      stamps: { peers: "p", locations: "l" }, display: null };
+    const fake = createSupabaseFake({
+      tables: {
+        // The plan sent (read by its id and affaire), and the peers the context names (read by their ids).
+        takeoff_jobs: (query) => {
+          const byIds = query.filters.find((filter) => filter.column === "id" && Array.isArray(filter.value))?.value as string[] | undefined;
+          const own = { id: A, status: "completed", created_at: "2026-11-22T09:30:00.000Z", sources: null };
+          const peer = { id: B, status: "completed", created_at: "2026-11-22T09:00:00.000Z", sources: null };
+          const data = byIds ? [peer].filter((job) => byIds.includes(job.id)) : [own];
+          return { data, error: null, count: data.length };
+        },
+        takeoff_items: (query) => ({ data: ofJobs(query), error: null, count: ofJobs(query).length }),
+        takeoff_vector_pages: (query) => ({ data: ofJobs(query).map((row) => ({ id: `page-${row.job_id}`, job_id: row.job_id,
+          plan_file_id: planOf(row.job_id), source_file_name: row.source_file_name, source_page: 1, reading, rule_anchors: anchors })),
+          error: null, count: ofJobs(query).length }),
+        takeoff_item_geometries: (query) => ({ data: ofJobs(query).map((row) => ({ takeoff_item_id: row.id, job_id: row.job_id,
+          vector_page_id: `page-${row.job_id}`, geometry: { schema_version: 1, kind: "network", network: "EF", material: "inox-316l", dn: 22,
+            zone: "Z1", level: input.readingLevel, groups: [], segments_m: [[0, 1, 5, 1]], polygon_m: null, length_m: 5, area_m2: null,
+            transform: null } })), error: null }),
+      },
+      rpc: {
+        takeoff_rule_job_stamp: () => ({ data: "stamp-read", error: null }),
+        read_takeoff_send_context: () => ({ data: context, error: null }),
+      },
+    });
+    const evaluated = await evaluateTakeoffRulesForDestination({ tenantId: "t", projectId: "p", jobId: A, destinationVersionId: null,
+      supabase: fake.client as never });
+    return { overlap: evaluated.results.get(lines[0].id)?.find((result) => result.rule === "zone_overlap") ?? null,
+      writes: evaluated.writes.map((write) => write.id), context: evaluated.context };
+  }
+
+  it("compares the plan with another plan of the affaire already read, finds their duplicate, and writes only its own lines", async () => {
+    const { overlap, writes, context } = await evaluatePlan({ peers: true, readingLevel: "R+1" });
+    expect(overlap).toMatchObject({ status: "fail", code: "ZONE_OVERLAP_DUPLICATE" });
+    expect(writes).toEqual([line(A, PLAN_A).id]);
+    expect(context.stamps).toEqual({ peers: "p", locations: "l" });
+  });
+
+  it("compares it with no plan the context does not name (one still read, or sent)", async () => {
+    expect((await evaluatePlan({ peers: false, readingLevel: "R+1" })).overlap).toMatchObject({ status: "pass", code: "ZONE_OVERLAP_NONE" });
+  });
+
+  it("compares pages without a level of their own under the level an operator set for each plan revision", async () => {
+    expect((await evaluatePlan({ peers: true, readingLevel: null, operatorLevels: { a: "R+1", b: "R+1" } })).overlap)
+      .toMatchObject({ status: "fail", code: "ZONE_OVERLAP_DUPLICATE" });
+    // Two levels set apart: the two plans are not on one floor.
+    expect((await evaluatePlan({ peers: true, readingLevel: null, operatorLevels: { a: "R+1", b: "R+2" } })).overlap)
+      .toMatchObject({ status: "pass", code: "ZONE_OVERLAP_NONE" });
+  });
+
+  it("leaves a page with no level, read or set, compared with no other", async () => {
+    expect((await evaluatePlan({ peers: true, readingLevel: null })).overlap).toBeNull();
+  });
+
+  it("keeps a page's own level over the operator's", async () => {
+    // The pages read « R+1 »; an operator set « R+2 » on one plan: its pages keep their reading, the duplicate stays.
+    expect((await evaluatePlan({ peers: true, readingLevel: "R+1", operatorLevels: { a: "R+2", b: null } })).overlap)
+      .toMatchObject({ status: "fail", code: "ZONE_OVERLAP_DUPLICATE" });
   });
 });
 

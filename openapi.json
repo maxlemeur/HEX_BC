@@ -101897,8 +101897,7 @@
                             "choose_destination",
                             "read_only",
                             "rules_unbounded",
-                            "draft_locked",
-                            "plan_send_pending"
+                            "draft_locked"
                           ]
                         },
                         {
@@ -102075,8 +102074,7 @@
                           "choose_destination",
                           "read_only",
                           "rules_unbounded",
-                          "draft_locked",
-                          "plan_send_pending"
+                          "draft_locked"
                         ]
                       },
                       "message": {
@@ -103293,6 +103291,125 @@
                   }
                 ]
               },
+              "plan_scope": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "request_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                      },
+                      "plan_name": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "location": {
+                        "anyOf": [
+                          {
+                            "type": "object",
+                            "properties": {
+                              "building": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "level": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "generation": {
+                                "type": "integer",
+                                "exclusiveMinimum": 0,
+                                "maximum": 9007199254740991
+                              }
+                            },
+                            "required": [
+                              "building",
+                              "level",
+                              "generation"
+                            ],
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "compared": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "job_id": {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                            },
+                            "plan_name": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "job_id",
+                            "plan_name"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "unread": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "plan_name": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "state": {
+                              "type": "string",
+                              "enum": [
+                                "queued",
+                                "running",
+                                "failed",
+                                "canceled",
+                                "not_started"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "plan_name",
+                            "state"
+                          ],
+                          "additionalProperties": false
+                        }
+                      }
+                    },
+                    "required": [
+                      "request_id",
+                      "plan_name",
+                      "location",
+                      "compared",
+                      "unread"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "impact": {
                 "type": "object",
                 "properties": {
@@ -103341,6 +103458,7 @@
               "outcome_pending",
               "controls",
               "page_proposal",
+              "plan_scope",
               "impact"
             ],
             "additionalProperties": false

@@ -29,6 +29,7 @@ import type { TakeoffPageDecision } from "@/lib/takeoff/page-replacement-contrac
 import type {
   TakeoffSendDestination,
   TakeoffSendEstimateLine,
+  TakeoffSendPlanScope,
   TakeoffSendPreviewResponse,
   TakeoffSendResponse,
   TakeoffSendSectionChoice,
@@ -198,7 +199,10 @@ function TakeoffSendScreen({ open, jobId, isAdmin, jobLevel, targetedReviewHref,
       setSubmitting(false);
     }
     if (!response) return;
-    toast.success({ title: TAKEOFF_APPLY_SENT_TITLE, description: takeoffApplySentDescription(response) });
+    // The send of one plan says which plan arrived: the estimate opens on the first line it wrote.
+    const planName = data.plan_scope ? data.plan_scope.plan_name ?? "sans nom" : null;
+    toast.success({ title: planName ? `Plan « ${planName} » envoyé au tableau de chiffrage` : TAKEOFF_APPLY_SENT_TITLE,
+      description: takeoffApplySentDescription(response) });
     onSent(response);
     router.push(landingHref(response));
   };
@@ -262,15 +266,24 @@ function TakeoffSendScreen({ open, jobId, isAdmin, jobLevel, targetedReviewHref,
   );
 }
 
+const UNREAD_LABELS: Record<TakeoffSendPlanScope["unread"][number]["state"], string> = {
+  queued: "en attente de lecture", running: "en lecture", failed: "lecture en échec", canceled: "lecture arrêtée",
+  not_started: "lecture non démarrée",
+};
+
 /** What the controls between takeoffs say for this destination, each one evaluated or not as it ran. */
 function crossTakeoffSummary(data: TakeoffSendPreviewResponse) {
   const { controls } = data;
   if (controls.cross_takeoff === null) {
     return "Doublons et couverture entre métrés : comparaison au devis disponible à l’envoi, une fois la destination choisie.";
   }
-  const where = controls.evaluated_for === "existing_draft" ? "avec les métrés de ce brouillon"
-    : controls.evaluated_for === "version_copy" ? "avec les métrés de la version copiée"
-      : "pour ce nouveau devis, qui ne porte encore aucun autre métré";
+  // The send of one plan is also compared with the affaire's other plans already read (« 2 autres plans déjà lus »).
+  const peers = data.plan_scope && data.plan_scope.compared.length > 0
+    ? plural(data.plan_scope.compared.length, "autre plan déjà lu", "autres plans déjà lus") : null;
+  const where = controls.evaluated_for === "existing_draft" ? `avec les métrés de ce brouillon${peers ? ` et ${peers}` : ""}`
+    : controls.evaluated_for === "version_copy" ? `avec les métrés de la version copiée${peers ? ` et ${peers}` : ""}`
+      : peers ? `avec ${peers} de l’affaire, ce nouveau devis ne portant encore aucun autre métré`
+        : "pour ce nouveau devis, qui ne porte encore aucun autre métré";
   const { duplicates, coverage } = controls.cross_takeoff;
   if (duplicates === coverage) {
     return duplicates === "evaluated" ? `Doublons et couverture entre métrés : vérifiés ${where}.`
@@ -333,6 +346,8 @@ function SendPreviewBody({ data, headline, disabled, onDestinationChange, onSect
         ) : null}
         <p className="text-sm text-muted-foreground">{crossTakeoffSummary(data)}</p>
       </section>
+
+      {data.plan_scope ? <PlanScope scope={data.plan_scope} /> : null}
 
       {data.blocked ? <Alert variant={data.blocked.reason === "choose_destination" ? "info" : "warning"}>{data.blocked.message}</Alert> : null}
 
@@ -416,5 +431,48 @@ function SendPreviewBody({ data, headline, disabled, onDestinationChange, onSect
         </section>
       ) : null}
     </>
+  );
+}
+
+/**
+ * The send of one plan of a request read plan by plan: this plan only, while the others may still be read. The plans
+ * already read are compared with it; those not read yet are named, never covered by the controls: each will be reviewed
+ * and sent on its own, and its own send compares it with this one.
+ */
+function PlanScope({ scope }: { scope: TakeoffSendPlanScope }) {
+  const name = scope.plan_name ?? "sans nom";
+  return (
+    <section aria-labelledby="takeoff-send-plan-scope" className="space-y-2 rounded-xl border border-border p-4">
+      <h3 id="takeoff-send-plan-scope" className="text-sm font-semibold text-foreground">Envoi du plan « {name} »</h3>
+      <p className="text-sm text-muted-foreground">
+        Seules les lignes retenues de ce plan partent ; les autres plans de la demande s’envoient chacun depuis leur revue.
+      </p>
+      {scope.location && (scope.location.level || scope.location.building) ? (
+        <p className="text-sm text-muted-foreground">
+          Localisation du plan{scope.location.building ? ` : bâtiment ${scope.location.building}` : ""}
+          {scope.location.level ? `${scope.location.building ? "," : " :"} niveau ${scope.location.level}` : ""} (corrigée par un
+          opérateur) : une page sans niveau lu est comparée sous ce niveau.
+        </p>
+      ) : null}
+      {scope.compared.length > 0 ? (
+        <p className="text-sm text-muted-foreground">
+          Comparé avec {plural(scope.compared.length, "le plan déjà lu", "les plans déjà lus")} :{" "}
+          {scope.compared.map((plan) => `« ${plan.plan_name ?? "sans nom"} »`).join(", ")}.
+        </p>
+      ) : null}
+      {scope.unread.length > 0 ? (
+        <div className="text-sm">
+          <p className="text-foreground">
+            {plural(scope.unread.length, "plan de la demande n’est pas encore lu", "plans de la demande ne sont pas encore lus")} :
+            les contrôles entre plans ne les couvrent pas.
+          </p>
+          <ul aria-label="Plans non lus" className="mt-1 list-disc space-y-0.5 pl-5 text-muted-foreground">
+            {scope.unread.map((plan, index) => (
+              <li key={`${plan.plan_name ?? ""}-${index}`}>« {plan.plan_name ?? "sans nom"} » : {UNREAD_LABELS[plan.state]}</li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+    </section>
   );
 }

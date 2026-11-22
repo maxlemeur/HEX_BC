@@ -86,6 +86,11 @@ const USER = "60000000-0000-4000-8000-000000000001";
 const DPGF_DRAFT = "30000000-0000-4000-8000-000000000001";
 const OTHER_DRAFT = "30000000-0000-4000-8000-000000000002";
 const REQUEST = "90000000-0000-4000-8000-000000000001";
+const OTHER_JOB = "40000000-0000-4000-8000-000000000002";
+const PLAN_FILE = "a0000000-0000-4000-8000-0000000000f1";
+const LOCATION = "b0000000-0000-4000-8000-0000000000c1";
+/** The context of a grouped or standalone analysis: no peer, no location; its stamps all the same. */
+const NO_CONTEXT = { peers: [], plans: [], stamps: { peers: "1".repeat(32), locations: "2".repeat(32) }, display: null };
 const OUTCOME = { format_version: 1, engine: 3, sections_created: [], parts: [],
   lines: [{ change: "created", ref: null, section: "new", title: "Lavabo", unit: "u", quantity: 3, quantity_before: null,
     unit_price_ht_cents: 0, takeoff_item_ids: [ITEM] }] };
@@ -118,8 +123,11 @@ function setUp(versions: Array<{ id: string; dpgf: boolean | number }>, options:
   committedBefore?: { request: string; format: number };
   /** The member's role as the database holds it now (the context may say otherwise). */
   membershipRole?: string;
-  /** The job is a plan's unit of one analysis per plan (lot 3). */
-  unitKey?: string;
+  /**
+   * Lot 3: the context the database computed for the send (read_takeoff_send_context, through the rules' evaluation): an
+   * analysis of one plan of a request when it names one (display), a grouped or standalone analysis otherwise.
+   */
+  context?: Record<string, unknown>;
 } = {}) {
   // What the service staged, by request: the member's session runs it as public.send_takeoff_job does.
   const staged = new Map<string, Record<string, unknown>>();
@@ -140,7 +148,8 @@ function setUp(versions: Array<{ id: string; dpgf: boolean | number }>, options:
   const supabase = createSupabaseFake({
     tables: {
       takeoff_jobs: () => ({ data: { id: JOB, project_id: PROJECT, estimate_version_id: null, status: "completed", level: "C",
-        plan_set_id: null, execution_provider: "chatgpt_local", preparation_revision: "1", launch_unit_key: options.unitKey ?? null },
+        plan_set_id: null, execution_provider: "chatgpt_local", preparation_revision: "1",
+        launch_request_id: options.context?.display ? REQUEST : null },
         error: null }),
       takeoff_items: () => ({ data: [{ id: ITEM, designation: "Lavabo", quantity: 3, unit: "u", is_excluded: false, source_file_name: "plan.pdf",
         source_page: 1, quantity_entry_category: null, metadata: {}, confidence: 0.95, is_verified: false }], error: null, count: 1 }),
@@ -220,7 +229,7 @@ function setUp(versions: Array<{ id: string; dpgf: boolean | number }>, options:
       original: state, transformed: state }] });
   // The takeoff's lines carry no rule input: nothing is evaluated for any destination.
   vi.mocked(evaluateTakeoffRulesForDestination).mockResolvedValue({ jobStamp: "b".repeat(32), peersStamp: null, writes: [],
-    transforms: [], results: options.results ?? new Map() } as never);
+    transforms: [], results: options.results ?? new Map(), context: options.context ?? NO_CONTEXT } as never);
   // As the comparison loader does for a takeoff not on that version.
   vi.mocked(buildTakeoffPageReplacementProposal).mockRejectedValue(Object.assign(new Error("Comparaison DPGF indisponible."), { status: 409 }));
   // A recomputation of the rules that wrote every line it read.
@@ -247,21 +256,51 @@ describe("previewTakeoffSend — a destination that cannot receive the send", ()
 });
 
 describe("previewTakeoffSend — one analysis per plan", () => {
-  // Lot 3: a plan's analysis is read and reviewed now; its send to the estimate stays closed until the partial send (the
-  // database refuses to attach it to a version too: takeoff-plan-dispatcher.test.sql). Lot 2's grouped analysis still sends.
-  it("says the send of a plan's analysis comes later, before reading anything of the affaire's estimates", async () => {
-    setUp([], { unitKey: `plan:${JOB}` });
-    const preview = await previewTakeoffSend(JOB, {});
-    expect(preview.blocked).toEqual({ reason: "plan_send_pending", message: expect.stringContaining("rien n’est écrit") });
-    expect(preview.lines).toEqual([]);
-    expect(buildTakeoffPageReplacementProposal).not.toHaveBeenCalled();
+  // Lot 3, migration C: the send of a plan's analysis opens while the request's other plans are read. Until then (#448)
+  // the preview answered « plan_send_pending » with no line; now it previews the plan's lines, names the plans its controls
+  // compared it with and those not read yet, and stages the stamps of the context the database computed, which the send
+  // compares again under its locks.
+  const planContext = (unread: Array<{ plan_name: string; state: string }>, peers = "c".repeat(32)) => ({
+    peers: [{ job_id: OTHER_JOB, stamp: "d".repeat(32) }],
+    plans: [{ job_id: JOB, plan_file_id: PLAN_FILE, content_hash: "e".repeat(64), location: { id: LOCATION, revision: 2,
+      building_choice: "reading", building: null, level_choice: "value", level: "R+1" } }],
+    stamps: { peers, locations: "f".repeat(32) },
+    display: { request_id: REQUEST, plan_name: "plan-a.pdf", peers: [{ job_id: OTHER_JOB, plan_name: "plan-b.pdf" }], unread },
   });
 
-  it("still previews the send of a grouped analysis of a request", async () => {
-    setUp([], { unitKey: "grouped" });
+  it("previews the plan's lines while another plan is read, names its scope and stages the context's stamps", async () => {
+    const fake = setUp([], { context: planContext([{ plan_name: "plan-c.pdf", state: "running" }]) });
+
     const preview = await previewTakeoffSend(JOB, {});
+
     expect(preview.blocked).toBeNull();
     expect(preview.estimate_lines).toEqual([expect.objectContaining({ change: "created", title: "Lavabo", quantity: 3 })]);
+    expect(preview.plan_scope).toEqual({ request_id: REQUEST, plan_name: "plan-a.pdf",
+      location: { building: null, level: "R+1", generation: 2 },
+      compared: [{ job_id: OTHER_JOB, plan_name: "plan-b.pdf" }], unread: [{ plan_name: "plan-c.pdf", state: "running" }] });
+    // The dry run carries the stamps the database computed, never a hash of this server's.
+    expect(fake.staged()[0].expected).toMatchObject({ context: { peers: "c".repeat(32), locations: "f".repeat(32) } });
+  });
+
+  it("keeps its fingerprint while a plan not read progresses, and changes it when a peer was read", async () => {
+    setUp([], { context: planContext([{ plan_name: "plan-c.pdf", state: "queued" }]) });
+    const queued = await previewTakeoffSend(JOB, {});
+    setUp([], { context: planContext([{ plan_name: "plan-c.pdf", state: "running" }]) });
+    const running = await previewTakeoffSend(JOB, {});
+    setUp([], { context: planContext([], "9".repeat(32)) });
+    const read = await previewTakeoffSend(JOB, {});
+
+    expect(running.fingerprint).toBe(queued.fingerprint);
+    expect(read.fingerprint).not.toBe(queued.fingerprint);
+  });
+
+  it("previews a grouped analysis of a request as lot 2 does: no plan scope", async () => {
+    const fake = setUp([]);
+    const preview = await previewTakeoffSend(JOB, {});
+    expect(preview.blocked).toBeNull();
+    expect(preview.plan_scope).toBeNull();
+    expect(preview.estimate_lines).toEqual([expect.objectContaining({ change: "created", title: "Lavabo", quantity: 3 })]);
+    expect(fake.staged()[0].expected).toMatchObject({ context: NO_CONTEXT.stamps });
   });
 });
 
