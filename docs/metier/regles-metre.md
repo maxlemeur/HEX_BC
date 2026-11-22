@@ -346,6 +346,14 @@ repères, le compte et l’historique, sans geste. Tant qu’un envoi ne vérifi
 révision des repères, une quantité comptée sur le plan est montrée et n’est jamais
 envoyée : le tableau des postes et l’envoi gardent la quantité qu’ils retiennent.
 
+Une acceptance du tableau des postes retient aussi la révision des repères de la réponse
+acceptée. Si les repères changent ensuite (un repère ajouté, déplacé, retiré, rétabli,
+retenu, affecté à un autre poste, une page vérifiée, une nouvelle lecture machine), même à
+nombre égal, l’acceptance n’est plus une décision : le poste redevient « à décider » dans
+le tableau, ses compteurs et la commande, et s’accepte de nouveau sur les repères actuels.
+Écarter puis réintégrer un poste rend l’acceptance telle qu’elle était, liée aux repères
+sur lesquels elle avait été prise. Une réponse sans repères garde son acceptance.
+
 Une ligne de devis créée depuis un import garde dans sa provenance l’import et la
 ligne mappée. La ligne mappée nomme la ligne brute dont elle vient ; quand une
 nouvelle correspondance la supprime, la base garde ce lien. La ligne de devis et ses
