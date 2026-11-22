@@ -170,12 +170,19 @@ export function ProductPackagings({
         ? "Enregistrez d’abord la nouvelle unité de l’article pour lui ajouter des conditionnements de vente."
         : null;
 
-  /** What the server holds now replaces the list; the rows it no longer has lose their unsaved text. */
-  const apply = (list: ProductPackagingList, settledId?: string) => {
+  /**
+   * What the server holds now replaces the list; the rows it no longer has lose their unsaved text. The row just
+   * saved loses the text that was sent only: what was typed while the save was on its way stays, still to be saved.
+   */
+  const apply = (list: ProductPackagingList, settled?: { id: string; sent?: RowDraft }) => {
     setState({ productId, status: "ready", list });
     setDrafts((previous) =>
       Object.fromEntries(
-        Object.entries(previous).filter(([id]) => id !== settledId && list.items.some((item) => item.id === id)),
+        Object.entries(previous).filter(([id, draft]) => {
+          if (!list.items.some((item) => item.id === id)) return false;
+          if (id !== settled?.id) return true;
+          return settled.sent !== undefined && (draft.label !== settled.sent.label || draft.quantity !== settled.sent.quantity);
+        }),
       ),
     );
   };
@@ -203,9 +210,10 @@ export function ProductPackagings({
       setError(read.refusal);
       return;
     }
+    const sent = rowDraft(item);
     start(item.id);
     try {
-      apply(await updateProductPackaging(productId, item.id, { label: read.label, quantity: read.quantity }), item.id);
+      apply(await updateProductPackaging(productId, item.id, { label: read.label, quantity: read.quantity }), { id: item.id, sent });
       setSaved("Conditionnement enregistré.");
     } catch (failure) {
       setError(catalogueErrorMessage(failure, "Le conditionnement n’a pas pu être enregistré."));
@@ -247,7 +255,7 @@ export function ProductPackagings({
     if (busy || pendingUsual) return;
     start(`remove-${item.id}`);
     try {
-      apply(await deleteProductPackaging(productId, item.id), item.id);
+      apply(await deleteProductPackaging(productId, item.id), { id: item.id });
       setSaved("Conditionnement retiré.");
     } catch (failure) {
       setError(catalogueErrorMessage(failure, "Le conditionnement n’a pas pu être retiré."));

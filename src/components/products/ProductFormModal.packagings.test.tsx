@@ -20,7 +20,8 @@ import { ProductFormModal, type ProductRecord } from "@/components/products/Prod
  *  8. a list that could not be read is shown as « no packaging »;
  *  9. the controls of two rows bear the same accessible name, or the unit notice is neither tied to the unit field
  *     nor announced when it appears;
- * 10. an answer to a « usuel » choice, older than a packaging added meanwhile, hides that packaging.
+ * 10. an answer to a « usuel » choice, older than a packaging added meanwhile, hides that packaging;
+ * 11. a row's text typed while its save is on its way is replaced by the answer to that save, and lost.
  */
 
 const PRODUCT_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
@@ -225,6 +226,33 @@ describe("ProductFormModal, sale packagings", () => {
 
     await waitFor(() => expect(sentBodies("PATCH")).toEqual([{ url: `${URL}/${BAR}`, body: { label: "Barre", quantity: 3 } }]));
     expect(await within(region).findByText("Conditionnement enregistré.")).toBeVisible();
+  });
+
+  it("keeps a quantity typed while the row's save is on its way, still to be saved (11)", async () => {
+    const user = userEvent.setup({ delay: null });
+    let releaseSave: (reply: Reply) => void = () => {};
+    routes = {
+      [`GET ${URL}`]: answer([bar, reel]),
+      [`PATCH ${URL}/${BAR}`]: () => new Promise<Reply>((resolve) => { releaseSave = resolve; }),
+    };
+    renderForm();
+
+    const region = await section();
+    await within(region).findByDisplayValue("Touret");
+    const rows = within(region).getAllByRole("listitem");
+    const quantity = within(rows[0]).getByRole("textbox", { name: "Quantité en ml : Barre de 6 ml" });
+    await user.clear(quantity);
+    await user.type(quantity, "3");
+    await user.click(within(rows[0]).getByRole("button", { name: "Enregistrer : Barre de 6 ml" }));
+    // The office goes on typing before the answer comes back.
+    await user.type(quantity, ",5");
+    releaseSave(answer([{ ...bar, quantity: 3 }, reel]));
+
+    expect(await within(region).findByText("Conditionnement enregistré.")).toBeVisible();
+    const saved = within(region).getAllByRole("listitem")[0];
+    expect(within(saved).getByRole("textbox", { name: "Quantité en ml : Barre de 3 ml" })).toHaveValue("3,5");
+    expect(within(saved).getByRole("button", { name: "Enregistrer : Barre de 3 ml" })).toBeEnabled();
+    expect(sentBodies("PATCH")).toEqual([{ url: `${URL}/${BAR}`, body: { label: "Barre", quantity: 3 } }]);
   });
 
   it("removes a packaging once the server has, and keeps it with the server's sentence when refused (5)", async () => {
