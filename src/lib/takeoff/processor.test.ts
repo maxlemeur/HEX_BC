@@ -3504,8 +3504,9 @@ describe("an attempt of a plan of one analysis per plan", () => {
 // reads as before (src/lib/takeoff/poste-reading-job-server.ts holds the reading itself).
 describe("an attempt of the second measuring order", () => {
   const REQUEST = "77777777-7777-4777-8777-777777777777";
+  // Its manifest is read by the reading itself, which these tests replace.
   const ORDER = { requestId: REQUEST, revisionId: "99999999-9999-4999-8999-999999999999", revision: 3, itemCount: 4,
-    contentSha256: "e".repeat(64) };
+    contentSha256: "e".repeat(64), manifest: {} as never };
   // Its unit (one plan) is checked by the reading itself, which these tests replace.
   const planUnit = { launch_request_id: REQUEST } as unknown as Partial<TakeoffJobRow>;
   beforeEach(() => vi.stubEnv("MERGEONE_TAKEOFF_VECTORS", "0"));
@@ -3518,7 +3519,9 @@ describe("an attempt of the second measuring order", () => {
 
   // Until the publication of a plan's answers is delivered (PR 3c), a job of the second order stops once claimed: its
   // failure recorded under its lease, before its plan is downloaded or read and before any paid call.
+  // Closing round, point 8: with the vector reading and its classifier on, so that their assertions can fail.
   it("stops a job of the second order once claimed, before reading its plan or making any paid call", async () => {
+    for (const [name, value] of Object.entries({ MERGEONE_TAKEOFF_VECTORS: "1", MERGEONE_TAKEOFF_DECISIONS: "1" })) vi.stubEnv(name, value);
     const mock = await levelCJob(planUnit);
     vi.mocked(readTakeoffItemListOrder).mockResolvedValueOnce(ORDER);
     const call = vi.fn();
@@ -3527,7 +3530,8 @@ describe("an attempt of the second measuring order", () => {
       message: expect.stringContaining("avant tout appel") });
     expect(mock.state.job).toMatchObject({ status: "failed", error_code: "TAKEOFF_LEVEL_UNSUPPORTED", next_retry_at: null,
       prompt_version: "takeoff-c-postes-v1" });
-    // Neither the PDF reader nor the vector reading and its classifier is invoked.
+    // Its plan is never downloaded; neither the PDF reader nor the vector reading and its classifier is invoked.
+    expect(mock.state.downloadRequests).toEqual([]);
     expect(call).not.toHaveBeenCalled();
     expect(processItemListLevelC).not.toHaveBeenCalled();
     expect(readTakeoffVectorPages).not.toHaveBeenCalled();

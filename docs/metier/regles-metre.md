@@ -179,26 +179,37 @@ Chaque poste reçoit une réponse par plan :
 Une réponse manquante, un poste qui n’était pas demandé, deux réponses pour un même
 poste, une page hors du fragment joint ou une page ni cherchée ni déclarée illisible
 arrêtent l’analyse du plan (« Extraction incomplète sur ce document. ») : rien n’est
-compté comme non trouvé à sa place. Une quantité est lue à trois décimales, comme le
-métré la conserve ; une valeur qui n’est plus positive une fois arrondie n’est pas
-une mesure. Chaque observation dit si elle compte un objet ou une zone distincts, ou
-si elle relit un objet déjà relevé sur la même page : seules les observations
-distinctes s’additionnent ; deux lectures que rien ne distingue (même page, même
-indice, même valeur) rendent la réponse incertaine et ne s’additionnent jamais. Une
-mesure qui n’est pas sur la base demandée par le poste, une mesure à l’échelle sans
-base déclarée, ou des mesures sur deux bases différentes rendent la réponse incertaine.
-Chaque page appartient à un seul fragment : la lecture d’une page de recouvrement par
-l’autre fragment n’est jamais ajoutée, et si les deux lectures diffèrent (au compte
-près pour des pièces, de plus de 1 % pour une longueur ou une surface), la réponse
-devient incertaine. Une page illisible rend
-la réponse incertaine : elle ne prouve ni une absence ni un total. Une unité lue
-différente de celle du poste, ou un comptage non entier d’un poste compté à l’unité,
-rend aussi la réponse incertaine. La lecture vectorielle d’un réseau se rattache au
-poste de même réseau, matière et diamètre, celle de la surface d’un local au poste
-mesuré en m² dont le libellé nomme ce local ; elle confirme la mesure (écart d’au plus
-1 %) ou rend la réponse incertaine, reste une indication à vérifier quand le modèle
-n’a rien trouvé, et un simple candidat quand plusieurs postes peuvent la revendiquer.
-Elle ne s’ajoute jamais à la mesure. Un ouvrage du plan absent de la liste est signalé
+compté comme non trouvé à sa place. Une quantité est conservée à trois décimales,
+comme le métré la garde ; une valeur qui n’est plus positive une fois arrondie n’est
+pas une mesure. Chaque observation dit si elle compte un objet ou une zone distincts, ou
+si elle relit un objet déjà relevé sur la même page, et si elle est sur la base
+demandée : seules les observations que le modèle déclare distinctes s’additionnent ;
+deux lectures que rien ne distingue (même page, même indice, même valeur) rendent la
+réponse incertaine et ne s’additionnent jamais. Une mesure déclarée hors de la base
+demandée par le poste, ou dont la base écrite en est une autre, une mesure à l’échelle
+sans base écrite, ou des mesures sur deux bases différentes rendent la réponse
+incertaine ; sa valeur candidate n’additionne alors que les lectures sur la base
+demandée, ou n’en donne aucune. La lecture se fie à ces déclarations du modèle : deux
+observations d’un même poste sur une page, d’indices ou de valeurs différents,
+déclarées distinctes, s’additionnent (deux pièces de 12 m² comme une pièce lue deux
+fois), et une mesure déclarée sur la base demandée est prise comme telle ; aucune
+règle de la fusion ne les distingue. C’est la justesse de la lecture, que le
+chiffreur contrôle dans le tableau des postes. Chaque page appartient à un seul
+fragment : la lecture d’une page de recouvrement par l’autre fragment n’est jamais
+ajoutée, et si le total qu’il y lit diffère de celui du fragment propriétaire (de plus
+de 1 % pour une longueur ou une surface, de quoi que ce soit pour toute autre unité),
+la réponse devient incertaine. Une page illisible rend la réponse incertaine : elle ne
+prouve ni une absence ni un total. Une unité lue différente de celle du poste, ou un
+comptage non entier d’un poste compté à l’unité (sur la valeur lue, avant tout
+arrondi), rend aussi la réponse incertaine. La lecture vectorielle d’un réseau se
+rattache au poste de même réseau, matière et diamètre : elle confirme la mesure (écart
+d’au plus 1 %) ou rend la réponse incertaine. Celle de la surface d’un local se
+rattache au poste mesuré en m² dont le libellé nomme ce local ; comme elle ne dit pas
+ce que le poste mesure (une faïence murale n’est pas le sol de la pièce), elle ne
+change jamais une réponse mesurée et lui reste jointe pour le chiffreur. L’une comme
+l’autre reste une indication à vérifier quand le modèle n’a rien trouvé, et un simple
+candidat quand plusieurs postes peuvent la revendiquer. Elle ne s’ajoute jamais à la
+mesure. Un ouvrage du plan absent de la liste est signalé
 avec le résultat (« POSTE_HORS_LISTE »), sans créer de poste.
 
 Sur l’affaire, tant qu’un plan attendu n’est pas lu, le total d’un poste reste
@@ -211,8 +222,9 @@ est bornée : les appels prévus (fragments × lots, plus ceux de la classificat
 groupes vectoriels quand elle est active, 40 au plus par plan et 200 par demande),
 la taille de leurs réponses et le budget. Chaque appel réserve 30 000 jetons et ne
 démarre que si la part de son plan et la demande gardent un solde positif. Avant son
-premier appel payant, le job refait ce compte avec les réglages qu’il utilisera
-réellement : au-delà, il s’arrête avec la même raison, sans rien dépenser. Au-delà, la demande n’est pas admise : « Métré non démarré — les plans …
+premier appel payant, le job refait ce compte sur la demande entière, avec les
+réglages qu’il utilisera réellement : au-delà, il s’arrête avec la même raison, sans
+rien dépenser. Au-delà, la demande n’est pas admise : « Métré non démarré — les plans …
 dépassent les limites d’une lecture contre la liste des postes », avec les appels
 prévus et le budget. Rien n’est échantillonné ; réduire les plans ou les pages lus
 permet de la relancer.

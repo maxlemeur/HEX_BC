@@ -25,6 +25,7 @@ import { itemListEntries } from "@/lib/takeoff/item-list";
 import type { TakeoffJobProcessingRow } from "@/lib/takeoff/job-lifecycle";
 import { createSupabaseFake, servedRows, type FakeQuery } from "@/lib/takeoff/metre-m3.test-utils";
 import { POSTE_EXCHANGE_PROMPT_VERSION } from "@/lib/takeoff/poste-exchange";
+import type { TakeoffPlanLaunchManifest } from "@/lib/takeoff/launch-request";
 import type { Poste } from "@/lib/takeoff/poste-list";
 import { logCompletedAuditEvent } from "@/lib/takeoff/processing-audit";
 import { buildTakeoffItemAnswersPublication, publishTakeoffItemAnswers } from "@/lib/takeoff/poste-publication-server";
@@ -56,6 +57,22 @@ const ITEMS = [LAVABO, VANNE, BAIGNOIRE, EF];
 
 const ORDER = { kind: "item_list", version: 2, list: { revision_id: REVISION, revision: 3, content_sha256: "e".repeat(64), item_count: 4 } };
 
+type ManifestPlan = { id: string; pages?: number[]; pageCount: number; vectorPages?: number; budget?: { tokens: number; cost_cents: number } };
+/** The request's sealed manifest of one analysis per plan, its plans in their recorded order, each unit with its share. */
+function planManifest(plans: ManifestPlan[], budget = { tokens: 400_000, cost_cents: 2_500 },
+  order: unknown = ORDER): TakeoffPlanLaunchManifest {
+  return { format_version: 2, intent: "initial", order: order as TakeoffPlanLaunchManifest["order"],
+    plans: plans.map((plan, index) => ({ entry_key: plan.id, name: `Plan ${index + 1}.pdf`, logical_id: plan.id, intake_document_id: null,
+      plan_file_id: plan.id, generation: null, content_sha256: "a".repeat(64), pages: plan.pages ?? [], page_count: plan.pageCount })),
+    units: plans.map((plan, index) => ({ key: `plan:${plan.id}`, ordinal: index + 1, plans: [plan.id] as [string], pages: plan.pages ?? [],
+      page_count: plan.pageCount, budget: plan.budget ?? budget, vector_pages: plan.vectorPages ?? 0 })),
+    references: [], coverage: { plans_retained: plans.length, plans_omitted: [], references_omitted: [] },
+    preparation: { revision: 1, rule_version: 1 }, budget, dispatch: { order: "display_name", version: 1 } };
+}
+/** The job's own plan: its 4 retained pages of 6, its share the whole envelope, 4 vector pages. */
+const MANIFEST = planManifest([{ id: PLAN, pages: [3, 4, 5, 6], pageCount: 6, vectorPages: 4 }]);
+const SEALED = { requestId: REQUEST, revisionId: REVISION, revision: 3, itemCount: 4, contentSha256: "e".repeat(64), manifest: MANIFEST };
+
 /** Rows as PostgREST serves them, one row (or none) for a single read. */
 function served(rows: Array<Record<string, unknown>>, query: FakeQuery) {
   const result = servedRows(rows, query);
@@ -63,15 +80,17 @@ function served(rows: Array<Record<string, unknown>>, query: FakeQuery) {
 }
 
 /** The request's row and the sealed revision as the worker's client reads them. */
-function database(input: { order?: unknown; recorded?: string | null; entries?: Array<Record<string, unknown>>; itemCount?: number } = {}) {
-  const entries = input.entries ?? itemListEntries({ items: ITEMS }).map((entry, position) => ({ ...entry, position, revision_id: REVISION,
-    tenant_id: TENANT, project_id: PROJECT }));
+function database(input: { order?: unknown; recorded?: string | null; entries?: Array<Record<string, unknown>>; itemCount?: number;
+  items?: Poste[]; manifest?: unknown } = {}) {
+  const entries = input.entries ?? itemListEntries({ items: input.items ?? ITEMS }).map((entry, position) => ({ ...entry, position,
+    revision_id: REVISION, tenant_id: TENANT, project_id: PROJECT }));
   return createSupabaseFake({ tables: {
     takeoff_launch_requests: (query: FakeQuery) => served([{ id: REQUEST, tenant_id: TENANT, project_id: PROJECT,
-      manifest: { format_version: 2, order: input.order ?? ORDER },
+      manifest: input.manifest ?? planManifest([{ id: PLAN, pages: [3, 4, 5, 6], pageCount: 6, vectorPages: 4 }], undefined,
+        input.order ?? ORDER),
       item_list_revision_id: input.recorded === undefined ? REVISION : input.recorded }], query),
     takeoff_list_revisions: (query: FakeQuery) => served([{ id: REVISION, tenant_id: TENANT, project_id: PROJECT, revision: 3,
-      item_count: input.itemCount ?? 4 }], query),
+      item_count: input.itemCount ?? input.items?.length ?? 4 }], query),
     takeoff_list_revision_entries: (query: FakeQuery) => servedRows([...entries,
       // Another revision's entry: never read for this one.
       { ...entries[0], revision_id: "aaaaaaaa-0000-4000-8000-0000000000ff", item_id: "cccccccc-0000-4000-8000-000000000001" }], query),
@@ -138,8 +157,7 @@ describe("readTakeoffItemListOrder", () => {
   });
 
   it("gives the list a job's request sealed, and nothing for the free extraction", async () => {
-    await expect(readTakeoffItemListOrder(database().client as never, job())).resolves.toEqual({ requestId: REQUEST, revisionId: REVISION,
-      revision: 3, itemCount: 4, contentSha256: "e".repeat(64) });
+    await expect(readTakeoffItemListOrder(database().client as never, job())).resolves.toEqual(SEALED);
     await expect(readTakeoffItemListOrder(database({ order: { kind: "free_extraction", version: 1, list: null }, recorded: null }).client as never,
       job())).resolves.toBeNull();
   });
@@ -248,7 +266,7 @@ describe("buildTakeoffItemAnswersPublication", () => {
 describe("processItemListLevelC", () => {
   async function run(overrides: Partial<Parameters<typeof processItemListLevelC>[0]> = {}) {
     return processItemListLevelC({ supabase: database().client as never, job: job(), sourceFile: await sourceFile(), call: script,
-      model: "controlled", order: { requestId: REQUEST, revisionId: REVISION, revision: 3, itemCount: 4, contentSha256: "e".repeat(64) },
+      model: "controlled", order: SEALED,
       userId: "aaaaaaaa-0000-4000-8000-000000000001", processingStartedAt: new Date("2026-11-22T08:59:00.000Z"),
       now: () => new Date("2026-11-22T09:00:00.000Z"), renewLease: vi.fn(async () => {}), readVectors: async () => vectorOutcomes(),
       ...overrides });
@@ -324,9 +342,11 @@ describe("processItemListLevelC", () => {
     const readVectors = vi.fn(async () => vectorOutcomes());
     vi.mocked(prepareLevelCReading).mockResolvedValueOnce({ pageCount: 4, config: { thresholdPages: 1, chunkSizePages: 2, overlapPages: 1,
       maxPdfPages: 200, timeoutMs: 300_000, maxTotalTokens: 400_000, maxCostCents: 2_500 } });
+    const share = { tokens: 30_000, cost_cents: 2_500 };
     const thin = job({ preparation_snapshot: { launch_unit: { request_id: REQUEST, key: `plan:${PLAN}`, ordinal: 1, vector_pages: 4,
-      budget: { tokens: 30_000, cost_cents: 2_500 } } } });
-    await expect(run({ call, job: thin, readVectors })).rejects.toMatchObject({ code: TakeoffErrorCode.TAKEOFF_LEVEL_C_BUDGET_EXCEEDED,
+      budget: share } } });
+    const manifest = planManifest([{ id: PLAN, pages: [3, 4, 5, 6], pageCount: 6, vectorPages: 4, budget: share }]);
+    await expect(run({ call, job: thin, readVectors, order: { ...SEALED, manifest } })).rejects.toMatchObject({ code: TakeoffErrorCode.TAKEOFF_LEVEL_C_BUDGET_EXCEEDED,
       retryable: false, message: expect.stringContaining("Lecture de 4 postes sur 1 plan : 3 appels prévus") });
     expect(call.received).toEqual([]);
     expect(readVectors).not.toHaveBeenCalled();
@@ -340,5 +360,28 @@ describe("processItemListLevelC", () => {
       message: expect.stringContaining("41 appels prévus") });
     expect(vi.mocked(takeoffVectorGroupCallsBound)).toHaveBeenCalledWith(4);
     expect(call.received).toEqual([]);
+  });
+
+  // Closing round, point 7: the re-check plans the whole request as today's settings plan it, every unit of its manifest,
+  // never its own plan only.
+  it("stops before any paid call when the whole request, planned with today's settings, passes its ceiling", async () => {
+    const call = controlledPosteCall();
+    const items = Array.from({ length: 80 }, (_, index) => poste(100 + index, `Robinet ${index + 1}`));
+    const plans = [PLAN, ...Array.from({ length: 9 }, (_, index) => `aaaaaaaa-0000-4000-8000-0000000002${String(index).padStart(2, "0")}`)];
+    // 7M tokens, 700,000 a plan. Admitted on one fragment of each 12-page plan times two batches: 20 calls. Today's settings
+    // make 11 fragments of a 12-page plan: 22 calls a plan, within its ceiling and its share, 220 for the request.
+    const share = { tokens: 700_000, cost_cents: 250 };
+    const manifest = planManifest(plans.map((id) => ({ id, pageCount: 12, budget: share })), { tokens: 7_000_000, cost_cents: 2_500 },
+      { ...ORDER, list: { ...ORDER.list, item_count: 80 } });
+    vi.mocked(prepareLevelCReading).mockResolvedValueOnce({ pageCount: 12, config: { thresholdPages: 1, chunkSizePages: 2, overlapPages: 1,
+      maxPdfPages: 200, timeoutMs: 300_000, maxTotalTokens: 7_000_000, maxCostCents: 2_500 } });
+    const twelve = { ...(await sourceFile()), bytes: await pdf(12), sourcePageNumbersByPage: Array.from({ length: 12 }, (_, page) => page + 1) };
+    const own = job({ preparation_snapshot: { launch_unit: { request_id: REQUEST, key: `plan:${PLAN}`, ordinal: 1, vector_pages: 0,
+      budget: share } } });
+    await expect(run({ call, job: own, sourceFile: twelve, supabase: database({ items }).client as never,
+      order: { ...SEALED, itemCount: 80, manifest } })).rejects.toMatchObject({ code: TakeoffErrorCode.TAKEOFF_FILE_TOO_LARGE,
+      retryable: false, message: expect.stringContaining("Lecture de 80 postes sur 10 plans : 220 appels prévus") });
+    expect(call.received).toEqual([]);
+    expect(publishTakeoffItemAnswers).not.toHaveBeenCalled();
   });
 });

@@ -95,12 +95,14 @@ export function boundPosteReadingRequest(input: {
 /**
  * The bounds of a sealed manifest that orders a list of items (none for the free extraction): each unit of one analysis
  * per plan with the share it sealed, or a grouped analysis as one unit holding every plan with the request's envelope.
- * A unit's pages are its retained pages, else its page count, else weighed as lot 3 weighs a plan of unknown count.
- * `items`: the sealed revision's items (their batches are counted by their bytes); `vectorCalls`: the most calls the
- * vector classifier may make on a unit of so many vector pages.
+ * A unit's pages are its retained pages, else its page count, else weighed as lot 3 weighs a plan of unknown count;
+ * `countedPages` gives the pages a worker counted on a unit's own PDF (by unit key), in their place. `items`: the sealed
+ * revision's items (their batches are counted by their bytes); `vectorCalls`: the most calls the vector classifier may
+ * make on a unit of so many vector pages.
  */
 export function posteReadingBoundsOfManifest(manifest: AnyTakeoffLaunchManifest, chunking: TakeoffChunkingRuntimeConfig,
-  estimateTokensPerCall: number, items: readonly Poste[], vectorCalls: (vectorPages: number) => number = () => 0): PosteReadingBounds | null {
+  estimateTokensPerCall: number, items: readonly Poste[], vectorCalls: (vectorPages: number) => number = () => 0,
+  countedPages: ReadonlyMap<string, number> = new Map()): PosteReadingBounds | null {
   if (manifest.order.kind !== "item_list") return null;
   if (items.length !== manifest.order.list.item_count) throw new Error("The items bounded are not the list the manifest sealed.");
   const pagesOf = new Map(manifest.plans.map((plan, index) => [plan.entry_key, takeoffPlanWeights(manifest.plans)[index]]));
@@ -108,11 +110,13 @@ export function posteReadingBoundsOfManifest(manifest: AnyTakeoffLaunchManifest,
     const plan = manifest.plans.find((entry) => entry.entry_key === entryKey);
     return { id: plan?.plan_file_id ?? entryKey, name: plan?.name ?? entryKey };
   };
+  const pages = (unit: { key: string; plans: string[] }) => countedPages.get(unit.key)
+    ?? unit.plans.reduce((total, key) => total + (pagesOf.get(key) ?? 1), 0);
   const units: PosteReadingUnitInput[] = manifest.format_version === 2
     ? manifest.units.map((unit) => ({ key: unit.key, pieces: unit.plans.map(piece), budgetTokens: unit.budget.tokens,
-      pages: unit.plans.reduce((total, key) => total + (pagesOf.get(key) ?? 1), 0), vectorCalls: vectorCalls(unit.vector_pages) }))
+      pages: pages(unit), vectorCalls: vectorCalls(unit.vector_pages) }))
     : manifest.units.map((unit) => ({ key: unit.key, pieces: unit.plans.map(piece), budgetTokens: manifest.budget.tokens,
-      pages: unit.plans.reduce((total, key) => total + (pagesOf.get(key) ?? 1), 0), vectorCalls: vectorCalls(TAKEOFF_LAUNCH_VECTOR_PAGES) }));
+      pages: pages(unit), vectorCalls: vectorCalls(TAKEOFF_LAUNCH_VECTOR_PAGES) }));
   return boundPosteReadingRequest({ batches: planPosteBatches(items).map((batch) => batch.length), units,
     requestBudgetTokens: manifest.budget.tokens, chunking, estimateTokensPerCall });
 }

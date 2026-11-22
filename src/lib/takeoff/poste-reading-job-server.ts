@@ -6,9 +6,9 @@ import { readSealedItemListItems } from "@/lib/takeoff/item-list-server";
 import type { TakeoffJobProcessingRow } from "@/lib/takeoff/job-lifecycle";
 import type { TakeoffChunkingRuntimeConfig } from "@/lib/takeoff/chunking";
 import { TAKEOFF_PAID_CALL_ESTIMATE_TOKENS } from "@/lib/takeoff/launch-call-ledger";
-import { describeTakeoffLaunchReason, readTakeoffLaunchUnit } from "@/lib/takeoff/launch-request";
+import { describeTakeoffLaunchReason, readTakeoffLaunchUnit, type AnyTakeoffLaunchManifest } from "@/lib/takeoff/launch-request";
 import { planPosteBatches } from "@/lib/takeoff/poste-exchange";
-import { boundPosteReadingRequest } from "@/lib/takeoff/poste-reading-bounds";
+import { boundPosteReadingRequest, posteReadingBoundsOfManifest } from "@/lib/takeoff/poste-reading-bounds";
 import { buildLevelCRunMetricRows } from "@/lib/takeoff/level-c-chunk-metrics";
 import { prepareLevelCReading, type ProcessLevelCMetricsSummary } from "@/lib/takeoff/level-c-reading";
 import type { Poste } from "@/lib/takeoff/poste-list";
@@ -27,8 +27,12 @@ import { takeoffVectorGroupCallsBound, type VectorPageOutcome } from "@/lib/take
  * A job of the free extraction reads as before: the processor asks `readTakeoffItemListOrder` first.
  */
 
-/** The list of items a job's request sealed (lot 4, the second measuring order): read by the worker, never by the model. */
-export type TakeoffItemListOrder = { requestId: string; revisionId: string; revision: number; itemCount: number; contentSha256: string };
+/**
+ * The list of items a job's request sealed (lot 4, the second measuring order): read by the worker, never by the model;
+ * with the request's sealed manifest, whose every unit its re-check before a paid call plans again.
+ */
+export type TakeoffItemListOrder = { requestId: string; revisionId: string; revision: number; itemCount: number; contentSha256: string;
+  manifest: AnyTakeoffLaunchManifest };
 
 const failure = (jobId: string, message: string, retryable = false) =>
   new TakeoffError({ code: TakeoffErrorCode.INTERNAL_ERROR, retryable, jobId, level: TAKEOFF_LEVEL_C, message });
@@ -46,17 +50,21 @@ export async function readTakeoffItemListOrder(supabase: Supabase,
   // what it should be ends the job.
   if (error) throw failure(job.id, "Impossible de lire la commande de mesure de cette analyse.", true);
   if (!data) throw failure(job.id, "La demande de cette analyse est introuvable.");
-  const order = (data.manifest as { order?: { kind?: unknown; version?: unknown; list?: Record<string, unknown> | null } } | null)?.order;
+  const manifest = data.manifest as { order?: { kind?: unknown; version?: unknown; list?: Record<string, unknown> | null };
+    units?: unknown; plans?: unknown; budget?: { tokens?: unknown } } | null;
+  const order = manifest?.order;
   // A manifest sealed before the measuring orders were recorded, or of the free extraction: read as before.
   if (!order || order.kind === "free_extraction") return null;
   const list = order.kind === "item_list" && order.version === 2 ? order.list : null;
+  // The database sealed the manifest's shape (assert_takeoff_launch_seal); its units, plans and envelope are checked present.
   if (!list || typeof list.revision_id !== "string" || typeof list.revision !== "number" || typeof list.item_count !== "number"
     || typeof list.content_sha256 !== "string" || data.item_list_revision_id !== list.revision_id
+    || !Array.isArray(manifest.units) || !Array.isArray(manifest.plans) || typeof manifest.budget?.tokens !== "number"
     || (job.project_id && data.project_id !== job.project_id)) {
     throw failure(job.id, "La commande de mesure de cette analyse est invalide : relancez la lecture de ce plan.");
   }
   return { requestId: data.id, revisionId: list.revision_id, revision: list.revision, itemCount: list.item_count,
-    contentSha256: list.content_sha256 };
+    contentSha256: list.content_sha256, manifest: manifest as AnyTakeoffLaunchManifest };
 }
 
 /**
@@ -70,19 +78,25 @@ export function takeoffItemListReadingNotDelivered(jobId: string) {
 }
 
 /**
- * Before its first paid call, the reading the worker is about to make, planned with the settings it will use (the
- * tenant's fragmenting and the attempt's budget within what its request has left, which may differ from the admission's),
- * every paid call counted (each fragment times each batch of the items, and its vector classifier's), within the same
- * bounds as its admission: the ceiling of a plan, its share of the request, the request's balance. Beyond them it stops
- * with the bounds' own reason, nothing spent.
+ * Before its first paid call, the whole request planned again with the settings the worker will use (the tenant's
+ * fragmenting now, which may differ from the admission's; the pages counted on its own plan's PDF), every unit of its
+ * manifest and every paid call counted (each fragment times each batch of the items, and the vector classifier's), within
+ * the same bounds as its admission: the ceiling of a plan and of the request, each plan's share, the request's envelope;
+ * then its own plan's calls against the attempt's budget (what its request has left). Beyond them it stops with the
+ * bounds' own reason, nothing spent.
  */
-function assertReadingWithinBounds(job: TakeoffJobProcessingRow, input: { items: readonly Poste[]; pageCount: number;
-  config: TakeoffChunkingRuntimeConfig & { maxTotalTokens: number }; planFile: { plan_file_id: string }; fileName: string }) {
+function assertReadingWithinBounds(job: TakeoffJobProcessingRow, input: { manifest: AnyTakeoffLaunchManifest; items: readonly Poste[];
+  pageCount: number; config: TakeoffChunkingRuntimeConfig & { maxTotalTokens: number }; planFile: { plan_file_id: string }; fileName: string }) {
   const unit = readTakeoffLaunchUnit(job.preparation_snapshot)!;
-  const bounds = boundPosteReadingRequest({ batches: planPosteBatches(input.items).map((batch) => batch.length),
+  const request = posteReadingBoundsOfManifest(input.manifest, input.config, TAKEOFF_PAID_CALL_ESTIMATE_TOKENS, input.items,
+    takeoffVectorGroupCallsBound, new Map([[unit.key, input.pageCount]]));
+  const own = request?.units.find((entry) => entry.key === unit.key);
+  if (!request || !own) throw failure(job.id, "Le plan de cette analyse n’est pas une unité de sa demande : relancez la lecture de ce plan.");
+  const attempt = boundPosteReadingRequest({ batches: planPosteBatches(input.items).map((batch) => batch.length),
     units: [{ key: unit.key, pieces: [{ id: input.planFile.plan_file_id, name: input.fileName }], pages: input.pageCount,
-      budgetTokens: unit.budget?.tokens ?? input.config.maxTotalTokens, vectorCalls: takeoffVectorGroupCallsBound(unit.vectorPages) }],
+      budgetTokens: unit.budget?.tokens ?? input.config.maxTotalTokens, vectorCalls: own.calls - own.fragments * own.batches }],
     requestBudgetTokens: input.config.maxTotalTokens, chunking: input.config, estimateTokensPerCall: TAKEOFF_PAID_CALL_ESTIMATE_TOKENS });
+  const bounds = !request.ok ? request : attempt;
   if (bounds.ok) return;
   const exceeded = [...bounds.exceeded, ...bounds.units.flatMap((entry) => entry.exceeded)];
   throw new TakeoffError({ status: 422, retryable: false, jobId: job.id, level: TAKEOFF_LEVEL_C,
@@ -141,7 +155,7 @@ export async function processItemListLevelC(input: {
   } catch {
     throw failure(job.id, "La liste des postes scellée par cette analyse n’a pas pu être lue.");
   }
-  assertReadingWithinBounds(job, { items, pageCount, config, planFile, fileName: sourceFile.fileName });
+  assertReadingWithinBounds(job, { manifest: input.order.manifest, items, pageCount, config, planFile, fileName: sourceFile.fileName });
   // Each context file with its kind (the reading keeps the CCTP only); a file whose kind is not known is never attached.
   const references: PosteReadingReference[] = (sourceFile.contextFiles ?? []).map((file, index) => ({ ...file,
     ...(sourceFile.contextReferences?.[index] ?? { kind: "other" as const, name: "Pièce", revision: null }) }));

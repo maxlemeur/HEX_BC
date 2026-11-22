@@ -16,6 +16,7 @@ import {
   type PosteExchangeCall,
   type PosteExchangeOutput,
 } from "@/lib/takeoff/poste-exchange";
+import { remapPosteFragmentReading } from "@/lib/takeoff/poste-exchange-merge";
 import type { Poste } from "@/lib/takeoff/poste-list";
 
 const SECTION = { id: "s-sanitaires", title: "Appareils sanitaires", order: 1 };
@@ -156,9 +157,12 @@ describe("PosteExchangeOutputSchema", () => {
   });
 
   // Fix round, point 5: one representable precision, the stored one (three decimals), applied when the answer is read.
+  // Closing round, point 6: the answer keeps the value as read (a whole number is checked on it); its reading rounds it.
   it("reads every quantity at three decimals, and refuses one that is not positive once represented", () => {
-    const read = output(call, [measured("P0001", 2, 1.2345), measured("P0002", 2, 0.0005), notFound("P0003")]);
-    expect(read.responses.map((answer) => answer.observations[0]?.quantity)).toEqual([1.235, 0.001, undefined]);
+    const answer = output(call, [measured("P0001", 2, 1.2345), measured("P0002", 2, 0.0005), notFound("P0003")]);
+    expect(answer.responses.map((response) => response.observations[0]?.quantity)).toEqual([1.2345, 0.0005, undefined]);
+    const read = remapPosteFragmentReading(call, answer, (page) => page);
+    expect(read.answers.map((response) => response.observations[0]?.quantity)).toEqual([1.235, 0.001, undefined]);
     expect(() => output(call, [measured("P0001", 2, 0.0000004)])).toThrow();
     expect(() => output(call, [{ ...uncertain("P0002"), observations: [{ ...uncertain("P0002").observations[0], quantity: 0.0001 }] }]))
       .toThrow();
@@ -229,6 +233,71 @@ describe("PosteExchangeOutputSchema", () => {
       index === empty ? { ...answer, observations: [answer.observations[0]] } : response) }).success).toBe(false);
     expect(PosteExchangeOutputSchema.safeParse({ ...worst, responses: [{ ...answer,
       observations: [{ ...answer.observations[0], quantity: 1_000_000_000 }] }] }).success).toBe(false);
+  });
+
+  // Closing round, point 9: a page is listed once, among the searched pages as among the unreadable ones.
+  it("refuses a page listed twice among the searched or the unreadable pages", () => {
+    expect(() => output(call, [{ ...measured("P0001"), searched_pages: [1, 2, 2, 3, 4] }])).toThrow();
+    expect(() => output(call, [notFound("P0001")], { unreadable_pages: [3, 3] })).toThrow();
+    expect(() => output(call, [notFound("P0001", [4, 3, 2, 1])], { unreadable_pages: [3, 4] })).not.toThrow();
+  });
+
+  // Closing round, point 9: the bound is derived from the schema's own limits, every field at its longest writing (the
+  // longest numbers of their ranges, the longest codes), so that a schema-valid answer never passes it.
+  it("bounds the answer above the longest writing of every field", () => {
+    const L = POSTE_EXCHANGE_LIMITS;
+    const fill = (chars: number) => "’".repeat(chars);
+    const pages = Array.from({ length: 15 }, (_, index) => L.pages - index);
+    // The longest writings of a confidence in [0, 1] and of a quantity that is positive once at three decimals.
+    expect(String(0.0000017333176667161978)).toHaveLength(24);
+    expect(String(0.0007509328246261776)).toHaveLength(21);
+    for (const quantity of [999_999_999.999, 0.0007509328246261776]) {
+      let left = L.observationsPerCall;
+      const specimen = PosteExchangeOutputSchema.parse({
+        schema_version: "v2", prompt_version: "takeoff-c-postes-v1", chunk_id: "f999-b9999", unreadable_pages: pages,
+        responses: Array.from({ length: L.itemsPerCall }, () => {
+          const count = Math.min(L.observationsPerAnswer, left);
+          left -= count;
+          return { post_id: "P99999", outcome: "uncertain", searched_pages: pages, reason_code: "CONTRADICTORY_EVIDENCE",
+            reason_text: fill(L.reasonChars), observations: Array.from({ length: count }, () => ({ page: L.pages,
+              evidence: fill(L.evidenceChars), method: "scaled_measure", confidence: 0.0000017333176667161978, quantity,
+              unit: fill(L.unitChars), measurement_basis: fill(L.basisChars), counts_as: "same_object", basis_as_requested: false })) };
+        }),
+        unlisted_findings: Array.from({ length: L.unlistedFindings }, () => ({ page: L.pages, designation: fill(L.designationChars),
+          evidence: fill(L.evidenceChars) })),
+        warnings: Array.from({ length: L.warnings }, () => ({ code: `W${"9".repeat(63)}`, message: fill(L.warningChars), severity: "warning" })),
+      });
+      expect(Buffer.byteLength(JSON.stringify(specimen))).toBeLessThanOrEqual(posteExchangeOutputMaxBytes(L.itemsPerCall, 15));
+    }
+  });
+
+  // Closing round, point 9: a text holds no lone surrogate once read (its JSON would take six bytes a character), so that an
+  // answer its call accepts is never refused as too large.
+  it("never refuses as too large an answer its call accepts, texts of lone surrogates included", () => {
+    const L = POSTE_EXCHANGE_LIMITS;
+    const items = Array.from({ length: L.itemsPerCall }, (_, index) => poste(`00000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`,
+      `Poste ${index + 1}`));
+    const full = oneCall(items, 15);
+    const lone = (chars: number) => "\ud800".repeat(chars);
+    const pages = full.manifest.page_scope.pages;
+    let left = L.observationsPerCall;
+    const answer = PosteExchangeOutputSchema.parse({
+      schema_version: "v2", prompt_version: "takeoff-c-postes-v1", chunk_id: full.manifest.chunk_id, unreadable_pages: pages,
+      responses: full.manifest.requested_posts.map((entry) => {
+        const count = Math.min(L.observationsPerAnswer, left);
+        left -= count;
+        return { post_id: entry.post_id, outcome: "uncertain", searched_pages: pages, reason_code: "CONTRADICTORY_EVIDENCE",
+          reason_text: lone(L.reasonChars), observations: Array.from({ length: count }, () => ({ page: pages.at(-1),
+            evidence: lone(L.evidenceChars), method: "scaled_measure", confidence: 0.0000017333176667161978, quantity: 0.0007509328246261776,
+            unit: lone(L.unitChars), measurement_basis: lone(L.basisChars), counts_as: "same_object", basis_as_requested: false })) };
+      }),
+      unlisted_findings: Array.from({ length: L.unlistedFindings }, () => ({ page: 1, designation: lone(L.designationChars),
+        evidence: lone(L.evidenceChars) })),
+      warnings: Array.from({ length: L.warnings }, () => ({ code: `W${"9".repeat(63)}`, message: lone(L.warningChars), severity: "warning" })),
+    });
+    expect(answer.responses[0].reason_text).toBe("\ufffd".repeat(L.reasonChars));
+    expect(refusal(full, answer)).toBeNull();
+    expect(Buffer.byteLength(JSON.stringify(answer))).toBeLessThanOrEqual(posteExchangeOutputMaxBytes(L.itemsPerCall, 15));
   });
 });
 

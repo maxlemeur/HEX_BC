@@ -22,8 +22,9 @@ export const POSTE_EXCHANGE_PROMPT_VERSION = "takeoff-c-postes-v1";
  * that is asked alone, whole: what tells two items apart is never cut); an answer at most `observationsPerAnswer`
  * observations (about one per page of a fragment) and the whole answer at most `observationsPerCall`; the texts are short
  * (the evidence and the reason are one sentence). `pages` is the most pages a fragment can hold (the tenant's PDF page
- * limit). A quantity is read at the stored precision (`takeoff_items.quantity`, three decimals, below 10⁹). Starting
- * values, to measure on the bench before the second order is activated.
+ * limit). A quantity is admitted when it is positive and below 10⁹ at the stored precision (`takeoff_items.quantity`, three
+ * decimals), the precision its reading keeps. Starting values, to measure on the bench before the second order is
+ * activated.
  */
 export const POSTE_EXCHANGE_LIMITS = {
   itemsPerCall: 40,
@@ -77,14 +78,25 @@ export type PosteAnswerOutcome = (typeof POSTE_ANSWER_OUTCOMES)[number];
 
 const L = POSTE_EXCHANGE_LIMITS;
 const page = z.number().int().min(1).max(L.pages);
-const pages = z.array(page).max(L.pages);
-/** A text on one line (control characters become spaces), then bounded. */
-const text = (max: number) => z.string().transform((value) => value.replace(/[\p{Cc}\s]+/gu, " ").trim())
+/** Pages, each listed once. */
+const pages = (min = 0) => z.array(page).min(min).max(L.pages)
+  .refine((values) => new Set(values).size === values.length, { message: "Chaque page n’est citée qu’une fois." });
+/**
+ * A text on one line (control characters become spaces, a lone surrogate the replacement character: what its JSON writes
+ * in at most three bytes a character), then bounded.
+ */
+const text = (max: number) => z.string().transform((value) => value.toWellFormed().replace(/[\p{Cc}\s]+/gu, " ").trim())
   .pipe(z.string().min(1).max(max));
 const confidence = z.number().finite().min(0).max(1);
 const itemKey = z.string().regex(/^P\d{4,5}$/);
-/** A positive quantity once at the stored precision: a figure that rounds to nothing is not a measure. */
-const quantity = z.number().finite().transform(posteStoredQuantity).pipe(z.number().gt(0).lt(L.quantity));
+/**
+ * A quantity as the model wrote it (a whole number is checked on it), admitted when it is positive and below the bound at
+ * the stored precision: a figure that rounds to nothing is not a measure. Its reading rounds it (`posteStoredQuantity`).
+ */
+const quantity = z.number().finite().refine((value) => {
+  const stored = posteStoredQuantity(value);
+  return stored > 0 && stored < L.quantity;
+}, { message: `Une quantité est positive et inférieure à ${L.quantity} à trois décimales.` });
 /**
  * What an observation counts (a distinct object or zone, or another reading of one already observed: only distinct ones
  * add up), and whether it is on the item's requested basis (when the item names one).
@@ -104,17 +116,17 @@ const indication = z.object({
 
 export const PosteExchangeAnswerSchema = z.discriminatedUnion("outcome", [
   z.object({
-    post_id: itemKey, outcome: z.literal("measured"), searched_pages: pages.min(1),
+    post_id: itemKey, outcome: z.literal("measured"), searched_pages: pages(1),
     reason_code: z.null(), reason_text: z.null(),
     observations: z.array(measuredObservation).min(1).max(L.observationsPerAnswer),
   }).strict(),
   z.object({
-    post_id: itemKey, outcome: z.literal("uncertain"), searched_pages: pages,
+    post_id: itemKey, outcome: z.literal("uncertain"), searched_pages: pages(),
     reason_code: z.enum(POSTE_UNCERTAIN_REASONS), reason_text: text(L.reasonChars),
     observations: z.array(indication).max(L.observationsPerAnswer),
   }).strict(),
   z.object({
-    post_id: itemKey, outcome: z.literal("not_found"), searched_pages: pages.min(1),
+    post_id: itemKey, outcome: z.literal("not_found"), searched_pages: pages(1),
     reason_code: z.enum(POSTE_NOT_FOUND_REASONS), reason_text: text(L.reasonChars),
     observations: z.array(indication).max(0),
   }).strict(),
@@ -126,7 +138,7 @@ export const PosteExchangeOutputSchema = z.object({
   prompt_version: z.literal(POSTE_EXCHANGE_PROMPT_VERSION),
   chunk_id: z.string().regex(/^f\d{1,3}-b\d{1,4}$/),
   responses: z.array(PosteExchangeAnswerSchema).max(L.itemsPerCall),
-  unreadable_pages: pages,
+  unreadable_pages: pages(),
   unlisted_findings: z.array(z.object({
     page, designation: text(L.designationChars), evidence: text(L.evidenceChars),
   }).strict()).max(L.unlistedFindings),
@@ -291,23 +303,32 @@ export function planPosteExchangeCalls(input: {
   return calls;
 }
 
+/** The longest of these codes: its JSON is the longest. */
+const longest = <T extends string>(values: readonly T[]) => values.reduce((left, right) => right.length > left.length ? right : left);
+
 /**
- * The largest answer the schema admits for one call of `items` items on a fragment of `fragmentPages` pages: every text at
- * its bound in two-byte characters, every list full, the longest numbers. What the bounds of a request are measured on.
+ * The bound of an answer to one call of `items` items on a fragment of `fragmentPages` pages, derived from the schema's own
+ * limits: every text at its bound in three-byte characters (once read, a text holds no control character and no lone
+ * surrogate, and « " » or « \\ » take two), every list full with each page once, every number and code at its longest
+ * writing. An answer its call accepts (its own keys and pages only, each page once) is never larger. What the bounds of a
+ * request are measured on.
  */
 export function posteExchangeWorstCaseOutput(items: number, fragmentPages: number): PosteExchangeOutput {
-  // Three bytes for each character (a text holds no control character once read, and « " » or « \\ » take two).
   const long = (chars: number) => "€".repeat(chars);
+  // The highest pages (three digits each), one per page of the fragment.
   const pagesList = range(L.pages - fragmentPages + 1, L.pages);
-  const observation = { page: L.pages, evidence: long(L.evidenceChars), method: "scaled_measure" as const,
-    confidence: 1.2345678901234567e-7, quantity: 999_999_999.999, unit: long(L.unitChars), measurement_basis: long(L.basisChars),
-    counts_as: "same_object" as const, basis_as_requested: false };
+  // The longest writings of their ranges (a double writes at most 17 significant digits): a confidence in [0, 1], « 0.00000 »
+  // and 17 digits (24 characters; an exponent writes at most 23); a quantity positive at three decimals (at least 0.0005),
+  // 21 characters (« 0.000 » and 16 digits below 0.001, where two doubles are farther apart than 10⁻¹⁹; « 0.00 » and 17 above).
+  const observation = { page: L.pages, evidence: long(L.evidenceChars), method: longest(POSTE_OBSERVATION_METHODS),
+    confidence: 0.0000017333176667161978, quantity: 0.0007509328246261776, unit: long(L.unitChars), measurement_basis: long(L.basisChars),
+    counts_as: longest(POSTE_OBSERVATION_COUNTS), basis_as_requested: false };
   let left = L.observationsPerCall;
   const responses = Array.from({ length: items }, () => {
     const count = Math.min(L.observationsPerAnswer, left);
     left -= count;
     return { post_id: "P99999", outcome: "uncertain" as const, searched_pages: pagesList,
-      reason_code: "UNIT_OR_BASIS_UNCLEAR" as const, reason_text: long(L.reasonChars),
+      reason_code: longest(POSTE_UNCERTAIN_REASONS), reason_text: long(L.reasonChars),
       observations: Array.from({ length: count }, () => observation) };
   });
   return {
@@ -327,8 +348,10 @@ export function posteExchangeOutputMaxBytes(items: number, fragmentPages: number
 
 /**
  * Checks the answer of one call against the call (section 3.2 of the exchange contract): its version and key, one
- * response for each requested item and none other, every page inside the attached fragment, and every page the call
- * owns either searched or declared unreadable for each item. Throws the first refusal; nothing of the call is used then.
+ * response for each requested item and none other, every page inside the attached fragment, its size, and every page the
+ * call owns either searched or declared unreadable for each item. Throws the first refusal; nothing of the call is used
+ * then. The size is checked once keys and pages are the call's: an answer it accepts stays within the bound derived from
+ * the schema, which is then a guard, never a limit a valid answer meets.
  */
 export function validatePosteExchangeOutput(call: PosteExchangeCall, output: PosteExchangeOutput): void {
   const chunkId = call.manifest.chunk_id;
@@ -337,10 +360,6 @@ export function validatePosteExchangeOutput(call: PosteExchangeCall, output: Pos
   };
   if (output.schema_version !== call.manifest.schema_version || output.prompt_version !== call.manifest.prompt_version
     || output.chunk_id !== chunkId) refuse("OUTPUT_VERSION");
-  const items = call.manifest.requested_posts.length;
-  if (Buffer.byteLength(JSON.stringify(output), "utf8") > posteExchangeOutputMaxBytes(items, call.manifest.page_scope.pages.length)) {
-    refuse("OUTPUT_TOO_LARGE");
-  }
   const requested = new Set(call.manifest.requested_posts.map((entry) => entry.post_id));
   const foreign = output.responses.map((response) => response.post_id).filter((key) => !requested.has(key));
   if (foreign.length) refuse("FOREIGN_ITEM", { keys: [...new Set(foreign)] });
@@ -361,6 +380,10 @@ export function validatePosteExchangeOutput(call: PosteExchangeCall, output: Pos
   ];
   const outside = [...new Set(cited.filter((value) => !scope.has(value)))].sort((left, right) => left - right);
   if (outside.length) refuse("PAGE_OUTSIDE_SLICE", { pages: outside });
+  const items = call.manifest.requested_posts.length;
+  if (Buffer.byteLength(JSON.stringify(output), "utf8") > posteExchangeOutputMaxBytes(items, call.manifest.page_scope.pages.length)) {
+    refuse("OUTPUT_TOO_LARGE");
+  }
 
   // Every page the call answers for is searched for each item, or declared unreadable for all of them: a page left out
   // would make an absence or a total stand for pages nobody read.
