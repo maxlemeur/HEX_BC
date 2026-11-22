@@ -1,0 +1,361 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+vi.mock("server-only", () => ({}));
+vi.mock("@/lib/takeoff/job-read-server", () => ({ getAuthenticatedTakeoffContext: vi.fn() }));
+vi.mock("@/lib/supabase/service-role", () => ({ createServiceRoleClient: vi.fn() }));
+vi.mock("@/lib/takeoff/item-send-facts-server", () => ({ readItemSendFacts: vi.fn(), readItemSendEarlierState: vi.fn() }));
+vi.mock("@/lib/takeoff/mapping-rules-server", () => ({ listActiveTakeoffMappingRules: vi.fn() }));
+vi.mock("@/lib/takeoff/plan-location-server", () => ({ readTakeoffJobPlanLocations: vi.fn() }));
+vi.mock("@/lib/takeoff/page-contributions-server", () => ({ readPlanPagesAlreadyInEstimate: vi.fn() }));
+vi.mock("@/lib/estimates/calc-policy-server", () => ({ readTenantCalcPolicy: vi.fn(), ABSENT_TENANT_CALC_POLICY: {
+  engine: 3, defaultSaleCoefficientFo: null, defaultSaleCoefficientMo: null, allowedTaxRatesBp: [2000] } }));
+vi.mock("@/lib/estimates/canonical-v2-creation", () => ({ prepareCanonicalEstimateCreation: vi.fn() }));
+vi.mock("@/lib/takeoff/dpgf-comparison-repository", () => ({ readDpgfMappedFacts: vi.fn() }));
+vi.mock("@/lib/takeoff/send-server", () => ({ firstDraftSettings: (payload: Record<string, unknown>) => ({ ...payload }) }));
+
+import { readTenantCalcPolicy } from "@/lib/estimates/calc-policy-server";
+import { prepareCanonicalEstimateCreation } from "@/lib/estimates/canonical-v2-creation";
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
+import { readDpgfMappedFacts } from "@/lib/takeoff/dpgf-comparison-repository";
+import { TakeoffError } from "@/lib/takeoff/errors";
+import { itemSendPreviewResponseSchema } from "@/lib/takeoff/item-send-contracts";
+import { readItemSendEarlierState, readItemSendFacts, type ItemSendReading } from "@/lib/takeoff/item-send-facts-server";
+import { previewTakeoffItemSend } from "@/lib/takeoff/item-send-preview-server";
+import { getAuthenticatedTakeoffContext } from "@/lib/takeoff/job-read-server";
+import { listActiveTakeoffMappingRules } from "@/lib/takeoff/mapping-rules-server";
+import { readPlanPagesAlreadyInEstimate } from "@/lib/takeoff/page-contributions-server";
+import { readTakeoffJobPlanLocations } from "@/lib/takeoff/plan-location-server";
+import type { TakeoffMappingRule } from "@/lib/takeoff/types";
+
+// Lot 4, PR 5a: the read-only preview of a send by item, written before it existed. The clients read in-memory tables
+// through every filter (a joined column included), refuse every write and every call but the named read functions, and
+// record what they read. A second tenant, a second affaire and a second version hold rows the preview must never read.
+// Fictional affaire, plan and quantities.
+
+const TENANT = "11111111-1111-4111-8111-111111111111";
+const OTHER_TENANT = "11111111-1111-4111-8111-111111111112";
+const MEMBER = "22222222-2222-4222-8222-222222222222";
+const PROJECT = "33333333-3333-4333-8333-333333333333";
+const OTHER_PROJECT = "33333333-3333-4333-8333-333333333334";
+const JOB = "44444444-4444-4444-8444-444444444444";
+const REQUEST = "55555555-5555-4555-8555-555555555555";
+const REVISION = "66666666-6666-4666-8666-666666666666";
+const VERSION = "77777777-7777-4777-8777-777777777777";
+const OTHER_VERSION = "77777777-7777-4777-8777-777777777778";
+const PLAN_FILE = "88888888-8888-4888-8888-888888888888";
+const LAVABO = "99999999-9999-4999-8999-999999999991";
+const DPGF_ITEM = "99999999-9999-4999-8999-999999999992";
+const ANSWER = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1";
+const LINE = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb1";
+const FOREIGN_LINE = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb2";
+const IMPORT = "cccccccc-cccc-4ccc-8ccc-ccccccccccc1";
+const MAPPED_OLD = "dddddddd-dddd-4ddd-8ddd-ddddddddddd1";
+const MAPPED_NEW = "dddddddd-dddd-4ddd-8ddd-ddddddddddd2";
+const RAW = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeee1";
+const ASSEMBLY = "ffffffff-ffff-4fff-8fff-fffffffffff1";
+
+type Row = Record<string, unknown>;
+type Calls = { reads: Array<{ client: string; table: string; select: string }>; writes: string[]; rpcs: string[] };
+
+/** The read functions granted to the service role only: a member's session may call none of them. */
+const SERVICE_READ_FUNCTIONS = ["read_estimate_dpgf_raw_rows", "takeoff_rule_job_stamp", "takeoff_send_peers_stamp", "read_takeoff_send_context",
+  "dpgf_import_review_state"];
+/** What the API gives at most per answer when no range is asked (PostgREST's max-rows). */
+const MAX_ROWS = 1000;
+
+const valueOf = (row: Row, column: string) => column.split(".").reduce<unknown>((value, key) => (value && typeof value === "object"
+  ? (value as Row)[key] : undefined), row);
+
+/** Rows read through every filter, in the order asked, cut at the API's ceiling when no range is asked. */
+function query(source: () => Row[], record: (columns: string) => void, refuse: (call: string) => never) {
+  const filters: Array<(row: Row) => boolean> = [];
+  const orders: string[] = [];
+  let slice: [number, number] | null = null;
+  let limit: number | null = null;
+  const result = () => {
+    const rows = source().filter((row) => filters.every((filter) => filter(row)));
+    const sorted = orders.length === 0 ? rows : [...rows].sort((left, right) => {
+      for (const column of orders) {
+        const [a, b] = [String(valueOf(left, column) ?? ""), String(valueOf(right, column) ?? "")];
+        if (a !== b) return a < b ? -1 : 1;
+      }
+      return 0;
+    });
+    const shown = slice ? sorted.slice(slice[0], Math.min(slice[1] + 1, slice[0] + MAX_ROWS))
+      : sorted.slice(0, Math.min(limit ?? MAX_ROWS, MAX_ROWS));
+    return { data: shown, error: null, count: rows.length };
+  };
+  const builder = {
+    select: (columns: string) => { record(columns); return builder; },
+    eq: (column: string, value: unknown) => { filters.push((row) => valueOf(row, column) === value); return builder; },
+    in: (column: string, values: unknown[]) => { filters.push((row) => values.includes(valueOf(row, column))); return builder; },
+    order: (column: string) => { orders.push(column); return builder; },
+    limit: (count: number) => { limit = count; return builder; },
+    range: (from: number, to: number) => { slice = [from, to]; return builder; },
+    maybeSingle: async () => ({ data: result().data[0] ?? null, error: null }),
+    then: (resolve: (value: ReturnType<typeof result>) => unknown) => Promise.resolve(result()).then(resolve),
+    insert: () => refuse("insert"), update: () => refuse("update"), upsert: () => refuse("upsert"), delete: () => refuse("delete"),
+  };
+  return builder;
+}
+
+/** A client over in-memory tables: every filter applies (a dotted column reads the joined row), every write is refused. */
+function fakeClient(name: string, tables: Record<string, Row[]>, functions: Record<string, (args: Row) => Row[] | unknown>, calls: Calls,
+  allowed: readonly string[]) {
+  return {
+    rpc: (fn: string, args: Row) => {
+      calls.rpcs.push(`${name}:${fn}`);
+      if (!allowed.includes(fn) || !functions[fn]) {
+        calls.writes.push(`${name}:rpc:${fn}`);
+        throw new Error(`${name}: rpc ${fn} refusé dans un aperçu`);
+      }
+      const answer = functions[fn](args);
+      if (!Array.isArray(answer)) return Promise.resolve({ data: answer, error: null });
+      return query(() => answer as Row[], () => undefined, (call) => { throw new Error(`${name}: ${call} refusé`); });
+    },
+    from(table: string) {
+      return query(() => tables[table] ?? [], (columns) => calls.reads.push({ client: name, table, select: columns }), (call) => {
+        calls.writes.push(`${name}:${call}:${table}`);
+        throw new Error(`${name}: ${call} refusé`);
+      });
+    },
+  };
+}
+
+const lavabo = { id: LAVABO, label: "Lavabo", expectedUnit: "u", measurementBasis: null, qualifiers: {},
+  sections: [{ id: "lot", title: "Plomberie", order: 1 }, { id: "sanitaires", title: "Appareils sanitaires", order: 2 }],
+  referenceQuantity: null, origin: { kind: "template" as const, templateId: "plomberie", version: 1, familyId: "sanitaires", lineId: "lavabo" } };
+const dpgfLavabo = { ...lavabo, id: DPGF_ITEM, sections: [{ id: "lot", title: "Plomberie", order: 1 }], referenceQuantity: 4,
+  origin: { kind: "dpgf" as const, importId: IMPORT, mappingId: "mapping-1", rawRowId: RAW, mappedRowId: MAPPED_OLD, rowIndex: 3,
+    sheetName: null, sourceRowNumber: 3, sourcePage: null, tableIndex: null, documentId: null, reference: "1.2", sourceUnit: "u",
+    measurementNotesDigest: null, factsDigest: "facts" } };
+
+function reading(item: typeof lavabo | typeof dpgfLavabo = lavabo, answer: Partial<ItemSendReading["answers"][number]> = {}): ItemSendReading {
+  return { items: [item], scope: [item.id], affaireEntries: [], answers: [{ itemId: item.id, answerId: ANSWER, revision: "r1",
+    outcome: "measured", decision: { kind: "accepted", revision: 1 }, entry: null,
+    observations: [{ observationId: "obs-1", role: "contribution", source: "model", quantity: 3, unit: "u", page: 2, measurementBasis: null }],
+    ...answer }] };
+}
+
+function manifest(order: "item_list" | "free_extraction", format: 1 | 2 = 2) {
+  return { format_version: format, intent: "initial",
+    order: order === "item_list" ? { kind: "item_list", version: 2, list: { revision_id: REVISION, revision: 3, content_sha256: "c".repeat(64),
+      item_count: 1 } } : { kind: "free_extraction", version: 1, list: null },
+    units: [{ key: "unit-1", ordinal: 1, plans: [PLAN_FILE], pages: [], page_count: 4, budget: { tokens: 1, cost_cents: 1 }, vector_pages: 0 }],
+    plans: [{ entry_key: PLAN_FILE, name: "Plan RDC", logical_id: "piece-1", intake_document_id: null, plan_file_id: PLAN_FILE, generation: "1",
+      content_sha256: "d".repeat(64), pages: [], page_count: 4 }] };
+}
+
+const version = (id: string, engine: number, project = PROJECT, tenant = TENANT) => ({ id, tenant_id: tenant, project_id: project,
+  version_number: 1, status: "draft", title: null, variant_label: null, updated_at: "2026-11-22T08:00:00.000Z", calc_engine_version: engine,
+  max_section_depth: 3 });
+
+const dpgfRow = (id: string, mapped: string, overrides: Row = {}) => ({ id, tenant_id: TENANT, version_id: VERSION, parent_id: null,
+  item_type: "line", position: 1, title: "Lavabo", unit_code: "u", pricing_status: "priced", quantity: 4, updated_at: "2026-11-22T08:00:00.000Z",
+  source_provider: "dpgf", mapped_row_id: mapped, dpgf_source_quantity: 4, quantity_policy: null, ...overrides });
+
+let calls: Calls;
+function setUp(input: { manifest?: unknown; versions?: Row[]; items?: Row[]; role?: string; lineage?: Row[]; mapped?: Row[];
+  sources?: unknown; locations?: Row[] }) {
+  calls = { reads: [], writes: [], rpcs: [] };
+  const shared: Record<string, Row[]> = {
+    takeoff_launch_requests: [{ id: REQUEST, tenant_id: TENANT, manifest: input.manifest ?? manifest("item_list") },
+      { id: REQUEST, tenant_id: OTHER_TENANT, manifest: manifest("free_extraction") }],
+    estimate_projects: [{ id: PROJECT, tenant_id: TENANT, user_id: MEMBER, is_archived: false },
+      { id: OTHER_PROJECT, tenant_id: TENANT, user_id: MEMBER, is_archived: false }],
+    // Another affaire's draft and another tenant's version of the same affaire id: never this send's destinations.
+    estimate_versions: [...(input.versions ?? []), version(OTHER_VERSION, 3, OTHER_PROJECT), version(OTHER_VERSION, 3, PROJECT, OTHER_TENANT)],
+    estimate_items: [...(input.items ?? []), dpgfRow(FOREIGN_LINE, MAPPED_OLD, { tenant_id: OTHER_TENANT }),
+      dpgfRow(FOREIGN_LINE, MAPPED_OLD, { version_id: OTHER_VERSION })],
+    dpgf_rows_mapped: input.mapped ?? [],
+    dpgf_imports: [{ id: IMPORT, tenant_id: TENANT, project_id: PROJECT, updated_at: "2026-11-22T07:00:00.000Z", status: "done", row_count: 3 }],
+    takeoff_plan_locations: input.locations ?? [],
+    estimate_assemblies: [{ id: ASSEMBLY, tenant_id: TENANT, name: "Ouvrage lavabo complet" },
+      { id: ASSEMBLY, tenant_id: OTHER_TENANT, name: "Ouvrage d’un autre" }],
+  };
+  const functions: Record<string, (args: Row) => unknown> = {
+    read_estimate_dpgf_raw_rows: (args) => (args.p_tenant_id === TENANT && args.p_version_id === VERSION ? input.lineage ?? [] : []),
+    dpgf_import_review_state: (args) => (args.p_tenant_id === TENANT ? [{ mapping_id: "mapping-1", column_mapping: {}, rows_sha256: "r".repeat(64) }] : []),
+    takeoff_rule_job_stamp: () => "job-stamp",
+    takeoff_send_peers_stamp: () => "peers-stamp",
+    read_takeoff_send_context: () => ({ peers: [], plans: [], stamps: { peers: "p", locations: "l" }, display: null }),
+  };
+  const member = fakeClient("member", { ...shared, takeoff_jobs: [{ id: JOB, tenant_id: TENANT, project_id: PROJECT, estimate_version_id: null,
+    status: "completed", launch_request_id: REQUEST, launch_unit_key: "unit-1", sources: input.sources ?? null },
+  { id: JOB, tenant_id: OTHER_TENANT, project_id: OTHER_PROJECT, estimate_version_id: null, status: "completed",
+    launch_request_id: REQUEST, launch_unit_key: "unit-1", sources: null }] }, functions, calls, []);
+  vi.mocked(getAuthenticatedTakeoffContext).mockResolvedValue({ supabase: member, tenantId: TENANT, userId: MEMBER,
+    tenantRole: input.role ?? "admin" } as never);
+  vi.mocked(createServiceRoleClient).mockReturnValue(fakeClient("service", shared, functions, calls, SERVICE_READ_FUNCTIONS) as never);
+}
+
+async function refusal(promise: Promise<unknown>) {
+  const error = await promise.then(() => null, (caught: unknown) => caught);
+  expect(error).toBeInstanceOf(TakeoffError);
+  return error as TakeoffError;
+}
+
+const readTables = () => [...new Set(calls.reads.map((read) => `${read.client}:${read.table}`))].sort();
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  vi.mocked(readItemSendFacts).mockResolvedValue({ state: "stored", reading: reading() });
+  vi.mocked(readItemSendEarlierState).mockResolvedValue({ targets: [], sections: [] });
+  vi.mocked(listActiveTakeoffMappingRules).mockResolvedValue([]);
+  vi.mocked(readPlanPagesAlreadyInEstimate).mockResolvedValue([]);
+  vi.mocked(readTenantCalcPolicy).mockResolvedValue({ engine: 3, defaultSaleCoefficientFo: null, defaultSaleCoefficientMo: null,
+    allowedTaxRatesBp: [2000] } as never);
+  vi.mocked(prepareCanonicalEstimateCreation).mockResolvedValue({ versionPayload: { calc_engine_version: 3, max_section_depth: 3,
+    sale_coefficient_fo: 1.3 } } as never);
+  vi.mocked(readDpgfMappedFacts).mockResolvedValue(new Map());
+  vi.mocked(readTakeoffJobPlanLocations).mockResolvedValue({ plans: [] } as never);
+});
+
+describe("previewTakeoffItemSend", () => {
+  it("refuses a takeoff not read against the list: today's send stays the way to send it", async () => {
+    for (const sealed of [manifest("free_extraction"), manifest("item_list", 1)]) {
+      setUp({ manifest: sealed });
+      const error = await refusal(previewTakeoffItemSend(JOB, {}));
+      expect([error.status, (error.details as { guard?: string }).guard]).toEqual([409, "item_send_not_item_list"]);
+    }
+    expect(readItemSendFacts).not.toHaveBeenCalled();
+  });
+
+  it("says the answers are not stored yet, and writes nothing", async () => {
+    setUp({});
+    vi.mocked(readItemSendFacts).mockResolvedValue({ state: "not_stored" });
+    const error = await refusal(previewTakeoffItemSend(JOB, {}));
+    expect([error.status, (error.details as { guard?: string }).guard]).toEqual([409, "item_send_answers_not_stored"]);
+    expect(calls.writes).toEqual([]);
+  });
+
+  it("previews the first draft it would create, its sections and lines, and writes nothing", async () => {
+    setUp({});
+    const preview = itemSendPreviewResponseSchema.parse(await previewTakeoffItemSend(JOB, {}));
+    expect(preview).toEqual(expect.objectContaining({ version_created: true, destination: { kind: "first_draft" }, engine: 3, blocked: null,
+      confirmable: true, breakdown: "together" }));
+    expect(preview.sections.map((section) => section.title)).toEqual(["Plomberie", "Appareils sanitaires"]);
+    expect(preview.lines).toEqual([expect.objectContaining({ item_id: LAVABO, change: "created", quantity_before: null, quantity_after: 3,
+      pages: [2] })]);
+    expect(preview.plan_digest).toMatch(/^[0-9a-f]{64}$/);
+    expect(readItemSendFacts).toHaveBeenCalledWith(expect.anything(), { jobId: JOB, projectId: PROJECT,
+      list: { revisionId: REVISION, revision: 3, itemCount: 1 } });
+    expect(calls.writes).toEqual([]);
+  });
+
+  it("puts the first draft's settings in the digest: other settings, another plan (fix 11)", async () => {
+    setUp({});
+    const first = (await previewTakeoffItemSend(JOB, {})).plan_digest;
+    vi.mocked(prepareCanonicalEstimateCreation).mockResolvedValue({ versionPayload: { calc_engine_version: 3, max_section_depth: 3,
+      sale_coefficient_fo: 1.25 } } as never);
+    setUp({});
+    expect((await previewTakeoffItemSend(JOB, {})).plan_digest).not.toBe(first);
+  });
+
+  it("checks engine 3 at the preview and names the reason, reading no plan location for « Ensemble »", async () => {
+    setUp({ versions: [version(VERSION, 2)] });
+    const preview = await previewTakeoffItemSend(JOB, {});
+    expect(preview.blocked).toEqual(expect.objectContaining({ reason: "engine_not_v3" }));
+    expect(preview.blocked!.message).toContain("moteur 3");
+    expect(preview.lines).toEqual([]);
+    expect(readTakeoffJobPlanLocations).not.toHaveBeenCalled();
+    expect(calls.writes).toEqual([]);
+  });
+
+  it("points to the confirmed import of the DPGF for a draft without its lines, and imports nothing", async () => {
+    setUp({ versions: [version(VERSION, 3)] });
+    vi.mocked(readItemSendFacts).mockResolvedValue({ state: "stored", reading: reading(dpgfLavabo) });
+    const preview = await previewTakeoffItemSend(JOB, {});
+    expect(preview.blocked).toEqual({ reason: "dpgf_import_required", message: expect.stringContaining("import du DPGF"),
+      href: `/dashboard/affaires/${PROJECT}#intake` });
+    expect(calls.writes).toEqual([]);
+  });
+
+  it("finds a remapped DPGF line through the lineage the database kept, and never targets a line on matching metadata alone (fix 5)", async () => {
+    // The draft still names M1; the remap replaced it by M2 for the same raw row: only the lineage reader knows M1.
+    setUp({ versions: [version(VERSION, 3)], items: [dpgfRow(LINE, MAPPED_OLD)],
+      mapped: [{ id: MAPPED_NEW, tenant_id: TENANT, import_id: IMPORT, raw_row_id: RAW, dpgf_imports: { project_id: PROJECT } }],
+      lineage: [{ estimate_item_id: LINE, import_id: IMPORT, mapped_row_id: MAPPED_OLD, raw_row_id: RAW }] });
+    vi.mocked(readItemSendFacts).mockResolvedValue({ state: "stored", reading: reading(dpgfLavabo) });
+    const preview = await previewTakeoffItemSend(JOB, { breakdown: "by_level" });
+    expect(preview.lines).toEqual([expect.objectContaining({ target: "dpgf_line", estimate_item_id: LINE, change: "fed", quantity_before: 4,
+      quantity_after: 4, reference: 4, measured: 3 })]);
+    expect(preview.focus_item_id).toBe(LINE);
+    expect(preview.sections).toEqual([]);
+    expect(calls.writes).toEqual([]);
+    expect(calls.rpcs.every((call) => call.startsWith("service:"))).toBe(true);
+
+    setUp({ versions: [version(VERSION, 3)], items: [dpgfRow(LINE, MAPPED_OLD)], lineage: [] });
+    const unproven = await previewTakeoffItemSend(JOB, {});
+    expect(unproven.lines).toEqual([]);
+    expect(unproven.to_resolve).toEqual([expect.objectContaining({ kind: "target_missing", item_id: DPGF_ITEM })]);
+    expect(calls.writes).toEqual([]);
+    expect(calls.reads.filter((read) => read.table === "estimate_items").every((read) => !/price|tax|k_fo|k_mo|h_mo|supplier/.test(read.select)))
+      .toBe(true);
+  });
+
+  it("checks the right to write first: a viewer reads the reason and nothing of the takeoff or of the estimates (fix 12)", async () => {
+    setUp({ versions: [version(VERSION, 3)], role: "viewer" });
+    const preview = await previewTakeoffItemSend(JOB, {});
+    expect(preview.blocked?.reason).toBe("read_only");
+    expect([preview.plan, preview.list, preview.destinations, preview.lines]).toEqual([null, null, [], []]);
+    expect(readTables()).toEqual(["member:takeoff_jobs", "service:estimate_projects"]);
+    expect(readItemSendFacts).not.toHaveBeenCalled();
+    expect(listActiveTakeoffMappingRules).not.toHaveBeenCalled();
+  });
+
+  it("compares the plan's pages with its preparation's plan reference, and always, an entry included (fixes 2 and 3)", async () => {
+    setUp({ versions: [version(VERSION, 3)], sources: [{ document_id: PLAN_FILE, logical_document_id: "REF-PLAN-1", kind: "plan" }] });
+    vi.mocked(readItemSendFacts).mockResolvedValue({ state: "stored", reading: reading(lavabo, { outcome: "uncertain", decision: null,
+      observations: [], entry: { revision: 1, quantity: 2, unit: "u", category: "site_survey", included: true } }) });
+    await previewTakeoffItemSend(JOB, {});
+    expect(readPlanPagesAlreadyInEstimate).toHaveBeenCalledWith(expect.anything(), { jobId: JOB, versionId: VERSION, pages: [1, 2, 3, 4],
+      document: { plan_file_id: PLAN_FILE, content_hash: "d".repeat(64), logical_document_id: "REF-PLAN-1", file_name: "Plan RDC" } });
+  });
+
+  it("names the ouvrage a rule points to, by its id and its name in this tenant (fix 14)", async () => {
+    setUp({});
+    vi.mocked(listActiveTakeoffMappingRules).mockResolvedValue([{ id: "12121212-1212-4212-8212-121212121212", tenant_id: TENANT,
+      created_at: "2026-01-01T00:00:00.000Z", updated_at: "2026-01-01T00:00:00.000Z", created_by: MEMBER, name: "Lavabo en ouvrage",
+      match_pattern: "lavabo", match_type: "contains", action: "apply_assembly", action_params: { assembly_id: ASSEMBLY }, priority: 1,
+      is_active: true } as TakeoffMappingRule]);
+    const preview = itemSendPreviewResponseSchema.parse(await previewTakeoffItemSend(JOB, {}));
+    expect(preview.rules).toEqual([expect.objectContaining({ effect: "assembly_indicated",
+      assembly: { id: ASSEMBLY, name: "Ouvrage lavabo complet" } })]);
+    expect(preview.lines).toEqual([expect.objectContaining({ quantity_after: 3 })]);
+  });
+
+  it("reads every row of the DPGF lineage: a proof cut at the API's ceiling never chooses a target (closing 3)", async () => {
+    const second = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb3";
+    const filler = (index: number) => ({ estimate_item_id: `00000000-0000-4000-8000-${String(index).padStart(12, "0")}`, import_id: IMPORT,
+      mapped_row_id: MAPPED_NEW, raw_row_id: `raw-${index}` });
+    setUp({ versions: [version(VERSION, 3)], items: [dpgfRow(LINE, MAPPED_OLD), dpgfRow(second, MAPPED_OLD)],
+      lineage: [{ estimate_item_id: LINE, import_id: IMPORT, mapped_row_id: MAPPED_OLD, raw_row_id: RAW },
+        ...Array.from({ length: 999 }, (_, index) => filler(index)),
+        { estimate_item_id: second, import_id: IMPORT, mapped_row_id: MAPPED_OLD, raw_row_id: RAW }] });
+    vi.mocked(readItemSendFacts).mockResolvedValue({ state: "stored", reading: reading(dpgfLavabo) });
+    const preview = await previewTakeoffItemSend(JOB, {});
+    expect(preview.lines).toEqual([]);
+    expect(preview.to_resolve).toEqual([expect.objectContaining({ kind: "target_multiple", item_id: DPGF_ITEM,
+      options: [expect.objectContaining({ estimate_item_id: LINE }), expect.objectContaining({ estimate_item_id: second }), { kind: "leave_out" }] })]);
+  });
+
+  it("counts only confirmed buildings: a field left to its reading names none (closing 6)", async () => {
+    setUp({ locations: [{ id: "loc-1", tenant_id: TENANT, project_id: PROJECT, building_choice: "reading" }] });
+    vi.mocked(readTakeoffJobPlanLocations).mockResolvedValue({ plans: [{ plan_file_id: PLAN_FILE, annotation: { revision: 2 },
+      location: { building: { value: null, state: "unknown" }, level: { value: "RDC", state: "corrected" } } }] } as never);
+    const preview = await previewTakeoffItemSend(JOB, { breakdown: "by_level" });
+    expect(preview.lines).toEqual([expect.objectContaining({ compartment: expect.objectContaining({ label: "RDC", reason: null }) })]);
+    setUp({ locations: [{ id: "loc-1", tenant_id: TENANT, project_id: PROJECT, building_choice: "value" }] });
+    const named = await previewTakeoffItemSend(JOB, { breakdown: "by_level" });
+    expect(named.lines).toEqual([expect.objectContaining({ compartment: expect.objectContaining({ key: "unallocated" }) })]);
+  });
+
+  it("puts the destination draft's own state in the digest (closing 8)", async () => {
+    setUp({ versions: [version(VERSION, 3)] });
+    const first = await previewTakeoffItemSend(JOB, {});
+    expect(first.plan_digest).toMatch(/^[0-9a-f]{64}$/);
+    setUp({ versions: [{ ...version(VERSION, 3), updated_at: "2026-11-22T09:30:00.000Z" }] });
+    expect((await previewTakeoffItemSend(JOB, {})).plan_digest).not.toBe(first.plan_digest);
+  });
+});

@@ -5,6 +5,7 @@ import { takeoffVectorReadingResponseSchema } from "@/lib/takeoff/vectors/read-c
 import { takeoffLaunchPageContributionsRequestSchema, takeoffPageContributionsResponseSchema } from "@/lib/takeoff/page-contributions-contracts";
 import { takeoffPageReplacementRequestSchema, takeoffPageReplacementResponseSchema } from "@/lib/takeoff/page-replacement-contracts";
 import { takeoffSendPreviewRequestSchema, takeoffSendPreviewResponseSchema, takeoffSendRequestSchema, takeoffSendResponseSchema } from "@/lib/takeoff/send-contracts";
+import { itemSendPreviewRequestSchema, itemSendPreviewResponseSchema } from "@/lib/takeoff/item-send-contracts";
 import { takeoffJobPlanLocationsSchema, takeoffPlanFileLocationSchema, takeoffPlanLocationSaveSchema } from "@/lib/takeoff/plan-location-contracts";
 import { takeoffJobListResponseSchema as sharedTakeoffJobListDataSchema } from "@/lib/takeoff/job-response-contracts";
 import { takeoffJobDetailResponseSchema as sharedTakeoffJobDetailDataSchema } from "@/lib/takeoff/job-response-contracts";
@@ -1929,6 +1930,16 @@ const takeoffSendPreviewBody = jsonBody({
   description: "Destination et section choisies pour l'aperçu ; absentes, celles que l'aperçu propose.",
   schema: takeoffSendPreviewRequestSchema,
 });
+const apiTakeoffItemSendPreviewSchemaDefinition = successResponseSchemaDefinition(
+  "ApiTakeoffItemSendPreviewResponse",
+  itemSendPreviewResponseSchema
+);
+const takeoffItemSendPreviewBody = jsonBody({
+  name: "TakeoffItemSendPreviewRequest",
+  description: "Destination, decoupage (ensemble, par niveau, par batiment) et choix explicites du membre, chacun par la cle du point a "
+    + "trancher que l'apercu a donnee ; absents, ceux que l'apercu propose.",
+  schema: itemSendPreviewRequestSchema,
+});
 const apiTakeoffSendSchemaDefinition = successResponseSchemaDefinition("ApiTakeoffSendResponse", takeoffSendResponseSchema);
 const takeoffSendBody = jsonBody({
   name: "TakeoffSendRequest",
@@ -3228,6 +3239,20 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
     requestBody: takeoffSendPreviewBody,
     responses: {
       "200": jsonResponse("Apercu de l'envoi.", apiTakeoffSendPreviewSchemaDefinition),
+      ...takeoffJobsErrorResponses,
+    },
+  },
+  {
+    method: "post",
+    path: "/api/takeoff/jobs/{jobId}/item-send/preview",
+    summary: "Apercu de l'envoi par poste des reponses d'un plan",
+    description:
+      "Lecture seule (lot 4) : pour l'analyse d'un plan lue contre la liste des postes, ce que deviendrait le devis : premier brouillon a creer, sections (lot puis famille de la liste, compartiment du decoupage), lignes creees ou alimentees (ligne du DPGF a sa place, ligne d'un envoi anterieur du meme poste), quantites avant et apres, reference, saisie, mesure et quantite retenue, lignes non envoyees et leur motif, points a trancher et leurs choix, lectures non additionnees, apports de page et regles sans effet sur les prix. Moteur 3 seul. N'ecrit rien. Tant que les reponses par poste ne sont pas enregistrees, repond 409.",
+    tags: ["Takeoff"],
+    parameters: [takeoffJobIdPathParameter],
+    requestBody: takeoffItemSendPreviewBody,
+    responses: {
+      "200": jsonResponse("Apercu de l'envoi par poste.", apiTakeoffItemSendPreviewSchemaDefinition),
       ...takeoffJobsErrorResponses,
     },
   },
