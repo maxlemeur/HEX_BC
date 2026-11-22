@@ -6,7 +6,7 @@ vi.mock("@/lib/affaires/access-server", () => ({ requireAffaireAccess: vi.fn() }
 vi.mock("@/lib/ai/chatgpt-takeoff", () => ({ readLocalChatGptSubscription: vi.fn() }));
 vi.mock("./launch-request-server", () => ({ readAffaireTakeoffLaunchState: vi.fn() }));
 vi.mock("./item-remeasure-server", () => ({ planTakeoffItemRemeasure: vi.fn(), launchTakeoffItemRemeasure: vi.fn(),
-  readTakeoffItemRemeasureReceipt: vi.fn() }));
+  replayTakeoffItemRemeasure: vi.fn() }));
 vi.mock("./item-table-server", () => ({ loadItemLines: vi.fn(), itemReviewerRight: vi.fn() }));
 vi.mock("@/lib/takeoff/rules/recompute-server", () => ({ recomputeTakeoffRulesQuietly: vi.fn(async () => ({ lines: 1, skipped: 0 })) }));
 
@@ -14,13 +14,13 @@ import { requireAffaireAccess } from "@/lib/affaires/access-server";
 import { readLocalChatGptSubscription } from "@/lib/ai/chatgpt-takeoff";
 import { recomputeTakeoffRulesQuietly } from "@/lib/takeoff/rules/recompute-server";
 import { buildItemLines, type ItemReviewTarget, type ItemTableRow } from "./item-table";
-import type { ItemReviewCommand } from "./item-table-contracts";
+import type { ItemRemeasureCommand, ItemReviewCommand } from "./item-table-contracts";
 import { FIXTURE_PLANS, fixtureAnswer, fixtureItemId, fixturePoste, fixtureReading } from "./item-table.test-fixtures";
 import { itemReviewerRight, loadItemLines } from "./item-table-server";
 import {
   launchTakeoffItemRemeasure,
   planTakeoffItemRemeasure,
-  readTakeoffItemRemeasureReceipt,
+  replayTakeoffItemRemeasure,
   type TakeoffItemRemeasurePlan,
 } from "./item-remeasure-server";
 import { readAffaireTakeoffLaunchState } from "./launch-request-server";
@@ -32,6 +32,7 @@ const TENANT = "77777777-7777-4777-8777-777777777777";
 const INTENT = "66666666-6666-4666-8666-666666666666";
 const JOB = "33333333-3333-4333-8333-333333333333";
 const VERSION = "88888888-8888-4888-8888-888888888888";
+const LIST = "44444444-4444-4444-8444-444444444444";
 
 const rows = (): ItemTableRow[] => [
   { item: fixturePoste(1, "WC"), state: "measured", decision: "pending", entry: null,
@@ -74,13 +75,14 @@ beforeEach(() => {
   lines = buildItemLines(rows(), { plans: FIXTURE_PLANS, scope: { kind: "affaire" } });
   vi.mocked(requireAffaireAccess).mockResolvedValue(access as never);
   vi.mocked(itemReviewerRight).mockResolvedValue(true);
-  vi.mocked(loadItemLines).mockImplementation(async () => ({ lines, plans: FIXTURE_PLANS }) as never);
+  vi.mocked(loadItemLines).mockImplementation(async () => ({ lines, plans: FIXTURE_PLANS, list: { revisionId: LIST, revision: 3,
+    itemCount: 3 } }) as never);
   review.mockResolvedValue({ data: { outcome: "applied", applied: [], skipped: [], replayed: false }, error: null });
   vi.mocked(readLocalChatGptSubscription).mockResolvedValue({ issue: null, selection: { profileId: "p", model: "modele-a",
     reasoningEffort: "medium", hostId: "h", authorizationId: "a" } });
   vi.mocked(readAffaireTakeoffLaunchState).mockResolvedValue({ request: null } as never);
   vi.mocked(planTakeoffItemRemeasure).mockResolvedValue({ plan: PLANNED });
-  vi.mocked(readTakeoffItemRemeasureReceipt).mockResolvedValue(null);
+  vi.mocked(replayTakeoffItemRemeasure).mockResolvedValue(null);
   vi.mocked(launchTakeoffItemRemeasure).mockResolvedValue({ outcome: "admitted", requestId: "55555555-5555-4555-8555-555555555555" });
 });
 
@@ -180,9 +182,24 @@ describe("runItemReviewCommand", () => {
 });
 
 describe("remeasure of a selection", () => {
+  // What the member saw of the selection: the table's list revision and each item's readings, as its lines showed them.
+  const seen = (ids: number[], list = LIST) => ({ list_revision_id: list, targets: targetsOf(ids) });
+  const preview = (ids: number[], view = seen(ids)) => previewItemRemeasure(PROJECT, { scope: { kind: "affaire" },
+    itemIds: ids.map(fixtureItemId), seen: view });
+  const confirmation = async (ids: number[], extra: Partial<ItemRemeasureCommand> = {}): Promise<ItemRemeasureCommand> => {
+    const shown = await preview(ids);
+    return { command_version: 1, intent_key: INTENT, scope: { kind: "affaire" }, item_ids: shown.items.map(({ itemId }) => itemId),
+      plan_keys: shown.plans.map(({ key }) => key), setting: null, preview_digest: shown.previewDigest, seen: seen(ids), ...extra };
+  };
+  /** A new reading of the item published since: its answer on its plan replaced (another answer id). */
+  const readAgain = (item: number) => {
+    lines = buildItemLines(rows().map((row) => row.item.id === fixtureItemId(item) ? { ...row,
+      readings: [fixtureReading(item, "plan-rdc", fixtureAnswer("measured", 4, { answerId: "99999999-0000-4000-8000-000000000099" }))] }
+      : row), { plans: FIXTURE_PLANS, scope: { kind: "affaire" } });
+  };
+
   it("shows the member who confirms as the payer, the setting of their profile, the plans and the items", async () => {
-    const preview = await previewItemRemeasure(PROJECT, { scope: { kind: "affaire" }, itemIds: [fixtureItemId(3)] });
-    expect(preview).toMatchObject({
+    expect(await preview([3])).toMatchObject({
       payer: { memberId: MEMBER, name: "Léa Martin" },
       subscription: { state: "ready", model: "modele-a", reasoningEffort: "medium" },
       // An item no plan read yet is measured on every plan the list was read on.
@@ -195,26 +212,21 @@ describe("remeasure of a selection", () => {
 
   it("says in French why the subscription cannot pay, and refuses the confirmation", async () => {
     vi.mocked(readLocalChatGptSubscription).mockResolvedValue({ issue: "CHATGPT_NOT_CONNECTED", selection: null });
-    const preview = await previewItemRemeasure(PROJECT, { scope: { kind: "affaire" }, itemIds: [fixtureItemId(3)] });
-    expect(preview.subscription).toEqual({ state: "unavailable",
+    const shown = await preview([3]);
+    expect(shown.subscription).toEqual({ state: "unavailable",
       reason: "Connectez votre forfait ChatGPT dans Mon profil avant de demander une nouvelle mesure." });
-    expect(await refusal(runItemRemeasure(PROJECT, { command_version: 1, intent_key: INTENT, scope: { kind: "affaire" },
-      item_ids: [fixtureItemId(3)], plan_keys: preview.plans.map(({ key }) => key), setting: null, preview_digest: preview.previewDigest })))
-      .toMatchObject({ status: 422, code: "AI_PROVIDER" });
+    expect(await refusal(runItemRemeasure(PROJECT, await confirmation([3])))).toMatchObject({ status: 422, code: "AI_PROVIDER" });
   });
 
   it("refuses a confirmation of another preview: another payer, setting, plans or items", async () => {
-    const preview = await previewItemRemeasure(PROJECT, { scope: { kind: "affaire" }, itemIds: [fixtureItemId(3)] });
+    const body = await confirmation([3]);
     vi.mocked(readLocalChatGptSubscription).mockResolvedValue({ issue: null, selection: { profileId: "p", model: "modele-b",
       reasoningEffort: "medium", hostId: "h", authorizationId: "a" } });
-    expect(await refusal(runItemRemeasure(PROJECT, { command_version: 1, intent_key: INTENT, scope: { kind: "affaire" },
-      item_ids: [fixtureItemId(3)], plan_keys: preview.plans.map(({ key }) => key), setting: null, preview_digest: preview.previewDigest })))
-      .toMatchObject({ status: 409, code: "TAKEOFF_ITEM_REVIEW_STALE" });
+    expect(await refusal(runItemRemeasure(PROJECT, body))).toMatchObject({ status: 409, code: "TAKEOFF_ITEM_REVIEW_STALE" });
   });
 
   it("shows the paid calls and the budget its admission reserves, as planned on the items asked", async () => {
-    const preview = await previewItemRemeasure(PROJECT, { scope: { kind: "affaire" }, itemIds: [fixtureItemId(3)] });
-    expect(preview.reading).toEqual({ state: "ready", calls: 2, budgetTokens: 66_000,
+    expect((await preview([3])).reading).toEqual({ state: "ready", calls: 2, budgetTokens: 66_000,
       summary: "Lecture de 1 poste sur 2 plans : 2 appels de lecture, environ 2 min sur un Mac." });
     expect(planTakeoffItemRemeasure).toHaveBeenCalledWith(access.context, { projectId: PROJECT, planKeys: ["plan-r1", "plan-rdc"],
       itemIds: [fixtureItemId(3)], selection: null });
@@ -222,61 +234,100 @@ describe("remeasure of a selection", () => {
 
   it("says why a reading that cannot be bounded is refused, before anything is paid", async () => {
     vi.mocked(planTakeoffItemRemeasure).mockResolvedValue({ refusal: "Ces plans ne peuvent pas être lus seuls avec la préparation confirmée : revoyez les options du métré." });
-    const preview = await previewItemRemeasure(PROJECT, { scope: { kind: "affaire" }, itemIds: [fixtureItemId(3)] });
-    expect(preview.reading).toEqual({ state: "refused",
+    expect((await preview([3])).reading).toEqual({ state: "refused",
       reason: "Ces plans ne peuvent pas être lus seuls avec la préparation confirmée : revoyez les options du métré." });
-    expect(await refusal(runItemRemeasure(PROJECT, { command_version: 1, intent_key: INTENT, scope: { kind: "affaire" },
-      item_ids: [fixtureItemId(3)], plan_keys: preview.plans.map(({ key }) => key), setting: null, preview_digest: preview.previewDigest })))
-      .toMatchObject({ status: 422, code: "VALIDATION_ERROR" });
+    expect(await refusal(runItemRemeasure(PROJECT, await confirmation([3])))).toMatchObject({ status: 422, code: "VALIDATION_ERROR" });
     expect(launchTakeoffItemRemeasure).not.toHaveBeenCalled();
   });
 
-  it("admits the confirmation with the effort chosen for it alone and the readings the member saw", async () => {
-    const preview = await previewItemRemeasure(PROJECT, { scope: { kind: "affaire" }, itemIds: [fixtureItemId(2)] });
-    expect(preview.items).toEqual([{ itemId: fixtureItemId(2), label: "Baignoire" }]);
-    await expect(runItemRemeasure(PROJECT, { command_version: 1, intent_key: INTENT, scope: { kind: "affaire" },
-      item_ids: [fixtureItemId(2)], plan_keys: preview.plans.map(({ key }) => key), setting: { reasoning_effort: "high" },
-      preview_digest: preview.previewDigest })).resolves.toEqual({ outcome: "admitted", requestId: "55555555-5555-4555-8555-555555555555" });
+  it("admits the confirmation with the effort chosen for it alone, the readings the member saw and what was confirmed", async () => {
+    const body = await confirmation([2], { setting: { reasoning_effort: "high" } });
+    expect(body.item_ids).toEqual([fixtureItemId(2)]);
+    await expect(runItemRemeasure(PROJECT, body)).resolves.toEqual({ outcome: "admitted", requestId: "55555555-5555-4555-8555-555555555555" });
     const sealed = { profileId: "p", model: "modele-a", reasoningEffort: "high", hostId: "h", authorizationId: "a" };
-    expect(planTakeoffItemRemeasure).toHaveBeenLastCalledWith(access.context, { projectId: PROJECT,
-      planKeys: preview.plans.map(({ key }) => key), itemIds: [fixtureItemId(2)], selection: sealed });
+    expect(planTakeoffItemRemeasure).toHaveBeenLastCalledWith(access.context, { projectId: PROJECT, planKeys: body.plan_keys,
+      itemIds: [fixtureItemId(2)], selection: sealed });
     const answer = lines.find(({ itemId }) => itemId === fixtureItemId(2))!.readings[0].answer!.answerId.toLowerCase();
     expect(launchTakeoffItemRemeasure).toHaveBeenCalledWith(access.context, { projectId: PROJECT, intentKey: INTENT, plan: PLANNED,
-      selection: sealed, targets: [{ item_id: fixtureItemId(2), answers: [answer] }], host: "localhost:3000" });
+      selection: sealed, targets: [{ item_id: fixtureItemId(2), answers: [answer] }], host: "localhost:3000",
+      confirmation: { preview_digest: body.preview_digest, setting: { reasoning_effort: "high" } } });
   });
 
   it("answers stale with the items the database found read again, by their labels; nothing is admitted", async () => {
     vi.mocked(launchTakeoffItemRemeasure).mockResolvedValue({ outcome: "stale", stale: [fixtureItemId(2).toUpperCase()] });
-    const preview = await previewItemRemeasure(PROJECT, { scope: { kind: "affaire" }, itemIds: [fixtureItemId(2)] });
-    expect(await refusal(runItemRemeasure(PROJECT, { command_version: 1, intent_key: INTENT, scope: { kind: "affaire" },
-      item_ids: [fixtureItemId(2)], plan_keys: preview.plans.map(({ key }) => key), setting: null, preview_digest: preview.previewDigest })))
-      .toMatchObject({ status: 409, code: "TAKEOFF_ITEM_REVIEW_STALE",
-        details: { stale: [{ itemId: fixtureItemId(2).toUpperCase(), label: "Baignoire" }] } });
+    expect(await refusal(runItemRemeasure(PROJECT, await confirmation([2])))).toMatchObject({ status: 409,
+      code: "TAKEOFF_ITEM_REVIEW_STALE", details: { stale: [{ itemId: fixtureItemId(2).toUpperCase(), label: "Baignoire" }] } });
   });
 
-  it("replays a lost answer of the same confirmation from its receipt, and refuses another under its key", async () => {
-    const receipt = { requestId: "55555555-5555-4555-8555-555555555555", payerId: MEMBER, askedItemIds: [fixtureItemId(2)],
-      planKeys: ["plan-rdc"], reasoningEffort: "high" };
-    vi.mocked(readTakeoffItemRemeasureReceipt).mockResolvedValue(receipt);
-    const confirmation = { command_version: 1 as const, intent_key: INTENT, scope: { kind: "affaire" as const },
-      item_ids: [fixtureItemId(2)], plan_keys: ["plan-rdc"], setting: { reasoning_effort: "high" as const }, preview_digest: "b".repeat(64) };
-    await expect(runItemRemeasure(PROJECT, confirmation)).resolves.toEqual({ outcome: "replayed", requestId: receipt.requestId });
+  // Case 6: what the member ticked is what is compared, never the readings the server finds when the dialog opens.
+  it("answers stale, naming the item, when its reading was replaced between the tick and the preview", async () => {
+    const ticked = seen([2]);
+    readAgain(2);
+    expect(await refusal(preview([2], ticked))).toMatchObject({ status: 409, code: "TAKEOFF_ITEM_REVIEW_STALE",
+      details: { stale: [{ itemId: fixtureItemId(2), label: "Baignoire" }] } });
+    expect(await refusal(preview([2], seen([2], "44444444-4444-4444-8444-000000000000")))).toMatchObject({ status: 409,
+      details: { stale: [{ itemId: fixtureItemId(2), label: "Baignoire" }] } });
+  });
+
+  it("names the items, and admits nothing, when a reading was replaced between the preview and the confirmation", async () => {
+    const body = await confirmation([2]);
+    readAgain(2);
+    expect(await refusal(runItemRemeasure(PROJECT, body))).toMatchObject({ status: 409, code: "TAKEOFF_ITEM_REVIEW_STALE",
+      details: { stale: [{ itemId: fixtureItemId(2), label: "Baignoire" }] } });
     expect(launchTakeoffItemRemeasure).not.toHaveBeenCalled();
-    for (const other of [{ ...confirmation, item_ids: [fixtureItemId(1)] }, { ...confirmation, plan_keys: ["plan-r1"] },
-      { ...confirmation, setting: { reasoning_effort: "low" as const } }]) {
-      expect(await refusal(runItemRemeasure(PROJECT, other))).toMatchObject({ status: 409, code: "TAKEOFF_LAUNCH_INTENT_CONFLICT" });
+  });
+
+  // Case 4: the plan admitted is the plan the member confirmed.
+  it("admits nothing when the plan made for the admission is not the one the member confirmed", async () => {
+    const body = await confirmation([2]);
+    vi.mocked(planTakeoffItemRemeasure).mockResolvedValueOnce({ plan: PLANNED }).mockResolvedValueOnce({ plan: { ...PLANNED,
+      preparationRevision: 4, bounds: { ...PLANNED.bounds, calls: 4 }, manifest: { ...PLANNED.manifest, budget: { tokens: 132_000,
+        cost_cents: 0 } } } as TakeoffItemRemeasurePlan });
+    expect(await refusal(runItemRemeasure(PROJECT, body))).toMatchObject({ status: 409, code: "TAKEOFF_ITEM_REVIEW_STALE",
+      details: { stale: [{ itemId: fixtureItemId(2), label: "Baignoire" }] } });
+    expect(launchTakeoffItemRemeasure).not.toHaveBeenCalled();
+  });
+
+  // Case 3: a receipt answers only the confirmation it was written for, by the identity the database digests.
+  it("replays a lost answer by what the member confirmed alone, before planning anything", async () => {
+    const body = await confirmation([2], { setting: { reasoning_effort: "high" } });
+    vi.clearAllMocks();
+    vi.mocked(replayTakeoffItemRemeasure).mockResolvedValue({ outcome: "replayed", requestId: "55555555-5555-4555-8555-555555555555" });
+    await expect(runItemRemeasure(PROJECT, body)).resolves.toEqual({ outcome: "replayed", requestId: "55555555-5555-4555-8555-555555555555" });
+    const answer = lines.find(({ itemId }) => itemId === fixtureItemId(2))!.readings[0].answer!.answerId.toLowerCase();
+    expect(replayTakeoffItemRemeasure).toHaveBeenCalledWith(access.context, { projectId: PROJECT, intentKey: INTENT,
+      planKeys: body.plan_keys, listRevisionId: LIST, targets: [{ item_id: fixtureItemId(2), answers: [answer] }],
+      selection: { profileId: "p", model: "modele-a", reasoningEffort: "high", hostId: "h", authorizationId: "a" },
+      confirmation: { preview_digest: body.preview_digest, setting: { reasoning_effort: "high" } } });
+    expect(planTakeoffItemRemeasure).not.toHaveBeenCalled();
+    expect(launchTakeoffItemRemeasure).not.toHaveBeenCalled();
+  });
+
+  it("leaves another confirmation under the key to the database: a strict superset, another preview, a removed effort", async () => {
+    const body = await confirmation([2], { setting: { reasoning_effort: "high" } });
+    const conflict = Object.assign(new Error("conflict"), { status: 409, code: "CONFLICT" });
+    vi.mocked(replayTakeoffItemRemeasure).mockRejectedValue(conflict);
+    for (const other of [{ ...body, item_ids: [fixtureItemId(1), fixtureItemId(2)], seen: seen([1, 2]) },
+      { ...body, preview_digest: "f".repeat(64) }, { ...body, setting: null }]) {
+      expect(await refusal(runItemRemeasure(PROJECT, other))).toBe(conflict);
     }
-    vi.mocked(readTakeoffItemRemeasureReceipt).mockResolvedValue({ ...receipt, payerId: "99999999-9999-4999-8999-999999999990" });
-    expect(await refusal(runItemRemeasure(PROJECT, confirmation))).toMatchObject({ status: 409, code: "TAKEOFF_LAUNCH_INTENT_CONFLICT" });
+    const sent = vi.mocked(replayTakeoffItemRemeasure).mock.calls.map(([, input]) => input);
+    expect(sent.map(({ targets }) => targets.map(({ item_id: id }) => id))).toEqual([[fixtureItemId(1), fixtureItemId(2)],
+      [fixtureItemId(2)], [fixtureItemId(2)]]);
+    expect(sent.map(({ confirmation: confirmed }) => confirmed)).toEqual([
+      { preview_digest: body.preview_digest, setting: { reasoning_effort: "high" } },
+      { preview_digest: "f".repeat(64), setting: { reasoning_effort: "high" } },
+      { preview_digest: body.preview_digest, setting: null }]);
+    expect(sent.map(({ selection }) => selection.reasoningEffort)).toEqual(["high", "high", "medium"]);
+    expect(launchTakeoffItemRemeasure).not.toHaveBeenCalled();
   });
 
   it("answers a receipt to nobody who lost the right to launch on the affaire", async () => {
     vi.mocked(itemReviewerRight).mockResolvedValue(false);
-    vi.mocked(readTakeoffItemRemeasureReceipt).mockResolvedValue({ requestId: "55555555-5555-4555-8555-555555555555", payerId: MEMBER,
-      askedItemIds: [fixtureItemId(2)], planKeys: ["plan-rdc"], reasoningEffort: null });
+    vi.mocked(replayTakeoffItemRemeasure).mockResolvedValue({ outcome: "replayed", requestId: "55555555-5555-4555-8555-555555555555" });
     expect(await refusal(runItemRemeasure(PROJECT, { command_version: 1, intent_key: INTENT, scope: { kind: "affaire" },
-      item_ids: [fixtureItemId(2)], plan_keys: ["plan-rdc"], setting: null, preview_digest: "b".repeat(64) })))
+      item_ids: [fixtureItemId(2)], plan_keys: ["plan-rdc"], setting: null, preview_digest: "b".repeat(64), seen: seen([2]) })))
       .toMatchObject({ status: 403, code: "TAKEOFF_ITEM_REVIEW_FORBIDDEN" });
-    expect(readTakeoffItemRemeasureReceipt).not.toHaveBeenCalled();
+    expect(replayTakeoffItemRemeasure).not.toHaveBeenCalled();
   });
 });

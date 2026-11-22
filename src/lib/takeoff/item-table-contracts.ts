@@ -285,10 +285,23 @@ export const itemReviewStaleDetailsSchema = z.object({
   stale: z.array(z.object({ itemId: uuid, label: z.string().nullable() }).strict()),
 }).strict();
 
+/**
+ * What the member saw of a selection to measure again: the list revision of the table and each item's readings as its
+ * line showed them (its target, frozen with the selection). The preview and the confirmation compare them with the
+ * readings stored now: a reading replaced since is named, and nothing is admitted on it.
+ */
+export const itemRemeasureSeenSchema = z.object({
+  list_revision_id: uuid.nullable(),
+  targets: z.array(itemReviewTargetSchema).min(1).max(ITEM_REVIEW_LIMITS.items),
+}).strict();
+
+export type ItemRemeasureSeen = z.infer<typeof itemRemeasureSeenSchema>;
+
 export const itemRemeasurePreviewRequestSchema = z.object({
   command_version: z.literal(ITEM_REVIEW_COMMAND_VERSION),
   scope: itemTableScopeSchema,
   item_ids: z.array(uuid).min(1).max(ITEM_REVIEW_LIMITS.items),
+  seen: itemRemeasureSeenSchema,
 }).strict();
 
 export const itemRemeasurePreviewSchema = z.object({
@@ -323,6 +336,7 @@ export const itemRemeasureCommandSchema = z.object({
     .describe("Réglage ponctuel de cette demande ; nul : celui de Mon profil. Jamais enregistré dans le profil."),
   preview_digest: z.string().regex(/^[0-9a-f]{64}$/)
     .describe("Empreinte de l’aperçu confirmé : payeur et réglage, plans, postes et leurs lectures, appels et budget."),
+  seen: itemRemeasureSeenSchema.describe("Ce que le membre a vu de la sélection : la révision de la liste et les lectures de chaque poste."),
 }).strict();
 
 export type ItemRemeasureCommand = z.infer<typeof itemRemeasureCommandSchema>;

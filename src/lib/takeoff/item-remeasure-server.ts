@@ -6,6 +6,7 @@ import { TakeoffError, TakeoffErrorCode } from "@/lib/takeoff/errors";
 import { getTakeoffLevelCProcessingConfigForTenant, takeoffModuleDefault } from "@/lib/takeoff/feature-flags";
 import { sealedMeasuringOrder } from "@/lib/takeoff/item-list-seal-server";
 import { TAKEOFF_PAID_CALL_ESTIMATE_TOKENS } from "@/lib/takeoff/launch-call-ledger";
+import { isTakeoffPlanDispatchActive } from "@/lib/takeoff/local-dispatcher";
 import {
   describeTakeoffLaunchReason, splitTakeoffLaunchManifest, type TakeoffLaunchOrder, type TakeoffPlanLaunchManifest,
 } from "@/lib/takeoff/launch-request";
@@ -15,7 +16,8 @@ import {
 } from "@/lib/takeoff/launch-request-server";
 import { posteReadingRefusal, postesAskedBy, sizePosteReadingManifest, type PosteReadingBounds } from "@/lib/takeoff/poste-reading-bounds";
 import {
-  createTakeoffPreparationSnapshot, TakeoffPreparationNotReadyError, type TakeoffExecutionSelection, type TakeoffPreparationSnapshot,
+  createTakeoffPreparationSnapshot, TakeoffPreparationNotReadyError, takeoffExecutionSelectionSchema, type TakeoffExecutionSelection,
+  type TakeoffPreparationSnapshot,
 } from "@/lib/takeoff/preparation";
 import { assertConfirmedTakeoffPreparation } from "@/lib/takeoff/preparation-server";
 import { takeoffVectorGroupCallsBound } from "@/lib/takeoff/vectors/worker-server";
@@ -54,6 +56,10 @@ export async function planTakeoffItemRemeasure(context: Context, input: {
   projectId: string; planKeys: readonly string[]; itemIds: readonly string[]; selection: TakeoffExecutionSelection | null;
 }): Promise<{ plan: TakeoffItemRemeasurePlan } | { refusal: string; stale?: boolean }> {
   const service = createServiceRoleClient();
+  // The admission is refused unless one analysis per plan is active: the preview says so, never offers it.
+  if (!await isTakeoffPlanDispatchActive(service)) {
+    return { refusal: "La nouvelle mesure d’une sélection n’est pas encore ouverte : la lecture plan par plan n’est pas activée sur cette affaire." };
+  }
   const { data: record, error } = await service.from("takeoff_preparations").select("revision")
     .eq("tenant_id", context.tenantId).eq("project_id", input.projectId).maybeSingle();
   if (error) databaseError(error, "Impossible de lire la préparation du métré de l’affaire.");
@@ -154,6 +160,12 @@ function remeasureError(error: { code?: string; message: string }): never {
     case "TAKEOFF_LAUNCH_SEAL_INVALID":
       throw new TakeoffError({ status: 409, code: TakeoffErrorCode.CONFLICT, retryable: false,
         message: "La préparation du métré ou la liste des postes a changé depuis l’aperçu : rouvrez-le avant de confirmer." });
+    case "TAKEOFF_ITEM_REMEASURE_PREPARATION_BUSY":
+      throw new TakeoffError({ status: 409, code: TakeoffErrorCode.CONFLICT, retryable: true,
+        message: "La préparation du métré de l’affaire est en cours de modification : rien n’a été lancé. Réessayez dans un instant." });
+    case "TAKEOFF_ITEM_REMEASURE_AFFAIRE_NOT_FOUND":
+      throw new TakeoffError({ status: 404, code: TakeoffErrorCode.NOT_FOUND, retryable: false,
+        message: "Cette affaire n’existe plus : aucune nouvelle mesure n’a été lancée." });
   }
   launchError(error, "Impossible de lancer la nouvelle mesure.");
 }
@@ -163,9 +175,18 @@ function remeasureError(error: { code?: string; message: string }): never {
  * jobs derived from the command, and the targets the member saw (each item's current answers on those plans), which the
  * database compares under its locks. Its jobs are handed to the Mac once admitted.
  */
+/** What the member confirmed besides the readings: the preview confirmed (its digest) and the setting chosen for it. */
+export type TakeoffItemRemeasureConfirmation = { preview_digest: string; setting: { reasoning_effort: string | null } | null };
+export type TakeoffItemRemeasureTargets = Array<{ item_id: string; answers: string[] }>;
+
+/** The setting a confirmation seals, as the request's snapshot and the database's digest hold it. */
+function sealedSelectionValue(selection: TakeoffExecutionSelection) {
+  return takeoffExecutionSelectionSchema.parse(selection) as unknown as Json;
+}
+
 export async function launchTakeoffItemRemeasure(context: Context, input: {
   projectId: string; intentKey: string; plan: TakeoffItemRemeasurePlan; selection: TakeoffExecutionSelection;
-  targets: Array<{ item_id: string; answers: string[] }>; host?: string | null;
+  targets: TakeoffItemRemeasureTargets; confirmation: TakeoffItemRemeasureConfirmation; host?: string | null;
 }): Promise<TakeoffItemRemeasureAdmission> {
   const service = createServiceRoleClient();
   const { plan } = input;
@@ -174,10 +195,11 @@ export async function launchTakeoffItemRemeasure(context: Context, input: {
   const { data, error } = await service.rpc("launch_takeoff_item_remeasure", {
     p_tenant_id: context.tenantId, p_project_id: input.projectId, p_actor: context.userId, p_intent_key: input.intentKey,
     p_predecessor_job_id: plan.predecessorJobId, p_host: input.selection.hostId,
-    p_selection: plan.snapshot.execution_selection as unknown as Json, p_manifest: units.manifest as unknown as Json,
+    p_selection: sealedSelectionValue(input.selection), p_manifest: units.manifest as unknown as Json,
     p_snapshot: plan.snapshot as unknown as Json, p_jobs: units.jobs as unknown as Json, p_plan_set_id: plan.planSetId,
     p_preparation_revision: plan.preparationRevision, p_plan_file_ids: plan.planFileIds,
-    p_targets: input.targets as unknown as Json, p_module_default: takeoffModuleDefault(),
+    p_targets: input.targets as unknown as Json, p_confirmation: input.confirmation as unknown as Json,
+    p_module_default: takeoffModuleDefault(),
   });
   if (error) remeasureError(error);
   const row = (data as Array<{ outcome: string; request_id: string | null; stale: string[] | null }> | null)?.[0];
@@ -188,30 +210,23 @@ export async function launchTakeoffItemRemeasure(context: Context, input: {
   return { outcome: row.outcome as "admitted" | "replayed" | "already_running", requestId: row.request_id };
 }
 
-/** What a request admitted under a confirmation's key sealed: its payer, the items it asks, its plans and its effort. */
-export type TakeoffItemRemeasureReceipt = {
-  requestId: string; payerId: string | null; askedItemIds: string[]; planKeys: string[]; reasoningEffort: string | null;
-};
-
 /**
- * A confirmation already admitted under its key (a lost answer sent again): the request it admitted, with what it sealed,
- * so that the caller replays only the same confirmation (the database's digest, which holds the readings the member saw,
- * cannot be computed again once the request's own reading replaced them).
+ * The replay of a lost answer (public.replay_takeoff_item_remeasure): the receipt of exactly this confirmation, by what the
+ * member confirmed alone (the payer, the plans, the list revision and the readings seen, the sealed setting, the preview
+ * and the setting chosen), before anything is planned; null when its key answered nothing yet. Another confirmation
+ * under the key is the database's conflict.
  */
-export async function readTakeoffItemRemeasureReceipt(context: Context, input: { projectId: string; intentKey: string }):
-  Promise<TakeoffItemRemeasureReceipt | null> {
-  const service = createServiceRoleClient();
-  const { data, error } = await service.from("takeoff_launch_requests").select("id, payer_id, manifest, mandate_selection")
-    .eq("tenant_id", context.tenantId).eq("project_id", input.projectId).eq("intent_key", input.intentKey).maybeSingle();
-  if (error) databaseError(error, "Impossible de lire la demande de nouvelle mesure.");
-  if (!data) return null;
-  const manifest = (data.manifest ?? {}) as { order?: { list?: { asked_item_ids?: unknown } }; plans?: Array<{ logical_id?: unknown }> };
-  const asked = manifest.order?.list?.asked_item_ids;
-  const selection = (data.mandate_selection ?? {}) as { reasoningEffort?: unknown };
-  return {
-    requestId: data.id, payerId: data.payer_id,
-    askedItemIds: Array.isArray(asked) ? asked.filter((id): id is string => typeof id === "string") : [],
-    planKeys: (manifest.plans ?? []).flatMap(({ logical_id: key }) => typeof key === "string" ? [key.toLowerCase()] : []),
-    reasoningEffort: typeof selection.reasoningEffort === "string" ? selection.reasoningEffort : null,
-  };
+export async function replayTakeoffItemRemeasure(context: Context, input: {
+  projectId: string; intentKey: string; planKeys: readonly string[]; listRevisionId: string; targets: TakeoffItemRemeasureTargets;
+  selection: TakeoffExecutionSelection; confirmation: TakeoffItemRemeasureConfirmation;
+}): Promise<{ outcome: "replayed" | "already_running"; requestId: string | null } | null> {
+  const { data, error } = await createServiceRoleClient().rpc("replay_takeoff_item_remeasure", {
+    p_tenant_id: context.tenantId, p_project_id: input.projectId, p_actor: context.userId, p_intent_key: input.intentKey,
+    p_plan_keys: input.planKeys.map((key) => key.toLowerCase()), p_list_revision_id: input.listRevisionId,
+    p_targets: input.targets as unknown as Json, p_selection: sealedSelectionValue(input.selection),
+    p_confirmation: input.confirmation as unknown as Json,
+  });
+  if (error) remeasureError(error);
+  const row = (data as Array<{ outcome: string; request_id: string | null }> | null)?.[0];
+  return row ? { outcome: row.outcome as "replayed" | "already_running", requestId: row.request_id } : null;
 }

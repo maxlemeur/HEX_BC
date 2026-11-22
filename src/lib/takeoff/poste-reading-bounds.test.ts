@@ -454,6 +454,17 @@ describe("the items a sealed order asks", () => {
     expect(postesAskedBy(list, [list[0].id, list[0].id])).toBeNull();
   });
 
+  it("are batched in the list's order: 80 items, long ones first in the list and alternating by identifier", () => {
+    // Short and 3,000-character designations alternating by identifier; the long ones first in the list's order.
+    const byId = postes(80, (index) => index % 2 ? "WC" : "A".repeat(3_000));
+    const revision = [...byId.filter((_, index) => index % 2 === 0), ...byId.filter((_, index) => index % 2 !== 0)];
+    const asked = postesAskedBy(revision, byId.map(({ id }) => id))!;
+    expect(asked).toEqual(revision);
+    expect(batchesOf(asked)).toEqual([21, 40, 19]);
+    // What sizing them by identifier counted: one call fewer per fragment.
+    expect(batchesOf(byId)).toEqual([40, 40]);
+  });
+
   it("are bounded in the list's order: 4 batches, 44 calls on 11 fragments, past a plan's ceiling", () => {
     const asked = postesAskedBy(list, byIdentifier)!;
     expect(batchesOf(asked)).toHaveLength(4);

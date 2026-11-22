@@ -19,13 +19,21 @@ import {
   type ItemRemeasureCommand,
   type ItemRemeasurePreview,
   type ItemRemeasureResult,
+  type ItemRemeasureSeen,
   type ItemReviewCommand,
   type ItemReviewResult,
 } from "./item-table-contracts";
 import { itemReviewerRight, loadItemLines } from "./item-table-server";
 import { describePosteReadingBounds } from "./poste-reading-bounds-text";
-import { launchTakeoffItemRemeasure, planTakeoffItemRemeasure, readTakeoffItemRemeasureReceipt } from "./item-remeasure-server";
+import {
+  launchTakeoffItemRemeasure,
+  planTakeoffItemRemeasure,
+  replayTakeoffItemRemeasure,
+  type TakeoffItemRemeasurePlan,
+  type TakeoffItemRemeasureTargets,
+} from "./item-remeasure-server";
 import { readAffaireTakeoffLaunchState } from "./launch-request-server";
+import type { TakeoffExecutionSelection } from "./preparation";
 
 /**
  * The one commands module of the table of items (lot 4): the bulk gestures (accept the measured items without anomaly,
@@ -197,7 +205,7 @@ async function payerName(access: AffaireAccess) {
  * is not asked to confirm the brief again. Its digest holds what the member confirms: the payer and the setting, the
  * plans, the items, the list's revision and each item's current readings on those plans, the calls and the budget.
  */
-async function remeasurePreview(input: { scope: ItemTableScope; itemIds: string[] }, access: AffaireAccess) {
+async function remeasurePreview(input: { scope: ItemTableScope; itemIds: string[]; seen: ItemRemeasureSeen }, access: AffaireAccess) {
   const { lines, plans: affairePlans, list } = await loadItemLines(access, { scope: input.scope, itemIds: input.itemIds, withPlans: true });
   const byId = new Map(lines.map((line) => [line.itemId, line]));
   const missing = input.itemIds.filter((id) => !byId.has(id));
@@ -206,6 +214,13 @@ async function remeasurePreview(input: { scope: ItemTableScope; itemIds: string[
       { stale: missing.map((itemId) => ({ itemId, label: null })) }, ITEM_REVIEW_STALE);
   }
   const selected = [...new Set(input.itemIds)].map((id) => byId.get(id)!);
+  // What the member saw is what is measured again: a reading replaced since the line was shown (or the list revised) is
+  // named, and nothing is admitted on it, never the reading the server finds now.
+  const seenOnLines = seenAnswers(input.seen);
+  const listMoved = (input.seen.list_revision_id ?? "").toLowerCase() !== (list?.revisionId ?? "").toLowerCase();
+  const changed = selected.filter((line) => listMoved || seenOnLines.get(line.itemId.toLowerCase())?.join()
+    !== line.targets.answers.map(({ answerId }) => answerId.toLowerCase()).sort().join());
+  if (changed.length) staleRefusal(changed.map(({ itemId, label }) => ({ itemId, label })));
   const eligible = selected.filter(({ eligibility }) => eligibility.remeasure.eligible);
   const planKeys = new Set(eligible.flatMap(({ remeasurePlans }) => remeasurePlans));
   const names = new Map([...affairePlans.map(({ key, name }) => [key, name] as const),
@@ -232,9 +247,9 @@ async function remeasurePreview(input: { scope: ItemTableScope; itemIds: string[
     : "refusal" in planned ? { state: "refused", reason: planned.refusal }
       : { state: "ready", summary: describePosteReadingBounds({ ...planned.plan.bounds, ok: true }), calls: planned.plan.bounds.calls,
         budgetTokens: planned.plan.manifest.budget.tokens };
-  // Each item's current answers on the plans read, as the member sees them: what the database compares at the admission.
-  const targets = items.map(({ itemId }) => ({ item_id: itemId, answers: byId.get(itemId)!.readings
-    .flatMap(({ planKey, answer }) => answer && planKeys.has(planKey) ? [answer.answerId.toLowerCase()] : []).sort() }));
+  // Each item's answers as the member saw them (the same as stored now, compared above): what the database compares again
+  // under its locks, and what identifies the confirmation.
+  const targets = remeasureTargets(items.map(({ itemId }) => itemId), input.seen);
   return {
     preview: {
       items,
@@ -251,13 +266,40 @@ async function remeasurePreview(input: { scope: ItemTableScope; itemIds: string[
         .map(({ itemId, label, eligibility }) => ({ itemId, label, reason: eligibility.remeasure.reason! })),
     } satisfies ItemRemeasurePreview,
     targets,
+    planned: planned && "plan" in planned ? planned.plan : null,
     selection: subscription.issue ? null : subscription.selection,
     labels: new Map(selected.map(({ itemId, label }) => [itemId.toLowerCase(), label])),
   };
 }
 
+/** Each item's answers as its line showed them, by item, in their order. */
+function seenAnswers(seen: ItemRemeasureSeen) {
+  return new Map(seen.targets.map((target) => [target.itemId.toLowerCase(),
+    target.answers.map(({ answerId }) => answerId.toLowerCase()).sort()]));
+}
+
+/** The targets of a confirmation: each item measured again with its answers as the member saw them. */
+function remeasureTargets(itemIds: readonly string[], seen: ItemRemeasureSeen): TakeoffItemRemeasureTargets {
+  const shown = seenAnswers(seen);
+  return [...new Set(itemIds.map((id) => id.toLowerCase()))].sort()
+    .map((itemId) => ({ item_id: itemId, answers: shown.get(itemId) ?? [] }));
+}
+
+/** The plan made for the admission is the plan the member confirmed: same revisions, scope, items, calls and budget. */
+function samePlan(confirmed: TakeoffItemRemeasurePlan, admitted: TakeoffItemRemeasurePlan) {
+  const identity = (plan: TakeoffItemRemeasurePlan) => JSON.stringify([plan.preparationRevision, plan.listRevisionId, plan.planSetId,
+    [...plan.planFileIds].sort(), [...plan.planKeys].sort(), plan.askedItemIds, plan.bounds.calls, plan.manifest.budget.tokens,
+    plan.manifest.budget.cost_cents]);
+  return identity(confirmed) === identity(admitted);
+}
+
+/** The setting this confirmation seals: the profile's, with the effort chosen for this request alone. */
+function sealedSelection(selection: TakeoffExecutionSelection, setting: ItemRemeasureCommand["setting"]): TakeoffExecutionSelection {
+  return setting ? { ...selection, reasoningEffort: setting.reasoning_effort ?? selection.reasoningEffort } : selection;
+}
+
 /** What a remeasure of the selection would ask, and who would pay: shown before its explicit confirmation. Reads only. */
-export async function previewItemRemeasure(projectId: string, input: { scope: ItemTableScope; itemIds: string[] }) {
+export async function previewItemRemeasure(projectId: string, input: { scope: ItemTableScope; itemIds: string[]; seen: ItemRemeasureSeen }) {
   const access = await requireReviewer(projectId);
   return (await remeasurePreview(input, access)).preview;
 }
@@ -271,22 +313,19 @@ export async function previewItemRemeasure(projectId: string, input: { scope: It
 export async function runItemRemeasure(projectId: string, command: ItemRemeasureCommand): Promise<ItemRemeasureResult> {
   // The member's right first (requireReviewer: the right to launch on the affaire), a replay included.
   const access = await requireReviewer(projectId);
-  const admitted = await readTakeoffItemRemeasureReceipt(access.context, { projectId: access.project.id, intentKey: command.intent_key });
-  if (admitted) {
-    // Only the same confirmation is replayed: its payer, the items it asked among those selected, its plans and the effort
-    // chosen for it. Another under the same key is a conflict, as the database answers it.
-    const selected = new Set(command.item_ids.map((id) => id.toLowerCase()));
-    const same = admitted.payerId === access.context.userId && admitted.askedItemIds.length > 0
-      && admitted.askedItemIds.every((id) => selected.has(id.toLowerCase()))
-      && [...admitted.planKeys].sort().join() === command.plan_keys.map((key) => key.toLowerCase()).sort().join()
-      && (!command.setting?.reasoning_effort || command.setting.reasoning_effort === admitted.reasoningEffort);
-    if (!same) {
-      throw conflict("Cette confirmation a déjà été envoyée pour une autre sélection : rouvrez l’aperçu de la nouvelle mesure.",
-        undefined, "TAKEOFF_LAUNCH_INTENT_CONFLICT");
-    }
-    return { outcome: "replayed", requestId: admitted.requestId };
+  const confirmation = { preview_digest: command.preview_digest, setting: command.setting };
+  // A lost answer sent again: replayed by what the member confirmed alone, before anything is planned (the items it
+  // admitted read « En lecture » since); another confirmation under the key is the database's conflict.
+  const subscription = await readLocalChatGptSubscription({ userId: access.context.userId, tenantId: access.context.tenantId },
+    (await headers()).get("host"));
+  if (!subscription.issue && command.seen.list_revision_id) {
+    const replayed = await replayTakeoffItemRemeasure(access.context, { projectId: access.project.id, intentKey: command.intent_key,
+      planKeys: command.plan_keys, listRevisionId: command.seen.list_revision_id, targets: remeasureTargets(command.item_ids, command.seen),
+      selection: sealedSelection(subscription.selection, command.setting), confirmation });
+    if (replayed) return replayed;
   }
-  const { preview, targets, selection, labels } = await remeasurePreview({ scope: command.scope, itemIds: command.item_ids }, access);
+  const { preview, targets, selection, labels, planned: confirmed } = await remeasurePreview({ scope: command.scope,
+    itemIds: command.item_ids, seen: command.seen }, access);
   const shownPlans = preview.plans.map(({ key }) => key);
   if (preview.previewDigest !== command.preview_digest || shownPlans.join() !== command.plan_keys.join()) {
     throw conflict("Le payeur, le réglage, les plans, les postes ou leurs lectures ont changé depuis l’aperçu : vérifiez-le de nouveau avant de confirmer.",
@@ -297,18 +336,22 @@ export async function runItemRemeasure(projectId: string, command: ItemRemeasure
       : "Votre forfait ChatGPT n’est pas disponible sur ce Mac.", undefined, "AI_PROVIDER");
   }
   if (!preview.items.length) invalid("Aucun poste de la sélection ne peut être mesuré de nouveau.");
-  if (preview.reading.state === "refused") invalid(preview.reading.reason);
+  if (preview.reading.state === "refused" || !confirmed) {
+    invalid(preview.reading.state === "refused" ? preview.reading.reason : "Aucun poste de la sélection ne peut être mesuré de nouveau.");
+  }
   // The setting chosen for this request alone, sealed in its selection; the profile is not changed.
-  const sealed = command.setting ? { ...selection, reasoningEffort: command.setting.reasoning_effort ?? selection.reasoningEffort }
-    : selection;
+  const sealed = sealedSelection(selection, command.setting);
   const planned = await planTakeoffItemRemeasure(access.context, { projectId: access.project.id, planKeys: shownPlans,
     itemIds: preview.items.map(({ itemId }) => itemId), selection: sealed });
+  const items = preview.items.map(({ itemId, label }) => ({ itemId, label }));
   if ("refusal" in planned) {
-    if (planned.stale) staleRefusal(preview.items.map(({ itemId, label }) => ({ itemId, label })));
+    if (planned.stale) staleRefusal(items);
     invalid(planned.refusal);
   }
+  // What is admitted is what was confirmed: a plan made since on other revisions, plans, calls or budget is stale.
+  if (!samePlan(confirmed, planned.plan)) staleRefusal(items);
   const answer = await launchTakeoffItemRemeasure(access.context, { projectId: access.project.id, intentKey: command.intent_key,
-    plan: planned.plan, selection: sealed, targets, host: (await headers()).get("host") });
+    plan: planned.plan, selection: sealed, targets, confirmation, host: (await headers()).get("host") });
   if (answer.outcome === "stale") {
     staleRefusal(answer.stale.map((itemId) => ({ itemId, label: labels.get(itemId.toLowerCase()) ?? null })));
   }

@@ -21,29 +21,35 @@
 --    - private.assert_takeoff_launch_order (20261122113611_takeoff_item_answers_before_activation.sql, its latest body):
 --      the seal admits the key in the shape above, and only inside the admission of a new measure of a selection (the
 --      marker mergeone.takeoff_item_remeasure that this admission alone sets, to the request's intention key, around its
---      launch); any other seal that carries it is refused, whichever admission it is (manual or automatic).
+--      launch); any other seal that carries it is refused, whichever admission it is (manual or automatic). The marker is
+--      a custom setting: no member can set it (no grant reaches the launch, the seal or this admission, and no setter is
+--      exposed), but another function running in the same transaction could; that is its boundary, as for the marker
+--      that guards the insert of a request's jobs (mergeone.takeoff_request_admission).
 -- 2. The admission of a new measure of a selection, beside the launch commands (which it calls and does not replace):
 --    public.launch_takeoff_item_remeasure, for the server only. The member who confirms pays on their own subscription;
 --    the request reads the affaire's current confirmed preparation, plan by plan, the selected items only. It is
 --    refused unless one analysis per plan and the item-list order are both active (both activation tables are empty).
 --    In this order:
---    - the whole command is checked before anything is read or recorded (its plans, the items asked, the targets: each
---      item once, at most 1,000, each target's answers once);
---    - its locks, in the order of every takeoff function: the affaire's preparation row (for share, before the affaire's
---      row, as a preparation edit and the attestation of a job take it: an edit waits until the admission ends, so
---      what it compared is still the preparation when its jobs are inserted), the affaire's row (for share, as a launch
---      takes it), the affaire's review key takeoff-item-review:<affaire> (where the selection is compared, as the review
---      command takes it), then those of the launch command: the job it replaces (for key share), the affaire's launch
---      key, its automatic request, the list key at the seal, the rows it writes, and last the dossier key when an
---      automatic start is open;
+--    - the whole command is checked before anything is read or recorded (its plans, the items asked, each an entry of
+--      the revision sealed, the targets: each item once, at most 1,000, each target's answers once, the confirmation);
+--    - its locks, in the order of every takeoff function: the affaire's row (for share, waited for, as a launch takes it;
+--      an affaire deleted meanwhile is answered as such), then the affaire's preparation row (for share, never waited
+--      for: a preparation being modified is refused, nothing written, to be confirmed again; held from there, an edit or
+--      the deletion of the draft affaire that arrives after waits for the admission, holding nothing it needs), the
+--      affaire's review key takeoff-item-review:<affaire> (where the selection is compared, as the review command takes
+--      it), then those of the launch command: the job it replaces (for key share), the affaire's launch key, its
+--      automatic request, the list key at the seal, the rows it writes, and last the dossier key when an automatic start
+--      is open;
 --    - the member's right to launch on the affaire, before any answer, a replayed one included;
 --    - each plan's logical identity is the one this database recorded for its file (takeoff_plan_location_sources: its
 --      dossier piece, else the file itself), never the caller's;
---    - the command digest: the payer, the analysis re-read, the plan set, the preparation's revision, the plans, the
---      list revision sealed, each item with the answers the member saw, and the sealed setting. The same confirmation
---      answers what it answered; another under its key is a conflict;
+--    - the command digest: what the member confirmed — the payer, the plans, the list revision sealed, each item with
+--      the answers the member saw, the sealed setting, and the confirmation (the preview's digest, the setting chosen).
+--      The same confirmation answers what it answered; another under its key is a conflict. The server's first step
+--      replays a confirmation by these values alone (public.replay_takeoff_item_remeasure), before it plans anything;
 --    - the preparation: stored, confirmed at the revision the command names, and each plan the command reads is a plan
---      it confirmed, with the same file, name, pages, page count and digest of its bytes;
+--      it confirmed, with the same file, name, pages, page count and digest of its bytes; a plan read whole is counted
+--      the pages stored for it, when they are;
 --    - compare-and-set: the list's latest revision is the one sealed, and each item's current answers on the request's
 --      plans are those the member saw; a selection made on a reading since replaced is stale, nothing is admitted and
 --      the items are named;
@@ -56,7 +62,7 @@
 --
 -- What the previous application version sees: nothing changes. No request it writes carries asked_item_ids, so every
 -- request asks every entry of its revision as before (the pairs, the refusal and the seal give the same answers, through
--- the same statements); the new function is called by no released application. No table, column, index, trigger or
+-- the same statements); the new functions are called by no released application. No table, column, index, trigger or
 -- policy changes.
 --
 -- Locks while applying: replacing and creating functions takes no table lock; lock_timeout bounds the catalog writes.
@@ -339,14 +345,51 @@ $$;
 --    TAKEOFF_LAUNCH_SEAL_INVALID (a preparation other than the one confirmed now), TAKEOFF_LAUNCH_INTENT_CONFLICT
 --    (another confirmation under the same key), and what a launch refuses (its seal, its plans, its payer, its
 --    automatic start).
--- The command digest: everything the member confirmed, in canonical values (the targets in their order, each item's
--- answers in theirs).
-create function private.takeoff_item_remeasure_digest(p_actor uuid, p_predecessor_job_id uuid, p_plan_set_id uuid,
-  p_preparation_revision integer, p_plan_file_ids uuid[], p_list_revision_id uuid, p_targets jsonb, p_selection jsonb)
+-- The targets of a confirmation, as the member saw them: 1 to 1,000 items, each once, each naming its current answers
+-- on the request's plans (at most one per plan, each once).
+create function private.takeoff_item_remeasure_targets_valid(p_targets jsonb)
+returns boolean language sql immutable set search_path = '' as $$
+  select coalesce(pg_catalog.jsonb_typeof(p_targets) = 'array' and pg_catalog.jsonb_array_length(p_targets) between 1 and 1000
+    and not exists (select 1 from pg_catalog.jsonb_array_elements(p_targets) t(value)
+      where pg_catalog.jsonb_typeof(t.value) is distinct from 'object'
+        or not private.takeoff_item_answer_is_uuid(t.value -> 'item_id')
+        or pg_catalog.jsonb_typeof(t.value -> 'answers') is distinct from 'array'
+        or pg_catalog.jsonb_array_length(t.value -> 'answers') > 20
+        or exists (select 1 from pg_catalog.jsonb_array_elements(t.value -> 'answers') a(value)
+          where not private.takeoff_item_answer_is_uuid(a.value))
+        or (select count(distinct (a.value #>> '{}')::uuid) from pg_catalog.jsonb_array_elements(t.value -> 'answers') a(value))
+          <> pg_catalog.jsonb_array_length(t.value -> 'answers'))
+    and (select count(distinct (t.value ->> 'item_id')::uuid) from pg_catalog.jsonb_array_elements(p_targets) t(value))
+      = pg_catalog.jsonb_array_length(p_targets), false)
+$$;
+revoke all on function private.takeoff_item_remeasure_targets_valid(jsonb) from public, anon, authenticated, service_role;
+
+-- What the member confirmed besides the readings: the digest of the preview confirmed (the server's, of the payer and the
+-- setting, the plans, the items and their readings, the calls and the budget) and the setting chosen for this request
+-- alone (null: the profile's).
+create function private.takeoff_item_remeasure_confirmation_valid(p_confirmation jsonb)
+returns boolean language sql immutable set search_path = '' as $$
+  select coalesce(pg_catalog.jsonb_typeof(p_confirmation) = 'object'
+    and (p_confirmation - array['preview_digest', 'setting']) = '{}'::jsonb
+    and coalesce(p_confirmation ->> 'preview_digest', '') ~ '^[0-9a-f]{64}$'
+    and (coalesce(p_confirmation -> 'setting', 'null'::jsonb) = 'null'::jsonb
+      or (pg_catalog.jsonb_typeof(p_confirmation -> 'setting') = 'object'
+        and ((p_confirmation -> 'setting') - 'reasoning_effort') = '{}'::jsonb
+        and pg_catalog.jsonb_typeof(p_confirmation #> '{setting,reasoning_effort}') in ('string', 'null'))), false)
+$$;
+revoke all on function private.takeoff_item_remeasure_confirmation_valid(jsonb) from public, anon, authenticated, service_role;
+
+-- The command digest: everything the member confirmed, in canonical values — the payer, the plans (their keys), the list
+-- revision sealed, each item with the answers the member saw (the targets in their order, each item's answers in theirs),
+-- the sealed setting, and the confirmation (the preview's digest and the setting chosen). What the server derives (the
+-- analysis re-read, the plan set, the preparation's revision) is checked under the locks, never part of the identity: a
+-- lost answer sent again is the same confirmation whatever the server read since.
+create function private.takeoff_item_remeasure_digest(p_actor uuid, p_plan_keys uuid[], p_list_revision_id uuid, p_targets jsonb,
+  p_selection jsonb, p_confirmation jsonb)
 returns text language sql immutable set search_path = '' as $$
-  select pg_catalog.encode(pg_catalog.sha256(pg_catalog.convert_to(pg_catalog.jsonb_build_array('takeoff-item-remeasure', 2,
-    p_actor, p_predecessor_job_id, p_plan_set_id, p_preparation_revision,
-    (select coalesce(pg_catalog.jsonb_agg(distinct p order by p), '[]'::jsonb) from pg_catalog.unnest(p_plan_file_ids) p),
+  select pg_catalog.encode(pg_catalog.sha256(pg_catalog.convert_to(pg_catalog.jsonb_build_array('takeoff-item-remeasure', 3,
+    p_actor,
+    (select coalesce(pg_catalog.jsonb_agg(distinct p order by p), '[]'::jsonb) from pg_catalog.unnest(p_plan_keys) p),
     p_list_revision_id,
     (select coalesce(pg_catalog.jsonb_agg(pg_catalog.jsonb_build_array(t.item_id, t.answers) order by t.item_id), '[]'::jsonb)
       from (select (target.value ->> 'item_id')::uuid as item_id,
@@ -354,9 +397,9 @@ returns text language sql immutable set search_path = '' as $$
             from (select distinct (a.value #>> '{}')::uuid as id
               from pg_catalog.jsonb_array_elements(target.value -> 'answers') a(value)) answer) as answers
         from pg_catalog.jsonb_array_elements(p_targets) target(value)) t),
-    p_selection)::text, 'UTF8')), 'hex')
+    p_selection, p_confirmation)::text, 'UTF8')), 'hex')
 $$;
-revoke all on function private.takeoff_item_remeasure_digest(uuid, uuid, uuid, integer, uuid[], uuid, jsonb, jsonb)
+revoke all on function private.takeoff_item_remeasure_digest(uuid, uuid[], uuid, jsonb, jsonb, jsonb)
   from public, anon, authenticated, service_role;
 
 -- The items of a selection whose reading is no longer the one the member saw: every item when the list's latest
@@ -389,7 +432,7 @@ revoke all on function private.takeoff_item_remeasure_stale(uuid, uuid, jsonb, j
 create function public.launch_takeoff_item_remeasure(
   p_tenant_id uuid, p_project_id uuid, p_actor uuid, p_intent_key uuid, p_predecessor_job_id uuid, p_host text,
   p_selection jsonb, p_manifest jsonb, p_snapshot jsonb, p_jobs jsonb, p_plan_set_id uuid, p_preparation_revision integer,
-  p_plan_file_ids uuid[], p_targets jsonb, p_module_default boolean default false
+  p_plan_file_ids uuid[], p_targets jsonb, p_confirmation jsonb, p_module_default boolean default false
 ) returns table (outcome text, request_id uuid, job_id uuid, stale uuid[])
 language plpgsql security definer set search_path = '' as $$
 #variable_conflict use_column
@@ -422,33 +465,40 @@ begin
       where pg_catalog.jsonb_typeof(a.value) is distinct from 'string' or a.value #>> '{}' !~ uuid_text)
     or asked is distinct from (select pg_catalog.jsonb_agg(d.id::text order by d.id)
       from (select distinct (a.value #>> '{}')::uuid as id from pg_catalog.jsonb_array_elements(asked) a(value)) d)
-    or pg_catalog.jsonb_typeof(p_targets) is distinct from 'array'
-    or pg_catalog.jsonb_array_length(p_targets) <> pg_catalog.jsonb_array_length(asked)
-    or exists (select 1 from pg_catalog.jsonb_array_elements(p_targets) t(value)
-      where pg_catalog.jsonb_typeof(t.value) is distinct from 'object'
-        or not private.takeoff_item_answer_is_uuid(t.value -> 'item_id')
-        or pg_catalog.jsonb_typeof(t.value -> 'answers') is distinct from 'array'
-        or pg_catalog.jsonb_array_length(t.value -> 'answers') > 20
-        or exists (select 1 from pg_catalog.jsonb_array_elements(t.value -> 'answers') a(value)
-          where not private.takeoff_item_answer_is_uuid(a.value))
-        or (select count(distinct (a.value #>> '{}')::uuid) from pg_catalog.jsonb_array_elements(t.value -> 'answers') a(value))
-          <> pg_catalog.jsonb_array_length(t.value -> 'answers'))
+    or not private.takeoff_item_remeasure_targets_valid(p_targets)
     or asked is distinct from (select pg_catalog.jsonb_agg(((t.value ->> 'item_id')::uuid)::text order by (t.value ->> 'item_id')::uuid)
-      from pg_catalog.jsonb_array_elements(p_targets) t(value)) then
+      from pg_catalog.jsonb_array_elements(p_targets) t(value))
+    or not private.takeoff_item_remeasure_confirmation_valid(p_confirmation) then
+    raise exception 'TAKEOFF_ITEM_REMEASURE_INVALID' using errcode = '22023';
+  end if;
+  -- Each item asked is an entry of the revision the order seals, a revision of this affaire (revisions never change).
+  if not exists (select 1 from public.takeoff_list_revisions r where r.id = (p_manifest #>> '{order,list,revision_id}')::uuid
+        and r.tenant_id = p_tenant_id and r.project_id = p_project_id)
+    or exists (select 1 from pg_catalog.jsonb_array_elements(asked) a(value)
+      where not exists (select 1 from public.takeoff_list_revision_entries e
+        where e.revision_id = (p_manifest #>> '{order,list,revision_id}')::uuid and e.item_id = (a.value #>> '{}')::uuid)) then
     raise exception 'TAKEOFF_ITEM_REMEASURE_INVALID' using errcode = '22023';
   end if;
   if not (private.takeoff_plan_dispatch_active() and private.takeoff_item_list_order_active()) then
     raise exception 'TAKEOFF_ITEM_REMEASURE_INACTIVE' using errcode = '55000';
   end if;
-  -- The affaire's preparation, shared, first: before the affaire's row, as a preparation edit (its row, then the
-  -- affaire's through its trigger) and a job's attestation take it. An edit now waits until this admission ends, so the
-  -- preparation compared below is still the one stored when its jobs are inserted. Then the affaire's row, shared, as a
-  -- launch takes it; then the affaire's review key, where the selection is compared (a bulk review of the same items
-  -- passes before or after, never in between).
-  select * into prepared from public.takeoff_preparations as preparation
-  where preparation.tenant_id = p_tenant_id and preparation.project_id = p_project_id for share;
+  -- The affaire's row first, shared, waited for, as every launch takes it (rank 2): an affaire deleted meanwhile is gone.
+  -- Then the affaire's preparation, shared, without waiting (its edit holds its row, then the affaire's; the deletion of a
+  -- draft affaire holds the affaire's, then its cascade needs the preparation's): a preparation being modified is
+  -- refused, nothing written, to be confirmed again. Held from here, it is still the one stored when the jobs are
+  -- inserted: an edit or a deletion that arrives after waits for this admission, holding nothing it needs. Then the
+  -- affaire's review key, where the selection is compared (a bulk review of the same items passes before or after).
   perform 1 from public.estimate_projects as project_row
   where project_row.id = p_project_id and project_row.tenant_id = p_tenant_id for share;
+  if not found then
+    raise exception 'TAKEOFF_ITEM_REMEASURE_AFFAIRE_NOT_FOUND' using errcode = 'P0002';
+  end if;
+  begin
+    select * into prepared from public.takeoff_preparations as preparation
+    where preparation.tenant_id = p_tenant_id and preparation.project_id = p_project_id for share nowait;
+  exception when lock_not_available then
+    raise exception 'TAKEOFF_ITEM_REMEASURE_PREPARATION_BUSY' using errcode = '55P03';
+  end;
   perform pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('takeoff-item-review:' || p_project_id::text, 0));
   -- The member's right to launch on the affaire now, before anything is answered: a replay included.
   if not coalesce(private.takeoff_item_list_writer(p_tenant_id, p_project_id, p_actor), false) then
@@ -465,8 +515,9 @@ begin
           is distinct from case when recorded.source_kind = 'intake_document' then recorded.source_id end) then
     raise exception 'TAKEOFF_ITEM_REMEASURE_INVALID' using errcode = '22023';
   end if;
-  digest := private.takeoff_item_remeasure_digest(p_actor, p_predecessor_job_id, p_plan_set_id, p_preparation_revision,
-    p_plan_file_ids, (p_manifest #>> '{order,list,revision_id}')::uuid, p_targets, p_selection);
+  digest := private.takeoff_item_remeasure_digest(p_actor,
+    array(select (e.value ->> 'logical_id')::uuid from pg_catalog.jsonb_array_elements(p_manifest -> 'plans') e(value)),
+    (p_manifest #>> '{order,list,revision_id}')::uuid, p_targets, p_selection, p_confirmation);
   -- The same confirmation answers what it answered, whatever changed since; another under its key is a conflict.
   for answer in select * from private.replay_takeoff_launch_command(p_tenant_id, p_project_id, p_intent_key, digest) loop
     return query select answer.outcome, answer.request_id, answer.job_id, null::uuid[];
@@ -490,7 +541,17 @@ begin
             and c.value ->> 'document_name' is not distinct from s.value ->> 'document_name'
             and c.value -> 'pages' is not distinct from s.value -> 'pages'
             and c.value -> 'page_count' is not distinct from s.value -> 'page_count'
-            and nullif(c.value ->> 'content_hash', '') = s.value ->> 'content_hash')) then
+            and nullif(c.value ->> 'content_hash', '') = s.value ->> 'content_hash'))
+    -- A plan read whole: its page count is its coverage; the manifest's is the stored one when one is stored (else the
+    -- server counted the PDF, and the worker reads the pages it has).
+    or exists (select 1 from pg_catalog.jsonb_array_elements(p_manifest -> 'plans') m(value)
+      cross join lateral (select c.value from pg_catalog.jsonb_array_elements(
+          case when pg_catalog.jsonb_typeof(prepared.confirmed_snapshot #> '{preparation,sources}') = 'array'
+            then prepared.confirmed_snapshot #> '{preparation,sources}' else '[]'::jsonb end) c(value)
+        where c.value ->> 'kind' = 'plan' and c.value ->> 'document_id' = m.value ->> 'entry_key' limit 1) stored
+      where coalesce(pg_catalog.jsonb_array_length(m.value -> 'pages'), 0) = 0
+        and pg_catalog.jsonb_typeof(stored.value -> 'page_count') = 'number'
+        and m.value -> 'page_count' is distinct from stored.value -> 'page_count') then
     raise exception 'TAKEOFF_LAUNCH_SEAL_INVALID' using errcode = '22023';
   end if;
   -- Compare-and-set, under the locks: the list's latest revision is the one sealed, and each item's current answers on
@@ -538,8 +599,39 @@ begin
 end;
 $$;
 revoke all on function public.launch_takeoff_item_remeasure(uuid, uuid, uuid, uuid, uuid, text, jsonb, jsonb, jsonb, jsonb, uuid,
-  integer, uuid[], jsonb, boolean) from public, anon, authenticated;
+  integer, uuid[], jsonb, jsonb, boolean) from public, anon, authenticated;
 grant execute on function public.launch_takeoff_item_remeasure(uuid, uuid, uuid, uuid, uuid, text, jsonb, jsonb, jsonb, jsonb, uuid,
-  integer, uuid[], jsonb, boolean) to service_role;
+  integer, uuid[], jsonb, jsonb, boolean) to service_role;
+
+-- The replay of a confirmation by what the member confirmed alone, for the server's first step (before it plans anything:
+-- a request admitted reads « En lecture » since, and its own reading may have replaced the answers it targets): the
+-- member's right now, then the receipt of exactly that confirmation (the same digest as the admission's), or nothing when
+-- the key answered nothing yet; another confirmation under the key is TAKEOFF_LAUNCH_INTENT_CONFLICT. Takes no lock:
+-- receipts are written once, and a confirmation not yet recorded goes on to the admission, which serializes.
+create function public.replay_takeoff_item_remeasure(p_tenant_id uuid, p_project_id uuid, p_actor uuid, p_intent_key uuid,
+  p_plan_keys uuid[], p_list_revision_id uuid, p_targets jsonb, p_selection jsonb, p_confirmation jsonb)
+returns table (outcome text, request_id uuid, job_id uuid)
+language plpgsql stable security definer set search_path = '' as $$
+#variable_conflict use_column
+begin
+  if p_intent_key is null or p_actor is null or p_list_revision_id is null
+    or coalesce(pg_catalog.cardinality(p_plan_keys), 0) = 0 or pg_catalog.array_position(p_plan_keys, null) is not null
+    or not private.takeoff_item_remeasure_targets_valid(p_targets)
+    or not private.takeoff_item_remeasure_confirmation_valid(p_confirmation)
+    or pg_catalog.jsonb_typeof(p_selection) is distinct from 'object' then
+    raise exception 'TAKEOFF_ITEM_REMEASURE_INVALID' using errcode = '22023';
+  end if;
+  if not coalesce(private.takeoff_item_list_writer(p_tenant_id, p_project_id, p_actor), false) then
+    raise exception 'TAKEOFF_LAUNCH_PAYER_NOT_ELIGIBLE' using errcode = '42501';
+  end if;
+  return query select r.outcome, r.request_id, r.job_id from private.replay_takeoff_launch_command(p_tenant_id, p_project_id,
+    p_intent_key, private.takeoff_item_remeasure_digest(p_actor, p_plan_keys, p_list_revision_id, p_targets, p_selection,
+      p_confirmation)) as r;
+end;
+$$;
+revoke all on function public.replay_takeoff_item_remeasure(uuid, uuid, uuid, uuid, uuid[], uuid, jsonb, jsonb, jsonb)
+  from public, anon, authenticated;
+grant execute on function public.replay_takeoff_item_remeasure(uuid, uuid, uuid, uuid, uuid[], uuid, jsonb, jsonb, jsonb)
+  to service_role;
 
 commit;

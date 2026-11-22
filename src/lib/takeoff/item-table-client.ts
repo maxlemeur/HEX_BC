@@ -12,6 +12,7 @@ import {
   itemTableLineResponseSchema,
   itemTableResponseSchema,
   type ItemRemeasureCommand,
+  type ItemRemeasureSeen,
   type ItemReviewCommand,
 } from "@/lib/takeoff/item-table-contracts";
 import type { ItemTableFilter, ItemTableScope } from "@/lib/takeoff/item-table";
@@ -77,9 +78,10 @@ export function sendItemReviewCommand(projectId: string, command: ItemReviewComm
     WRITE_FAILURE, TAKEOFF_WRITE_REQUEST_TIMEOUT_MS);
 }
 
-export function previewItemRemeasure(projectId: string, scope: ItemTableScope, itemIds: string[]) {
+/** The preview of a new measure of the selection, with what the member saw of it (the list revision, each line's readings). */
+export function previewItemRemeasure(projectId: string, scope: ItemTableScope, itemIds: string[], seen: ItemRemeasureSeen) {
   return call(`${base(projectId)}/remeasure/preview`, { method: "POST", body: JSON.stringify({
-    command_version: ITEM_REVIEW_COMMAND_VERSION, scope, item_ids: itemIds,
+    command_version: ITEM_REVIEW_COMMAND_VERSION, scope, item_ids: itemIds, seen,
   }) }, itemRemeasurePreviewSchema, "Impossible de préparer la nouvelle mesure.", TAKEOFF_READ_REQUEST_TIMEOUT_MS);
 }
 

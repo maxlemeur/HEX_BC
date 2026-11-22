@@ -45,6 +45,7 @@ const { saveChatGptStore } = runtime.require("../../src/lib/ai/chatgpt-local-sto
 const { getAuthenticatedContext } = runtime.require("../../src/lib/auth/tenant-context.ts", import.meta.url);
 const { launchTakeoffRelaunch, stopTakeoffLaunchRequest } = runtime.require("../../src/lib/takeoff/launch-request-server.ts", import.meta.url);
 const { previewItemRemeasure, runItemRemeasure } = runtime.require("../../src/lib/takeoff/item-review-commands-server.ts", import.meta.url);
+const { readAffaireItemTable } = runtime.require("../../src/lib/takeoff/item-table-server.ts", import.meta.url);
 const owner = { tenantId: project.data.tenant_id, userId: project.data.user_id };
 await saveChatGptStore(owner, { selectedId: "army", profiles: [{
   id: "army", clientId: "army", issuer: "army", subject: "army", email: process.env.E2E_LOGIN_EMAIL,
@@ -78,13 +79,17 @@ try {
     assert((planKeys === undefined) === (digest === undefined) && (digest === undefined || /^[0-9a-f]{64}$/.test(digest)));
     const scope = { kind: "affaire" };
     result = await run(async () => {
+      // What the table shows the member: the list revision and each selected line's readings (its target).
+      const table = await readAffaireItemTable(projectId, { scope, filter: {}, offset: 0, limit: 100, focusItemId: null });
+      const seen = { list_revision_id: table.list?.revisionId ?? null,
+        targets: table.page.lines.filter((line) => itemIds.includes(line.itemId)).map((line) => line.targets) };
       if (planKeys !== undefined) {
         return runItemRemeasure(projectId, { command_version: 1, intent_key: intentKey, scope, item_ids: itemIds,
-          plan_keys: planKeys.split(","), setting: null, preview_digest: digest });
+          plan_keys: planKeys.split(","), setting: null, preview_digest: digest, seen });
       }
-      const preview = await previewItemRemeasure(projectId, { scope, itemIds });
+      const preview = await previewItemRemeasure(projectId, { scope, itemIds, seen });
       const command = { command_version: 1, intent_key: intentKey, scope, item_ids: itemIds,
-        plan_keys: preview.plans.map(({ key }) => key), setting: null, preview_digest: preview.previewDigest };
+        plan_keys: preview.plans.map(({ key }) => key), setting: null, preview_digest: preview.previewDigest, seen };
       const admitted = await runItemRemeasure(projectId, command);
       return { ...admitted, sent: { planKeys: command.plan_keys, digest: command.preview_digest },
         preview: { plans: preview.plans, items: preview.items, reading: preview.reading, subscription: preview.subscription.state } };

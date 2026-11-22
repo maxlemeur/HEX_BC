@@ -1151,6 +1151,7 @@ describe("launchTakeoffRelaunch", () => {
         });
     };
     const ids = itemListSeal(1_700).items.map(({ id }) => id);
+    const CONFIRMED = { preview_digest: "c".repeat(64), setting: { reasoning_effort: "high" } };
 
     it("plans the items asked on the plans named, sized on them alone, the other plans left as the preparation has them", async () => {
       vi.mocked(sealedMeasuringOrder).mockResolvedValueOnce(itemListSeal(1_700));
@@ -1194,6 +1195,32 @@ describe("launchTakeoffRelaunch", () => {
       expect(remeasured).toEqual([]);
     });
 
+    it("plans the 80 items of the brief in the list's order: 3 batches, as the worker reads them", async () => {
+      const byId = Array.from({ length: 80 }, (_, index) => ({ ...itemListSeal(80).items[index], label: index % 2 ? "WC" : "A".repeat(3_000) }));
+      const revision = [...byId.filter((_, index) => index % 2 === 0), ...byId.filter((_, index) => index % 2 !== 0)];
+      vi.mocked(sealedMeasuringOrder).mockResolvedValueOnce({ order: itemListOrder(80), items: revision });
+      const { context } = setup();
+      const planned = await planTakeoffItemRemeasure(context, { projectId: PROJECT, planKeys: [PLAN_FILE],
+        itemIds: byId.map(({ id }) => id), selection: SELECTION });
+      if (!("plan" in planned)) throw new Error(`expected a plan: ${planned.refusal}`);
+      expect(planned.plan.bounds.units).toEqual([expect.objectContaining({ fragments: 1, batches: 3, readingCalls: 3 })]);
+      expect(planned.plan.askedItemIds).toEqual(byId.map(({ id }) => id).sort());
+    });
+
+    it("says the new measure is not open while one analysis per plan is not active, before anything is planned", async () => {
+      vi.mocked(sealedMeasuringOrder).mockResolvedValueOnce(itemListSeal(12));
+      remeasured.length = 0;
+      const { context } = planCommand({ a: 3, b: 3 }, { format: 2, plans: [PLAN_FILE], read: [PLAN_FILE] }, undefined,
+        "aaaaaaaa-0000-4000-8000-0000000000bb", null, {
+          tables: { takeoff_preparations: () => ({ data: { revision: 2 }, error: null }),
+            takeoff_jobs: () => ({ data: [{ id: LATEST_JOB }], error: null }) },
+          rpc: { takeoff_plan_dispatch_is_active: () => ({ data: false, error: null }) },
+        });
+      await expect(planTakeoffItemRemeasure(context, { projectId: PROJECT, planKeys: [PLAN_FILE], itemIds: [ids[1]],
+        selection: SELECTION })).resolves.toEqual({ refusal:
+        "La nouvelle mesure d’une sélection n’est pas encore ouverte : la lecture plan par plan n’est pas activée sur cette affaire." });
+    });
+
     it("names a selection made on another list or plan as stale, before anything is admitted", async () => {
       vi.mocked(sealedMeasuringOrder).mockResolvedValueOnce(itemListSeal(12));
       const { context } = setup();
@@ -1215,10 +1242,11 @@ describe("launchTakeoffRelaunch", () => {
       if (!("plan" in planned)) throw new Error("expected a plan");
       const targets = [{ item_id: ids[1], answers: ["dddddddd-0000-4000-8000-000000000001"] }];
       await expect(launchTakeoffItemRemeasure(context, { projectId: PROJECT, intentKey: "aaaaaaaa-0000-4000-8000-0000000000aa",
-        plan: planned.plan, selection: SELECTION, targets })).resolves.toEqual({ outcome: "admitted", requestId: REQUEST });
+        plan: planned.plan, selection: SELECTION, targets, confirmation: CONFIRMED })).resolves.toEqual({ outcome: "admitted", requestId: REQUEST });
       expect(remeasured).toEqual([expect.objectContaining({ p_tenant_id: TENANT, p_project_id: PROJECT, p_actor: PAYER,
         p_intent_key: "aaaaaaaa-0000-4000-8000-0000000000aa", p_predecessor_job_id: LATEST_JOB, p_host: HOST, p_plan_set_id: PLAN_SET,
-        p_preparation_revision: 2, p_plan_file_ids: [PLAN_FILE], p_targets: targets, p_selection: SELECTION })]);
+        p_preparation_revision: 2, p_plan_file_ids: [PLAN_FILE], p_targets: targets, p_selection: SELECTION,
+        p_confirmation: CONFIRMED })]);
       const sent = remeasured[0] as { p_manifest: AnyTakeoffLaunchManifest; p_jobs: Array<{ launch_unit_key: string }> };
       expect(sent.p_jobs.map(({ launch_unit_key: key }) => key)).toEqual(sent.p_manifest.units.map(({ key }) => key));
       expect(runLocalTakeoffAttempts).toHaveBeenCalled();
@@ -1230,7 +1258,7 @@ describe("launchTakeoffRelaunch", () => {
       if (!("plan" in again)) throw new Error("expected a plan");
       vi.mocked(runLocalTakeoffAttempts).mockClear();
       await expect(launchTakeoffItemRemeasure(stale.context, { projectId: PROJECT, intentKey: "aaaaaaaa-0000-4000-8000-0000000000ab",
-        plan: again.plan, selection: SELECTION, targets })).resolves.toEqual({ outcome: "stale", stale: [ids[1]] });
+        plan: again.plan, selection: SELECTION, targets, confirmation: CONFIRMED })).resolves.toEqual({ outcome: "stale", stale: [ids[1]] });
       expect(runLocalTakeoffAttempts).not.toHaveBeenCalled();
     });
 
@@ -1249,7 +1277,7 @@ describe("launchTakeoffRelaunch", () => {
           selection: SELECTION });
         if (!("plan" in planned)) throw new Error("expected a plan");
         const refused = await launchTakeoffItemRemeasure(context, { projectId: PROJECT, intentKey: "aaaaaaaa-0000-4000-8000-0000000000aa",
-          plan: planned.plan, selection: SELECTION, targets: [] }).then(() => null, (caught: unknown) => caught);
+          plan: planned.plan, selection: SELECTION, targets: [], confirmation: CONFIRMED }).then(() => null, (caught: unknown) => caught);
         expect(refused).toMatchObject(expected);
         expect(String((refused as Error).message)).not.toMatch(/TAKEOFF_/);
       }

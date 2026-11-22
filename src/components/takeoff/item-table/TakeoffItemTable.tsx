@@ -22,6 +22,7 @@ import {
   ITEM_REVIEW_COMMAND_VERSION,
   ITEM_TABLE_PAGE_SIZES,
   type ItemRemeasurePreview,
+  type ItemRemeasureSeen,
   type ItemReviewCommand,
   type ItemReviewResult,
   type ItemTableResponseLine,
@@ -235,7 +236,7 @@ export function TakeoffItemTable({ projectId, viewerKey, signature }: {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- read back once per scope, then read their lines again
   }, [draftsKey, scopeKey]);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
-  const [dialog, setDialog] = useState<null | { gesture: Gesture; intentKey: string }>(null);
+  const [dialog, setDialog] = useState<null | { gesture: Gesture; intentKey: string; seen?: ItemRemeasureSeen }>(null);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<Notice | null>(null);
   const [preview, setPreview] = useState<{ value: ItemRemeasurePreview | null; error: string | null }>({ value: null, error: null });
@@ -319,15 +320,21 @@ export function TakeoffItemTable({ projectId, viewerKey, signature }: {
   const base = (intentKey: string) => ({ command_version: ITEM_REVIEW_COMMAND_VERSION, intent_key: intentKey, scope: selection.scope,
     targets: selectedTargets(selection) });
 
+  // What the member saw of the selection: the list revision of the table shown and each line's readings, frozen with the
+  // selection when it was ticked. The preview and the confirmation compare them with the readings stored now.
+  const seenOfSelection = useCallback((): ItemRemeasureSeen => ({ list_revision_id: data?.list?.revisionId ?? null,
+    targets: Object.values(selection.items).map(({ target }) => target) }), [data?.list?.revisionId, selection]);
+
   const openRemeasure = useCallback(async () => {
-    setDialog({ gesture: "remeasure", intentKey: newIntent() });
+    setDialog({ gesture: "remeasure", intentKey: newIntent(), seen: seenOfSelection() });
     setPreview({ value: null, error: null });
     try {
-      setPreview({ value: await previewItemRemeasure(projectId, selection.scope, Object.keys(selection.items)), error: null });
+      setPreview({ value: await previewItemRemeasure(projectId, selection.scope, Object.keys(selection.items), seenOfSelection()),
+        error: null });
     } catch (caught) {
       setPreview({ value: null, error: isTakeoffApiError(caught) ? caught.message : "Impossible de préparer la nouvelle mesure." });
     }
-  }, [projectId, selection]);
+  }, [projectId, selection, seenOfSelection]);
 
   const confirmRemeasure = useCallback(async (effort: ChatGptReasoningEffort | null) => {
     if (!dialog || !preview.value) return;
@@ -336,7 +343,8 @@ export function TakeoffItemTable({ projectId, viewerKey, signature }: {
       const result = await sendItemRemeasure(projectId, { command_version: ITEM_REVIEW_COMMAND_VERSION, intent_key: dialog.intentKey,
         scope: selection.scope, item_ids: preview.value.items.map(({ itemId }) => itemId),
         plan_keys: preview.value.plans.map(({ key: planKey }) => planKey),
-        setting: effort ? { reasoning_effort: effort } : null, preview_digest: preview.value.previewDigest });
+        setting: effort ? { reasoning_effort: effort } : null, preview_digest: preview.value.previewDigest,
+        seen: dialog.seen ?? seenOfSelection() });
       setNotice(result.outcome === "already_running"
         ? { tone: "info", text: "Une analyse de l’affaire est en cours : la sélection reste prête pour la nouvelle mesure." }
         : { tone: "success", text: "Nouvelle mesure demandée : les postes seront lus de nouveau sur votre forfait." });
@@ -352,7 +360,7 @@ export function TakeoffItemTable({ projectId, viewerKey, signature }: {
     } finally {
       setBusy(false);
     }
-  }, [dialog, preview.value, projectId, selection, updateSelection, failure, refresh]);
+  }, [dialog, preview.value, projectId, selection, updateSelection, failure, refresh, seenOfSelection]);
 
   const selectFilter = useCallback(async () => {
     try {

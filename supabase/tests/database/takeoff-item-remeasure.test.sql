@@ -2,10 +2,14 @@
 -- selection of items again.
 -- 1. What a request asks (private.takeoff_request_asked_items): without asked_item_ids, every entry of its revision.
 -- 2. The seal admits asked_item_ids in one shape only, and only inside the admission of a new measure of a selection:
---    an ordinary launch, manual or automatic, that carries it is refused; without it, unchanged.
+--    an ordinary launch, manual or automatic, that carries it is refused; without it, unchanged. The marker it checks is a
+--    custom setting no member can set (no grant reaches the launch or the seal, and no setter is exposed); another function
+--    of the same transaction could, as this file's own seal tests do.
 -- 3. The admission (public.launch_takeoff_item_remeasure): its refusals, each before anything is recorded (a malformed
---    command, a plan named with another plan's identity, a preparation other than the one confirmed), its
---    compare-and-set, its receipt (the member's right first; everything confirmed in its digest).
+--    command or an item outside the sealed revision, a plan named with another plan's identity, a preparation other than
+--    the one confirmed or a whole plan's page count other than the stored one), its compare-and-set, its receipt (the
+--    member's right first; everything confirmed in its digest, the preview and the setting included), and its replay by
+--    what the member confirmed alone (public.replay_takeoff_item_remeasure).
 -- 4. While a new measure of a selection runs, only its items read on its plans; a publication answers exactly what was
 --    asked; the new answer replaces the earlier reading, undecided, the earlier decision and the entries untouched.
 -- 5. A plan already sent is measured again without anything of its sent analysis changing; a new measure that fails
@@ -134,13 +138,26 @@ create function pg_temp.targets(items integer[], plans uuid[]) returns jsonb lan
   select jsonb_agg(jsonb_build_object('item_id', pg_temp.f(i), 'answers', pg_temp.seen(i, plans)) order by pg_temp.f(i))
   from unnest(items) i
 $$;
+-- What the member confirmed besides the readings: the digest of the preview confirmed and the setting chosen for it.
+create function pg_temp.confirmation(digest text default 'c', effort text default null) returns jsonb language sql immutable as $$
+  select jsonb_build_object('preview_digest', repeat(digest, 64), 'setting',
+    case when effort is null then null else jsonb_build_object('reasoning_effort', effort) end)
+$$;
 create function pg_temp.remeasure(key integer, items integer[], plans uuid[], round integer, actor integer default 1,
-  revision integer default 310, targets jsonb default null, predecessor uuid default null)
+  revision integer default 310, targets jsonb default null, predecessor uuid default null,
+  confirmation jsonb default pg_temp.confirmation())
 returns table (outcome text, request_id uuid, job_id uuid, stale uuid[]) language sql as $$
   select * from public.launch_takeoff_item_remeasure(pg_temp.f(10), pg_temp.f(20), pg_temp.f(actor), pg_temp.f(key),
     coalesce(predecessor, pg_temp.job(1, plans[1])), pg_temp.host(), pg_temp.selection(),
     pg_temp.manifest(pg_temp.list(revision, items), plans), pg_temp.snapshot(plans, actor), pg_temp.jobs(round, plans),
-    pg_temp.f(40), 1, plans, coalesce(targets, pg_temp.targets(items, plans)))
+    pg_temp.f(40), 1, plans, coalesce(targets, pg_temp.targets(items, plans)), confirmation)
+$$;
+-- The replay of a confirmation by what the member confirmed alone (the route's first step, before any planning).
+create function pg_temp.replay(key integer, items integer[], plans uuid[], actor integer default 1, revision integer default 310,
+  targets jsonb default null, confirmation jsonb default pg_temp.confirmation())
+returns table (outcome text, request_id uuid, job_id uuid) language sql as $$
+  select * from public.replay_takeoff_item_remeasure(pg_temp.f(10), pg_temp.f(20), pg_temp.f(actor), pg_temp.f(key), plans,
+    pg_temp.f(revision), coalesce(targets, pg_temp.targets(items, plans)), pg_temp.selection(), confirmation)
 $$;
 create function pg_temp.claim(job uuid, token integer) returns integer language sql as $$
   select count(*)::integer from public.claim_observed_local_takeoff_job(job, pg_temp.f(10), pg_temp.host(), clock_timestamp(),
@@ -223,9 +240,9 @@ $$;
 create function pg_temp.remeasure_as(key integer, manifest jsonb, snapshot jsonb, plans uuid[], targets jsonb, round integer)
 returns text language sql as $$
   select format($remeasure$select outcome from public.launch_takeoff_item_remeasure(%L, %L, %L, %L, %L, %L, %L::jsonb,
-    %L::jsonb, %L::jsonb, %L::jsonb, %L, 1, %L::uuid[], %L::jsonb)$remeasure$, pg_temp.f(10), pg_temp.f(20), pg_temp.f(1),
+    %L::jsonb, %L::jsonb, %L::jsonb, %L, 1, %L::uuid[], %L::jsonb, %L::jsonb)$remeasure$, pg_temp.f(10), pg_temp.f(20), pg_temp.f(1),
     pg_temp.f(key), pg_temp.job(1, plans[1]), pg_temp.host(), pg_temp.selection(), manifest, snapshot, pg_temp.jobs(round, plans),
-    pg_temp.f(40), plans, targets)
+    pg_temp.f(40), plans, targets, pg_temp.confirmation())
 $$;
 
 -- Every activation, the second measuring order's included.
@@ -367,6 +384,41 @@ select is(pg_temp.attempt(replace(pg_temp.remeasure_as(700, pg_temp.manifest(pg_
     jsonb_set(pg_temp.snapshot(array[pg_temp.plan(0)]), '{preparation_revision}', '2'), array[pg_temp.plan(0)],
     pg_temp.targets(array[300], array[pg_temp.plan(0)]), 2), ', 1, ''{', ', 2, ''{')),
   '22023 TAKEOFF_LAUNCH_SEAL_INVALID', 'and so is a preparation revision the affaire has not confirmed');
+-- A plan read whole: its page count is its coverage. The preparation confirmed plan A whole, of nine pages: a command
+-- whose manifest and unit count one page is refused; one whose stored count is unknown (the server counts the PDF) is not.
+set local session_replication_role = replica;
+update public.takeoff_preparations set confirmed_snapshot = jsonb_set(confirmed_snapshot, '{preparation,sources,0,pages}', '[]')
+where project_id = pg_temp.f(20);
+set local session_replication_role = origin;
+create function pg_temp.whole(page_count integer) returns jsonb language sql stable as $$
+  select jsonb_set(jsonb_set(jsonb_set(jsonb_set(pg_temp.manifest(pg_temp.list(310, array[300]), array[pg_temp.plan(0)]),
+    '{plans,0,pages}', '[]'), '{units,0,pages}', '[]'), '{plans,0,page_count}', to_jsonb(page_count)), '{units,0,page_count}',
+    to_jsonb(page_count))
+$$;
+select is(pg_temp.attempt(pg_temp.remeasure_as(700, pg_temp.whole(1),
+    jsonb_set(pg_temp.snapshot(array[pg_temp.plan(0)]), '{preparation,sources,0,pages}', '[]'), array[pg_temp.plan(0)],
+    pg_temp.targets(array[300], array[pg_temp.plan(0)]), 2)),
+  '22023 TAKEOFF_LAUNCH_SEAL_INVALID', 'a plan read whole counted one page of the nine the preparation confirmed is refused');
+select is(pg_temp.attempt(pg_temp.remeasure_as(700, pg_temp.whole(9),
+    jsonb_set(pg_temp.snapshot(array[pg_temp.plan(0)]), '{preparation,sources,0,pages}', '[]'), array[pg_temp.plan(0)],
+    pg_temp.targets(array[300], array[pg_temp.plan(0)]), 2)),
+  'admitted', 'counted nine pages, it is admitted');
+-- A plan file whose page count was never stored (the server counts its PDF): the preparation has no count to compare.
+set local session_replication_role = replica;
+update public.plan_files set page_count = null where id = pg_temp.plan(0);
+update public.takeoff_preparations set confirmed_snapshot = jsonb_set(pg_temp.snapshot(array[pg_temp.plan(0), pg_temp.plan(1)]),
+  '{preparation,sources,0,pages}', '[]')
+where project_id = pg_temp.f(20);
+set local session_replication_role = origin;
+select is(pg_temp.attempt(pg_temp.remeasure_as(700, pg_temp.whole(9),
+    jsonb_set(pg_temp.snapshot(array[pg_temp.plan(0)]), '{preparation,sources,0,pages}', '[]'), array[pg_temp.plan(0)],
+    pg_temp.targets(array[300], array[pg_temp.plan(0)]), 2)),
+  'admitted', 'a plan whose stored page count is unknown is admitted on the count the server read');
+set local session_replication_role = replica;
+update public.plan_files set page_count = 9 where id = pg_temp.plan(0);
+update public.takeoff_preparations set confirmed_snapshot = pg_temp.snapshot(array[pg_temp.plan(0), pg_temp.plan(1)])
+where project_id = pg_temp.f(20);
+set local session_replication_role = origin;
 -- A selection made on a reading since replaced: stale, the item named, nothing admitted.
 select results_eq($$select outcome, stale from pg_temp.remeasure(700, array[300, 301], array[pg_temp.plan(0)], 2,
     targets => jsonb_build_array(jsonb_build_object('item_id', pg_temp.f(300), 'answers', jsonb_build_array(pg_temp.f(999))),
@@ -418,6 +470,31 @@ select throws_ok($$select * from pg_temp.remeasure(700, array[301], array[pg_tem
 select throws_ok($$select * from pg_temp.remeasure(700, array[300], array[pg_temp.plan(0)], 2,
     targets => jsonb_build_array(jsonb_build_object('item_id', pg_temp.f(300), 'answers', '[]'::jsonb)))$$, '23505',
   'TAKEOFF_LAUNCH_INTENT_CONFLICT', 'the same items confirmed on other answers under the same key are a conflict');
+select throws_ok($$select * from pg_temp.remeasure(700, array[300], array[pg_temp.plan(0)], 2,
+    confirmation => pg_temp.confirmation('d'))$$, '23505', 'TAKEOFF_LAUNCH_INTENT_CONFLICT',
+  'and so is the same selection under another preview confirmed');
+select throws_ok($$select * from pg_temp.remeasure(700, array[300], array[pg_temp.plan(0)], 2,
+    confirmation => pg_temp.confirmation('c', 'high'))$$, '23505', 'TAKEOFF_LAUNCH_INTENT_CONFLICT',
+  'or another setting chosen for it');
+-- The replay by what the member confirmed alone answers the receipt of that confirmation only.
+select results_eq($$select outcome, request_id from pg_temp.replay(700, array[300], array[pg_temp.plan(0)])$$,
+  $$select 'replayed'::text, request_id from remeasure_700$$, 'the replay of the same confirmation answers its receipt');
+select throws_ok($$select * from pg_temp.replay(700, array[300, 301], array[pg_temp.plan(0)])$$, '23505',
+  'TAKEOFF_LAUNCH_INTENT_CONFLICT', 'a selection holding one more item is another confirmation');
+select throws_ok($$select * from pg_temp.replay(700, array[300], array[pg_temp.plan(0)], confirmation => pg_temp.confirmation('d'))$$,
+  '23505', 'TAKEOFF_LAUNCH_INTENT_CONFLICT', 'and so is another preview confirmed');
+select throws_ok($$select * from pg_temp.replay(700, array[300], array[pg_temp.plan(0)],
+    confirmation => pg_temp.confirmation('c', 'high'))$$, '23505', 'TAKEOFF_LAUNCH_INTENT_CONFLICT', 'or another setting');
+select is((select count(*)::integer from pg_temp.replay(709, array[300], array[pg_temp.plan(0)])), 0,
+  'a key that answered nothing yet has no receipt to replay');
+set local session_replication_role = replica;
+update public.tenant_memberships set role = 'director' where tenant_id = pg_temp.f(10) and user_id = pg_temp.f(1);
+set local session_replication_role = origin;
+select throws_ok($$select * from pg_temp.replay(700, array[300], array[pg_temp.plan(0)])$$, '42501',
+  'TAKEOFF_LAUNCH_PAYER_NOT_ELIGIBLE', 'and no receipt is replayed to a member who may no longer launch');
+set local session_replication_role = replica;
+update public.tenant_memberships set role = 'engineer' where tenant_id = pg_temp.f(10) and user_id = pg_temp.f(1);
+set local session_replication_role = origin;
 -- A member who lost the right since gets no answer, a replayed one included.
 set local session_replication_role = replica;
 update public.tenant_memberships set role = 'director' where tenant_id = pg_temp.f(10) and user_id = pg_temp.f(1);
@@ -437,6 +514,10 @@ select throws_ok($$select * from pg_temp.remeasure(705, array[301], array[pg_tem
   'TAKEOFF_ITEM_REMEASURE_INVALID', 'and so is a target naming an answer twice');
 select throws_ok($$select * from pg_temp.remeasure(705, (select array_agg(n) from generate_series(1, 1001) n),
     array[pg_temp.plan(0)], 3)$$, '22023', 'TAKEOFF_ITEM_REMEASURE_INVALID', 'and a selection of more than 1,000 items');
+select throws_ok($$select * from pg_temp.remeasure(706, array[399], array[pg_temp.plan(0)], 3)$$, '22023',
+  'TAKEOFF_ITEM_REMEASURE_INVALID', 'and an item that is not an entry of the sealed revision');
+select is((select count(*)::integer from private.takeoff_launch_commands where intent_key = pg_temp.f(706)), 0,
+  'which records nothing under its key either');
 select is((select count(*)::integer from private.takeoff_launch_commands where intent_key = pg_temp.f(705)), 0,
   'none of them recorded anything under its key');
 select results_eq($$select outcome from pg_temp.remeasure(705, array[301], array[pg_temp.plan(0)], 3)$$,
@@ -526,8 +607,10 @@ union all
 select pg_temp.f(320), pg_temp.f(10), pg_temp.f(20), pg_temp.f(303), 3, 'manual:poste-3', 'Évier (fictif)', 'u', 'manual',
   '{"kind":"manual"}';
 set local session_replication_role = origin;
-select results_eq($$select outcome, stale from pg_temp.remeasure(703, array[303], array[pg_temp.plan(0)], 5)$$,
-  $$values ('stale'::text, array[pg_temp.f(303)])$$, 'a selection on a revision the list has left is stale');
+select results_eq($$select outcome, stale from pg_temp.remeasure(703, array[300], array[pg_temp.plan(0)], 5)$$,
+  $$values ('stale'::text, array[pg_temp.f(300)])$$, 'a selection on a revision the list has left is stale');
+select throws_ok($$select * from pg_temp.remeasure(703, array[303], array[pg_temp.plan(0)], 5)$$, '22023',
+  'TAKEOFF_ITEM_REMEASURE_INVALID', 'and an item that revision never held is refused, its key left unused');
 select results_eq($$select outcome from pg_temp.remeasure(704, array[303], array[pg_temp.plan(0)], 5, revision => 320)$$,
   $$values ('admitted'::text)$$, 'the sink is measured on plan A, on the list''s latest revision');
 select is(pg_temp.claim(pg_temp.job(5, pg_temp.plan(0)), 905), 1, 'it is read');

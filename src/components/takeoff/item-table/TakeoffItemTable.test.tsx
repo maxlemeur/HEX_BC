@@ -442,7 +442,10 @@ describe("TakeoffItemTable", () => {
     tick("Receveur de douche");
     fireEvent.click(screen.getByRole("button", { name: "Demander une nouvelle mesure (1)" }));
     const preview = await screen.findByTestId("poste-remeasure-preview");
-    expect(client.previewItemRemeasure).toHaveBeenCalledWith(FIXTURE_ITEM_PROJECT, { kind: "affaire" }, [fixtureItemId(5)]);
+    // What the member saw goes with it: the list revision shown and the line's readings, frozen when it was ticked.
+    const shownLine = table().page.lines.find(({ itemId }) => itemId === fixtureItemId(5))!;
+    const seen = { list_revision_id: table().list!.revisionId, targets: [shownLine.targets] };
+    expect(client.previewItemRemeasure).toHaveBeenCalledWith(FIXTURE_ITEM_PROJECT, { kind: "affaire" }, [fixtureItemId(5)], seen);
     expect(preview).toHaveTextContent("Forfait utilisé : celui de Léa Martin");
     expect(preview).toHaveTextContent("Réglage de Mon profil : modele-a · effort moyen.");
     expect(preview).toHaveTextContent("Plan RDC");
@@ -455,7 +458,7 @@ describe("TakeoffItemTable", () => {
     fireEvent.click(screen.getByRole("button", { name: "Confirmer la demande sur mon forfait" }));
     await waitFor(() => expect(client.sendItemRemeasure).toHaveBeenCalledTimes(1));
     expect(client.sendItemRemeasure.mock.calls[0][1]).toMatchObject({ item_ids: [fixtureItemId(5)], plan_keys: [RDC, R1],
-      setting: { reasoning_effort: "high" }, preview_digest: "a".repeat(64) });
+      setting: { reasoning_effort: "high" }, preview_digest: "a".repeat(64), seen });
     expect(await screen.findByTestId("poste-notice")).toHaveTextContent("Nouvelle mesure demandée");
     // The table is read again at once: the items asked now read « En lecture » on their plans.
     await waitFor(() => expect(client.fetchItemTable.mock.calls.length).toBeGreaterThan(reads));
