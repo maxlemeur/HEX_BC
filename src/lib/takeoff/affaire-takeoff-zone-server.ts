@@ -15,11 +15,11 @@ import {
   describeTakeoffJobFailure, resolveTakeoffVisibleJobStatus, takeoffCompletionFailureReason,
 } from "@/lib/takeoff/visible-status";
 
-const JOB_SELECT = "id, status, estimate_version_id, plan_set_id, source_file_name, source_file_path, processing_strategy, provider_batch_state, error_code, created_at, completed_at, analysis_finished_at";
+const JOB_SELECT = "id, status, estimate_version_id, plan_set_id, launch_unit_key, source_file_name, source_file_path, processing_strategy, provider_batch_state, error_code, created_at, completed_at, analysis_finished_at";
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 type JobRow = {
-  id: string; status: string; estimate_version_id: string | null; plan_set_id: string | null;
+  id: string; status: string; estimate_version_id: string | null; plan_set_id: string | null; launch_unit_key?: string | null;
   source_file_name: string | null; source_file_path: string | null;
   processing_strategy: string | null; provider_batch_state: string | null; error_code: string | null;
   created_at: string; completed_at: string | null; analysis_finished_at: string | null;
@@ -64,8 +64,23 @@ function omittedEntries<T extends string>(entries: unknown, reasons: readonly T[
   });
 }
 
-const PLAN_REASONS = ["alternate", "identical_copy", "unsupported_format"] as const;
+const PLAN_REASONS = ["alternate", "identical_copy", "unsupported_format", "not_requested"] as const;
 const REFERENCE_REASONS = ["unreadable", "unsupported_format", "limit"] as const;
+
+/**
+ * A request's analyses in the order its manifest records (one analysis per plan: its plans' names), so that its first unit
+ * is the analysis a later command replaces by default; by their keys otherwise, as read.
+ */
+function inManifestOrder(jobs: JobRow[], manifest: unknown) {
+  const units = (manifest as { units?: unknown } | null)?.units;
+  const ordinal = new Map((Array.isArray(units) ? units : []).flatMap((unit) => {
+    const entry = unit as { key?: unknown; ordinal?: unknown };
+    return typeof entry.key === "string" && typeof entry.ordinal === "number" ? [[entry.key, entry.ordinal] as const] : [];
+  }));
+  const place = (job: JobRow) => ordinal.get(job.launch_unit_key ?? "") ?? Number.MAX_SAFE_INTEGER;
+  return jobs.map((job, index) => ({ job, index })).sort((left, right) => place(left.job) - place(right.job) || left.index - right.index)
+    .map((entry) => entry.job);
+}
 
 /** The plans and pieces a request's coverage names, whose read rights decide what the member sees of them. */
 function coverageSourceIds(manifest: unknown) {
@@ -156,7 +171,7 @@ export async function readAffaireTakeoffZone(context: AuthenticatedTenantContext
       reason: request.reason, pieces: request.pieces, hasPayer: request.hasPayer, payerIsViewer: request.payerIsViewer,
       createdAt: request.createdAt, admittedAt: request.admittedAt, closedAt: request.closedAt, outcome: request.outcome,
       units: request.units, action: request.action, canStart: canStart.data === true,
-      jobs: ((requestJobs.data ?? []) as unknown[]).map(toJob),
+      jobs: inManifestOrder((requestJobs.data ?? []) as JobRow[], manifest).map(toJob),
       coverage: toAffaireTakeoffCoverage(manifest, visible),
       completionEventId,
     } : null,

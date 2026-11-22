@@ -7,12 +7,13 @@ import { assertLocalChatGptHost, hasLocalChatGptPlanAccess, isLocalChatGptEnable
 import { callLocalChatGptStructured, LocalChatGptConnectionWithdrawnError } from "@/lib/ai/chatgpt-local-inference";
 import { getChatGptHostId, readChatGptStore, type ChatGptOwner } from "@/lib/ai/chatgpt-local-store";
 import type { ServerSupabaseClient } from "@/lib/auth/tenant-context";
-import { assertTakeoffJobUsesLocalProvider, TakeoffError, TakeoffErrorCode } from "@/lib/takeoff/errors";
+import { assertTakeoffJobUsesLocalProvider, takeoffChatGptConnectionWithdrawn, TakeoffError, TakeoffErrorCode } from "@/lib/takeoff/errors";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import type { StructuredCall, StructuredCallOptions } from "@/lib/ai/structured-call";
 import type { ChatGptReasoningEffort } from "@/lib/ai/chatgpt-model-preferences";
 import type { TakeoffLevel, TakeoffProvider } from "@/lib/takeoff/types";
 import type { TakeoffJobProcessingRow } from "@/lib/takeoff/job-lifecycle";
+import type { TakeoffPaidCall, TakeoffPaidCallBranch, TakeoffPaidCallLedger } from "@/lib/takeoff/launch-call-ledger";
 import { takeoffExecutionSelectionSchema, type TakeoffExecutionSelection } from "@/lib/takeoff/preparation";
 import { assertTakeoffWorkerConfiguration } from "@/lib/takeoff/default-on-flags";
 import { DETAILED_TAKEOFF_PROCESSING } from "@/lib/takeoff/preparation-from-dossier";
@@ -115,11 +116,7 @@ export async function getTakeoffExecutionSelection(supabase: ServerSupabaseClien
 }
 
 /** Why a job's pinned connection cannot pay: the revocation reason a launch request names (CHATGPT_ACCESS_REVOKED). */
-function connectionWithdrawn(jobId?: string) {
-  return new TakeoffError({ status: 409, code: TakeoffErrorCode.AI_PROVIDER, retryable: false, jobId,
-    details: { provider: "chatgpt", reason: "CHATGPT_ACCESS_REVOKED" },
-    message: "La connexion ChatGPT a été retirée ou renouvelée depuis la confirmation de ce métré. Reconnectez votre forfait ChatGPT dans Mon profil, puis relancez le métré." });
-}
+const connectionWithdrawn = takeoffChatGptConnectionWithdrawn;
 
 export function assertPinnedTakeoffSelection(snapshot: unknown, userId: string, actual: TakeoffExecutionSelection) {
   if (!snapshot || typeof snapshot !== "object" || !("execution_selection" in snapshot)) return false;
@@ -188,12 +185,20 @@ export async function assertLocalTakeoffResumeReady(supabase: ServerSupabaseClie
   assertPinnedTakeoffSelection(snapshot, job.created_by, selection);
 }
 
+type PaidSelection = { profileId: string; model: string; reasoningEffort: ChatGptReasoningEffort | null; authorizationId?: string | null;
+  beforeSend?: () => Promise<TakeoffPaidCall>; onUsage?: (usage: { totalTokens: number; costCents: number; trusted: boolean }, call: unknown) => Promise<void>;
+  onUnknownUsage?: (call: unknown) => Promise<void> };
+
 export type LocalTakeoffProvider = {
   model: string;
   reasoningEffort?: ChatGptReasoningEffort | null;
-  /** The profile, model and effort the job runs with: every request pins them (the vector reading's too, TI-704). */
-  selection: { profileId: string; model: string; reasoningEffort: ChatGptReasoningEffort | null; authorizationId?: string | null;
-    beforeSend?: () => Promise<void>; onUsage?: (usage: { totalTokens: number; costCents: number }) => Promise<void> };
+  /**
+   * The profile, model and effort the job runs with: every request pins them (the vector reading's too, TI-704), with
+   * the ledger of its paid calls (launch-call-ledger.ts): a reading of the PDF reserves under `selection`, a question on
+   * the vector groups under `groupsSelection`.
+   */
+  selection: PaidSelection;
+  groupsSelection?: PaidSelection;
   useProfileForVectorGroups?: boolean;
   call: StructuredCall;
   /** The creator's active membership of the job's tenant, checked before each plan request (FORBIDDEN otherwise). */
@@ -203,12 +208,12 @@ export type LocalTakeoffProvider = {
 /**
  * The provider of one attempt of a job. `lease` reads the processing lease the worker holds at each paid call: the
  * provider is resolved before the claim, so the row it is given carries the lease of an earlier attempt or none.
- * `beforePaidCall` is the job's right to pay (its module, the payer rule, its budget), checked by every paid call once
- * its credential is in hand, immediately before the request is sent.
+ * `ledger` is the job's right to pay (its module, the payer rule) and, for a launch request's job, the reservation and
+ * the settlement of each paid call (launch-call-ledger.ts), once its credential is in hand, immediately before the
+ * request is sent.
  */
 export async function resolveLocalTakeoffProvider(supabase: ServerSupabaseClient, job: TakeoffJobProcessingRow,
-  hooks: { lease?: () => string | null; beforePaidCall?: () => Promise<void> } = {}): Promise<LocalTakeoffProvider> {
-  const lease = hooks.lease ?? (() => job.processing_lease_token ?? null);
+  hooks: { lease?: () => string | null; ledger?: TakeoffPaidCallLedger } = {}): Promise<LocalTakeoffProvider> {
   const hostId = await assertLocalTakeoffExecutionHost(job);
   assertTakeoffWorkerConfiguration();
   // The persisted job supplies ownership, never the triggering HTTP session.
@@ -233,23 +238,25 @@ export async function resolveLocalTakeoffProvider(supabase: ServerSupabaseClient
   const useProfileForVectorGroups = assertPinnedTakeoffSelection(job.preparation_snapshot, owner.userId, { ...current, hostId });
   // Every paid call (a chunk, a vector group) runs under the connection the job pinned, compared with the credential of
   // that call; a job that pinned none (queued before connections had one) is refused, never run on the current one. A
-  // launch request's job records the usage of every response under its lease.
+  // launch request's job reserves each call in its request's ledger and settles it with the usage of its response.
   const pinned = takeoffExecutionSelectionSchema.safeParse((job.preparation_snapshot as { execution_selection?: unknown } | null)?.execution_selection);
   if (!pinned.success || !pinned.data.authorizationId) throw connectionWithdrawn(job.id);
-  let calls = 0;
-  const selection = { profileId: current.profileId, model: current.model, reasoningEffort: current.reasoningEffort ?? null,
-    authorizationId: pinned.data.authorizationId, beforeSend: hooks.beforePaidCall,
-    onUsage: job.launch_request_id ? async (usage: { totalTokens: number; costCents: number }) => {
-      const { error } = await createServiceRoleClient().rpc("record_takeoff_launch_usage", {
-        p_job_id: job.id, p_lease_token: lease() ?? "", p_call_key: `call:${++calls}`,
-        p_tokens: usage.totalTokens, p_cost_cents: usage.costCents });
-      if (error) throw new TakeoffError({ code: TakeoffErrorCode.TAKEOFF_USAGE_UNRECORDED, retryable: false, jobId: job.id,
-        message: "La consommation d’un appel ChatGPT n’a pas pu être enregistrée : l’analyse s’arrête avant tout autre appel." });
-    } : undefined };
+  const { ledger } = hooks;
+  const paidSelection = (branch: TakeoffPaidCallBranch): PaidSelection => ({
+    profileId: current.profileId, model: current.model, reasoningEffort: current.reasoningEffort ?? null,
+    authorizationId: pinned.data.authorizationId,
+    ...(ledger ? {
+      beforeSend: () => ledger.beforePaidCall(branch),
+      onUsage: (usage: { totalTokens: number; costCents: number; trusted: boolean }, call: unknown) => ledger.recordPaidUsage(call as TakeoffPaidCall, usage),
+      onUnknownUsage: (call: unknown) => ledger.recordUnknownUsage(call as TakeoffPaidCall),
+    } : {}),
+  });
+  const selection = paidSelection("pdf");
   return {
     model: selection.model,
     reasoningEffort: selection.reasoningEffort,
     selection,
+    groupsSelection: paidSelection("vector_group"),
     useProfileForVectorGroups,
     assertOwnerActive,
     call: async <T>(options: StructuredCallOptions<T>) => {

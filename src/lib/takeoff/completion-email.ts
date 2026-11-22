@@ -6,12 +6,18 @@ import { canonicalJsonHash } from "@/lib/email/estimate-email-hash";
 import { isOneMailbox, readOutgoingEmailRouting, routeOutgoingEmail } from "@/lib/email/outgoing-routing";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { isTakeoffEnabled } from "@/lib/takeoff/feature-flags";
+import { describeTakeoffRequestEnd } from "@/lib/takeoff/launch-request-coverage";
 import type { Database } from "@/types/database";
 
 type Notification = Database["public"]["Tables"]["takeoff_completion_notifications"];
 export type CompletionEmailClaim = Pick<Notification["Row"],
   "id" | "tenant_id" | "project_id" | "job_id" | "recipient_email" | "outcome" | "provider_key" | "attempt_count" | "first_send_at"
->;
+> & Partial<Pick<Notification["Row"],
+  "subject_kind" | "request_id" | "plans_read_count" | "plans_failed_count" | "plans_not_started_count"
+>>;
+
+/** The end of a launch request whose notice is sent: its units, those stopped by a member, and whether a member stopped it. */
+export type CompletionRequestEnd = { expected: number; canceled: number; stopped: boolean };
 
 type Settlement = Pick<Notification["Update"], "delivery_state" | "last_delivery_code"> &
   Partial<Pick<Notification["Update"],
@@ -24,6 +30,8 @@ type DeliveryIO = {
   confirmDispatch: () => Promise<number | null>;
   /** The test the takeoff pages apply: when it fails, the job's page answers 404 and the link goes to the affaire. */
   takeoffEnabled: () => Promise<boolean>;
+  /** The request a notice of a launch request tells the end of (final once closed): read for its counts. */
+  requestEnd?: () => Promise<CompletionRequestEnd | null>;
   settle: (result: Settlement) => Promise<void>;
   send: (message: CreateEmailOptions, key: string) => Promise<{
     data: { id: string } | null;
@@ -41,8 +49,9 @@ const DISPATCH_MARGIN_MS = SEND_TIMEOUT_MS + 5_000;
 // A sender that stops before the call gives its attempt back and lets the next claim come soon.
 const GIVEN_BACK_DELAY_MS = 30_000;
 
-// The job's end on the affaire's activity: every reader of the affaire may open it, and it shows a failure's reason.
-function affaireEmailUrl(projectId: string, jobId: string | null, origin: string | undefined) {
+// The end on the affaire's activity, the job's or the request's: every reader of the affaire may open it, and it shows a
+// failure's reason. A request's link names it, so that the activity opens on its plans.
+function affaireEmailUrl(projectId: string, target: { job: string } | { request: string } | null, origin: string | undefined) {
   if (!origin) throw new Error("Missing takeoff email origin.");
   const url = new URL(origin);
   const loopback = ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname);
@@ -52,9 +61,29 @@ function affaireEmailUrl(projectId: string, jobId: string | null, origin: string
   ) {
     throw new Error("Invalid takeoff email origin.");
   }
-  const link = new URL(jobId ? `/dashboard/affaires/${projectId}/takeoff` : `/dashboard/affaires/${projectId}`, url.origin);
-  if (jobId) link.searchParams.set("job", jobId);
+  const link = new URL(target ? `/dashboard/affaires/${projectId}/takeoff` : `/dashboard/affaires/${projectId}`, url.origin);
+  if (target && "job" in target) link.searchParams.set("job", target.job);
+  if (target && "request" in target) link.searchParams.set("request", target.request);
   return link.href;
+}
+
+/** What the notice tells: the end of one analysis, or of a request of several plans with its counts. */
+function completionWording(claim: CompletionEmailClaim, end: CompletionRequestEnd | null) {
+  const complete = claim.outcome === "success";
+  const subject = complete ? "Votre métré est terminé"
+    : claim.outcome === "partial" ? "Votre métré est terminé en partie" : "Votre métré nécessite une vérification";
+  const read = claim.plans_read_count ?? 0;
+  const failed = claim.plans_failed_count ?? 0;
+  const notStarted = claim.plans_not_started_count ?? 0;
+  const expected = end?.expected ?? read + failed + notStarted;
+  if (claim.subject_kind === "request" && (expected > 1 || claim.outcome === "partial")) {
+    const told = describeTakeoffRequestEnd({ outcome: claim.outcome as Parameters<typeof describeTakeoffRequestEnd>[0]["outcome"],
+      expected, read, failed, notStarted, canceled: end?.canceled ?? 0, stopped: end?.stopped ?? false });
+    return { subject, summary: `${told} Le suivi du métré dans l’affaire donne l’état et le motif de chaque plan.` };
+  }
+  return { subject, summary: complete
+    ? "Le résultat de votre analyse est disponible dans l’affaire."
+    : "Votre analyse n’a pas pu aboutir. Son suivi dans l’affaire en donne le motif." };
 }
 
 function retryOrStop(claim: CompletionEmailClaim, now: Date, code: string, mayHaveSent: boolean): Settlement {
@@ -100,13 +129,11 @@ export async function deliverTakeoffCompletionEmail(
   try {
     const from = env.EMAIL_FROM?.trim();
     if (!from || !env.RESEND_API_KEY?.trim()) throw new Error("Missing Resend configuration.");
-    const jobPage = claim.job_id && await io.takeoffEnabled() ? claim.job_id : null;
+    const requestId = claim.subject_kind === "request" && claim.request_id ? claim.request_id : null;
+    const target = claim.job_id ? { job: claim.job_id } : requestId ? { request: requestId } : null;
+    const jobPage = target && await io.takeoffEnabled() ? target : null;
     const link = affaireEmailUrl(claim.project_id, jobPage, env.MERGEONE_TAKEOFF_EMAIL_ORIGIN);
-    const complete = claim.outcome === "success";
-    const subject = complete ? "Votre métré est terminé" : "Votre métré nécessite une vérification";
-    const summary = complete
-      ? "Le résultat de votre analyse est disponible dans l’affaire."
-      : "Votre analyse n’a pas pu aboutir. Son suivi dans l’affaire en donne le motif.";
+    const { subject, summary } = completionWording(claim, requestId ? await io.requestEnd?.() ?? null : null);
     const routing = readOutgoingEmailRouting(env);
     const routed = routeOutgoingEmail(routing, { to: claim.recipient_email, subject });
     routingMode = routing.mode;
@@ -198,6 +225,14 @@ export async function drainTakeoffCompletionEmails(options: { id?: string; limit
         return typeof data === "number" ? data : null;
       },
       takeoffEnabled: () => isTakeoffEnabled(row.tenant_id, { supabase: client }),
+      async requestEnd() {
+        if (!row.request_id) return null;
+        const { data, error } = await client.from("takeoff_launch_requests").select("units_expected, units_canceled, stop_requested_at")
+          .eq("id", row.request_id).eq("tenant_id", row.tenant_id).maybeSingle();
+        if (error) throw new Error("Impossible de lire la fin du métré.");
+        return data && data.units_expected !== null
+          ? { expected: data.units_expected, canceled: data.units_canceled, stopped: data.stop_requested_at !== null } : null;
+      },
       async settle(result) {
         const { error } = await client.from("takeoff_completion_notifications")
           .update({ next_attempt_at: null, ...result, lease_token: null, lease_expires_at: null })

@@ -248,5 +248,14 @@ select is(private.takeoff_public_failure_codes(), array['AI_PROVIDER', 'AI_RATE_
   'TAKEOFF_WORKER_NOT_STARTED', 'TAKEOFF_WORKER_OUTCOME_UNKNOWN', 'TAKEOFF_WORKER_QUEUE_EXPIRED'],
   'the allow-list holds the codes the application labels in French (FAILURE_FACTS, src/lib/takeoff/visible-status.ts)');
 
+-- Migration A (20261121231238_takeoff_plan_dispatcher.sql), not activated: a job failed with its retry still to run that is
+-- then cancelled keeps the outcome it had (none), as before; only a plan of one analysis per plan is cancelled with one.
+select pg_temp.add_job('53', '05', 'a3');
+select pg_temp.claim('53', 'pending', 0, 'bbbbbbbb-0000-4000-8000-000000000053'::uuid);
+select pg_temp.fail('53', 'bbbbbbbb-0000-4000-8000-000000000053', 'AI_TIMEOUT', clock_timestamp() + interval '1 hour', null);
+update public.takeoff_jobs set status = 'canceled', next_retry_at = null, completed_at = clock_timestamp() where id = pg_temp.job('53');
+select results_eq($$select status::text, analysis_outcome::text from public.takeoff_jobs where id = pg_temp.job('53')$$,
+  $$values ('canceled'::text, null::text)$$, 'a job cancelled while its retry waited keeps no outcome, as before');
+
 select * from finish();
 rollback;

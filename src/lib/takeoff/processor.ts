@@ -11,6 +11,7 @@ import {
   type TakeoffJobProcessingRow,
   type TakeoffLeaseRenewal,
 } from "@/lib/takeoff/job-lifecycle";
+import { readTakeoffLaunchUnit } from "@/lib/takeoff/launch-request";
 import { executeStructuredTakeoffRun, type StructuredTakeoffRunResult } from "@/lib/takeoff/level-a-reading";
 import { processLevelBChunks } from "@/lib/takeoff/level-b-reading";
 import {
@@ -36,6 +37,7 @@ import {
   isCanceledDuringProcessingConflict,
   markJobAsProcessing,
   recordLocalTakeoffFailure,
+  releaseTakeoffHostSlot,
   type TakeoffClaimObservation,
 } from "@/lib/takeoff/processing-job-state";
 import { getTakeoffPromptVersion } from "@/lib/takeoff/prompts";
@@ -206,6 +208,8 @@ async function processTakeoffLevel(
 
   let job: TakeoffJobProcessingRow | null = null;
   let enteredProcessing = false;
+  // The Mac's slot this attempt may hold (its claim's lease), given back however the attempt ends.
+  let heldSlot: { hostId: string; leaseToken: string } | null = null;
   let levelCChunkMetrics: LevelCChunkMetric[] = [];
   let levelCSourceFileName: string | null = null;
 
@@ -268,6 +272,7 @@ async function processTakeoffLevel(
       observed: options.claimObservation ?? { status: job.status, retryCount: job.retry_count },
     });
     enteredProcessing = true;
+    if (job.processing_lease_token) heldSlot = { hostId, leaseToken: job.processing_lease_token };
     // Even preflight failures must become visible, terminal job failures.
     if ("error" in resolved) throw resolved.error;
     const localProvider = resolved.provider;
@@ -318,9 +323,12 @@ async function processTakeoffLevel(
       // TI-662: vector reading of the original pages accompanies level C by default. Groups are classified
       // with MERGEONE_TAKEOFF_DECISIONS=1 by the creator's plan (TI-704 option B); each call checked like a provider
       // call (active tenant, lease).
+      // A plan's unit reads its share of the dossier's vector pages; any other job, the pages of a grouped analysis.
+      const unit = readTakeoffLaunchUnit(job.preparation_snapshot);
       const vectorOutcomes = isTakeoffVectorReadingEnabled()
         ? await readTakeoffVectorPages(sourceFile, {
           onPage: renewProcessingLease, context: { jobId: job.id, tenantId: job.tenant_id },
+          ...(unit ? { maxPages: unit.vectorPages } : {}),
           decisions: takeoffVectorLocalGroupsHook({ jobId: job.id, tenantId: job.tenant_id, userId: job.created_by ?? null, provider: localProvider,
             beforeCall: async () => {
               await assertProviderTenantActive();
@@ -487,11 +495,17 @@ async function processTakeoffLevel(
         ? levelCChunkMetricsFromError
         : cloneLevelCChunkMetrics(levelCChunkMetrics);
 
-    const mappedError = toTakeoffError(error, {
+    const raised = toTakeoffError(error, {
       fallbackCode: TakeoffErrorCode.INTERNAL_ERROR,
       jobId: normalizedJobId,
       level,
     });
+    // A plan of one analysis per plan whose source changed after its admission fails alone and definitively, recorded while
+    // its worker still holds the lease: the Mac is free at once for the next plan. A grouped analysis keeps lot 2's way.
+    const mappedError = enteredProcessing && job && isPlanUnitSourceChange(job, raised)
+      ? new TakeoffError({ status: 409, code: TakeoffErrorCode.TAKEOFF_PREPARATION_SOURCE_CHANGED, message: raised.message,
+        details: raised.details, retryable: false, jobId: normalizedJobId, level })
+      : raised;
 
     if (enteredProcessing && job && !isCanceledDuringProcessingConflict(mappedError) && mappedError.code !== TakeoffErrorCode.CONFLICT) {
       const completedAt = now();
@@ -502,7 +516,7 @@ async function processTakeoffLevel(
 
       await renewProcessingLease();
       const retainMetrics = level === TAKEOFF_LEVEL_C && chunkMetricsToPersist.length > 0;
-      await recordLocalTakeoffFailure({
+      const recorded = await recordLocalTakeoffFailure({
         supabase: context.supabase,
         job,
         completedAtIso: completedAt.toISOString(),
@@ -531,12 +545,20 @@ async function processTakeoffLevel(
         supabase: context.supabase,
         userId: context.userId ?? job.created_by,
         job,
-        error: mappedError,
+        error: recorded,
       });
     }
 
     throw mappedError;
+  } finally {
+    if (heldSlot) await releaseTakeoffHostSlot(context.supabase, heldSlot);
   }
+}
+
+/** The preparation's source refusal (PREPARATION_SOURCE_CHANGED, preparation-source-loader.ts) of a plan of a request of plans. */
+function isPlanUnitSourceChange(job: TakeoffJobProcessingRow, error: TakeoffError) {
+  return error.code === TakeoffErrorCode.CONFLICT && Boolean(readTakeoffLaunchUnit(job.preparation_snapshot)?.key.startsWith("plan:"))
+    && (error.details as { reason?: unknown } | undefined)?.reason === "PREPARATION_SOURCE_CHANGED";
 }
 
 export async function processLevelA(

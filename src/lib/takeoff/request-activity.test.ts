@@ -184,6 +184,13 @@ describe("deriveTakeoffRequestUnits: the dispatcher's shape from a sealed manife
     expect(view.plansOmitted).toEqual([{ name: "D — ancien indice.pdf", reason: "alternate" }]);
   });
 
+  // A plan a command did not name because an earlier analysis read it is shown as such, never dropped.
+  it("keeps a plan an earlier analysis read among the plans a command set aside", () => {
+    const manifest = parseTakeoffRequestManifest({ ...perPlanManifest, coverage: { plans_retained: 1,
+      plans_omitted: [{ id: PLAN_A, name: "A — Rez-de-chaussée.pdf", reason: "not_requested" }] } });
+    expect(manifest?.omitted).toEqual([{ id: PLAN_A, name: "A — Rez-de-chaussée.pdf", reason: "not_requested" }]);
+  });
+
   it("reads nothing from a manifest it cannot read", () => {
     expect(parseTakeoffRequestManifest({ format_version: 9, plans })).toBeNull();
     expect(parseTakeoffRequestManifest({ units: [{ key: 1 }] })).toBeNull();

@@ -17,6 +17,9 @@ const STATUS_NOTES: Record<TakeoffJobPlanLocation["status"], string | null> = {
 };
 const REPLACED_NOTE = "Ce plan a été remplacé dans le dossier depuis cette analyse : son cartouche n’est pas relu ici. « Corriger » ouvre sa "
   + "copie actuelle ; une correction ne s’applique ici que si son contenu est celui que l’analyse a lu.";
+// A plan retained for this analysis that it has not read (it waits, runs, failed or was stopped): its location is its
+// title block's, and the review has no result of it.
+const SELECTED_NOTE = "Plan retenu pour cette analyse, qui ne l’a pas encore lu : la revue n’en a aucun résultat.";
 const READING_NOTES: Record<NonNullable<TakeoffJobPlanLocation["reading_issue"]>, string | null> = {
   not_current: null,
   budget: "Cartouche non lu : la limite de lecture de cette revue est atteinte. Ouvrez le plan pour le lire.",
@@ -58,14 +61,16 @@ export function TakeoffPlanLocationsPanel({ jobId }: { jobId: string }) {
       ) : null}
       {data && !data.plans.length ? (
         <p className="text-sm text-muted-foreground">
-          {data.without_preparation ? "Cette analyse ancienne n’atteste aucune version de plan." : "Cette analyse n’a lu aucun plan du dossier."}
+          {data.preparation === "unreadable" ? "La préparation de cette analyse n’a pas pu être relue : aucune version de plan n’est attestée."
+            : data.without_preparation ? "Cette analyse ancienne n’atteste aucune version de plan." : "Cette analyse n’a lu aucun plan du dossier."}
         </p>
       ) : null}
       {data?.plans.length ? (
         <ul className="divide-y divide-border">
           {data.plans.map((plan) => {
             const note = plan.replacement ? REPLACED_NOTE
-              : [STATUS_NOTES[plan.status], plan.reading_issue ? READING_NOTES[plan.reading_issue] : null].filter(Boolean).join(" ");
+              : [plan.read_state === "selected" ? SELECTED_NOTE : null, STATUS_NOTES[plan.status],
+                plan.reading_issue ? READING_NOTES[plan.reading_issue] : null].filter(Boolean).join(" ");
             const editable = data.can_edit && plan.plan_set_id && (plan.status !== "unavailable" || plan.replacement);
             return (
               <li key={plan.plan_file_id} className="space-y-2 py-3 first:pt-0 last:pb-0" data-testid="takeoff-plan-location">

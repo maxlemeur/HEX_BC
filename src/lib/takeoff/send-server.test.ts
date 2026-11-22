@@ -118,6 +118,8 @@ function setUp(versions: Array<{ id: string; dpgf: boolean | number }>, options:
   committedBefore?: { request: string; format: number };
   /** The member's role as the database holds it now (the context may say otherwise). */
   membershipRole?: string;
+  /** The job is a plan's unit of one analysis per plan (lot 3). */
+  unitKey?: string;
 } = {}) {
   // What the service staged, by request: the member's session runs it as public.send_takeoff_job does.
   const staged = new Map<string, Record<string, unknown>>();
@@ -138,7 +140,8 @@ function setUp(versions: Array<{ id: string; dpgf: boolean | number }>, options:
   const supabase = createSupabaseFake({
     tables: {
       takeoff_jobs: () => ({ data: { id: JOB, project_id: PROJECT, estimate_version_id: null, status: "completed", level: "C",
-        plan_set_id: null, execution_provider: "chatgpt_local", preparation_revision: "1" }, error: null }),
+        plan_set_id: null, execution_provider: "chatgpt_local", preparation_revision: "1", launch_unit_key: options.unitKey ?? null },
+        error: null }),
       takeoff_items: () => ({ data: [{ id: ITEM, designation: "Lavabo", quantity: 3, unit: "u", is_excluded: false, source_file_name: "plan.pdf",
         source_page: 1, quantity_entry_category: null, metadata: {}, confidence: 0.95, is_verified: false }], error: null, count: 1 }),
       // The receipt of a committed request, as the session reads it before sending again.
@@ -240,6 +243,25 @@ describe("previewTakeoffSend — a destination that cannot receive the send", ()
     expect(preview.destination).toEqual({ kind: "existing_draft", version_id: DPGF_DRAFT });
     expect(preview.estimate_lines).toBeNull();
     expect(buildTakeoffPageReplacementProposal).not.toHaveBeenCalled();
+  });
+});
+
+describe("previewTakeoffSend — one analysis per plan", () => {
+  // Lot 3: a plan's analysis is read and reviewed now; its send to the estimate stays closed until the partial send (the
+  // database refuses to attach it to a version too: takeoff-plan-dispatcher.test.sql). Lot 2's grouped analysis still sends.
+  it("says the send of a plan's analysis comes later, before reading anything of the affaire's estimates", async () => {
+    setUp([], { unitKey: `plan:${JOB}` });
+    const preview = await previewTakeoffSend(JOB, {});
+    expect(preview.blocked).toEqual({ reason: "plan_send_pending", message: expect.stringContaining("rien n’est écrit") });
+    expect(preview.lines).toEqual([]);
+    expect(buildTakeoffPageReplacementProposal).not.toHaveBeenCalled();
+  });
+
+  it("still previews the send of a grouped analysis of a request", async () => {
+    setUp([], { unitKey: "grouped" });
+    const preview = await previewTakeoffSend(JOB, {});
+    expect(preview.blocked).toBeNull();
+    expect(preview.estimate_lines).toEqual([expect.objectContaining({ change: "created", title: "Lavabo", quantity: 3 })]);
   });
 });
 

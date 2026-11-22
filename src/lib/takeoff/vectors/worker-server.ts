@@ -138,7 +138,8 @@ export type TakeoffVectorDecisionsHook = {
 export function takeoffVectorLocalGroupsHook(input: {
   jobId: string; tenantId: string; userId: string | null;
   /** The job's local provider (resolveLocalTakeoffProvider): its pinned selection and the creator's membership check. */
-  provider: { selection: LocalGroupsSelection; assertOwnerActive: () => Promise<void>; useProfileForVectorGroups?: boolean };
+  provider: { selection: LocalGroupsSelection; groupsSelection?: LocalGroupsSelection; assertOwnerActive: () => Promise<void>;
+    useProfileForVectorGroups?: boolean };
   beforeCall?: () => Promise<void>;
 }): TakeoffVectorDecisionsHook | undefined {
   if (!isTakeoffVectorReadingEnabled() || !isTakeoffDecisionsSelected() || !isLocalChatGptEnabled() || !input.userId) return undefined;
@@ -146,7 +147,8 @@ export function takeoffVectorLocalGroupsHook(input: {
   // images), then the job's own check (tenant, lease).
   const { provider } = input;
   return { owner: { tenantId: input.tenantId, userId: input.userId }, projectId: `takeoff-job:${input.jobId}`,
-    local: { selection: provider.selection, useProfile: provider.useProfileForVectorGroups },
+    // The groups' questions are reserved in the job's ledger as such (its branch), with the profile of its readings.
+    local: { selection: provider.groupsSelection ?? provider.selection, useProfile: provider.useProfileForVectorGroups },
     beforeCall: async () => {
       await provider.assertOwnerActive();
       await input.beforeCall?.();
@@ -365,7 +367,13 @@ export async function readTakeoffVectorPages(source: DownloadedTakeoffFile, opti
   decisions?: TakeoffVectorDecisionsHook;
   /** The extraction of a page (tests); its killable child process by default. */
   extract?: (bytes: Uint8Array, page: number) => Promise<VectorPageExtraction>;
+  /**
+   * The pages this job may read, at most TAKEOFF_VECTOR_MAX_PAGES: a plan's unit of one analysis per plan reads its share
+   * of the dossier's pages, allotted in the request's recorded order (its manifest's `vector_pages`).
+   */
+  maxPages?: number;
 } = {}): Promise<VectorPageOutcome[]> {
+  const maxPages = Math.max(0, Math.min(options.maxPages ?? TAKEOFF_VECTOR_MAX_PAGES, TAKEOFF_VECTOR_MAX_PAGES));
   const extract = options.extract ?? ((bytes: Uint8Array, page: number) => extractVectorPage(bytes, page));
   const run: DecisionsRun | null = options.decisions ? {
     hook: options.decisions, drawing: groupEvidenceRenderPlan(options.decisions.local ? "local" : "server"),
@@ -385,7 +393,7 @@ export async function readTakeoffVectorPages(source: DownloadedTakeoffFile, opti
     const allowance = { batch: run?.hook.local ? TAKEOFF_VECTOR_LOCAL_LIMITS.requestsPerDocument : TAKEOFF_VECTOR_DECISIONS_LIMITS.batchCalls };
     let fingerprint: string | null = null;
     for (const page of pages) {
-      if (outcomes.length >= TAKEOFF_VECTOR_MAX_PAGES) break read;
+      if (outcomes.length >= maxPages) break read;
       // The lease renewal is the job's own: its failure stops the job, as everywhere else.
       await options.onPage?.();
       // The page's drawing, until the classification takes it: ended here on any other way out.

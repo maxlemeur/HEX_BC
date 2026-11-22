@@ -220,7 +220,7 @@ export async function readTakeoffRequestActivity(input: ReadTakeoffRequestActivi
     }
     const currentUnits = unitsOf(current);
     const progress = takeoffRequestProgress({ state: current.state as TakeoffRequestActivity["state"], reason: null,
-      units: currentUnits ? { ...currentUnits, unknownCalls: null } : null });
+      units: currentUnits ? { ...currentUnits, unknownCalls: unitSources.unknownCalls.get(current.id) ?? null } : null });
     if (current.admitted_at && progress !== "running" && progress !== "queued") {
       dossierPosition = `${current.id}:${await readDossierPosition(service, tenantId, input.projectId)}`;
       dossierReused = input.dossierSeen === dossierPosition;
@@ -233,7 +233,8 @@ export async function readTakeoffRequestActivity(input: ReadTakeoffRequestActivi
     ...listed.flatMap((request) => sourceIdsOf(unitSources.manifests.get(request.id) ?? null, request.reason_details)),
   ] });
   const build = (request: TakeoffRequestRow, extra: { action?: TakeoffRequestActivity["action"]; dossierChanged?: TakeoffRequestActivity["dossierChanged"] } = {}) =>
-    buildTakeoffRequestActivity({ request, units: unitsOf(request), manifest: unitSources.manifests.get(request.id) ?? null,
+    buildTakeoffRequestActivity({ request, units: unitsOf(request), unknownCalls: unitSources.unknownCalls.get(request.id) ?? null,
+      manifest: unitSources.manifests.get(request.id) ?? null,
       jobs: memberJobs, viewer, now, visible, ...extra });
 
   const currentView = current ? build(current, { action, dossierChanged }) : null;
@@ -309,21 +310,28 @@ async function readDossierPosition(service: Service, tenantId: string, projectId
  */
 async function readUnitSources(service: Service, tenantId: string, projectId: string, requestIds: string[]) {
   const manifests = new Map<string, TakeoffRequestManifest | null>();
-  if (requestIds.length === 0) return { manifests, jobs: [] as TakeoffRequestUnitJobRow[] };
-  const [manifestRows, jobRows] = await Promise.all([
+  const unknownCalls = new Map<string, number>();
+  if (requestIds.length === 0) return { manifests, jobs: [] as TakeoffRequestUnitJobRow[], unknownCalls };
+  const [manifestRows, jobRows, unknownRows] = await Promise.all([
     service.from("takeoff_launch_requests")
       .select("id, format_version:manifest->format_version, units:manifest->units, plans:manifest->plans, coverage:manifest->coverage" as never)
       .eq("tenant_id", tenantId).eq("project_id", projectId).in("id", requestIds),
     service.from("takeoff_jobs").select(UNIT_JOB_COLUMNS as never)
       .eq("tenant_id", tenantId).eq("project_id", projectId).in("launch_request_id", requestIds).order("id").limit(MAX_JOBS_READ),
+    // The calls whose consumption stayed unknown (each freezes its request's paid calls), for all the requests at once.
+    service.rpc("read_takeoff_launch_unknown_calls", { p_tenant_id: tenantId, p_project_id: projectId, p_request_ids: requestIds }),
   ]);
   if (manifestRows.error) readError(manifestRows.error, "Impossible de lire le métré de l’affaire.");
   if (jobRows.error) readError(jobRows.error, "Impossible de lire les analyses du métré.");
+  if (unknownRows.error) readError(unknownRows.error, "Impossible de lire la consommation du métré.");
+  for (const row of (unknownRows.data ?? []) as Array<{ request_id: string; unknown_calls: number | string }>) {
+    unknownCalls.set(row.request_id, Number(row.unknown_calls));
+  }
   for (const row of (manifestRows.data ?? []) as unknown as Array<{ id: string } & Record<string, unknown>>) {
     const { id, ...manifest } = row;
     manifests.set(id, parseTakeoffRequestManifest(manifest));
   }
-  return { manifests, jobs: (jobRows.data ?? []) as unknown as TakeoffRequestUnitJobRow[] };
+  return { manifests, jobs: (jobRows.data ?? []) as unknown as TakeoffRequestUnitJobRow[], unknownCalls };
 }
 
 /**

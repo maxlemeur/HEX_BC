@@ -85,6 +85,8 @@ describe("durable workflow recovery", () => {
     expect(result.failedCount).toBe(0);
     expect(result.skippedCount).toBe(2);
     expect(result.deadCount).toBe(0);
+    // A launch request whose units all ended is closed from what was recorded, without any AI call.
+    expect(client.rpc).toHaveBeenCalledWith("reconcile_takeoff_launch_requests", { p_limit: 20 });
   });
 
   it("reserves independent capacity for order documents and request photos even when one claim fails", async () => {

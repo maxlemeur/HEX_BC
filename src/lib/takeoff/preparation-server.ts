@@ -273,7 +273,9 @@ export async function sealPreparationSources(draft: TakeoffPreparation, options:
   /** What each dossier document's row records of its stored file: its size and the upload its key names. */
   documents: ReadonlyMap<string, PreparationDocumentRow>;
   onReferenceIssue: "throw" | "omit";
-}): Promise<{ omittedReferences: PreparationSealOmission[]; assertReadPlans: (read: TakeoffPreparation, bounds: { maxPages: number }) => void }> {
+}): Promise<{ omittedReferences: PreparationSealOmission[]; assertReadPlans: (read: TakeoffPreparation, bounds: { maxPages: number }) => void;
+  /** The pages of each plan it opened, counted on its bytes: one analysis per plan weighs a whole plan by them. */
+  planPageCounts: ReadonlyMap<string, number> }> {
   const available = new Map(options.sources.map((source) => [source.document_id, source]));
   const omittedReferences: PreparationSealOmission[] = [];
   const unopenedPlans = new Map<string, PreparationPlanSealError>();
@@ -382,6 +384,7 @@ export async function sealPreparationSources(draft: TakeoffPreparation, options:
   }
   return {
     omittedReferences,
+    planPageCounts: new Map([...planCounts].map(([id, counted]) => [id, counted.page_count])),
     /**
      * Throws for the plans of `read` (the preparation as the analysis reads it, once the revision choices apply) that
      * the worker would refuse: one it would not open or whose pages lie outside its file (named), or, together, plans

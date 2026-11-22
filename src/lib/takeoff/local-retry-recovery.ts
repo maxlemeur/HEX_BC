@@ -6,6 +6,7 @@ import { isLocalChatGptEnabled } from "@/lib/ai/chatgpt-local-auth";
 import { getChatGptHostId } from "@/lib/ai/chatgpt-local-store";
 import { createOptionalServiceRoleClient } from "@/lib/supabase/service-role";
 import { TAKEOFF_RETRY_MAX } from "@/lib/takeoff/constants";
+import { isTakeoffPlanDispatchActive, runLocalTakeoffDispatcherPass } from "@/lib/takeoff/local-dispatcher";
 
 const POLL_INTERVAL_MS = 15_000;
 const BATCH_SIZE = 5;
@@ -60,6 +61,12 @@ export function startLocalTakeoffRetryRecovery() {
     if (running) return;
     running = true;
     try {
+      // The dispatcher serves this Mac's whole queue in the database's order once one analysis per plan is active, and
+      // after a withdrawal the plans of one analysis per plan already admitted (one at a time); with none, it answers
+      // nothing and this poll keeps its former path for every other job.
+      const active = await isTakeoffPlanDispatchActive(client).catch(() => false);
+      await runLocalTakeoffDispatcherPass({ service: client }).catch(() => console.error("takeoff.local_retry_recovery.dispatch_failed"));
+      if (active) return;
       const due = new Date().toISOString();
       // Once active, a retry that has waited past the wait ceiling is only closed by its recovery, never run (the
       // database's floor, public.takeoff_local_retry_floor; null before the activation, when nothing expires).
@@ -67,7 +74,7 @@ export function startLocalTakeoffRetryRecovery() {
       if (floorError) throw floorError;
       const unexpired = floor ? `,next_retry_at.gt.${new Date(floor).toISOString()}` : "";
       let query = client.from("takeoff_jobs")
-        .select("id, tenant_id, status, created_at, tenants!inner(is_active)")
+        .select("id, tenant_id, status, created_at, launch_unit_key, tenants!inner(is_active)")
         .eq("tenants.is_active", true)
         .eq("execution_provider", "chatgpt_local")
         .eq("execution_host_id", await getChatGptHostId())
@@ -84,6 +91,8 @@ export function startLocalTakeoffRetryRecovery() {
       const admitted = await readAdmittedJobIds(client, data.filter((job) => job.status === "pending"));
       const { processTakeoffJobAttempt } = await import("@/lib/takeoff/async-worker");
       for (const job of data) {
+        // A plan of one analysis per plan is the dispatcher's (above): never a second lane on this Mac.
+        if ((job as { launch_unit_key?: string | null }).launch_unit_key?.startsWith("plan:")) continue;
         // A pending row whose creation has not finished may still be withdrawn: the member is told it did not start.
         if (job.status === "pending" && !admitted.has(job.id)) continue;
         try {

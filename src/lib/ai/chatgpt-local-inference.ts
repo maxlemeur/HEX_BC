@@ -146,27 +146,51 @@ const chatGptUsageSchema = z.object({
   output_tokens_details: z.object({ reasoning_tokens: z.number().default(0) }).optional(),
 });
 type ChatGptUsage = z.infer<typeof chatGptUsageSchema>;
-/** Records a paid call's usage (a launch request's ledger); a failure to record stops the call's caller. */
-export type ChatGptUsageRecorder = (usage: { totalTokens: number; costCents: number }) => Promise<void>;
+/**
+ * Records a paid call's usage (a launch request's ledger); a failure to record stops the call's caller. `trusted`: the
+ * provider stated its total (trustedChatGptUsageTotal); a reserved call is settled only by such a total.
+ */
+export type ChatGptUsageRecorder = (usage: { totalTokens: number; costCents: number; trusted: boolean }) => Promise<void>;
+
+/**
+ * The total a response's usage states, when it can settle a paid call: `total_tokens` given as a whole number above zero,
+ * not below each of `input_tokens` and `output_tokens` given, nor below their sum when both are. Anything else (a usage
+ * without its total, a total of zero or below a part) leaves the call's consumption unknown.
+ */
+export function trustedChatGptUsageTotal(raw: unknown): number | null {
+  const usage = raw as { total_tokens?: unknown; input_tokens?: unknown; output_tokens?: unknown } | null | undefined;
+  const total = usage?.total_tokens;
+  if (typeof total !== "number" || !Number.isSafeInteger(total) || total <= 0) return null;
+  const { input_tokens: input, output_tokens: output } = usage!;
+  if (typeof input === "number" && total < input) return null;
+  if (typeof output === "number" && total < output) return null;
+  if (typeof input === "number" && typeof output === "number" && total < input + output) return null;
+  return total;
+}
 
 /**
  * Read through the terminal event: partial output is never a successful answer. Every response that carries a usage was
- * paid for: `onUsage` records it first, whatever happens to its answer (no text, incomplete, failed), and its own failure
- * is the one thrown.
+ * paid for: `onUsage` records it first, with whether its total can be trusted (trustedChatGptUsageTotal), whatever happens
+ * to its answer (no text, incomplete, failed), and its own failure is the one thrown.
  */
 export async function readChatGptResponse(response: Response, onUsage?: ChatGptUsageRecorder) {
   let usage: ChatGptUsage | null = null;
+  let trusted: number | null = null;
   let read: { text: string } | { error: unknown };
   try {
     read = { text: await readChatGptText(response, (event) => {
       const seen = chatGptUsageSchema.safeParse(event.response?.usage);
-      if (event.response?.usage !== undefined && seen.success) usage = seen.data;
+      if (event.response?.usage !== undefined && seen.success) {
+        usage = seen.data;
+        trusted = trustedChatGptUsageTotal(event.response?.usage);
+      }
     }) };
   } catch (error) {
     read = { error };
   }
   const paid = usage as ChatGptUsage | null;
-  if (paid && onUsage) await onUsage({ totalTokens: paid.total_tokens, costCents: 0 });
+  const total = trusted as number | null;
+  if (paid && onUsage) await onUsage({ totalTokens: total ?? paid.total_tokens, costCents: 0, trusted: total !== null });
   if ("error" in read) throw read.error;
   return { text: read.text, usage: paid ?? chatGptUsageSchema.parse({}) };
 }
@@ -245,12 +269,16 @@ export async function assertLocalChatGptOverride(owner: ChatGptOwner, credential
 
 /**
  * The selection a paid call runs under: the connection it was pinned to (`authorizationId`, compared with the credential
- * of this very call; a takeoff call pinned to none is refused), the job's right to pay, checked once the credential is in
- * hand and immediately before the request is sent (`beforeSend`), and, for a launch request's job, where the usage of
- * every response that carries one is recorded (`onUsage`). A recording that fails stops the call's caller.
+ * of this very call; a takeoff call pinned to none is refused), the job's right to pay and the reservation of the call,
+ * once the credential is in hand and immediately before the request is sent (`beforeSend`, whose answer names the call),
+ * then where the usage of every response that carries one is recorded (`onUsage`, for that call), or that the call ended
+ * without a known usage (`onUnknownUsage`: no answer, or an answer without its usage). A recording that fails stops the
+ * call's caller.
  */
 type LocalChatGptSelection = { profileId: string; model: string; reasoningEffort?: ChatGptReasoningEffort | null;
-  authorizationId?: string | null; beforeSend?: () => Promise<void>; onUsage?: ChatGptUsageRecorder };
+  authorizationId?: string | null; beforeSend?: () => Promise<unknown>;
+  onUsage?: (usage: { totalTokens: number; costCents: number; trusted: boolean }, call: unknown) => Promise<void>;
+  onUnknownUsage?: (call: unknown) => Promise<void> };
 
 /** A takeoff call whose pinned connection was withdrawn, renewed or never recorded: nothing is sent. */
 export class LocalChatGptConnectionWithdrawnError extends Error {
@@ -307,9 +335,25 @@ export async function callLocalChatGptStructured<T>(owner: ChatGptOwner, options
       throw new Error("Ce format de document n’est pas pris en charge par la connexion ChatGPT.");
     }
   }
-  // The job's right to pay, with the credential in hand (its lock and refresh may have waited): nothing is sent otherwise.
-  await selection?.beforeSend?.();
-  const response = await fetch(`${ROOT}/responses`, {
+  // The job's right to pay and the call's reservation, with the credential in hand (its lock and refresh may have
+  // waited): nothing is sent otherwise.
+  const paid = await selection?.beforeSend?.();
+  let usageRecorded = false;
+  const recordUsage: ChatGptUsageRecorder | undefined = selection?.onUsage
+    ? async (usage) => { usageRecorded = true; await selection.onUsage!(usage, paid); } : undefined;
+  // A call sent that never told its usage stays held in its request's ledger, never credited back. Telling it never hides
+  // a failed call's own outcome; a call that answered without its usage, whose telling failed, stops its caller with that
+  // failure (its ledger makes no further paid call).
+  const usageUnknown = async (): Promise<{ error: unknown } | null> => {
+    if (usageRecorded || !selection?.onUnknownUsage) return null;
+    try {
+      await selection.onUnknownUsage(paid);
+      return null;
+    } catch (error) {
+      return { error };
+    }
+  };
+  const request: RequestInit = {
     method: "POST", headers: { authorization: `Bearer ${credential.accessToken}`, "content-type": "application/json" },
     body: JSON.stringify({
       model: sent.model, store: false, stream: true,
@@ -322,8 +366,17 @@ export async function callLocalChatGptStructured<T>(owner: ChatGptOwner, options
       text: { format: { type: "json_object" } },
     }),
     signal: AbortSignal.timeout(Math.min(options.timeoutMs ?? 60_000, 180_000)), cache: "no-store",
-  });
-  const { text, usage } = await readChatGptResponse(response, selection?.onUsage);
+  };
+  let answer: Awaited<ReturnType<typeof readChatGptResponse>>;
+  try {
+    answer = await readChatGptResponse(await fetch(`${ROOT}/responses`, request), recordUsage);
+  } catch (error) {
+    await usageUnknown();
+    throw error;
+  }
+  const untold = await usageUnknown();
+  if (untold) throw untold.error;
+  const { text, usage } = answer;
   const reasoningTokens = usage.output_tokens_details?.reasoning_tokens ?? 0;
   const tokenUsage = { inputTokens: usage.input_tokens, outputTokens: Math.max(0, usage.output_tokens - reasoningTokens), reasoningTokens, totalTokens: usage.total_tokens };
   const answered = {

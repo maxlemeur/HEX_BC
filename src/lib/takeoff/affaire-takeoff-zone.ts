@@ -61,7 +61,7 @@ export type AffaireTakeoffZoneRequest = {
    */
   coverage: null | {
     plansRetained: number;
-    plansOmitted: Array<{ name: string; reason: "alternate" | "identical_copy" | "unsupported_format" }>;
+    plansOmitted: Array<{ name: string; reason: "alternate" | "identical_copy" | "unsupported_format" | "not_requested" }>;
     referencesOmitted: Array<{ name: string; reason: "unreadable" | "unsupported_format" | "limit" }>;
   };
   /** The event of its end: the members' notification and its e-mail. */

@@ -1,12 +1,19 @@
 import { expect, it } from "vitest";
 
-import { TAKEOFF_PUBLIC_FAILURE_CODES } from "@/lib/takeoff/completion-outcome";
+import { TAKEOFF_PLAN_PUBLIC_FAILURE_CODES, TAKEOFF_PUBLIC_FAILURE_CODES } from "@/lib/takeoff/completion-outcome";
 import { getTakeoffFailureReasonLabel, takeoffCompletionFailureReason } from "@/lib/takeoff/visible-status";
 
 // The database publishes a failure's code to readers who cannot read the job only if it is in this list
 // (private.takeoff_public_failure_codes, takeoff-completion-activation-readiness.test.sql asserts the same list).
 it("labels in French every code the end of an analysis may publish", () => {
   for (const code of TAKEOFF_PUBLIC_FAILURE_CODES) {
+    expect(getTakeoffFailureReasonLabel({ errorCode: code }), code).toEqual(expect.any(String));
+  }
+});
+
+// A plan of one analysis per plan publishes its own reasons too (private.takeoff_plan_public_failure_codes).
+it("labels in French every code a plan of one analysis per plan may publish", () => {
+  for (const code of TAKEOFF_PLAN_PUBLIC_FAILURE_CODES) {
     expect(getTakeoffFailureReasonLabel({ errorCode: code }), code).toEqual(expect.any(String));
   }
 });

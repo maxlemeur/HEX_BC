@@ -219,9 +219,22 @@ describe("readTakeoffRequestActivity: one light projection", () => {
     expect(one).toEqual([
       "member:estimate_projects", "member:feature_flags", "member:rpc:can_access_takeoff_project", "member:takeoff_jobs",
       "member:takeoff_jobs", "member:takeoff_launch_requests", "member:tenant_memberships",
-      "service:takeoff_jobs", "service:takeoff_jobs", "service:takeoff_launch_requests",
+      "service:rpc:read_takeoff_launch_unknown_calls", "service:takeoff_jobs", "service:takeoff_jobs",
+      "service:takeoff_launch_requests",
     ]);
     expect(many.current?.units?.coverage).toMatchObject({ expected: 20, failed: 3, succeeded: 1, running: 1, queued: 15 });
+  });
+
+  // Lot 3 fix round 1: a call whose consumption stayed unknown freezes its request; the page tells how many, read once for
+  // all its requests (read_takeoff_launch_unknown_calls), never per request.
+  it("tells the calls of unknown consumption of the page's requests, read once for all of them", async () => {
+    seed({ count: 3, states: ["completed", "processing"] });
+    db.rpc.read_takeoff_launch_unknown_calls = [{ request_id: REQUEST, unknown_calls: 2 }];
+    const answer = await read();
+    expect(answer.current?.units?.unknownCalls).toBe(2);
+    expect(db.rpcCalls.filter(([name]) => name === "service:rpc:read_takeoff_launch_unknown_calls")).toEqual([
+      ["service:rpc:read_takeoff_launch_unknown_calls", expect.objectContaining({ p_tenant_id: TENANT, p_project_id: PROJECT,
+        p_request_ids: expect.arrayContaining([REQUEST]) })]]);
   });
 
   it("computes the dossier's difference once, then again only when the dossier moved", async () => {
@@ -237,9 +250,10 @@ describe("readTakeoffRequestActivity: one light projection", () => {
     const again = await read({ dossierSeen: position });
     expect(again.reused).toMatchObject({ dossier: true, dossierPosition: position });
     expect(again.current?.dossierChanged).toBeNull();
-    // Only the position (plan sets, plan files, pieces) was read, never the dossier's rows again.
+    // Only the position (plan sets, plan files, pieces) was read, never the dossier's rows again (the unit sources, with
+    // their calls of unknown consumption, are read at each poll).
     expect(db.statements.filter((statement) => statement.startsWith("service:") && !statement.endsWith("takeoff_jobs")
-      && !statement.endsWith("takeoff_launch_requests")).sort()).toEqual([
+      && !statement.endsWith("takeoff_launch_requests") && !statement.endsWith("read_takeoff_launch_unknown_calls")).sort()).toEqual([
       "service:affaire_intake_documents", "service:plan_files", "service:plan_sets",
     ]);
     db.service.plan_files.push({ id: id("50000000", 10), tenant_id: TENANT, plan_set_id: PLAN_SET, file_name: "Encore un.pdf",

@@ -306,6 +306,14 @@ describe("Decisions in the takeoff worker (worker-server.ts readTakeoffVectorPag
     expect(outcome.record?.groups.find((group) => group.id === "oc:ef-layer")).toMatchObject({ class: "EF", source: "keyword" });
   });
 
+  // Lot 3: a plan's unit reads its share of the dossier's sixty vector pages, never more than a grouped analysis would.
+  it("reads no more pages than the job's share of the dossier's vector pages", async () => {
+    const { source, extract } = job([[page(1, 3), page(2, 3), page(3, 3)]]);
+    expect(await readTakeoffVectorPages(source, { extract, maxPages: 2 })).toHaveLength(2);
+    expect(await readTakeoffVectorPages(source, { extract, maxPages: 0 })).toHaveLength(0);
+    expect(await readTakeoffVectorPages(source, { extract, maxPages: 500 })).toHaveLength(3);
+  });
+
   it("asks nothing for a raster page", async () => {
     const { decide, seen } = fakeDecide(() => ({ value: "EU", margin: 0.9 }));
     const [outcome] = await read([[page(1, 5, { raster: true })]], hook(decide));

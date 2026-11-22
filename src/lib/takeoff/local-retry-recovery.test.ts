@@ -175,6 +175,45 @@ it("records no sign of life for a process whose workers are blocked", async () =
   expect(client.rpc).not.toHaveBeenCalled();
 });
 
+// Lot 3: withdrawing one analysis per plan keeps one plan at a time for the plans already admitted: the poller still hands
+// them to the dispatcher (their slot), and its own path leaves them alone.
+it("still runs the dispatcher for the plans already admitted after a withdrawal, and leaves them to it", async () => {
+  vi.useFakeTimers();
+  vi.stubEnv("E2E_ARMY_BLOCK_WORKERS", "0");
+  processAttempt.mockReset();
+  const createdAt = "2026-11-21T00:00:00+00:00";
+  const plan = { id: "8f400000-0000-4000-8000-000000000041", tenant_id: "t", status: "pending", created_at: createdAt,
+    launch_unit_key: "plan:8f400000-0000-4000-8000-000000000051" };
+  const standalone = { id: "8f400000-0000-4000-8000-000000000042", tenant_id: "t", status: "pending", created_at: createdAt,
+    launch_unit_key: null };
+  let handed = false;
+  client.rpc.mockImplementation((async (name: string) => {
+    if (name === "takeoff_plan_dispatch_is_active") return { data: false, error: null };
+    if (name === "dispatch_next_takeoff_host_job") {
+      const next = handed ? [] : [{ job_id: plan.id, trigger_kind: "create", next_due_at: null, closed_jobs: [] }];
+      handed = true;
+      return { data: next, error: null };
+    }
+    return { data: null, error: null };
+  }) as never);
+  client.from.mockImplementation((table: string) => {
+    const rows = table === "audit_logs" ? [plan, standalone].map((job) => ({ tenant_id: "t", record_id: job.id, created_at: createdAt }))
+      : [plan, standalone];
+    const query = {
+      select: () => query, eq: () => query, in: () => query, gte: () => query, is: () => query, or: () => query,
+      gt: () => query, order: () => query, limit: () => query,
+      then: (resolve: (value: unknown) => unknown) => resolve({ error: null, data: rows }),
+    };
+    return query;
+  });
+  processAttempt.mockResolvedValue({ status: "succeeded" });
+  startLocalTakeoffRetryRecovery();
+  await vi.advanceTimersByTimeAsync(30_000);
+  await vi.waitFor(() => expect(processAttempt.mock.calls.map(([id]) => id)).toContain(standalone.id));
+  expect(processAttempt.mock.calls.filter(([id]) => id === plan.id)).toHaveLength(1);
+  expect(client.rpc.mock.calls.some(([name]) => name === "dispatch_next_takeoff_host_job")).toBe(true);
+});
+
 // A retry past the wait ceiling is only closed by its recovery: once active, the poll reads that ceiling from the database
 // (public.takeoff_local_retry_floor) and no longer selects such a retry; before the activation it selects as before.
 it.each([

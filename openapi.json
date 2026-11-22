@@ -30723,6 +30723,7 @@
               "TAKEOFF_LEVEL_C_BUDGET_EXCEEDED",
               "TAKEOFF_REQUEST_BUDGET_EXHAUSTED",
               "TAKEOFF_USAGE_UNRECORDED",
+              "TAKEOFF_PREPARATION_SOURCE_CHANGED",
               "TAKEOFF_JOB_NOT_RETRIABLE",
               "TAKEOFF_JOB_NOT_CANCELABLE",
               "TAKEOFF_JOB_ADMISSION_LIMIT",
@@ -30800,6 +30801,7 @@
                   "TAKEOFF_LEVEL_C_BUDGET_EXCEEDED",
                   "TAKEOFF_REQUEST_BUDGET_EXHAUSTED",
                   "TAKEOFF_USAGE_UNRECORDED",
+                  "TAKEOFF_PREPARATION_SOURCE_CHANGED",
                   "TAKEOFF_JOB_NOT_RETRIABLE",
                   "TAKEOFF_JOB_NOT_CANCELABLE",
                   "TAKEOFF_JOB_ADMISSION_LIMIT",
@@ -85254,7 +85256,8 @@
                               "enum": [
                                 "alternate",
                                 "identical_copy",
-                                "unsupported_format"
+                                "unsupported_format",
+                                "not_requested"
                               ]
                             }
                           },
@@ -85916,7 +85919,8 @@
                             "enum": [
                               "alternate",
                               "identical_copy",
-                              "unsupported_format"
+                              "unsupported_format",
+                              "not_requested"
                             ]
                           }
                         },
@@ -96683,6 +96687,14 @@
                         "unavailable"
                       ]
                     },
+                    "read_state": {
+                      "type": "string",
+                      "enum": [
+                        "read",
+                        "selected",
+                        "unavailable"
+                      ]
+                    },
                     "replacement": {
                       "anyOf": [
                         {
@@ -97322,6 +97334,7 @@
                     "pages",
                     "revision",
                     "status",
+                    "read_state",
                     "replacement",
                     "reading",
                     "reading_issue",
@@ -97335,6 +97348,14 @@
               "without_preparation": {
                 "type": "boolean"
               },
+              "preparation": {
+                "type": "string",
+                "enum": [
+                  "attested",
+                  "none",
+                  "unreadable"
+                ]
+              },
               "can_edit": {
                 "type": "boolean"
               }
@@ -97344,6 +97365,7 @@
               "project_id",
               "plans",
               "without_preparation",
+              "preparation",
               "can_edit"
             ],
             "additionalProperties": false
@@ -101875,7 +101897,8 @@
                             "choose_destination",
                             "read_only",
                             "rules_unbounded",
-                            "draft_locked"
+                            "draft_locked",
+                            "plan_send_pending"
                           ]
                         },
                         {
@@ -102052,7 +102075,8 @@
                           "choose_destination",
                           "read_only",
                           "rules_unbounded",
-                          "draft_locked"
+                          "draft_locked",
+                          "plan_send_pending"
                         ]
                       },
                       "message": {

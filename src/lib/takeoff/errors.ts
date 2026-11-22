@@ -41,6 +41,8 @@ export enum TakeoffErrorCode {
   TAKEOFF_REQUEST_BUDGET_EXHAUSTED = "TAKEOFF_REQUEST_BUDGET_EXHAUSTED",
   /** A paid call's usage that its launch request's ledger could not record: the job stops, nothing more is sent. */
   TAKEOFF_USAGE_UNRECORDED = "TAKEOFF_USAGE_UNRECORDED",
+  /** A plan of one analysis per plan whose source changed after its admission: it fails alone, definitively. */
+  TAKEOFF_PREPARATION_SOURCE_CHANGED = "TAKEOFF_PREPARATION_SOURCE_CHANGED",
   TAKEOFF_JOB_NOT_RETRIABLE = "TAKEOFF_JOB_NOT_RETRIABLE",
   TAKEOFF_JOB_NOT_CANCELABLE = "TAKEOFF_JOB_NOT_CANCELABLE",
   TAKEOFF_JOB_ADMISSION_LIMIT = "TAKEOFF_JOB_ADMISSION_LIMIT",
@@ -440,6 +442,16 @@ export class TakeoffError extends ApiError {
     this.jobId = input.jobId;
     this.level = input.level;
   }
+}
+
+/**
+ * A takeoff call whose pinned ChatGPT connection was withdrawn or renewed since its confirmation: the job's own terminal
+ * refusal, whichever of its calls met it (its PDF reading or a question on its vector groups).
+ */
+export function takeoffChatGptConnectionWithdrawn(jobId?: string) {
+  return new TakeoffError({ status: 409, code: TakeoffErrorCode.AI_PROVIDER, retryable: false, jobId,
+    details: { provider: "chatgpt", reason: "CHATGPT_ACCESS_REVOKED" },
+    message: "La connexion ChatGPT a été retirée ou renouvelée depuis la confirmation de ce métré. Reconnectez votre forfait ChatGPT dans Mon profil, puis relancez le métré." });
 }
 
 /** Execution ownership is immutable in the database; historical results remain readable. */

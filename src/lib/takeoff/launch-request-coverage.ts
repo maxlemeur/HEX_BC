@@ -2,7 +2,7 @@
  * The coverage of a launch request (lot 3): one execution of an affaire's analysis on a sealed manifest, each unit of
  * which is analysed by its own job (one per plan in format 2, one grouped unit holding every plan in format 1). The
  * database decides the state of every unit in one place (private.takeoff_unit_state, migration
- * 20261121181031_takeoff_plan_dispatcher.sql): the reading contract of the affaire's activity
+ * 20261121231238_takeoff_plan_dispatcher.sql): the reading contract of the affaire's activity
  * (`readTakeoffLaunchRequestUnits` in launch-request-units-server.ts) returns those states; this module only counts and
  * words them, for the server and the screens alike. It never infers a success from the presence of a result row.
  */
@@ -96,8 +96,12 @@ export function describeTakeoffRequestEnd(input: {
   }
   if (input.outcome === "canceled") return "Votre analyse a été arrêtée avant la lecture de ses plans.";
   if (input.stopped && input.canceled > 0 && input.read > 0) {
-    const rest = input.expected - input.read;
-    return `${plural(input.read, "plan")} ${input.read > 1 ? "disponibles" : "disponible"}, ${rest} ${rest > 1 ? "arrêtés" : "arrêté"} à votre demande.`;
+    // Only the cancelled plans were stopped at the member's request: one that failed or never started before is told apart.
+    const parts = [`${plural(input.read, "plan")} ${input.read > 1 ? "disponibles" : "disponible"}`,
+      `${input.canceled} ${input.canceled > 1 ? "arrêtés" : "arrêté"} à votre demande`];
+    if (input.failed) parts.push(`${input.failed} en échec`);
+    if (input.notStarted) parts.push(`${input.notStarted} non ${input.notStarted > 1 ? "démarrés" : "démarré"}`);
+    return `${parts.join(", ")}.`;
   }
   if (input.outcome === "partial") return `${plural(input.read, "plan")} ${input.read > 1 ? "lus" : "lu"} sur ${input.expected}.`;
   return input.expected > 1 ? `Aucun des ${input.expected} plans n’a pu être lu.` : "Le plan n’a pas pu être lu.";

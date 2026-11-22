@@ -16,6 +16,7 @@ import { findTakeoffPreparationCopyReceipt, recordTakeoffPreparationCopy } from 
 import type { TakeoffJobCreateResponse } from "@/lib/takeoff/job-creation-input";
 import {
   assumeTakeoffLaunchRequest, isTakeoffLaunchActive, launchTakeoffRelaunch, readAffaireTakeoffLaunchState,
+  stopTakeoffLaunchRequest,
 } from "@/lib/takeoff/launch-request-server";
 import { readAffaireTakeoffZone } from "@/lib/takeoff/affaire-takeoff-zone-server";
 
@@ -176,9 +177,15 @@ const relaunchTakeoffSchema = z.object({
   preparationRevision: z.number().int().positive(),
   /** One key per click, kept by the dialogue across a double click, a timeout and a reload of the answer. */
   intentKey: uuidSchema,
-  /** The analysis it replaces: a relaunch always names it; null for the affaire's first analysis. */
+  /**
+   * The analysis it replaces: a relaunch, and a command that reads a plan added to the dossier since, always name it;
+   * null for the affaire's first analysis.
+   */
   predecessorJobId: uuidSchema.nullable(),
+  /** One analysis per plan (lot 3): the plans it reads; by default the plans of the analysis it replaces. */
+  planFileIds: z.array(uuidSchema).min(1).max(20).nullish(),
 });
+const stopTakeoffSchema = z.object({ projectId: uuidSchema, requestId: uuidSchema });
 
 export async function readTakeoffLaunchStateAction(input: z.input<typeof takeoffLaunchStateSchema>) {
   return runSafeTakeoffAction(async () => {
@@ -215,4 +222,15 @@ export async function relaunchTakeoffAction(input: z.input<typeof relaunchTakeof
     revalidatePath(`/dashboard/affaires/${parsed.projectId}/takeoff`);
     return result;
   }, "Impossible de relancer le métré. Consultez l'activité du métré avant de réessayer.");
+}
+
+/** « Arrêter le reste du métré »: the plans of the running request not read yet are stopped, those read stay. */
+export async function stopTakeoffLaunchRequestAction(input: z.input<typeof stopTakeoffSchema>) {
+  return runSafeTakeoffAction(async () => {
+    const parsed = stopTakeoffSchema.parse(input);
+    const result = await stopTakeoffLaunchRequest({ context: await getAuthenticatedContext(), ...parsed });
+    revalidatePath(`/dashboard/affaires/${parsed.projectId}`);
+    revalidatePath(`/dashboard/affaires/${parsed.projectId}/takeoff`);
+    return result;
+  }, "Impossible d'arrêter le métré. Consultez l'activité du métré avant de réessayer.");
 }

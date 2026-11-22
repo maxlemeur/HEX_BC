@@ -55,6 +55,8 @@ export type TakeoffSendRequest = z.infer<typeof takeoffSendRequestSchema>;
 export const TAKEOFF_SEND_BLOCKERS = [
   "not_completed", "already_sent", "no_line", "dpgf_reconciliation_required", "copy_pages_already_in_estimate",
   "preparation_already_sent", "choose_destination", "read_only", "rules_unbounded", "draft_locked",
+  // Lot 3: one analysis per plan is read and reviewed now; its send to the estimate comes with the partial send.
+  "plan_send_pending",
 ] as const;
 export type TakeoffSendBlocker = (typeof TAKEOFF_SEND_BLOCKERS)[number];
 
