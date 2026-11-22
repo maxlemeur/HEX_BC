@@ -92,7 +92,8 @@ export function AffaireDocumentDesk({
   uploadRequestId?: number;
 }) {
   const params = useSearchParams();
-  const localUploadFeedback = useIntakeUploadFeedback(projectId, workspace.documents, onReload);
+  const batchPending = (workspace.pendingUploadIds?.length ?? 0) > 0;
+  const localUploadFeedback = useIntakeUploadFeedback(projectId, workspace.documents, onReload, batchPending);
   const uploadFeedback = sharedUploadFeedback ?? localUploadFeedback;
   const [filter, setFilter] = useState(
     params.has("intakeDocument") || (params.get("intakeFilter") !== "a_revoir" && !workspace.documents.some((document) => dossierDocumentState(document) === "review")) ? "all" : "review",
@@ -177,7 +178,7 @@ export function AffaireDocumentDesk({
 
   // Follows the analyses for two minutes. A read, not a refresh of the router: a refresh in flight
   // holds back what a classification brings to the screen (TI-722).
-  useDossierPoll(processing, onReload, { intervalMs: 5000, maxMs: 120_000 });
+  useDossierPoll(processing || batchPending, onReload, { intervalMs: 5000, maxMs: 120_000 });
   useEffect(() => {
     const openUpload = (event: Event) => {
       const detail = (event as CustomEvent<CockpitOpenSurfaceEventDetail>)

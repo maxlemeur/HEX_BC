@@ -18,6 +18,7 @@ type Suggestions = { suggestions: Array<{ product_id: string }> };
 type CataloguePage = {
   items: Array<{ id: string; catalogue_status: string; supply_type_id: string | null; _supplyTypeName: string | null }>;
 };
+type Packagings = { items: Array<{ label: string; quantity: number; is_usual: boolean }>; can_edit: boolean };
 type Browser = Parameters<typeof apiRequest>[0];
 
 // TI-690. Failure modes, written before the fix:
@@ -26,6 +27,11 @@ type Browser = Parameters<typeof apiRequest>[0];
 // - an incomplete draft can be validated, or the refusal does not say what is missing;
 // - validating from the catalogue screen loses the operator's entry or leaves the article a draft;
 // - once validated, the article is still missing from the suggestions or still listed among the drafts.
+// Sale packagings of the article (« conditionnements de vente »), written before the section existed:
+// - two packagings added from the article form (a French decimal among them) are not both stored, or not in the
+//   article's unit;
+// - marking one usual leaves none or two usual, or the mark is lost on reload;
+// - the article's unit changes under its packagings, or the refusal does not say to remove them first.
 async function suggestedProductIds(browser: Browser, versionId: string, query: string) {
   const response = await apiRequest<Envelope<Suggestions>>(
     browser, "GET", `/api/estimates/${versionId}/suggest-prices?q=${encodeURIComponent(query)}`,
@@ -160,9 +166,45 @@ armyTest(
     expect(byDesignationAfter).toContain(draft.id);
     expect(await suggestedProductIds(browser, ids.versionId, sku)).toEqual([draft.id]);
 
+    // Its sale packagings, from the article form: two added, the second marked usual, still there after a reload.
+    const packagings = () => screen.getByRole("region", "Conditionnements de vente", { exact: true });
+    await browser.goto(`/dashboard/products?product_id=${draft.id}`, { waitUntil: "domcontentloaded" });
+    await expect(packagings().getByText("Aucun conditionnement renseigné.", { exact: true })).toBeVisible({ timeout: 60_000 });
+    const addPackaging = async (label: string, quantity: string, usual: boolean) => {
+      await packagings().getByRole("button", "Ajouter un conditionnement", { exact: true }).tap();
+      await packagings().getByRole("combobox", "Nouveau conditionnement", { exact: true }).fill(label);
+      await packagings().getByRole("textbox", "Quantité du nouveau conditionnement en u", { exact: true }).fill(quantity);
+      if (usual) await packagings().getByRole("checkbox", "Conditionnement usuel", { exact: true }).check();
+      await packagings().getByRole("button", "Ajouter ce conditionnement", { exact: true }).tap();
+      await expect(packagings().getByText("Conditionnement ajouté.", { exact: true })).toBeVisible({ timeout: 15_000 });
+    };
+    await addPackaging("Boîte", "50", false);
+    await addPackaging("Carton", "2,5", true);
+    const storedPackagings = await apiRequest<Envelope<Packagings>>(browser, "GET", `/api/products/${draft.id}/packagings`);
+    expect(storedPackagings.status).toBe(200);
+    expect(storedPackagings.body.data.items.map(({ label, quantity, is_usual }) => ({ label, quantity, is_usual }))).toEqual([
+      { label: "Boîte", quantity: 50, is_usual: false },
+      { label: "Carton", quantity: 2.5, is_usual: true },
+    ]);
+
+    // A fresh page load (the catalogue drops ?product_id= once the form is open, so a reload would not reopen it).
+    await browser.goto(`/dashboard/products?product_id=${draft.id}`, { waitUntil: "domcontentloaded" });
+    const packagingRows = packagings().getByRole("list", "Conditionnements de l’article", { exact: true }).getByRole("listitem");
+    await expect(packagingRows).toHaveCount(2, { timeout: 60_000 });
+    await expect(packagingRows.nth(0).getByRole("combobox", "Conditionnement : Boîte de 50 u", { exact: true })).toHaveValue("Boîte");
+    await expect(packagingRows.nth(0).getByRole("checkbox", "Usuel : Boîte de 50 u", { exact: true })).toBeChecked({ checked: false });
+    await expect(packagingRows.nth(1).getByRole("combobox", "Conditionnement : Carton de 2,5 u", { exact: true })).toHaveValue("Carton");
+    await expect(packagingRows.nth(1).getByRole("textbox", "Quantité en u : Carton de 2,5 u", { exact: true })).toHaveValue("2,5");
+    await expect(packagingRows.nth(1).getByRole("checkbox", "Usuel : Carton de 2,5 u", { exact: true })).toBeChecked();
+    const unitChange = await apiRequest<Envelope<never>>(browser, "POST", "/api/products", {
+      action: "update", id: draft.id, item: { unit: "kg" },
+    });
+    expect(unitChange.status).toBe(409);
+    expect(unitChange.body.error?.code).toBe("PRODUCT_UNIT_HAS_PACKAGINGS");
+
     await recordEvidence(army, "catalogue-draft-status", {
       ...ids, draftId: draft.id, controlId: control.id, supplyTypeId: supplyType.id,
-      refused: refused.body.error, byDesignationBefore, byDesignationAfter,
+      refused: refused.body.error, byDesignationBefore, byDesignationAfter, packagings: storedPackagings.body.data.items,
     });
   },
 );

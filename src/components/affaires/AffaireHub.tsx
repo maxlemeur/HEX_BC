@@ -157,8 +157,6 @@ type AffaireHubProps = {
   liveDossier?: boolean;
   /** Kept for the page's callers; the hub no longer keys anything per member in the browser. */
   viewerProfileId?: string | null;
-  /** The notice of who pays, shown in the brief's confirmation to the member the automatic takeoff will charge. */
-  automaticTakeoffPayerNotice?: { message: string; digest: string } | null;
   /** The takeoff's zone as the server read it for this member; null when that read failed. */
   takeoffZone?: AffaireTakeoffZoneData | null;
   /** A link asked for the takeoff's options (`metreOptions=1`, former launch links), and the plan set it named. */
@@ -477,7 +475,6 @@ export function AffaireHub({
   cockpitSuggestions: serverCockpitSuggestions,
   cockpitPreferences,
   liveDossier = true,
-  automaticTakeoffPayerNotice = null,
   takeoffZone = null,
   takeoffOptionsRequested = false,
   takeoffOptionsPlanSetId = null,
@@ -506,7 +503,8 @@ export function AffaireHub({
   });
   const cockpitSuggestions = cockpit.suggestions;
   const noteCockpitPreference = cockpit.notePreference;
-  const uploadFeedback = useIntakeUploadFeedback(summary.project.id, intakeWorkspace?.documents, dossier.reload);
+  const uploadFeedback = useIntakeUploadFeedback(summary.project.id, intakeWorkspace?.documents, dossier.reload,
+    (intakeWorkspace?.pendingUploadIds?.length ?? 0) > 0);
   const [documentsOpen, setDocumentsOpen] = useState(false);
   const [documentsRequested, setDocumentsRequested] = useState(false);
   const [addingDocuments, setAddingDocuments] = useState(false);
@@ -1314,7 +1312,6 @@ export function AffaireHub({
                     briefDraft={intakeWorkspace?.briefDraft ?? null}
                     hasPlans={Boolean(intakeWorkspace && !intakeWorkspace.missingPieces.some((piece) => piece.code === "missing_plans"))}
                     isReadOnly={isReadOnlyReview}
-                    payerNotice={automaticTakeoffPayerNotice}
                     onOpenDocuments={openDocuments}
                     onBackToDossier={() => {
                       selectSection("dossier");

@@ -216,7 +216,8 @@ export function IntakeWorkspace({
   }, [focusBriefBlock, focusBriefEntry, focusDocumentId, workspace?.documents]);
 
   // Follows the classification, then the upload, through reads of the dossier.
-  const classification = useDossierPoll(hasProcessingDocs, onReload, { intervalMs: AUTO_REFRESH_INTERVAL_MS, maxMs: AUTO_REFRESH_MAX_MS });
+  const classification = useDossierPoll(hasProcessingDocs || (workspace?.pendingUploadIds?.length ?? 0) > 0, onReload,
+    { intervalMs: AUTO_REFRESH_INTERVAL_MS, maxMs: AUTO_REFRESH_MAX_MS });
   useEffect(() => {
     if (classification.expired) setAnnouncement("La classification prend plus de temps que prévu. Rafraichissez la page manuellement.");
   }, [classification.expired]);
