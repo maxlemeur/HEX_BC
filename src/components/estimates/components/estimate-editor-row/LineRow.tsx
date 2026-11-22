@@ -406,6 +406,8 @@ export function LineRow({
   const quantityOutlierActive =
     detectedOutlierFlags.includes("quantity_outlier") &&
     !dismissedOutlierSet.has("quantity_outlier");
+  const parsePurchasePriceCents = (value: string) =>
+    value.trim() === "" ? 0 : parseCurrencyToCents(value, estimateCurrency);
   const priceOutlierActive =
     detectedOutlierFlags.includes("price_outlier") &&
     !dismissedOutlierSet.has("price_outlier");
@@ -918,7 +920,8 @@ export function LineRow({
         inputMode="decimal"
         placeholder="Obligatoire"
         ariaLabel={`Prix d’achat unitaire HT pour ${item.title || "sans titre"}`}
-        isValidInput={(value) => parseCurrencyToCents(value, estimateCurrency) !== null}
+        // An emptied price is 0 €, as Suppr on the cell and the mobile field: the line shows what it stores.
+        isValidInput={(value) => parsePurchasePriceCents(value) !== null}
         formatDisplayValue={(value) =>
           formatNumberDisplay(Number(String(value ?? "0").replace(",", ".")), {
             minDecimals: 2,
@@ -926,10 +929,7 @@ export function LineRow({
           })
         }
         onChange={(value) => {
-          const unitPriceCents = parseCurrencyToCents(
-            value,
-            estimateCurrency,
-          );
+          const unitPriceCents = parsePurchasePriceCents(value);
           if (unitPriceCents === null) return;
           onPatchItem(
             item.id,
@@ -938,10 +938,7 @@ export function LineRow({
           );
         }}
         onCommit={(value) => {
-          const unitPriceCents = parseCurrencyToCents(
-            value,
-            estimateCurrency,
-          );
+          const unitPriceCents = parsePurchasePriceCents(value);
           if (unitPriceCents === null) return;
           onPatchItem(
             item.id,
