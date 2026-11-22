@@ -27,7 +27,7 @@ import { writeDirectionDebugLog } from "./debug";
 import type { DirectionDashboardQuery } from "./schemas";
 import { dedupeLabels } from "@/lib/text/dedupe-labels";
 import { resolveAlertJobId } from "@/lib/direction/alert-job-id";
-import { readTakeoffJobsReadingList } from "@/lib/takeoff/review-link-server";
+import { readTakeoffJobsReadingListOrNone } from "@/lib/takeoff/review-link-server";
 
 type EstimateVersionApprovalStatus =
   Database["public"]["Enums"]["estimate_version_approval_status"];
@@ -632,7 +632,8 @@ async function listLatestJobsByVersionId(versionIds: string[], listReadings = tr
     }
   }
   if (!listReadings) return jobs;
-  const readingList = await readTakeoffJobsReadingList(context.supabase, context.tenantId, [...jobs.values()].map((row) => row.id));
+  // Optional: when it fails the radar keeps its signals, each alert with today's link.
+  const readingList = await readTakeoffJobsReadingListOrNone(context.supabase, context.tenantId, [...jobs.values()].map((row) => row.id));
   for (const row of jobs.values()) row.reads_list = readingList.has(row.id.toLowerCase());
 
   return jobs;

@@ -601,11 +601,20 @@ l’autorisation, l’écran d’arrivée vérifie de nouveau.
   (ouvrages vus hors de la liste, lectures écartées), que sa revue montrait.
 - Deux adresses restent celles d’aujourd’hui pour toute analyse : sa revue ciblée, écran de
   correction que le détail d’une ligne du tableau ouvre pendant le lot 4, et la comparaison
-  de deux lectures (`view=compare`), lecture de l’historique.
+  de deux lectures (`view=compare`), lecture de l’historique. Pour une analyse lue contre la
+  liste, la comparaison ne propose ni sélection ni « Appliquer la sélection » : elle dit que
+  ses lignes se corrigent dans la revue ciblée et ses postes se décident dans le tableau ;
+  celle d’une analyse du premier format garde son geste d’aujourd’hui.
+- L’adresse se lit telle qu’elle est écrite, comme la revue la lit : une valeur qui n’est pas
+  exactement une valeur connue (« dpgf » entouré d’espaces, une majuscule) n’est pas cette
+  valeur.
 - La notification de fin d’une demande lue contre la liste ouvre le tableau des postes (avec
   les plans de la demande au-dessus) ; le lien du radar et de la file d’approbation vers une
   version dont la dernière analyse a lu la liste ouvre les postes « À vérifier » de l’affaire
-  (une version reçoit les lectures de plusieurs plans). Les autres gardent leur adresse.
+  (une version reçoit les lectures de plusieurs plans). Les autres gardent leur adresse. Si
+  la lecture qui dit qu’une analyse ou une demande a lu la liste échoue, la file, le radar et
+  les notifications s’affichent quand même, chaque lien avec son adresse d’aujourd’hui (que
+  la revue redirige ensuite pour une analyse lue contre la liste).
 
 **Analyse antérieure.** Une fois la liste de l’affaire enregistrée, le tableau des postes est
 suivi de ses analyses qui n’ont pas été lues contre elle (ancien format, analyse groupée, en

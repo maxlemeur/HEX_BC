@@ -535,7 +535,9 @@ nativeTest("TKLINK01 les liens d’une analyse lue contre la liste mènent aux p
     // 1. The review, in any mode and any tab but the DPGF one: the table filtered on the plan the analysis read, every
     // decision shown, and why. The « Items » tab keeps the DPGF tab's filter in its address (#501's reading).
     for (const from of [review, `${review}?reviewMode=assisted`, `${review}?reviewMode=production`, `${review}?reviewMode=validation&view=items`,
-      `${review}?reviewMode=production&view=items&dpgfView=exceptions_only`]) {
+      `${review}?reviewMode=production&view=items&dpgfView=exceptions_only`,
+      // A padded view is not the DPGF view, here as on the review (#501's second reading).
+      `${review}?reviewMode=production&view=%20dpgf%20&dpgfView=exceptions_only`]) {
       await app.open(from);
       await expect(ui.browser).toHaveURL(`${takeoff}?postePlan=${plan}&lien=analyse&lienAnalyse=${seeded.jobId}`);
       await expect(table).toBeVisible();
@@ -611,6 +613,12 @@ select 'JOBS_ON_VERSION';`);
     await app.open(comparison);
     await expect(screen.getByRole("heading", "Résumé des changements", { exact: true })).toBeVisible({ timeout: 30_000 });
     await expect(ui.browser).toHaveURL(comparison);
+    // A read of history for a reading of the list: no selection, no apply, and where to act instead.
+    await expect(screen.getByText(/sa comparaison se consulte sans rien modifier/)).toBeVisible();
+    await expect(screen.getByRole("button", "Appliquer la sélection", { exact: true })).toHaveCount(0);
+    await expect(screen.getByRole("checkbox", "Tout sélectionner (visible)", { exact: true })).toHaveCount(0);
+    await expect(screen.getByRole("link", "la revue ciblée", { exact: true }))
+      .toHaveAttribute("href", `${review}/targeted?versionId=${version}`);
     await app.open(`${review}?versionId=${version}`);
     await expect(ui.browser).toHaveURL(`${takeoff}?postePlan=${plan}&lien=analyse&lienAnalyse=${seeded.jobId}`);
     // Not here: an estimate line fed by an item withdrawn from the list since. Its live target is written only by the send

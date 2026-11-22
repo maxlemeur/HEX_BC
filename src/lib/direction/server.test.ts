@@ -473,6 +473,35 @@ describe("fetchDirectionProjectSignals", () => {
     }
   });
 
+  // The second reading of #501: the latest job's list reading is optional; when it fails, the radar keeps its signals
+  // and its alerts keep today's link (the flag false), which the review's resolver redirects for a list job.
+  it("keeps the version's signals when the latest job's list reading fails", async () => {
+    const projectId = "project-list-failure";
+    const versionId = "version-list-failure";
+    const jobId = "a0000000-0000-4000-8000-000000000003";
+    const supabase = createSupabaseMock({
+      versions: [createVersionRow(projectId, versionId, 1)],
+      jobs: [{ id: jobId, estimate_version_id: versionId, status: "completed", created_at: "2026-11-22T10:00:00.000Z",
+        completed_at: "2026-11-22T10:05:00.000Z", launch_request_id: "a0000000-0000-4000-8000-0000000000a1" }],
+      requests: [{ id: "a0000000-0000-4000-8000-0000000000a1", item_list_revision_id: "a0000000-0000-4000-8000-0000000000b1" }],
+      alerts: [createAlertRow(versionId, `alert-${jobId}`, jobId)],
+    });
+    const from = supabase.from.bind(supabase);
+    vi.mocked(getAuthenticatedContext).mockResolvedValue({
+      tenantId: "tenant-1",
+      tenantRole: "director",
+      userId: "user-1",
+      supabase: { ...supabase, from: (table: string) => table === "takeoff_launch_requests"
+        ? { select: () => { throw new Error("statement timeout"); } } : from(table) },
+    } as never);
+
+    const result = await fetchDirectionProjectSignals(projectId, versionId);
+
+    expect(result.latestJobId).toBe(jobId);
+    expect(result.latestJobReadsList).toBe(false);
+    expect(result.alerts).toHaveLength(1);
+  });
+
   it("filters out alerts that belong to older takeoff jobs", async () => {
     const projectId = "project-filter";
     const versionId = "version-filter";

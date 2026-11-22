@@ -217,3 +217,22 @@ describe("review of #501", () => {
     expect(read(`versionId=${VERSION.toUpperCase()}`)).toEqual({ projectId: PROJECT, jobId: JOB, versionId: VERSION });
   });
 });
+
+// The second reading of #501: the server trimmed a value the review reads as written (`view=%20dpgf%20` opened the items
+// to check, where the review shows « Items »). One reading of the address on both sides: a value that is not exactly a
+// known one is not that value.
+describe("review of #501, second round", () => {
+  const read = (query: string) => readTakeoffReviewLink({ projectId: PROJECT, jobId: JOB }, new URLSearchParams(query));
+
+  it("reads a padded or differently written value as no value, as the review does", () => {
+    for (const query of ["view=%20dpgf%20", "view=dpgf%20", "view=DPGF", "reviewMode=%20production", "dpgfView=%20exceptions_only",
+      "view=%20compare"]) {
+      expect(read(query), query).toEqual({ projectId: PROJECT, jobId: JOB });
+      expect(resolveTakeoffReviewLink(read(`${query}&dpgfView=exceptions_only`), listJob()), query)
+        .toEqual({ kind: "table", href: `${TAKEOFF}?postePlan=${PLAN}&${notice("analyse")}` });
+    }
+    // A line or a version written with spaces is not the identifier either (the access check refuses such a version).
+    expect(read(`line=%20${LINE}`)).toEqual({ projectId: PROJECT, jobId: JOB, line: ` ${LINE}` });
+    expect(read(`versionId=${VERSION}%20`)).toEqual({ projectId: PROJECT, jobId: JOB, versionId: `${VERSION} ` });
+  });
+});

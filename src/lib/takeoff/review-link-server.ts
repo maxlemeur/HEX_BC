@@ -44,6 +44,19 @@ export async function readTakeoffJobsReadingList(supabase: Client, tenantId: str
   return reading;
 }
 
+/**
+ * The same, for a screen that only builds links from it (the radar, the approvals queue, the notifications): a read that
+ * fails classifies nothing, and each link keeps today's address, which the review's resolver redirects for a job read
+ * against the list. The screen never falls with this optional read.
+ */
+export async function readTakeoffJobsReadingListOrNone(supabase: Client, tenantId: string, jobIds: readonly (string | null)[]) {
+  try {
+    return await readTakeoffJobsReadingList(supabase, tenantId, jobIds);
+  } catch {
+    return new Set<string>();
+  }
+}
+
 /** Whether these launch requests sealed their affaire's list, as the member reads them. */
 export async function readTakeoffRequestsReadingList(supabase: Client, tenantId: string, requestIds: readonly (string | null)[]) {
   const ids = [...new Set(requestIds.filter((id): id is string => typeof id === "string" && UUID.test(id)).map((id) => id.toLowerCase()))];
@@ -98,4 +111,13 @@ export async function readTakeoffReviewLinkFacts(input: { supabase: Client; tena
     listed = Boolean(entry?.length);
   }
   return { readsList: true, planKey, line: { itemId, answered: Boolean(answered?.length), withdrawn: !listed } };
+}
+
+/** The same for requests, for the notifications: a read that fails classifies nothing (today's link). */
+export async function readTakeoffRequestsReadingListOrNone(supabase: Client, tenantId: string, requestIds: readonly (string | null)[]) {
+  try {
+    return await readTakeoffRequestsReadingList(supabase, tenantId, requestIds);
+  } catch {
+    return new Set<string>();
+  }
 }

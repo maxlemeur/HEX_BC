@@ -2,7 +2,7 @@ import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
 import { hasEstimateApprovalRole } from "@/lib/estimates/server-context";
 import type { DirectionSyntheticAlert } from "@/lib/direction/alerts";
 import { fetchDirectionProjectSignals } from "@/lib/direction/server";
-import { readTakeoffJobsReadingList } from "@/lib/takeoff/review-link-server";
+import { readTakeoffJobsReadingListOrNone } from "@/lib/takeoff/review-link-server";
 import type { TakeoffRiskCauseCode } from "@/lib/takeoff/types";
 import {
   APPROVAL_QUEUE_DEFAULT_DIRECTIONS,
@@ -198,8 +198,9 @@ export async function fetchApprovalQueue(
     })
   );
   // Which latest jobs were read against their affaire's list (lot 4): their exceptions open the table of items. One read
-  // for the queue (two statements per 200 jobs), never one per row.
-  const readingList = await readTakeoffJobsReadingList(supabase, tenantId, signalled.flatMap((item) =>
+  // for the queue (two statements per 200 jobs), never one per row; when it fails the queue comes back as it is, every
+  // card with today's link.
+  const readingList = await readTakeoffJobsReadingListOrNone(supabase, tenantId, signalled.flatMap((item) =>
     [item.latestJobId, ...item.syntheticAlerts.map((alert) => alert.latestJobId)]));
   const reads = (jobId: string | null) => Boolean(jobId && readingList.has(jobId.toLowerCase()));
   const itemsWithSignals = signalled.map((item) => ({

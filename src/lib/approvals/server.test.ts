@@ -230,4 +230,33 @@ describe("fetchApprovalQueue", () => {
     for (const call of vi.mocked(fetchDirectionProjectSignals).mock.calls) expect(call[2]).toBe(false);
   });
 
+
+  // The second reading of #501: the list reading is optional. When it fails after the queue's own read, the queue still
+  // comes back, every row's flag unknown (false): its card keeps today's link, which the review's resolver redirects for
+  // a job read against the list.
+  it("still returns the queue when the list reading fails, every row keeping today's link", async () => {
+    const rows = [1, 2].map((n) => approvalRow({ project_id: `project-${n}`, version_id: `version-${n}`, cycle_id: `cycle-${n}`,
+      exception_count: 1, latest_job_id: `e1000000-0000-4000-8000-00000000000${n}` }));
+    const { context } = createContext({ rpcResult: { data: rows, error: null } });
+    for (const failure of ["rejects", "answers an error"] as const) {
+      const from = vi.fn(() => {
+        const answer = failure === "rejects" ? Promise.reject(new Error("statement timeout"))
+          : Promise.resolve({ data: null, error: { message: "canceling statement due to statement timeout", code: "57014" } });
+        const builder = {
+          select: () => builder, eq: () => builder, in: () => builder, not: () => builder,
+          then: (resolve: (value: unknown) => unknown, reject: (error: unknown) => unknown) => answer.then(resolve, reject),
+        };
+        return builder;
+      });
+      vi.mocked(getAuthenticatedContext).mockResolvedValue({ ...context, supabase: { ...context.supabase, from } } as never);
+      vi.mocked(fetchDirectionProjectSignals).mockResolvedValue({ latestJobId: null, alerts: [] } as never);
+
+      const result = await fetchApprovalQueue({ sortBy: "amount", sortDir: "desc", onlyExceptions: false } as never);
+
+      expect(result.map((item) => [item.projectId, item.latestJobReadsList]), failure)
+        .toEqual([["project-1", false], ["project-2", false]]);
+      expect(from, failure).toHaveBeenCalled();
+    }
+  });
+
 });

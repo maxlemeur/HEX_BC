@@ -96,13 +96,15 @@ const VIEWS = ["dpgf", "items", "tables", "compare"] as const;
 const MODES = ["assisted", "production", "validation"] as const;
 
 /**
- * A review's address as the review reads it (TakeoffReviewPage): each parameter given once, known values only; the
- * version, the comparison's other job and the line as written (the access check and the server's facts check them).
+ * A review's address as the review reads it (TakeoffReviewPage): each parameter given once, exactly a known value (no
+ * value padded or written otherwise is that value); the version, the comparison's other job and the line as written
+ * (the access check and the server's facts check them).
  */
 export function readTakeoffReviewLink(target: { projectId: string; jobId: string; targeted?: boolean }, params: Params): TakeoffReviewHrefInput {
+  // As written: the review reads each value as it is (a padded « dpgf » is not the DPGF view there, nor here).
   const one = (name: string) => {
     const values = params.getAll(name);
-    return values.length === 1 && values[0]!.trim() ? values[0]!.trim() : undefined;
+    return values.length === 1 && values[0] ? values[0] : undefined;
   };
   const among = <T extends string>(allowed: readonly T[], value: string | undefined) =>
     allowed.find((candidate) => candidate === value);

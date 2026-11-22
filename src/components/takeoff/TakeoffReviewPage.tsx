@@ -137,6 +137,12 @@ type TakeoffReviewPageProps = {
   versionId: string | null;
   canEdit?: boolean;
   projectId: string;
+  /**
+   * The job was read against the affaire's list (lot 4): only its comparison of two readings opens here (its other
+   * addresses lead to the table of items), read only — its rows are corrected in the targeted review, its items decided
+   * in the table.
+   */
+  readsItemList?: boolean;
 };
 
 type ViewTab = "tables" | "items" | "compare" | "dpgf";
@@ -154,6 +160,7 @@ export default function TakeoffReviewPage({
   versionId,
   canEdit = true,
   projectId,
+  readsItemList = false,
 }: TakeoffReviewPageProps) {
   const toast = useToast();
   const router = useRouter();
@@ -911,7 +918,7 @@ export default function TakeoffReviewPage({
 
   const handleApplyDiffSelection = useCallback(
     async (selectedBaseItemIds: string[]) => {
-      if (!canEdit) return;
+      if (!canEdit || readsItemList) return;
       setApplySelectionError(null);
 
       const hasPendingSave = items.some((item) => item._dirty || item._saving);
@@ -973,7 +980,7 @@ export default function TakeoffReviewPage({
         setApplySelectionSubmitting(false);
       }
     },
-    [applyPatchResults, canEdit, items, jobId, nextPatchSequence, toast]
+    [applyPatchResults, canEdit, items, jobId, nextPatchSequence, readsItemList, toast]
   );
 
   const handleExclusionConfirm = useCallback(
@@ -1209,6 +1216,15 @@ export default function TakeoffReviewPage({
           onSetCompareWithJobId={setCompareWithJobId}
           onSetCompareThreshold={setCompareThreshold}
           onApplyDiffSelection={handleApplyDiffSelection}
+          compareReadOnlyNote={readsItemList ? (
+            <p role="note" aria-label="Comparaison d’une analyse lue contre la liste des postes">
+              Cette analyse a été lue contre la liste des postes : sa comparaison se consulte sans rien modifier. Corrigez ses
+              lignes dans{" "}
+              <Link className="underline" href={takeoffReviewHref({ projectId, jobId, versionId, targeted: true })}>la revue ciblée</Link>
+              {" "}et décidez de ses postes dans{" "}
+              <Link className="underline" href={`/dashboard/affaires/${projectId}/takeoff`}>le tableau des postes</Link>.
+            </p>
+          ) : undefined}
           applySelectionSubmitting={applySelectionSubmitting}
           applySelectionError={applySelectionError}
           dpgfCompareData={dpgfCompareDetail}
