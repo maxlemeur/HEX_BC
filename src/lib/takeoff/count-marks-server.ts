@@ -89,6 +89,7 @@ function refusalError(code: TakeoffCountMarkEditRefusal) {
     case "TAKEOFF_MARKS_INTENT_CONFLICT":
     case "TAKEOFF_MARKS_ANSWER_REPLACED":
     case "TAKEOFF_MARKS_ATTRIBUTION_TAKEN":
+    case "TAKEOFF_MARKS_OBJECT_DUPLICATE":
     case "TAKEOFF_MARKS_PAGE_GEOMETRY_CONFLICT":
       return conflict(message, undefined, code);
     default:

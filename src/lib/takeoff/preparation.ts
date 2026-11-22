@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 import { takeoffPageTriageSchema } from "@/lib/takeoff/page-triage";
-import { toUnitToken } from "@/lib/takeoff/units";
+import { TAKEOFF_COUNT_UNIT_TOKENS, toUnitToken } from "@/lib/takeoff/units";
 import { findPlanRevisionConflicts, hasCyclicPlanRevisionDecisions, planIdentitySchema, planRevisionDecisionSchema } from "@/lib/takeoff/plan-revision-identity";
 import { chatGptPreferencesSchema } from "@/lib/ai/chatgpt-model-preferences";
 
@@ -308,7 +308,7 @@ export function evaluateTakeoffPreparation(
     block("unit_required", "conventions.unit", "Précisez l'unité des quantités attendues.");
   } else {
     const unit = toUnitToken(conventions.unit);
-    if ((objective === "count" && !["u", "un", "unite", "unites", "unit", "units", "pce", "piece", "pieces", "pcs", "pc", "nb", "ens", "ensemble", "lot"].includes(unit)) ||
+    if ((objective === "count" && !(TAKEOFF_COUNT_UNIT_TOKENS as readonly string[]).includes(unit)) ||
       (objective === "measure_length" && !["m", "ml", "mm", "cm", "km", "ft", "in"].includes(unit)) ||
       (objective === "measure_area" && !["m2", "mm2", "cm2", "km2", "ft2", "ha"].includes(unit))) {
       block("unit_incompatible", "conventions.unit", "Choisissez une unité compatible avec le comptage, la longueur ou la surface demandée.");

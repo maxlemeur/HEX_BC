@@ -1,3 +1,4 @@
+import { isTakeoffCountUnit } from "@/lib/takeoff/units";
 import { asFiniteNumber, asRecord } from "@/lib/value-guards";
 
 /**
@@ -27,6 +28,12 @@ export const TAKEOFF_COUNT_MARK_SUMMARY_STATE_LABELS: Record<TakeoffCountMarkSum
   verified: "Comptage vérifié",
   no_mark_retained: "Aucun repère retenu",
 };
+
+/** The label of a summary: a verified scope of an item that is not counted in pieces locates objects, it counts none. */
+export function takeoffCountMarkSummaryLabel(summary: Pick<TakeoffCountMarkSummary, "state" | "counted">) {
+  return summary.state === "verified" && !summary.counted ? "Repères vérifiés, sans quantité"
+    : TAKEOFF_COUNT_MARK_SUMMARY_STATE_LABELS[summary.state];
+}
 
 export const TAKEOFF_COUNT_MARK_STATE_LABELS: Record<TakeoffCountMarkState, string> = {
   proposed: "Repère proposé",
@@ -94,6 +101,8 @@ export const TAKEOFF_COUNT_MARK_EDIT_REFUSALS = {
   TAKEOFF_MARKS_MARK_NOT_FOUND: "Ce repère n'existe pas pour ce poste.",
   TAKEOFF_MARKS_STATE_INVALID: "Ce geste n'est pas possible pour ce repère dans son état actuel.",
   TAKEOFF_MARKS_ATTRIBUTION_TAKEN: "Ce repère est déjà retenu pour un autre poste : affectez-le plutôt à ce poste.",
+  TAKEOFF_MARKS_OBJECT_DUPLICATE:
+    "Un autre repère retenu pour ce poste désigne déjà cet objet : choisissez lequel garder avant d'en retenir un second.",
   TAKEOFF_MARKS_TARGET_INCOMPATIBLE:
     "Ce repère ne peut pas être affecté à ce poste : autre plan, page non lue ou autre unité.",
   TAKEOFF_MARKS_UNDECIDED: "Décidez de chaque repère proposé sur cette page avant de la déclarer vérifiée.",
@@ -111,6 +120,8 @@ export const TAKEOFF_COUNT_MARK_PUBLICATION_REFUSALS = [
   "TAKEOFF_MARKS_PAGE_OUTSIDE",
   "TAKEOFF_MARKS_PAGE_GEOMETRY_REQUIRED",
   "TAKEOFF_MARKS_PAGE_GEOMETRY_CONFLICT",
+  /** One mark of the generation on two known marks, or two of its marks on one: a doubt between neighbours. */
+  "TAKEOFF_MARKS_OBJECT_AMBIGUOUS",
 ] as const;
 
 /** The edit refusal a database error names, when it is one of the command's own. */
@@ -143,6 +154,9 @@ export type TakeoffCountMarkPageSummary = TakeoffCountMarkPageFacts & {
 
 export type TakeoffCountMarkSummary = {
   revision: number;
+  /** The item's unit as its order sealed it, and whether it counts pieces: only then do marks give a quantity. */
+  unit: string | null;
+  counted: boolean;
   /** Undecided machine marks: the number proposed. */
   proposed: number;
   toAttribute: number;
@@ -153,7 +167,10 @@ export type TakeoffCountMarkSummary = {
   reread: number;
   scopePages: number;
   verifiedPages: number;
-  /** The quantity retained: the marks retained once every page of the scope is verified, one at least; else null, never 0. */
+  /**
+   * The quantity retained: for an item counted in pieces, the marks retained once every page of the scope is verified,
+   * one at least; else null, never 0.
+   */
   quantity: number | null;
   state: TakeoffCountMarkSummaryState;
   pages: TakeoffCountMarkPageSummary[];
@@ -172,13 +189,17 @@ function pageIsStale(facts: TakeoffCountMarkPageFacts) {
  * The count of an answer's marks, by page then in total: the same rule as the database. A page is verified when its last
  * verification is not older than its last change and nothing on it is undecided for the answer. Machine marks alone are
  * to check, with no quantity; a verified scope gives the marks retained, never 0 (« Aucun repère retenu » is a null); a
- * change after a verification makes it to verify again. A grouped page total of lot 4 is not an input: it is never added.
+ * change after a verification makes it to verify again. Only an item counted in pieces (its sealed unit) gets a quantity;
+ * a length or a surface keeps its three numbers. A grouped page total of lot 4 is not an input: it is never added.
  */
 export function deriveTakeoffCountMarkSummary(input: {
   revision: number;
+  /** The item's sealed unit. */
+  unit: string | null;
   scopePages: readonly number[];
   pages: readonly TakeoffCountMarkPageFacts[];
 }): TakeoffCountMarkSummary {
+  const counted = isTakeoffCountUnit(input.unit);
   const byPage = new Map(input.pages.map((facts) => [facts.page, facts]));
   const scope = [...new Set(input.scopePages)].sort((a, b) => a - b);
   const pages = scope.map((page): TakeoffCountMarkPageSummary => {
@@ -202,6 +223,8 @@ export function deriveTakeoffCountMarkSummary(input: {
     : "none";
   return {
     revision: input.revision,
+    unit: input.unit,
+    counted,
     proposed: sum((page) => page.proposed),
     toAttribute: sum((page) => page.toAttribute),
     retained,
@@ -210,7 +233,7 @@ export function deriveTakeoffCountMarkSummary(input: {
     reread: sum((page) => page.reread),
     scopePages: pages.length,
     verifiedPages,
-    quantity: scopeVerified && retained > 0 ? retained : null,
+    quantity: counted && scopeVerified && retained > 0 ? retained : null,
     state,
     pages,
   };
@@ -260,6 +283,8 @@ export function parseTakeoffCountMarkSummary(document: unknown): TakeoffCountMar
   }) : invalid("pages du décompte");
   return {
     revision: integer(row.revision, "révision"),
+    unit: optionalText(row.unit),
+    counted: typeof row.counted === "boolean" ? row.counted : invalid("unité comptée"),
     proposed: integer(row.proposed, "repères proposés"),
     toAttribute: integer(row.to_attribute, "repères à attribuer"),
     retained: integer(row.retained, "repères retenus"),

@@ -5,9 +5,14 @@
 --    (TAKEOFF_MARKS_ATTRIBUTION_TAKEN): one effective item per object.
 -- 3. The same intention sent twice at once (a lost answer sent again): the second waits, then answers the first one's
 --    command, replayed; nothing is written twice.
--- 4. A late machine generation while a member corrects the same answer: the publication waits for the answer's marks
---    state, then leaves the member's marks as they are (the generation waits unattributed); neither waits for the other in
---    a cycle.
+-- 4. A first machine generation while a member makes the first change of an answer (its revision from 0 to 1): the
+--    publication waits for the answer's marks state, then leaves the member's marks as they are (the generation waits
+--    unattributed); neither waits for the other in a cycle.
+-- 5. Two edits create the same two new pages in opposite orders: the pages are taken in one order, the second edit waits
+--    for the first and both commit, no deadlock.
+-- 6. Access removed while an edit waits, on both paths: a replay that waited answers no receipt, and a fresh edit that
+--    waited for another to create its page writes nothing; both are refused (TAKEOFF_MARKS_FORBIDDEN).
+-- 7. The locking form of the marks revision (for the review decisions) holds the answer's state: an edit waits for it.
 -- Isolation justified: these interleavings exist only across sessions, which no journey drives deterministically. Each
 -- held transaction is stopped at a named point; the waits are bounded conditions. All values are fictional.
 begin;
@@ -30,8 +35,8 @@ create temp table race_connection as select format('host=%s port=%s dbname=%s us
 select is(extensions.dblink_connect(session.name, (select connection from race_connection)), 'OK', format('%s connected', session.name))
 from (values ('race_setup'), ('race_a'), ('race_b')) as session(name);
 
--- Affaire 20, its plan 100 read on its pages 2 and 7, a list of two items (300 and 301) in its revision 400; its owner, an
--- engineer (1), and the tenant's admin (2).
+-- Affaire 20, its plan 100 read on its pages 2, 5 and 7, a list of five items (300 to 304) in its revision 400; its owner,
+-- an engineer (1), and the tenant's admin (2).
 select is(extensions.dblink_exec('race_setup', $setup$
 begin;
 insert into auth.users (instance_id, id, aud, role, email, encrypted_password, email_confirmed_at, raw_app_meta_data, raw_user_meta_data,
@@ -64,24 +69,36 @@ from public.plan_sets s where s.id = 'd5f00000-0000-4000-8000-000000000040';
 set local session_replication_role = replica;
 insert into public.takeoff_list_items (id, tenant_id, project_id, origin_kind, created_in_revision, created_by)
 select ('d5f00000-0000-4000-8000-000000000' || (300 + k))::uuid, p.tenant_id, p.id, 'manual', 1, p.user_id
-from generate_series(0, 1) as k join public.estimate_projects p on p.id = 'd5f00000-0000-4000-8000-000000000020';
+from generate_series(0, 4) as k join public.estimate_projects p on p.id = 'd5f00000-0000-4000-8000-000000000020';
 insert into public.takeoff_list_revisions (id, tenant_id, project_id, revision, cause, sources, item_count, content_sha256,
   gesture_sha256, intent_key, created_by)
-select 'd5f00000-0000-4000-8000-000000000400', p.tenant_id, p.id, 1, 'item_added', '{}', 2, repeat('1', 64), repeat('a', 64),
+select 'd5f00000-0000-4000-8000-000000000400', p.tenant_id, p.id, 1, 'item_added', '{}', 5, repeat('1', 64), repeat('a', 64),
   'd5f00000-0000-4000-8000-000000000410', p.user_id
 from public.estimate_projects p where p.id = 'd5f00000-0000-4000-8000-000000000020';
 insert into public.takeoff_list_revision_entries (revision_id, tenant_id, project_id, item_id, position, source_key, label,
   expected_unit, origin_kind, origin)
 select 'd5f00000-0000-4000-8000-000000000400', p.tenant_id, p.id, ('d5f00000-0000-4000-8000-000000000' || (300 + k))::uuid, k,
   'manual:poste-' || k, 'Poste ' || k || ' (fictif)', 'u', 'manual', '{"kind":"manual"}'
-from generate_series(0, 1) as k join public.estimate_projects p on p.id = 'd5f00000-0000-4000-8000-000000000020';
+from generate_series(0, 4) as k join public.estimate_projects p on p.id = 'd5f00000-0000-4000-8000-000000000020';
 set local session_replication_role = origin;
 insert into private.takeoff_launch_activation (active_from) values (now() - interval '1 hour');
 insert into private.takeoff_completion_activation (active_from) values (now() - interval '1 hour');
 insert into private.takeoff_plan_dispatch_activation (active_from) values (now() - interval '1 hour');
 insert into private.takeoff_item_list_order_activation (active_from) values (now() - interval '1 hour');
+-- A test hook, inert unless a session sets test.pause_after_page: after inserting that page of evidence, the inserting
+-- session waits for an advisory key the test holds, so that another session can act between two of its inserts.
+create function public.zz_test_pause_after_count_page() returns trigger language plpgsql as $hook$
+begin
+  if new.page::text = current_setting('test.pause_after_page', true) then
+    perform pg_catalog.pg_advisory_xact_lock_shared(4710001);
+  end if;
+  return null;
+end;
+$hook$;
+create trigger zz_test_pause_after_count_page after insert on public.takeoff_count_pages
+  for each row execute function public.zz_test_pause_after_count_page();
 commit;
-$setup$), 'COMMIT', 'an affaire of one plan and a list of two items, two operators, the activations');
+$setup$), 'COMMIT', 'an affaire of one plan and a list of five items, two operators, the activations, a pause hook');
 
 create function pg_temp.tenant() returns uuid language sql stable as $$
   select tenant_id from public.estimate_projects where id = pg_temp.f(20)
@@ -99,7 +116,7 @@ create function pg_temp.snapshot() returns jsonb language sql stable as $$
       'processing', '{"level":"C","provider":"chatgpt"}'::jsonb,
       'sources', (select jsonb_agg(jsonb_build_object('document_id', f.id, 'document_name', f.file_name, 'kind', 'plan',
           'active', true, 'confirmed', true, 'plan_set_id', f.plan_set_id, 'file_path', f.file_path, 'page_count', f.page_count,
-          'source_updated_at', f.updated_at, 'content_hash', pg_temp.digest(f.id), 'pages', '[2, 7]'::jsonb))
+          'source_updated_at', f.updated_at, 'content_hash', pg_temp.digest(f.id), 'pages', '[2, 5, 7]'::jsonb))
         from public.plan_files f where f.plan_set_id = pg_temp.f(40))))
 $$;
 create function pg_temp.launch_sql() returns text language sql stable as $$
@@ -112,10 +129,10 @@ create function pg_temp.launch_sql() returns text language sql stable as $$
         from public.takeoff_list_revisions r where r.id = pg_temp.f(400)),
       'dispatch', jsonb_build_object('order', 'display_name', 'version', 1),
       'units', jsonb_build_array(jsonb_build_object('key', 'plan:' || pg_temp.f(100), 'ordinal', 1,
-        'plans', jsonb_build_array(pg_temp.f(100)), 'pages', '[2, 7]'::jsonb, 'page_count', 9, 'vector_pages', 0,
+        'plans', jsonb_build_array(pg_temp.f(100)), 'pages', '[2, 5, 7]'::jsonb, 'page_count', 9, 'vector_pages', 0,
         'budget', jsonb_build_object('tokens', 400000, 'cost_cents', 2500))),
       'plans', jsonb_build_array(jsonb_build_object('entry_key', pg_temp.f(100), 'plan_file_id', pg_temp.f(100), 'name', 'plan-1.pdf',
-        'logical_id', pg_temp.f(100), 'generation', null, 'content_sha256', pg_temp.digest(pg_temp.f(100)), 'pages', '[2, 7]'::jsonb,
+        'logical_id', pg_temp.f(100), 'generation', null, 'content_sha256', pg_temp.digest(pg_temp.f(100)), 'pages', '[2, 5, 7]'::jsonb,
         'page_count', 9)),
       'coverage', jsonb_build_object('plans_retained', 1, 'plans_omitted', '[]'::jsonb), 'references', '[]'::jsonb,
       'budget', jsonb_build_object('tokens', 400000, 'cost_cents', 2500)),
@@ -135,19 +152,19 @@ $$;
 create function pg_temp.publish_answers_sql(token integer) returns text language sql stable as $$
   select format($publish$select replayed::text from public.publish_takeoff_item_answers(%L, %L,
     '2026-11-22T09:00:00Z', 'modele-fictif', 'takeoff-c-postes-v1',
-    '{"schema_version": "v2", "prompt_version": "takeoff-c-postes-v1"}'::jsonb, array[2, 7], %L::jsonb, '[]'::jsonb, %L::jsonb,
+    '{"schema_version": "v2", "prompt_version": "takeoff-c-postes-v1"}'::jsonb, array[2, 5, 7], %L::jsonb, '[]'::jsonb, %L::jsonb,
     %L::jsonb)$publish$,
     pg_temp.job(), pg_temp.f(token),
     (select jsonb_agg(jsonb_build_object('item_id', pg_temp.f(300 + k), 'outcome', 'measured', 'reasons', '[]'::jsonb,
-        'searched_pages', '[2, 7]'::jsonb, 'unreadable_pages', '[]'::jsonb, 'quantity', jsonb_build_object('value', 2, 'unit', 'u'),
+        'searched_pages', '[2, 5, 7]'::jsonb, 'unreadable_pages', '[]'::jsonb, 'quantity', jsonb_build_object('value', 2, 'unit', 'u'),
         'observations', jsonb_build_array(jsonb_build_object('page', 2, 'evidence', 'Symboles fictifs', 'method', 'symbol_count',
           'confidence', 0.9, 'quantity', 2, 'unit', 'u', 'role', 'contribution', 'source', 'model', 'chunk_id', 'f1-b1',
-          'takeoff_item_id', pg_temp.f(800 + k)))) order by k) from generate_series(0, 1) as k),
+          'takeoff_item_id', pg_temp.f(800 + k)))) order by k) from generate_series(0, 4) as k),
     jsonb_build_object('extracted_json', '{}'::jsonb, 'warnings', '[]'::jsonb, 'tables', '[]'::jsonb, 'provider_meta', '{}'::jsonb,
       'token_count', 10, 'cost_cents', 0, 'duration_ms', 5),
     (select jsonb_agg(jsonb_build_object('id', pg_temp.f(800 + k), 'designation', 'Poste ' || k || ' (fictif)', 'quantity', 2,
       'unit', 'u', 'confidence', 0.9, 'evidence', 'Symboles fictifs', 'source_file_name', 'plan-1.pdf', 'source_page', 2,
-      'metadata', '{}'::jsonb) order by k) from generate_series(0, 1) as k))
+      'metadata', '{}'::jsonb) order by k) from generate_series(0, 4) as k))
 $$;
 create function pg_temp.geometry() returns jsonb language sql immutable as $$
   select '{"version": 1, "view_box": [0, 0, 1190.55, 841.89], "rotation": 0, "user_unit": 1, "width": 1190.55, "height": 841.89}'::jsonb
@@ -158,8 +175,7 @@ create function pg_temp.proposal(item integer, source_key text) returns jsonb la
 $$;
 create function pg_temp.publish_marks_sql(token integer, generation integer, marks jsonb) returns text language sql stable as $$
   select format($marks$select public.publish_takeoff_count_marks(%L, %L, %s, %L::jsonb, %L::jsonb)::text$marks$,
-    pg_temp.job(), pg_temp.f(token), generation, jsonb_build_array(jsonb_build_object('page', 2, 'geometry', pg_temp.geometry())),
-    marks)
+    pg_temp.job(), pg_temp.f(token), generation, '[]'::jsonb, marks)
 $$;
 -- A member's server: the session of member n, then its edit.
 create function pg_temp.sign_in_sql(n integer) returns text language sql immutable as $$
@@ -187,28 +203,7 @@ select is((select x.outcome from extensions.dblink('race_setup', pg_temp.launch_
 select is((select x.claimed from extensions.dblink('race_setup', pg_temp.claim_sql(901)) as x(claimed bigint)), 1::bigint,
   'the worker reads the plan');
 select is((select x.replayed from extensions.dblink('race_setup', pg_temp.publish_answers_sql(901)) as x(replayed text)), 'false',
-  'and publishes both answers');
--- On page 2, three marks of the first item, the third also proposed for the second (competing items).
-select is((select (x.answer::jsonb ->> 'marks')::integer from extensions.dblink('race_setup', pg_temp.publish_marks_sql(901, 1,
-  jsonb_build_array(
-    jsonb_build_object('page', 2, 'x', 0.1, 'y', 0.1, 'proposals', jsonb_build_array(pg_temp.proposal(300, 'p0-1'))),
-    jsonb_build_object('page', 2, 'x', 0.2, 'y', 0.1, 'proposals', jsonb_build_array(pg_temp.proposal(300, 'p0-2'))),
-    jsonb_build_object('page', 2, 'x', 0.3, 'y', 0.1, 'proposals', jsonb_build_array(pg_temp.proposal(300, 'p0-3'),
-      pg_temp.proposal(301, 'p1-1')))))) as x(answer text)), 3, 'and its first generation of marks');
-
-create function pg_temp.answer(item integer) returns uuid language sql stable as $$
-  select a.id from public.takeoff_item_answers a where a.job_id = pg_temp.job() and a.item_id = pg_temp.f(item)
-$$;
-create function pg_temp.m(source_key text) returns uuid language sql stable as $$
-  select p.mark_id from public.takeoff_count_mark_proposals p where p.job_id = pg_temp.job() and p.source_key = $1
-$$;
-create function pg_temp.at(answer uuid, revision integer) returns jsonb language sql immutable as $$
-  select jsonb_build_object(answer::text, revision)
-$$;
-create function pg_temp.revision(item integer) returns integer language sql stable as $$
-  select revision from public.takeoff_count_answer_states where answer_id = pg_temp.answer(item)
-$$;
-
+  'and publishes the five answers');
 create temp table race_pids(label text primary key, pid integer);
 insert into race_pids
 select session.name, (select backend.pid from extensions.dblink(session.name, 'select pg_backend_pid()') as backend(pid integer))
@@ -233,6 +228,69 @@ begin
   end loop;
   return false;
 end;
+$$;
+create function pg_temp.answer(item integer) returns uuid language sql stable as $$
+  select a.id from public.takeoff_item_answers a where a.job_id = pg_temp.job() and a.item_id = pg_temp.f(item)
+$$;
+create function pg_temp.at(answer uuid, revision integer) returns jsonb language sql immutable as $$
+  select jsonb_build_object(answer::text, revision)
+$$;
+create function pg_temp.add(answer uuid, key integer, page integer, x numeric, y numeric) returns jsonb language sql immutable as $$
+  select jsonb_build_object('op', 'add', 'answer_id', answer, 'key', pg_temp.f(key), 'page', page, 'x', x, 'y', y,
+    'geometry', pg_temp.geometry())
+$$;
+create function pg_temp.revision(item integer) returns integer language sql stable as $$
+  select revision from public.takeoff_count_answer_states where answer_id = pg_temp.answer(item)
+$$;
+create function pg_temp.set_role_sql(n integer, role text) returns text language sql stable as $$
+  select format($role$update public.tenant_memberships set role = %L where user_id = %L and tenant_id = %L$role$, role,
+    pg_temp.f(n), pg_temp.tenant())
+$$;
+
+-- 5. Two edits create pages 2 and 7, which do not exist yet, in opposite gesture orders (items 302 and 303). The first
+-- pauses (the test hook) right after inserting page 7, its last page in the one common order; it then holds both pages.
+insert into race_pids values ('main', pg_backend_pid());
+select pg_advisory_lock(4710001);
+select ok(pg_temp.begin_as('race_a', 1), 'the owner adds marks on pages 7 then 2 for the third item');
+select is(extensions.dblink_exec('race_a', 'set local test.pause_after_page = ''7'''), 'SET', 'it pauses after creating page 7');
+select is(extensions.dblink_send_query('race_a', pg_temp.edit_sql(721, pg_temp.at(pg_temp.answer(302), 0),
+  jsonb_build_array(pg_temp.add(pg_temp.answer(302), 731, 7, 0.4, 0.4), pg_temp.add(pg_temp.answer(302), 732, 2, 0.4, 0.4)))), 1,
+  'its edit is sent');
+select ok(pg_temp.waits_for('race_a', 'main'), 'it holds page 7, paused');
+select ok(pg_temp.begin_as('race_b', 2), 'the admin adds marks on pages 2 then 7 for the fourth item meanwhile');
+select is(extensions.dblink_send_query('race_b', pg_temp.edit_sql(722, pg_temp.at(pg_temp.answer(303), 0),
+  jsonb_build_array(pg_temp.add(pg_temp.answer(303), 733, 2, 0.6, 0.6), pg_temp.add(pg_temp.answer(303), 734, 7, 0.6, 0.6)))), 1,
+  'in the other order');
+select ok(pg_temp.waits_for('race_b', 'race_a'), 'the second waits for a page the first one holds');
+select pg_advisory_unlock(4710001);
+select ok(pg_temp.answered('race_a'), 'the first goes on and answers');
+select is((select x.answer::jsonb -> 'revisions' from extensions.dblink_get_result('race_a', false) as x(answer text)),
+  pg_temp.at(pg_temp.answer(302), 1), 'with its edit');
+select diag(concat('first edit: ', extensions.dblink_error_message('race_a')));
+select is((select count(*)::integer from extensions.dblink_get_result('race_a', false) as x(answer text)), 0, 'and is done');
+select is(extensions.dblink_exec('race_a', 'commit'), 'COMMIT', 'the first commits');
+select ok(pg_temp.answered('race_b'), 'the second answers');
+select is((select x.answer::jsonb -> 'revisions' from extensions.dblink_get_result('race_b', false) as x(answer text)),
+  pg_temp.at(pg_temp.answer(303), 1), 'with its own edit, no deadlock');
+select diag(concat('pages in opposite orders: ', extensions.dblink_error_message('race_b')));
+select is((select count(*)::integer from extensions.dblink_get_result('race_b', false) as x(answer text)), 0, 'and is done');
+select is(extensions.dblink_exec('race_b', 'commit'), 'COMMIT', 'its transaction ends');
+select is((select x.pages from extensions.dblink('race_setup', format('select count(*)::integer from public.takeoff_count_pages
+  where project_id = %L', pg_temp.f(20))) as x(pages integer)), 2, 'two pages, created once');
+-- The hook is dropped now, while this session has not read the pages' table (its lock would hold the drop).
+select is(extensions.dblink_exec('race_setup', 'begin; drop trigger zz_test_pause_after_count_page on public.takeoff_count_pages;
+  drop function public.zz_test_pause_after_count_page(); commit;'), 'COMMIT', 'the test hook is dropped');
+
+-- On page 2, three marks of the first item, the third also proposed for the second (competing items).
+select is((select (x.answer::jsonb ->> 'marks')::integer from extensions.dblink('race_setup', pg_temp.publish_marks_sql(901, 1,
+  jsonb_build_array(
+    jsonb_build_object('page', 2, 'x', 0.1, 'y', 0.1, 'proposals', jsonb_build_array(pg_temp.proposal(300, 'p0-1'))),
+    jsonb_build_object('page', 2, 'x', 0.2, 'y', 0.1, 'proposals', jsonb_build_array(pg_temp.proposal(300, 'p0-2'))),
+    jsonb_build_object('page', 2, 'x', 0.3, 'y', 0.1, 'proposals', jsonb_build_array(pg_temp.proposal(300, 'p0-3'),
+      pg_temp.proposal(301, 'p1-1')))))) as x(answer text)), 3, 'and its first generation of marks');
+
+create function pg_temp.m(source_key text) returns uuid language sql stable as $$
+  select p.mark_id from public.takeoff_count_mark_proposals p where p.job_id = pg_temp.job() and p.source_key = $1
 $$;
 
 -- 1. Two operators edit the first item's marks from the same revision.
@@ -300,32 +358,88 @@ select results_eq($$select (select count(*)::integer from public.takeoff_count_m
   pg_temp.revision(300), (select count(*)::integer from public.takeoff_count_mark_events where command_id = (select id from first_command))$$,
   $$values (1, 4, 1)$$, 'one command, one revision more, one event');
 
--- 4. A late machine generation while the owner corrects the first item's marks.
-select ok(pg_temp.begin_as('race_a', 1), 'the owner adds a mark by hand');
-select is((select x.answer::jsonb -> 'revisions' from extensions.dblink('race_a', pg_temp.edit_sql(706,
-  pg_temp.at(pg_temp.answer(300), 4), jsonb_build_array(jsonb_build_object('op', 'add', 'answer_id', pg_temp.answer(300),
-  'key', pg_temp.f(707), 'page', 2, 'x', 0.6, 'y', 0.6)))) as x(answer text)), pg_temp.at(pg_temp.answer(300), 5),
-  'not yet committed');
+-- 6. Access removed while an edit waits. A replay waits for the first command; the owner loses the right meanwhile.
+select ok(pg_temp.begin_as('race_a', 1), 'the owner removes a mark');
+select is((select x.answer::jsonb -> 'revisions' from extensions.dblink('race_a', pg_temp.edit_sql(741,
+  pg_temp.at(pg_temp.answer(300), 4), jsonb_build_array(jsonb_build_object('op', 'remove', 'answer_id', pg_temp.answer(300),
+  'mark_id', pg_temp.m('p0-1'), 'reason', 'duplicate')))) as x(answer text)), pg_temp.at(pg_temp.answer(300), 5), 'not yet committed');
+select ok(pg_temp.begin_as('race_b', 1), 'its server sends it again');
+select is(extensions.dblink_send_query('race_b', pg_temp.edit_sql(741, pg_temp.at(pg_temp.answer(300), 4), jsonb_build_array(
+  jsonb_build_object('op', 'remove', 'answer_id', pg_temp.answer(300), 'mark_id', pg_temp.m('p0-1'), 'reason', 'duplicate')))), 1,
+  'under the same intention');
+select ok(pg_temp.waits_for('race_b', 'race_a'), 'the replay waits for the first command');
+select is(extensions.dblink_exec('race_setup', pg_temp.set_role_sql(1, 'director')), 'UPDATE 1', 'the owner becomes a director meanwhile');
+select is(extensions.dblink_exec('race_a', 'commit'), 'COMMIT', 'the first command commits');
+select ok(pg_temp.answered('race_b'), 'the replay answers');
+select is((select count(*)::integer from extensions.dblink_get_result('race_b', false) as x(answer text)), 0, 'with no receipt');
+select ok(extensions.dblink_error_message('race_b') like '%TAKEOFF_MARKS_FORBIDDEN%', 'refused: the right is checked after the wait');
+select is((select count(*)::integer from extensions.dblink_get_result('race_b', false) as x(answer text)), 0, 'and is done');
+select is(extensions.dblink_exec('race_b', 'rollback'), 'ROLLBACK', 'its transaction ends');
+select is(extensions.dblink_exec('race_setup', pg_temp.set_role_sql(1, 'engineer')), 'UPDATE 1', 'the owner is an engineer again');
+
+-- A fresh edit waits for another to create page 5; its author loses the right meanwhile.
+select ok(pg_temp.begin_as('race_a', 1), 'the owner adds a mark on page 5, which does not exist yet');
+select is((select x.answer::jsonb -> 'revisions' from extensions.dblink('race_a', pg_temp.edit_sql(742,
+  pg_temp.at(pg_temp.answer(302), 1), jsonb_build_array(pg_temp.add(pg_temp.answer(302), 743, 5, 0.3, 0.3)))) as x(answer text)),
+  pg_temp.at(pg_temp.answer(302), 2), 'not yet committed');
+select ok(pg_temp.begin_as('race_b', 2), 'the admin adds one on page 5 for another item meanwhile');
+select is(extensions.dblink_send_query('race_b', pg_temp.edit_sql(744, pg_temp.at(pg_temp.answer(303), 1),
+  jsonb_build_array(pg_temp.add(pg_temp.answer(303), 745, 5, 0.7, 0.7)))), 1, 'its edit is sent');
+select ok(pg_temp.waits_for('race_b', 'race_a'), 'it waits for the page the first one creates');
+select is(extensions.dblink_exec('race_setup', pg_temp.set_role_sql(2, 'director')), 'UPDATE 1', 'the admin becomes a director meanwhile');
+select is(extensions.dblink_exec('race_a', 'commit'), 'COMMIT', 'the first edit commits');
+select ok(pg_temp.answered('race_b'), 'the second answers');
+select is((select count(*)::integer from extensions.dblink_get_result('race_b', false) as x(answer text)), 0, 'with no result');
+select ok(extensions.dblink_error_message('race_b') like '%TAKEOFF_MARKS_FORBIDDEN%', 'refused after its wait');
+select is((select count(*)::integer from extensions.dblink_get_result('race_b', false) as x(answer text)), 0, 'and is done');
+select is(extensions.dblink_exec('race_b', 'rollback'), 'ROLLBACK', 'its transaction ends');
+select is(pg_temp.revision(303), 1, 'nothing of it was written');
+select is(extensions.dblink_exec('race_setup', pg_temp.set_role_sql(2, 'admin')), 'UPDATE 1', 'the admin is an admin again');
+
+-- 7. The locking form of the marks revision holds the answer's state until its transaction ends.
+select is(extensions.dblink_exec('race_a', 'begin'), 'BEGIN', 'a review command opens');
+select is((select x.revision from extensions.dblink('race_a', format('select private.lock_takeoff_count_marks_revision(%L)',
+  pg_temp.answer(301))) as x(revision integer)), 1, 'it reads the second item''s marks revision under its lock');
+select ok(pg_temp.begin_as('race_b', 1), 'the owner edits that answer meanwhile');
+select is(extensions.dblink_send_query('race_b', pg_temp.edit_sql(751, pg_temp.at(pg_temp.answer(301), 1),
+  jsonb_build_array(pg_temp.add(pg_temp.answer(301), 752, 2, 0.9, 0.9)))), 1, 'its edit is sent');
+select ok(pg_temp.waits_for('race_b', 'race_a'), 'the edit waits for the review command');
+select is(extensions.dblink_exec('race_a', 'commit'), 'COMMIT', 'the review command commits');
+select ok(pg_temp.answered('race_b'), 'the edit answers');
+select is((select x.answer::jsonb -> 'revisions' from extensions.dblink_get_result('race_b', false) as x(answer text)),
+  pg_temp.at(pg_temp.answer(301), 2), 'and goes on');
+select is((select count(*)::integer from extensions.dblink_get_result('race_b', false) as x(answer text)), 0, 'and is done');
+select is(extensions.dblink_exec('race_b', 'commit'), 'COMMIT', 'its transaction ends');
+
+-- 4. The first change of the fifth item (revision 0 to 1) while the worker publishes a generation that names it.
+-- A review command read its marks revision first, under the locking form: its state row exists, at revision 0, so the
+-- publication can only learn of the member's change by waiting for that row's lock.
+select is((select x.revision from extensions.dblink('race_setup', format('select private.lock_takeoff_count_marks_revision(%L)',
+  pg_temp.answer(304))) as x(revision integer)), 0, 'the fifth item''s marks state exists, at revision 0');
+select ok(pg_temp.begin_as('race_a', 1), 'the owner adds its first mark');
+select is((select x.answer::jsonb -> 'revisions' from extensions.dblink('race_a', pg_temp.edit_sql(761,
+  pg_temp.at(pg_temp.answer(304), 0), jsonb_build_array(pg_temp.add(pg_temp.answer(304), 762, 2, 0.5, 0.5)))) as x(answer text)),
+  pg_temp.at(pg_temp.answer(304), 1), 'not yet committed');
 select is(extensions.dblink_exec('race_b', 'begin'), 'BEGIN', 'the worker publishes a second generation meanwhile');
 select is(extensions.dblink_exec('race_b', 'set local role service_role'), 'SET', 'as the service role');
 select is(extensions.dblink_send_query('race_b', pg_temp.publish_marks_sql(901, 2, jsonb_build_array(
-  jsonb_build_object('page', 2, 'x', 0.8, 'y', 0.8, 'proposals', jsonb_build_array(pg_temp.proposal(300, 'g2-p0-1'),
-    pg_temp.proposal(301, 'g2-p1-1')))))), 1, 'for both items');
-select ok(pg_temp.waits_for('race_b', 'race_a'), 'the publication waits for the first item''s marks state');
-select is(extensions.dblink_exec('race_a', 'commit'), 'COMMIT', 'the owner''s edit commits');
+  jsonb_build_object('page', 2, 'x', 0.8, 'y', 0.2, 'proposals', jsonb_build_array(pg_temp.proposal(304, 'g2-p4-1')))))), 1,
+  'for the fifth item');
+select ok(pg_temp.waits_for('race_b', 'race_a'), 'the publication waits for the fifth item''s marks state');
+select is(extensions.dblink_exec('race_a', 'commit'), 'COMMIT', 'the owner''s first change commits');
 select ok(pg_temp.answered('race_b'), 'the publication answers');
 create temp table late_generation as select x.answer::jsonb as answer
 from extensions.dblink_get_result('race_b', false) as x(answer text);
 select diag(concat('late generation: ', extensions.dblink_error_message('race_b')));
 select results_eq($$select (a ->> 'answer_id')::uuid, (a ->> 'effective')::boolean, (a ->> 'revision')::integer
-  from late_generation, jsonb_array_elements(answer -> 'answers') a order by (a ->> 'revision')::integer$$,
-  $$values (pg_temp.answer(301), false, 1), (pg_temp.answer(300), false, 5)$$,
-  'it leaves both answers as they are: the member''s correction stands, the generation waits');
+  from late_generation, jsonb_array_elements(answer -> 'answers') a$$,
+  $$values (pg_temp.answer(304), false, 1)$$,
+  'it sees the revision the member left (1, not 0): the member''s mark stands, the generation waits');
 select is((select count(*)::integer from extensions.dblink_get_result('race_b', false) as x(answer text)), 0, 'and is done');
 select is(extensions.dblink_exec('race_b', 'commit'), 'COMMIT', 'its transaction ends');
 select results_eq($$select (s ->> 'pending')::integer, (s ->> 'retained')::integer, (s ->> 'revision')::integer
-  from (select private.takeoff_count_mark_summary(pg_temp.answer(300)) s) x$$, $$values (1, 3, 5)$$,
-  'the first item keeps its three retained marks, one more pending');
+  from (select private.takeoff_count_mark_summary(pg_temp.answer(304)) s) x$$, $$values (1, 1, 1)$$,
+  'the fifth item keeps the member''s mark, one more pending');
 
 select is(extensions.dblink_exec('race_setup', $cleanup$
 begin;

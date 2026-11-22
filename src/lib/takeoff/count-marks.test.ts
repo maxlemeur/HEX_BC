@@ -1,11 +1,14 @@
 import { describe, expect, it } from "vitest";
 
+import { isTakeoffCountUnit } from "./units";
+
 import {
   deriveTakeoffCountMarkSummary,
   parseTakeoffCountMarkEditResult,
   parseTakeoffCountMarksPage,
   parseTakeoffCountMarkSummary,
   takeoffCountMarkEditRefusal,
+  takeoffCountMarkSummaryLabel,
   TAKEOFF_COUNT_MARK_EDIT_REFUSALS,
   type TakeoffCountMarkPageFacts,
 } from "./count-marks";
@@ -18,13 +21,13 @@ const facts = (page: number, values: Partial<TakeoffCountMarkPageFacts> = {}): T
 
 describe("deriveTakeoffCountMarkSummary", () => {
   it("leaves machine marks alone to check, with no quantity", () => {
-    const summary = deriveTakeoffCountMarkSummary({ revision: 1, scopePages: [2, 7],
+    const summary = deriveTakeoffCountMarkSummary({ unit: "u", revision: 1, scopePages: [2, 7],
       pages: [facts(2, { proposed: 3, changedRevision: 1 }), facts(7, { toAttribute: 1, changedRevision: 1 })] });
     expect(summary).toMatchObject({ state: "to_check", proposed: 3, toAttribute: 1, retained: 0, reread: 0, quantity: null });
   });
 
   it("gives the marks retained once every page of the scope is verified, and nothing else", () => {
-    const summary = deriveTakeoffCountMarkSummary({ revision: 2, scopePages: [7, 2],
+    const summary = deriveTakeoffCountMarkSummary({ unit: "u", revision: 2, scopePages: [7, 2],
       pages: [facts(2, { retained: 3, removed: 1, changedRevision: 2, verifiedRevision: 2 }),
         facts(7, { retained: 1, removed: 1, changedRevision: 2, verifiedRevision: 2 })] });
     // A grouped page total of lot 4 (3 for this answer) is no input: the count is 4, never 7.
@@ -33,7 +36,7 @@ describe("deriveTakeoffCountMarkSummary", () => {
   });
 
   it("reopens the verification of the page a correction changed, even at the same count", () => {
-    const summary = deriveTakeoffCountMarkSummary({ revision: 3, scopePages: [2, 7],
+    const summary = deriveTakeoffCountMarkSummary({ unit: "u", revision: 3, scopePages: [2, 7],
       pages: [facts(2, { retained: 3, changedRevision: 3, verifiedRevision: 2 }),
         facts(7, { retained: 1, changedRevision: 2, verifiedRevision: 2 })] });
     expect(summary).toMatchObject({ state: "to_verify_again", retained: 4, reread: 1, quantity: null });
@@ -41,7 +44,7 @@ describe("deriveTakeoffCountMarkSummary", () => {
   });
 
   it("gives no quantity, never 0, once the last mark is removed", () => {
-    const summary = deriveTakeoffCountMarkSummary({ revision: 5, scopePages: [2, 7],
+    const summary = deriveTakeoffCountMarkSummary({ unit: "u", revision: 5, scopePages: [2, 7],
       pages: [facts(2, { removed: 4, changedRevision: 5, verifiedRevision: 5 }),
         facts(7, { removed: 2, changedRevision: 5, verifiedRevision: 5 })] });
     expect(summary.state).toBe("no_mark_retained");
@@ -49,28 +52,37 @@ describe("deriveTakeoffCountMarkSummary", () => {
   });
 
   it("keeps the number proposed, the number reread and the quantity apart", () => {
-    const summary = deriveTakeoffCountMarkSummary({ revision: 4, scopePages: [2, 7],
+    const summary = deriveTakeoffCountMarkSummary({ unit: "u", revision: 4, scopePages: [2, 7],
       pages: [facts(2, { retained: 2, changedRevision: 3, verifiedRevision: 4 }), facts(7, { proposed: 2, changedRevision: 1 })] });
     expect(summary).toMatchObject({ proposed: 2, reread: 2, retained: 2, quantity: null, state: "to_check" });
   });
 
   it("never counts as verified a page where something is still undecided", () => {
-    const summary = deriveTakeoffCountMarkSummary({ revision: 2, scopePages: [2],
+    const summary = deriveTakeoffCountMarkSummary({ unit: "u", revision: 2, scopePages: [2],
       pages: [facts(2, { retained: 1, toAttribute: 1, changedRevision: 1, verifiedRevision: 2 })] });
     expect(summary).toMatchObject({ verifiedPages: 0, quantity: null, state: "to_check" });
   });
 
+  it("gives no quantity to a length or a surface: its marks locate the objects, its three numbers stay", () => {
+    const summary = deriveTakeoffCountMarkSummary({ unit: "m²", revision: 2, scopePages: [2, 7],
+      pages: [facts(2, { retained: 2, changedRevision: 2, verifiedRevision: 2 }), facts(7, { changedRevision: 0, verifiedRevision: 2 })] });
+    expect(summary).toMatchObject({ state: "verified", counted: false, retained: 2, reread: 2, quantity: null });
+    expect(takeoffCountMarkSummaryLabel(summary)).toBe("Repères vérifiés, sans quantité");
+    expect(deriveTakeoffCountMarkSummary({ unit: null, revision: 2, scopePages: [2],
+      pages: [facts(2, { retained: 1, changedRevision: 2, verifiedRevision: 2 })] }).quantity).toBeNull();
+  });
+
   it("has nothing to say about an answer without marks, pending ones included", () => {
-    expect(deriveTakeoffCountMarkSummary({ revision: 0, scopePages: [2, 7], pages: [] }))
+    expect(deriveTakeoffCountMarkSummary({ unit: "u", revision: 0, scopePages: [2, 7], pages: [] }))
       .toMatchObject({ state: "none", quantity: null, scopePages: 2 });
-    expect(deriveTakeoffCountMarkSummary({ revision: 3, scopePages: [2], pages: [facts(2, { pending: 1 })] }))
+    expect(deriveTakeoffCountMarkSummary({ unit: "u", revision: 3, scopePages: [2], pages: [facts(2, { pending: 1 })] }))
       .toMatchObject({ state: "none", pending: 1, quantity: null });
   });
 });
 
 const uuid = (n: number) => `d5e00000-0000-4000-8000-${String(n).padStart(12, "0")}`;
 const summaryDocument = {
-  answer_id: uuid(1), revision: 2, proposed: 0, to_attribute: 0, retained: 4, removed: 2, pending: 0, reread: 4, scope_pages: 2,
+  answer_id: uuid(1), revision: 2, unit: "u", counted: true, proposed: 0, to_attribute: 0, retained: 4, removed: 2, pending: 0, reread: 4, scope_pages: 2,
   verified_pages: 2, quantity: 4, state: "verified",
   pages: [
     { page: 2, proposed: 0, to_attribute: 0, retained: 3, removed: 1, pending: 0, reread: 3, changed_revision: 2,
@@ -83,8 +95,8 @@ const summaryDocument = {
 describe("the database's documents", () => {
   it("reads the server-side count, the same as the pure derivation of its facts", () => {
     const parsed = parseTakeoffCountMarkSummary(summaryDocument);
-    const derived = deriveTakeoffCountMarkSummary({ revision: parsed.revision, scopePages: parsed.pages.map(({ page }) => page),
-      pages: parsed.pages });
+    const derived = deriveTakeoffCountMarkSummary({ revision: parsed.revision, unit: parsed.unit,
+      scopePages: parsed.pages.map(({ page }) => page), pages: parsed.pages });
     expect(derived).toEqual(parsed);
     expect(parseTakeoffCountMarkSummary({ ...summaryDocument, quantity: null, state: "to_verify_again" }).quantity).toBeNull();
   });
@@ -127,5 +139,12 @@ describe("the database's documents", () => {
     expect(takeoffCountMarkEditRefusal("TAKEOFF_MARKS_WRITER_REQUIRED")).toBeNull();
     expect(takeoffCountMarkEditRefusal("duplicate key value violates unique constraint")).toBeNull();
     expect(Object.values(TAKEOFF_COUNT_MARK_EDIT_REFUSALS).every((sentence) => !/TAKEOFF|_/.test(sentence))).toBe(true);
+  });
+});
+
+describe("the count units (the same cases as the database's private.takeoff_count_unit_counts)", () => {
+  it("counts pieces, never a length or a surface", () => {
+    expect(["u", "U", "Unité", "unités", "pce", "Pièces", "ens", "Ensemble", "lot", "nb"].every(isTakeoffCountUnit)).toBe(true);
+    expect(["m2", "m²", "ml", "m", "kg", "", null].some(isTakeoffCountUnit)).toBe(false);
   });
 });

@@ -268,18 +268,27 @@ le coin haut gauche, après la rotation propre) et parfois un cadre. Déplacer u
 garde son identité ; sa position d’avant reste au journal. Une lecture machine propose
 des repères pour un poste (« proposé », ou « à attribuer » quand elle ne sait pas
 lequel) ; un membre les retient, les retire avec un motif, les rétablit, les déplace,
-les affecte à un autre poste du même plan et de la même unité, en ajoute, puis déclare
-vérifiées les pages qu’il a relues. Un objet ne compte que pour un seul poste à la fois.
-Le compte d’un poste sur un plan n’existe que quand toutes les pages lues pour lui sont
-vérifiées et qu’un repère au moins est retenu : c’est le nombre de repères retenus,
-jamais additionné au compte groupé par page de la lecture. Des repères proposés seuls
+les affecte à un autre poste de la même commande, du même plan et de la même unité, en
+ajoute, puis déclare vérifiées les pages qu’il a relues. Un objet ne compte que pour un
+seul poste à la fois, et une seule fois : deux centres à moins de 4 points l’un de
+l’autre sur la page à l’échelle 1 désignent le même objet, une nouvelle lecture machine
+qui le retrouve (même clé de source ou même place) s’ajoute à son repère, et retenir ou
+rétablir un second repère sur un objet déjà retenu est refusé tant que le membre n’a pas
+choisi lequel garder. Le compte d’un poste sur un plan n’existe que pour un poste compté
+à l’unité (son unité scellée : u, pce, ens, lot…), quand toutes les pages lues pour lui
+sont vérifiées et qu’un repère au moins est retenu : c’est le nombre de repères retenus,
+jamais additionné au compte groupé par page de la lecture. Pour une longueur ou une
+surface, les repères situent les objets sans donner de quantité. Des repères proposés seuls
 restent « à vérifier » sans quantité ; le dernier repère retiré donne « Aucun repère
 retenu », jamais 0 ; une correction après vérification, même à nombre égal, rend la page
 « à vérifier à nouveau ». Chaque modification porte la révision qu’elle a vue : celle
 d’un autre membre entre-temps est refusée, rien n’est écrit. Une nouvelle lecture
-machine n’écrase jamais les repères déjà revus : ses repères attendent d’être retenus un
-à un. Les lecteurs de l’affaire lisent les repères et leur journal ; seul un opérateur
-de l’affaire les modifie ; une lecture remplacée garde ses repères en lecture seule.
+machine n’écrase jamais les repères déjà revus : ses nouveaux repères attendent d’être
+retenus un à un. Les lecteurs de l’affaire lisent les repères et leur journal, qui garde
+avec chaque décision de retenir un repère ce qui le fondait (clé de source, méthode,
+observation), même après la suppression de l’analyse ; seul un opérateur de l’affaire
+les modifie, et son droit est vérifié de nouveau après chaque attente ; une lecture
+remplacée garde ses repères en lecture seule.
 
 Une ligne de devis créée depuis un import garde dans sa provenance l’import et la
 ligne mappée. La ligne mappée nomme la ligne brute dont elle vient ; quand une

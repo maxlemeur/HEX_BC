@@ -12,8 +12,11 @@
 --    earlier coordinates in the journal), remove with a reason, restore, retain, reattribute (both answers change),
 --    verify; each refusal with its own code and nothing written; a replay of the intention answers the same.
 -- 5. A later machine generation on an answer already reviewed waits unattributed; a member retains it.
--- 6. A replaced reading's marks are history: no edit; the journal outlives the job's deletion; the affaire's deletion
---    takes everything.
+-- 6. A replaced reading's marks are history: no edit; a mark goes only to an item of its answer's sealed order; the
+--    journal outlives the job's deletion, with the evidence of each retained mark; the affaire's deletion takes everything.
+-- 7. Fix round of #474: a suspended operator edits nothing; one object reported by two generations stays one mark; a
+--    length or a surface gets no quantity from its marks; a page's dimensions are computed from its box; an observation
+--    is cited on its own page; a replay answers its own revision's numbers.
 -- Isolation justified: rights under RLS, every refusal of the commands and their single transaction are not observable
 -- from a journey (no screen reads them yet). The two-session cases are in takeoff-count-marks-race.test.sql. All values
 -- are fictional.
@@ -65,9 +68,28 @@ select is(has_function_privilege(role_name, fn, 'EXECUTE'), false, fn || ': ' ||
 from unnest(array['private.takeoff_count_mark_summary(uuid)', 'private.lock_takeoff_count_marks_revision(uuid)',
   'private.takeoff_count_marks_revision(uuid)']) as fn
 cross join unnest(array['authenticated', 'service_role', 'anon']) as role_name;
-select is((select count(*)::integer from pg_trigger t join pg_class c on c.oid = t.tgrelid
-  where c.relname in ('estimate_projects', 'takeoff_jobs', 'takeoff_item_answers', 'takeoff_item_answer_observations')
-    and t.tgname ~ 'count_mark'), 0, 'no trigger on an existing table: a released writer pays nothing');
+-- On an existing table, this migration adds only the internal triggers of its foreign keys (they fire when a referenced
+-- row is deleted or its key updated, never on an insert), and none of its own functions.
+create function pg_temp.parent_triggers() returns table (relation text, internal boolean, on_insert boolean) language sql stable as $$
+  select t.tgrelid::regclass::text, t.tgisinternal, (t.tgtype & 4) <> 0
+  from pg_trigger t
+  where t.tgrelid in ('public.estimate_projects'::regclass, 'public.takeoff_jobs'::regclass, 'public.takeoff_item_answers'::regclass,
+      'public.takeoff_item_answer_observations'::regclass)
+    and (exists (select 1 from pg_constraint c join pg_class r on r.oid = c.conrelid
+        where c.oid = t.tgconstraint and r.relnamespace = 'public'::regnamespace and r.relname like 'takeoff\_count\_%')
+      or exists (select 1 from pg_proc f where f.oid = t.tgfoid and f.proname ~ 'count_mark'))
+$$;
+select is((select count(*)::integer from pg_temp.parent_triggers() where not internal or on_insert), 0,
+  'on an existing table, no trigger of this migration but its foreign keys'' own, and none fires on an insert');
+select results_eq($$select relation, count(*)::integer from pg_temp.parent_triggers() group by relation order by relation$$,
+  $$values ('estimate_projects'::text, 6), ('takeoff_item_answer_observations', 2), ('takeoff_item_answers', 6)$$,
+  'deleting or rekeying an affaire, an answer or an observation checks the new tables: two triggers for each foreign key');
+
+-- The count units: the repository's rule (src/lib/takeoff/units.ts, the same cases in count-marks.test.ts).
+select results_eq($$select bool_and(private.takeoff_count_unit_counts(u)) from unnest(array['u', 'U', 'Unité', 'unités', 'pce',
+  'Pièces', 'ens', 'Ensemble', 'lot', 'nb']) u$$, $$values (true)$$, 'pieces, sets and lots are counted');
+select results_eq($$select bool_or(private.takeoff_count_unit_counts(u)) from unnest(array['m2', 'm²', 'ml', 'm', 'kg', '', null]) u$$,
+  $$values (false)$$, 'lengths, surfaces, weights and an unknown unit are not');
 
 -- One tenant: the engineer who owns the affaires (1), an engineer who does not (2), a director (3), an admin (4); another
 -- tenant's admin (5).
@@ -99,12 +121,14 @@ select pg_temp.f(100 + n), pg_temp.f(10), pg_temp.f(40 + n), 'plan-1.pdf',
   concat_ws('/', pg_temp.f(10), pg_temp.f(40 + n), pg_temp.f(100 + n), 'plan-1.pdf'), 'application/pdf', 8, 9
 from generate_series(0, 2) as n;
 
--- The list of affaire 20: lavabo 300 (u), vanne 301 (u), baignoire 302 (ens: another unit) in its revision 310.
+-- The list of affaire 20: lavabo 300 (u), vanne 301 (u), a wall covering 302 (m2: a surface) in its revision 310; a
+-- skirting 303 (m2) comes with the second order (revision 312, below), which drops 302.
 set local session_replication_role = replica;
 insert into public.takeoff_list_items (id, tenant_id, project_id, origin_kind, created_in_revision, created_by) values
   (pg_temp.f(300), pg_temp.f(10), pg_temp.f(20), 'manual', 1, pg_temp.f(1)),
   (pg_temp.f(301), pg_temp.f(10), pg_temp.f(20), 'manual', 1, pg_temp.f(1)),
-  (pg_temp.f(302), pg_temp.f(10), pg_temp.f(20), 'manual', 1, pg_temp.f(1));
+  (pg_temp.f(302), pg_temp.f(10), pg_temp.f(20), 'manual', 1, pg_temp.f(1)),
+  (pg_temp.f(303), pg_temp.f(10), pg_temp.f(20), 'manual', 2, pg_temp.f(1));
 insert into public.takeoff_list_revisions (id, tenant_id, project_id, revision, cause, sources, item_count, content_sha256,
   gesture_sha256, intent_key, created_by) values
   (pg_temp.f(310), pg_temp.f(10), pg_temp.f(20), 1, 'item_added', '{}', 3, repeat('1', 64), repeat('a', 64), pg_temp.f(311), pg_temp.f(1));
@@ -112,7 +136,7 @@ insert into public.takeoff_list_revision_entries (revision_id, tenant_id, projec
   expected_unit, origin_kind, origin) values
   (pg_temp.f(310), pg_temp.f(10), pg_temp.f(20), pg_temp.f(300), 0, 'manual:lavabo', 'Lavabo (fictif)', 'u', 'manual', '{"kind":"manual"}'),
   (pg_temp.f(310), pg_temp.f(10), pg_temp.f(20), pg_temp.f(301), 1, 'manual:vanne', 'Vanne DN32 (fictive)', 'u', 'manual', '{"kind":"manual"}'),
-  (pg_temp.f(310), pg_temp.f(10), pg_temp.f(20), pg_temp.f(302), 2, 'manual:baignoire', 'Baignoire (fictive)', 'ens', 'manual', '{"kind":"manual"}');
+  (pg_temp.f(310), pg_temp.f(10), pg_temp.f(20), pg_temp.f(302), 2, 'manual:revetement', 'Revêtement mural (fictif)', 'm2', 'manual', '{"kind":"manual"}');
 set local session_replication_role = origin;
 
 -- The confirmed preparation of the plan, the manifest of its unit, the launch and claim of a reading (as B1's test).
@@ -131,11 +155,11 @@ create function pg_temp.snapshot(project integer) returns jsonb language sql as 
           'source_updated_at', f.updated_at, 'content_hash', pg_temp.digest(f.id), 'pages', '[2, 7]'::jsonb))
         from public.plan_files f where f.plan_set_id = pg_temp.f(project + 20))))
 $$;
-create function pg_temp.manifest(project integer) returns jsonb language sql stable as $$
+create function pg_temp.manifest(project integer, list_revision integer default 310) returns jsonb language sql stable as $$
   select jsonb_build_object('format_version', 2, 'intent', 'initial',
     'order', (select jsonb_build_object('kind', 'item_list', 'version', 2, 'list', jsonb_build_object('revision_id', r.id,
       'revision', r.revision, 'content_sha256', r.content_sha256, 'item_count', r.item_count))
-      from public.takeoff_list_revisions r where r.id = pg_temp.f(310)),
+      from public.takeoff_list_revisions r where r.id = pg_temp.f(list_revision)),
     'dispatch', jsonb_build_object('order', 'display_name', 'version', 1),
     'units', (select jsonb_agg(jsonb_build_object('key', 'plan:' || f.id, 'ordinal', 1, 'plans', jsonb_build_array(f.id),
       'pages', '[2, 7]'::jsonb, 'page_count', 9, 'vector_pages', 0, 'budget', jsonb_build_object('tokens', 400000, 'cost_cents', 2500)))
@@ -154,7 +178,7 @@ create function pg_temp.launch(round integer) returns table (outcome text, reque
   select * from public.launch_manual_takeoff_plan_request(pg_temp.f(10), pg_temp.f(20), pg_temp.f(1),
     pg_temp.f(500 + 10 * round), case when round = 1 then 'initial' else 'reread_plans' end,
     case when round = 1 then null else pg_temp.latest_job() end, pg_temp.host(), pg_temp.selection(),
-    pg_temp.manifest(20), pg_temp.snapshot(20),
+    pg_temp.manifest(20, case when round = 1 then 310 else 312 end), pg_temp.snapshot(20),
     jsonb_build_array(jsonb_build_object('id', pg_temp.job(round), 'plan_set_id', pg_temp.f(40),
       'launch_unit_key', 'plan:' || pg_temp.f(100), 'source_file_name', 'plan-1.pdf',
       'source_file_type', 'application/pdf', 'source_file_size_bytes', 8, 'prompt_version', 'fixture',
@@ -194,7 +218,7 @@ create function pg_temp.answers(round integer) returns jsonb language sql immuta
       'candidate', jsonb_build_object('value', 1, 'unit', 'u'), 'observations', jsonb_build_array(
         jsonb_build_object('page', 2, 'evidence', 'Vanne fictive', 'method', 'symbol_count', 'confidence', 0.6,
           'quantity', 1, 'unit', 'u', 'role', 'candidate', 'source', 'model', 'chunk_id', 'f1-b1'))),
-    jsonb_build_object('item_id', pg_temp.f(302), 'outcome', 'not_found',
+    jsonb_build_object('item_id', pg_temp.f(case when round = 1 then 302 else 303 end), 'outcome', 'not_found',
       'reasons', jsonb_build_array(jsonb_build_object('code', 'NO_INDICATION', 'by', 'model', 'text', 'Aucun indice (fictif).',
         'chunk_id', 'f1-b1')),
       'searched_pages', '[7, 2]'::jsonb, 'unreadable_pages', '[]'::jsonb, 'observations', '[]'::jsonb))
@@ -245,6 +269,7 @@ select is((select count(*)::integer from answer_ids), 3, 'the lavabo, the valve 
 create function pg_temp.lavabo() returns uuid language sql stable as $$ select pg_temp.answer(300) $$;
 create function pg_temp.vanne() returns uuid language sql stable as $$ select pg_temp.answer(301) $$;
 create function pg_temp.baignoire() returns uuid language sql stable as $$ select pg_temp.answer(302) $$;
+create function pg_temp.plinthe() returns uuid language sql stable as $$ select pg_temp.answer(303, 2) $$;
 
 -- A page of the plan, A3 landscape: its visible box, turned or not.
 create function pg_temp.geometry(rotation integer default 0) returns jsonb language sql immutable as $$
@@ -314,6 +339,13 @@ select throws_ok($$select pg_temp.publish_marks(901, 1, jsonb_build_array(jsonb_
   jsonb_build_object('version', 1, 'view_box', jsonb_build_array(0, 0, 1190.55, 841.89), 'rotation', 90, 'user_unit', 1,
     'width', 1190.55, 'height', 841.89))), pg_temp.generation_1())$$, '22023', 'TAKEOFF_MARKS_INVALID',
   'a page turned a quarter must have the box''s proportions turned');
+select throws_ok($$select pg_temp.publish_marks(901, 1, jsonb_build_array(jsonb_build_object('page', 2, 'geometry',
+  jsonb_build_object('version', 1, 'view_box', jsonb_build_array(0, 0, 100, 200), 'rotation', 0, 'user_unit', 2,
+    'width', 100, 'height', 200))), pg_temp.generation_1())$$, '22023', 'TAKEOFF_MARKS_INVALID',
+  'a page''s scale-one size is its box times its UserUnit: 100 by 200 at UserUnit 2 is 200 by 400');
+select throws_ok($$select pg_temp.publish_marks(901, 1, pg_temp.pages(), jsonb_build_array(pg_temp.mark(7, 0.1, 0.2,
+  jsonb_build_array(pg_temp.proposal(300, 'lav-1', 'proposed', '{"observation_ordinal": 1}'::jsonb)))))$$, '22023',
+  'TAKEOFF_MARKS_OBSERVATION_FOREIGN', 'a mark of page 7 cannot cite an observation of page 2');
 select throws_ok($$select pg_temp.publish_marks(901, 1, pg_temp.pages(), jsonb_build_array(pg_temp.mark(2, 0.1, 0.2,
   jsonb_build_array(pg_temp.proposal(399, 'x-1')))))$$, '22023', 'TAKEOFF_MARKS_ITEM_FOREIGN',
   'an item without an answer in the job is refused');
@@ -443,6 +475,16 @@ set local role authenticated;
 select throws_ok($$select pg_temp.edit(600, pg_temp.at(pg_temp.lavabo(), 1), jsonb_build_array(pg_temp.retain(pg_temp.lavabo(),
   pg_temp.m('lav-1'))))$$, '42501', 'TAKEOFF_MARKS_FORBIDDEN', 'nor another tenant''s admin');
 reset role;
+
+-- An owner whose every tenant is suspended has no active tenant: the right's predicate is not true, and nothing is done.
+update public.tenants set is_active = false where id in (select tenant_id from public.tenant_memberships where user_id = pg_temp.f(1));
+select pg_temp.sign_in(1);
+set local role authenticated;
+select is(public.current_tenant_id(), null::uuid, 'the owner has no active tenant');
+select throws_ok($$select pg_temp.edit(600, pg_temp.at(pg_temp.lavabo(), 1), jsonb_build_array(pg_temp.retain(pg_temp.lavabo(),
+  pg_temp.m('lav-1'))))$$, '42501', 'TAKEOFF_MARKS_FORBIDDEN', 'a suspended operator edits nothing');
+reset role;
+update public.tenants set is_active = true where id in (select tenant_id from public.tenant_memberships where user_id = pg_temp.f(1));
 
 -- Each refusal of the owner's edit, with its code, nothing written.
 select pg_temp.sign_in(1);
@@ -609,6 +651,12 @@ select results_eq($$select r #>> array['summaries', pg_temp.lavabo()::text, 'sta
   from (select pg_temp.edit(603, pg_temp.at(pg_temp.lavabo(), 3), jsonb_build_array(pg_temp.g('verify',
     jsonb_build_object('answer_id', pg_temp.lavabo(), 'pages', '[2]'::jsonb)))) r) x$$,
   $$values ('verified'::text, 4)$$, 'once page 2 is verified again, the count is back');
+select results_eq($$select (r ->> 'replayed')::boolean, r -> 'revisions', r #>> array['summaries', pg_temp.lavabo()::text, 'state'],
+  r #> array['summaries', pg_temp.lavabo()::text, 'quantity'], (r #>> array['summaries', pg_temp.lavabo()::text, 'revision'])::integer
+  from (select pg_temp.edit(602, pg_temp.at(pg_temp.lavabo(), 2), jsonb_build_array(pg_temp.g('move',
+    jsonb_build_object('mark_id', pg_temp.m('lav-1'), 'x', 0.12, 'y', 0.21)))) r) x$$,
+  $$values (true, pg_temp.at(pg_temp.lavabo(), 3), 'to_verify_again'::text, 'null'::jsonb, 3)$$,
+  'a replay of the move answers the count as the move left it, not the current one');
 
 -- The last marks removed: no retained quantity (a SQL NULL), never a written zero.
 select results_eq($$select r #>> array['summaries', pg_temp.lavabo()::text, 'state'],
@@ -664,7 +712,16 @@ reset role;
 -- the bathtub, untouched, takes it.
 create temp table second_generation as select pg_temp.publish_marks(901, 2, '[]'::jsonb, jsonb_build_array(
   pg_temp.mark(2, 0.90, 0.90, jsonb_build_array(pg_temp.proposal(300, 'lav-g2-1'))),
+  pg_temp.mark(2, 0.13, 0.22, jsonb_build_array(pg_temp.proposal(300, 'lav-1'))),
+  pg_temp.mark(2, 0.5203, 0.2602, jsonb_build_array(pg_temp.proposal(300, 'lav-g2-3'))),
   pg_temp.mark(7, 0.25, 0.35, jsonb_build_array(pg_temp.proposal(302, 'bai-g2-1'))))) as answer;
+select results_eq($$select (answer ->> 'marks')::integer, (answer ->> 'reused')::integer, (answer ->> 'proposals')::integer
+  from second_generation$$, $$values (2, 2, 4)$$,
+  'one object reported again (its source key, or its place within 4 points) is another proposal of its mark, not a new mark');
+select results_eq($$select p.source_key, p.mark_id = pg_temp.m(m.key) from public.takeoff_count_mark_proposals p
+  join (values ('lav-1', 'lav-1'), ('lav-g2-3', 'lav-3')) as m(source, key) on m.source = p.source_key
+  where p.generation = 2 order by 1$$, $$values ('lav-1'::text, true), ('lav-g2-3', true)$$,
+  'the first lavabo and the third one keep their identity');
 select results_eq($$select (a ->> 'answer_id')::uuid, (a ->> 'effective')::boolean, (a ->> 'revision')::integer
   from second_generation, jsonb_array_elements(answer -> 'answers') a order by (a ->> 'effective')::boolean$$,
   $$values (pg_temp.lavabo(), false, 8), (pg_temp.baignoire(), true, 1)$$,
@@ -680,17 +737,62 @@ select results_eq($$select (r ->> 'total')::integer, r #>> '{marks,0,state}' fro
 select throws_ok($$select pg_temp.edit(609, pg_temp.at(pg_temp.lavabo(), 8), jsonb_build_array(pg_temp.g('move',
   jsonb_build_object('mark_id', pg_temp.m('lav-g2-1'), 'x', 0.91, 'y', 0.9))))$$, '22023', 'TAKEOFF_MARKS_STATE_INVALID',
   'a pending mark is retained before it is moved');
+-- A member adds a mark on the object the generation also found: retaining the pending one beside it would count it twice.
+create temp table hand_mark as select (a ->> 'mark_id')::uuid as id from (select pg_temp.edit(609, pg_temp.at(pg_temp.lavabo(), 8),
+  jsonb_build_array(pg_temp.g('add', jsonb_build_object('answer_id', pg_temp.lavabo(), 'key', pg_temp.f(704), 'page', 2,
+    'x', 0.9001, 'y', 0.9002)))) r) x, jsonb_array_elements(r -> 'added') a;
+select throws_ok($$select pg_temp.edit(611, pg_temp.at(pg_temp.lavabo(), 9), jsonb_build_array(pg_temp.retain(pg_temp.lavabo(),
+  pg_temp.m('lav-g2-1'))))$$, '23505', 'TAKEOFF_MARKS_OBJECT_DUPLICATE',
+  'a pending mark on an object already retained (within 4 points) is not retained beside it');
 select results_eq($$select r #>> array['summaries', pg_temp.lavabo()::text, 'pending'],
   r #>> array['summaries', pg_temp.lavabo()::text, 'retained']
-  from (select pg_temp.edit(609, pg_temp.at(pg_temp.lavabo(), 8), jsonb_build_array(pg_temp.retain(pg_temp.lavabo(),
-    pg_temp.m('lav-g2-1')))) r) x$$, $$values ('0'::text, '1'::text)$$, 'retained one by one, it counts');
+  from (select pg_temp.edit(612, pg_temp.at(pg_temp.lavabo(), 9), jsonb_build_array(
+    pg_temp.g('remove', jsonb_build_object('answer_id', pg_temp.lavabo(), 'mark_id', (select id from hand_mark),
+      'reason', 'duplicate')),
+    pg_temp.retain(pg_temp.lavabo(), pg_temp.m('lav-g2-1')))) r) x$$, $$values ('0'::text, '1'::text)$$,
+  'once the member''s mark is removed, the machine''s is retained: one object, one mark');
+select throws_ok($$select pg_temp.edit(613, pg_temp.at(pg_temp.lavabo(), 10), jsonb_build_array(pg_temp.g('restore',
+  jsonb_build_object('answer_id', pg_temp.lavabo(), 'mark_id', (select id from hand_mark)))))$$, '23505',
+  'TAKEOFF_MARKS_OBJECT_DUPLICATE', 'and restoring the member''s mark beside it is refused until one is chosen');
+-- A surface item: its marks locate the objects, they never give a quantity.
+select results_eq($$select r #>> array['summaries', pg_temp.baignoire()::text, 'state'],
+  (r #>> array['summaries', pg_temp.baignoire()::text, 'counted'])::boolean,
+  (r #>> array['summaries', pg_temp.baignoire()::text, 'retained'])::integer,
+  r #> array['summaries', pg_temp.baignoire()::text, 'quantity']
+  from (select pg_temp.edit(614, pg_temp.at(pg_temp.baignoire(), 1), jsonb_build_array(
+    pg_temp.retain(pg_temp.baignoire(), pg_temp.m('bai-g2-1')),
+    pg_temp.g('verify', jsonb_build_object('answer_id', pg_temp.baignoire(), 'pages', '[2, 7]'::jsonb)))) r) x$$,
+  $$values ('verified'::text, false, 1, 'null'::jsonb)$$, 'a verified mark of a surface item gives no quantity');
 reset role;
 
--- 6. A replaced reading's marks are history. A second reading of the plan replaces the first answers.
+-- 6. A replaced reading's marks are history. A second order (revision 312: the lavabo, the valve and a skirting, no
+-- wall covering) reads the plan again.
+set local session_replication_role = replica;
+insert into public.takeoff_list_revisions (id, tenant_id, project_id, revision, cause, sources, item_count, content_sha256,
+  gesture_sha256, intent_key, created_by) values
+  (pg_temp.f(312), pg_temp.f(10), pg_temp.f(20), 2, 'item_added', '{}', 3, repeat('3', 64), repeat('c', 64), pg_temp.f(313), pg_temp.f(1));
+insert into public.takeoff_list_revision_entries (revision_id, tenant_id, project_id, item_id, position, source_key, label,
+  expected_unit, origin_kind, origin) values
+  (pg_temp.f(312), pg_temp.f(10), pg_temp.f(20), pg_temp.f(300), 0, 'manual:lavabo', 'Lavabo (fictif)', 'u', 'manual', '{"kind":"manual"}'),
+  (pg_temp.f(312), pg_temp.f(10), pg_temp.f(20), pg_temp.f(301), 1, 'manual:vanne', 'Vanne DN32 (fictive)', 'u', 'manual', '{"kind":"manual"}'),
+  (pg_temp.f(312), pg_temp.f(10), pg_temp.f(20), pg_temp.f(303), 2, 'manual:plinthe', 'Plinthe carrelée (fictive)', 'm2', 'manual', '{"kind":"manual"}');
+set local session_replication_role = origin;
 select results_eq($$select outcome from pg_temp.launch(2)$$, $$values ('admitted'::text)$$, 'a second reading is admitted');
 select is((select job_id from public.dispatch_next_takeoff_host_job(pg_temp.host())), pg_temp.job(2), 'its plan is handed');
 select is(pg_temp.claim(pg_temp.job(2), 903), 1, 'and claimed');
 select is(pg_temp.publish_answers(2, 903), 3, 'it is published');
+insert into answer_ids select n, 2, a.id from (values (300), (301), (303)) as v(n)
+join public.takeoff_item_answers a on a.item_id = pg_temp.f(n) and a.job_id = pg_temp.job(2);
+select pg_temp.sign_in(1);
+set local role authenticated;
+create temp table skirting_mark as select (a ->> 'mark_id')::uuid as id from (select pg_temp.edit(615, pg_temp.at(pg_temp.plinthe(), 0),
+  jsonb_build_array(pg_temp.g('add', jsonb_build_object('answer_id', pg_temp.plinthe(), 'key', pg_temp.f(705), 'page', 7,
+    'x', 0.6, 'y', 0.6)))) r) x, jsonb_array_elements(r -> 'added') a;
+select throws_ok($$select pg_temp.edit(616, pg_temp.at(pg_temp.plinthe(), 1) || pg_temp.at(pg_temp.baignoire(), 2),
+  jsonb_build_array(pg_temp.g('reattribute', jsonb_build_object('answer_id', pg_temp.plinthe(), 'mark_id', (select id from skirting_mark),
+    'to_answer_id', pg_temp.baignoire()))))$$, '22023', 'TAKEOFF_MARKS_TARGET_INCOMPATIBLE',
+  'a mark goes only to an item of its answer''s sealed order: the wall covering, still current, is not in the second order');
+reset role;
 select pg_temp.sign_in(1);
 set local role authenticated;
 select throws_ok($$select pg_temp.edit(610, pg_temp.at(pg_temp.lavabo(), 9), jsonb_build_array(pg_temp.g('add',
@@ -732,15 +834,23 @@ end;
 $$;
 select lives_ok($$select pg_temp.delete_and_check(format('delete from public.takeoff_jobs where id = %L', pg_temp.job(1)))$$,
   'a job whose answers have marks is deleted with them');
-select results_eq($$select (select count(*)::integer from public.takeoff_count_mark_attributions where project_id = pg_temp.f(20)),
-  (select count(*)::integer from public.takeoff_count_mark_proposals where project_id = pg_temp.f(20)),
-  (select count(*)::integer from public.takeoff_count_answer_states where project_id = pg_temp.f(20)),
+select results_eq($$select (select count(*)::integer from public.takeoff_count_mark_attributions
+    where answer_id in (select id from answer_ids where round = 1)),
+  (select count(*)::integer from public.takeoff_count_mark_proposals where job_id = pg_temp.job(1)),
+  (select count(*)::integer from public.takeoff_count_answer_states where answer_id in (select id from answer_ids where round = 1)),
   (select count(*)::integer from public.takeoff_count_mark_events where answer_id = pg_temp.lavabo()) > 0$$,
   $$values (0, 0, 0, true)$$, 'their attributions, proposals and states are gone; their journal stays');
 select pg_temp.sign_in(3);
 set local role authenticated;
 select ok((select count(*) from public.read_takeoff_count_mark_events(pg_temp.f(10), pg_temp.f(20), pg_temp.lavabo())) > 0,
   'a reader still reads who did what');
+select results_eq($$select e.mark_id = pg_temp.m('lav-1'), p ->> 'source_key', p ->> 'method', p ->> 'method_version', p ->> 'raw_frame',
+  p #>> '{raw_centre,0}', (p ->> 'observation_id') is not null, (p ->> 'observation_page')::integer
+  from public.read_takeoff_count_mark_events(pg_temp.f(10), pg_temp.f(20), pg_temp.lavabo()) e,
+    jsonb_array_elements(e.evidence) p
+  where e.gesture = 'retain' and e.mark_id = pg_temp.m('lav-1') and p ->> 'generation' = '1'$$,
+  $$values (true, 'lav-1'::text, 'symbol_count'::text, 'banc-1'::text, 'tile:1'::text, '120'::text, true, 2)$$,
+  'what supported a retained mark is read with the decision that retained it, after its job is gone');
 reset role;
 select lives_ok($$select pg_temp.delete_and_check(format('delete from public.estimate_projects where id = %L', pg_temp.f(20)))$$,
   'the affaire is deleted with every mark');
