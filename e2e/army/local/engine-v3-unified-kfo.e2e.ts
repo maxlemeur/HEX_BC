@@ -228,27 +228,67 @@ armyTest(
     await expect(
       ui.screen.getByLabel("Base entreprise — Tube", { exact: true }),
     ).toHaveValue("1,0735");
-    await ui.screen
-      .getByLabel("Base entreprise — Tube", { exact: true })
-      .fill("1,13");
-    await ui.screen
-      .getByLabel("Base entreprise — Tube", { exact: true })
-      .press("Enter");
-    await expect(
-      ui.screen
-        .getByRole("status")
-        .filter({ hasText: "Coefficient enregistré" }),
-    ).toBeVisible();
+    // One save carries the company base and the preference edited in the same table.
     const preference = ui.screen.getByLabel("Ma préférence — Tube", {
       exact: true,
     });
+    await ui.screen
+      .getByLabel("Base entreprise — Tube", { exact: true })
+      .fill("1,13");
     await preference.fill("1,15");
+    const kfoSection = ui.screen.getByRole(
+      "region",
+      "Coefficients fourniture K FO",
+      { exact: true },
+    );
+    const tubeRow = kfoSection.getByRole("row", /^Tube/);
+    await expect(tubeRow).toContainText("1,15");
+    await expect(tubeRow).toContainText("Ma préférence");
+    await expect(
+      ui.screen.getByText("2 modifications non enregistrées", { exact: true }),
+    ).toBeVisible();
     await preference.press("Enter");
     await expect(
       ui.screen
         .getByRole("status")
-        .filter({ hasText: "Coefficient enregistré" }),
+        .filter({ hasText: "Coefficients enregistrés" }),
     ).toBeVisible();
+    await ui.browser.reload();
+    await expect(
+      ui.screen.getByLabel("Base entreprise — Tube", { exact: true }),
+    ).toHaveValue("1,13");
+    await expect(preference).toHaveValue("1,15");
+    // A negative value is flagged and never sent; Cancel drops it without writing.
+    await preference.fill("-1");
+    await expect(preference).toHaveAttribute("aria-invalid", "true");
+    await expect(
+      ui.screen.getByText("1 modification non enregistrée", { exact: true }),
+    ).toBeVisible();
+    await preference.press("Enter");
+    await expect(
+      ui.screen
+        .getByRole("status")
+        .filter({ hasText: "Corrigez les valeurs signalées" }),
+    ).toBeVisible();
+    await kfoSection.getByRole("button", "Annuler", { exact: true }).click();
+    await expect(preference).toHaveValue("1,15");
+    await expect(
+      ui.screen.getByText("1 modification non enregistrée", { exact: true }),
+    ).toHaveCount(0);
+    await ui.app.screenshot("kfo-profile-table");
+    await ui.browser.setViewport({ width: 390, height: 844 });
+    await expect(tubeRow).toContainText("Appliqué 1,15");
+    // Both inputs stay inside the card on a phone: the table never runs wider than its section.
+    expect(
+      await ui.browser.evaluate(() => {
+        const table = document.querySelector(
+          '[aria-labelledby="section-coefficients-fourniture-k-fo"] table',
+        )!;
+        return table.scrollWidth <= table.parentElement!.clientWidth;
+      }),
+    ).toBe(true);
+    await ui.app.screenshot("kfo-profile-table-mobile");
+    await ui.browser.setViewport({ width: 1280, height: 800 });
     await ui.app.open(`/dashboard/estimates/${draft.versionId}/edit`);
     await waitForDraftLease(ui);
     await ui.screen.getByTestId("estimate-editor-controls-button", { visible: true }).click();
