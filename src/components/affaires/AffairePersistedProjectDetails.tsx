@@ -7,10 +7,13 @@ import { Building2, Pencil } from "lucide-react";
 import { updateAffaireProjectMetadataAction } from "@/app/dashboard/affaires/_actions/project";
 import {
   AffaireProjectDetailsCard,
+  toSiteContactDrafts,
   type AffaireProjectDetailsValues,
+  type AffaireSiteContactDraft,
 } from "@/components/affaires/AffaireProjectDetailsCard";
 import { ProjectIconPicker, type ProjectIconKey } from "@/components/affaires/ProjectIconPicker";
 import { Button } from "@/components/ui/button";
+import type { AffaireSiteContact } from "@/lib/affaires/site-contacts";
 import { useToast } from "@/components/feedback/toast-provider";
 
 type AffairePersistedProjectDetailsProps = {
@@ -36,6 +39,20 @@ function validateProjectName(value: string) {
     return "Le nom du projet ne doit pas dépasser 200 caractères.";
   }
   return null;
+}
+
+/** A row with a role or a number but no name cannot be saved; fully empty rows are dropped. */
+function siteContactsToSave(
+  drafts: readonly AffaireSiteContactDraft[] | undefined,
+): { ok: true; contacts: AffaireSiteContact[] } | { ok: false; error: string } {
+  const rows = (drafts ?? [])
+    .map((draft) => ({ name: draft.name.trim(), role: draft.role.trim(), phone: draft.phone.trim() }))
+    .filter((row) => row.name || row.role || row.phone);
+  if (rows.some((row) => !row.name)) return { ok: false, error: "Chaque contact sur site a un nom." };
+  return {
+    ok: true,
+    contacts: rows.map((row) => ({ name: row.name, ...(row.role ? { role: row.role } : {}), ...(row.phone ? { phone: row.phone } : {}) })),
+  };
 }
 
 export function AffairePersistedProjectDetails({
@@ -77,6 +94,11 @@ export function AffairePersistedProjectDetails({
       setProjectNameError(nextError);
       return;
     }
+    const contacts = siteContactsToSave(draftValues.siteContacts);
+    if (!contacts.ok) {
+      setErrorMessage(contacts.error);
+      return;
+    }
 
     startTransition(async () => {
       try {
@@ -86,6 +108,7 @@ export function AffairePersistedProjectDetails({
           clientName: draftValues.clientName || null,
           reference: draftValues.reference || null,
           siteAddress: draftValues.siteAddress || null,
+          ...(draftValues.siteContacts !== undefined ? { siteContacts: contacts.contacts } : {}),
         });
 
         const nextValues = {
@@ -93,6 +116,7 @@ export function AffairePersistedProjectDetails({
           clientName: result.clientName ?? "",
           reference: result.reference ?? "",
           siteAddress: result.siteAddress ?? "",
+          ...(draftValues.siteContacts !== undefined ? { siteContacts: toSiteContactDrafts(result.siteContacts) } : {}),
         };
 
         setSavedValues(nextValues);
@@ -171,6 +195,12 @@ export function AffairePersistedProjectDetails({
       onSiteAddressChange={(value) => {
         setDraftValues((current) => ({ ...current, siteAddress: value }));
       }}
+      onSiteContactsChange={savedValues.siteContacts !== undefined ? (value) => {
+        setDraftValues((current) => ({ ...current, siteContacts: value }));
+        if (errorMessage) {
+          setErrorMessage(null);
+        }
+      } : undefined}
       onReferenceChange={(value) => {
         setDraftValues((current) => ({ ...current, reference: value }));
         if (errorMessage) {
