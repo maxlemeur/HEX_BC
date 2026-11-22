@@ -793,11 +793,25 @@ describe("launchTakeoffRelaunch", () => {
   const relaunch = () => launchTakeoffRelaunch({ context: member("engineer"), projectId: PROJECT, planSetId: PLAN_SET,
     preparationRevision: 2, intentKey: "aaaaaaaa-0000-4000-8000-0000000000aa", predecessorJobId: "aaaaaaaa-0000-4000-8000-0000000000bb" });
 
+  // The receipt is read first, whatever the activation: the database answers it under either identity a command can have
+  // had (all the plans of the preparation, or the plans it names, by default those of the analysis it replaces).
   it("answers a replayed click with its recorded answer before reading the preparation", async () => {
     const { calls } = gesture({ replayed: { outcome: "already_running", request_id: REQUEST, job_id: "aaaaaaaa-0000-4000-8000-0000000000cc" } });
     expect(await relaunch()).toEqual({ outcome: "already_running", requestId: REQUEST, jobId: "aaaaaaaa-0000-4000-8000-0000000000cc" });
-    expect(calls("replay")).toEqual([expect.objectContaining({ p_intent_key: "aaaaaaaa-0000-4000-8000-0000000000aa",
-      p_predecessor_job_id: "aaaaaaaa-0000-4000-8000-0000000000bb", p_plan_set_id: PLAN_SET, p_preparation_revision: 2 })]);
+    expect(calls("replay_plans")).toEqual([expect.objectContaining({ p_intent_key: "aaaaaaaa-0000-4000-8000-0000000000aa",
+      p_predecessor_job_id: "aaaaaaaa-0000-4000-8000-0000000000bb", p_plan_set_id: PLAN_SET, p_preparation_revision: 2,
+      p_plan_file_ids: [PLAN_FILE] })]);
+    expect(assertConfirmedTakeoffPreparation).not.toHaveBeenCalled();
+  });
+
+  // A lost answer replays whatever the activation: a command naming its plans, repeated after one analysis per plan was
+  // withdrawn, gets its receipt, not a refusal for naming plans.
+  it("answers a command naming its plans, repeated after a withdrawal, by its receipt", async () => {
+    const { calls } = gesture({ perPlan: false, replayed: { outcome: "replayed", request_id: REQUEST, job_id: "aaaaaaaa-0000-4000-8000-0000000000cc" } });
+    await expect(launchTakeoffRelaunch({ context: member("engineer"), projectId: PROJECT, planSetId: PLAN_SET, preparationRevision: 2,
+      intentKey: "aaaaaaaa-0000-4000-8000-0000000000ab", planFileIds: [PLAN_FILE], predecessorJobId: "aaaaaaaa-0000-4000-8000-0000000000bb" }))
+      .resolves.toEqual({ outcome: "replayed", requestId: REQUEST, jobId: "aaaaaaaa-0000-4000-8000-0000000000cc" });
+    expect(calls("replay_plans")).toEqual([expect.objectContaining({ p_plan_file_ids: [PLAN_FILE] })]);
     expect(assertConfirmedTakeoffPreparation).not.toHaveBeenCalled();
   });
 
@@ -819,6 +833,7 @@ describe("launchTakeoffRelaunch", () => {
       intentKey: "aaaaaaaa-0000-4000-8000-0000000000aa", predecessorJobId: null, host: "autre-poste.example:3000" }))
       .rejects.toMatchObject({ status: 422, message: expect.stringContaining("cette adresse ne peut pas utiliser le forfait ChatGPT") });
     expect(calls("replay")).toEqual([]);
+    expect(calls("replay_plans")).toEqual([]);
     expect(assertConfirmedTakeoffPreparation).not.toHaveBeenCalled();
   });
 
@@ -833,16 +848,6 @@ describe("launchTakeoffRelaunch", () => {
       p_predecessor_job_id: "aaaaaaaa-0000-4000-8000-0000000000bb", p_plan_file_ids: [PLAN_FILE] })]);
   });
 
-  // The database's refusal (TAKEOFF_LAUNCH_ANALYSIS_EXISTS, 20261121193413), asked before the plans are counted, with the
-  // same answer.
-  it("refuses a first analysis on an affaire that has one: the command names the analysis it extends", async () => {
-    const { calls } = gesture({ perPlan: true });
-    await expect(launchTakeoffRelaunch({ context: member("engineer"), projectId: PROJECT, planSetId: PLAN_SET, preparationRevision: 2,
-      intentKey: "aaaaaaaa-0000-4000-8000-0000000000ae", planFileIds: [PLAN_FILE], predecessorJobId: null })).rejects.toMatchObject({
-      status: 409, message: "L’affaire a déjà une analyse : rechargez l’affaire pour relancer celle qu’elle montre." });
-    expect(calls("replay_plans")).toEqual([expect.objectContaining({ p_intent: "initial" })]);
-    expect(assertConfirmedTakeoffPreparation).not.toHaveBeenCalled();
-  });
 
   // Lot 3: the dossier's limits are checked on every plan a command reads before its units are admitted (two plans of 150
   // pages each pass one at a time under 200 pages, not together), and the plans it sets aside are recorded as such.
@@ -858,8 +863,10 @@ describe("launchTakeoffRelaunch", () => {
    * unit per plan.
    */
   function planCommand(pages: { a: number | null; b: number }, previous: { format: 1 | 2; plans: string[]; read: string[] } | null = null,
-    bytes?: Uint8Array, predecessorJobId: string | null = "aaaaaaaa-0000-4000-8000-0000000000bb") {
+    bytes?: Uint8Array, predecessorJobId: string | null = "aaaaaaaa-0000-4000-8000-0000000000bb",
+    refusal: { code: string; message: string } | null = null) {
     const launched: Array<Record<string, unknown>> = [];
+    const launchedAll: Array<Record<string, unknown>> = [];
     const planRow = (id: string, name: string, pageCount: number | null) => ({ id, tenant_id: TENANT, plan_set_id: PLAN_SET,
       file_path: `${TENANT}/${PLAN_SET}/${id}/${name}`, file_name: name, file_type: "application/pdf", file_size_bytes: 8,
       page_count: pageCount, metadata: {}, created_at: "2026-11-21T08:00:00Z" });
@@ -884,7 +891,14 @@ describe("launchTakeoffRelaunch", () => {
         read_takeoff_launch_request_units: () => ({ data: previousUnits, error: null }),
         launch_manual_takeoff_plan_request: (args) => {
           launched.push(args as Record<string, unknown>);
+          if (refusal) return { data: null, error: refusal };
           return { data: [{ outcome: "admitted", request_id: REQUEST, job_id: (args as { p_jobs: Array<{ id: string }> }).p_jobs[0].id }], error: null };
+        },
+        // A first analysis of every plan of the preparation: M4's entry point, the request's units as its jobs.
+        launch_manual_takeoff_request: (args) => {
+          launchedAll.push(args as Record<string, unknown>);
+          if (refusal) return { data: null, error: refusal };
+          return { data: [{ outcome: "admitted", request_id: REQUEST, job_id: (args as { p_job: Array<{ id: string }> }).p_job[0].id }], error: null };
         },
       },
     });
@@ -901,8 +915,49 @@ describe("launchTakeoffRelaunch", () => {
     const context = { userId: PAYER, tenantId: TENANT, tenantRole: "engineer", supabase: fake.client } as never;
     const run = (planFileIds: string[]) => launchTakeoffRelaunch({ context, projectId: PROJECT, planSetId: PLAN_SET,
       preparationRevision: 2, intentKey: "aaaaaaaa-0000-4000-8000-0000000000ad", planFileIds, predecessorJobId });
-    return { run, launched, rows };
+    // The affaire zone's dialogue (LaunchMetreDialog, relaunchTakeoffAction): its key, its preparation and the analysis it
+    // replaces, never any plan.
+    const runFromDialogue = () => launchTakeoffRelaunch({ context, projectId: PROJECT, planSetId: PLAN_SET, preparationRevision: 2,
+      intentKey: "aaaaaaaa-0000-4000-8000-0000000000af", predecessorJobId });
+    return { run, runFromDialogue, launched, launchedAll, rows };
   }
+
+  // The first analysis of a confirmed dossier, launched from the affaire's zone once one analysis per plan is active: the
+  // dialogue names no plan, so every plan its preparation retains is read, each as its own unit.
+  it("starts a first analysis from the dialogue's payload with every plan the preparation retains", async () => {
+    const { runFromDialogue, launchedAll, launched } = planCommand({ a: 3, b: 3 }, null, undefined, null);
+    await expect(runFromDialogue()).resolves.toMatchObject({ outcome: "admitted", requestId: REQUEST });
+    expect(launched).toEqual([]);
+    expect(launchedAll).toHaveLength(1);
+    expect(launchedAll[0]).toMatchObject({ p_intent: "initial", p_predecessor_job_id: null });
+    const manifest = launchedAll[0].p_manifest as AnyTakeoffLaunchManifest;
+    expect(manifest.format_version).toBe(2);
+    expect(manifest.plans.map((plan) => plan.plan_file_id).sort()).toEqual([PLAN_FILE, PLAN_B, PLAN_C].sort());
+    expect((launchedAll[0].p_job as Array<{ launch_unit_key: string }>).map((job) => job.launch_unit_key))
+      .toEqual(manifest.units.map((unit) => unit.key));
+  });
+
+  // The database decides the order of its refusals (20261121193413): an automatic start that can still begin comes before
+  // the affaire's existing analysis; the server never answers first.
+  it("answers the database's refusal of a first analysis, in the database's order", async () => {
+    const pending = planCommand({ a: 3, b: 3 }, { format: 2, plans: [PLAN_FILE], read: [PLAN_FILE] }, undefined, null,
+      { code: "55000", message: "TAKEOFF_LAUNCH_AUTOMATIC_PENDING" });
+    await expect(pending.run([PLAN_FILE])).rejects.toMatchObject({ status: 409,
+      message: "Le métré automatique de l’affaire peut encore démarrer : prenez-le en charge depuis l’état du métré de l’affaire." });
+    expect(pending.launched).toHaveLength(1);
+    const exists = planCommand({ a: 3, b: 3 }, { format: 2, plans: [PLAN_FILE], read: [PLAN_FILE] }, undefined, null,
+      { code: "22023", message: "TAKEOFF_LAUNCH_ANALYSIS_EXISTS" });
+    await expect(exists.run([PLAN_FILE])).rejects.toMatchObject({ status: 409,
+      message: "L’affaire a déjà une analyse : rechargez l’affaire pour relancer celle qu’elle montre." });
+  });
+
+  // A plan whose stored count is unknown and whose bytes cannot be read is refused by name, as the automatic seal refuses
+  // it: weighed as one page, a whole PDF would take a share it cannot read with.
+  it("refuses a command whose plan of unknown count cannot be read, naming the plan", async () => {
+    const { run, launched } = planCommand({ a: null, b: 3 });
+    await expect(run([PLAN_FILE])).rejects.toMatchObject({ code: "CONFLICT", message: expect.stringContaining("« plan-a.pdf »") });
+    expect(launched).toEqual([]);
+  });
 
   // A plan the earlier analysis never read (its unit cancelled before its reading) is not set aside as read.
   it("sets aside only the plans whose unit an earlier analysis actually read", async () => {
@@ -956,6 +1011,8 @@ describe("launchTakeoffRelaunch", () => {
     await expect(launchTakeoffRelaunch({ context: member("engineer"), projectId: PROJECT, planSetId: PLAN_SET, preparationRevision: 2,
       intentKey: "aaaaaaaa-0000-4000-8000-0000000000ac", planFileIds: [PLAN_FILE], predecessorJobId: null }))
       .rejects.toMatchObject({ status: 422, message: expect.stringContaining("sans choisir de plans") });
+    // Its receipt was looked up first: none.
+    expect(calls("replay_plans")).toEqual([expect.objectContaining({ p_plan_file_ids: [PLAN_FILE] })]);
     expect(calls("replay")).toEqual([]);
   });
 
@@ -965,8 +1022,12 @@ describe("launchTakeoffRelaunch", () => {
     const service = createSupabaseFake({ rpc: {
       // One analysis per plan not activated: the grouped command (lot 3's command of plans has its own cases above).
       takeoff_plan_dispatch_is_active: () => ({ data: false, error: null }),
-      replay_manual_takeoff_request: () => ({ data: [], error: null }),
+      // The receipt, read first under either identity of the command: none.
+      replay_manual_takeoff_plan_request: () => ({ data: [], error: null }),
       launch_manual_takeoff_request: () => { calls.push("launch"); return { data: answer.data ?? null, error: answer.error ?? null }; },
+    }, tables: {
+      // The analysis a relaunch replaces: a grouped one, read for the plans its receipt may name.
+      takeoff_jobs: () => ({ data: { launch_unit_key: "grouped", preparation_snapshot: null }, error: null }),
     } });
     vi.mocked(createServiceRoleClient).mockReturnValue(service.client as never);
     const session = createSupabaseFake({ tables: { plan_files: () => ({ data: [], error: null, count: 0 }) } });
@@ -1019,7 +1080,8 @@ describe("launchTakeoffRelaunch", () => {
     const { calls } = gesture({ replayed: { outcome: "replayed", request_id: REQUEST, job_id: "aaaaaaaa-0000-4000-8000-0000000000cc" } });
     await launchTakeoffRelaunch({ context: member("engineer"), projectId: PROJECT, planSetId: PLAN_SET, preparationRevision: 2,
       intentKey: "aaaaaaaa-0000-4000-8000-0000000000aa", predecessorJobId: null });
-    expect(calls("replay")).toEqual([expect.objectContaining({ p_intent: "initial", p_predecessor_job_id: null })]);
+    expect(calls("replay_plans")).toEqual([expect.objectContaining({ p_intent: "initial", p_predecessor_job_id: null,
+      p_plan_file_ids: null })]);
   });
 
 });
