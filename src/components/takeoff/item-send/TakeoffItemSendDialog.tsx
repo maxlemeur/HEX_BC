@@ -197,7 +197,8 @@ function TakeoffItemSendScreen({ open, jobId, planName, viewerKey, onOpenChange,
     setSubmitting(true);
     setSubmitError(null);
     const digest = data.plan_digest;
-    const request = itemSendRequestOf({ ...ask, destination: data.destination ?? undefined, breakdown: data.breakdown });
+    // Exactly the request the preview shown was read with: the server binds the plan to those choices (their digest).
+    const request = itemSendRequestOf(ask);
     const requestKey = `${digest}:${JSON.stringify(request)}`;
     if (intent.current?.digest !== requestKey) intent.current = { digest: requestKey, id: crypto.randomUUID() };
     const completion = start({ screen, item: String(ask.read) });
