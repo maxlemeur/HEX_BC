@@ -38,6 +38,7 @@ import {
 } from "@/lib/affaires/import-engine-server";
 import { persistCanonicalEstimateV2 } from "@/lib/estimates/canonical-v2-creation";
 import { IMPORT_CONTROL_TOLERANCE_CENTS } from "@/lib/imports/optima-profile";
+import { readDpgfImportRowsDigest } from "@/lib/imports/rows-digest-server";
 import {
   createMapping,
   findPerUnitDurationsMappedToLineHours,
@@ -53,7 +54,6 @@ import type {
   ConfirmUnifiedImportFlowRefusal,
   ImportFlowLinesPreview,
 } from "@/lib/affaires/import-flow-results";
-import { dpgfImportRowsDigest } from "@/lib/imports/rows-digest";
 import type {
   TakeoffCarryOverStatus,
   TakeoffCarryOverSummary,
@@ -102,8 +102,8 @@ const confirmUnifiedImportFlowSchema = z.object({
   versionTitle: z.string().trim().max(200).nullable().optional(),
   sectionTitle: z.string().trim().max(200).nullable().optional(),
   structurePlan: z.object({ decisions: z.array(structureDecisionSchema).max(10_000) }).optional(),
-  // The digest of the rows the member reviewed (the structure preview's rows_digest): the confirmation records only
-  // those rows (lot 4).
+  // The database's digest of the import's rows when the member reviewed them (the structure preview's rows_digest): a
+  // confirmation that keeps the import's latest mapping records only those rows (lot 4).
   rowsDigest: z.string().regex(/^[0-9a-f]{64}$/, "rowsDigest invalide."),
   // Labour role of the imported hours chosen at the preview (E17). Omitted: the workbook rate
   // decides; null: the explicit « no role » choice (MO valued at 0 €/h, warned in the preview).
@@ -396,6 +396,8 @@ export async function confirmUnifiedImportFlow(
 
   const normalizedMapping = mappingRecordSchema.parse(parsed.data.mapping ?? {});
   let mapping: { id: string; columnMapping: unknown } | null = null;
+  // The rows this confirmation wrote, when it writes its mapping (the member's, applied to the import's raw rows).
+  let writtenRowIds: ReadonlySet<string> | null = null;
 
   if (Object.keys(normalizedMapping).length > 0) {
     const createMappingResult = await createMapping({
@@ -404,6 +406,7 @@ export async function confirmUnifiedImportFlow(
       save_template: false,
     });
     mapping = { id: createMappingResult.mapping.id, columnMapping: createMappingResult.mapping.column_mapping };
+    writtenRowIds = new Set(createMappingResult.mapped_row_ids);
   }
 
   if (!mapping) {
@@ -416,15 +419,21 @@ export async function confirmUnifiedImportFlow(
   const mappingId = mapping?.id ?? null;
 
   const effectiveProjectId = requestedProjectId ?? importRow.project_id ?? null;
+  // The digest the confirmation's record checks, the database's own, recomputed under the import's lock with the rows
+  // it records: the rows the member reviewed when the confirmation keeps the latest mapping; else the rows it has just
+  // written, read before they are read below (a value changed since refuses the record).
+  const rowsDigest = writtenRowIds
+    ? await readDpgfImportRowsDigest({ tenantId: membership.tenant_id, importId: parsed.data.importId })
+    : parsed.data.rowsDigest;
   const mappedRows = await fetchMappedRowsForImport({
     supabase,
     importId: parsed.data.importId,
     tenantId: membership.tenant_id,
   });
-  // The rows confirmed are those the member reviewed (any payload shape an import ever stored): another tab's
-  // mapping, a replacement still being written or a value changed since refuse the confirmation before anything else
-  // is written; the database compares them again under the import's lock.
-  if (dpgfImportRowsDigest(mappedRows) !== parsed.data.rowsDigest) {
+  // A confirmation that wrote its mapping records exactly the rows it wrote: rows another tab's writer is still
+  // inserting refuse it before anything else is written.
+  const written = writtenRowIds;
+  if (written && (mappedRows.length !== written.size || mappedRows.some(({ id }) => !written.has(id)))) {
     return refusal(parsed.data.importId, "mapping_changed");
   }
 
@@ -515,7 +524,7 @@ export async function confirmUnifiedImportFlow(
         decisions: normalizationOptions.structureDecisions,
         exclusions: importStructuralExclusions(normalizedRows),
         mappedRowIds: mappedRows.map(({ id }) => id),
-        rowsDigest: parsed.data.rowsDigest,
+        rowsDigest,
       });
       if (refused) return refused;
     }
@@ -582,7 +591,7 @@ export async function confirmUnifiedImportFlow(
           decisions: normalizationOptions.structureDecisions,
           exclusions: importStructuralExclusions(normalizedRows),
           mappedRowIds: mappedRows.map(({ id }) => id),
-          rowsDigest: parsed.data.rowsDigest,
+          rowsDigest,
         } }
         : {}),
     });

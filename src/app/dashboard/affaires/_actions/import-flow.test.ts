@@ -25,7 +25,6 @@ import { confirmUnifiedImportFlow } from "@/app/dashboard/affaires/_actions/impo
 import { createMapping } from "@/lib/mappings/server";
 import { persistCanonicalEstimateV2 } from "@/lib/estimates/canonical-v2-creation";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { dpgfImportRowsDigest } from "@/lib/imports/rows-digest";
 
 const USER_ID = "11111111-1111-4111-8111-111111111111";
 const TENANT_ID = "22222222-2222-4222-8222-222222222222";
@@ -33,6 +32,10 @@ const IMPORT_ID = "33333333-3333-4333-8333-333333333333";
 const PROJECT_ID = "44444444-4444-4444-8444-444444444444";
 const OTHER_PROJECT_ID = "55555555-5555-4555-8555-555555555555";
 const VERSION_ID = "66666666-6666-4666-8666-666666666666";
+// The database's digests (public.dpgf_import_rows_sha256): the one the structure preview handed to the form, and the one
+// the database gives of the rows a confirmation has just written. The server never computes one.
+const PREVIEW_DIGEST = "a".repeat(64);
+const WRITTEN_DIGEST = "b".repeat(64);
 
 function createMembershipBuilder(role: "engineer" | "admin" = "engineer") {
   const builder = {
@@ -319,7 +322,7 @@ describe("confirmUnifiedImportFlow", () => {
         projectId: PROJECT_ID,
         createEstimate: true,
         previewSourceVersionId,
-        rowsDigest: dpgfImportRowsDigest(ORIGINAL_ROWS),
+        rowsDigest: PREVIEW_DIGEST,
       })
     ).rejects.toThrow(
       "La version source du carry-over takeoff a change. Rechargez la confirmation avant de créer le chiffrage."
@@ -371,7 +374,7 @@ describe("confirmUnifiedImportFlow", () => {
       projectId: PROJECT_ID,
       createEstimate: true,
       previewSourceVersionId: sourceVersionId,
-      rowsDigest: dpgfImportRowsDigest(ORIGINAL_ROWS),
+      rowsDigest: PREVIEW_DIGEST,
     });
 
     if (result.mode === "refused") throw new Error(`unexpected refusal: ${result.message}`);
@@ -415,8 +418,9 @@ describe("confirmUnifiedImportFlow", () => {
   });
 });
 
-// Lot 4 (the affaire's item list): what a confirmation records is bound to the rows the member reviewed. Its refusals
-// are returned (a Server Action's thrown message never reaches the member in production).
+// Lot 4 (the affaire's item list): what a confirmation records is bound to the rows it consumed, by the database's digest
+// of them (recomputed under the import's lock, in the statement that stores it as the proof). Its refusals are returned
+// (a Server Action's thrown message never reaches the member in production).
 describe("confirmUnifiedImportFlow — the rows and decisions a confirmation records", () => {
   const FOOTER_SHEET = [
     { Designation: "Tube acier", Qte: 12, U: "ml", PU: 10 },
@@ -424,24 +428,27 @@ describe("confirmUnifiedImportFlow — the rows and decisions a confirmation rec
     { Designation: "PSE 1 : robinet thermostatique", Qte: 4, U: "u", PU: 45 },
     { Designation: "Total HT", Qte: null, U: null, PU: 300 },
   ];
-  const mappingCreated = { mapping: { id: "mapping-created", column_mapping: COLUMNS } };
-  const reviewed = (sheet: typeof FOOTER_SHEET) => dpgfImportRowsDigest(sheet.map((raw, index) => storedRow(index, raw)));
+  const WRITTEN_IDS = ["mapped-0", "mapped-1", "mapped-2", "mapped-3"];
+  const mappingCreated = { mapping: { id: "mapping-created", column_mapping: COLUMNS }, mapped_row_ids: WRITTEN_IDS };
+  const recordCalls = () => serviceRpc.mock.calls.filter(([name]) => name === "record_dpgf_import_confirmation");
+  const digestCalls = () => serviceRpc.mock.calls.filter(([name]) => name === "dpgf_import_rows_sha256");
 
   function stub(rows: ReturnType<typeof storedRow>[], options: { rowCount?: number; latest?: boolean } = {}) {
+    const mappedRowsBuilder = createMappedRowsBuilder(rows);
     const supabase = createSupabaseStub({
       membershipBuilder: createMembershipBuilder(),
       importBuilder: createImportSelectBuilder(PROJECT_ID, options.rowCount ?? rows.length),
       projectBuilder: createProjectSelectBuilder(true),
       ...(options.latest ? { latestMappingBuilder: createLatestMappingBuilder("mapping-latest") } : {}),
-      mappedRowsBuilder: createMappedRowsBuilder(rows),
+      mappedRowsBuilder,
       versionContextBuilder: createVersionContextBuilder(null, 1, 2000),
     });
     vi.mocked(createSupabaseServerClient).mockResolvedValue(supabase as never);
-    return supabase;
+    return { supabase, mappedRowsBuilder };
   }
-  const confirm = (createEstimate: boolean, rowsDigest = reviewed(FOOTER_SHEET)) => confirmUnifiedImportFlow({
+  const confirm = (createEstimate: boolean) => confirmUnifiedImportFlow({
     importId: IMPORT_ID, projectId: PROJECT_ID, mapping: { ...COLUMNS }, createEstimate,
-    structurePlan: { decisions: [] }, rowsDigest,
+    structurePlan: { decisions: [] }, rowsDigest: PREVIEW_DIGEST,
   });
   const MAPPING_CHANGED = {
     mode: "refused", reason: "mapping_changed", importId: IMPORT_ID,
@@ -455,7 +462,8 @@ describe("confirmUnifiedImportFlow — the rows and decisions a confirmation rec
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(createMapping).mockResolvedValue(mappingCreated as never);
-    serviceRpc.mockResolvedValue({ data: "confirmation-1", error: null });
+    serviceRpc.mockImplementation(async (name: string) => name === "dpgf_import_rows_sha256"
+      ? { data: WRITTEN_DIGEST, error: null } : { data: "confirmation-1", error: null });
     vi.mocked(persistCanonicalEstimateV2).mockResolvedValue({
       project: { id: PROJECT_ID },
       version: { id: VERSION_ID, total_ht_cents: 12000, total_tax_cents: 2400, total_ttc_cents: 14400 },
@@ -464,25 +472,31 @@ describe("confirmUnifiedImportFlow — the rows and decisions a confirmation rec
   });
 
   it("refuses rows another tab's mapping made, before anything is created", async () => {
-    // Tab A finished writing its rows under its own mapping (no unit column) after tab B created the latest mapping.
-    stub([storedRow(0, FOOTER_SHEET[0], { Designation: "designation", Qte: "quantity", PU: "unit_price_ht" })]);
-    await expect(confirm(true, reviewed([FOOTER_SHEET[0]]))).resolves.toEqual(MAPPING_CHANGED);
+    // Tab A finished writing its rows under its own mapping (no unit column) after this tab wrote the latest mapping.
+    stub([{ ...storedRow(0, FOOTER_SHEET[0], { Designation: "designation", Qte: "quantity", PU: "unit_price_ht" }),
+      id: "tab-a-0" }]);
+    await expect(confirm(true)).resolves.toEqual(MAPPING_CHANGED);
     expect(persistCanonicalEstimateV2).not.toHaveBeenCalled();
   });
 
-  it("refuses a replacement still being written: fewer rows than the member reviewed", async () => {
-    stub([storedRow(0, FOOTER_SHEET[0]), storedRow(1, FOOTER_SHEET[1])], { rowCount: 4 });
+  it("refuses a replacement still being written: other rows beside the ones it wrote", async () => {
+    stub([...FOOTER_SHEET.map((raw, index) => storedRow(index, raw)), { ...storedRow(0, FOOTER_SHEET[0]), id: "tab-a-0" }]);
     await expect(confirm(true)).resolves.toEqual(MAPPING_CHANGED);
     stub([storedRow(0, FOOTER_SHEET[0]), storedRow(1, FOOTER_SHEET[1])], { rowCount: 4 });
     await expect(confirm(false)).resolves.toEqual(MAPPING_CHANGED);
     expect(persistCanonicalEstimateV2).not.toHaveBeenCalled();
-    expect(serviceRpc).not.toHaveBeenCalled();
+    expect(recordCalls()).toEqual([]);
   });
 
-  it("refuses a quantity changed after the member reviewed it", async () => {
-    stub(FOOTER_SHEET.map((raw, index) => storedRow(index, index === 2 ? { ...raw, Qte: 5 } : raw)));
-    await expect(confirm(true)).resolves.toEqual(MAPPING_CHANGED);
-    expect(persistCanonicalEstimateV2).not.toHaveBeenCalled();
+  it("binds its record to the database's digest of the rows it wrote, read before it reads them", async () => {
+    const { mappedRowsBuilder } = stub(FOOTER_SHEET.map((raw, index) => storedRow(index, raw)));
+    await confirm(true);
+    expect(digestCalls()).toEqual([["dpgf_import_rows_sha256", { p_tenant_id: TENANT_ID, p_import_id: IMPORT_ID }]]);
+    const digestRead = serviceRpc.mock.invocationCallOrder[serviceRpc.mock.calls.findIndex(([name]) =>
+      name === "dpgf_import_rows_sha256")];
+    expect(digestRead).toBeLessThan(Math.min(...mappedRowsBuilder.range.mock.invocationCallOrder));
+    expect(vi.mocked(createMapping).mock.invocationCallOrder[0]).toBeLessThan(digestRead);
+    expect(vi.mocked(persistCanonicalEstimateV2).mock.calls[0]?.[0].importConfirmation?.rowsDigest).toBe(WRITTEN_DIGEST);
   });
 
   it("returns the French reason when the confirmation's lock finds other rows, not a generic failure", async () => {
@@ -493,7 +507,7 @@ describe("confirmUnifiedImportFlow — the rows and decisions a confirmation rec
     await expect(confirm(true)).resolves.toEqual(MAPPING_CHANGED);
   });
 
-  it("records the rows checked, the footer rows the import left out and the digest the member reviewed", async () => {
+  it("records the rows it wrote, the footer rows the import left out and the database's digest of them", async () => {
     stub(FOOTER_SHEET.map((raw, index) => storedRow(index, raw)));
     await confirm(true);
     expect(vi.mocked(persistCanonicalEstimateV2).mock.calls[0]?.[0].importConfirmation).toEqual({
@@ -502,12 +516,12 @@ describe("confirmUnifiedImportFlow — the rows and decisions a confirmation rec
       exclusions: [
         { rowIndex: 1, reason: "footer" }, { rowIndex: 2, reason: "footer" }, { rowIndex: 3, reason: "footer" },
       ],
-      mappedRowIds: ["mapped-0", "mapped-1", "mapped-2", "mapped-3"],
-      rowsDigest: reviewed(FOOTER_SHEET),
+      mappedRowIds: WRITTEN_IDS,
+      rowsDigest: WRITTEN_DIGEST,
     });
   });
 
-  it("reconfirms an import whose stored rows have the older flat payload", async () => {
+  it("keeps the latest mapping: records the rows the member reviewed, by the preview's digest", async () => {
     // An older mapping writer stored the mapped fields at the payload's top level, without its raw row.
     const flat = FOOTER_SHEET.map((raw, index) => ({
       id: `mapped-${index}`, raw_row_id: `raw-${index}`,
@@ -516,20 +530,24 @@ describe("confirmUnifiedImportFlow — the rows and decisions a confirmation rec
     stub(flat as never, { latest: true });
     const result = await confirmUnifiedImportFlow({
       importId: IMPORT_ID, projectId: PROJECT_ID, createEstimate: true, structurePlan: { decisions: [] },
-      rowsDigest: dpgfImportRowsDigest(flat),
+      rowsDigest: PREVIEW_DIGEST,
     });
     expect(result.mode).toBe("version_created");
+    expect(createMapping).not.toHaveBeenCalled();
+    expect(digestCalls()).toEqual([]);
     expect(vi.mocked(persistCanonicalEstimateV2).mock.calls[0]?.[0].importConfirmation).toMatchObject({
       mappingId: "mapping-latest", mappedRowIds: ["mapped-0", "mapped-1", "mapped-2", "mapped-3"],
       exclusions: [
         { rowIndex: 1, reason: "footer" }, { rowIndex: 2, reason: "footer" }, { rowIndex: 3, reason: "footer" },
       ],
+      rowsDigest: PREVIEW_DIGEST,
     });
   });
 
   it("does not report a mapping-only confirmation whose decisions were refused after the mapping committed", async () => {
     stub(FOOTER_SHEET.map((raw, index) => storedRow(index, raw)));
-    serviceRpc.mockResolvedValueOnce({ data: null, error: { code: "57014", message: "canceling statement" } });
+    serviceRpc.mockImplementationOnce(async () => ({ data: WRITTEN_DIGEST, error: null }))
+      .mockImplementationOnce(async () => ({ data: null, error: { code: "57014", message: "canceling statement" } }));
     await expect(confirm(false)).resolves.toEqual(NOT_RECORDED);
     expect(createMapping).toHaveBeenCalledTimes(1);
 
@@ -537,21 +555,22 @@ describe("confirmUnifiedImportFlow — the rows and decisions a confirmation rec
     stub(FOOTER_SHEET.map((raw, index) => storedRow(index, raw)));
     const result = await confirm(false);
     expect(result.mode).toBe("mapping_only");
-    expect(serviceRpc).toHaveBeenCalledTimes(2);
-    expect(serviceRpc.mock.calls[1]).toEqual(serviceRpc.mock.calls[0]);
-    expect(serviceRpc.mock.calls[1]?.[1]).toMatchObject({
+    expect(recordCalls()).toHaveLength(2);
+    expect(recordCalls()[1]).toEqual(recordCalls()[0]);
+    expect(recordCalls()[1]?.[1]).toMatchObject({
       p_mapping_id: "mapping-created", p_decisions: [],
       p_exclusions: [
         { rowIndex: 1, reason: "footer" }, { rowIndex: 2, reason: "footer" }, { rowIndex: 3, reason: "footer" },
       ],
-      p_mapped_row_ids: ["mapped-0", "mapped-1", "mapped-2", "mapped-3"],
-      p_rows_sha256: reviewed(FOOTER_SHEET),
+      p_mapped_row_ids: WRITTEN_IDS,
+      p_rows_sha256: WRITTEN_DIGEST,
     });
   });
 
   it("does not report a mapping-only confirmation when the service client throws after the mapping committed", async () => {
     stub(FOOTER_SHEET.map((raw, index) => storedRow(index, raw)));
-    serviceRpc.mockRejectedValueOnce(new TypeError("fetch failed"));
+    serviceRpc.mockImplementationOnce(async () => ({ data: WRITTEN_DIGEST, error: null }))
+      .mockRejectedValueOnce(new TypeError("fetch failed"));
     await expect(confirm(false)).resolves.toEqual(NOT_RECORDED);
   });
 });

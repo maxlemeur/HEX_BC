@@ -17,7 +17,7 @@ import {
   readImportRowStructure,
 } from "@/lib/imports/payload";
 import { detectImportProfile } from "@/lib/imports/optima-profile";
-import { dpgfImportRowsDigest } from "@/lib/imports/rows-digest";
+import { readDpgfImportRowsDigest } from "@/lib/imports/rows-digest-server";
 import { analyzeImportStructure } from "@/lib/imports/structure";
 import {
   isMajorationHeaderWords,
@@ -26,7 +26,6 @@ import {
 
 import {
   REQUIRED_MAPPING_TARGET_FIELDS,
-  applyMappingToPayload,
   filterMappingToSourceColumns,
   mappingTargetFieldSchema,
   type MappingTargetField,
@@ -617,6 +616,17 @@ function extractSampleValues(
   }
 
   return result;
+}
+
+function applyMappingToPayload(payload: JsonRecord, mapping: SourceToTargetMapping): JsonRecord {
+  const mapped: JsonRecord = {};
+
+  for (const [sourceColumn, targetField] of Object.entries(mapping)) {
+    if (!(sourceColumn in payload)) continue;
+    mapped[targetField] = payload[sourceColumn];
+  }
+
+  return mapped;
 }
 
 function computeValidation(mapping: SourceToTargetMapping): MappingValidation {
@@ -1500,21 +1510,10 @@ export async function previewImportStructure(input: {
     ),
     // The worksheet row where the table starts, for the review to name a row as the item list does.
     sheet_first_row: importRecord?.sheet_first_row ?? null,
-    // The digest of the rows the member reviews here: those the confirmation will record (the mapping applied by the
-    // writer, or the import's stored rows when the confirmation keeps its latest mapping).
-    rows_digest: Object.keys(scopedMapping).length > 0
-      ? dpgfImportRowsDigest(rows.map((row) => ({ raw_row_id: row.id, payload: storedMappedRowPayload(row, scopedMapping) })))
-      : dpgfImportRowsDigest(await loadStoredMappedRows(supabase, input.import_id, tenantId)),
+    // The database's digest of the import's stored rows, after the access check above: a confirmation that keeps the
+    // import's latest mapping records only these rows (one that writes its mapping binds the rows it writes).
+    rows_digest: await readDpgfImportRowsDigest({ tenantId, importId: input.import_id }),
   };
-}
-
-/** The import's stored mapped rows, every page, for the digest of what a confirmation keeping its mapping records. */
-async function loadStoredMappedRows(supabase: Supabase, importId: string, tenantId: string) {
-  const { data, error } = await readAllRows(() => supabase.from("dpgf_rows_mapped")
-    .select("id, raw_row_id, status, payload", { count: "exact" })
-    .eq("import_id", importId).eq("tenant_id", tenantId).order("id"));
-  if (error) throw mapSupabaseError(error, "Impossible de charger les lignes mappées.");
-  return data ?? [];
 }
 
 export type MappedImportRowPreview = {
@@ -1769,37 +1768,6 @@ export async function findDuplicates(input: {
   };
 }
 
-/**
- * The payload the mapping writer stores for a raw row under a mapping: its raw row, the mapping applied to it, and the
- * normalized fields at the payload's top level. The structure preview digests the same payloads (the rows the member
- * reviews), so that a confirmation can be refused when the rows it records are no longer those.
- */
-export function storedMappedRowPayload(row: { id: string; row_index: number; payload: unknown },
-  scopedMapping: SourceToTargetMapping) {
-  const rawRow = asRecord(row.payload) ?? {};
-  const mappedRow = applyMappingToPayload(rawRow, scopedMapping);
-  const rawRowJson = toJsonValue(rawRow) as Record<string, Json>;
-  const mappedRowJson = toJsonValue(mappedRow) as Record<string, Json>;
-  const reference = normalizeText(mappedRow.reference ?? mappedRow.hex_code);
-  const hexCode = normalizeText(mappedRow.hex_code ?? mappedRow.reference);
-  const designation = normalizeText(mappedRow.designation);
-  const supplyType = normalizeText(mappedRow.supply_type);
-  const hMoMajoration = normalizeText(mappedRow.h_mo_majoration);
-
-  return {
-    raw_row_id: row.id,
-    row_index: row.row_index,
-    raw_row: rawRowJson,
-    mapped_row: mappedRowJson,
-    ...mappedRowJson,
-    reference: reference || null,
-    hex_code: hexCode || null,
-    designation: designation || null,
-    supply_type: supplyType || null,
-    h_mo_majoration: hMoMajoration || null,
-  };
-}
-
 export async function createMapping(input: {
   import_id: string;
   mapping: SourceToTargetMapping;
@@ -1872,12 +1840,35 @@ export async function createMapping(input: {
   }
 
   // T-10: Build mapped rows, then delete+insert with safety
-  const mappedRowsPayload: MappedRowInsert[] = rawRows.map((row) => ({
-    import_id: input.import_id,
-    raw_row_id: row.id,
-    status: "mapped",
-    payload: storedMappedRowPayload(row, scopedMapping),
-  }));
+  const mappedRowsPayload: MappedRowInsert[] = rawRows.map((row) => {
+    const rawRow = asRecord(row.payload) ?? {};
+    const mappedRow = applyMappingToPayload(rawRow, scopedMapping);
+    const rawRowJson = toJsonValue(rawRow) as Record<string, Json>;
+    const mappedRowJson = toJsonValue(mappedRow) as Record<string, Json>;
+    const reference = normalizeText(mappedRow.reference ?? mappedRow.hex_code);
+    const hexCode = normalizeText(mappedRow.hex_code ?? mappedRow.reference);
+    const designation = normalizeText(mappedRow.designation);
+    const supplyType = normalizeText(mappedRow.supply_type);
+    const hMoMajoration = normalizeText(mappedRow.h_mo_majoration);
+
+    return {
+      import_id: input.import_id,
+      raw_row_id: row.id,
+      status: "mapped",
+      payload: {
+        raw_row_id: row.id,
+        row_index: row.row_index,
+        raw_row: rawRowJson,
+        mapped_row: mappedRowJson,
+        ...mappedRowJson,
+        reference: reference || null,
+        hex_code: hexCode || null,
+        designation: designation || null,
+        supply_type: supplyType || null,
+        h_mo_majoration: hMoMajoration || null,
+      },
+    };
+  });
 
   // T-10: Collect existing row IDs before deleting, so we can restore if insert fails
   const { data: existingRows } = await supabase
@@ -1898,14 +1889,18 @@ export async function createMapping(input: {
     throw mapSupabaseError(deleteMappedRowsError, "Impossible de rafraîchir les lignes mappées.");
   }
 
+  // The identifiers of the rows this mapping wrote: an import confirmation that writes its mapping records these rows
+  // and no other (another tab's writer may still be inserting its own).
+  const mappedRowIds: string[] = [];
   if (mappedRowsPayload.length > 0) {
     const pageSize = 500;
     try {
       for (let index = 0; index < mappedRowsPayload.length; index += pageSize) {
         const batch = mappedRowsPayload.slice(index, index + pageSize);
-        const { error: insertMappedRowsError } = await supabase
+        const { data: insertedRows, error: insertMappedRowsError } = await supabase
           .from("dpgf_rows_mapped")
-          .insert(batch);
+          .insert(batch)
+          .select("id");
 
         if (insertMappedRowsError) {
           throw mapSupabaseError(
@@ -1913,6 +1908,10 @@ export async function createMapping(input: {
             "Impossible d'enregistrer les lignes mappées."
           );
         }
+        if ((insertedRows ?? []).length !== batch.length) {
+          throw internalError("Impossible d'enregistrer les lignes mappées.");
+        }
+        mappedRowIds.push(...(insertedRows ?? []).map((row) => row.id));
       }
     } catch (insertError) {
       // T-10: Insert failed after delete. Log the error with details for recovery.
@@ -1932,6 +1931,7 @@ export async function createMapping(input: {
     duplicates,
     template: savedTemplate,
     mapped_rows_count: mappedRowsPayload.length,
+    mapped_row_ids: mappedRowIds,
   };
 }
 

@@ -5,7 +5,8 @@
 --    item only as an accepted continuity; an item is never another affaire's.
 -- 3. A revision is immutable, its digest is the database's own over what it stored, a gesture replayed returns it and
 --    another submission under the same key is a conflict; a stale revision refuses.
--- 4. The proof of an import's confirmation stops matching when the rows, their measured fields or the mapping change.
+-- 4. The proof of an import's confirmation is the digest of the import's rows as it consumed them: it stops matching
+--    when a row or the mapping changes.
 -- 5. The lineage of mapped rows keeps the line → raw row join after a remapping; the creation of an estimate and its
 --    confirmation record commit together.
 -- 6. Two writers of one list at once: the second waits for the first, then refuses as stale; an admission sealing a list
@@ -54,7 +55,7 @@ from unnest(array[
   'persist_dpgf_import_estimate_atomic(uuid, uuid, uuid, jsonb, jsonb, jsonb, uuid, uuid, jsonb, jsonb, uuid[], text)',
   'read_dpgf_import_confirmation(uuid, uuid)', 'read_estimate_dpgf_raw_rows(uuid, uuid)',
   'takeoff_item_list_order_is_active()', 'takeoff_item_list_may_write(uuid, uuid, uuid)',
-  'record_estimate_version_creation(uuid)', 'takeoff_item_list_notes_key(uuid)']) as fn;
+  'record_estimate_version_creation(uuid)', 'takeoff_item_list_notes_key(uuid)', 'dpgf_import_rows_sha256(uuid, uuid)']) as fn;
 select is(has_table_privilege('authenticated', 'private.dpgf_mapped_row_lineage', 'SELECT'), false,
   'members do not read the lineage');
 
@@ -271,34 +272,87 @@ select throws_ok($$ insert into public.takeoff_list_items (id, tenant_id, projec
 reset role;
 
 -- 4. The proof of a confirmation.
--- The digest of what a confirmation uses is the server's own (src/lib/imports/rows-digest.test.ts pins the same value):
--- a mapped row with its raw row's structure facts and a reference the payload's top level alone holds, an older flat
--- payload, a rejected row (the estimate's normaliser reads it too), numbers with a scale, a sign or no exponent
--- (1.50, 2.000, -0, 1e-7, 1e21, a large integer) and an object.
+-- The digest of an import's rows as the confirmation consumes them, the database's only computation of it: every mapped
+-- row in the server's order (created_at, then id), whatever its status, its whole payload and its raw row's, as stored.
+-- The fixture: a rejected row, a structure fact in a raw row, a unit price, an embedded mapped_row, numbers JavaScript
+-- would rewrite (1.50, 9007199254740993, 1e400), two rows with the same index and one without. Pinned on the value
+-- hashed independently of the database from these values.
+create function pg_temp.rows_digest(import integer) returns text language sql stable as $$
+  select public.dpgf_import_rows_sha256(pg_temp.fx(10), pg_temp.fx(import))
+$$;
 insert into public.dpgf_imports (id, tenant_id, user_id, filename, source_format, status, row_count, parse_mode)
 values (pg_temp.fx(190), pg_temp.fx(10), pg_temp.fx(2), 'empreinte-fictive.csv', 'csv', 'completed', 5, 'server');
-insert into public.dpgf_rows_raw (id, tenant_id, import_id, row_index, payload)
-select x.id::uuid, pg_temp.fx(10), pg_temp.fx(190), x.n, '{}' from (values ('a1900000-0000-4000-8000-000000000001', 0),
-  ('a1900000-0000-4000-8000-000000000002', 1), ('a1900000-0000-4000-8000-000000000003', 2),
-  ('a1900000-0000-4000-8000-000000000004', 3), ('a1900000-0000-4000-8000-000000000005', 4)) as x(id, n);
-insert into public.dpgf_rows_mapped (id, tenant_id, import_id, raw_row_id, payload, status) values
-  (pg_temp.fx(191), pg_temp.fx(10), pg_temp.fx(190), 'a1900000-0000-4000-8000-000000000002',
-    '{"row_index":1,"designation":"Évier inox","quantity":"1,5","hex_code":"H-2"}', 'mapped'),
-  (pg_temp.fx(192), pg_temp.fx(10), pg_temp.fx(190), 'a1900000-0000-4000-8000-000000000001',
-    '{"row_index":0,"reference":"R-1","raw_row":{"_timax_structure":{"sheet_name":"DPGF","source_row_number":3,
-      "bold_columns":["Designation"],"merged_columns":[],"outline_level":1,"column_order":["Designation","Qte"]}},
-      "mapped_row":{"designation":"Lavabo céramique","quantity":2,"unit":"u","notes":null}}', 'mapped'),
+insert into public.dpgf_rows_raw (id, tenant_id, import_id, row_index, payload) values
+  ('a1900000-0000-4000-8000-000000000001', pg_temp.fx(10), pg_temp.fx(190), 0, '{"Designation":"Lot plomberie",
+    "_timax_structure":{"sheet_name":"DPGF","source_row_number":3,"bold_columns":["Designation"],"outline_level":1}}'),
+  ('a1900000-0000-4000-8000-000000000002', pg_temp.fx(10), pg_temp.fx(190), 1,
+    '{"Designation":"Lavabo céramique","Qte":"1.50","PU":"9007199254740993"}'),
+  ('a1900000-0000-4000-8000-000000000003', pg_temp.fx(10), pg_temp.fx(190), 2, '{"Designation":"Option rejetée","Qte":4}'),
+  ('a1900000-0000-4000-8000-000000000004', pg_temp.fx(10), pg_temp.fx(190), 3, '{"Designation":"Échelle","Qte":1e400}'),
+  ('a1900000-0000-4000-8000-000000000005', pg_temp.fx(10), pg_temp.fx(190), 4, '{"Designation":"Ligne sans index"}');
+insert into public.dpgf_rows_mapped (id, tenant_id, import_id, raw_row_id, payload, status, created_at) values
+  (pg_temp.fx(191), pg_temp.fx(10), pg_temp.fx(190), 'a1900000-0000-4000-8000-000000000001',
+    '{"row_index":0,"raw_row":{"Designation":"Lot plomberie","_timax_structure":{"sheet_name":"DPGF","source_row_number":3,
+      "bold_columns":["Designation"],"outline_level":1}},"mapped_row":{"designation":"Lot plomberie"}}', 'mapped',
+    '2026-11-21 08:00:01+00'),
+  (pg_temp.fx(192), pg_temp.fx(10), pg_temp.fx(190), 'a1900000-0000-4000-8000-000000000002',
+    '{"row_index":1,"mapped_row":{"designation":"Lavabo céramique","quantity":1.50,"unit_price_ht":9007199254740993}}',
+    'mapped', '2026-11-21 08:00:00+00'),
   (pg_temp.fx(193), pg_temp.fx(10), pg_temp.fx(190), 'a1900000-0000-4000-8000-000000000003',
-    '{"row_index":2,"designation":"Option rejetée","quantity":4}', 'rejected'),
+    '{"row_index":1,"designation":"Option rejetée","quantity":4}', 'rejected', '2026-11-21 08:00:01+00'),
   (pg_temp.fx(194), pg_temp.fx(10), pg_temp.fx(190), 'a1900000-0000-4000-8000-000000000004',
-    '{"row_index":3,"mapped_row":{"designation":"Résidu de formule","quantity":1e-7,"hex_code":1e21,"notes":{"cell":"B4"}}}',
-    'mapped'),
+    '{"row_index":3,"mapped_row":{"designation":"Échelle","quantity":1e400}}', 'mapped', '2026-11-21 08:00:01+00'),
   (pg_temp.fx(195), pg_temp.fx(10), pg_temp.fx(190), 'a1900000-0000-4000-8000-000000000005',
-    '{"row_index":4,"mapped_row":{"designation":"Échelles","quantity":1.50,"unit":2.000,"reference":-0,
-      "hex_code":123456789012345680000}}', 'mapped');
-select is(private.dpgf_import_rows_sha256(pg_temp.fx(10), pg_temp.fx(190)),
-  '6dac77128d18a518d247cd6c2f456573edec1576c32239bc5337c9e786eb5894',
-  'the database digests the rows a confirmation uses as the server does');
+    '{"mapped_row":{"designation":"Ligne sans index","notes":{"cell":"B6"}}}', 'mapped', '2026-11-21 08:00:00+00');
+select is(pg_temp.rows_digest(190), '18122f5ee1369fa6ed96c7518606f8977fc57f463379d895ce2a4ca4a5749930',
+  'the database digests the import''s rows as the confirmation consumes them');
+set local role service_role;
+select is(public.dpgf_import_rows_sha256(pg_temp.fx(10), pg_temp.fx(190)),
+  '18122f5ee1369fa6ed96c7518606f8977fc57f463379d895ce2a4ca4a5749930', 'the server reads the same digest, for its preview');
+reset role;
+-- Whatever the confirmation consumes changes the digest; the same stored rows give it again.
+create function pg_temp.digest_changes(change text, restore text) returns boolean language plpgsql as $$
+declare
+  changed text;
+begin
+  execute change;
+  changed := pg_temp.rows_digest(190);
+  execute restore;
+  return changed is distinct from '18122f5ee1369fa6ed96c7518606f8977fc57f463379d895ce2a4ca4a5749930'
+    and pg_temp.rows_digest(190) = '18122f5ee1369fa6ed96c7518606f8977fc57f463379d895ce2a4ca4a5749930';
+end;
+$$;
+select ok(pg_temp.digest_changes(
+  format($$update public.dpgf_rows_mapped set payload = jsonb_set(payload, '{mapped_row,unit_price_ht}',
+    '9007199254740992') where id = %L$$, pg_temp.fx(192)),
+  format($$update public.dpgf_rows_mapped set payload = jsonb_set(payload, '{mapped_row,unit_price_ht}',
+    '9007199254740993') where id = %L$$, pg_temp.fx(192))),
+  'a unit price JavaScript would read as the same number');
+select ok(pg_temp.digest_changes(
+  format($$update public.dpgf_rows_mapped set payload = jsonb_set(payload, '{mapped_row,quantity}', '1.5') where id = %L$$,
+    pg_temp.fx(192)),
+  format($$update public.dpgf_rows_mapped set payload = jsonb_set(payload, '{mapped_row,quantity}', '1.50') where id = %L$$,
+    pg_temp.fx(192))),
+  'a number as it is stored (1.50 is not 1.5)');
+select ok(pg_temp.digest_changes(
+  format($$update public.dpgf_rows_mapped set payload = jsonb_set(payload, '{mapped_row,supply_type}', '"FO"') where id = %L$$,
+    pg_temp.fx(194)),
+  format($$update public.dpgf_rows_mapped set payload = payload #- '{mapped_row,supply_type}' where id = %L$$, pg_temp.fx(194))),
+  'any key of the embedded mapped row');
+select ok(pg_temp.digest_changes(
+  format($$update public.dpgf_rows_raw set payload = jsonb_set(payload, '{_timax_structure,bold_columns}', '[]') where id = %L$$,
+    'a1900000-0000-4000-8000-000000000001'),
+  format($$update public.dpgf_rows_raw set payload = jsonb_set(payload, '{_timax_structure,bold_columns}', '["Designation"]')
+    where id = %L$$, 'a1900000-0000-4000-8000-000000000001')),
+  'a structure fact of the raw row itself');
+select ok(pg_temp.digest_changes(
+  format($$update public.dpgf_rows_mapped set status = 'mapped' where id = %L$$, pg_temp.fx(193)),
+  format($$update public.dpgf_rows_mapped set status = 'rejected' where id = %L$$, pg_temp.fx(193))),
+  'a row''s status');
+select ok(pg_temp.digest_changes(
+  format($$update public.dpgf_rows_mapped set created_at = '2026-11-21 08:00:02+00' where id = %L$$, pg_temp.fx(192)),
+  format($$update public.dpgf_rows_mapped set created_at = '2026-11-21 08:00:00+00' where id = %L$$, pg_temp.fx(192))),
+  'the order the server reads the rows in');
 select has_index('public', 'dpgf_import_confirmations', 'dpgf_import_confirmations_mapping_idx', array['mapping_id'],
   'a mapping''s deletion finds its confirmations by an index');
 insert into public.dpgf_imports (id, tenant_id, user_id, project_id, filename, source_format, status, row_count, parse_mode)
@@ -319,9 +373,9 @@ create function pg_temp.confirm(mapping integer, decisions jsonb, exclusions jso
   select public.record_dpgf_import_confirmation(pg_temp.fx(10), pg_temp.fx(2), pg_temp.fx(60), pg_temp.fx(mapping),
     pg_temp.fx(20), case when version is null then null else pg_temp.fx(version) end, decisions, exclusions,
     array(select pg_temp.fx(n) from unnest(rows) n),
-    coalesce(reviewed, private.dpgf_import_rows_sha256(pg_temp.fx(10), pg_temp.fx(60))))
+    coalesce(reviewed, public.dpgf_import_rows_sha256(pg_temp.fx(10), pg_temp.fx(60))))
 $$;
-create temp table reviewed_rows as select private.dpgf_import_rows_sha256(pg_temp.fx(10), pg_temp.fx(60)) as digest;
+create temp table reviewed_rows as select public.dpgf_import_rows_sha256(pg_temp.fx(10), pg_temp.fx(60)) as digest;
 -- A quantity changed under the same identifier after the member reviewed the rows: the confirmation refuses.
 update public.dpgf_rows_mapped set payload = '{"mapped_row":{"designation":"Lavabo","quantity":"3"}}'
 where id = pg_temp.fx(72);
@@ -346,13 +400,19 @@ select isnt(pg_temp.confirm(70, '[{"rowIndex":0,"kind":"section","level":1}]', '
 select results_eq($$ select proof_current, superseded, row_count, exclusions -> 0 ->> 'reason'
   from public.read_dpgf_import_confirmation(pg_temp.fx(10), pg_temp.fx(60)) $$,
   $$ values (true, false, 2, 'user_ignored'::text) $$, 'its proof matches what the import holds');
--- The catalogue linking rewrites the payload with keys of its own: the proof holds.
-update public.dpgf_rows_mapped set payload = payload || '{"catalogue_product_id":"fictif"}' where id = pg_temp.fx(72);
+select is((select proof_sha256 from public.dpgf_import_confirmations where import_id = pg_temp.fx(60)),
+  (select digest from reviewed_rows), 'its proof is the digest of the rows it consumed');
+-- The catalogue linking rewrites the payload with keys of its own (the estimate's lines read them): the rows the
+-- confirmation consumed are no longer those, until the payload is the same again.
+update public.dpgf_rows_mapped set payload = payload || '{"product_id":"fictif"}' where id = pg_temp.fx(72);
+select is((select proof_current from public.read_dpgf_import_confirmation(pg_temp.fx(10), pg_temp.fx(60))), false,
+  'a key the catalogue linking adds: the decisions are no longer proven');
+update public.dpgf_rows_mapped set payload = payload - 'product_id' where id = pg_temp.fx(72);
 select is((select proof_current from public.read_dpgf_import_confirmation(pg_temp.fx(10), pg_temp.fx(60))), true,
-  'a key outside the measured fields leaves the proof valid');
+  'the same payload again: proven again');
 update public.dpgf_rows_mapped set payload = jsonb_set(payload, '{mapped_row,quantity}', '"3"') where id = pg_temp.fx(72);
 select is((select proof_current from public.read_dpgf_import_confirmation(pg_temp.fx(10), pg_temp.fx(60))), false,
-  'a measured field changed: the decisions are no longer proven');
+  'a quantity changed: the decisions are no longer proven');
 update public.dpgf_rows_mapped set payload = jsonb_set(payload, '{mapped_row,quantity}', '"2"') where id = pg_temp.fx(72);
 select is((select proof_current from public.read_dpgf_import_confirmation(pg_temp.fx(10), pg_temp.fx(60))), true,
   'the same facts again: proven again');
@@ -380,15 +440,17 @@ insert into public.dpgf_imports (id, tenant_id, user_id, filename, source_format
 values (pg_temp.fx(196), pg_temp.fx(10), pg_temp.fx(2), 'jamais-utilise.csv', 'csv', 'completed', 1, 'server');
 insert into public.dpgf_rows_raw (id, tenant_id, import_id, row_index, payload)
 values (pg_temp.fx(197), pg_temp.fx(10), pg_temp.fx(196), 0, '{"Designation":"Lavabo"}');
-insert into public.dpgf_rows_mapped (id, tenant_id, import_id, raw_row_id, payload, status)
-values (pg_temp.fx(198), pg_temp.fx(10), pg_temp.fx(196), pg_temp.fx(197), '{"mapped_row":{"designation":"Lavabo"}}', 'mapped');
+insert into public.dpgf_rows_mapped (id, tenant_id, import_id, raw_row_id, payload, status) values
+  (pg_temp.fx(198), pg_temp.fx(10), pg_temp.fx(196), pg_temp.fx(197), '{"mapped_row":{"designation":"Lavabo"}}', 'mapped'),
+  (pg_temp.fx(204), pg_temp.fx(10), pg_temp.fx(196), null, '{"mapped_row":{"designation":"Ligne sans brut"}}', 'mapped');
 delete from public.dpgf_rows_mapped where import_id = pg_temp.fx(196);
 insert into public.dpgf_rows_mapped (id, tenant_id, import_id, raw_row_id, payload, status)
 values (pg_temp.fx(199), pg_temp.fx(10), pg_temp.fx(196), pg_temp.fx(197), '{"mapped_row":{"designation":"Lavabo"}}', 'mapped');
 delete from public.dpgf_imports where id = pg_temp.fx(196);
 select results_eq($$ select mapped_row_id, raw_row_id from private.dpgf_mapped_row_lineage where import_id = pg_temp.fx(196)
-  order by mapped_row_id $$, $$ values (pg_temp.fx(198), pg_temp.fx(197)), (pg_temp.fx(199), pg_temp.fx(197)) $$,
-  'the remap and the deletion of an import journal every deleted row');
+  order by mapped_row_id $$,
+  $$ values (pg_temp.fx(198), pg_temp.fx(197)), (pg_temp.fx(199), pg_temp.fx(197)), (pg_temp.fx(204), null::uuid) $$,
+  'the remap and the deletion of an import journal every deleted row, one without a raw row included');
 set local session_replication_role = replica;
 insert into public.estimate_versions (id, tenant_id, project_id, version_number, status, title, parent_version_id)
 values (pg_temp.fx(80), pg_temp.fx(10), pg_temp.fx(20), 1, 'draft', 'Devis fictif', null);
@@ -434,22 +496,30 @@ create function pg_temp.version_payload(version integer) returns jsonb language 
     'tax_rate_bp', 2000, 'rounding_mode', 'none', 'rounding_step_cents', 1, 'max_section_depth', 3, 'total_ht_cents', 0,
     'total_tax_cents', 0, 'total_ttc_cents', 0)
 $$;
--- The released creation records the imports its own lines came from; a section copied into the new version later in
--- the same transaction (another import's provenance) is not part of the creation.
+-- The released creation records the imports its own lines came from, when they are imports of its tenant and affaire
+-- (a line may name any identifier: another affaire's import, one of no affaire, none at all); a section copied into
+-- the new version later in the same transaction (another import's provenance) is not part of the creation.
+insert into public.dpgf_imports (id, tenant_id, user_id, filename, source_format, status, row_count, parse_mode)
+values (pg_temp.fx(205), pg_temp.fx(10), pg_temp.fx(2), 'sans-affaire.csv', 'csv', 'completed', 0, 'server');
 set local role service_role;
 select isnt(public.persist_estimate_creation_atomic(pg_temp.fx(10), pg_temp.fx(5), pg_temp.fx(20), null,
   pg_temp.version_payload(230), jsonb_build_array(jsonb_build_object('id', pg_temp.fx(231), 'parent_id', null,
     'item_type', 'section', 'position', 1, 'title', 'Import DPGF', 'source_provider', 'dpgf',
-    'source_metadata', jsonb_build_object('import_id', pg_temp.fx(190)))), pg_temp.fx(190)), null,
-  'the released creation from an import');
+    'source_metadata', jsonb_build_object('import_id', pg_temp.fx(190))),
+    jsonb_build_object('id', pg_temp.fx(233), 'parent_id', null, 'item_type', 'section', 'position', 3,
+      'title', 'Import sans affaire', 'source_provider', 'dpgf', 'source_metadata', jsonb_build_object('import_id', pg_temp.fx(205))),
+    jsonb_build_object('id', pg_temp.fx(234), 'parent_id', null, 'item_type', 'section', 'position', 4,
+      'title', 'Identifiant inconnu', 'source_provider', 'dpgf', 'source_metadata', jsonb_build_object('import_id', pg_temp.fx(999)))),
+  pg_temp.fx(190)), null, 'the released creation from an import');
 reset role;
 insert into public.estimate_items (id, tenant_id, version_id, item_type, position, title, fo_provision, source_metadata)
 values (pg_temp.fx(232), pg_temp.fx(10), pg_temp.fx(230), 'section', 2, 'Section copiée', 1,
   jsonb_build_object('import_id', pg_temp.fx(200)));
 select results_eq($$ select import_ids from private.estimate_version_creations where version_id = pg_temp.fx(230) $$,
-  $$ values (array[pg_temp.fx(190)]) $$, 'the creation records its import, never a section copied into it afterwards');
--- The digest the member reviewed, computed before the server's role (which reads no private function directly).
-create temp table import_reviewed as select private.dpgf_import_rows_sha256(pg_temp.fx(10), pg_temp.fx(60)) as digest;
+  $$ values (array[pg_temp.fx(190)]) $$,
+  'the creation records its affaire''s import, never another identifier nor a section copied into it afterwards');
+-- The digest of the rows the server read, as it reads it.
+create temp table import_reviewed as select public.dpgf_import_rows_sha256(pg_temp.fx(10), pg_temp.fx(60)) as digest;
 grant select on import_reviewed to service_role;
 create function pg_temp.import_estimate(version integer, mapping integer, rows integer[]) returns jsonb language sql as $$
   select public.persist_dpgf_import_estimate_atomic(pg_temp.fx(10), pg_temp.fx(5), pg_temp.fx(20), null,
@@ -578,7 +648,7 @@ $setup$, pg_temp.fx(160), pg_temp.fx(22), pg_temp.fx(161), pg_temp.fx(162), pg_t
 create function pg_temp.race_confirm(rows integer[], reviewed text default null) returns text language sql stable as $$
   select format($call$select public.record_dpgf_import_confirmation((select tenant_id from public.dpgf_imports where id = %L),
     %L, %L, %L, %L, null, '[{"rowIndex":1,"kind":"ignore","level":null}]', '[{"rowIndex":1,"reason":"user_ignored"}]',
-    %L::uuid[], coalesce(%L, private.dpgf_import_rows_sha256((select tenant_id from public.dpgf_imports where id = %L),
+    %L::uuid[], coalesce(%L, public.dpgf_import_rows_sha256((select tenant_id from public.dpgf_imports where id = %L),
     %L)))$call$, pg_temp.fx(160), pg_temp.fx(6), pg_temp.fx(160), pg_temp.fx(170), pg_temp.fx(22),
     array(select pg_temp.fx(n) from unnest(rows) n), reviewed, pg_temp.fx(160), pg_temp.fx(160))
 $$;
@@ -613,6 +683,20 @@ commit;
 $copy$, pg_temp.fx(6), pg_temp.fx(186))), 'COMMIT', 'a member copies the earlier estimate after B''s record');
 select results_eq($$ select * from pg_temp.race_read() $$, $$ values (true, false) $$,
   'a copy of an estimate is not a confirmation: B''s structure stays established');
+-- The record of a creation is the creation's own: a server call naming that copy (committed by another transaction,
+-- its lines from the import) is refused and records nothing; B's structure stays established.
+create temp table old_copy as select v.id from public.estimate_versions v
+where v.project_id = pg_temp.fx(22) and v.id <> pg_temp.fx(186);
+select is((select count(*)::integer from old_copy), 1, 'the copy is the affaire''s other version');
+grant select on old_copy to service_role;
+set local role service_role;
+select throws_ok(format('select public.record_estimate_version_creation(%L)', (select id from old_copy)), '55000',
+  'ESTIMATE_VERSION_CREATION_NOT_CURRENT', 'a version this transaction did not create is never recorded');
+reset role;
+select is((select count(*)::integer from private.estimate_version_creations where version_id = (select id from old_copy)), 0,
+  'nothing is recorded for it');
+select is((select superseded from public.read_dpgf_import_confirmation((select tenant_id from public.dpgf_imports
+  where id = pg_temp.fx(160)), pg_temp.fx(160))), false, 'B''s structure stays established in this transaction too');
 -- A blank draft created after B's record, into which a member later copies a section carrying the import's provenance:
 -- the copy is not a creation from the import, B's structure stays established.
 select is(extensions.dblink_exec('race_setup', format($blank$
@@ -662,7 +746,7 @@ select results_eq($$ select * from pg_temp.race_read() $$, $$ values (true, true
   'B''s structure stays not established: what a creation recorded is a fact of it');
 -- Two connections: B reads the rows; A changes a quantity under the same identifier; B's record refuses.
 create temp table race_reviewed as select r.digest from extensions.dblink('race_b', format(
-  'select private.dpgf_import_rows_sha256((select tenant_id from public.dpgf_imports where id = %L), %L)',
+  'select public.dpgf_import_rows_sha256((select tenant_id from public.dpgf_imports where id = %L), %L)',
   pg_temp.fx(160), pg_temp.fx(160))) as r(digest text);
 select is(extensions.dblink_exec('race_a', format($quantity$
 begin;
@@ -750,19 +834,17 @@ select x.id, i.tenant_id, i.id, x.raw, x.payload, 'mapped' from public.dpgf_impo
 cross join (values (%6$L::uuid, %3$L::uuid, '{"row_index":0,"mapped_row":{"designation":"Lavabo","quantity":"2"}}'::jsonb),
   (%7$L::uuid, %4$L::uuid, '{"row_index":1,"mapped_row":{"designation":"WC","quantity":"1"}}'::jsonb)) as x(id, raw, payload)
 where i.id = %1$L;
-alter function private.dpgf_import_rows_sha256(uuid, uuid) rename to zz_window_rows_sha256;
-create function private.dpgf_import_rows_sha256(p_tenant_id uuid, p_import_id uuid) returns text language sql stable
+alter function public.dpgf_import_rows_sha256(uuid, uuid) rename to zz_window_rows_sha256;
+create function public.dpgf_import_rows_sha256(p_tenant_id uuid, p_import_id uuid) returns text language sql stable
   security definer set search_path = '' as $hook$
   select d.digest from (select pg_catalog.pg_advisory_xact_lock_shared(4712)) w,
-    lateral (select private.zz_window_rows_sha256(p_tenant_id, p_import_id) as digest) d
+    lateral (select public.zz_window_rows_sha256(p_tenant_id, p_import_id) as digest) d
 $hook$;
 commit;
 $window$, pg_temp.fx(210), pg_temp.fx(22), pg_temp.fx(211), pg_temp.fx(212), pg_temp.fx(213), pg_temp.fx(214),
   pg_temp.fx(215))), 'COMMIT', 'an import whose confirmation will wait while it reads');
 create temp table window_reviewed as
-select private.zz_window_rows_sha256(i.tenant_id, i.id) as digest,
-  (select p.proof_sha256 from private.dpgf_import_confirmation_proof(i.tenant_id, i.id, pg_temp.fx(213), '[]', '[]') p) as proof
-from public.dpgf_imports i where i.id = pg_temp.fx(210);
+select public.zz_window_rows_sha256(i.tenant_id, i.id) as digest from public.dpgf_imports i where i.id = pg_temp.fx(210);
 select is(extensions.dblink_exec('race_a', 'begin'), 'BEGIN', 'A begins');
 select is((select x from extensions.dblink('race_a', 'select pg_catalog.pg_advisory_xact_lock(4712)::text') as t(x text)), '',
   'A holds the lock the confirmation''s read waits on');
@@ -780,11 +862,11 @@ select isnt((select id from extensions.dblink_get_result('race_b') as t(id uuid)
 select is((select count(*)::integer from extensions.dblink_get_result('race_b', false) as t(id uuid)), 0, 'B''s answer is read');
 select is(extensions.dblink_exec('race_b', 'commit'), 'COMMIT', 'B commits');
 select is((select c.proof_sha256 from public.dpgf_import_confirmations c where c.import_id = pg_temp.fx(210)),
-  (select proof from window_reviewed), 'the stored proof is of the rows B checked, not of the rows committed meanwhile');
+  (select digest from window_reviewed), 'the stored proof is of the rows B checked, not of the rows committed meanwhile');
 select is(extensions.dblink_exec('race_setup', $restored$
 begin;
-drop function private.dpgf_import_rows_sha256(uuid, uuid);
-alter function private.zz_window_rows_sha256(uuid, uuid) rename to dpgf_import_rows_sha256;
+drop function public.dpgf_import_rows_sha256(uuid, uuid);
+alter function public.zz_window_rows_sha256(uuid, uuid) rename to dpgf_import_rows_sha256;
 commit;
 $restored$), 'COMMIT', 'the digest is restored');
 select is(extensions.dblink_exec('race_setup', format($cleanup$

@@ -67,7 +67,9 @@ export async function POST(request: Request) {
         return ok(data);
       }
       case "create": {
-        const data = await createMapping(payload);
+        // The identifiers of the rows written stay on the server (an import confirmation binds them).
+        const { mapped_row_ids: _mappedRowIds, ...data } = await createMapping(payload);
+        void _mappedRowIds;
         return ok(data, 201);
       }
       case "save-template": {

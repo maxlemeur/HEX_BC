@@ -130,24 +130,6 @@ const mappingRecordRawSchema = z.record(z.string(), mappingValueSchema);
 
 export type SourceToTargetMapping = Record<string, MappingTargetField>;
 
-/**
- * The one rule that makes a mapped row from a raw row: the mapping writer, its previews and the confirmation's check
- * that the rows it records are those its mapping made.
- */
-export function applyMappingToPayload<TValue>(
-  payload: { [key: string]: TValue },
-  mapping: Readonly<Record<string, string>>
-): { [key: string]: TValue } {
-  const mapped: { [key: string]: TValue } = {};
-
-  for (const [sourceColumn, targetField] of Object.entries(mapping)) {
-    if (!(sourceColumn in payload)) continue;
-    mapped[targetField] = payload[sourceColumn];
-  }
-
-  return mapped;
-}
-
 export function filterMappingToSourceColumns<TTarget extends string>(
   mapping: Record<string, TTarget>,
   sourceColumns: string[]
