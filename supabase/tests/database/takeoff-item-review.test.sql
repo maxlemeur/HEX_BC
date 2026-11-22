@@ -591,9 +591,14 @@ select is((select count(*)::integer from public.audit_logs where table_name = 't
     and after_data #>> '{metadata,field}' = 'is_verified' and user_id = pg_temp.f(1)
     and after_data #>> '{metadata,item_id}' in (pg_temp.f(811)::text, pg_temp.f(812)::text)), 2,
   'and the journal of the rows tells it as the member''s, as a review''s save does');
-select results_eq($$select event, takeoff_item_id from public.takeoff_item_review_events order by id$$,
+-- One statement journals the rows an acceptance verifies: their order among themselves is the plan's (a hash join or a
+-- nested loop gives either), never promised. The decision is journaled after them, by the next statement.
+select results_eq($$select event, takeoff_item_id from public.takeoff_item_review_events
+  order by event <> 'row_verified', takeoff_item_id$$,
   $$values ('row_verified'::text, pg_temp.f(811)), ('row_verified', pg_temp.f(812)), ('accepted', null::uuid)$$,
   'every effect is journaled');
+select is((select max(id) filter (where event = 'row_verified') < min(id) filter (where event = 'accepted')
+  from public.takeoff_item_review_events), true, 'the decision after its rows');
 select pg_temp.sign_in(1);
 set local role authenticated;
 select results_eq($$select item, decision from pg_temp.table_()$$,
