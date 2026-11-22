@@ -12,6 +12,7 @@ import { PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, Target 
 import { LoadingState } from "@/components/layout/loading-state";
 import { QuantityEntryDialog, quantityText } from "@/components/takeoff/review/QuantityEntryDialog";
 import { TakeoffReviewPolicyPanel, importantReviewItemIds, useTakeoffReviewContext } from "@/components/takeoff/review/TakeoffReviewPolicyPanel";
+import { SEND_CONTEXT_CHANGED_LABEL, TakeoffSendContextNotice, sendContextChangedItemIds } from "@/components/takeoff/review/TakeoffSendContextNotice";
 import { TargetedReviewFilterBar } from "@/components/takeoff/review/TargetedReviewFilters";
 import { TakeoffPagesAlreadyInEstimateBanner, useTakeoffJobPageContributions } from "@/components/takeoff/review/TakeoffPagesAlreadyInEstimate";
 import { TargetedReviewUnit } from "@/components/takeoff/review/TargetedReviewUnit";
@@ -225,6 +226,7 @@ export function TakeoffTargetedReview({ jobId, versionId, projectId, canEdit = t
   const level = job?.level ?? null;
   const reviewContext = useTakeoffReviewContext(jobId, items);
   const importantIds = useMemo(() => importantReviewItemIds(reviewContext.context), [reviewContext.context]);
+  const contextChangedIds = useMemo(() => sendContextChangedItemIds(reviewContext.context?.send_context), [reviewContext.context]);
   const review = useMemo(() => targetedReviewLines(items, threshold, level, importantIds), [items, level, threshold, importantIds]);
   const counts = useMemo(() => ({
     all: review.lines.length,
@@ -527,6 +529,7 @@ export function TakeoffTargetedReview({ jobId, versionId, projectId, canEdit = t
         <TakeoffPagesAlreadyInEstimateBanner read={pagesInEstimate} items={items} applied={applied} className="mx-4 mt-2"
           jobHref={(earlier) => takeoffReviewHref({ projectId, jobId: earlier.id, versionId: earlier.estimate_version_id })} />
       ) : null}
+      <TakeoffSendContextNotice context={reviewContext.context?.send_context} items={items} className="mx-4 mt-2" />
       <TakeoffReviewPolicyPanel items={items} providerMeta={providerMeta} context={reviewContext.context} error={reviewContext.error} hasDestination={versionId !== null}
         onFocusItem={(itemId) => { entryFocus.current = null; setDraft(null); setSelectedId(itemId); setPinnedId(itemId); }} />
       <TakeoffUnmeasuredQuantities messages={unmeasuredQuantities} />
@@ -575,6 +578,7 @@ export function TakeoffTargetedReview({ jobId, versionId, projectId, canEdit = t
                         <span className="block truncate text-sm font-medium text-foreground" title={line.item.designation}>{line.item.designation}</span>
                         <span className="block text-muted-foreground">
                           {line.item.id === filtered.kept ? <Badge size="sm" variant="outline" className="mr-1">Hors filtres</Badge> : null}
+                          {contextChangedIds.has(line.item.id) ? <Badge size="sm" variant="warning" className="mr-1">{SEND_CONTEXT_CHANGED_LABEL}</Badge> : null}
                           {first ? TAKEOFF_RULE_LABELS[first.rule]
                             : hypothesis ? "Hypothèse non présélectionnée"
                             : line.tier === "uncertain" ? "Confiance moyenne"

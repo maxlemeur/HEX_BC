@@ -956,9 +956,11 @@ plan (voir le dernier point). La base en décide (migration
   depuis l’analyse (une par copie que les remplacements de ses plans ont donnée
   depuis, la plus récente d’abord, dans l’ordre d’enregistrement de la base) ;
   une autre sélection de plans sous la même clé est une autre commande, refusée.
-- **L’envoi au tableau de chiffrage** d’une analyse par plan reste fermé jusqu’à
-  l’envoi partiel : la revue dit qu’il arrive plus tard, et la base refuse de la
-  rattacher à une version. Une analyse groupée s’envoie comme avant.
+- **L’envoi au tableau de chiffrage** d’une analyse par plan se fait plan par plan,
+  pendant que les autres plans de la demande sont lus (lot 3, migration C : voir
+  « Envoyer un plan pendant que les autres sont lus » dans
+  [regles-metre.md](regles-metre.md)). La base ne la rattache à une version que par
+  l’envoi qui a vérifié son contexte. Une analyse groupée s’envoie comme avant.
 
 ## Base de données et validation
 
