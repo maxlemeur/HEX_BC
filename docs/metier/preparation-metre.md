@@ -904,9 +904,10 @@ plan (voir le dernier point). La base en décide (migration
   que le dossier a remplacé depuis (une nouvelle génération de sa pièce est une
   nouvelle copie, sous un nouvel identifiant) se relit à sa nouvelle copie,
   retrouvée par la pièce du dossier que la base a notée pour chaque copie et garde
-  après sa suppression ; un plan sorti du dossier, ou déposé dans le jeu sans pièce
-  et retiré depuis, refuse la commande, qui le dit (l’analyse ne se relance plus
-  telle quelle) ; un plan
+  après sa suppression ; un plan qui n’a pas de copie de travail dans le jeu
+  (sorti du dossier, déposé dans le jeu sans pièce et retiré depuis, ou dont la
+  copie manque ou est illisible pour l’instant) refuse la commande, qui le dit :
+  l’analyse se relance quand il a de nouveau sa copie ; un plan
   ajouté au dossier après l’analyse se lit par une commande qui le nomme et
   nomme l’analyse qu’elle complète : une commande sans analyse nommée est la
   première analyse de l’affaire, refusée quand l’affaire en a déjà une (la base
@@ -925,9 +926,9 @@ plan (voir le dernier point). La base en décide (migration
   une relecture en échec, arrêtée ou non démarrée laisse la lecture précédente.
   Chaque commande note ainsi ce qui a été lu avant elle : les demandes se lisent
   de la plus récente à la plus ancienne, tant qu’un plan qu’une demande plus
-  récente a nommé reste sans lecture réussie. Une analyse groupée plus récente,
-  qui ne note pas les plans lus avant elle, reste la référence de ceux qu’elle
-  n’a pas lus.
+  récente a nommé reste sans lecture réussie. Une analyse groupée plus récente ne
+  note pas les plans lus avant elle : un plan absent de son manifeste n’est pas
+  repris d’une analyse plus ancienne (un plan qu’elle a nommé sans le lire l’est).
   L’affaire ne les montre pas comme ajoutés depuis, mais signale encore leur
   remplacement ou leur retrait ; un plan jamais lu reste signalé comme ajouté, et
   un plan que la commande relit n’est pas noté à son ancienne copie. Les copies

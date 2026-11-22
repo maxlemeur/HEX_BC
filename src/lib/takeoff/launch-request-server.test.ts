@@ -1193,13 +1193,14 @@ describe("launchTakeoffRelaunch", () => {
       .toEqual([B_COPY.id, A_AFTER.id].sort());
   });
 
-  // A plan that left the dossier has no current copy at all: the relaunch is refused, saying so (the member cannot
-  // confirm the options with a plan that is gone).
+  // A plan with no working copy now (its piece left the dossier, or its copy is missing): the relaunch is refused, saying
+  // so (the member cannot confirm the options with a plan that has no copy).
   it("refuses the relaunch of a plan whose piece left the dossier, saying so", async () => {
     const history = affaireHistory({ copies: [B_COPY], confirmed: [B_COPY.id], requests: [{ id: FIRST_REQUEST, plans: [A_BEFORE, B_COPY] }],
       predecessor: { id: JOB_OF_A, requestId: FIRST_REQUEST, unitKey: `plan:${A_BEFORE.id}` } });
     await expect(history.runFromDialogue()).rejects.toMatchObject({ status: 422,
-      message: "Un plan de l’analyse à relancer n’est plus dans le dossier de l’affaire : cette analyse ne peut plus être relancée telle quelle." });
+      message: "Un plan de l’analyse à relancer n’a pas de copie de travail dans les plans de l’affaire : il est sorti du dossier, "
+        + "ou sa copie manque ou est illisible. L’analyse se relance quand ce plan a de nouveau sa copie." });
     expect(history.launched).toEqual([]);
   });
 
