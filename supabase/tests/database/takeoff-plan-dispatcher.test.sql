@@ -845,16 +845,22 @@ select results_eq($$select outcome from public.launch_manual_takeoff_request(pg_
 -- 16. The measuring order of #447 (20261121230719_takeoff_item_lists.sql) with both formats of manifest: the free
 -- extraction, or a list of items of the request's own affaire named by its latest revision. Written before migration A's
 -- seal was rebuilt on #447's (red then: A's own seal refused every list and answered a stale one as invalid).
--- Affaires 2110 and 2140 hold one plan each (format 2); 2170 and 2180 none (format 1). 2140 and 2180 have a list of two
--- revisions, the second the latest. Each affaire has a request waiting for its seal.
+-- Affaires 2110, 2140 and 2190 hold one plan each (format 2); 2170, 2180, 2200 and 2230 none (format 1). 2140 and 2180
+-- have a list of two revisions, the second the latest. Each affaire has a request waiting for its seal: an admitted one
+-- is never sealed again below (2190 and 2200 are admitted before the activation, 2230 is the grouped manifest of two
+-- units, refused only by its count of units).
 insert into public.estimate_projects (id, tenant_id, user_id, name)
-select pg_temp.f(n), pg_temp.f(10), pg_temp.f(1), 'Affaire au poste ' || n || ' (fictive)' from unnest(array[2110, 2140, 2170, 2180]) n;
+select pg_temp.f(n), pg_temp.f(10), pg_temp.f(1), 'Affaire au poste ' || n || ' (fictive)'
+from unnest(array[2110, 2140, 2170, 2180, 2190, 2200, 2230]) n;
 insert into public.plan_sets (id, tenant_id, project_id, name)
-values (pg_temp.f(2130), pg_temp.f(10), pg_temp.f(2110), 'Plans du dossier'), (pg_temp.f(2160), pg_temp.f(10), pg_temp.f(2140), 'Plans du dossier');
+values (pg_temp.f(2130), pg_temp.f(10), pg_temp.f(2110), 'Plans du dossier'), (pg_temp.f(2160), pg_temp.f(10), pg_temp.f(2140), 'Plans du dossier'),
+  (pg_temp.f(2210), pg_temp.f(10), pg_temp.f(2190), 'Plans du dossier');
 insert into public.plan_files (id, tenant_id, plan_set_id, file_name, file_path, file_type, file_size_bytes, page_count)
 values (pg_temp.f(2131), pg_temp.f(10), pg_temp.f(2130), 'plan-1.pdf', concat_ws('/', pg_temp.f(10), pg_temp.f(2130), pg_temp.f(2131), 'plan-1.pdf'),
     'application/pdf', 8, 9),
   (pg_temp.f(2161), pg_temp.f(10), pg_temp.f(2160), 'plan-1.pdf', concat_ws('/', pg_temp.f(10), pg_temp.f(2160), pg_temp.f(2161), 'plan-1.pdf'),
+    'application/pdf', 8, 9),
+  (pg_temp.f(2211), pg_temp.f(10), pg_temp.f(2210), 'plan-1.pdf', concat_ws('/', pg_temp.f(10), pg_temp.f(2210), pg_temp.f(2211), 'plan-1.pdf'),
     'application/pdf', 8, 9);
 set local session_replication_role = replica;
 insert into public.takeoff_list_revisions (id, tenant_id, project_id, revision, cause, sources, item_count, content_sha256,
@@ -866,7 +872,7 @@ values (pg_temp.f(2141), pg_temp.f(10), pg_temp.f(2140), 1, 'initial', '{}', 3, 
 insert into public.takeoff_launch_requests (id, tenant_id, project_id, origin, intent, intent_key, state, payer_id, mandate_kind,
   mandated_at, execution_host_id, mandate_selection)
 select pg_temp.f(n + 9), pg_temp.f(10), pg_temp.f(n), 'automatic', 'initial', pg_temp.f(n + 9), 'evaluating', pg_temp.f(1),
-  'confirmation', now(), pg_temp.host(), pg_temp.selection() from unnest(array[2110, 2140, 2170, 2180]) n;
+  'confirmation', now(), pg_temp.host(), pg_temp.selection() from unnest(array[2110, 2140, 2170, 2180, 2190, 2200, 2230]) n;
 set local session_replication_role = origin;
 create function pg_temp.waiting(project integer) returns public.takeoff_launch_requests language sql stable as $$
   select * from public.takeoff_launch_requests where id = pg_temp.f(project + 9)
@@ -888,11 +894,29 @@ $$;
 create function pg_temp.free_order() returns jsonb language sql immutable as $$
   select '{"kind":"free_extraction","version":1,"list":null}'::jsonb
 $$;
--- Before the second order's activation, a list is refused in either format, as before #447.
+-- Before the second order's activation, the free extraction is admitted and a list is refused in either format, as
+-- before #447, whatever its revision: the latest, a stale one, or another affaire's (the activation decides first).
 select throws_ok($$select private.seal_takeoff_launch_request(pg_temp.waiting(2140), pg_temp.per_plan(2140, pg_temp.item_order(pg_temp.f(2143))),
     pg_temp.snapshot(2140), 0)$$, '22023', 'TAKEOFF_LAUNCH_SEAL_INVALID', 'format 2: a list before its order is activated is refused');
+select throws_ok($$select private.seal_takeoff_launch_request(pg_temp.waiting(2140), pg_temp.per_plan(2140, pg_temp.item_order(pg_temp.f(2141))),
+    pg_temp.snapshot(2140), 0)$$, '22023', 'TAKEOFF_LAUNCH_SEAL_INVALID', 'format 2, before the activation: a stale revision is refused');
+select throws_ok($$select private.seal_takeoff_launch_request(pg_temp.waiting(2140), pg_temp.per_plan(2140, pg_temp.item_order(pg_temp.f(2183))),
+    pg_temp.snapshot(2140), 0)$$, '22023', 'TAKEOFF_LAUNCH_SEAL_INVALID', 'format 2, before the activation: another affaire''s revision is refused');
+select results_eq($$select r.state, r.item_list_revision_id from private.seal_takeoff_launch_request(pg_temp.waiting(2190),
+    pg_temp.per_plan(2190, pg_temp.free_order()), pg_temp.snapshot(2190), 0) r$$, $$values ('admitted'::text, null::uuid)$$,
+  'format 2, before the activation: the free extraction is admitted, no list recorded');
 select throws_ok($$select private.seal_takeoff_launch_request(pg_temp.waiting(2180), pg_temp.grouped(pg_temp.item_order(pg_temp.f(2183))),
     pg_temp.snapshot(2180), 0)$$, '22023', 'TAKEOFF_LAUNCH_SEAL_INVALID', 'format 1: so is it');
+select throws_ok($$select private.seal_takeoff_launch_request(pg_temp.waiting(2180), pg_temp.grouped(pg_temp.item_order(pg_temp.f(2181))),
+    pg_temp.snapshot(2180), 0)$$, '22023', 'TAKEOFF_LAUNCH_SEAL_INVALID', 'format 1, before the activation: a stale revision is refused');
+select throws_ok($$select private.seal_takeoff_launch_request(pg_temp.waiting(2180), pg_temp.grouped(pg_temp.item_order(pg_temp.f(2143))),
+    pg_temp.snapshot(2180), 0)$$, '22023', 'TAKEOFF_LAUNCH_SEAL_INVALID', 'format 1, before the activation: another affaire''s revision is refused');
+select results_eq($$select r.state, r.item_list_revision_id from private.seal_takeoff_launch_request(pg_temp.waiting(2200),
+    pg_temp.grouped(pg_temp.free_order()), pg_temp.snapshot(2200), 0) r$$, $$values ('admitted'::text, null::uuid)$$,
+  'format 1, before the activation: the free extraction is admitted, no list recorded');
+select results_eq($$select r.state, r.manifest from public.takeoff_launch_requests r where r.id in (pg_temp.f(2149), pg_temp.f(2189))
+    order by r.id$$, $$values ('evaluating'::text, null::jsonb), ('evaluating'::text, null::jsonb)$$,
+  'the refusals before the activation sealed nothing');
 insert into private.takeoff_item_list_order_activation (active_from) values (now() - interval '1 minute');
 -- Format 2 (one unit per plan).
 select results_eq($$select r.state, r.item_list_revision_id from private.seal_takeoff_launch_request(pg_temp.waiting(2110),
@@ -916,9 +940,15 @@ select throws_ok($$select private.seal_takeoff_launch_request(pg_temp.waiting(21
 select results_eq($$select r.state, r.item_list_revision_id from private.seal_takeoff_launch_request(pg_temp.waiting(2180),
     pg_temp.grouped(pg_temp.item_order(pg_temp.f(2183))), pg_temp.snapshot(2180), 0) r$$, $$values ('admitted'::text, pg_temp.f(2183))$$,
   'format 1, the latest revision: admitted, its list recorded on the request');
--- A's own rules keep their place beside the order: a grouped manifest of two units is refused whatever its order.
-select throws_ok($$select private.seal_takeoff_launch_request(pg_temp.waiting(2110), jsonb_set(pg_temp.grouped(pg_temp.free_order()), '{units}',
-    pg_temp.grouped(pg_temp.free_order()) -> 'units' || pg_temp.grouped(pg_temp.free_order()) -> 'units'), pg_temp.snapshot(2110), 0)$$,
+-- A's own rules keep their place beside the order: a grouped manifest of two units is refused whatever its order. Its
+-- request waits for its seal and the manifest is valid but for its count of units (each operand of `||` in parentheses:
+-- `->` and `||` bind alike, left to right), so that the count alone refuses it.
+create function pg_temp.two_grouped_units() returns jsonb language sql immutable as $$
+  select jsonb_set(pg_temp.grouped(pg_temp.free_order()), '{units}',
+    (pg_temp.grouped(pg_temp.free_order()) -> 'units') || (pg_temp.grouped(pg_temp.free_order()) -> 'units'))
+$$;
+select is(jsonb_array_length(pg_temp.two_grouped_units() -> 'units'), 2, 'the grouped manifest of the next check holds two units');
+select throws_ok($$select private.seal_takeoff_launch_request(pg_temp.waiting(2230), pg_temp.two_grouped_units(), pg_temp.snapshot(2230), 0)$$,
   '22023', 'TAKEOFF_LAUNCH_SEAL_INVALID', 'a grouped manifest of two units is refused');
 
 select * from finish();

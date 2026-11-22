@@ -103,6 +103,25 @@ armyTest("TKPD01 a request of three plans gives three analyses read one at a tim
       .map((job) => [job.plans, job.status])).toEqual([[[added], "completed"]]);
     expect(await readOwnedPlanRequests(dossier.projectId)).toHaveLength(2);
 
+    // The dialogue's relaunch of the first plan's analysis names no plan: its receipt is looked up first (none), then the
+    // server reads that plan at its current copy (the plan-location reader, under the member's session) and reads it
+    // alone. The plans the affaire read before stay theirs (their last successful readings, across both requests); the
+    // plan whose reading failed is not among them.
+    const firstJob = (await readOwnedPlanJobs(dossier.projectId))
+      .find((job) => job.launch_request_id === requestId && job.launch_unit_key === `plan:${first.id}`)!.id;
+    const relaunch = await runOwnedTakeoffCommand(owner, ["launch", dossier.projectId, dossier.planSetId, randomUUID(), "2", "-", firstJob]);
+    expect(relaunch).toMatchObject({ result: { outcome: "admitted" } });
+    const requests = await readOwnedPlanRequests(dossier.projectId);
+    expect(requests).toHaveLength(3);
+    expect(requests.at(-1)!.units?.map((unit) => unit.plans)).toEqual([[first.id]]);
+    const [setAsideAsRead] = await querySql(`select coalesce(jsonb_agg(entry ->> 'id' order by entry ->> 'id'), '[]'::jsonb)
+      from public.takeoff_launch_requests r, jsonb_array_elements(r.manifest #> '{coverage,plans_omitted}') entry
+      where r.id = '${relaunch.result!.requestId}' and entry ->> 'reason' = 'not_requested';`).then((lines) =>
+      lines.filter((line) => line.trim().startsWith("[")));
+    expect(JSON.parse(setAsideAsRead!)).toEqual([third.id, added].sort());
+    const relaunched = await runOwnedPlanDispatch(ui, owner, dossier.projectId);
+    expect(relaunched.calls).toHaveLength(1);
+
     await recordEvidence(ui.army, "TKPD01-plan-analyses", { projectId: dossier.projectId, requestId, jobs: ended, calls, closed,
       laterRequest: reread.result, boundary: "Fictional plans, a controlled local provider and an e-mail collector on an owned local backend." });
   } finally {
