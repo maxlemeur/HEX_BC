@@ -20,6 +20,7 @@ import {
 } from "@/lib/estimates/editor-items";
 import { toFiniteNumber } from "@/lib/estimates/editor-values";
 import { getDefaultSectionTitleForLevel } from "@/lib/estimates/hierarchy";
+import { multiplyToStoredEstimateNumeric } from "@/lib/estimates/stored-item-numeric";
 import { commitEstimateV3Operations, type EstimateV3EditorWriter } from "@/lib/estimates/v3-editor-writer";
 import { interpretClipboardRowForV3 } from "@/lib/estimates/v3-paste";
 import { isRecord } from "@/lib/value-guards";
@@ -746,7 +747,16 @@ export function useEstimateEditorPasteController({
           const source = snapshot.find((item) => item.id === placement.insertAfterId);
           if (!source) return "Placez-vous sur une ligne pour la dupliquer.";
           const buildPayload = v3Writer?.buildInsertPayload ?? buildEstimateItemInsertPayload;
-          return [buildPayload(versionId, source, { parentId: placement.parentId, position: nextPosition() })];
+          const payload = buildPayload(versionId, source, { parentId: placement.parentId, position: nextPosition() });
+          // v3: the copy keeps the coefficient the source applies, as a section copy does; a K FO left to the
+          // defaults would take today's company or personal base and change the copied price.
+          return [v3Writer && source.item_type === "line"
+            ? {
+              ...payload,
+              k_fo: multiplyToStoredEstimateNumeric(source.k_fo ?? 1, source.fo_provision ?? 1, 6),
+              k_fo_manual: true,
+            } as EstimateItemInsertPayload
+            : payload];
         },
       }),
     [insertRows, v3Writer]

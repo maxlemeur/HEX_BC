@@ -1584,7 +1584,9 @@ export function EstimateEditorTable({
       const cell = { rowId, columnKey };
       const mounted = tableCardRef.current?.querySelector(`[data-cell-id="${CSS.escape(toGridCellId(cell))}"]`);
       if (navigation && mounted) {
-        if (!edit || !navigation.startEditing(cell, "replace")) navigation.selectCell(cell);
+        // Selecting first scrolls the row into view; the editor itself focuses without scrolling.
+        navigation.selectCell(cell);
+        if (edit) navigation.startEditing(cell, "replace");
         return;
       }
       frames += 1;
