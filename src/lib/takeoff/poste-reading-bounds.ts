@@ -3,10 +3,18 @@ import { TAKEOFF_ITEM_ANSWER_LIMITS } from "@/lib/takeoff/item-answer-limits";
 import {
   TAKEOFF_LAUNCH_VECTOR_PAGES, takeoffPlanWeights, type AnyTakeoffLaunchManifest, type TakeoffLaunchPiece,
 } from "@/lib/takeoff/launch-request";
-import { planPosteBatches, POSTE_EXCHANGE_LIMITS, posteExchangeOutputMaxBytes } from "@/lib/takeoff/poste-exchange";
-import { POSTE_WORKER_REASONS } from "@/lib/takeoff/poste-exchange-merge";
+import {
+  planPosteBatches, POSTE_EXCHANGE_LIMITS, POSTE_NOT_FOUND_REASONS, POSTE_OBSERVATION_METHODS, POSTE_UNCERTAIN_REASONS,
+  posteExchangeOutputMaxBytes,
+} from "@/lib/takeoff/poste-exchange";
+import { POSTE_WORKER_REASON_MAX_BYTES, POSTE_WORKER_REASONS } from "@/lib/takeoff/poste-exchange-merge";
 import type { Poste } from "@/lib/takeoff/poste-list";
 import type { PosteReadingBoundsFacts } from "@/lib/takeoff/poste-reading-bounds-text";
+import {
+  listEntryBytes, PUBLISHED_ANSWER_FRAME_MAX_BYTES, PUBLISHED_CHUNK_PLACEHOLDER, PUBLISHED_ID_PLACEHOLDER,
+  type TakeoffItemAnswerObservation, type TakeoffItemAnswerReason,
+} from "@/lib/takeoff/poste-publication-size";
+import { jsonbTextBytes } from "@/lib/takeoff/rules/jsonb-size";
 
 export { describePosteReadingBounds } from "@/lib/takeoff/poste-reading-bounds-text";
 
@@ -48,6 +56,46 @@ export const POSTE_READING_LIMITS = {
 export const POSTE_READING_MAX_FRAGMENTS = Math.min(TAKEOFF_ITEM_ANSWER_LIMITS.reasons - POSTE_WORKER_REASONS.length,
   Math.floor((TAKEOFF_ITEM_ANSWER_LIMITS.observations - TAKEOFF_LAUNCH_VECTOR_PAGES) / POSTE_EXCHANGE_LIMITS.observationsPerAnswer));
 
+const longest = <T extends string>(values: readonly T[]) => values.reduce((left, right) => right.length > left.length ? right : left);
+/** A text at its bound in three-byte characters: what a text the exchange admits writes at most (exchange `text`). */
+const threeBytes = (chars: number) => "€".repeat(chars);
+
+/** The most bytes a reason of the model takes in a publication: its longest code, its text at its bound. */
+const MODEL_REASON_MAX_BYTES = jsonbTextBytes({ code: longest([...POSTE_UNCERTAIN_REASONS, ...POSTE_NOT_FOUND_REASONS]), by: "model",
+  text: threeBytes(POSTE_EXCHANGE_LIMITS.reasonChars), chunk_id: PUBLISHED_CHUNK_PLACEHOLDER } satisfies TakeoffItemAnswerReason);
+
+/**
+ * The most bytes an observation of the model takes in a publication, on a plan whose highest page is `maxPage`: every text
+ * at its bound, its confidence and quantity at their longest writings at the stored precision (« 0.1234 »,
+ * « 999999999.999 »), the longest method, as a contribution naming its row.
+ */
+const modelObservationMaxBytes = (maxPage: number) => jsonbTextBytes({ page: maxPage,
+  evidence: threeBytes(POSTE_EXCHANGE_LIMITS.evidenceChars), method: longest(POSTE_OBSERVATION_METHODS), confidence: 0.1234,
+  quantity: 999_999_999.999, unit: threeBytes(POSTE_EXCHANGE_LIMITS.unitChars), measurement_basis: threeBytes(POSTE_EXCHANGE_LIMITS.basisChars),
+  role: "contribution", source: "model", chunk_id: PUBLISHED_CHUNK_PLACEHOLDER, vector_key: null,
+  takeoff_item_id: PUBLISHED_ID_PLACEHOLDER } satisfies TakeoffItemAnswerObservation);
+
+/**
+ * The most bytes the answers of one plan take in its publication without its vector readings, as the command measures them
+ * (`octet_length(p_answers::text)`), from what the admission knows: the sizes of the batches of items, the plan's fragments,
+ * its pages and its highest page. Proof, entry by entry: each item has one answer, its frame at most
+ * PUBLISHED_ANSWER_FRAME_MAX_BYTES; it holds at most one reason of the model per fragment that asks it (the merge keeps a
+ * repeated one once) and one reason of the worker per code; its searched and its unreadable pages are each a subset of the
+ * plan's pages; a call answers with at most POSTE_EXCHANGE_LIMITS.observationsPerAnswer observations per item and
+ * observationsPerCall in all, each at most `modelObservationMaxBytes`; every text the exchange admits is well formed and
+ * without control characters, three bytes a character at most (exchange `text`); confidences and quantities are at their
+ * stored precision; and an entry of a list adds at most itself and « , ». The vector readings are attached within what this
+ * leaves (`mergePosteReadings`).
+ */
+export function posteAnswersMaxBytes(input: { batches: readonly number[]; fragments: number; pages: number; maxPage: number }) {
+  const items = input.batches.reduce((sum, size) => sum + size, 0);
+  const observations = input.fragments * input.batches.reduce((sum, size) => sum + Math.min(POSTE_EXCHANGE_LIMITS.observationsPerCall,
+    POSTE_EXCHANGE_LIMITS.observationsPerAnswer * size), 0);
+  const answer = listEntryBytes(PUBLISHED_ANSWER_FRAME_MAX_BYTES) + POSTE_WORKER_REASONS.length * listEntryBytes(POSTE_WORKER_REASON_MAX_BYTES)
+    + input.fragments * listEntryBytes(MODEL_REASON_MAX_BYTES) + 2 * input.pages * listEntryBytes(String(input.maxPage).length);
+  return 2 + items * answer + observations * listEntryBytes(modelObservationMaxBytes(input.maxPage));
+}
+
 /** The most pages of a plan read in at most POSTE_READING_MAX_FRAGMENTS fragments with this fragmenting (`buildPdfChunks`). */
 export function posteReadingMaxPlanPages(chunking: TakeoffChunkingRuntimeConfig) {
   const step = chunking.chunkSizePages - chunking.overlapPages;
@@ -69,7 +117,7 @@ export const POSTE_READING_BUDGET_MARGIN = 2;
  */
 export const POSTE_READING_DURATION = { readingCallSeconds: 90, classifierCallSeconds: 15 } as const;
 
-export type PosteReadingLimit = "calls" | "fragments" | "budget" | "answer_bytes";
+export type PosteReadingLimit = "calls" | "fragments" | "budget" | "answer_bytes" | "publication_bytes";
 
 /**
  * A unit of the request: one plan (or, for a grouped analysis, all of them), its pages read (retained pages, else its
@@ -77,6 +125,8 @@ export type PosteReadingLimit = "calls" | "fragments" | "budget" | "answer_bytes
  */
 export type PosteReadingUnitInput = {
   key: string; pieces: TakeoffLaunchPiece[]; pages: number; budgetTokens: number;
+  /** Its highest original page (its pages 1 to `pages` when not given). */
+  maxPage?: number;
   /** The most paid calls its vector classifier may make (none when it does not run). */
   vectorCalls?: number;
 };
@@ -88,7 +138,10 @@ export type PosteReadingBounds = PosteReadingBoundsFacts & {
   requestBudgetTokens: number;
   answerBytes: number;
   units: Array<{ key: string; fragments: number; batches: number; readingCalls: number; classifierCalls: number; calls: number;
-    tokens: number; answerBytes: number; exceeded: PosteReadingLimit[] }>;
+    tokens: number; answerBytes: number;
+    /** The most bytes of its answers in its publication, without vector readings (`posteAnswersMaxBytes`). */
+    publicationBytes: number;
+    exceeded: PosteReadingLimit[] }>;
   /** The request's own bounds exceeded. */
   exceeded: PosteReadingLimit[];
   /** The plans a refusal names: those past a bound of their own, else all of them. Empty when the request is within bounds. */
@@ -98,7 +151,8 @@ export type PosteReadingBounds = PosteReadingBoundsFacts & {
 /**
  * The request's reading planned as the worker will make it (`planPosteExchangeCalls`), and each bound checked: its reading's
  * calls (every fragment of each plan times the batches of its items) against the ceilings, each plan's fragments against
- * what one answer holds (POSTE_READING_MAX_FRAGMENTS), every paid call (the vector
+ * what one answer holds (POSTE_READING_MAX_FRAGMENTS), each plan's answers against the bytes its publication stores
+ * (`posteAnswersMaxBytes`), every paid call (the vector
  * classifier's too) reserved at `estimateTokensPerCall` (the ledger's TAKEOFF_PAID_CALL_ESTIMATE_TOKENS) per plan against
  * its share and for the request against its envelope, and its answers' bytes. `batches`: the sizes of the batches
  * `planPosteBatches` makes.
@@ -122,13 +176,16 @@ export function boundPosteReadingRequest(input: {
     const tokens = calls * input.estimateTokensPerCall;
     const answerBytes = fragments.reduce((total, fragment) => total + batchSizes.reduce((sum, size) =>
       sum + posteExchangeOutputMaxBytes(size, fragment.endPage - fragment.startPage + 1), 0), 0);
+    const publicationBytes = posteAnswersMaxBytes({ batches: batchSizes, fragments: fragments.length, pages: unit.pages,
+      maxPage: Math.max(unit.maxPage ?? unit.pages, 1) });
     const exceeded: PosteReadingLimit[] = [];
     if (readingCalls > POSTE_READING_LIMITS.callsPerUnit) exceeded.push("calls");
     if (fragments.length > POSTE_READING_MAX_FRAGMENTS) exceeded.push("fragments");
     if (cannotStart(calls, unit.budgetTokens)) exceeded.push("budget");
     if (answerBytes > POSTE_READING_LIMITS.unitAnswerBytes) exceeded.push("answer_bytes");
+    if (publicationBytes > TAKEOFF_ITEM_ANSWER_LIMITS.answersBytes) exceeded.push("publication_bytes");
     return { key: unit.key, fragments: fragments.length, batches: batchSizes.length, readingCalls, classifierCalls, calls, tokens,
-      answerBytes, exceeded };
+      answerBytes, publicationBytes, exceeded };
   });
   const total = (field: "readingCalls" | "classifierCalls" | "calls" | "tokens" | "answerBytes") =>
     units.reduce((sum, unit) => sum + unit[field], 0);
@@ -170,11 +227,16 @@ export function posteReadingBoundsOfManifest(manifest: AnyTakeoffLaunchManifest,
   };
   const pages = (unit: { key: string; plans: string[] }) => countedPages.get(unit.key)
     ?? unit.plans.reduce((total, key) => total + (pagesOf.get(key) ?? 1), 0);
+  // A plan's highest original page: its last retained page, else its page count (else its weight).
+  const maxPage = (unit: { plans: string[] }) => Math.max(1, ...unit.plans.map((key) => {
+    const plan = manifest.plans.find((entry) => entry.entry_key === key);
+    return plan?.pages.length ? Math.max(...plan.pages) : plan?.page_count ?? pagesOf.get(key) ?? 1;
+  }));
   const units: PosteReadingUnitInput[] = manifest.format_version === 2
     ? manifest.units.map((unit) => ({ key: unit.key, pieces: unit.plans.map(piece), budgetTokens: unit.budget.tokens,
-      pages: pages(unit), vectorCalls: vectorCalls(unit.vector_pages) }))
+      pages: pages(unit), maxPage: maxPage(unit), vectorCalls: vectorCalls(unit.vector_pages) }))
     : manifest.units.map((unit) => ({ key: unit.key, pieces: unit.plans.map(piece), budgetTokens: manifest.budget.tokens,
-      pages: pages(unit), vectorCalls: vectorCalls(TAKEOFF_LAUNCH_VECTOR_PAGES) }));
+      pages: pages(unit), maxPage: maxPage(unit), vectorCalls: vectorCalls(TAKEOFF_LAUNCH_VECTOR_PAGES) }));
   return boundPosteReadingRequest({ batches: planPosteBatches(items).map((batch) => batch.length), units,
     requestBudgetTokens: manifest.budget.tokens, chunking, estimateTokensPerCall });
 }

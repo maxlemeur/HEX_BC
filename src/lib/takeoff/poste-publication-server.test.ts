@@ -110,8 +110,10 @@ describe("publishTakeoffItemAnswers", () => {
     expect(error).toMatchObject({ code: TakeoffErrorCode.INTERNAL_ERROR, retryable: false, jobId: JOB,
       message: expect.stringContaining("La lecture de ce plan n’a pas pu être enregistrée") });
     expect(time.waits.slice(0, 7)).toEqual([1_000, 2_000, 4_000, 8_000, 16_000, 30_000, 30_000]);
-    expect(time.now()).toBeGreaterThanOrEqual(600_000);
-    expect(time.now()).toBeLessThan(600_000 + 30_000);
+    // PR 3c closing round, point 6: the deadline is checked before each wait, so that no wait nor sending starts past ten
+    // minutes: 31 s, then 18 waits of 30 s; the next one would end at 601 s.
+    expect(time.now()).toBe(571_000);
+    expect(lost.bodies).toHaveLength(24);
     expect(new Set(lost.bodies).size).toBe(1);
   });
 

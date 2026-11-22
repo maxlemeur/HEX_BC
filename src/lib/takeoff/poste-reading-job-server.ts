@@ -20,6 +20,7 @@ import { logCompletedAuditEvent } from "@/lib/takeoff/processing-audit";
 import { TAKEOFF_LEVEL_C, type Supabase } from "@/lib/takeoff/processing-context";
 import { refreshTakeoffRulesAfterResult } from "@/lib/takeoff/result-finalization";
 import type { DownloadedTakeoffFile, TakeoffSourceDocumentRef } from "@/lib/takeoff/source-loader";
+import { storableVectorOutcomes } from "@/lib/takeoff/vectors/worker-persistence-server";
 import { takeoffVectorGroupCallsBound, type VectorPageOutcome } from "@/lib/takeoff/vectors/worker-server";
 
 /**
@@ -79,7 +80,7 @@ export async function readTakeoffItemListOrder(supabase: Supabase,
  * past the budget what is left (a request whose earlier attempts spent its share is relaunched).
  */
 function assertReadingWithinBounds(job: TakeoffJobProcessingRow, input: { manifest: AnyTakeoffLaunchManifest; items: readonly Poste[];
-  pageCount: number; config: TakeoffChunkingRuntimeConfig & { maxTotalTokens: number }; planFile: { plan_file_id: string }; fileName: string }) {
+  pageCount: number; maxPage: number; config: TakeoffChunkingRuntimeConfig & { maxTotalTokens: number }; planFile: { plan_file_id: string }; fileName: string }) {
   const unit = readTakeoffLaunchUnit(job.preparation_snapshot)!;
   const request = posteReadingBoundsOfManifest(input.manifest, input.config, TAKEOFF_PAID_CALL_ESTIMATE_TOKENS, input.items,
     takeoffVectorGroupCallsBound, new Map([[unit.key, input.pageCount]]));
@@ -87,12 +88,13 @@ function assertReadingWithinBounds(job: TakeoffJobProcessingRow, input: { manife
   if (!request || !own) throw failure(job.id, "Le plan de cette analyse n’est pas une unité de sa demande : relancez la lecture de ce plan.");
   const attempt = boundPosteReadingRequest({ batches: planPosteBatches(input.items).map((batch) => batch.length),
     units: [{ key: unit.key, pieces: [{ id: input.planFile.plan_file_id, name: input.fileName }], pages: input.pageCount,
+      maxPage: input.maxPage,
       budgetTokens: unit.budget?.tokens ?? input.config.maxTotalTokens, vectorCalls: own.calls - own.fragments * own.batches }],
     requestBudgetTokens: input.config.maxTotalTokens, chunking: input.config, estimateTokensPerCall: TAKEOFF_PAID_CALL_ESTIMATE_TOKENS });
   const bounds = !request.ok ? request : attempt;
   if (bounds.ok) return;
   const exceeded = [...bounds.exceeded, ...bounds.units.flatMap((entry) => entry.exceeded)];
-  const tooLarge = exceeded.includes("calls") || exceeded.includes("fragments") || exceeded.includes("answer_bytes");
+  const tooLarge = exceeded.some((limit) => limit !== "budget");
   throw new TakeoffError({ status: 422, retryable: false, jobId: job.id, level: TAKEOFF_LEVEL_C,
     code: tooLarge ? TakeoffErrorCode.TAKEOFF_FILE_TOO_LARGE : TakeoffErrorCode.TAKEOFF_LEVEL_C_BUDGET_EXCEEDED,
     message: tooLarge ? describeTakeoffLaunchReason("PLAN_SET_TOO_LARGE", bounds.pieces, bounds)
@@ -172,7 +174,8 @@ export async function processItemListLevelC(input: {
   const planFile = unitPlanFile(job, sourceFile);
   const prepared = await prepareLevelCReading({ supabase: input.supabase, job, sourceFile });
   const { pageCount, requestBudget } = prepared;
-  assertSealedPages(job, input.order.manifest, planPagesOf(pageCount, sourceFile.sourcePageNumbersByPage));
+  const readPages = planPagesOf(pageCount, sourceFile.sourcePageNumbersByPage);
+  assertSealedPages(job, input.order.manifest, readPages);
   if (!requestBudget) throw failure(job.id, "Le budget de la demande de cette analyse est introuvable.");
   // Its budget is what its sealed share has left (sized from its admitted calls), never the first format's per-job budget.
   const config = { ...prepared.config, maxTotalTokens: requestBudget.remainingTokens, maxCostCents: requestBudget.remainingCostCents };
@@ -184,19 +187,25 @@ export async function processItemListLevelC(input: {
   } catch {
     throw failure(job.id, "La liste des postes scellée par cette analyse n’a pas pu être lue.");
   }
-  assertReadingWithinBounds(job, { manifest: input.order.manifest, items, pageCount, config, planFile, fileName: sourceFile.fileName });
+  assertReadingWithinBounds(job, { manifest: input.order.manifest, items, pageCount, maxPage: Math.max(...readPages), config, planFile,
+    fileName: sourceFile.fileName });
   // Each context file with its kind (the reading keeps the CCTP only); a file whose kind is not known is never attached.
   const references: PosteReadingReference[] = (sourceFile.contextFiles ?? []).map((file, index) => ({ ...file,
     ...(sourceFile.contextReferences?.[index] ?? { kind: "other" as const, name: "Pièce", revision: null }) }));
   const reading = await readPlanAgainstItemList({ call: input.call, job, items, listRevision: input.order.revision, model: input.model,
     config, references, preparation: sourceFile.preparationSnapshot,
     pdf: { fileName: sourceFile.fileName, bytes: sourceFile.bytes, originalPageNumbers: sourceFile.sourcePageNumbersByPage } });
-  const vectorOutcomes = await input.readVectors();
+  // The vector reading travels with the answers: what the database could not store of it is left out before the call.
+  const vectors = storableVectorOutcomes(await input.readVectors());
+  const vectorOutcomes = vectors.outcomes;
   const plan = finishPlanReading(reading, items, posteVectorReadings(vectorOutcomes, planFile.plan_file_id), job.id);
-  await input.renewLease();
+  // Every call is paid: a renewal that could not be made (a transport error is reported as a conflict) never discards the
+  // reading. The command checks the lease under its lock, and only its own answer that the lease is lost ends the attempt.
+  await input.renewLease().catch(() => undefined);
   const completedAt = input.now();
   const totalDurationMs = Math.max(reading.durationMs, completedAt.getTime() - input.processingStartedAt.getTime());
-  const publication = buildTakeoffItemAnswersPublication({ job, items, reading, plan, planFile, vectorOutcomes, completedAt,
+  const publication = buildTakeoffItemAnswersPublication({ job, items, reading, plan, planFile, vectorOutcomes,
+    vectorLeftOut: vectors.leftOut, completedAt,
     totalDurationMs, model: input.model, fileName: sourceFile.fileName, mimeType: sourceFile.mimeType,
     list: { revisionId: input.order.revisionId, revision: input.order.revision, itemCount: input.order.itemCount },
     runMetrics: buildLevelCRunMetricRows({ supabase: input.supabase, job, metrics: reading.metrics,

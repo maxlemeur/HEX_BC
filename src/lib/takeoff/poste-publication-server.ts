@@ -6,14 +6,10 @@ import { TAKEOFF_ITEM_ANSWER_LIMITS, takeoffItemAnswerText } from "@/lib/takeoff
 import { takeoffItemAnswersRefusal, type TakeoffItemAnswersRefusal } from "@/lib/takeoff/item-answers";
 import type { TakeoffJobProcessingRow } from "@/lib/takeoff/job-lifecycle";
 import type { buildLevelCRunMetricRows } from "@/lib/takeoff/level-c-chunk-metrics";
-import {
-  POSTE_EXCHANGE_PROMPT_VERSION,
-  POSTE_EXCHANGE_SCHEMA_VERSION,
-  type PosteAnswerOutcome,
-  type PosteObservationMethod,
-} from "@/lib/takeoff/poste-exchange";
-import type { PosteObservationRole, PostePlanReading, PosteReasonCode } from "@/lib/takeoff/poste-exchange-merge";
+import { POSTE_EXCHANGE_PROMPT_VERSION, POSTE_EXCHANGE_SCHEMA_VERSION } from "@/lib/takeoff/poste-exchange";
+import type { PostePlanReading } from "@/lib/takeoff/poste-exchange-merge";
 import type { Poste } from "@/lib/takeoff/poste-list";
+import { publishedObservation, publishedReason, type TakeoffItemAnswer } from "@/lib/takeoff/poste-publication-size";
 import { posteVectorKey, type PosteUnitReading } from "@/lib/takeoff/poste-reading";
 import { publicTakeoffPreparationSnapshot } from "@/lib/takeoff/preparation";
 import type { Supabase } from "@/lib/takeoff/processing-context";
@@ -21,8 +17,9 @@ import { writableRuleInputs } from "@/lib/takeoff/rules/contracts";
 import { ruleInputsFromDesignation } from "@/lib/takeoff/rules/inputs";
 import { isTakeoffRulesEnabled } from "@/lib/takeoff/rules/recompute-server";
 import type { TakeoffSourceDocumentRef } from "@/lib/takeoff/source-loader";
+import { jsonbTextBytes } from "@/lib/takeoff/rules/jsonb-size";
 import { normalizeMeasurementUnit } from "@/lib/units/normalize";
-import { buildTakeoffVectorPersistence } from "@/lib/takeoff/vectors/worker-persistence-server";
+import { buildTakeoffVectorPersistence, type VectorReadingLeftOut } from "@/lib/takeoff/vectors/worker-persistence-server";
 import type { VectorPageOutcome } from "@/lib/takeoff/vectors/worker-server";
 
 /**
@@ -31,36 +28,7 @@ import type { VectorPageOutcome } from "@/lib/takeoff/vectors/worker-server";
  * the job's end, written in one transaction by the worker under its lease. The command reads the request, the unit and
  * the sealed list revision itself; it is given only what the reading produced, and what today's end of a job takes.
  */
-export type TakeoffItemAnswerObservation = {
-  page: number;
-  evidence: string;
-  method: PosteObservationMethod | "vector_reading";
-  confidence: number;
-  quantity: number | null;
-  unit: string | null;
-  measurement_basis: string | null;
-  role: PosteObservationRole;
-  source: "model" | "vector";
-  chunk_id: string | null;
-  /** A vector observation: the vector row (`p_vector.items[].id`) this publication inserts. */
-  vector_key: string | null;
-  /** A contribution: the positive `takeoff_items` row (`p_items[].id`) the existing readers use. None for any other role. */
-  takeoff_item_id: string | null;
-};
-
-export type TakeoffItemAnswer = {
-  item_id: string;
-  outcome: PosteAnswerOutcome;
-  /** Ordered: the first is the primary reason. Empty only for a measured answer. */
-  reasons: Array<{ code: PosteReasonCode; by: "model" | "worker"; text: string | null; chunk_id: string | null }>;
-  searched_pages: number[];
-  unreadable_pages: number[];
-  /** Measured only: the sum of its contributions. */
-  quantity: { value: number; unit: string } | null;
-  /** Uncertain only: the value its readings suggest. */
-  candidate: { value: number; unit: string } | null;
-  observations: TakeoffItemAnswerObservation[];
-};
+export type { TakeoffItemAnswer, TakeoffItemAnswerObservation } from "@/lib/takeoff/poste-publication-size";
 
 export type TakeoffItemAnswersPublication = {
   p_job_id: string;
@@ -107,6 +75,16 @@ function findingWarning(finding: { page: number; designation: string; evidence: 
     message: takeoffItemAnswerText(`Page ${finding.page} : ${finding.designation} — ${finding.evidence}`) };
 }
 
+/** What the result says of a vector page, or of its rows, left out because the database could not store them. */
+function vectorLeftOutWarning(leftOut: VectorReadingLeftOut) {
+  const message = leftOut.whole
+    ? `La lecture vectorielle de la page ${leftOut.page} n’a pas pu être gardée : elle n’est pas reprise.`
+    : leftOut.items > 1
+      ? `${leftOut.items} lectures vectorielles de la page ${leftOut.page} sont hors de ce que le métré enregistre : elles ne sont pas reprises.`
+      : `1 lecture vectorielle de la page ${leftOut.page} est hors de ce que le métré enregistre : elle n’est pas reprise.`;
+  return { code: "POSTE_VECTEUR_ECARTE", severity: "warning" as const, message };
+}
+
 /**
  * The command's input, built once from the reading: one answer per item in the list's order; each contribution of a
  * measured answer becomes a positive row of `takeoff_items` (as the first format's items: rule inputs when the rules are
@@ -126,7 +104,9 @@ export function buildTakeoffItemAnswersPublication(input: {
   planFile: Extract<TakeoffSourceDocumentRef, { kind: "plan_file" }>;
   fileName: string;
   mimeType: string;
+  /** The vector pages the database can store (`storableVectorOutcomes`), and what was left out of them. */
   vectorOutcomes: readonly VectorPageOutcome[];
+  vectorLeftOut?: readonly VectorReadingLeftOut[];
   runMetrics: ReturnType<typeof buildLevelCRunMetricRows>;
   model: string;
   completedAt: Date;
@@ -170,8 +150,7 @@ export function buildTakeoffItemAnswersPublication(input: {
     const hypothesis = cause === null ? null : cause === "estimated" ? "QUANTITY_ESTIMATED" as const : "NOT_OBSERVABLE" as const;
     return {
       item_id: answer.itemId, outcome: hypothesis ? "uncertain" : answer.outcome,
-      reasons: [...answer.reasons.map((reason) => ({ code: reason.code, by: reason.by, text: reason.text, chunk_id: reason.chunkId })),
-        ...(hypothesis ? [{ code: hypothesis, by: "worker" as const, text: null, chunk_id: null }] : [])],
+      reasons: [...answer.reasons.map(publishedReason), ...(hypothesis ? [{ code: hypothesis, by: "worker" as const, text: null, chunk_id: null }] : [])],
       searched_pages: [...answer.searchedPages], unreadable_pages: [...answer.unreadablePages],
       quantity: hypothesis ? null : answer.quantity, candidate: hypothesis ? answer.quantity : answer.candidate,
       observations: answer.observations.map((entry) => {
@@ -188,12 +167,13 @@ export function buildTakeoffItemAnswersPublication(input: {
         }
         const vectorKey = entry.source === "vector" ? vectorRows.get(entry.vectorKey ?? "") ?? null : null;
         if (entry.source === "vector" && !vectorKey) throw new Error("A vector observation has no vector row.");
-        return { page: entry.page, evidence: entry.evidence, method: entry.method, confidence: entry.confidence, quantity: entry.quantity,
-          unit: entry.unit, measurement_basis: entry.measurementBasis, role: row && hypothesis ? "candidate" : entry.role,
-          source: entry.source, chunk_id: entry.chunkId, vector_key: vectorKey, takeoff_item_id: takeoffItemId };
+        return publishedObservation(entry, { takeoffItemId, vectorKey }, row && hypothesis ? "candidate" : entry.role);
       }),
     };
   });
+  // Within what the command stores by construction (the admission's bound, the merge's attachment of vector readings):
+  // checked again before anything is sent, never refused after.
+  if (jsonbTextBytes(answers) > TAKEOFF_ITEM_ANSWER_LIMITS.answersBytes) throw new Error("The answers pass what the publication stores.");
   // The first findings in the reading's order, within the command's bound; the result says how many more were seen.
   const findings = input.plan.unlistedFindings.slice(0, TAKEOFF_ITEM_ANSWERS_MAX_FINDINGS).map((finding) => ({ page: finding.page,
     designation: finding.designation, evidence: finding.evidence, chunk_id: finding.chunkId }));
@@ -213,7 +193,8 @@ export function buildTakeoffItemAnswersPublication(input: {
       warnings: [...input.plan.warnings.map(({ code, message, severity }) => ({ code, message, severity })), ...findings.map(findingWarning),
         ...(unkept > 0 ? [{ code: "POSTE_HORS_LISTE_TRONQUE", severity: "warning" as const,
           message: `${unkept} ${unkept > 1 ? "autres ouvrages vus hors de la liste ne sont pas repris" : "autre ouvrage vu hors de la liste n’est pas repris"} `
-            + `(${TAKEOFF_ITEM_ANSWERS_MAX_FINDINGS.toLocaleString("fr-FR")} au plus).` }] : [])],
+            + `(${TAKEOFF_ITEM_ANSWERS_MAX_FINDINGS.toLocaleString("fr-FR")} au plus).` }] : []),
+        ...(input.vectorLeftOut ?? []).map(vectorLeftOutWarning)],
       tables: [],
       provider_meta: {
         provider: "chatgpt", model: input.model, prompt_version: POSTE_EXCHANGE_PROMPT_VERSION, schema_version: POSTE_EXCHANGE_SCHEMA_VERSION,
@@ -224,8 +205,9 @@ export function buildTakeoffItemAnswersPublication(input: {
         chunks: input.reading.metrics,
         ...(input.job.preparation_snapshot ? { preparation_snapshot: publicTakeoffPreparationSnapshot(input.job.preparation_snapshot) } : {}),
       },
-      confidence: null, token_count: tokenUsage.totalTokens, cost_cents: input.reading.costCents, duration_ms: input.reading.durationMs,
-      job_duration_ms: input.totalDurationMs, run_metrics: input.runMetrics,
+      // Whole numbers, as the result's integer columns and the job's end read them (a fraction would refuse the call).
+      confidence: null, token_count: Math.round(tokenUsage.totalTokens), cost_cents: Math.round(input.reading.costCents),
+      duration_ms: Math.round(input.reading.durationMs), job_duration_ms: Math.round(input.totalDurationMs), run_metrics: input.runMetrics,
     },
     p_items: items,
     ...(vector ? { p_vector: vector } : {}),
@@ -293,8 +275,8 @@ const FAILURE_REASONS: Record<TakeoffErrorCode.CONFLICT | TakeoffErrorCode.INTER
  * the answers, the result, its rows and the job's end in one transaction under the attempt's lease. Its digest covers every
  * argument (the random ids and `completed_at` included): the publication is built once for the attempt and sent as it is,
  * again when its answer is lost (no answer, or one without its result), after a serialization failure or a deadlock, which
- * the database then answers as a replay of what it wrote. The sendings go on for TAKEOFF_ITEM_ANSWERS_RESEND.forMs, the
- * lease renewed between them; then the plan's reading is not tried again (a new attempt would pay to read it again) and
+ * the database then answers as a replay of what it wrote. The sendings go on while their next wait ends within
+ * TAKEOFF_ITEM_ANSWERS_RESEND.forMs, the lease renewed between them; then the plan's reading is not tried again (a new attempt would pay to read it again) and
  * the member is told it was not recorded. A refusal writes nothing and is told by its code (REFUSAL_CODES).
  */
 export async function publishTakeoffItemAnswers(supabase: Supabase, publication: TakeoffItemAnswersPublication, options: {
@@ -326,7 +308,8 @@ export async function publishTakeoffItemAnswers(supabase: Supabase, publication:
       }
       lost = error.code || "no_answer";
     }
-    if (now() - startedAt >= TAKEOFF_ITEM_ANSWERS_RESEND.forMs) {
+    // Checked before the wait: no wait, and no sending after it, starts past the deadline.
+    if (now() - startedAt + wait > TAKEOFF_ITEM_ANSWERS_RESEND.forMs) {
       console.error("takeoff.item_answers.unrecorded", { jobId, sendings, last: lost });
       throw new TakeoffError({ code: TakeoffErrorCode.INTERNAL_ERROR, retryable: false, jobId,
         message: "La lecture de ce plan n’a pas pu être enregistrée : relancez-la depuis les options du métré.",

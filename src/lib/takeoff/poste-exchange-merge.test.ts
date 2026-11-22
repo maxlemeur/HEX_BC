@@ -219,6 +219,23 @@ describe("mergePosteReadings", () => {
     expect(reading.unattachedVectorReadings).toEqual(["v-gaz"]);
   });
 
+  // PR 3c closing round, point 2: a vector reading whose quantity the command cannot store (a 1,000-point square at an
+  // accepted calibration of 1:100,000 reads 1,244,521,604.94 m²) is never an observation: it stays the result's own, and
+  // the answer it matches says so.
+  it("never attaches a vector reading whose quantity the command cannot store", () => {
+    const kitchen = poste("00000000-0000-4000-8000-000000000051", "Sol cuisine", "m2");
+    const fragments = read((call, key, local) => notFound(key, local.pages), { items: [kitchen] });
+    const reading = mergePosteReadings({ items: [kitchen], planPages: PLAN_PAGES, fragments, vectorReadings: [
+      { key: "v-huge", page: 22, kind: "surface", room: "Cuisine", designation: "Surface « Cuisine »", quantity: 1_244_521_604.94, unit: "m2",
+        confidence: 0.8, evidence: "Surface du local lue sur le plan." },
+      { key: "v-tiny", page: 22, kind: "surface", room: "Cuisine", designation: "Surface « Cuisine »", quantity: 0.0004, unit: "m2",
+        confidence: 0.8, evidence: "Surface du local lue sur le plan." }] });
+    const answer = answerOf(reading.answers, kitchen);
+    expect(answer.observations).toEqual([]);
+    expect(answer.reasons.map((reason) => reason.code)).toEqual(["VECTOR_READINGS_UNATTACHED"]);
+    expect(reading.unattachedVectorReadings).toEqual(["v-huge", "v-tiny"]);
+  });
+
   // PR 3c fix round, point 1: an answer holds at most 500 observations (TAKEOFF_ITEM_ANSWER_LIMITS); the vector readings an
   // item matches beyond them stay the result's own, never dropped, and the answer says so.
   it("leaves unattached the vector readings an answer cannot hold, and says so", () => {

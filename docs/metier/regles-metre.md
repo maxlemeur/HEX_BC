@@ -220,7 +220,12 @@ active, garde ses propres limites (25 demandes par page, 40 par plan, sur les 60
 vectorielles du dossier). Un plan est lu en 19 fragments au plus, soit 154 pages avec le
 découpage par défaut : la réponse d’un poste garde ainsi, une fois ses fragments
 réunis, tous ses motifs et toutes ses observations dans ce que la base enregistre
-d’une réponse (32 motifs, 500 observations). Le budget d’une telle demande n’est pas celui de la lecture
+d’une réponse (32 motifs, 500 observations). Les réponses d’un plan sont aussi bornées
+ensemble, avant tout appel payant, par ce que la base enregistre d’une publication
+(8 Mio) : leur taille la plus grande se calcule depuis les postes, les fragments et les
+pages du plan, chaque texte à sa limite. Un plan de 20 pages lu contre 300 postes en
+prend 69 % ; un plan d’une page accepte au plus 1 162 postes, un plan de 154 pages 65.
+Le budget d’une telle demande n’est pas celui de la lecture
 détaillée de l’extraction libre (qui reste le réglage du tenant) : il est fixé à
 l’admission d’après les appels admis. Chaque appel payant, de lecture ou de
 classification, réserve 30 000 jetons ; la part de chaque plan vaut deux fois les
@@ -259,16 +264,26 @@ sait avant ses appels l’arrête avant eux : un plan dont les pages ne sont plu
 que sa demande a scellées n’est pas lu. Un motif que plusieurs fragments répètent (même
 code, même texte) est gardé une fois, avec le premier fragment qui l’a donné. Un total ou
 une valeur candidate au-delà de 999 999 999,999999 n’est pas une mesure : la réponse est
-« À vérifier », sans valeur, ses lectures gardées comme candidates. Les lectures
-vectorielles qu’une réponse ne peut plus garder restent dans le résultat, et la réponse
-le dit :
+« À vérifier », ses lectures gardées comme candidates, avec pour valeur candidate
+celle de ses lectures distinctes quand elle tient dans cette borne. Les lectures
+vectorielles s’attachent aux réponses tant qu’elles tiennent dans ce que la base
+enregistre (500 observations par réponse, 8 Mio pour toutes) ; celles qu’une réponse ne
+peut plus garder restent dans le résultat, et la réponse le dit. Une lecture vectorielle
+dont la base ne peut pas garder la quantité (au-delà de 999 999 999,999, ou nulle à trois
+décimales), la confiance ou le texte n’est jamais rattachée à un poste. Une page ou une
+ligne de la lecture vectorielle que la base refuserait (un texte qu’elle ne peut pas
+garder, une taille au-delà de ses bornes) est écartée avant l’envoi, et le résultat le
+dit : la lecture vectorielle n’est qu’une proposition, et les réponses d’un plan ne sont
+jamais perdues pour elle. Un renouvellement du bail qui échoue une fois les appels payés
+n’arrête pas la publication : seule la base, qui vérifie le bail, peut dire qu’il est
+perdu. Les refus :
 « Extraction incomplète sur ce document. » pour des réponses que la base ne peut pas
 garder telles que la lecture les a faites, une erreur interne pour une demande, une
 liste ou des pages qui ne sont pas celles qu’elle a scellées. Une publication dont la
 réponse se perd (aucune réponse, ou une réponse sans son résultat) est renvoyée à
 l’identique, comme après un conflit de sérialisation ou un interblocage, avec une attente
-croissante (de 1 à 30 secondes) pendant 10 minutes au plus, le bail renouvelé entre deux
-envois ; la base répond alors ce qu’elle a déjà écrit. Au-delà, la lecture du plan n’est
+croissante (de 1 à 30 secondes), tant que l’attente suivante finit dans les 10 minutes,
+le bail renouvelé entre deux envois ; la base répond alors ce qu’elle a déjà écrit. Au-delà, la lecture du plan n’est
 pas retentée : le job dit qu’elle n’a pas pu être enregistrée et qu’il faut la relancer.
 Au plus 2 000 ouvrages vus hors de la liste sont gardés ; le résultat dit
 combien d’autres ont été vus (les 40 appels d’un plan en donnent 800 au plus). Une nouvelle lecture du même

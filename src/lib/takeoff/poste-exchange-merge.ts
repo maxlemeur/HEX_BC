@@ -1,5 +1,6 @@
 import {
   PosteExchangeRefusal,
+  posteStoredConfidence,
   posteStoredQuantity,
   type PosteAnswerOutcome,
   type PosteExchangeCall,
@@ -9,6 +10,10 @@ import {
 } from "@/lib/takeoff/poste-exchange";
 import { TAKEOFF_ITEM_ANSWER_LIMITS } from "@/lib/takeoff/item-answer-limits";
 import type { PosteQualifiers } from "@/lib/takeoff/poste-list";
+import {
+  listEntryBytes, PUBLISHED_ANSWER_FRAME_MAX_BYTES, PUBLISHED_CHUNK_PLACEHOLDER, publishedObservationMaxBytes, publishedReason,
+} from "@/lib/takeoff/poste-publication-size";
+import { jsonbTextBytes } from "@/lib/takeoff/rules/jsonb-size";
 import { haveComparableQuantities } from "@/lib/takeoff/quantity-compatibility";
 import { MEASUREMENT_UNITS, normalizeMeasurementUnit } from "@/lib/units/normalize";
 
@@ -29,6 +34,10 @@ export const POSTE_WORKER_REASONS = ["UNIT_MISMATCH", "NON_INTEGER_COUNT", "READ
   // Vector readings this item matches beyond what one answer holds: kept as the result's own, never attached to it.
   "VECTOR_READINGS_UNATTACHED"] as const;
 export type PosteWorkerReason = (typeof POSTE_WORKER_REASONS)[number];
+
+/** The most bytes a reason of the worker takes in a publication (no text; a call's key at its longest). */
+export const POSTE_WORKER_REASON_MAX_BYTES = Math.max(...POSTE_WORKER_REASONS.map((code) =>
+  jsonbTextBytes(publishedReason({ code, by: "worker", text: null, chunkId: PUBLISHED_CHUNK_PLACEHOLDER }))));
 export type PosteReasonCode = PosteModelReason | PosteWorkerReason;
 
 /** The key of the checks made on the merged plan, where no single call is at fault. */
@@ -48,6 +57,7 @@ export type PosteReadingObservation = {
   page: number;
   evidence: string;
   method: PosteObservationMethod | "vector_reading";
+  /** At the stored precision (four decimals), as it publishes. */
   confidence: number;
   /** At the stored precision (three decimals), as it publishes. */
   quantity: number | null;
@@ -160,7 +170,7 @@ export function remapPosteFragmentReading(call: PosteExchangeCall, output: Poste
         itemId, outcome: response.outcome, reasonCode: response.reason_code, reasonText: response.reason_text,
         searchedPages: response.searched_pages.map(original),
         observations: response.observations.map((entry) => ({
-          page: original(entry.page), evidence: entry.evidence, method: entry.method, confidence: entry.confidence,
+          page: original(entry.page), evidence: entry.evidence, method: entry.method, confidence: posteStoredConfidence(entry.confidence),
           quantity: entry.quantity === null ? null : posteStoredQuantity(entry.quantity), quantityAsRead: entry.quantity,
           unit: entry.unit, measurementBasis: entry.measurement_basis,
           countsAs: entry.counts_as, basisAsRequested: entry.basis_as_requested,
@@ -318,37 +328,65 @@ function mergeItem(item: PosteReadingItem, allFragments: readonly PosteFragmentR
 }
 
 /**
+ * A vector reading the publication can store as an observation, and whose row the first order's end can write
+ * (takeoff_items.quantity is numeric(12,3), its confidence numeric(5,4)): its quantity positive and within the rows' bound
+ * at the stored precision, its confidence in [0, 1], its evidence and unit non-blank texts within the command's bounds that
+ * the database can store. Any other is never an observation.
+ */
+function storableVectorReading(reading: PosteVectorReading) {
+  const quantity = posteStoredQuantity(reading.quantity);
+  const text = (value: string, chars: number) => value.trim().length > 0 && Array.from(value).length <= chars
+    && Number.isFinite(jsonbTextBytes(value));
+  return Number.isFinite(reading.quantity) && quantity > 0 && quantity <= TAKEOFF_ITEM_ANSWER_LIMITS.itemQuantity
+    && Number.isFinite(reading.confidence) && reading.confidence >= 0 && reading.confidence <= 1
+    && Number.isInteger(reading.page) && reading.page >= 1
+    && text(reading.evidence, TAKEOFF_ITEM_ANSWER_LIMITS.evidenceChars) && text(reading.unit, TAKEOFF_ITEM_ANSWER_LIMITS.unitChars);
+}
+
+/**
  * The vector reading attached to the items it measures. A network's reading one item matches is compared with the model's
  * measure on its page (agreeing: kept as an alternative; differing, or alone where the model measured elsewhere: a
  * disagreement). A room's surface, matched by the room's name only, never changes a measure (a wall tiling of the kitchen
  * is not its floor): attached to a measured answer as an alternative for the reviewer. Where the model found nothing,
  * either is an indication to check. A reading several items match is a candidate of each. Never added to a measure, never
- * a measure on its own: marks on a plan stay proposals until a bench qualifies them. An answer that already holds what
- * the publication stores of an answer's observations receives no more: the reading stays the result's own (unattached),
- * and the answer says so (`VECTOR_READINGS_UNATTACHED`, which makes it uncertain).
+ * a measure on its own: marks on a plan stay proposals until a bench qualifies them. A reading is attached while the
+ * answer holds fewer than the observations the publication stores of an answer, and while the answers stay within the
+ * bytes it stores of them all (`budget`, what the answers without their vector readings leave at most); a reading the
+ * publication cannot store is never attached. One left out of an answer stays the result's own when no answer took it,
+ * and the answers it matches say so (`VECTOR_READINGS_UNATTACHED`, which makes them uncertain).
  */
-function attachVectorReadings(drafts: readonly Draft[], readings: readonly PosteVectorReading[]) {
+function attachVectorReadings(drafts: readonly Draft[], readings: readonly PosteVectorReading[], budget: { left: number }) {
   const unattached: string[] = [];
   const shared = new Set<string>();
   for (const reading of readings) {
     const matched = drafts.filter((draft) => vectorMatches(draft.item, reading));
-    const full = matched.filter((draft) => draft.observations.length >= TAKEOFF_ITEM_ANSWER_LIMITS.observations);
-    full.forEach((draft) => flag(draft, "VECTOR_READINGS_UNATTACHED"));
-    if (matched.length === full.length) {
+    if (!storableVectorReading(reading)) {
+      matched.forEach((draft) => flag(draft, "VECTOR_READINGS_UNATTACHED"));
       unattached.push(reading.key);
       continue;
     }
     if (matched.length > 1) shared.add(reading.key);
-    for (const draft of matched.filter((entry) => !full.includes(entry))) {
+    const quantity = posteStoredQuantity(reading.quantity);
+    let attached = false;
+    for (const draft of matched) {
       const modelOnPage = draft.observations.filter((entry) => entry.source === "model" && entry.role === "contribution"
         && entry.page === reading.page);
       const modelTotal = oneUnitTotal(modelOnPage);
       const unique = matched.length === 1;
       const corroborates = unique && modelTotal !== null && modelTotal.unit === unitCode(reading.unit)
-        && agree(modelTotal.value, reading.quantity, modelTotal.unit);
-      draft.observations.push({ page: reading.page, evidence: reading.evidence, method: "vector_reading", confidence: reading.confidence,
-        quantity: reading.quantity, quantityAsRead: null, unit: reading.unit, measurementBasis: null, countsAs: null, basisAsRequested: false,
-        role: unique && draft.outcome === "measured" ? "alternative" : "candidate", source: "vector", chunkId: null, vectorKey: reading.key });
+        && agree(modelTotal.value, quantity, modelTotal.unit);
+      const observation: PosteReadingObservation = { page: reading.page, evidence: reading.evidence, method: "vector_reading",
+        confidence: posteStoredConfidence(reading.confidence), quantity, quantityAsRead: null, unit: reading.unit, measurementBasis: null,
+        countsAs: null, basisAsRequested: false, role: unique && draft.outcome === "measured" ? "alternative" : "candidate", source: "vector",
+        chunkId: null, vectorKey: reading.key };
+      const cost = listEntryBytes(publishedObservationMaxBytes(observation));
+      if (draft.observations.length >= TAKEOFF_ITEM_ANSWER_LIMITS.observations || cost > budget.left) {
+        flag(draft, "VECTOR_READINGS_UNATTACHED");
+        continue;
+      }
+      budget.left -= cost;
+      attached = true;
+      draft.observations.push(observation);
       if (draft.outcome === "not_found") {
         draft.outcome = "uncertain";
         flag(draft, "VECTOR_ONLY");
@@ -356,8 +394,21 @@ function attachVectorReadings(drafts: readonly Draft[], readings: readonly Poste
         flag(draft, "READINGS_DISAGREE");
       }
     }
+    if (!attached) unattached.push(reading.key);
   }
   return { unattached, shared };
+}
+
+/**
+ * The most bytes a draft's answer takes in the publication without vector readings, whatever its end: its frame, every
+ * reason the worker may add (one per code), the model's reasons, its pages and its observations at their longest.
+ */
+function publishedDraftMaxBytes(draft: Draft) {
+  const total = (values: readonly number[]) => values.reduce((sum, value) => sum + value, 0);
+  return listEntryBytes(PUBLISHED_ANSWER_FRAME_MAX_BYTES) + POSTE_WORKER_REASONS.length * listEntryBytes(POSTE_WORKER_REASON_MAX_BYTES)
+    + total(draft.modelReasons.map((reason) => listEntryBytes(jsonbTextBytes(publishedReason(reason)))))
+    + total([...draft.searched, ...draft.unreadable].map((page) => listEntryBytes(String(page).length)))
+    + total(draft.observations.map((entry) => listEntryBytes(publishedObservationMaxBytes(entry))));
 }
 
 /** A measure has a basis; a count has none. */
@@ -469,9 +520,11 @@ export function mergePosteReadings(input: {
 }): PostePlanReading {
   if (new Set(input.items.map((item) => item.id)).size !== input.items.length) throw new Error("An item is requested twice.");
   const drafts = input.items.map((item) => mergeItem(item, input.fragments));
-  // Vector readings exist only for the plan's own pages; another page's reading is never this plan's.
+  // Vector readings exist only for the plan's own pages; another page's reading is never this plan's. They take what the
+  // answers without them leave of the bytes the publication stores (the brackets of the list included).
   const planPages = new Set(input.planPages);
-  const vectors = attachVectorReadings(drafts, (input.vectorReadings ?? []).filter((reading) => planPages.has(reading.page)));
+  const budget = { left: TAKEOFF_ITEM_ANSWER_LIMITS.answersBytes - 2 - drafts.reduce((sum, draft) => sum + publishedDraftMaxBytes(draft), 0) };
+  const vectors = attachVectorReadings(drafts, (input.vectorReadings ?? []).filter((reading) => planPages.has(reading.page)), budget);
   const answers = drafts.map((draft) => finalize(draft, vectors.shared));
   assertExactPlanReading(answers, input.items, input.planPages);
   const findings = new Map<string, PostePlanReading["unlistedFindings"][number]>();

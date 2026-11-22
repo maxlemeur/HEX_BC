@@ -1,3 +1,6 @@
+import { readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+
 import { describe, expect, it } from "vitest";
 
 import {
@@ -25,6 +28,7 @@ import {
   POSTE_READING_BUDGET_MARGIN,
   POSTE_READING_LIMITS,
   POSTE_READING_MAX_FRAGMENTS,
+  posteAnswersMaxBytes,
   posteReadingBoundsOfManifest,
   posteReadingRefusal,
   sizePosteReadingManifest,
@@ -158,17 +162,95 @@ describe("the fragments of one plan", () => {
 
   it("keeps every answer of an admitted plan within what the command stores", () => {
     // The model's one reason per fragment and the worker's own (one per code); 16 observations per fragment and a vector
-    // reading on each of the dossier's vector pages.
-    expect(POSTE_READING_MAX_FRAGMENTS + POSTE_WORKER_REASONS.length).toBeLessThanOrEqual(TAKEOFF_ITEM_ANSWER_LIMITS.reasons);
+    // reading on each of the dossier's vector pages. The limits are the migration's own (read from its text below).
+    expect(POSTE_READING_MAX_FRAGMENTS + POSTE_WORKER_REASONS.length).toBeLessThanOrEqual(COMMAND.reasons);
     expect(POSTE_READING_MAX_FRAGMENTS * POSTE_EXCHANGE_LIMITS.observationsPerAnswer + TAKEOFF_LAUNCH_VECTOR_PAGES)
-      .toBeLessThanOrEqual(TAKEOFF_ITEM_ANSWER_LIMITS.observations);
+      .toBeLessThanOrEqual(COMMAND.observations);
     // The findings outside the list of a plan's admitted calls stay within what one publication stores (PR 3c fix round,
     // point 7): the builder's cap at 2,000 is a guard an admitted reading never reaches.
-    expect(POSTE_READING_LIMITS.callsPerUnit * POSTE_EXCHANGE_LIMITS.unlistedFindings).toBeLessThanOrEqual(TAKEOFF_ITEM_ANSWER_LIMITS.findings);
+    expect(POSTE_READING_LIMITS.callsPerUnit * POSTE_EXCHANGE_LIMITS.unlistedFindings).toBeLessThanOrEqual(COMMAND.findings);
     // With the tenant's default fragmenting, a plan of up to 154 pages (19 calls, its budget sized from them).
     expect(bound(40, [154], 2_000_000).ok).toBe(true);
     expect(bound(40, [155], 2_000_000)).toMatchObject({ ok: false, maxPlanPages: 154 });
     expect(bound(40, [155], 2_000_000).units[0].exceeded).toEqual(["fragments"]);
+  });
+});
+
+/**
+ * The command's limits as its migration writes them (PR 3c closing round, point 7): the latest migration that defines each
+ * function, so that a replacement of the command (#470) is read too. A change of either side, or of the SQL's wording,
+ * fails here.
+ */
+const COMMAND = (() => {
+  const directory = join(process.cwd(), "supabase", "migrations");
+  const files = readdirSync(directory).filter((file) => file.endsWith(".sql")).sort().reverse();
+  const definition = (name: string) => {
+    const opening = new RegExp(`create (?:or replace )?function ${name.replace(".", "\\.")}\\(`);
+    for (const file of files) {
+      const sql = readFileSync(join(directory, file), "utf8");
+      const start = sql.search(opening);
+      if (start >= 0) return sql.slice(start, sql.indexOf("$$;", sql.indexOf("$$", start) + 2));
+    }
+    throw new Error(`No migration defines ${name}.`);
+  };
+  const read = (sql: string, pattern: RegExp) => {
+    const match = pattern.exec(sql);
+    if (!match) throw new Error(`The command no longer writes ${pattern}.`);
+    return Number(match[1]);
+  };
+  const answer = definition("private.takeoff_item_answer_well_formed");
+  const value = definition("private.takeoff_item_answer_value_valid");
+  const findings = definition("private.takeoff_item_answer_findings_valid");
+  const refusal = definition("private.takeoff_item_answers_refusal");
+  const command = definition("public.publish_takeoff_item_answers");
+  return {
+    reasons: read(answer, /jsonb_array_length\(coalesce\(p_answer -> 'reasons', '\[\]'::jsonb\)\) > (\d+)/),
+    observations: read(answer, /jsonb_array_length\(coalesce\(p_answer -> 'observations', '\[\]'::jsonb\)\) > (\d+)/),
+    observationQuantity: read(answer, /entry -> 'quantity', 0, ([\d.]+), false, true\)/),
+    value: read(value, /p_value -> 'value', 0, ([\d.]+), false, true\)/),
+    findings: read(findings, /jsonb_array_length\(p_findings\) > (\d+)/),
+    itemQuantity: read(refusal, /i\.value -> 'quantity', 0, ([\d.]+), false, true\)/),
+    answersBytes: read(command, /octet_length\(p_answers::text\) > (\d+)/),
+  };
+})();
+
+describe("the command's limits", () => {
+  it("are the ones its migration writes", () => {
+    expect({ reasons: TAKEOFF_ITEM_ANSWER_LIMITS.reasons, observations: TAKEOFF_ITEM_ANSWER_LIMITS.observations,
+      observationQuantity: TAKEOFF_ITEM_ANSWER_LIMITS.value, value: TAKEOFF_ITEM_ANSWER_LIMITS.value,
+      findings: TAKEOFF_ITEM_ANSWER_LIMITS.findings, itemQuantity: TAKEOFF_ITEM_ANSWER_LIMITS.itemQuantity,
+      answersBytes: TAKEOFF_ITEM_ANSWER_LIMITS.answersBytes }).toEqual(COMMAND);
+  });
+});
+
+// PR 3c closing round, point 1: the command refuses answers of more than 8 MiB as the database writes them back
+// (octet_length(p_answers::text)). What a plan's reading can publish is bounded before any paid call from what the
+// admission knows: its items, its fragments, its pages, and the schema's maxima per answer and per observation.
+describe("the bytes of a plan's answers", () => {
+  const onePlan = (items: number, pages: number) => boundPosteReadingRequest({ batches: batchesOf(postes(items)), chunking: CHUNKING,
+    requestBudgetTokens: 1_000_000_000, estimateTokensPerCall: TAKEOFF_PAID_CALL_ESTIMATE_TOKENS,
+    units: [{ key: "plan:p1", pieces: [{ id: "p1", name: "Plan 1" }], pages, budgetTokens: 1_000_000_000 }] });
+
+  it("refuses before paying a one-page reading of 1,600 items whose answers could pass what the command stores", () => {
+    // 40 calls of 40 items: within the calls' ceilings, the budget and the bound of the calls' own answers.
+    const over = onePlan(1_600, 1);
+    expect(over.units[0]).toMatchObject({ fragments: 1, readingCalls: 40, exceeded: ["publication_bytes"] });
+    expect(over.units[0].publicationBytes).toBeGreaterThan(TAKEOFF_ITEM_ANSWER_LIMITS.answersBytes);
+    expect(posteReadingRefusal(over)?.pieces).toEqual([{ id: "p1", name: "Plan 1" }]);
+  });
+
+  it("admits the reference dossier: each of its plans of 20 pages read against 300 items fits", () => {
+    const reference = onePlan(300, 20);
+    expect(reference.ok).toBe(true);
+    expect(reference.units[0]).toMatchObject({ fragments: 3, exceeded: [] });
+    expect(reference.units[0].publicationBytes).toBe(posteAnswersMaxBytes({ batches: batchesOf(postes(300)), fragments: 3, pages: 20,
+      maxPage: 20 }));
+    expect(reference.units[0].publicationBytes).toBeLessThan(TAKEOFF_ITEM_ANSWER_LIMITS.answersBytes);
+  });
+
+  it("counts a plan's highest page in its answers' pages", () => {
+    expect(posteAnswersMaxBytes({ batches: [40], fragments: 1, pages: 4, maxPage: 1_000 }))
+      .toBeGreaterThan(posteAnswersMaxBytes({ batches: [40], fragments: 1, pages: 4, maxPage: 4 }));
   });
 });
 
@@ -275,12 +357,13 @@ describe("sizePosteReadingManifest", () => {
   });
 
   it("refuses, naming it, a plan whose reading passes its own ceiling", () => {
-    // 560 items (14 batches) on a 20-page plan: 42 calls; the 8-page plan beside it, 14.
+    // 560 items (14 batches) on a 20-page plan: 42 calls, and answers past what its publication stores (PR 3c closing round,
+    // point 1); the 8-page plan beside it, 14 calls, within both.
     const request = planRequest(2, 20, 560);
     request.units[1].page_count = 8;
     request.plans[1].page_count = 8;
     const bounds = sizePosteReadingManifest(request, CHUNKING, TAKEOFF_PAID_CALL_ESTIMATE_TOKENS, dpgfItems(560), CLASSIFIER).bounds!;
-    expect(bounds.units.map((unit) => [unit.readingCalls, unit.exceeded])).toEqual([[42, ["calls"]], [14, []]]);
+    expect(bounds.units.map((unit) => [unit.readingCalls, unit.exceeded])).toEqual([[42, ["calls", "publication_bytes"]], [14, []]]);
     expect(posteReadingRefusal(bounds)?.pieces).toEqual([{ id: request.plans[0].plan_file_id, name: "Plan 01" }]);
   });
 
