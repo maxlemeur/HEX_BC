@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { buildPdfChunks, ownedChunkPages } from "@/lib/takeoff/chunking";
+import { TAKEOFF_ITEM_ANSWER_LIMITS } from "@/lib/takeoff/item-answer-limits";
 import {
   planPosteExchangeCalls,
   PosteExchangeOutputSchema,
@@ -110,7 +111,8 @@ describe("mergePosteReadings", () => {
     // Not found on the whole plan: a SQL NULL quantity, never 0, every page searched, no observation.
     expect(answerOf(answers, BAIGNOIRE)).toMatchObject({ outcome: "not_found", quantity: null, candidate: null,
       searchedPages: PLAN_PAGES, observations: [] });
-    expect(answerOf(answers, BAIGNOIRE).reasons.map((reason) => reason.code)).toEqual(["NO_INDICATION", "NO_INDICATION", "NO_INDICATION"]);
+    // The same reason of its three fragments, stored once with the first (PR 3c fix round, point 1).
+    expect(answerOf(answers, BAIGNOIRE).reasons.map((reason) => [reason.code, reason.chunkId])).toEqual([["NO_INDICATION", "f1-b1"]]);
   });
 
   it("keeps a disagreement on an overlap page and makes the answer uncertain", () => {
@@ -215,6 +217,40 @@ describe("mergePosteReadings", () => {
     expect(answerOf(reading.answers, ecsVectorOnly)).toMatchObject({ outcome: "uncertain", quantity: null, candidate: { value: 20, unit: "ml" } });
     expect(answerOf(reading.answers, ecsVectorOnly).reasons.map((reason) => reason.code)).toContain("VECTOR_ONLY");
     expect(reading.unattachedVectorReadings).toEqual(["v-gaz"]);
+  });
+
+  // PR 3c closing round, point 2: a vector reading whose quantity the command cannot store (a 1,000-point square at an
+  // accepted calibration of 1:100,000 reads 1,244,521,604.94 m²) is never an observation: it stays the result's own, and
+  // the answer it matches says so.
+  it("never attaches a vector reading whose quantity the command cannot store", () => {
+    const kitchen = poste("00000000-0000-4000-8000-000000000051", "Sol cuisine", "m2");
+    const fragments = read((call, key, local) => notFound(key, local.pages), { items: [kitchen] });
+    const reading = mergePosteReadings({ items: [kitchen], planPages: PLAN_PAGES, fragments, vectorReadings: [
+      { key: "v-huge", page: 22, kind: "surface", room: "Cuisine", designation: "Surface « Cuisine »", quantity: 1_244_521_604.94, unit: "m2",
+        confidence: 0.8, evidence: "Surface du local lue sur le plan." },
+      { key: "v-tiny", page: 22, kind: "surface", room: "Cuisine", designation: "Surface « Cuisine »", quantity: 0.0004, unit: "m2",
+        confidence: 0.8, evidence: "Surface du local lue sur le plan." }] });
+    const answer = answerOf(reading.answers, kitchen);
+    expect(answer.observations).toEqual([]);
+    expect(answer.reasons.map((reason) => reason.code)).toEqual(["VECTOR_READINGS_UNATTACHED"]);
+    expect(reading.unattachedVectorReadings).toEqual(["v-huge", "v-tiny"]);
+  });
+
+  // PR 3c fix round, point 1: an answer holds at most 500 observations (TAKEOFF_ITEM_ANSWER_LIMITS); the vector readings an
+  // item matches beyond them stay the result's own, never dropped, and the answer says so.
+  it("leaves unattached the vector readings an answer cannot hold, and says so", () => {
+    const ef = poste("00000000-0000-4000-8000-000000000041", "Alimentation EF", "ml", { network: "EF", material: "cuivre", diameter: "DN 22" });
+    const fragments = read((call, key, local) => fragmentOf(call) === 1
+      ? measured(key, local.pages, [{ page: 3, quantity: 12.5, unit: "ml" }]) : notFound(key, local.pages), { items: [ef] });
+    const vectorReadings = Array.from({ length: TAKEOFF_ITEM_ANSWER_LIMITS.observations }, (_, index): PosteVectorReading => ({
+      key: `v-${index}`, page: 23, kind: "network", room: null, designation: "EF cuivre DN 22", quantity: 12.5, unit: "ml", confidence: 0.9,
+      evidence: "axe" }));
+    const reading = mergePosteReadings({ items: [ef], planPages: PLAN_PAGES, fragments, vectorReadings });
+    const answer = answerOf(reading.answers, ef);
+    expect(answer.observations).toHaveLength(TAKEOFF_ITEM_ANSWER_LIMITS.observations);
+    expect(answer).toMatchObject({ outcome: "uncertain", quantity: null, candidate: { value: 12.5, unit: "ml" } });
+    expect(answer.reasons.map((reason) => reason.code)).toEqual(["VECTOR_READINGS_UNATTACHED"]);
+    expect(reading.unattachedVectorReadings).toEqual([`v-${TAKEOFF_ITEM_ANSWER_LIMITS.observations - 1}`]);
   });
 
   it("keeps a vector reading two items could claim as a candidate of each, never as anyone's measure", () => {
@@ -454,6 +490,33 @@ describe("mergePosteReadings", () => {
     expect(lavabo.reasons.map((reason) => reason.code)).toEqual(["NON_INTEGER_COUNT"]);
     // What publishes stays at the stored precision.
     expect(lavabo.observations[0].quantity).toBe(1);
+  });
+
+  // PR 3c fix round, point 1: a reason that repeats across fragments (same code, same text) is stored once, with the first
+  // fragment that gave it; distinct ones are all kept.
+  it("stores a reason the fragments repeat once, keeping the first fragment that gave it", () => {
+    const fragments = read((call, key, local) => key === "P0002" && fragmentOf(call) === 3
+      ? { ...notFound(key, local.pages), reason_text: "Aucun WC sur ces pages." } as PosteExchangeAnswer : notFound(key, local.pages));
+    const { answers } = mergePosteReadings({ items: ITEMS, planPages: PLAN_PAGES, fragments });
+    expect(answerOf(answers, LAVABO).reasons).toEqual([{ code: "NO_INDICATION", by: "model", text: "Aucun indice sur les pages lues.",
+      chunkId: "f1-b1" }]);
+    expect(answerOf(answers, WC).reasons.map((reason) => [reason.text, reason.chunkId])).toEqual([
+      ["Aucun indice sur les pages lues.", "f1-b1"], ["Aucun WC sur ces pages.", "f3-b1"]]);
+  });
+
+  // PR 3c fix round, point 2: the command stores a total or a candidate value up to 999,999,999.999999; beyond it, no measure.
+  it("never gives a total or a candidate value beyond what the command stores", () => {
+    const pipe = poste("00000000-0000-4000-8000-000000000031", "Tube PER", "ml");
+    const fragments = read((call, key, local) => {
+      const fragment = fragmentOf(call);
+      if (fragment === 1) return measured(key, local.pages, [{ page: 1, quantity: 500_000_000, unit: "ml", evidence: "tronçon nord" },
+        { page: 2, quantity: 500_000_000, unit: "ml", evidence: "tronçon sud" }]);
+      return notFound(key, local.pages);
+    }, { items: [pipe] });
+    const answer = answerOf(mergePosteReadings({ items: [pipe], planPages: PLAN_PAGES, fragments }).answers, pipe);
+    expect(answer).toMatchObject({ outcome: "uncertain", quantity: null, candidate: null });
+    expect(answer.reasons.map((reason) => reason.code)).toEqual(["QUANTITY_OUT_OF_RANGE"]);
+    expect(answer.observations.map((entry) => entry.role)).toEqual(["candidate", "candidate"]);
   });
 
   it("keeps every observation read and traces each to its call", () => {

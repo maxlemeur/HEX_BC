@@ -34,6 +34,8 @@ import { getChatGptHostId } from "@/lib/ai/chatgpt-local-store";
 import { resolveLocalTakeoffProvider, type LocalTakeoffProvider } from "@/lib/ai/chatgpt-takeoff";
 import { readTakeoffVectorPages, takeoffVectorLocalGroupsHook } from "@/lib/takeoff/vectors/worker-server";
 import { processItemListLevelC, readTakeoffItemListOrder } from "@/lib/takeoff/poste-reading-job-server";
+import { publishTakeoffItemAnswers } from "@/lib/takeoff/poste-publication-server";
+import { createSupabaseFake } from "@/lib/takeoff/metre-m3.test-utils";
 
 import type { StructuredCall, StructuredCallResult } from "@/lib/ai/structured-call";
 import { TakeoffError, TakeoffErrorCode } from "@/lib/takeoff/errors";
@@ -3517,25 +3519,55 @@ describe("an attempt of the second measuring order", () => {
       source_file_type: "application/pdf", ...job }, downloadFile: { bytes: await createPdfArrayBuffer(2), mimeType: "application/pdf" } });
   }
 
-  // Until the publication of a plan's answers is delivered (PR 3c), a job of the second order stops once claimed: its
-  // failure recorded under its lease, before its plan is downloaded or read and before any paid call.
-  // Closing round, point 8: with the vector reading and its classifier on, so that their assertions can fail.
-  it("stops a job of the second order once claimed, before reading its plan or making any paid call", async () => {
-    for (const [name, value] of Object.entries({ MERGEONE_TAKEOFF_VECTORS: "1", MERGEONE_TAKEOFF_DECISIONS: "1" })) vi.stubEnv(name, value);
+  // Lot 4 PR 3c: a job of the second order, once claimed with its list's prompt, reads its plan against the sealed list and
+  // ends with the publication of its answers (poste-reading-job-server.ts), never through the first order's end.
+  it("reads a job of the second order against its sealed list, with the job's provider and lease, and ends with its publication", async () => {
     const mock = await levelCJob(planUnit);
     vi.mocked(readTakeoffItemListOrder).mockResolvedValueOnce(ORDER);
+    const published = { jobId: JOB_ID, resultId: "88888888-8888-4888-8888-888888888888", status: "completed" as const, itemsCount: 1,
+      warningsCount: 0, tokenCount: 1_000, costCents: 0, durationMs: 10, tablesCount: 0, chunksCount: 1, pageCount: 2,
+      metricsSummary: { inputTokens: 1_000, reasoningTokens: 0, outputTokens: 0, totalTokens: 1_000 } };
+    vi.mocked(processItemListLevelC).mockResolvedValueOnce(published);
     const call = vi.fn();
     await expect(processLevelC(JOB_ID, { supabase: mock.supabase as never, tenantId: TENANT_ID, userId: USER_ID, now: () => FIXED_NOW,
-      resolveProvider: localProvider(call) })).rejects.toMatchObject({ code: TakeoffErrorCode.TAKEOFF_LEVEL_UNSUPPORTED, retryable: false,
-      message: expect.stringContaining("avant tout appel") });
-    expect(mock.state.job).toMatchObject({ status: "failed", error_code: "TAKEOFF_LEVEL_UNSUPPORTED", next_retry_at: null,
-      prompt_version: "takeoff-c-postes-v1" });
-    // Its plan is never downloaded; neither the PDF reader nor the vector reading and its classifier is invoked.
-    expect(mock.state.downloadRequests).toEqual([]);
+      resolveProvider: localProvider(call) })).resolves.toEqual(published);
+    expect(processItemListLevelC).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(processItemListLevelC).mock.calls[0][0]).toMatchObject({ order: ORDER, job: expect.objectContaining({ id: JOB_ID,
+      status: "processing" }), sourceFile: expect.objectContaining({ mimeType: "application/pdf" }) });
+    expect(mock.state.job).toMatchObject({ prompt_version: "takeoff-c-postes-v1" });
+    // The first order's reading and end are never used for it.
     expect(call).not.toHaveBeenCalled();
-    expect(processItemListLevelC).not.toHaveBeenCalled();
-    expect(readTakeoffVectorPages).not.toHaveBeenCalled();
-    expect(takeoffVectorLocalGroupsHook).not.toHaveBeenCalled();
+    expect(mock.state.takeoffResults).toEqual([]);
+  });
+
+  it("records the failure of a job of the second order whose reading fails, under its lease", async () => {
+    const mock = await levelCJob(planUnit);
+    vi.mocked(readTakeoffItemListOrder).mockResolvedValueOnce(ORDER);
+    vi.mocked(processItemListLevelC).mockRejectedValueOnce(new TakeoffError({ code: TakeoffErrorCode.AI_PROVIDER, retryable: false,
+      message: "Panne fictive du fournisseur.", jobId: JOB_ID, level: "C" }));
+    await expect(processLevelC(JOB_ID, { supabase: mock.supabase as never, tenantId: TENANT_ID, userId: USER_ID, now: () => FIXED_NOW,
+      resolveProvider: localProvider(vi.fn()) })).rejects.toMatchObject({ code: TakeoffErrorCode.AI_PROVIDER });
+    expect(mock.state.job).toMatchObject({ status: "failed", error_code: "AI_PROVIDER", next_retry_at: null });
+  });
+
+  // PR 3c fix round, point 6: a refusal of the publication keeps its reason in the job's failure diagnostic, which the job's
+  // detail returns to its members (takeoff_results.raw_response): in the worker's words, never the database's code.
+  it("keeps a refused publication's reason in the job's detail in its own words, never the database's code", async () => {
+    const mock = await levelCJob(planUnit);
+    vi.mocked(readTakeoffItemListOrder).mockResolvedValueOnce(ORDER);
+    const refusing = createSupabaseFake({ rpc: { publish_takeoff_item_answers: () => ({ data: null,
+      error: { code: "22023", message: "TAKEOFF_ANSWERS_COVERAGE_INCOMPLETE" } }) } });
+    vi.mocked(processItemListLevelC).mockImplementationOnce(async () => {
+      await publishTakeoffItemAnswers(refusing.client as never, { p_job_id: JOB_ID } as never);
+      throw new Error("The publication was not refused.");
+    });
+    await expect(processLevelC(JOB_ID, { supabase: mock.supabase as never, tenantId: TENANT_ID, userId: USER_ID, now: () => FIXED_NOW,
+      resolveProvider: localProvider(vi.fn()) })).rejects.toMatchObject({ code: TakeoffErrorCode.TAKEOFF_LEVEL_C_INVALID_SCHEMA });
+    expect(mock.state.job).toMatchObject({ status: "failed", error_code: "TAKEOFF_LEVEL_C_INVALID_SCHEMA" });
+    expect(mock.state.takeoffResults).toHaveLength(1);
+    expect(mock.state.takeoffResults[0].raw_response).toMatchObject({ reason: "publication_answers_refused" });
+    expect(JSON.stringify(mock.state.takeoffResults[0])).not.toContain("TAKEOFF_ANSWERS");
+    expect(JSON.stringify(mock.state.job)).not.toContain("TAKEOFF_ANSWERS");
   });
 
   it("ends a job whose measuring order cannot be read once it is claimed, with that prompt unknown to it", async () => {
