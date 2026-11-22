@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { computeTakeoffMappingPreview } from "@/lib/takeoff/mapping-engine";
+import { projectItemSendRules } from "@/lib/takeoff/item-send-rules";
 import type {
   TakeoffJobItem,
   TakeoffMappingOverride,
@@ -237,5 +238,40 @@ describe("computeTakeoffMappingPreview", () => {
       },
     });
     expect(result.summary.included_count).toBe(0);
+  });
+});
+
+// Lot 4, PR 5a: the one projection of the mapping rules for the send by item (review, preview and, later, the commit),
+// written before it existed. A selected « Fixer le prix » has no financial effect and never falls to the next rule; an
+// ouvrage rule keeps the item and its quantity and shows the ouvrage as an indication.
+describe("projectItemSendRules", () => {
+  const ITEM = { id: "dddddddd-dddd-4ddd-8ddd-dddddddddddd", label: "Lavabo céramique" };
+  const rule = (overrides: Partial<TakeoffMappingRule>) => makeRule({ match_pattern: "lavabo", ...overrides });
+
+  it("reports a selected price rule as without effect, without falling to the next rule", () => {
+    const projected = projectItemSendRules([ITEM], [
+      rule({ id: "11111111-1111-4111-8111-111111111111", name: "Prix lavabo", action: "set_price", action_params: { unit_price_cents: 9900 }, priority: 1 }),
+      rule({ id: "22222222-2222-4222-8222-222222222222", name: "Renommer", action: "rename", action_params: { designation: "Autre" }, priority: 2 }),
+    ]).get(ITEM.id);
+    expect(projected).toEqual({ ruleId: "11111111-1111-4111-8111-111111111111", ruleName: "Prix lavabo", action: "set_price",
+      effect: "price_ignored", designation: "Lavabo céramique", categoryId: null, assemblyId: null });
+  });
+
+  it("keeps the item of an ouvrage rule and shows its ouvrage as an indication", () => {
+    const projected = projectItemSendRules([ITEM], [rule({ action: "apply_assembly", action_params: { assembly_id: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee" } })])
+      .get(ITEM.id);
+    expect(projected).toEqual(expect.objectContaining({ effect: "assembly_indicated", designation: "Lavabo céramique",
+      assemblyId: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee" }));
+  });
+
+  it("renames, categorises and skips by the first matching rule, as the mapping engine orders them", () => {
+    expect(projectItemSendRules([ITEM], [rule({ action: "rename", action_params: { designation: "Lavabo" } })]).get(ITEM.id))
+      .toEqual(expect.objectContaining({ effect: "renamed", designation: "Lavabo" }));
+    expect(projectItemSendRules([ITEM], [rule({ action: "set_category", action_params: { category_id: "ffffffff-ffff-4fff-8fff-ffffffffffff" } })])
+      .get(ITEM.id)).toEqual(expect.objectContaining({ effect: "categorized", categoryId: "ffffffff-ffff-4fff-8fff-ffffffffffff" }));
+    expect(projectItemSendRules([ITEM], [rule({ name: "Hors lot", action: "skip", action_params: {} })]).get(ITEM.id))
+      .toEqual(expect.objectContaining({ effect: "skipped", ruleName: "Hors lot" }));
+    expect(projectItemSendRules([ITEM], [rule({ match_pattern: "baignoire" })]).get(ITEM.id))
+      .toEqual(expect.objectContaining({ effect: "none", ruleId: null, designation: "Lavabo céramique" }));
   });
 });

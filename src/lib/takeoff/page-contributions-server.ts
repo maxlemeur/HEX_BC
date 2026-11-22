@@ -16,6 +16,7 @@ import {
   type EstimateLineProvenance,
   type NewTakeoffLine,
   type PageDocumentSource,
+  type TakeoffPageDocument,
 } from "@/lib/takeoff/page-contributions";
 import {
   takeoffLaunchPageContributionsRequestSchema,
@@ -130,6 +131,21 @@ async function readPageInputs(context: Context, input: { jobId: string | null; v
   const ownSources = input.jobId ? sourcesOf(jobs.get(input.jobId)) : null;
   const jobSources = new Map([...jobs.values()].map((job) => [job.id.toLowerCase(), sourcesOf(job)]));
   return { estimateLines, earlierItems, jobs, jobSources, ownSources };
+}
+
+/**
+ * Lot 4, PR 5a: the pages of one plan document that analyses other than `jobId` already brought into a version, for the
+ * send by item, whose parts are answers rather than takeoff lines: the plan's document and the pages it reads are given.
+ */
+export async function readPlanPagesAlreadyInEstimate(context: Context, input: {
+  jobId: string;
+  versionId: string;
+  document: TakeoffPageDocument;
+  pages: readonly number[];
+}) {
+  const { estimateLines, earlierItems, jobSources } = await readPageInputs(context, { jobId: input.jobId, versionId: input.versionId, ownLines: [] });
+  const newLines = [...new Set(input.pages)].map((page) => ({ id: `page:${page}`, identity: { document: input.document, page } }));
+  return findPagesAlreadyInEstimate({ jobId: input.jobId, newLines, estimateLines, earlierItems, jobSources }).pages;
 }
 
 async function readPagesAlreadyInEstimate(context: Context, input: {

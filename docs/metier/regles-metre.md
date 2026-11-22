@@ -953,7 +953,52 @@ suit s'y ajoute (migration `20261122030312_takeoff_partial_send.sql`,
   plan ne sert qu'une fois l'analyse par plan activée.
 - **Lignes DPGF.** Un brouillon qui tient une ligne DPGF reste refusé pour l'envoi d'un métré
   d'affaire. L'exemple d'envoi par plan est démontré sur une ligne ordinaire ; les cibles DPGF
-  (l'envoi v3 et la redistribution vers une ligne DPGF rapprochée) viendront avec le lot 5.
+  viennent avec l'envoi par poste (lot 4, ci-dessous), la redistribution vers une ligne DPGF
+  rapprochée ensuite.
+
+## Envoyer les postes d'un plan : l'aperçu (lot 4)
+
+Une analyse lue contre la liste des postes donne une réponse par poste et par plan. Son envoi au
+devis part de ces réponses, pas des lignes du métré : l'aperçu
+(`POST /api/takeoff/jobs/{jobId}/item-send/preview`, `src/lib/takeoff/item-send-plan.ts`) montre
+ce que deviendrait le devis et n'écrit rien, ni version, ni section, ni ligne, ni reçu. Sa
+confirmation et son écrivain viennent avec une prochaine version ; tant que les réponses par poste
+ne sont pas enregistrées, l'aperçu répond qu'elles ne le sont pas. L'envoi des métrés d'aujourd'hui
+(une analyse groupée, hors demande ou par plan sans liste) est inchangé.
+
+- **Unité d'envoi.** Les lignes retenues de ce plan, confirmées pour ce seul job ; l'aperçu ne coche
+  aucun autre job. Chaque poste de la liste scellée du plan est envoyé, non envoyé avec son motif
+  (écarté, non trouvé, incertain, sans mesure, unité ou base incompatible, hypothèse non retenue,
+  ignoré par une règle, quantité saisie pour toute l'affaire), ou à trancher par un choix explicite.
+  Une réponse mesurée qui porte une anomalie que personne n'a acceptée attend sa revue. Une hypothèse
+  saisie ne compte qu'une fois retenue par sa propre décision.
+- **Regroupement.** Seuls les apports d'un même poste et d'une même identité quantitative (une unité
+  normalisée par le référentiel des unités, une base) s'additionnent. Une autre lecture d'un objet
+  déjà compté (PDF ou vecteur, page de recouvrement, plan de détail) est gardée et jamais ajoutée.
+  Une longueur est arrondie une fois, sur la somme de sa ligne : 1,2 m déjà envoyés et 1,3 m font
+  3 m, jamais 2 + 2.
+- **Découpage.** Sans DPGF : « Ensemble » par défaut, « Par niveau », « Par bâtiment ». Les sections
+  suivent la liste (lot puis famille), chacune par son identité, jamais par son titre : une section
+  du même nom faite à la main n'est pas reprise. Le compartiment d'un plan vient de sa localisation
+  (lot 3), seulement quand un opérateur l'a confirmée ou saisie ; inconnue, proposée ou multiple, la
+  part va dans « Non réparti ». Deux niveaux homonymes de deux bâtiments restent deux compartiments.
+  Un même poste ne mélange pas deux découpages dans un devis.
+- **DPGF et saisies.** Avec une DPGF, sa ligne est alimentée à sa place, retrouvée par la ligne
+  brute de son import (un remappage renouvelle la ligne mappée, jamais la ligne brute) ; une ligne
+  introuvable, multiple ou d'un import antérieur sans filiation prouvée demande un choix parmi les
+  lignes présentées, et seule la ligne choisie reçoit le métré. Les postes hors DPGF vont dans la
+  section « Compléments du métré hors DPGF ». La quantité retenue est la politique DPGF d'aujourd'hui
+  (le maximum protecteur, la vérification au-delà de 1 %). Une quantité saisie à la main sur la
+  ligne est gardée à part de la référence, de la mesure et de la quantité retenue : elle n'est
+  jamais remplacée sans choix ; la conserver sous la quantité retenue suspend la ligne. Une DPGF
+  dont aucune ligne n'est dans le brouillon renvoie à l'import confirmé : l'aperçu n'importe rien.
+- **Pages.** Les postes d'une page partagent un seul apport de page. Une page déjà au devis par une
+  autre analyse ne compte pas deux fois : ses apports attendent sa décision.
+- **Règles et prix.** Une seule projection des règles de correspondance
+  (`src/lib/takeoff/item-send-rules.ts`) : « Fixer le prix » est sans effet et dit tel, sans passer
+  à la règle suivante ; « Remplacer par un ouvrage » garde la quantité du poste et indique
+  l'ouvrage. Une ligne existante ne change que de quantité ; une ligne créée n'a aucun prix. Seul
+  un brouillon du moteur 3 reçoit cet envoi.
 
 ## Entrées
 
