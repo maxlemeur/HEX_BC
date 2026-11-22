@@ -3,7 +3,7 @@
 -- projection of its unit; one plan at a time on the Mac (its slot); every paid call reserved before it is sent and settled
 -- once; a plan that fails does not stop the others; the request ends on its last unit with one notice, partial when some
 -- plans were read; a member's stop cancels the rest and keeps what was read; a unit never started when the budget is spent
--- is closed with that reason; the send of a per-plan analysis stays closed. Single session; the races are in
+-- is closed with that reason; a per-plan analysis is linked to a draft only by its send. Single session; the races are in
 -- takeoff-plan-dispatcher-race.test.sql. All values are fictional.
 begin;
 create extension if not exists pgtap with schema extensions;
@@ -435,10 +435,11 @@ select results_eq($$select state from private.takeoff_launch_usage where job_id 
 select is((select error_code from public.takeoff_jobs where id = pg_temp.unit(25, 1)), 'TAKEOFF_WORKER_OUTCOME_UNKNOWN',
   'with the unknown outcome named');
 
--- 10. The send of a per-plan analysis stays closed (a reconciliation of a request whose ends were not settled: the end
--- of section 14).
+-- 10. A per-plan analysis is linked to a draft only by its send, which checks the context it compares (the plans read
+-- beside it, their locations) in the same transaction (20261122030312): a link written directly, without that check,
+-- is refused (a reconciliation of a request whose ends were not settled: the end of section 14).
 select throws_ok($$update public.takeoff_jobs set estimate_version_id = pg_temp.f(80) where id = pg_temp.unit(20, 1)$$,
-  '40001', 'TAKEOFF_SEND_JOB_NOT_READY', 'a per-plan analysis is never attached to a draft (its send stays closed)');
+  '40001', 'TAKEOFF_SEND_JOB_NOT_READY', 'a per-plan analysis is never linked to a draft without its send''s checked context');
 
 -- 11. Affaire 29's seven plans: the dispatcher counts the admission limits as the claim's triggers do, an attempt that
 -- holds a call of unknown outcome is never retried on its own, a job read without the slot still holds the Mac, the

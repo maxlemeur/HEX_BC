@@ -266,8 +266,10 @@ select is(pg_temp.context(pg_temp.a()) -> 'peers', '[]'::jsonb, 'no other plan o
 select is(pg_temp.context(pg_temp.a()) -> 'plans', jsonb_build_array(jsonb_build_object('job_id', pg_temp.a(), 'plan_file_id', pg_temp.f(101),
   'content_hash', pg_temp.digest(pg_temp.f(101)), 'location', null)), 'A''s plan revision, as its preparation attested it, without a location');
 select is(pg_temp.context(pg_temp.a()) -> 'display', jsonb_build_object('request_id', pg_temp.request(), 'plan_name', 'plan-a.pdf',
-  'peers', '[]'::jsonb, 'unread', jsonb_build_array(jsonb_build_object('plan_name', 'plan-b.pdf', 'state', 'queued'),
-    jsonb_build_object('plan_name', 'plan-c.pdf', 'state', 'queued')), 'never_read', '[]'::jsonb, 'uncompared_readings', 0),
+  'peers', '[]'::jsonb, 'unread', jsonb_build_array(
+    jsonb_build_object('plan_name', 'plan-b.pdf', 'state', 'queued', 'compared_reading_at', null),
+    jsonb_build_object('plan_name', 'plan-c.pdf', 'state', 'queued', 'compared_reading_at', null)), 'never_read', '[]'::jsonb,
+  'uncompared', jsonb_build_object('grouped', 0, 'outside_request', 0)),
   'the preview names B and C, still to read');
 -- A plan D added to the dossier and retained by its confirmed preparation, read by no analysis: named, never compared.
 insert into public.plan_files (id, tenant_id, plan_set_id, file_name, file_path, file_type, file_size_bytes, page_count)
@@ -312,6 +314,24 @@ select is(pg_temp.refusal($$select pg_temp.confirm('A', (select outcome from sho
 reset role;
 select is(pg_temp.counts(), pg_temp.nothing_written(), 'nothing is written: no version, no line, no receipt, no link');
 select is(pg_temp.context(pg_temp.a()) #> '{peers,0,job_id}', to_jsonb(pg_temp.b()), 'B is now a peer of A');
+-- Fix round 1, point 2: the peers come from the sealed requests and the dossier's current copies, never from the
+-- preparation, which an edit clears and an automatic request may not have. Red before: B was a peer only while the
+-- confirmed preparation named its plan.
+create temp table preparation_kept as select * from public.takeoff_preparations where project_id = pg_temp.f(20);
+set local session_replication_role = replica;
+update public.takeoff_preparations set confirmed_snapshot = null, confirmed_at = null, confirmed_by = null
+where project_id = pg_temp.f(20);
+set local session_replication_role = origin;
+select is(pg_temp.context(pg_temp.a()) #> '{peers,0,job_id}', to_jsonb(pg_temp.b()),
+  'a preparation edited after the seal (no confirmed snapshot): B is still A''s peer');
+set local session_replication_role = replica;
+delete from public.takeoff_preparations where project_id = pg_temp.f(20);
+set local session_replication_role = origin;
+select is(pg_temp.context(pg_temp.a()) #> '{peers,0,job_id}', to_jsonb(pg_temp.b()),
+  'no preparation at all (as an automatic admission may leave it): B is still A''s peer');
+set local session_replication_role = replica;
+insert into public.takeoff_preparations select * from preparation_kept;
+set local session_replication_role = origin;
 
 -- One of B's lines edited after A's preview: refused again.
 update commands set body = pg_temp.command(603, pg_temp.a(), pg_temp.first_draft(703),
@@ -444,9 +464,9 @@ select pg_temp.read(pg_temp.c(), jsonb_build_array(
 select is(pg_temp.context(pg_temp.c()) -> 'peers', '[]'::jsonb, 'with A and B sent, C has no peer');
 select is(pg_temp.context(pg_temp.c()) #> '{display,unread}', '[]'::jsonb, 'and nothing of its request is left to read');
 
--- 8. A later request reads A and C again (A2, C2, a minute later). For each other plan, its latest reading not sent is
--- the peer; a plan's earlier reading is never its own peer (a reading replaced). Set up without their triggers: the
--- selection of the peers is this file's subject, not the admission of a second request.
+-- 8. A later request reads A and C again (A2, C2, a minute later): A2 is read, C2 still waits. For each other plan, its
+-- latest successful reading not sent is the peer; a plan's earlier reading is never its own peer (a reading replaced).
+-- Set up without their triggers: the selection of the peers is this file's subject, not the admission of a request.
 set local session_replication_role = replica;
 insert into public.takeoff_launch_requests
 select (jsonb_populate_record(null::public.takeoff_launch_requests, to_jsonb(r) || jsonb_build_object('id', pg_temp.f(5002),
@@ -455,9 +475,23 @@ select (jsonb_populate_record(null::public.takeoff_launch_requests, to_jsonb(r) 
 from public.takeoff_launch_requests r where r.id = pg_temp.request();
 insert into public.takeoff_jobs
 select (jsonb_populate_record(null::public.takeoff_jobs, to_jsonb(j) || jsonb_build_object('id', reread.id, 'launch_request_id', pg_temp.f(5002),
-  'created_at', now() + interval '1 minute', 'status', 'completed', 'estimate_version_id', null))).*
-from public.takeoff_jobs j join (values (pg_temp.a(), pg_temp.f(1304)), (pg_temp.c(), pg_temp.f(1306))) as reread(original, id)
-  on reread.original = j.id;
+  'created_at', now() + interval '1 minute', 'status', reread.status, 'analysis_outcome', reread.outcome, 'started_at', null,
+  'completed_at', case when reread.status = 'completed' then now() + interval '1 minute' end,
+  'analysis_finished_at', case when reread.status = 'completed' then now() + interval '1 minute' end,
+  'analysis_completion_event_id', null, 'estimate_version_id', null))).*
+from public.takeoff_jobs j join (values (pg_temp.a(), pg_temp.f(1304), 'completed', 'success'), (pg_temp.c(), pg_temp.f(1306), 'pending', null))
+  as reread(original, id, status, outcome) on reread.original = j.id;
+set local session_replication_role = origin;
+-- Fix round 1, point 7: A2's preview compares it with C (C2, its plan's reread, still waits) and says so on C2's line.
+select is(pg_temp.context(pg_temp.f(1304)) #> '{display,peers}', jsonb_build_array(jsonb_build_object('job_id', pg_temp.c(),
+    'plan_name', 'plan-c.pdf', 'read_at', (select completed_at from public.takeoff_jobs where id = pg_temp.c()), 'earlier_request', true)),
+  'A2 is compared with C, read by an earlier request');
+select is(pg_temp.context(pg_temp.f(1304)) #> '{display,unread}', jsonb_build_array(jsonb_build_object('plan_name', 'plan-c.pdf',
+    'state', 'queued', 'compared_reading_at', (select completed_at from public.takeoff_jobs where id = pg_temp.c()))),
+  'C2, its plan''s reread, is not read: the preview names the earlier reading it compared instead');
+set local session_replication_role = replica;
+update public.takeoff_jobs set status = 'completed', analysis_outcome = 'success', completed_at = now() + interval '1 minute',
+  analysis_finished_at = now() + interval '1 minute' where id = pg_temp.f(1306);
 set local session_replication_role = origin;
 select is(pg_temp.context(pg_temp.f(1306)) -> 'peers', jsonb_build_array(jsonb_build_object('job_id', pg_temp.f(1304),
   'stamp', public.takeoff_rule_job_stamp(pg_temp.f(10), pg_temp.f(20), pg_temp.f(1304)))),
@@ -473,15 +507,63 @@ update public.takeoff_jobs set status = 'applied', estimate_version_id = pg_temp
 set local session_replication_role = origin;
 select is(pg_temp.context(pg_temp.f(1304)) -> 'peers', '[]'::jsonb,
   'a plan whose latest reading was sent has no peer: the reading it replaced is never compared');
--- Plan A set aside in the dossier (its preparation no longer retains it): A2, its latest reading, is no peer of C.
+
+-- 9. A plan of the dossier (piece E) read at its first copy, then replaced in the dossier by a new copy (fix round 1,
+-- points 2 and 7): its reading of the replaced copy is no longer compared, though the preparation still names that copy
+-- (it was not confirmed again since); once it is, the new copy is named never read.
+insert into public.affaire_intake_documents (id, upload_id, file_name, upload_status, storage_path, classification_status, document_kind,
+  size_bytes, mime_type, classified_at)
+values (pg_temp.f(71), pg_temp.f(30), 'plan-e.pdf', 'uploaded', 'fixture/plan-e.pdf', 'classified', 'plans', 8, 'application/pdf',
+  '2026-11-01T00:00:00Z');
+insert into storage.objects (bucket_id, name, metadata) values ('affaire-intake', 'fixture/plan-e.pdf', '{"size":8}');
+create function pg_temp.copy_of_e(file integer) returns void language sql as $$
+  insert into public.plan_files (id, tenant_id, plan_set_id, file_name, file_path, file_type, file_size_bytes, page_count, metadata)
+  select pg_temp.f(file), pg_temp.f(10), pg_temp.f(40), 'plan-e.pdf',
+    concat_ws('/', pg_temp.f(10), pg_temp.f(40), pg_temp.f(file), 'plan-e.pdf'), 'application/pdf', 8, 1,
+    jsonb_build_object('source', 'affaire-intake', 'intake_document_id', id, 'intake_storage_path', storage_path,
+      'intake_classified_at', classified_at, 'intake_generation', plan_copy_generation)
+  from public.affaire_intake_documents where id = pg_temp.f(71)
+$$;
+select pg_temp.copy_of_e(105);
+select is((select source_kind || ':' || source_id from public.takeoff_plan_location_sources where plan_file_id = pg_temp.f(105)),
+  'intake_document:' || pg_temp.f(71), 'the copy''s source is its dossier piece');
 set local session_replication_role = replica;
+insert into public.takeoff_jobs
+select (jsonb_populate_record(null::public.takeoff_jobs, to_jsonb(j) || jsonb_build_object('id', pg_temp.f(1308),
+  'launch_request_id', pg_temp.f(5002), 'launch_unit_key', 'plan:' || pg_temp.f(105), 'status', 'completed', 'analysis_outcome', 'success',
+  'completed_at', now() + interval '1 minute', 'created_at', now() + interval '1 minute', 'estimate_version_id', null,
+  'preparation_snapshot', jsonb_set(j.preparation_snapshot, '{preparation,sources}', jsonb_build_array(jsonb_build_object(
+    'document_id', pg_temp.f(105), 'document_name', 'plan-e.pdf', 'kind', 'plan', 'active', true, 'confirmed', true,
+    'content_hash', pg_temp.digest(pg_temp.f(105)))))))).*
+from public.takeoff_jobs j where j.id = pg_temp.f(1304);
+-- The preparation retains that copy.
 update public.takeoff_preparations set confirmed_snapshot = jsonb_set(confirmed_snapshot, '{preparation,sources}',
-  (select jsonb_agg(case when s ->> 'document_id' = pg_temp.f(101)::text then s || '{"active": false}'::jsonb else s end)
-    from jsonb_array_elements(confirmed_snapshot #> '{preparation,sources}') s))
+  (confirmed_snapshot #> '{preparation,sources}') || jsonb_build_array(jsonb_build_object('document_id', pg_temp.f(105),
+    'document_name', 'plan-e.pdf', 'kind', 'plan', 'active', true, 'confirmed', true, 'content_hash', pg_temp.digest(pg_temp.f(105)))))
 where project_id = pg_temp.f(20);
 set local session_replication_role = origin;
-select is(pg_temp.context(pg_temp.c()) -> 'peers', '[]'::jsonb,
-  'a plan the dossier no longer retains is never compared (red before: A2 stayed C''s peer)');
+select is((select jsonb_agg(peer -> 'job_id') from jsonb_array_elements(pg_temp.context(pg_temp.c()) -> 'peers') as peer),
+  jsonb_build_array(pg_temp.f(1304), pg_temp.f(1308)), 'E''s reading of its current copy is a peer of C');
+-- The piece is replaced in the dossier: a new copy of E (106), the first no longer current. The preparation, not
+-- confirmed again, still names the first.
+update public.affaire_intake_documents set classified_at = '2026-11-03T00:00:00Z' where id = pg_temp.f(71);
+select pg_temp.copy_of_e(106);
+select is((select jsonb_agg(peer -> 'job_id') from jsonb_array_elements(pg_temp.context(pg_temp.c()) -> 'peers') as peer),
+  jsonb_build_array(pg_temp.f(1304)),
+  'its reading of the replaced copy is no longer compared, whatever the preparation names (red before: it stayed C''s peer)');
+-- The preparation confirmed again, on the new copy.
+set local session_replication_role = replica;
+update public.takeoff_preparations set confirmed_snapshot = jsonb_set(confirmed_snapshot, '{preparation,sources}',
+  (select jsonb_agg(case when source.value ->> 'document_id' = pg_temp.f(105)::text then jsonb_build_object('document_id',
+      pg_temp.f(106), 'document_name', 'plan-e-v2.pdf', 'kind', 'plan', 'active', true, 'confirmed', true, 'content_hash',
+      pg_temp.digest(pg_temp.f(106))) else source.value end order by source.ordinality)
+    from jsonb_array_elements(confirmed_snapshot #> '{preparation,sources}') with ordinality as source(value, ordinality)))
+where project_id = pg_temp.f(20);
+set local session_replication_role = origin;
+select is((select jsonb_agg(peer -> 'job_id') from jsonb_array_elements(pg_temp.context(pg_temp.c()) -> 'peers') as peer),
+  jsonb_build_array(pg_temp.f(1304)), 'still not compared');
+select ok(pg_temp.context(pg_temp.c()) #> '{display,never_read}' ? 'plan-e-v2.pdf',
+  'and the new copy is named never read, though the replaced copy of its piece was read (red before: it was hidden)');
 -- A grouped or standalone analysis has no peer: the context of a job outside a request of format 2.
 set local session_replication_role = replica;
 insert into public.takeoff_jobs

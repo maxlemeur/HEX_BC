@@ -14,22 +14,114 @@
 -- - The receipt's write plan records the context the send checked: the request and unit of a per-plan analysis, the
 --   peers it was compared with, and the location generation of each plan revision it read.
 --
+-- The send is serialised with every writer of what its context reads: an operator's location of a plan revision, the
+-- lines of a per-plan analysis not sent, the end of a per-plan analysis (in any request). Each takes, in its transaction,
+-- a shared lock on the affaire's send context (an advisory key, private.lock_takeoff_send_context), and every send that
+-- carries a context (this application's server stages one for grouped and standalone analyses too) takes it exclusively
+-- before it reads its context: either the writer commits first and the send reads what it wrote, or the send commits
+-- first and the writer waits for it. A preview's dry run takes neither that key nor the request's row.
+--
 -- The previous application version (v0.7.0 and main before this migration) never stages a context: its sends of grouped
 -- and standalone analyses are checked exactly as before (no context, no new refusal), and a per-plan analysis, which its
--- server never offers to send, stays refused with TAKEOFF_SEND_JOB_NOT_READY. No table, row, policy, grant, index or
--- trigger of a released writer changes: one private table and five functions are created (one, the preview's read, for
--- the service role only), and two are replaced (the send, private.takeoff_send_execute, rebuilt on 20261121193413's body;
--- the closure's trigger function). No backfill.
+-- server never offers to send, stays refused with TAKEOFF_SEND_JOB_NOT_READY. Its writes are neither refused nor
+-- changed. What they may meet:
+-- - an operator's save of a plan location takes the affaire's context lock (shared) through a trigger: it waits, at most
+--   the length of a send of the same affaire from this application's server;
+-- - a write of the lines of an analysis of one plan, or the end of one, does the same; such analyses exist only once one
+--   analysis per plan is activated (private.takeoff_plan_dispatch_activation, empty), which the previous version never
+--   creates;
+-- - a statement on takeoff_items runs one more statement trigger, which reads the jobs of the lines it wrote and takes
+--   nothing for a line of any other analysis.
+-- Created: one private table, nine functions, five triggers; replaced: the send (private.takeoff_send_execute, rebuilt on
+-- 20261121193413's body), the closure's trigger function, and the manual command (private.launch_manual_takeoff_command,
+-- rebuilt on 20261121231238's body: its predecessor is locked first whatever launched it). No row is written; no backfill.
 --
--- Locks: creating and replacing the functions takes no lock on a table (check_function_bodies is off). The check table,
--- created last, has foreign keys to takeoff_jobs and estimate_versions: from that statement to the commit (a fraction of a
--- second) writes to those two tables wait. A transaction holding them longer than lock_timeout (5 s) stops the migration
--- with nothing applied (55P03); run it again. Nothing needs to be drained.
--- Requires 20261121040445 (plan locations), 20261121193413 (the send's body rebuilt here) and 20261121231238 (the closure).
+-- Locks: every table lock this migration needs is taken first, in one fixed order (the estimate versions, then the takeoff
+-- jobs, their lines and the plan locations: the order of their writers), without waiting (nowait): a busy table refuses
+-- the migration at once with nothing applied (55P03, run it again), and the migration never waits while it holds a lock,
+-- so it never stalls or deadlocks a writer. They are held until the commit, for the DDL only (measured in the pull
+-- request). Nothing needs to be drained.
+-- Requires 20261121040445 (plan locations), 20261121193413 (the send's body rebuilt here) and 20261121231238 (the closure,
+-- the manual command).
 begin;
 
 set local lock_timeout = '5s';
 set local check_function_bodies = off;
+
+lock table public.estimate_versions, public.takeoff_jobs, public.takeoff_items, public.takeoff_plan_locations
+  in share row exclusive mode nowait;
+
+-- 0. The affaire's send context: an advisory key per affaire, taken exclusively by a send (of this application's server)
+-- before it reads its context, and shared by every writer of what that context reads, in the writer's transaction.
+-- Writers do not wait for each other.
+create function private.lock_takeoff_send_context(p_project_id uuid, p_exclusive boolean)
+returns void language plpgsql set search_path = '' as $$
+begin
+  if p_exclusive then
+    perform pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('takeoff-send-context:' || p_project_id::text, 0));
+  else
+    perform pg_catalog.pg_advisory_xact_lock_shared(pg_catalog.hashtextextended('takeoff-send-context:' || p_project_id::text, 0));
+  end if;
+end;
+$$;
+revoke all on function private.lock_takeoff_send_context(uuid, boolean) from public, anon, authenticated, service_role;
+
+-- An operator's location of a plan revision (any writer of public.takeoff_plan_locations).
+create function private.share_takeoff_send_context_of_location()
+returns trigger language plpgsql security definer set search_path = '' as $$
+begin
+  perform private.lock_takeoff_send_context(new.project_id, false);
+  return null;
+end;
+$$;
+revoke all on function private.share_takeoff_send_context_of_location() from public, anon, authenticated, service_role;
+create trigger share_takeoff_send_context after insert or update on public.takeoff_plan_locations
+  for each row execute function private.share_takeoff_send_context_of_location();
+
+-- The end of an analysis of one plan: it becomes readable, a peer of the affaire's other plans.
+create function private.share_takeoff_send_context_of_plan_end()
+returns trigger language plpgsql security definer set search_path = '' as $$
+begin
+  perform private.lock_takeoff_send_context(new.project_id, false);
+  return null;
+end;
+$$;
+revoke all on function private.share_takeoff_send_context_of_plan_end() from public, anon, authenticated, service_role;
+create trigger share_takeoff_send_context after update of status on public.takeoff_jobs
+  for each row when (new.status = 'completed'::public.takeoff_job_status and old.status is distinct from new.status
+    and new.launch_unit_key like 'plan:%')
+  execute function private.share_takeoff_send_context_of_plan_end();
+
+-- The lines of an analysis of one plan not sent (a review's edit, an exclusion, the worker's reading): per statement, for
+-- each affaire whose such analysis it wrote, in the order of their identifiers. A line of any other analysis takes nothing.
+create function private.share_takeoff_send_context_of_lines()
+returns trigger language plpgsql security definer set search_path = '' as $$
+declare
+  written uuid[];
+  affaire uuid;
+begin
+  if tg_op = 'DELETE' then
+    select pg_catalog.array_agg(distinct previous.job_id) into written from old_rows as previous;
+  else
+    select pg_catalog.array_agg(distinct changed.job_id) into written from new_rows as changed;
+  end if;
+  for affaire in
+    select distinct job.project_id from public.takeoff_jobs as job
+    where job.id = any (written) and job.launch_unit_key like 'plan:%' and job.estimate_version_id is null
+    order by job.project_id
+  loop
+    perform private.lock_takeoff_send_context(affaire, false);
+  end loop;
+  return null;
+end;
+$$;
+revoke all on function private.share_takeoff_send_context_of_lines() from public, anon, authenticated, service_role;
+create trigger share_takeoff_send_context_on_insert after insert on public.takeoff_items
+  referencing new table as new_rows for each statement execute function private.share_takeoff_send_context_of_lines();
+create trigger share_takeoff_send_context_on_update after update on public.takeoff_items
+  referencing new table as new_rows for each statement execute function private.share_takeoff_send_context_of_lines();
+create trigger share_takeoff_send_context_on_delete after delete on public.takeoff_items
+  referencing old table as old_rows for each statement execute function private.share_takeoff_send_context_of_lines();
 
 -- A per-plan analysis: a unit of a request of format 2 (the test #448's closure used).
 create function private.takeoff_job_is_plan_unit(p_launch_request_id uuid)
@@ -43,10 +135,11 @@ revoke all on function private.takeoff_job_is_plan_unit(uuid) from public, anon,
 -- mapping stamps):
 -- - peers: for a per-plan analysis, the readable analyses of the affaire's other plans. A plan is its source (its dossier
 --   piece, or the plan file itself: two working copies of one piece are one plan, takeoff_plan_location_sources); for each
---   other plan, its latest successful reading, when it is not sent yet (completed, without a version) and read a copy the
---   affaire's confirmed preparation retains now, with the state of its lines (public.takeoff_rule_job_stamp). A reading
---   replaced is never a peer: neither an earlier reading of this analysis's own plan, nor one of another plan whose later
---   reading succeeded (sent or not), nor one of a plan replaced or set aside in the dossier since. A plan whose latest
+--   other plan, its latest successful reading, in any request of one analysis per plan (automatic or manual), when it is
+--   not sent yet (completed, without a version) and read the dossier's current copy of its source, with the state of its
+--   lines (public.takeoff_rule_job_stamp). A reading replaced is never a peer: neither an earlier reading of this
+--   analysis's own plan, nor one of another plan whose later reading succeeded (sent or not), nor one of a copy the
+--   dossier has replaced or set aside since. A plan whose latest
 --   reading was sent has no peer: its lines are the destination's when it is that version, another estimate's otherwise.
 --   A grouped or standalone analysis is no peer, and has none (lot 2: the destination only); the preview names those
 --   not compared.
@@ -74,15 +167,6 @@ returns jsonb language sql stable set search_path = '' as $$
     where candidate.tenant_id = p_tenant and candidate.project_id = p_project and plan.file_id is not null
   ), own as (
     select readings.* from readings where readings.id = p_job
-  ), active_plans as (
-    -- The plans of the affaire's dossier now: those its confirmed preparation retains.
-    select private.takeoff_uuid_or_null(source.value -> 'document_id') as file_id
-    from public.takeoff_preparations as preparation
-    cross join lateral pg_catalog.jsonb_array_elements(case
-        when pg_catalog.jsonb_typeof(preparation.confirmed_snapshot #> '{preparation,sources}') = 'array'
-        then preparation.confirmed_snapshot #> '{preparation,sources}' else '[]'::jsonb end) as source(value)
-    where preparation.tenant_id = p_tenant and preparation.project_id = p_project
-      and source.value ->> 'kind' = 'plan' and source.value -> 'active' = 'true'::jsonb
   ), latest as (
     select distinct on (other.source_kind, other.source_id) other.id, other.estimate_version_id, other.file_id
     from readings as other cross join own
@@ -92,9 +176,12 @@ returns jsonb language sql stable set search_path = '' as $$
     order by other.source_kind, other.source_id, other.created_at desc, other.id desc
   ), peers as (
     -- A plan whose latest reading was sent has no peer here: an earlier reading it replaced is never compared. Nor does a
-    -- plan whose latest reading read a copy the dossier no longer retains (a plan replaced or set aside since).
+    -- plan whose latest reading read a copy that is no longer the dossier's current copy of its source (a plan replaced,
+    -- or set aside, since), as the dossier holds it now (not a preparation, which an automatic request may not have and an
+    -- edit clears).
     select latest.id from latest where latest.estimate_version_id is null
-      and latest.file_id in (select active_plans.file_id from active_plans)
+      and exists (select 1 from private.resolve_takeoff_plan_location_source(p_tenant, p_project, latest.file_id) as resolved
+        where resolved.current_copy)
   ), evaluated as (
     select p_job as id
     union select peers.id from peers
@@ -152,11 +239,14 @@ $$;
 revoke all on function private.takeoff_send_plan_name(jsonb) from public, anon, authenticated, service_role;
 
 -- What the application's preview reads (service role): the context, the stamps it stages with its command, and what the
--- preview shows of it (outside the stamps: a plan's progress, a heartbeat or a name never makes a preview stale) — for a
--- per-plan analysis its request, its plan's name, the names of the plans its peers read, the other units of its request
--- not read yet, each in its state as private.takeoff_unit_state decides it, the dossier's plans no analysis of one plan
--- has read, and how many readings outside one analysis per plan are read, not sent and not compared. The destination version is the
--- draft it would write, or the issued version a copy would start from; null for a first draft.
+-- preview shows of it, outside the stamps (a plan's progress, a heartbeat or a name never makes a preview stale). For an
+-- analysis of one plan: its request; its plan's name; each peer compared, with its plan's name, when it was read and
+-- whether it is a reading of another request; the other units of its request not read yet, each in its state as
+-- private.takeoff_unit_state decides it, and, for one whose plan has an earlier reading compared, that reading; the plans
+-- the affaire's requests and confirmed preparation name, at the dossier's current copy, that no analysis of one plan has
+-- read at that copy (outside this request); and how many grouped analyses (lot 2) and analyses outside any request are read
+-- and not sent, which nothing compares with it. The destination version is the draft it would write, or the issued
+-- version a copy would start from; null for a first draft.
 create function public.read_takeoff_send_context(p_tenant_id uuid, p_project_id uuid, p_job_id uuid, p_version_id uuid)
 returns jsonb language sql stable security definer set search_path = '' as $$
   with job as (
@@ -164,64 +254,87 @@ returns jsonb language sql stable security definer set search_path = '' as $$
     where candidate.id = p_job_id and candidate.tenant_id = p_tenant_id and candidate.project_id = p_project_id
   ), computed as (
     select private.takeoff_send_context(p_tenant_id, p_project_id, p_job_id, p_version_id) as context
-  ), dossier_plans as (
-    -- The plans the affaire's confirmed preparation retains now, each by its source (its dossier piece, or itself).
-    select source.value ->> 'document_name' as name, plan.file_id,
-      coalesce(recorded.source_kind, 'plan_file') as source_kind, coalesce(recorded.source_id, plan.file_id) as source_id
+  ), plan_readings as (
+    -- Each analysis of one plan of the affaire: its request, its state, the plan file it read, that file's source, and
+    -- whether that file is still the dossier's current copy of its source.
+    select reading.id, reading.launch_request_id, reading.status, reading.analysis_outcome, reading.error_code, reading.started_at,
+      reading.completed_at, reading.preparation_snapshot, plan.file_id,
+      coalesce(recorded.source_kind, 'plan_file') as source_kind, coalesce(recorded.source_id, plan.file_id) as source_id,
+      exists (select 1 from private.resolve_takeoff_plan_location_source(p_tenant_id, p_project_id, plan.file_id) as resolved
+        where resolved.current_copy) as current_copy
+    from public.takeoff_jobs as reading
+    cross join lateral (select private.takeoff_uuid_or_null(pg_catalog.to_jsonb(pg_catalog.substr(reading.launch_unit_key, 6)))
+      as file_id) as plan
+    left join public.takeoff_plan_location_sources as recorded on recorded.plan_file_id = plan.file_id
+      and recorded.tenant_id = p_tenant_id
+    where reading.tenant_id = p_tenant_id and reading.project_id = p_project_id and reading.launch_unit_key like 'plan:%'
+      and private.takeoff_job_is_plan_unit(reading.launch_request_id) and plan.file_id is not null
+  ), compared as (
+    select reading.* from plan_readings as reading
+    where reading.id in (select (listed.value ->> 'job_id')::uuid
+      from computed cross join lateral pg_catalog.jsonb_array_elements(computed.context -> 'peers') as listed(value))
+  ), named_plans as (
+    -- The plans asked to be read: those of every sealed request of one analysis per plan of the affaire, and those its
+    -- confirmed preparation retains, when it has one.
+    select private.takeoff_uuid_or_null(listed.value -> 'plan_file_id') as file_id, listed.value ->> 'name' as name
+    from public.takeoff_launch_requests as request
+    cross join lateral pg_catalog.jsonb_array_elements(case when pg_catalog.jsonb_typeof(request.manifest -> 'plans') = 'array'
+      then request.manifest -> 'plans' else '[]'::jsonb end) as listed(value)
+    where request.tenant_id = p_tenant_id and request.project_id = p_project_id
+      and request.manifest -> 'format_version' = '2'::jsonb
+    union
+    select private.takeoff_uuid_or_null(source.value -> 'document_id'), source.value ->> 'document_name'
     from public.takeoff_preparations as preparation
     cross join lateral pg_catalog.jsonb_array_elements(case
         when pg_catalog.jsonb_typeof(preparation.confirmed_snapshot #> '{preparation,sources}') = 'array'
         then preparation.confirmed_snapshot #> '{preparation,sources}' else '[]'::jsonb end) as source(value)
-    cross join lateral (select private.takeoff_uuid_or_null(source.value -> 'document_id') as file_id) as plan
-    left join public.takeoff_plan_location_sources as recorded on recorded.plan_file_id = plan.file_id
-      and recorded.tenant_id = p_tenant_id
     where preparation.tenant_id = p_tenant_id and preparation.project_id = p_project_id
-      and source.value ->> 'kind' = 'plan' and source.value -> 'active' = 'true'::jsonb and plan.file_id is not null
-  ), plan_readings as (
-    -- Each analysis of one plan of the affaire, its request and the source of the plan it read.
-    select reading.launch_request_id, reading.status, private.takeoff_uuid_or_null(pg_catalog.to_jsonb(
-        pg_catalog.substr(reading.launch_unit_key, 6))) as file_id,
-      coalesce(recorded.source_kind, 'plan_file') as source_kind,
-      coalesce(recorded.source_id, private.takeoff_uuid_or_null(pg_catalog.to_jsonb(pg_catalog.substr(reading.launch_unit_key, 6))))
-        as source_id
-    from public.takeoff_jobs as reading
-    left join public.takeoff_plan_location_sources as recorded
-      on recorded.plan_file_id::text = pg_catalog.substr(reading.launch_unit_key, 6) and recorded.tenant_id = p_tenant_id
-    where reading.tenant_id = p_tenant_id and reading.project_id = p_project_id and reading.launch_unit_key like 'plan:%'
-      and private.takeoff_job_is_plan_unit(reading.launch_request_id)
+      and source.value ->> 'kind' = 'plan' and source.value -> 'active' = 'true'::jsonb
+  ), dossier_plans as (
+    -- Those that are the dossier's current copy of their source, by source.
+    select distinct on (coalesce(recorded.source_kind, 'plan_file'), coalesce(recorded.source_id, named.file_id))
+      named.file_id, named.name, coalesce(recorded.source_kind, 'plan_file') as source_kind,
+      coalesce(recorded.source_id, named.file_id) as source_id
+    from named_plans as named
+    left join public.takeoff_plan_location_sources as recorded on recorded.plan_file_id = named.file_id
+      and recorded.tenant_id = p_tenant_id
+    where named.file_id is not null and exists (select 1 from private.resolve_takeoff_plan_location_source(p_tenant_id,
+      p_project_id, named.file_id) as resolved where resolved.current_copy)
+    order by coalesce(recorded.source_kind, 'plan_file'), coalesce(recorded.source_id, named.file_id), named.name
   )
   select computed.context || pg_catalog.jsonb_build_object('stamps', private.takeoff_send_context_stamps(computed.context),
     'display', case when private.takeoff_job_is_plan_unit(job.launch_request_id) then pg_catalog.jsonb_build_object(
       'request_id', job.launch_request_id,
       'plan_name', private.takeoff_send_plan_name(job.preparation_snapshot),
       'peers', coalesce((select pg_catalog.jsonb_agg(pg_catalog.jsonb_build_object('job_id', peer.id,
-          'plan_name', private.takeoff_send_plan_name(peer.preparation_snapshot)) order by peer.created_at, peer.id)
-        from public.takeoff_jobs as peer
-        where peer.tenant_id = p_tenant_id and peer.id in (select (listed.value ->> 'job_id')::uuid
-          from pg_catalog.jsonb_array_elements(computed.context -> 'peers') as listed(value))), '[]'::jsonb),
+          'plan_name', private.takeoff_send_plan_name(peer.preparation_snapshot), 'read_at', peer.completed_at,
+          'earlier_request', peer.launch_request_id is distinct from job.launch_request_id)
+          order by peer.completed_at, peer.id) from compared as peer), '[]'::jsonb),
       'unread', coalesce((select pg_catalog.jsonb_agg(pg_catalog.jsonb_build_object('plan_name',
           private.takeoff_send_plan_name(sibling.preparation_snapshot),
-          'state', private.takeoff_unit_state(sibling.status::text, sibling.analysis_outcome, sibling.error_code, sibling.started_at))
+          'state', private.takeoff_unit_state(sibling.status::text, sibling.analysis_outcome, sibling.error_code, sibling.started_at),
+          'compared_reading_at', (select peer.completed_at from compared as peer
+            where (peer.source_kind, peer.source_id) = (sibling.source_kind, sibling.source_id)))
           order by (sibling.preparation_snapshot #>> '{launch_unit,ordinal}')::integer, sibling.id)
-        from public.takeoff_jobs as sibling
-        where sibling.tenant_id = p_tenant_id and sibling.launch_request_id = job.launch_request_id and sibling.id <> job.id
+        from plan_readings as sibling
+        where sibling.launch_request_id = job.launch_request_id and sibling.id <> job.id
           and private.takeoff_unit_state(sibling.status::text, sibling.analysis_outcome, sibling.error_code, sibling.started_at)
             <> 'succeeded'), '[]'::jsonb),
-      -- The plans the dossier retains now that no analysis of one plan has read, outside this request (its units are
-      -- named above): never compared with this plan.
       'never_read', coalesce((select pg_catalog.jsonb_agg(dossier_plan.name order by dossier_plan.name, dossier_plan.file_id)
         from dossier_plans as dossier_plan
         where not exists (select 1 from plan_readings as unit
             where unit.launch_request_id = job.launch_request_id and unit.file_id = dossier_plan.file_id)
           and not exists (select 1 from plan_readings as read
-            where read.status in ('completed'::public.takeoff_job_status, 'applied'::public.takeoff_job_status)
+            where read.status in ('completed'::public.takeoff_job_status, 'applied'::public.takeoff_job_status) and read.current_copy
               and (read.source_kind, read.source_id) = (dossier_plan.source_kind, dossier_plan.source_id))), '[]'::jsonb),
-      -- The analyses of the affaire outside one analysis per plan (lot 2's grouped readings, a reading outside any
-      -- request) that are read and not sent: their plans are not compared with this one.
-      'uncompared_readings', (select pg_catalog.count(*) from public.takeoff_jobs as other
-        where other.tenant_id = p_tenant_id and other.project_id = p_project_id and other.estimate_version_id is null
-          and other.status = 'completed'::public.takeoff_job_status
-          and not private.takeoff_job_is_plan_unit(other.launch_request_id))) end)
+      'uncompared', pg_catalog.jsonb_build_object(
+        'grouped', (select pg_catalog.count(*) from public.takeoff_jobs as other
+          where other.tenant_id = p_tenant_id and other.project_id = p_project_id and other.estimate_version_id is null
+            and other.status = 'completed'::public.takeoff_job_status and other.launch_request_id is not null
+            and not private.takeoff_job_is_plan_unit(other.launch_request_id)),
+        'outside_request', (select pg_catalog.count(*) from public.takeoff_jobs as other
+          where other.tenant_id = p_tenant_id and other.project_id = p_project_id and other.estimate_version_id is null
+            and other.status = 'completed'::public.takeoff_job_status and other.launch_request_id is null))) end)
   from job cross join computed
 $$;
 revoke all on function public.read_takeoff_send_context(uuid, uuid, uuid, uuid) from public, anon, authenticated;
@@ -375,13 +488,16 @@ begin
     raise exception 'TAKEOFF_SEND_JOB_NOT_READY' using errcode = '40001',
       detail = pg_catalog.jsonb_build_object('reason', 'plan_context_required')::text;
   end if;
-  -- Its request's row, held now by the send (never by its preview's dry run, which a paid call's usage or a unit's end must
-  -- not wait for), after the job, as every writer of that row holds its job first (the worker's end and its settlement, a
-  -- call's reservation and its usage, a member's stop): the link and the application below update this job twice, and
-  -- the second update's foreign-key check takes a key share on that row. Without this lock, a sibling unit's end that
-  -- holds the row uncommitted keeps that check running until it commits; with it, the send waits for that end, or that
-  -- end for the send, on this row, in this order, and reads its context after it. A dry run reads it as it is: the send
-  -- checks it again.
+  -- The send (never its preview's dry run, which the send checks again, and which no writer waits for) is serialised with
+  -- every writer of what its context reads: it takes the affaire's send context exclusively, then, for an analysis of one
+  -- plan, its request's row. A writer holds its own row first (its job, its line, its location), then the context
+  -- (shared), then the request (a unit's end settles there; a call's reservation and usage take their job, then the
+  -- request; a member's stop takes the request's jobs, then the request): the same order, never the reverse. The link and
+  -- the application below update this job twice, and the second update's foreign-key check takes a key share on the
+  -- request's row: held here, a sibling's uncommitted end can no longer hold that check.
+  if p_command #> '{expected,context}' is not null and not p_dry_run then
+    perform private.lock_takeoff_send_context(job.project_id, true);
+  end if;
   if plan_unit and not p_dry_run then
     perform 1 from public.takeoff_launch_requests as request_row where request_row.id = job.launch_request_id
     for no key update;
@@ -949,7 +1065,163 @@ $$;
 revoke all on function private.takeoff_send_execute(uuid, uuid, public.tenant_role, uuid, jsonb, boolean)
   from public, anon, authenticated, service_role;
 
--- 4. Last, the send's own check, in its transaction: the version link of a per-plan analysis is admitted only while the send
+-- 4. The manual command (lot 2 and one analysis per plan), as 20261121231238 wrote it, but for one lock: the analysis it
+-- replaces or extends is held (a key share) before anything else whatever launched it, not only outside any request. A
+-- send of that analysis holds it, then its request's row; a reread naming it held the affaire's automatic request (which
+-- that request may be) before its own request's foreign key needed that key share: the two waited for each other.
+create or replace function private.launch_manual_takeoff_command(
+  p_tenant_id uuid, p_project_id uuid, p_actor uuid, p_intent_key uuid, p_intent text, p_predecessor_job_id uuid,
+  p_host text, p_selection jsonb, p_manifest jsonb, p_snapshot jsonb, p_job jsonb, p_plan_set_id uuid,
+  p_preparation_revision integer, p_module_default boolean, p_digest text, p_named_plans boolean
+) returns table (outcome text, request_id uuid, job_id uuid)
+language plpgsql security definer set search_path = '' as $$
+#variable_conflict use_column
+declare
+  request public.takeoff_launch_requests%rowtype;
+  running record;
+  answer record;
+  predecessor_request uuid;
+  admitted_jobs uuid[];
+  violated text;
+  running_unrequested uuid;
+  decided_mark bigint;
+begin
+  if p_intent not in ('initial', 'reread_plans') or p_intent_key is null or p_actor is null or p_plan_set_id is null
+    or p_preparation_revision is null then
+    raise exception 'TAKEOFF_LAUNCH_COMMAND_INVALID' using errcode = '22023';
+  end if;
+  if p_intent <> 'initial' and p_predecessor_job_id is null then
+    raise exception 'TAKEOFF_LAUNCH_PREDECESSOR_REQUIRED' using errcode = '22023';
+  end if;
+  if p_intent = 'initial' and p_predecessor_job_id is not null then
+    raise exception 'TAKEOFF_LAUNCH_PREDECESSOR_INVALID' using errcode = '22023';
+  end if;
+  perform private.assert_takeoff_launch_selection(p_host, p_selection);
+  if not private.takeoff_launch_active() then
+    raise exception 'TAKEOFF_LAUNCH_INACTIVE' using errcode = '55000';
+  end if;
+  if not private.takeoff_module_enabled(p_tenant_id, p_module_default) then
+    raise exception 'TAKEOFF_LAUNCH_MODULE_DISABLED' using errcode = '55000';
+  end if;
+  -- The analysis it replaces, before anything else, whatever launched it: its Mac's claim of a retry holds that row and
+  -- then waits for the key (the restart guard of 20261121193413); the send of that analysis holds it, then the affaire's
+  -- send context, then its request's row (20261122030312), which this command's affaire's automatic request may be; and
+  -- this command's request names it (a key share). All take the analysis first, never the reverse.
+  if p_predecessor_job_id is not null then
+    perform 1 from public.takeoff_jobs j where j.id = p_predecessor_job_id and j.tenant_id = p_tenant_id
+      and j.project_id = p_project_id for key share;
+  end if;
+  -- Commands and reservations of one affaire are serialized on its key: the replay and the one-running rule read
+  -- committed rows, and the automatic request a confirmation reserved is always found.
+  perform private.lock_takeoff_launch_commands(p_project_id);
+  for answer in select * from private.replay_takeoff_launch_command(p_tenant_id, p_project_id, p_intent_key, p_digest) loop
+    return query select answer.outcome, answer.request_id, answer.job_id;
+    return;
+  end loop;
+  if p_predecessor_job_id is not null then
+    select j.launch_request_id into predecessor_request from public.takeoff_jobs j
+    where j.id = p_predecessor_job_id and j.tenant_id = p_tenant_id and j.project_id = p_project_id;
+    if not found then
+      raise exception 'TAKEOFF_LAUNCH_PREDECESSOR_INVALID' using errcode = '22023';
+    end if;
+  end if;
+  -- The affaire's automatic request is held before the one-running rule is read: its own admission either committed
+  -- (it runs, the command is refused) or waits for this command, which then sets it aside.
+  perform 1 from public.takeoff_launch_requests r
+  where r.tenant_id = p_tenant_id and r.project_id = p_project_id and r.origin = 'automatic' for update;
+  -- An automatic start that can still begin without a new dossier change (its eligible payer's Mac, or a gesture this
+  -- member may make) is taken on from the affaire's takeoff zone: refused, nothing is recorded. One that waits for a
+  -- dossier change or for nobody is set aside below by this explicit analysis.
+  decided_mark := private.takeoff_launch_mark_position(p_tenant_id, p_project_id);
+  if exists (select 1 from public.takeoff_launch_requests r where r.tenant_id = p_tenant_id and r.project_id = p_project_id
+      and private.takeoff_automatic_request_can_start(r, p_actor)) then
+    raise exception 'TAKEOFF_LAUNCH_AUTOMATIC_PENDING' using errcode = '55000';
+  end if;
+  -- The first analysis only on an affaire that has none, whatever launched it: any other command names the analysis it
+  -- replaces or extends.
+  if p_intent = 'initial' and exists (select 1 from public.takeoff_jobs j
+      where j.tenant_id = p_tenant_id and j.project_id = p_project_id) then
+    raise exception 'TAKEOFF_LAUNCH_ANALYSIS_EXISTS' using errcode = '22023';
+  end if;
+  select r.id, private.takeoff_launch_first_job(r.id) as job
+  into running from public.takeoff_launch_requests r
+  where r.tenant_id = p_tenant_id and r.project_id = p_project_id and r.state = 'admitted';
+  if found then
+    insert into private.takeoff_launch_commands (tenant_id, project_id, intent_key, command_digest, answer, request_id, job_id, created_by)
+    values (p_tenant_id, p_project_id, p_intent_key, p_digest, 'already_running', running.id, running.job, p_actor);
+    return query select 'already_running'::text, running.id, running.job;
+    return;
+  end if;
+  -- An analysis launched outside any request (the dialogue's launch on a version, before the activation) that has not
+  -- ended runs too: the command is recorded with it, as with a running request, and no request is created.
+  running_unrequested := private.takeoff_unrequested_analysis_running(p_tenant_id, p_project_id);
+  if running_unrequested is not null then
+    insert into private.takeoff_launch_commands (tenant_id, project_id, intent_key, command_digest, answer, request_id, job_id, created_by)
+    values (p_tenant_id, p_project_id, p_intent_key, p_digest, 'already_running', null, running_unrequested, p_actor);
+    return query select 'already_running'::text, null::uuid, running_unrequested;
+    return;
+  end if;
+  if not private.takeoff_launch_payer_eligible(p_tenant_id, p_project_id, p_actor) then
+    raise exception 'TAKEOFF_LAUNCH_PAYER_NOT_ELIGIBLE' using errcode = '42501';
+  end if;
+  if p_manifest -> 'format_version' = '2'::jsonb then
+    perform private.assert_takeoff_command_plans(p_tenant_id, p_project_id, p_preparation_revision, p_snapshot, p_named_plans);
+  end if;
+  begin
+    insert into public.takeoff_launch_requests (tenant_id, project_id, origin, intent, intent_key, command_digest,
+      predecessor_request_id, predecessor_job_id, state, payer_id, mandate_kind, mandated_at,
+      execution_host_id, mandate_selection, mandate_revision)
+    values (p_tenant_id, p_project_id, 'manual', p_intent, p_intent_key, p_digest, predecessor_request, p_predecessor_job_id,
+      'evaluating', p_actor, 'command', pg_catalog.clock_timestamp(), p_host, p_selection, 1)
+    returning * into request;
+    request := private.seal_takeoff_launch_request(request, p_manifest, p_snapshot,
+      private.takeoff_launch_mark_position(p_tenant_id, p_project_id));
+    admitted_jobs := private.insert_takeoff_launch_jobs(request, p_job);
+    perform private.record_takeoff_launch_audit(request, p_actor, 'takeoff.request.admitted', jsonb_build_object(
+      'job_ids', to_jsonb(admitted_jobs), 'manifest_digest', request.manifest_digest, 'intent', p_intent,
+      'predecessor_job_id', p_predecessor_job_id, 'execution_host_id', p_host, 'mandate_kind', 'command')
+      || case when request.manifest -> 'format_version' = '2'::jsonb then jsonb_build_object('format_version', 2) else '{}'::jsonb end);
+    -- Before setting an automatic start aside: the dossier key exclusively, last of everything this command locks, as the
+    -- automatic admission takes it. A dossier change committed since the decision above is counted, and a start it lets
+    -- begin again is decided again, under the same lock: refused, nothing is recorded.
+    if exists (select 1 from public.takeoff_launch_requests r where r.tenant_id = p_tenant_id and r.project_id = p_project_id
+        and r.origin = 'automatic' and private.takeoff_launch_request_open(r)) then
+      perform pg_catalog.pg_advisory_xact_lock(private.takeoff_dossier_lock_key(p_project_id));
+      if private.takeoff_launch_mark_position(p_tenant_id, p_project_id) <> decided_mark and exists (
+          select 1 from public.takeoff_launch_requests r where r.tenant_id = p_tenant_id and r.project_id = p_project_id
+            and private.takeoff_automatic_request_can_start(r, p_actor)) then
+        raise exception 'TAKEOFF_LAUNCH_AUTOMATIC_PENDING' using errcode = '55000';
+      end if;
+    end if;
+    -- An automatic start that had not begun is set aside by this explicit analysis, for good: it never spends later.
+    update public.takeoff_launch_requests r set state = 'superseded', reason_code = null,
+      reason_details = jsonb_build_object('request_id', request.id), evaluation_lease_token = null, evaluation_lease_expires_at = null,
+      mandate_revision = r.mandate_revision + 1
+    where r.tenant_id = p_tenant_id and r.project_id = p_project_id and r.origin = 'automatic'
+      and r.state in ('evaluating', 'not_eligible', 'blocked');
+    insert into private.takeoff_launch_commands (tenant_id, project_id, intent_key, command_digest, answer, request_id, job_id, created_by)
+    values (p_tenant_id, p_project_id, p_intent_key, p_digest, 'admitted', request.id, admitted_jobs[1], p_actor);
+  exception when unique_violation then
+    -- Another request of the affaire was admitted meanwhile (an automatic admission that did not wait): the command's
+    -- receipt records that one.
+    get stacked diagnostics violated = constraint_name;
+    if violated is distinct from 'takeoff_launch_requests_running_uidx' then raise; end if;
+    select r.id, private.takeoff_launch_first_job(r.id) as job
+    into running from public.takeoff_launch_requests r
+    where r.tenant_id = p_tenant_id and r.project_id = p_project_id and r.state = 'admitted';
+    insert into private.takeoff_launch_commands (tenant_id, project_id, intent_key, command_digest, answer, request_id, job_id, created_by)
+    values (p_tenant_id, p_project_id, p_intent_key, p_digest, 'already_running', running.id, running.job, p_actor);
+    return query select 'already_running'::text, running.id, running.job;
+    return;
+  end;
+  return query select 'admitted'::text, request.id, admitted_jobs[1];
+end;
+$$;
+
+revoke all on function private.launch_manual_takeoff_command(uuid, uuid, uuid, uuid, text, uuid, text, jsonb, jsonb, jsonb, jsonb, uuid, integer, boolean, text, boolean)
+  from public, anon, authenticated, service_role;
+
+-- 5. Last, the send's own check, in its transaction: the version link of a per-plan analysis is admitted only while the send
 -- that checked its context holds this row (inserted just before the link, deleted just after; a rollback removes it).
 -- No API role reads or writes it. Its keys are the job's and the version's, which the send holds already (the job for
 -- update, the version it locks or creates): their checks wait for nothing. Created last: adding those foreign keys holds
