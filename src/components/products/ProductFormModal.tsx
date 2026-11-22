@@ -109,8 +109,13 @@ type ProductFormModalProps = {
   categorySuggestions?: readonly string[];
   /** Matières déjà utilisées dans le référentiel, proposées en autocomplétion. */
   materialSuggestions?: readonly string[];
-  /** Supply types of the tenant; the form can add one, since a tenant may have none. */
+  /** Supply types of the tenant; an administrator can add one from the form, since a tenant may have none. */
   supplyTypes?: readonly ProductSupplyType[];
+  /**
+   * The member is an administrator of the active tenant, the only role `createSupplyType` accepts: the form
+   * offers « Nouveau type » to them alone. Absent, it is not offered.
+   */
+  canCreateSupplyType?: boolean;
   onSupplyTypeCreated?: (supplyType: ProductSupplyType) => void;
   /** A supplier of the article, or its preferred one, was saved from the form (saved at once, TI-691). */
   onSuppliersChanged?: () => void;
@@ -203,6 +208,7 @@ export function ProductFormModal({
   categorySuggestions,
   materialSuggestions,
   supplyTypes,
+  canCreateSupplyType = false,
   onSupplyTypeCreated,
   onSuppliersChanged,
   onOpenChange,
@@ -459,17 +465,23 @@ export function ProductFormModal({
                         </option>
                       ))}
                     </NativeSelect>
-                    <NewSupplyTypeButton creation={supplyTypeCreation} idPrefix="product" />
+                    {canCreateSupplyType ? (
+                      <NewSupplyTypeButton creation={supplyTypeCreation} idPrefix="product" />
+                    ) : null}
                   </div>
                   {supplyTypeOptions.length === 0 ? (
                     <FieldDescription id="product-supply-type-empty-hint" className="text-xs">
-                      Aucun type de fourniture n’existe encore. Créez-en un avec « Nouveau type ».
+                      {canCreateSupplyType
+                        ? "Aucun type de fourniture n’existe encore. Créez-en un avec « Nouveau type »."
+                        : "Aucun type de fourniture n’existe encore : un administrateur peut en créer un."}
                     </FieldDescription>
                   ) : null}
                   {blocksValidation("supply_type_id") ? (
                     <ValidationHint field="supply_type_id" />
                   ) : null}
-                  <NewSupplyTypePanel creation={supplyTypeCreation} idPrefix="product" />
+                  {canCreateSupplyType ? (
+                    <NewSupplyTypePanel creation={supplyTypeCreation} idPrefix="product" />
+                  ) : null}
                 </div>
               </div>
             </fieldset>

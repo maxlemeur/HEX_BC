@@ -29,6 +29,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { IconButton } from "@/components/ui/icon-button";
+import { useOptionalUserContext } from "@/lib/auth/user-context";
 import { PRODUCT_VALIDATION_INCOMPLETE } from "@/lib/catalogue/product-validation";
 import { cn } from "@/lib/utils";
 
@@ -134,6 +135,9 @@ export default function ProductsPage() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const confirm = useConfirm();
+  // The dashboard layout reads the member of the active tenant on the server. Only its administrators create a
+  // supply type (`createSupplyType` checks it again): no « Nouveau type » the server would refuse.
+  const canCreateSupplyType = useOptionalUserContext()?.profile?.tenant_role === "admin";
   const [editingProduct, setEditingProduct] = useState<ProductRecord | null>(
     null,
   );
@@ -697,6 +701,7 @@ export default function ProductsPage() {
           categorySuggestions={data?.facets.categories}
           materialSuggestions={data?.facets.materials}
           supplyTypes={data?.supplyTypes}
+          canCreateSupplyType={canCreateSupplyType}
           onSupplyTypeCreated={() => void mutate()}
           onSuppliersChanged={() => void mutate()}
           onOpenChange={handleFormOpenChange}

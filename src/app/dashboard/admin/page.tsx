@@ -9,6 +9,7 @@ import {
   CoinsIcon,
   FlagIcon,
   ListChecksIcon,
+  MessageSquareTextIcon,
   MonitorIcon,
   ShieldAlertIcon,
   SlidersHorizontalIcon,
@@ -114,6 +115,12 @@ export default async function AdminHubPage() {
             icon={<BookLockIcon strokeWidth={1.75} />}
             title="Droits du catalogue"
             description="Ce que les ingénieurs modifient parmi les fournisseurs et les articles"
+          />
+          <HubCard
+            href="/dashboard/admin/consultation-message"
+            icon={<MessageSquareTextIcon strokeWidth={1.75} />}
+            title="Message fournisseur"
+            description="Le modèle du message de consultation des membres qui n’ont pas le leur"
           />
         </HubSection>
 

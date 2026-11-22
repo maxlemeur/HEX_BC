@@ -12,7 +12,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
  *     list is not read again and the article still looks like a draft;
  *  4. the refusal of an incomplete draft (HTTP 422, PRODUCT_VALIDATION_INCOMPLETE) is reported as a
  *     success, or as a bare error with nowhere to fill in what is missing;
- *  5. any other failure opens the edit form as if the article were incomplete.
+ *  5. any other failure opens the edit form as if the article were incomplete;
+ *  6. the article form offers « Nouveau type » to a member who is not an administrator of the active
+ *     tenant, although the server refuses them the creation (`createSupplyType`).
  *
  * The page runs on its real fetch helper, SWR and form; only the network and the router are replaced.
  */
@@ -26,6 +28,7 @@ vi.mock("next/navigation", () => ({
 }));
 
 import ProductsPage from "@/app/dashboard/products/page";
+import { UserProvider, type UserProfile } from "@/lib/auth/user-context";
 
 const DRAFT = {
   id: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
@@ -99,13 +102,30 @@ const productWrites = () =>
     .filter((call) => call.url.pathname === "/api/products")
     .map((call) => JSON.parse(String(call.init?.body)) as unknown);
 
-function renderPage(search = "") {
+function memberProfile(tenantRole: UserProfile["tenant_role"]): UserProfile {
+  return {
+    id: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+    full_name: "Camille Martin",
+    phone: null,
+    job_title: null,
+    work_email: null,
+    role: "buyer",
+    ui_mode: "simplified",
+    tenant_id: "ffffffff-ffff-4fff-8fff-ffffffffffff",
+    tenant_role: tenantRole,
+  };
+}
+
+/** The dashboard layout provides the member of the active tenant; the default is an administrator. */
+function renderPage(search = "", tenantRole: UserProfile["tenant_role"] = "admin") {
   navigation.search = search;
   // A cache of its own: one test never reads the list another one loaded.
   render(
-    <SWRConfig value={{ provider: () => new Map(), dedupingInterval: 0 }}>
-      <ProductsPage />
-    </SWRConfig>,
+    <UserProvider initialUserEmail="camille@example.test" initialProfile={memberProfile(tenantRole)}>
+      <SWRConfig value={{ provider: () => new Map(), dedupingInterval: 0 }}>
+        <ProductsPage />
+      </SWRConfig>
+    </UserProvider>,
   );
 }
 
@@ -208,5 +228,42 @@ describe("catalogue page, draft validation", () => {
     await waitFor(() => expect(productWrites()).toHaveLength(1));
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     expect(screen.queryByText("Article validé.")).not.toBeInTheDocument();
+  });
+});
+
+describe("catalogue page, supply type creation in the article form", () => {
+  beforeEach(() => {
+    calls.length = 0;
+    fetchMock.mockClear();
+    answerProductWrite = () => jsonResponse(200, { ok: true, data: { item: { id: DRAFT.id } } });
+    vi.stubGlobal("fetch", fetchMock);
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+  });
+
+  async function openNewArticle(user: ReturnType<typeof userEvent.setup>) {
+    await screen.findByText(DRAFT.designation);
+    await user.click(screen.getByRole("button", { name: "Ajouter" }));
+    return within(await screen.findByRole("dialog", { name: "Ajouter un produit" }));
+  }
+
+  it("offers « Nouveau type » to an administrator of the active tenant", async () => {
+    const user = userEvent.setup({ delay: null });
+    renderPage("", "admin");
+
+    const dialog = await openNewArticle(user);
+    expect(dialog.getByRole("button", { name: "Nouveau type" })).toBeInTheDocument();
+  });
+
+  it("keeps « Nouveau type » from an engineer, who still picks a supply type", async () => {
+    const user = userEvent.setup({ delay: null });
+    renderPage("", "engineer");
+
+    const dialog = await openNewArticle(user);
+    expect(dialog.getByRole("option", { name: "Supportage" })).toBeInTheDocument();
+    expect(dialog.queryByRole("button", { name: "Nouveau type" })).not.toBeInTheDocument();
   });
 });
