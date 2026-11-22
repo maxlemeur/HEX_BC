@@ -283,7 +283,8 @@ describe("evaluateTakeoffLaunchRequests", () => {
   });
 
   // Lot 3: once the owner activated one analysis per plan, the same seal is admitted as one unit per plan, each with its
-  // own job identified by the request and its unit, and the Mac's dispatcher is handed them.
+  // own job identified by the request and its unit, and the Mac's dispatcher is handed them. Budget task: a request of the
+  // free extraction keeps the tenant's envelope and its split by pages, as before the list's budget was sized.
   it("admits one unit per plan with its job once one analysis per plan is active", async () => {
     const { admitted } = dossier({ perPlan: true });
     const [result] = await evaluateTakeoffLaunchRequests();
@@ -299,8 +300,8 @@ describe("evaluateTakeoffLaunchRequests", () => {
   });
 
   // Lot 4: a request that reads its plans against a list of items is bounded on the whole request before its admission:
-  // 1,700 items in batches of 40 make 43 calls on a one-page plan, more than one plan's reading may make and more than the
-  // budget lets start. The member is asked to reduce the scope; nothing is admitted, nothing is sampled.
+  // 1,700 items in batches of 40 make 43 calls on a one-page plan, more than one plan's reading may make. The member is
+  // asked to reduce the scope; nothing is admitted, nothing is sampled.
   it("refuses, naming the plan, a request whose reading against the list passes its bounds, and admits nothing", async () => {
     const { admitted, recorded } = dossier({ perPlan: true });
     vi.mocked(sealedMeasuringOrder).mockResolvedValueOnce(itemListSeal(1_700));
@@ -309,15 +310,20 @@ describe("evaluateTakeoffLaunchRequests", () => {
     expect(admitted).toEqual([]);
     expect(recorded).toEqual([expect.objectContaining({ p_state: "blocked", p_reason: "PLAN_SET_TOO_LARGE", p_details: {
       pieces: [{ id: PLAN_FILE, name: "Plan RDC.pdf" }],
-      reading_bounds: { items: 1_700, plans: 1, calls: 43, tokens: 1_290_000, request_budget_tokens: 400_000 } } })]);
+      reading_bounds: { items: 1_700, plans: 1, reading_calls: 43, classifier_calls: 0, minutes: 65, max_request_calls: 480,
+        max_plan_calls: 40 } } })]);
   });
 
-  it("admits a request whose reading against the list stays within its bounds, its list sealed", async () => {
+  // Budget task: the budget of a reading against the list is sized from the calls it is admitted for, twice their
+  // reservations: 120 items on a one-page plan are 3 calls, a share and an envelope of 180,000 tokens (the tenant's
+  // 400,000 would be the first format's); the cost envelope stays the tenant's.
+  it("admits a request whose reading against the list stays within its bounds, its list and its sized budget sealed", async () => {
     const { admitted } = dossier({ perPlan: true });
     vi.mocked(sealedMeasuringOrder).mockResolvedValueOnce(itemListSeal(120));
     const [result] = await evaluateTakeoffLaunchRequests();
     expect(result).toMatchObject({ outcome: "admitted" });
-    expect((admitted[0] as { p_manifest: unknown }).p_manifest).toMatchObject({ format_version: 2, order: itemListOrder(120) });
+    expect((admitted[0] as { p_manifest: unknown }).p_manifest).toMatchObject({ format_version: 2, order: itemListOrder(120),
+      units: [{ key: `plan:${PLAN_FILE}`, budget: { tokens: 180_000, cost_cents: 2500 } }], budget: { tokens: 180_000, cost_cents: 2500 } });
     expect(sealedMeasuringOrder).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ perPlan: true }));
   });
 
@@ -1065,7 +1071,9 @@ describe("launchTakeoffRelaunch", () => {
     vi.mocked(sealedMeasuringOrder).mockResolvedValueOnce({ order: list, items: itemListSeal(12).items });
     const sealed = planCommand({ a: 3, b: 3 });
     await expect(sealed.run([PLAN_FILE])).resolves.toMatchObject({ outcome: "admitted" });
-    expect(sealed.launched[0].p_manifest).toMatchObject({ format_version: 2, order: list });
+    // One call (a 3-page plan, 12 items): its share and the envelope sized from it.
+    expect(sealed.launched[0].p_manifest).toMatchObject({ format_version: 2, order: list,
+      units: [{ budget: { tokens: 60_000 } }], budget: { tokens: 60_000 } });
     expect(sealedMeasuringOrder).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ perPlan: true }));
     vi.mocked(sealedMeasuringOrder).mockResolvedValueOnce({ blocked: "ITEM_LIST_TO_PREPARE" });
     const blocked = planCommand({ a: 3, b: 3 });
@@ -1078,8 +1086,9 @@ describe("launchTakeoffRelaunch", () => {
     vi.mocked(sealedMeasuringOrder).mockResolvedValueOnce(itemListSeal(1_700));
     const sealed = planCommand({ a: 3, b: 3 });
     await expect(sealed.run([PLAN_FILE])).rejects.toMatchObject({ status: 422, message: "Métré non démarré — les plans « plan-a.pdf » "
-      + "dépassent les limites d’une lecture contre la liste des postes. Lecture de 1\u202f700 postes sur 1 plan : 43 appels prévus, "
-      + "environ 1\u202f290\u202f000 jetons pour un budget de 400\u202f000. Réduisez les plans ou les pages à lire." });
+      + "dépassent les limites d’une lecture contre la liste des postes. Lecture de 1\u202f700 postes sur 1 plan : 43 appels de "
+      + "lecture, environ 1 h 05 sur un Mac. Au plus 480 appels de lecture par demande et 40 par plan : réduisez les plans ou les "
+      + "pages à lire." });
     expect(sealed.launched).toEqual([]);
   });
 

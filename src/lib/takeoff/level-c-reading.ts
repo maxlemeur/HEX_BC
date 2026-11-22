@@ -62,8 +62,9 @@ type ProcessLevelCAggregate = {
 
 /**
  * The checks of a detailed reading before its first paid call, the same for both measuring orders: a PDF, its page count
- * (a corrupt file named as such), the per-job budget within what its request has left, the plan set's page limit, and
- * the page counts recorded on the plan files.
+ * (a corrupt file named as such), the per-job budget within what its request has left (and what it has left, for the
+ * second order, whose attempt spends from its sealed share), the plan set's page limit, and the page counts recorded on
+ * the plan files.
  */
 export async function prepareLevelCReading(input: {
   supabase: Supabase;
@@ -107,12 +108,14 @@ export async function prepareLevelCReading(input: {
   }
 
   // The per-job budget of the detailed reading, within what the job's launch request has left over its attempts.
-  const config = boundTakeoffAttemptByRequest(await getTakeoffLevelCProcessingConfigForTenant(
+  const tenantConfig = await getTakeoffLevelCProcessingConfigForTenant(
     input.job.tenant_id,
     {
       supabase: input.supabase,
     }
-  ), await readTakeoffRequestBudget(input.job), input.job.id);
+  );
+  const requestBudget = await readTakeoffRequestBudget(input.job);
+  const config = boundTakeoffAttemptByRequest(tenantConfig, requestBudget, input.job.id);
 
   if (pageCount > config.maxPdfPages) {
     throw new TakeoffError({
@@ -136,7 +139,7 @@ export async function prepareLevelCReading(input: {
     fallbackSourceFilePath: input.job.source_file_path,
     fallbackPageCount: pageCount,
   });
-  return { pageCount, config };
+  return { pageCount, config, requestBudget };
 }
 
 export async function processLevelCChunks(input: {

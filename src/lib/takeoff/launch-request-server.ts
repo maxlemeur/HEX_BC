@@ -38,7 +38,7 @@ import {
   type TakeoffExecutionSelection, type TakeoffPreparation, type TakeoffPreparationSnapshot,
 } from "@/lib/takeoff/preparation";
 import { sealedMeasuringOrder } from "@/lib/takeoff/item-list-seal-server";
-import { itemListReadingRefusal, itemListReadingRefusalDetails, itemListReadingTooLarge } from "@/lib/takeoff/poste-reading-admission-server";
+import { itemListReadingRefusalDetails, itemListReadingTooLarge, sealItemListReading } from "@/lib/takeoff/poste-reading-admission-server";
 import type { Poste } from "@/lib/takeoff/poste-list";
 import { readPosteReadingBoundsFacts, type PosteReadingBoundsFacts } from "@/lib/takeoff/poste-reading-bounds-text";
 import { reopenDeducedPlanCandidates, resolveDeducedPlanVersions } from "@/lib/takeoff/preparation-from-dossier";
@@ -555,15 +555,17 @@ async function evaluateClaimedRequest(service: Service, claim: ClaimedRequest, t
   if ("reason" in sealed) return refuse(sealed);
   // Once the owner activated one analysis per plan, the same seal is admitted as one unit per plan, each with its job.
   const split = perPlan ? splitTakeoffLaunchManifest(sealed.manifest, sealed.pageCounts) : null;
-  // Lot 4: a reading against the list of items within its bounds only (never sampled).
-  const tooLarge = await itemListReadingRefusal(split ?? sealed.manifest,
-    () => getTakeoffLevelCProcessingConfigForTenant(claim.tenant_id, { supabase: service }), sealed.items);
+  // Lot 4: a reading against the list of items within its bounds only (never sampled), its budget sized from its calls.
+  const chunking = () => getTakeoffLevelCProcessingConfigForTenant(claim.tenant_id, { supabase: service });
+  const ofUnits = split ? await sealItemListReading(split, chunking, sealed.items) : null;
+  const grouped = split ? null : await sealItemListReading(sealed.manifest, chunking, sealed.items);
+  const tooLarge = ofUnits?.refusal ?? grouped?.refusal;
   if (tooLarge) return refuse(tooLarge);
-  const units = split ? await planUnitJobs(service, { tenantId: claim.tenant_id, planSetId: planSet!.id,
-    jobKey: `takeoff-request:${claim.request_id}`, manifest: split, hostId }) : null;
+  const units = ofUnits ? await planUnitJobs(service, { tenantId: claim.tenant_id, planSetId: planSet!.id,
+    jobKey: `takeoff-request:${claim.request_id}`, manifest: ofUnits.manifest, hostId }) : null;
   const { data, error: admitError } = await service.rpc("admit_takeoff_launch_request", {
     p_request_id: claim.request_id, p_token: token, p_mark: claim.mark,
-    p_manifest: (units?.manifest ?? sealed.manifest) as unknown as Json, p_snapshot: sealed.snapshot as unknown as Json,
+    p_manifest: (units?.manifest ?? grouped?.manifest ?? sealed.manifest) as unknown as Json, p_snapshot: sealed.snapshot as unknown as Json,
     p_job: units ? units.jobs as unknown as Json : launchJobPayload(jobId, planSet!.id, sealed.sourceFile, hostId),
     p_module_default: takeoffModuleDefault(),
   });
@@ -768,9 +770,9 @@ export async function launchTakeoffRelaunch(input: {
     jobId, maxPages: config.maxPdfPages, selectedFileIds: plans.map((source) => source.document_id) });
   // A grouped command (one analysis per plan not active): the free extraction.
   const order = await relaunchOrder(service, context, input.projectId, false);
-  const { manifest } = await relaunchManifest(service, context, input.planSetId, snapshot, config, intent,
+  const relaunched = await relaunchManifest(service, context, input.planSetId, snapshot, config, intent,
     planSetCopiesSetAside(snapshot.preparation.sources, input.planSetId), order.order);
-  const tooLarge = await itemListReadingRefusal(manifest, async () => config, order.items);
+  const { manifest, refusal: tooLarge } = await sealItemListReading(relaunched.manifest, async () => config, order.items);
   if (tooLarge) throw itemListReadingTooLarge(tooLarge);
   const { data, error } = await service.rpc("launch_manual_takeoff_request", {
     ...command, p_host: owner.execution_host_id, p_selection: snapshot.execution_selection as unknown as Json,
@@ -949,9 +951,9 @@ async function launchTakeoffPlanCommand(service: Service, input: RelaunchInput,
     if (scope.includes(plan.id) || reading.has(logicalPlanKey(plan)) || !held(plan) || omitted.has(plan.id)) continue;
     omitted.set(plan.id, { ...plan, reason: "not_requested" });
   }
-  const split = splitTakeoffLaunchManifest({ ...grouped, coverage: { ...grouped.coverage, plans_omitted: [...omitted.values()] } },
-    await countUnstoredPlanPages(service, snapshot.preparation.sources));
-  const tooLarge = await itemListReadingRefusal(split, async () => config, order.items);
+  const { manifest: split, refusal: tooLarge } = await sealItemListReading(splitTakeoffLaunchManifest({ ...grouped,
+    coverage: { ...grouped.coverage, plans_omitted: [...omitted.values()] } },
+    await countUnstoredPlanPages(service, snapshot.preparation.sources)), async () => config, order.items);
   if (tooLarge) throw itemListReadingTooLarge(tooLarge);
   const units = await planUnitJobs(service, { tenantId: context.tenantId, planSetId: input.planSetId, jobKey,
     hostId: owner.execution_host_id, manifest: split });
