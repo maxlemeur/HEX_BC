@@ -412,9 +412,19 @@ nouveau : elle compare les révisions des réponses, de leurs décisions et des 
 commande nomme et, si l’une a changé, n’applique rien (le poste est alors relu) ; une ligne
 revue sans changement de ces révisions reste jugée sur ce qui est enregistré, sous son
 verrou. Un plan déjà envoyé au devis se consulte sans aucun geste. Une lecture antérieure
-(un ancien favori) n’est ouverte que si cette analyse a répondu pour ce poste sur ce plan ;
-elle montre son plan sans la preuve, les décisions, les saisies ni l’historique de la
-lecture actuelle, dont elle ouvre la lecture dans « Plans du poste ».
+(un ancien favori) n’est ouverte que si cette analyse a répondu pour ce poste sur ce plan :
+rien ne la dit « lecture antérieure du poste » avant que le serveur l’ait prouvé (l’écran dit
+qu’il vérifie, puis montre l’incohérence seule si la preuve manque) ; elle montre son plan
+sans la preuve, les décisions, les saisies ni l’historique de la lecture actuelle, dont elle
+ouvre la lecture dans « Plans du poste ».
+
+Ce qui se termine après coup (une commande, la relecture d’un poste, une page de la file ou de
+l’historique, la résolution d’un plan) s’adresse à ce qui l’a lancé : le membre, la portée,
+le poste et sa lecture. Il met à jour la ligne gardée de ce poste et le droit que porte sa
+réponse, quel que soit le poste montré ; il ne touche à l’écran montré (ses formulaires, ses
+dialogues, ses annonces, son retrait) que si c’est encore ce qui l’a lancé, un échec comme un
+succès. Deux relectures de postes différents vont chacune à leur terme. Une confirmation dont
+la commande est partie ne se ferme pas avant sa réponse : la fermer ne l’annulerait pas.
 
 ## Contrat actuel de contrôle ciblé — TI-681
 

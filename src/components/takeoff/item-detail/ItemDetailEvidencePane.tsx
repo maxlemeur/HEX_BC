@@ -62,6 +62,11 @@ type Props = {
    * table's command.
    */
   decide: { offer: (gesture: ItemDetailOfferedGesture) => ItemDetailGestureOffer; onGesture: (gesture: ItemDetailOfferedGesture) => void };
+  /**
+   * For an earlier reading: whether the server proved that this analysis answered the item on this plan (`proven`), is
+   * checking it (`pending`) or could not (`unproven`). Nothing calls it an earlier reading of the item before it is proven.
+   */
+  proof?: "pending" | "proven" | "unproven" | null;
 };
 
 /** The gestures offered as buttons, in the order of the list's keys (V, E, F2, I). */
@@ -147,7 +152,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 
 export const ItemDetailEvidencePane = forwardRef<HTMLHeadingElement, Props>(function ItemDetailEvidencePane(
   { projectId, line, choice, plan, documentState, names, planNames, outsideFilter, historyVersion, onRefused, onObservation, onPlan,
-    decide }, heading) {
+    decide, proof = null }, heading) {
   // An earlier reading (an old bookmark) shows nothing of the current one: its answer, decision and entry are not its own.
   const earlier = choice.kind === "reading" && !choice.current;
   const reading = !earlier && (choice.kind === "reading" || choice.kind === "dossier") ? choice.reading : null;
@@ -179,7 +184,11 @@ export const ItemDetailEvidencePane = forwardRef<HTMLHeadingElement, Props>(func
       ) : null}
 
       <Section title="Preuve">
-        {earlier ? (
+        {earlier && proof === "pending" ? (
+          <p className="text-muted-foreground" role="status">Vérification de cette lecture pour ce poste…</p>
+        ) : earlier && proof !== "proven" ? (
+          <p className="text-muted-foreground">Cette lecture n’a pas pu être vérifiée pour ce poste.</p>
+        ) : earlier ? (
           <p>Lecture antérieure du poste sur ce plan : sa preuve n’est pas celle de la lecture actuelle, qui est montrée
             depuis les autres plans du poste.</p>
         ) : choice.kind === "dossier" || choice.kind === "source" ? (

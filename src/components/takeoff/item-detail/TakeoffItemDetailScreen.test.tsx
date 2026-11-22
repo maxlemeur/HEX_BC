@@ -54,7 +54,9 @@ vi.mock("next/navigation", async () => {
 const replaceState = window.history.replaceState.bind(window.history);
 window.history.replaceState = (data: unknown, unused: string, url?: string | URL | null) => {
   replaceState(data, unused, url);
-  for (const listener of address.listeners) listener();
+  // As Next's patch: a state carrying its own markers (`__NA`, `_N`) is one of its navigations, not followed here.
+  const marked = data !== null && typeof data === "object" && ("__NA" in data || "_N" in data);
+  if (!marked) for (const listener of address.listeners) listener();
 };
 
 import { TakeoffItemDetailScreen } from "@/components/takeoff/item-detail/TakeoffItemDetailScreen";
@@ -328,6 +330,10 @@ describe("TakeoffItemDetailScreen, review of #483", () => {
     scenario.readings = scenario.readings.map((r) => r.itemId === ITEMS.basin && r.planKey === PLAN_R1 ? { ...r, decisionRevision: r.decisionRevision + 1 } : r);
     await setAside(); await setAside();
     expect(client.sendItemReviewCommand.mock.calls.map((args) => args[1].targets[0].answers.length)).toEqual([1, 1]);
+    // The retry names the item as read again after the refusal: its plan's answer, at its new decision revision.
+    const reread = tableOf({ scope: { kind: "plan", planKey: PLAN_R1 } }).page.lines.find(({ itemId }) => itemId === ITEMS.basin)!;
+    expect(client.sendItemReviewCommand.mock.calls[1]![1].targets).toEqual([reread.targets]);
+    expect(client.sendItemReviewCommand.mock.calls[0]![1].targets).not.toEqual([reread.targets]);
   });
 
   it("withdraws a line that went missing on the stale reread", async () => {
@@ -466,5 +472,238 @@ describe("TakeoffItemDetailScreen, a command that ends after the member moved", 
     expect(evidence().getByRole("heading", { name: "Lavabo céramique" })).toBeTruthy();
     expect(evidence().queryByText(/hypothèse non incluse/)).toBeNull();
     expect(evidence().queryByRole("button", { name: "Inclure l’hypothèse" })).toBeNull();
+  });
+});
+
+// Review of #483, the check of the fixes (written before the fix): « Annuler » stayed enabled on a confirmation whose
+// command was sent, as if it could cancel it. Its answer closes it; nothing else does meanwhile.
+describe("TakeoffItemDetailScreen, a confirmation under way", () => {
+  it("cannot be closed while its command is under way, names its item, and closes with its own answer", async () => {
+    const sent = Promise.withResolvers<void>();
+    client.sendItemReviewCommand.mockImplementationOnce(async () => { await sent.promise; return { outcome: "applied", applied: [], skipped: [] }; });
+    open(ITEMS.basin, PLAN_RDC, JOB_RDC);
+    await settle();
+    fireEvent.click(evidence().getByRole("button", { name: "Écarter" }));
+    expect(dialog().getByText(/« Lavabo céramique » · Portée : toute l’affaire/)).toBeTruthy();
+    fireEvent.click(dialog().getByRole("radio", { name: "Doublon" }));
+    fireEvent.click(dialog().getByRole("button", { name: "Écarter 1 poste" }));
+    await settle();
+    expect(dialog().getByRole("button", { name: "Annuler" })).toBeDisabled();
+    fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
+    await settle();
+    expect(screen.getByRole("dialog")).toBeTruthy();
+    await act(async () => sent.resolve());
+    await settle();
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+});
+
+// Review of #483, automated review of 24f59de6 (written before the fix): A's read after its command was still pending when
+// a command on B ended; the new read cancelled A's, so A kept its old line. Reads of different items live until they end.
+describe("TakeoffItemDetailScreen, reads of two items that overlap", () => {
+  it("keeps the line of each item its command read again, when the reads overlap", async () => {
+    const entry = (itemId: string, included: boolean, revision: number): ItemEntryView => ({ itemId, scope: "affaire", planKey: null,
+      revision, quantity: 2, unit: "u", category: "hypothesis", note: "Hypothèse fictive à inclure.", included, actorId: "operator",
+      at: "2026-11-22T09:00:00.000Z", previous: null });
+    scenario = { ...scenario, entries: [entry(ITEMS.basin, false, 1), entry(ITEMS.notFound, false, 1)] };
+    client.sendItemReviewCommand.mockImplementation(async (_project: string, command: { targets: Array<{ itemId: string }> }) => {
+      const id = command.targets[0]!.itemId;
+      scenario = { ...scenario, entries: scenario.entries!.map((value) => (value.itemId === id ? entry(id, true, 2) : value)) };
+      return { outcome: "applied", applied: [{ itemId: id, label: "x", answers: 0 }], skipped: [] };
+    });
+    const heldA = Promise.withResolvers<void>();
+    const readLine = client.fetchItemLine.getMockImplementation()!;
+    client.fetchItemLine.mockImplementation(async (projectId: string, itemId: string) => {
+      if (itemId === ITEMS.basin) await heldA.promise;
+      return readLine(projectId, itemId);
+    });
+    open(ITEMS.basin, PLAN_RDC, JOB_RDC);
+    await settle();
+    const options = () => within(screen.getByRole("listbox", { name: "Postes" })).getAllByRole("option");
+    fireEvent.click(evidence().getByRole("button", { name: "Inclure l’hypothèse" }));
+    await settle();
+    fireEvent.click(options().find((option) => option.textContent?.startsWith("Siphon de sol"))!);
+    await settle();
+    fireEvent.click(evidence().getByRole("button", { name: "Inclure l’hypothèse" }));
+    await settle();
+    expect(evidence().queryByText(/hypothèse non incluse/)).toBeNull();
+    await act(async () => heldA.resolve());
+    await settle();
+    fireEvent.click(options().find((option) => option.textContent?.startsWith("Lavabo céramique") && option.textContent.endsWith("5 u"))!);
+    await settle();
+    expect(evidence().getByRole("heading", { name: "Lavabo céramique" })).toBeTruthy();
+    expect(evidence().queryByText(/hypothèse non incluse/)).toBeNull();
+    expect(evidence().queryByRole("button", { name: "Inclure l’hypothèse" })).toBeNull();
+  });
+});
+
+// Review of #483, the check of the fixes (its cases, written before these changes and kept as written): a completion that
+// ends after the member moved acts on what started it, never on what is shown now.
+describe("TakeoffItemDetailScreen, check of #483", () => {
+  const changeAddress = (itemId: string, planKey = PLAN_RDC, jobId = JOB_RDC, from = TABLE) =>
+    act(() => window.history.replaceState(null, "", takeoffItemDetailHref({projectId: DETAIL_PROJECT, itemId, planKey, jobId, from})));
+  const beginAside = () => {
+    fireEvent.click(evidence().getByRole("button", {name:"Écarter"}));
+    fireEvent.click(dialog().getByRole("radio", {name:"Doublon"}));
+    fireEvent.click(dialog().getByRole("button",{name:"Écarter 1 poste"}));
+  };
+  async function slowDecision() {
+    const sent = Promise.withResolvers<void>();
+    client.sendItemReviewCommand.mockImplementationOnce(async () => {
+      await sent.promise;
+      scenario.readings = scenario.readings.map(r => r.itemId !== ITEMS.basin ? r : { ...r, decisionRevision: r.decisionRevision + 1,
+        decision: { kind: "set_aside", reason: "duplicate", note: null, actorId: JOB_RDC, at: "2026-11-22T09:00:00Z", revision:r.decisionRevision+1 } });
+      return {applied:[{itemId:ITEMS.basin}],skipped:[]};
+    });
+    open(ITEMS.basin,PLAN_RDC,JOB_RDC);
+    await settle(); beginAside();
+    // The slow request has already been submitted. (Adapted to the closing changes: « Annuler » no longer closes a
+    // confirmation whose command is under way, it is disabled and the queue stays behind the dialog; the member reaches B
+    // by its address, a link or the router, which drops the confirmation.)
+    expect(dialog().getByRole("button",{name:"Annuler"})).toBeDisabled();
+    changeAddress(ITEMS.notFound);
+    await settle();
+    expect(evidence().getByRole("heading",{name:"Siphon de sol"})).toBeTruthy();
+    return sent;
+  }
+  it("rereads the item actually decided when A finishes under B", async () => {
+    const sent = await slowDecision();
+    await act(async () => sent.resolve()); await settle();
+    const ids=client.fetchItemLine.mock.calls.map(([,item])=>item);
+    fireEvent.click(within(screen.getByRole("listbox")).getAllByRole("option")[0]!);
+    await settle();
+    expect({readA:ids.includes(ITEMS.basin), readB:ids.includes(ITEMS.notFound), staleAside:!!evidence().queryByRole("button",{name:"Écarter"})})
+      .toEqual({readA:true,readB:false,staleAside:false});
+  });
+  it("keeps B's typed quantity when A finishes", async () => {
+    const sent = await slowDecision();
+    fireEvent.click(evidence().getByRole("button",{name:"Saisir une quantité"}));
+    fireEvent.change(dialog().getByLabelText("Quantité"),{target:{value:"2,75"}});
+    expect(dialog().getByLabelText("Quantité")).toHaveValue("2,75");
+    await act(async () => sent.resolve()); await settle();
+    expect(screen.queryByLabelText("Quantité")).toHaveValue("2,75");
+  });
+  it("honours canReview false on a scoped page even when the item dropped out during the reread", async () => {
+    const from="postePlan="+PLAN_RDC;
+    open(ITEMS.basin,PLAN_RDC,JOB_RDC,from); await settle();
+    client.sendItemReviewCommand.mockRejectedValueOnce(new TakeoffApiError("stale",409,{stale:[{itemId:ITEMS.basin,label:"x"}]},"TAKEOFF_ITEM_REVIEW_STALE"));
+    // A vanished; B is on the SAME frozen page. The new page says this viewer is now a reader.
+    scenario.canReview=false;
+    scenario.readings=scenario.readings.filter(r=>r.itemId!==ITEMS.basin);
+    const late=Promise.withResolvers<void>();
+    client.fetchItemTable.mockImplementationOnce(async (_project,address)=>{await late.promise;return tableOf(address)});
+    beginAside(); await settle();
+    fireEvent.click(within(screen.getByRole("listbox")).getByRole("option",{name:/Siphon de sol/})); await settle();
+    await act(async()=>late.resolve()); await settle();
+    expect(evidence().getByRole("heading",{name:"Siphon de sol"})).toBeTruthy();
+    const offered=!!evidence().queryByRole("group",{name:"Décider du poste"});
+    fireEvent.keyDown(screen.getByRole("listbox"),{key:"e"});
+    expect({offered,dialog:!!screen.queryByRole("dialog")}).toEqual({offered:false,dialog:false});
+  });
+  it.each(["reading","scope"])("cancels a dialog when its %s changes", async kind=>{
+    open(ITEMS.basin,PLAN_RDC,JOB_RDC); await settle();
+    fireEvent.click(evidence().getByRole("button",{name:"Écarter"}));
+    changeAddress(ITEMS.basin, kind==="reading"?PLAN_R1:PLAN_RDC, kind==="reading"?JOB_R1:JOB_RDC, kind==="scope"?"postePlan="+PLAN_RDC:TABLE);
+    await settle(); expect(screen.queryByRole("dialog")).toBeNull(); expect(client.sendItemReviewCommand).not.toHaveBeenCalled();
+  });
+  it("discards an A journal page that resolves after B is already shown", async ()=>{
+    const release=Promise.withResolvers<void>();
+    client.fetchItemHistory.mockImplementation(async (projectId,itemId,{offset})=>{
+      if(offset) await release.promise;
+      return {projectId,itemId,offset,limit:20,hasMore:!offset && itemId===ITEMS.basin,names:{},events:offset?[{id:99,event:"set_aside",at:"2026-11-22T09:00:00Z",actorId:JOB_RDC,planKey:null,after:{reason:"duplicate",note:"Only A late"}}]:[]};
+    });
+    open(ITEMS.basin,PLAN_RDC,JOB_RDC); await settle();
+    fireEvent.click(evidence().getByRole("button",{name:"Événements plus anciens"}));
+    changeAddress(ITEMS.notFound); await settle();
+    await act(async()=>release.resolve()); await settle();
+    expect(evidence().getByRole("heading",{name:"Siphon de sol"})).toBeTruthy();
+    expect(screen.queryByText(/Only A late/)).toBeNull();
+  });
+  it("does not attribute a different job to this item when the server says that plan was never read by it", async ()=>{
+    open(ITEMS.basin,PLAN_R1,JOB_RDC); await settle();
+    expect(screen.getByText(/Ce plan est introuvable pour ce poste/)).toBeTruthy();
+    expect(screen.queryByText(/Lecture antérieure du poste sur ce plan/)).toBeNull();
+  });
+  it("does not send even an otherwise eligible hypothesis on an earlier reading", async()=>{
+    client.fetchItemTable.mockImplementation(async (_project, req) => fixtureItemTable({items:DETAIL_ITEMS, readings:DETAIL_READINGS, plans:DETAIL_PLANS,
+      entries:[{itemId:ITEMS.basin,scope:"affaire",planKey:null,revision:1,quantity:2,unit:"u",category:"hypothesis",note:"a hypothesis",included:false,actorId:JOB_RDC,at:"2026-11-22T09:00:00Z",previous:null}],...req}));
+    open(ITEMS.basin, PLAN_RDC,JOB_EARLIER); await settle();
+    fireEvent.keyDown(screen.getByRole("listbox"),{key:"i"});
+    expect(client.sendItemReviewCommand).not.toHaveBeenCalled();
+    changeAddress(ITEMS.basin); await settle();
+    client.sendItemReviewCommand.mockResolvedValue({applied:[],skipped:[]});
+    fireEvent.keyDown(screen.getByRole("listbox"),{key:"i"}); await settle();
+    expect(client.sendItemReviewCommand).toHaveBeenCalledWith(DETAIL_PROJECT,expect.objectContaining({gesture:"include_entry"}));
+  });
+  it("focuses an item after page one and removes a line absent from the plan",async()=>{
+    const {itemTableDetailSource}=await import("@/lib/takeoff/item-detail-client");
+    const {fixtureItemId}=await import("@/lib/takeoff/item-table.test-fixtures");
+    const items=Array.from({length:52},(_,i)=>({...DETAIL_ITEMS[1]!,id:fixtureItemId(i),position:i}));
+    let readings=items.map(i=>({...DETAIL_READINGS[2]!,itemId:i.id,decisionRevision:i.position+1}));
+    let pageOffset=-1;
+    client.fetchItemTable.mockImplementation(async (_project,req)=>{
+      const table=fixtureItemTable({items,readings,plans:DETAIL_PLANS,...req});
+      pageOffset=table.page.offset;
+      return table;
+    });
+    const src=itemTableDetailSource(DETAIL_PROJECT,{scope:{kind:"plan",planKey:PLAN_RDC},filter:{states:["measured"]},offset:0,limit:25,focusItemId:null});
+    const id=items[51]!.id;
+    const r=await src.readLine(id);
+    expect(pageOffset).toBe(50);
+    expect(r?.line?.targets).toMatchObject({itemId:id,answers:[{decisionRevision:52}]});
+    expect(r?.line?.eligibility.enter_quantity.eligible).toBe(true);
+    readings=readings.filter(r=>r.itemId!==id);
+    // The item absent from the plan's scope; the reply's right is kept (case 3 of the closing brief).
+    expect((await src.readLine(id))?.line).toBeNull();
+    expect(client.fetchItemLine).not.toHaveBeenCalled();
+  });
+  it("confirms with latest revisions of the same item after a reread arrives",async()=>{
+    const late=Promise.withResolvers<void>();
+    client.sendItemReviewCommand.mockResolvedValue({applied:[],skipped:[]});
+    open(ITEMS.basin,PLAN_RDC,JOB_RDC);await settle();
+    const readLine=client.fetchItemLine.getMockImplementation()!;
+    client.fetchItemLine.mockImplementationOnce(async(...args)=>{await late.promise;return readLine(...args)});
+    beginAside(); await settle();
+    fireEvent.click(evidence().getByRole("button",{name:"Écarter"}));
+    fireEvent.click(dialog().getByRole("radio",{name:"Doublon"}));
+    scenario.readings=scenario.readings.map(r=>r.itemId===ITEMS.basin?{...r,decisionRevision:r.decisionRevision+4}:r);
+    await act(async()=>late.resolve());await settle();
+    fireEvent.click(dialog().getByRole("button",{name:"Écarter 1 poste"}));await settle();
+    const revised=tableOf().page.lines.find(l=>l.itemId===ITEMS.basin)!;
+    expect(client.sendItemReviewCommand.mock.calls[1]![1].targets).toEqual([revised.targets]);
+    expect(client.sendItemReviewCommand.mock.calls[0]![1].targets).not.toEqual([revised.targets]);
+  });
+  it("discards a late denial from the previous viewer's older journal page", async()=>{
+    const late=Promise.withResolvers<void>();
+    client.fetchItemHistory.mockImplementation(async (projectId,itemId,{offset})=>{
+      if(offset) {await late.promise; throw new TakeoffApiError("Old session expired",401,null,"UNAUTHORIZED"); }
+      return {projectId,itemId,events:[],offset,limit:20,hasMore:itemId===ITEMS.basin,names:{}};
+    });
+    const w=open(ITEMS.basin,PLAN_RDC,JOB_RDC); await settle();
+    fireEvent.click(evidence().getByRole("button",{name:"Événements plus anciens"}));
+    changeAddress(ITEMS.notFound); w.rerender(<TakeoffItemDetailScreen projectId={DETAIL_PROJECT} viewerKey="tenant:new-member" />);
+    await settle();
+    expect(evidence().getByRole("heading",{name:"Siphon de sol"})).toBeTruthy();
+    await act(async()=>late.resolve());await settle();
+    expect(screen.queryByTestId("poste-detail-refus")).toBeNull();
+  });
+  it("waits for proof before calling another item's job on the shared plan this item's earlier reading", async()=>{
+    const late=Promise.withResolvers<void>();
+    vi.stubGlobal("fetch",vi.fn(async()=>{
+      await late.promise;
+      return new Response(JSON.stringify({ok:false,error:{code:"TAKEOFF_ITEM_DETAIL_READING_NOT_FOUND"}}),{status:404});
+    }));
+    open(ITEMS.basin,PLAN_RDC,JOB_EARLIER); await settle();
+    const labelledEarlier=!!screen.queryByText(/Lecture antérieure du poste sur ce plan/);
+    await act(async()=>late.resolve());await settle();
+    expect(screen.getByText("Ce lien ne désigne pas une lecture de ce poste.")).toBeTruthy();
+    expect(labelledEarlier).toBe(false);
+  });
+  it("draws the sealed PDF for an old dossier bookmark naming a measured piece",async()=>{
+    const {COPY_RDC}=await import("@/lib/takeoff/item-detail.test-fixtures");
+    act(()=>window.history.replaceState(null,"",takeoffItemDetailHref({projectId:DETAIL_PROJECT,itemId:ITEMS.basin,source:{documentId:PLAN_RDC,generation:"2"}})));
+    render(<TakeoffItemDetailScreen projectId={DETAIL_PROJECT} viewerKey="tenant:member"/>,{wrapper:FreshCache});
+    await settle();
+    expect(getDocument).toHaveBeenCalledWith(expect.objectContaining({url:`/api/takeoff/jobs/${JOB_RDC}/vector-plans/${COPY_RDC}`}));
   });
 });

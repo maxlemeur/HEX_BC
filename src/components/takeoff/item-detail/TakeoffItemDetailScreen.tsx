@@ -4,6 +4,7 @@ import { useCallback, useEffect, useId, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
 import { TakeoffItemDetail, type ItemDetailGestureRequest, type ItemDetailShown } from "@/components/takeoff/item-detail/TakeoffItemDetail";
+import { useCompletions } from "@/components/takeoff/item-detail/useCompletions";
 import { AcceptMeasuredDialog, EntryDialog, SetAsideDialog } from "@/components/takeoff/item-table/ItemTableGestureDialogs";
 import { isTakeoffReadRefusal } from "@/components/takeoff/useTakeoffRequestActivity";
 import { Alert } from "@/components/ui/alert";
@@ -40,7 +41,10 @@ import { TAKEOFF_ITEM_UNIT_MAX_LENGTH } from "@/lib/takeoff/types";
  *
  * A confirmation belongs to what opened it: the item and the reading shown (`key`), the member and the table's scope. It
  * is dropped as soon as any of them changes or the gesture is no longer offered on it, and its command is built, when the
- * member confirms, from the item as the detail shows it then, named in the dialog.
+ * member confirms, from the item as the detail shows it then, named in the dialog. A command, once sent, follows the
+ * detail's one rule of completions (useCompletions): it closes its own confirmation only, has its own item read again, and
+ * says its outcome (or withdraws the screen) only while what started it is still shown. Its confirmation cannot be closed
+ * while it is under way: closing would not cancel what is sent.
  */
 
 type Pending = {
@@ -134,6 +138,8 @@ export function TakeoffItemDetailScreen({ projectId, viewerKey }: {
   const [shown, setShown] = useState<ItemDetailShown | null>(null);
   const [pending, setPending] = useState<Pending | null>(null);
   const scopeKey = JSON.stringify(tableAddress.scope);
+  const screenKey = `${viewerKey}|${scopeKey}`;
+  const begin = useCompletions({ screen: screenKey, item: shown?.key ?? null });
   // The confirmation open now: the one asked on what is shown, by this member, in this scope, for a gesture still offered.
   const active = useMemo(() => (pending && shown && pending.key === shown.key && pending.viewerKey === viewerKey
     && pending.scopeKey === scopeKey && shown.offered.includes(pending.gesture) ? { ...pending, line: shown.line } : null),
@@ -141,27 +147,33 @@ export function TakeoffItemDetailScreen({ projectId, viewerKey }: {
   useEffect(() => {
     if (pending && !active) setPending(null);
   }, [pending, active]);
-  const [busy, setBusy] = useState(false);
+  /** The confirmations whose command is under way: each waits for its own answer. */
+  const [inFlight, setInFlight] = useState<readonly Pending[]>([]);
   const [notice, setNotice] = useState<Notice | null>(null);
 
   const back = useCallback((href: string) => router.replace(href, { scroll: false }), [router]);
   const tableHref = itemTableReturnHref(projectId, query, detail.kind === "detail" ? { itemId: detail.address.itemId, offset: 0 } : null);
 
-  const runCommand = async (command: ItemReviewCommand, done: string) => {
-    setBusy(true);
+  /** Sends a command from what is shown; `own`, the confirmation it was confirmed in (none for an inclusion). */
+  const runCommand = async (command: ItemReviewCommand, done: string, own: Pending | null) => {
+    // Addressed to what is shown now: this member, this scope, this item and reading.
+    const completion = begin({ screen: screenKey, item: shown?.key ?? null });
+    if (own) setInFlight((current) => [...current, own]);
     try {
-      setNotice(resultNotice(await sendItemReviewCommand(projectId, command), done));
+      const result = await sendItemReviewCommand(projectId, command);
+      if (completion.current()) setNotice(resultNotice(result, done));
     } catch (caught) {
-      if (withdrawOnRefusal(caught)) return;
+      if (!completion.current() || withdrawOnRefusal(caught)) return;
       setNotice(itemReviewStaleLines(caught)
         ? { tone: "danger", text: "Rien n’a été appliqué : le poste a changé depuis son affichage. Il est relu : vérifiez-le, puis décidez de nouveau." }
         : { tone: "danger", text: isTakeoffApiError(caught) ? caught.message : "Impossible d’enregistrer la décision sur le poste." });
     } finally {
-      setBusy(false);
-      setPending(null);
-      // The command's item, not the one shown now: the member may have moved to another before the answer.
+      if (own) setInFlight((current) => current.filter((entry) => entry !== own));
+      // Its own confirmation only: what the member opened or typed since, on another item, stays.
+      if (own) setPending((current) => (current === own ? null : current));
+      // The command's item, not the one shown now, read again in the screen that sent it.
       const itemId = command.targets[0]!.itemId;
-      setRefresh((current) => ({ version: (current?.version ?? 0) + 1, itemId }));
+      if (completion.ownScreen()) setRefresh((current) => ({ version: (current?.version ?? 0) + 1, itemId }));
     }
   };
 
@@ -173,7 +185,7 @@ export function TakeoffItemDetailScreen({ projectId, viewerKey }: {
     if (!shown || request.key !== shown.key || !shown.offered.includes(request.gesture)) return;
     if (request.gesture === "include_entry") {
       void runCommand({ command_version: ITEM_REVIEW_COMMAND_VERSION, intent_key: newIntent(), scope: tableAddress.scope,
-        gesture: "include_entry", targets: [shown.line.targets] }, "inclus");
+        gesture: "include_entry", targets: [shown.line.targets] }, "inclus", null);
       return;
     }
     setPending({ gesture: request.gesture, intentKey: newIntent(), key: shown.key, viewerKey, scopeKey, value: null,
@@ -198,6 +210,11 @@ export function TakeoffItemDetailScreen({ projectId, viewerKey }: {
       </div>
     );
   }
+  const busy = pending !== null && active !== null && inFlight.includes(pending);
+  // A confirmation under way is not closed: its command is sent, closing it would not cancel it.
+  const close = () => {
+    if (!busy) setPending(null);
+  };
   // The item confirmed, and the command's scope: the table's (the whole affaire, or the plan it is filtered on), named as
   // the table names it.
   const scope = tableAddress.scope;
@@ -217,24 +234,25 @@ export function TakeoffItemDetailScreen({ projectId, viewerKey }: {
       <TakeoffItemDetail projectId={projectId} address={detail.address} reader={reader} tableQuery={query} onBack={back}
         onGesture={onGesture} onRefused={withdrawOnRefusal} refresh={refresh} onShown={setShown} />
       {active?.gesture === "accept_measured" ? (
-        <AcceptMeasuredDialog scopeLabel={scopeLabel} busy={busy} total={1} eligible={1} onClose={() => setPending(null)}
-          onConfirm={() => void runCommand({ ...base(active.line, active.intentKey), gesture: "accept_measured" }, "accepté")} />
+        <AcceptMeasuredDialog scopeLabel={scopeLabel} busy={busy} total={1} eligible={1} onClose={close}
+          onConfirm={() => void runCommand({ ...base(active.line, active.intentKey), gesture: "accept_measured" }, "accepté", pending)} />
       ) : null}
       {active?.gesture === "set_aside" ? (
         <SetAsideDialog scopeLabel={scopeLabel} busy={busy} total={1} eligible={1} answers={active.line.targets.answers.length}
-          onClose={() => setPending(null)}
+          onClose={close}
           onConfirm={(reason: ItemSetAsideReason, note: string | null) => void runCommand({ ...base(active.line, active.intentKey),
-            gesture: "set_aside", reason, ...(note ? { note } : {}) }, "écarté")} />
+            gesture: "set_aside", reason, ...(note ? { note } : {}) }, "écarté", pending)} />
       ) : null}
       {active?.gesture === "enter_quantity" && !active.value ? (
-        <EntryValueDialog line={active.line} initial={active.initial} onClose={() => setPending(null)}
+        <EntryValueDialog line={active.line} initial={active.initial} onClose={close}
           onConfirm={(value) => setPending({ ...pending!, value })} />
       ) : null}
       {active?.gesture === "enter_quantity" && active.value ? (
-        <EntryDialog scopeLabel={scopeLabel} busy={busy} onClose={() => setPending(null)}
+        <EntryDialog scopeLabel={scopeLabel} busy={busy} onClose={close}
           values={[{ itemId: active.line.itemId, label: active.line.label, ...active.value }]}
           onConfirm={(entry: QuantityEntry) => void runCommand({ ...base(active.line, active.intentKey), gesture: "enter_quantity",
-            values: [{ item_id: active.line.itemId, quantity: active.value!.quantity, unit: active.value!.unit }], entry }, "saisi")} />
+            values: [{ item_id: active.line.itemId, quantity: active.value!.quantity, unit: active.value!.unit }], entry }, "saisi",
+            pending)} />
       ) : null}
     </div>
   );

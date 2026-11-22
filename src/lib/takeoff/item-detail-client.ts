@@ -87,8 +87,9 @@ export function createItemDetailReader(input: { projectId: string; table: ItemDe
  * table's address, so that the queue is the table's pages in its order. One item (outside the filter, or read again after
  * a decision) is read in the table's scope without its filters, so that its totals, eligibility and revisions are those
  * the table's command checks in that scope: alone on the affaire (its route answers 404 when the list does not hold it),
- * on the table's page that holds it in a plan's scope (the route of one item reads the affaire only). Null when the item
- * is not in the list, or not in the plan's scope: the detail then says it is not found.
+ * on the table's page that holds it in a plan's scope (the route of one item reads the affaire only). Its line is null when
+ * the plan's scope no longer holds it (the reply's right still read), the whole read null when the affaire's list does not
+ * hold it (that route's 404 carries no right): the detail then says the item is not found.
  */
 export function itemTableDetailSource(projectId: string, address: ItemTableAddress): ItemDetailTableSource {
   const pageOf = (read: ItemTableResponse) => ({ page: read.page, canReview: read.canReview, names: read.names, plans: read.plans });
@@ -100,8 +101,9 @@ export function itemTableDetailSource(projectId: string, address: ItemTableAddre
     async readLine(itemId) {
       if (address.scope.kind === "plan") {
         const read = await fetchItemTable(projectId, { ...address, filter: {}, offset: 0, focusItemId: itemId });
-        const line = read.page.lines.find((entry) => entry.itemId === itemId);
-        return line ? { line, canReview: read.canReview, names: read.names, plans: read.plans } : null;
+        // The right of this reply holds whatever happens to the item: an item no longer in the scope comes back without its line.
+        const line = read.page.lines.find((entry) => entry.itemId === itemId) ?? null;
+        return { line, canReview: read.canReview, names: read.names, plans: read.plans };
       }
       try {
         const read = await fetchItemLine(projectId, itemId);

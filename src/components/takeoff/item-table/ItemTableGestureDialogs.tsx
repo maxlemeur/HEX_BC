@@ -64,7 +64,7 @@ export function AcceptMeasuredDialog({ scopeLabel, busy, onClose, total, eligibl
           </DialogDescription>
         </DialogHeader>
         <DialogFooter>
-          <DialogClose render={<Button variant="outline" />}>Annuler</DialogClose>
+          <DialogClose disabled={busy} render={<Button variant="outline" />}>Annuler</DialogClose>
           <Button disabled={busy || eligible === 0} onClick={onConfirm}>
             Accepter {formatItemCount(eligible, "poste", "postes")}
           </Button>
@@ -115,7 +115,7 @@ export function SetAsideDialog({ scopeLabel, busy, onClose, total, eligible, ans
           </Field>
         </div>
         <DialogFooter>
-          <DialogClose render={<Button variant="outline" />}>Annuler</DialogClose>
+          <DialogClose disabled={busy} render={<Button variant="outline" />}>Annuler</DialogClose>
           <Button variant="danger" disabled={!complete || busy} onClick={confirm}>
             Écarter {formatItemCount(eligible, "poste", "postes")}
           </Button>
@@ -137,7 +137,7 @@ export function ReinstateDialog({ scopeLabel, busy, onClose, eligible, onConfirm
           </DialogDescription>
         </DialogHeader>
         <DialogFooter>
-          <DialogClose render={<Button variant="outline" />}>Annuler</DialogClose>
+          <DialogClose disabled={busy} render={<Button variant="outline" />}>Annuler</DialogClose>
           <Button disabled={busy || eligible === 0} onClick={onConfirm}>Réintégrer</Button>
         </DialogFooter>
       </DialogContent>
@@ -194,7 +194,7 @@ export function EntryDialog({ scopeLabel, busy, onClose, values, onConfirm }: Ba
           </Field>
         </div>
         <DialogFooter>
-          <DialogClose render={<Button variant="outline" />}>Annuler</DialogClose>
+          <DialogClose disabled={busy} render={<Button variant="outline" />}>Annuler</DialogClose>
           <Button disabled={!complete || busy} onClick={confirm}>Enregistrer</Button>
         </DialogFooter>
       </DialogContent>
@@ -265,7 +265,7 @@ export function RemeasureDialog({ scopeLabel, busy, onClose, preview, loadError,
           </div>
         ) : null}
         <DialogFooter>
-          <DialogClose render={<Button variant="outline" />}>Annuler</DialogClose>
+          <DialogClose disabled={busy} render={<Button variant="outline" />}>Annuler</DialogClose>
           <Button disabled={!canConfirm} onClick={() => onConfirm(effort || null)}>
             Confirmer la demande sur mon forfait
           </Button>
