@@ -7,6 +7,7 @@ import {
   type PosteModelReason,
   type PosteObservationMethod,
 } from "@/lib/takeoff/poste-exchange";
+import { TAKEOFF_ITEM_ANSWER_LIMITS } from "@/lib/takeoff/item-answer-limits";
 import type { PosteQualifiers } from "@/lib/takeoff/poste-list";
 import { haveComparableQuantities } from "@/lib/takeoff/quantity-compatibility";
 import { MEASUREMENT_UNITS, normalizeMeasurementUnit } from "@/lib/units/normalize";
@@ -22,7 +23,11 @@ export const POSTE_WORKER_REASONS = ["UNIT_MISMATCH", "NON_INTEGER_COUNT", "READ
   "DUPLICATE_READING", "SAME_OBJECT_UNCLEAR", "BASIS_MISMATCH", "BASIS_UNSTATED",
   // An hypothesis, never a counted measure (TI-682 D11, hypothesis.ts): the affaire's objective is an estimate, or the rules
   // class what was read as something a plan cannot show (a support, a weld…). Decided when the publication is built.
-  "QUANTITY_ESTIMATED", "NOT_OBSERVABLE"] as const;
+  "QUANTITY_ESTIMATED", "NOT_OBSERVABLE",
+  // A total or a candidate value beyond what the publication stores (TAKEOFF_ITEM_ANSWER_LIMITS.value): not a measure.
+  "QUANTITY_OUT_OF_RANGE",
+  // Vector readings this item matches beyond what one answer holds: kept as the result's own, never attached to it.
+  "VECTOR_READINGS_UNATTACHED"] as const;
 export type PosteWorkerReason = (typeof POSTE_WORKER_REASONS)[number];
 export type PosteReasonCode = PosteModelReason | PosteWorkerReason;
 
@@ -216,7 +221,22 @@ type Draft = {
   unreadable: Set<number>;
 };
 
-const worker = (code: PosteWorkerReason, chunkId: string | null = null): PosteReason => ({ code, by: "worker", text: null, chunkId });
+/** A reason of the worker, once per code on an answer (the first call that gave it). */
+function flag(draft: Draft, code: PosteWorkerReason, chunkId: string | null = null) {
+  if (!draft.workerReasons.some((reason) => reason.code === code)) draft.workerReasons.push({ code, by: "worker", text: null, chunkId });
+}
+
+/**
+ * A reason of the model, once per code and text on an answer: the fragments of a plan repeat the same reason (« nothing on
+ * these pages »); the first fragment that gave it is kept. An answer then holds at most one reason per fragment and one
+ * per code of the worker, within what the publication stores (POSTE_READING_MAX_FRAGMENTS).
+ */
+function addModelReason(draft: Draft, reason: PosteReason) {
+  if (!draft.modelReasons.some((entry) => entry.code === reason.code && entry.text === reason.text)) draft.modelReasons.push(reason);
+}
+
+/** A total or a candidate value beyond what the publication stores is not a measure. */
+const beyondDomain = (total: { value: number } | null) => total !== null && total.value > TAKEOFF_ITEM_ANSWER_LIMITS.value;
 const mergedRefusal = (code: "MISSING_ANSWER" | "PAGE_OUTSIDE_SLICE" | "UNPROCESSED_PAGES", extra: { keys?: string[]; pages?: number[] }) =>
   new PosteExchangeRefusal(code, { chunkId: POSTE_MERGED_CHUNK, ...extra });
 
@@ -242,12 +262,9 @@ function mergeItem(item: PosteReadingItem, allFragments: readonly PosteFragmentR
     const owned = new Set(fragment.ownedPages);
     answer.searchedPages.filter((value) => owned.has(value)).forEach((value) => draft.searched.add(value));
     fragment.unreadablePages.filter((value) => owned.has(value)).forEach((value) => draft.unreadable.add(value));
-    if (answer.outcome === "uncertain") {
-      uncertain = true;
-      draft.modelReasons.push({ code: answer.reasonCode!, by: "model", text: answer.reasonText, chunkId: fragment.chunkId });
-    }
-    if (answer.outcome === "not_found") {
-      draft.modelReasons.push({ code: answer.reasonCode!, by: "model", text: answer.reasonText, chunkId: fragment.chunkId });
+    if (answer.outcome === "uncertain") uncertain = true;
+    if (answer.outcome === "uncertain" || answer.outcome === "not_found") {
+      addModelReason(draft, { code: answer.reasonCode!, by: "model", text: answer.reasonText, chunkId: fragment.chunkId });
     }
     for (const entry of answer.observations) {
       // Only a distinct object of a measured reading, on a page its fragment owns, counts; another reading of an object
@@ -259,24 +276,21 @@ function mergeItem(item: PosteReadingItem, allFragments: readonly PosteFragmentR
   }
   if (uncertain) draft.outcome = "uncertain";
   else if (draft.observations.some((entry) => entry.role === "contribution")) draft.outcome = "measured";
-  const flag = (code: PosteWorkerReason, chunkId: string | null) => {
-    if (!draft.workerReasons.some((reason) => reason.code === code)) draft.workerReasons.push(worker(code, chunkId));
-  };
 
   // A reading declared of an object already observed repeats exactly one distinct reading of its page, and agrees with it.
   for (const repeat of draft.observations.filter((entry) => entry.countsAs === "same_object" && entry.role === "alternative"
     && ownerOf.get(entry.page) === entry.chunkId)) {
     const repeated = draft.observations.filter((entry) => entry.role === "contribution" && entry.page === repeat.page
       && entry.chunkId === repeat.chunkId);
-    if (repeated.length !== 1) flag("SAME_OBJECT_UNCLEAR", repeat.chunkId);
+    if (repeated.length !== 1) flag(draft, "SAME_OBJECT_UNCLEAR", repeat.chunkId);
     else if (repeat.quantity !== null && (unitCode(repeat.unit) !== unitCode(repeated[0].unit)
-      || !agree(repeated[0].quantity!, repeat.quantity, unitCode(repeat.unit)))) flag("READINGS_DISAGREE", repeat.chunkId);
+      || !agree(repeated[0].quantity!, repeat.quantity, unitCode(repeat.unit)))) flag(draft, "READINGS_DISAGREE", repeat.chunkId);
   }
   // Two distinct readings of one page that nothing tells apart (same evidence, same quantity): never added.
   const seen = new Set<string>();
   for (const entry of draft.observations.filter((observation) => observation.role === "contribution")) {
     const key = `${entry.chunkId}|${entry.page}|${folded(entry.evidence)}|${entry.quantity}|${unitCode(entry.unit)}`;
-    if (seen.has(key)) flag("DUPLICATE_READING", entry.chunkId);
+    if (seen.has(key)) flag(draft, "DUPLICATE_READING", entry.chunkId);
     seen.add(key);
   }
 
@@ -298,7 +312,7 @@ function mergeItem(item: PosteReadingItem, allFragments: readonly PosteFragmentR
     const quantified = readings.some((entry) => entry.quantity !== null);
     const differs = !ownerReadings.length || (quantified && (!contextTotal || !ownerTotal || ownerTotal.unit !== contextTotal.unit
       || !agree(ownerTotal.value, contextTotal.value, ownerTotal.unit)));
-    if (differs) flag("READINGS_DISAGREE", chunkId);
+    if (differs) flag(draft, "READINGS_DISAGREE", chunkId);
   }
   return draft;
 }
@@ -309,19 +323,23 @@ function mergeItem(item: PosteReadingItem, allFragments: readonly PosteFragmentR
  * disagreement). A room's surface, matched by the room's name only, never changes a measure (a wall tiling of the kitchen
  * is not its floor): attached to a measured answer as an alternative for the reviewer. Where the model found nothing,
  * either is an indication to check. A reading several items match is a candidate of each. Never added to a measure, never
- * a measure on its own: marks on a plan stay proposals until a bench qualifies them.
+ * a measure on its own: marks on a plan stay proposals until a bench qualifies them. An answer that already holds what
+ * the publication stores of an answer's observations receives no more: the reading stays the result's own (unattached),
+ * and the answer says so (`VECTOR_READINGS_UNATTACHED`, which makes it uncertain).
  */
 function attachVectorReadings(drafts: readonly Draft[], readings: readonly PosteVectorReading[]) {
   const unattached: string[] = [];
   const shared = new Set<string>();
   for (const reading of readings) {
     const matched = drafts.filter((draft) => vectorMatches(draft.item, reading));
-    if (!matched.length) {
+    const full = matched.filter((draft) => draft.observations.length >= TAKEOFF_ITEM_ANSWER_LIMITS.observations);
+    full.forEach((draft) => flag(draft, "VECTOR_READINGS_UNATTACHED"));
+    if (matched.length === full.length) {
       unattached.push(reading.key);
       continue;
     }
     if (matched.length > 1) shared.add(reading.key);
-    for (const draft of matched) {
+    for (const draft of matched.filter((entry) => !full.includes(entry))) {
       const modelOnPage = draft.observations.filter((entry) => entry.source === "model" && entry.role === "contribution"
         && entry.page === reading.page);
       const modelTotal = oneUnitTotal(modelOnPage);
@@ -333,10 +351,9 @@ function attachVectorReadings(drafts: readonly Draft[], readings: readonly Poste
         role: unique && draft.outcome === "measured" ? "alternative" : "candidate", source: "vector", chunkId: null, vectorKey: reading.key });
       if (draft.outcome === "not_found") {
         draft.outcome = "uncertain";
-        draft.workerReasons.push(worker("VECTOR_ONLY"));
-      } else if (reading.kind !== "surface" && unique && draft.outcome === "measured" && !corroborates
-        && !draft.workerReasons.some((reason) => reason.code === "READINGS_DISAGREE")) {
-        draft.workerReasons.push(worker("READINGS_DISAGREE"));
+        flag(draft, "VECTOR_ONLY");
+      } else if (reading.kind !== "surface" && unique && draft.outcome === "measured" && !corroborates) {
+        flag(draft, "READINGS_DISAGREE");
       }
     }
   }
@@ -396,7 +413,8 @@ function candidateTotal(observations: readonly PosteReadingObservation[]) {
 /**
  * The answer of a draft: the unit, the basis and the coverage checked, its total or its candidate value (the model's
  * indications on one basis, else a vector reading only this item matches; a reading other items may claim suggests no
- * value).
+ * value). A total or a candidate value beyond what the publication stores is none: the answer is uncertain
+ * (`QUANTITY_OUT_OF_RANGE`), without a value, its readings kept as candidates.
  */
 function finalize(draft: Draft, sharedVectorReadings: ReadonlySet<string>): PostePlanAnswer {
   const contributions = draft.observations.filter((entry) => entry.role === "contribution");
@@ -405,27 +423,32 @@ function finalize(draft: Draft, sharedVectorReadings: ReadonlySet<string>): Post
     const units = new Set(contributions.map((entry) => unitCode(entry.unit)));
     const basis = basisReason(draft.item, contributions);
     if (units.has(null) || units.size > 1 || (expected !== null && [...units].some((unit) => unit !== expected))) {
-      draft.workerReasons.push(worker("UNIT_MISMATCH"));
+      flag(draft, "UNIT_MISMATCH");
     } else if (contributions.some((entry) => !isMeasure(entry) && !Number.isInteger(entry.quantityAsRead ?? entry.quantity))) {
-      draft.workerReasons.push(worker("NON_INTEGER_COUNT"));
+      flag(draft, "NON_INTEGER_COUNT");
     } else if (basis) {
-      draft.workerReasons.push(worker(basis));
+      flag(draft, basis);
     }
   }
-  if (draft.unreadable.size) draft.workerReasons.push(worker("PAGES_UNREADABLE"));
+  if (draft.unreadable.size) flag(draft, "PAGES_UNREADABLE");
+  if (draft.outcome === "measured" && beyondDomain(oneUnitTotal(contributions))) flag(draft, "QUANTITY_OUT_OF_RANGE");
   if (draft.workerReasons.length && draft.outcome !== "uncertain") draft.outcome = "uncertain";
   // Only a measured answer counts: the positive readings of any other answer are candidates, never contributions.
   if (draft.outcome !== "measured") {
     draft.observations = draft.observations.map((entry) => entry.role === "contribution" ? { ...entry, role: "candidate" } : entry);
   }
-  const reasons = draft.outcome === "not_found" ? draft.modelReasons
-    : [...draft.modelReasons.filter((reason) => reason.code !== "NO_INDICATION"), ...draft.workerReasons];
   const measured = draft.outcome === "measured" ? oneUnitTotal(contributions) : null;
   const modelIndications = draft.observations.filter((entry) => entry.source === "model" && entry.role !== "alternative");
   const vectorIndications = draft.observations.filter((entry) => entry.source === "vector" && entry.role === "candidate"
     && !sharedVectorReadings.has(entry.vectorKey ?? ""));
-  const candidate = draft.outcome !== "uncertain" ? null : candidateTotal(modelIndications.some((entry) => entry.quantity !== null)
+  let candidate = draft.outcome !== "uncertain" ? null : candidateTotal(modelIndications.some((entry) => entry.quantity !== null)
     ? candidateReadings(draft.item, modelIndications) : vectorIndications);
+  if (beyondDomain(candidate)) {
+    candidate = null;
+    flag(draft, "QUANTITY_OUT_OF_RANGE");
+  }
+  const reasons = draft.outcome === "not_found" ? draft.modelReasons
+    : [...draft.modelReasons.filter((reason) => reason.code !== "NO_INDICATION"), ...draft.workerReasons];
   return {
     itemId: draft.item.id, outcome: draft.outcome, reasons, searchedPages: sorted(draft.searched), unreadablePages: sorted(draft.unreadable),
     observations: draft.observations, quantity: measured, candidate,

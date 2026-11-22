@@ -111,6 +111,8 @@ const REASON_TEXTS: Record<PosteReasonCode, string> = {
   BASIS_UNSTATED: "Base de la mesure non précisée.",
   QUANTITY_ESTIMATED: "Quantité estimée : le métré est une estimation, la valeur n’est comptée qu’une fois confirmée.",
   NOT_OBSERVABLE: "Quantité non lisible sur un plan (support, soudure…) : à saisir avec sa justification.",
+  QUANTITY_OUT_OF_RANGE: "Quantité lue hors de toute mesure possible : à vérifier sur le plan.",
+  VECTOR_READINGS_UNATTACHED: "Trop de lectures vectorielles pour ce poste : elles restent dans le résultat, à vérifier.",
 };
 
 /** The reason of an answer, as the table and its detail show it. */

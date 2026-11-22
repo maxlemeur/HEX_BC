@@ -13,7 +13,9 @@ import { buildLevelCRunMetricRows } from "@/lib/takeoff/level-c-chunk-metrics";
 import { prepareLevelCReading, type ProcessLevelCMetricsSummary } from "@/lib/takeoff/level-c-reading";
 import type { Poste } from "@/lib/takeoff/poste-list";
 import { buildTakeoffItemAnswersPublication, publishTakeoffItemAnswers } from "@/lib/takeoff/poste-publication-server";
-import { finishPlanReading, posteVectorReadings, readPlanAgainstItemList, type PosteReadingReference } from "@/lib/takeoff/poste-reading";
+import {
+  finishPlanReading, planPagesOf, posteVectorReadings, readPlanAgainstItemList, type PosteReadingReference,
+} from "@/lib/takeoff/poste-reading";
 import { logCompletedAuditEvent } from "@/lib/takeoff/processing-audit";
 import { TAKEOFF_LEVEL_C, type Supabase } from "@/lib/takeoff/processing-context";
 import { refreshTakeoffRulesAfterResult } from "@/lib/takeoff/result-finalization";
@@ -90,7 +92,7 @@ function assertReadingWithinBounds(job: TakeoffJobProcessingRow, input: { manife
   const bounds = !request.ok ? request : attempt;
   if (bounds.ok) return;
   const exceeded = [...bounds.exceeded, ...bounds.units.flatMap((entry) => entry.exceeded)];
-  const tooLarge = exceeded.includes("calls") || exceeded.includes("answer_bytes");
+  const tooLarge = exceeded.includes("calls") || exceeded.includes("fragments") || exceeded.includes("answer_bytes");
   throw new TakeoffError({ status: 422, retryable: false, jobId: job.id, level: TAKEOFF_LEVEL_C,
     code: tooLarge ? TakeoffErrorCode.TAKEOFF_FILE_TOO_LARGE : TakeoffErrorCode.TAKEOFF_LEVEL_C_BUDGET_EXCEEDED,
     message: tooLarge ? describeTakeoffLaunchReason("PLAN_SET_TOO_LARGE", bounds.pieces, bounds)
@@ -98,6 +100,34 @@ function assertReadingWithinBounds(job: TakeoffJobProcessingRow, input: { manife
         + "relancez-la depuis les options du métré.",
     details: { reading_calls: bounds.readingCalls, calls: bounds.calls, tokens: bounds.tokens, budget_tokens: bounds.requestBudgetTokens,
       exceeded } });
+}
+
+/**
+ * The pages a request sealed for a unit of one plan, as the publication command reads them (private.
+ * takeoff_item_answer_plans): the plan's retained pages, sorted, else its pages 1 to its page count; none when unknown.
+ */
+function sealedUnitPages(manifest: AnyTakeoffLaunchManifest, unitKey: string): number[] | null {
+  const unit = manifest.units.find((entry) => entry.key === unitKey);
+  const plan = unit?.plans.length === 1 ? manifest.plans.find((entry) => entry.entry_key === unit.plans[0]) : undefined;
+  if (!plan) return null;
+  if (plan.pages.length) return [...plan.pages].sort((left, right) => left - right);
+  const count = plan.page_count;
+  return count !== null && Number.isInteger(count) && count >= 1 && count <= 2_000
+    ? Array.from({ length: count }, (_, index) => index + 1) : null;
+}
+
+/**
+ * Before its first paid call, the original pages the job will read (its PDF's pages, mapped to the plan's) against those
+ * its request sealed: the command publishes the answers of the sealed pages only. A plan whose PDF holds other pages (its
+ * file replaced, a page count stored wrong) is stopped here, nothing spent, never read then refused.
+ */
+function assertSealedPages(job: TakeoffJobProcessingRow, manifest: AnyTakeoffLaunchManifest, read: readonly number[]) {
+  const sealed = sealedUnitPages(manifest, readTakeoffLaunchUnit(job.preparation_snapshot)!.key);
+  const pages = [...read].sort((left, right) => left - right);
+  if (sealed && sealed.length === pages.length && sealed.every((value, index) => value === pages[index])) return;
+  throw new TakeoffError({ code: TakeoffErrorCode.TAKEOFF_PREPARATION_SOURCE_CHANGED, retryable: false, jobId: job.id,
+    level: TAKEOFF_LEVEL_C, message: "Les pages de ce plan ne sont plus celles que sa demande a scellées : il n’a pas été lu. "
+      + "Relancez-le pour lire sa version actuelle.", details: { sealed_pages: sealed?.length ?? null, read_pages: pages.length } });
 }
 
 export type ProcessItemListResult = {
@@ -142,6 +172,7 @@ export async function processItemListLevelC(input: {
   const planFile = unitPlanFile(job, sourceFile);
   const prepared = await prepareLevelCReading({ supabase: input.supabase, job, sourceFile });
   const { pageCount, requestBudget } = prepared;
+  assertSealedPages(job, input.order.manifest, planPagesOf(pageCount, sourceFile.sourcePageNumbersByPage));
   if (!requestBudget) throw failure(job.id, "Le budget de la demande de cette analyse est introuvable.");
   // Its budget is what its sealed share has left (sized from its admitted calls), never the first format's per-job budget.
   const config = { ...prepared.config, maxTotalTokens: requestBudget.remainingTokens, maxCostCents: requestBudget.remainingCostCents };
@@ -170,7 +201,7 @@ export async function processItemListLevelC(input: {
     list: { revisionId: input.order.revisionId, revision: input.order.revision, itemCount: input.order.itemCount },
     runMetrics: buildLevelCRunMetricRows({ supabase: input.supabase, job, metrics: reading.metrics,
       hint: { sourceFileName: sourceFile.fileName } }) });
-  const resultId = await publishTakeoffItemAnswers(input.supabase, publication);
+  const resultId = await publishTakeoffItemAnswers(input.supabase, publication, { renewLease: input.renewLease });
   await logCompletedAuditEvent({ supabase: input.supabase, userId: input.userId, job, resultId, itemsCount: publication.p_items.length,
     warningsCount: publication.p_result.warnings.length, durationMs: totalDurationMs });
   await refreshTakeoffRulesAfterResult({ supabase: input.supabase, job });

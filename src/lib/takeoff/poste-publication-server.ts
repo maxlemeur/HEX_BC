@@ -2,6 +2,7 @@ import "server-only";
 
 import { TakeoffError, TakeoffErrorCode } from "@/lib/takeoff/errors";
 import { takeoffHypothesisCause } from "@/lib/takeoff/hypothesis";
+import { TAKEOFF_ITEM_ANSWER_LIMITS, takeoffItemAnswerText } from "@/lib/takeoff/item-answer-limits";
 import { takeoffItemAnswersRefusal, type TakeoffItemAnswersRefusal } from "@/lib/takeoff/item-answers";
 import type { TakeoffJobProcessingRow } from "@/lib/takeoff/job-lifecycle";
 import type { buildLevelCRunMetricRows } from "@/lib/takeoff/level-c-chunk-metrics";
@@ -98,12 +99,12 @@ export type TakeoffItemAnswersPublication = {
 };
 
 /** The findings outside the list a publication keeps at most (the command's own bound). */
-export const TAKEOFF_ITEM_ANSWERS_MAX_FINDINGS = 2_000;
+export const TAKEOFF_ITEM_ANSWERS_MAX_FINDINGS = TAKEOFF_ITEM_ANSWER_LIMITS.findings;
 
-/** A finding outside the list as the result's warning: one line, bounded as a warning is. */
+/** A finding outside the list as the result's warning: one line, bounded as a warning is, cut on whole characters. */
 function findingWarning(finding: { page: number; designation: string; evidence: string }) {
   return { code: "POSTE_HORS_LISTE", severity: "info" as const,
-    message: `Page ${finding.page} : ${finding.designation} — ${finding.evidence}`.slice(0, 500) };
+    message: takeoffItemAnswerText(`Page ${finding.page} : ${finding.designation} — ${finding.evidence}`) };
 }
 
 /**
@@ -154,7 +155,8 @@ export function buildTakeoffItemAnswersPublication(input: {
   // estimate.
   const estimated = (input.job.preparation_snapshot as { preparation?: { objective?: unknown } } | null)?.preparation?.objective === "estimate";
   const answers = input.plan.answers.map((answer): TakeoffItemAnswer => {
-    const designation = (labels.get(answer.itemId) ?? "").slice(0, 500);
+    // Cut on whole characters: a character cut in two would make the publication's JSON invalid.
+    const designation = takeoffItemAnswerText(labels.get(answer.itemId) ?? "");
     // Each contribution's row as it would be stored, then the trigger's reading of it.
     const rows = new Map(answer.observations.filter((entry) => entry.role === "contribution").map((entry) => {
       const unit = normalizeMeasurementUnit(entry.unit).unitCode ?? entry.unit!;
@@ -263,8 +265,12 @@ const REFUSAL_MESSAGES: Record<TakeoffErrorCode.CONFLICT | TakeoffErrorCode.INTE
   [TakeoffErrorCode.TAKEOFF_LEVEL_C_INVALID_SCHEMA]: "Les réponses de ce plan n’ont pas pu être enregistrées telles que la lecture les a faites.",
 };
 
-/** The sendings of one publication at most: a lost answer or a transient failure is sent again, the same. */
-const MAX_SENDINGS = 3;
+/**
+ * The resending of a publication whose answer is lost: waits from one second, doubled up to thirty, for ten minutes at
+ * most. The job's lease lasts thirty minutes from its last renewal, made between the reading's calls and again between
+ * the sendings: ten minutes of sendings stay within it even when a renewal fails.
+ */
+export const TAKEOFF_ITEM_ANSWERS_RESEND = { firstWaitMs: 1_000, maxWaitMs: 30_000, forMs: 10 * 60_000 } as const;
 
 /** A failure after which the same publication may be sent again: no answer, a serialization failure or a deadlock. */
 function resendable(error: { code?: string; message?: string }) {
@@ -272,31 +278,64 @@ function resendable(error: { code?: string; message?: string }) {
 }
 
 /**
+ * What a member's job detail keeps of a failed publication (its diagnostic's `raw_response`), in the worker's own words:
+ * never the database's code or message, which the worker's log keeps.
+ */
+const FAILURE_REASONS: Record<TakeoffErrorCode.CONFLICT | TakeoffErrorCode.INTERNAL_ERROR | TakeoffErrorCode.TAKEOFF_LEVEL_C_INVALID_SCHEMA,
+  string> = {
+  [TakeoffErrorCode.CONFLICT]: "publication_lease_lost",
+  [TakeoffErrorCode.INTERNAL_ERROR]: "publication_order_mismatch",
+  [TakeoffErrorCode.TAKEOFF_LEVEL_C_INVALID_SCHEMA]: "publication_answers_refused",
+};
+
+/**
  * The one call of the command (public.publish_takeoff_item_answers, migration 20261122080845_takeoff_item_answers.sql):
  * the answers, the result, its rows and the job's end in one transaction under the attempt's lease. Its digest covers every
  * argument (the random ids and `completed_at` included): the publication is built once for the attempt and sent as it is,
- * again when its answer is lost, which the database then answers as a replay of what it wrote. A refusal writes nothing
- * and is told by its code (REFUSAL_CODES).
+ * again when its answer is lost (no answer, or one without its result), after a serialization failure or a deadlock, which
+ * the database then answers as a replay of what it wrote. The sendings go on for TAKEOFF_ITEM_ANSWERS_RESEND.forMs, the
+ * lease renewed between them; then the plan's reading is not tried again (a new attempt would pay to read it again) and
+ * the member is told it was not recorded. A refusal writes nothing and is told by its code (REFUSAL_CODES).
  */
-export async function publishTakeoffItemAnswers(supabase: Supabase, publication: TakeoffItemAnswersPublication): Promise<string> {
+export async function publishTakeoffItemAnswers(supabase: Supabase, publication: TakeoffItemAnswersPublication, options: {
+  now?: () => number; sleep?: (ms: number) => Promise<void>; renewLease?: () => Promise<void>;
+} = {}): Promise<string> {
   const jobId = publication.p_job_id;
-  for (let sending = 1; ; sending += 1) {
+  const now = options.now ?? Date.now;
+  const sleep = options.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+  const startedAt = now();
+  let lost: string | null = null;
+  for (let wait: number = TAKEOFF_ITEM_ANSWERS_RESEND.firstWaitMs, sendings = 1; ; sendings += 1) {
     const { data, error } = await supabase.rpc("publish_takeoff_item_answers", publication as never);
     if (!error) {
-      const [row] = (data ?? []) as Array<{ result_id: string; replayed: boolean; answer_count: number }>;
+      const [row] = (data ?? []) as Array<{ result_id?: string; replayed?: boolean; answer_count?: number }>;
       if (row?.result_id) return row.result_id;
-      throw new TakeoffError({ code: TakeoffErrorCode.INTERNAL_ERROR, retryable: true, jobId,
-        message: "La publication des réponses de ce plan n’a rien répondu." });
+      lost = "no_result";
+    } else {
+      const refusal = takeoffItemAnswersRefusal(error.message);
+      if (refusal) {
+        const code = REFUSAL_CODES[refusal] as keyof typeof REFUSAL_MESSAGES;
+        console.error("takeoff.item_answers.refused", { jobId, refusal });
+        throw new TakeoffError({ status: code === TakeoffErrorCode.CONFLICT ? 409 : 422, code, retryable: false, jobId,
+          message: REFUSAL_MESSAGES[code], details: { reason: FAILURE_REASONS[code] } });
+      }
+      if (!resendable(error)) {
+        console.error("takeoff.item_answers.failed", { jobId, databaseCode: error.code ?? null });
+        throw new TakeoffError({ code: TakeoffErrorCode.INTERNAL_ERROR, retryable: false, jobId,
+          message: "Impossible d’enregistrer les réponses de ce plan.", details: { reason: "publication_failed" } });
+      }
+      lost = error.code || "no_answer";
     }
-    const refusal = takeoffItemAnswersRefusal(error.message);
-    if (refusal) {
-      const code = REFUSAL_CODES[refusal];
-      throw new TakeoffError({ status: code === TakeoffErrorCode.CONFLICT ? 409 : 422, code, retryable: false, jobId,
-        message: REFUSAL_MESSAGES[code as keyof typeof REFUSAL_MESSAGES], details: { reason: refusal } });
+    if (now() - startedAt >= TAKEOFF_ITEM_ANSWERS_RESEND.forMs) {
+      console.error("takeoff.item_answers.unrecorded", { jobId, sendings, last: lost });
+      throw new TakeoffError({ code: TakeoffErrorCode.INTERNAL_ERROR, retryable: false, jobId,
+        message: "La lecture de ce plan n’a pas pu être enregistrée : relancez-la depuis les options du métré.",
+        details: { reason: "publication_unrecorded" } });
     }
-    if (!resendable(error) || sending >= MAX_SENDINGS) {
-      throw new TakeoffError({ code: TakeoffErrorCode.INTERNAL_ERROR, retryable: resendable(error), jobId,
-        message: "Impossible d’enregistrer les réponses de ce plan.", details: { database_code: error.code ?? null } });
-    }
+    await sleep(wait);
+    wait = Math.min(wait * 2, TAKEOFF_ITEM_ANSWERS_RESEND.maxWaitMs);
+    // A renewal refused (the job ended with a sending that committed, or its lease went elsewhere) never stops the
+    // sendings: the next one's answer decides (a replay, or the lease's refusal).
+    await options.renewLease?.().catch(() => undefined);
   }
 }

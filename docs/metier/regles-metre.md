@@ -217,7 +217,10 @@ est bornée par le nombre de ses appels de lecture (fragments × lots) : 40 au p
 plan, 480 par demande, soit les 20 plans qu’une demande peut sceller, de 20 pages
 chacun, lus contre 300 postes. La classification des groupes vectoriels, quand elle est
 active, garde ses propres limites (25 demandes par page, 40 par plan, sur les 60 pages
-vectorielles du dossier). Le budget d’une telle demande n’est pas celui de la lecture
+vectorielles du dossier). Un plan est lu en 19 fragments au plus, soit 154 pages avec le
+découpage par défaut : la réponse d’un poste garde ainsi, une fois ses fragments
+réunis, tous ses motifs et toutes ses observations dans ce que la base enregistre
+d’une réponse (32 motifs, 500 observations). Le budget d’une telle demande n’est pas celui de la lecture
 détaillée de l’extraction libre (qui reste le réglage du tenant) : il est fixé à
 l’admission d’après les appels admis. Chaque appel payant, de lecture ou de
 classification, réserve 30 000 jetons ; la part de chaque plan vaut deux fois les
@@ -234,7 +237,8 @@ refait ce compte sur la demande entière, avec les réglages qu’il utilisera
 réellement, et dépense dans ce que la part de son plan garde : au-delà, il s’arrête
 sans rien dépenser. Au-delà d’un plafond, la demande n’est pas admise : « Métré non
 démarré — les plans … dépassent les limites d’une lecture contre la liste des postes »,
-avec les appels prévus, leur durée sur un Mac et les plafonds. Rien n’est
+avec les appels prévus, leur durée sur un Mac et les plafonds (appels par demande, appels
+et pages par plan). Rien n’est
 échantillonné ; réduire les plans ou les pages lus permet de la relancer.
 
 **Réponses enregistrées et leur publication.** Les réponses d’un plan sont enregistrées
@@ -250,13 +254,24 @@ réponses d’un plan en une fois, sous son bail, avec le résultat et la fin de
 l’analyse : une réponse qui manque, un poste étranger, une page hors du plan, une
 quantité qui n’est pas la somme de ses apports sont refusés et rien n’est écrit ;
 l’analyse ne peut pas se terminer en succès autrement. Un refus arrête l’analyse du
-plan sans nouvelle tentative (une tentative relirait le plan à ses frais) :
+plan sans nouvelle tentative (une tentative relirait le plan à ses frais) ; ce que le Mac
+sait avant ses appels l’arrête avant eux : un plan dont les pages ne sont plus celles
+que sa demande a scellées n’est pas lu. Un motif que plusieurs fragments répètent (même
+code, même texte) est gardé une fois, avec le premier fragment qui l’a donné. Un total ou
+une valeur candidate au-delà de 999 999 999,999999 n’est pas une mesure : la réponse est
+« À vérifier », sans valeur, ses lectures gardées comme candidates. Les lectures
+vectorielles qu’une réponse ne peut plus garder restent dans le résultat, et la réponse
+le dit :
 « Extraction incomplète sur ce document. » pour des réponses que la base ne peut pas
 garder telles que la lecture les a faites, une erreur interne pour une demande, une
 liste ou des pages qui ne sont pas celles qu’elle a scellées. Une publication dont la
-réponse se perd est renvoyée à l’identique, et la base répond alors ce qu’elle a déjà
-écrit. Au plus 2 000 ouvrages vus hors de la liste sont gardés ; le résultat dit
-combien d’autres ont été vus. Une nouvelle lecture du même
+réponse se perd (aucune réponse, ou une réponse sans son résultat) est renvoyée à
+l’identique, comme après un conflit de sérialisation ou un interblocage, avec une attente
+croissante (de 1 à 30 secondes) pendant 10 minutes au plus, le bail renouvelé entre deux
+envois ; la base répond alors ce qu’elle a déjà écrit. Au-delà, la lecture du plan n’est
+pas retentée : le job dit qu’elle n’a pas pu être enregistrée et qu’il faut la relancer.
+Au plus 2 000 ouvrages vus hors de la liste sont gardés ; le résultat dit
+combien d’autres ont été vus (les 40 appels d’un plan en donnent 800 au plus). Une nouvelle lecture du même
 poste sur le même plan remplace la précédente, qui reste consultable. Tous les lecteurs
 de l’affaire lisent les réponses, et voient « en lecture » un poste dont le plan est en
 cours d’analyse ; personne ne les modifie. La revue de ces réponses s’enregistre à part.

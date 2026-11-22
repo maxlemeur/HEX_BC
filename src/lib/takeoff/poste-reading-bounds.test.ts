@@ -12,15 +12,19 @@ import {
   describeTakeoffLaunchReason,
   splitTakeoffLaunchManifest,
   splitTakeoffRequestBudget,
+  TAKEOFF_LAUNCH_VECTOR_PAGES,
   takeoffPlanWeights,
   type TakeoffLaunchOrder,
 } from "@/lib/takeoff/launch-request";
-import { planPosteBatches, posteExchangeOutputMaxBytes } from "@/lib/takeoff/poste-exchange";
+import { TAKEOFF_ITEM_ANSWER_LIMITS } from "@/lib/takeoff/item-answer-limits";
+import { planPosteBatches, POSTE_EXCHANGE_LIMITS, posteExchangeOutputMaxBytes } from "@/lib/takeoff/poste-exchange";
+import { POSTE_WORKER_REASONS } from "@/lib/takeoff/poste-exchange-merge";
 import type { Poste } from "@/lib/takeoff/poste-list";
 import {
   boundPosteReadingRequest,
   POSTE_READING_BUDGET_MARGIN,
   POSTE_READING_LIMITS,
+  POSTE_READING_MAX_FRAGMENTS,
   posteReadingBoundsOfManifest,
   posteReadingRefusal,
   sizePosteReadingManifest,
@@ -125,10 +129,46 @@ describe("boundPosteReadingRequest", () => {
       estimateTokensPerCall: TAKEOFF_PAID_CALL_ESTIMATE_TOKENS, units: units([20, 20]).map((unit) => ({ ...unit, vectorCalls: 40 })) });
     expect(describePosteReadingBounds(classified)).toBe(
       "Lecture de 120 postes sur 2 plans : 18 appels de lecture et 80 de classification vectorielle au plus, environ 47 min sur un Mac. "
-      + "Au plus 480 appels de lecture par demande et 40 par plan : réduisez les plans ou les pages à lire.");
+      + "Au plus 480 appels de lecture par demande, 40 par plan et 154 pages par plan : réduisez les plans ou les pages à lire.");
     expect(describePosteReadingBounds(bound(40 * 24, Array.from({ length: 21 }, () => 10), 1_000_000_000))).toBe(
       "Lecture de 960 postes sur 21 plans : 504 appels de lecture, environ 12 h 36 sur un Mac. "
-      + "Au plus 480 appels de lecture par demande et 40 par plan : réduisez les plans ou les pages à lire.");
+      + "Au plus 480 appels de lecture par demande, 40 par plan et 154 pages par plan : réduisez les plans ou les pages à lire.");
+  });
+});
+
+// PR 3c fix round, point 1: the publication command stores at most 32 reasons and 500 observations per answer
+// (TAKEOFF_ITEM_ANSWER_LIMITS); each fragment of a plan may give an item one reason of the model and 16 observations. A
+// plan read in more fragments than an answer holds is refused before any paid call, never paid then refused whole.
+describe("the fragments of one plan", () => {
+  const onePage = { thresholdPages: 1, chunkSizePages: 1, overlapPages: 0 };
+  const oneItem = (pages: number) => boundPosteReadingRequest({ batches: [1], chunking: onePage, requestBudgetTokens: 1_000_000,
+    estimateTokensPerCall: TAKEOFF_PAID_CALL_ESTIMATE_TOKENS,
+    units: [{ key: "plan:p1", pieces: [{ id: "p1", name: "Plan 1" }], pages, budgetTokens: 1_000_000 }] });
+
+  it("refuses before paying a plan read in more fragments than one answer holds, saying how many pages a plan may have", () => {
+    // 33 one-page fragments, one item, a budget of 1,000,000 tokens: 33 calls are within the calls' ceilings and the budget.
+    const over = oneItem(33);
+    expect(over.units[0]).toMatchObject({ fragments: 33, readingCalls: 33, exceeded: ["fragments"] });
+    expect(over).toMatchObject({ ok: false, maxPlanPages: POSTE_READING_MAX_FRAGMENTS });
+    expect(posteReadingRefusal(over)?.pieces).toEqual([{ id: "p1", name: "Plan 1" }]);
+    expect(describePosteReadingBounds(over)).toBe("Lecture de 1 poste sur 1 plan : 33 appels de lecture, environ 50 min sur un Mac. "
+      + `Au plus 480 appels de lecture par demande, 40 par plan et ${POSTE_READING_MAX_FRAGMENTS} pages par plan : réduisez les plans ou les pages à lire.`);
+    expect(oneItem(POSTE_READING_MAX_FRAGMENTS).ok).toBe(true);
+  });
+
+  it("keeps every answer of an admitted plan within what the command stores", () => {
+    // The model's one reason per fragment and the worker's own (one per code); 16 observations per fragment and a vector
+    // reading on each of the dossier's vector pages.
+    expect(POSTE_READING_MAX_FRAGMENTS + POSTE_WORKER_REASONS.length).toBeLessThanOrEqual(TAKEOFF_ITEM_ANSWER_LIMITS.reasons);
+    expect(POSTE_READING_MAX_FRAGMENTS * POSTE_EXCHANGE_LIMITS.observationsPerAnswer + TAKEOFF_LAUNCH_VECTOR_PAGES)
+      .toBeLessThanOrEqual(TAKEOFF_ITEM_ANSWER_LIMITS.observations);
+    // The findings outside the list of a plan's admitted calls stay within what one publication stores (PR 3c fix round,
+    // point 7): the builder's cap at 2,000 is a guard an admitted reading never reaches.
+    expect(POSTE_READING_LIMITS.callsPerUnit * POSTE_EXCHANGE_LIMITS.unlistedFindings).toBeLessThanOrEqual(TAKEOFF_ITEM_ANSWER_LIMITS.findings);
+    // With the tenant's default fragmenting, a plan of up to 154 pages (19 calls, its budget sized from them).
+    expect(bound(40, [154], 2_000_000).ok).toBe(true);
+    expect(bound(40, [155], 2_000_000)).toMatchObject({ ok: false, maxPlanPages: 154 });
+    expect(bound(40, [155], 2_000_000).units[0].exceeded).toEqual(["fragments"]);
   });
 });
 
@@ -230,8 +270,8 @@ describe("sizePosteReadingManifest", () => {
     expect(posteReadingRefusal(over)).toMatchObject({ reason: "PLAN_SET_TOO_LARGE" });
     expect(posteReadingRefusal(over)?.pieces).toHaveLength(16);
     expect(describePosteReadingBounds(over)).toBe("Lecture de 300 postes sur 16 plans : 512 appels de lecture et 80 de classification "
-      + "vectorielle au plus, environ 13 h 08 sur un Mac. Au plus 480 appels de lecture par demande et 40 par plan : réduisez les "
-      + "plans ou les pages à lire.");
+      + "vectorielle au plus, environ 13 h 08 sur un Mac. Au plus 480 appels de lecture par demande, 40 par plan et 154 pages par "
+      + "plan : réduisez les plans ou les pages à lire.");
   });
 
   it("refuses, naming it, a plan whose reading passes its own ceiling", () => {
@@ -317,13 +357,14 @@ describe("the bounds' facts a refusal keeps", () => {
     const { bounds } = sized(16, 30, 300);
     const stored = posteReadingBoundsDetails(bounds);
     expect(stored).toEqual({ items: 300, plans: 16, reading_calls: 512, classifier_calls: 80, minutes: 788, max_request_calls: 480,
-      max_plan_calls: 40 });
+      max_plan_calls: 40, max_plan_pages: 154 });
     expect(describePosteReadingBounds(readPosteReadingBoundsFacts(JSON.parse(JSON.stringify(stored)))!))
       .toBe(describePosteReadingBounds(bounds));
   });
 
   it("ignores stored facts that are not whole numbers", () => {
-    const stored = { items: 120, plans: 3, reading_calls: 27, classifier_calls: 0, minutes: 41, max_request_calls: 480, max_plan_calls: 40 };
+    const stored = { items: 120, plans: 3, reading_calls: 27, classifier_calls: 0, minutes: 41, max_request_calls: 480, max_plan_calls: 40,
+      max_plan_pages: 154 };
     expect(readPosteReadingBoundsFacts(stored)).not.toBeNull();
     expect(readPosteReadingBoundsFacts(undefined)).toBeNull();
     expect(readPosteReadingBoundsFacts({ ...stored, items: "120" })).toBeNull();

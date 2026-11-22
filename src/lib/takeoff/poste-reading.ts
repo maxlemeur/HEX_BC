@@ -80,7 +80,7 @@ function refusalError(refusal: PosteExchangeRefusal, jobId: string) {
 }
 
 /** The plan's pages: the original page of each page of its PDF, once each. */
-function planPagesOf(pageCount: number, originalPageNumbers: readonly number[] | undefined) {
+export function planPagesOf(pageCount: number, originalPageNumbers: readonly number[] | undefined) {
   const pages = Array.from({ length: pageCount }, (_, index) => originalPageNumbers?.[index] ?? index + 1);
   if (new Set(pages).size !== pages.length || pages.some((value) => !Number.isInteger(value) || value < 1)) {
     throw new Error("Each page of the plan's PDF needs its own original page.");

@@ -12,7 +12,8 @@ import {
   runOwnedTakeoffCommand, seedPlanDossier,
 } from "./plan-dispatch-support";
 import {
-  activateOwnedItemListOrder, deactivateOwnedItemListOrder, publishOwnedItemTemplate, readOwnedItemReadings, type OwnedItemReading,
+  activateOwnedItemListOrder, deactivateOwnedItemListOrder, publishOwnedItemTemplate, readOwnedItemReadings, readOwnedPlanItemRows,
+  type OwnedItemReading,
 } from "./poste-reading-support";
 import { signUpWorkerOwner, type WorkerOwner, type WorkerUi } from "./worker-support";
 
@@ -110,9 +111,11 @@ armyTest("TKPR01 two plans read against three items: A read while B is read give
           reasons: [{ code: "NO_INDICATION", by: "model" }] });
       }
       expect(await readOwnedPlanItems(jobB.id)).toEqual([]);
-      // A's lavabos: one contribution naming its row, on its page.
+      // A's lavabos: one contribution naming its row (the row's own id), on its page.
+      const [rowA] = await readOwnedPlanItemRows(jobA.id);
+      expect(rowA).toMatchObject({ designation: LAVABO, source_page: 2 });
       expect(read[0].readings[0].answer?.observations).toEqual([expect.objectContaining({ role: "contribution", page: 2, quantity: 3,
-        takeoffItemId: expect.stringMatching(/^[0-9a-f-]{36}$/) })]);
+        takeoffItemId: rowA.id })]);
       await recordEvidence(ui.army, "takeoff-poste-reading-two-plans", { jobs: [jobA.id, jobB.id], states: read.map((item) => item.state) });
     } finally {
       rmSync(barrier, { recursive: true, force: true });

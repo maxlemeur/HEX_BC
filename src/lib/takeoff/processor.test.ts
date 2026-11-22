@@ -34,6 +34,8 @@ import { getChatGptHostId } from "@/lib/ai/chatgpt-local-store";
 import { resolveLocalTakeoffProvider, type LocalTakeoffProvider } from "@/lib/ai/chatgpt-takeoff";
 import { readTakeoffVectorPages, takeoffVectorLocalGroupsHook } from "@/lib/takeoff/vectors/worker-server";
 import { processItemListLevelC, readTakeoffItemListOrder } from "@/lib/takeoff/poste-reading-job-server";
+import { publishTakeoffItemAnswers } from "@/lib/takeoff/poste-publication-server";
+import { createSupabaseFake } from "@/lib/takeoff/metre-m3.test-utils";
 
 import type { StructuredCall, StructuredCallResult } from "@/lib/ai/structured-call";
 import { TakeoffError, TakeoffErrorCode } from "@/lib/takeoff/errors";
@@ -3546,6 +3548,26 @@ describe("an attempt of the second measuring order", () => {
     await expect(processLevelC(JOB_ID, { supabase: mock.supabase as never, tenantId: TENANT_ID, userId: USER_ID, now: () => FIXED_NOW,
       resolveProvider: localProvider(vi.fn()) })).rejects.toMatchObject({ code: TakeoffErrorCode.AI_PROVIDER });
     expect(mock.state.job).toMatchObject({ status: "failed", error_code: "AI_PROVIDER", next_retry_at: null });
+  });
+
+  // PR 3c fix round, point 6: a refusal of the publication keeps its reason in the job's failure diagnostic, which the job's
+  // detail returns to its members (takeoff_results.raw_response): in the worker's words, never the database's code.
+  it("keeps a refused publication's reason in the job's detail in its own words, never the database's code", async () => {
+    const mock = await levelCJob(planUnit);
+    vi.mocked(readTakeoffItemListOrder).mockResolvedValueOnce(ORDER);
+    const refusing = createSupabaseFake({ rpc: { publish_takeoff_item_answers: () => ({ data: null,
+      error: { code: "22023", message: "TAKEOFF_ANSWERS_COVERAGE_INCOMPLETE" } }) } });
+    vi.mocked(processItemListLevelC).mockImplementationOnce(async () => {
+      await publishTakeoffItemAnswers(refusing.client as never, { p_job_id: JOB_ID } as never);
+      throw new Error("The publication was not refused.");
+    });
+    await expect(processLevelC(JOB_ID, { supabase: mock.supabase as never, tenantId: TENANT_ID, userId: USER_ID, now: () => FIXED_NOW,
+      resolveProvider: localProvider(vi.fn()) })).rejects.toMatchObject({ code: TakeoffErrorCode.TAKEOFF_LEVEL_C_INVALID_SCHEMA });
+    expect(mock.state.job).toMatchObject({ status: "failed", error_code: "TAKEOFF_LEVEL_C_INVALID_SCHEMA" });
+    expect(mock.state.takeoffResults).toHaveLength(1);
+    expect(mock.state.takeoffResults[0].raw_response).toMatchObject({ reason: "publication_answers_refused" });
+    expect(JSON.stringify(mock.state.takeoffResults[0])).not.toContain("TAKEOFF_ANSWERS");
+    expect(JSON.stringify(mock.state.job)).not.toContain("TAKEOFF_ANSWERS");
   });
 
   it("ends a job whose measuring order cannot be read once it is claimed, with that prompt unknown to it", async () => {

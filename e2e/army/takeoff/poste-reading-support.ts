@@ -27,6 +27,18 @@ export async function deactivateOwnedItemListOrder() {
   await querySql("delete from private.takeoff_item_list_order_activation;");
 }
 
+/** The countable rows of a job, with their ids: what a contribution's observation names (`takeoff_item_id`). */
+export async function readOwnedPlanItemRows(jobId: string) {
+  assertOwnedCampaign();
+  if (!UUID.test(jobId)) throw new Error("Invalid fixture job.");
+  // jsonb: one line, whatever the number of rows.
+  const output = await querySql(`select coalesce(jsonb_agg(jsonb_build_object('id', i.id, 'designation', i.designation,
+    'source_page', i.source_page) order by i.source_page, i.designation), '[]'::jsonb) from public.takeoff_items i
+    where i.job_id = '${jobId}';`);
+  return JSON.parse([...output].reverse().find((line) => line.trim().startsWith("[")) ?? "[]") as
+    Array<{ id: string; designation: string; source_page: number }>;
+}
+
 /** The owner's tenant template « plomberie » made of these items alone, published as its administrator publishes it. */
 export async function publishOwnedItemTemplate(setup: SupabaseClient, owner: WorkerOwner,
   items: Array<{ id: string; label: string; expectedUnit: string }>) {

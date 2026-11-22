@@ -1,8 +1,10 @@
 import { buildPdfChunks, type TakeoffChunkingRuntimeConfig } from "@/lib/takeoff/chunking";
+import { TAKEOFF_ITEM_ANSWER_LIMITS } from "@/lib/takeoff/item-answer-limits";
 import {
   TAKEOFF_LAUNCH_VECTOR_PAGES, takeoffPlanWeights, type AnyTakeoffLaunchManifest, type TakeoffLaunchPiece,
 } from "@/lib/takeoff/launch-request";
-import { planPosteBatches, posteExchangeOutputMaxBytes } from "@/lib/takeoff/poste-exchange";
+import { planPosteBatches, POSTE_EXCHANGE_LIMITS, posteExchangeOutputMaxBytes } from "@/lib/takeoff/poste-exchange";
+import { POSTE_WORKER_REASONS } from "@/lib/takeoff/poste-exchange-merge";
 import type { Poste } from "@/lib/takeoff/poste-list";
 import type { PosteReadingBoundsFacts } from "@/lib/takeoff/poste-reading-bounds-text";
 
@@ -37,6 +39,22 @@ export const POSTE_READING_LIMITS = {
 } as const;
 
 /**
+ * The fragments of one plan at most: what one answer of an item may hold once its fragments are merged, within what the
+ * publication command stores of an answer (TAKEOFF_ITEM_ANSWER_LIMITS). Each fragment gives an item at most one reason
+ * of the model and POSTE_EXCHANGE_LIMITS.observationsPerAnswer observations; the worker adds at most one reason of each
+ * of its codes, and the vector reading one observation of each vector page of the dossier (more are left unattached,
+ * `VECTOR_READINGS_UNATTACHED`). 19 fragments: a plan of up to 154 pages with the tenant's default fragmenting.
+ */
+export const POSTE_READING_MAX_FRAGMENTS = Math.min(TAKEOFF_ITEM_ANSWER_LIMITS.reasons - POSTE_WORKER_REASONS.length,
+  Math.floor((TAKEOFF_ITEM_ANSWER_LIMITS.observations - TAKEOFF_LAUNCH_VECTOR_PAGES) / POSTE_EXCHANGE_LIMITS.observationsPerAnswer));
+
+/** The most pages of a plan read in at most POSTE_READING_MAX_FRAGMENTS fragments with this fragmenting (`buildPdfChunks`). */
+export function posteReadingMaxPlanPages(chunking: TakeoffChunkingRuntimeConfig) {
+  const step = chunking.chunkSizePages - chunking.overlapPages;
+  return Math.max(chunking.thresholdPages, chunking.chunkSizePages + step * (POSTE_READING_MAX_FRAGMENTS - 1));
+}
+
+/**
  * The share of a request's budget that reads against the list, over the reservations of its admitted calls at the
  * ledger's estimate: twice. The last admitted call of a plan starts even when every call before it cost twice the estimate
  * (the ledger reserves each call at the largest of its branch observed so far, so one costly call raises every later
@@ -51,7 +69,7 @@ export const POSTE_READING_BUDGET_MARGIN = 2;
  */
 export const POSTE_READING_DURATION = { readingCallSeconds: 90, classifierCallSeconds: 15 } as const;
 
-export type PosteReadingLimit = "calls" | "budget" | "answer_bytes";
+export type PosteReadingLimit = "calls" | "fragments" | "budget" | "answer_bytes";
 
 /**
  * A unit of the request: one plan (or, for a grouped analysis, all of them), its pages read (retained pages, else its
@@ -79,7 +97,8 @@ export type PosteReadingBounds = PosteReadingBoundsFacts & {
 
 /**
  * The request's reading planned as the worker will make it (`planPosteExchangeCalls`), and each bound checked: its reading's
- * calls (every fragment of each plan times the batches of its items) against the ceilings, every paid call (the vector
+ * calls (every fragment of each plan times the batches of its items) against the ceilings, each plan's fragments against
+ * what one answer holds (POSTE_READING_MAX_FRAGMENTS), every paid call (the vector
  * classifier's too) reserved at `estimateTokensPerCall` (the ledger's TAKEOFF_PAID_CALL_ESTIMATE_TOKENS) per plan against
  * its share and for the request against its envelope, and its answers' bytes. `batches`: the sizes of the batches
  * `planPosteBatches` makes.
@@ -105,6 +124,7 @@ export function boundPosteReadingRequest(input: {
       sum + posteExchangeOutputMaxBytes(size, fragment.endPage - fragment.startPage + 1), 0), 0);
     const exceeded: PosteReadingLimit[] = [];
     if (readingCalls > POSTE_READING_LIMITS.callsPerUnit) exceeded.push("calls");
+    if (fragments.length > POSTE_READING_MAX_FRAGMENTS) exceeded.push("fragments");
     if (cannotStart(calls, unit.budgetTokens)) exceeded.push("budget");
     if (answerBytes > POSTE_READING_LIMITS.unitAnswerBytes) exceeded.push("answer_bytes");
     return { key: unit.key, fragments: fragments.length, batches: batchSizes.length, readingCalls, classifierCalls, calls, tokens,
@@ -125,7 +145,7 @@ export function boundPosteReadingRequest(input: {
   return {
     ok, items: batchSizes.reduce((sum, size) => sum + size, 0), plans: input.units.reduce((sum, unit) => sum + unit.pieces.length, 0),
     readingCalls, classifierCalls, minutes: Math.ceil(seconds / 60), maxRequestCalls: POSTE_READING_LIMITS.callsPerRequest,
-    maxPlanCalls: POSTE_READING_LIMITS.callsPerUnit, calls, tokens, requestBudgetTokens: input.requestBudgetTokens, answerBytes, units,
+    maxPlanCalls: POSTE_READING_LIMITS.callsPerUnit, maxPlanPages: posteReadingMaxPlanPages(input.chunking), calls, tokens, requestBudgetTokens: input.requestBudgetTokens, answerBytes, units,
     exceeded, pieces: named.flatMap((unit) => unit.pieces),
   };
 }

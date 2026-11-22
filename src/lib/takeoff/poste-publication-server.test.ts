@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { TakeoffError, TakeoffErrorCode } from "@/lib/takeoff/errors";
+import { buildFailureDiagnostic } from "@/lib/takeoff/processing-job-state";
 import { TAKEOFF_ITEM_ANSWERS_REFUSALS } from "@/lib/takeoff/item-answers";
 import { createSupabaseFake } from "@/lib/takeoff/metre-m3.test-utils";
 import { POSTE_EXCHANGE_PROMPT_VERSION, POSTE_EXCHANGE_SCHEMA_VERSION } from "@/lib/takeoff/poste-exchange";
@@ -33,14 +34,24 @@ function publication(): TakeoffItemAnswersPublication {
   };
 }
 
-/** The database's answers to the command, one per call, in order. */
+/** The database's answers to the command, one per call, in order; each body as it was serialized when it was sent. */
 function database(answers: Array<{ data?: unknown; error?: { code?: string; message: string } }>) {
   let call = 0;
-  return createSupabaseFake({ rpc: { publish_takeoff_item_answers: () => {
+  const bodies: string[] = [];
+  const fake = createSupabaseFake({ rpc: { publish_takeoff_item_answers: (args) => {
+    bodies.push(JSON.stringify(args));
     const answer = answers[Math.min(call, answers.length - 1)];
     call += 1;
     return { data: answer.data ?? null, error: answer.error ?? null };
   } } });
+  return Object.assign(fake, { bodies });
+}
+
+/** A clock and waits that take no time: each wait moves the clock, and is recorded. */
+function clock() {
+  let at = 0;
+  const waits: number[] = [];
+  return { waits, now: () => at, sleep: async (ms: number) => { waits.push(ms); at += ms; } };
 }
 
 async function refusal(run: () => Promise<unknown>) {
@@ -68,21 +79,40 @@ describe("publishTakeoffItemAnswers", () => {
       { data: [{ result_id: RESULT, replayed: true, answer_count: 2 }] }]);
     const published = publication();
     const sent = JSON.stringify(published);
-    await expect(publishTakeoffItemAnswers(fake.client as never, published)).resolves.toBe(RESULT);
-    expect(fake.rpcCalls.map((call) => JSON.stringify(call.args))).toEqual([sent, sent]);
+    const time = clock();
+    await expect(publishTakeoffItemAnswers(fake.client as never, published, time)).resolves.toBe(RESULT);
+    // Each body as it left: the same serialization at each sending.
+    expect(fake.bodies).toEqual([sent, sent]);
   });
 
-  it("resends it after a serialization failure or a deadlock, and gives up after three sendings, to be tried again", async () => {
-    for (const code of ["40001", "40P01"]) {
-      const fake = database([{ error: { code, message: "could not serialize access" } }, { data: [{ result_id: RESULT, replayed: false,
-        answer_count: 2 }] }]);
-      await expect(publishTakeoffItemAnswers(fake.client as never, publication())).resolves.toBe(RESULT);
-      expect(fake.rpcCalls).toHaveLength(2);
+  // PR 3c fix round, point 5: an answer without its result is a lost answer; a transient failure is sent again with a
+  // backoff, the lease renewed between sendings, for as long as the lease safely allows.
+  it("resends after a serialization failure, a deadlock or an answer without its result, renewing the lease between sendings", async () => {
+    for (const lost of [{ error: { code: "40001", message: "could not serialize access" } }, { error: { code: "40P01", message: "deadlock" } },
+      { data: [] }, { data: [{ replayed: false, answer_count: 2 }] }]) {
+      const fake = database([lost, { data: [{ result_id: RESULT, replayed: false, answer_count: 2 }] }]);
+      const time = clock();
+      let renewed = 0;
+      await expect(publishTakeoffItemAnswers(fake.client as never, publication(), { ...time, renewLease: async () => { renewed += 1; } }))
+        .resolves.toBe(RESULT);
+      expect(fake.bodies).toHaveLength(2);
+      expect(fake.bodies[1]).toBe(fake.bodies[0]);
+      expect([time.waits, renewed]).toEqual([[1_000], 1]);
     }
+  });
+
+  it("gives up after ten minutes without retrying the plan's reading, and tells the member to launch it again", async () => {
     const lost = database([{ error: { code: "", message: "TypeError: fetch failed" } }]);
-    const error = await refusal(() => publishTakeoffItemAnswers(lost.client as never, publication()));
-    expect(lost.rpcCalls).toHaveLength(3);
-    expect(error).toMatchObject({ code: TakeoffErrorCode.INTERNAL_ERROR, retryable: true, jobId: JOB });
+    const time = clock();
+    // A renewal that fails (the job ended, or its lease went elsewhere) never stops the sendings: their answer decides.
+    const error = await refusal(() => publishTakeoffItemAnswers(lost.client as never, publication(),
+      { ...time, renewLease: async () => { throw new Error("renewal refused"); } }));
+    expect(error).toMatchObject({ code: TakeoffErrorCode.INTERNAL_ERROR, retryable: false, jobId: JOB,
+      message: expect.stringContaining("La lecture de ce plan n’a pas pu être enregistrée") });
+    expect(time.waits.slice(0, 7)).toEqual([1_000, 2_000, 4_000, 8_000, 16_000, 30_000, 30_000]);
+    expect(time.now()).toBeGreaterThanOrEqual(600_000);
+    expect(time.now()).toBeLessThan(600_000 + 30_000);
+    expect(new Set(lost.bodies).size).toBe(1);
   });
 
   // Each refusal of the command: what the member is told (the job's public code) and whether the unit may be tried again.
@@ -109,21 +139,26 @@ describe("publishTakeoffItemAnswers", () => {
     expect(Object.keys(expected).sort()).toEqual([...TAKEOFF_ITEM_ANSWERS_REFUSALS].sort());
     for (const [code, takeoffCode] of Object.entries(expected)) {
       const fake = database([{ error: { code: code === "TAKEOFF_ANSWERS_LEASE_INVALID" ? "55000" : "22023", message: code } }]);
-      const error = await refusal(() => publishTakeoffItemAnswers(fake.client as never, publication()));
+      const error = await refusal(() => publishTakeoffItemAnswers(fake.client as never, publication(), clock()));
       expect(fake.rpcCalls).toHaveLength(1);
-      expect(error).toMatchObject({ code: takeoffCode, retryable: false, jobId: JOB, details: { reason: code } });
-      // The member reads the code's own sentence; the database's words never reach them.
+      expect(error).toMatchObject({ code: takeoffCode, retryable: false, jobId: JOB });
+      // The member reads the code's own sentence and reason; the database's words never reach them, in the job's detail
+      // neither (its failure diagnostic, PR 3c fix round point 6).
       expect(error.message).not.toContain(code);
+      const detail = buildFailureDiagnostic({ error, durationMs: 1, model: "controlled", promptVersion: "takeoff-c-postes-v1",
+        retainMetrics: false });
+      expect(JSON.stringify(detail)).not.toContain("TAKEOFF_ANSWERS");
+      expect((detail?.raw_response as Record<string, unknown>).reason).toBe({ [TakeoffErrorCode.CONFLICT]: "publication_lease_lost",
+        [TakeoffErrorCode.INTERNAL_ERROR]: "publication_order_mismatch",
+        [TakeoffErrorCode.TAKEOFF_LEVEL_C_INVALID_SCHEMA]: "publication_answers_refused" }[takeoffCode as string]);
     }
   });
 
-  it("ends on another failure of the database without resending, and with no answer at all, to be tried again", async () => {
+  it("ends on another failure of the database without resending", async () => {
     const constraint = database([{ error: { code: "23505", message: "duplicate key value violates unique constraint" } }]);
-    expect(await refusal(() => publishTakeoffItemAnswers(constraint.client as never, publication())))
-      .toMatchObject({ code: TakeoffErrorCode.INTERNAL_ERROR, retryable: false });
+    const error = await refusal(() => publishTakeoffItemAnswers(constraint.client as never, publication(), clock()));
+    expect(error).toMatchObject({ code: TakeoffErrorCode.INTERNAL_ERROR, retryable: false });
+    expect(JSON.stringify(error.details ?? {})).not.toContain("23505");
     expect(constraint.rpcCalls).toHaveLength(1);
-    const empty = database([{ data: [] }]);
-    expect(await refusal(() => publishTakeoffItemAnswers(empty.client as never, publication())))
-      .toMatchObject({ code: TakeoffErrorCode.INTERNAL_ERROR, retryable: true });
   });
 });

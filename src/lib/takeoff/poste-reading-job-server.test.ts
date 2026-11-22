@@ -212,7 +212,9 @@ describe("buildTakeoffItemAnswersPublication", () => {
       runMetrics: [], model: "controlled", completedAt: new Date("2026-11-22T09:00:00.000Z"), totalDurationMs: 1_000 });
   }
 
-  // #461: the command keeps at most 2000 findings outside the list; the result says how many more the reading saw.
+  // #461: the command keeps at most 2000 findings outside the list; the result says how many more the reading saw. A state
+  // an admitted reading never reaches (its plan's 40 calls give at most 800 findings, poste-reading-bounds.test.ts): the
+  // cap is a guard, tested here on an injected reading.
   it("keeps at most 2000 findings outside the list, and says how many more were seen", async () => {
     const built = await publication(vectorOutcomes(), { plan: (plan) => ({ ...plan, unlistedFindings: Array.from({ length: 2_003 }, (_, index) => ({
       page: 3, designation: `Ouvrage fictif ${index + 1}`, evidence: "symbole sans poste", chunkId: "f1-b1" })) }) });
@@ -245,6 +247,19 @@ describe("buildTakeoffItemAnswersPublication", () => {
     expect(built.p_answers[1]).toMatchObject({ item_id: supports.id, outcome: "uncertain", quantity: null, candidate: { value: 6, unit: "u" },
       reasons: [{ code: "NOT_OBSERVABLE", by: "worker" }] });
     expect(built.p_answers[1].observations).toEqual([expect.objectContaining({ role: "candidate", quantity: 6, takeoff_item_id: null })]);
+  });
+
+  // PR 3c fix round, point 3: a long label is cut on whole characters, never inside a surrogate pair.
+  it("cuts a long label on whole characters", async () => {
+    const long = poste(6, `${"a".repeat(499)}🧱 et suite`, "u");
+    const counting = controlledPosteCall((entry) => entry.label.startsWith("aaa") ? posteMeasured(entry, [{ page: 2, quantity: 2 }])
+      : posteNotFound(entry));
+    const built = await publication([], { call: counting, items: [long] });
+    const [row] = built.p_items;
+    expect(Array.from(row.designation)).toHaveLength(500);
+    expect(row.designation.endsWith("🧱")).toBe(true);
+    // No lone surrogate: the body the database parses is valid JSON text.
+    expect(row.designation.isWellFormed()).toBe(true);
   });
 
   // #461: a contribution's row and its observation carry the same value, to the thousandth, read once.
@@ -417,6 +432,19 @@ describe("processItemListLevelC", () => {
     expect(call.received).toEqual([]);
   });
 
+  // PR 3c fix round, point 4: the command requires the pages the request sealed; a plan whose PDF holds others (its stored
+  // count of 2 for a PDF of 3 read whole) is stopped before its first paid call, never read then refused.
+  it("stops before any paid call when the pages it would read are not those its request sealed", async () => {
+    const call = controlledPosteCall();
+    const manifest = planManifest([{ id: PLAN, pageCount: 2, vectorPages: 4 }]);
+    const whole = { ...(await sourceFile()), bytes: await pdf(3), sourcePageNumbersByPage: undefined };
+    await expect(run({ call, sourceFile: whole, order: { ...SEALED, manifest } })).rejects.toMatchObject({
+      code: TakeoffErrorCode.TAKEOFF_PREPARATION_SOURCE_CHANGED, retryable: false,
+      message: expect.stringContaining("Les pages de ce plan ne sont plus celles que sa demande a scellées") });
+    expect(call.received).toEqual([]);
+    expect(publishTakeoffItemAnswers).not.toHaveBeenCalled();
+  });
+
   // Budget task: the attempt of a reading against the list spends from the share its request sealed for it, sized from its
   // admitted calls, never within the first format's per-job budget (400,000 tokens: 14 calls).
   it("plans its reading within the share its request sealed for it, past the first format's per-job budget", async () => {
@@ -456,6 +484,26 @@ describe("processItemListLevelC", () => {
 
   // Closing round, point 7: the re-check plans the whole request as today's settings plan it, every unit of its manifest,
   // never its own plan only.
+  // PR 3c fix round, point 1: the worker plans its plan's fragments again before its first paid call: more than one answer
+  // holds (POSTE_READING_MAX_FRAGMENTS) and nothing is read, even within the calls' ceilings and the budget.
+  it("stops before any paid call when today's fragmenting reads its plan in more fragments than one answer holds", async () => {
+    const call = controlledPosteCall();
+    const share = { tokens: 2_000_000, cost_cents: 125 };
+    // Admitted on two fragments of a 20-page plan; today's settings make 20 one-page fragments: 20 calls of one batch.
+    const manifest = planManifest([{ id: PLAN, pageCount: 20, budget: share }], share);
+    vi.mocked(prepareLevelCReading).mockResolvedValueOnce({ pageCount: 20, config: { thresholdPages: 1, chunkSizePages: 1, overlapPages: 0,
+      maxPdfPages: 200, timeoutMs: 300_000, maxTotalTokens: 400_000, maxCostCents: 125 },
+      requestBudget: { remainingTokens: 2_000_000, remainingCostCents: 125 } });
+    const twenty = { ...(await sourceFile()), bytes: await pdf(20), sourcePageNumbersByPage: Array.from({ length: 20 }, (_, page) => page + 1) };
+    const own = job({ preparation_snapshot: { launch_unit: { request_id: REQUEST, key: `plan:${PLAN}`, ordinal: 1, vector_pages: 0,
+      budget: share } } });
+    await expect(run({ call, job: own, sourceFile: twenty, order: { ...SEALED, manifest } })).rejects.toMatchObject({
+      code: TakeoffErrorCode.TAKEOFF_FILE_TOO_LARGE, retryable: false,
+      message: expect.stringContaining("40 par plan et 19 pages par plan : réduisez les plans ou les pages à lire.") });
+    expect(call.received).toEqual([]);
+    expect(publishTakeoffItemAnswers).not.toHaveBeenCalled();
+  });
+
   it("stops before any paid call when the whole request, planned with today's settings, passes its ceiling", async () => {
     const call = controlledPosteCall();
     const items = Array.from({ length: 200 }, (_, index) => poste(100 + index, `Robinet ${index + 1}`));
