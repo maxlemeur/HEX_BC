@@ -37,9 +37,16 @@ import { requireProjectAccess, requireRequest, type LineRef, type MaterialReques
  */
 
 const uuid = z.string().uuid();
-const summarySchema: z.ZodType<MaterialRequestOrdersSummary> = z.object({
+/**
+ * The summary as the database answers it: « not_ready » keeps its three reasons, and the lines that wait for the
+ * other lines of their discounted quote come under a key of their own, which the route gives as a fourth reason.
+ */
+const DATABASE_NOT_READY_REASONS = ["not_validated", "no_supplier", "not_priced"] as const satisfies
+  ReadonlyArray<(typeof MATERIAL_REQUEST_ORDER_NOT_READY_REASONS)[number]>;
+const summarySchema = z.object({
   ready_line_ids: z.array(uuid),
-  not_ready: z.array(z.object({ line_id: uuid, reason: z.enum(MATERIAL_REQUEST_ORDER_NOT_READY_REASONS) })),
+  not_ready: z.array(z.object({ line_id: uuid, reason: z.enum(DATABASE_NOT_READY_REASONS) })),
+  waiting_quote_line_ids: z.array(uuid).optional(),
   ordered: z.array(z.object({
     line_id: uuid, purchase_order_id: uuid, purchase_order_reference: z.string(), status: z.string(), can_open: z.boolean(),
   })),
@@ -48,7 +55,13 @@ const summarySchema: z.ZodType<MaterialRequestOrdersSummary> = z.object({
     total_ht_cents: z.number().int(), line_count: z.number().int().min(0), can_open: z.boolean(),
   })),
   can_create: z.boolean(),
-});
+}).transform(({ waiting_quote_line_ids, ...summary }): MaterialRequestOrdersSummary => ({
+  ...summary,
+  not_ready: [
+    ...summary.not_ready,
+    ...(waiting_quote_line_ids ?? []).map((line_id) => ({ line_id, reason: "waiting_quote" as const })),
+  ],
+}));
 const createdSchema = z.object({
   replayed: z.boolean(),
   orders: z.array(z.object({

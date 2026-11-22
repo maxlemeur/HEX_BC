@@ -11,9 +11,9 @@
 --     carries a zero or empty one, takes another supplier's, puts them before the articles, with another amount, kind,
 --     quantity, unit, tax rate or quote, or totals otherwise than lines + shipping - discount;
 --  4. a member writes a quote charge line directly, or changes the quote of a line, in a draft;
---  5b. a quote whose lines are ordered in two drafts (one returned to draft after the retain) puts its charges in the
---     first, or a draft whose discount exceeds what it holds fails at commit without a word (every supplier's draft
---     rolled back as a generic error) instead of a coded refusal naming the supplier;
+--  5b. a line of a discounted quote is ordered alone while another of its lines went back to draft after the retain:
+--     confirmed, that first order would leave the last line a draft the discount makes negative, for good; or the
+--     waiting line is said among « not_ready » (whose three reasons the version in production parses);
 --  5. a quote's charge is held by two orders that stand: a second creation, an order made again after a cancellation
 --     that does not take it back, a canceled order reopened while another holds it; a charge removed from its draft
 --     stays held;
@@ -283,6 +283,7 @@ select is(pg_temp.pls_run('a9330000-0000-4000-8000-000000000001',
   '22023 MATERIAL_REQUEST_ORDER_NOTHING_READY', '5 and no new draft carries it alone');
 
 -- 5b. Request 602: Alpha quotes L4 at 1 000 € and L5 at 100 €, 500 € off, retained; L5 then returns to draft.
+-- (Codex review of PR #490.)
 insert into public.material_requests (id, project_id, requested_on, needed_on, delivery_place, created_by) values
   ('a9330000-0000-4000-8000-000000000602', 'a9330000-0000-4000-8000-000000000201', '2026-11-11', '2026-11-21', 'site',
     'a9330000-0000-4000-8000-000000000001');
@@ -309,24 +310,28 @@ select is(pg_temp.pls_run('a9330000-0000-4000-8000-000000000001',
   $$select * from public.retain_material_request_quote(current_setting('test.quote_split')::uuid)$$), 'ok 0',
   'fixture: the quote is retained (500 € off 1 100 €)');
 update public.material_request_lines set status = 'draft' where id = 'a9330000-0000-4000-8000-000000000705';
-select is(pg_temp.pls_run('a9330000-0000-4000-8000-000000000001',
-  $$select public.create_material_request_purchase_orders('a9330000-0000-4000-8000-000000000602',
-    'a9330000-0000-4000-8000-00000000a004')$$), 'ok 1', 'fixture: the owner orders L4 alone');
-select is((select jsonb_agg(jsonb_build_array(oi.line_kind, oi.line_total_ht_cents) order by oi.position)
-  from public.purchase_order_items oi join public.purchase_orders po on po.id = oi.purchase_order_id
-  where po.project_id = 'a9330000-0000-4000-8000-000000000201' and po.status = 'draft'
-    and exists (select 1 from public.purchase_order_items l4 where l4.purchase_order_id = po.id
-      and l4.material_request_line_id = 'a9330000-0000-4000-8000-000000000704')),
-  jsonb_build_array(jsonb_build_array('article', 100000)),
-  '5b a draft that does not complete its quote carries none of its charges');
-update public.material_request_lines set status = 'validated' where id = 'a9330000-0000-4000-8000-000000000705';
+select is((pg_temp.pls_rows('a9330000-0000-4000-8000-000000000001',
+  $$select public.material_request_order_summary('a9330000-0000-4000-8000-000000000602') as r$$)->0->'r')
+    - array['ordered', 'orders', 'can_create'],
+  jsonb_build_object('ready_line_ids', '[]'::jsonb,
+    'not_ready', jsonb_build_array(jsonb_build_object('line_id', 'a9330000-0000-4000-8000-000000000705', 'reason', 'not_validated')),
+    'waiting_quote_line_ids', jsonb_build_array('a9330000-0000-4000-8000-000000000704')),
+  '5b L4 waits for L5, under a key of its own: « not_ready » keeps its three reasons');
 select is(pg_temp.pls_rows('a9330000-0000-4000-8000-000000000001',
   $$select public.create_material_request_purchase_orders('a9330000-0000-4000-8000-000000000602',
-    'a9330000-0000-4000-8000-00000000a005') as r$$) - 'error',
-  jsonb_build_object('message', 'MATERIAL_REQUEST_ORDER_TOTAL_NEGATIVE', 'detail', '["TI691 Charges Alpha"]'),
-  '5b the draft completing it, 100 € with 500 € off, is refused by a coded word naming its supplier');
-select is((select count(*)::integer from public.purchase_order_items
-  where material_request_line_id = 'a9330000-0000-4000-8000-000000000705'), 0, '5b and nothing of it is written');
+    'a9330000-0000-4000-8000-00000000a004') as r$$)->>'message',
+  'MATERIAL_REQUEST_ORDER_NOTHING_READY', '5b L4 is not ordered alone, without the discount');
+update public.material_request_lines set status = 'validated' where id = 'a9330000-0000-4000-8000-000000000705';
+select is(pg_temp.pls_run('a9330000-0000-4000-8000-000000000001',
+  $$select public.create_material_request_purchase_orders('a9330000-0000-4000-8000-000000000602',
+    'a9330000-0000-4000-8000-00000000a005')$$), 'ok 1', 'fixture: L5 validated again, the owner orders the request');
+select is((select jsonb_agg(jsonb_build_array(oi.line_kind, oi.line_total_ht_cents) order by oi.position)
+  from public.purchase_order_items oi
+  where oi.purchase_order_id = (select purchase_order_id from public.purchase_order_items
+    where material_request_line_id = 'a9330000-0000-4000-8000-000000000704')),
+  jsonb_build_array(jsonb_build_array('article', 100000), jsonb_build_array('article', 10000),
+    jsonb_build_array('discount', -50000)),
+  '5b L4 and L5 are ordered together, with the discount');
 
 -- 1. The function checks an amount against its column before anything else.
 select is(pg_temp.pls_run('a9330000-0000-4000-8000-000000000001',

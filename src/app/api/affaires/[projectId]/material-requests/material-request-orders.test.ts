@@ -340,6 +340,20 @@ describe("4. summary", () => {
     expect(fake.rpcArgs.find((entry) => entry.name === "material_request_order_summary")?.args).toEqual({ p_request_id: REQUEST });
   });
 
+  it("gives the lines waiting for their discounted quote's other lines as a reason of their own, after the others", async () => {
+    seed(OWNER, "engineer", { rpc: { material_request_order_summary: (() => ({ data: {
+      ready_line_ids: [LINE_TUBE],
+      not_ready: [{ line_id: LINE_DRAFT, reason: "not_validated" }],
+      waiting_quote_line_ids: [LINE_ELBOW],
+      ordered: [], orders: [], can_create: true,
+    } })) satisfies FakeRpcHandler } });
+    const answer = await call(ordersRoute.GET, "GET", inRequest);
+    expect([answer.status, (answer.data as MaterialRequestOrdersSummary).not_ready]).toEqual([200, [
+      { line_id: LINE_DRAFT, reason: "not_validated" },
+      { line_id: LINE_ELBOW, reason: "waiting_quote" },
+    ]]);
+  });
+
   it("names the order of each ordered line once the drafts exist", async () => {
     seed(OWNER, "engineer");
     await call(ordersRoute.POST, "POST", inRequest, { idempotency_key: KEY });

@@ -486,4 +486,113 @@ $$;
 comment on function public.create_material_request_purchase_orders(uuid, uuid) is
   'TI-691: one draft purchase order per supplier from the ready lines of a material request (validated, priced by a retained quote, in no order that is not canceled), all of the request''s affaire, its overhead lines included (imputation overhead); no delivery site, the request''s delivery place as delivery mode, delivered on the date the request needs its material, notes naming the request. Each line: article, reference at the supplier (else the article''s), catalogue wording, quantity, unit, quote price and lot, 20 % tax, imputation, request line; then the shipping (« Port ») and the discount (« Remise ») of each retained quote that priced a line of the draft and that the draft completes, a lump sum at 20 % linked to its quote (material_request_quote_id), each once among the orders that are not canceled. Idempotent per request and key (replayed: true, each order with its current status). Caller: admin or engineer of the active tenant (PURCHASE_ORDER_ACCESS_DENIED) who writes the request (MATERIAL_REQUEST_ORDER_WRITERS_ONLY). Refusals: MATERIAL_REQUEST_ORDER_TOTAL_NEGATIVE (DETAIL: JSON name of the supplier), MATERIAL_REQUEST_ORDER_NOT_FOUND, _NOTHING_READY, _SUPPLIER_INACTIVE (DETAIL: JSON names), _KEY_TAKEN, MATERIAL_REQUEST_LINE_ALREADY_ORDERED.';
 
+
+-- ---------------------------------------------------------------------------
+-- 5. The lines of a discounted quote are ordered together.
+-- ---------------------------------------------------------------------------
+-- A line priced by a quote with a discount is ready only once every other line that quote priced is validated or in an
+-- order that stands (state waiting_quote otherwise): ordered alone, then confirmed, the first lines would leave the
+-- last ones a draft that the discount makes negative, with no way back (a confirmed order is not canceled).
+-- private.material_request_order_lines and public.material_request_order_summary are copied from their latest
+-- definitions (20261112202147) with only the lines marked « charges » changed; the summary keeps « not_ready » to its
+-- three reasons and gives the waiting lines under a key of its own (waiting_quote_line_ids), present only when a line
+-- waits, which the version in production ignores. CREATE OR REPLACE keeps owners and ACLs.
+create or replace function private.material_request_order_lines(p_tenant_id uuid, p_request_id uuid)
+returns table (line_id uuid, line_position integer, state text, purchase_order_id uuid)
+language sql stable set search_path = '' as $$
+  select line.id, line.position,
+    case
+      when held.line_id is not null then 'ordered'
+      when line.status <> 'validated' then 'not_validated'
+      when line.supplier_id is null then 'no_supplier'
+      when line.price_quote_id is null or line.unit_price_ht_cents is null then 'not_priced'
+      -- charges: a line priced by a quote with a discount waits while another line that quote priced is neither
+      -- validated nor in an order that stands, so that the quote's lines are ordered with its discount, together.
+      when exists (
+        select 1 from public.material_request_quotes quote
+        join public.material_request_lines other on other.price_quote_id = quote.id and other.id <> line.id
+        where quote.id = line.price_quote_id and coalesce(quote.discount_ht_cents, 0) > 0
+          and other.status <> 'validated'
+          and not exists (select 1 from private.material_request_line_orders other_held where other_held.line_id = other.id)
+      ) then 'waiting_quote'
+      else 'ready'
+    end,
+    held.purchase_order_id
+  from public.material_request_lines line
+  left join private.material_request_line_orders held on held.line_id = line.id
+  where line.tenant_id = p_tenant_id and line.request_id = p_request_id;
+$$;
+
+create or replace function public.material_request_order_summary(p_request_id uuid)
+returns jsonb language plpgsql stable security definer set search_path = '' as $$
+declare
+  tenant_value uuid := public.current_tenant_id();
+  request_row record;
+  caller uuid := (select auth.uid());
+  caller_is_admin boolean;
+  answer jsonb;
+begin
+  if (select auth.uid()) is null or tenant_value is null then
+    raise exception using errcode = '42501', message = 'MATERIAL_REQUEST_ORDER_ACCESS_DENIED';
+  end if;
+  select request.id, request.project_id into request_row
+  from public.material_requests request where request.id = p_request_id and request.tenant_id = tenant_value;
+  if not found then
+    raise exception using errcode = 'P0002', message = 'MATERIAL_REQUEST_ORDER_NOT_FOUND';
+  end if;
+  if not public.can_read_affaire_intake_project(request_row.project_id, tenant_value) then
+    raise exception using errcode = '42501', message = 'MATERIAL_REQUEST_ORDER_ACCESS_DENIED';
+  end if;
+  -- An order is read by its author and the admins (its RLS): can_open tells the screen whether to link it.
+  caller_is_admin := coalesce(public.has_tenant_role(tenant_value, array['admin'::public.tenant_role]), false);
+  answer := (
+    with states as (select * from private.material_request_order_lines(tenant_value, p_request_id))
+    select jsonb_build_object(
+      'ready_line_ids', coalesce((
+        select jsonb_agg(s.line_id order by s.line_position, s.line_id) from states s where s.state = 'ready'), '[]'::jsonb),
+      'not_ready', coalesce((
+        select jsonb_agg(jsonb_build_object('line_id', s.line_id, 'reason', s.state) order by s.line_position, s.line_id)
+        from states s where s.state in ('not_validated', 'no_supplier', 'not_priced')), '[]'::jsonb),
+      -- charges: validated lines that wait for the other lines of their discounted quote; a key of its own, so that a
+      -- reader of « not_ready » that knows its three reasons only is not handed a fourth, and given only when a line
+      -- waits (null here, removed below): the answer is otherwise the one the version in production reads.
+      'waiting_quote_line_ids', (
+        select jsonb_agg(s.line_id order by s.line_position, s.line_id) from states s where s.state = 'waiting_quote'),
+      'ordered', coalesce((
+        select jsonb_agg(jsonb_build_object('line_id', s.line_id, 'purchase_order_id', po.id,
+          'purchase_order_reference', po.reference, 'status', po.status,
+          'can_open', caller_is_admin or po.user_id = caller) order by s.line_position, s.line_id)
+        from states s join public.purchase_orders po on po.id = s.purchase_order_id
+        where s.state = 'ordered'), '[]'::jsonb),
+      'orders', coalesce((
+        select jsonb_agg(jsonb_build_object('id', o.id, 'reference', o.reference, 'supplier_name', o.supplier_name,
+          'status', o.status, 'total_ht_cents', o.total_ht_cents, 'line_count', o.line_count,
+          'can_open', caller_is_admin or o.user_id = caller)
+          order by o.created_at, o.order_number)
+        from (
+          select po.id, po.reference, coalesce(supplier.name, '') as supplier_name, po.status, po.total_ht_cents,
+            po.created_at, po.order_number, po.user_id, count(*)::integer as line_count
+          from public.purchase_order_items oi
+          join public.material_request_lines line on line.id = oi.material_request_line_id
+          join public.purchase_orders po on po.id = oi.purchase_order_id and po.tenant_id = tenant_value
+          left join public.suppliers supplier on supplier.id = po.supplier_id
+          where line.request_id = p_request_id and line.tenant_id = tenant_value and oi.tenant_id = tenant_value
+          group by po.id, supplier.name
+        ) o), '[]'::jsonb),
+      -- The caller may create orders here: a writer of the request who may buy.
+      'can_create', public.can_access_affaire_intake_project(request_row.project_id, tenant_value)
+        and public.has_tenant_role(tenant_value, array['admin'::public.tenant_role, 'engineer'::public.tenant_role])
+    )
+  );
+  -- charges: the key of the waiting lines only when one waits.
+  if answer->'waiting_quote_line_ids' = 'null'::jsonb then
+    answer := answer - 'waiting_quote_line_ids';
+  end if;
+  return answer;
+end;
+$$;
+
+comment on function public.material_request_order_summary(uuid) is
+  'TI-691: where each line of a material request stands for ordering (ready; not ready and why; waiting for the other lines of its discounted quote, waiting_quote_line_ids; ordered, in which order), the orders holding its lines (canceled included: reference, supplier, status, total HT, lines of the request, and whether the caller may open it: its author or an admin, can_open, also on each ordered line) and whether the caller may create orders (can_create). For the readers of the request (owner of the affaire, admin, director): MATERIAL_REQUEST_ORDER_NOT_FOUND, _ACCESS_DENIED. Security definer: an order is otherwise visible to its author and the admins only.';
+
 commit;

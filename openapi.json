@@ -41022,7 +41022,8 @@
                       "enum": [
                         "not_validated",
                         "no_supplier",
-                        "not_priced"
+                        "not_priced",
+                        "waiting_quote"
                       ]
                     }
                   },
