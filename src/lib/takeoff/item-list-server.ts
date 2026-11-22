@@ -506,12 +506,14 @@ export async function addItemListPoste(projectId: string, input: ItemListAdditio
   if (input.sectionOfItemId && !section) {
     throw conflict("La section choisie n’est plus dans la liste : rechargez-la.", undefined, "TAKEOFF_ITEM_LIST_STALE");
   }
-  const next = withAddedItem(stored.revision, {
-    intentId: input.intentKey, addedBy: context.userId, addedAt: new Date().toISOString(), label: input.label,
-    expectedUnit: input.expectedUnit, measurementBasis: input.measurementBasis, qualifiers: input.qualifiers,
-    sectionPath: section,
-  });
   try {
+    // Built here, inside the recovery: the list read may already hold this gesture's item, recorded by a concurrent call
+    // (a double click) after this one looked for its receipt; its origin is then refused as a second definition.
+    const next = withAddedItem(stored.revision, {
+      intentId: input.intentKey, addedBy: context.userId, addedAt: new Date().toISOString(), label: input.label,
+      expectedUnit: input.expectedUnit, measurementBasis: input.measurementBasis, qualifiers: input.qualifiers,
+      sectionPath: section,
+    });
     return await recordItemListRevision(service, {
       scope, actor: context.userId, expectedRevision: stored.row.revision, intentKey: input.intentKey, gestureSha256,
       cause: "item_added",
