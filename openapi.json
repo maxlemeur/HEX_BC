@@ -7193,6 +7193,429 @@
         }
       }
     },
+    "/api/consultation-message-templates": {
+      "get": {
+        "tags": [
+          "Demandes de matériel"
+        ],
+        "summary": "Lire les modèles du message de consultation",
+        "description": "Le modèle personnel de l'appelant dans son tenant actif et le modèle général de l'entreprise (null quand il n'y en a pas), sans leur auteur. Le message suit le modèle personnel, sinon celui de l'entreprise, sinon le message d'origine. can_edit_company : l'appelant administre son tenant actif.",
+        "responses": {
+          "200": {
+            "description": "Modèles en vigueur.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiConsultationTemplates"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requete invalide ou payload non conforme.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentification requise.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Acces interdit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Ressource introuvable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflit metier ou de concurrence.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Erreur interne serveur.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/consultation-message-templates/company": {
+      "put": {
+        "tags": [
+          "Demandes de matériel"
+        ],
+        "summary": "Enregistrer le modèle de message de l'entreprise",
+        "description": "Réservé aux administrateurs du tenant actif (rôle de leur adhésion ; un administrateur global sans ce rôle est refusé). Remplace le modèle général, appliqué aux membres sans modèle personnel ; leurs modèles personnels ne changent pas.",
+        "requestBody": {
+          "description": "Les deux textes, enregistrés ensemble. Le message contient {lignes} et la ligne {désignation}, chaque champ une fois au plus ; 2000 et 300 caractères au plus, jamais vides. Ni tenant ni membre : la base les fixe.",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConsultationTemplateInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Modèle de l'entreprise enregistré.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiConsultationTemplateCompanySaved"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "CONSULTATION_TEMPLATE_INVALID : modèle vide, trop long, sans {lignes} ou {désignation}, ou avec un champ écrit deux fois ; le message dit quoi corriger. Rien n'est écrit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiMaterialRequestError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentification requise.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "TENANT_CONSULTATION_MESSAGE_TEMPLATE_ADMIN_ONLY : seuls les administrateurs du tenant actif modifient son modèle.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiMaterialRequestError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Ressource introuvable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflit metier ou de concurrence.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Erreur interne serveur.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Demandes de matériel"
+        ],
+        "summary": "Rétablir le message d'origine pour l'entreprise",
+        "description": "Réservé aux administrateurs du tenant actif. Supprime le modèle général (sans effet s'il n'y en a pas) : les membres sans modèle personnel reçoivent le message d'origine.",
+        "responses": {
+          "200": {
+            "description": "Modèle de l'entreprise supprimé.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiConsultationTemplateCompanyReset"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requete invalide ou payload non conforme.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentification requise.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "TENANT_CONSULTATION_MESSAGE_TEMPLATE_ADMIN_ONLY : seuls les administrateurs du tenant actif modifient son modèle.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiMaterialRequestError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Ressource introuvable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflit metier ou de concurrence.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Erreur interne serveur.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/consultation-message-templates/personal": {
+      "put": {
+        "tags": [
+          "Demandes de matériel"
+        ],
+        "summary": "Enregistrer son modèle de message de consultation",
+        "description": "Remplace le modèle personnel de l'appelant dans son tenant actif ; personne d'autre ne le lit ni ne le modifie. Les consultations déjà enregistrées gardent leur texte.",
+        "requestBody": {
+          "description": "Les deux textes, enregistrés ensemble. Le message contient {lignes} et la ligne {désignation}, chaque champ une fois au plus ; 2000 et 300 caractères au plus, jamais vides. Ni tenant ni membre : la base les fixe.",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConsultationTemplateInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Modèle enregistré.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiConsultationTemplatePersonalSaved"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "CONSULTATION_TEMPLATE_INVALID : modèle vide, trop long, sans {lignes} ou {désignation}, ou avec un champ écrit deux fois ; le message dit quoi corriger. Rien n'est écrit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiMaterialRequestError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentification requise.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Acces interdit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Ressource introuvable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflit metier ou de concurrence.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Erreur interne serveur.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Demandes de matériel"
+        ],
+        "summary": "Rétablir le modèle par défaut",
+        "description": "Supprime le modèle personnel de l'appelant (sans effet s'il n'y en a pas) : le modèle de l'entreprise s'applique, sinon le message d'origine.",
+        "responses": {
+          "200": {
+            "description": "Modèle personnel supprimé.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiConsultationTemplatePersonalReset"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requete invalide ou payload non conforme.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentification requise.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Acces interdit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Ressource introuvable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflit metier ou de concurrence.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Erreur interne serveur.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/currency-rates": {
       "get": {
         "tags": [
@@ -43042,6 +43465,228 @@
               "duplicates",
               "preview_token",
               "for_decision"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "ok",
+          "data"
+        ],
+        "additionalProperties": false
+      },
+      "ApiConsultationTemplates": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "personal": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "message_template": {
+                        "type": "string"
+                      },
+                      "line_template": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "message_template",
+                      "line_template"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "company": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "message_template": {
+                        "type": "string"
+                      },
+                      "line_template": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "message_template",
+                      "line_template"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "can_edit_company": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "personal",
+              "company",
+              "can_edit_company"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "ok",
+          "data"
+        ],
+        "additionalProperties": false
+      },
+      "ConsultationTemplateInput": {
+        "type": "object",
+        "properties": {
+          "message_template": {
+            "type": "string",
+            "maxLength": 2000
+          },
+          "line_template": {
+            "type": "string",
+            "maxLength": 300
+          }
+        },
+        "required": [
+          "message_template",
+          "line_template"
+        ],
+        "additionalProperties": false
+      },
+      "ApiConsultationTemplateCompanySaved": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "company": {
+                "type": "object",
+                "properties": {
+                  "message_template": {
+                    "type": "string"
+                  },
+                  "line_template": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "message_template",
+                  "line_template"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "company"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "ok",
+          "data"
+        ],
+        "additionalProperties": false
+      },
+      "ApiConsultationTemplateCompanyReset": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "company": {
+                "type": "null"
+              }
+            },
+            "required": [
+              "company"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "ok",
+          "data"
+        ],
+        "additionalProperties": false
+      },
+      "ApiConsultationTemplatePersonalSaved": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "personal": {
+                "type": "object",
+                "properties": {
+                  "message_template": {
+                    "type": "string"
+                  },
+                  "line_template": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "message_template",
+                  "line_template"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "personal"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "ok",
+          "data"
+        ],
+        "additionalProperties": false
+      },
+      "ApiConsultationTemplatePersonalReset": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "personal": {
+                "type": "null"
+              }
+            },
+            "required": [
+              "personal"
             ],
             "additionalProperties": false
           }

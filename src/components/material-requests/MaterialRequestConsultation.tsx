@@ -1,7 +1,8 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
-import { ArrowLeft, ArrowRight, Check, CheckCheck, Copy, FileText, Info, Paperclip, Send, TriangleAlert, Users, X } from "lucide-react";
+import { ArrowLeft, ArrowRight, Check, CheckCheck, Copy, FileText, Info, Paperclip, RotateCcw, Send, TriangleAlert, Users, X } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -9,11 +10,12 @@ import { Combobox } from "@/components/ui/combobox";
 import { NativeSelect } from "@/components/ui/native-select";
 import { Textarea } from "@/components/ui/textarea";
 import { materialRequestFileUrl, type MaterialRequestSupplierOption } from "@/lib/material-requests/client";
+import { competitionNeedsType, consultationLineOf } from "@/lib/material-requests/consultation-message";
 import {
-  buildConsultationMessage,
-  competitionNeedsType,
-  consultationLineOf,
-} from "@/lib/material-requests/consultation-message";
+  competitionReferenceLeaks,
+  consultationMessage,
+  consultationMessageProblem,
+} from "@/lib/material-requests/consultation-template";
 import type { MaterialRequestFile, MaterialRequestLine } from "@/lib/material-requests/contracts";
 import {
   MATERIAL_REQUEST_QUOTE_MAX_FILES,
@@ -40,6 +42,8 @@ import {
   quotedAmountCents,
 } from "./format";
 import { photoUploadStepLabel, type PhotoUploadStep } from "./photo-upload";
+import { CONSULTATION_TEMPLATE_ANCHOR } from "./ConsultationTemplateSettings";
+import { useConsultationTemplate, type ConsultationTemplateState } from "./useConsultationTemplate";
 import type { MaterialRequestEditorApi, SaveResult } from "./useMaterialRequestEditor";
 import {
   QUOTE_PRICE_HELD,
@@ -191,12 +195,19 @@ function useCopy() {
   };
 }
 
-/** The message for one supplier, « Copier » and « Consultation envoyée ». */
-function MessageBlock({
+/**
+ * The message for one supplier, « Copier » and « Consultation envoyée » (TI-691). The text can be retouched before it
+ * is copied: both buttons take the text as shown, never the generated one behind it. A retouch lives as long as the
+ * page; when the generated text changes under it (lines, supplier, template), the retouch is kept and the block says
+ * so, with the way back. An empty text, or one over the recorded bound, is neither copied nor recorded. In
+ * competition, a known reference in the text is pointed out; the office may still go on.
+ */
+export function ConsultationMessageBlock({
   supplierName,
   message,
   consultation,
   onSend,
+  knownReferences,
 }: Readonly<{
   supplierName: string;
   message: string;
@@ -206,17 +217,29 @@ function MessageBlock({
    */
   consultation: SupplierConsultation;
   onSend: (message: string) => Promise<SaveResult>;
+  /** A competition message: the references known for its lines, which it should not name. */
+  knownReferences?: readonly (string | null)[];
 }>) {
-  const unreadId = useId();
+  const ids = useId();
+  const unreadId = `${ids}-unread`;
+  const problemId = `${ids}-problem`;
   const { stateFor, copyText } = useCopy();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const copyState = stateFor(message);
+  /** The office's own text, and the generated text it started from. */
+  const [retouch, setRetouch] = useState<{ text: string; from: string } | null>(null);
+  const retouched = retouch !== null && retouch.text !== message;
+  const shown = retouched ? retouch.text : message;
+  const stale = retouched && retouch.from !== message;
+  const problem = consultationMessageProblem(shown);
+  const leaks = knownReferences ? competitionReferenceLeaks(shown, knownReferences) : [];
+  const copyState = stateFor(shown);
 
   const send = async () => {
+    if (problem) return;
     setBusy(true);
     setError(null);
-    const result = await onSend(message);
+    const result = await onSend(shown);
     setBusy(false);
     if (!result.ok) setError(result.message);
   };
@@ -224,19 +247,39 @@ function MessageBlock({
   return (
     <div className="min-w-0 space-y-2">
       <Textarea
-        readOnly
         aria-label={`Message pour ${supplierName}`}
+        aria-describedby={problem ? problemId : undefined}
+        aria-invalid={problem ? true : undefined}
         className="min-h-28 px-3 py-2 text-sm"
-        value={message}
-        onFocus={(event) => event.currentTarget.select()}
+        value={shown}
+        onChange={(event) => {
+          const text = event.target.value;
+          setRetouch((current) => ({ text, from: current && current.text !== message ? current.from : message }));
+        }}
       />
+      {stale ? (
+        <p className="text-sm font-medium text-warning">
+          Le texte généré a changé depuis votre retouche (lignes, fournisseur ou modèle) : votre texte est gardé tel
+          quel, vérifiez-le avant de le copier.
+        </p>
+      ) : null}
+      {problem ? (
+        <p id={problemId} className="text-sm font-medium text-danger">{problem}</p>
+      ) : null}
+      {leaks.length > 0 ? (
+        <p className="flex items-start gap-1.5 text-sm font-medium text-warning">
+          <TriangleAlert aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
+          {`Ce message en concurrence cite une référence connue : ${leaks.join(", ")}. Le concurrent pourrait savoir qui vous fournit ; vous pouvez tout de même l’envoyer.`}
+        </p>
+      ) : null}
       <div className="flex flex-wrap items-center gap-2">
         <Button
           type="button"
           variant="outline"
           size="sm"
+          disabled={problem !== null}
           aria-label={`Copier le message pour ${supplierName}`}
-          onClick={() => void copyText(message)}
+          onClick={() => void copyText(shown)}
         >
           {copyState === "copied" ? <Check aria-hidden="true" /> : <Copy aria-hidden="true" />}
           Copier
@@ -248,15 +291,27 @@ function MessageBlock({
             type="button"
             size="sm"
             loading={busy}
-            disabled={consultation.unread !== null}
+            disabled={consultation.unread !== null || problem !== null}
             aria-label={`Consultation envoyée à ${supplierName}`}
-            aria-describedby={consultation.unread ? unreadId : undefined}
+            aria-describedby={consultation.unread ? unreadId : problem ? problemId : undefined}
             onClick={() => void send()}
           >
             <Send aria-hidden="true" />
             Consultation envoyée
           </Button>
         )}
+        {retouched ? (
+          <Button type="button" variant="ghost" size="sm" onClick={() => setRetouch(null)}>
+            <RotateCcw aria-hidden="true" />
+            Rétablir le texte généré
+          </Button>
+        ) : null}
+        <Link
+          href={`/dashboard/profile#${CONSULTATION_TEMPLATE_ANCHOR}`}
+          className="ml-auto text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+        >
+          Modifier mon modèle
+        </Link>
       </div>
       {consultation.unread && !consultation.sent && !consultation.busyElsewhere ? (
         <p id={unreadId} className="text-xs text-muted-foreground">
@@ -314,7 +369,8 @@ function CompetitionPanel({
   needType,
   options,
   quotes,
-  message,
+  messageFor,
+  knownReferences,
   onSend,
 }: Readonly<{
   id: string;
@@ -325,7 +381,10 @@ function CompetitionPanel({
   needType: readonly MaterialRequestLine[];
   options: readonly MaterialRequestSupplierOption[];
   quotes: Pick<MaterialRequestQuotesApi, "items" | "status">;
-  message: string;
+  /** Each competitor's own message: {fournisseur} names it (TI-691). */
+  messageFor: (supplierName: string) => string;
+  /** The references known for the lines, which no competition message should name. */
+  knownReferences: readonly (string | null)[];
   onSend: (supplierId: string, supplierName: string, message: string) => Promise<SaveResult>;
 }>) {
   const [chosen, setChosen] = useState<string[]>([]);
@@ -404,9 +463,10 @@ function CompetitionPanel({
                 Retirer
               </Button>
             </div>
-            <MessageBlock
+            <ConsultationMessageBlock
               supplierName={name}
-              message={message}
+              message={messageFor(name)}
+              knownReferences={knownReferences}
               consultation={consultationOf(quotes, supplierId, lineIds)}
               onSend={(text) => onSend(supplierId, name, text)}
             />
@@ -422,11 +482,14 @@ function SupplierGroupCard({
   quotes,
   group,
   affaireName,
+  template,
 }: Readonly<{
   editor: MaterialRequestEditorApi;
   quotes: MaterialRequestQuotesApi;
   group: SupplierGroup;
   affaireName: string;
+  /** The member's template in force (TI-691); its message is offered only once it is read. */
+  template: ConsultationTemplateState;
 }>) {
   const ids = useId();
   const headingId = `${ids}-heading`;
@@ -445,13 +508,21 @@ function SupplierGroupCard({
         supplierSku: withReferences ? (editor.supplierReferenceOf(line.id)?.supplier_sku ?? null) : null,
       }),
     );
-  const message = (withReferences: boolean) =>
-    buildConsultationMessage({
+  const message = (withReferences: boolean, supplierName: string) =>
+    consultationMessage({
+      template: template.status === "ready" ? template.template : null,
       affaireName,
+      supplierName,
       lines: lines(withReferences),
       withReferences,
       deliveryPlace: data.request.delivery_place,
     });
+  // What a competitor should not learn: the technician's reference, the article's, the usual supplier's.
+  const knownReferences = pending.flatMap((line) => [
+    line.reference,
+    line.product_id ? (editor.articles[line.product_id]?.reference ?? null) : null,
+    editor.supplierReferenceOf(line.id)?.supplier_sku ?? null,
+  ]);
   const lineIds = pending.map((line) => line.id);
   const needType = pending.filter((line) =>
     competitionNeedsType(consultationLineOf(line, { request: data.request, supplierSku: null })),
@@ -492,10 +563,21 @@ function SupplierGroupCard({
               </Button>
             </div>
           ) : null}
-          {referencesRead ? (
-            <MessageBlock
+          {template.status === "loading" ? (
+            <p role="status" className="text-sm text-muted-foreground">Lecture de votre modèle de message…</p>
+          ) : template.status === "error" ? (
+            <div className="flex flex-wrap items-center gap-2 text-sm">
+              <p role="alert" className="font-medium text-danger">
+                {`Votre modèle de message n’a pas pu être lu (${template.message.replace(/\.$/, "")}). Aucun message n’est proposé à sa place.`}
+              </p>
+              <Button type="button" variant="outline" size="sm" aria-label="Relire le modèle de message" onClick={template.retry}>
+                Réessayer
+              </Button>
+            </div>
+          ) : referencesRead ? (
+            <ConsultationMessageBlock
               supplierName={group.supplierName}
-              message={message(true)}
+              message={message(true, group.supplierName)}
               consultation={consultationOf(quotes, group.supplierId, lineIds)}
               onSend={(text) => send(group.supplierId, group.supplierName, true, text)}
             />
@@ -504,6 +586,7 @@ function SupplierGroupCard({
               Lecture des références chez {group.supplierName}…
             </p>
           )}
+          {template.status !== "ready" ? null : <>
           <Button
             type="button"
             variant="outline"
@@ -525,10 +608,12 @@ function SupplierGroupCard({
               needType={needType}
               options={data.supplierOptions}
               quotes={quotes}
-              message={message(false)}
+              messageFor={(supplierName) => message(false, supplierName)}
+              knownReferences={knownReferences}
               onSend={(supplierId, supplierName, text) => send(supplierId, supplierName, false, text)}
             />
           ) : null}
+          </>}
         </>
       ) : (
         <ul className="list-disc space-y-0.5 pl-5 text-sm text-foreground">
@@ -1064,6 +1149,7 @@ export function MaterialRequestConsultation({ editor, quotes, affaireName, headi
   onGoToOrders?: () => void;
 }>) {
   const { data, canWrite } = editor;
+  const template = useConsultationTemplate(canWrite);
   const { groups, without } = supplierGroups(data.lines, data.supplierOptions, quotes.items);
   const ordered = [...quotes.items].sort((left, right) => Date.parse(left.requested_at) - Date.parse(right.requested_at) || left.id.localeCompare(right.id));
   const pendingGroups = groups.filter((group) => group.lines.some((line) => !line.price_quote_id));
@@ -1119,7 +1205,7 @@ export function MaterialRequestConsultation({ editor, quotes, affaireName, headi
           {ordered.length === 0 ? <p className="p-5 text-sm text-muted-foreground">Aucune consultation envoyée pour le moment.</p> : null}
         </nav>
         <div className="min-w-0">
-          {pendingGroups.map((group) => <div key={group.supplierId} hidden={activeSupplierId !== group.supplierId} className="border-b border-border p-4"><SupplierGroupCard editor={editor} quotes={workspaceQuotes} group={group} affaireName={affaireName} /></div>)}
+          {pendingGroups.map((group) => <div key={group.supplierId} hidden={activeSupplierId !== group.supplierId} className="border-b border-border p-4"><SupplierGroupCard editor={editor} quotes={workspaceQuotes} group={group} affaireName={affaireName} template={template} /></div>)}
           {ordered.map((quote) => <div key={quote.id} hidden={active !== `quote:${quote.id}`}><QuoteCard editor={editor} quotes={workspaceQuotes} quote={quote} /></div>)}
           {groups.filter((group) => group.lines.length > 0 && group.lines.every((line) => line.price_quote_id)).map((group) => <div key={`priced:${group.supplierId}`} hidden={activeSupplierId !== group.supplierId} role="group" aria-label={group.supplierName} className="border-t border-border px-6 py-3 text-sm text-muted-foreground">Toutes ses lignes ont leur prix retenu.</div>)}
           {!active ? <p className="p-6 text-sm text-muted-foreground">Les devis apparaîtront ici après la consultation d’un fournisseur.</p> : null}

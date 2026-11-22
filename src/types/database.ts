@@ -138,10 +138,13 @@ type RefineRpc<Rpc, NullableNames> = Rpc extends { Args: infer Args; Returns: in
 // Absence is deliberately distinct from a known automatic coefficient.
 type CompatibleRow<K, Row> = K extends "estimate_items" ? Omit<Row, "k_fo_manual"> & { k_fo_manual?: boolean | null } : K extends "estimate_template_items" ? Omit<Row, "k_fo_manual" | "kit_metier"> & { k_fo_manual?: boolean | null; kit_metier?: boolean } : Row;
 
-// The job scope trigger derives project_id for clients with a version.
+// The job scope trigger derives project_id for clients with a version. The trigger of a member's consultation
+// message template (TI-691) sets its tenant and member: a client never sends them.
 type CompatibleInsert<K, Insert> = K extends "takeoff_jobs"
   ? Omit<Insert, "project_id"> & { project_id?: string }
-  : Insert;
+  : K extends "material_request_message_templates"
+    ? Omit<Insert, "tenant_id" | "user_id"> & { tenant_id?: never; user_id?: never }
+    : Insert;
 
 export type Database = Omit<GeneratedDatabase, "public"> & {
   public: Omit<PublicSchema, "Tables" | "Functions"> & {

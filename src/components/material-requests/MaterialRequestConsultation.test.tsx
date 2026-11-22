@@ -60,6 +60,17 @@ const euros = (cents: number) => formatEUR(cents).replace(/\s/g, " ");
  * 19. (TI-691, the owner's walk of 2026-11-14) a quote whose « Montant HT du devis » differs from the total of its
  *     lines (343 € for 340 €) is retained without a word: the gap is not shown, the retain does not ask to account
  *     for it, or the card does not say the order is made from the line prices.
+ * TI-691, the member's own template and the company's (« paramétrer le texte pour l’envoi fournisseur ») and the
+ * retouch before copying:
+ * 20. the message does not follow the member's template, else the company's; a competitor's message names another
+ *     supplier, or a retouch for one competitor shows in another's message;
+ * 21. « Copier » or « Consultation envoyée » takes another text than the one shown after a retouch; the generated
+ *     text cannot be brought back;
+ * 22. an empty text, or one over the recorded bound, is copied or recorded, or cut; the reason is not said;
+ * 23. the generated text changes under a retouch (lines, supplier, template) and the stale list is copied unnoticed;
+ * 24. a competition text that names a known reference (typed in a retouch) is copied without a warning, or the
+ *     warning blocks it;
+ * 25. a template that cannot be read is silently replaced by today's message.
  */
 
 const { storageFromMock, uploadToSignedUrlMock } = vi.hoisted(() => ({
@@ -75,6 +86,8 @@ vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn(), replace: 
 import { MaterialRequestEditor } from "@/components/material-requests/MaterialRequestEditor";
 import type { MaterialRequestEditorApi } from "@/components/material-requests/useMaterialRequestEditor";
 import { useMaterialRequestQuotes } from "@/components/material-requests/useMaterialRequestQuotes";
+import { ConsultationMessageBlock } from "@/components/material-requests/MaterialRequestConsultation";
+import { MATERIAL_REQUEST_QUOTE_MESSAGE_MAX } from "@/lib/material-requests/quote-contracts";
 
 const PROJECT_ID = "11111111-1111-4111-8111-111111111111";
 const REQUEST_ID = "22222222-2222-4222-8222-222222222222";
@@ -93,6 +106,7 @@ const FILE_PDF = "8f8f8f8f-8f8f-48f8-88f8-8f8f8f8f8f8f";
 const BASE = `/api/affaires/${PROJECT_ID}/material-requests/${REQUEST_ID}`;
 const QUOTES = `${BASE}/quotes`;
 const PROPOSALS = `${BASE}/supplier-proposals`;
+const TEMPLATES = "GET /api/consultation-message-templates";
 const AFFAIRE = "Résidence des Tilleuls";
 const SUPPLIERS = [
   { id: ALPHA, name: "Négoce Alpha", label: "Négoce Alpha" },
@@ -291,6 +305,8 @@ async function openEditor(routes: Record<string, Route>) {
   mockApi({
     "GET /api/material-request-technicians": { data: { items: [] } },
     [`GET ${BASE}/candidates`]: { data: { lines: {} } },
+    // TI-691: no template of the member nor of the company: today's message.
+    [TEMPLATES]: { data: { personal: null, company: null, can_edit_company: false } },
     ...routes,
   });
   const user = userEvent.setup();
@@ -369,7 +385,8 @@ describe("consultation of suppliers", () => {
 
     const message = await screen.findByRole("textbox", { name: "Message pour Négoce Alpha" });
     expect(message).toHaveValue(expected);
-    expect(message).toHaveAttribute("readonly");
+    // TI-691: the office may retouch the text before copying it.
+    expect(message).not.toHaveAttribute("readonly");
     // The line without supplier is said apart, with what to do, and is in no message.
     expect(screen.getByText("Sans fournisseur : choisissez-le sur la ligne, à l’étape Lignes.")).toBeVisible();
     expect(screen.getByText("Bride plate DN 50")).toBeVisible();
@@ -1540,5 +1557,166 @@ describe("consultation of suppliers", () => {
     await user.click(screen.getByRole("button", { name: "Voir l’original" }));
     const original = await screen.findByRole("dialog", { name: "Original de la demande" });
     expect(within(original).getByText("Pas de photo de l’original.")).toBeVisible();
+  });
+});
+
+describe("the member's message template and the retouch before copying (TI-691)", () => {
+  beforeEach(() => {
+    storageFromMock.mockReset();
+  });
+  afterEach(() => {
+    cleanup();
+    window.history.replaceState(null, "", window.location.pathname);
+    vi.unstubAllGlobals();
+  });
+
+  const PERSONAL = {
+    message_template: "Bonjour {fournisseur},\n{lignes}\n{livraison}",
+    line_template: "{ligne}. {quantité} {désignation}[ (réf. {référence})]",
+  };
+
+  function created(body: unknown) {
+    const input = body as { supplier_id: string; line_ids: string[]; with_references: boolean; message: string };
+    return {
+      status: 201,
+      data: {
+        item: quote({
+          id: input.supplier_id === ALPHA ? QUOTE_A : input.supplier_id === BETA ? QUOTE_B : QUOTE_G,
+          supplier_id: input.supplier_id,
+          supplier_name: SUPPLIERS.find((entry) => entry.id === input.supplier_id)!.name,
+          with_references: input.with_references,
+          message: input.message,
+          lines: input.line_ids.map((line_id) => ({ line_id, unit_price_ht_cents: null, price_per: 1 })),
+        }),
+      },
+    };
+  }
+
+  it("follows the member's template, and copies and records a retouch exactly as shown (20, 21)", async () => {
+    const user = await openEditor({
+      [TEMPLATES]: { data: { personal: PERSONAL, company: { message_template: "Société {lignes}", line_template: "{désignation}" }, can_edit_company: false } },
+      [`GET ${BASE}`]: { data: detail({ lines: [line(), line(TEE)], request: { delivery_place: "site" } }) },
+      [`GET ${PROPOSALS}`]: references({ [LINE_A]: "NA-4471", [LINE_B]: null }),
+      [`GET ${QUOTES}`]: { data: { items: [] } },
+      [`POST ${QUOTES}`]: created,
+    });
+    const generated = ["Bonjour Négoce Alpha,", "1. 20 u Coude 90° (réf. NA-4471)", "2. 4 u Té égal, DN 50, Inox 316L", "Livraison : chantier"].join("\n");
+    const message = await screen.findByRole("textbox", { name: "Message pour Négoce Alpha" });
+    expect(message).toHaveValue(generated);
+    expect(screen.getByRole("link", { name: "Modifier mon modèle" })).toHaveAttribute("href", "/dashboard/profile#message-consultation");
+    expect(screen.queryByRole("button", { name: "Rétablir le texte généré" })).not.toBeInTheDocument();
+
+    await user.type(message, "\nÀ livrer avant vendredi 🙏");
+    const retouched = `${generated}\nÀ livrer avant vendredi 🙏`;
+    expect(message).toHaveValue(retouched);
+    await user.click(screen.getByRole("button", { name: "Copier le message pour Négoce Alpha" }));
+    expect(await navigator.clipboard.readText()).toBe(retouched);
+    await user.click(screen.getByRole("button", { name: "Rétablir le texte généré" }));
+    expect(message).toHaveValue(generated);
+    await user.type(message, "\nMerci !");
+    await user.click(screen.getByRole("button", { name: "Consultation envoyée à Négoce Alpha" }));
+    await screen.findByText("Consultation envoyée le 12/11/2026.");
+    expect(writes()).toEqual([
+      { method: "POST", path: QUOTES, body: { supplier_id: ALPHA, line_ids: [LINE_A, LINE_B], with_references: true, message: `${generated}\nMerci !` } },
+    ]);
+  });
+
+  it("writes each competitor's own message, and keeps a retouch to its competitor (20, 24)", async () => {
+    const user = await openEditor({
+      [TEMPLATES]: { data: { personal: null, company: { message_template: "Bonjour {fournisseur} :\n{lignes}", line_template: "- {quantité} {désignation}[ réf. {référence}]" }, can_edit_company: false } },
+      [`GET ${BASE}`]: { data: detail({ lines: [line({ reference: "471205" })] }) },
+      [`GET ${PROPOSALS}`]: references({ [LINE_A]: "NA-4471" }),
+      [`GET ${QUOTES}`]: { data: { items: [] } },
+      [`POST ${QUOTES}`]: created,
+    });
+    expect(await screen.findByRole("textbox", { name: "Message pour Négoce Alpha" })).toHaveValue("Bonjour Négoce Alpha :\n- 20 u Coude 90° réf. NA-4471");
+    await user.click(screen.getByRole("button", { name: "Mettre en concurrence les lignes de Négoce Alpha" }));
+    await addCompetitor(user, "Comptoir Bêta");
+    await addCompetitor(user, "Dépôt Gamma");
+    const beta = screen.getByRole("textbox", { name: "Message pour Comptoir Bêta" });
+    const gamma = screen.getByRole("textbox", { name: "Message pour Dépôt Gamma" });
+    expect(beta).toHaveValue("Bonjour Comptoir Bêta :\n- 20 u Coude 90°, DN 50, Inox 316L");
+    expect(gamma).toHaveValue("Bonjour Dépôt Gamma :\n- 20 u Coude 90°, DN 50, Inox 316L");
+
+    // A retouch names the technician's reference: said, not blocked; Gamma's text is not touched.
+    await user.type(beta, " (comme le 471205 et na-4471)");
+    const warning = screen.getByText(/Ce message en concurrence cite une référence connue : 471205, NA-4471/);
+    expect(warning).toBeVisible();
+    expect(gamma).toHaveValue("Bonjour Dépôt Gamma :\n- 20 u Coude 90°, DN 50, Inox 316L");
+    expect(screen.getAllByText(/cite une référence connue/)).toHaveLength(1);
+    await user.click(screen.getByRole("button", { name: "Copier le message pour Comptoir Bêta" }));
+    expect(await navigator.clipboard.readText()).toBe("Bonjour Comptoir Bêta :\n- 20 u Coude 90°, DN 50, Inox 316L (comme le 471205 et na-4471)");
+    await user.click(screen.getByRole("button", { name: "Consultation envoyée à Comptoir Bêta" }));
+    await waitFor(() => expect(writes()).toHaveLength(1));
+    expect(writes()[0].body).toMatchObject({
+      supplier_id: BETA,
+      with_references: false,
+      message: "Bonjour Comptoir Bêta :\n- 20 u Coude 90°, DN 50, Inox 316L (comme le 471205 et na-4471)",
+    });
+  });
+
+  it("refuses to copy or record an empty text and says why; the generated text comes back (21, 22)", async () => {
+    const user = await openEditor({
+      [`GET ${BASE}`]: { data: detail({ lines: [line()] }) },
+      [`GET ${PROPOSALS}`]: references({ [LINE_A]: "NA-4471" }),
+      [`GET ${QUOTES}`]: { data: { items: [] } },
+    });
+    const message = await screen.findByRole("textbox", { name: "Message pour Négoce Alpha" });
+    const generated = (message as HTMLTextAreaElement).value;
+    await user.clear(message);
+    await user.type(message, "   ");
+    expect(screen.getByText("Le message est vide : écrivez-le ou rétablissez le texte généré.")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Copier le message pour Négoce Alpha" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Consultation envoyée à Négoce Alpha" })).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: "Rétablir le texte généré" }));
+    expect(message).toHaveValue(generated);
+    expect(screen.getByRole("button", { name: "Consultation envoyée à Négoce Alpha" })).toBeEnabled();
+    expect(writes()).toEqual([]);
+  });
+
+  it("says that the template cannot be read and offers no message in its place (25)", async () => {
+    let fail = true;
+    const user = await openEditor({
+      [TEMPLATES]: () => (fail ? { status: 500, error: { code: "INTERNAL", message: "Erreur interne." } } : { data: { personal: PERSONAL, company: null, can_edit_company: false } }),
+      [`GET ${BASE}`]: { data: detail({ lines: [line()] }) },
+      [`GET ${PROPOSALS}`]: references({ [LINE_A]: "NA-4471" }),
+      [`GET ${QUOTES}`]: { data: { items: [] } },
+    });
+    expect(await screen.findByText(/Votre modèle de message n’a pas pu être lu/)).toBeVisible();
+    expect(screen.queryByRole("textbox", { name: "Message pour Négoce Alpha" })).not.toBeInTheDocument();
+    fail = false;
+    await user.click(screen.getByRole("button", { name: "Relire le modèle de message" }));
+    expect(await screen.findByRole("textbox", { name: "Message pour Négoce Alpha" })).toHaveValue("Bonjour Négoce Alpha,\n1. 20 u Coude 90° (réf. NA-4471)");
+  });
+});
+
+describe("the message block of one supplier (TI-691)", () => {
+  afterEach(() => cleanup());
+  const free = { sent: null, busyElsewhere: false, unread: null };
+
+  it("keeps a retouch when the generated text changes, and says so with the way back (23)", async () => {
+    const user = userEvent.setup();
+    const onSend = vi.fn(async () => ({ ok: true as const }));
+    const { rerender } = render(<ConsultationMessageBlock supplierName="Négoce Alpha" message={"Bonjour\n- 2 u Coude"} consultation={free} onSend={onSend} />);
+    const message = screen.getByRole("textbox", { name: "Message pour Négoce Alpha" });
+    await user.type(message, " svp");
+    expect(screen.queryByText(/Le texte généré a changé/)).not.toBeInTheDocument();
+    rerender(<ConsultationMessageBlock supplierName="Négoce Alpha" message={"Bonjour\n- 2 u Coude\n- 4 u Té"} consultation={free} onSend={onSend} />);
+    expect(message).toHaveValue("Bonjour\n- 2 u Coude svp");
+    expect(screen.getByText(/Le texte généré a changé depuis votre retouche/)).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Consultation envoyée à Négoce Alpha" }));
+    expect(onSend).toHaveBeenCalledWith("Bonjour\n- 2 u Coude svp");
+    await user.click(screen.getByRole("button", { name: "Rétablir le texte généré" }));
+    expect(message).toHaveValue("Bonjour\n- 2 u Coude\n- 4 u Té");
+    expect(screen.queryByText(/Le texte généré a changé/)).not.toBeInTheDocument();
+  });
+
+  it("shows a text over the recorded bound whole, says it, and offers neither copy nor record (22)", () => {
+    const long = `${"x".repeat(MATERIAL_REQUEST_QUOTE_MESSAGE_MAX)}y`;
+    render(<ConsultationMessageBlock supplierName="Négoce Alpha" message={long} consultation={free} onSend={vi.fn()} />);
+    expect((screen.getByRole("textbox", { name: "Message pour Négoce Alpha" }) as HTMLTextAreaElement).value).toHaveLength(long.length);
+    expect(screen.getByText(/Le message dépasse 262 144 caractères/)).toBeVisible();
+    expect(screen.getByRole("button", { name: "Copier le message pour Négoce Alpha" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Consultation envoyée à Négoce Alpha" })).toBeDisabled();
   });
 });

@@ -77,6 +77,11 @@ import type { PurchaseOrderPricePer } from "@/lib/purchase-orders/line-kinds";
 import type { PurchaseOrderSent } from "@/lib/purchase-orders/send";
 import { sendPurchaseOrderSchema } from "@/lib/purchase-orders/send-contracts";
 import {
+  consultationTemplateInputSchema,
+  type ConsultationTemplateRecord,
+  type ConsultationTemplates,
+} from "@/lib/material-requests/consultation-template-contracts";
+import {
   jsonBody, jsonResponse, pathParameter, queryParameter, schemaDefinition,
   successResponseSchemaDefinition, type OpenApiOperationDefinition, type OpenApiResponseDefinition,
 } from "@/lib/openapi/registry-helpers";
@@ -257,6 +262,20 @@ const writeRefusals = {
   "404": readRefusals["404"],
 };
 
+// TI-691: the consultation message templates, the member's own and the company's (consultation-template.ts).
+const consultationTemplates = "/api/consultation-message-templates";
+const templateRecord: z.ZodType<ConsultationTemplateRecord> = z.object({ message_template: z.string(), line_template: z.string() });
+const templatesRead: z.ZodType<ConsultationTemplates> = z.object({
+  personal: templateRecord.nullable(), company: templateRecord.nullable(), can_edit_company: z.boolean(),
+});
+const templateInput = jsonBody({
+  name: "ConsultationTemplateInput",
+  description: "Les deux textes, enregistrés ensemble. Le message contient {lignes} et la ligne {désignation}, chaque champ une fois au plus ; 2000 et 300 caractères au plus, jamais vides. Ni tenant ni membre : la base les fixe.",
+  schema: consultationTemplateInputSchema,
+});
+const templateInvalid = refusal("CONSULTATION_TEMPLATE_INVALID : modèle vide, trop long, sans {lignes} ou {désignation}, ou avec un champ écrit deux fois ; le message dit quoi corriger. Rien n'est écrit.");
+const templateTags = ["Demandes de matériel"];
+
 const project = pathParameter({ name: "projectId", description: "Affaire du tenant actif.", schemaName: "MaterialRequestProjectId", schema: uuid });
 const requestId = pathParameter({ name: "requestId", description: "Demande de cette affaire.", schemaName: "MaterialRequestId", schema: uuid });
 const lineId = pathParameter({ name: "lineId", description: "Ligne de cette demande.", schemaName: "MaterialRequestLineId", schema: uuid });
@@ -310,6 +329,40 @@ const catalogueEditorRefusals = {
 };
 
 export const materialRequestOperations: OpenApiOperationDefinition[] = [
+  {
+    tags: templateTags, method: "get", path: consultationTemplates, summary: "Lire les modèles du message de consultation",
+    description: "Le modèle personnel de l'appelant dans son tenant actif et le modèle général de l'entreprise (null quand il n'y en a pas), sans leur auteur. Le message suit le modèle personnel, sinon celui de l'entreprise, sinon le message d'origine. can_edit_company : l'appelant administre son tenant actif.",
+    responses: { "200": success("ApiConsultationTemplates", "Modèles en vigueur.", templatesRead) },
+  },
+  {
+    tags: templateTags, method: "put", path: `${consultationTemplates}/personal`, summary: "Enregistrer son modèle de message de consultation",
+    description: "Remplace le modèle personnel de l'appelant dans son tenant actif ; personne d'autre ne le lit ni ne le modifie. Les consultations déjà enregistrées gardent leur texte.",
+    requestBody: templateInput,
+    responses: { "200": success("ApiConsultationTemplatePersonalSaved", "Modèle enregistré.", z.object({ personal: templateRecord })), "400": templateInvalid },
+  },
+  {
+    tags: templateTags, method: "delete", path: `${consultationTemplates}/personal`, summary: "Rétablir le modèle par défaut",
+    description: "Supprime le modèle personnel de l'appelant (sans effet s'il n'y en a pas) : le modèle de l'entreprise s'applique, sinon le message d'origine.",
+    responses: { "200": success("ApiConsultationTemplatePersonalReset", "Modèle personnel supprimé.", z.object({ personal: z.null() })) },
+  },
+  {
+    tags: templateTags, method: "put", path: `${consultationTemplates}/company`, summary: "Enregistrer le modèle de message de l'entreprise",
+    description: "Réservé aux administrateurs du tenant actif (rôle de leur adhésion ; un administrateur global sans ce rôle est refusé). Remplace le modèle général, appliqué aux membres sans modèle personnel ; leurs modèles personnels ne changent pas.",
+    requestBody: templateInput,
+    responses: {
+      "200": success("ApiConsultationTemplateCompanySaved", "Modèle de l'entreprise enregistré.", z.object({ company: templateRecord })),
+      "400": templateInvalid,
+      "403": refusal("TENANT_CONSULTATION_MESSAGE_TEMPLATE_ADMIN_ONLY : seuls les administrateurs du tenant actif modifient son modèle."),
+    },
+  },
+  {
+    tags: templateTags, method: "delete", path: `${consultationTemplates}/company`, summary: "Rétablir le message d'origine pour l'entreprise",
+    description: "Réservé aux administrateurs du tenant actif. Supprime le modèle général (sans effet s'il n'y en a pas) : les membres sans modèle personnel reçoivent le message d'origine.",
+    responses: {
+      "200": success("ApiConsultationTemplateCompanyReset", "Modèle de l'entreprise supprimé.", z.object({ company: z.null() })),
+      "403": refusal("TENANT_CONSULTATION_MESSAGE_TEMPLATE_ADMIN_ONLY : seuls les administrateurs du tenant actif modifient son modèle."),
+    },
+  },
   {
     tags, method: "get", path: base, summary: "Lister les demandes de matériel d'une affaire",
     description: "Demandes de l'affaire, la plus récente d'abord, avec leurs compteurs, les techniciens du tenant et le droit d'écriture de l'appelant.",
