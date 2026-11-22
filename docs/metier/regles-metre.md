@@ -86,10 +86,12 @@ autre réutilisation, et l’identifiant d’un poste d’une autre affaire.
 **Révisions.** Quand le dossier ou le gabarit change, la page propose une révision :
 postes ajoutés, retirés, modifiés et rapprochements possibles. Tous les changements
 s’ouvrent avant d’accepter. Un poste modifié nomme chaque fait qui change, avec sa
-valeur avant et après : unité (celle de la DPGF quand aucune n’est donnée), base de
-mesure, chaque discriminant, référence quantitative, section, référence de la ligne
-DPGF ; un changement des notes de la ligne est signalé, avec les autres, sans leur
-texte, un changement de place aussi. Un rapprochement montre, des deux côtés, ce qui distingue
+valeur avant et après : l’unité dans laquelle chaque côté se mesure (la sienne, sinon
+celle lue sur la ligne DPGF, même non reconnue, sinon « à préciser »), base de
+mesure, chaque discriminant, référence quantitative, section (deux sections de même
+titre distinguées par leur ligne dans la DPGF), référence de la ligne DPGF ; un
+changement des notes de la ligne est signalé, avec les autres, sans leur texte, un
+changement de place aussi. Un rapprochement montre, des deux côtés, ce qui distingue
 deux homonymes : la section et l’origine (ligne, page, référence, version du
 gabarit). Aucun rapprochement n’est coché d’avance. Rien n’est appliqué sans
 « Accepter la révision proposée ». Le serveur recalcule la proposition et refuse

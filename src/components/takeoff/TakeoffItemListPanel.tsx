@@ -9,6 +9,7 @@ import {
   type ItemListRevisionOmissions,
   type ItemListViewPoste as Poste,
 } from "@/lib/takeoff/item-list-server";
+import { itemListChangedFacts } from "@/lib/takeoff/item-list-change-facts";
 import type { ItemListPrepareReason } from "@/lib/takeoff/item-list-sources-server";
 import { workbookRowLabel } from "@/lib/imports/row-location";
 
@@ -85,42 +86,6 @@ function itemFacts(item: Poste | undefined, list: AffaireItemListView, sourceFor
   return [sectionPath(item) || "Sans section", originText(item, list, sourceFormat)].filter(Boolean).join(" · ");
 }
 
-/** Each qualifier's name, and the word for its absence (agreed with the name). */
-const QUALIFIER_LABELS: Record<keyof Poste["qualifiers"], { label: string; none: string }> = {
-  network: { label: "Réseau", none: "aucun" }, material: { label: "Matière", none: "aucune" },
-  diameter: { label: "Diamètre", none: "aucun" }, convention: { label: "Convention", none: "aucune" },
-  scope: { label: "Périmètre", none: "aucun" },
-};
-
-/**
- * What a change of the proposal changes in an item, each fact before and after it: its unit (the DPGF's own unit when
- * neither side gives one), its basis, each qualifier, its reference quantity, its section, its DPGF reference, and its
- * place. A change of the DPGF row's notes, whose text the reader is never sent, is named without it.
- */
-function changedFacts(change: { previous: Poste; current: Poste; moved: boolean; notesChanged: boolean }) {
-  const { previous, current } = change;
-  const facts: string[] = [];
-  const compare = (label: string, before: string, after: string) => {
-    if (before !== after) facts.push(`${label} : ${before} → ${after}`);
-  };
-  const dpgf = (item: Poste) => (item.origin.kind === "dpgf" ? item.origin : null);
-  compare("Unité", previous.expectedUnit ?? "à préciser", current.expectedUnit ?? "à préciser");
-  if (previous.expectedUnit === null && current.expectedUnit === null) {
-    compare("Unité de la DPGF", dpgf(previous)?.sourceUnit ?? "aucune", dpgf(current)?.sourceUnit ?? "aucune");
-  }
-  compare("Base de mesure", previous.measurementBasis ?? "aucune", current.measurementBasis ?? "aucune");
-  for (const [key, { label, none }] of Object.entries(QUALIFIER_LABELS) as Array<[keyof Poste["qualifiers"], { label: string; none: string }]>) {
-    compare(label, previous.qualifiers?.[key] ?? none, current.qualifiers?.[key] ?? none);
-  }
-  const reference = (value: number | null) => (value === null ? "aucune" : referenceFormat.format(value));
-  compare("Référence quantitative", reference(previous.referenceQuantity), reference(current.referenceQuantity));
-  compare("Section", sectionPath(previous) || "Sans section", sectionPath(current) || "Sans section");
-  compare("Référence de la ligne DPGF", dpgf(previous)?.reference ?? "aucune", dpgf(current)?.reference ?? "aucune");
-  if (change.notesChanged) facts.push("Notes de la ligne de la DPGF modifiées");
-  if (change.moved) facts.push("Place dans la liste modifiée");
-  return facts;
-}
-
 function ChangeLine({ change }: { change: { kind: "added" | "removed"; item: Poste } | {
   kind: "changed"; previous: Poste; current: Poste; moved: boolean; notesChanged: boolean;
 } }) {
@@ -129,7 +94,7 @@ function ChangeLine({ change }: { change: { kind: "added" | "removed"; item: Pos
     return <li>{change.kind === "added" ? "Ajouté" : "Retiré"} : {change.item.label}{where ? ` (${where})` : ""}</li>;
   }
   const { previous, current } = change;
-  const facts = changedFacts(change);
+  const facts = itemListChangedFacts(change);
   return (
     <li>
       <span>Modifié : {previous.label === current.label ? current.label : `${previous.label} → ${current.label}`}</span>
