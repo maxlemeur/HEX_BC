@@ -38,6 +38,7 @@ import {
 } from "@/components/takeoff/review/TakeoffReviewChrome";
 import { TAKEOFF_COMPARISON_DEFERRED, TAKEOFF_CROSS_JOB_COMPARISON_LABEL, takeoffApplyReadiness } from "@/lib/takeoff/apply-readiness";
 import { takeoffReviewHref } from "@/lib/takeoff/review-href";
+import { takeoffReviewActiveTab, takeoffReviewMode } from "@/lib/takeoff/review-view";
 import {
   getStatusCss,
   getStatusLabel,
@@ -138,6 +139,12 @@ type TakeoffReviewPageProps = {
   versionId: string | null;
   canEdit?: boolean;
   projectId: string;
+  /**
+   * The job was read against the affaire's list (lot 4): only its comparison of two readings opens here (its other
+   * addresses lead to the table of items), read only — its rows are corrected in the targeted review, its items decided
+   * in the table.
+   */
+  readsItemList?: boolean;
   /** The member and their tenant: the activity of this analysis's request is theirs alone. */
   viewerKey?: string;
 };
@@ -157,6 +164,7 @@ export default function TakeoffReviewPage({
   versionId,
   canEdit = true,
   projectId,
+  readsItemList = false,
   viewerKey = "",
 }: TakeoffReviewPageProps) {
   const toast = useToast();
@@ -170,18 +178,8 @@ export default function TakeoffReviewPage({
   const reviewModeParam = searchParams.get("reviewMode");
   useAssistantScreen({ projectId, screen: { screen: "takeoff_review", versionId: versionId ?? undefined, jobId } });
 
-  const currentReviewMode: ReviewMode = useMemo(() => {
-    if (
-      reviewModeParam === "assisted" ||
-      reviewModeParam === "production" ||
-      reviewModeParam === "validation"
-    ) {
-      return reviewModeParam;
-    }
-    return "validation";
-  }, [reviewModeParam]);
-
-  const isShowingSimplified = currentReviewMode === "assisted";
+  // What the address renders, by the one rule the review link's resolver reads too (review-view.ts).
+  const currentReviewMode: ReviewMode = takeoffReviewMode(reviewModeParam);
 
   const setReviewMode = useCallback(
     (mode: ReviewMode) => {
@@ -218,14 +216,9 @@ export default function TakeoffReviewPage({
   const compareWithParam = searchParams.get("compareWith");
   const thresholdParam = searchParams.get("threshold");
   const dpgfViewParam = searchParams.get("dpgfView");
-  const requestedTab: ViewTab =
-    viewParam === "tables" || viewParam === "items" || viewParam === "compare" || viewParam === "dpgf"
-      ? viewParam
-      : "items";
   const dpgfCompareView: TakeoffDpgfComparisonView =
     dpgfViewParam === "exceptions_only" ? "exceptions_only" : "all";
-  const activeTab: ViewTab = isShowingSimplified || (!versionId && (requestedTab === "dpgf" || requestedTab === "compare"))
-    ? "items" : requestedTab;
+  const activeTab: ViewTab = takeoffReviewActiveTab({ reviewMode: reviewModeParam, view: viewParam, versionId });
 
   const compareWithJobId = useMemo(() => {
     if (!versionId || !compareWithParam) return null;
@@ -915,7 +908,7 @@ export default function TakeoffReviewPage({
 
   const handleApplyDiffSelection = useCallback(
     async (selectedBaseItemIds: string[]) => {
-      if (!canEdit) return;
+      if (!canEdit || readsItemList) return;
       setApplySelectionError(null);
 
       const hasPendingSave = items.some((item) => item._dirty || item._saving);
@@ -977,7 +970,7 @@ export default function TakeoffReviewPage({
         setApplySelectionSubmitting(false);
       }
     },
-    [applyPatchResults, canEdit, items, jobId, nextPatchSequence, toast]
+    [applyPatchResults, canEdit, items, jobId, nextPatchSequence, readsItemList, toast]
   );
 
   const handleExclusionConfirm = useCallback(
@@ -1141,10 +1134,14 @@ export default function TakeoffReviewPage({
             </>
           }
         />
-        <TakeoffReviewModeSwitch
-          mode={currentReviewMode}
-          onModeChange={setReviewMode}
-        />
+        {/* A reading of the list opens here only as its comparison, read only: another mode would render its old
+            editable review (the resolver sends those addresses to the table), so none is offered. */}
+        {readsItemList ? null : (
+          <TakeoffReviewModeSwitch
+            mode={currentReviewMode}
+            onModeChange={setReviewMode}
+          />
+        )}
       </ProductionRibbon>
 
       <div
@@ -1218,6 +1215,15 @@ export default function TakeoffReviewPage({
           onSetCompareWithJobId={setCompareWithJobId}
           onSetCompareThreshold={setCompareThreshold}
           onApplyDiffSelection={handleApplyDiffSelection}
+          compareReadOnlyNote={readsItemList ? (
+            <p role="note" aria-label="Comparaison d’une analyse lue contre la liste des postes">
+              Cette analyse a été lue contre la liste des postes : sa comparaison se consulte sans rien modifier. Corrigez ses
+              lignes dans{" "}
+              <Link className="underline" href={takeoffReviewHref({ projectId, jobId, versionId, targeted: true })}>la revue ciblée</Link>
+              {" "}et décidez de ses postes dans{" "}
+              <Link className="underline" href={`/dashboard/affaires/${projectId}/takeoff`}>le tableau des postes</Link>.
+            </p>
+          ) : undefined}
           applySelectionSubmitting={applySelectionSubmitting}
           applySelectionError={applySelectionError}
           dpgfCompareData={dpgfCompareDetail}

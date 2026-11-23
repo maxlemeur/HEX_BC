@@ -68,6 +68,8 @@ type Props = {
   header?: ReactNode;
   /** Folded explanations, at the foot of the « Repères ». */
   help?: ReactNode;
+  /** Beside the table of items: the affaire's analyses not read against its list (« Analyse antérieure »). */
+  earlier?: ReactNode;
 };
 
 const TABS = [
@@ -151,6 +153,7 @@ function TakeoffActivityCenterView({
   initialHasAnalyses = false,
   header,
   help,
+  earlier,
 }: Props) {
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -520,6 +523,7 @@ function TakeoffActivityCenterView({
       {refused ? null : <TakeoffItemTable projectId={projectId} viewerKey={viewerKey} signature={activitySignature} />}
       {/* Back from an item's detail by the browser: the keyboard on the « Détail » it was opened from. */}
       {refused ? null : <ItemDetailOpenerFocus projectId={projectId} viewerKey={viewerKey} />}
+      {refused ? null : earlier}
 
       {showTracking ? (
         <section className="journey-panel" aria-labelledby="takeoff-tracking-heading">

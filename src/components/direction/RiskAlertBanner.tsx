@@ -11,7 +11,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/components/feedback/toast-provider";
 import type { DirectionSyntheticAlert } from "@/lib/direction/alerts";
 import type { TakeoffRiskStatus } from "@/lib/takeoff/types";
-import { takeoffDpgfExceptionsHref } from "@/lib/takeoff/review-href";
+import { takeoffExceptionsLinkHref } from "@/lib/takeoff/review-link";
 import { cn } from "@/lib/utils";
 
 type Props = {
@@ -41,8 +41,9 @@ function buildAlertHref(alert: DirectionSyntheticAlert) {
   const reviewJobId = alert.latestJobId ?? alert.jobId;
 
   if (reviewJobId) {
-    return takeoffDpgfExceptionsHref({ projectId: alert.projectId, jobId: reviewJobId, versionId: alert.versionId,
-      reviewMode: "validation" });
+    // A latest job read against the list (lot 4): the affaire's items to check in the table of items; others as today.
+    return takeoffExceptionsLinkHref({ projectId: alert.projectId, jobId: reviewJobId, versionId: alert.versionId,
+      reviewMode: "validation", readsList: Boolean(alert.latestJobId && alert.latestJobReadsList) });
   }
 
   return `/dashboard/affaires/${alert.projectId}`;
