@@ -612,6 +612,65 @@ create function pg_temp.choose_quantity(intent integer, source text) returns jso
     jsonb_build_object('kind','plan','plan_logical_id',pg_temp.f(101)), 'quantity_choice',
     jsonb_build_object('source',source,'alternative_quantity',2,'verified_quantity',1)))
 $$;
+-- An entry from an earlier reading competes with the current measured two and verified one.
+-- From the affaire table the member selects the reading's plan before choosing a quantity.
+create function pg_temp.dpgf_choice(start_plan uuid, source_ text, reference_ numeric, with_entry boolean)
+returns jsonb language plpgsql as $$
+declare
+  tenant_ uuid := pg_temp.tenant(); project_ uuid := pg_temp.f(21); item_ uuid := pg_temp.f(310);
+  selected_plan uuid; shown_entry numeric; choice jsonb; reviewed jsonb; result_ jsonb;
+begin
+  begin
+    perform set_config('request.jwt.claims',jsonb_build_object('role','authenticated','sub',pg_temp.f(1))::text,true);
+    perform set_config('request.jwt.claim.sub',pg_temp.f(1)::text,true);
+    -- Set the sealed fixture's reference before the member reads it.
+    set local session_replication_role = replica;
+    update public.takeoff_list_revision_entries set origin_kind='dpgf', origin='{"kind":"dpgf","reference":"01"}',
+      reference_quantity=reference_ where item_id=item_ and revision_id=pg_temp.f(401);
+    set local session_replication_role = origin;
+    if with_entry then
+      insert into public.takeoff_item_review_commands(id,tenant_id,project_id,intent_key,actor_id,gesture,command_sha256,outcome)
+        values(pg_temp.f(7300),tenant_,project_,pg_temp.f(7301),pg_temp.f(1),'enter_quantity',repeat('e',64),'{"outcome":"applied"}');
+      insert into public.takeoff_item_entries(tenant_id,project_id,item_id,plan_logical_id,quantity,unit,category,
+        included,revision,actor_id,entered_at,command_id)
+        values(tenant_,project_,item_,pg_temp.plan_file(21),7,'u','site_survey',true,1,pg_temp.f(1),now(),pg_temp.f(7300));
+    end if;
+    select (r.readings#>>'{0,plan_logical_id}')::uuid,
+      (case when start_plan is null then r.readings#>>'{0,entry,quantity}' else r.entry->>'quantity' end)::numeric
+      into strict selected_plan,shown_entry from public.read_takeoff_item_table(tenant_,project_,start_plan,p_item_ids=>array[item_]) r
+      where r.reference_quantity=reference_ and r.origin_kind='dpgf';
+    if shown_entry is distinct from (case when with_entry then 7 end) then
+      raise exception 'the selected table scope did not show the expected plan entry';
+    end if;
+    select jsonb_set(pg_temp.entry_command_scope(pg_temp.choose_quantity(7302,source_),selected_plan),
+      '{quantity_choice,alternative_quantity}',coalesce(r.entry->'quantity','2'::jsonb)) into strict choice
+      from public.read_takeoff_item_table(tenant_,project_,selected_plan,p_item_ids=>array[item_]) r;
+    reviewed:=public.review_takeoff_items(tenant_,project_,choice);
+    select jsonb_build_array(reviewed->>'outcome',d.quantity_source,
+      (select sum((part->>'quantity')::numeric) from private.takeoff_item_send_resolved_parts(
+        tenant_,project_,pg_temp.job(21),array[2,7]) part where part->>'item_id'=item_::text))
+      into result_ from marked_answer a left join public.takeoff_item_answer_decisions d on d.answer_id=a.id;
+    raise sqlstate 'Z1000';
+  exception when sqlstate 'Z1000' then null;
+  end;
+  return result_;
+end;
+$$;
+select is(pg_temp.dpgf_choice(scope.plan_id,c.source,c.reference,c.with_entry),c.expected,
+  format('%s table, reference %s: %s',scope.label,c.reference,c.description))
+from (values ('plan',pg_temp.plan_file(21)),('affaire',null::uuid)) scope(label,plan_id)
+cross join (values
+  ('entered',7,true,'["applied","entered",7]'::jsonb,'the included seven is within tolerance'),
+  ('entered',2,true,'["stale",null,7]'::jsonb,'the chosen seven exceeds tolerance even when the measure matches'),
+  ('verified_count',7,true,'["stale",null,7]'::jsonb,'the counted one is outside tolerance despite the entry of seven'),
+  ('verified_count',1,true,'["applied","verified_count",1]'::jsonb,'only the counted one matches'),
+  ('measured',7,false,'["stale",null,null]'::jsonb,'the measured two is outside tolerance'),
+  ('measured',2,false,'["applied","measured",2]'::jsonb,'only the measured two matches'),
+  ('measured',2,true,'["stale",null,7]'::jsonb,'the measured two cannot displace a competing included entry')
+) c(source,reference,with_entry,expected,description);
+select throws_ok(format('select * from extensions.dblink(%L,%L) as r(result jsonb)','race_a',
+  pg_temp.review_sql(21,jsonb_set(pg_temp.choose_quantity(7303,'verified_count'),'{scope}','{"kind":"affaire"}'))),
+  '22023','TAKEOFF_ITEM_REVIEW_INVALID','a choice from the affaire table still requires a specific plan');
 -- Retaining the measure explicitly, or accepting a measure that already equals
 -- the verified count, keeps the contribution as the measured observation.
 create function pg_temp.keep_measure(equal_count boolean) returns jsonb language plpgsql as $$

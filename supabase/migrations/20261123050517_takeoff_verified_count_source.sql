@@ -396,8 +396,6 @@ begin
         ((l.state = 'measured' and l.scope_entry_id is null)
           or (source_choice is not null and l.state in ('not_found','uncertain','measured')
             and (chosen_source = 'verified_count' or l.scope_entry_id is not null)))
-        and (chosen_source is distinct from 'verified_count' or l.reference_quantity is null or l.reference_quantity < 0
-          or not private.takeoff_quantity_requires_review(l.reference_quantity, (source_choice ->> 'verified_quantity')::numeric))
         and exists (select 1 from pg_temp.takeoff_review_pairs p where p.item_id = x.item_id
           and (p.decision_effective = 'none' or (source_choice is not null and p.decision_effective = 'accepted')) and (source_choice is not null or p.plan_entry_id is null))
         and not exists (select 1 from pg_temp.takeoff_review_pairs p
@@ -408,20 +406,30 @@ begin
             and pg_catalog.cardinality(private.takeoff_item_row_anomalies(p.outcome, p.reason_code, i.id is not null,
               i.is_excluded, i.rules_stale, i.rule_results, i.confidence, threshold, i.evidence, i.source_page, i.metadata,
               i.quantity_entry_category, i.unit, l.expected_unit)) > 0)
-        and (select pg_catalog.count(distinct private.takeoff_unit_token(q.unit)) <= 1
-            and (chosen_source is not distinct from 'verified_count' or l.reference_quantity is null or l.reference_quantity < 0 or pg_catalog.count(*) = 0
+        -- Compare the DPGF reference to the selected source under lock. Only an ordinary
+        -- acceptance combines the scoped pairs' entries and measured contributions.
+        and (select (source_choice is null or pg_catalog.count(*) > 0)
+            and pg_catalog.count(distinct private.takeoff_unit_token(q.unit)) <= 1
+            and (l.reference_quantity is null or l.reference_quantity < 0 or pg_catalog.count(*) = 0
               or not private.takeoff_quantity_requires_review(l.reference_quantity,
                 private.takeoff_item_total(pg_catalog.array_agg(q.quantity))))
           from (
             select e.quantity, e.unit from pg_temp.takeoff_review_pairs p
-            join public.takeoff_item_entries e on e.id = p.plan_entry_id
+            join public.takeoff_item_entries e on e.tenant_id = p_tenant_id and e.project_id = p_project_id
+              and e.item_id = p.item_id and e.plan_logical_id = p.plan_logical_id
             where p.item_id = x.item_id and p.decision_effective <> 'set_aside' and e.included
+              and (chosen_source = 'entered' or (source_choice is null and p.plan_entry_id is not null))
             union all
             select i.quantity, i.unit from pg_temp.takeoff_review_pairs p
             join public.takeoff_item_answer_observations o on o.answer_id = p.answer_id and o.role = 'contribution'
             join public.takeoff_items i on i.id = o.takeoff_item_id and i.tenant_id = p_tenant_id
-            where p.item_id = x.item_id and p.decision_effective <> 'set_aside' and p.plan_entry_id is null
-              and p.outcome = 'measured' and not i.is_excluded
+            where p.item_id = x.item_id and p.decision_effective <> 'set_aside' and p.outcome = 'measured' and not i.is_excluded
+              and (chosen_source = 'measured' or (source_choice is null and p.plan_entry_id is null))
+            union all
+            select (marks ->> 'quantity')::numeric, marks ->> 'unit' from pg_temp.takeoff_review_pairs p
+            cross join lateral private.takeoff_verified_count(p.answer_id) marks
+            where chosen_source = 'verified_count' and p.item_id = x.item_id and p.decision_effective <> 'set_aside'
+              and marks is not null
           ) q))
       when 'set_aside' then not exists (select 1 from pg_temp.takeoff_review_pairs p where p.item_id = x.item_id
         and p.decision_effective <> 'set_aside')
