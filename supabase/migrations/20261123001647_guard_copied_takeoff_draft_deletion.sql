@@ -8,6 +8,7 @@ security definer
 set search_path = ''
 as $$
 declare
+  owned_jobs uuid[];
   holder_count bigint;
   version_names text;
   versions jsonb;
@@ -24,30 +25,48 @@ begin
     return old;
   end if;
 
-  -- BEFORE DELETE already owns the source tuple, the same one duplication locks.
-  -- Read the holders after that wait, without acquiring any higher-ranked row lock.
-  with holding_ids as (
-    select distinct i.version_id
-    from public.takeoff_jobs j
-    join public.estimate_items i on i.source_job_id = j.id and i.tenant_id = j.tenant_id
-    where j.estimate_version_id = old.id and j.tenant_id = old.tenant_id and j.project_id = old.project_id
-      and i.version_id <> old.id
-  ), named as (
-    select v.id, v.version_number, v.updated_at,
-      concat('V', v.version_number,
-        case when v.variant_label is not null then ' · variante ' || v.variant_label end,
-        case when nullif(btrim(v.title), '') is not null then ' — ' || left(btrim(v.title), 64) end) as name,
-      count(*) over () as total, bool_and(v.status = 'draft') over () as all_drafts
-    from holding_ids h join public.estimate_versions v on v.id = h.version_id
-    where v.tenant_id = old.tenant_id and v.project_id = old.project_id
-    order by v.version_number desc, v.updated_at desc, v.id
-    limit 5
-  )
-  select max(n.total), bool_and(n.all_drafts),
-    jsonb_agg(jsonb_build_object('id', n.id, 'name', n.name) order by n.version_number desc, n.updated_at desc, n.id),
-    string_agg('« ' || n.name || ' »', ', ' order by n.version_number desc, n.updated_at desc, n.id)
-  into holder_count, all_drafts, versions, version_names
-  from named n;
+  -- DELETE already holds the source version. An engine-2 section copy takes KEY SHARE
+  -- on its line's direct job through the FK; a batch takes SHARE on the job and its link.
+  select array(
+    select j.id from public.takeoff_jobs j
+    where j.tenant_id = old.tenant_id and j.project_id = old.project_id and j.estimate_version_id = old.id
+    order by j.id for update
+  ) into owned_jobs;
+
+  if cardinality(owned_jobs) > 0 then
+    perform l.id from public.takeoff_version_links l
+    where l.tenant_id = old.tenant_id and l.takeoff_job_id = any(owned_jobs)
+    order by l.id for update;
+
+    -- This statement gets a fresh READ COMMITTED snapshot after any writer we waited for.
+    -- A confirmed accumulation names its latest job in the FK, and its earlier items in JSON.
+    with named as (
+      select v.id, v.version_number, v.updated_at,
+        concat('V', v.version_number,
+          case when v.variant_label is not null then ' · variante ' || v.variant_label end,
+          case when nullif(btrim(v.title), '') is not null then ' — ' || left(btrim(v.title), 64) end) as name,
+        count(*) over () as total, bool_and(v.status = 'draft') over () as all_drafts
+      from public.estimate_versions v
+      where v.tenant_id = old.tenant_id and v.project_id = old.project_id and v.id <> old.id
+        and exists (
+          select 1 from public.estimate_items i
+          where i.tenant_id = v.tenant_id and i.version_id = v.id
+            and i.item_type = 'line' and i.source_job_id is not null
+            and (i.source_job_id = any(owned_jobs) or exists (
+              select 1 from unnest(private.takeoff_estimate_line_item_ids(i.source_metadata, i.source_job_id)) as source(id)
+              join public.takeoff_items ti on ti.id = source.id and ti.tenant_id = i.tenant_id
+              where ti.job_id = any(owned_jobs)
+            ))
+        )
+      order by v.version_number desc, v.updated_at desc, v.id
+      limit 5
+    )
+    select max(n.total), bool_and(n.all_drafts),
+      jsonb_agg(jsonb_build_object('id', n.id, 'name', n.name) order by n.version_number desc, n.updated_at desc, n.id),
+      string_agg('« ' || n.name || ' »', ', ' order by n.version_number desc, n.updated_at desc, n.id)
+    into holder_count, all_drafts, versions, version_names
+    from named n;
+  end if;
 
   -- Nulling the lineage of an issued variant would invalidate its sealed offer.
   select v.id, format('V%s · variante %s', v.version_number, v.variant_label) as name

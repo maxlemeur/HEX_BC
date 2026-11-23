@@ -79,6 +79,127 @@ select count(*) from dblink_get_result('draft_copy',false) as d(id uuid);
 select is((select count(*) from public.estimate_versions where project_id='dd730000-0000-4000-8000-000000000010'),
   2::bigint,'only the first source and its copy survive');
 
+-- Each writer has its own source and an empty target in this affaire, in both commit orders.
+\ir ../fixtures/estimate-section-copy-payload.sql
+create function pg_temp.rid(n integer) returns uuid language sql immutable as $$
+  select ('dd730000-0000-4000-8000-' || lpad(n::text, 12, '0'))::uuid
+$$;
+select dblink_exec('draft_copy','reset role; reset request.jwt.claim.sub; begin');
+select dblink_exec('draft_copy',format($fixture$
+  insert into public.estimate_versions(id,tenant_id,project_id,version_number,status,calc_engine_version,margin_multiplier,tax_rate_bp)
+  select %1$L,p.tenant_id,p.id,%2$s,'draft',2,1,0 from public.estimate_projects p where p.id=%3$L;
+  insert into public.estimate_items(id,tenant_id,version_id,item_type,position,title)
+  select %4$L,tenant_id,id,'section',1,'Sanitaires' from public.estimate_versions where id=%1$L;
+  insert into public.draft_locks(version_id,user_id,tenant_id,expires_at,session_id)
+  select v.id,%5$L,v.tenant_id,now()+interval '30 minutes',%6$L from public.estimate_versions v where v.id=%1$L;
+$fixture$,pg_temp.rid(n),n,pg_temp.rid(10),pg_temp.rid(n+300),pg_temp.rid(1),pg_temp.rid(55)))
+from generate_series(101,111) n;
+
+select dblink_exec('draft_copy',format($fixture$
+  insert into public.takeoff_jobs(id,tenant_id,estimate_version_id,level,created_by,status)
+  select %1$L,tenant_id,id,'A',%2$L,'completed' from public.estimate_versions where id=%3$L;
+  insert into public.takeoff_items(id,tenant_id,job_id,designation,quantity,unit,confidence)
+  select %4$L,tenant_id,id,'Lavabo',%5$s,'u',1 from public.takeoff_jobs where id=%1$L;
+  insert into public.estimate_items(tenant_id,version_id,parent_id,item_type,position,title,source_provider,source_job_id,
+    quantity,unit_price_ht_cents,tax_rate_bp,k_fo,h_mo,k_mo,pu_ht_cents,line_total_ht_cents,line_tax_cents,line_total_ttc_cents)
+  select tenant_id,estimate_version_id,%6$L,'line',1,'Lavabo','takeoff',id,%5$s,0,0,1,0,1,0,0,0,0
+  from public.takeoff_jobs where id=%1$L;
+$fixture$,pg_temp.rid(n+100),pg_temp.rid(1),pg_temp.rid(n),pg_temp.rid(n+500),
+  case when n=111 then 2 else 3 end,pg_temp.rid(n+300)))
+from generate_series(101,111,2) n;
+
+select dblink_exec('draft_copy',format($fixture$
+  insert into public.takeoff_version_links(tenant_id,takeoff_job_id,source_version_id,target_version_id,linked_by)
+  select tenant_id,id,estimate_version_id,%L,%L from public.takeoff_jobs where id=%L;
+$fixture$,pg_temp.rid(n+1),pg_temp.rid(1),pg_temp.rid(n+100))) from (values (103),(107)) batch(n);
+
+-- The same persisted A+B line that takeoff-send-outcome obtains with two real confirmations.
+select dblink_exec('draft_copy',format($fixture$
+  update public.estimate_items set quantity=5,source_job_id=%1$L,
+    source_metadata=jsonb_build_object('takeoff_contributions',jsonb_build_object(
+      'job_id',%1$L::uuid,'item_ids',jsonb_build_array(%2$L::uuid,%3$L::uuid)))
+  where version_id=%4$L and item_type='line';
+$fixture$,pg_temp.rid(211),pg_temp.rid(609),pg_temp.rid(611),pg_temp.rid(109)));
+select dblink_exec('draft_copy',$auth$commit; set request.jwt.claim.sub='dd730000-0000-4000-8000-000000000001';
+  set role authenticated;$auth$);
+
+create function pg_temp.section_command(n integer) returns text language sql volatile as $$
+  select format('select public.copy_estimate_items_atomic(%L,%L,%L::jsonb)',pg_temp.rid(n+1),pg_temp.rid(55),
+    pg_temp.cp29_copy(pg_temp.rid(n+300),pg_temp.rid(n+1),2))
+$$;
+create function pg_temp.batch_command(n integer) returns text language sql as $$
+  select format($batch$
+    select public.commit_estimate_batch(v.id,gen_random_uuid(),v.updated_at,%1$L,
+      jsonb_build_array(jsonb_build_object('op','create','data',jsonb_build_object('item_type','line','parent_id',%2$L::uuid,
+        'title','Lavabo','quantity',3,'source_provider','takeoff','source_job_id',%3$L::uuid))),
+      jsonb_build_array(jsonb_build_object('index',0,'id',%4$L::uuid)),
+      jsonb_build_array(jsonb_build_object('id',%4$L::uuid,'pu_ht_cents',0,'line_total_ht_cents',0,
+        'line_tax_cents',0,'line_total_ttc_cents',0)),
+      '{"total_ht_cents":0,"total_tax_cents":0,"total_ttc_cents":0}',
+      '{"labor_roles":[],"margin_tiers":[],"labor_split_flag":null}',null)
+    from public.estimate_versions v where v.id=%5$L
+  $batch$,pg_temp.rid(55),pg_temp.rid(n+301),pg_temp.rid(n+100),pg_temp.rid(n+700),pg_temp.rid(n+1))
+$$;
+create function pg_temp.delete_command(n integer) returns text language sql as $$
+  select format('delete from public.estimate_versions where id=%L',pg_temp.rid(n))
+$$;
+
+create function pg_temp.writer_first(n integer, writer text, command text) returns setof text language plpgsql as $$
+declare
+  receipt jsonb;
+begin
+  perform dblink_exec('draft_copy','begin');
+  select result into receipt from dblink('draft_copy',command) as written(result jsonb);
+  return next ok(coalesce((receipt->>'committed')::boolean,(receipt->>'item_count')::int=2,false),writer || ' writes the line');
+  perform dblink_send_query('draft_delete',pg_temp.delete_command(n) || ' returning id');
+  return next ok(pg_temp.blocked('draft_delete','draft_copy'),'deletion waits for ' || writer);
+  perform dblink_exec('draft_copy','commit');
+  perform id from dblink_get_result('draft_delete',false) as removed(id uuid);
+  return next matches(dblink_error_message('draft_delete'),'ESTIMATE_DRAFT_TAKEOFF_IN_USE',writer || ' holds its source');
+  perform id from dblink_get_result('draft_delete',false) as removed(id uuid);
+  return next results_eq(format('select source_job_id,quantity from public.estimate_items where version_id=%L and item_type=''line''',
+    pg_temp.rid(n+1)),format('values (%L::uuid,3::numeric)',pg_temp.rid(n+100)),writer || ' retains its analysis and quantity');
+end
+$$;
+select * from pg_temp.writer_first(101,'section copy',pg_temp.section_command(101));
+select * from pg_temp.writer_first(103,'editor batch',pg_temp.batch_command(103));
+
+-- Both writers prepared their payload before the deletion.
+create temp table pending_section as select pg_temp.section_command(105) as command;
+select dblink_exec('draft_delete','begin');
+select is(dblink_exec('draft_delete',pg_temp.delete_command(105)),'DELETE 1','delete first, before the section copy');
+select dblink_send_query('draft_copy',(select command from pending_section));
+select ok(pg_temp.blocked('draft_copy','draft_delete'),'the section FK waits for the deletion');
+select dblink_exec('draft_delete','commit');
+select count(*) from dblink_get_result('draft_copy',false) as written(receipt jsonb);
+select matches(dblink_error_message('draft_copy'),'estimate_items_source_job_id_fkey','committed deletion rejects the section copy');
+select count(*) from dblink_get_result('draft_copy',false) as written(receipt jsonb);
+
+select dblink_exec('draft_delete','begin');
+select is(dblink_exec('draft_delete',pg_temp.delete_command(107)),'DELETE 1','delete first, before the editor save');
+select is((select receipt #>> '{results,0,code}' from dblink('draft_copy',pg_temp.batch_command(107)) as written(receipt jsonb)),
+  'ESTIMATE_BATCH_STALE','the editor reports its NOWAIT conflict while the deletion is open');
+select dblink_exec('draft_delete','commit');
+select results_eq($q$select receipt->>'committed',receipt #>> '{results,0,code}'
+  from dblink('draft_copy',pg_temp.batch_command(107)) as written(receipt jsonb)$q$,
+  $$values ('false'::text,'ESTIMATE_BATCH_INVALID_INPUT'::text)$$,'after deletion the editor rejects the missing analysis');
+select is((select count(*) from public.estimate_items where version_id in(pg_temp.rid(106),pg_temp.rid(108)) and item_type='line'),
+  0::bigint,'neither losing writer leaves a measured line');
+
+-- Known limit until analyses outlive their drafts: the section FK locks B; A occurs only in JSON.
+select dblink_exec('draft_copy','begin');
+select is((select (receipt->>'item_count')::int from dblink('draft_copy',pg_temp.section_command(109)) as written(receipt jsonb)),
+  2,'copy the source section with the A+B line while A still exists');
+select is(dblink_exec('draft_delete',pg_temp.delete_command(109)),'DELETE 1','known limit: metadata alone does not lock A');
+select dblink_exec('draft_copy','commit');
+select results_eq($q$select i.quantity,i.source_job_id,cardinality(s.ids),
+    (select count(*) from public.takeoff_items ti where ti.id=any(s.ids)),
+    exists(select 1 from public.takeoff_jobs j where j.id=pg_temp.rid(209))
+  from public.estimate_items i cross join lateral(select private.takeoff_estimate_line_item_ids(i.source_metadata,i.source_job_id) as ids) s
+  where i.version_id=pg_temp.rid(110) and i.item_type='line'$q$,
+  $$select 5::numeric,pg_temp.rid(211),2,1::bigint,false$$,
+  'known limit: five units survive the concurrent copy with only B resolvable');
+
 select dblink_exec('draft_copy','reset role');
 select dblink_exec('draft_copy',$cleanup$
 begin;

@@ -746,6 +746,56 @@ select results_eq($$select count(*),sum(quantity) from public.estimate_items
 rollback to before_source_removal;
 reset role;
 
+-- The last send owns the direct FK. The real page reader still sees each earlier
+-- measurement in the accumulation's contributions.
+select pg_temp.plan(969,970,950,12);
+select pg_temp.prepare(950,12,6,970,3);
+select pg_temp.admit(971,950,969,12,6);
+select pg_temp.measure(972,971,12,970,'Lavabo',2,'u');
+insert into public.draft_locks(version_id,user_id,tenant_id,expires_at,session_id)
+select id, pg_temp.fx(6),pg_temp.fx(12),now()+interval '30 minutes',gen_random_uuid() from page_copy;
+drop table if exists pg_temp._takeoff_apply_source, pg_temp._takeoff_apply_created_ids, pg_temp._takeoff_apply_matches, pg_temp._takeoff_apply_unmatched;
+insert into commands select 'consolidate', pg_temp.command(971,jsonb_build_object('kind','existing_draft','version_id',l.version_id),
+jsonb_build_object('kind','existing','id',l.parent_id),jsonb_build_array(jsonb_build_object('takeoff_item_id',pg_temp.fx(972),'estimate_item_id',l.id,
+'expected_updated_at',l.updated_at,'expected_quantity',l.quantity))) from public.estimate_items l where l.version_id=(select id from page_copy) and l.item_type='line';
+select pg_temp.sign_in(6);
+set local role authenticated;
+select pg_temp.confirm('consolidate');
+reset role;
+select is((select quantity from public.estimate_items where version_id=(select id from page_copy) and item_type='line'),5::numeric,'B accumulated two into the three from A');
+select results_eq($$select source_job_id,source_metadata #> '{takeoff_contributions,item_ids}' from public.estimate_items where version_id=(select id from page_copy) and item_type='line'$$,
+$$select pg_temp.fx(971),jsonb_build_array(pg_temp.fx(954),pg_temp.fx(972))$$,'stored column names B and both takeoff items are recorded');
+drop table if exists pg_temp._takeoff_apply_source, pg_temp._takeoff_apply_created_ids, pg_temp._takeoff_apply_matches, pg_temp._takeoff_apply_unmatched;
+insert into commands select 'before-A', pg_temp.command(955,jsonb_build_object('kind','existing_draft','version_id',id),pg_temp.new_section(978)) from page_copy;
+set local role authenticated;
+select is((select pg_temp.run(body || jsonb_build_object('request_id',gen_random_uuid())) #>> '{error,code}' from commands where name='before-A'),'TAKEOFF_PAGE_ALREADY_APPLIED','A is protected before removal');
+select throws_like($$delete from public.estimate_versions where id=pg_temp.fx(957)$$,'%ESTIMATE_DRAFT_TAKEOFF_IN_USE%','a retained contribution from A protects its source');
+reset role;
+drop table if exists pg_temp._takeoff_apply_source, pg_temp._takeoff_apply_created_ids, pg_temp._takeoff_apply_matches, pg_temp._takeoff_apply_unmatched;
+insert into commands select 'after-A', pg_temp.command(955,jsonb_build_object('kind','existing_draft','version_id',id),pg_temp.new_section(979)) from page_copy;
+set local role authenticated;
+create temp table after_a as select pg_temp.run(body || jsonb_build_object('request_id',gen_random_uuid())) as result from commands where name='after-A';
+select is((select result #>> '{error,code}' from after_a),'TAKEOFF_PAGE_ALREADY_APPLIED','A is still protected after trying to delete it');
+select pg_temp.confirm('after-A',result->'outcome') from after_a where result ? 'outcome';
+reset role;
+select is((select sum(quantity) from public.estimate_items where version_id=(select id from page_copy) and item_type='line'),5::numeric,'the accumulated line and page reread total five');
+
+rollback to before_source_removal;
+reset role;
+
+-- The copied section can keep its source after all measured children were removed.
+set local role authenticated;
+update public.estimate_items set source_provider='takeoff',source_job_id=pg_temp.fx(953)
+where version_id=(select id from page_copy) and item_type='section';
+delete from public.estimate_items where version_id=(select id from page_copy) and item_type='line';
+reset role;
+select is((select (private.takeoff_page_contributions(id, pg_temp.fx(955))->>'other_takeoff_line_count')::int from page_copy),0,'section carries zero page contributions');
+set local role authenticated;
+select lives_ok($$delete from public.estimate_versions where id=pg_temp.fx(957)$$, 'section alone permits source deletion');
+
+rollback to before_source_removal;
+reset role;
+
 -- Foreign references are not dependencies of this affaire. Seed the two out-of-scope
 -- references as the fixture owner; the DELETE itself is still the original engineer's.
 select pg_temp.affaire(960,10,1,'Autre entreprise');
@@ -767,6 +817,46 @@ with removed as (
 )
 select is(count(*), 1::bigint, 'neither another affaire nor another tenant holds the source') from removed;
 reset role;
+
+
+rollback to before_source_removal;
+reset role;
+
+-- Known limit pending the engine-2 cross-affaire section-copy fix. The owner imports
+-- a real section into a second affaire containing identical bytes of the plan.
+\ir ../fixtures/estimate-section-copy-payload.sql
+select pg_temp.affaire(974,12,6,'Other project within same tenant');
+select pg_temp.plan(975,976,974,12);
+create or replace function pg_temp.hash(p_file integer) returns text language sql immutable as $$
+  select encode(sha256(convert_to('plan fictif ' || (case when p_file=976 then 952 else p_file end), 'UTF8')), 'hex') $$;
+select pg_temp.prepare(974,12,6,976,1);
+select pg_temp.admit(977,974,975,12,6);
+select pg_temp.measure(978,977,12,976,'Lavabo',3,'u');
+insert into public.estimate_versions(id,tenant_id,project_id,version_number,status,calc_engine_version,margin_multiplier,tax_rate_bp)
+values(pg_temp.fx(9740),pg_temp.fx(12),pg_temp.fx(974),1,'draft',2,1,0);
+insert into public.draft_locks(version_id,user_id,tenant_id,expires_at,session_id) values
+(pg_temp.fx(9740),pg_temp.fx(6),pg_temp.fx(12),now()+interval '30 minutes',pg_temp.fx(9741));
+select pg_temp.sign_in(6);
+set local role authenticated;
+select public.copy_estimate_items_atomic(pg_temp.fx(9740),pg_temp.fx(9741),pg_temp.cp29_copy((select parent_id from public.estimate_items where version_id=pg_temp.fx(957) and item_type='line'),pg_temp.fx(9740),1));
+delete from public.estimate_versions where id=(select id from page_copy);
+reset role;
+drop table if exists pg_temp._takeoff_apply_source, pg_temp._takeoff_apply_created_ids, pg_temp._takeoff_apply_matches, pg_temp._takeoff_apply_unmatched;
+insert into commands values('before-cross',pg_temp.command(977,pg_temp.draft(9740),pg_temp.new_section(9742)));
+set local role authenticated;
+select is((select pg_temp.run(body || jsonb_build_object('request_id',gen_random_uuid())) #>> '{error,code}' from commands where name='before-cross'),'TAKEOFF_PAGE_ALREADY_APPLIED','same plan bytes in the other affaire are recognized before deletion');
+delete from public.estimate_versions where id=pg_temp.fx(957);
+reset role;
+drop table if exists pg_temp._takeoff_apply_source, pg_temp._takeoff_apply_created_ids, pg_temp._takeoff_apply_matches, pg_temp._takeoff_apply_unmatched;
+insert into commands values('after-cross',pg_temp.command(977,pg_temp.draft(9740),pg_temp.new_section(9743)));
+set local role authenticated;
+create temp table cross_after as select pg_temp.run(body || jsonb_build_object('request_id',gen_random_uuid())) as result from commands where name='after-cross';
+select ok((select result ? 'outcome' from cross_after),
+  'known limit: engine 2 accepts the same page in the other affaire once the source is gone');
+select pg_temp.confirm('after-cross', result->'outcome') from cross_after where result ? 'outcome';
+reset role;
+select is((select sum(quantity) from public.estimate_items where version_id=pg_temp.fx(9740) and item_type='line'),6::numeric,
+  'known limit: the cross-affaire section and the second confirmation each count three washbasins');
 
 select * from finish();
 rollback;

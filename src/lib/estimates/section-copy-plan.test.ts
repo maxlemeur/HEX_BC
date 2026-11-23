@@ -142,3 +142,25 @@ describe("TI-682 v3 section copy of an excluded line", () => {
     expect(Object.hasOwn(operation.data, "was_not_priced")).toBe(false);
   });
 });
+
+// Lot 4 (copy of a draft fed by item): a line a send by item fed counts as such only with the live target the send wrote
+// for it. A section copied into a draft (duplicated, or imported from another version) brings the member's own lines:
+// the copy keeps the line's import provenance and drops the item-send marker, so the copy is an ordinary line for the
+// send by item (its writer, its page guard, its preview) and for today's writers.
+describe("lot 4 v3 section copy of a line a send by item fed", () => {
+  it("keeps the import provenance and drops the item-send marker, in the same version and from another one", () => {
+    for (const sameVersion of [true, false]) {
+      const source = item({ source_provider: "takeoff", source_metadata: { import_id: "import-1", mapped_row_id: "row-1",
+        takeoff_item_send: { version: 1, item_id: "item-1", compartment_key: "together", breakdown: "together" } } });
+      const plan = planV3SectionCopy({ payload: [{ ...source, id: "copy-line", source_metadata: source.source_metadata ?? {} }],
+        sourceIdByNewId: new Map([["copy-line", source.id]]), sourceItemsById: new Map([[source.id, source]]),
+        sourceIsV3: true, sameVersion });
+      expect(plan.createdIds).toEqual([{ index: 0, id: "copy-line", source_metadata: { import_id: "import-1", mapped_row_id: "row-1" } }]);
+    }
+    const marked = item({ source_metadata: { takeoff_item_send: { version: 1, item_id: "item-1" } } });
+    const bare = planV3SectionCopy({ payload: [{ ...marked, id: "copy-line", source_metadata: marked.source_metadata ?? {} }],
+      sourceIdByNewId: new Map([["copy-line", marked.id]]), sourceItemsById: new Map([[marked.id, marked]]),
+      sourceIsV3: true, sameVersion: true });
+    expect(bare.createdIds).toEqual([{ index: 0, id: "copy-line" }]);
+  });
+});

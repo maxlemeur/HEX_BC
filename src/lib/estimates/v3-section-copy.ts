@@ -69,11 +69,16 @@ function compact<T extends Record<string, unknown>>(data: T): T {
   return Object.fromEntries(Object.entries(data).filter(([key, value]) => value !== undefined && (value !== null || key === "fo_price_origin"))) as T;
 }
 
-/** Provenance d'import de l'élément copié (`_timax_provenance`, `sourceDocumentId`, import, ligne mappée), si elle existe. */
+/**
+ * Provenance d'import de l'élément copié (`_timax_provenance`, `sourceDocumentId`, import, ligne mappée), si elle existe.
+ * Lot 4 : la marque de l'envoi par poste (`takeoff_item_send`) ne compte qu'avec la cible vivante que l'envoi a écrite
+ * pour cette ligne-là ; une ligne copiée (section dupliquée ou importée d'une autre version) est une ligne du membre,
+ * ordinaire pour l'envoi par poste comme pour les envois d'aujourd'hui : sa marque n'est pas copiée.
+ */
 function sourceMetadataOf(value: unknown): Record<string, unknown> | undefined {
-  return value && typeof value === "object" && !Array.isArray(value) && Object.keys(value).length > 0
-    ? (value as Record<string, unknown>)
-    : undefined;
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const kept = Object.fromEntries(Object.entries(value as Record<string, unknown>).filter(([key]) => key !== "takeoff_item_send"));
+  return Object.keys(kept).length > 0 ? kept : undefined;
 }
 
 function createdId(index: number, id: string, metadata: unknown): EstimateBatchCreatedId {

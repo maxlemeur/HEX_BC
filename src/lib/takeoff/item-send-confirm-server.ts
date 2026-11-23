@@ -73,7 +73,7 @@ const STALE_MESSAGES: Record<string, string> = {
   dpgf_reference_unread: "La quantité du DPGF d’une ligne a changé depuis l’aperçu.",
   page_contributions_changed: "Les pages qu’apporterait l’envoi ne sont plus celles de l’aperçu.",
   sections_changed: "Les sections du devis ont changé depuis l’aperçu.",
-  copy_unread: "Ce brouillon est une copie de lignes envoyées par poste.",
+  copy_unread: "Une ligne de ce brouillon porte la marque d’un envoi par poste sans le détail de ses apports.",
 };
 
 function stale(jobId: string, reason: string | null) {
@@ -123,8 +123,8 @@ export function mapItemSendRpcError(error: ApplyTakeoffRpcError, jobId: string):
       return conflict(jobId, "item_send_draft_lock_required", "Ouvrez ce brouillon dans l’éditeur de devis pour qu’il vous soit réservé, "
         + `puis confirmez de nouveau. ${NOTHING}`, true);
     case "TAKEOFF_ITEM_SEND_COPY_UNREAD":
-      return refused(jobId, "item_send_copy_unread", "Ce brouillon est une copie de lignes envoyées par poste, sans le détail de leurs "
-        + `apports : un nouvel envoi y compterait deux fois. Choisissez un autre brouillon. ${NOTHING}`);
+      return refused(jobId, "item_send_copy_unread", "Une ligne de ce brouillon porte la marque d’un envoi par poste dont le détail "
+        + `des apports est perdu : un nouvel envoi y compterait deux fois. Choisissez un autre brouillon. ${NOTHING}`);
     case "TAKEOFF_ITEM_SEND_DPGF_IMPORT_REQUIRED":
       return refused(jobId, "item_send_dpgf_import_required", "La liste des postes vient du DPGF, mais ce devis n’en contient aucune "
         + `ligne : confirmez d’abord l’import du DPGF depuis les documents de l’affaire. ${NOTHING}`);
@@ -171,11 +171,14 @@ function responseOf(answer: unknown, jobId: string): ItemSendConfirmResponse {
   return parsed.data;
 }
 
-/** The receipt of an intention key, as the member reads it (its policy is the affaire's readers'). */
+/**
+ * The receipt of a send under an intention key, as the member reads it (its policy is the affaire's readers'): a send's
+ * only, never a copy's (a copy of a draft carries its receipts under no intention key).
+ */
 async function readReceipt(ctx: Context, requestId: string, jobId: string): Promise<Receipt | null> {
   const { data, error } = await ctx.supabase.from("takeoff_item_send_receipts" as never)
     .select("id, job_id, project_id, actor_id, write_plan, result" as never).eq("tenant_id" as never, ctx.tenantId as never)
-    .eq("request_id" as never, requestId as never).maybeSingle();
+    .eq("request_id" as never, requestId as never).eq("command_kind" as never, "send" as never).maybeSingle();
   if (error) {
     throw toTakeoffError(mapSupabaseError(error, "Impossible de vérifier l’envoi déjà confirmé."),
       { fallbackCode: TakeoffErrorCode.INTERNAL_ERROR, retryable: false, jobId });
