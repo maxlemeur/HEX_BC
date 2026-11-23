@@ -107678,6 +107678,7 @@
                             "reason": {
                               "type": "string",
                               "enum": [
+                                "copy_history",
                                 "location_unavailable",
                                 "unchanged",
                                 "mixed",

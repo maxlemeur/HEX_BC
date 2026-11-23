@@ -11,6 +11,7 @@ import type { RedistributionOption, RedistributionPreview } from "@/lib/takeoff/
 import { ITEM_SEND_BREAKDOWN_LABELS, type ItemSendBreakdown } from "@/lib/takeoff/item-send-plan";
 
 const reasons: Record<RedistributionPreview["blockers"][number]["reason"], string> = {
+  copy_history: "l’historique de cette copie ne permet pas de vérifier les modifications. La redistribution est bloquée",
   location_unavailable: "ce plan a été remplacé ou sa localisation ne peut plus être lue. La redistribution est bloquée",
   unchanged: "les apports occupent déjà les lignes de ce découpage",
   edited: "ligne modifiée ou chiffrée dans le devis", quantity: "quantité saisie dans le devis",

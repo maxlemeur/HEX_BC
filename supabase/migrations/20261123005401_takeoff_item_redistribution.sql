@@ -238,7 +238,11 @@ declare
 begin
   select * into source from public.takeoff_item_send_receipts r
     where r.id=new.copied_from_receipt_id and r.tenant_id=new.tenant_id and r.project_id=new.project_id;
-  if not found then return new; end if;
+  -- A historical copy has no contemporaneous record of its protected fields.
+  -- Carry that absence forward; a later copy cannot certify the earlier snapshot.
+  if not found or (source.command_kind='copy' and
+    (jsonb_typeof(source.write_plan->'protected_targets') is distinct from 'array' or
+     jsonb_typeof(source.write_plan->'protected_sections') is distinct from 'array')) then return new; end if;
   select coalesce(jsonb_agg(jsonb_build_array(t.item_id,t.breakdown,t.compartment_key) order by t.id),'[]') into protected_targets
   from public.takeoff_item_send_targets t join public.estimate_items i on i.id=t.estimate_item_id
   where t.created_by_receipt_id=source.id and (private.takeoff_redistribution_edited(i) or
@@ -307,7 +311,7 @@ begin
   select private.takeoff_redistribution_used_lines(array_agg(t.estimate_item_id)) into used_lines
     from public.takeoff_item_send_targets t where t.tenant_id=p_tenant and t.version_id=p_version and t.item_id=p_item
       and t.estimate_item_id is not null;
-  for source in select t as target,i as line,r.write_plan as origin_plan,
+  for source in select t as target,i as line,r.write_plan as origin_plan,r.command_kind,
       coalesce(sum(p.quantity),0) raw_quantity,
       coalesce(i.title,(select a.before_data->>'title' from public.audit_logs a
         where a.tenant_id=p_tenant and a.estimate_version_id=p_version and a.table_name='estimate_items' and a.action='DELETE'
@@ -325,6 +329,8 @@ begin
     identity := jsonb_build_array((source.line).title,(source.line).category_id,(source.line).tax_rate_bp,(source.line).k_fo,(source.target).unit_code,(source.target).basis,(source.target).network,(source.target).material,(source.target).diameter);
     if (source.target).breakdown='dpgf' then reason:='dpgf';
     elsif (source.line).id is null then reason:='deleted';
+    elsif source.command_kind='copy' and jsonb_typeof(source.origin_plan->'protected_targets') is distinct from 'array'
+      then reason:='copy_history';
     elsif (source.line).quantity is distinct from private.takeoff_item_send_rounded(source.raw_quantity,
         private.takeoff_item_send_length_factor((source.target).unit_code)) then reason:='quantity';
     elsif (source.line).unit_price_ht_cents is distinct from 0 or (source.line).tax_rate_bp is distinct from version_row.tax_rate_bp
@@ -399,12 +405,14 @@ begin
         (select (x->>'line_id')::uuid from jsonb_array_elements(sources)x)
         union select (x->>'section_id')::uuid from jsonb_array_elements(destinations)x) roots where id is not null
       union select i.parent_id from paths join public.estimate_items i on i.id=paths.id where i.parent_id is not null)
-    select i.id,i.title from paths join public.estimate_items i on i.id=paths.id
+    select i.id,i.title,case when r.command_kind='copy' and jsonb_typeof(r.write_plan->'protected_sections') is distinct from 'array'
+      then 'copy_history' else 'section' end as reason from paths join public.estimate_items i on i.id=paths.id
       left join public.takeoff_item_send_sections s on s.version_id=p_version and s.estimate_item_id=i.id
       left join public.takeoff_item_send_receipts r on r.id=s.receipt_id
-      where s.id is null or s.title<>i.title or private.takeoff_redistribution_edited(i) or r.write_plan->'protected_sections' ? s.section_key order by i.id
+      where (r.command_kind='copy' and jsonb_typeof(r.write_plan->'protected_sections') is distinct from 'array')
+        or s.id is null or s.title<>i.title or private.takeoff_redistribution_edited(i) or r.write_plan->'protected_sections' ? s.section_key order by i.id
   loop
-    blockers:=blockers||jsonb_build_array(jsonb_build_object('reason','section','title',section.title,'line_id',section.id));
+    blockers:=blockers||jsonb_build_array(jsonb_build_object('reason',section.reason,'title',section.title,'line_id',section.id));
   end loop;
   if blockers='[]' and not exists(select 1 from jsonb_array_elements(parts)p join jsonb_array_elements(destinations)d
     on d->>'key'=p->>'key' where d->>'target_id' is distinct from p->>'from_target') then

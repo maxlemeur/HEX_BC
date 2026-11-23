@@ -197,6 +197,34 @@ union all select id,to_jsonb(t) from public.takeoff_item_send_targets t where ve
 union all select id,to_jsonb(p) from public.takeoff_item_send_parts p where version_id=pg_temp.f(30);
 select set_config('request.jwt.claim.sub',pg_temp.f(1)::text,true);
 select set_config('request.jwt.claims',jsonb_build_object('sub',pg_temp.f(1),'role','authenticated')::text,true);
+-- Recreate a #500 copy from before this migration: the physical duplication is
+-- genuine, but its original receipt had no record of the member's protected work.
+savepoint historical_copy;
+set constraints all immediate;
+alter table public.takeoff_item_send_receipts disable trigger takeoff_item_redistribution_copy_protections;
+set local role authenticated;
+create temp table legacy_copy as select public.duplicate_estimate_version(pg_temp.f(30),false) id;
+reset role;
+set constraints all immediate;
+alter table public.takeoff_item_send_receipts enable trigger takeoff_item_redistribution_copy_protections;
+set local role authenticated;
+create temp table legacy_descendant as select public.duplicate_estimate_version(id,false) id from legacy_copy;
+reset role;
+set constraints all deferred;
+insert into public.draft_locks(tenant_id,version_id,user_id,expires_at,session_id)
+  select pg_temp.f(10),id,pg_temp.f(1),clock_timestamp()+interval '10 minutes',gen_random_uuid()
+  from (select id from legacy_copy union all select id from legacy_descendant) versions;
+create temp table legacy_plans as select id,pg_temp.preview_read(pg_temp.f(10),pg_temp.f(1),pg_temp.f(20),id,
+  pg_temp.f(50),'by_level',true) plan from (select id from legacy_copy union all select id from legacy_descendant) versions;
+select is((select count(*) from legacy_plans where plan->'blockers' @> '[{"reason":"copy_history","title":"Lavabo"}]'),
+  2::bigint,'both the legacy copy and its descendant name the line whose edit history cannot be proved');
+select is((select count(*) from legacy_plans p where exists(select 1 from jsonb_array_elements(p.plan->'blockers') b
+  join public.estimate_items i on i.id=(b->>'line_id')::uuid where i.item_type='section' and b->>'reason'='copy_history')),
+  2::bigint,'both copies protect the sections whose history cannot be proved');
+select throws_ok(format('select pg_temp.confirm_read(%L,%L,%L,%L,%L,%L,true,%L,%L)',
+  pg_temp.f(10),pg_temp.f(1),pg_temp.f(20),p.id,pg_temp.f(50),'by_level',pg_temp.f(210),p.plan->>'digest'),
+  '55000','REDISTRIBUTION_PROTECTED','even a fresh confirmation leaves the unverified copy intact') from legacy_plans p;
+rollback to historical_copy;
 set local role authenticated;
 create temp table copied as select public.duplicate_estimate_version(pg_temp.f(30),false) id;
 reset role;

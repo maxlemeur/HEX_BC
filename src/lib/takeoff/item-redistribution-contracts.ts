@@ -24,7 +24,7 @@ export const redistributionPreviewSchema = z.object({
   })),
   parts: z.array(z.object({ id, from_target: id, plan_name: z.string().nullable(), label: z.string().nullable(), available: z.boolean(), building_state: z.string().nullable(), level_state: z.string().nullable(), quantity: z.number(), unit: z.string(), pages: z.array(z.number().int()) })),
   destinations: z.array(z.object({ key: z.string(), label: z.string(), quantity: z.number(), raw: z.number(), line_id: id.nullable() })),
-  blockers: z.array(z.object({ reason: z.enum(["location_unavailable", "unchanged", "mixed", "dpgf", "deleted", "quantity", "edited", "used", "identity", "section", "quantity_limit", "depth"]), title: z.string() })),
+  blockers: z.array(z.object({ reason: z.enum(["copy_history", "location_unavailable", "unchanged", "mixed", "dpgf", "deleted", "quantity", "edited", "used", "identity", "section", "quantity_limit", "depth"]), title: z.string() })),
   remove_lines: z.array(id),
 });
 
