@@ -31,17 +31,18 @@ end
 $$;
 revoke all on function private.lock_estimate_analysis_scope(uuid,uuid,uuid) from public, anon, authenticated, service_role;
 
--- Both the item send and version duplication finish the attachment later in
--- their transaction. Look up the current line: a queued event may be superseded.
+-- Both item send and duplication attach the analysis later in their transaction.
+-- Queue the affected scope, not the row ID: a row can be cleared, deleted or
+-- rekeyed before this event runs. The tenant/job index serves this existence test.
 create function private.check_estimate_line_analysis() returns trigger
 language plpgsql security definer set search_path = '' as $$
-declare
-  line record;
 begin
-  select i.tenant_id, i.version_id, i.source_job_id into line from public.estimate_items i where i.id = new.id;
-  if line.source_job_id is null then return null; end if;
-  perform private.lock_estimate_analysis_scope(line.tenant_id, line.version_id, line.source_job_id);
-  if not public.estimate_version_holds_analysis(line.tenant_id, line.version_id, line.source_job_id) then
+  if not exists (
+    select 1 from public.estimate_items i where i.source_job_id = new.source_job_id
+      and i.tenant_id = new.tenant_id and i.version_id = new.version_id
+  ) then return null; end if;
+  perform private.lock_estimate_analysis_scope(new.tenant_id, new.version_id, new.source_job_id);
+  if not public.estimate_version_holds_analysis(new.tenant_id, new.version_id, new.source_job_id) then
     raise exception using errcode = 'M0A01', message = 'Cette version du devis ne détient pas cette analyse.';
   end if;
   return null;
@@ -61,11 +62,19 @@ begin
 end
 $$;
 revoke all on function private.check_estimate_analysis_tenant() from public, anon, authenticated, service_role;
-create trigger "Analysis_tenant" after insert or update of source_job_id, tenant_id on public.estimate_items
+create trigger "Analysis_tenant" after insert on public.estimate_items
   for each row when (new.source_job_id is not null) execute function private.check_estimate_analysis_tenant();
+create trigger "Analysis_tenant_update" after update of source_job_id, tenant_id on public.estimate_items
+  for each row when (new.source_job_id is not null and
+    (old.source_job_id, old.tenant_id) is distinct from (new.source_job_id, new.tenant_id))
+  execute function private.check_estimate_analysis_tenant();
 
-create constraint trigger estimate_line_analysis_scope after insert or update of id, source_job_id, tenant_id, version_id
-  on public.estimate_items deferrable initially deferred for each row when (new.source_job_id is not null)
+create constraint trigger estimate_line_analysis_scope after insert on public.estimate_items
+  deferrable initially deferred for each row when (new.source_job_id is not null)
+  execute function private.check_estimate_line_analysis();
+create constraint trigger estimate_line_analysis_scope_update after update of source_job_id, tenant_id, version_id
+  on public.estimate_items deferrable initially deferred for each row when (new.source_job_id is not null and
+    (old.source_job_id, old.tenant_id, old.version_id) is distinct from (new.source_job_id, new.tenant_id, new.version_id))
   execute function private.check_estimate_line_analysis();
 
 create function private.check_estimate_analysis_unlink() returns trigger
@@ -82,8 +91,13 @@ begin
 end
 $$;
 revoke all on function private.check_estimate_analysis_unlink() from public, anon, authenticated, service_role;
-create constraint trigger estimate_analysis_unlink after delete or update of tenant_id, takeoff_job_id, source_version_id, target_version_id
-  on public.takeoff_version_links deferrable initially deferred for each row execute function private.check_estimate_analysis_unlink();
+create constraint trigger estimate_analysis_unlink after delete on public.takeoff_version_links
+  deferrable initially deferred for each row execute function private.check_estimate_analysis_unlink();
+create constraint trigger estimate_analysis_repoint after update of tenant_id, takeoff_job_id, source_version_id, target_version_id
+  on public.takeoff_version_links deferrable initially deferred for each row when
+    ((old.tenant_id, old.takeoff_job_id, old.source_version_id, old.target_version_id) is distinct from
+     (new.tenant_id, new.takeoff_job_id, new.source_version_id, new.target_version_id))
+  execute function private.check_estimate_analysis_unlink();
 
 create function private.check_moved_version_analyses() returns trigger
 language plpgsql security definer set search_path = '' as $$
@@ -158,9 +172,13 @@ begin
   if cardinality(string_to_array(body, anchor)) <> 2 then raise exception 'Unexpected writer definition'; end if;
   body := replace(body, anchor, $new$        if item.source_job_id is not null then
           perform 1 from public.takeoff_jobs j where j.id=item.source_job_id and j.tenant_id=target_tenant for share nowait;
-          perform private.lock_estimate_analysis_scope(target_tenant, p_version_id, item.source_job_id);
-          if not public.estimate_version_holds_analysis(target_tenant, p_version_id, item.source_job_id) then
-            raise exception using errcode='M0A01', message='Cette version du devis ne détient pas cette analyse.';
+          if op->>'op'='create' then
+            perform private.lock_estimate_analysis_scope(target_tenant, p_version_id, item.source_job_id);
+            if not public.estimate_version_holds_analysis(target_tenant, p_version_id, item.source_job_id) then
+              raise exception using errcode='M0A01', message='Cette version du devis ne détient pas cette analyse.';
+            end if;
+          elsif not found then
+            perform private.estimate_batch_error('INVALID_INPUT');
           end if;
         end if;$new$);
   anchor := $old$    if failure_message='ESTIMATE_V3_PROJECTION_MISMATCH'$old$;

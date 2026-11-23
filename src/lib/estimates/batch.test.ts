@@ -154,6 +154,15 @@ describe("executeEstimateBatch", () => {
     else process.env.ESTIMATE_BATCH_MAX_OPERATIONS = originalBatchLimit;
   });
 
+  it("previews a description edit without revalidating the retained analysis", async () => {
+    db.rows.estimate_items[1].source_job_id = CHILD_ID;
+    const result = await executeEstimateBatch(VERSION_ID, [
+      { op: "update", id: ITEM_ID, data: { description: "Description modifiée" } },
+    ], { ...OPTIONS, dryRun: true });
+    expect(result.results[0]).toMatchObject({ status: "ok" });
+    expect(db.rpc.mock.calls.map(([name]) => name)).not.toContain("estimate_version_holds_analysis");
+  });
+
   it("returns validated dry-run previews without applying operations", async () => {
     const before = structuredClone(db.rows);
     const result = await executeEstimateBatch(VERSION_ID, [

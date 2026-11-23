@@ -179,7 +179,7 @@ export async function prepareEstimateBatch(input: {
   const foProvisionOf = (supplyTypeId: string | null, origin?: unknown, lineNature?: string | null) =>
     perUnitLabor ? deriveFoProvision(supplyTypeId, supplyTypeProvisions, origin, lineNature) : 1;
 
-  function references(data: Partial<Item>) {
+  function references(data: Partial<Item>, previousAnalysis?: Item["source_job_id"]) {
     const checks: Promise<void>[] = [];
     const check = (field: keyof Item, table: "estimate_categories" | "labor_roles" | "supply_types" |
       "products" | "supplier_pricebook", owner: boolean) => {
@@ -219,7 +219,7 @@ export async function prepareEstimateBatch(input: {
     check("supply_type_id", "supply_types", false);
     check("product_id", "products", false);
     check("selected_supplier_price_id", "supplier_pricebook", false);
-    if (typeof data.source_job_id === "string") {
+    if (typeof data.source_job_id === "string" && data.source_job_id !== previousAnalysis) {
       const jobId = data.source_job_id;
       const cacheKey = `takeoff_jobs:${jobId}`;
       let promise = checkedReferences.get(cacheKey);
@@ -367,14 +367,14 @@ export async function prepareEstimateBatch(input: {
         const patch = engineItemWrite(rawPatch, current.item_type);
         if (perUnitLabor && "k_fo" in rawPatch && !("k_fo_manual" in rawPatch)) patch.k_fo_manual = true;
         validateAid(patch);
-        await references(patch);
+        await references(patch, current.source_job_id);
         const next = perUnitLabor && current.item_type === "line"
           ? await resolveFoPrice({ ...current, ...patch }, current) : { ...current, ...patch };
         // Derived values in old client buffers are never a pricing authority.
         for (const field of DERIVED_FIELDS) next[field] = current[field];
         // A sparse patch may keep the same type while changing its price origin.
         // Load that type's provision before deriving the TS projection, as SQL does.
-        await references(next);
+        await references(next, current.source_job_id);
         if (next.item_type === "line") {
           next.line_nature = resolvePromotedEstimateLineNature(current, patch);
           if (supplyTypeChanged(current.supply_type_id, next.supply_type_id) ||

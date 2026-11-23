@@ -1,0 +1,102 @@
+-- Hold a metadata edit open while another connection saves the draft. Check the
+-- commit itself, and distinguish a changed inheritance key from a changed timestamp.
+begin;
+create extension if not exists pgtap with schema extensions;
+create extension if not exists dblink with schema extensions;
+set local search_path = extensions, public, pg_catalog;
+select no_plan();
+
+select dblink_connect(name, format('host=%s port=%s dbname=%s user=postgres password=postgres',
+  trim(split_part(current_setting('unix_socket_directories'), ',', 1)), current_setting('port'), current_database()))
+from (values ('analysis_editor'), ('analysis_links')) as sessions(name);
+select dblink_exec(name, $sql$
+  create function pg_temp.aid(n integer) returns uuid language sql immutable as $id$
+    select ('d5080000-0000-4000-8000-' || lpad(n::text, 12, '0'))::uuid
+  $id$;
+  set lock_timeout = '2s';
+$sql$) from (values ('analysis_editor'), ('analysis_links')) as sessions(name);
+
+select dblink_exec('analysis_links', $setup$
+do $fixtures$
+declare tenant uuid;
+begin
+  insert into auth.users (instance_id,id,aud,role,email,raw_app_meta_data,raw_user_meta_data,created_at,updated_at)
+  values ('00000000-0000-0000-0000-000000000000',pg_temp.aid(1),'authenticated','authenticated',
+    'analysis-save-race@example.test','{}','{}',now(),now());
+  update public.tenant_memberships set role='engineer' where user_id=pg_temp.aid(1) and is_default returning tenant_id into tenant;
+  insert into public.estimate_projects(id,tenant_id,user_id,name) values(pg_temp.aid(10),tenant,pg_temp.aid(1),'Devis fictif');
+  insert into public.estimate_versions(id,tenant_id,project_id,version_number,status,calc_engine_version,margin_multiplier,tax_rate_bp)
+  select pg_temp.aid(20+n),tenant,pg_temp.aid(10),n,'draft',2,1,0 from generate_series(1,2) n;
+  insert into public.takeoff_jobs(id,tenant_id,estimate_version_id,level,status,source_file_name,created_by)
+  select pg_temp.aid(n),tenant,pg_temp.aid(21),'B','completed','plan.pdf',pg_temp.aid(1) from generate_series(31,31) n;
+  insert into public.takeoff_version_links(tenant_id,takeoff_job_id,source_version_id,target_version_id)
+  select tenant,pg_temp.aid(n),pg_temp.aid(21),pg_temp.aid(22) from generate_series(31,31) n;
+  insert into public.estimate_items(id,tenant_id,version_id,item_type,position,title)
+  values(pg_temp.aid(40),tenant,pg_temp.aid(22),'section',1,'Lot');
+  insert into public.estimate_items(id,tenant_id,version_id,parent_id,item_type,position,title,quantity,unit_price_ht_cents,
+    tax_rate_bp,k_fo,h_mo,k_mo,pu_ht_cents,line_total_ht_cents,line_tax_cents,line_total_ttc_cents,source_job_id)
+  values(pg_temp.aid(41),tenant,pg_temp.aid(22),pg_temp.aid(40),'line',1,'Ligne',1,0,0,1,0,1,0,0,0,0,pg_temp.aid(31));
+  insert into public.draft_locks(version_id,user_id,tenant_id,expires_at,session_id)
+  values(pg_temp.aid(22),pg_temp.aid(1),tenant,now()+interval '30 minutes',pg_temp.aid(50));
+end
+$fixtures$;
+$setup$);
+
+select dblink_exec('analysis_editor', $writer$
+  set track_functions = 'all';
+  create temp view draft_write as
+    select v.id, v.updated_at,
+      jsonb_build_array(jsonb_build_object('id',i.id,'pu_ht_cents',i.pu_ht_cents,'line_total_ht_cents',i.line_total_ht_cents,
+        'line_tax_cents',i.line_tax_cents,'line_total_ttc_cents',i.line_total_ttc_cents)) projection,
+      jsonb_build_object('total_ht_cents',v.total_ht_cents,
+        'total_tax_cents',v.total_tax_cents,'total_ttc_cents',v.total_ttc_cents) totals
+    from public.estimate_versions v join public.estimate_items i on i.version_id=v.id
+    where v.id=pg_temp.aid(22) and i.id=pg_temp.aid(41);
+  grant select on draft_write to authenticated;
+  create function pg_temp.save_description(value text) returns boolean language sql as $batch$
+    select (public.commit_estimate_batch(d.id,gen_random_uuid(),d.updated_at,pg_temp.aid(50),
+      jsonb_build_array(jsonb_build_object('op','update','id',pg_temp.aid(41),'data',jsonb_build_object('description',value))),
+      '[]',d.projection,d.totals,'{"labor_roles":[],"margin_tiers":[],"labor_split_flag":null}',null)->>'committed')::boolean
+    from draft_write d
+  $batch$;
+$writer$);
+select dblink_exec(name, $claims$
+  set request.jwt.claim.sub = 'd5080000-0000-4000-8000-000000000001';
+  set request.jwt.claims = '{"sub":"d5080000-0000-4000-8000-000000000001","role":"authenticated"}';
+  set role authenticated
+$claims$) from (values ('analysis_editor'), ('analysis_links')) as sessions(name);
+
+select dblink_exec('analysis_editor','begin');
+select is(saved,true,'the attributed line can be edited') from dblink('analysis_editor',
+  $$select pg_temp.save_description('Quantité conservée')$$) as t(saved boolean);
+select dblink_exec('analysis_editor','reset role');
+select is(calls,0::bigint,'an edit retaining its reference calls neither the scope predicate nor its lock helper')
+from dblink('analysis_editor',$q$select coalesce(sum(calls),0)::bigint from pg_stat_xact_user_functions
+  where funcname in ('lock_estimate_analysis_scope','estimate_version_holds_analysis')$q$) as t(calls bigint);
+select dblink_exec('analysis_editor','set role authenticated; commit');
+
+select dblink_exec('analysis_links',$q$begin; update public.takeoff_version_links set linked_at=clock_timestamp()
+  where target_version_id=pg_temp.aid(22) and takeoff_job_id=pg_temp.aid(31)$q$);
+select is(saved,true,'a timestamp refresh permits a concurrent editor save') from dblink('analysis_editor',
+  $$select pg_temp.save_description('Texte enregistré')$$) as t(saved boolean);
+select is((select description from public.estimate_items where id='d5080000-0000-4000-8000-000000000041'),
+  'Texte enregistré','the edit is visible after commit');
+
+select dblink_exec('analysis_links','commit');
+
+select dblink_exec('analysis_links','reset role');
+select dblink_exec('analysis_links', $clean$
+do $fixtures$
+declare tenant uuid := (select tenant_id from public.tenant_memberships where user_id=pg_temp.aid(1) and is_default);
+begin
+  delete from public.estimate_projects where id=pg_temp.aid(10);
+  delete from auth.users where id=pg_temp.aid(1);
+  delete from public.feature_flags where tenant_id=tenant;
+  delete from public.audit_logs where tenant_id=tenant;
+  delete from public.tenants where id=tenant;
+end
+$fixtures$;
+$clean$);
+select dblink_disconnect(name) from (values ('analysis_editor'), ('analysis_links')) as sessions(name);
+select * from finish();
+rollback;
