@@ -28,6 +28,7 @@ import {
 } from "@/lib/takeoff/item-send-screen";
 import { plural } from "@/lib/text/plural";
 
+import { ItemRedistributionPanel } from "./ItemRedistributionPanel";
 import { ItemSendPageDecision, ItemSendPoint } from "./ItemSendChoices";
 import {
   ItemSendBlocked,
@@ -58,6 +59,7 @@ export const TAKEOFF_ITEM_SEND_TITLE = "Envoyer ce plan au devis";
 export const ITEM_SEND_LANDING_LABEL = "Ouvrir le devis sur la ligne écrite";
 
 type Props = {
+  redistributionOnly?: boolean;
   open: boolean;
   jobId: string;
   /** The plan as the entry names it, until the preview names it. */
@@ -70,6 +72,12 @@ type Props = {
 };
 
 export function TakeoffItemSendDialog(props: Props) {
+  if (props.redistributionOnly) return <Dialog open={props.open} onOpenChange={props.onOpenChange}>
+    <DialogContent><DialogHeader><DialogTitle>Redistribuer les apports</DialogTitle>
+      <DialogDescription>Choisissez les apports du poste à répartir dans le brouillon.</DialogDescription></DialogHeader>
+      <DialogBody><ItemRedistributionPanel key={props.viewerKey + props.jobId} jobId={props.jobId} viewerKey={props.viewerKey} /></DialogBody>
+      <DialogFooter><Button variant="outline" onClick={() => props.onOpenChange(false)}>Annuler</Button></DialogFooter>
+    </DialogContent></Dialog>;
   return <TakeoffItemSendScreen key={`${props.viewerKey}:${props.jobId}`} {...props} />;
 }
 
@@ -91,6 +99,7 @@ function TakeoffItemSendScreen({ open, jobId, planName, viewerKey, onOpenChange,
   const [heldPoints, setHeldPoints] = useState<ReadonlyMap<string, Point>>(new Map());
   const [notice, setNotice] = useState<Notice | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [redistributing, setRedistributing] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   // Sent: nothing is confirmed again while the editor opens.
   const [sent, setSent] = useState(false);
@@ -263,7 +272,7 @@ function TakeoffItemSendScreen({ open, jobId, planName, viewerKey, onOpenChange,
     || !pagePoints.some((point) => point.page === entry.page));
 
   const confirmable = !!data && data.confirmable && data.plan_digest !== null && data.invalid_page_decisions.length === 0
-    && !submitting && !loading && !sent && typing.size === 0 && !current?.disagree;
+    && !submitting && !redistributing && !loading && !sent && typing.size === 0 && !current?.disagree;
   const noteTyping = useCallback((page: number | null, pendingNote: boolean) => setTyping((current) => {
     const key = itemSendPageKey(page);
     if (current.has(key) === pendingNote) return current;
@@ -376,7 +385,7 @@ function TakeoffItemSendScreen({ open, jobId, planName, viewerKey, onOpenChange,
   const confirmLabel = submitting ? "Envoi…" : data?.destination?.kind === "first_draft"
     ? `Créer le devis et y envoyer « ${shownPlan} »`
     : `Envoyer « ${shownPlan} » dans ${data?.destination_label ?? "le brouillon"}`;
-  const disabled = submitting;
+  const disabled = redistributing || submitting;
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange} disablePointerDismissal={submitting}>
@@ -431,6 +440,10 @@ function TakeoffItemSendScreen({ open, jobId, planName, viewerKey, onOpenChange,
                   onChange={(breakdown) => update((currentAsk) => ({ ...currentAsk, breakdown, destination: data.destination ?? undefined }))} />
               </>
             ) : null}
+            {data?.destination?.kind === "existing_draft" && <ItemRedistributionPanel
+              key={data.destination.version_id} jobId={jobId} viewerKey={viewerKey} versionId={data.destination.version_id}
+              disabled={submitting || sent} onBusyChange={setRedistributing}
+              onChanged={() => update((currentAsk) => currentAsk, true)} />}
             {data?.blocked ? <ItemSendBlocked blocked={data.blocked} /> : null}
             {/* « Aucun poste à envoyer » keeps the choices shown: an item left out can be taken back. */}
             {data && (!data.blocked || data.blocked.reason === "no_line") ? (

@@ -1584,6 +1584,23 @@ de même de la rattacher à une version hors de l'envoi par poste.
   premier brouillon, état des règles de correspondance et contexte d'envoi du lot 3 ; l'ordre de
   lecture des observations n'y change rien. La confirmation est refusée quand l'un d'eux a changé.
 
+### Redistribuer les apports après un envoi
+
+Depuis le plan envoyé ou l’aperçu d’un envoi vers un brouillon existant, un membre qui peut écrire
+dans l’affaire choisit un poste et un découpage. Le brouillon doit utiliser le moteur 3. L’aperçu
+reprend toutes les parts vivantes du poste dans ce brouillon, y compris celles d’autres plans.
+Il montre la page, la quantité brute, la ligne de départ et le compartiment d’arrivée. Les arrondis
+s’appliquent après regroupement. Les niveaux de deux bâtiments restent distincts.
+
+Le membre confirme l’aperçu sous son bail d’édition. Une saisie de quantité, un prix, une section
+personnalisée, une ligne utilisée ailleurs ou supprimée dans l’éditeur demandent une décision.
+Une ligne DPGF garde sa place. Si le devis a changé depuis l’aperçu, le membre relit la proposition.
+
+Chaque part garde son identifiant et ses pages. Le reçu enregistre les cibles quittées et atteintes,
+leurs quantités et les reçus qui ont fourni les parts. Une ligne intacte créée par le métré peut
+être retirée si le membre l’a vue dans la liste des retraits. Sa cible reste dans l’historique.
+Une nouvelle tentative de la même confirmation retrouve le reçu initial.
+
 ## Entrées
 
 Les entrées d'une ligne sont écrites par le worker, jamais par l'utilisateur.
