@@ -496,6 +496,11 @@ begin
 end;
 $$;
 
+-- The new lane is explicit. Existing callers keep the full namespace of opaque keys in each released lane.
+alter table private.takeoff_launch_usage drop constraint takeoff_launch_usage_branch_check;
+alter table private.takeoff_launch_usage add constraint takeoff_launch_usage_branch_check
+  check (branch in ('pdf','vector_group','other','count_tile'));
+
 create or replace function public.reserve_takeoff_launch_call(p_job_id uuid, p_lease_token uuid, p_call_key text, p_branch text,
   p_estimate_tokens bigint, p_module_default boolean default false)
 returns table (outcome text, reason text, reserved_tokens bigint, remaining_tokens bigint, remaining_cost_cents bigint)
@@ -509,7 +514,7 @@ declare
   refusal text;
   bound bigint;
 begin
-  if p_call_key is null or length(p_call_key) not between 1 and 120 or p_branch not in ('pdf', 'vector_group', 'other')
+  if p_call_key is null or length(p_call_key) not between 1 and 120 or p_branch not in ('pdf', 'vector_group', 'other', 'count_tile')
     or p_estimate_tokens is null or p_estimate_tokens < 1 then
     raise exception 'TAKEOFF_LAUNCH_CALL_INVALID' using errcode = '22023';
   end if;
@@ -531,7 +536,7 @@ begin
     return query select 'refused'::text, refusal, null::bigint, null::bigint, null::bigint;
     return;
   end if;
-  if p_call_key like 'tile:%' and not coalesce(job.preparation_snapshot ? 'remeasure_count_marks',false) then
+  if p_branch = 'count_tile' and not coalesce(job.preparation_snapshot ? 'remeasure_count_marks',false) then
     return query select 'refused'::text, 'TILE_OUTSIDE_SCOPE'::text, null::bigint, null::bigint, null::bigint;
     return;
   end if;
@@ -560,8 +565,8 @@ begin
   -- For the optional readers the confirmation buys one attempt per named tile, across
   -- all leases. Replaying a reservation must never authorize a second physical call.
   if job.preparation_snapshot ? 'remeasure_count_marks' then
-    if p_branch = 'other' or p_call_key like 'tile:%' then
-      if p_branch is distinct from 'other' or not exists (
+    if p_branch = 'count_tile' then
+      if not exists (
         select 1 from jsonb_array_elements(job.preparation_snapshot #> '{remeasure_count_marks,pages}') s
         cross join lateral generate_series(1,case when (s ->> 'width_points')::numeric > 700 then 6 else 4 end) t(i)
         where p_call_key = 'tile:' || ((s ->> 'page')::numeric::integer)::text || ':' || t.i::text) then
@@ -572,9 +577,9 @@ begin
         refusal := 'TILE_IN_FLIGHT';
       end if;
     elsif exists (select 1 from private.takeoff_launch_usage l where l.request_id = request.id
-        and l.branch = 'other' and l.state = 'reserved') then
+        and l.branch = 'count_tile' and l.state = 'reserved') then
       refusal := 'TILE_IN_FLIGHT';
-    elsif (select count(*) from private.takeoff_launch_usage l where l.request_id = request.id and l.branch <> 'other'
+    elsif (select count(*) from private.takeoff_launch_usage l where l.request_id = request.id and l.branch <> 'count_tile'
         and (l.lease_token,l.call_key) <> (p_lease_token,p_call_key))
         >= (job.preparation_snapshot #>> '{remeasure_count_marks,other_calls}')::integer then
       refusal := 'BUDGET_EXHAUSTED';

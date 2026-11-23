@@ -294,6 +294,12 @@ select results_eq($$select outcome from public.launch_manual_takeoff_plan_reques
     pg_temp.jobs(1, array[pg_temp.plan(0), pg_temp.plan(1)]), pg_temp.f(40), 1, array[pg_temp.plan(0), pg_temp.plan(1)])$$,
   $$values ('admitted'::text)$$, 'the first reading of both plans is admitted');
 select is(pg_temp.claim(pg_temp.job(1, pg_temp.plan(0)), 901), 1, 'plan A is read');
+-- Opaque legacy keys remain ordinary PDF calls with the released result and ledger state.
+select results_eq($$select outcome,reason from public.reserve_takeoff_launch_call(pg_temp.job(1,pg_temp.plan(0)),
+  pg_temp.f(901),'tile:2:1','pdf',30000)$$,$$values ('reserved'::text,null::text)$$,'opaque PDF key on a whole-list job');
+select results_eq($$select branch,state from private.takeoff_launch_usage where job_id=pg_temp.job(1,pg_temp.plan(0))
+  and call_key='tile:2:1'$$,$$values ('pdf'::text,'reserved'::text)$$,'ordinary reservation writes its original branch');
+select remaining_tokens from public.record_takeoff_launch_usage(pg_temp.job(1,pg_temp.plan(0)),pg_temp.f(901),'tile:2:1',10,0) \gset
 select is((select answer_count from pg_temp.publish(pg_temp.job(1, pg_temp.plan(0)), 901,
     jsonb_build_array(pg_temp.measured(300, 811, 2), pg_temp.not_found(301), pg_temp.not_found(302)),
     jsonb_build_array(pg_temp.row_(811, 2, 'plan-a.pdf')))), 3, 'its answers published, every item of the list');
@@ -813,7 +819,7 @@ select throws_ok($$select * from pg_temp.detail_measure(2,14,303,1,320)$$,'23505
 select throws_ok($$select * from pg_temp.detail_measure(2,14,303,1,320,pg_temp.mark_option(array[701],array[2],6))$$,
   '23505','TAKEOFF_LAUNCH_INTENT_CONFLICT','a different bound changes the intent');
 select is(pg_temp.claim(pg_temp.job(14,pg_temp.plan(1)),916),1,'the opted-in reading starts');
-create function pg_temp.reserve_mark_call(call_key text, branch text default 'other') returns text language sql as $$
+create function pg_temp.reserve_mark_call(call_key text, branch text default 'count_tile') returns text language sql as $$
   select coalesce(reason,outcome) from public.reserve_takeoff_launch_call(pg_temp.job(14,pg_temp.plan(1)),pg_temp.f(916),
     call_key,branch,30000)
 $$;
