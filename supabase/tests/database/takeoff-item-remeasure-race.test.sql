@@ -312,8 +312,21 @@ select is((select live from extensions.dblink_get_result('race_b') as x(live boo
 select is((select count(*)::integer from extensions.dblink_get_result('race_b') as x(live boolean)),0,'the probe is done');
 select is((select count(*)::integer from private.takeoff_launch_usage where job_id=pg_temp.job(2)),0,
   'the synthetic deadline check leaves the expense ledger empty');
-select is((select x.outcome from extensions.dblink('race_setup',format('select outcome from public.reserve_takeoff_launch_call(%L,%L,%L,%L,30000)',
-  pg_temp.job(2),pg_temp.f(902),'call:1','pdf')) as x(outcome text)),'reserved','an integral allowance confirmed as 2.0 admits the first call');
+-- Exercise the actual reservation entry point across two sessions with the claimed job's live lease.
+select is(extensions.dblink_exec('race_a','begin'),'BEGIN','the first connection holds the request for a concurrent reader');
+select is((select id from extensions.dblink('race_a',format(
+  'select r.id from public.takeoff_launch_requests r join public.takeoff_jobs j on j.launch_request_id=r.id where j.id=%L for update of r',
+  pg_temp.job(2))) as x(id uuid)),(select launch_request_id from public.takeoff_jobs where id=pg_temp.job(2)), 'the request row is held');
+select is(extensions.dblink_send_query('race_b',format('select outcome from public.reserve_takeoff_launch_call(%L,%L,%L,%L,30000)',
+  pg_temp.job(2),pg_temp.f(902),'call:1','pdf')),1,'the worker submits its real paid-lane reservation');
+select ok(pg_temp.waits_for('race_b','race_a'),'the actual reservation waits for the request row');
+select is((select count(*) from private.takeoff_launch_usage where job_id=pg_temp.job(2)),0::bigint,'a waiting reservation records no expense');
+select is(extensions.dblink_exec('race_a','commit'),'COMMIT','release the request under the valid lease');
+select ok(pg_temp.answered('race_b'),'the reservation completes');
+select is((select outcome from extensions.dblink_get_result('race_b') as x(outcome text)),'reserved',
+  'the still-live lease receives one permission against its integral two-call allowance');
+select is((select count(*)::integer from extensions.dblink_get_result('race_b') as x(outcome text)),0,'the worker has its receipt');
+select is((select count(*) from private.takeoff_launch_usage where job_id=pg_temp.job(2)),1::bigint,'one ledger row committed after the wait');
 select ok((select x.left_ is not null from extensions.dblink('race_setup',format(
   'select remaining_tokens from public.record_takeoff_launch_usage(%L,%L,%L,10,0)',pg_temp.job(2),pg_temp.f(902),'call:1'))
   as x(left_ bigint)),'the first call is settled on its own receipt');
