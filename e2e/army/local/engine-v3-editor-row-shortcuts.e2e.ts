@@ -43,6 +43,14 @@ async function waitState(ui: Ui, versionId: string, ready: (state: ArmyEstimate)
   return state;
 }
 
+function waitForStoredTitles(ui: Ui, versionId: string, parentId: string, expected: string[]) {
+  // The create can already be visible to a GET while the shortcut's separate reorder is still in flight.
+  return waitState(ui, versionId, (state) => {
+    const actual = titlesOf(state, parentId);
+    return actual.length === expected.length && actual.every((title, index) => title === expected[index]);
+  });
+}
+
 armyTest("ROWKEYS01 keyboard shortcuts add a line below, duplicate a line, move it and add a section: stored in place, kept after a reload, undone in one step",
   options(420_000), async ({ app, screen, browser, army }) => {
     const ui: Ui = { app, screen, browser };
@@ -59,18 +67,19 @@ armyTest("ROWKEYS01 keyboard shortcuts add a line below, duplicate a line, move 
     // 1. Ctrl+Entrée from A's quantity cell: a blank line right below A, its designation ready to be typed.
     await cell(ui, lineA.id, "quantity").focus();
     await browser.keyboard.press("Control+Enter");
-    const inserted = await waitState(ui, draft.versionId, (state) => childrenOf(state, section).length === 3);
-    expect(titlesOf(inserted, section), "Ctrl+Entrée inserts below the active line").toEqual([title("A"), "Nouvelle ligne", title("B")]);
+    const insertedTitles = [title("A"), "Nouvelle ligne", title("B")];
+    const inserted = await waitForStoredTitles(ui, draft.versionId, section, insertedTitles);
+    expect(titlesOf(inserted, section), "Ctrl+Entrée inserts below the active line").toEqual(insertedTitles);
     const lineN = childrenOf(inserted, section)[1];
     await expect.poll(() => activeCellId(ui)).toBe(`${lineN.id}::title`);
     await browser.keyboard.type(title("N"));
 
     // 2. ⌘+Entrée while the designation is still being typed: the designation is stored, then a line comes below N.
     await browser.keyboard.press("Meta+Enter");
-    const typedThenInserted = await waitState(ui, draft.versionId, (state) =>
-      childrenOf(state, section).length === 4 && titlesOf(state, section)[1] === title("N"));
+    const typedThenInsertedTitles = [title("A"), title("N"), "Nouvelle ligne", title("B")];
+    const typedThenInserted = await waitForStoredTitles(ui, draft.versionId, section, typedThenInsertedTitles);
     expect(titlesOf(typedThenInserted, section), "⌘+Entrée commits the field being typed, then inserts below it")
-      .toEqual([title("A"), title("N"), "Nouvelle ligne", title("B")]);
+      .toEqual(typedThenInsertedTitles);
     const lineX = childrenOf(typedThenInserted, section)[2];
     await expect.poll(() => activeCellId(ui)).toBe(`${lineX.id}::title`);
     await browser.keyboard.press("Escape");
@@ -78,7 +87,8 @@ armyTest("ROWKEYS01 keyboard shortcuts add a line below, duplicate a line, move 
     // 3. ⌘+Maj+D from A's price cell: a copy of A right below it, with all its inputs; the price cell of the copy is active.
     await cell(ui, lineA.id, "unit_price").focus();
     await browser.keyboard.press("Meta+Shift+D");
-    const duplicated = await waitState(ui, draft.versionId, (state) => childrenOf(state, section).length === 5);
+    const duplicatedTitles = [title("A"), ...typedThenInsertedTitles];
+    const duplicated = await waitForStoredTitles(ui, draft.versionId, section, duplicatedTitles);
     const copy = childrenOf(duplicated, section)[1];
     const original = duplicated.items.find((item) => item.id === lineA.id);
     const duplicateView = {
@@ -88,7 +98,7 @@ armyTest("ROWKEYS01 keyboard shortcuts add a line below, duplicate a line, move 
     };
     await recordEvidence(army, "rowkeys01-duplicate", { versionId: draft.versionId, actual: duplicateView });
     expect(duplicateView, "⌘+Maj+D duplicates the line below it with its inputs").toEqual({
-      titles: [title("A"), title("A"), title("N"), "Nouvelle ligne", title("B")],
+      titles: duplicatedTitles,
       newRow: true,
       copyInputs: inputsOf(original as unknown as Record<string, unknown>),
     });
@@ -100,6 +110,7 @@ armyTest("ROWKEYS01 keyboard shortcuts add a line below, duplicate a line, move 
     const undone = await waitState(ui, draft.versionId, (state) => childrenOf(state, section).length === 4);
     expect(titlesOf(undone, section), "the duplication is undone in one step")
       .toEqual([title("A"), title("N"), "Nouvelle ligne", title("B")]);
+    await expect(screen.getByTestId("estimate-editor-redo-button", { visible: true })).toBeEnabled();
 
     // 5. Alt+Maj+↑ from B: B goes above the blank line, and only B moves.
     await cell(ui, lineB.id, "quantity").focus();
