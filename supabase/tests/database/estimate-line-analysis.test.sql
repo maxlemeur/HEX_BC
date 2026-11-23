@@ -47,16 +47,23 @@ select is(pg_temp.cp29_call(pg_temp.id(1), pg_temp.id(n), pg_temp.id(n+200), pg_
 set constraints public.estimate_line_analysis_scope immediate;
 select is((select source_job_id from public.estimate_items where version_id=pg_temp.id(103) and item_type='line'),
   pg_temp.id(501),'the copied line keeps its inherited analysis');
-select results_eq($$select to_jsonb(i) - array['id','version_id','parent_id','created_at','updated_at'] from public.estimate_items i
-  where version_id=pg_temp.id(102) and item_type='line'$$,
-  $$select (to_jsonb(i) - array['id','version_id','parent_id','created_at','updated_at']) || '{"source_job_id":null}'::jsonb
-  from public.estimate_items i where version_id=pg_temp.id(103) and item_type='line'$$,
-  'without inheritance only the analysis reference differs');
-select results_eq($$select to_jsonb(i) - array['id','version_id','parent_id','created_at','updated_at'] from public.estimate_items i
-  where version_id=pg_temp.id(104) and item_type='line'$$,
-  $$select to_jsonb(i) - array['id','version_id','parent_id','created_at','updated_at'] from public.estimate_items i
-  where version_id=pg_temp.id(102) and item_type='line'$$,
-  'the other affaire receives the same line without an analysis');
+-- Compare each destination with the source, including the section and the
+-- remapped parent. Only row identity, timestamps and copy-specific fields vary.
+select results_eq(
+  format($actual$
+    select to_jsonb(i) - array['id','version_id','created_at','updated_at']
+    from public.estimate_items i where i.version_id=%1$L order by i.item_type, i.position
+  $actual$, pg_temp.id(n)),
+  format($expected$
+    select (to_jsonb(i) - array['id','version_id','created_at','updated_at']) || jsonb_build_object(
+      'title', case when i.parent_id is null then i.title || ' (copie)' else i.title end,
+      'parent_id', case when i.parent_id is not null then
+        (select id from public.estimate_items where version_id=%1$L and parent_id is null) end,
+      'source_job_id', case when %2$L::boolean then i.source_job_id end)
+    from public.estimate_items i where i.version_id=pg_temp.id(101) order by i.item_type, i.position
+  $expected$, pg_temp.id(n), n=103),
+  'every copied column matches its original in draft ' || n)
+from generate_series(102,104) n;
 set constraints public.estimate_analysis_unlink immediate;
 select throws_ok($$delete from public.takeoff_version_links where target_version_id=pg_temp.id(103)$$,
   'M0A01','Cette version du devis ne détient pas cette analyse.','inheritance persists while a copied line depends on it');
