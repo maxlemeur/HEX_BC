@@ -45,7 +45,7 @@ compilateur par défaut (Turbopack) compile l'éditeur de devis et ses routes AP
 | Qualité avant livraison de code | `npm run verify:pr` |
 | Parcours affecté sur pile locale jetable | `npm run e2e:army:local -- --grep '<pattern>'` |
 | Migrations et RLS locales | `npm run db:ci:local` |
-| Préparer une publication autorisée | `npm run check:release` |
+| Préparer une publication (ne déploie rien) | `npm run check:release` |
 
 Une modification documentaire nécessite une vérification des références et du diff.
 Les prérequis, suites, fixtures et preuves sont dans [le guide de tests](e2e/README.md).
