@@ -1,5 +1,7 @@
 import "server-only";
 
+import type { RevisionChange } from "@/lib/takeoff/contribution-revision-contracts";
+import { revisionAdditionAnswers } from "@/lib/takeoff/contribution-revision-planning";
 import { createHash } from "node:crypto";
 
 import { readTenantCalcPolicy } from "@/lib/estimates/calc-policy-server";
@@ -25,6 +27,7 @@ import {
   itemSendPlanCanonical,
   itemSendWireChoice,
   planTakeoffItemSend,
+  itemSendAnswerDependencies,
   type ItemSendBlockerReason,
   type ItemSendBreakdown,
   type ItemSendChoice,
@@ -413,7 +416,8 @@ export async function itemSendMemberMayWrite(ctx: Context, projectId: string, jo
 export type ItemSendState = { response: ItemSendPreviewResponse; writePlan: ItemSendWritePlan | null;
   versionPayload: Record<string, unknown> | null; blocker: ItemSendBlockerReason | null };
 
-export async function computeItemSendState(ctx: Context, jobId: string, request: ItemSendPreviewRequest): Promise<ItemSendState> {
+export async function computeItemSendState(ctx: Context, jobId: string, request: ItemSendPreviewRequest,
+  additions?: readonly RevisionChange[]): Promise<ItemSendState> {
   const service = createServiceRoleClient();
   const job = await readPreviewJob(ctx, jobId);
   const only = (response: ItemSendPreviewResponse): ItemSendState => ({ response, writePlan: null, versionPayload: null,
@@ -432,13 +436,14 @@ export async function computeItemSendState(ctx: Context, jobId: string, request:
   }
   const reading = facts.reading;
   const jobFacts = { id: jobId, status: job.status, sent: job.status === "applied" || job.estimate_version_id !== null, canEdit };
-  const scopeItems = reading.items.filter((item) => reading.scope.includes(item.id));
+  const scope = additions ? additions.map((change) => change.item_id) : reading.scope;
+  const scopeItems = reading.items.filter((item) => scope.includes(item.id));
   // The pages the plan's unit reads (all of them when it names none): where an entry of this plan stands.
   const unitPages = unit.pages.length > 0 ? [...unit.pages]
     : unit.page_count ? Array.from({ length: unit.page_count }, (_, index) => index + 1) : [];
   const base: Omit<ItemSendInput, "destination"> = {
-    job: jobFacts, plan: { key: plan.logical_id, name: plan.name, pages: unitPages, pageCount: plan.page_count, location: null },
-    list: { revisionId: list.revision_id, revision: list.revision }, items: reading.items, scope: reading.scope, answers: reading.answers,
+    job: additions ? { ...jobFacts, status: "completed", sent: false } : jobFacts, plan: { key: plan.logical_id, name: plan.name, pages: unitPages, pageCount: plan.page_count, location: null },
+    list: { revisionId: list.revision_id, revision: list.revision }, items: reading.items, scope, answers: additions ? revisionAdditionAnswers(reading.answers, additions) : reading.answers,
     affaireEntries: reading.affaireEntries, earlier: { targets: [], sections: [], displaced: [] }, pagesInEstimate: [], rules: new Map(),
     breakdown: request.breakdown ?? "together", affaireNamesBuilding: false,
     stamps: { job: null, peers: null, context: null, dpgf: [], firstDraftSettings: null, destination: null, mapping: null },
@@ -450,7 +455,7 @@ export async function computeItemSendState(ctx: Context, jobId: string, request:
 
   // A takeoff already sent or not finished gets its reason: nothing of the affaire's estimates is read for it. A plan already
   // sent by item gives the way to what it wrote (its receipt's landing), also to a screen that lost the answer.
-  if (jobFacts.sent || job.status !== "completed") {
+  if (!additions && (jobFacts.sent || job.status !== "completed")) {
     const blocked = planTakeoffItemSend({ ...base, destination: { kind: "unresolved", reason: "choose_destination" } });
     const landing = blocked.blocker?.reason === "already_sent" ? await readSentLanding(ctx, jobId) : null;
     return only(respond(jobId, shown, blocked, { destinations: [], destination: null, label: null, versionCreated: false }, new Map(), null,
@@ -512,7 +517,7 @@ export async function computeItemSendState(ctx: Context, jobId: string, request:
       // What earlier sends by item wrote here and the pages of this plan the draft already holds, as the writer's page
       // guard reads them (today's provenance and the parts of earlier sends by item).
       const state = await readItemSendEarlierState(ctx, { projectId: job.project_id, versionId: version.id, jobId,
-        incomingCountItems: reading.answers.filter((answer) => answer.quantitySource === "verified_count").map((answer) => answer.itemId) });
+        incomingCountItems: base.answers.filter((answer) => answer.quantitySource === "verified_count").map((answer) => answer.itemId) });
       earlier = { targets: state.targets, sections: state.sections, displaced: state.displaced };
       pagesInEstimate = state.pagesInEstimate;
     }
@@ -537,6 +542,11 @@ export async function computeItemSendState(ctx: Context, jobId: string, request:
   const assemblies = await assemblyNames(ctx, computed.rules.flatMap((rule) => (rule.assemblyId ? [rule.assemblyId] : [])), jobId);
   // The plan names the member's choices it was computed from (their digest), which a replay compares.
   const writePlan = computed.writePlan ? { ...computed.writePlan, choices_sha256: itemSendChoicesDigest(request) } : null;
+  if (writePlan && additions) {
+    // The journal checks every original answer and entry under lock. A working
+    // choice supplies a part, never a new dependency revision for that answer.
+    writePlan.dependencies.answers = itemSendAnswerDependencies(reading.answers);
+  }
   const response = respond(jobId, shown, computed, { destinations, destination: chosen, label, versionCreated: chosen?.kind === "first_draft" },
     assemblies, writePlan ? itemSendPlanDigest(writePlan) : null);
   return { response, writePlan, versionPayload: chosen?.kind === "first_draft" ? versionPayload : null,
@@ -558,7 +568,7 @@ async function readSentLanding(ctx: Context, jobId: string): Promise<string | nu
 
 function countOnWire(total: ItemSendCountTotal) {
   return { job_id: total.jobId, answer_id: total.answerId, reading_revision: total.readingRevision, marks_revision: total.marksRevision,
-    quantity: total.quantity, unit: total.unit, pages: [...total.pages] };
+    quantity: total.quantity, unit: total.unit, pages: [...total.pages], ...(total.correctedProof ? {corrected_proof:total.correctedProof} : {}) };
 }
 
 function heldOnWire(part: ItemSendHeldQuantity) {

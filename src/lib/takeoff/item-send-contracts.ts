@@ -71,6 +71,7 @@ const ruleEffects = ["none", "renamed", "categorized", "skipped", "price_ignored
 
 const quantitySourceSchema = z.enum(["measured", "entered", "verified_count"]);
 export const itemSendCountTotalSchema = z.object({
+  corrected_proof: z.object({part_id:uuid, sent_revision:z.number().int().positive(), current_revision:z.number().int().positive()}).optional(),
   job_id: uuid, answer_id: uuid.nullable(), reading_revision: z.number().int().positive().nullable(),
   marks_revision: z.number().int().positive(), quantity: z.number().int().positive(), unit: z.string(),
   pages: z.array(z.number().int().positive()),

@@ -123,7 +123,7 @@ const pieces = [
 type Answer = { job: string; item: string; plan: string };
 const ANSWERED: Answer[] = [JOB, VERSION_JOB].flatMap((job) => [PIECE, COPY_A].map((plan) => ({ job, item: ITEM, plan })));
 
-function stage(input: { copies: Copy[]; sent?: boolean; signing?: "ok" | "missing" | "denied" | "transport"; stored?: boolean;
+function stage(input: { copies: Copy[]; sent?: boolean; itemSend?: boolean; signing?: "ok" | "missing" | "denied" | "transport"; stored?: boolean;
   answers?: Answer[] }) {
   const jobs = [
     { id: JOB, tenant_id: TENANT, project_id: PROJECT, plan_set_id: SET, estimate_version_id: null, status: "succeeded",
@@ -140,6 +140,7 @@ function stage(input: { copies: Copy[]; sent?: boolean; signing?: "ok" | "missin
     takeoff_jobs: jobs,
     plan_files: present.filter((copy) => !copy.hidden).map(planFileRow),
     plan_sets: [set],
+    takeoff_item_send_receipts: input.itemSend ? [{ id: "s", tenant_id: TENANT, job_id: VERSION_JOB, command_kind: "send" }] : [],
     takeoff_send_receipts: input.sent ? [{ id: "r", tenant_id: TENANT, job_id: VERSION_JOB, command_kind: "send" }] : [],
     affaire_intake_documents: pieces,
     takeoff_item_answers: (input.answers ?? ANSWERED).map((answer, index) => ({ id: `answer-${index}`, tenant_id: TENANT, project_id: PROJECT,
@@ -277,6 +278,12 @@ describe("resolveItemDetailPlan, a reading", () => {
     expect(await failure(reading(JOB, LONE_PIECE))).toEqual({ status: 404, code: "TAKEOFF_ITEM_DETAIL_PLAN_NOT_FOUND" });
     expect(await failure(resolveItemDetailPlan(OTHER_PROJECT, { itemId: ITEM, planKey: PIECE, jobId: FOREIGN_JOB, source: null })))
       .toEqual({ status: 404, code: "NOT_FOUND" });
+  });
+
+  it("serves the same attested sheet to the member after an item send", async () => {
+    stage({ copies: [{ id: COPY_A, current: true, piece: PIECE }], itemSend: true });
+    expect((await reading(VERSION_JOB, PIECE)).document).toEqual({ kind: "attested",
+      href: `/api/takeoff/jobs/${VERSION_JOB}/vector-plans/${COPY_A}` });
   });
 
   it("serves a version-launched analysis's bytes only once it was sent", async () => {

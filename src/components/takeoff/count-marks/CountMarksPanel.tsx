@@ -76,7 +76,7 @@ function entryLabel(entry: CountMarkDraftEntry, numbers: Record<string, number>)
   }
 }
 
-function CountSummary({ marks }: { marks: CountMarksContextValue }) {
+function CountSummary({ marks, sent }: { marks: CountMarksContextValue; sent: boolean }) {
   const summary = marks.summary;
   if (!summary) return null;
   const unit = summary.unit ?? "";
@@ -113,7 +113,7 @@ function CountSummary({ marks }: { marks: CountMarksContextValue }) {
         {summary.retained === 0 && summary.removed > 0 && summary.state !== "no_mark_retained" ? " · Aucun repère retenu" : ""}
       </p>
       <p className="text-muted-foreground">
-        {summary.counted
+        {summary.counted && sent ? "Les repères corrigés changent le comptage du plan. Confirmez la correction pour modifier ce devis." : summary.counted
           ? "Le comptage vérifié peut être retenu pour le devis à l’acceptation du poste sur ce plan."
           : "Ces repères localisent les objets sur le plan."}
       </p>
@@ -488,7 +488,7 @@ function DraftBar({ marks, numbers, bar, onSave }: { marks: CountMarksContextVal
   );
 }
 
-export function CountMarksPanel() {
+export function CountMarksPanel({sent = false}: {sent?: boolean} = {}) {
   const marks = useCountMarks();
   const [tab, setTab] = useState<"list" | "history">("list");
   const [withRemoved, setWithRemoved] = useState(false);
@@ -556,7 +556,7 @@ export function CountMarksPanel() {
               <Button size="xs" variant={tab === "history" ? "outline" : "ghost"} role="tab" aria-selected={tab === "history"} onClick={() => setTab("history")}>Historique</Button>
             </div>
           </header>
-          <CountSummary marks={marks} />
+          <CountSummary marks={marks} sent={sent} />
           {loaded.view.coverage && <p className="px-3 py-1.5 text-xs">{describeMarkCoverage(loaded.view.coverage)}</p>}
           {!marks.canEdit && loaded.view.edit.reason ? (
             <p className="border-b border-border bg-surface-subtle px-3 py-1.5 text-xs text-foreground-secondary" data-testid="reperes-lecture-seule">

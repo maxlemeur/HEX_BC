@@ -55,7 +55,14 @@ export async function checkAttestedTakeoffPlan(supabase: AuthenticatedTakeoffCon
     const { data: sent, error: sentError } = await supabase.from("takeoff_send_receipts").select("id")
       .eq("tenant_id", tenantId).eq("job_id", jobId).eq("command_kind", "send").maybeSingle();
     if (sentError) readError(jobId, "Impossible de lire l’envoi du métré.", sentError);
-    if (!sent) return { ok: false, reason: "not_attested" };
+    if (!sent) {
+      // An affaire's item send also attaches the job to its first draft. Only
+      // the original send receipt proves that origin for the attested sheet.
+      const byItem = await supabase.from("takeoff_item_send_receipts").select("id")
+        .eq("tenant_id", tenantId).eq("job_id", jobId).eq("command_kind", "send").maybeSingle();
+      if (byItem.error) readError(jobId, "Impossible de lire l’envoi des postes du plan.", byItem.error);
+      if (!byItem.data) return { ok: false, reason: "not_attested" };
+    }
   }
 
   const snapshot = parsePreparationSnapshot(job.preparation_snapshot);

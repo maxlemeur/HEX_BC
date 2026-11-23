@@ -1018,6 +1018,24 @@
       ]
     },
     {
+      "id": "takeoff-contribution-revision",
+      "note": "POSTE-REVISION01 corrige un comptage déjà envoyé, retrouve le prix du devis et refuse une ligne dont l’unité a changé.",
+      "paths": [
+        "src/components/takeoff/contribution-revision/**",
+        "src/components/takeoff/count-marks/**",
+        "src/components/takeoff/item-detail/**",
+        "src/components/takeoff/item-table/**",
+        "src/lib/takeoff/contribution-revision*.ts",
+        "src/lib/takeoff/item-send*.ts",
+        "src/app/api/takeoff/jobs/**/item-send/revision/**",
+        "supabase/migrations/*_takeoff_contribution_revision.sql",
+        "e2e/army/takeoff/poste-send-support.ts"
+      ],
+      "journeys": [
+        "e2e/army/takeoff/poste-contribution-revision.e2e.ts"
+      ]
+    },
+    {
       "id": "takeoff-item-verified-count",
       "note": "POSTE-COMPTAGE01 accepte un comptage vérifié sur le plan, confirme son envoi et relit la quantité dans le devis.",
       "paths": [

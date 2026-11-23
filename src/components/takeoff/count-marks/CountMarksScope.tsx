@@ -237,7 +237,7 @@ export function useCountMarks() {
 
 const newKey = () => crypto.randomUUID();
 
-export function CountMarksScope({ projectId, answer, page, itemLabels: labelsGiven, reader: given, onSaved, readOnly = false,
+export function CountMarksScope({ projectId, answer, page, itemLabels: labelsGiven, reader: given, onSaved, readOnly = false, revisionVersion,
   onRefused, showPage, children }: {
   projectId: string;
   answer: CountMarksAnswer | null;
@@ -245,6 +245,7 @@ export function CountMarksScope({ projectId, answer, page, itemLabels: labelsGiv
   itemLabels: Record<string, string>;
   /** The readers to use; by default the affaire's routes. */
   reader?: CountMarksReader;
+  revisionVersion?: string;
   /**
    * Called once a save changed answers' marks, with every answer its command named (the one saved, maybe no longer the
    * one shown, and the others a move or a reattribution changed), and the item of each when the screen knows it: what
@@ -446,8 +447,9 @@ export function CountMarksScope({ projectId, answer, page, itemLabels: labelsGiv
       setFailure(null);
       // The session of this member on this answer, kept for the tab.
       const value = sessionRef.current;
-      if (!value || value.draft.answerId !== answerId || value.viewerId !== next.view.viewerId) {
-        writeSession({ viewerId: next.view.viewerId, draft: readSession(next.view.viewerId, answerId)
+      const sessionOwner = revisionVersion ? `${next.view.viewerId}/${revisionVersion}` : next.view.viewerId;
+      if (!value || value.draft.answerId !== answerId || value.viewerId !== sessionOwner) {
+        writeSession({ viewerId: sessionOwner, draft: readSession(sessionOwner, answerId)
           ?? emptyCountMarkDraft(answerId, next.view.revision, newKey()) });
       }
     }).catch((error: unknown) => {
@@ -459,7 +461,7 @@ export function CountMarksScope({ projectId, answer, page, itemLabels: labelsGiv
     return () => {
       active = false;
     };
-  }, [answerId, page, inScope, refused, readApplied, readScreen, readStarted, refusedBy, screen, start, writeSession, attempt]);
+  }, [answerId, page, inScope, refused, readApplied, readScreen, readStarted, refusedBy, screen, start, writeSession, attempt, revisionVersion]);
 
   const current = loaded && loaded.answerId === answerId && loaded.page === page ? loaded : null;
   // A reading consulted only is drawn from the server's revision alone: the tab's stored session stays apart, untouched.

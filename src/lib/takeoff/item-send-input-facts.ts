@@ -20,7 +20,8 @@ export type ItemSendObservation = {
 
 export type ItemSendSource = "measured" | "entered" | "verified_count";
 export type ItemSendCountProof = { quantity: number; unit: string; pages: readonly number[]; marksRevision: number };
-export type ItemSendCountTotal = ItemSendCountProof & { jobId: string; answerId: string | null; readingRevision: number | null };
+export type CorrectedCountProof = { part_id: string; sent_revision: number; current_revision: number };
+export type ItemSendCountTotal = ItemSendCountProof & { correctedProof?: CorrectedCountProof; jobId: string; answerId: string | null; readingRevision: number | null };
 export type ItemSendHeldQuantity = Omit<ItemSendCountTotal, "marksRevision"> & { source: "measured" | "entered" };
 
 /** The stored answer of one item on this plan, with its review decision and the entry of this plan's scope (lot 4 PR 4). */
