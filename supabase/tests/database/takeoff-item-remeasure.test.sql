@@ -635,14 +635,14 @@ $$;
 create function pg_temp.detail_measure(page_no integer, round_no integer default 8, item_no integer default 300,
   plan_no integer default 0, revision_no integer default 310, extra jsonb default '{}') returns table (outcome text, request_id uuid, job_id uuid, stale uuid[])
 language sql as $$
-  select * from public.launch_takeoff_item_remeasure(pg_temp.f(10), pg_temp.f(20), pg_temp.f(2), pg_temp.f(702 + round_no),
+  select launched.* from (select case when page_no is null then '[2,7]'::jsonb else jsonb_build_array(page_no) end as pages) scope
+  cross join lateral public.launch_takeoff_item_remeasure(pg_temp.f(10), pg_temp.f(20), pg_temp.f(2), pg_temp.f(702 + round_no),
     pg_temp.job(1,pg_temp.plan(plan_no)), pg_temp.host(), pg_temp.selection() || '{"profileId":"autre-profil","authorizationId":"seconde-connexion"}',
     jsonb_set(jsonb_set(pg_temp.manifest(pg_temp.list(revision_no,array[item_no]),array[pg_temp.plan(plan_no)]),
       '{plans,0,pages}', scope.pages), '{units,0,pages}', scope.pages),
     jsonb_set(jsonb_set(pg_temp.snapshot(array[pg_temp.plan(plan_no)],2), '{preparation,sources,0,pages}', scope.pages),
       '{execution_selection}', pg_temp.selection() || '{"profileId":"autre-profil","authorizationId":"seconde-connexion"}'), pg_temp.jobs(round_no,array[pg_temp.plan(plan_no)]), pg_temp.f(40),1,
-    array[pg_temp.plan(plan_no)], pg_temp.targets(array[item_no],array[pg_temp.plan(plan_no)]), pg_temp.detail_confirm(page_no) || extra)
-  from (select case when page_no is null then '[2,7]'::jsonb else jsonb_build_array(page_no) end as pages) scope
+    array[pg_temp.plan(plan_no)], pg_temp.targets(array[item_no],array[pg_temp.plan(plan_no)]), pg_temp.detail_confirm(page_no) || extra) as launched
 $$;
 select throws_ok($$select * from pg_temp.detail_measure(6)$$, '22023','TAKEOFF_LAUNCH_SEAL_INVALID','a page outside the preparation is refused');
 select is((select outcome from pg_temp.detail_measure(2)), 'admitted','a member may confirm a single admitted page');
