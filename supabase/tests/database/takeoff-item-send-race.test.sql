@@ -1024,6 +1024,7 @@ select is(pg_temp.written(21),'1/1/1/1/applied','the original receipt and live p
 \ir ../fixtures/takeoff-contribution-working-sources.sql
 \ir ../fixtures/takeoff-contribution-reattribution.sql
 \ir ../fixtures/takeoff-contribution-shared-entry.sql
+\ir ../fixtures/takeoff-revision-added-part.sql
 
 -- 3. Affaire 20: a targeted save of the contributing row holds the job's rules while the plan is confirmed.
 insert into plans values ('20-first', pg_temp.plan(20, null, 300, 2, pg_temp.payload(720)), pg_temp.payload(720));
