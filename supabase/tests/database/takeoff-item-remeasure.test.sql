@@ -647,6 +647,23 @@ select is(pg_temp.peer_context(1)->'peers', (select context->'peers' from peer_b
   'comparison must preserve the current job used by the send of plan B');
 select is(private.takeoff_send_context_stamps(pg_temp.peer_context(1)), (select private.takeoff_send_context_stamps(context) from peer_before),
   'confirmation of a send on B retains the context approved before the page comparison on A');
+-- Recover the *same receipt* using the confirmation the member sent before editing their defaults.
+create function pg_temp.recover_page(selection_delta jsonb, confirmation jsonb) returns uuid language sql as $$
+  select request_id from public.replay_takeoff_item_remeasure(pg_temp.f(10), pg_temp.f(20), pg_temp.f(2), pg_temp.f(710),
+    array[pg_temp.plan(0)], pg_temp.f(310), pg_temp.targets(array[300],array[pg_temp.plan(0)]),
+    pg_temp.selection() || '{"profileId":"autre-profil","authorizationId":"seconde-connexion"}' || selection_delta, confirmation)
+  where outcome = 'replayed'
+$$;
+select is(pg_temp.recover_page('{"model":"new-default","reasoningEffort":"low"}',pg_temp.detail_confirm(2)),
+  (select launch_request_id from public.takeoff_jobs where id = pg_temp.job(8,pg_temp.plan(0))),
+  'unchanged detail confirmation recovers its original receipt after a profile default edit');
+select throws_ok($$select pg_temp.recover_page('{}',jsonb_set(pg_temp.detail_confirm(2),'{setting,model}','"another-model"'))$$,
+  '23505','TAKEOFF_LAUNCH_INTENT_CONFLICT','another confirmed model conflicts under the original key');
+select throws_ok($$select pg_temp.recover_page('{}',jsonb_set(pg_temp.detail_confirm(2),'{setting,reasoning_effort}','null'))$$,
+  '23505','TAKEOFF_LAUNCH_INTENT_CONFLICT','another confirmed effort conflicts under the original key');
+select throws_ok($$select pg_temp.recover_page('{"authorizationId":"another-connection"}',pg_temp.detail_confirm(2))$$,
+  '23505','TAKEOFF_LAUNCH_INTENT_CONFLICT','a new account connection cannot recover the earlier receipt');
+
 create temp table peer_before_b as select pg_temp.peer_context(0) as context;
 select is((select outcome from pg_temp.detail_measure(2, 12, 300, 1)), 'admitted', 'a comparison of B is admitted');
 select is(pg_temp.claim(pg_temp.job(12, pg_temp.plan(1)), 914), 1, 'the comparison of B starts');

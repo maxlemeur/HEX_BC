@@ -560,3 +560,21 @@ returns jsonb language sql stable set search_path = '' as $$
         || private.takeoff_send_revision_state(p_tenant, p_project, revision.file_id, revision.content_hash)
       order by revision.job_id, revision.file_id, revision.content_hash) from revisions as revision), '[]'::jsonb))
 $$;
+
+create or replace function private.takeoff_item_remeasure_digest(p_actor uuid, p_plan_keys uuid[], p_list_revision_id uuid, p_targets jsonb,
+  p_selection jsonb, p_confirmation jsonb)
+returns text language sql immutable set search_path = '' as $$
+  select pg_catalog.encode(pg_catalog.sha256(pg_catalog.convert_to(pg_catalog.jsonb_build_array('takeoff-item-remeasure', 3,
+    p_actor,
+    (select coalesce(pg_catalog.jsonb_agg(distinct p order by p), '[]'::jsonb) from pg_catalog.unnest(p_plan_keys) p),
+    p_list_revision_id,
+    (select coalesce(pg_catalog.jsonb_agg(pg_catalog.jsonb_build_array(t.item_id, t.answers) order by t.item_id), '[]'::jsonb)
+      from (select (target.value ->> 'item_id')::uuid as item_id,
+          (select coalesce(pg_catalog.jsonb_agg(answer.id order by answer.id), '[]'::jsonb)
+            from (select distinct (a.value #>> '{}')::uuid as id
+              from pg_catalog.jsonb_array_elements(target.value -> 'answers') a(value)) answer) as answers
+        from pg_catalog.jsonb_array_elements(p_targets) target(value)) t),
+    -- A detail confirmation carries its own effective model and effort. Its payer's profile defaults can change.
+    case when p_confirmation ? 'page' then p_selection - 'model' - 'reasoningEffort' else p_selection end,
+    p_confirmation)::text, 'UTF8')), 'hex')
+$$;
