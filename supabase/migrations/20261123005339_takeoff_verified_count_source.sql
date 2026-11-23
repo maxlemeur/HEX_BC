@@ -328,7 +328,7 @@ begin
   -- An acceptance certifies its answers' marks as the selection saw them (lot 5): their marks states are locked once the
   -- rules keys are held and before any row is verified (for share, in identifier order; an edit of those marks waits for
   -- this command, or this command for the edit and then reads its revision), and compared below.
-  if gesture = 'accept_measured' then
+  if gesture in ('accept_measured', 'reinstate') then
     for marked in select distinct p.answer_id from pg_temp.takeoff_review_pairs p order by p.answer_id loop
       perform private.lock_takeoff_count_marks_revision(marked);
     end loop;
@@ -572,7 +572,14 @@ begin
       plan_logical_id uuid, whole boolean, previous jsonb) on commit drop;
     insert into pg_temp.takeoff_review_restored
     select w.answer_id, w.item_id, p.plan_logical_id,
-      pg_catalog.jsonb_typeof(aside.after -> 'rows') = 'object' and not exists (
+      -- A set-aside clears the decision on the answer. Compare the proof in
+      -- the event to the locked marks and the surviving plan entry before
+      -- restoring either the decision or the rows it verified.
+      (aside.before ->> 'kind' is distinct from 'accepted' or (
+        coalesce((aside.before ->> 'marks_revision')::integer, 0) = private.takeoff_count_marks_revision(p.answer_id)
+        and (aside.before ->> 'quantity_source' is null or
+          (aside.before ->> 'chosen_entry_revision')::integer is not distinct from nullif(p.plan_entry_revision, 0))))
+      and pg_catalog.jsonb_typeof(aside.after -> 'rows') = 'object' and not exists (
         select 1 from pg_catalog.jsonb_each(aside.after -> 'rows') snapshot(row_id, state)
         left join public.takeoff_items i on i.id = snapshot.row_id::uuid
         where i.id is null or private.takeoff_item_review_row_state(i) is distinct from snapshot.state),

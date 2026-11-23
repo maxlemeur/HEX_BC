@@ -535,6 +535,11 @@ begin
             '{"reason":"out_of_scope"}')) ->> 'outcome') is distinct from 'applied' then
         raise exception 'set aside failed';
       end if;
+      if restore_source = 'while_aside' then
+        perform public.edit_takeoff_count_marks(pg_temp.tenant(),pg_temp.f(21),pg_temp.f(968),jsonb_build_object(a,1),
+          jsonb_build_array(jsonb_build_object('op','move','mark_id',(select mark_id from public.takeoff_count_mark_attributions
+            where answer_id = a and state = 'retained'),'x',0.5,'y',0.4)));
+      end if;
       if (public.review_takeoff_items(pg_temp.tenant(),pg_temp.f(21),pg_temp.cmd('reinstate',970,array[311]))
             ->> 'outcome') is distinct from 'applied' then
         raise exception 'reinstatement failed';
@@ -571,6 +576,9 @@ select is(pg_temp.entry_choice(false,'verified_count',7,false,'stale'),
   '["entered",null,[["entered",7]]]'::jsonb,
   'when reinstatement restores no acceptance, the table, preview and writer all return to the plan entry');
 
+select is(pg_temp.entry_choice(false,'verified_count',7,false,'while_aside'),
+  '["entered",null,[["entered",7]]]'::jsonb,
+  'a proof changed while set aside cannot restore the count over the surviving plan entry');
 select is(pg_temp.entry_choice(false,'verified_count',7,true),
   '[[[2,[[0,2,0],[1,2,1]],["entered",7,1],"entered"],
      [1,[[0,1,0]],["accepted",7,1],"accepted"],
@@ -647,6 +655,7 @@ begin
      jsonb_build_object('source','entered','alternative_quantity',7,'verified_quantity',null)));
    choice:=jsonb_set(jsonb_set(choice,'{targets,0,entry_revision}','2'),'{targets,0,answers,0,entry_revision}','0');
    choice:=public.review_takeoff_items(t,p,choice);
+   -- Read stable projections in the next statement so they see the completed review.
    result_:=jsonb_build_array(r->>'outcome',choice->>'outcome',
       (select e.quantity from public.takeoff_item_entries e where item_id=pg_temp.f(311)),
       (select decision from public.read_takeoff_item_table(t,p,pg_temp.plan_file(21),p_item_ids=>array[pg_temp.f(311)])),
