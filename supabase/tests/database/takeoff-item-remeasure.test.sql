@@ -831,6 +831,8 @@ select is(pg_temp.reserve_mark_call('tile:2:1'),'TILE_ALREADY_ATTEMPTED','an out
 select remaining_tokens from public.record_takeoff_launch_usage(pg_temp.job(14,pg_temp.plan(1)),pg_temp.f(916),'tile:2:1',100,0) \gset
 select is(pg_temp.reserve_mark_call('tile:2:1'),'TILE_ALREADY_ATTEMPTED','a settled tile cannot be retried');
 select is(pg_temp.reserve_mark_call('call:1','pdf'),'reserved','the first ordinary reservation accepts the integral 2.0 from the confirmation');
+select is(private.takeoff_count_mark_attempt_refusal((pg_temp.request_of(pg_temp.job(14,pg_temp.plan(1)))).id,'call:1'),
+  'CALL_ALREADY_ATTEMPTED','a pending ordinary reservation has no further permission to send');
 select is(pg_temp.reserve_mark_call('call:2','vector_group'),'reserved','the second ordinary read fits the shown bound');
 select is(pg_temp.reserve_mark_call('call:3','pdf'),'BUDGET_EXHAUSTED','a third ordinary read exceeds the confirmed total');
 select remaining_tokens from public.record_takeoff_launch_usage(pg_temp.job(14,pg_temp.plan(1)),pg_temp.f(916),'call:1',100,0) \gset

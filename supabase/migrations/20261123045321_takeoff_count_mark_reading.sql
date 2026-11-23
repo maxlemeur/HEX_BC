@@ -496,6 +496,14 @@ begin
 end;
 $$;
 
+-- On a confirmed command, an outstanding or settled reservation never gives permission to send again.
+create function private.takeoff_count_mark_attempt_refusal(p_request uuid,p_key text)
+returns text language sql stable set search_path = '' as $$
+  select case when u.branch='count_tile' then 'TILE_ALREADY_ATTEMPTED' else 'CALL_ALREADY_ATTEMPTED' end
+  from private.takeoff_launch_usage u where u.request_id=p_request and u.call_key=p_key limit 1
+$$;
+revoke all on function private.takeoff_count_mark_attempt_refusal(uuid,text) from public, anon, authenticated, service_role;
+
 -- The new lane is explicit. Existing callers keep the full namespace of opaque keys in each released lane.
 alter table private.takeoff_launch_usage drop constraint takeoff_launch_usage_branch_check;
 alter table private.takeoff_launch_usage add constraint takeoff_launch_usage_branch_check
@@ -565,14 +573,17 @@ begin
   -- For the optional readers the confirmation buys one attempt per named tile, across
   -- all leases. Replaying a reservation must never authorize a second physical call.
   if job.preparation_snapshot ? 'remeasure_count_marks' then
+    refusal := private.takeoff_count_mark_attempt_refusal(request.id,p_call_key);
+    if refusal is not null then
+      return query select 'refused'::text, refusal, null::bigint, null::bigint, null::bigint;
+      return;
+    end if;
     if p_branch = 'count_tile' then
       if not exists (
         select 1 from jsonb_array_elements(job.preparation_snapshot #> '{remeasure_count_marks,pages}') s
         cross join lateral generate_series(1,case when (s ->> 'width_points')::numeric > 700 then 6 else 4 end) t(i)
         where p_call_key = 'tile:' || ((s ->> 'page')::numeric::integer)::text || ':' || t.i::text) then
         refusal := 'TILE_OUTSIDE_SCOPE';
-      elsif exists (select 1 from private.takeoff_launch_usage l where l.request_id = request.id and l.call_key = p_call_key) then
-        refusal := 'TILE_ALREADY_ATTEMPTED';
       elsif exists (select 1 from private.takeoff_launch_usage l where l.request_id = request.id and l.state = 'reserved') then
         refusal := 'TILE_IN_FLIGHT';
       end if;
@@ -580,7 +591,7 @@ begin
         and l.branch = 'count_tile' and l.state = 'reserved') then
       refusal := 'TILE_IN_FLIGHT';
     elsif (select count(*) from private.takeoff_launch_usage l where l.request_id = request.id and l.branch <> 'count_tile'
-        and (l.lease_token,l.call_key) <> (p_lease_token,p_call_key))
+        )
         >= (job.preparation_snapshot #>> '{remeasure_count_marks,other_calls}')::integer then
       refusal := 'BUDGET_EXHAUSTED';
     end if;
