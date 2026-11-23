@@ -34,6 +34,7 @@ import {
   type ItemSendInput,
   type ItemSendLocationField,
   type ItemSendCountTotal,
+  type ItemSendHeldQuantity,
   type ItemSendNotSentReason,
   type ItemSendOption,
   type ItemSendPageDecision,
@@ -510,7 +511,8 @@ export async function computeItemSendState(ctx: Context, jobId: string, request:
     if (itemSendEngineFits(engine)) {
       // What earlier sends by item wrote here and the pages of this plan the draft already holds, as the writer's page
       // guard reads them (today's provenance and the parts of earlier sends by item).
-      const state = await readItemSendEarlierState(ctx, { projectId: job.project_id, versionId: version.id, jobId });
+      const state = await readItemSendEarlierState(ctx, { projectId: job.project_id, versionId: version.id, jobId,
+        incomingCountItems: reading.answers.filter((answer) => answer.quantitySource === "verified_count").map((answer) => answer.itemId) });
       earlier = { targets: state.targets, sections: state.sections, displaced: state.displaced };
       pagesInEstimate = state.pagesInEstimate;
     }
@@ -559,11 +561,23 @@ function countOnWire(total: ItemSendCountTotal) {
     quantity: total.quantity, unit: total.unit, pages: [...total.pages] };
 }
 
-export function heldCountMessage(total: ReturnType<typeof countOnWire>, jobId: string) {
+function heldOnWire(part: ItemSendHeldQuantity) {
+  return { job_id: part.jobId, answer_id: part.answerId, reading_revision: part.readingRevision, source: part.source,
+    quantity: part.quantity, unit: part.unit, pages: [...part.pages] };
+}
+
+export function heldCountMessage(total: ReturnType<typeof countOnWire>, jobId: string, held?: ReturnType<typeof heldOnWire>) {
   const reading = total.reading_revision === null ? `l’analyse ${total.job_id}` : `la lecture n° ${total.reading_revision}`;
   const pages = `${total.pages.length === 1 ? "page" : "pages"} ${total.pages.join(", ")}`;
-  const origin = total.job_id === jobId ? "Le comptage proposé" : "Le devis conserve le comptage";
-  return `${origin} de ${total.quantity} ${total.unit}, issu de ${reading} (repères ${pages}). `
+  const origin = total.job_id === jobId ? "La lecture propose un comptage" : "Le devis conserve le comptage";
+  let retained = "";
+  if (held) {
+    const source = held.source === "measured" ? "la mesure" : "la saisie";
+    const from = held.reading_revision === null ? `l’analyse ${held.job_id}` : `la lecture n° ${held.reading_revision}`;
+    const scope = held.pages.length ? `${held.pages.length === 1 ? "page" : "pages"} ${held.pages.join(", ")}` : "pages inconnues";
+    retained = `Le devis conserve ${source} de ${held.quantity.toLocaleString("fr-FR")} ${held.unit} de ${from} (${scope}). `;
+  }
+  return retained + `${origin} de ${total.quantity} ${total.unit}, issu de ${reading} (repères ${pages}). `
     + "Pour remplacer le total précédent, retenez une quantité sur une lecture qui couvre tout le plan. "
     + "Vous pouvez aussi conserver le total précédent.";
 }
@@ -621,7 +635,10 @@ function respond(jobId: string, shown: { plan: { key: string; name: string }; li
       page: entry.page, held_item_ids: entry.heldItemIds,
       earlier_lines: entry.earlierLines.map((line) => ({ estimate_item_id: line.estimateItemId, title: line.title, quantity: line.quantity })),
       ...(entry.verifiedTotal ? { verified_total: countOnWire(entry.verifiedTotal) } : {}),
-      message: entry.verifiedTotal ? heldCountMessage(countOnWire(entry.verifiedTotal), jobId) : TO_RESOLVE_MESSAGES[entry.kind], options: entry.options.map(toOption), facts: entry.facts })),
+      ...(entry.heldPart ? { held_part: heldOnWire(entry.heldPart) } : {}),
+      message: entry.verifiedTotal ? heldCountMessage(countOnWire(entry.verifiedTotal), jobId, entry.heldPart && heldOnWire(entry.heldPart))
+        : TO_RESOLVE_MESSAGES[entry.kind],
+      options: entry.options.map(toOption), facts: entry.facts })),
     not_added: computed.notAdded.map((entry) => ({ item_id: entry.itemId, role: entry.role, quantity: entry.quantity, unit: entry.unit,
       page: entry.page })),
     page_contributions: computed.pageContributions.map((page) => ({ page: page.page, item_ids: page.itemIds })),

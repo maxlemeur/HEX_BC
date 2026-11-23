@@ -326,7 +326,7 @@ describe("previewTakeoffItemSend", () => {
     vi.mocked(readItemSendEarlierState).mockResolvedValue({ targets: [], sections: [], displaced: [],
       pagesInEstimate: [{ page: 3, earlierJobIds: ["job-earlier"], estimateItemIds: [LINE], today: true, todayEstimateItemIds: [LINE], parts: [] }] });
     const preview = await previewTakeoffItemSend(JOB, {});
-    expect(readItemSendEarlierState).toHaveBeenCalledWith(expect.anything(), { projectId: PROJECT, versionId: VERSION, jobId: JOB });
+    expect(readItemSendEarlierState).toHaveBeenCalledWith(expect.anything(), { projectId: PROJECT, versionId: VERSION, jobId: JOB, incomingCountItems: [] });
     expect(preview.to_resolve).toEqual([expect.objectContaining({ kind: "page_decision", page: 3, held_item_ids: [LAVABO] })]);
     expect(preview.parts_not_sent).toEqual([expect.objectContaining({ item_id: LAVABO, kind: "entered", pages: [1, 2, 3, 4], reason: "page_held" })]);
   });
@@ -559,6 +559,17 @@ describe("confirmTakeoffItemSend", () => {
     expect(error.message).toContain("une lecture qui couvre tout le plan");
     expect(error.message).toContain("conserver le total précédent");
     expect(error.message).toContain("Rien n’a été écrit.");
+  });
+
+  it.each([["entered", "la saisie"], ["measured", "la mesure"]])("names the earlier %s part held by the writer", (source, label) => {
+    const held = { source, job_id: REQUEST_ID, answer_id: null, reading_revision: 3, quantity: 7.5, unit: "u", pages: [2] };
+    const error = mapItemSendRpcError({ message: "TAKEOFF_ITEM_SEND_VERIFIED_TOTAL_INDIVISIBLE", code: "40001",
+      details: JSON.stringify({ job_id: JOB, answer_id: null, reading_revision: 4, marks_revision: 1, quantity: 1,
+        unit: "u", pages: [7], held_part: held }) }, JOB);
+    expect(error.details).toMatchObject({ held_part: held });
+    expect(error.message).toContain(`Le devis conserve ${label} de 7,5 u de la lecture n° 3 (page 2)`);
+    expect(error.message).toContain("une lecture qui couvre tout le plan");
+    expect(error.message).toContain("conserver le total précédent");
   });
 
   it("tells the member, in French, every refusal of the writer; nothing was written", () => {

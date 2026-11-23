@@ -75,6 +75,9 @@ export const itemSendCountTotalSchema = z.object({
   marks_revision: z.number().int().positive(), quantity: z.number().int().positive(), unit: z.string(),
   pages: z.array(z.number().int().positive()),
 });
+export const itemSendHeldQuantitySchema = itemSendCountTotalSchema.omit({ marks_revision: true }).extend({
+  source: z.enum(["measured", "entered"]), quantity: z.number(),
+});
 const gapSchema = z.object({ absolute: z.number(), percent: z.number().nullable(), requires_review: z.boolean() }).strict();
 const optionSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("line"), estimate_item_id: uuid, title: z.string().nullable() }).strict(),
@@ -141,6 +144,7 @@ export const itemSendPreviewResponseSchema = z.object({
     key: z.string(),
     kind: z.enum(ITEM_SEND_TO_RESOLVE_KINDS),
     verified_total: itemSendCountTotalSchema.optional(),
+    held_part: itemSendHeldQuantitySchema.optional(),
     item_id: uuid.nullable(),
     label: z.string().nullable(),
     page: z.number().int().positive().nullable(),

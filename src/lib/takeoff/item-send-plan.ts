@@ -78,6 +78,7 @@ export type ItemSendObservation = {
 export type ItemSendSource = "measured" | "entered" | "verified_count";
 export type ItemSendCountProof = { quantity: number; unit: string; pages: readonly number[]; marksRevision: number };
 export type ItemSendCountTotal = ItemSendCountProof & { jobId: string; answerId: string | null; readingRevision: number | null };
+export type ItemSendHeldQuantity = Omit<ItemSendCountTotal, "marksRevision"> & { source: "measured" | "entered" };
 
 /** The stored answer of one item on this plan, with its review decision and the entry of this plan's scope (lot 4 PR 4). */
 export type ItemSendAnswer = {
@@ -160,6 +161,7 @@ export type ItemSendEarlierTarget = {
     planKey: string | null;
     /** The identity the part was stored with (migration C): the one compared and echoed, never derived again. */
     identity?: ItemSendIdentity;
+    readingRevision?: number | null;
     verifiedCount?: { marksRevision: number; readingRevision: number | null };
   }>;
 };
@@ -355,6 +357,7 @@ export type ItemSendToResolve = {
    */
   page: number | null;
   verifiedTotal?: ItemSendCountTotal;
+  heldPart?: ItemSendHeldQuantity;
   heldItemIds: string[];
   earlierLines: Array<{ estimateItemId: string; title: string | null; quantity: number }>;
   options: ItemSendOption[];
@@ -819,21 +822,11 @@ export function planTakeoffItemSend(input: ItemSendInput): ItemSendPlan {
       for (let page = 1; page <= size; page++) if (!readPages.has(page) || !covered.has(page)) return false;
       return true;
     };
-    const blockedCount = (covered: Set<number>): ItemSendCountTotal | null => {
-      if (!previousCount && !counted) return null;
-      const whole = wholePlan(covered);
-      if (previousCount && !whole) return countTotal(previousCount);
-      if (counted && proof && itemHistory.some((part) => ofThisPlan(part)
-        && (part.pages.length ? part.pages.some((page) => !covered.has(page)) : !whole))) {
-        return { ...proof, jobId: input.job.id, answerId: answer.answerId, readingRevision: answer.readingRevision ?? null };
-      }
-      return null;
-    };
-    const resolveCount = (total: ItemSendCountTotal) => {
+    const resolveCount = (total: ItemSendCountTotal, heldPart?: ItemSendHeldQuantity) => {
       const key = `verified-total:${item.id}`;
       const options: ItemSendOption[] = [{ kind: "leave_out" }];
       if (offered(key, options)) notSent(item, "left_out", parts);
-      else ask({ key, kind: "verified_total_indivisible", itemId: item.id, label: item.label, compartmentKey: null, options, verifiedTotal: total });
+      else ask({ key, kind: "verified_total_indivisible", itemId: item.id, label: item.label, compartmentKey: null, options, verifiedTotal: total, heldPart });
     };
     // A page decision cannot supply pages the reading missed.
     if (previousCount && !wholePlan(readPages)) { resolveCount(countTotal(previousCount)); continue; }
@@ -886,8 +879,21 @@ export function planTakeoffItemSend(input: ItemSendInput): ItemSendPlan {
       .flatMap((entry) => entry.parts.filter((part) => lower(part.itemId) === lower(item.id)));
     const otherPlanCount = itemHistory.find((part) => part.verifiedCount && !ofThisPlan(part)
       && pageReplaced.some((heldPart) => sourceKey(heldPart) === sourceKey(part)));
-    const blocked = otherPlanCount ? countTotal(otherPlanCount) : blockedCount(covered);
-    if (blocked) { resolveCount(blocked); continue; }
+    const heldCount = otherPlanCount ?? (previousCount && !wholePlan(covered) ? previousCount : undefined);
+    if (heldCount) { resolveCount(countTotal(heldCount)); continue; }
+    if (counted && proof) {
+      const whole = wholePlan(covered);
+      const held = itemHistory.filter((part) => ofThisPlan(part)
+        && (part.pages.length ? part.pages.some((page) => !covered.has(page)) : !whole))
+        .sort((a, b) => byText(a.jobId, b.jobId) || byText(a.answerId ?? "", b.answerId ?? "")
+          || byText(a.observationIds[0] ?? "", b.observationIds[0] ?? ""))[0];
+      if (held) {
+        resolveCount({ ...proof, jobId: input.job.id, answerId: answer.answerId, readingRevision: answer.readingRevision ?? null },
+          { jobId: held.jobId, answerId: held.answerId, quantity: held.quantity, unit: held.unit, pages: held.pages,
+            source: held.observationIds.length ? "measured" : "entered", readingRevision: held.readingRevision ?? null });
+        continue;
+      }
+    }
     /** Once this item has its target: what its replaced pages take out must leave a line this plan feeds. */
     const takeOut = () => { for (const part of pageReplaced) pageReplacedAll.set(lower(part.partId), part); };
     const compartment: ItemSendCompartment = dpgfItem ? { key: "dpgf", label: ITEM_SEND_DPGF_COMPARTMENT_LABEL, reason: null }

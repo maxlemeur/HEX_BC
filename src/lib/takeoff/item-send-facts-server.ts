@@ -178,7 +178,7 @@ export async function readItemSendFacts(member: Member, input: {
  * targets whose line the editor deleted (their parts still live), the sections they created, and the pages of the job's
  * plan the draft already holds from another analysis (the writer's page guard, on the same pages).
  */
-export async function readItemSendEarlierState(member: Member, input: { projectId: string; versionId: string; jobId: string }):
+export async function readItemSendEarlierState(member: Member, input: { projectId: string; versionId: string; jobId: string; incomingCountItems: readonly string[] }):
   Promise<{ targets: ItemSendEarlierTarget[]; displaced: ItemSendDisplacedTarget[]; sections: ItemSendEarlierSection[];
     pagesInEstimate: ItemSendPageInEstimate[] }> {
   const { data, error } = await member.supabase.rpc("read_takeoff_item_send_draft" as never, { p_tenant_id: member.tenantId,
@@ -187,23 +187,33 @@ export async function readItemSendEarlierState(member: Member, input: { projectI
   const parsed = draftSchema.safeParse(data);
   if (!parsed.success) unreadable(input.jobId, "Ce que le brouillon tient des envois par poste est illisible.");
   const draft = parsed.data;
-  const answerIds = [...new Set([...draft.earlier_targets, ...draft.displaced_targets].flatMap((target) =>
+  const previous = [...draft.earlier_targets, ...draft.displaced_targets];
+  const answerIds = [...new Set(previous.flatMap((target) =>
     target.parts.flatMap((part) => part.answer_id && !part.observation_ids.length ? [part.answer_id] : [])))];
   const { data: counts, error: countError } = await readAllRowsInChunks(answerIds, (ids) =>
     member.supabase.from("takeoff_item_send_parts").select("id,item_id,plan_logical_id,job_id,answer_id,marks_revision", { count: "exact" })
       .eq("tenant_id", member.tenantId).eq("project_id", input.projectId).eq("version_id", input.versionId)
       .eq("state", "live").eq("kind", "verified_count").in("answer_id", ids));
   if (countError) failed(countError, "Impossible de lire la preuve des comptages du brouillon.", input.jobId);
-  const { data: readings, error: readingError } = await readAllRowsInChunks([...new Set((counts ?? []).map((row) => row.answer_id))], (ids) =>
+  const incoming = new Set(input.incomingCountItems);
+  const readingIds = new Set((counts ?? []).map((row) => row.answer_id));
+  for (const target of previous) {
+    if (incoming.has(target.item_id)) {
+      for (const part of target.parts) if (part.answer_id) readingIds.add(part.answer_id);
+    }
+  }
+  const { data: readings, error: readingError } = await readAllRowsInChunks([...readingIds], (ids) =>
     member.supabase.from("takeoff_item_answers").select("id,reading_revision", { count: "exact" })
       .eq("tenant_id", member.tenantId).eq("project_id", input.projectId).in("id", ids));
-  if (readingError) failed(readingError, "Impossible de lire les lectures de ces comptages.", input.jobId);
+  if (readingError) failed(readingError, "Impossible de lire les lectures des quantités de ce poste.", input.jobId);
   const revisions = new Map(readings?.map((row) => [row.id, row.reading_revision]));
   const proofs = new Map((counts ?? []).map((row) => [JSON.stringify([row.item_id, row.plan_logical_id, row.job_id, row.answer_id]),
     { marksRevision: row.marks_revision!, readingRevision: revisions.get(row.answer_id) ?? null }]));
   const partsOf = (target: { item_id: string; parts: z.infer<typeof partSchema>[] }) => target.parts.map((part) => {
     const verifiedCount = !part.observation_ids.length && proofs.get(JSON.stringify([target.item_id, part.plan_key, part.job_id, part.answer_id]));
-    return verifiedCount ? { ...partOf(part), verifiedCount } : partOf(part);
+    if (verifiedCount) return { ...partOf(part), verifiedCount };
+    const readingRevision = part.answer_id && revisions.get(part.answer_id);
+    return readingRevision ? { ...partOf(part), readingRevision } : partOf(part);
   });
   return {
     targets: draft.earlier_targets.map((target) => ({ itemId: target.item_id, breakdown: breakdownOf(target.breakdown),

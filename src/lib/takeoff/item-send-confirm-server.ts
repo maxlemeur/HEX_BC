@@ -8,6 +8,7 @@ import { takeoffModuleDefault } from "@/lib/takeoff/feature-flags";
 import {
   itemSendConfirmRequestSchema,
   itemSendCountTotalSchema,
+  itemSendHeldQuantitySchema,
   itemSendConfirmResponseSchema,
   type ItemSendConfirmRequest,
   type ItemSendConfirmResponse,
@@ -100,11 +101,13 @@ export function mapItemSendRpcError(error: ApplyTakeoffRpcError, jobId: string):
   switch (error.message) {
     case "TAKEOFF_ITEM_SEND_VERIFIED_TOTAL_INDIVISIBLE": {
       const count = itemSendCountTotalSchema.safeParse(detail);
-      const message = count.success ? heldCountMessage(count.data, jobId)
+      const held = itemSendHeldQuantitySchema.safeParse(detail.held_part);
+      const message = count.success ? heldCountMessage(count.data, jobId, held.data)
         : "Conservez le total précédent ou remplacez-le par une quantité retenue sur une lecture qui couvre tout le plan.";
       return new TakeoffError({ status: 409, code: TakeoffErrorCode.TAKEOFF_ITEM_SEND_VERIFIED_TOTAL_INDIVISIBLE,
         message: `${message} ${NOTHING}`, jobId, retryable: false,
-        details: { guard: "item_send_verified_total_indivisible", ...(count.success ? { verified_total: count.data } : {}) } });
+        details: { guard: "item_send_verified_total_indivisible", ...(count.success ? { verified_total: count.data } : {}),
+          ...(held.success ? { held_part: held.data } : {}) } });
     }
     case "TAKEOFF_ITEM_SEND_PREVIEW_STALE": return stale(jobId, reason);
     case "ESTIMATE_CALC_POLICY_CONTEXT_CHANGED": return stale(jobId, "creation_policy_changed");

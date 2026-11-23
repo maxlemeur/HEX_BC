@@ -1061,6 +1061,18 @@ describe("a verified count retained on a plan", () => {
     expect(plan.confirmable).toBe(false);
   });
 
+  it.each(["measured", "entered"] as const)("identifies the earlier %s part held against a new partial count", (source) => {
+    const prior = part({ quantity: 7.5, planKey: "plan-a", pages: [2], readingRevision: 3,
+      observationIds: source === "measured" ? ["obs-earlier"] : [] });
+    const answer = measured(lavabo, [], { quantitySource: "verified_count", verifiedCount: { ...proof, pages: [7] } });
+    const plan = planTakeoffItemSend(input({ items: [lavabo], answers: [answer],
+      plan: { key: "plan-a", name: "Plan A", pages: [7], pageCount: 9, location: null },
+      earlier: { ...before, targets: [{ ...before.targets[0], parts: [prior] }] }, destination: draft([line(10)]) }));
+    expect(plan.toResolve).toMatchObject([{ kind: "verified_total_indivisible", verifiedTotal: { quantity: 1 },
+      heldPart: { source, jobId: OTHER_JOB, answerId: prior.answerId, readingRevision: 3, pages: [2], quantity: 7.5, unit: "u" } }]);
+    expect(plan.confirmable).toBe(false);
+  });
+
   it.each(["measured", "entered", "verified_count"] as const)("shows the whole replacement with the new %s source", (source) => {
     const answer = measured(lavabo, [{ quantity: 2, page: 1 }], { searchedPages: [1, 2],
       ...(source === "verified_count" ? { quantitySource: source, verifiedCount: proof } : {}),

@@ -1817,7 +1817,7 @@ begin
         and ((p.plan_logical_id = plan_key and private.takeoff_item_send_count_scope(p.kind,p.pages,
             incoming_count is not null,covered,whole_plan) = 'refuse')
           or (p.plan_logical_id <> plan_key and p.kind = 'verified_count' and p.id = any(page_replaced)))
-      order by (p.kind = 'verified_count') desc,p.id limit 1;
+      order by (p.kind = 'verified_count') desc,p.job_id,p.answer_id,p.observation_ids,p.id limit 1;
       if found then
         if blocked_part.kind = 'verified_count' then
           count_proof := pg_catalog.jsonb_build_object('job_id',blocked_part.job_id,'answer_id',blocked_part.answer_id,
@@ -1826,7 +1826,10 @@ begin
         else
           count_proof := pg_catalog.jsonb_build_object('job_id',target_job_id,'answer_id',incoming_count -> 'answer_id',
             'quantity',incoming_count -> 'quantity','unit',incoming_count -> 'unit','pages',incoming_count -> 'pages',
-            'marks_revision',incoming_count -> 'marks_revision');
+            'marks_revision',incoming_count -> 'marks_revision',
+            'held_part',pg_catalog.jsonb_build_object('source',blocked_part.kind,'quantity',blocked_part.quantity,
+              'unit',blocked_part.unit,'pages',blocked_part.pages,'job_id',blocked_part.job_id,'answer_id',blocked_part.answer_id,
+              'reading_revision',(select a.reading_revision from public.takeoff_item_answers a where a.id = blocked_part.answer_id)));
         end if;
         raise exception 'TAKEOFF_ITEM_SEND_VERIFIED_TOTAL_INDIVISIBLE' using errcode = '40001',
           detail = (count_proof || pg_catalog.jsonb_build_object('reason','verified_total_indivisible',

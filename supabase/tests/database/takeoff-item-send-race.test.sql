@@ -1326,7 +1326,7 @@ select is(pg_temp.earlier_proof((select id from marked_next_copy),true),'[false,
 -- nine pages. The requested pages change with the member's preparation.
 -- All five scenarios run the real admission, publication, review and writer,
 -- each rolled back to the same source and copy.
-create function pg_temp.followup_scope(pages_ integer[], source_ text, fault text default null) returns jsonb language plpgsql as $$
+create function pg_temp.followup_scope(pages_ integer[], source_ text, fault text default null, prior_ text default 'verified_count') returns jsonb language plpgsql as $$
 declare
   project_ uuid := pg_temp.f(21);
   tenant_ uuid := pg_temp.tenant();
@@ -1400,6 +1400,31 @@ begin
     record_ := public.review_takeoff_items(tenant_,project_,command);
     if record_ ->> 'outcome' <> 'applied' then raise exception 'expected an accepted reading, got %',record_; end if;
     select * into strict previous from public.takeoff_item_send_parts where version_id = version_ and item_id = item_ and state = 'live';
+    if prior_ in ('measured','entered') then
+      -- Build a copied earlier ordinary contribution. The send below uses the normal locked writer.
+      perform set_config('mergeone.takeoff_item_send','fixture',true);
+      insert into public.takeoff_item_send_receipts
+        select (jsonb_populate_record(null::public.takeoff_item_send_receipts,to_jsonb(r)
+          || jsonb_build_object('id',pg_temp.f(9897)))).* from public.takeoff_item_send_receipts r
+        where r.id = previous.receipt_id and r.command_kind = 'copy';
+      update public.takeoff_item_send_parts set state = 'replaced',replaced_by_receipt_id = pg_temp.f(9897),
+        replaced_at = now() where id = previous.id;
+      previous.id := pg_temp.f(9894);
+      previous.receipt_id := pg_temp.f(9897);
+      previous.copied_from_part_id := null;
+      previous.kind := prior_;
+      previous.quantity := 7.5;
+      previous.marks_revision := null;
+      if prior_ = 'measured' then
+        previous.observation_ids := array[pg_temp.f(9886)];
+        previous.takeoff_item_ids := array[pg_temp.f(9885)];
+      else
+        previous.entry_id := pg_temp.f(9884);
+        previous.entry_revision := 1;
+      end if;
+      insert into public.takeoff_item_send_parts select previous.*;
+      perform set_config('mergeone.takeoff_item_send','',true);
+    end if;
     select i.* into strict line from public.takeoff_item_send_targets t join public.estimate_items i on i.id = t.estimate_item_id
       where t.id = previous.target_id;
     insert into public.draft_locks(version_id,user_id,tenant_id,expires_at,session_id)
@@ -1450,7 +1475,13 @@ begin
         where p.version_id = version_ and p.job_id = job_ and p.state = 'live';
     exception when sqlstate '40001' then
       get stacked diagnostics detail_ = pg_exception_detail;
-      if fault is not null then
+      if prior_ in ('measured','entered') then
+        record_ := jsonb_build_array(sqlerrm,detail_::jsonb -> 'held_part' = jsonb_build_object(
+          'job_id',previous.job_id,'answer_id',previous.answer_id,'reading_revision',
+          (select a.reading_revision from public.takeoff_item_answers a where a.id = previous.answer_id),
+          'source',prior_,'pages',previous.pages,'quantity',7.5,'unit',previous.unit),
+          (select count(*) from public.takeoff_item_send_receipts where job_id = job_));
+      elsif fault is not null then
         record_ := jsonb_build_array(sqlerrm,detail_::jsonb -> 'reason',
           (select quantity from public.estimate_items where id = line.id),
           (select count(*) from public.takeoff_item_send_receipts where job_id = job_));
@@ -1466,6 +1497,10 @@ begin
   return record_;
 end;
 $$;
+select is(pg_temp.followup_scope(array[7],'verified_count',null,prior_),
+  '["TAKEOFF_ITEM_SEND_VERIFIED_TOTAL_INDIVISIBLE",true,0]'::jsonb,
+  format('refusing the partial count identifies the held %s quantity, pages and original reading of the copy',prior_))
+from (values ('measured'),('entered')) prior(prior_);
 select is(pg_temp.followup_scope(array[7],'measured'),
   '["TAKEOFF_ITEM_SEND_VERIFIED_TOTAL_INDIVISIBLE",1,[2],true,1,0]'::jsonb,
   'the disjoint measured reading cannot add to the earlier verified total, the copy and its receipt are untouched');
