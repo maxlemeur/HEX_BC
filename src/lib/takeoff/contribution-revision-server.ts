@@ -6,7 +6,7 @@ import { quantityEntryError } from "@/lib/takeoff/quantity-entry";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { getAuthenticatedTakeoffContext } from "@/lib/takeoff/job-read-server";
 import { TakeoffError, TakeoffErrorCode } from "@/lib/takeoff/errors";
-import { mapItemSendRpcError } from "@/lib/takeoff/item-send-confirm-server";
+import { mapKnownItemSendRpcError } from "@/lib/takeoff/item-send-confirm-server";
 import { takeoffModuleDefault } from "@/lib/takeoff/feature-flags";
 import {
   computeItemSendState,
@@ -44,16 +44,27 @@ const messages: Record<string, string> = {
   TAKEOFF_ITEM_SEND_PREVIEW_STALE: "La destination ou les apports ont changé. Relisez l’aperçu.",
   TAKEOFF_REVISION_FOREIGN_PART: "La correction laisserait de côté un apport d’une autre analyse.",
 };
+const readFailure = "Impossible de vérifier la correction de cet envoi.";
+
+function publicRevisionMessage(reason: string) {
+  return Object.hasOwn(messages, reason) ? messages[reason] : undefined;
+}
+
+function logUnknownRefusal(reason: string) {
+  console.error("Unknown takeoff contribution revision refusal", reason);
+}
+
 function refuse(reason: string): never {
+  const message = publicRevisionMessage(reason);
+  if (!message) {
+    logUnknownRefusal(reason);
+    throw new TakeoffError({ status: 500, code: TakeoffErrorCode.INTERNAL_ERROR, message: readFailure });
+  }
   const denied = reason === "TAKEOFF_REVISION_SCOPE" || reason === "REDISTRIBUTION_FORBIDDEN";
   throw new TakeoffError({
-    status: denied ? 403 : messages[reason] ? 409 : 500,
-    code: denied
-      ? TakeoffErrorCode.FORBIDDEN
-      : messages[reason]
-        ? TakeoffErrorCode.CONFLICT
-        : TakeoffErrorCode.INTERNAL_ERROR,
-    message: messages[reason] ?? "Impossible de vérifier la correction de cet envoi.",
+    status: denied ? 403 : 409,
+    code: denied ? TakeoffErrorCode.FORBIDDEN : TakeoffErrorCode.CONFLICT,
+    message,
     details: { reason },
   });
 }
@@ -80,7 +91,7 @@ export async function reviseContribution(rawJobId: string, body: unknown) {
     .eq("tenant_id", ctx.tenantId)
     .eq("id", jobId)
     .maybeSingle();
-  if (job.error) refuse("read");
+  if (job.error) refuse(job.error.message);
   if (!job.data?.project_id) refuse("TAKEOFF_REVISION_SCOPE");
   const project = job.data.project_id;
   const receipts = () =>
@@ -96,7 +107,7 @@ export async function reviseContribution(rawJobId: string, body: unknown) {
       const rows = await receipts()
         .order("id")
         .range(offset, offset + 499);
-      if (rows.error || !rows.data) refuse("read");
+      if (rows.error || !rows.data) refuse(rows.error?.message ?? "missing receipts");
       for (const row of rows.data) versions.set(row.version_id, row.estimate_versions);
       if (rows.data.length < 500) break;
     }
@@ -128,7 +139,7 @@ export async function reviseContribution(rawJobId: string, body: unknown) {
     .eq("version_id", request.version_id)
     .eq("id", request.receipt_id)
     .maybeSingle();
-  if (addressed.error) refuse("read");
+  if (addressed.error) refuse(addressed.error.message);
   if (!addressed.data) refuse("TAKEOFF_REVISION_SCOPE");
   const currency = addressed.data.estimate_versions.currency;
   const scope = {
@@ -207,16 +218,16 @@ export async function reviseContribution(rawJobId: string, body: unknown) {
       })
       .passthrough()
       .parse(result.data);
-    const blockers = raw.blockers.map((b) =>
-      b.reason === "addition_refused" && b.code
-        ? {
-            ...b,
-            message:
-              messages[b.code] ?? mapItemSendRpcError({ message: b.code, details: b.detail }, jobId).message,
-            send_code: b.code,
-          }
-        : b,
-    );
+    const blockers = raw.blockers.map((blocker) => {
+      if (blocker.reason !== "addition_refused" || !blocker.code) return blocker;
+      const { code, detail, ...facts } = blocker;
+      const message =
+        publicRevisionMessage(code) ??
+        mapKnownItemSendRpcError({ message: code, details: detail }, jobId)?.message;
+      if (message) return { ...facts, message, send_code: code };
+      logUnknownRefusal(code);
+      return facts;
+    });
     return revisionPreviewSchema.parse({ ...raw, currency, blockers });
   }
   async function plan() {
@@ -251,7 +262,7 @@ export async function reviseContribution(rawJobId: string, body: unknown) {
       .eq("plan_sha256", digest)
       .eq("command_kind", "revise")
       .maybeSingle();
-    if (prior.error) refuse("read");
+    if (prior.error) refuse(prior.error.message);
     if (prior.data) {
       const stored = z
         .object({

@@ -1,4 +1,5 @@
 import { beforeEach, expect, it, vi } from "vitest";
+import { unauthorized } from "@/lib/http/api-response";
 import { POST } from "./route";
 import { getAuthenticatedTakeoffContext } from "@/lib/takeoff/job-read-server";
 
@@ -79,4 +80,77 @@ it("addresses the amended receipt of a copy with canonical UUIDs", async () => {
     p_answer: answer,
     p_intent: answer,
   });
+});
+
+it.each([
+  { ...entry, entry: survey, expected_revision: 2147483648 },
+  ...["work_revision", "marks_revision", "plan_entry_revision"].map((field) => ({
+    action: "choose",
+    ...scope,
+    answer_id: answer,
+    intent_id: answer,
+    expected: {
+      work_revision: 1,
+      marks_revision: 1,
+      plan_entry_revision: 1,
+      answer_revision: "a".repeat(64),
+      [field]: 2147483648,
+    },
+    choice: { source: "measured" },
+  })),
+])("rejects a revision outside the database integer range before any writer runs", async (command) => {
+  expect((await post(command)).status).toBe(422);
+  expect(rpc).not.toHaveBeenCalled();
+});
+
+it("returns a named refusal, and logs an unrecognised writer message only on the server", async () => {
+  rpc.mockResolvedValueOnce({ error: { message: "TAKEOFF_REVISION_STALE" } });
+  const known = await post({ ...entry, entry: survey });
+  expect(known.status).toBe(409);
+  expect((await known.json()).error.details.reason).toBe("TAKEOFF_REVISION_STALE");
+  const log = vi.spyOn(console, "error").mockImplementation(() => {});
+  try {
+    rpc.mockResolvedValueOnce({ error: { message: "fixture provider diagnostic" } });
+    const unknown = await post({ ...entry, entry: survey });
+    expect(unknown.status).toBe(500);
+    expect(await unknown.text()).not.toContain("fixture provider diagnostic");
+    expect(JSON.stringify(log.mock.calls)).toContain("fixture provider diagnostic");
+  } finally {
+    log.mockRestore();
+  }
+});
+
+it("keeps unknown provider messages out of addition blockers", async () => {
+  const blockers = [
+    { reason: "addition_refused", code: "fixture addition diagnostic", detail: "fixture private detail" },
+    { reason: "addition_refused", code: "TAKEOFF_ITEM_SEND_QUANTITY_UNWRITABLE" },
+  ];
+  rpc.mockResolvedValueOnce({
+    data: { digest: "b".repeat(64), changes: [], blockers, additions: [], actions: [], left_out: [] },
+  });
+  const log = vi.spyOn(console, "error").mockImplementation(() => {});
+  try {
+    const response = await post({ action: "preview", ...scope, choices: {} });
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.data.preview.blockers[0]).toEqual({ reason: "addition_refused" });
+    expect(body.data.preview.blockers[1].message).toContain("trois décimales");
+    expect(JSON.stringify(log.mock.calls)).toContain("fixture addition diagnostic");
+  } finally {
+    log.mockRestore();
+  }
+});
+
+it("returns the route's French authentication response to an anonymous member", async () => {
+  vi.mocked(getAuthenticatedTakeoffContext).mockRejectedValueOnce(unauthorized());
+  const response = await post({ ...entry, entry: survey });
+  expect(response.status).toBe(401);
+  expect(await response.json()).toMatchObject({
+    ok: false,
+    error: {
+      code: "UNAUTHORIZED",
+      message: "Connectez-vous pour consulter ou corriger cet envoi.",
+    },
+  });
+  expect(rpc).not.toHaveBeenCalled();
 });

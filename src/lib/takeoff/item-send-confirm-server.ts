@@ -95,7 +95,7 @@ function detailOf(details: string | null | undefined): Record<string, unknown> {
 }
 
 /** Every refusal of the writer, in the member's words; nothing was written. */
-export function mapItemSendRpcError(error: ApplyTakeoffRpcError, jobId: string): TakeoffError {
+export function mapKnownItemSendRpcError(error: ApplyTakeoffRpcError, jobId: string): TakeoffError | null {
   const detail = detailOf(error.details);
   const reason = typeof detail.reason === "string" ? detail.reason : null;
   switch (error.message) {
@@ -156,17 +156,22 @@ export function mapItemSendRpcError(error: ApplyTakeoffRpcError, jobId: string):
       // The server computed the plan; a refused shape is a fault of the server, never the member's.
       return new TakeoffError({ status: 500, code: TakeoffErrorCode.INTERNAL_ERROR, retryable: false, jobId,
         message: `L’envoi par poste n’a pas pu être préparé. ${NOTHING}`, details: { guard: "item_send_plan_invalid" } });
-    default:
-      // A refusal of the guard of the applied job (its blocked rows, a lease, a right): its own member message.
-      if (error.message?.startsWith("TAKEOFF_APPLY_")) return mapApplyTakeoffRpcError(error, { jobId });
-      // A lock the send needs stayed held past its wait, or two writes crossed: nothing was written, try again.
-      if (error.code === "55P03" || error.code === "40P01" || error.code === "40001") {
-        return new TakeoffError({ status: 503, code: TakeoffErrorCode.CONFLICT, retryable: true, jobId,
-          message: `Le devis est en cours de modification : réessayez dans un instant. ${NOTHING}`, details: { guard: "item_send_busy" } });
-      }
-      return toTakeoffError(mapSupabaseError(error as never, `L’envoi par poste a échoué. ${NOTHING}`),
-        { fallbackCode: TakeoffErrorCode.INTERNAL_ERROR, retryable: false, jobId });
+    default: return null;
   }
+}
+
+export function mapItemSendRpcError(error: ApplyTakeoffRpcError, jobId: string): TakeoffError {
+  const known = mapKnownItemSendRpcError(error, jobId);
+  if (known) return known;
+  // A refusal of the guard of the applied job (its blocked rows, a lease, a right): its own member message.
+  if (error.message?.startsWith("TAKEOFF_APPLY_")) return mapApplyTakeoffRpcError(error, { jobId });
+  // A lock the send needs stayed held past its wait, or two writes crossed: nothing was written, try again.
+  if (error.code === "55P03" || error.code === "40P01" || error.code === "40001") {
+    return new TakeoffError({ status: 503, code: TakeoffErrorCode.CONFLICT, retryable: true, jobId,
+      message: `Le devis est en cours de modification : réessayez dans un instant. ${NOTHING}`, details: { guard: "item_send_busy" } });
+  }
+  return toTakeoffError(mapSupabaseError(error as never, `L’envoi par poste a échoué. ${NOTHING}`),
+    { fallbackCode: TakeoffErrorCode.INTERNAL_ERROR, retryable: false, jobId });
 }
 
 function responseOf(answer: unknown, jobId: string): ItemSendConfirmResponse {

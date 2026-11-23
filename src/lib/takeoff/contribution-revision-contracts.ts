@@ -10,6 +10,7 @@ import { quantityEntrySchema } from "@/lib/takeoff/quantity-entry";
 
 const id = z.string().uuid();
 const revision = z.number().int().nonnegative();
+const expectedRevision = revision.max(2_147_483_647);
 const digest = z.string().regex(/^[0-9a-f]{64}$/);
 const source = z.enum(["entered", "measured", "verified_count", "withdraw"]);
 const requestId = id.toLowerCase();
@@ -51,10 +52,10 @@ const revisionMarks = countMarksEditRequestSchema.overwrite((command) => ({
 const scope = { version_id: requestId, receipt_id: requestId };
 const expected = z
   .object({
-    work_revision: revision,
-    marks_revision: revision,
+    work_revision: expectedRevision,
+    marks_revision: expectedRevision,
     answer_revision: digest,
-    plan_entry_revision: revision.nullable(),
+    plan_entry_revision: expectedRevision.nullable(),
   })
   .strict();
 const selection = z.union([
@@ -84,7 +85,7 @@ export const revisionRequestSchema = z.discriminatedUnion("action", [
       ...scope,
       answer_id: requestId,
       intent_id: requestId,
-      expected_revision: revision,
+      expected_revision: expectedRevision,
       entry: z.union([
         quantityEntrySchema.extend({
           quantity: z.number().positive().max(999999999.999),
