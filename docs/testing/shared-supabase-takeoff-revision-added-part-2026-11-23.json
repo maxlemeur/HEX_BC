@@ -1,0 +1,130 @@
+{
+  "source": {
+    "pr": 524,
+    "commit": "d2624b3408b9d7aaa7e4b29bcd18d7cdd4f01883",
+    "path": "supabase/migrations/20261123185755_takeoff_revision_added_part_marks_revision.sql",
+    "bytes": 9197,
+    "sha256": "2ff4dba4bfbbb88ee21cd05c7429a3b8d9f93aae915595ed1c297ea4106cc9b8"
+  },
+  "applied": {
+    "version": "20261123192735",
+    "name": "20261123185755_takeoff_revision_added_part_marks_revision",
+    "statements": 1,
+    "bytes": 9197,
+    "sha256": "2ff4dba4bfbbb88ee21cd05c7429a3b8d9f93aae915595ed1c297ea4106cc9b8",
+    "final_lf": true
+  },
+  "attempts": 1,
+  "history_before": {
+    "total": 444,
+    "matching": 0,
+    "latest": "20261123181038",
+    "previous_sha256": "5dadcea6dc22f5043d7289f8bf01da77e8edd536854371ca5d7b939a87f0d73e"
+  },
+  "history_after": {
+    "total": 445,
+    "matching": 1,
+    "latest": "20261123192735",
+    "previous_sha256": "5dadcea6dc22f5043d7289f8bf01da77e8edd536854371ca5d7b939a87f0d73e"
+  },
+  "preflight": {
+    "checked_at": "2026-11-23 19:27:30.078469+00",
+    "pending": 0,
+    "processing": 0,
+    "open_requests": 0,
+    "unsettled_reservations": 0,
+    "unknown_outcome": 0
+  },
+  "prior_source": "20261123062008_takeoff_contribution_revision.sql",
+  "function_before": {
+    "name": "private.takeoff_revision_items",
+    "md5": "2c91c8761d7e976cc0edf4eee14cf365",
+    "signature": "private.takeoff_revision_items(uuid, uuid, uuid, uuid, uuid)",
+    "owner": "postgres",
+    "definer": false,
+    "acl": "{postgres=X/postgres}",
+    "config": [
+      "search_path=\"\""
+    ],
+    "anon": false,
+    "authenticated": false,
+    "service_role": false,
+    "public_execute": false
+  },
+  "function_after": {
+    "name": "private.takeoff_revision_items",
+    "md5": "c75bc7a8d70e9adde8e28aac790b8848",
+    "signature": "private.takeoff_revision_items(uuid, uuid, uuid, uuid, uuid)",
+    "owner": "postgres",
+    "definer": false,
+    "acl": "{postgres=X/postgres}",
+    "config": [
+      "search_path=\"\""
+    ],
+    "anon": false,
+    "authenticated": false,
+    "service_role": false,
+    "public_execute": false
+  },
+  "source_body_md5": "c75bc7a8d70e9adde8e28aac790b8848",
+  "overloads_before": 1,
+  "overloads_after": 1,
+  "activations_before_and_after": {
+    "completion": [
+      {
+        "singleton": true,
+        "active_from": "2026-11-23T10:17:52.585943+00:00",
+        "pickup_grace": "00:15:00",
+        "wait_ceiling": "24:00:00"
+      }
+    ],
+    "launch": [
+      {
+        "singleton": true,
+        "active_from": "2026-11-23T10:18:01.287077+00:00"
+      }
+    ],
+    "item_list_order": [
+      {
+        "singleton": true,
+        "active_from": "2026-11-23T10:18:17.965838+00:00"
+      }
+    ],
+    "plan_dispatch": [
+      {
+        "singleton": true,
+        "active_from": "2026-11-23T10:18:08.964482+00:00"
+      }
+    ]
+  },
+  "health_before_and_after": {
+    "http": 200,
+    "version": "0.9.0",
+    "db": "up"
+  },
+  "advisors": {
+    "security": {
+      "counts": {
+        "auth_leaked_password_protection": 1,
+        "authenticated_security_definer_function_executable": 108,
+        "rls_enabled_no_policy": 32
+      },
+      "added": [],
+      "removed": []
+    },
+    "performance": {
+      "counts": {
+        "multiple_permissive_policies": 6,
+        "unindexed_foreign_keys": 250,
+        "unused_index": 324
+      },
+      "added": [],
+      "removed": []
+    },
+    "health": {
+      "counts": {},
+      "added": [],
+      "removed": []
+    }
+  }
+}
