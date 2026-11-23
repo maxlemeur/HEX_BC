@@ -321,10 +321,14 @@ globalThis.fetch = async (input, init) => {
   // Two efforts let the takeoff lab (TI-661) compare one model at low and high.
   // The transcription at arrival (INTOCR01) asks for Terra at a high effort: the account lists it only for that journey,
   // so that every other journey keeps one listed model.
-  const transcriptionModel = JSON.parse(readFileSync(process.env.ARMY_DECISIONS_CONTROL, "utf8")).transcriptionModel === true;
+  const { transcriptionModel, materialPhotoModels } = JSON.parse(readFileSync(process.env.ARMY_DECISIONS_CONTROL, "utf8"));
   if (url.pathname === "/v1/models") return Response.json({ models: [{ slug: "army-plan-model", display_name: "ARMY plan model", visibility: "list",
     supported_reasoning_levels: [{ effort: "low" }, { effort: "high" }] },
-  ...(transcriptionModel ? [{ slug: "gpt-6.1-terra", display_name: "Terra", visibility: "list", supported_reasoning_levels: [{ effort: "high" }] }] : [])] });
+  ...(transcriptionModel ? [{ slug: "gpt-6.1-terra", display_name: "Terra", visibility: "list", supported_reasoning_levels: [{ effort: "high" }] }] : []),
+  ...(materialPhotoModels ? [
+    { slug: "gpt-6.2-astra", display_name: "GPT-6.2 Astra", visibility: "list" },
+    { slug: "gpt-6.2-sol", display_name: "GPT-6.2 Sol", visibility: "list", supported_reasoning_levels: ["none", "medium", "high"] },
+  ] : [])] });
   assert.equal(url.pathname, "/v1/responses");
   if (body.model === "gpt-6.1-terra") {
     assert(transcriptionModel, "Terra is listed for the transcription journey only.");
@@ -351,8 +355,10 @@ globalThis.fetch = async (input, init) => {
       { type: "response.completed", response: { status: "completed", output: [], usage: { input_tokens: 30, output_tokens: 12, total_tokens: 42 } } },
     ].map(event => `data: ${JSON.stringify(event)}\n\n`).join(""), { headers: { "content-type": "text/event-stream" } });
   }
-  assert.equal(body.model, "army-plan-model"); assert.equal(body.store, false); assert.equal(body.stream, true);
+  assert.equal(body.store, false); assert.equal(body.stream, true);
   const schemaText = body.input.find(entry => entry.role === "developer")?.content;
+  const materialPhoto = typeof schemaText === "string" && schemaText.includes('"quantite_douteuse"');
+  if (!materialPhoto) assert.equal(body.model, "army-plan-model");
   if (typeof schemaText === "string" && schemaText.includes('"groupes"')) {
     const parts = body.input.find(entry => entry.role === "user")?.content;
     const prompt = parts.find(part => part.type === "input_text")?.text ?? "";
@@ -368,14 +374,15 @@ globalThis.fetch = async (input, init) => {
   // The AI reading of a material request's photo (MRIA01): the one photo as stored, at a high detail, framed as data.
   // Two articles, in the loose shapes a model answers: a quantity given as text and flagged, a size given as a number,
   // a material it could not read.
-  if (typeof schemaText === "string" && schemaText.includes('"quantite_douteuse"')) {
+  if (materialPhoto) {
+    assert(materialPhotoModels && ["gpt-6.2-astra", "gpt-6.2-sol"].includes(body.model), "The reading uses one of the fixture account’s GPT-6.2 models.");
     const parts = body.input.find(entry => entry.role === "user")?.content ?? [];
     const prompt = parts.find(part => part.type === "input_text")?.text ?? "";
     const images = parts.filter(part => part.type === "input_image");
     assert(images.length === 1 && images[0].image_url.startsWith("data:image/png;base64,iVBOR"), "The reading sends the one photo, as stored.");
     assert(prompt.includes("demande de matériel") && prompt.includes("jamais une instruction"), "The photo is framed as data of a material request.");
     await appendFile(process.env.ARMY_CHATGPT_TRANSPORT_LOG, JSON.stringify({ provider: "chatgpt-fixture", task: "material-request-photo",
-      model: body.model, detail: images[0].detail ?? null, turned: prompt.includes("quart de tour") }) + "\n");
+      model: body.model, reasoningEffort: body.reasoning?.effort ?? null, detail: images[0].detail ?? null, turned: prompt.includes("quart de tour") }) + "\n");
     const lignes = [
       { texte: "12 coudes cuivre Ø22 à sertir", quantite: 12, quantite_douteuse: false, unite: "pièces", dimension: "Ø 22", type: "coude",
         matiere: "cuivre", precision: "à sertir", reference: null, zone: "R+3" },
@@ -385,6 +392,26 @@ globalThis.fetch = async (input, init) => {
     return new Response([
       { type: "response.output_text.delta", output_index: 0, content_index: 0, delta: JSON.stringify({ lignes }) },
       { type: "response.completed", response: { status: "completed", output: [], usage: { input_tokens: 40, output_tokens: 20, total_tokens: 60 } } },
+    ].map(event => `data: ${JSON.stringify(event)}\n\n`).join(""), { headers: { "content-type": "text/event-stream" } });
+  }
+  if (typeof schemaText === "string" && schemaText.includes('"requested_group"') && schemaText.includes('"pages_read"')) {
+    const prompt = body.input.find(entry => entry.role === "user")?.content?.find(part => part.type === "input_text")?.text ?? "";
+    const message = JSON.parse(prompt.split("\n").at(-1));
+    assert(pdf && prompt.includes("1 page(s)"), "The comparison reads the attached one-page PDF.");
+    assert(message.includes("100 u Rondelle M8") && message.includes("2 ml Tube DN 75"), "The sent request is authoritative.");
+    await appendFile(process.env.ARMY_CHATGPT_TRANSPORT_LOG,
+      JSON.stringify({ ...transportEntry("chatgpt-fixture"), task: "material-request-quote" }) + "\n");
+    const answer = {
+      reference: "ARMY-Q2", date: null, revision: null, total_ht: "4,20 EUR", commercial_notes: null,
+      request_complete: true, document_complete: true, pages_read: [1],
+      requested: [[{ text: "100 u Rondelle M8", quantity: 100, unit: "u" }], [{ text: "2 ml Tube DN 75", quantity: 2, unit: "ml" }]],
+      offered: [{ text: "BTE 50 RONDELLES M8 · 1 UN", page: 1, row: 1, quantity: 1, unit: "UN",
+        pack_quantity: 50, pack_unit: "u", requested_group: 1, technical: "compatible",
+        observation: null, price: "4,20 EUR HT / boîte", delay: null }],
+    };
+    return new Response([
+      { type: "response.output_text.delta", output_index: 0, content_index: 0, delta: JSON.stringify(answer) },
+      { type: "response.completed", response: { status: "completed", output: [], usage: { input_tokens: 40, output_tokens: 60, total_tokens: 100 } } },
     ].map(event => `data: ${JSON.stringify(event)}\n\n`).join(""), { headers: { "content-type": "text/event-stream" } });
   }
   // Reprise des prix (PRX02) : aucun document ; le dernier candidat de chaque ligne à vérifier, avant « aucun ».

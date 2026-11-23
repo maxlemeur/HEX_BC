@@ -2,6 +2,7 @@ import "server-only";
 
 import { headers } from "next/headers";
 
+import { resolveApiAnalysisPreferences } from "@/lib/ai/access/contracts";
 import { openAiApiKeyAccess } from "@/lib/ai/access/openai-api";
 import { LAB_API_KEY_CEILING_NANO_USD } from "@/lib/ai/access/openai-pricing";
 import { assertLocalChatGptHost, getLocalChatGptCredential, getLocalChatGptState } from "@/lib/ai/chatgpt-local-auth";
@@ -110,6 +111,13 @@ export async function readLabState(access: LabAccess): Promise<LabState> {
   // Read from MergeOne's own record only: the Keychain is not opened to draw the page.
   const apiKey = await openAiApiKeyAccess().state(access.owner).catch((error: unknown) => ({
     status: "unavailable" as const, message: error instanceof Error ? error.message : null }));
+  const analysisSettings = "analysisPreferences" in apiKey ? apiKey.analysisPreferences : undefined;
+  const analysisDefaults = analysisSettings ? {
+    source: analysisSettings.billingSource,
+    chatgpt: analysisSettings.overrides?.takeoff_lab?.chatgpt_plan
+      ?? (chatgpt?.model ? { model: chatgpt.model, reasoningEffort: chatgpt.reasoningEffort } : null),
+    apiKey: apiKey.status === "saved" ? resolveApiAnalysisPreferences(analysisSettings, apiKey.connection.offeredModels, "takeoff_lab") : null,
+  } : undefined;
   const decisionsMessage = cap === null ? "TAKEOFF_LAB_DECISIONS_MAX_TOKENS doit être un entier positif : Decisions désactivé." : capability.message;
   return {
     configured: configuration.status === "configured" && message === null,
@@ -122,6 +130,7 @@ export async function readLabState(access: LabAccess): Promise<LabState> {
       connected: Boolean(chatgpt?.sharing), model: chatgpt?.model ?? null, reasoning_effort: chatgpt?.reasoningEffort ?? null,
       message: !chatgpt?.sharing ? "Connectez votre compte ChatGPT dans Mon profil." : !chatgpt.model ? "Choisissez un modèle ChatGPT dans Mon profil : le labo ne modifie jamais le profil." : null,
     },
+    analysis_defaults: analysisDefaults,
     api_key: {
       status: apiKey.status, provider: "openai", ceiling_nano_usd: LAB_API_KEY_CEILING_NANO_USD,
       suffix: apiKey.status === "saved" ? apiKey.connection.suffix : null,

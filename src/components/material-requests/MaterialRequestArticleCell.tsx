@@ -1,11 +1,12 @@
 "use client";
 
-import { useId, useState } from "react";
+import { useId, useState, type ReactNode } from "react";
 import Link from "next/link";
-import { Link2, Link2Off, Search, TriangleAlert } from "lucide-react";
+import { Info, Link2, Link2Off, Search, TriangleAlert } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import type {
   MaterialRequestArticleCandidate,
   MaterialRequestArticleSummary,
@@ -66,6 +67,7 @@ export function LearnAliasChoice({
   ariaLabel,
   hint = LEARN_ALIAS_HINT,
   size = "xs",
+  concise = false,
 }: Readonly<{
   words: string;
   checked: boolean;
@@ -74,24 +76,34 @@ export function LearnAliasChoice({
   ariaLabel?: string;
   hint?: string;
   size?: "xs" | "sm";
+  concise?: boolean;
 }>) {
   const hintId = useId();
   return (
-    <div className={cn("space-y-0.5", size === "xs" ? "text-xs" : "text-sm")}>
+    <div className={cn("space-y-0.5", size === "xs" ? "text-xs" : "text-sm", concise && "flex items-center gap-1.5 space-y-0")}>
       <label className="flex items-start gap-1.5 text-foreground-secondary">
         <input
           type="checkbox"
           className={cn("shrink-0 accent-primary", size === "xs" ? "mt-px size-3.5" : "mt-0.5 size-4")}
           checked={checked}
-          aria-label={ariaLabel}
+          aria-label={ariaLabel ?? (concise ? `Mémoriser « ${words} » comme nom usuel` : undefined)}
           aria-describedby={hintId}
           onChange={(event) => onChange(event.currentTarget.checked)}
         />
-        <span className="min-w-0 break-words">Mémoriser « {words} » comme nom usuel</span>
+        <span className="min-w-0 break-words">{concise ? "Mémoriser comme nom usuel" : <>Mémoriser « {words} » comme nom usuel</>}</span>
       </label>
-      <p id={hintId} className="text-xs text-muted-foreground">
+      <p id={hintId} className={cn("text-xs text-muted-foreground", concise && "sr-only")}>
         {hint}
       </p>
+      {concise ? (
+        <Tooltip>
+          <TooltipTrigger type="button" aria-label="Effet de la mémorisation"
+            className="inline-flex size-6 shrink-0 items-center justify-center rounded-sm text-muted-foreground focus-visible:outline-2 focus-visible:outline-ring">
+            <Info className="size-3.5" aria-hidden="true" />
+          </TooltipTrigger>
+          <TooltipContent>« {words} » · {hint}</TooltipContent>
+        </Tooltip>
+      ) : null}
     </div>
   );
 }
@@ -135,6 +147,8 @@ export function IncompleteArticle({
 export function ArticleIdentity({
   article,
   dense = false,
+  inlineInSheet = false,
+  explanation,
   tag,
 }: Readonly<{
   article: MaterialRequestArticleSummary;
@@ -142,6 +156,8 @@ export function ArticleIdentity({
   tag?: string;
   /** In a folded table row: the designation, then the reference and what describes the article on one line. */
   dense?: boolean;
+  inlineInSheet?: boolean;
+  explanation?: ReactNode;
 }>) {
   const details = [article.product_type, article.material, article.dimensions, article.unit].filter(Boolean).join(" · ");
   return (
@@ -156,9 +172,16 @@ export function ArticleIdentity({
         </p>
       ) : (
         <>
-          <p className="break-all font-mono text-xs text-foreground-secondary">{article.reference ?? "Sans référence"}</p>
-          <p className="break-words text-sm font-medium leading-snug text-foreground">{article.designation}</p>
-          {details ? <p className="mt-0.5 break-words text-xs text-muted-foreground">{details}</p> : null}
+          <div className={cn(inlineInSheet && "sheet:flex sheet:flex-wrap sheet:items-baseline sheet:gap-x-2")}>
+            <p className="break-all font-mono text-xs text-foreground-secondary">{article.reference ?? "Sans référence"}</p>
+            <p className="min-w-0 break-words text-sm font-medium leading-snug text-foreground">{article.designation}</p>
+          </div>
+          {details || explanation ? (
+            <div className={cn(inlineInSheet && "sheet:mt-0.5 sheet:flex sheet:flex-wrap sheet:items-baseline sheet:gap-x-3")}>
+              {details ? <p className={cn("mt-0.5 break-words text-xs text-muted-foreground", inlineInSheet && "sheet:mt-0")}>{details}</p> : null}
+              {explanation}
+            </div>
+          ) : null}
         </>
       )}
       {article.catalogue_status === "draft" && !dense ? (
@@ -181,21 +204,23 @@ export function ArticleIdentity({
 export function CandidateReasons({
   candidate,
   warningsId,
+  inlineInSheet = false,
 }: Readonly<{
   candidate: MaterialRequestArticleCandidate;
   warningsId: string;
+  inlineInSheet?: boolean;
 }>) {
   return (
     <>
       {candidate.reasons.length > 0 ? (
-        <ul className="mt-1 space-y-0.5 text-xs text-muted-foreground">
+        <ul className={cn("mt-1 space-y-0.5 text-xs text-muted-foreground", inlineInSheet && "sheet:mt-0 sheet:flex sheet:flex-wrap sheet:gap-x-3 sheet:space-y-0")}>
           {candidate.reasons.map((reason) => (
             <li key={reason}>{reason}</li>
           ))}
         </ul>
       ) : null}
       {candidate.warnings.length > 0 ? (
-        <ul id={warningsId} className="mt-1 space-y-0.5 text-xs font-medium text-warning">
+        <ul id={warningsId} className={cn("mt-1 space-y-0.5 text-xs font-medium text-warning", inlineInSheet && "sheet:basis-full")}>
           {candidate.warnings.map((warning) => (
             <li key={warning} className="flex items-start gap-1">
               <TriangleAlert aria-hidden="true" className="mt-px size-3.5 shrink-0" />
@@ -237,6 +262,7 @@ type ArticleCellProps = Readonly<{
   /** May complete the linked article's sheet (admins and engineers). */
   canEditCatalogue?: boolean;
   compact?: boolean;
+  compactProposal?: boolean;
   /**
    * False in a folded row of the lines: the article and the gesture that links it stay in view. In the sheet that is
    * one line, in a card as in the sheet; the reference, the reasons and the other gestures are read once the line is unfolded.
@@ -264,6 +290,7 @@ export function MaterialRequestArticleCell({
   canEditCatalogue = false,
   compact = false,
   expanded = true,
+  compactProposal = false,
 }: ArticleCellProps) {
   const ids = useId();
   const [busy, setBusy] = useState(false);
@@ -354,9 +381,10 @@ export function MaterialRequestArticleCell({
     .filter(Boolean)
     .join(" ");
 
+  const wide = compactProposal && Boolean(first);
   const waiting = cn("text-xs text-muted-foreground", dense && "min-w-0 flex-1 truncate");
   return (
-    <div className={cn("space-y-1.5", oneLine)}>
+    <div className={cn("space-y-1.5", oneLine, wide && "sheet:grid sheet:grid-cols-[minmax(0,1fr)_auto] sheet:gap-x-3 sheet:gap-y-1 sheet:space-y-0")}>
       {proposals.status === "loading" ? <p className={waiting}>Recherche d’articles…</p> : null}
       {proposals.status === "stale" ? <p className={waiting}>Mise à jour des propositions…</p> : null}
       {proposals.status === "error" ? (
@@ -376,29 +404,34 @@ export function MaterialRequestArticleCell({
           className={cn(
             "rounded-md border border-dashed border-border-strong bg-surface-subtle px-2 py-1.5",
             dense && "min-w-0 flex-1 border-0 bg-transparent p-0",
+            wide && "sheet:col-start-1 sheet:row-span-2 sheet:row-start-1 sheet:rounded-none sheet:border-0 sheet:bg-transparent sheet:p-0",
           )}
         >
-          {dense ? null : <p className="text-micro font-semibold uppercase text-muted-foreground">Proposé</p>}
-          <ArticleIdentity article={first.article} dense={dense} tag={dense ? "Proposé" : undefined} />
-          {dense ? null : <CandidateReasons candidate={first} warningsId={warningsId} />}
+          {dense ? null : <p className={cn("text-micro font-semibold uppercase text-muted-foreground", wide && "sheet:sr-only")}>Proposé</p>}
+          <ArticleIdentity article={first.article} dense={dense} inlineInSheet={wide} tag={dense ? "Proposé" : undefined}
+            explanation={dense ? undefined : <CandidateReasons candidate={first} warningsId={warningsId} inlineInSheet={wide} />} />
         </div>
       ) : null}
       {/* With warnings, a folded row leaves the usual-name choice to the panel, which offers it beside the candidate. */}
       {/* Folded, a line keeps one gesture beside its proposal: the usual-name choice is read once it is unfolded. */}
       {first && learnable && !dense ? (
-        <LearnAliasChoice
-          words={learnable}
-          checked={learn}
-          ariaLabel={`Mémoriser « ${learnable} » comme nom usuel, ligne ${n}`}
-          onChange={(checked) => setLearnFor(checked ? first.article.id : null)}
-        />
+        <div className={cn(wide && "sheet:col-start-2 sheet:row-start-1 sheet:justify-self-end")}>
+          <LearnAliasChoice
+            words={learnable}
+            checked={learn}
+            concise={wide}
+            ariaLabel={`Mémoriser « ${learnable} » comme nom usuel, ligne ${n}`}
+            onChange={(checked) => setLearnFor(checked ? first.article.id : null)}
+          />
+        </div>
       ) : null}
       {!dense && (hold || (first && validated)) ? (
-        <p id={holdId} className={cn("text-xs", hold ? "font-medium text-danger" : "text-muted-foreground")}>
+        <p id={holdId} className={cn("text-xs", hold ? "font-medium text-danger" : "text-muted-foreground", wide && "sheet:col-span-full")}>
           {hold ?? REOPENS_ON_LINK}
         </p>
       ) : null}
-      <div className={cn("flex flex-wrap gap-1", toCheck && "items-center gap-x-2", dense && "shrink-0 flex-nowrap")}>
+      <div className={cn("flex flex-wrap gap-1", toCheck && "items-center gap-x-2", dense && "shrink-0 flex-nowrap",
+        wide && "sheet:col-start-2 sheet:row-start-2 sheet:justify-end")}>
         {toCheck ? (
           <>
             {/* How many points, on the line of the gesture that reads them; in the sheet the mark says there are some. */}
@@ -452,9 +485,9 @@ export function MaterialRequestArticleCell({
           </Button>
         )}
       </div>
-      <Notice notice={notice} className={underLine || undefined} />
+      <Notice notice={notice} className={cn(underLine, wide && "sheet:col-span-full")} />
       {shownError ? (
-        <p role="alert" className={cn("text-xs font-medium text-danger", underLine)}>
+        <p role="alert" className={cn("text-xs font-medium text-danger", underLine, wide && "sheet:col-span-full")}>
           {shownError}
         </p>
       ) : null}

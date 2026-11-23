@@ -2,12 +2,8 @@ import type { AiReasoningEffort, ApiKeyOfferedModel } from "@/lib/ai/access/cont
 import type { ApiKeyCallUsage } from "@/lib/ai/access/api-key-errors";
 
 // Models this code qualifies for a personal OpenAI API key, with their price.
-// Verified on 18 November 2026 (searches of developers.openai.com: the model
-// pages of GPT-6.1 Terra and Sol, the pricing page, the Responses reference and
-// the prompt-caching guide), Standard tier, US dollars per million tokens. A
-// model missing from this table is never offered and never called.
-//   gpt-6.1-terra: 1,00 input · 0,05 cached input · 5,00 output; efforts none…max; 128 000 output max.
-//   gpt-6.1-sol:   2,00 input · 0,10 cached input · 10,00 output; efforts low…max.
+// Verified on 22 November 2026 against the OpenAI model pages and pricing page.
+// This table covers Standard processing.
 //   Cache writes are billed instead of ordinary input at 1,25× input (30-minute
 //   lifetime, the default) or 2,5× (12 hours). Past 272 000 input tokens, the
 //   whole request is billed 2× input and 1,5× output.
@@ -38,8 +34,8 @@ export type OpenAiModelPrice = {
 };
 
 export const OPENAI_PRICE_TABLE = {
-  verifiedOn: "2026-11-18",
-  id: "openai-standard-2026-11-18",
+  verifiedOn: "2026-11-22",
+  id: "openai-standard-2026-11-22",
   source: "https://developers.openai.com/api/docs/pricing",
   serviceTier: "default",
   longContextThreshold: 272_000,
@@ -54,11 +50,19 @@ export const OPENAI_PRICE_TABLE = {
       cacheWrite12hNanoPerToken: 5_000, outputNanoPerToken: 10_000,
       reasoningEfforts: ["low", "medium", "high", "xhigh", "max"], defaultReasoningEffort: "medium",
     },
+    "gpt-6.2-astra": {
+      name: "GPT-6.2 Astra", inputNanoPerToken: 8_000, cachedInputNanoPerToken: 400, cacheWrite30mNanoPerToken: 10_000,
+      cacheWrite12hNanoPerToken: 20_000, outputNanoPerToken: 40_000,
+      reasoningEfforts: ["low", "medium", "high", "xhigh", "max"], defaultReasoningEffort: "medium",
+    },
+    "gpt-6.2-sol": {
+      name: "GPT-6.2 Sol", inputNanoPerToken: 2_000, cachedInputNanoPerToken: 100, cacheWrite30mNanoPerToken: 2_500,
+      cacheWrite12hNanoPerToken: 5_000, outputNanoPerToken: 10_000,
+      reasoningEfforts: ["low", "medium", "high", "xhigh", "max"], defaultReasoningEffort: "medium",
+    },
   } satisfies Record<string, OpenAiModelPrice>,
 } as const;
 
-/** The developer message's fixed words and the JSON schema it carries, in tokens (UTF-8 bytes bound tokens). */
-export const OPENAI_SCHEMA_TOKENS_ALLOWANCE = 8_000;
 /** Message framing and the request's own overhead. */
 const REQUEST_OVERHEAD_TOKENS = 1_000;
 
@@ -69,8 +73,8 @@ export const LAB_MIN_USEFUL_OUTPUT_TOKENS = 8_000;
 /** The model test of « Mon profil »: a minimal answer, no document. */
 export const MODEL_TEST_MAX_OUTPUT_TOKENS = 1_024;
 export const MODEL_TEST_CEILING_NANO_USD = 100_000_000;
-/** The test question's words, at most (openai-api.ts checks its own). */
-export const MODEL_TEST_PROMPT_BYTES_MAX = 200;
+/** The serialized text-only input and schema (checked before sending in openai-api.ts). */
+export const MODEL_TEST_INPUT_BYTES_MAX = 1_000;
 
 /** The largest output budget of a lab extraction, reasoning included; what the ceiling leaves may lower it. */
 export function labMaxOutputTokens(effort: AiReasoningEffort | null) {
@@ -122,7 +126,7 @@ export function boundCountedCall(input: { model: string; inputTokens: number; ma
  * schema allowance and the framing bound its input tokens.
  */
 export function boundModelTest(model: string): OpenAiCallBound {
-  return boundCountedCall({ model, inputTokens: MODEL_TEST_PROMPT_BYTES_MAX + OPENAI_SCHEMA_TOKENS_ALLOWANCE + REQUEST_OVERHEAD_TOKENS,
+  return boundCountedCall({ model, inputTokens: MODEL_TEST_INPUT_BYTES_MAX + REQUEST_OVERHEAD_TOKENS,
     maxOutputTokens: MODEL_TEST_MAX_OUTPUT_TOKENS });
 }
 

@@ -6,13 +6,13 @@ import { z } from "zod";
 import { ApiKeyError, isApiKeyError, type ApiKeyCallUsage, type ApiKeyErrorCode } from "@/lib/ai/access/api-key-errors";
 import { ApiKeySecret } from "@/lib/ai/access/api-key-secret";
 import {
-  defaultAiAccessDirectory, readAiAccessFile, wasUnreadable, withAiAccessLock, writeAiAccessFile, type AiAccessFile, type AiAccessItemRef, type AiAccessOwner,
+  defaultAiAccessDirectory, readAiAccessFile, readAnalysisPreferences, wasUnreadable, withAiAccessLock, writeAiAccessFile, type AiAccessFile, type AiAccessItemRef, type AiAccessOwner,
   type StoredApiKeyConnection,
 } from "@/lib/ai/access/api-key-store";
-import type { AiReasoningEffort, ApiKeyAccessState, ApiKeySaveResult, ApiKeyTestResult } from "@/lib/ai/access/contracts";
+import { AI_ANALYSIS_USAGES, type AiAnalysisUsage, type AiReasoningEffort, type ApiKeyAccessState, type ApiKeySaveResult, type ApiKeyTestResult, type AiAnalysisPreferences } from "@/lib/ai/access/contracts";
 import {
   boundCountedCall, boundModelTest, costOfOpenAiUsage, formatUsdCeiling, maxOutputWithin, MODEL_TEST_CEILING_NANO_USD,
-  MODEL_TEST_MAX_OUTPUT_TOKENS, MODEL_TEST_PROMPT_BYTES_MAX, offeredOpenAiModels, OPENAI_PRICE_TABLE, openAiQualifiedModel,
+  MODEL_TEST_MAX_OUTPUT_TOKENS, MODEL_TEST_INPUT_BYTES_MAX, offeredOpenAiModels, OPENAI_PRICE_TABLE, openAiQualifiedModel,
   openAiQualifiedModelIds,
 } from "@/lib/ai/access/openai-pricing";
 import { resolveSecretStore, SecretStoreError, type SecretItem, type SecretStore } from "@/lib/ai/access/secret-store";
@@ -431,7 +431,6 @@ const UNREADABLE_RECORD = "Le descriptif local de la clé était illisible : auc
 
 const MODEL_TEST_SCHEMA = z.object({ connexion: z.literal("ok") }).strict();
 const MODEL_TEST_PROMPT = "Test de connexion de MergeOne, sans document : réponds exactement {\"connexion\":\"ok\"}.";
-if (Buffer.byteLength(MODEL_TEST_PROMPT) > MODEL_TEST_PROMPT_BYTES_MAX) throw new Error("The model test question exceeds its announced bound.");
 
 /** The requests of prepared calls, kept here: a prepared call carries its bound, never its request. */
 const preparedRequests = new WeakMap<PreparedApiKeyCall, { owner: string; request: SerializedRequest; schema: z.ZodType }>();
@@ -472,10 +471,12 @@ export function createOpenAiApiKeyAccess(overrides: Partial<OpenAiApiKeyDeps> = 
   /** From MergeOne's own record only: the Keychain is not opened, OpenAI not called. */
   async function state(owner: AiAccessOwner): Promise<ApiKeyAccessState> {
     const store = deps.secretStore();
-    if (!store) return { status: "unavailable", message: new ApiKeyError("AI_KEY_KEYCHAIN_UNAVAILABLE").message };
     const file = await readAiAccessFile(deps.directory(), owner);
-    if (file.connections.openai) return view(store, file.connections.openai);
-    return wasUnreadable(file) ? { status: "empty", placeLabel: store.placeLabel, notice: UNREADABLE_RECORD } : { status: "empty", placeLabel: store.placeLabel };
+    const preferences = file.analysis_preferences || file.photo_preferences ? { analysisPreferences: readAnalysisPreferences(file) } : {};
+    if (!store) return { status: "unavailable", message: new ApiKeyError("AI_KEY_KEYCHAIN_UNAVAILABLE").message, ...preferences };
+    if (file.connections.openai) return { ...view(store, file.connections.openai), ...preferences };
+    return wasUnreadable(file) ? { status: "empty", placeLabel: store.placeLabel, notice: UNREADABLE_RECORD }
+      : { status: "empty", placeLabel: store.placeLabel, ...preferences };
   }
 
   /** Deletes items left by an interrupted replacement or removal (under the lock); one still locked waits for the next time. */
@@ -525,8 +526,10 @@ export function createOpenAiApiKeyAccess(overrides: Partial<OpenAiApiKeyDeps> = 
     if (bound.nanoUsd > MODEL_TEST_CEILING_NANO_USD) {
       throw new ApiKeyError("AI_KEY_CEILING", { detail: { ceiling: formatUsdCeiling(MODEL_TEST_CEILING_NANO_USD), bound: formatUsdCeiling(bound.nanoUsd) } });
     }
-    const answer = await generateWith(deps, secret, serializeRequest({ model, reasoningEffort: lowestEffort(model), prompt: MODEL_TEST_PROMPT,
-      schema: MODEL_TEST_SCHEMA, schemaName: "mergeone_model_test", files: [] }), MODEL_TEST_MAX_OUTPUT_TOKENS, 60_000);
+    const request = serializeRequest({ model, reasoningEffort: lowestEffort(model), prompt: MODEL_TEST_PROMPT,
+      schema: MODEL_TEST_SCHEMA, schemaName: "mergeone_model_test", files: [] });
+    if (Buffer.byteLength(request.text) > MODEL_TEST_INPUT_BYTES_MAX) throw new ApiKeyError("AI_KEY_UNEXPECTED");
+    const answer = await generateWith(deps, secret, request, MODEL_TEST_MAX_OUTPUT_TOKENS, 60_000);
     const costNanoUsd = costOfOpenAiUsage(answer.model, answer.usage, answer.serviceTier);
     const valid = !answer.refused && MODEL_TEST_SCHEMA.safeParse(readAnswer(answer.text, secret).value).success;
     if (!valid) throw new ApiKeyError("AI_KEY_PROVIDER_FAILED", { usage: answer.usage, model: answer.model, requestId: answer.requestId });
@@ -545,6 +548,42 @@ export function createOpenAiApiKeyAccess(overrides: Partial<OpenAiApiKeyDeps> = 
 
   return {
     state: (owner: AiAccessOwner) => guarded(() => state(owner)),
+
+    analysisPreferences: (owner: AiAccessOwner) => guarded(async () =>
+      readAnalysisPreferences(await readAiAccessFile(deps.directory(), owner))),
+
+    saveAnalysisPreferences: (owner: AiAccessOwner, preferences: AiAnalysisPreferences, connectionId: string | null) => guarded(async () => {
+      const directory = deps.directory();
+      await withAiAccessLock(directory, owner, async () => {
+        const file = await readAiAccessFile(directory, owner);
+        const active = file.connections.openai;
+        if ((active?.connection_id ?? null) !== connectionId) throw new ApiKeyError("AI_KEY_PAGE_STALE");
+        const current = readAnalysisPreferences(file);
+        const apiChanged = current.apiModel !== preferences.apiModel || current.apiReasoningEffort !== preferences.apiReasoningEffort;
+        const verifyApiChoice = (model: string | null, effort: AiReasoningEffort | null | undefined) => {
+          requireStore();
+          if (!active) throw new ApiKeyError("AI_KEY_MISSING");
+          const price = model ? openAiQualifiedModel(model) : null;
+          if (!model || !price || (active.models !== null && !active.models.includes(model)) ||
+              (effort != null && !price.reasoningEfforts.includes(effort))) {
+            throw new ApiKeyError("AI_KEY_MODEL_NOT_OFFERED");
+          }
+        };
+        if (preferences.billingSource === "personal_api_key" || (apiChanged && preferences.apiModel !== null)) {
+          verifyApiChoice(preferences.apiModel, preferences.apiReasoningEffort);
+        }
+        for (const usage of Object.keys(AI_ANALYSIS_USAGES) as AiAnalysisUsage[]) {
+          const before = current.overrides?.[usage]?.personal_api_key;
+          const next = preferences.overrides?.[usage]?.personal_api_key;
+          if (next && (before?.model !== next.model || before?.reasoningEffort !== next.reasoningEffort)) {
+            verifyApiChoice(next.model, next.reasoningEffort);
+          }
+        }
+        file.analysis_preferences = preferences;
+        await deps.writeMetadata(directory, owner, file);
+      });
+      return state(owner);
+    }),
 
     /**
      * « Vérifier et enregistrer » and « Remplacer ». The candidate is checked with OpenAI, written to its own new
@@ -599,6 +638,23 @@ export function createOpenAiApiKeyAccess(overrides: Partial<OpenAiApiKeyDeps> = 
         await recover(store, owner, file).catch(() => undefined);
       });
       return { outcome: "saved", state: await state(owner), models: offeredOpenAiModels(models === null ? null : new Set(models)), testCostNanoUsd };
+    }),
+
+    /** « Actualiser les modèles »: refresh discovery with the saved key, without generating a response. */
+    refreshModels: (owner: AiAccessOwner): Promise<ApiKeyAccessState> => guarded(async () => {
+      const { secret, connection } = await resolveKey(owner);
+      const listed = await listWith(deps, secret);
+      if (listed === "permission") throw new ApiKeyError("AI_KEY_MODELS_PERMISSION");
+      const directory = deps.directory();
+      await withAiAccessLock(directory, owner, async () => {
+        const file = await readAiAccessFile(directory, owner);
+        const active = file.connections.openai;
+        if (active?.connection_id !== connection.connection_id) throw new ApiKeyError("AI_KEY_PAGE_STALE");
+        active.models = openAiQualifiedModelIds().filter((id) => listed.has(id));
+        active.verification = "models_listed";
+        await deps.writeMetadata(directory, owner, file);
+      });
+      return state(owner);
     }),
 
     /** « Tester le modèle »: one small billable call, no customer document. */

@@ -236,8 +236,10 @@ export function MaterialRequestSupplierCell({
     // a proposal takes the place of the select: one gesture retains it, and another supplier is chosen once unfolded.
     <div
       className={cn(
-        "min-w-0 space-y-1.5 sheet:space-y-1 sheet:[&>:not([data-slot=combobox])]:mx-2.5",
-        expanded ? "sheet:pb-1.5" : "space-y-0 sheet:space-y-0",
+        "min-w-0 space-y-1.5 sheet:space-y-1",
+        layout === "cell" && "sheet:[&>:not([data-slot=combobox])]:mx-2.5",
+        !expanded && "space-y-0 sheet:space-y-0",
+        expanded && layout === "cell" && "sheet:pb-1.5",
         // Unfolded in the sheet, a line parts the select from what is read under it.
         expanded && layout === "cell" && "sheet:[&>[data-slot=combobox]]:border-b sheet:[&>[data-slot=combobox]]:border-border",
         !expanded && shown && "[&>[data-slot=combobox]]:hidden",

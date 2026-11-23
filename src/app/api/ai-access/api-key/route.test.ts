@@ -64,6 +64,23 @@ afterEach(async () => {
 });
 
 describe("key routes, by member and tenant", () => {
+  it("refreshes the catalog when Next exposes the empty PATCH body as a stream", async () => {
+    const key = `sk-proj-${randomBytes(30).toString("base64url")}`;
+    as(ALICE, TENANT_1);
+    const saved = await keyRoute.PUT(new Request(url, { method: "PUT", headers: json, body: JSON.stringify({ provider: "openai", key }) }));
+    expect(saved.status).toBe(200);
+
+    const refresh = new Request(url, {
+      method: "PATCH", headers: { origin: ORIGIN, "content-length": "0" }, body: new Uint8Array(),
+    });
+    const rejected = await keyRoute.PATCH(new Request(url, {
+      method: "PATCH", headers: { origin: ORIGIN }, body: '{"billingSource":"personal_api_key"}',
+    }));
+    expect([rejected.status, (await body(rejected)).error?.code]).toEqual([400, "AI_KEY_BODY"]);
+    expect((await keyRoute.PATCH(refresh)).status).toBe(200);
+    expect(fixture.sent.map((entry) => entry.split(" ")[0])).toEqual(["/v1/models", "/v1/models"]);
+  });
+
   it("never lets a colleague or the same member in another tenant read, test or remove a key", async () => {
     const key = `sk-proj-${randomBytes(30).toString("base64url")}`;
     as(ALICE, TENANT_1);

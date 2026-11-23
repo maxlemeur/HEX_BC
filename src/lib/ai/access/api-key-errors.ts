@@ -26,6 +26,7 @@ export const API_KEY_ERROR_CODES = [
   "AI_KEY_KEYCHAIN_UNAVAILABLE",
   "AI_KEY_KEYCHAIN_FAILED",
   "AI_KEY_MODEL_NOT_OFFERED",
+  "AI_KEY_MODELS_PERMISSION",
   "AI_KEY_CHANGED",
   "AI_KEY_CHANGED_DURING_SAVE",
   "AI_KEY_PAGE_STALE",
@@ -93,6 +94,8 @@ export function apiKeyErrorMessage(code: ApiKeyErrorCode, detail: ApiKeyErrorDet
       return "La clé API est disponible uniquement sur l’installation Mac de MergeOne : elle est conservée dans le Trousseau macOS.";
     case "AI_KEY_KEYCHAIN_FAILED":
       return "Le Trousseau de ce Mac n’a pas pu conserver la clé. La clé précédente, s’il y en a une, reste en service.";
+    case "AI_KEY_MODELS_PERMISSION":
+      return "Cette clé ne permet pas de lister les modèles. Vérifiez ses permissions dans votre projet OpenAI.";
     case "AI_KEY_MODEL_NOT_OFFERED":
       return "Ce modèle n’est pas proposé avec cette clé dans MergeOne. Choisissez un modèle de la liste.";
     case "AI_KEY_CHANGED":

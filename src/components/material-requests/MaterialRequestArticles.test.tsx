@@ -259,8 +259,9 @@ describe("linking request lines to catalogue articles", () => {
     // Read once the line is unfolded: a folded row keeps the article, its supplier and one gesture.
     await showMoreFields(user, 1);
     const link = await screen.findByRole("button", { name: "Rattacher l’article proposé à la ligne 1" });
-    expect(screen.getByText("Tige filetée acier zingué M10 1 m")).toBeVisible();
-    expect(screen.getByText("Référence écrite par le technicien")).toBeVisible();
+    const articleGroup = screen.getByRole("group", { name: "Article, ligne 1" });
+    expect(within(articleGroup).getByText("Tige filetée acier zingué M10 1 m")).toBeVisible();
+    expect(within(articleGroup).getByText("Référence écrite par le technicien")).toBeVisible();
     // Shown is not linked: nothing was written before the gesture.
     expect(writes()).toEqual([]);
 
@@ -898,7 +899,7 @@ describe("linking request lines to catalogue articles", () => {
     expect(calls.some((call) => call.path === searchPath)).toBe(true);
     expect(writes()[0].body).toEqual({ product_id: ARTICLE_2, via: "manual", expected_line: seen(line()) });
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
-    expect(screen.getByText("Goujon d’ancrage M10")).toBeVisible();
+    expect(within(screen.getByRole("group", { name: "Article, ligne 1" })).getByText("Goujon d’ancrage M10")).toBeVisible();
     expect(screen.getByText("Nom usuel mémorisé : « tige »")).toBeVisible();
   });
 

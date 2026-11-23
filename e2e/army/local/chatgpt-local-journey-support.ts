@@ -54,9 +54,9 @@ export async function localChatGptClient(email: string) {
   return { client, userId: login.data.user!.id };
 }
 
-/** `transcriptionModel`: the fixture account also lists Terra, which the transcription at arrival asks for (INTOCR01). */
+/** The fixture can list extra models for intake transcription (INTOCR01) or material request photos (MRIA01). */
 export async function writeDecisionsControl(decisionsControl: string,
-  input: { hold?: boolean; timeoutWriting?: boolean; transcriptionModel?: boolean; holdTranscription?: boolean; holdClassification?: boolean }) {
+  input: { hold?: boolean; timeoutWriting?: boolean; transcriptionModel?: boolean; holdTranscription?: boolean; holdClassification?: boolean; materialPhotoModels?: boolean }) {
   const temporary = `${decisionsControl}.tmp`;
   await writeFile(temporary, JSON.stringify({ hold: false, timeoutWriting: false, transcriptionModel: false, holdTranscription: false,
     holdClassification: false, ...input }));

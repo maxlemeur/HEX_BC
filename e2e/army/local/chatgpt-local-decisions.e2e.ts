@@ -556,6 +556,17 @@ if (!existsSync(liveProbePath)) test("MRIA01 the photo of a material request is 
     const readTransport = async () => (await readFile(transportLog, "utf8")).trim().split("\n").filter(Boolean)
       .map((entry) => JSON.parse(entry) as Record<string, unknown>).filter((entry) => !isAbsorbedClientAbort(entry));
     const readings = async () => (await readTransport()).filter((entry) => entry.task === "material-request-photo");
+    await setDecisionsControl({ materialPhotoModels: true });
+    const choosePhotoModel = async (modelId: string, reasoningEffort: string) => {
+      const original = screen.getByRole("dialog", "Original de la demande", { exact: true });
+      const model = original.getByRole("combobox", "Modèle d’analyse", { exact: true });
+      const effort = original.getByRole("combobox", "Effort de raisonnement", { exact: true });
+      await model.selectOption({ value: modelId });
+      await expect(model).toHaveValue(modelId);
+      await expect(effort.getByRole("option", "Sans raisonnement", { exact: true })).toHaveCount(0);
+      await effort.selectOption({ value: reasoningEffort });
+      await expect(effort).toHaveValue(reasoningEffort);
+    };
 
     type RequestLine = { id: string; position: number; original_text: string | null; quantity: number | null; quantity_doubtful: boolean;
       unit: string | null; dimension: string | null; product_type: string | null; material: string | null; material_precision: string | null;
@@ -575,8 +586,11 @@ if (!existsSync(liveProbePath)) test("MRIA01 the photo of a material request is 
     // The request says that its screen may offer the reading: the member's plan is connected on this instance.
     expect((await read()).photoAnalysis).toMatchObject({ status: "available" });
 
-    await ui.app.open(`/dashboard/affaires/${ids.projectId}/demandes-materiel/${requestId}`);
-    await screen.getByRole("button", "Voir l’original", { exact: true }).click(DEV_SERVER_WORK);
+    const openOriginal = async () => {
+      await ui.app.open(`/dashboard/affaires/${ids.projectId}/demandes-materiel/${requestId}`);
+      await screen.getByRole("button", "Voir l’original", { exact: true }).click(DEV_SERVER_WORK);
+    };
+    await openOriginal();
     const original = screen.getByRole("dialog", "Original de la demande", { exact: true });
     // No photo, no reading to offer.
     await expect(original.getByText("Pas de photo de l’original.", { exact: true })).toBeVisible();
@@ -595,6 +609,7 @@ if (!existsSync(liveProbePath)) test("MRIA01 the photo of a material request is 
     expect(await readings()).toEqual([]);
 
     const analyze = original.getByRole("button", "Analyser la photo avec l’IA", { exact: true });
+    await choosePhotoModel("gpt-6.2-astra", "xhigh");
     await analyze.click();
     await expect.poll(async () => (await read()).lines.length, { timeout: 120_000 }).toBe(2);
     const columns = (line: RequestLine) => [line.position, line.original_text, line.quantity, line.quantity_doubtful, line.unit,
@@ -606,10 +621,13 @@ if (!existsSync(liveProbePath)) test("MRIA01 the photo of a material request is 
     ];
     const first = await read();
     expect(first.lines.map(columns)).toEqual(READ);
-    expect(await readings()).toEqual([{ provider: "chatgpt-fixture", task: "material-request-photo", model: "army-plan-model", detail: "high", turned: true }]);
+    const reading = { provider: "chatgpt-fixture", task: "material-request-photo", detail: "high", turned: true };
+    const astra = { ...reading, model: "gpt-6.2-astra", reasoningEffort: "xhigh" };
+    expect(await readings()).toEqual([astra]);
     const screenshot = await app.screenshot("material-request-photo-analysis");
 
     // Drafts exist: nothing is read again before the office has chosen, and its choice replaces exactly those drafts.
+    await choosePhotoModel("gpt-6.2-sol", "high");
     await analyze.click();
     const replace = original.getByRole("button", "Remplacer les 2 lignes", { exact: true });
     await expect(replace).toBeVisible();
@@ -622,13 +640,91 @@ if (!existsSync(liveProbePath)) test("MRIA01 the photo of a material request is 
       return lines.length === 2 && lines.every((line) => !firstIds.includes(line.id));
     }, { timeout: 120_000 }).toBe(true);
     expect((await read()).lines.map(columns)).toEqual(READ);
-    expect(await readings()).toHaveLength(2);
+    expect(await readings()).toEqual([astra, { ...reading, model: "gpt-6.2-sol", reasoningEffort: "high" }]);
     expect((await readTransport()).filter((entry) => entry.provider === "forbidden")).toEqual([]);
 
     await recordEvidence(army, "material-request-photo-analysis", {
       projectId: ids.projectId, requestId, lines: READ, readings: await readings(), screenshot, provider: "fixture",
     });
   } finally {
+    await setDecisionsControl({});
+    if (fixtureStore) await rm(fixtureStore, { force: true });
+    fixtureStore = undefined;
+  }
+});
+
+if (!existsSync(liveProbePath)) test("MRIA02 a supplier quote PDF is compared with the sent request without changing the lines or quote", {
+  tags: ["critical", "local", "chatgpt", "material-requests"], session: "army", timeout: 420_000,
+}, async ({ app, screen, browser }) => {
+  if (!await preparePlanFixture()) throw new Error("MRIA02 requires its own temporary ChatGPT fixture.");
+  const prefix = `ARMY-local-quote-${Date.now()}`;
+  const directory = path.resolve(".e2e/army/critical/artifacts/fixtures", prefix);
+  try {
+    await signIn({ app, screen, browser }, localOrigin, fixtureEmail);
+    const army = { runPrefix: prefix, projectName: prefix, ownedEstimates: [] };
+    const ui = hydratedUi({ app, screen, browser }, localOrigin);
+    await restrictCriticalBrowser(browser, ui.app, army);
+    const ids = await createEstimateViaWizard(ui, { projectName: prefix, title: "Comparaison de devis" }, army);
+    type Envelope<T> = { ok: boolean; data: T };
+    type Line = { id: string; quantity: number };
+    type Quote = { id: string; status: string; files: unknown[]; lines: { unit_price_ht_cents: number | null }[] };
+    const base = `/api/affaires/${ids.projectId}/material-requests`;
+    const created = await apiRequest<Envelope<{ request: { id: string } }>>(browser, "POST", base, {});
+    expect(created.status).toBe(201);
+    const requestId = created.body.data.request.id;
+    const requestPath = `${base}/${requestId}`;
+    const lines = await apiRequest<Envelope<{ lines: Line[] }>>(browser, "POST", `${requestPath}/lines`, {
+      lines: [
+        { product_type: "Rondelle M8", quantity: 100, unit: "u" },
+        { product_type: "Tube DN 75", quantity: 2, unit: "ml" },
+      ],
+    });
+    expect(lines.status).toBe(201);
+    const [first, second] = lines.body.data.lines;
+    const supplierName = `${prefix} Comptoir fictif`;
+    const supplier = await apiRequest<Envelope<{ item: { id: string } }>>(browser, "POST", "/api/suppliers", {
+      action: "create", item: { name: supplierName, is_active: true },
+    });
+    expect(supplier.status).toBe(201);
+    const message = "Bonjour, pouvez-vous me faire un prix :\n- 100 u Rondelle M8\n- 2 ml Tube DN 75\nRetrait au comptoir\nMerci !";
+    const quote = await apiRequest<Envelope<{ item: Quote }>>(browser, "POST", `${requestPath}/quotes`, {
+      supplier_id: supplier.body.data.item.id, line_ids: [first.id, second.id], message, with_references: false,
+    });
+    expect(quote.status).toBe(201);
+    expect((await apiRequest(browser, "PATCH", `${requestPath}/lines/${first.id}`, { quantity: 70 })).status).toBe(200);
+
+    await ui.app.open(`/dashboard/affaires/${ids.projectId}/demandes-materiel/${requestId}?etape=devis`);
+    const comparisonCard = screen.getByRole("article", `Devis ${supplierName}`, { exact: true });
+    await expect(comparisonCard).toBeVisible(DEV_SERVER_WORK);
+    await mkdir(directory, { recursive: true });
+    const pdfPath = path.join(directory, "devis-fictif.pdf");
+    const pdf = await PDFDocument.create();
+    pdf.addPage().drawText("ARMY-Q2 - Rondelles M8 - 1 boite de 50 - 4,20 EUR HT");
+    await writeFile(pdfPath, await pdf.save());
+    const picker = browser.locator(`input[type="file"][aria-label="Pièces à joindre au devis ${supplierName}"]`).first();
+    await picker.setInputFiles([pdfPath]);
+
+    const compare = comparisonCard.getByRole("button", "Comparer le devis à la demande", { exact: true });
+    await expect(compare).toBeEnabled(DEV_SERVER_WORK);
+    await compare.click();
+
+    const table = comparisonCard.getByRole("table").filter({ hasText: "Proposé dans la pièce" });
+    await expect(table.getByText("Quantité insuffisante", { exact: true })).toBeVisible(DEV_SERVER_WORK);
+    await expect(table.getByText("50 u / 100 u (-50)", { exact: true })).toBeVisible();
+    await expect(table.getByText("Absent du devis", { exact: true })).toBeVisible();
+    await expect(table.getByText("· p. 1", { exact: true })).toBeVisible();
+    const after = await apiRequest<Envelope<{ lines: Line[] }>>(browser, "GET", requestPath);
+    expect(after.body.data.lines.map((line) => line.quantity)).toEqual([70, 2]);
+    const saved = await apiRequest<Envelope<{ items: Quote[] }>>(browser, "GET", `${requestPath}/quotes`);
+    expect(saved.body.data.items[0]).toMatchObject({
+      status: "requested", lines: [{ unit_price_ht_cents: null }, { unit_price_ht_cents: null }],
+    });
+    const screenshot = await app.screenshot("material-request-quote-comparison");
+    await recordEvidence(army, "material-request-quote-comparison", {
+      projectId: ids.projectId, requestId, provider: "fixture", requested: 100, offered: 50, difference: -50, screenshot,
+    });
+  } finally {
+    await rm(directory, { recursive: true, force: true });
     if (fixtureStore) await rm(fixtureStore, { force: true });
     fixtureStore = undefined;
   }

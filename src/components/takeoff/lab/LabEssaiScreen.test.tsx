@@ -81,6 +81,41 @@ describe("LabEssaiScreen", () => {
     await waitFor(() => expect((screen.getByRole("button", { name: /^Lancer/ }) as HTMLButtonElement).disabled).toBe(true));
   });
 
+  it("shows an unavailable ChatGPT model and requires a new choice to launch", async () => {
+    shell.state = { ...WITH_KEY, analysis_defaults: {
+      source: "chatgpt_plan", chatgpt: { model: "previous-account-model", reasoningEffort: "high" }, apiKey: null,
+    } };
+    vi.mocked(labApi.models).mockResolvedValueOnce({
+      models: [{ id: "army-plan-model", name: "Army plan model", reasoningEfforts: ["medium"], defaultReasoningEffort: "medium" }],
+      profile: { model: "army-plan-model", reasoning_effort: "medium" },
+    });
+    render(<LabEssaiScreen />);
+    const launch = await screen.findByRole<HTMLButtonElement>("button", { name: /^Lancer/ });
+    const unavailable = await screen.findByRole<HTMLOptionElement>("option", { name: "previous-account-model · indisponible" });
+    expect(unavailable.disabled).toBe(true);
+    expect(launch.disabled).toBe(true);
+    expect(screen.getByText("Le modèle ChatGPT choisi est indisponible. Choisissez un autre modèle.")).toBeTruthy();
+    fireEvent.change(screen.getByLabelText("Modèle"), { target: { value: "army-plan-model" } });
+    await waitFor(() => expect(launch.disabled).toBe(false));
+  });
+
+  it("requires a new effort choice when the current ChatGPT model no longer supports the previous effort", async () => {
+    shell.state = { ...WITH_KEY, analysis_defaults: {
+      source: "chatgpt_plan", chatgpt: { model: "army-plan-model", reasoningEffort: "high" }, apiKey: null,
+    } };
+    vi.mocked(labApi.models).mockResolvedValueOnce({
+      models: [{ id: "army-plan-model", name: "Army plan model", reasoningEfforts: ["medium"], defaultReasoningEffort: "medium" }],
+      profile: { model: "army-plan-model", reasoning_effort: "medium" },
+    });
+    render(<LabEssaiScreen />);
+    const launch = await screen.findByRole<HTMLButtonElement>("button", { name: /^Lancer/ });
+    const unavailable = await screen.findByRole<HTMLOptionElement>("option", { name: "Élevé · indisponible" });
+    expect(unavailable.disabled).toBe(true);
+    expect(launch.disabled).toBe(true);
+    fireEvent.change(screen.getByLabelText("Effort"), { target: { value: "auto" } });
+    await waitFor(() => expect(launch.disabled).toBe(false));
+  });
+
   // Review item 8: a saved key changes nothing while ChatGPT is the selected source.
   it("draws the lab with a saved key without any request for it, and launches the key configuration with the version it showed", async () => {
     shell.state = WITH_KEY;

@@ -83,7 +83,7 @@ describe("ApiKeyAccessEntry", () => {
   it("sends the key once, empties the field and then shows only its masked description", async () => {
     render(<ApiKeyAccessEntry />);
     expect(await screen.findByText(/seront facturées sur votre compte API OpenAI/)).toBeTruthy();
-    expect(screen.getByText("Utilisée uniquement dans le labo métré. Vos autres analyses restent sur l’abonnement ChatGPT.")).toBeTruthy();
+    expect(screen.getByText("La clé API peut servir aux analyses photo et au labo métré.")).toBeTruthy();
     await typeKey(KEY);
     fireEvent.click(screen.getByRole("button", { name: "Vérifier et enregistrer" }));
     expect(await screen.findByText("OpenAI · •••• 7K2F · Sur ce Mac")).toBeTruthy();
@@ -93,7 +93,7 @@ describe("ApiKeyAccessEntry", () => {
     expect(document.body.innerHTML).not.toContain(KEY);
     expect(screen.queryByRole("button", { name: /afficher|révéler|copier/i })).toBeNull();
     for (const name of ["Tester le modèle", "Remplacer", "Retirer"]) expect(screen.getByRole("button", { name })).toBeTruthy();
-    expect(await screen.findByText(/petit appel facturable sur votre compte API OpenAI, au plus 0,03 \$ US, sans aucun document client/)).toBeTruthy();
+    expect(await screen.findByText(/petit appel facturable sur votre compte API OpenAI, au plus 0,02 \$ US, sans aucun document client/)).toBeTruthy();
   });
 
   it("offers an explicit model test to a key that may not list models, instead of calling it invalid", async () => {

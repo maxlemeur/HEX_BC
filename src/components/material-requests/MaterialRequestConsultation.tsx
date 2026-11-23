@@ -41,6 +41,7 @@ import {
   lineTitle,
   quotedAmountCents,
 } from "./format";
+import { MaterialRequestQuoteComparison } from "./MaterialRequestQuoteComparison";
 import { photoUploadStepLabel, type PhotoUploadStep } from "./photo-upload";
 import { useConsultationTemplate, type ConsultationTemplateState } from "./useConsultationTemplate";
 import type { MaterialRequestEditorApi, SaveResult } from "./useMaterialRequestEditor";
@@ -316,11 +317,13 @@ function QuoteFiles({
   quotes,
   quote,
   editable,
+  visible,
 }: Readonly<{
   editor: MaterialRequestEditorApi;
   quotes: MaterialRequestQuotesApi;
   quote: MaterialRequestQuote;
   editable: boolean;
+  visible: boolean;
 }>) {
   const picker = useRef<HTMLInputElement>(null);
   const sending = useRef(false);
@@ -372,6 +375,16 @@ function QuoteFiles({
           ))}
         </ul>
       )}
+      {editor.canWrite && editor.data.photoAnalysis && quote.files.length > 0 ? (
+        <MaterialRequestQuoteComparison
+          projectId={editor.projectId}
+          requestId={editor.requestId}
+          quoteId={quote.id}
+          files={quote.files}
+          availability={editor.data.photoAnalysis}
+          visible={visible}
+        />
+      ) : null}
       {editable ? (
         <>
           <input
@@ -584,7 +597,8 @@ function QuoteCard({
   editor,
   quotes,
   quote,
-}: Readonly<{ editor: MaterialRequestEditorApi; quotes: MaterialRequestQuotesApi; quote: MaterialRequestQuote }>) {
+  visible,
+}: Readonly<{ editor: MaterialRequestEditorApi; quotes: MaterialRequestQuotesApi; quote: MaterialRequestQuote; visible: boolean }>) {
   const ids = useId();
   const titleId = `${ids}-title`;
   const blockerId = `${ids}-blocker`;
@@ -807,7 +821,7 @@ function QuoteCard({
         </p>
       ) : null}
 
-      <div className="mr-quote-files"><QuoteFiles editor={editor} quotes={quotes} quote={quote} editable={editable} /></div>
+      <div className="mr-quote-files"><QuoteFiles editor={editor} quotes={quotes} quote={quote} editable={editable} visible={visible} /></div>
 
       {editable ? (
         <div className="space-y-1.5">
@@ -910,7 +924,7 @@ function QuoteCard({
  * The « Devis » step of a request: the lines grouped by their supplier, the message to copy for each, the
  * competition, then the quotes. A reader sees the groups and the quotes, and nothing that writes.
  */
-export function MaterialRequestConsultation({ editor, quotes, affaireName, headingId, canCreateSupplier = false, onGoToLines, onGoToOrders }: Readonly<{
+export function MaterialRequestConsultation({ editor, quotes, affaireName, headingId, canCreateSupplier = false, visible = true, onGoToLines, onGoToOrders }: Readonly<{
   editor: MaterialRequestEditorApi;
   quotes: MaterialRequestQuotesApi;
   affaireName: string;
@@ -920,6 +934,7 @@ export function MaterialRequestConsultation({ editor, quotes, affaireName, headi
    * engineers, `canAddToCatalogue`), which its route and policies enforce.
    */
   canCreateSupplier?: boolean;
+  visible?: boolean;
   onGoToLines?: () => void;
   onGoToOrders?: () => void;
 }>) {
@@ -981,7 +996,14 @@ export function MaterialRequestConsultation({ editor, quotes, affaireName, headi
         </nav>
         <div className="min-w-0">
           {pendingGroups.map((group) => <div key={group.supplierId} hidden={activeSupplierId !== group.supplierId} className="border-b border-border p-4"><SupplierGroupCard editor={editor} quotes={workspaceQuotes} group={group} affaireName={affaireName} template={template} canCreateSupplier={canWrite && canCreateSupplier} /></div>)}
-          {ordered.map((quote) => <div key={quote.id} hidden={active !== `quote:${quote.id}`}><QuoteCard editor={editor} quotes={workspaceQuotes} quote={quote} /></div>)}
+          {ordered.map((quote) => {
+            const selected = activeQuote?.id === quote.id;
+            return (
+              <div key={quote.id} hidden={!selected}>
+                <QuoteCard editor={editor} quotes={workspaceQuotes} quote={quote} visible={visible && selected} />
+              </div>
+            );
+          })}
           {groups.filter((group) => group.lines.length > 0 && group.lines.every((line) => line.price_quote_id)).map((group) => <div key={`priced:${group.supplierId}`} hidden={activeSupplierId !== group.supplierId} role="group" aria-label={group.supplierName} className="border-t border-border px-6 py-3 text-sm text-muted-foreground">Toutes ses lignes ont leur prix retenu.</div>)}
           {!active ? <p className="p-6 text-sm text-muted-foreground">Les devis apparaîtront ici après la consultation d’un fournisseur.</p> : null}
         </div>

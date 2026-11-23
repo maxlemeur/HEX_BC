@@ -3,7 +3,7 @@ import { z } from "zod";
 import {
   AI_API_PROVIDER_LABELS, aiApiProviderSchema, type AiApiProvider, type AiBillingSource, type AiExecutionPlace, type ApiKeyOfferedModel,
 } from "@/lib/ai/access/contracts";
-import { CHATGPT_REASONING_EFFORT_LABELS, chatGptReasoningEffortSchema, type ChatGptReasoningEffort } from "@/lib/ai/chatgpt-model-preferences";
+import { CHATGPT_REASONING_EFFORT_LABELS, chatGptReasoningEffortSchema, type ChatGptPreferences, type ChatGptReasoningEffort } from "@/lib/ai/chatgpt-model-preferences";
 
 // Contracts of the takeoff lab (TI-661), shared by its routes and its screens.
 // The lab stores runs and verdicts as files under TAKEOFF_LAB_OUTPUT_DIR, never
@@ -293,6 +293,7 @@ export type LabState = {
   decisions: { available: boolean; message: string; model: string; budget: LabDecisionsBudget };
   chatgpt: { connected: boolean; model: string | null; reasoning_effort: ChatGptReasoningEffort | null; message: string | null };
   /** The member's OpenAI key on this Mac: never the key, only whether it is there and its masked suffix. */
+  analysis_defaults?: { source: AiBillingSource; chatgpt: ChatGptPreferences | null; apiKey: ChatGptPreferences | null };
   api_key: { status: "saved" | "empty" | "unavailable"; provider: AiApiProvider; suffix: string | null; place_label: string | null;
     message: string | null; ceiling_nano_usd: number;
     /** The saved key's opaque identity, sent back with a launch: a key replaced, or another member's, is refused. */

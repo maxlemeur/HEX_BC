@@ -47,7 +47,9 @@ import {
   MATERIAL_REQUEST_PHOTO_ANALYSIS_UNAVAILABLE,
   type MaterialRequestPhotoAnalysis,
   type MaterialRequestPhotoAnalysisAvailability,
+  type MaterialRequestPhotoAnalysisInput,
 } from "./photo-analysis";
+import type { MaterialRequestQuoteComparison, QuoteComparisonSettings } from "./quote-comparison";
 import type { AffaireSupplyCost } from "./supply-cost-contracts";
 import type { ConsultationTemplateRecord, ConsultationTemplates } from "./consultation-template-contracts";
 
@@ -306,10 +308,11 @@ export function analyzeMaterialRequestPhoto(
   requestId: string,
   fileId: string,
   signal?: AbortSignal,
+  settings?: MaterialRequestPhotoAnalysisInput,
 ): Promise<MaterialRequestPhotoAnalysis> {
   return requestJsonUncoordinated<MaterialRequestPhotoAnalysis>(
     requestsPath(projectId, requestId, "files", fileId, "analysis"),
-    { method: "POST", signal },
+    { method: "POST", signal, ...(settings ? { headers: JSON_HEADERS, body: JSON.stringify(settings) } : {}) },
     "La photo n’a pas pu être lue par l’IA.",
   );
 }
@@ -532,6 +535,21 @@ export function createMaterialRequestLineArticle(
 
 function quotesPath(projectId: string, requestId: string, ...segments: string[]): string {
   return requestsPath(projectId, requestId, "quotes", ...segments);
+}
+
+export function compareMaterialRequestQuoteFile(
+  projectId: string,
+  requestId: string,
+  quoteId: string,
+  fileId: string,
+  settings: QuoteComparisonSettings,
+  signal?: AbortSignal,
+): Promise<MaterialRequestQuoteComparison> {
+  return requestJsonUncoordinated<MaterialRequestQuoteComparison>(
+    quotesPath(projectId, requestId, quoteId, "files", fileId, "comparison"),
+    { method: "POST", headers: JSON_HEADERS, body: JSON.stringify(settings), signal },
+    "Le devis n’a pas pu être comparé à la demande.",
+  );
 }
 
 export async function fetchMaterialRequestQuotes(
