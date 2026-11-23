@@ -572,13 +572,12 @@ begin
       plan_logical_id uuid, whole boolean, previous jsonb) on commit drop;
     insert into pg_temp.takeoff_review_restored
     select w.answer_id, w.item_id, p.plan_logical_id,
-      -- A set-aside clears the decision on the answer. Compare the proof in
-      -- the event to the locked marks and the surviving plan entry before
-      -- restoring either the decision or the rows it verified.
-      (aside.before ->> 'kind' is distinct from 'accepted' or (
+      -- Restore an explicit source choice only with its original proof.
+      -- An ordinary acceptance keeps its historical revision; the table
+      -- already reopens it when the marks have moved.
+      (aside.before ->> 'quantity_source' is null or (
         coalesce((aside.before ->> 'marks_revision')::integer, 0) = private.takeoff_count_marks_revision(p.answer_id)
-        and (aside.before ->> 'quantity_source' is null or
-          (aside.before ->> 'chosen_entry_revision')::integer is not distinct from nullif(p.plan_entry_revision, 0))))
+        and (aside.before ->> 'chosen_entry_revision')::integer is not distinct from nullif(p.plan_entry_revision, 0)))
       and pg_catalog.jsonb_typeof(aside.after -> 'rows') = 'object' and not exists (
         select 1 from pg_catalog.jsonb_each(aside.after -> 'rows') snapshot(row_id, state)
         left join public.takeoff_items i on i.id = snapshot.row_id::uuid
@@ -1002,9 +1001,9 @@ $$;
 -- Regex matches are projected by that engine. A named regex still cannot
 -- overtake an earlier exact/contains match on the item's sealed label.
 create function private.takeoff_item_send_skip_rule(p_tenant uuid, p_label text, p_rule uuid)
-returns boolean language sql stable set search_path = '' as $$
+returns uuid language sql stable set search_path = '' as $$
   with whitespace(pattern) as (values ('[\t\n\v\f\r \u00A0\u1680\u2000-\u200A\u2028\u2029\u202F\u205F\u3000\uFEFF]+'))
-  select coalesce((select r.id = p_rule and r.action = 'skip'
+  select case when r.action = 'skip' then r.id end
     from public.takeoff_mapping_rules r cross join whitespace w
     cross join lateral (select lower(btrim(regexp_replace(p_label,w.pattern,' ','g')) collate pg_catalog."und-x-icu") as label,
       lower(btrim(regexp_replace(r.match_pattern,w.pattern,' ','g')) collate pg_catalog."und-x-icu") as pattern) n
@@ -1013,7 +1012,7 @@ returns boolean language sql stable set search_path = '' as $$
       when 'contains' then n.pattern <> '' and strpos(n.label,n.pattern) > 0
       when 'regex' then r.id = p_rule
       else false end
-    order by r.priority, date_trunc('milliseconds',r.created_at), r.id limit 1), false)
+    order by r.priority, date_trunc('milliseconds',r.created_at), r.id limit 1
 $$;
 revoke all on function private.takeoff_item_send_skip_rule(uuid,text,uuid) from public, anon, authenticated, service_role;
 
@@ -1068,7 +1067,7 @@ revoke all on function private.takeoff_item_send_waiting_pages(jsonb,jsonb,jsonb
 
 -- The dialog offers a choice only at the first applicable step for the item.
 -- rule_skip: the winning active skip rule on the sealed label, at the locked rule stamp.
--- unit_incompatible: the retained units/bases disagree with one another or the sealed item.
+-- unit_incompatible: the retained quantities fit, but their units/bases disagree with one another or the sealed item.
 -- quantity:<item>: an individual retained quantity cannot fit numeric(12,3).
 -- verified-total:<item>: a partial reading would divide a live total of this plan,
 -- or a page replacement would take a verified total from another plan.
@@ -1076,7 +1075,8 @@ revoke all on function private.takeoff_item_send_waiting_pages(jsonb,jsonb,jsonb
 -- other undecided overlap must also be explicitly left out.
 -- breakdown:<item>: an ordinary item has a live target of another breakdown.
 -- target:<key>: no unique free raw-row line of the item's DPGF import and no
--- previously bound DPGF line; or ordinary live targets are ambiguous/claimed,
+-- previously bound DPGF line. An earlier explicit selection keeps its claim
+-- even if a later choice suspends that item. Otherwise ordinary live targets are ambiguous/claimed,
 -- or only a deleted ordinary line's live parts remain in this compartment.
 -- identity:<key>: the selected line's unit or a kept part's quantitative identity differs.
 -- compartment:<key>: another live line still carries this plan's part of the same item.
@@ -1086,7 +1086,7 @@ revoke all on function private.takeoff_item_send_waiting_pages(jsonb,jsonb,jsonb
 -- quantity:<key>: the selected existing or new line's final quantity cannot fit numeric(12,3).
 -- The member supplies the key and choice; every branch below checks its place in this order.
 create function private.takeoff_item_send_exclusion_choice(p_plan jsonb,p_part jsonb,p_parts jsonb,
-  p_held jsonb,p_resolution jsonb,p_reason text,p_page_count integer,p_max_depth integer)
+  p_held jsonb,p_resolution jsonb,p_reason text,p_page_count integer,p_max_depth integer,p_claimed_line uuid default null)
 returns boolean language plpgsql stable set search_path = '' as $$
 declare
   item uuid := (p_part->>'item_id')::uuid;
@@ -1182,48 +1182,59 @@ begin
     -- A live binding wins even if an extra copy of the raw row is present.
     select t.estimate_item_id into selected from public.takeoff_item_send_targets t
       where t.version_id=version_ and t.item_id=item and t.breakdown='dpgf' and t.estimate_item_id is not null;
+    if selected is not null and p_claimed_line is not null then return false; end if;
     if selected is null then
-      with free_lines as materialized (
-        select i.id,raw.raw_row_id from public.estimate_items i
+      with import_lines as materialized (
+        select i.id,raw.raw_row_id,array(select distinct t.item_id from public.takeoff_item_send_targets t
+          where t.version_id=version_ and t.estimate_item_id=i.id) as holders from public.estimate_items i
         left join public.read_estimate_dpgf_raw_rows(entry_.tenant_id,version_) raw on raw.estimate_item_id=i.id
           and raw.import_id::text=lower(entry_.origin->>'importId')
         where i.version_id=version_ and i.item_type='line' and i.source_provider='dpgf'
           and lower(i.source_metadata->>'import_id')=lower(entry_.origin->>'importId')
-          and not exists(select 1 from public.takeoff_item_send_targets t where t.version_id=version_
-            and t.estimate_item_id=i.id and t.item_id<>item)
       ), reserved as materialized (
         -- The first scoped item with one proven free line for its raw row
         -- claims that line before the planner visits the items' decisions.
-        select distinct on (f.id) f.id,e.item_id from free_lines f
+        select distinct on (f.id) f.id,e.item_id from import_lines f
         join public.takeoff_list_revision_entries e on e.revision_id=entry_.revision_id and e.origin_kind='dpgf'
           and lower(e.origin->>'importId')=lower(entry_.origin->>'importId') and lower(e.origin->>'rawRowId')=f.raw_row_id::text
         join public.takeoff_item_answers a on a.job_id=job_ and a.item_id=e.item_id
-        where not exists(select 1 from public.takeoff_item_send_targets t where t.version_id=version_
+        where cardinality(f.holders)=0 and not exists(select 1 from public.takeoff_item_send_targets t where t.version_id=version_
           and t.item_id=e.item_id and t.breakdown='dpgf' and t.estimate_item_id is not null)
-          and (select count(*) from free_lines other where other.raw_row_id=f.raw_row_id)=1
+          and (select count(*) from import_lines other where other.raw_row_id=f.raw_row_id and other.holders<@array[e.item_id])=1
         order by f.id,e.position
       ), available as (
-        select f.* from free_lines f where not exists(select 1 from reserved r where r.id=f.id and r.item_id<>item)
+        select f.* from import_lines f where f.holders<@array[item] and not exists(select 1 from reserved r where r.id=f.id and r.item_id<>item)
           and not exists(select 1 from jsonb_array_elements(choices) resolution
             join public.takeoff_list_revision_entries e on e.revision_id=entry_.revision_id and e.position<entry_.position
               and resolution->>'key'='target:'||e.item_id||'|dpgf'
             where resolution#>>'{choice,kind}'='line' and resolution#>>'{choice,estimate_item_id}'=f.id::text
               and exists(select 1 from jsonb_array_elements(p_parts) part where part->>'item_id'=e.item_id::text)
-              and exists(select 1 from jsonb_array_elements(p_plan->'targets') target
-                where target->>'item_id'=e.item_id::text and target#>>'{line,estimate_item_id}'=f.id::text))
+              and (exists(select 1 from jsonb_array_elements(p_plan->'targets') target
+                where target->>'item_id'=e.item_id::text and target#>>'{line,estimate_item_id}'=f.id::text)
+                or exists(select 1 from jsonb_array_elements(p_plan->'left_out') omitted
+                  cross join jsonb_array_elements(choices) decision cross join jsonb_array_elements(p_parts) previous
+                  where omitted->>'item_id'=e.item_id::text and previous->'item_id'=omitted->'item_id'
+                    and decision->>'key' in ('identity:'||e.item_id||'|dpgf','compartment:'||e.item_id||'|dpgf',
+                      'entry:'||e.item_id||'|dpgf','quantity:'||e.item_id||'|dpgf')
+                    and private.takeoff_item_send_exclusion_choice(p_plan,previous,p_parts,p_held,decision,
+                      omitted->>'reason',p_page_count,p_max_depth,f.id))))
       )
       select array(select id from available where raw_row_id::text=lower(entry_.origin->>'rawRowId')),
         array(select f.id from available f join public.estimate_items i on i.id=f.id where private.takeoff_item_send_unit(i.unit_code)=unit_)
         into candidates,offered_lines;
-      if cardinality(candidates)=1 then selected:=candidates[1];
+      if cardinality(candidates)=1 then
+        if p_claimed_line is not null then return false; end if;
+        selected:=candidates[1];
       else
         if key_='target:'||target_key then return choice_='leave_out'; end if;
         if cardinality(candidates)>1 then offered_lines:=candidates; end if;
         selected:=private.takeoff_uuid_or_null(picked->'estimate_item_id');
-        if picked->>'kind' is distinct from 'line' or (selected=any(offered_lines)) is not true then return false; end if;
+        if picked->>'kind' is distinct from 'line' or (selected=any(offered_lines)) is not true
+          or (p_claimed_line is not null and selected<>p_claimed_line) then return false; end if;
       end if;
     end if;
   else
+    if p_claimed_line is not null then return false; end if;
     select array(select t.estimate_item_id from public.takeoff_item_send_targets t where t.version_id=version_
       and t.item_id=item and t.compartment_key=compartment and t.estimate_item_id is not null) into candidates;
     if cardinality(candidates)=1 then selected:=candidates[1];
@@ -1296,7 +1307,7 @@ begin
     (after_<=0 or after_>999999999.999 or after_<>round(after_,3));
 end;
 $$;
-revoke all on function private.takeoff_item_send_exclusion_choice(jsonb,jsonb,jsonb,jsonb,jsonb,text,integer,integer)
+revoke all on function private.takeoff_item_send_exclusion_choice(jsonb,jsonb,jsonb,jsonb,jsonb,text,integer,integer,uuid)
   from public, anon, authenticated, service_role;
 
 create or replace function public.send_takeoff_item_plan(p_tenant_id uuid, p_actor_id uuid, p_module_default boolean, p_request jsonb)
@@ -1538,6 +1549,8 @@ begin
       then 'takeoff_changed'
     when public.takeoff_mapping_rules_stamp(tenant) is distinct from deps #>> '{stamps,mapping}' then 'mapping_changed'
     when exists (select 1 from pg_catalog.jsonb_array_elements(deps -> 'rules') as listed(value)
+        group by listed.value -> 'item_id' having count(*) > 1) then 'mapping_changed'
+    when exists (select 1 from pg_catalog.jsonb_array_elements(deps -> 'rules') as listed(value)
         where not exists (select 1 from public.takeoff_mapping_rules as rule where rule.tenant_id = tenant
           and rule.id = private.takeoff_uuid_or_null(listed.value -> 'rule_id')
           and rule.updated_at = (listed.value ->> 'rule_version')::timestamptz)) then 'mapping_changed'
@@ -1738,6 +1751,13 @@ begin
     with omitted as (
       select stored.value as part from jsonb_array_elements(job_parts) stored(value)
       where not exists (select 1 from jsonb_array_elements(plan -> 'targets') tgt where tgt -> 'item_id' = stored.value -> 'item_id')
+    ), winning_rules as materialized (
+      select li.item_id, private.takeoff_item_send_skip_rule(tenant,li.label,
+        private.takeoff_uuid_or_null(applied.rule->'rule_id')) as skip_id, applied.rule
+      from (select distinct (o.part->>'item_id')::uuid as id from omitted o) items
+      join public.takeoff_list_revision_entries li on li.revision_id=launch.item_list_revision_id and li.item_id=items.id
+      left join lateral (select r as rule from jsonb_array_elements(deps->'rules') r
+        where r->>'item_id'=li.item_id::text) applied on true
     ), incompatible as (
       select li.item_id from omitted o
       join public.takeoff_list_revision_entries li on li.revision_id = launch.item_list_revision_id
@@ -1745,9 +1765,11 @@ begin
       cross join lateral (select private.takeoff_item_send_unit(o.part ->> 'unit') as unit,
         private.takeoff_item_send_folded(o.part ->> 'basis') as basis) identity_
       group by li.item_id, li.expected_unit, li.measurement_basis
-      having bool_or(identity_.unit is null) or count(distinct identity_.unit) > 1 or count(distinct identity_.basis) > 1
+      having bool_and((o.part->>'quantity')::numeric<=999999999.999
+        and (o.part->>'quantity')::numeric=round((o.part->>'quantity')::numeric,3))
+        and (bool_or(identity_.unit is null) or count(distinct identity_.unit) > 1 or count(distinct identity_.basis) > 1
         or (li.expected_unit is not null and bool_or(private.takeoff_item_send_unit(li.expected_unit) <> identity_.unit))
-        or (li.measurement_basis is not null and bool_or(private.takeoff_item_send_folded(li.measurement_basis) <> identity_.basis))
+        or (li.measurement_basis is not null and bool_or(private.takeoff_item_send_folded(li.measurement_basis) <> identity_.basis)))
     ), item_reasons as materialized (
       select x as omission from jsonb_array_elements(plan->'left_out') x
       where exists(select 1 from omitted o where o.part->'item_id'=x->'item_id')
@@ -1764,20 +1786,16 @@ begin
       join item_reasons i on i.omission->'item_id'=o.part->'item_id'
     ), checked as materialized (
       select m.*,case m.excluded->>'reason'
-        when 'rule_skip' then exists(select 1 from jsonb_array_elements(deps->'rules') applied
-          join public.takeoff_list_revision_entries li on li.revision_id=launch.item_list_revision_id
-            and li.item_id=(m.part->>'item_id')::uuid
-          where applied->'item_id'=m.part->'item_id' and applied->'rule_id'=m.omission->'rule_id'
-            and (m.omission->>'rule_version' is null or m.omission->'rule_version'=applied->'rule_version')
-            and private.takeoff_item_send_skip_rule(tenant,li.label,private.takeoff_uuid_or_null(applied->'rule_id')))
-        when 'unit_incompatible' then exists(select 1 from incompatible i where i.item_id=(m.part->>'item_id')::uuid)
+        when 'rule_skip' then winner.skip_id::text=m.omission->>'rule_id' and winner.rule->'rule_id'=m.omission->'rule_id'
+          and (m.omission->>'rule_version' is null or m.omission->'rule_version'=winner.rule->'rule_version')
+        when 'unit_incompatible' then winner.skip_id is null and exists(select 1 from incompatible i where i.item_id=winner.item_id)
         when 'left_out' then dialog.valid
         when 'entry_suspended' then dialog.valid
         else false end as valid,coalesce(dialog.on_page,false) as on_page
-      from matched m left join lateral (
+      from matched m join winning_rules winner on winner.item_id=(m.part->>'item_id')::uuid left join lateral (
         select bool_or(true) as valid,bool_or(r->>'key' like 'page:%') as on_page
         from jsonb_array_elements(deps->'resolutions') r
-        where m.excluded->>'reason' in ('left_out','entry_suspended')
+        where winner.skip_id is null and m.excluded->>'reason' in ('left_out','entry_suspended')
           and private.takeoff_item_send_exclusion_choice(plan,m.part,job_parts,held,r,m.excluded->>'reason',
             (plan_entry->>'page_count')::integer,coalesce(version_row.max_section_depth,
               (p_request#>>'{version_payload,max_section_depth}')::integer,3))

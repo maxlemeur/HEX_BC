@@ -5,6 +5,9 @@ import { createHash } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { headers } from "next/headers";
 
+import { readMeasureCatalogue } from "./item-measure-catalogue-server";
+import { readTakeoffLaunchRequestUnits } from "./launch-request-units-server";
+import type { ItemMeasureScope } from "./item-table-contracts";
 import { readLocalChatGptSubscription, type LocalChatGptSubscriptionIssue } from "@/lib/ai/chatgpt-takeoff";
 import { requireAffaireAccess, type AffaireAccess } from "@/lib/affaires/access-server";
 import { conflict, forbidden, mapSupabaseError, unprocessableEntity } from "@/lib/http/api-response";
@@ -208,6 +211,10 @@ function canonical(value: unknown): string {
     .map(([key, entry]) => JSON.stringify(key) + ":" + canonical(entry)).join(",") + "}";
 }
 
+function measureHostProof(access: AffaireAccess, host: string) {
+  return createHash("sha256").update(canonical([access.context.tenantId, access.context.userId, host])).digest("hex");
+}
+
 async function payerName(access: AffaireAccess) {
   const { data, error } = await (access.context.supabase as unknown as Client).from("profiles").select("full_name")
     .eq("id", access.context.userId).maybeSingle();
@@ -223,8 +230,10 @@ async function payerName(access: AffaireAccess) {
  * plans, the items, the list's revision and each item's current readings on those plans, the calls and the budget, and
  * the preparation it was planned on (its revision, each plan's sealed copy, identity, bytes and pages).
  */
-async function remeasurePreview(input: { scope: ItemTableScope; itemIds: string[]; seen: ItemRemeasureSeen }, access: AffaireAccess) {
-  const { lines, plans: affairePlans, list } = await loadItemLines(access, { scope: input.scope, itemIds: input.itemIds, withPlans: true });
+async function remeasurePreview(input: { scope: ItemTableScope; itemIds: string[]; seen: ItemRemeasureSeen; detail?: ItemMeasureScope }, access: AffaireAccess) {
+  const key = input.detail && input.scope.kind === "plan" ? input.scope.planKey : null;
+  if (input.detail && (!key || input.itemIds.length !== 1)) invalid("Choisissez un seul poste sur son plan.");
+  const { lines, plans: affairePlans, list } = await loadItemLines(access, { scope: key ? { kind: "affaire" } : input.scope, itemIds: input.itemIds, withPlans: true });
   const byId = new Map(lines.map((line) => [line.itemId, line]));
   const missing = input.itemIds.filter((id) => !byId.has(id));
   if (missing.length) {
@@ -236,11 +245,12 @@ async function remeasurePreview(input: { scope: ItemTableScope; itemIds: string[
   // named, and nothing is admitted on it, never the reading the server finds now.
   const seenOnLines = seenAnswers(input.seen);
   const listMoved = (input.seen.list_revision_id ?? "").toLowerCase() !== (list?.revisionId ?? "").toLowerCase();
+  const previous = key ? selected[0]?.readings.find((r) => r.planKey === key)?.answer : null;
   const changed = selected.filter((line) => listMoved || seenOnLines.get(line.itemId.toLowerCase())?.join()
-    !== line.targets.answers.map(({ answerId }) => answerId.toLowerCase()).sort().join());
+    !== (key ? previous?.answerId.toLowerCase() ?? "" : line.targets.answers.map(({ answerId }) => answerId.toLowerCase()).sort().join()));
   if (changed.length) staleRefusal(changed.map(({ itemId, label }) => ({ itemId, label })));
-  const eligible = selected.filter(({ eligibility }) => eligibility.remeasure.eligible);
-  const planKeys = new Set(eligible.flatMap(({ remeasurePlans }) => remeasurePlans));
+  const eligible = key ? selected : selected.filter(({ eligibility }) => eligibility.remeasure.eligible);
+  const planKeys = new Set(key ? [key] : eligible.flatMap(({ remeasurePlans }) => remeasurePlans));
   const names = new Map([...affairePlans.map(({ key, name }) => [key, name] as const),
     ...selected.flatMap(({ readings }) => readings.map(({ planKey, planName }) => [planKey, planName] as const))]);
   const plans = [...planKeys].map((key) => ({ key, name: names.get(key) ?? "Plan" }))
@@ -251,32 +261,56 @@ async function remeasurePreview(input: { scope: ItemTableScope; itemIds: string[
       (await headers()).get("host")),
     readAffaireTakeoffLaunchState(access.context, access.project.id),
   ]);
+  const catalogue = key && !subscription.issue ? await readMeasureCatalogue({ userId: access.context.userId, tenantId: access.context.tenantId }, subscription.selection) : null;
   const shown: ItemRemeasurePreview["subscription"] = subscription.issue
     ? { state: "unavailable", reason: SUBSCRIPTION_REASONS[subscription.issue] }
+    : catalogue?.reason !== undefined ? { state: "unavailable", reason: catalogue.reason }
     : { state: "ready", model: subscription.selection.model, reasoningEffort: subscription.selection.reasoningEffort ?? null };
   const items = eligible.map(({ itemId, label }) => ({ itemId, label }));
   const payer = { memberId: access.context.userId, name };
   // What the request would read and reserve, planned as its admission plans it (nothing written).
   const planned = items.length && plans.length
     ? await planTakeoffItemRemeasure(access.context, { projectId: access.project.id, planKeys: plans.map(({ key }) => key),
-      itemIds: items.map(({ itemId }) => itemId), selection: null })
+      itemIds: items.map(({ itemId }) => itemId), ...(input.detail && { detail: input.detail }), selection: null })
     : null;
+  if (key && planned && "refusal" in planned && planned.changedCopy) {
+    throw conflict(planned.refusal, undefined, "TAKEOFF_ITEM_MEASURE_COPY_CHANGED");
+  }
   const reading: ItemRemeasurePreview["reading"] = !planned ? { state: "refused", reason: "Aucun poste de la sélection ne peut être mesuré de nouveau." }
     : "refusal" in planned ? { state: "refused", reason: planned.refusal }
       : { state: "ready", summary: describePosteReadingBounds({ ...planned.plan.bounds, ok: true }), calls: planned.plan.bounds.calls,
         budgetTokens: planned.plan.manifest.budget.tokens };
   // Each item's answers as the member saw them (the same as stored now, compared above): what the database compares again
   // under its locks, and what identifies the confirmation.
+  const file = planned && "plan" in planned ? planned.plan.manifest.plans[0] : null;
+  const previousPages = [...new Set([...(previous?.searchedPages ?? []), ...(previous?.unreadablePages ?? [])])].sort((a,b) => a-b);
+  const source = input.detail && planned && "plan" in planned ? planned.plan.snapshot.preparation.sources.find((s) => s.document_id === file?.plan_file_id) : null;
+  let effect: "first" | "compare" | "replace" = previous ? "replace" : "first";
+  if (file && previous && input.detail?.page) {
+    effect = "compare";
+    if (previousPages.length === 1 && previousPages[0] === input.detail.page) {
+      const { data, error } = await access.context.supabase.from("takeoff_item_answers").select("plan_content_sha256")
+        .eq("tenant_id", access.context.tenantId).eq("project_id", access.project.id).eq("id", previous.answerId).maybeSingle();
+      if (error) throw mapSupabaseError(error, "Impossible de vérifier la version de la lecture précédente.");
+      if (data?.plan_content_sha256 === file.content_sha256) effect = "replace";
+    }
+  }
+  const detail = input.detail && file ? {
+    hostProof: subscription.selection ? measureHostProof(access, subscription.selection.hostId) : null,
+    revision: source?.revision ?? file.generation, pages: file.pages, pageCount: file.page_count, previousPages, effect,
+  } : undefined;
   const targets = remeasureTargets(items.map(({ itemId }) => itemId), input.seen);
   return {
     preview: {
       items,
-      plans,
+      plans: key && file ? [{ key, name: file.name }] : plans,
       payer,
       subscription: shown,
+      ...(detail && { detail }),
+      ...(catalogue && "models" in catalogue && { models: catalogue.models }),
       reading,
       running: launch.request?.state === "admitted",
-      previewDigest: createHash("sha256").update(canonical({ contract: 3, scope: input.scope, payer: payer.memberId,
+      previewDigest: createHash("sha256").update(canonical({ contract: 3, scope: input.scope, ...(input.detail && { detail: input.detail, pin: subscription.selection }), payer: payer.memberId,
         subscription: shown, plans: plans.map(({ key }) => key), items: items.map(({ itemId }) => itemId),
         list: list?.revisionId ?? null, readings: targets,
         reading: reading.state === "ready" ? { calls: reading.calls, budgetTokens: reading.budgetTokens } : reading,
@@ -284,7 +318,7 @@ async function remeasurePreview(input: { scope: ItemTableScope; itemIds: string[
         prepared: planned && "plan" in planned ? { revision: planned.plan.preparationRevision,
           plans: planned.plan.manifest.plans.map((plan) => [plan.plan_file_id, plan.logical_id, plan.content_sha256, plan.pages,
             plan.page_count]) } : null })).digest("hex"),
-      skipped: selected.filter(({ eligibility }) => !eligibility.remeasure.eligible)
+      skipped: key ? [] : selected.filter(({ eligibility }) => !eligibility.remeasure.eligible)
         .map(({ itemId, label, eligibility }) => ({ itemId, label, reason: eligibility.remeasure.reason! })),
     } satisfies ItemRemeasurePreview,
     targets,
@@ -311,15 +345,11 @@ function remeasureTargets(itemIds: readonly string[], seen: ItemRemeasureSeen): 
 function samePlan(confirmed: TakeoffItemRemeasurePlan, admitted: TakeoffItemRemeasurePlan) {
   const identity = (plan: TakeoffItemRemeasurePlan) => JSON.stringify([plan.preparationRevision, plan.listRevisionId, plan.planSetId,
     [...plan.planFileIds].sort(), [...plan.planKeys].sort(), plan.askedItemIds, plan.bounds.calls, plan.manifest.budget.tokens,
-    plan.manifest.budget.cost_cents]);
+    plan.manifest.budget.cost_cents, plan.manifest.plans]);
   return identity(confirmed) === identity(admitted);
 }
 
-/**
- * The setting this confirmation seals: the profile's, as it is. The Mac reads a request with its payer's profile and
- * refuses one sealed with another effort (resolveLocalTakeoffProvider), so an effort for this request alone is not offered
- * yet: a confirmation naming one is refused here, before anything is replayed, planned or written.
- */
+/** The table command seals the payer's profile. The detail command carries its one-time setting in the confirmation. */
 function sealedSelection(selection: TakeoffExecutionSelection, setting: ItemRemeasureCommand["setting"]): TakeoffExecutionSelection {
   if (setting?.reasoning_effort && setting.reasoning_effort !== (selection.reasoningEffort ?? null)) {
     invalid("Cette demande utilise le réglage de Mon profil : un autre effort pour elle seule n’est pas encore possible. Rouvrez l’aperçu et confirmez avec le réglage de Mon profil.");
@@ -328,7 +358,7 @@ function sealedSelection(selection: TakeoffExecutionSelection, setting: ItemReme
 }
 
 /** What a remeasure of the selection would ask, and who would pay: shown before its explicit confirmation. Reads only. */
-export async function previewItemRemeasure(projectId: string, input: { scope: ItemTableScope; itemIds: string[]; seen: ItemRemeasureSeen }) {
+export async function previewItemRemeasure(projectId: string, input: { scope: ItemTableScope; itemIds: string[]; seen: ItemRemeasureSeen; detail?: ItemMeasureScope }) {
   const access = await requireReviewer(projectId);
   return (await remeasurePreview(input, access)).preview;
 }
@@ -336,42 +366,53 @@ export async function previewItemRemeasure(projectId: string, input: { scope: It
 /**
  * A new manual request of the member who confirms, on their own subscription, for the items and plans the preview showed;
  * it may hold one item. The same confirmation sent again answers the request it admitted. Otherwise the preview is made
- * again and must be the one confirmed (payer, setting, plans, items, readings, calls and budget); the request is planned
- * with the profile's setting as it is (sealedSelection), and the database compares the readings once more under its locks.
+ * again and must be the one confirmed (payer, setting, plans, items, readings, calls and budget).
+ * The database compares the readings once more under its locks.
  */
 export async function runItemRemeasure(projectId: string, command: ItemRemeasureCommand): Promise<ItemRemeasureResult> {
   // The member's right first (requireReviewer: the right to launch on the affaire), a replay included.
   const access = await requireReviewer(projectId);
-  const confirmation = { preview_digest: command.preview_digest, setting: command.setting };
+  if (command.detail && (command.item_ids.length !== 1 || command.plan_keys.length !== 1 || command.scope.kind !== "plan"
+      || command.scope.planKey !== command.plan_keys[0] || !command.setting?.model)) invalid("Confirmez le poste, le plan et le modèle depuis le récapitulatif.");
+  if (!command.detail && command.setting?.model) invalid("Choisissez le modèle depuis le poste ouvert sur le plan.");
+  const confirmation = { ...(command.detail && { page: command.detail.page, shown_sha256: createHash("sha256").update(canonical(command.detail)).digest("hex") }), preview_digest: command.preview_digest, setting: command.setting };
   // A lost answer sent again: replayed by what the member confirmed alone, before anything is planned (the items it
   // admitted read « En lecture » since); another confirmation under the key is the database's conflict.
   const subscription = await readLocalChatGptSubscription({ userId: access.context.userId, tenantId: access.context.tenantId },
     (await headers()).get("host"));
+  if (command.detail && subscription.selection && command.host_proof !== measureHostProof(access, subscription.selection.hostId)) {
+    throw conflict("Le récapitulatif a été ouvert sur un autre Mac. Relisez-le sur le Mac connecté à votre forfait.", undefined, ITEM_REVIEW_STALE);
+  }
   if (!subscription.issue && command.seen.list_revision_id) {
     const replayed = await replayTakeoffItemRemeasure(access.context, { projectId: access.project.id, intentKey: command.intent_key,
       planKeys: command.plan_keys, listRevisionId: command.seen.list_revision_id, targets: remeasureTargets(command.item_ids, command.seen),
-      selection: sealedSelection(subscription.selection, command.setting), confirmation });
-    if (replayed) return replayed;
+      selection: command.detail ? subscription.selection : sealedSelection(subscription.selection, command.setting), confirmation });
+    if (replayed) return receipt(replayed);
   }
   const { preview, targets, selection, labels, planned: confirmed } = await remeasurePreview({ scope: command.scope,
-    itemIds: command.item_ids, seen: command.seen }, access);
+    itemIds: command.item_ids, seen: command.seen, detail: command.detail }, access);
   const shownPlans = preview.plans.map(({ key }) => key);
-  if (preview.previewDigest !== command.preview_digest || shownPlans.join() !== command.plan_keys.join()) {
-    throw conflict("Le payeur, le réglage, les plans, les postes ou leurs lectures ont changé depuis l’aperçu : vérifiez-le de nouveau avant de confirmer.",
-      undefined, ITEM_REVIEW_STALE);
-  }
   if (preview.subscription.state === "unavailable" || !selection) {
     throw unprocessableEntity(preview.subscription.state === "unavailable" ? preview.subscription.reason
       : "Votre forfait ChatGPT n’est pas disponible sur ce Mac.", undefined, "AI_PROVIDER");
+  }
+  if (preview.previewDigest !== command.preview_digest || shownPlans.join() !== command.plan_keys.join()) {
+    throw conflict("Le payeur, le réglage, les plans, les postes ou leurs lectures ont changé depuis l’aperçu : vérifiez-le de nouveau avant de confirmer.",
+      undefined, ITEM_REVIEW_STALE);
   }
   if (!preview.items.length) invalid("Aucun poste de la sélection ne peut être mesuré de nouveau.");
   if (preview.reading.state === "refused" || !confirmed) {
     invalid(preview.reading.state === "refused" ? preview.reading.reason : "Aucun poste de la sélection ne peut être mesuré de nouveau.");
   }
-  // The profile's setting, sealed in the request's selection as it is (another effort was refused above); the profile is not changed.
-  const sealed = sealedSelection(selection, command.setting);
+  const sealed = command.detail ? selection : sealedSelection(selection, command.setting);
+  if (command.detail) {
+    const model = preview.models?.find((entry) => entry.id === command.setting?.model);
+    if (!model || (command.setting?.reasoning_effort && !model.reasoningEfforts.includes(command.setting.reasoning_effort))) {
+      invalid("Ce modèle ou ce niveau de raisonnement est indisponible sur votre forfait. Choisissez un réglage proposé.");
+    }
+  }
   const planned = await planTakeoffItemRemeasure(access.context, { projectId: access.project.id, planKeys: shownPlans,
-    itemIds: preview.items.map(({ itemId }) => itemId), selection: sealed });
+    itemIds: preview.items.map(({ itemId }) => itemId), selection: sealed, ...(command.detail && { detail: command.detail }) });
   const items = preview.items.map(({ itemId, label }) => ({ itemId, label }));
   if ("refusal" in planned) {
     if (planned.stale) staleRefusal(items);
@@ -384,5 +425,13 @@ export async function runItemRemeasure(projectId: string, command: ItemRemeasure
   if (answer.outcome === "stale") {
     staleRefusal(answer.stale.map((itemId) => ({ itemId, label: labels.get(itemId.toLowerCase()) ?? null })));
   }
-  return { outcome: answer.outcome, requestId: answer.requestId };
+  return receipt(answer);
+
+  async function receipt(result: ItemRemeasureResult): Promise<ItemRemeasureResult> {
+    if (!command.detail || !result.requestId || result.outcome === "already_running") return result;
+    const { units } = await readTakeoffLaunchRequestUnits(access.context, projectId, result.requestId);
+    const unit = units.find((u) => u.logicalId === command.plan_keys[0]);
+    if (!unit) throw conflict("Le reçu de cette demande est momentanément indisponible. Réessayez la même confirmation.");
+    return { ...result, receipt: { intentKey: command.intent_key, jobId: unit.jobId, state: unit.state } };
+  }
 }

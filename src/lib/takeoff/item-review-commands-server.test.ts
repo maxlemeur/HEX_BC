@@ -5,11 +5,13 @@ vi.mock("next/headers", () => ({ headers: async () => new Headers({ host: "local
 vi.mock("@/lib/affaires/access-server", () => ({ requireAffaireAccess: vi.fn() }));
 vi.mock("@/lib/ai/chatgpt-takeoff", () => ({ readLocalChatGptSubscription: vi.fn() }));
 vi.mock("./launch-request-server", () => ({ readAffaireTakeoffLaunchState: vi.fn() }));
+vi.mock("./item-measure-catalogue-server", () => ({ readMeasureCatalogue: vi.fn() }));
 vi.mock("./item-remeasure-server", () => ({ planTakeoffItemRemeasure: vi.fn(), launchTakeoffItemRemeasure: vi.fn(),
   replayTakeoffItemRemeasure: vi.fn() }));
 vi.mock("./item-table-server", () => ({ loadItemLines: vi.fn(), itemReviewerRight: vi.fn() }));
 vi.mock("@/lib/takeoff/rules/recompute-server", () => ({ recomputeTakeoffRulesQuietly: vi.fn(async () => ({ lines: 1, skipped: 0 })) }));
 
+import { readMeasureCatalogue } from "./item-measure-catalogue-server";
 import { requireAffaireAccess } from "@/lib/affaires/access-server";
 import { readLocalChatGptSubscription } from "@/lib/ai/chatgpt-takeoff";
 import { recomputeTakeoffRulesQuietly } from "@/lib/takeoff/rules/recompute-server";
@@ -226,6 +228,25 @@ describe("remeasure of a selection", () => {
     return { command_version: 1, intent_key: INTENT, scope: { kind: "affaire" }, item_ids: shown.items.map(({ itemId }) => itemId),
       plan_keys: shown.plans.map(({ key }) => key), setting: null, preview_digest: shown.previewDigest, seen: seen(ids), ...extra };
   };
+  it("requires the same Mac and an available model and effort for the measure on a plan", async () => {
+    const scope = { kind: "plan" as const, planKey: "plan-rdc" };
+    const detail = { fileId: JOB, generation: "B", contentSha256: "a".repeat(64), page: null };
+    const prepared = { ...PLANNED, snapshot: { preparation: { sources: [] } },
+      manifest: { ...PLANNED.manifest, plans: [{ plan_file_id: JOB, generation: "B", pages: [2, 7], page_count: 7 }] } };
+    vi.mocked(planTakeoffItemRemeasure).mockResolvedValue({ plan: prepared as unknown as TakeoffItemRemeasurePlan });
+    vi.mocked(readMeasureCatalogue).mockResolvedValue({ models: [{ id: "other", name: "Autre", reasoningEfforts: ["low"] }] });
+    const shown = await previewItemRemeasure(PROJECT, { scope, itemIds: [fixtureItemId(3)], detail, seen: seen([3]) });
+    expect(shown.detail?.effect).toBe("first");
+    const command: ItemRemeasureCommand = { command_version: 1, intent_key: INTENT, scope, detail, item_ids: [fixtureItemId(3)],
+      plan_keys: [scope.planKey], seen: seen([3]), preview_digest: shown.previewDigest, host_proof: shown.detail!.hostProof!,
+      setting: { model: "other", reasoning_effort: "high" } };
+    expect(await refusal(runItemRemeasure(PROJECT, command))).toMatchObject({ status: 422, message: expect.stringContaining("indisponible") });
+    vi.mocked(readLocalChatGptSubscription).mockResolvedValue({ issue: null, selection: { profileId: "p", model: "modele-a",
+      reasoningEffort: "medium", hostId: "another-mac", authorizationId: "a" } });
+    expect(await refusal(runItemRemeasure(PROJECT, command))).toMatchObject({ status: 409, message: expect.stringContaining("autre Mac") });
+    expect(launchTakeoffItemRemeasure).not.toHaveBeenCalled();
+  });
+
   /** A new reading of the item published since: its answer on its plan replaced (another answer id). */
   const readAgain = (item: number) => {
     lines = buildItemLines(rows().map((row) => row.item.id === fixtureItemId(item) ? { ...row,

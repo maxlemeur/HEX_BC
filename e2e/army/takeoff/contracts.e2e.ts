@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 
 import { expect } from "e2e";
@@ -10,7 +11,9 @@ import {
   TAKEOFF_SEND, TAKEOFF_SEND_CONFIRM, applyOwnedTakeoff, localTakeoffFixture, localTakeoffWorkerClient, openTakeoffSend,
 } from "./fixtures";
 import { nativeTest } from "./native-ui";
+import { querySql } from "../local/calculation-gate-support";
 import { signUpDedicatedOwner } from "../local/dedicated-owner";
+import { seedPublishedItemTable } from "./item-table-support";
 import { launchWorkerCsv, signUpWorkerOwner } from "./worker-support";
 
 type Envelope<T> = { ok: boolean; data: T; error?: { code: string; details?: {
@@ -473,3 +476,169 @@ armyTest("A remembered affaire and bookmarks respect the active engineer's owner
   await ui.app.open("/dashboard/affaires?reprendre=metre");
   await expect(ui.browser).toHaveURL("/dashboard/affaires");
 });
+
+/**
+ * An analysis of the first format in the affaire of a list (lot 4, « Analyse antérieure »): as an old worker wrote it,
+ * without a request, with its result's warnings and table and two rows (one set aside with its reason, one the Assisted
+ * review marked verified). Written as the database's owner, its triggers off for these rows only. Fictional values.
+ */
+async function seedEarlierAnalysis(projectId: string) {
+  const ids = { job: randomUUID(), result: randomUUID(), rows: [randomUUID(), randomUUID()] };
+  const result = { warnings: [{ code: "LOW_CONFIDENCE", message: "Cartouche peu lisible (fictif).", severity: "warning" }],
+    tables: [{ page: 3, title: "Nomenclature fictive", headers: ["Repère", "Qté"], rows: [{ row_index: 0, cells: ["L1", "3"] }] }] };
+  const output = await querySql(`begin;
+set local session_replication_role = replica;
+insert into public.takeoff_jobs (id, tenant_id, project_id, plan_set_id, level, status, source_file_name, source_file_type,
+  source_file_size_bytes, schema_version, started_at, completed_at, created_at)
+select '${ids.job}'::uuid, p.tenant_id, p.id, s.id, 'C'::public.takeoff_job_level, 'completed'::public.takeoff_job_status,
+  'plan-ancien.pdf', 'application/pdf', 512, 'v1',
+  now() - interval '2 days', now() - interval '2 days', now() - interval '2 days'
+from public.estimate_projects p join public.plan_sets s on s.project_id = p.id where p.id = '${projectId}' limit 1;
+insert into public.takeoff_results (id, tenant_id, job_id, extracted_json, warnings, tables, provider_meta)
+select '${ids.result}'::uuid, tenant_id, id, '{}'::jsonb, '${JSON.stringify(result.warnings)}'::jsonb, '${JSON.stringify(result.tables)}'::jsonb,
+  '{"provider":"gemini"}'::jsonb from public.takeoff_jobs where id = '${ids.job}';
+insert into public.takeoff_items (id, tenant_id, job_id, result_id, designation, quantity, unit, source_file_name, source_page,
+  is_excluded, exclusion_reason, is_verified, verified_at, created_at)
+select '${ids.rows[0]}'::uuid, tenant_id, id, '${ids.result}'::uuid, 'Lavabo ancien format', 3, 'u', 'plan-ancien.pdf', 2, false, null, true, now(),
+  now() - interval '2 days' from public.takeoff_jobs where id = '${ids.job}'
+union all
+select '${ids.rows[1]}'::uuid, tenant_id, id, '${ids.result}'::uuid, 'Vanne en double', 1, 'u', 'plan-ancien.pdf', 2, true,
+  'Doublon de la vanne du R+1 (fictif)', false, null, now() - interval '2 days' + interval '1 second'
+from public.takeoff_jobs where id = '${ids.job}';
+commit;
+select 'EARLIER_SEEDED';`);
+  if (!output.includes("EARLIER_SEEDED")) throw new Error("The earlier analysis seed did not commit.");
+  return ids.job;
+}
+
+// Lot 4, the entries: every old link to the review of an analysis read against the affaire's list lands on the table
+// of items, filtered on what it names, with the explanation and without anything of the old address; its targeted
+// review (the correction screen the table's line detail opens) stays; an earlier analysis of the same affaire is shown
+// read only as kept, its review one click away; a member of another tenant gets « Page introuvable » at the same address.
+nativeTest("TKLINK01 les liens d’une analyse lue contre la liste mènent aux postes ; une analyse antérieure se consulte telle quelle",
+  { ...options, timeout: 240_000 }, async ({ ui }) => {
+    const { app, screen, army } = ui;
+    const owner = await signUpDedicatedOwner(ui.browser, app.baseUrl!, army.runPrefix, { tag: "TKLINK" });
+    const seeded = await seedPublishedItemTable(owner, { name: `${army.runPrefix}-TKLINK`, labels: ["Lavabo", "Vanne DN32"],
+      answers: ["measured", "uncertain"] });
+    const earlierJob = await seedEarlierAnalysis(seeded.projectId);
+    const [plan] = JSON.parse((await querySql(`select coalesce(jsonb_agg(distinct plan_logical_id), '[]')
+      from public.takeoff_item_answers where job_id = '${seeded.jobId}';`)).at(-1) || "[]") as string[];
+    expect(plan).toMatch(/^[0-9a-f-]{36}$/);
+    const takeoff = `/dashboard/affaires/${seeded.projectId}/takeoff`;
+    const review = `${takeoff}/${seeded.jobId}/review`;
+    const table = screen.getByRole("table", "Postes du métré", { exact: true });
+    // The explanation (role « note », named by its sentence).
+    const explanation = ui.locator('[role="note"][aria-labelledby="metre-lien-explication"]');
+    const landed: Record<string, string> = {};
+
+    // 1. The review, in any mode and any tab but the DPGF one: the table filtered on the plan the analysis read, every
+    // decision shown, and why. The « Items » tab keeps the DPGF tab's filter in its address (#501's reading).
+    for (const from of [review, `${review}?reviewMode=assisted`, `${review}?reviewMode=production`, `${review}?reviewMode=validation&view=items`,
+      `${review}?reviewMode=production&view=items&dpgfView=exceptions_only`,
+      // A padded view is not the DPGF view, here as on the review (#501's second reading).
+      `${review}?reviewMode=production&view=%20dpgf%20&dpgfView=exceptions_only`]) {
+      await app.open(from);
+      await expect(ui.browser).toHaveURL(`${takeoff}?postePlan=${plan}&lien=analyse&lienAnalyse=${seeded.jobId}`);
+      await expect(table).toBeVisible();
+      await expect(screen.getByRole("combobox", "Plan", { exact: true })).toHaveValue(plan);
+      await expect(explanation).toContainText("Ce lien ouvrait la revue de l’analyse « plan-1.pdf »");
+      await expect(explanation).toContainText("lue contre la liste des postes");
+      await expect(explanation).toContainText("filtré sur son plan");
+      landed[from] = await ui.browser.url();
+    }
+    // 2. Its DPGF exceptions (the radar's and the approvals queue's old address): that plan's items to check.
+    const exceptions = `${review}?reviewMode=validation&view=dpgf&dpgfView=exceptions_only`;
+    await app.open(exceptions);
+    await expect(ui.browser).toHaveURL(`${takeoff}?postePlan=${plan}&posteDecision=pending&lien=ecarts&lienAnalyse=${seeded.jobId}`);
+    await expect(screen.getByRole("combobox", "Décision", { exact: true })).toHaveValue("pending");
+    await expect(explanation).toContainText("filtré sur son plan et sur les postes à vérifier");
+    // 3. A line no item was sent from (no estimate version yet): never an invented item, the plan and why.
+    await app.open(`${review}?line=${randomUUID()}`);
+    await expect(ui.browser).toHaveURL(`${takeoff}?postePlan=${plan}&lien=ligne&lienAnalyse=${seeded.jobId}`);
+    await expect(explanation).toContainText("n’est rattachée à aucun poste : le tableau des postes est filtré sur le plan de cette analyse.");
+    // « Masquer » leaves the table as it is.
+    await screen.getByRole("link", "Masquer", { exact: true }).click();
+    await expect(ui.browser).toHaveURL(`${takeoff}?postePlan=${plan}`);
+    await expect(explanation).toHaveCount(0);
+    await expect(table).toBeVisible();
+    // 4. Its targeted review stays where it is: the correction screen of lot 4.
+    const targeted = `${review}/targeted`;
+    await app.open(targeted);
+    await expect(ui.browser).toHaveURL(targeted);
+    await expect(screen.getByRole("heading", "Page introuvable", { exact: true })).toHaveCount(0);
+
+    // 5. The earlier analysis beside the table: read only as kept, « liste demandée non enregistrée », coverage unknown,
+    // no item invented and no row said verified; its review, where its send is, one click away and opened as today.
+    await app.open(`${takeoff}?posteLimit=25`);
+    const earlierPanel = screen.getByRole("list", "Analyses antérieures de l’affaire", { exact: true });
+    await expect(earlierPanel).toContainText("plan-ancien.pdf");
+    await expect(earlierPanel).not.toContainText("plan-1.pdf");
+    await screen.getByRole("link", "Voir l’analyse antérieure plan-ancien.pdf", { exact: true }).click();
+    await expect(ui.browser).toHaveURL(`${takeoff}?posteLimit=25&anterieure=${earlierJob}`);
+    const earlier = ui.locator('[data-testid="analyse-anterieure"]');
+    await expect(earlier).toContainText("Liste demandée non enregistrée");
+    await expect(earlier).toContainText("Couverture inconnue");
+    const rows = screen.getByRole("table", /Contributions observées/);
+    await expect(rows).toContainText("Lavabo ancien format");
+    await expect(rows).toContainText("Doublon de la vanne du R+1 (fictif)");
+    await expect(earlier).toContainText("Nomenclature fictive · page 3");
+    await expect(earlier).toContainText("Cartouche peu lisible (fictif).");
+    await expect(earlier).toContainText("gemini");
+    for (const absent of ["Non trouvé", "Vérifié", "Mesuré", "Vanne DN32"]) await expect(earlier).not.toContainText(absent);
+    const shot = await app.screenshot("tklink-analyse-anterieure");
+    await screen.getByRole("link", "Ouvrir sa revue", { exact: true }).click();
+    await expect(ui.browser).toHaveURL(`${takeoff}/${earlierJob}/review`);
+    await expect(screen.getByRole("heading", "Revue des exceptions & preuves", { exact: true })).toBeVisible({ timeout: 30_000 });
+    // The way back from the earlier analysis keeps the table's address; a list job named as earlier is the table's.
+    await app.open(`${takeoff}?posteLimit=25&anterieure=${earlierJob}`);
+    await screen.getByRole("link", "Revenir aux postes", { exact: true }).click();
+    await expect(ui.browser).toHaveURL(`${takeoff}?posteLimit=25`);
+    await app.open(`${takeoff}?anterieure=${seeded.jobId}`);
+    await expect(ui.browser).toHaveURL(`${takeoff}?postePlan=${plan}&lien=analyse&lienAnalyse=${seeded.jobId}`);
+
+    // 6. A saved comparison of two readings of the plan, once both are on a version (as a send would put them): never
+    // redirected, the comparator reads the difference; the reading's review on that version still lands on the table.
+    const created = await apiRequest<Envelope<{ version: { id: string } }>>(ui.browser, "POST", "/api/estimates",
+      { project_id: seeded.projectId, version: { title: "Version fictive des lectures" } });
+    expect(created.status).toBe(201);
+    const version = created.body.data.version.id;
+    const attached = await querySql(`begin;
+set local session_replication_role = replica;
+update public.takeoff_jobs set estimate_version_id = '${version}' where id in ('${seeded.jobId}', '${earlierJob}');
+commit;
+select 'JOBS_ON_VERSION';`);
+    expect(attached.join("\n")).toContain("JOBS_ON_VERSION");
+    const comparison = `${review}?versionId=${version}&reviewMode=production&view=compare&compareWith=${earlierJob}`;
+    await app.open(comparison);
+    await expect(screen.getByRole("heading", "Résumé des changements", { exact: true })).toBeVisible({ timeout: 30_000 });
+    await expect(ui.browser).toHaveURL(comparison);
+    // A read of history for a reading of the list: no selection, no apply, and where to act instead.
+    await expect(screen.getByText(/sa comparaison se consulte sans rien modifier/)).toBeVisible();
+    await expect(screen.getByRole("button", "Appliquer la sélection", { exact: true })).toHaveCount(0);
+    await expect(screen.getByRole("checkbox", "Tout sélectionner (visible)", { exact: true })).toHaveCount(0);
+    await expect(screen.getByRole("link", "la revue ciblée", { exact: true }))
+      .toHaveAttribute("href", `${review}/targeted?versionId=${version}`);
+    // No other mode is offered there: « Validation » or « Assisté » would render its old editable review.
+    await expect(screen.getByRole("tab", "Validation : Exceptions et couverture", { exact: true })).toHaveCount(0);
+    // The same comparison asked in a mode that does not render it lands on the plan's table, like the job's other addresses.
+    await app.open(`${review}?versionId=${version}&reviewMode=validation&view=compare&compareWith=${earlierJob}`);
+    await expect(ui.browser).toHaveURL(`${takeoff}?postePlan=${plan}&lien=analyse&lienAnalyse=${seeded.jobId}`);
+    await app.open(`${review}?versionId=${version}`);
+    await expect(ui.browser).toHaveURL(`${takeoff}?postePlan=${plan}&lien=analyse&lienAnalyse=${seeded.jobId}`);
+    // Not here: an estimate line fed by an item withdrawn from the list since. Its live target is written only by the send
+    // by item (its tables refuse any other writer); review-link.test.ts and review-link-server.test.ts prove that case.
+
+    // 7. A member of another tenant: the same addresses reveal nothing (the takeoff's own « not found »), and lead nowhere.
+    const stranger = await signUpDedicatedOwner(ui.browser, app.baseUrl!, army.runPrefix, { tag: "TKLINKX" });
+    // Its takeoff module on, so that what refuses is the access to the job, not the module.
+    await querySql(`insert into public.feature_flags (tenant_id, flag_key, enabled) values ('${stranger.tenantId}', 'TAKEOFF_MODULE_ENABLED', true)
+on conflict (tenant_id, flag_key) do update set enabled = true;`);
+    for (const path of [review, exceptions, `${takeoff}?anterieure=${earlierJob}`]) {
+      await app.open(path);
+      await expect(screen.getByText("Extractions introuvables ou accès non autorise.", { exact: true })).toBeVisible();
+      await expect(ui.browser).toHaveURL(path);
+      await expect(table).toHaveCount(0);
+    }
+    await recordEvidence(army, "tklink01-landings", { projectId: seeded.projectId, listJob: seeded.jobId, earlierJob, plan, landed, shot });
+  });

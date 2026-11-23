@@ -14,12 +14,12 @@ export type ItemDetailEntry = NonNullable<ItemDetailLine["entry"]>;
 export type ItemDetailGesture = keyof ItemDetailLine["eligibility"];
 
 /** A page of the table's lines as the table reads it: its page, its plans, the authors' names and the member's right. */
-export type ItemDetailQueuePage = Pick<ItemTableResponse, "page" | "canReview" | "names" | "plans">;
+export type ItemDetailQueuePage = Pick<ItemTableResponse, "page" | "canReview" | "names" | "plans"> & { listRevisionId?: string | null };
 /**
  * One item read alone (outside the table's filter, or again after a command), with the member's right the reply carries:
  * `line` is null when the reply no longer holds the item (it left the list or the plan's scope), the right still read.
  */
-export type ItemDetailLineRead = Pick<ItemTableLineResponse, "canReview" | "names" | "plans"> & { line: ItemDetailLine | null };
+export type ItemDetailLineRead = Pick<ItemTableLineResponse, "canReview" | "names" | "plans"> & { line: ItemDetailLine | null; listRevisionId?: string | null };
 
 
 /**

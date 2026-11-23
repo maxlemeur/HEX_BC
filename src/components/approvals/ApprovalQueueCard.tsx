@@ -9,7 +9,7 @@ import { ChevronRightIcon } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
-import { takeoffDpgfExceptionsHref } from "@/lib/takeoff/review-href";
+import { takeoffExceptionsLinkHref } from "@/lib/takeoff/review-link";
 
 import { ApprovalQueueStateActions } from "./ApprovalQueueStateActions";
 
@@ -43,15 +43,15 @@ const VISUAL_STATE_BORDER: Record<string, string> = {
   resolved: "",
 };
 
-function resolveExceptionReviewJobId(item: ApprovalQueueItem): string | null {
+function resolveExceptionReviewJob(item: ApprovalQueueItem): { jobId: string; readsList: boolean } | null {
   if (item.latestJobId) {
-    return item.latestJobId;
+    return { jobId: item.latestJobId, readsList: item.latestJobReadsList };
   }
 
   for (const alert of item.syntheticAlerts) {
     const reviewJobId = alert.latestJobId ?? alert.jobId;
     if (reviewJobId) {
-      return reviewJobId;
+      return { jobId: reviewJobId, readsList: Boolean(alert.latestJobId && alert.latestJobReadsList) };
     }
   }
 
@@ -59,11 +59,12 @@ function resolveExceptionReviewJobId(item: ApprovalQueueItem): string | null {
 }
 
 function buildCardHref(item: ApprovalQueueItem): string {
-  const reviewJobId = resolveExceptionReviewJobId(item);
+  const reviewJob = resolveExceptionReviewJob(item);
 
-  if (reviewJobId) {
-    return takeoffDpgfExceptionsHref({ projectId: item.projectId, jobId: reviewJobId, versionId: item.versionId,
-      reviewMode: "validation" });
+  if (reviewJob) {
+    // A job read against the list (lot 4): the affaire's items to check in the table of items; others as today.
+    return takeoffExceptionsLinkHref({ projectId: item.projectId, jobId: reviewJob.jobId, versionId: item.versionId,
+      reviewMode: "validation", readsList: reviewJob.readsList });
   }
 
   return `/dashboard/affaires/${item.projectId}`;

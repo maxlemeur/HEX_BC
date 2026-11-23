@@ -7,13 +7,11 @@ import {
   itemTableReturnHref,
   readItemDetailAddress,
   readItemDetailPlanRequest,
-  resolveHistoricalReviewLink,
   type ItemDetailAddress,
 } from "@/lib/takeoff/item-detail-address";
 import {
   DETAIL_PROJECT, ITEMS, JOB_R1, JOB_RDC, PLAN_R1, PLAN_RDC, PLAN_SCAN, basinLine, toMeasureLine,
 } from "@/lib/takeoff/item-detail.test-fixtures";
-import { takeoffReviewHref } from "@/lib/takeoff/review-href";
 
 // The address of the detail of an item (lot 5) lives on the affaire's takeoff page beside the table's own parameters
 // (`poste…`, lot 4) and the activity's (`job`, `planSet`, `offset`…). Ways it could open the wrong view, written with
@@ -22,19 +20,17 @@ import { takeoffReviewHref } from "@/lib/takeoff/review-href";
 //   from a notification's activity link;
 // - an identifier that is not one, a value given twice or a combination with two meanings guessed into a view instead
 //   of « not found »;
-// - the way back losing the table's filter or page size, or focusing the item first opened instead of the one shown;
-// - an old review link (targeted line, versioned bookmark, carried-over review, notification, radar) no longer opening
-//   what it opened, or a line turned into an invented item.
+// - the way back losing the table's filter or page size, or focusing the item first opened instead of the one shown.
+// Old review links (a targeted line, a bookmark, a carried-over review, a notification, the radar) are resolved by
+// review-link.ts (review-link.test.ts).
 
 const PROJECT = "11111111-1111-4111-8111-111111111111";
 const JOB = "22222222-2222-4222-8222-222222222222";
 const VERSION = "33333333-3333-4333-8333-333333333333";
-const CARRIED = "34343434-3434-4434-8434-343434343434";
 const ITEM = "44444444-4444-4444-8444-444444444444";
 const OTHER_ITEM = "45454545-4545-4545-8545-454545454545";
 const PIECE = "55555555-5555-4555-8555-555555555555";
 const ANSWER = "66666666-6666-4666-8666-666666666666";
-const LINE = "77777777-7777-4777-8777-777777777777";
 const TAKEOFF = `/dashboard/affaires/${PROJECT}/takeoff`;
 
 const read = (query: string) => readItemDetailAddress(new URLSearchParams(query));
@@ -46,6 +42,17 @@ describe("readItemDetailAddress", () => {
   it("reads the item, its plan, its reading and the page", () => {
     expect(read(`poste=${ITEM.toUpperCase()}&plan=${PIECE}&lecture=${JOB}&page=7`)).toEqual({ kind: "detail",
       address: detail({ planKey: PIECE, jobId: JOB, page: 7 }) });
+  });
+
+  it("round trips a measure receipt independently of the displayed reading and removes it on return to the table", () => {
+    const href = itemDetailHref(PROJECT, detail({ planKey: PIECE, jobId: JOB, receipt: { requestId: VERSION, jobId: ANSWER } }));
+    const search = new URL(href, "https://app.test").search;
+    expect(read(search)).toEqual({ kind: "detail",
+      address: detail({ planKey: PIECE, jobId: JOB, receipt: { requestId: VERSION, jobId: ANSWER } }) });
+    expect(itemTableReturnHref(PROJECT, search, null)).toBe(TAKEOFF);
+    for (const pair of [`demandeMesure=${VERSION}`, `analyseMesure=${ANSWER}`, `demandeMesure=${VERSION}&analyseMesure=bad`]) {
+      expect(read(`poste=${ITEM}&plan=${PIECE}&${pair}`)).toEqual({ kind: "invalid" });
+    }
   });
 
   it("reads a dossier piece and its generation for a plan no analysis sealed, apart from the plan", () => {
@@ -137,55 +144,5 @@ describe("itemTableLineDetailHref", () => {
       itemTableLineDetailHref(DETAIL_PROJECT, toMeasureLine, "")]) {
       expect(read(new URL(href, "https://app.test").search).kind).toBe("detail");
     }
-  });
-});
-
-describe("resolveHistoricalReviewLink", () => {
-  // Each old link as the screens of main write it, and where it leads while no stored answer names an item for it.
-  const links = {
-    "targeted line": { projectId: PROJECT, jobId: JOB, versionId: VERSION, targeted: true, line: LINE },
-    "versioned bookmark": { projectId: PROJECT, jobId: JOB, versionId: VERSION },
-    "carried-over review": { projectId: PROJECT, jobId: JOB, versionId: CARRIED },
-    "notification of an affaire's takeoff": { projectId: PROJECT, jobId: JOB, versionId: null },
-    "risk radar": { projectId: PROJECT, jobId: JOB, versionId: VERSION, reviewMode: "validation" as const, view: "dpgf" as const,
-      dpgfView: "exceptions_only" as const },
-    "exceptions signal on an estimate line": { projectId: PROJECT, jobId: JOB, versionId: VERSION, line: LINE },
-  };
-  const written = {
-    "targeted line": `/dashboard/affaires/${PROJECT}/takeoff/${JOB}/review/targeted?versionId=${VERSION}&line=${LINE}`,
-    "versioned bookmark": `/dashboard/affaires/${PROJECT}/takeoff/${JOB}/review?versionId=${VERSION}`,
-    "carried-over review": `/dashboard/affaires/${PROJECT}/takeoff/${JOB}/review?versionId=${CARRIED}`,
-    "notification of an affaire's takeoff": `/dashboard/affaires/${PROJECT}/takeoff/${JOB}/review`,
-    // Written out, as the radar's banner and the approvals queue have it on main (not built with the builder under test).
-    "risk radar": `/dashboard/affaires/${PROJECT}/takeoff/${JOB}/review?versionId=${VERSION}&reviewMode=validation&view=dpgf&dpgfView=exceptions_only`,
-    "exceptions signal on an estimate line": `/dashboard/affaires/${PROJECT}/takeoff/${JOB}/review?versionId=${VERSION}&line=${LINE}`,
-  };
-
-  it("keeps opening each old link as it opened, as the same address, while no item is known for it", () => {
-    for (const [kind, link] of Object.entries(links)) {
-      expect(resolveHistoricalReviewLink(link, []), kind).toEqual({ kind: "historical", href: written[kind as keyof typeof written] });
-      expect(takeoffReviewHref(link), kind).toBe(written[kind as keyof typeof written]);
-    }
-  });
-
-  it("opens the detail of the one item a line is evidence for, on that reading and with the link's version", () => {
-    expect(resolveHistoricalReviewLink(links["targeted line"], [{ itemId: ITEM, planKey: PIECE, answerId: ANSWER }])).toEqual({
-      kind: "detail", href: `${TAKEOFF}?poste=${ITEM}&plan=${PIECE}&lecture=${JOB}&reponse=${ANSWER}&versionId=${VERSION}` });
-  });
-
-  it("offers a choice when a line is evidence for several items, the historical reader among the choices", () => {
-    const resolved = resolveHistoricalReviewLink(links["exceptions signal on an estimate line"], [
-      { itemId: ITEM, planKey: PIECE, answerId: null }, { itemId: OTHER_ITEM, planKey: PIECE, answerId: null },
-      { itemId: ITEM, planKey: PIECE, answerId: null },
-    ]);
-    expect(resolved).toEqual({ kind: "choice", historicalHref: written["exceptions signal on an estimate line"], options: [
-      { itemId: ITEM, href: `${TAKEOFF}?poste=${ITEM}&plan=${PIECE}&lecture=${JOB}&versionId=${VERSION}` },
-      { itemId: OTHER_ITEM, href: `${TAKEOFF}?poste=${OTHER_ITEM}&plan=${PIECE}&lecture=${JOB}&versionId=${VERSION}` },
-    ] });
-  });
-
-  it("leaves a link without a line in the historical reader, whatever is known of its job", () => {
-    expect(resolveHistoricalReviewLink(links["versioned bookmark"], [{ itemId: ITEM, planKey: PIECE, answerId: ANSWER }]))
-      .toEqual({ kind: "historical", href: written["versioned bookmark"] });
   });
 });

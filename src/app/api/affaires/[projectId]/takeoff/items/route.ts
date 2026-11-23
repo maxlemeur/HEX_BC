@@ -11,7 +11,8 @@ export async function GET(request: Request, { params }: { params: Promise<{ proj
   try {
     const parsed = paramsSchema.safeParse(await params);
     if (!parsed.success) throw notFound("Affaire introuvable.");
-    return ok(await readAffaireItemTable(parsed.data.projectId, readItemTableAddress(new URL(request.url).searchParams)));
+    const query = new URL(request.url).searchParams;
+    return ok(await readAffaireItemTable(parsed.data.projectId, readItemTableAddress(query), query.get("detail") === "1"));
   } catch (error) {
     return toErrorResponse(error);
   }

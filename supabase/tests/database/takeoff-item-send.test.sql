@@ -591,6 +591,12 @@ select is((select count(*)::integer from public.draft_locks l join public.estima
   where v.project_id = pg_temp.f(20)), 0, 'the lease of the version it created lives only in its transaction');
 create temp table footprint_first as select pg_temp.footprint() as value;
 
+create temp table draft_source as
+select id, tenant_id, project_id from public.estimate_versions where id = (select version_id from public.takeoff_item_send_receipts where request_id = pg_temp.f(710));
+grant select on draft_source to authenticated;
+\ir ../fixtures/copied-takeoff-draft-delete.sql
+
+
 -- 3. The same request: the same plan answers the same receipt, nothing written twice; another plan, another member or
 --    another job under it is a conflict; another request for the job finds it sent.
 select pg_temp.sign_in(1);
@@ -1494,7 +1500,7 @@ select is(private.takeoff_item_send_dpgf_reference(pg_temp.f(10), (select source
 -- A retained DPGF item can have a page left out and a typed existing line kept
 -- for its remaining part. Exercise this fork on its own reading and restore
 -- the original single-item affaire before the other sends use it.
-create function pg_temp.mixed_page_and_entry() returns jsonb language plpgsql as $$
+create function pg_temp.mixed_page_and_entry(scenario text default 'send') returns jsonb language plpgsql as $$
 declare
   job_ uuid := pg_temp.job(22,8);
   wire text := $mixed_write${
@@ -1563,6 +1569,43 @@ begin
     plan_:=jsonb_set(plan_,'{dependencies,lines}',(select jsonb_build_array(jsonb_build_object('estimate_item_id',i.id,
       'updated_at',i.updated_at,'quantity',i.quantity,'dpgf',jsonb_build_object('import_id',pg_temp.f(340),
       'raw_row_id',pg_temp.f(343),'reference',4))) from public.estimate_items i where i.id=pg_temp.f(993)));
+    if scenario='remaining_line' then
+      -- Two lines now prove the lavabo's row. The earlier WC explicitly picks
+      -- one, then keeps its typed entry. Only the other remains for the lavabo.
+      set local session_replication_role=replica;
+      update public.takeoff_list_revision_entries set origin_kind='dpgf',origin=jsonb_build_object(
+        'kind','dpgf','importId',pg_temp.f(340),'rawRowId',case when item_id=pg_temp.f(321) then pg_temp.f(341) else pg_temp.f(2439) end)
+        where revision_id=pg_temp.f(330);
+      update public.estimate_items set source_metadata=jsonb_set(source_metadata,'{mapped_row_id}',to_jsonb(pg_temp.f(2436)))
+        where id=pg_temp.f(993);
+      set local session_replication_role=origin;
+      plan_:=jsonb_set(plan_,'{dependencies,resolutions}',action_->'resolutions'||jsonb_build_array(jsonb_build_object(
+        'key','target:'||pg_temp.f(320)||'|dpgf','choice',jsonb_build_object('kind','line','estimate_item_id',pg_temp.f(2437)))));
+      select jsonb_agg(p) into answers_ from private.takeoff_item_send_resolved_parts(
+        pg_temp.f(10),pg_temp.f(22),job_,array[2,7]) p;
+      select value into part_ from jsonb_array_elements(answers_) where value->>'item_id'=pg_temp.f(321)::text;
+      result_:=to_jsonb(private.takeoff_item_send_exclusion_choice(plan_,part_,answers_,
+        private.takeoff_item_send_held_pages(pg_temp.f(10),pg_temp.f(991),job_,pg_temp.document(22),array[2,7]),
+        jsonb_build_object('key','target:'||pg_temp.f(321)||'|dpgf','choice',jsonb_build_object('kind','leave_out')),'left_out',9,3));
+      raise exception using errcode='Z1000',message='restore the original mapping';
+    end if;
+    if scenario='winning_skip' then
+      insert into public.takeoff_mapping_rules(id,tenant_id,name,match_pattern,match_type,action,action_params,priority,is_active)
+        select pg_temp.f(2448),pg_temp.f(10),'Hors lot',e.label,'exact','skip','{}',1,true
+        from public.takeoff_list_revision_entries e where e.revision_id=pg_temp.f(330) and e.item_id=pg_temp.f(320);
+      plan_:=jsonb_set(plan_,'{dependencies,stamps,mapping}',to_jsonb(public.takeoff_mapping_rules_stamp(pg_temp.f(10))));
+    elsif scenario='unwritable' then
+      insert into public.takeoff_item_entries(tenant_id,project_id,item_id,plan_logical_id,quantity,unit,category,
+        included,revision,actor_id,entered_at,command_id)
+      select pg_temp.f(10),pg_temp.f(22),pg_temp.f(320),pg_temp.f(102),5.0001,'m','site_survey',true,1,
+        pg_temp.f(1),now(),d.command_id from public.takeoff_item_answer_decisions d
+        join public.takeoff_item_answers a on a.id=d.answer_id where a.job_id=job_ and a.item_id=pg_temp.f(320);
+      plan_:=jsonb_set(plan_,'{dependencies,answers}',pg_temp.answers_of(job_,22));
+      plan_:=jsonb_set(plan_,'{left_out,0,reason}','"unit_incompatible"');
+      plan_:=jsonb_set(plan_,'{parts_not_sent}',(select jsonb_agg(jsonb_build_object(
+        'item_id',pg_temp.f(320),'kind',p->'kind','observation_ids',p->'observation_ids','pages',p->'pages',
+        'quantity',p->'quantity','unit',p->'unit','reason','unit_incompatible')) from jsonb_array_elements(pg_temp.parts(job_,320,22)) p));
+    end if;
     insert into plans values ('mixed_choices',plan_,null);
     begin
       answer_ := pg_temp.send(2435,'mixed_choices');
@@ -1581,6 +1624,11 @@ end;
 $$;
 select is(pg_temp.mixed_page_and_entry(), '["1",4.5,0,1]'::jsonb,
   'a held page and a suspended entry can coexist: keep 4.5, send the other item for one');
+select is(pg_temp.mixed_page_and_entry('remaining_line'),'false'::jsonb,
+  'the line selected before keeping a typed entry is reserved even when the earlier item writes no target');
+select is(pg_temp.mixed_page_and_entry(scenario),'["TAKEOFF_ITEM_SEND_PREVIEW_STALE",{"reason":"item_changed"}]'::jsonb,explanation)
+from (values ('winning_skip','a winning exact skip stops the dialog before its page and entry choices'),
+  ('unwritable','a quantity outside the engine precision needs a quantity choice before any unit exclusion')) cases(scenario,explanation);
 
 create function pg_temp.wc(p_parts jsonb, p_decisions jsonb, p_not_sent jsonb, p_after numeric, p_kind text default 'dpgf_line')
 returns jsonb language sql as $$
@@ -1867,6 +1915,40 @@ create function pg_temp.c_all(p_version uuid) returns text language sql stable a
     (select string_agg(to_jsonb(g)::text, ',' order by g.id) from public.takeoff_item_send_pages g where g.version_id = p_version),
     (select string_agg(to_jsonb(i)::text, ',' order by i.id) from public.estimate_items i where i.version_id = p_version)))
 $$;
+-- A redistribution keeps a historical target with no line or live parts.
+-- Its former key is metadata on schemas that store it. The copy carries
+-- neither the historical target nor an apparent deletion on that former key.
+create function pg_temp.copy_with_vacated_target() returns jsonb language plpgsql as $$
+declare
+  source_ uuid := (select version_id from draft);
+  former text := 'level:[null,"rdc"]';
+  vacated text := 'vacated:' || pg_temp.f(2440);
+  copy_ uuid;
+  result_ jsonb;
+begin
+  begin
+    set local session_replication_role=replica;
+    insert into public.takeoff_item_send_targets
+      select (jsonb_populate_record(null::public.takeoff_item_send_targets,to_jsonb(t)||jsonb_build_object(
+        'id',pg_temp.f(2440),'breakdown','by_level','compartment_key',vacated,'estimate_item_id',null,
+        'vacated_compartment_key',former))).*
+      from public.takeoff_item_send_targets t where t.version_id=source_ and t.estimate_item_id is not null limit 1;
+    set local session_replication_role=origin;
+    copy_:=public.duplicate_estimate_version(source_,false);
+    select jsonb_build_array(
+      (select count(*) from public.takeoff_item_send_targets t where t.version_id=source_ and t.compartment_key=vacated
+        and t.estimate_item_id is null and (not (to_jsonb(t)?'vacated_compartment_key') or to_jsonb(t)->>'vacated_compartment_key'=former)),
+      (select count(*) from public.takeoff_item_send_targets t where t.version_id=copy_ and
+        (t.compartment_key in (vacated,former) or to_jsonb(t)->>'vacated_compartment_key'=former)),
+      exists(select 1 from public.takeoff_item_send_parts p where p.version_id=copy_ and p.state='live')) into result_;
+    raise exception using errcode='Z1000',message='restore the draft before its other copy tests';
+  exception when sqlstate 'Z1000' then null; end;
+  return result_;
+end;
+$$;
+select is(pg_temp.copy_with_vacated_target(),'[1,0,true]'::jsonb,
+  'copying a draft carries its live parts and leaves a vacated target behind with its former key');
+
 create temp table source_before as select pg_temp.c_all((select version_id from draft)) as digest,
   pg_temp.c_rows((select version_id from draft)) as rows_;
 select ok((select rows_ from source_before) like '%' || pg_temp.f(199) || '%', 'the original holds another plan''s part');

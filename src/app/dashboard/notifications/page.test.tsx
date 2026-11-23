@@ -78,3 +78,12 @@ it("opens the end of a launch request on the takeoff's zone of its affaire", asy
     request_id: "a1000000-0000-4000-8000-000000000009", job_id: null, job: null });
   expect(markup).toMatch(/<a [^>]*href="\/dashboard\/affaires\/a1000000-0000-4000-8000-000000000002\?view=overview#metre"[^>]*>Ouvrir l’état du métré<\/a>/);
 });
+
+// Lot 4, the entries: the end of a request read against the affaire's list is reviewed in the table of items, the
+// request's plans above it; a request of the first format keeps its zone (above).
+it("opens the end of a request read against the list on the table of items, the request named", async () => {
+  const markup = await render({ ...success, id: "a1000000-0000-4000-8000-000000000010", subject_kind: "request",
+    request_id: "a1000000-0000-4000-8000-000000000011", job_id: null, job: null, readsList: true });
+  expect(markup).toMatch(/<a [^>]*href="\/dashboard\/affaires\/a1000000-0000-4000-8000-000000000002\/takeoff\?request=a1000000-0000-4000-8000-000000000011#postes-du-metre"[^>]*>Ouvrir les postes du métré<\/a>/);
+  expect(markup).not.toContain("view=overview");
+});
