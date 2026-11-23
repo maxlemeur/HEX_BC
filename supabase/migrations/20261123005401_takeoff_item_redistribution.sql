@@ -201,17 +201,26 @@ begin
   perform private.takeoff_redistribution_check_scope(p_tenant,p_actor,p_project,p_version,p_module);
   select exists(select 1 from public.takeoff_plan_locations where project_id=p_project and tenant_id=p_tenant
     and building_choice='value') into has_buildings;
-  select coalesce(jsonb_object_agg(p.id,jsonb_build_object('part_id',p.id,'job_id',p.job_id,'file_id',d.doc->'plan_file_id',
-    'hash',d.doc->'content_hash','name',d.doc->'file_name','revision',a.revision)),'{}') into documents
+  with parts as materialized (
+    select p.id,p.job_id,(g.document->>'plan_file_id')::uuid file_id,g.document->>'content_hash' hash,g.document->>'file_name' name
     from public.takeoff_item_send_parts p
-    left join lateral (select g.document as doc from public.takeoff_item_send_pages g where g.version_id=p_version
-      and g.receipt_id=p.receipt_id and p.id=any(g.part_ids) order by g.id limit 1) d on true
-    left join public.takeoff_plan_location_sources o on o.plan_file_id=(d.doc->>'plan_file_id')::uuid
-      and o.tenant_id=p_tenant and o.project_id=p_project
-    left join public.takeoff_plan_locations a on a.tenant_id=p_tenant and a.project_id=p_project and
-      a.source_kind=coalesce(o.source_kind,'plan_file') and a.source_id=coalesce(o.source_id,(d.doc->>'plan_file_id')::uuid)
-      and a.content_hash=d.doc->>'content_hash'
-    where p.tenant_id=p_tenant and p.version_id=p_version and p.project_id=p_project and p.item_id=p_item and p.state='live';
+    left join lateral (select page.document from public.takeoff_item_send_pages page where page.version_id=p_version
+      and page.receipt_id=p.receipt_id and p.id=any(page.part_ids) order by page.id limit 1) g on true
+    where p.tenant_id=p_tenant and p.version_id=p_version and p.project_id=p_project and p.item_id=p_item and p.state='live'
+  ), files as materialized (
+    select f.id,src.source_kind,src.source_id,
+      case when src.current_copy then jsonb_build_object('source_kind',src.source_kind,'source_id',src.source_id,
+        'identity',encode(sha256(convert_to(jsonb_build_array(f.id,f.plan_set_id,f.file_path,f.file_hash,
+          f.file_size_bytes,f.page_count,extract(epoch from f.updated_at))::text,'UTF8')),'hex')) end as current_file
+    from (select distinct file_id from parts) wanted
+    join public.plan_files f on f.id=wanted.file_id and f.tenant_id=p_tenant
+    cross join lateral private.resolve_takeoff_plan_location_source(p_tenant,p_project,f.id) src
+  )
+  select coalesce(jsonb_object_agg(p.id,jsonb_build_object('part_id',p.id,'job_id',p.job_id,'file_id',p.file_id,
+    'hash',p.hash,'name',p.name,'revision',a.revision,'current_file',f.current_file)),'{}') into documents
+    from parts p left join files f on f.id=p.file_id
+    left join public.takeoff_plan_locations a on a.tenant_id=p_tenant and a.project_id=p_project
+      and a.source_kind=f.source_kind and a.source_id=f.source_id and a.content_hash=p.hash;
   return jsonb_build_object('has_buildings',has_buildings,'parts',documents);
 end;
 $$;
@@ -320,7 +329,9 @@ begin
   document_facts:=public.read_takeoff_item_redistribution_documents(p_tenant,p_actor,p_project,p_version,p_item,p_module);
   if jsonb_typeof(p_locations->'parts') is distinct from 'object' or (p_locations->'has_buildings') is distinct from (document_facts->'has_buildings')
     or (select coalesce(jsonb_object_agg(entry.key,entry.value->'source'),'{}') from jsonb_each(p_locations->'parts') entry)
-      is distinct from (document_facts->'parts') then
+      is distinct from (document_facts->'parts')
+    or exists(select from jsonb_each(p_locations->'parts') e where e.value->'available'='true'::jsonb
+      and e.value#>>'{source,current_file,identity}' is null) then
     raise exception 'REDISTRIBUTION_STALE' using errcode='40001';
   end if;
   -- Same trust as the send: the server's planner owns geography, the writer
@@ -411,7 +422,8 @@ begin
     where p.version_id=p_version and p.tenant_id=p_tenant and p.project_id=p_project and p.item_id=p_item and p.state='live'
   )
   select coalesce(jsonb_agg(jsonb_build_object('id',id,'from_target',target_id,'key',key,'label',label,'quantity',quantity,
-    'unit',unit_code,'pages',pages,'plan_name',document->>'name','job_id',job_id,'receipt_id',receipt_id,'location_revision',document->'revision','available',available,'building_state',building_state,'level_state',level_state) order by id),'[]') into parts from located;
+    'unit',unit_code,'pages',pages,'plan_name',document->>'name','job_id',job_id,'receipt_id',receipt_id,'location_revision',document->'revision',
+    'current_file',document->'current_file','available',available,'building_state',building_state,'level_state',level_state) order by id),'[]') into parts from located;
   if parts='[]' then raise exception 'REDISTRIBUTION_EMPTY' using errcode='22023'; end if;
   select blockers||coalesce(jsonb_agg(jsonb_build_object('reason','location_unavailable','title',coalesce(x->>'plan_name','Plan indisponible')) order by x->>'id'),'[]')
     into blockers from jsonb_array_elements(parts)x where x->'available'='false'::jsonb;

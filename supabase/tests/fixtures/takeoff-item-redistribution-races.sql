@@ -32,11 +32,15 @@ insert into public.takeoff_item_send_pages select (jsonb_populate_record(null::p
   to_jsonb(g)||jsonb_build_object('id',gen_random_uuid(),'version_id',%1$L,'job_id',%3$L,'receipt_id',%9$L,
     'part_ids',jsonb_build_array(%12$L),'document',jsonb_build_object('file_name','Autre plan.pdf','content_hash',repeat('e',64),'plan_file_id',%13$L)))).*
   from public.takeoff_item_send_pages g where version_id=%2$L;
+insert into public.plan_sets(id,tenant_id,project_id,name)
+  values(%14$L,%4$L,%5$L,'Autre jeu de plans');
+insert into public.plan_files(id,tenant_id,plan_set_id,file_path,file_name,file_type,file_size_bytes,page_count)
+  values(%13$L,%4$L,%14$L,concat_ws('/',%4$L,%14$L,%13$L,'Autre plan.pdf'),'Autre plan.pdf','application/pdf',300,1);
 insert into public.draft_locks(version_id,tenant_id,user_id,expires_at,session_id)
   values(%1$L,%4$L,%6$L,clock_timestamp()+interval '30 minutes',gen_random_uuid());
 commit
 $prior$,pg_temp.f(970),pg_temp.f(730),pg_temp.f(971),pg_temp.tenant(),pg_temp.f(20),pg_temp.f(1),
-  pg_temp.f(972),pg_temp.f(973),pg_temp.f(974),pg_temp.f(975),pg_temp.f(976),pg_temp.f(977),pg_temp.f(978))),'COMMIT',
+  pg_temp.f(972),pg_temp.f(973),pg_temp.f(974),pg_temp.f(975),pg_temp.f(976),pg_temp.f(977),pg_temp.f(978),pg_temp.f(979))),'COMMIT',
   'a second plan has sent its three units on another draft of the same affaire');
 -- The accepted reading adds to the other plan's three units, with nothing to replace.
 insert into plans

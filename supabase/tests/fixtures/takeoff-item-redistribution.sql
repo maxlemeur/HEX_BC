@@ -24,6 +24,12 @@ select pg_temp.f(40+n),pg_temp.f(10),pg_temp.f(20),pg_temp.f(30),'A','applied','
 insert into public.takeoff_list_items(id,tenant_id,project_id,origin_kind,created_in_revision,created_by)
 values(pg_temp.f(50),pg_temp.f(10),pg_temp.f(20),'manual',1,pg_temp.f(1));
 set local session_replication_role=origin;
+insert into public.plan_sets(id,tenant_id,project_id,estimate_version_id,name)
+values(pg_temp.f(600),pg_temp.f(10),pg_temp.f(20),pg_temp.f(30),'Plans fictifs');
+insert into public.plan_files(id,tenant_id,plan_set_id,file_path,file_name,file_type,file_size_bytes,page_count)
+select pg_temp.f(110+n),pg_temp.f(10),pg_temp.f(600),
+  concat_ws('/',pg_temp.f(10),pg_temp.f(600),pg_temp.f(110+n),'Plan '||n||'.pdf'),
+  'Plan '||n||'.pdf','application/pdf',300,1 from generate_series(1,2)n;
 select set_config('miaouffrage.estimate_v3_writer',pg_temp.f(30)::text,true);
 select set_config('mergeone.takeoff_item_send','fixture',true);
 insert into public.estimate_items(id,tenant_id,version_id,item_type,position,title)

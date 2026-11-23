@@ -6,7 +6,7 @@ import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { TakeoffError, TakeoffErrorCode } from "@/lib/takeoff/errors";
 import { takeoffModuleDefault } from "@/lib/takeoff/feature-flags";
 import { redistributionRequestSchema, redistributionResponseSchema, type RedistributionOption } from "@/lib/takeoff/item-redistribution-contracts";
-import { redistributionLocation } from "@/lib/takeoff/item-redistribution-location";
+import { redistributionDocumentSchema, redistributionLocation } from "@/lib/takeoff/item-redistribution-location";
 import { readTakeoffJobPlanLocations } from "@/lib/takeoff/plan-location-server";
 import type { TakeoffJobPlanLocation } from "@/lib/takeoff/plan-location-contracts";
 import { itemSendMemberMayWrite } from "@/lib/takeoff/item-send-preview-server";
@@ -68,13 +68,10 @@ export async function redistributeTakeoffItem(rawJobId: string, body: unknown) {
     p_item: args.p_item, p_module: args.p_module,
   });
   if (factsError) refusal(jobId, factsError.message);
-  const documents = z.object({ has_buildings: z.boolean(), parts: z.record(z.string(), z.object({
-    part_id: z.string().uuid(), job_id: z.string().uuid(), file_id: z.string().uuid().nullable(), hash: z.string().nullable(),
-    name: z.string().nullable(), revision: z.number().int().nullable(),
-  })) }).parse(facts);
+  const documents = z.object({ has_buildings: z.boolean(), parts: z.record(z.string(), redistributionDocumentSchema) }).parse(facts);
   const plans = new Map<string, TakeoffJobPlanLocation[]>();
   for (const source of Object.values(documents.parts)) {
-    if (plans.has(source.job_id)) continue;
+    if (!source.current_file || plans.has(source.job_id)) continue;
     const read = await readTakeoffJobPlanLocations(source.job_id).catch(() => null);
     plans.set(source.job_id, read?.project_id === job.project_id ? read.plans : []);
   }

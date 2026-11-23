@@ -38,6 +38,33 @@ rollback to length_fixture;
 
 create temp table shown as select pg_temp.preview('by_level') as plan;
 select is((select plan->'blockers' from shown),'[]'::jsonb,'intact line is movable');
+create temp table captured_locations as select pg_temp.location_input(pg_temp.f(10),pg_temp.f(1),pg_temp.f(20),
+  pg_temp.f(30),pg_temp.f(50),'by_level',true) as locations;
+create function pg_temp.confirm_captured() returns jsonb language sql as $$
+  select public.redistribute_takeoff_item(pg_temp.f(10),pg_temp.f(1),pg_temp.f(20),pg_temp.f(30),pg_temp.f(50),
+    'by_level',true,pg_temp.f(610),plan->>'digest',locations) from shown,captured_locations
+$$;
+savepoint missing_source;
+delete from public.plan_files where id=pg_temp.f(111);
+select throws_ok('select pg_temp.confirm_captured()','40001','REDISTRIBUTION_STALE',
+  'the locked writer refuses cached locations after the plan file disappears');
+select ok(pg_temp.preview('by_level')->'blockers' @> '[{"reason":"location_unavailable","title":"Plan 1.pdf"}]',
+  'a fresh preview names the missing plan and blocks the whole item');
+select results_eq($$select id,quantity from public.estimate_items where id=pg_temp.f(61)$$,
+  $$values (pg_temp.f(61),5::numeric)$$,'all five units stay on their original line');
+rollback to missing_source;
+savepoint retired_source;
+update public.plan_files set metadata=metadata||'{"intake_cleanup_pending":true}' where id=pg_temp.f(111);
+select throws_ok('select pg_temp.confirm_captured()','40001','REDISTRIBUTION_STALE',
+  'a retained file that is no longer the current copy invalidates the confirmation');
+rollback to retired_source;
+savepoint changed_identity;
+update public.plan_files set file_size_bytes=file_size_bytes+1 where id=pg_temp.f(111);
+select throws_ok('select pg_temp.confirm_captured()','40001','REDISTRIBUTION_STALE',
+  'the plan at the same ID now describes a different document');
+select throws_ok($$select pg_temp.confirm('by_level',(select plan->>'digest' from shown),611)$$,'40001','REDISTRIBUTION_STALE',
+  'freshly read locations for the same compartments still require a new preview of the changed document');
+rollback to changed_identity;
 create temp table unavailable as select jsonb_set(
   pg_temp.location_input(pg_temp.f(10),pg_temp.f(1),pg_temp.f(20),pg_temp.f(30),pg_temp.f(50),'by_level',true),
   array['parts',pg_temp.f(101)::text,'available'],'false') as locations;

@@ -11,7 +11,7 @@ returns jsonb language sql stable as $$
     from facts cross join jsonb_each(doc->'parts') e left join public.takeoff_plan_locations a
       on a.tenant_id=tenant and a.project_id=project and a.plan_file_id=(e.value->>'file_id')::uuid and a.content_hash=e.value->>'hash')
   select doc||jsonb_build_object('parts',(select coalesce(jsonb_object_agg(key,jsonb_build_object('source',value,'key',compartment,
-    'available',true,'label',label,'building_state',case when building is null then 'unknown' else 'confirmed' end,
+    'available',value#>>'{current_file,identity}' is not null,'label',label,'building_state',case when building is null then 'unknown' else 'confirmed' end,
     'level_state',case when level is null then 'unknown' else 'confirmed' end)),'{}') from files)) from facts
 $$;
 create function pg_temp.preview_read(tenant uuid,actor uuid,project uuid,version uuid,item uuid,mode text,module boolean)
