@@ -1,6 +1,8 @@
 import "server-only";
 
 import { z } from "zod";
+import { unprocessableEntity } from "@/lib/http/api-response";
+import { quantityEntryError } from "@/lib/takeoff/quantity-entry";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { getAuthenticatedTakeoffContext } from "@/lib/takeoff/job-read-server";
 import { TakeoffError, TakeoffErrorCode } from "@/lib/takeoff/errors";
@@ -54,6 +56,18 @@ function refuse(reason: string): never {
     message: messages[reason] ?? "Impossible de vérifier la correction de cet envoi.",
     details: { reason },
   });
+}
+
+type EntryCommand = Extract<z.infer<typeof revisionRequestSchema>, { action: "entry" }>["entry"];
+
+function planEntryForWriter(entry: EntryCommand) {
+  if ("action" in entry) return entry;
+  const { note: rawNote, ...fields } = entry;
+  const note = rawNote?.trim();
+  const normalized = note ? { ...fields, note } : fields;
+  const error = quantityEntryError(normalized);
+  if (error) throw unprocessableEntity(error, undefined, "VALIDATION_ERROR");
+  return normalized;
 }
 
 export async function reviseContribution(rawJobId: string, body: unknown) {
@@ -153,7 +167,7 @@ export async function reviseContribution(rawJobId: string, body: unknown) {
             p_answer: request.answer_id,
             p_intent: request.intent_id,
             p_expected_revision: request.expected_revision,
-            p_entry: request.entry,
+            p_entry: planEntryForWriter(request.entry),
           })
         : await ctx.supabase.rpc("review_takeoff_revision_item", {
             ...memberScope,

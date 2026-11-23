@@ -320,6 +320,27 @@ describe("Ajout d’un poste à un envoi", () => {
       };
       const preview = async () =>
         (await post<{ preview: RevisionPreview }>(route, { action: "preview", ...scope, choices: {} })).preview;
+      await app.open(`/dashboard/affaires/${seeded.projectId}/takeoff?postePlan=${plan.fileId}`);
+      await waitForHydration(ui.browser);
+      await ui.screen.getByRole("link", "Détail de « Lavabo » sur le plan", { exact: true }).click();
+      const basin = ui.locator('[data-testid="revision-detail"]');
+      await basin.getByText("Corriger la saisie du plan", { exact: true }).click();
+      await basin.getByLabel("Quantité du plan").fill("3");
+      await basin.getByLabel("Origine").selectOption({ value: "hypothesis" });
+      await expect(basin.getByText(/Une hypothèse doit dire/)).toBeVisible();
+      const save = basin.getByRole("button", "Enregistrer la saisie du plan");
+      await expect(save).toBeDisabled();
+      await basin.getByLabel("Origine").selectOption({ value: "site_survey" });
+      await expect(basin.getByRole("textbox", /^Justification/)).toHaveValue("");
+      await save.click();
+      const keep = basin.getByRole("button", "Conserver la saisie du plan (3 u)", { exact: true });
+      await expect(keep).toBeEnabled();
+      await keep.click();
+      await expect(basin).toContainText("Correction préparée.");
+      const basinRead = await post<{ versions: RevisionVersion[] }>(route, { action: "read", items: [seeded.items.Lavabo] });
+      expect(basinRead.versions[0].items[0].sources.entry).toMatchObject({ quantity: 3, category: "site_survey", note: null });
+      expect((await readOwnedLines(seeded.projectId)).find((l) => l.id === before[0].id)?.quantity).toBe(2);
+
       await edit(4.00001);
       expect(v.items[0].sources.entry?.included).toBe(false);
       const panel = await include("4,00001");
@@ -345,7 +366,7 @@ describe("Ajout d’un poste à un envoi", () => {
           .filter((l) => l.item_type === "line")
           .map((l) => l.quantity)
           .sort(),
-      ).toEqual([2, 4.5]);
+      ).toEqual([3, 4.5]);
       // The SQL race suite exercises the issuance lock. Here a previously
       // confirmed intent must recover its receipt over HTTP on the issued draft.
       await querySql(`begin; set local session_replication_role=replica; update public.estimate_versions set status='sent',seal_hash=repeat('1',64)

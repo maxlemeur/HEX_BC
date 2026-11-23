@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useId, useState } from "react";
 import { normalizeMeasurementUnit } from "@/lib/units/normalize";
 import { compareQuantityPairs } from "@/lib/takeoff/quantity-policy";
 import { Button } from "@/components/ui/button";
@@ -36,8 +36,10 @@ export function RevisionSources({
   const [note, setNote] = useState(sources.entry?.note ?? "");
   const [reason, setReason] = useState<Extract<Choose, { source: "withdraw" }>["reason"] | "">("");
   const [withdrawNote, setWithdrawNote] = useState("");
+  const justificationError = useId();
   const input = Number(amount.trim().replace(",", "."));
-  const entry = category ? { quantity: input, unit, category, note } : null;
+  const trimmedNote = note.trim();
+  const entry = category ? { quantity: input, unit, category, ...(trimmedNote && { note: trimmedNote }) } : null;
   const error = entry && quantityEntryError(entry);
   const hypothesis = sources.entry?.category === "hypothesis" && !sources.entry.included;
   function unavailable(source: string, qty: number, u?: string | null) {
@@ -142,11 +144,13 @@ export function RevisionSources({
                 </select>
               </label>
               <label>
-                Justification
-                <input className="form-input" value={note} onChange={(e) => setNote(e.target.value)} />
+                {category === "hypothesis" ? "Justification obligatoire" : "Justification (facultative)"}
+                <input className="form-input" value={note} required={category === "hypothesis"}
+                  aria-invalid={!!error} aria-describedby={error ? justificationError : undefined}
+                  onChange={(e) => setNote(e.target.value)} />
               </label>
             </div>
-            {error && <p>{error}</p>}
+            {error && <p id={justificationError}>{error}</p>}
             <Button
               variant="outline"
               size="xs"
