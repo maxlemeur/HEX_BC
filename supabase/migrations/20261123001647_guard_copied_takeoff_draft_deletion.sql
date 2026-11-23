@@ -27,18 +27,28 @@ begin
 
   -- DELETE already holds the source version. An engine-2 section copy takes KEY SHARE
   -- on its line's direct job through the FK; a batch takes SHARE on the job and its link.
-  select array(
-    select j.id from public.takeoff_jobs j
-    where j.tenant_id = old.tenant_id and j.project_id = old.project_id and j.estimate_version_id = old.id
-    order by j.id for update
-  ) into owned_jobs;
+  -- A descendant duplication can hold the job before its link FK needs this version.
+  begin
+    select array(
+      select j.id from public.takeoff_jobs j
+      where j.tenant_id = old.tenant_id and j.project_id = old.project_id and j.estimate_version_id = old.id
+      order by j.id for update nowait
+    ) into owned_jobs;
+
+    if cardinality(owned_jobs) > 0 then
+      perform l.id from public.takeoff_version_links l
+      where l.tenant_id = old.tenant_id and l.takeoff_job_id = any(owned_jobs)
+      order by l.id for update nowait;
+    end if;
+  exception when lock_not_available then
+    raise sqlstate 'PGRST' using
+      message = jsonb_build_object('code', 'ESTIMATE_DRAFT_BUSY',
+        'message', 'Ce brouillon est utilisé par une opération en cours. Réessayez dans un instant.')::text,
+      detail = '{"status":409,"headers":{}}';
+  end;
 
   if cardinality(owned_jobs) > 0 then
-    perform l.id from public.takeoff_version_links l
-    where l.tenant_id = old.tenant_id and l.takeoff_job_id = any(owned_jobs)
-    order by l.id for update;
-
-    -- This statement gets a fresh READ COMMITTED snapshot after any writer we waited for.
+    -- Read holders in a fresh READ COMMITTED snapshot after acquiring the locks.
     -- A confirmed accumulation names its latest job in the FK, and its earlier items in JSON.
     with named as (
       select v.id, v.version_number, v.updated_at,

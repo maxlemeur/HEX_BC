@@ -47,6 +47,7 @@ declare
 begin
   for n in 1..200 loop
     if holding = any(pg_blocking_pids(waiting)) then return true; end if;
+    if dblink_is_busy(waiter) = 0 then return false; end if;
     perform pg_sleep(0.025);
   end loop;
   return false;
@@ -79,6 +80,69 @@ select count(*) from dblink_get_result('draft_copy',false) as d(id uuid);
 select is((select count(*) from public.estimate_versions where project_id='dd730000-0000-4000-8000-000000000010'),
   2::bigint,'only the first source and its copy survive');
 
+-- Capture the same PGRST envelope that the Data API receives. Other SQL errors fail the assertion.
+select dblink_exec('draft_delete',$remote$
+  create function pg_temp.delete_draft(draft uuid) returns jsonb language plpgsql as $body$
+  declare
+    http text;
+  begin
+    delete from public.estimate_versions where id=draft;
+    return null;
+  exception when sqlstate 'PGRST' then
+    get stacked diagnostics http = pg_exception_detail;
+    return sqlerrm::jsonb || http::jsonb;
+  end;
+  $body$;
+$remote$);
+create function pg_temp.delete_reply(draft uuid) returns jsonb language sql as $$
+  select reply from dblink('draft_delete',format('select pg_temp.delete_draft(%L)',draft),false) as d(reply jsonb)
+$$;
+
+-- A owns the analysis. B already holds it. Pause B's real duplication just before its link insert.
+-- Only the copy and the DELETE take part once the test connection opens the gate.
+insert into pids values ('gate', pg_backend_pid());
+select format('select public.duplicate_estimate_version(%L,false)',id) as duplicate_b from new_copy \gset
+savepoint before_link;
+lock table public.takeoff_version_links in share mode;
+select dblink_send_query('draft_copy', :'duplicate_b');
+select pg_temp.blocked('draft_copy','gate') as copy_at_link \gset
+select dblink_send_query('draft_delete',$$select pg_temp.delete_draft('dd730000-0000-4000-8000-000000000011')$$);
+select pg_temp.blocked('draft_delete','draft_copy') as waited_on_job \gset
+rollback to before_link;
+select ok(:'copy_at_link'::boolean,'grandchild reached its inherited link');
+select ok(not :'waited_on_job'::boolean,'ancestor deletion never waits on the grandchild job');
+select is((select reply->>'code' from dblink_get_result('draft_delete',false) as d(reply jsonb)),
+  'ESTIMATE_DRAFT_BUSY','grandchild first: deleting the ancestor reports busy');
+select count(*) from dblink_get_result('draft_delete',false) as d(reply jsonb);
+
+create function pg_temp.check_grandchild(schedule text) returns setof text language plpgsql as $$
+declare
+  child uuid;
+  refusal jsonb;
+begin
+  select id into child from dblink_get_result('draft_copy',false) as c(id uuid);
+  perform id from dblink_get_result('draft_copy',false) as c(id uuid);
+  return next ok(exists(select 1 from public.takeoff_version_links where target_version_id=child
+    and source_version_id='dd730000-0000-4000-8000-000000000011'),schedule || ': grandchild and inherited link committed');
+  refusal := pg_temp.delete_reply('dd730000-0000-4000-8000-000000000011');
+  return next ok(refusal->>'code'='ESTIMATE_DRAFT_TAKEOFF_IN_USE' and
+    (refusal->>'details')::jsonb->'versions' @> jsonb_build_array(jsonb_build_object('id',child)),
+    schedule || ': retry names the committed grandchild');
+end;
+$$;
+select * from pg_temp.check_grandchild('grandchild first');
+
+-- Hold A's tuple as DELETE does before its row trigger. The grandchild now waits on A's FK.
+select dblink_exec('draft_delete','begin');
+select id from dblink('draft_delete',$$select id from public.estimate_versions
+  where id='dd730000-0000-4000-8000-000000000011' for update$$) as locked(id uuid);
+select dblink_send_query('draft_copy', :'duplicate_b');
+select ok(pg_temp.blocked('draft_copy','draft_delete'),'ancestor first: the grandchild waits for its provenance FK');
+select is(pg_temp.delete_reply('dd730000-0000-4000-8000-000000000011')->>'code','ESTIMATE_DRAFT_BUSY',
+  'ancestor first: deletion returns busy while holding the version');
+select dblink_exec('draft_delete','commit');
+select * from pg_temp.check_grandchild('ancestor first');
+
 -- Each writer has its own source and an empty target in this affaire, in both commit orders.
 \ir ../fixtures/estimate-section-copy-payload.sql
 create function pg_temp.rid(n integer) returns uuid language sql immutable as $$
@@ -93,7 +157,7 @@ select dblink_exec('draft_copy',format($fixture$
   insert into public.draft_locks(version_id,user_id,tenant_id,expires_at,session_id)
   select v.id,%5$L,v.tenant_id,now()+interval '30 minutes',%6$L from public.estimate_versions v where v.id=%1$L;
 $fixture$,pg_temp.rid(n),n,pg_temp.rid(10),pg_temp.rid(n+300),pg_temp.rid(1),pg_temp.rid(55)))
-from generate_series(101,111) n;
+from generate_series(101,117) n;
 
 select dblink_exec('draft_copy',format($fixture$
   insert into public.takeoff_jobs(id,tenant_id,estimate_version_id,level,created_by,status)
@@ -106,12 +170,12 @@ select dblink_exec('draft_copy',format($fixture$
   from public.takeoff_jobs where id=%1$L;
 $fixture$,pg_temp.rid(n+100),pg_temp.rid(1),pg_temp.rid(n),pg_temp.rid(n+500),
   case when n=111 then 2 else 3 end,pg_temp.rid(n+300)))
-from generate_series(101,111,2) n;
+from generate_series(101,117,2) n;
 
 select dblink_exec('draft_copy',format($fixture$
   insert into public.takeoff_version_links(tenant_id,takeoff_job_id,source_version_id,target_version_id,linked_by)
   select tenant_id,id,estimate_version_id,%L,%L from public.takeoff_jobs where id=%L;
-$fixture$,pg_temp.rid(n+1),pg_temp.rid(1),pg_temp.rid(n+100))) from (values (103),(107)) batch(n);
+$fixture$,pg_temp.rid(n+1),pg_temp.rid(1),pg_temp.rid(n+100))) from (values (103),(107),(115)) batch(n);
 
 -- The same persisted A+B line that takeoff-send-outcome obtains with two real confirmations.
 select dblink_exec('draft_copy',format($fixture$
@@ -120,6 +184,13 @@ select dblink_exec('draft_copy',format($fixture$
       'job_id',%1$L::uuid,'item_ids',jsonb_build_array(%2$L::uuid,%3$L::uuid)))
   where version_id=%4$L and item_type='line';
 $fixture$,pg_temp.rid(211),pg_temp.rid(609),pg_temp.rid(611),pg_temp.rid(109)));
+-- Model an already claimed job. The heartbeat below goes through the worker's lease RPC.
+select dblink_exec('draft_copy',format($fixture$
+  set local session_replication_role=replica;
+  update public.takeoff_jobs set status='processing', started_at=now(), processing_lease_token=%L,
+    processing_lease_expires_at=now()+interval '10 minutes', analysis_outcome=null, analysis_finished_at=null where id=%L;
+  set local session_replication_role=origin;
+$fixture$,pg_temp.rid(900),pg_temp.rid(217)));
 select dblink_exec('draft_copy',$auth$commit; set request.jwt.claim.sub='dd730000-0000-4000-8000-000000000001';
   set role authenticated;$auth$);
 
@@ -144,25 +215,37 @@ create function pg_temp.delete_command(n integer) returns text language sql as $
   select format('delete from public.estimate_versions where id=%L',pg_temp.rid(n))
 $$;
 
-create function pg_temp.writer_first(n integer, writer text, command text) returns setof text language plpgsql as $$
+-- Bound a regression that waits for an open writer. A statement timeout is never a domain refusal.
+select dblink_exec('draft_delete',$$set statement_timeout='2s'; set lock_timeout=0$$);
+create function pg_temp.writer_first(n integer, writer text, command text, commit_write boolean) returns setof text language plpgsql as $$
 declare
   receipt jsonb;
 begin
   perform dblink_exec('draft_copy','begin');
   select result into receipt from dblink('draft_copy',command) as written(result jsonb);
   return next ok(coalesce((receipt->>'committed')::boolean,(receipt->>'item_count')::int=2,false),writer || ' writes the line');
-  perform dblink_send_query('draft_delete',pg_temp.delete_command(n) || ' returning id');
-  return next ok(pg_temp.blocked('draft_delete','draft_copy'),'deletion waits for ' || writer);
+  return next is(pg_temp.delete_reply(pg_temp.rid(n))->>'code','ESTIMATE_DRAFT_BUSY',writer || ' in progress: deletion is busy');
+  if not commit_write then
+    perform dblink_exec('draft_copy','rollback');
+    return next is(dblink_exec('draft_delete',pg_temp.delete_command(n)),'DELETE 1',writer || ' rolled back: deletion succeeds');
+    return;
+  end if;
   perform dblink_exec('draft_copy','commit');
-  perform id from dblink_get_result('draft_delete',false) as removed(id uuid);
-  return next matches(dblink_error_message('draft_delete'),'ESTIMATE_DRAFT_TAKEOFF_IN_USE',writer || ' holds its source');
-  perform id from dblink_get_result('draft_delete',false) as removed(id uuid);
+  return next is(pg_temp.delete_reply(pg_temp.rid(n))->>'code','ESTIMATE_DRAFT_TAKEOFF_IN_USE',writer || ' committed: retry is refused');
   return next results_eq(format('select source_job_id,quantity from public.estimate_items where version_id=%L and item_type=''line''',
     pg_temp.rid(n+1)),format('values (%L::uuid,3::numeric)',pg_temp.rid(n+100)),writer || ' retains its analysis and quantity');
 end
 $$;
-select * from pg_temp.writer_first(101,'section copy',pg_temp.section_command(101));
-select * from pg_temp.writer_first(103,'editor batch',pg_temp.batch_command(103));
+select * from pg_temp.writer_first(101,'section copy',pg_temp.section_command(101),true);
+select * from pg_temp.writer_first(103,'editor batch',pg_temp.batch_command(103),true);
+select * from pg_temp.writer_first(113,'section copy',pg_temp.section_command(113),false);
+select * from pg_temp.writer_first(115,'editor batch',pg_temp.batch_command(115),false);
+
+select dblink_exec('draft_copy','begin; set local role service_role');
+select id from dblink('draft_copy',format('select id from public.takeoff_version_links where takeoff_job_id=%L for share',
+  pg_temp.rid(207))) as locked(id uuid);
+select is(pg_temp.delete_reply(pg_temp.rid(107))->>'code','ESTIMATE_DRAFT_BUSY','a lock on the link alone causes immediate refusal');
+select dblink_exec('draft_copy','commit');
 
 -- Both writers prepared their payload before the deletion.
 create temp table pending_section as select pg_temp.section_command(105) as command;
@@ -199,6 +282,28 @@ select results_eq($q$select i.quantity,i.source_job_id,cardinality(s.ids),
   where i.version_id=pg_temp.rid(110) and i.item_type='line'$q$,
   $$select 5::numeric,pg_temp.rid(211),2,1::bigint,false$$,
   'known limit: five units survive the concurrent copy with only B resolvable');
+
+select dblink_exec('draft_copy','begin; set local role service_role');
+select ok(renewed,'the worker renews its processing lease') from dblink('draft_copy',format($q$
+  select public.renew_takeoff_processing_lease(id,tenant_id,%L,now(),now()+interval '20 minutes')
+  from public.takeoff_jobs where id=%L$q$,pg_temp.rid(900),pg_temp.rid(217))) as worker(renewed boolean);
+select is(pg_temp.delete_reply(pg_temp.rid(117)),jsonb_build_object('code','ESTIMATE_DRAFT_BUSY','status',409,
+  'headers','{}'::jsonb,'message','Ce brouillon est utilisé par une opération en cours. Réessayez dans un instant.'),
+  'a concurrent heartbeat returns the retryable French HTTP 409');
+select dblink_exec('draft_copy','commit');
+select is(dblink_exec('draft_delete',pg_temp.delete_command(117)),'DELETE 1','retry after the heartbeat deletes the draft');
+
+-- The affaire cascade may wait to delete a job. It must never return the single-version busy refusal.
+select dblink_exec('draft_copy','begin; set local role service_role');
+select id from dblink('draft_copy',format('select id from public.takeoff_jobs where id=%L for update',
+  pg_temp.rid(201))) as locked(id uuid);
+select dblink_send_query('draft_delete',format($q$select outcome from public.estimate_projects p
+  cross join lateral public.bulk_delete_draft_affaires(p.tenant_id,array[p.id]) where p.id=%L$q$,pg_temp.rid(10)));
+select ok(pg_temp.blocked('draft_delete','draft_copy'),'whole-affaire deletion waits for its job cascade');
+select dblink_exec('draft_copy','commit');
+select is((select outcome from dblink_get_result('draft_delete',false) as project(outcome text)),
+  'deleted','whole-affaire deletion completes with the copied drafts');
+select count(*) from dblink_get_result('draft_delete',false) as project(outcome text);
 
 select dblink_exec('draft_copy','reset role');
 select dblink_exec('draft_copy',$cleanup$
