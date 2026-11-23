@@ -27,6 +27,20 @@ select is((select i.quantity from public.estimate_items i join public.takeoff_it
 select is((select x.res::jsonb->'blockers' from extensions.dblink('race_setup',format(
   'select public.preview_takeoff_item_redistribution(%L,%L,%L,%L,%L,%L,false)::text',pg_temp.tenant(),pg_temp.f(1),pg_temp.f(20),
   pg_temp.f(970),pg_temp.f(300),'by_level')) as x(res text)),'[]'::jsonb,'a second connection sees a redistributable five');
+-- The FK's KEY SHARE holds the physical line, independently of the version key.
+select is(extensions.dblink_exec('race_setup','begin'),'BEGIN','an outlier review starts referencing the line');
+select is(extensions.dblink_exec('race_setup',format($link$
+  insert into public.estimate_item_outlier_dismissals(tenant_id,version_id,item_id,flag_key,dismissed_by)
+  select %1$L,%2$L,estimate_item_id,'quantity_outlier',%3$L from public.takeoff_item_send_targets
+  where version_id=%2$L and estimate_item_id is not null$link$,pg_temp.tenant(),pg_temp.f(970),pg_temp.f(1))),
+  'INSERT 0 1','the dependent holds KEY SHARE before its commit');
+select is(extensions.dblink_send_query('race_b',pg_temp.redistribution_sql('by_level',956)),1,'an earlier preview tries to remove that line');
+select * from pg_temp.loser('race_b','race_setup','REDISTRIBUTION_STALE');
+select is((select count(*) from public.estimate_item_outlier_dismissals l join public.estimate_items i on i.id=l.item_id
+  where l.version_id=pg_temp.f(970)),1::bigint,'both the committed review and its five-unit line survived');
+select is(extensions.dblink_exec('race_setup',format('delete from public.estimate_item_outlier_dismissals where version_id=%L',
+  pg_temp.f(970))),'DELETE 1','the next race starts without the independent review');
+
 select is(extensions.dblink_exec('race_setup','begin'),'BEGIN','a member prices the line');
 select is((select x.locked from extensions.dblink('race_setup',format(
   'select pg_advisory_xact_lock(hashtextextended(%L,0))::text',pg_temp.f(970)::text))x(locked text)),'','editor holds the version key');

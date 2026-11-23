@@ -73,6 +73,20 @@ select is(pg_temp.edited_preview($$update public.estimate_items set title='Secti
 select is(pg_temp.edited_preview($$insert into public.estimate_item_outlier_dismissals(tenant_id,version_id,item_id,flag_key,dismissed_by)
   values(pg_temp.f(10),pg_temp.f(30),pg_temp.f(61),'quantity_outlier',pg_temp.f(1))$$)#>>'{blockers,0,reason}',
   'used','a real third-party reference protects the line');
+-- Live business references include historical modules that do not declare an FK.
+select is(pg_temp.edited_preview($q$
+  insert into private.estimate_source_reviews(id,tenant_id,project_id,version_id,revision)
+    values(pg_temp.f(400),pg_temp.f(10),pg_temp.f(20),pg_temp.f(30),1);
+  insert into private.estimate_source_coverage_requirements(id,review_id,revision,prescription,expected_service,scope)
+    values(pg_temp.f(401),pg_temp.f(400),1,'Sanitaires','Lavabo','{"mode":"unspecified"}');
+  insert into private.estimate_source_coverage_links(id,requirement_id,kind,item_id,justification,target_key)
+    values(pg_temp.f(402),pg_temp.f(401),'line',pg_temp.f(61),'Lot sanitaire','line:'||pg_temp.f(61))
+$q$)#>>'{blockers,0,reason}','used','the CCTP requirement keeps its available estimate line');
+select is(pg_temp.edited_preview($q$
+  insert into public.affaire_register_entries(tenant_id,project_id,version_id,kind,text,status,origin_kind,scope_type,scope_id,scope_label)
+    values(pg_temp.f(10),pg_temp.f(20),pg_temp.f(30),'assumption','Conserver le lavabo','open','manual','line',pg_temp.f(61),'Lavabo')
+$q$)#>>'{blockers,0,reason}','used','the line-scoped affaire register protects the line');
+\ir ../fixtures/takeoff-item-redistribution-uses.sql
 select is(pg_temp.edited_preview('delete from public.estimate_items where id=pg_temp.f(61)')#>>'{blockers,0,reason}',
   'deleted','a line deleted deliberately is not recreated');
 select is((select plan->'remove_lines' from shown),jsonb_build_array(pg_temp.f(61)), 'only the original line will be removed');

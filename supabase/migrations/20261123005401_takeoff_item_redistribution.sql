@@ -92,27 +92,72 @@ begin
 end;
 $$;
 
--- Any referencing row outside the sending target is a third-party use. Include composite FKs,
--- restricting lookups to the column paired with estimate_items.id (unique across tenants).
-create function private.takeoff_redistribution_line_used(p_line uuid)
-returns boolean language plpgsql stable set search_path='' as $$
-declare ref record; used boolean;
+-- Each (relation, column) below is a live business dependency. This covers the
+-- complete current FK inventory, the polymorphic review/register scopes and
+-- CCTP links. Material requests link through their purchase-order source line.
+-- A section or a line in another version can still name a parent in this one.
+-- estimate_line_evidences.source_record_id is the evidence graph's polymorphic origin.
+-- estimate_explanation_sources.source_record_id can name the line explained by another proof.
+-- takeoff_price_suggestion_sources.source_record_id can name a different version's historical price.
+-- estimate_source_coverage_requirements.scope.dpgfLotId is the DPGF lot inside a JSON scope.
+-- Completed receipts, snapshots of previous actions and audit events retain past
+-- identities intentionally. The item's own target is the association we move.
+-- Resolve all candidates at once; never rescan the FK catalog per estimate line.
+create function private.takeoff_redistribution_used_lines(p_lines uuid[])
+returns uuid[] language plpgsql stable set search_path='' as $$
+declare statement text; used uuid[];
 begin
-  for ref in select distinct n.nspname,c.relname,a.attname
+  if coalesce(cardinality(p_lines),0)=0 then return '{}'::uuid[]; end if;
+  with known(relation,column_name) as (values
+      ('public.estimate_items'::regclass,'parent_id'),
+      ('public.estimate_explanations'::regclass,'line_id'),
+      ('public.estimate_item_outlier_dismissals'::regclass,'item_id'),
+      ('public.estimate_line_evidences'::regclass,'estimate_item_id'),
+      ('public.estimate_generated_ouvrage_applications'::regclass,'estimate_item_id'),
+      ('public.estimate_generated_ouvrage_candidates'::regclass,'suggested_lot_id'),
+      ('public.estimate_generated_ouvrage_drafts'::regclass,'preferred_lot_id'),
+      ('public.estimate_generated_ouvrage_work_snapshots'::regclass,'estimate_item_id'),
+      ('public.estimate_risk_alerts'::regclass,'line_id'),
+      ('public.estimate_risk_alerts'::regclass,'lot_id'),
+      ('public.estimate_risk_alerts'::regclass,'scope_id'),
+      ('public.estimate_structure_draft_applications'::regclass,'estimate_item_id'),
+      ('public.estimate_structure_draft_nodes'::regclass,'duplicate_match_item_id'),
+      ('public.estimate_version_zero_applications'::regclass,'estimate_item_id'),
+      ('public.estimate_version_zero_applications'::regclass,'parent_section_item_id'),
+      ('public.estimate_version_zero_lines'::regclass,'materialized_estimate_item_id'),
+      ('public.purchase_order_items'::regclass,'source_estimate_item_id'),
+      ('public.takeoff_dpgf_links'::regclass,'estimate_item_id'),
+      ('public.takeoff_dpgf_review_decisions'::regclass,'estimate_item_id'),
+      ('public.takeoff_price_suggestions'::regclass,'estimate_item_id'),
+      ('public.takeoff_price_suggestion_sources'::regclass,'estimate_item_id'),
+      ('public.takeoff_item_send_sections'::regclass,'estimate_item_id'),
+      ('private.estimate_source_coverage_links'::regclass,'item_id'),
+      ('public.affaire_register_entries'::regclass,'scope_id'),
+      ('public.estimate_review_comments'::regclass,'scope_id'),
+      ('public.estimate_review_correction_items'::regclass,'scope_id')),
+  foreign_keys as (
+    select k.conrelid::regclass relation,a.attname::text column_name
     from pg_catalog.pg_constraint k
-    join pg_catalog.pg_class c on c.oid=k.conrelid
-    join pg_catalog.pg_namespace n on n.oid=c.relnamespace
-    cross join lateral pg_catalog.generate_subscripts(k.conkey,1) as cols(idx)
+    cross join lateral generate_subscripts(k.conkey,1) as cols(idx)
     join pg_catalog.pg_attribute a on a.attrelid=k.conrelid and a.attnum=k.conkey[cols.idx]
     join pg_catalog.pg_attribute target on target.attrelid=k.confrelid and target.attnum=k.confkey[cols.idx]
     where k.contype='f' and k.confrelid='public.estimate_items'::regclass and target.attname='id'
-      and n.nspname in ('public','private') and k.conrelid <> 'public.takeoff_item_send_targets'::regclass
-  loop
-    execute pg_catalog.format('select exists(select 1 from %I.%I where %I=$1)',ref.nspname,ref.relname,ref.attname)
-      into used using p_line;
-    if used then return true; end if;
-  end loop;
-  return false;
+      and k.conrelid<>'public.takeoff_item_send_targets'::regclass),
+  refs as (select * from known union select * from foreign_keys)
+  select string_agg(format('select %1$I as id from %2$s where %1$I=any($1)',column_name,relation),' union all ')
+    into statement from refs;
+  execute 'select coalesce(array_agg(distinct id),array[]::uuid[]) from ('||statement||$refs$
+    union all select source_record_id from public.estimate_line_evidences
+      where source_record_table='estimate_items' and source_record_id=any($1)
+    union all select source_record_id from public.estimate_explanation_sources
+      where source_record_table='estimate_items' and source_record_id=any($1)
+    union all select candidate.id from unnest($1) as candidate(id) join public.takeoff_price_suggestion_sources p
+      on p.source_record_table='estimate_items' and p.source_record_id=candidate.id::text
+    union all select candidate.id from unnest($1) as candidate(id)
+      where exists (select 1 from private.estimate_source_coverage_requirements q
+        where q.scope @> jsonb_build_object('dpgfLotId',candidate.id))
+  ) as hits$refs$ into used using p_lines;
+  return used;
 end;
 $$;
 
@@ -218,6 +263,7 @@ declare
   plan jsonb;
   reason text;
   has_buildings boolean;
+  used_lines uuid[];
 begin
   perform private.takeoff_redistribution_check_scope(p_tenant,p_actor,p_project,p_version,p_module);
   if p_mode is null or p_mode not in ('together','by_level','by_building') then
@@ -231,6 +277,9 @@ begin
   select exists(select 1 from public.takeoff_plan_locations where project_id=p_project and tenant_id=p_tenant and building_choice='value')
     into has_buildings;
 
+  select private.takeoff_redistribution_used_lines(array_agg(t.estimate_item_id)) into used_lines
+    from public.takeoff_item_send_targets t where t.tenant_id=p_tenant and t.version_id=p_version and t.item_id=p_item
+      and t.estimate_item_id is not null;
   for source in select t as target,i as line,r.write_plan as origin_plan,
       coalesce(sum(p.quantity),0) raw_quantity,
       coalesce(i.title,(select a.before_data->>'title' from public.audit_logs a
@@ -270,7 +319,7 @@ begin
       or (source.line).source_file_name is not null or (source.line).source_page is not null
       or (source.line).source_metadata is distinct from jsonb_build_object('takeoff_item_send',jsonb_build_object(
         'version',1,'item_id',p_item,'compartment_key',(source.target).compartment_key,'breakdown',(source.target).breakdown)) then reason:='edited';
-    elsif private.takeoff_redistribution_line_used((source.line).id) then reason:='used';
+    elsif (source.line).id=any(used_lines) then reason:='used';
     elsif expected_identity is not null and expected_identity<>identity then reason:='identity';
     end if;
     expected_identity:=identity;
@@ -472,6 +521,12 @@ begin
     written:=array_append(written,line_id);
     reached:=reached||jsonb_build_array(destination||jsonb_build_object('line_id',line_id,'target_id',target));
   end loop;
+  -- Separate READ COMMITTED statement after taking the rank-8 locks, immediately
+  -- before removal. It sees business links committed since the locked preview.
+  if cardinality(private.takeoff_redistribution_used_lines(array(
+    select value::uuid from jsonb_array_elements_text(plan->'remove_lines'))))>0 then
+    raise exception 'REDISTRIBUTION_STALE' using errcode='40001';
+  end if;
   delete from public.estimate_items i where i.version_id=p_version and i.id in
     (select value::uuid from jsonb_array_elements_text(plan->'remove_lines'));
   perform public.estimate_v3_complete_entry_for_writer(p_version,written);
@@ -499,7 +554,7 @@ begin
 end;
 $$;
 revoke all on function private.takeoff_redistribution_check_scope(uuid,uuid,uuid,uuid,boolean),
-  private.takeoff_redistribution_line_used(uuid),private.takeoff_redistribution_location(text,text,text,boolean),
+  private.takeoff_redistribution_used_lines(uuid[]),private.takeoff_redistribution_location(text,text,text,boolean),
   private.takeoff_redistribution_edited(public.estimate_items),private.takeoff_redistribution_other_amounts(uuid,uuid),
   public.preview_takeoff_item_redistribution(uuid,uuid,uuid,uuid,uuid,text,boolean),
   public.redistribute_takeoff_item(uuid,uuid,uuid,uuid,uuid,text,boolean,uuid,text) from public,anon,authenticated,service_role;
