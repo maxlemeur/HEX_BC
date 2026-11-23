@@ -352,6 +352,13 @@ armyTest("TKPR03 a new measure of one item reads it alone on its plans, and the 
       screenshots.push(await ui.app.screenshot("mesurer-poste-comparaison"));
       const published = (await ownedAnswers(dossier.projectId)).filter((answer) => answer.job_id === detailJob);
       expect(published).toMatchObject([{ item_id: ids[WC], plan_file_id: planA, outcome: "not_found", replaces: null }]);
+      // Another request must still name the last business reading of this plan as its predecessor.
+      const next = await runOwnedTakeoffCommand(owner, ["measure-item", dossier.projectId, ids[WC], randomUUID(),
+        planA, dossier.plans[0].hash, "1"]);
+      expect(next).toMatchObject({ result: { outcome: "admitted" } });
+      const predecessor = await dossier.setup.from("takeoff_launch_requests").select("predecessor_job_id")
+        .eq("id", next.result!.requestId).single();
+      expect(predecessor.data?.predecessor_job_id).toBe(newA.id);
       await recordEvidence(ui.army, "takeoff-item-remeasure", { requestId, screenshots, detailJob, jobs: [jobA.id, jobB.id, newA.id, newB.id],
         added: added.map(({ plan_file_id, outcome }) => [plan_file_id === planA ? "A" : "B", outcome]) });
     } finally {

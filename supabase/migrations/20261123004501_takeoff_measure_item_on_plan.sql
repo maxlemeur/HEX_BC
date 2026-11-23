@@ -429,6 +429,8 @@ language sql stable security definer set search_path = '' as $$
       where coalesce(r.manifest #> '{order,list}' ? 'asked_item_ids', false)) e
     where j.tenant_id = p_tenant_id and j.project_id = p_project_id and r.item_list_revision_id is not null
       and p.logical_id is not null and (p_plan_logical_id is null or p.logical_id = p_plan_logical_id)
+      and not exists (select 1 from public.takeoff_item_answers comparison
+        where comparison.job_id = j.id and comparison.comparison_only)
     order by e.item_id, p.logical_id, j.created_at desc, j.id desc
   )
   select a.item_id, a.logical_id, a.plan_file_id, a.name, a.generation, a.job_id, a.unit_state,
@@ -493,4 +495,68 @@ returns text language sql stable security invoker set search_path = '' as $$
   from public.takeoff_jobs j
   where j.id = p_job_id and j.project_id = p_project_id and j.tenant_id = p_tenant_id
     and j.estimate_version_id is null
+$$;
+
+-- A page kept for comparison is never a peer of the plan being sent.
+create or replace function private.takeoff_send_context(p_tenant uuid, p_project uuid, p_job uuid, p_version uuid)
+returns jsonb language sql stable set search_path = '' as $$
+  with readings as (
+    select candidate.id, candidate.status, candidate.estimate_version_id, candidate.created_at, plan.file_id,
+      coalesce(recorded.source_kind, 'plan_file') as source_kind, coalesce(recorded.source_id, plan.file_id) as source_id
+    from public.takeoff_jobs as candidate
+    join public.takeoff_launch_requests as request on request.id = candidate.launch_request_id
+      and request.tenant_id = candidate.tenant_id and request.manifest -> 'format_version' = '2'::jsonb
+    cross join lateral (
+      select private.takeoff_uuid_or_null(source.value -> 'document_id') as file_id
+      from pg_catalog.jsonb_array_elements(case when pg_catalog.jsonb_typeof(candidate.preparation_snapshot #> '{preparation,sources}')
+          = 'array' then candidate.preparation_snapshot #> '{preparation,sources}' else '[]'::jsonb end) as source(value)
+      where source.value ->> 'kind' = 'plan' and source.value -> 'active' = 'true'::jsonb
+      limit 1) as plan
+    left join public.takeoff_plan_location_sources as recorded on recorded.plan_file_id = plan.file_id
+      and recorded.tenant_id = candidate.tenant_id
+    where candidate.tenant_id = p_tenant and candidate.project_id = p_project and plan.file_id is not null
+      and not exists (select 1 from public.takeoff_item_answers comparison
+        where comparison.job_id = candidate.id and comparison.comparison_only)
+  ), own as (
+    select readings.* from readings where readings.id = p_job
+  ), latest as (
+    select distinct on (other.source_kind, other.source_id) other.id, other.estimate_version_id, other.file_id
+    from readings as other cross join own
+    where other.id <> own.id
+      and other.status in ('completed'::public.takeoff_job_status, 'applied'::public.takeoff_job_status)
+      and (other.source_kind, other.source_id) is distinct from (own.source_kind, own.source_id)
+    order by other.source_kind, other.source_id, other.created_at desc, other.id desc
+  ), peers as (
+    -- A plan whose latest reading was sent has no peer here: an earlier reading it replaced is never compared. Nor does a
+    -- plan whose latest reading read a copy that is no longer the dossier's current copy of its source (a plan replaced,
+    -- or set aside, since), as the dossier holds it now (not a preparation, which an automatic request may not have and an
+    -- edit clears).
+    select latest.id from latest where latest.estimate_version_id is null
+      and exists (select 1 from private.resolve_takeoff_plan_location_source(p_tenant, p_project, latest.file_id) as resolved
+        where resolved.current_copy)
+  ), evaluated as (
+    select p_job as id
+    union select peers.id from peers
+    union select attached.id from public.takeoff_jobs as attached
+      where p_version is not null and attached.tenant_id = p_tenant and attached.estimate_version_id = p_version
+        and attached.status in ('completed'::public.takeoff_job_status, 'applied'::public.takeoff_job_status)
+    union select link.takeoff_job_id from public.takeoff_version_links as link
+      where p_version is not null and link.tenant_id = p_tenant and link.target_version_id = p_version
+  ), revisions as (
+    select distinct evaluated.id as job_id, private.takeoff_uuid_or_null(source.value -> 'document_id') as file_id,
+      source.value ->> 'content_hash' as content_hash
+    from evaluated
+    join public.takeoff_jobs as job on job.id = evaluated.id and job.tenant_id = p_tenant
+    cross join lateral pg_catalog.jsonb_array_elements(case when pg_catalog.jsonb_typeof(job.preparation_snapshot #> '{preparation,sources}')
+        = 'array' then job.preparation_snapshot #> '{preparation,sources}' else '[]'::jsonb end) as source(value)
+    where source.value ->> 'kind' = 'plan' and source.value -> 'active' = 'true'::jsonb
+      and coalesce(source.value ->> 'content_hash', '') ~ '^[0-9a-f]{64}$'
+  )
+  select pg_catalog.jsonb_build_object(
+    'peers', coalesce((select pg_catalog.jsonb_agg(pg_catalog.jsonb_build_object('job_id', peers.id,
+        'stamp', public.takeoff_rule_job_stamp(p_tenant, p_project, peers.id)) order by peers.id) from peers), '[]'::jsonb),
+    'plans', coalesce((select pg_catalog.jsonb_agg(pg_catalog.jsonb_build_object('job_id', revision.job_id,
+        'plan_file_id', revision.file_id, 'content_hash', revision.content_hash)
+        || private.takeoff_send_revision_state(p_tenant, p_project, revision.file_id, revision.content_hash)
+      order by revision.job_id, revision.file_id, revision.content_hash) from revisions as revision), '[]'::jsonb))
 $$;

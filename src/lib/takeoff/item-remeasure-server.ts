@@ -158,7 +158,11 @@ export async function planTakeoffItemRemeasure(context: Context, input: {
   if (tooLarge) return { refusal: describeTakeoffLaunchReason(tooLarge.reason, tooLarge.pieces, sized.bounds) };
   // The analysis it re-reads: the latest of its plans', else the affaire's latest.
   const latest = async (keys: string[] | null) => {
-    let query = service.from("takeoff_jobs").select("id").eq("tenant_id", context.tenantId).eq("project_id", input.projectId);
+    // A page published beside an indivisible reading cannot be the predecessor of the next measure.
+    let query = service.from("takeoff_jobs")
+      .select("id,comparison:takeoff_item_answer_publications(answers:takeoff_item_answers!inner(id))")
+      .eq("tenant_id", context.tenantId).eq("project_id", input.projectId)
+      .eq("comparison.answers.comparison_only", true).is("comparison", null);
     if (keys) query = query.in("launch_unit_key", keys);
     const { data, error: jobError } = await query.order("created_at", { ascending: false }).order("id", { ascending: false }).limit(1);
     if (jobError) databaseError(jobError, "Impossible de lire les analyses de l’affaire.");

@@ -581,6 +581,10 @@ select results_eq($$select quantity, revision from public.takeoff_item_entries w
   $$values (1::numeric, 1)$$, 'the entered quantity is untouched');
 select is(pg_temp.state(300), 'measured', 'the lavabo is measured again');
 
+create function pg_temp.peer_context(source_plan integer) returns jsonb language sql stable as $$
+select private.takeoff_send_context(pg_temp.f(10),pg_temp.f(20),pg_temp.job(case when source_plan = 0 then 2 else 1 end,pg_temp.plan(source_plan)),null)
+$$;
+create temp table peer_before as select pg_temp.peer_context(1) as context;
 -- A second member compares one admitted page to the existing two-page reading.
 create temp table prior_stamp as select public.takeoff_rule_job_stamp(pg_temp.f(10), pg_temp.f(20),
   pg_temp.job(2,pg_temp.plan(0))) as value;
@@ -626,8 +630,33 @@ select is((select a.job_id from pg_temp.pairs() p join public.takeoff_item_answe
   where p.item=pg_temp.f(300) and p.plan=pg_temp.plan(0)),pg_temp.job(2,pg_temp.plan(0)),'the complete reading remains current');
 select is(public.takeoff_rule_job_stamp(pg_temp.f(10), pg_temp.f(20), pg_temp.job(2,pg_temp.plan(0))),
   (select value from prior_stamp), 'a comparison leaves the earlier job’s dependency stamp intact');
+-- An included plan entry makes the current answer sendable, independently of the answer’s decision.
+insert into public.takeoff_item_entries (tenant_id, project_id, item_id, plan_logical_id, quantity, unit, category,
+  included, revision, actor_id, entered_at, command_id)
+select tenant_id, project_id, pg_temp.f(300), pg_temp.plan(0), 5, 'u', 'site_survey', true, 1, actor_id, now(), id
+from public.takeoff_item_review_commands where intent_key = pg_temp.f(601);
+select is((select quantity from private.takeoff_item_send_job_parts(pg_temp.f(10),pg_temp.f(20),
+  pg_temp.job(2,pg_temp.plan(0)),array[2])),5::numeric,'the current reading can send the included entry');
 select is((select count(*)::integer from private.takeoff_item_send_job_parts(pg_temp.f(10),pg_temp.f(20),
   pg_temp.job(8,pg_temp.plan(0)),array[2])),0,'the comparison supplies no sendable part');
+delete from public.takeoff_item_entries where item_id = pg_temp.f(300) and plan_logical_id = pg_temp.plan(0);
+
+select is((select p.job from pg_temp.pairs() p where p.item = pg_temp.f(300) and p.plan = pg_temp.plan(0)),
+  pg_temp.job(2,pg_temp.plan(0)), 'the table names the current analysis of A after the comparison');
+select is(pg_temp.peer_context(1)->'peers', (select context->'peers' from peer_before),
+  'comparison must preserve the current job used by the send of plan B');
+select is(private.takeoff_send_context_stamps(pg_temp.peer_context(1)), (select private.takeoff_send_context_stamps(context) from peer_before),
+  'confirmation of a send on B retains the context approved before the page comparison on A');
+create temp table peer_before_b as select pg_temp.peer_context(0) as context;
+select is((select outcome from pg_temp.detail_measure(2, 12, 300, 1)), 'admitted', 'a comparison of B is admitted');
+select is(pg_temp.claim(pg_temp.job(12, pg_temp.plan(1)), 914), 1, 'the comparison of B starts');
+select is(pg_temp.publish_one(12, 300, 1), 1, 'the comparison of B publishes');
+select is((select comparison_only from public.takeoff_item_answers where job_id = pg_temp.job(12, pg_temp.plan(1))),
+  true, 'the reverse case also publishes a comparison beside the current reading');
+select is(pg_temp.peer_context(0)->'peers', (select context->'peers' from peer_before_b),
+  'the send on A keeps its peer after a comparison on B');
+select is(private.takeoff_send_context_stamps(pg_temp.peer_context(0)), (select private.takeoff_send_context_stamps(context) from peer_before_b),
+  'the confirmation of the send on A keeps its approved stamps');
 
 -- 5. A plan already sent is measured again: its new analysis is not sent, and nothing of the sent one changes.
 set local session_replication_role = replica;
