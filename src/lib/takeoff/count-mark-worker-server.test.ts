@@ -30,7 +30,7 @@ it("uses original rotated crop geometry and refuses a changed schedule before a 
   const schedule = { pages: [{ page: 1, width_points: 750 }], other_calls: 2, tile_calls: 6, total_calls: 8 };
   const input = {
     jobId: "job",
-    snapshot: { remeasure_count_marks: schedule, remeasure_item: item.id },
+    snapshot: { remeasure_count_marks: schedule, remeasure_item: item.id, remeasure_count_mark_frames: frames },
     bytes,
     items: [item],
     planFileId: "sheet",
@@ -40,6 +40,15 @@ it("uses original rotated crop geometry and refuses a changed schedule before a 
   };
   expect(await prepareCountMarkReading({ ...input, snapshot: {} })).toBeNull();
   await expect(prepareCountMarkReading({ ...input, otherCalls: 3 })).rejects.toThrow();
+  for (const frame of [
+    { ...frames[0].geometry, height: 391 },
+    { ...frames[0].geometry, rotation: 270 },
+    { ...frames[0].geometry, view_box: [31, 50, 421, 800] },
+    { ...frames[0].geometry, user_unit: 2 },
+  ]) {
+    await expect(prepareCountMarkReading({ ...input, snapshot: { ...input.snapshot,
+      remeasure_count_mark_frames: [{ page: 1, geometry: frame }] } })).rejects.toThrow();
+  }
   const prepared = await prepareCountMarkReading(input);
   const call = vi.fn(async (request) => {
     expect(request.prompt).not.toContain("98241");

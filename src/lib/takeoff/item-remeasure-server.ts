@@ -1,4 +1,8 @@
 import "server-only";
+import { createHash } from "node:crypto";
+import { isDeepStrictEqual } from "node:util";
+import { countMarkPageFrames } from "./count-mark-geometry-server";
+import { readPlanBytes } from "./plan-location-server";
 import { countMarkSchedule, MARK_SCOPE_REFUSAL, type CountMarkSchedule } from "./count-mark-schedule";
 
 import type { AuthenticatedTenantContext } from "@/lib/auth/tenant-context";
@@ -30,6 +34,7 @@ import type { Json } from "@/types/database";
 // (launch-request-server.ts: the relaunch's manifest, the plan set's copies, the units' jobs and their dispatch).
 
 type Context = AuthenticatedTenantContext;
+const FRAME_CONFLICT = "La géométrie des repères existants diffère de celle du PDF. Vérifiez la copie ou désactivez les propositions.";
 
 /**
  * Lot 4 PR 4b: a new measure of a selection of items, planned for its preview and again for its admission. The affaire's
@@ -53,6 +58,7 @@ export type TakeoffItemRemeasurePlan = {
   manifest: TakeoffPlanLaunchManifest;
   bounds: PosteReadingBounds;
   markSchedule?: CountMarkSchedule;
+  markFrames?: Awaited<ReturnType<typeof countMarkPageFrames>>;
 };
 
 async function readMeasurePreparation(context: Context, projectId: string) {
@@ -159,22 +165,37 @@ export async function planTakeoffItemRemeasure(context: Context, input: {
   const tooLarge = posteReadingRefusal(sized.bounds);
   if (tooLarge) return { refusal: describeTakeoffLaunchReason(tooLarge.reason, tooLarge.pieces, sized.bounds) };
   let markSchedule: CountMarkSchedule | undefined;
+  let markFrames: TakeoffItemRemeasurePlan["markFrames"];
   if (detail?.proposeMarks) {
     const piece = sized.manifest.plans[0];
     const count = piece.pages.length || piece.page_count || countedPages.get(piece.plan_file_id);
     if (!count || count > 6) return { refusal: MARK_SCOPE_REFUSAL };
     const pages = piece.pages.length ? [...piece.pages].sort((a,b) => a-b) : Array.from({ length: count }, (_,i) => i+1);
-    const { data: known, error } = await service.from("takeoff_count_pages").select("page,width")
-      .eq("tenant_id", context.tenantId).eq("project_id", input.projectId).eq("plan_file_id", piece.plan_file_id)
-      .eq("plan_logical_id", piece.logical_id).eq("plan_content_sha256", piece.content_sha256).in("page", pages).order("page");
+    const { data: stored, error: fileError } = await service.from("plan_files")
+      .select("id,plan_set_id,file_path,file_name,file_size_bytes").eq("tenant_id",context.tenantId)
+      .eq("plan_set_id",planSetId).eq("id",piece.plan_file_id).maybeSingle();
+    if (fileError) databaseError(fileError, "Impossible de lire le plan confirmé.");
+    const bytes = stored && (await readPlanBytes(context.tenantId, stored)).bytes;
+    if (!bytes || createHash("sha256").update(bytes).digest("hex") !== piece.content_sha256) {
+      return { refusal: "Le document a changé ou est indisponible. Rouvrez le poste et vérifiez sa copie.", stale: true, changedCopy: true };
+    }
+    markFrames = await countMarkPageFrames(bytes, pages).catch(() => undefined);
+    if (!markFrames) return { refusal: "La géométrie d’une page est inconnue pour cette copie. Choisissez une page connue ou désactivez les propositions." };
+    const { data: existing, error } = await service.from("takeoff_count_pages")
+      .select("page,geometry_version,view_box,rotation,user_unit,width,height")
+      .eq("tenant_id",context.tenantId).eq("project_id",input.projectId).eq("plan_logical_id",piece.logical_id)
+      .eq("plan_content_sha256",piece.content_sha256).in("page",pages);
     if (error) databaseError(error, "Impossible de lire la géométrie enregistrée pour ce plan.");
-    if (known.length !== pages.length) {
-      return { refusal: "La géométrie d’une page est inconnue pour cette copie. Choisissez une page connue ou désactivez les propositions." };
+    for (const { page, geometry } of markFrames) {
+      const row = existing.find((entry) => entry.page === page);
+      if (!row) continue;
+      const { page: storedPage, geometry_version: version, ...frame } = row;
+      if (storedPage === page && !isDeepStrictEqual({ version, ...frame }, geometry)) return { refusal: FRAME_CONFLICT };
     }
     const unit = sized.manifest.units[0];
     unit.paid_vector_groups = takeoffVectorGroupCallsBound(unit.vector_pages) > 0;
     try {
-      markSchedule = countMarkSchedule(known.map(({ page, width }) => ({ page, width_points: width })), sized.bounds.calls);
+      markSchedule = countMarkSchedule(markFrames.map(({ page, geometry }) => ({ page, width_points: geometry.width })), sized.bounds.calls);
     } catch {
       return { refusal: MARK_SCOPE_REFUSAL };
     }
@@ -198,7 +219,7 @@ export async function planTakeoffItemRemeasure(context: Context, input: {
   };
   const predecessorJobId = await latest(sized.manifest.plans.map((plan) => `plan:${plan.plan_file_id.toLowerCase()}`)) ?? await latest(null);
   if (!predecessorJobId && !detail) return { refusal: "L’affaire n’a encore aucune analyse : lancez d’abord le métré de l’affaire." };
-  return { plan: { ...(markSchedule && { markSchedule }), planSetId, preparationRevision: confirmed.preparation_revision,
+  return { plan: { ...(markSchedule && { markSchedule, markFrames }), planSetId, preparationRevision: confirmed.preparation_revision,
     planFileIds: sized.manifest.plans.map((plan) => plan.plan_file_id),
     planKeys: sized.manifest.plans.map((plan) => plan.logical_id), predecessorJobId, listRevisionId: order.list.revision_id,
     askedItemIds: asked, snapshot, manifest: { ...sized.manifest, intent: predecessorJobId ? "reread_plans" : "initial" }, bounds: sized.bounds } };
@@ -215,6 +236,8 @@ function remeasureError(error: { code?: string; message: string }): never {
     case "TAKEOFF_ITEM_REMEASURE_INACTIVE":
       throw new TakeoffError({ status: 503, code: TakeoffErrorCode.CONFLICT, retryable: false,
         message: "La nouvelle mesure d’une sélection de postes n’est pas encore ouverte : aucune analyse n’a été lancée." });
+    case "TAKEOFF_MARKS_PAGE_GEOMETRY_CONFLICT":
+      throw new TakeoffError({ status: 409, code: TakeoffErrorCode.CONFLICT, retryable: false, message: FRAME_CONFLICT });
     case "TAKEOFF_MARKS_GEOMETRY_UNKNOWN":
       throw new TakeoffError({ status: 422, code: TakeoffErrorCode.VALIDATION_ERROR, retryable: false,
         message: "La géométrie d’une page est inconnue pour cette copie. Choisissez une page connue ou désactivez les propositions." });
@@ -259,6 +282,14 @@ export async function launchTakeoffItemRemeasure(context: Context, input: {
   const { plan } = input;
   const units = await planUnitJobs(service, { tenantId: context.tenantId, planSetId: plan.planSetId,
     jobKey: `takeoff-item-remeasure:${input.projectId}:${input.intentKey}`, hostId: input.selection.hostId, manifest: plan.manifest });
+  if (plan.markFrames) {
+    const file = plan.manifest.plans[0];
+    const attested = await service.rpc("attest_takeoff_count_mark_pages", {
+      p_tenant: context.tenantId, p_project: input.projectId, p_file: file.plan_file_id,
+      p_logical: file.logical_id, p_hash: file.content_sha256!, p_frames: plan.markFrames as unknown as Json,
+    });
+    if (attested.error) remeasureError(attested.error);
+  }
   const { data, error } = await service.rpc("launch_takeoff_item_remeasure", {
     p_tenant_id: context.tenantId, p_project_id: input.projectId, p_actor: context.userId, p_intent_key: input.intentKey,
     p_predecessor_job_id: plan.predecessorJobId as string, p_host: input.selection.hostId,

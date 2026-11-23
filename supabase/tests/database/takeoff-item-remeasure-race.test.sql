@@ -248,10 +248,12 @@ $$;
 
 -- 1. Two confirmations at once: the first tab's is admitted, not yet committed; the second tab's waits, then answers that
 --    an analysis of the affaire runs; the first one's answer lost and sent again is replayed.
-select is(extensions.dblink_exec('race_setup',format($rows$insert into public.takeoff_count_pages(
-  tenant_id,project_id,plan_logical_id,plan_file_id,plan_content_sha256,page,geometry_version,view_box,rotation,user_unit,width,height)
-  select %1$L,%2$L,%3$L,%3$L,%4$L,p,1,array[0,0,w,500],0,1,w,500 from (values (2,700),(7,720)) s(p,w)$rows$,
-  pg_temp.tenant(),pg_temp.f(20),pg_temp.f(100),pg_temp.digest(pg_temp.f(100)))),'INSERT 0 2','both original page widths are known');
+select is((select x.ok from extensions.dblink('race_setup',format($rows$
+  select 1 from public.attest_takeoff_count_mark_pages(%1$L,%2$L,%3$L,%3$L,%4$L,
+    (select jsonb_agg(jsonb_build_object('page',p,'geometry',jsonb_build_object('version',1,'view_box',array[0,0,w,500],
+      'rotation',0,'user_unit',1,'width',w,'height',500)) order by p) from (values (2,700),(7,720)) sheets(p,w)))$rows$,
+  pg_temp.tenant(),pg_temp.f(20),pg_temp.f(100),pg_temp.digest(pg_temp.f(100)))) x(ok integer)),1,
+  'the original page frames are attested before admission');
 select is(extensions.dblink_exec('race_setup',format($rows$insert into public.feature_flags(tenant_id,flag_key,enabled,value)
   values (%1$L,'TAKEOFF_C_CHUNK_THRESHOLD_PAGES',true,'1'),(%1$L,'TAKEOFF_C_CHUNK_SIZE_PAGES',true,'1')
   on conflict (tenant_id,flag_key) do update set enabled=true,value=excluded.value$rows$,pg_temp.tenant())),'INSERT 0 2',

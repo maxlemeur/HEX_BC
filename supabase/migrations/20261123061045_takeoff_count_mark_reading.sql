@@ -39,12 +39,68 @@ returns integer language sql immutable set search_path = '' as $$
 $$;
 revoke all on function private.takeoff_count_mark_classifier_calls(jsonb,integer) from public, anon, authenticated, service_role;
 
+-- A marks edit may establish a page frame for its own coordinates. Only the service
+-- reading the original file can attest that this copy has the same frame.
+create table private.takeoff_attested_count_pages (
+  plan_file_id uuid not null references public.plan_files(id) on delete cascade,
+  page_id uuid not null references public.takeoff_count_pages(id) on delete cascade,
+  primary key (plan_file_id,page_id)
+);
+revoke all on table private.takeoff_attested_count_pages from public, anon, authenticated, service_role;
+
+create function public.attest_takeoff_count_mark_pages(p_tenant uuid,p_project uuid,p_file uuid,
+  p_logical uuid,p_hash text,p_frames jsonb)
+returns void language plpgsql security definer set search_path = '' as $$
+declare
+  sheet jsonb;
+  frame record;
+  stored public.takeoff_count_pages;
+  page_number integer := 0;
+begin
+  if jsonb_typeof(p_frames) is distinct from 'array' or jsonb_array_length(p_frames) not between 1 and 6
+    or p_hash is null or p_hash !~ '^[a-f0-9]{64}$'
+    or not exists(select 1 from public.takeoff_plan_location_sources s where s.plan_file_id=p_file
+      and s.tenant_id=p_tenant and s.project_id=p_project and s.source_id=p_logical) then
+    raise exception 'TAKEOFF_MARKS_INVALID' using errcode='22023';
+  end if;
+  for sheet in select value from jsonb_array_elements(p_frames) loop
+    select * into frame from private.takeoff_count_page_geometry(sheet -> 'geometry');
+    if not found or not private.takeoff_item_answer_is_number(sheet -> 'page',page_number+1,100000,true) then
+      raise exception 'TAKEOFF_MARKS_INVALID' using errcode='22023';
+    end if;
+    page_number := (sheet ->> 'page')::numeric::integer;
+    insert into public.takeoff_count_pages(tenant_id,project_id,plan_file_id,plan_logical_id,plan_content_sha256,
+      page,geometry_version,view_box,rotation,user_unit,width,height)
+    values (p_tenant,p_project,p_file,p_logical,p_hash,page_number,1,frame.view_box,frame.rotation,frame.user_unit,frame.width,frame.height)
+    on conflict on constraint takeoff_count_pages_page_key do nothing;
+    select * into strict stored from public.takeoff_count_pages g where g.tenant_id=p_tenant and g.project_id=p_project
+      and g.plan_logical_id=p_logical and g.plan_content_sha256=p_hash and g.page=page_number;
+    if (stored.view_box,stored.rotation,stored.user_unit,stored.width,stored.height)
+      is distinct from (frame.view_box,frame.rotation,frame.user_unit,frame.width,frame.height) then
+      raise exception 'TAKEOFF_MARKS_PAGE_GEOMETRY_CONFLICT' using errcode='22023';
+    end if;
+    insert into private.takeoff_attested_count_pages values (p_file,stored.id) on conflict do nothing;
+  end loop;
+end;
+$$;
+revoke all on function public.attest_takeoff_count_mark_pages(uuid,uuid,uuid,uuid,text,jsonb) from public, anon, authenticated;
+grant execute on function public.attest_takeoff_count_mark_pages(uuid,uuid,uuid,uuid,text,jsonb) to service_role;
+
+create function private.takeoff_attested_mark_frames(p_tenant uuid,p_project uuid,plan jsonb)
+returns setof public.takeoff_count_pages language sql stable set search_path = '' as $$
+  select g.* from public.takeoff_count_pages g join private.takeoff_attested_count_pages a on a.page_id=g.id
+  where a.plan_file_id=(plan ->> 'plan_file_id')::uuid and g.tenant_id=p_tenant and g.project_id=p_project
+    and g.plan_logical_id=(plan ->> 'logical_id')::uuid and g.plan_content_sha256=plan ->> 'content_sha256'
+    and case when jsonb_array_length(plan -> 'pages')=0 then g.page <= (plan ->> 'page_count')::integer
+      else (plan -> 'pages') @> to_jsonb(g.page) end
+$$;
+revoke all on function private.takeoff_attested_mark_frames(uuid,uuid,jsonb) from public, anon, authenticated, service_role;
+
 -- One item is exactly one batch. Use the tenant's fragmenting and the paid classifier lane of the admitted unit.
 -- Widths are those already recorded for the admitted copy of these bytes. Missing geometry is an explicit refusal.
 create function private.takeoff_count_mark_schedule(p_tenant uuid,p_project uuid,plan jsonb,unit jsonb)
 returns jsonb language plpgsql stable set search_path = '' as $$
 declare
-  pages integer[];
   sheets jsonb;
   tile_calls integer;
   other_calls integer;
@@ -56,13 +112,9 @@ begin
   n := jsonb_array_length(plan -> 'pages');
   if n=0 then n := (plan ->> 'page_count')::numeric::integer; end if;
   if n is null or n not between 1 and 6 then raise exception 'TAKEOFF_MARKS_SCOPE_INVALID' using errcode='22023'; end if;
-  pages := case when jsonb_array_length(plan -> 'pages')=0 then array(select generate_series(1,n))
-    else array(select value::numeric::integer from jsonb_array_elements_text(plan -> 'pages')) end;
   select jsonb_agg(jsonb_build_object('page',g.page,'width_points',g.width) order by g.page),
     sum(case when g.width>700 then 6 else 4 end)::integer into sheets,tile_calls
-  from public.takeoff_count_pages g where g.tenant_id=p_tenant and g.project_id=p_project
-    and g.plan_file_id=(plan ->> 'plan_file_id')::uuid and g.plan_logical_id=(plan ->> 'logical_id')::uuid
-    and g.plan_content_sha256=plan ->> 'content_sha256' and g.page=any(pages);
+  from private.takeoff_attested_mark_frames(p_tenant,p_project,plan) g;
   if coalesce(jsonb_array_length(sheets),0) <> n then
     raise exception 'TAKEOFF_MARKS_GEOMETRY_UNKNOWN' using errcode='22023';
   end if;
@@ -250,7 +302,7 @@ begin
     or asked is distinct from (select pg_catalog.jsonb_agg(d.id::text order by d.id)
       from (select distinct (a.value #>> '{}')::uuid as id from pg_catalog.jsonb_array_elements(asked) a(value)) d)
     or (one_item and (pg_catalog.jsonb_array_length(asked) <> 1 or pg_catalog.cardinality(p_plan_file_ids) <> 1))
-    or p_snapshot ?| array['remeasure_count_marks', 'remeasure_setting', 'remeasure_page', 'remeasure_marks_revision', 'remeasure_item', 'remeasure_plan', 'remeasure_previous_answer']
+    or p_snapshot ?| array['remeasure_count_marks', 'remeasure_count_mark_frames', 'remeasure_setting', 'remeasure_page', 'remeasure_marks_revision', 'remeasure_item', 'remeasure_plan', 'remeasure_previous_answer']
     or not private.takeoff_item_remeasure_targets_valid(p_targets)
     or asked is distinct from (select pg_catalog.jsonb_agg(((t.value ->> 'item_id')::uuid)::text order by (t.value ->> 'item_id')::uuid)
       from pg_catalog.jsonb_array_elements(p_targets) t(value))
@@ -361,7 +413,10 @@ begin
     if schedule is distinct from p_confirmation -> 'count_marks' then
       raise exception 'TAKEOFF_MARKS_SCOPE_INVALID' using errcode='22023';
     end if;
-    p_snapshot := p_snapshot || jsonb_build_object('remeasure_count_marks',schedule);
+    p_snapshot := p_snapshot || jsonb_build_object('remeasure_count_marks',schedule,'remeasure_count_mark_frames',(
+      select jsonb_agg(jsonb_build_object('page',g.page,'geometry',jsonb_build_object('version',g.geometry_version,
+        'view_box',g.view_box,'rotation',g.rotation,'user_unit',g.user_unit,'width',g.width,'height',g.height)) order by g.page)
+      from private.takeoff_attested_mark_frames(p_tenant_id,p_project_id,p_manifest #> '{plans,0}') g));
   end if;
   if one_item then
     -- Build the worker-only setting from the confirmation covered by the receipt. The
@@ -511,6 +566,8 @@ begin
       or jsonb_typeof(generation -> 'marks') is distinct from 'array'
       or jsonb_typeof(generation -> 'pages') is distinct from 'array'
       or jsonb_array_length(generation -> 'pages') > 6
+      or exists (select 1 from jsonb_array_elements(generation -> 'pages') f
+        where not coalesce((job.preparation_snapshot -> 'remeasure_count_mark_frames') @> jsonb_build_array(f),false))
       or jsonb_array_length(generation -> 'marks') > 20000
       or octet_length(generation::text) > 16777216
       or exists (select 1 from jsonb_array_elements(generation -> 'marks') m group by m -> 'page' having count(*) > 5000)

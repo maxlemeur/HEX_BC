@@ -4,6 +4,7 @@ import { loadImage } from "@napi-rs/canvas";
 import type { StructuredCallOptions } from "@/lib/ai/structured-call";
 import { fictionalSheets } from "./bench/count-pins/fiction";
 import { tileLayout } from "./bench/count-pins/replay";
+import { countMarkPageFrames } from "./count-mark-geometry-server";
 import { countMarkSchedule } from "./count-mark-schedule";
 import { prepareCountMarkReading, produceCountMarkGeneration } from "./count-mark-worker-server";
 import type { Poste } from "./poste-list";
@@ -25,7 +26,8 @@ it("renders every agreed crop of the original turned fiction and retains both re
     pages: [fiction.page],
     otherCalls: 1,
     remainingTokens: 1_000_000,
-    snapshot: { remeasure_item: item.id, remeasure_count_marks: schedule },
+    snapshot: { remeasure_item: item.id, remeasure_count_marks: schedule,
+      remeasure_count_mark_frames: await countMarkPageFrames(fiction.bytes, [fiction.page]) },
   });
   const seen: number[] = [];
   const layout = tileLayout({ ...fiction.size, sheet: fiction.id, generation: "test", page: fiction.page });

@@ -843,6 +843,22 @@ values(pg_temp.f(10),pg_temp.f(20),pg_temp.plan(1),pg_temp.plan(1),pg_temp.diges
 insert into public.takeoff_count_pages(tenant_id,project_id,plan_logical_id,plan_file_id,plan_content_sha256,page,
   geometry_version,view_box,rotation,user_unit,width,height)
 values(pg_temp.f(10),pg_temp.f(20),pg_temp.plan(1),pg_temp.plan(1),pg_temp.digest(pg_temp.plan(1)),7,1,array[0,0,701,500],0,1,701,500);
+select throws_ok($$select private.takeoff_count_mark_schedule(pg_temp.f(10),pg_temp.f(20),m #> '{plans,0}',m #> '{units,0}')
+  from pg_temp.manifest(pg_temp.list(320,array[303]),array[pg_temp.plan(1)]) m$$,
+  '22023','TAKEOFF_MARKS_GEOMETRY_UNKNOWN','a marks editing frame alone never attests the original bytes');
+create function pg_temp.attest_frame(p integer,w integer,h integer) returns void language sql as $$
+  select public.attest_takeoff_count_mark_pages(pg_temp.f(10),pg_temp.f(20),pg_temp.plan(1),pg_temp.plan(1),
+    pg_temp.digest(pg_temp.plan(1)),jsonb_build_array(jsonb_build_object('page',p,'geometry',jsonb_build_object(
+      'version',1,'view_box',jsonb_build_array(0,0,w,h),'width',w,'height',h,'rotation',0,'user_unit',1))))
+$$;
+select ok(not has_function_privilege('authenticated','public.attest_takeoff_count_mark_pages(uuid,uuid,uuid,uuid,text,jsonb)','execute')
+  and has_function_privilege('service_role','public.attest_takeoff_count_mark_pages(uuid,uuid,uuid,uuid,text,jsonb)','execute'),
+  'only the service may attest a frame from the sealed PDF');
+select throws_ok($$select pg_temp.attest_frame(2,701,500)$$,'22023','TAKEOFF_MARKS_PAGE_GEOMETRY_CONFLICT',
+  'the original width disagrees with the existing marks frame before admission');
+select throws_ok($$select pg_temp.attest_frame(2,700,501)$$,'22023','TAKEOFF_MARKS_PAGE_GEOMETRY_CONFLICT',
+  'the original height disagrees with the existing marks frame before admission');
+select pg_temp.attest_frame(2,700,500),pg_temp.attest_frame(7,701,500);
 select results_eq($$
   select private.takeoff_count_mark_schedule(pg_temp.f(10),pg_temp.f(20),manifest #> '{plans,0}',unit)
   from (select pg_temp.manifest(pg_temp.list(320,array[303]),array[pg_temp.plan(1)]) as manifest) m

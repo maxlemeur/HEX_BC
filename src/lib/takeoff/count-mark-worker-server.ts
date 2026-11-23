@@ -1,4 +1,5 @@
 import "server-only";
+import { isDeepStrictEqual } from "node:util";
 
 import type { StructuredCall, TokenUsage } from "@/lib/ai/structured-call";
 import { renderPdfPages } from "@/lib/pdf/page-render-server";
@@ -53,6 +54,7 @@ export async function prepareCountMarkReading(input: {
   });
   const sealed = schedule.data;
   if (
+    !isDeepStrictEqual(frames, snapshot.remeasure_count_mark_frames) ||
     frames.some(
       ({ page, geometry }, index) =>
         page !== sealed.pages[index].page || geometry.width !== sealed.pages[index].width_points,
