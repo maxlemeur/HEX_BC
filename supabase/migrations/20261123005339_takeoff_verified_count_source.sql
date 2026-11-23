@@ -755,7 +755,7 @@ language sql stable security definer set search_path = '' as $$
         where whole.tenant_id = p_tenant_id and whole.project_id = p_project_id
           and whole.item_id = e.item_id and whole.plan_logical_id is null
           and (d.has_chosen_count or exists (select 1 from pairs p where p.item_id = e.item_id
-            and private.takeoff_verified_count(p.answer_id) is not null))))),
+            and private.takeoff_count_marks_revision(p.answer_id) > 0))))),
     se.id
   from public.takeoff_list_revision_entries e
   join latest on latest.id = e.revision_id

@@ -478,8 +478,7 @@ begin
       from private.takeoff_item_send_resolved_parts(pg_temp.tenant(),pg_temp.f(21),pg_temp.job(21),array[2,7]) s
       where s ->> 'item_id' = pg_temp.f(311)::text;
     if whole then
-      tables_ := jsonb_build_array((select decision from public.read_takeoff_item_table(pg_temp.tenant(),pg_temp.f(21),
-        pg_temp.plan_file(21),p_item_ids => array[pg_temp.f(311)])));
+      tables_ := jsonb_build_array(pg_temp.entry_table(1) -> 0);
     end if;
     -- The scope's own revision and the answer's plan-entry revision are distinct.
     choice := jsonb_set(pg_temp.cmd('accept_measured',965,array[311],jsonb_build_object('scope',scope_)),
@@ -508,8 +507,12 @@ begin
       from private.takeoff_item_send_resolved_parts(pg_temp.tenant(),pg_temp.f(21),pg_temp.job(21),array[2,7]) s
       where s ->> 'item_id' = pg_temp.f(311)::text;
     if whole then
+      tables_ := tables_ || jsonb_build_array(pg_temp.entry_table(1) -> 0);
+      perform public.edit_takeoff_count_marks(pg_temp.tenant(),pg_temp.f(21),pg_temp.f(9966),jsonb_build_object(a,1),
+        jsonb_build_array(jsonb_build_object('op','move','mark_id',(select mark_id from public.takeoff_count_mark_attributions
+          where answer_id = a and state = 'retained'),'x',0.6,'y',0.5)));
       tables_ := tables_ || jsonb_build_array((select decision from public.read_takeoff_item_table(pg_temp.tenant(),pg_temp.f(21),
-        pg_temp.plan_file(21),p_item_ids => array[pg_temp.f(311)])));
+        pg_temp.plan_file(21),p_item_ids => array[pg_temp.f(311)])), pg_temp.entry_table(1) -> 0);
     end if;
     select jsonb_build_array(e.quantity,e.revision,e.plan_logical_id is null) into entry_
       from public.takeoff_item_entries e where e.item_id = pg_temp.f(311);
@@ -554,7 +557,7 @@ begin
 end;
 $$;
 select is(pg_temp.entry_choice(true,'verified_count',7),
-  '[[],"stale",[],[7,1,true],"entered","entered"]'::jsonb,'a whole-affaire seven excludes the item before and after choosing its plan count');
+  '[[],"stale",[],[7,1,true],1,1,"entered",1]'::jsonb,'a whole-affaire seven stays in the entered facet before and after the plan choice and after a mark moves');
 select is(pg_temp.entry_choice(false,'verified_count',7),
   '[[["entered",7]],"applied",[["verified_count",1]],[7,1,false]]'::jsonb,'choosing one mark keeps the original plan entry intact');
 select is(pg_temp.entry_choice(false,'entered',7),
