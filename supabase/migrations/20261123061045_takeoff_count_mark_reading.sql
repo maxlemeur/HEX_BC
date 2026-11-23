@@ -96,6 +96,59 @@ returns setof public.takeoff_count_pages language sql stable set search_path = '
 $$;
 revoke all on function private.takeoff_attested_mark_frames(uuid,uuid,jsonb) from public, anon, authenticated, service_role;
 
+-- Match Number(trimmedValue), finite check and Math.trunc in feature-flags.ts.
+-- PostgreSQL accepts additional float and integer spellings, so constrain the grammar first.
+create function private.takeoff_fragment_setting(raw text,minimum integer,fallback integer)
+returns double precision language plpgsql immutable set search_path = '' as $$
+declare
+  v text := btrim(raw,U&'\0009\000A\000B\000C\000D\0020\00A0\1680\2000\2001\2002\2003\2004\2005\2006\2007\2008\2009\200A\2028\2029\202F\205F\3000\FEFF');
+  setting double precision;
+  mantissa text;
+  exponent text;
+  magnitude bigint;
+begin
+  if v ~* '^0(x[0-9a-f]+|b[01]+|o[0-7]+)$' then
+    begin
+      setting := v::numeric::double precision;
+    exception when numeric_value_out_of_range then return fallback;
+    end;
+  elsif v ~* '^[+-]?([0-9]+([.][0-9]*)?|[.][0-9]+)(e[+-]?[0-9]+)?$' then
+    begin
+      setting := trunc(v::double precision);
+    exception when numeric_value_out_of_range then
+      -- Number underflows to zero. PostgreSQL reports an error for both ends of the range.
+      mantissa := ltrim(split_part(lower(v),'e',1),'+-');
+      exponent := split_part(lower(v),'e',2);
+      magnitude := length(split_part(mantissa,'.',1)) - length(substring(replace(mantissa,'.','') from '^0*'))
+        + case when left(exponent,1)='-' then -1 else 1 end
+        * coalesce(nullif(left(ltrim(exponent,'+-0'),10),''),'0')::bigint;
+      if magnitude >= 0 then return fallback; end if;
+      setting := 0;
+    end;
+  else
+    return fallback;
+  end if;
+  return case when setting >= minimum then setting else fallback end;
+end;
+$$;
+revoke all on function private.takeoff_fragment_setting(text,integer,integer) from public, anon, authenticated, service_role;
+
+create function private.takeoff_count_mark_chunking(p_tenant uuid)
+returns jsonb language sql stable set search_path = '' as $$
+  with flags as (
+    select jsonb_object_agg(flag_key,value) f from public.feature_flags where tenant_id=p_tenant and enabled
+      and flag_key in ('TAKEOFF_C_CHUNK_THRESHOLD_PAGES','TAKEOFF_C_CHUNK_SIZE_PAGES','TAKEOFF_C_CHUNK_OVERLAP_PAGES','TAKEOFF_C_MAX_PDF_PAGES')
+  ), settings as (
+    select private.takeoff_fragment_setting(f ->> 'TAKEOFF_C_CHUNK_THRESHOLD_PAGES',1,15) threshold_pages,
+      private.takeoff_fragment_setting(f ->> 'TAKEOFF_C_CHUNK_SIZE_PAGES',1,10) size_pages,
+      private.takeoff_fragment_setting(f ->> 'TAKEOFF_C_CHUNK_OVERLAP_PAGES',0,2) overlap_pages,
+      private.takeoff_fragment_setting(f ->> 'TAKEOFF_C_MAX_PDF_PAGES',1,200) max_pages from flags
+  )
+  select jsonb_build_object('thresholdPages',threshold_pages,'chunkSizePages',size_pages,
+    'overlapPages',least(size_pages-1,overlap_pages),'maxPdfPages',max_pages) from settings
+$$;
+revoke all on function private.takeoff_count_mark_chunking(uuid) from public, anon, authenticated, service_role;
+
 -- One item is exactly one batch. Use the tenant's fragmenting and the paid classifier lane of the admitted unit.
 -- Widths are those already recorded for the admitted copy of these bytes. Missing geometry is an explicit refusal.
 create function private.takeoff_count_mark_schedule(p_tenant uuid,p_project uuid,plan jsonb,unit jsonb)
@@ -119,14 +172,8 @@ begin
     raise exception 'TAKEOFF_MARKS_GEOMETRY_UNKNOWN' using errcode='22023';
   end if;
   if tile_calls>24 then raise exception 'TAKEOFF_MARKS_SCOPE_INVALID' using errcode='22023'; end if;
-  select coalesce(max(v) filter(where k='TAKEOFF_C_CHUNK_THRESHOLD_PAGES' and v>=1),15),
-    coalesce(max(v) filter(where k='TAKEOFF_C_CHUNK_SIZE_PAGES' and v>=1),10),
-    coalesce(max(v) filter(where k='TAKEOFF_C_CHUNK_OVERLAP_PAGES' and v>=0),2)
-  into fragment_threshold,fragment_size,overlap from (
-    select flag_key k,case when trim(value) ~ '^[+]?[0-9]{1,15}([.][0-9]+)?$' then trunc(value::numeric) end v
-    from public.feature_flags where tenant_id=p_tenant and enabled and flag_key in
-      ('TAKEOFF_C_CHUNK_THRESHOLD_PAGES','TAKEOFF_C_CHUNK_SIZE_PAGES','TAKEOFF_C_CHUNK_OVERLAP_PAGES')
-  ) settings;
+  select (c ->> 'thresholdPages')::numeric,(c ->> 'chunkSizePages')::numeric,(c ->> 'overlapPages')::numeric
+    into fragment_threshold,fragment_size,overlap from private.takeoff_count_mark_chunking(p_tenant) c;
   other_calls := case when n<=fragment_threshold or n<=fragment_size then 1
     else 1+ceil((n-fragment_size)/(fragment_size-least(fragment_size-1,overlap)))::integer end;
   other_calls := other_calls + private.takeoff_count_mark_classifier_calls(unit,n);

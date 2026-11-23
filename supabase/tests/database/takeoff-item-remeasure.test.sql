@@ -994,12 +994,19 @@ select is(pg_temp.count_choice(15),'{"comparison":false,"measured":null,"count":
   'replaying the generation preserves the verified count and its single available unit');
 select is((select count(*) from public.takeoff_count_mark_proposals where job_id=pg_temp.job(15,pg_temp.plan(1))),
   1::bigint,'replaying the generation preserves its single source');
+select results_eq($$select private.takeoff_fragment_setting(v,1,15) from (values
+  ('1e0'),(' +2.9e0 '),('.9e1'),('0x10'),('0o10'),('0b10'),('1e999'),('0xg'),('-2'),('')) f(v)$$,
+  $$select unnest(array[1,2,9,16,8,2,15,15,15,15]::double precision[])$$,
+  'fragment settings use the application’s finite integer values and fallbacks');
 -- On this tenant two pages form two separate PDF fragments. The agreement can spell two as 2.0.
 insert into public.feature_flags(tenant_id,flag_key,enabled,value) values
-  (pg_temp.f(10),'TAKEOFF_C_CHUNK_THRESHOLD_PAGES',true,'1'),
-  (pg_temp.f(10),'TAKEOFF_C_CHUNK_SIZE_PAGES',true,'1'),
+  (pg_temp.f(10),'TAKEOFF_C_CHUNK_THRESHOLD_PAGES',true,'1e0'),
+  (pg_temp.f(10),'TAKEOFF_C_CHUNK_SIZE_PAGES',true,'1e0'),
   (pg_temp.f(10),'TAKEOFF_C_CHUNK_OVERLAP_PAGES',true,'0')
 on conflict (tenant_id,flag_key) do update set enabled=excluded.enabled,value=excluded.value;
+select is((select private.takeoff_count_mark_schedule(pg_temp.f(10),pg_temp.f(20),m #> '{plans,0}',m #> '{units,0}') -> 'other_calls'
+  from pg_temp.manifest(pg_temp.list(320,array[303]),array[pg_temp.plan(1)]) m),'2'::jsonb,
+  'the released application and SQL plan two one-page fragments for an exponent-form setting');
 select is((select outcome from pg_temp.detail_measure(null,16,303,1,320,
   '{"count_marks":{"pages":[{"page":2,"width_points":700},{"page":7,"width_points":701}],
     "tile_calls":10,"other_calls":2.0,"total_calls":12}}')),'admitted','two real PDF fragments admit other_calls spelled 2.0');
