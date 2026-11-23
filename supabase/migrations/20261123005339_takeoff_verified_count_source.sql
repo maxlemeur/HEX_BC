@@ -577,7 +577,7 @@ begin
       -- already reopens it when the marks have moved.
       (aside.before ->> 'quantity_source' is null or (
         coalesce((aside.before ->> 'marks_revision')::integer, 0) = private.takeoff_count_marks_revision(p.answer_id)
-        and (aside.before ->> 'chosen_entry_revision')::integer is not distinct from nullif(p.plan_entry_revision, 0)))
+        and (aside.before ->> 'chosen_entry_revision')::integer is not distinct from pe.revision))
       and pg_catalog.jsonb_typeof(aside.after -> 'rows') = 'object' and not exists (
         select 1 from pg_catalog.jsonb_each(aside.after -> 'rows') snapshot(row_id, state)
         left join public.takeoff_items i on i.id = snapshot.row_id::uuid
@@ -585,6 +585,9 @@ begin
       aside.before
     from pg_temp.takeoff_review_written w
     join pg_temp.takeoff_review_pairs p on p.answer_id = w.answer_id
+    -- A plan-scoped table exposes this entry on its item, outside the answer pair.
+    left join public.takeoff_item_entries pe on pe.tenant_id = p_tenant_id and pe.project_id = p_project_id
+      and pe.item_id = w.item_id and pe.plan_logical_id = p.plan_logical_id
     left join lateral (
       select ev.command_id, ev.before, ev.after from public.takeoff_item_review_events ev
       where ev.tenant_id = p_tenant_id and ev.project_id = p_project_id and ev.answer_id = w.answer_id and ev.event = 'set_aside'
