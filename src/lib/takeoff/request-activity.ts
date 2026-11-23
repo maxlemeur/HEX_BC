@@ -274,6 +274,7 @@ function toActivityJob(job: TakeoffRequestJobRow, viewer: TakeoffResumeViewer, n
     canCancel: decision.canCancel,
     canResubmit: decision.canResubmit,
     // Read against the list, read to its end and not sent yet, for a member who writes the affaire: the send by item.
+    ...(sendsItems && job.status === "applied" && job.estimate_version_id ? { canRedistributeItems: true } : {}),
     canSendItems: sendsItems && job.status === "completed" && job.estimate_version_id === null,
   };
 }

@@ -1,3 +1,4 @@
+import { redistributionRequestSchema, redistributionResponseSchema } from "@/lib/takeoff/item-redistribution-contracts";
 import { takeoffReviewContextResponseSchema } from "@/lib/takeoff/review-context-contracts";
 import { estimateOfferChoiceInputSchema, estimateOfferChoiceReceiptSchema } from "@/lib/estimates/offer-choice";
 import { estimateEmailReceiptSchema as sharedEstimateSendDataSchema } from "@/lib/email/send-estimate-contract";
@@ -3268,6 +3269,19 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
     requestBody: takeoffItemSendPreviewBody,
     responses: {
       "200": jsonResponse("Apercu de l'envoi par poste.", apiTakeoffItemSendPreviewSchemaDefinition),
+      ...takeoffJobsErrorResponses,
+    },
+  },
+  {
+    method: "post",
+    path: "/api/takeoff/jobs/{jobId}/item-send/redistribution",
+    summary: "Redistribuer les apports confirmés d’un poste du devis",
+    description: "Liste les destinations et postes de l’affaire, prévisualise leur découpage ou confirme l’aperçu sous le bail du membre.",
+    tags: ["Takeoff"],
+    parameters: [takeoffJobIdPathParameter],
+    requestBody: jsonBody({ name: "TakeoffRedistributionRequest", description: "Action et sélection du membre.", schema: redistributionRequestSchema }),
+    responses: {
+      "200": jsonResponse("Sélection, aperçu ou reçu.", successResponseSchemaDefinition("ApiTakeoffRedistributionResponse", redistributionResponseSchema)),
       ...takeoffJobsErrorResponses,
     },
   },

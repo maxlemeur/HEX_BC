@@ -1234,6 +1234,8 @@ select is(extensions.dblink_exec('race_setup', format($lease$begin; delete from 
   insert into public.draft_locks (version_id, user_id, tenant_id, expires_at, session_id)
   values (%1$L, %2$L, %3$L, clock_timestamp() + interval '30 minutes', gen_random_uuid()); commit;$lease$,
   pg_temp.f(730), pg_temp.f(1), pg_temp.tenant())), 'COMMIT', 'the member holds V1''s lease again');
+\ir ../fixtures/takeoff-item-redistribution-races.sql
+\ir ../fixtures/takeoff-item-redistribution-vacated.sql
 insert into plans values ('20-second-reading', pg_temp.plan_into(pg_temp.f(1120), pg_temp.f(730)), null);
 create temp table v1_before as select pg_temp.held_by(pg_temp.f(730)) as held;
 select is(extensions.dblink_exec('race_a', 'begin'), 'BEGIN', 'a tab confirms the second reading''s send into V1');
@@ -1278,8 +1280,9 @@ select is(extensions.dblink_exec('race_setup', format($lease$begin; insert into 
 insert into plans values ('20-third-reading', pg_temp.plan_into(pg_temp.f(1220), (select version_id from copy_one)), null);
 create temp table copy_one_before as select pg_temp.held_by((select version_id from copy_one)) as held;
 select is(extensions.dblink_exec('race_c', 'begin'), 'BEGIN', 'a tab copies the copy');
-select ok((select x.version_id from extensions.dblink('race_c', format($copy$select public.duplicate_estimate_version(%L, false)::text$copy$,
-  (select version_id from copy_one))) as x(version_id text)) is not null, 'copied, not yet committed');
+create temp table copy_two as select x.version_id::uuid from extensions.dblink('race_c',
+  format($copy$select public.duplicate_estimate_version(%L, false)::text$copy$, (select version_id from copy_one))) as x(version_id text);
+select ok((select version_id from copy_two) is not null, 'copied, not yet committed');
 select is(extensions.dblink_send_query('race_b', pg_temp.send_sql(829, '20-third-reading')), 1,
   'the third reading''s send into the first copy is confirmed meanwhile');
 select ok(pg_temp.waits_for('race_b', 'race_c'), 'the send waits for the affaire');
@@ -1288,8 +1291,6 @@ select ok(pg_temp.answered('race_b'), 'the send answers');
 select is((select x.answer::jsonb ->> 'parts_replaced' from extensions.dblink_get_result('race_b', false) as x(answer text)), '1',
   'it is sent into the first copy, replacing the part the copy carried');
 select is((select count(*)::integer from extensions.dblink_get_result('race_b', false) as x(answer text)), 0, 'and is done');
-create temp table copy_two as select v.id as version_id from public.estimate_versions v where v.project_id = pg_temp.f(20)
-  and v.id not in (pg_temp.f(730), (select version_id from copy_one));
 select is(pg_temp.held_by((select version_id from copy_two)), (select held from copy_one_before),
   'the second copy holds the first copy as it was before the send');
 select isnt(pg_temp.held_by((select version_id from copy_one)), (select held from copy_one_before),
@@ -1546,6 +1547,7 @@ select is(pg_temp.followup_scope(array[1,2,3,4,5,6,7,8,9],'measured',fault),
   format('a full send to the surviving copy refuses %s and leaves the line and receipts intact',fault))
 from (values ('older_proof'),('other_quantity')) faults(fault);
 
+\ir ../fixtures/takeoff-item-redistribution-committed.sql
 
 select is(extensions.dblink_exec('race_setup', $cleanup$
 begin;

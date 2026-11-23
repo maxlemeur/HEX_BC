@@ -1781,10 +1781,10 @@ isOneToOne: false
       referencedColumns: ["id"]
     },{
       foreignKeyName: "estimate_items_source_job_id_fkey"
-      columns: ["source_job_id"]
+      columns: ["source_job_id","tenant_id"]
 isOneToOne: false
       referencedRelation: "takeoff_jobs"
-      referencedColumns: ["id"]
+      referencedColumns: ["id","tenant_id"]
     },{
       foreignKeyName: "estimate_items_supply_type_id_fkey"
       columns: ["supply_type_id"]
@@ -4833,14 +4833,14 @@ isOneToOne: false
                   ]
                 },"takeoff_item_send_targets": {
                   Row: {
-                    "basis": string | null,"breakdown": string,"compartment_key": string,"created_at": string,"created_by_receipt_id": string,"diameter": string | null,"estimate_item_id": string | null,"id": string,"item_id": string,"line_kind": string,"material": string | null,"network": string | null,"project_id": string,"tenant_id": string,"unit_code": string,"version_id": string
+                    "basis": string | null,"breakdown": string,"compartment_key": string,"created_at": string,"created_by_receipt_id": string,"diameter": string | null,"estimate_item_id": string | null,"id": string,"item_id": string,"line_kind": string,"material": string | null,"network": string | null,"project_id": string,"tenant_id": string,"unit_code": string,"vacated_compartment_key": string | null,"version_id": string
                   }
                   ComputedFields: never
                   Insert: {
-                    "basis"?: string | null,"breakdown": string,"compartment_key": string,"created_at"?: string,"created_by_receipt_id": string,"diameter"?: string | null,"estimate_item_id"?: string | null,"id"?: string,"item_id": string,"line_kind": string,"material"?: string | null,"network"?: string | null,"project_id": string,"tenant_id": string,"unit_code": string,"version_id": string
+                    "basis"?: string | null,"breakdown": string,"compartment_key": string,"created_at"?: string,"created_by_receipt_id": string,"diameter"?: string | null,"estimate_item_id"?: string | null,"id"?: string,"item_id": string,"line_kind": string,"material"?: string | null,"network"?: string | null,"project_id": string,"tenant_id": string,"unit_code": string,"vacated_compartment_key"?: string | null,"version_id": string
                   }
                   Update: {
-                    "basis"?: string | null,"breakdown"?: string,"compartment_key"?: string,"created_at"?: string,"created_by_receipt_id"?: string,"diameter"?: string | null,"estimate_item_id"?: string | null,"id"?: string,"item_id"?: string,"line_kind"?: string,"material"?: string | null,"network"?: string | null,"project_id"?: string,"tenant_id"?: string,"unit_code"?: string,"version_id"?: string
+                    "basis"?: string | null,"breakdown"?: string,"compartment_key"?: string,"created_at"?: string,"created_by_receipt_id"?: string,"diameter"?: string | null,"estimate_item_id"?: string | null,"id"?: string,"item_id"?: string,"line_kind"?: string,"material"?: string | null,"network"?: string | null,"project_id"?: string,"tenant_id"?: string,"unit_code"?: string,"vacated_compartment_key"?: string | null,"version_id"?: string
                   }
                   Relationships: [
                     {
@@ -6723,6 +6723,9 @@ isOneToOne: false
 "estimate_variant_label_from_index":
 { Args: { "sequence_index": number }; Returns: string
                            },
+"estimate_version_holds_analysis":
+{ Args: { "p_job": string,"p_tenant": string,"p_version": string }; Returns: boolean
+                           },
 "fail_estimate_email_dispatch":
 { Args: { "p_actor_user_id": string,"p_dispatch_id": string,"p_error_code": string,"p_error_message": string,"p_lease_token": string,"p_tenant_id": string }; Returns: {
               "attachment_filename": string | null,
@@ -7659,6 +7662,9 @@ isOneToOne: false
 "preview_estimate_source_coverage_decision":
 { Args: { "p_requirement_id": string,"p_version_id": string }; Returns: Json
                            },
+"preview_takeoff_item_redistribution":
+{ Args: { "p_actor": string,"p_item": string,"p_locations": Json,"p_mode": string,"p_module": boolean,"p_project": string,"p_tenant": string,"p_version": string }; Returns: Json
+                           },
 "price_lookup_options":
 { Args: { "p_kind": string,"p_limit"?: number,"p_q"?: string,"p_selected_id"?: string }; Returns: {
               "id": string,"kind": string,"label": string,"reference": string
@@ -7872,6 +7878,9 @@ isOneToOne: false
               "answered": number,"ended": number,"expected": number,"in_flight": number,"item_id": string,"item_position": number,"matching_items": number,"readings": Json,"state": string
             }[]
                            },
+"read_takeoff_item_redistribution_documents":
+{ Args: { "p_actor": string,"p_item": string,"p_module": boolean,"p_project": string,"p_tenant": string,"p_version": string }; Returns: Json
+                           },
 "read_takeoff_item_send_draft":
 { Args: { "p_job_id": string,"p_project_id": string,"p_tenant_id": string,"p_version_id": string }; Returns: Json
                            },
@@ -8054,6 +8063,9 @@ isOneToOne: false
 { Args: { "p_now": string,"p_stale_after"?: string }; Returns: {
               "error_code": string,"job_id": string
             }[]
+                           },
+"redistribute_takeoff_item":
+{ Args: { "p_actor": string,"p_digest": string,"p_item": string,"p_locations": Json,"p_mode": string,"p_module": boolean,"p_project": string,"p_request": string,"p_tenant": string,"p_version": string }; Returns: Json
                            },
 "refresh_estimate_assembly_rollup":
 { Args: { "p_assembly_id": string }; Returns: undefined

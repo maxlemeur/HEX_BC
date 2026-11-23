@@ -1,7 +1,8 @@
 import { z } from "zod";
 
 import { describeV3EntryRefusal } from "@/lib/estimates/assemblies-server";
-import { TakeoffError, TakeoffErrorCode } from "@/lib/takeoff/errors";
+import { estimateAnalysisOutOfScope } from "@/lib/http/api-response";
+import { TakeoffError, TakeoffErrorCode, toTakeoffError } from "@/lib/takeoff/errors";
 import { listOf } from "@/lib/text/list";
 
 export type ApplyTakeoffRpcError = {
@@ -336,6 +337,7 @@ export function mapApplyTakeoffRpcError(
   error: ApplyTakeoffRpcError,
   input: { jobId: string }
 ): TakeoffError {
+  if (error.code === "M0A01") return toTakeoffError(estimateAnalysisOutOfScope(), { jobId: input.jobId, retryable: false });
   const normalized = [
     error.code ?? "",
     error.message ?? "",

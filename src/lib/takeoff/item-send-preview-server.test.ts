@@ -224,6 +224,12 @@ beforeEach(() => {
 });
 
 describe("previewTakeoffItemSend", () => {
+  it("returns the failed save when the transaction declines the analysis reference", () => {
+    expect(mapItemSendRpcError({ code: "M0A01", message: "database diagnostic" }, JOB)).toMatchObject({
+      status: 400, code: "ESTIMATE_ANALYSIS_OUT_OF_SCOPE", message: "Cette version du devis ne détient pas cette analyse.",
+    });
+  });
+
   it("refuses a takeoff not read against the list: today's send stays the way to send it", async () => {
     for (const sealed of [manifest("free_extraction"), manifest("item_list", 1)]) {
       setUp({ manifest: sealed });

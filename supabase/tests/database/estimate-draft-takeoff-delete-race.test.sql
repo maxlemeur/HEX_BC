@@ -172,10 +172,12 @@ $fixture$,pg_temp.rid(n+100),pg_temp.rid(1),pg_temp.rid(n),pg_temp.rid(n+500),
   case when n=111 then 2 else 3 end,pg_temp.rid(n+300)))
 from generate_series(101,117,2) n;
 
+-- These targets hold the source analysis before the writer tries to retain it.
 select dblink_exec('draft_copy',format($fixture$
   insert into public.takeoff_version_links(tenant_id,takeoff_job_id,source_version_id,target_version_id,linked_by)
   select tenant_id,id,estimate_version_id,%L,%L from public.takeoff_jobs where id=%L;
-$fixture$,pg_temp.rid(n+1),pg_temp.rid(1),pg_temp.rid(n+100))) from (values (103),(107),(115)) batch(n);
+$fixture$,pg_temp.rid(target_version),pg_temp.rid(1),pg_temp.rid(job)))
+from (values (102,201),(104,203),(106,205),(108,207),(109,211),(110,211),(114,213),(116,215)) held(target_version,job);
 
 -- The same persisted A+B line that takeoff-send-outcome obtains with two real confirmations.
 select dblink_exec('draft_copy',format($fixture$
@@ -265,7 +267,7 @@ select is((select receipt #>> '{results,0,code}' from dblink('draft_copy',pg_tem
 select dblink_exec('draft_delete','commit');
 select results_eq($q$select receipt->>'committed',receipt #>> '{results,0,code}'
   from dblink('draft_copy',pg_temp.batch_command(107)) as written(receipt jsonb)$q$,
-  $$values ('false'::text,'ESTIMATE_BATCH_INVALID_INPUT'::text)$$,'after deletion the editor rejects the missing analysis');
+  $$values ('false'::text,'ESTIMATE_ANALYSIS_OUT_OF_SCOPE'::text)$$,'after deletion the editor rejects the missing analysis');
 select is((select count(*) from public.estimate_items where version_id in(pg_temp.rid(106),pg_temp.rid(108)) and item_type='line'),
   0::bigint,'neither losing writer leaves a measured line');
 

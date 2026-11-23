@@ -882,6 +882,13 @@ décision et le refus à l'application.
 - **Provenance périmée.** Une clé d'arrondi, de ligne DPGF ou de remplacement écrite
   par un autre métré que le dernier de la ligne (une fusion ultérieure l'a gardée) ne
   compte pas.
+- Une ligne peut renvoyer à une analyse de son entreprise et de son affaire lorsque sa
+  version détient cette analyse ou en a hérité. Dans une copie de section au moteur 2,
+  la ligne garde ce lien si la version de destination détient l’analyse. Sinon, le badge
+  de provenance conserve le fichier et la page disponibles, sans lien vers l’analyse.
+  La copie conserve la quantité et le prix. Dans une autre affaire, cette ligne compte
+  comme une ligne ordinaire. La page reste disponible pour le premier envoi d’un métré
+  de cette affaire, même si la version source est ensuite supprimée.
 - **Lecture.** `GET /api/takeoff/jobs/{jobId}/page-contributions?version_id=` (la
   version revue ; 404 si elle est illisible ou si le métré n'en fait pas partie), et
   `POST /api/takeoff/page-contributions` avant un lancement. Lecture seule, sous la
@@ -1687,6 +1694,26 @@ de même de la rattacher à une version hors de l'envoi par poste.
   modification), état revu du DPGF (son dernier mappage et l'empreinte de ses lignes), réglages du
   premier brouillon, état des règles de correspondance et contexte d'envoi du lot 3 ; l'ordre de
   lecture des observations n'y change rien. La confirmation est refusée quand l'un d'eux a changé.
+
+### Redistribuer les apports après un envoi
+
+Depuis le plan envoyé ou l’aperçu d’un envoi vers un brouillon existant, un membre qui peut écrire
+dans l’affaire choisit un poste et un découpage. Le brouillon doit utiliser le moteur 3. L’aperçu
+reprend toutes les parts vivantes du poste dans ce brouillon, y compris celles d’autres plans.
+Il montre la page, la quantité brute, la ligne de départ et le compartiment d’arrivée. Les arrondis
+s’appliquent après regroupement. Les niveaux de deux bâtiments restent distincts. Le serveur relit
+la localisation du fichier conservé avec le même lecteur et le même découpage que l’envoi.
+L’aperçu indique pour chaque part l’origine du bâtiment et du niveau. Si le plan a disparu,
+a été remplacé ou ne peut plus être lu, le poste entier attend une décision.
+
+Le membre confirme l’aperçu sous son bail d’édition. Une saisie de quantité, un prix, une section
+personnalisée, une ligne utilisée ailleurs ou supprimée dans l’éditeur demandent une décision.
+Une ligne DPGF garde sa place. Si le devis a changé depuis l’aperçu, le membre relit la proposition.
+
+Chaque part garde son identifiant et ses pages. Le reçu enregistre les cibles quittées et atteintes,
+leurs quantités et les reçus qui ont fourni les parts. Une ligne intacte créée par le métré peut
+être retirée si le membre l’a vue dans la liste des retraits. Sa cible reste dans l’historique.
+Une nouvelle tentative de la même confirmation retrouve le reçu initial.
 
 ## Entrées
 
