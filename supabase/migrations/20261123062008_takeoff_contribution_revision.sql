@@ -850,6 +850,23 @@ $$;
 revoke all on function private.write_takeoff_plan_entries(uuid,uuid,uuid,uuid,timestamptz,uuid,jsonb)
   from public,anon,authenticated,service_role;
 
+-- Inclusion is a member decision distinct from entering or accepting a quantity.
+-- Both entry points retain the author's time and record the includer's own event.
+create function private.include_takeoff_hypothesis(p_tenant uuid,p_project uuid,p_entry uuid,p_actor uuid,
+  p_at timestamptz,p_command uuid) returns void language sql set search_path='' as $$
+  with included as (
+    update public.takeoff_item_entries e set included=true,revision=e.revision+1,command_id=p_command
+    where (e.tenant_id,e.project_id,e.id)=(p_tenant,p_project,p_entry) and e.category='hypothesis' and not e.included
+    returning e.item_id,e.plan_logical_id
+  )
+  insert into public.takeoff_item_review_events(tenant_id,project_id,command_id,item_id,plan_logical_id,
+    event,before,after,actor_id,at)
+  select p_tenant,p_project,p_command,i.item_id,i.plan_logical_id,'entry_included',
+    '{"included":false}','{"included":true}',p_actor,p_at from included i;
+$$;
+revoke all on function private.include_takeoff_hypothesis(uuid,uuid,uuid,uuid,timestamptz,uuid)
+  from public,anon,authenticated,service_role;
+
 create or replace function public.review_takeoff_items(p_tenant_id uuid, p_project_id uuid, p_command jsonb)
 returns jsonb language plpgsql security definer set search_path = '' as $$
 declare
@@ -1355,20 +1372,9 @@ begin
     select (v.value #>> '{}')::uuid, null from pg_catalog.jsonb_array_elements(p_command -> 'apply') v(value);
 
   else -- include_entry
-    with entry_ as (
-      -- The entry keeps its author and its time; the inclusion is journaled as the includer's own decision.
-      update public.takeoff_item_entries e set included = true, revision = e.revision + 1,
-        command_id = this_command
-      from pg_temp.takeoff_review_lines l
-      where e.id = l.scope_entry_id
-        and l.item_id in (select (v.value #>> '{}')::uuid from pg_catalog.jsonb_array_elements(p_command -> 'apply') v(value))
-      returning e.item_id, e.plan_logical_id
-    )
-    insert into public.takeoff_item_review_events (tenant_id, project_id, command_id, item_id, plan_logical_id, event,
-      before, after, actor_id, at)
-    select p_tenant_id, p_project_id, this_command, x.item_id, x.plan_logical_id, 'entry_included',
-      '{"included": false}'::jsonb, '{"included": true}'::jsonb, actor, now_
-    from entry_ x;
+    perform private.include_takeoff_hypothesis(p_tenant_id,p_project_id,l.scope_entry_id,actor,now_,this_command)
+      from pg_temp.takeoff_review_lines l where l.item_id in
+        (select (v.value #>> '{}')::uuid from pg_catalog.jsonb_array_elements(p_command -> 'apply') v(value));
     insert into pg_temp.takeoff_review_written
     select (v.value #>> '{}')::uuid, null from pg_catalog.jsonb_array_elements(p_command -> 'apply') v(value);
   end if;
@@ -1397,16 +1403,17 @@ returns jsonb language plpgsql security definer set search_path='' as $$
 declare
   actor uuid:=auth.uid(); job uuid; answer public.takeoff_item_answers; entry public.takeoff_item_entries;
   prior public.takeoff_item_review_commands; receipt uuid:=gen_random_uuid(); actual jsonb; digest text;
+  include_entry boolean:=p_entry='{"action":"include_entry"}'::jsonb;
   now_ timestamptz:=clock_timestamp(); category_ text:=p_entry->>'category';
 begin
   if private.can_access_takeoff_scope(p_tenant,p_project,null,true) is not true then raise exception 'TAKEOFF_REVISION_SCOPE' using errcode='42501'; end if;
-  if p_intent is null or p_expected_revision is null or p_expected_revision<0 or
+  if p_intent is null or p_expected_revision is null or p_expected_revision<0 or (include_entry is not true and (
     private.takeoff_item_send_keys(p_entry,array['quantity','unit','category'],array['note']) is not true or
     private.takeoff_item_answer_is_number(p_entry->'quantity',0,999999999.999,false,true) is not true or
     private.takeoff_item_answer_is_text(p_entry->'unit',null,16) is not true or
     (category_ in ('site_survey','other_drawing','dpgf_cctp','written_confirmation','documented_calculation','hypothesis')) is not true or
     (p_entry ? 'note' and private.takeoff_item_answer_is_text(p_entry->'note',null,500) is not true) or
-    (category_='hypothesis' and length(trim(coalesce(p_entry->>'note','')))<10) then
+    (category_='hypothesis' and length(trim(coalesce(p_entry->>'note','')))<10))) then
     raise exception 'TAKEOFF_REVISION_INVALID' using errcode='22023';
   end if;
   perform 1 from public.estimate_projects where id=p_project and tenant_id=p_tenant for no key update;
@@ -1435,14 +1442,21 @@ begin
   if exists(select 1 from public.takeoff_item_entries e where e.tenant_id=p_tenant and e.project_id=p_project and e.item_id=answer.item_id and e.plan_logical_id is null) then
     raise exception 'TAKEOFF_REVISION_ENTRY_PROTECTED' using errcode='55000';
   end if;
-  perform private.write_takeoff_plan_entries(p_tenant,p_project,answer.plan_logical_id,actor,now_,receipt,
-    jsonb_build_object('values',jsonb_build_array(p_entry||jsonb_build_object('item_id',answer.item_id)),
-      'apply',jsonb_build_array(answer.item_id),'entry',p_entry));
+  if include_entry then
+    if (entry.category='hypothesis' and not entry.included) is not true then
+      raise exception 'TAKEOFF_REVISION_HYPOTHESIS_REQUIRED' using errcode='55000';
+    end if;
+    perform private.include_takeoff_hypothesis(p_tenant,p_project,entry.id,actor,now_,receipt);
+  else
+    perform private.write_takeoff_plan_entries(p_tenant,p_project,answer.plan_logical_id,actor,now_,receipt,
+      jsonb_build_object('values',jsonb_build_array(p_entry||jsonb_build_object('item_id',answer.item_id)),
+        'apply',jsonb_build_array(answer.item_id),'entry',p_entry));
+  end if;
   select jsonb_build_object('receipt_id',receipt,'entry_id',e.id,'revision',e.revision,'quantity',e.quantity,'unit',e.unit,
     'included',e.included,'amended_receipt_id',p_receipt,'version_id',p_version,'answer_id',p_answer) into strict actual
     from public.takeoff_item_entries e where (e.tenant_id,e.project_id,e.item_id,e.plan_logical_id)=(p_tenant,p_project,answer.item_id,answer.plan_logical_id);
   insert into public.takeoff_item_review_commands(id,tenant_id,project_id,intent_key,actor_id,gesture,command_sha256,outcome)
-    values(receipt,p_tenant,p_project,p_intent,actor,'enter_quantity',digest,actual);
+    values(receipt,p_tenant,p_project,p_intent,actor,case when include_entry then 'include_entry' else 'enter_quantity' end,digest,actual);
   return actual||jsonb_build_object('replayed',false);
 end;
 $$;
@@ -1595,6 +1609,13 @@ returns setof jsonb language sql stable set search_path='' as $$
           and not exists(select 1 from public.takeoff_item_send_parts own
             where own.version_id=p_version and own.answer_id=a.id and own.state='live'))
       and (coalesce(w.revision,0)>coalesce((f.proof->>'work_revision')::integer,0)
+      -- Surface a newly saved shared hypothesis on the addressed reading even
+      -- if its original sent source was a count. Its inclusion changes no line.
+      or (entry.category='hypothesis' and not entry.included
+        and f.proof->>'entry_revision' is distinct from entry.revision::text
+        and exists(select 1 from public.takeoff_item_review_commands cmd
+          where cmd.id=entry.command_id and cmd.tenant_id=a.tenant_id and cmd.project_id=a.project_id
+            and cmd.outcome ? 'amended_receipt_id' and cmd.outcome->>'answer_id'=a.id::text))
       or (lp.parts#>>'{0,kind}'='entered' and lp.parts#>>'{0,entry_id}'=entry.id::text
         and (lp.parts#>>'{0,entry_revision}')::integer<>entry.revision and f.proof->>'entry_revision' is distinct from entry.revision::text)
       or coalesce(e.revision,0)>coalesce((f.proof->>'marks_revision')::integer,lp.marks_revision,0)
@@ -3189,6 +3210,16 @@ begin
       continue;
     end if;
     if change->'ready' is distinct from 'true' then
+      if change#>'{facts,whole_entry}'='true' then
+        blockers:=blockers||jsonb_build_array(jsonb_build_object('reason','affaire_entry','item_id',item,
+          'message','La saisie pour toute l’affaire gouverne ce poste. Pour la corriger, ouvrez la saisie de l’affaire.'));
+        continue;
+      elsif change#>>'{facts,entry,category}'='hypothesis' and change#>'{facts,entry,included}'='false' then
+        blockers:=blockers||jsonb_build_array(jsonb_build_object('reason','hypothesis_not_included','item_id',item,
+          'entry_id',change#>'{facts,entry,id}','entry_revision',change#>'{facts,entry,revision}',
+          'message','Incluez explicitement l’hypothèse saisie pour ce plan avant de choisir la quantité à retenir.'));
+        continue;
+      end if;
       blockers:=blockers||jsonb_build_array(jsonb_build_object('reason','review_required','item_id',item)); continue;
     end if;
     if source_<>'withdraw' and jsonb_array_length(change->'parts')=0 then

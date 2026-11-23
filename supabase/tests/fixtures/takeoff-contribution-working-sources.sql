@@ -220,42 +220,57 @@ select is(pg_temp.review_state_example(),'[true,null,1,"verified_count",2,7,"ent
 
 create function pg_temp.revision_rights(variant text) returns jsonb language plpgsql as $$
 declare m record; tenant_ uuid:=pg_temp.tenant(); project_ uuid:=pg_temp.f(21); version_ uuid; before_ jsonb;
-  read_ jsonb; working_ text; preview_ text; confirm_ text; n integer;
+  read_ jsonb; working_ text; entry_error text; choice_error text; preview_ text; confirm_ text; n integer; proof jsonb;
 begin
   begin
     select * into strict m from revision_mark_request;
     version_:=m.draft;
     perform set_config('request.jwt.claim.sub',pg_temp.f(1)::text,true);
     perform set_config('request.jwt.claims',jsonb_build_object('role','authenticated','sub',pg_temp.f(1))::text,true);
+    select jsonb_build_object('answer_revision',a.content_sha256,'marks_revision',2,'work_revision',0,'plan_entry_revision',null)
+      into strict proof from public.takeoff_item_answers a where a.id=m.answer_id;
     case variant
       when 'tenant' then tenant_:=pg_temp.f(9876);
       when 'affaire' then project_:=pg_temp.f(20);
       when 'viewer' then update public.tenant_memberships set role='viewer' where tenant_id=tenant_ and user_id=pg_temp.f(1);
+      when 'sealed' then set local session_replication_role=replica;
+        update public.estimate_versions set seal_hash=repeat('1',64) where id=version_;
+        set local session_replication_role=origin;
       when 'issued' then set local session_replication_role=replica;
         update public.estimate_versions set status='sent' where id=version_;
         set local session_replication_role=origin;
     end case;
+    set local role authenticated;
+    begin
+      perform public.edit_takeoff_revision_entry(tenant_,project_,version_,m.receipt,m.answer_id,gen_random_uuid(),0,
+        '{"category":"site_survey","quantity":7,"unit":"u"}');
+    exception when others then entry_error:=sqlstate; end;
+    begin
+      perform public.review_takeoff_revision_item(tenant_,project_,version_,m.receipt,m.answer_id,gen_random_uuid(),proof,'{"source":"measured"}');
+    exception when others then choice_error:=sqlstate; end;
     begin
       perform public.edit_takeoff_revision_marks(tenant_,project_,version_,m.receipt,pg_temp.f(9681),m.revisions,m.gestures);
     exception when others then working_:=sqlstate;end;
+    reset role;
     begin
       perform public.preview_takeoff_contribution_revision(tenant_,pg_temp.f(1),project_,version_,m.receipt,true,'{}');
     exception when others then preview_:=sqlstate;end;
     begin
       perform public.confirm_takeoff_contribution_revision(tenant_,pg_temp.f(1),project_,version_,m.receipt,true,pg_temp.f(9682),repeat('1',64),'{}');
     exception when others then confirm_:=sqlstate;end;
-    if variant='issued' then read_:=public.read_takeoff_contribution_revision(tenant_,project_,version_,pg_temp.job(21),array[pg_temp.f(310)]);end if;
+    if variant in ('issued','sealed') then read_:=public.read_takeoff_contribution_revision(tenant_,project_,version_,pg_temp.job(21),array[pg_temp.f(310)]);end if;
     select count(*) into n from public.takeoff_item_send_receipts where amends_receipt_id=m.receipt;
-    before_:=jsonb_build_array(working_,preview_,confirm_,n,case when variant='issued' then read_->'editable' end);
+    before_:=jsonb_build_array(working_,entry_error,choice_error,preview_,confirm_,n,case when variant in ('issued','sealed') then read_->'editable' end);
     raise exception using errcode='P4444';
   exception when sqlstate 'P4444' then return before_;when others then return jsonb_build_object('error',sqlerrm);end;
 end;
 $$;
-select is(pg_temp.revision_rights(variant),jsonb_build_array(code,code,code,0,editable),
-  format('working marks, revision preview and confirmation recheck %s with zero receipts written',variant))
-from (values ('tenant','42501',null::boolean),('affaire','42501',null),('viewer','42501',null),('issued','55000',false)) cases(variant,code,editable);
+select is(pg_temp.revision_rights(variant),jsonb_build_array(code,code,code,code,code,0,editable),
+  format('working marks, entry, source choice, preview and confirmation recheck %s with zero receipts written',variant))
+from (values ('tenant','42501',null::boolean),('affaire','42501',null),('viewer','42501',null),('issued','55000',false),('sealed','55000',false)) cases(variant,code,editable);
 
 select is(pg_temp.length_to_count_line(),
   '["line_unit_changed",true,"u","TAKEOFF_REVISION_DECISION_REQUIRED",1,1,"m","live"]'::jsonb,
   'changing a length line to a count blocks the measured replacement under the same unit rule');
 \ir takeoff-revision-precision.sql
+\ir takeoff-revision-include-hypothesis.sql
