@@ -139,15 +139,15 @@ describe("Correction d’un apport de plan au devis", () => {
       await screen.getByRole("dialog").getByRole("button", "Retirer le repère", { exact: true }).click();
       await grid.press("p");
       await screen.getByRole("button", "Enregistrer (2)").click();
-      await expect(detail.getByTestId("revision-detail")).toContainText("2 u");
-      await expect(detail.getByTestId("revision-detail")).toContainText("Correction à confirmer");
+      const expectQuantities = async (container: typeof detail) => {
+        await expect(container.getByRole("group", "Déjà envoyé · V1", { exact: true })).toContainText("3 u · comptage vérifié");
+        await expect(container.getByRole("group", "Correction à confirmer", { exact: true })).toContainText("2 u · comptage vérifié");
+      };
+      await expectQuantities(detail.getByTestId("revision-detail"));
       await app.open(table);
       await waitForHydration(ui.browser);
       const row = ui.locator(`[data-testid="poste-${itemId}"]`);
-      await expect(row).toContainText("Déjà envoyé");
-      await expect(row).toContainText("3 u");
-      await expect(row).toContainText("Correction à confirmer");
-      await expect(row).toContainText("2 u");
+      await expectQuantities(row);
       await openDetail();
       const openPreview = screen.getByRole("button", "Prévisualiser la correction");
       await expect(openPreview).toBeVisible();

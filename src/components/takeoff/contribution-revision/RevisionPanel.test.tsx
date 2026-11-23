@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { expect, it, vi } from "vitest";
 import { RevisionPanel } from "./RevisionPanel";
 import { requestContributionRevision } from "@/lib/takeoff/client";
@@ -135,4 +135,66 @@ it("asks again when the same typed line now holds a different quantity", async (
   await screen.findByText(/Le devis a changé.*choix encore applicables/);
   expect(screen.getByRole("button", { name: "Conserver la saisie (9)" })).toBeVisible();
   expect(call).toHaveBeenLastCalledWith("job", expect.objectContaining({ action: "preview", choices: {} }));
+});
+
+function showQuantities() {
+  const item = version.items[0];
+  render(
+    <RevisionPanel
+      version={version}
+      item={{
+        ...item,
+        sent: [
+          {
+            id: "part",
+            kind: "verified_count",
+            quantity: 3,
+            unit: "u",
+            pages: [2],
+            marks_revision: 1,
+            entry_revision: null,
+            line_title: "Lavabo",
+            estimate_item_id: "line",
+          },
+        ],
+        correction: { quantity: 7, source: "entered", ready: true, marks_revision: 2 },
+        sources: {
+          ...item.sources,
+          measured_unit: "m",
+          reference: 1,
+          entry: { id: "entry", quantity: 7, unit: "u", category: "site_survey", included: true, note: null },
+        },
+      }}
+      viewer="actor"
+      planId="plan"
+      editable
+      measuredAnswer
+      onItem={() => {}}
+      refresh={async () => version}
+      onRefused={() => false}
+    />,
+  );
+}
+
+it("associates each unavailable source with its visible explanation", () => {
+  showQuantities();
+  for (const [name, reason] of [
+    ["Retenir la mesure (2 m)", "L’unité diffère de celle du poste."],
+    ["Conserver la saisie du plan (7 u)", "Cette quantité dépasse la tolérance de la référence DPGF."],
+  ]) {
+    const button = screen.getByRole("button", { name });
+    expect(button).toBeDisabled();
+    expect(screen.getByText(reason)).toBeVisible();
+    expect(button).toHaveAccessibleDescription(reason);
+  }
+});
+
+it("puts each quantity and source in its own named state", () => {
+  showQuantities();
+  expect(
+    within(screen.getByRole("group", { name: "Déjà envoyé · V1" })).getByText(/3 u · comptage vérifié/),
+  ).toBeVisible();
+  expect(
+    within(screen.getByRole("group", { name: "Correction à confirmer" })).getByText("7 u · saisie du plan"),
+  ).toBeVisible();
 });

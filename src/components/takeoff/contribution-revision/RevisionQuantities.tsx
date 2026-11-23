@@ -1,3 +1,4 @@
+import { useId } from "react";
 import type { RevisionItem } from "@/lib/takeoff/contribution-revision-contracts";
 
 export const sourceNames = {
@@ -13,6 +14,8 @@ export function quantity(value: number | null, unit?: string | null) {
 }
 
 export function RevisionQuantities({ item, version }: { item: RevisionItem; version: number }) {
+  const sentHeading = useId();
+  const pendingHeading = useId();
   const pending = item.correction;
   const units = {
     entered: item.sources.entry?.unit,
@@ -28,8 +31,8 @@ export function RevisionQuantities({ item, version }: { item: RevisionItem; vers
   );
   return (
     <div className="my-1 flex flex-wrap gap-x-4 gap-y-1 text-xs" aria-label={`Apport du devis V${version}`}>
-      <div>
-        <strong>Déjà envoyé · V{version}</strong>
+      <div role="group" aria-labelledby={sentHeading}>
+        <strong id={sentHeading}>Déjà envoyé · V{version}</strong>
         {item.sent.length > 1 && item.sent.every((part) => part.unit === item.sent[0].unit) && (
           <div>
             Total de{" "}
@@ -52,8 +55,8 @@ export function RevisionQuantities({ item, version }: { item: RevisionItem; vers
         )}
       </div>
       {pending && (
-        <div>
-          <strong>Correction à confirmer</strong>
+        <div role="group" aria-labelledby={pendingHeading}>
+          <strong id={pendingHeading}>Correction à confirmer</strong>
           <div>
             {quantity(pending.quantity, pending.source ? units[pending.source] : item.sources.unit)}
             {pending.source && ` · ${sourceNames[pending.source]}`}

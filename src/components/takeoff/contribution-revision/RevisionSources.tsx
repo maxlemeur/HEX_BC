@@ -36,6 +36,7 @@ export function RevisionSources({
   const [note, setNote] = useState(sources.entry?.note ?? "");
   const [reason, setReason] = useState<Extract<Choose, { source: "withdraw" }>["reason"] | "">("");
   const [withdrawNote, setWithdrawNote] = useState("");
+  const sourceId = useId();
   const justificationError = useId();
   const input = Number(amount.trim().replace(",", "."));
   const trimmedNote = note.trim();
@@ -87,22 +88,25 @@ export function RevisionSources({
                 ],
                 ["entered", "Conserver la saisie du plan", sources.entry?.quantity, sources.entry?.unit],
               ] as const
-            ).map(
-              ([source, label, qty, u]) =>
-                qty != null &&
-                qty > 0 && (
+            ).map(([source, label, qty, u]) => {
+              if (qty == null || qty <= 0) return null;
+              const reason = unavailable(source, qty, u);
+              const descriptionId = reason ? `${sourceId}-${source}` : undefined;
+              return (
+                <div key={source}>
                   <Button
-                    key={source}
                     variant="outline"
                     size="xs"
-                    disabled={!!unavailable(source, qty, u)}
-                    title={unavailable(source, qty, u) ?? undefined}
+                    disabled={!!reason}
+                    aria-describedby={descriptionId}
                     onClick={() => onChoose({ source })}
                   >
                     {label} ({quantity(qty, u)})
                   </Button>
-                ),
-            )}
+                  {reason && <p className="text-xs" id={descriptionId}>{reason}</p>}
+                </div>
+              );
+            })}
           </div>
           <details>
             <summary>Corriger la saisie du plan</summary>
