@@ -41,7 +41,8 @@ export default async function AffaireTakeoffReviewPage({ params, searchParams }:
   const link = readTakeoffReviewLink({ projectId: projectId.toLowerCase(), jobId: jobId.toLowerCase() }, search);
   const facts = await readTakeoffReviewLinkFacts({ supabase: context.supabase, tenantId: context.tenantId,
     projectId: link.projectId, jobId: link.jobId, versionId: scope.versionId, line: link.line ?? null });
-  const destination = resolveTakeoffReviewLink(link, facts);
+  // What the review would render is decided with the version it opens in (the link's, else the job's own).
+  const destination = resolveTakeoffReviewLink(link, facts, { versionId: scope.versionId });
   if (destination.kind !== "historical") redirect(destination.href);
 
   return (

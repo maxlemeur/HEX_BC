@@ -91,4 +91,18 @@ describe("the comparison of two readings", () => {
     expect(screen.getByRole("link", { name: "le tableau des postes" })).toHaveAttribute("href", `/dashboard/affaires/${PROJECT}/takeoff`);
     expect(patchTakeoffItems).not.toHaveBeenCalled();
   });
+
+  // The automated review of #501's merge: switching mode on a list job's comparison kept `view=compare` and rendered the
+  // validation or assisted panel, with their verification and exclusion gestures. The switch is not offered there.
+  it("offers no switch of the review's mode on the comparison of a reading of the list, and keeps it for a first-format one", async () => {
+    render(<TakeoffReviewPage projectId={PROJECT} jobId={JOB} versionId={VERSION} canEdit readsItemList />);
+    await screen.findByRole("heading", { name: "Résumé des changements" });
+    expect(screen.queryByRole("tab", { name: /^Validation/ })).toBeNull();
+    expect(screen.queryByRole("tab", { name: /^Assisté/ })).toBeNull();
+    cleanup();
+    render(<TakeoffReviewPage projectId={PROJECT} jobId={JOB} versionId={VERSION} canEdit />);
+    await screen.findByRole("heading", { name: "Résumé des changements" });
+    expect(screen.getByRole("tab", { name: /^Validation/ })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: /^Assisté/ })).toBeInTheDocument();
+  });
 });

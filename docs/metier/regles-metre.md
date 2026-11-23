@@ -600,11 +600,16 @@ l’autorisation, l’écran d’arrivée vérifie de nouveau.
   ainsi : quelle analyse, ce qu’il en montre, et les avertissements que sa lecture a gardés
   (ouvrages vus hors de la liste, lectures écartées), que sa revue montrait.
 - Deux adresses restent celles d’aujourd’hui pour toute analyse : sa revue ciblée, écran de
-  correction que le détail d’une ligne du tableau ouvre pendant le lot 4, et la comparaison
-  de deux lectures (`view=compare`), lecture de l’historique. Pour une analyse lue contre la
-  liste, la comparaison ne propose ni sélection ni « Appliquer la sélection » : elle dit que
-  ses lignes se corrigent dans la revue ciblée et ses postes se décident dans le tableau ;
-  celle d’une analyse du premier format garde son geste d’aujourd’hui.
+  correction que le détail d’une ligne du tableau ouvre pendant le lot 4, et une adresse que
+  la revue affiche comme la comparaison de deux lectures, lecture de l’historique (le mode
+  « Production » sur `view=compare`, dans une version : la règle de
+  [`review-view.ts`](../../src/lib/takeoff/review-view.ts), que la revue et le résolveur
+  lisent toutes deux). Pour une analyse lue contre la liste, `view=compare` dans un autre mode
+  (« Validation », par défaut, ou « Assisté ») ou sans version afficherait son ancienne revue
+  modifiable : cette adresse mène au tableau comme les autres. Sa comparaison ne propose ni
+  changement de mode, ni sélection, ni « Appliquer la sélection » : elle dit que ses lignes se
+  corrigent dans la revue ciblée et ses postes se décident dans le tableau ; celle d’une
+  analyse du premier format garde ses modes et son geste d’aujourd’hui.
 - L’envoi par poste d’une analyse lue contre la liste (« Envoyer ce plan au devis ») reste
   atteignable de partout où il est offert : sa ligne dans l’analyse des plans, le tableau des
   postes filtré sur son plan (là où mènent les liens de sa revue), sa revue ciblée et, de sa

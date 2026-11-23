@@ -38,6 +38,7 @@ import {
 } from "@/components/takeoff/review/TakeoffReviewChrome";
 import { TAKEOFF_COMPARISON_DEFERRED, TAKEOFF_CROSS_JOB_COMPARISON_LABEL, takeoffApplyReadiness } from "@/lib/takeoff/apply-readiness";
 import { takeoffReviewHref } from "@/lib/takeoff/review-href";
+import { takeoffReviewActiveTab, takeoffReviewMode } from "@/lib/takeoff/review-view";
 import {
   getStatusCss,
   getStatusLabel,
@@ -177,18 +178,8 @@ export default function TakeoffReviewPage({
   const reviewModeParam = searchParams.get("reviewMode");
   useAssistantScreen({ projectId, screen: { screen: "takeoff_review", versionId: versionId ?? undefined, jobId } });
 
-  const currentReviewMode: ReviewMode = useMemo(() => {
-    if (
-      reviewModeParam === "assisted" ||
-      reviewModeParam === "production" ||
-      reviewModeParam === "validation"
-    ) {
-      return reviewModeParam;
-    }
-    return "validation";
-  }, [reviewModeParam]);
-
-  const isShowingSimplified = currentReviewMode === "assisted";
+  // What the address renders, by the one rule the review link's resolver reads too (review-view.ts).
+  const currentReviewMode: ReviewMode = takeoffReviewMode(reviewModeParam);
 
   const setReviewMode = useCallback(
     (mode: ReviewMode) => {
@@ -225,14 +216,9 @@ export default function TakeoffReviewPage({
   const compareWithParam = searchParams.get("compareWith");
   const thresholdParam = searchParams.get("threshold");
   const dpgfViewParam = searchParams.get("dpgfView");
-  const requestedTab: ViewTab =
-    viewParam === "tables" || viewParam === "items" || viewParam === "compare" || viewParam === "dpgf"
-      ? viewParam
-      : "items";
   const dpgfCompareView: TakeoffDpgfComparisonView =
     dpgfViewParam === "exceptions_only" ? "exceptions_only" : "all";
-  const activeTab: ViewTab = isShowingSimplified || (!versionId && (requestedTab === "dpgf" || requestedTab === "compare"))
-    ? "items" : requestedTab;
+  const activeTab: ViewTab = takeoffReviewActiveTab({ reviewMode: reviewModeParam, view: viewParam, versionId });
 
   const compareWithJobId = useMemo(() => {
     if (!versionId || !compareWithParam) return null;
@@ -1148,10 +1134,14 @@ export default function TakeoffReviewPage({
             </>
           }
         />
-        <TakeoffReviewModeSwitch
-          mode={currentReviewMode}
-          onModeChange={setReviewMode}
-        />
+        {/* A reading of the list opens here only as its comparison, read only: another mode would render its old
+            editable review (the resolver sends those addresses to the table), so none is offered. */}
+        {readsItemList ? null : (
+          <TakeoffReviewModeSwitch
+            mode={currentReviewMode}
+            onModeChange={setReviewMode}
+          />
+        )}
       </ProductionRibbon>
 
       <div

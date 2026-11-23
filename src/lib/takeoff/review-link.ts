@@ -7,6 +7,7 @@ import {
   takeoffReviewHref,
   type TakeoffReviewHrefInput,
 } from "./review-href";
+import { takeoffReviewRendersComparison } from "./review-view";
 
 /**
  * Where a link to a takeoff's review lands (lot 4, the entries): one resolver for every review link a member can hold
@@ -25,7 +26,9 @@ import {
  *   list since, which the table and the detail, reading the latest list, cannot show). The table names why it opened so
  *   (`lien`, `lienAnalyse`).
  * - Two addresses stay for every job: the targeted review (the correction screen the table's line detail opens while
- *   lot 4 keeps it) and the comparison of two readings (`view=compare`, a read of history).
+ *   lot 4 keeps it) and an address the review renders as the comparison of two readings (a read of history:
+ *   « Production » on `view=compare`, in a version, as review-view.ts decides it for the review itself). A list job's
+ *   `view=compare` in another mode, or without a version, renders its old editable review: it lands on the table.
  *
  * Nothing of the old review's address travels to the table (its mode, view, line, version): an address selects a view,
  * never a selection, a decision or a right, and stays in the link's affaire.
@@ -71,8 +74,14 @@ function itemTableHref(projectId: string, view: { planKey?: string | null; decis
   return `${takeoffPath(projectId)}${search ? `?${search}` : ""}`;
 }
 
-export function resolveTakeoffReviewLink(link: TakeoffReviewHrefInput, facts: TakeoffLinkJobFacts): TakeoffLinkDestination {
-  if (!facts.readsList || link.targeted || link.view === "compare") return { kind: "historical", href: takeoffReviewHref(link) };
+/**
+ * `rendering.versionId` is the version the review opens in (the link's, else the job's own, as its access check resolves
+ * it); without it, the link's.
+ */
+export function resolveTakeoffReviewLink(link: TakeoffReviewHrefInput, facts: TakeoffLinkJobFacts,
+  rendering: { versionId: string | null } = { versionId: link.versionId ?? null }): TakeoffLinkDestination {
+  const comparison = takeoffReviewRendersComparison({ reviewMode: link.reviewMode, view: link.view, versionId: rendering.versionId });
+  if (!facts.readsList || link.targeted || comparison) return { kind: "historical", href: takeoffReviewHref(link) };
   const notice = (kind: TakeoffLinkNoticeKind) => ({ kind, jobId: link.jobId });
   if (link.line) {
     if (facts.line?.withdrawn) return { kind: "table", href: itemTableHref(link.projectId, { planKey: facts.planKey }, notice("retire")) };

@@ -10,6 +10,7 @@ import {
   type TakeoffLinkJobFacts,
 } from "@/lib/takeoff/review-link";
 import { takeoffReviewHref, type TakeoffReviewHrefInput } from "@/lib/takeoff/review-href";
+import { takeoffReviewRendersComparison } from "@/lib/takeoff/review-view";
 
 // Every way into a takeoff a member can hold today (lot 4, PR 6a), written as the screens of main write it, and where it
 // must land: a job of the first format opens what it opened, as the same string; a job read against the affaire's list
@@ -197,11 +198,13 @@ describe("review of #501", () => {
     expect(readTakeoffLinkNotice(new URLSearchParams(notice("retire")))).toEqual({ kind: "retire", jobId: JOB });
   });
 
-  it("never redirects an address that asks for the comparison of two readings, for a list job as for any other", () => {
-    expect(resolveTakeoffReviewLink({ projectId: PROJECT, jobId: JOB, versionId: VERSION, view: "compare", compareWith: OTHER }, listJob()))
-      .toEqual({ kind: "historical", href: `${REVIEW}?versionId=${VERSION}&view=compare&compareWith=${OTHER}` });
-    for (const query of [`versionId=${VERSION}&view=compare&compareWith=${OTHER}`,
-      `versionId=${VERSION}&reviewMode=production&view=compare&compareWith=${OTHER}&threshold=0.8`, `versionId=${VERSION}&view=compare`]) {
+  it("never redirects an address that renders the comparison of two readings, for a list job as for any other", () => {
+    expect(resolveTakeoffReviewLink({ projectId: PROJECT, jobId: JOB, versionId: VERSION, reviewMode: "production", view: "compare",
+      compareWith: OTHER }, listJob()))
+      .toEqual({ kind: "historical", href: `${REVIEW}?versionId=${VERSION}&reviewMode=production&view=compare&compareWith=${OTHER}` });
+    for (const query of [`versionId=${VERSION}&reviewMode=production&view=compare&compareWith=${OTHER}`,
+      `versionId=${VERSION}&reviewMode=production&view=compare&compareWith=${OTHER}&threshold=0.8`,
+      `versionId=${VERSION}&reviewMode=production&view=compare`]) {
       const link = read(query);
       for (const facts of [FIRST_FORMAT, listJob(), listJob(null, null)]) {
         expect(resolveTakeoffReviewLink(link, facts), query).toEqual({ kind: "historical", href: `${REVIEW}?${query}` });
@@ -234,5 +237,43 @@ describe("review of #501, second round", () => {
     // A line or a version written with spaces is not the identifier either (the access check refuses such a version).
     expect(read(`line=%20${LINE}`)).toEqual({ projectId: PROJECT, jobId: JOB, line: ` ${LINE}` });
     expect(read(`versionId=${VERSION}%20`)).toEqual({ projectId: PROJECT, jobId: JOB, versionId: `${VERSION} ` });
+  });
+});
+
+// The automated review of #501's merge: the comparison's exception covered `view=compare` in any mode, but only
+// « Production » renders the comparison (with a version to compare in); in « Validation » (the default) or « Assisté » the
+// same address opened the old editable review of a list job, by a mode switch or a typed address. The exception is for an
+// address that renders the comparison, as the review decides it (review-view.ts).
+describe("review of #501, the comparison's exception", () => {
+  const OTHER = "99999999-9999-4999-8999-999999999999";
+  const read = (query: string) => readTakeoffReviewLink({ projectId: PROJECT, jobId: JOB }, new URLSearchParams(query));
+
+  it("lands a list job's comparison address that the review does not render as a comparison on the plan's table", () => {
+    for (const query of [`versionId=${VERSION}&reviewMode=validation&view=compare&compareWith=${OTHER}`,
+      `versionId=${VERSION}&reviewMode=assisted&view=compare&compareWith=${OTHER}`, `versionId=${VERSION}&view=compare&compareWith=${OTHER}`,
+      `versionId=${VERSION}&view=compare`]) {
+      expect(resolveTakeoffReviewLink(read(query), listJob()), query)
+        .toEqual({ kind: "table", href: `${TAKEOFF}?postePlan=${PLAN}&${notice("analyse")}` });
+      // A first-format job is never redirected, in any mode.
+      expect(resolveTakeoffReviewLink(read(query), FIRST_FORMAT), query).toEqual({ kind: "historical", href: `${REVIEW}?${query}` });
+    }
+  });
+
+  it("keeps the comparison where the review renders it: « Production », with the version the review opens in", () => {
+    const production = `reviewMode=production&view=compare&compareWith=${OTHER}`;
+    // The link names no version: the review opens in the job's own, and renders the comparison there.
+    expect(resolveTakeoffReviewLink(read(production), listJob(), { versionId: VERSION }).kind).toBe("historical");
+    // No version at all: the review shows its items instead of a comparison.
+    expect(resolveTakeoffReviewLink(read(production), listJob(), { versionId: null }))
+      .toEqual({ kind: "table", href: `${TAKEOFF}?postePlan=${PLAN}&${notice("analyse")}` });
+    expect(resolveTakeoffReviewLink(read(production), FIRST_FORMAT, { versionId: null }).kind).toBe("historical");
+  });
+
+  it("decides what the review renders from one rule, shared with the review", () => {
+    for (const [mode, view, versionId, renders] of [["production", "compare", VERSION, true], ["production", "compare", null, false],
+      [undefined, "compare", VERSION, false], ["validation", "compare", VERSION, false], ["assisted", "compare", VERSION, false],
+      ["production", "items", VERSION, false]] as const) {
+      expect(takeoffReviewRendersComparison({ reviewMode: mode, view, versionId }), `${mode} ${view} ${versionId}`).toBe(renders);
+    }
   });
 });

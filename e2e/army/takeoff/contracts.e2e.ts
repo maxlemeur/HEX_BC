@@ -619,6 +619,11 @@ select 'JOBS_ON_VERSION';`);
     await expect(screen.getByRole("checkbox", "Tout sélectionner (visible)", { exact: true })).toHaveCount(0);
     await expect(screen.getByRole("link", "la revue ciblée", { exact: true }))
       .toHaveAttribute("href", `${review}/targeted?versionId=${version}`);
+    // No other mode is offered there: « Validation » or « Assisté » would render its old editable review.
+    await expect(screen.getByRole("tab", "Validation : Exceptions et couverture", { exact: true })).toHaveCount(0);
+    // The same comparison asked in a mode that does not render it lands on the plan's table, like the job's other addresses.
+    await app.open(`${review}?versionId=${version}&reviewMode=validation&view=compare&compareWith=${earlierJob}`);
+    await expect(ui.browser).toHaveURL(`${takeoff}?postePlan=${plan}&lien=analyse&lienAnalyse=${seeded.jobId}`);
     await app.open(`${review}?versionId=${version}`);
     await expect(ui.browser).toHaveURL(`${takeoff}?postePlan=${plan}&lien=analyse&lienAnalyse=${seeded.jobId}`);
     // Not here: an estimate line fed by an item withdrawn from the list since. Its live target is written only by the send
