@@ -326,6 +326,7 @@ export type ItemSendNotSent = { itemId: string; label: string; reason: ItemSendN
 export type ItemSendPartNotSent = {
   itemId: string;
   kind: ItemSendSource;
+  marksRevision?: number;
   observationIds: string[];
   pages: number[];
   quantity: number;
@@ -424,7 +425,7 @@ export type ItemSendWritePlan = {
   page_contributions: Array<{ page: number; item_ids: string[]; target_keys: string[]; observation_ids: string[] }>;
   page_decisions: Array<{ page: number | null; decision: "replace" | "keep_both"; reason_code: string | null; note: string | null }>;
   left_out: Array<{ item_id: string; reason: ItemSendNotSentReason; rule_id: string | null; rule_version: string | null }>;
-  parts_not_sent: Array<{ item_id: string; kind: ItemSendSource; observation_ids: string[]; pages: number[]; quantity: number;
+  parts_not_sent: Array<{ item_id: string; kind: ItemSendSource; marks_revision?: number; observation_ids: string[]; pages: number[]; quantity: number;
     unit: string | null; reason: ItemSendPartNotSent["reason"] }>;
   /** What the plan was computed from: the writer reads each again under its locks and refuses the plan when one moved. */
   dependencies: {
@@ -674,6 +675,7 @@ export function planTakeoffItemSend(input: ItemSendInput): ItemSendPlan {
     return choice;
   };
   const partOut = (item: ItemSendListItem, part: Part, reason: ItemSendPartNotSent["reason"]) => result.partsNotSent.push({ itemId: item.id,
+    ...(part.kind === "verified_count" && part.answer.verifiedCount ? { marksRevision: part.answer.verifiedCount.marksRevision } : {}),
     kind: part.kind, observationIds: [...part.observationIds], pages: [...part.pages], quantity: part.quantity, unit: part.unit, reason });
   const notSent = (item: ItemSendListItem, reason: ItemSendNotSentReason, parts: readonly Part[] = []) => {
     result.notSent.push({ itemId: item.id, label: item.label, reason,
@@ -1267,6 +1269,7 @@ function writePlanOf(input: ItemSendInput, plan: ItemSendPlan, destination: Excl
       return { item_id: entry.itemId, reason: entry.reason, rule_id: rule?.ruleId ?? null, rule_version: rule?.ruleVersion ?? null };
     }),
     parts_not_sent: plan.partsNotSent.map((part) => ({ item_id: part.itemId, kind: part.kind, observation_ids: [...part.observationIds].sort(byText),
+      ...(part.marksRevision === undefined ? {} : { marks_revision: part.marksRevision }),
       pages: part.pages, quantity: part.quantity, unit: part.unit, reason: part.reason }))
       .sort((left, right) => byText(canonical(left), canonical(right))),
     dependencies: {

@@ -661,6 +661,99 @@ select is(pg_temp.restore_surviving_plan_entry(),'["applied","applied",7,"entere
   'the user can explicitly retain the surviving typed 7 after the last verified mark is removed');
 
 
+create function pg_temp.omitted_count(skip_proof_revision integer default null, false_reason text default null, rule_kind text default 'contains') returns jsonb language plpgsql as $$
+declare
+ a uuid := (select id from public.takeoff_item_answers where item_id=pg_temp.f(311));
+ t uuid:=pg_temp.tenant(); p uuid:= pg_temp.f(21); actor_ uuid:=pg_temp.f(1);
+ scope_ jsonb:=jsonb_build_object('scope', jsonb_build_object('kind','plan','plan_logical_id',pg_temp.plan_file(21)));
+ choice jsonb; r jsonb; result_ jsonb; body_ jsonb;
+begin
+ begin
+ perform set_config('request.jwt.claims',jsonb_build_object('role','authenticated','sub',actor_)::text,true);
+ perform set_config('request.jwt.claim.sub',actor_::text,true);
+ perform public.edit_takeoff_count_marks(t,p,pg_temp.f(7012),jsonb_build_object(a,0),jsonb_build_array(
+   jsonb_build_object('op','add','answer_id',a,'key',pg_temp.f(7013),'page',2,'x',0.7,'y',0.8,
+   'geometry','{"version":1,"view_box":[0,0,100,100],"rotation":0,"user_unit":1,"width":100,"height":100}'::jsonb),
+   jsonb_build_object('op','verify','answer_id',a,'pages','[2,7]'::jsonb)));
+ choice:=pg_temp.cmd('accept_measured',7014,array[311],scope_||jsonb_build_object('quantity_choice',
+    jsonb_build_object('source','verified_count','alternative_quantity',null::integer,'verified_quantity',1)));
+ choice:=jsonb_set(jsonb_set(choice,'{targets,0,entry_revision}','0'::jsonb),'{targets,0,answers,0,entry_revision}','0');
+ r:=public.review_takeoff_items(t,p,choice);
+ if (r ->> 'outcome') is distinct from 'applied' then raise exception 'setup count %',r; end if;
+   r:=public.review_takeoff_items(t,p,pg_temp.choose_quantity(7016,'measured'));
+   if (r ->> 'outcome') is distinct from 'applied' then raise exception 'setup measure %',r; end if;
+   body_:=pg_temp.plan(21,null,310,2,pg_temp.payload(721))||jsonb_build_object('left_out',jsonb_build_array(
+     jsonb_build_object('item_id',pg_temp.f(311),'reason','not_found')));
+   if skip_proof_revision is not null then
+     insert into public.takeoff_mapping_rules(id,tenant_id,name,match_pattern,match_type,action,action_params,priority,is_active)
+       select pg_temp.f(7020),t,'Hors lot',case when rule_kind = 'regex' then '^Poste' else item.label end,rule_kind,'skip','{}',1,true
+       from public.takeoff_list_revision_entries item where item.item_id=pg_temp.f(311)
+         and item.revision_id=(select list_revision_id from public.takeoff_item_answers where id=a);
+     body_ := jsonb_set(body_,'{dependencies,stamps,mapping}',to_jsonb(public.takeoff_mapping_rules_stamp(t)));
+     body_ := jsonb_set(body_,'{dependencies,rules}',(select jsonb_build_array(jsonb_build_object('item_id',pg_temp.f(311),
+       'rule_id',rule.id,'rule_version',rule.updated_at,'action','skip','effect','skipped'))
+       from public.takeoff_mapping_rules rule where rule.id=pg_temp.f(7020)));
+     body_ := jsonb_set(body_,'{left_out}',jsonb_build_array(jsonb_build_object('item_id',pg_temp.f(311),
+       'reason','rule_skip','rule_id',pg_temp.f(7020))));
+     body_ := jsonb_set(body_,'{parts_not_sent}',jsonb_build_array(jsonb_build_object('item_id',pg_temp.f(311),
+       'kind','verified_count','marks_revision',skip_proof_revision,'observation_ids','[]'::jsonb,'quantity',1,
+       'unit','u','pages','[2]'::jsonb,'reason','rule_skip')));
+   end if;
+   if false_reason in ('unrelated_rule','shadowed','withdrawn','stale_stamp') then
+     if false_reason = 'shadowed' then
+       insert into public.takeoff_mapping_rules(id,tenant_id,name,match_pattern,match_type,action,action_params,priority,is_active)
+         select pg_temp.f(7021),t,'Catégorie',r.match_pattern,'exact','rename','{"designation":"Autre"}',0,true
+           from public.takeoff_mapping_rules r where r.id = pg_temp.f(7020);
+     elsif false_reason = 'withdrawn' then
+       update public.takeoff_mapping_rules set is_active = false where id = pg_temp.f(7020);
+     elsif false_reason = 'unrelated_rule' then
+       update public.takeoff_mapping_rules set match_pattern = 'Autre poste fictif' where id = pg_temp.f(7020);
+     end if;
+     body_ := jsonb_set(body_,'{dependencies,stamps,mapping}',case when false_reason = 'stale_stamp' then to_jsonb('old'::text)
+       else to_jsonb(public.takeoff_mapping_rules_stamp(t)) end);
+     body_ := jsonb_set(body_,'{dependencies,rules,0,rule_version}',(select to_jsonb(updated_at)
+       from public.takeoff_mapping_rules where id = pg_temp.f(7020)));
+   elsif false_reason is not null then
+     body_ := jsonb_set(body_,'{left_out,0,reason}', to_jsonb(false_reason));
+     body_ := jsonb_set(body_,'{parts_not_sent,0,reason}', to_jsonb(false_reason));
+     body_ := jsonb_set(body_,'{dependencies,rules}', '[]');
+     body_ := jsonb_set(body_,'{dependencies,resolutions}',jsonb_build_array(jsonb_build_object(
+       'key',case when false_reason = 'entry_suspended' then 'entry:' else 'target:' end || pg_temp.f(311) || '|together',
+       'choice',jsonb_build_object('kind',case when false_reason = 'entry_suspended' then 'keep_entry' else 'leave_out' end))));
+   end if;
+   perform set_config('request.jwt.claims','{"role":"service_role"}',true);
+   perform set_config('request.jwt.claim.sub','',true);
+   begin
+     perform set_config('role','service_role',true);
+     r:=public.send_takeoff_item_plan(t,actor_,false,jsonb_build_object('request_id',pg_temp.f(7018),'plan',body_,'version_payload',pg_temp.payload(721)));
+     perform set_config('role','none',true);
+     result_:=jsonb_build_array('sent',pg_temp.written(21),
+       (select count(*) from public.takeoff_item_send_parts where item_id=pg_temp.f(311)),
+       (select quantity from public.estimate_items where version_id=pg_temp.f(721) and item_type='line'));
+   exception when sqlstate '40001' then
+     result_ := jsonb_build_array(sqlerrm);
+     if false_reason is not null then result_ := result_ || jsonb_build_array(pg_temp.written(21)); end if;
+   end;
+ raise sqlstate 'Z1000';
+ exception when sqlstate 'Z1000' then null;
+ end;
+ return result_;
+end;
+$$;
+select is(pg_temp.omitted_count(),'["TAKEOFF_ITEM_SEND_PREVIEW_STALE"]'::jsonb,
+  'an old server cannot finalize a second accepted item while omitting a retained count as not_found');
+select is(pg_temp.omitted_count(1),'["sent","1/1/1/1/applied",0,2]'::jsonb,
+  'an identified skip rule can leave the proven count out while the other item is sent');
+select is(pg_temp.omitted_count(2),'["TAKEOFF_ITEM_SEND_PREVIEW_STALE"]'::jsonb,
+  'a skipped count with a different proof also expires');
+
+select is(pg_temp.omitted_count(1,reason),jsonb_build_array('TAKEOFF_ITEM_SEND_PREVIEW_STALE',pg_temp.written(21)),
+  format('declaring %s with no supporting fact cannot omit a count or change the draft, receipt or job',reason))
+from (values ('unrelated_rule'),('shadowed'),('withdrawn'),('stale_stamp'),('left_out'),('entry_suspended'),('unit_incompatible')) reasons(reason);
+select is(pg_temp.omitted_count(1,null,rule_kind),'["sent","1/1/1/1/applied",0,2]'::jsonb,
+  format('the winning active %s rule omits its item explicitly and keeps the other part',rule_kind))
+from (values ('exact'),('regex')) rules(rule_kind);
+
 select is(pg_temp.keep_measure(false),'["applied",[["measured",2,true]]]'::jsonb,
   'keeping the measured two preserves the measured observation and its quantity');
 select is(pg_temp.keep_measure(true),'["applied",[["measured",2,true]]]'::jsonb,

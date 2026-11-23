@@ -970,7 +970,7 @@ returns boolean language sql immutable set search_path = '' as $$
       where private.takeoff_item_send_keys(l.value, array['item_id', 'reason'], array['rule_id', 'rule_version']) is not true)
     and not exists (select 1 from pg_catalog.jsonb_array_elements(p_plan -> 'parts_not_sent') as l(value)
       where (private.takeoff_item_send_keys(l.value, array['item_id', 'kind', 'observation_ids', 'pages', 'quantity', 'reason'],
-          array['unit'])
+          array['unit','marks_revision'])
         and pg_catalog.jsonb_typeof(l.value -> 'observation_ids') = 'array' and pg_catalog.jsonb_typeof(l.value -> 'pages') = 'array')
         is not true)
     -- A page decision names its page (null: a part whose page is unknown, on every page).
@@ -990,6 +990,184 @@ returns boolean language sql immutable set search_path = '' as $$
     and (select pg_catalog.count(*) = pg_catalog.count(distinct t.value ->> 'key')
       from pg_catalog.jsonb_array_elements(p_plan -> 'targets') as t(value)), false)
 $$;
+
+-- Ordinary mappings use the first active rule in the mapping engine's order.
+-- Regex matches are projected by that engine. A named regex still cannot
+-- overtake an earlier exact/contains match on the item's sealed label.
+create function private.takeoff_item_send_skip_rule(p_tenant uuid, p_label text, p_rule uuid)
+returns boolean language sql stable set search_path = '' as $$
+  with whitespace(pattern) as (values ('[\t\n\v\f\r \u00A0\u1680\u2000-\u200A\u2028\u2029\u202F\u205F\u3000\uFEFF]+'))
+  select coalesce((select r.id = p_rule and r.action = 'skip'
+    from public.takeoff_mapping_rules r cross join whitespace w
+    cross join lateral (select lower(btrim(regexp_replace(p_label,w.pattern,' ','g')) collate pg_catalog."und-x-icu") as label,
+      lower(btrim(regexp_replace(r.match_pattern,w.pattern,' ','g')) collate pg_catalog."und-x-icu") as pattern) n
+    where r.tenant_id = p_tenant and r.is_active and case r.match_type
+      when 'exact' then n.label = n.pattern
+      when 'contains' then n.pattern <> '' and strpos(n.label,n.pattern) > 0
+      when 'regex' then r.id = p_rule
+      else false end
+    order by r.priority, date_trunc('milliseconds',r.created_at), r.id limit 1), false)
+$$;
+revoke all on function private.takeoff_item_send_skip_rule(uuid,text,uuid) from public, anon, authenticated, service_role;
+
+-- The member supplies a dialog choice. Check the case in which that choice
+-- is offered against the same locked version, reading, scope and journal.
+create function private.takeoff_item_send_exclusion_choice(p_plan jsonb,p_part jsonb,p_parts jsonb,
+  p_held jsonb,p_resolution jsonb,p_reason text,p_page_count integer,p_max_depth integer)
+returns boolean language plpgsql stable set search_path = '' as $$
+declare
+  item uuid := (p_part ->> 'item_id')::uuid;
+  job_id_ uuid := (p_plan ->> 'job_id')::uuid;
+  version_ uuid := (p_plan #>> '{destination,version_id}')::uuid;
+  plan_ uuid := (p_plan ->> 'plan_key')::uuid;
+  key_ text := p_resolution ->> 'key';
+  choice_ text := p_resolution #>> '{choice,kind}';
+  action_ text := split_part(key_,':',1);
+  target_ text := substr(key_,length(action_)+2);
+  compartment text;
+  entry_ public.takeoff_list_revision_entries;
+  line_ public.estimate_items;
+  covered_ integer[];
+  unit_pages_ integer[] := array(select x::integer from jsonb_array_elements_text(p_plan #> '{dependencies,plan_pages}') x);
+  whole_ boolean;
+  counted boolean := p_part ->> 'kind' = 'verified_count';
+  with_dpgf boolean;
+  dpgf boolean;
+  added_ numeric;
+  unit_ text := private.takeoff_item_send_unit(p_part ->> 'unit');
+  basis_ text;
+  kept_ numeric;
+  prior_ numeric;
+  retained_ numeric;
+  expected_ numeric;
+  reference_ numeric;
+  legacy_ numeric;
+  protective_ numeric;
+  history_count integer;
+begin
+  if choice_ is distinct from (case when p_reason = 'entry_suspended' then 'keep_entry' else 'leave_out' end)
+      or (p_reason = 'entry_suspended' and action_ <> 'entry') then return false; end if;
+  if action_ = 'page' then
+    return exists (select 1 from jsonb_array_elements(p_held) h
+      where key_ = 'page:' || coalesce(h ->> 'page','all')
+        and (h ->> 'page' is null or p_part -> 'pages' = '[]' or p_part -> 'pages' @> jsonb_build_array(h -> 'page'))
+        and ((h ->> 'today')::boolean or exists (select 1 from jsonb_array_elements(h -> 'parts') hp
+          where (hp ->> 'item_id' = item::text and hp ->> 'plan_key' = plan_::text) is not true))
+        and not exists (select 1 from jsonb_array_elements(p_plan -> 'page_decisions') d where d -> 'page' = h -> 'page'));
+  end if;
+  if split_part(target_,'|',1) <> item::text then return false; end if;
+  select e.* into strict entry_ from public.takeoff_list_revision_entries e
+    where e.revision_id = (p_plan #>> '{list,revision_id}')::uuid and e.item_id = item;
+  if action_ = 'breakdown' then
+    return target_ = item::text and exists (select 1 from public.takeoff_item_send_targets t
+      where t.version_id = version_ and t.item_id = item and t.estimate_item_id is not null and t.breakdown <> p_plan ->> 'breakdown');
+  end if;
+  select array(select distinct x from unnest(case when p_part ->> 'kind' = 'entered' then unit_pages_
+      when counted then private.takeoff_count_answer_scope(a) else a.searched_pages end) x
+    where not exists (select 1 from jsonb_array_elements(p_held) h
+      where (h ->> 'page' is null or (h ->> 'page')::integer = x)
+        and ((h ->> 'today')::boolean or exists (select 1 from jsonb_array_elements(h -> 'parts') hp
+          where (hp ->> 'item_id' = item::text and hp ->> 'plan_key' = plan_::text) is not true))
+        and not exists (select 1 from jsonb_array_elements(p_plan -> 'page_decisions') d where d -> 'page' = h -> 'page'))
+    union select (d ->> 'page')::integer from jsonb_array_elements(p_plan -> 'page_decisions') d
+      where d ->> 'decision' = 'replace' and d ->> 'page' is not null order by 1),
+    private.takeoff_item_send_whole_plan(p_page_count,case when counted then private.takeoff_count_answer_scope(a)
+      else a.searched_pages end,case when counted then private.takeoff_count_answer_scope(a) else a.searched_pages end)
+    into covered_,whole_ from public.takeoff_item_answers a where a.id = (p_part ->> 'answer_id')::uuid;
+  if action_ = 'verified-total' then
+    return target_ = item::text and exists (select 1 from public.takeoff_item_send_parts p
+      where p.version_id = version_ and p.item_id = item and p.state = 'live' and (
+        (p.plan_logical_id = plan_ and private.takeoff_item_send_count_scope(p.kind,p.pages,counted,covered_,
+          whole_ and private.takeoff_item_send_whole_plan(p_page_count,covered_,covered_)) = 'refuse')
+        or (p.kind = 'verified_count' and p.plan_logical_id <> plan_ and exists (
+          select 1 from jsonb_array_elements(p_held) h join jsonb_array_elements(p_plan -> 'page_decisions') d
+            on d -> 'page' = h -> 'page' and d ->> 'decision' = 'replace'
+          where (h ->> 'page' is null or p_part -> 'pages' = '[]' or p_part -> 'pages' @> jsonb_build_array(h -> 'page'))
+            and exists (select 1 from jsonb_array_elements(h -> 'parts') hp where hp ->> 'part_id' = p.id::text)))));
+  end if;
+  select sum((s ->> 'quantity')::numeric), min(private.takeoff_item_send_folded(s ->> 'basis')) into added_,basis_
+    from jsonb_array_elements(p_parts) s where s ->> 'item_id' = item::text;
+  if action_ = 'quantity' and target_ = item::text then
+    return exists (select 1 from jsonb_array_elements(p_parts) s
+      where s ->> 'item_id' = item::text and not private.takeoff_item_answer_is_number(s -> 'quantity',0.001,999999999.999,false))
+      or exists (select 1 from jsonb_array_elements(p_parts) s where s ->> 'item_id' = item::text
+        and (s ->> 'quantity')::numeric <> round((s ->> 'quantity')::numeric,3));
+  end if;
+  compartment := substr(target_,length(item::text)+2);
+  select exists (select 1 from public.estimate_items i where i.version_id = version_ and i.item_type = 'line' and i.source_provider = 'dpgf'),
+    entry_.origin_kind = 'dpgf' and exists (select 1 from public.estimate_items i where i.version_id = version_
+      and i.item_type = 'line' and i.source_provider = 'dpgf' and lower(i.source_metadata ->> 'import_id') = lower(entry_.origin ->> 'importId'))
+    into with_dpgf,dpgf;
+  if not (case when dpgf then compartment = 'dpgf' else case p_plan ->> 'breakdown' when 'together' then compartment = 'together'
+    when 'by_level' then compartment = 'unallocated' or compartment like 'level:%'
+    when 'by_building' then compartment = 'unallocated' or compartment like 'building:%' else false end end)
+    then return false; end if;
+  if action_ = 'depth' then
+    return not dpgf and (case when with_dpgf then 1 + (jsonb_array_length(entry_.sections) > 0)::integer
+      else greatest(1,jsonb_array_length(entry_.sections)) end + (compartment <> 'together')::integer) > p_max_depth;
+  elsif action_ = 'compartment' then
+    return exists (select 1 from public.takeoff_item_send_parts p join public.takeoff_item_send_targets t on t.id = p.target_id
+      where p.version_id = version_ and p.item_id = item and p.plan_logical_id = plan_ and p.state = 'live'
+        and t.compartment_key <> compartment);
+  elsif action_ = 'target' then
+    if dpgf then
+      return not exists (select 1 from public.takeoff_item_send_targets t where t.version_id = version_ and t.item_id = item
+        and t.breakdown = 'dpgf' and t.estimate_item_id is not null)
+        and (select count(*) from public.read_estimate_dpgf_raw_rows(entry_.tenant_id,version_) l
+          where l.import_id::text = lower(entry_.origin ->> 'importId') and l.raw_row_id::text = lower(entry_.origin ->> 'rawRowId')
+            and not exists (select 1 from public.takeoff_item_send_targets t where t.version_id = version_
+              and t.estimate_item_id = l.estimate_item_id and t.item_id <> item)) <> 1;
+    end if;
+    return (select count(t.estimate_item_id) > 1 or (count(*) > 0 and count(t.estimate_item_id) = 0)
+      from public.takeoff_item_send_targets t where t.version_id = version_ and t.item_id = item and t.compartment_key = compartment);
+  end if;
+  -- A line is this item's existing target, a selected line of its DPGF import,
+  -- or the line independently proven by that import's raw-row lineage.
+  for line_ in select i.* from public.estimate_items i where i.version_id = version_ and i.item_type = 'line'
+    and not exists (select 1 from public.takeoff_item_send_targets t where t.estimate_item_id = i.id and t.item_id <> item)
+    and (exists (select 1 from public.takeoff_item_send_targets t where t.item_id = item and t.estimate_item_id = i.id
+        and t.compartment_key = compartment)
+      or (dpgf and i.source_provider = 'dpgf' and lower(i.source_metadata ->> 'import_id') = lower(entry_.origin ->> 'importId')
+        and (exists (select 1 from public.read_estimate_dpgf_raw_rows(entry_.tenant_id,version_) l
+          where l.estimate_item_id = i.id and l.raw_row_id::text = lower(entry_.origin ->> 'rawRowId'))
+        or exists (select 1 from jsonb_array_elements(p_plan #> '{dependencies,resolutions}') r
+          where r ->> 'key' = 'target:' || target_ and r #>> '{choice,kind}' = 'line' and r #>> '{choice,estimate_item_id}' = i.id::text))))
+  loop
+    select coalesce(sum(p.quantity),0),coalesce(sum(p.quantity) filter (where p.plan_logical_id <> plan_
+      or (not (p.pages <@ covered_) or (cardinality(p.pages) = 0 and not (unit_pages_ <@ covered_)))),0),count(*)
+      into prior_,kept_,history_count from public.takeoff_item_send_parts p join public.takeoff_item_send_targets t on t.id = p.target_id
+      where t.estimate_item_id = line_.id and t.item_id = item and p.state = 'live';
+    if action_ = 'identity' then
+      if private.takeoff_item_send_unit(line_.unit_code) is distinct from unit_ or exists (
+        select 1 from public.takeoff_item_send_parts p join public.takeoff_item_send_targets t on t.id = p.target_id
+        where t.estimate_item_id = line_.id and t.item_id = item and p.state = 'live'
+          and (p.plan_logical_id <> plan_ or not (p.pages <@ covered_) or (cardinality(p.pages) = 0 and not (unit_pages_ <@ covered_)))
+          and (p.unit_code,p.basis,p.network,p.material,p.diameter) is distinct from (unit_,
+            coalesce(basis_,private.takeoff_item_send_folded(entry_.measurement_basis)),private.takeoff_item_send_folded(entry_.qualifiers ->> 'network'),
+            private.takeoff_item_send_folded(entry_.qualifiers ->> 'material'),private.takeoff_item_send_diameter(entry_.qualifiers ->> 'diameter'))) then return true; end if;
+    end if;
+    reference_ := null; legacy_ := 0; protective_ := 0;
+    if dpgf then
+      reference_ := private.takeoff_item_send_dpgf_reference(entry_.tenant_id,line_.source_metadata);
+      select coalesce(sum(l.quantity),0),coalesce(sum(l.protective),0),history_count + count(*) into legacy_,protective_,history_count
+        from private.takeoff_item_send_legacy_dpgf_parts(line_.source_metadata,job_id_) l;
+    end if;
+    retained_ := private.takeoff_item_send_composed(reference_,kept_ + legacy_ + added_,protective_,private.takeoff_item_send_length_factor(line_.unit_code));
+    expected_ := case when history_count = 0 then reference_ else private.takeoff_item_send_composed(reference_,
+      prior_ + legacy_,protective_,private.takeoff_item_send_length_factor(line_.unit_code)) end;
+    if action_ = 'entry' and round(line_.quantity,4) <> round(coalesce(expected_,0),4)
+      and (choice_ = 'leave_out' or (reference_ is not null and line_.quantity < retained_)) then return true; end if;
+    if action_ = 'quantity' and (retained_ > 999999999.999 or retained_ <= 0 or round(retained_,3) <> retained_) then return true; end if;
+  end loop;
+  if action_ = 'quantity' then
+    retained_ := private.takeoff_item_send_rounded(added_,private.takeoff_item_send_length_factor(unit_));
+    return retained_ > 999999999.999 or retained_ <= 0 or round(retained_,3) <> retained_;
+  end if;
+  return false;
+end;
+$$;
+revoke all on function private.takeoff_item_send_exclusion_choice(jsonb,jsonb,jsonb,jsonb,jsonb,text,integer,integer)
+  from public, anon, authenticated, service_role;
 
 create or replace function public.send_takeoff_item_plan(p_tenant_id uuid, p_actor_id uuid, p_module_default boolean, p_request jsonb)
 returns jsonb
@@ -1421,6 +1599,56 @@ begin
             and (coalesce(d.value -> 'page', 'null'::jsonb) = 'null'::jsonb or (d.value ->> 'page')::integer = x.page))))) then
     raise exception 'TAKEOFF_ITEM_SEND_PAGE_DECISION_INVALID' using errcode = '22023',
       detail = pg_catalog.jsonb_build_object('reason', 'part_indivisible')::text;
+  end if;
+
+  -- Begin with every retained part read under the locks. A previous preview format
+  -- may classify a counted item as not found and never submit a target for it.
+  -- A whole item can be absent only when the preview accounted for its real parts.
+  if exists (
+    with omitted as (
+      select stored.value as part from jsonb_array_elements(job_parts) stored(value)
+      where not exists (select 1 from jsonb_array_elements(plan -> 'targets') tgt where tgt -> 'item_id' = stored.value -> 'item_id')
+    ), incompatible as (
+      select li.item_id from omitted o
+      join public.takeoff_list_revision_entries li on li.revision_id = launch.item_list_revision_id
+        and li.item_id = (o.part ->> 'item_id')::uuid
+      cross join lateral (select private.takeoff_item_send_unit(o.part ->> 'unit') as unit,
+        private.takeoff_item_send_folded(o.part ->> 'basis') as basis) identity_
+      group by li.item_id, li.expected_unit, li.measurement_basis
+      having bool_or(identity_.unit is null) or count(distinct identity_.unit) > 1 or count(distinct identity_.basis) > 1
+        or (li.expected_unit is not null and bool_or(private.takeoff_item_send_unit(li.expected_unit) <> identity_.unit))
+        or (li.measurement_basis is not null and bool_or(private.takeoff_item_send_folded(li.measurement_basis) <> identity_.basis))
+    )
+    select 1 from omitted o where not exists (
+      select 1 from jsonb_array_elements(plan -> 'parts_not_sent') excluded
+      join jsonb_array_elements(plan -> 'left_out') omission on omission -> 'item_id' = excluded -> 'item_id'
+        and omission -> 'reason' = excluded -> 'reason'
+      where excluded -> 'item_id' = o.part -> 'item_id' and excluded -> 'kind' = o.part -> 'kind'
+        and excluded -> 'quantity' = o.part -> 'quantity' and excluded -> 'unit' = o.part -> 'unit'
+        and excluded -> 'pages' = o.part -> 'pages'
+        and excluded -> 'observation_ids' = case when o.part ->> 'kind' = 'measured'
+          then jsonb_build_array(o.part -> 'observation_id') else '[]'::jsonb end
+        and (o.part ->> 'kind' <> 'verified_count' or excluded -> 'marks_revision' = o.part -> 'marks_revision')
+        and case omission ->> 'reason'
+          when 'rule_skip' then exists (select 1 from jsonb_array_elements(deps -> 'rules') applied
+            join public.takeoff_list_revision_entries li on li.revision_id = launch.item_list_revision_id
+              and li.item_id = (o.part ->> 'item_id')::uuid
+            where applied -> 'item_id' = o.part -> 'item_id' and applied -> 'rule_id' = omission -> 'rule_id'
+              and private.takeoff_item_send_skip_rule(tenant,li.label,private.takeoff_uuid_or_null(applied -> 'rule_id')))
+          when 'left_out' then exists (select 1 from jsonb_array_elements(deps -> 'resolutions') resolution
+            where private.takeoff_item_send_exclusion_choice(plan,o.part,job_parts,held,resolution,'left_out',
+              (plan_entry ->> 'page_count')::integer,coalesce(version_row.max_section_depth,
+                (p_request #>> '{version_payload,max_section_depth}')::integer,3)))
+          when 'entry_suspended' then exists (select 1 from jsonb_array_elements(deps -> 'resolutions') resolution
+            where private.takeoff_item_send_exclusion_choice(plan,o.part,job_parts,held,resolution,'entry_suspended',
+              (plan_entry ->> 'page_count')::integer,coalesce(version_row.max_section_depth,
+                (p_request #>> '{version_payload,max_section_depth}')::integer,3)))
+          when 'unit_incompatible' then exists (select 1 from incompatible i where i.item_id = (o.part ->> 'item_id')::uuid)
+          else false end
+    )
+  ) then
+    raise exception 'TAKEOFF_ITEM_SEND_PREVIEW_STALE' using errcode = '40001',
+      detail = jsonb_build_object('reason','item_changed')::text;
   end if;
 
   -- Every target, read again and computed here.

@@ -282,6 +282,12 @@ create function pg_temp.review(command jsonb) returns jsonb language sql as $$
   select public.review_takeoff_items(pg_temp.f(10), pg_temp.f(20), command)
 $$;
 
+-- Record the member's exclusion in the current reading. Later confirmations read the
+-- decision revision, and only the other accepted items can produce estimate parts.
+create function pg_temp.exclude_item(item integer, intent integer) returns text language sql as $$
+  select pg_temp.review(pg_temp.cmd('set_aside',intent,array[item],array[item],'{"reason":"out_of_scope"}')) ->> 'outcome'
+$$;
+
 -- The write plan the server builds (src/lib/takeoff/item-send-plan.ts), read here from what is stored, as the service
 -- reads it before the member confirms: built as the owner (the private readers are no member's), kept in a table the
 -- member's session reads.
@@ -386,7 +392,10 @@ create function pg_temp.plan(p_job uuid, p_version uuid, p_targets jsonb, p_sect
     'destination', case when p_version is null then jsonb_build_object('kind', 'first_draft')
       else jsonb_build_object('kind', 'existing_draft', 'version_id', p_version) end,
     'engine', 3, 'breakdown', 'together', 'sections', p_sections, 'targets', p_targets,
-    'page_contributions', pg_temp.page_contributions(p_targets), 'page_decisions', '[]'::jsonb, 'left_out', '[]'::jsonb,
+    'page_contributions', pg_temp.page_contributions(p_targets), 'page_decisions', '[]'::jsonb,
+    'left_out', coalesce((select jsonb_agg(jsonb_build_object('item_id',a.item_id,'reason','set_aside') order by a.item_id)
+      from public.takeoff_item_answers a join public.takeoff_item_answer_decisions d on d.answer_id = a.id
+      where a.job_id = p_job and d.kind = 'set_aside'), '[]'::jsonb),
     'parts_not_sent', '[]'::jsonb,
     'dependencies', jsonb_build_object('answers', pg_temp.answers_of(p_job, p_project),
       'affaire_entries', coalesce((select jsonb_agg(jsonb_build_object('item_id', e.item_id, 'revision', e.revision))
@@ -749,13 +758,36 @@ create function pg_temp.chosen() returns jsonb language sql immutable as $$
   select jsonb_build_array(jsonb_build_object('key', 'target:' || pg_temp.f(302) || '|dpgf',
     'choice', jsonb_build_object('kind', 'line', 'estimate_item_id', pg_temp.f(950))))
 $$;
+-- The existing page-2 line is from an earlier send. A member can explicitly
+-- withhold the bathtub which spans that page; page 8 holds no such line.
+with facts as (
+  select pg_temp.second('[]','[]') as plan,
+    (select jsonb_agg(s) from private.takeoff_item_send_resolved_parts(pg_temp.f(10),pg_temp.f(20),
+      pg_temp.job(20,2),array[2,7]) s) as parts,
+    private.takeoff_item_send_held_pages(pg_temp.f(10),(select version_id from draft),pg_temp.job(20,2),
+      pg_temp.document(),array[2,7]) as held
+)
+select is(private.takeoff_item_send_exclusion_choice(f.plan,p,f.parts,f.held,jsonb_build_object(
+    'key','page:'||page,'choice',jsonb_build_object('kind','leave_out')),'left_out',9,3),allowed,
+    format('leaving a whole typed part out on page %s requires the actual held page in this draft',page))
+  from facts f cross join lateral jsonb_array_elements(f.parts) p cross join (values (2,true),(8,false)) pages(page,allowed)
+  where p ->> 'item_id' = pg_temp.f(302)::text;
+insert into plans values ('manual_into_dpgf', pg_temp.second(pg_temp.decisions(), pg_temp.chosen(), true));
+insert into plans values ('undeclared_bathtub', pg_temp.second(pg_temp.decisions(), pg_temp.chosen()));
+select pg_temp.sign_in(1);
+set local role authenticated;
+select is(pg_temp.refusal($$select pg_temp.send(720, 'manual_into_dpgf')$$), '40001 TAKEOFF_ITEM_SEND_PREVIEW_STALE target_unproven',
+  'point 5: an item of the list made by hand never feeds a DPGF line, even chosen');
+select is(pg_temp.refusal($$select pg_temp.send(720, 'undeclared_bathtub')$$), '40001 TAKEOFF_ITEM_SEND_PREVIEW_STALE item_changed',
+  'a measured-only target cannot silently omit the retained typed bathtub');
+select is(pg_temp.exclude_item(302, 2402), 'applied', 'the member sets the bathtub aside for the lavabo-only second send');
+reset role;
 insert into plans values ('second', pg_temp.second(pg_temp.decisions(), pg_temp.chosen()));
 insert into plans values ('no_decision', pg_temp.second('[]'::jsonb, pg_temp.chosen()));
 insert into plans values ('replace_today', pg_temp.second(jsonb_set(pg_temp.decisions(), '{0}',
   '{"page": 2, "decision": "replace", "reason_code": null}'), pg_temp.chosen()));
 insert into plans values ('keep_both_bare', pg_temp.second(jsonb_set(pg_temp.decisions(), '{0}',
   '{"page": 2, "decision": "keep_both", "reason_code": "complementary_scope", "note": "court"}'), pg_temp.chosen()));
-insert into plans values ('manual_into_dpgf', pg_temp.second(pg_temp.decisions(), pg_temp.chosen(), true));
 insert into plans select 'forged_after', jsonb_set(body, '{targets,0,quantity_after}', '6') from plans where name = 'second';
 insert into plans select 'forged_part', jsonb_set(body, '{targets,0,contributions,0,quantity}', '40') from plans where name = 'second';
 insert into plans select 'forged_replaces', jsonb_set(body, '{targets,0,replaces}', '[]') from plans where name = 'second';
@@ -778,8 +810,6 @@ select is(pg_temp.refusal($$select pg_temp.send(720, 'replace_today')$$), '22023
   'a page of today''s send is never replaced part by part: its reading has no part per item');
 select is(pg_temp.refusal($$select pg_temp.send(720, 'keep_both_bare')$$), '22023 TAKEOFF_ITEM_SEND_INVALID',
   '« garder les deux » for a complementary scope needs its note');
-select is(pg_temp.refusal($$select pg_temp.send(720, 'manual_into_dpgf')$$), '40001 TAKEOFF_ITEM_SEND_PREVIEW_STALE target_unproven',
-  'point 5: an item of the list made by hand never feeds a DPGF line, even chosen');
 select is(pg_temp.refusal($$select pg_temp.send(720, 'forged_after')$$), '40001 TAKEOFF_ITEM_SEND_PREVIEW_STALE quantity_changed',
   'a quantity given by the caller is compared, never applied');
 select is(pg_temp.refusal($$select pg_temp.send(720, 'forged_part')$$), '40001 TAKEOFF_ITEM_SEND_PREVIEW_STALE item_changed',
@@ -872,6 +902,7 @@ where job_id = pg_temp.job(20, 3);
 select pg_temp.sign_in(1);
 set local role authenticated;
 select is(pg_temp.review(pg_temp.cmd('accept_measured', 603, array[300], array[300])) ->> 'outcome', 'applied', 'accepted');
+select is(pg_temp.exclude_item(302, 2403), 'applied', 'the lavabo-only reading explicitly sets the bathtub aside');
 reset role;
 select set_config('miaouffrage.estimate_v3_writer', (select version_id::text from draft), true);
 update public.estimate_items set quantity = 7 where id = (select line_id from draft);
@@ -940,6 +971,7 @@ where job_id = pg_temp.job(20, 4);
 select pg_temp.sign_in(1);
 set local role authenticated;
 select is(pg_temp.review(pg_temp.cmd('accept_measured', 604, array[300], array[300])) ->> 'outcome', 'applied', 'accepted');
+select is(pg_temp.exclude_item(302, 2404), 'applied', 'the lavabo-only reading explicitly sets the bathtub aside');
 reset role;
 insert into plans values
   ('engine_v2', pg_temp.plan(pg_temp.job(20, 4), pg_temp.f(960), jsonb_build_array(pg_temp.new_line(pg_temp.job(20, 4), 300, 3)),
@@ -1284,6 +1316,12 @@ returns jsonb language sql as $$
     '{page_contributions}', pg_temp.page_contributions(jsonb_build_array(jsonb_build_object('item_id', pg_temp.f(302),
       'key', pg_temp.f(302) || '|together', 'contributions', pg_temp.parts(p_job, 302)))))
 $$;
+select pg_temp.sign_in(1);
+set local role authenticated;
+select is(pg_temp.review(pg_temp.cmd('reinstate',2420,array[302],array[302])) ->> 'outcome','applied',
+  'the member reinstates the bathtub for the unit-alias send');
+select is(pg_temp.exclude_item(300, 2421), 'applied', 'the bathtub-only send explicitly sets the lavabo aside');
+reset role;
 insert into plans values ('alias', pg_temp.bathtub(pg_temp.job(20, 4)));
 select pg_temp.sign_in(1);
 set local role authenticated;
@@ -1767,6 +1805,7 @@ select pg_temp.sign_in(1);
 set local role authenticated;
 select is(pg_temp.review(pg_temp.cmd('accept_measured', 660, array[300], array[300])) ->> 'outcome', 'applied',
   'its lavabo accepted');
+select is(pg_temp.exclude_item(302, 2406), 'applied', 'the lavabo-only reading explicitly sets the bathtub aside');
 reset role;
 -- The pages of the plan held in a version for this reading, as the page guard reads them (by titles of their lines).
 create function pg_temp.held_shape(p_job uuid, p_version uuid) returns jsonb language sql stable as $$
@@ -1860,6 +1899,7 @@ select pg_temp.sign_in(1);
 set local role authenticated;
 select is(pg_temp.review(pg_temp.cmd('accept_measured', 670, array[300], array[300])) ->> 'outcome', 'applied',
   'its lavabo accepted');
+select is(pg_temp.exclude_item(302, 2414), 'applied', 'the lavabo-only reading explicitly sets the bathtub aside');
 reset role;
 -- What an unknown copy path would leave (the marker on a line no target holds): the integrity case, refused.
 create function pg_temp.marked_duplicate() returns jsonb language plpgsql as $$
@@ -1926,6 +1966,7 @@ select pg_temp.sign_in(1);
 set local role authenticated;
 select is(pg_temp.review(pg_temp.cmd('accept_measured', 680, array[300], array[300])) ->> 'outcome', 'applied',
   'its lavabo accepted');
+select is(pg_temp.exclude_item(302, 2415), 'applied', 'the lavabo-only reading explicitly sets the bathtub aside');
 reset role;
 insert into plans values ('thirteenth_template', pg_temp.plan(pg_temp.job(20, 15), pg_temp.f(1970),
   jsonb_build_array(pg_temp.new_line(pg_temp.job(20, 15), 300, 3)),
