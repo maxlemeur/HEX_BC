@@ -25,8 +25,8 @@ select is((select x.res::jsonb->>'replayed' from extensions.dblink('race_a',pg_t
 select is((select i.quantity from public.estimate_items i join public.takeoff_item_send_targets t on t.estimate_item_id=i.id
   where t.version_id=pg_temp.f(970)),5::numeric,'the committed physical line now holds three plus two');
 select is((select x.res::jsonb->'blockers' from extensions.dblink('race_setup',format(
-  'select public.preview_takeoff_item_redistribution(%L,%L,%L,%L,%L,%L,false)::text',pg_temp.tenant(),pg_temp.f(1),pg_temp.f(20),
-  pg_temp.f(970),pg_temp.f(300),'by_level')) as x(res text)),'[]'::jsonb,'a second connection sees a redistributable five');
+  'select public.preview_takeoff_item_redistribution(%L,%L,%L,%L,%L,%L,false,%L::jsonb)::text',pg_temp.tenant(),pg_temp.f(1),pg_temp.f(20),
+  pg_temp.f(970),pg_temp.f(300),'by_level',pg_temp.location_input(pg_temp.tenant(),pg_temp.f(1),pg_temp.f(20),pg_temp.f(970),pg_temp.f(300),'by_level',false))) as x(res text)),'[]'::jsonb,'a second connection sees a redistributable five');
 -- The FK's KEY SHARE holds the physical line, independently of the version key.
 select is(extensions.dblink_exec('race_setup','begin'),'BEGIN','an outlier review starts referencing the line');
 select is(extensions.dblink_exec('race_setup',format($link$

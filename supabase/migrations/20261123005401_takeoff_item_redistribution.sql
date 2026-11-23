@@ -161,20 +161,30 @@ begin
 end;
 $$;
 
--- The same geographic identity as the send. Only an annotation on the plan's exact
--- bytes places its contributions. Nothing downloads the file or reads its pages.
-create function private.takeoff_redistribution_location(p_mode text,p_building text,p_level text,p_building_unknown boolean)
-returns table(key text,label text) language sql immutable set search_path='' as $$
-  with folded as (select to_json(lower(regexp_replace(normalize(btrim(p_building),NFC),'[[:space:]]+',' ','g') collate pg_catalog."und-x-icu"))::text as b,
-    to_json(lower(regexp_replace(normalize(btrim(p_level),NFC),'[[:space:]]+',' ','g') collate pg_catalog."und-x-icu"))::text as l)
-  select case when p_mode='together' then 'together'
-    when p_mode='by_building' and b is not null then 'building:['||b||']'
-    when p_mode='by_level' and l is not null and (b is not null or p_building_unknown) then 'level:['||coalesce(b,'null')||','||l||']'
-    else 'unallocated' end,
-    case when p_mode='together' then 'Ensemble'
-      when p_mode='by_building' and b is not null then p_building
-      when p_mode='by_level' and l is not null and (b is not null or p_building_unknown) then concat_ws(' · ',p_building,p_level)
-      else 'Non réparti' end from folded
+-- The server reads these exact files with the send's location reader. Each part
+-- names its original document and the current annotation generation. SQL never
+-- reads a PDF or guesses a compartment from its name or location choices.
+create function public.read_takeoff_item_redistribution_documents(p_tenant uuid,p_actor uuid,p_project uuid,
+  p_version uuid,p_item uuid,p_module boolean)
+returns jsonb language plpgsql stable security definer set search_path='' as $$
+declare documents jsonb; has_buildings boolean;
+begin
+  perform private.takeoff_redistribution_check_scope(p_tenant,p_actor,p_project,p_version,p_module);
+  select exists(select 1 from public.takeoff_plan_locations where project_id=p_project and tenant_id=p_tenant
+    and building_choice='value') into has_buildings;
+  select coalesce(jsonb_object_agg(p.id,jsonb_build_object('part_id',p.id,'job_id',p.job_id,'file_id',d.doc->'plan_file_id',
+    'hash',d.doc->'content_hash','name',d.doc->'file_name','revision',a.revision)),'{}') into documents
+    from public.takeoff_item_send_parts p
+    left join lateral (select g.document as doc from public.takeoff_item_send_pages g where g.version_id=p_version
+      and g.receipt_id=p.receipt_id and p.id=any(g.part_ids) order by g.id limit 1) d on true
+    left join public.takeoff_plan_location_sources o on o.plan_file_id=(d.doc->>'plan_file_id')::uuid
+      and o.tenant_id=p_tenant and o.project_id=p_project
+    left join public.takeoff_plan_locations a on a.tenant_id=p_tenant and a.project_id=p_project and
+      a.source_kind=coalesce(o.source_kind,'plan_file') and a.source_id=coalesce(o.source_id,(d.doc->>'plan_file_id')::uuid)
+      and a.content_hash=d.doc->>'content_hash'
+    where p.tenant_id=p_tenant and p.version_id=p_version and p.project_id=p_project and p.item_id=p_item and p.state='live';
+  return jsonb_build_object('has_buildings',has_buildings,'parts',documents);
+end;
 $$;
 
 -- A touched section or a line carrying an editor's own fields can never be removed.
@@ -245,7 +255,7 @@ create trigger takeoff_item_redistribution_copy_protections before insert on pub
   for each row when (new.command_kind='copy') execute function private.takeoff_redistribution_copy_protections();
 
 create function public.preview_takeoff_item_redistribution(p_tenant uuid,p_actor uuid,p_project uuid,p_version uuid,p_item uuid,
-  p_mode text,p_module boolean)
+  p_mode text,p_module boolean,p_locations jsonb)
 returns jsonb language plpgsql stable security definer set search_path='' as $$
 declare
   version_row public.estimate_versions;
@@ -262,7 +272,7 @@ declare
   destinations jsonb;
   plan jsonb;
   reason text;
-  has_buildings boolean;
+  document_facts jsonb;
   used_lines uuid[];
 begin
   perform private.takeoff_redistribution_check_scope(p_tenant,p_actor,p_project,p_version,p_module);
@@ -274,8 +284,21 @@ begin
     raise exception 'REDISTRIBUTION_SEALED' using errcode='55000';
   end if;
   if version_row.calc_engine_version is distinct from 3 then raise exception 'REDISTRIBUTION_ENGINE' using errcode='22023'; end if;
-  select exists(select 1 from public.takeoff_plan_locations where project_id=p_project and tenant_id=p_tenant and building_choice='value')
-    into has_buildings;
+  document_facts:=public.read_takeoff_item_redistribution_documents(p_tenant,p_actor,p_project,p_version,p_item,p_module);
+  if jsonb_typeof(p_locations->'parts') is distinct from 'object' or (p_locations->'has_buildings') is distinct from (document_facts->'has_buildings')
+    or (select coalesce(jsonb_object_agg(entry.key,entry.value->'source'),'{}') from jsonb_each(p_locations->'parts') entry)
+      is distinct from (document_facts->'parts') then
+    raise exception 'REDISTRIBUTION_STALE' using errcode='40001';
+  end if;
+  -- Same trust as the send: the server's planner owns geography, the writer
+  -- accepts a bounded key in the selected breakdown and computes all quantities.
+  if exists(select 1 from jsonb_each(p_locations->'parts') e
+    where jsonb_typeof(e.value->'available') is distinct from 'boolean' or (e.value->'available'='true'::jsonb and (
+      private.takeoff_item_send_text(e.value->'key',400) is not true or private.takeoff_item_send_text(e.value->'label',200) is not true
+      or (case p_mode when 'together' then e.value->>'key'='together' when 'by_level' then
+        e.value->>'key'='unallocated' or e.value->>'key' like 'level:%' else e.value->>'key'='unallocated' or e.value->>'key' like 'building:%' end) is not true))) then
+    raise exception 'REDISTRIBUTION_INVALID' using errcode='22023';
+  end if;
 
   select private.takeoff_redistribution_used_lines(array_agg(t.estimate_item_id)) into used_lines
     from public.takeoff_item_send_targets t where t.tenant_id=p_tenant and t.version_id=p_version and t.item_id=p_item
@@ -346,27 +369,23 @@ begin
   end if;
 
   with located as (
-    select p.*,loc.key,loc.label,a.revision,d.document
+    select p.*,info->>'key' as key,info->>'label' as label,info->'source' as document,
+      info->'building_state' as building_state,info->'level_state' as level_state,(info->>'available')::boolean as available
     from public.takeoff_item_send_parts p
-    left join lateral (select g.document from public.takeoff_item_send_pages g
-      where g.version_id=p_version and g.receipt_id=p.receipt_id and p.id=any(g.part_ids) order by g.id limit 1) d on true
-    left join public.takeoff_plan_location_sources origin on origin.plan_file_id=(d.document->>'plan_file_id')::uuid
-      and origin.tenant_id=p_tenant and origin.project_id=p_project
-    left join public.takeoff_plan_locations a on a.tenant_id=p_tenant and a.project_id=p_project and
-      a.source_kind=coalesce(origin.source_kind,'plan_file') and a.source_id=coalesce(origin.source_id,(d.document->>'plan_file_id')::uuid)
-      and a.content_hash=d.document->>'content_hash'
-    cross join lateral private.takeoff_redistribution_location(p_mode,a.building,a.level,a.building_choice='unknown' and not has_buildings) loc
+    cross join lateral (select p_locations->'parts'->p.id::text as info) as read
     where p.version_id=p_version and p.tenant_id=p_tenant and p.project_id=p_project and p.item_id=p_item and p.state='live'
   )
   select coalesce(jsonb_agg(jsonb_build_object('id',id,'from_target',target_id,'key',key,'label',label,'quantity',quantity,
-    'unit',unit_code,'pages',pages,'plan_name',document->>'file_name','job_id',job_id,'receipt_id',receipt_id,'location_revision',revision) order by id),'[]') into parts from located;
+    'unit',unit_code,'pages',pages,'plan_name',document->>'name','job_id',job_id,'receipt_id',receipt_id,'location_revision',document->'revision','available',available,'building_state',building_state,'level_state',level_state) order by id),'[]') into parts from located;
   if parts='[]' then raise exception 'REDISTRIBUTION_EMPTY' using errcode='22023'; end if;
+  select blockers||coalesce(jsonb_agg(jsonb_build_object('reason','location_unavailable','title',coalesce(x->>'plan_name','Plan indisponible')) order by x->>'id'),'[]')
+    into blockers from jsonb_array_elements(parts)x where x->'available'='false'::jsonb;
   select jsonb_agg(jsonb_build_object('key',g.key,'label',g.label,'raw',g.raw,'quantity',g.quantity,'line_id',t.estimate_item_id,
     'target_id',t.id,'quantity_before',(select i.quantity from public.estimate_items i where i.id=t.estimate_item_id),'section_id',s.estimate_item_id,'section_key',g.section_key) order by g.key) into destinations
   from (select x->>'key' key,min(x->>'label') label,sum((x->>'quantity')::numeric) raw,
       private.takeoff_item_send_rounded(sum((x->>'quantity')::numeric),private.takeoff_item_send_length_factor(min(x->>'unit'))) quantity,
       case when p_mode='together' then base_key else base_key||'/'||(x->>'key') end section_key
-    from jsonb_array_elements(parts)x group by x->>'key') g
+    from jsonb_array_elements(parts)x where x->'available'='true'::jsonb group by x->>'key') g
   left join public.takeoff_item_send_targets t on t.item_id=p_item and t.version_id=p_version and t.breakdown=p_mode
     and t.compartment_key=g.key and t.estimate_item_id is not null
   left join public.takeoff_item_send_sections s on s.version_id=p_version and s.section_key=g.section_key and s.estimate_item_id is not null;
@@ -397,7 +416,7 @@ begin
     blockers:=blockers||jsonb_build_array(jsonb_build_object('reason','depth','title',sources#>>'{0,title}'));
   end if;
   plan:=jsonb_build_object('version_id',p_version,'currency',version_row.currency,'item_id',p_item,'breakdown',p_mode,'base_section_id',base_id,
-    'version_revision',version_row.content_revision,'sources',sources,'parts',parts,'destinations',destinations,'blockers',blockers,
+    'version_revision',version_row.content_revision,'sources',sources,'parts',parts,'destinations',coalesce(destinations,'[]'),'blockers',blockers,
     'remove_lines',(select coalesce(jsonb_agg(s->'line_id' order by s->>'line_id'),'[]') from jsonb_array_elements(sources)s
       where s->>'line_id' is not null and not exists(select 1 from jsonb_array_elements(destinations)d where d->>'line_id'=s->>'line_id')));
   return plan||jsonb_build_object('digest',encode(sha256(convert_to(plan::text,'UTF8')),'hex'));
@@ -414,7 +433,7 @@ returns jsonb language sql stable set search_path='' as $$
 $$;
 
 create function public.redistribute_takeoff_item(p_tenant uuid,p_actor uuid,p_project uuid,p_version uuid,p_item uuid,
-  p_mode text,p_module boolean,p_request uuid,p_digest text)
+  p_mode text,p_module boolean,p_request uuid,p_digest text,p_locations jsonb)
 returns jsonb language plpgsql security definer set search_path='' as $$
 declare
   prior public.takeoff_item_send_receipts;
@@ -459,7 +478,7 @@ begin
     end if;
     raise exception 'REDISTRIBUTION_REQUEST_CONFLICT' using errcode='40001';
   end if;
-  plan:=public.preview_takeoff_item_redistribution(p_tenant,p_actor,p_project,p_version,p_item,p_mode,p_module);
+  plan:=public.preview_takeoff_item_redistribution(p_tenant,p_actor,p_project,p_version,p_item,p_mode,p_module,p_locations);
   if plan->>'digest' is distinct from p_digest then raise exception 'REDISTRIBUTION_STALE' using errcode='40001'; end if;
   if plan->'blockers'<>'[]'::jsonb then raise exception 'REDISTRIBUTION_PROTECTED' using errcode='55000', detail=(plan->'blockers')::text; end if;
   if not exists(select 1 from public.draft_locks l where l.version_id=p_version and l.tenant_id=p_tenant
@@ -554,10 +573,11 @@ begin
 end;
 $$;
 revoke all on function private.takeoff_redistribution_check_scope(uuid,uuid,uuid,uuid,boolean),
-  private.takeoff_redistribution_used_lines(uuid[]),private.takeoff_redistribution_location(text,text,text,boolean),
+  private.takeoff_redistribution_used_lines(uuid[]),public.read_takeoff_item_redistribution_documents(uuid,uuid,uuid,uuid,uuid,boolean),
   private.takeoff_redistribution_edited(public.estimate_items),private.takeoff_redistribution_other_amounts(uuid,uuid),
-  public.preview_takeoff_item_redistribution(uuid,uuid,uuid,uuid,uuid,text,boolean),
-  public.redistribute_takeoff_item(uuid,uuid,uuid,uuid,uuid,text,boolean,uuid,text) from public,anon,authenticated,service_role;
-grant execute on function public.preview_takeoff_item_redistribution(uuid,uuid,uuid,uuid,uuid,text,boolean),
-  public.redistribute_takeoff_item(uuid,uuid,uuid,uuid,uuid,text,boolean,uuid,text) to service_role;
+  public.preview_takeoff_item_redistribution(uuid,uuid,uuid,uuid,uuid,text,boolean,jsonb),
+  public.redistribute_takeoff_item(uuid,uuid,uuid,uuid,uuid,text,boolean,uuid,text,jsonb) from public,anon,authenticated,service_role;
+grant execute on function public.read_takeoff_item_redistribution_documents(uuid,uuid,uuid,uuid,uuid,boolean),
+  public.preview_takeoff_item_redistribution(uuid,uuid,uuid,uuid,uuid,text,boolean,jsonb),
+  public.redistribute_takeoff_item(uuid,uuid,uuid,uuid,uuid,text,boolean,uuid,text,jsonb) to service_role;
 commit;

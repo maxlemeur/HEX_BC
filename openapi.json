@@ -107580,7 +107580,25 @@
                               ]
                             },
                             "label": {
-                              "type": "string"
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "available": {
+                              "type": "boolean"
+                            },
+                            "building_state": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "level_state": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
                             },
                             "quantity": {
                               "type": "number"
@@ -107602,6 +107620,9 @@
                             "from_target",
                             "plan_name",
                             "label",
+                            "available",
+                            "building_state",
+                            "level_state",
                             "quantity",
                             "unit",
                             "pages"
@@ -107657,6 +107678,7 @@
                             "reason": {
                               "type": "string",
                               "enum": [
+                                "location_unavailable",
                                 "unchanged",
                                 "mixed",
                                 "dpgf",

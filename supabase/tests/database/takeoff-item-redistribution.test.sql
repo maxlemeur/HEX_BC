@@ -3,16 +3,17 @@ create extension if not exists pgtap with schema extensions;
 set local search_path=extensions,public,pg_catalog;
 select no_plan();
 \ir ../fixtures/takeoff-item-redistribution.sql
+\ir ../fixtures/takeoff-item-redistribution-locations.sql
 
 create temp table kept_line as select * from public.estimate_items where id=pg_temp.f(62);
 create temp table initial_parts as select id,to_jsonb(p)-'target_id' as raw from public.takeoff_item_send_parts p where version_id=pg_temp.f(30);
 create temp table initial_pages as select * from public.takeoff_item_send_pages where version_id=pg_temp.f(30);
 create temp table initial_receipts as select * from public.takeoff_item_send_receipts where version_id=pg_temp.f(30);
 create function pg_temp.preview(mode text, actor integer default 1, project integer default 20) returns jsonb language sql as $$
-  select public.preview_takeoff_item_redistribution(pg_temp.f(10),pg_temp.f(actor),pg_temp.f(project),pg_temp.f(30),pg_temp.f(50),mode,true)
+  select pg_temp.preview_read(pg_temp.f(10),pg_temp.f(actor),pg_temp.f(project),pg_temp.f(30),pg_temp.f(50),mode,true)
 $$;
 create function pg_temp.confirm(mode text,digest text,request integer) returns jsonb language sql as $$
-  select public.redistribute_takeoff_item(pg_temp.f(10),pg_temp.f(1),pg_temp.f(20),pg_temp.f(30),pg_temp.f(50),mode,true,pg_temp.f(request),digest)
+  select pg_temp.confirm_read(pg_temp.f(10),pg_temp.f(1),pg_temp.f(20),pg_temp.f(30),pg_temp.f(50),mode,true,pg_temp.f(request),digest)
 $$;
 -- A length rounds up once per destination. The raw 1.2 m and 0.2 m therefore
 -- occupy two metres together, and two plus one when split across levels.
@@ -36,6 +37,16 @@ rollback to length_fixture;
 
 create temp table shown as select pg_temp.preview('by_level') as plan;
 select is((select plan->'blockers' from shown),'[]'::jsonb,'intact line is movable');
+create temp table unavailable as select jsonb_set(
+  pg_temp.location_input(pg_temp.f(10),pg_temp.f(1),pg_temp.f(20),pg_temp.f(30),pg_temp.f(50),'by_level',true),
+  array['parts',pg_temp.f(101)::text,'available'],'false') as locations;
+create temp table missing_plan as select public.preview_takeoff_item_redistribution(pg_temp.f(10),pg_temp.f(1),pg_temp.f(20),
+  pg_temp.f(30),pg_temp.f(50),'by_level',true,locations) as plan from unavailable;
+select ok((select plan->'blockers' @> '[{"reason":"location_unavailable","title":"Plan 1.pdf"}]' from missing_plan),
+  'an unavailable document blocks the whole item and names the plan');
+select throws_ok($$select public.redistribute_takeoff_item(pg_temp.f(10),pg_temp.f(1),pg_temp.f(20),pg_temp.f(30),pg_temp.f(50),
+  'by_level',true,pg_temp.f(212),plan->>'digest',locations) from missing_plan,unavailable$$,
+  '55000','REDISTRIBUTION_PROTECTED','an unavailable file cannot be confirmed as unallocated');
 select results_eq($$select value->>'label',(value->>'quantity')::numeric from shown,jsonb_array_elements(plan->'destinations') order by 1$$,
   $$values ('A · R+1'::text,2::numeric),('A · RDC',3)$$,'the preview splits the five by their plans');
 select throws_ok($$select pg_temp.preview('by_level',2)$$,'42501','REDISTRIBUTION_FORBIDDEN','a reader cannot preview');
@@ -177,10 +188,10 @@ create temp table copied as select public.duplicate_estimate_version(pg_temp.f(3
 reset role;
 insert into public.draft_locks(tenant_id,version_id,user_id,expires_at,session_id)
   select pg_temp.f(10),id,pg_temp.f(1),clock_timestamp()+interval '10 minutes',gen_random_uuid() from copied;
-create temp table copy_plan as select public.preview_takeoff_item_redistribution(pg_temp.f(10),pg_temp.f(1),
+create temp table copy_plan as select pg_temp.preview_read(pg_temp.f(10),pg_temp.f(1),
   pg_temp.f(20),id,pg_temp.f(50),'by_level',true) plan from copied;
 select is((select plan->'blockers' from copy_plan),'[]'::jsonb,'copied pristine targets can be redistributed');
-create temp table copy_result as select public.redistribute_takeoff_item(pg_temp.f(10),pg_temp.f(1),pg_temp.f(20),
+create temp table copy_result as select pg_temp.confirm_read(pg_temp.f(10),pg_temp.f(1),pg_temp.f(20),
   id,pg_temp.f(50),'by_level',true,pg_temp.f(203),plan->>'digest') receipt from copied cross join copy_plan;
 select ok((select receipt->'source_receipts' @> jsonb_build_array(pg_temp.f(71),pg_temp.f(72)) from copy_result),
   'redistribution in the copy references the original sends');
@@ -208,7 +219,7 @@ update public.estimate_items set title='Lavabo personnalisé' where id in
 set local role authenticated;
 create temp table custom_copy as select public.duplicate_estimate_version(pg_temp.f(30),false) id;
 reset role;
-select ok((select public.preview_takeoff_item_redistribution(pg_temp.f(10),pg_temp.f(1),pg_temp.f(20),id,pg_temp.f(50),'by_level',true)
+select ok((select pg_temp.preview_read(pg_temp.f(10),pg_temp.f(1),pg_temp.f(20),id,pg_temp.f(50),'by_level',true)
   ->'blockers' @> '[{"reason":"edited","title":"Lavabo personnalisé"}]' from custom_copy),
   'a copied line personalized before duplication is named and protected on its own draft');
 
@@ -224,10 +235,10 @@ begin
       values(original.tenant_id,pg_temp.f(1),'estimate_items',original.id,original.version_id,'UPDATE',
         jsonb_set(to_jsonb(original),array[field],case when field='quantity' then '21'::jsonb else 'null'::jsonb end),
         jsonb_set(to_jsonb(original),array[field],case when field='quantity' then '19'::jsonb else '"historical value"'::jsonb end));
-    source_blocked:=public.preview_takeoff_item_redistribution(pg_temp.f(10),pg_temp.f(1),pg_temp.f(20),
+    source_blocked:=pg_temp.preview_read(pg_temp.f(10),pg_temp.f(1),pg_temp.f(20),
       original.version_id,pg_temp.f(50),'together',true)->'blockers' @> '[{"reason":"edited"}]';
     test_copy:=public.duplicate_estimate_version(original.version_id,false);
-    copy_blocked:=public.preview_takeoff_item_redistribution(pg_temp.f(10),pg_temp.f(1),pg_temp.f(20),
+    copy_blocked:=pg_temp.preview_read(pg_temp.f(10),pg_temp.f(1),pg_temp.f(20),
       test_copy,pg_temp.f(50),'together',true)->'blockers' @> '[{"reason":"edited"}]';
     raise exception using errcode='Z0001';
   exception when sqlstate 'Z0001' then null; end;

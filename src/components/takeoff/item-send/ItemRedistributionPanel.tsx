@@ -11,6 +11,7 @@ import type { RedistributionOption, RedistributionPreview } from "@/lib/takeoff/
 import { ITEM_SEND_BREAKDOWN_LABELS, type ItemSendBreakdown } from "@/lib/takeoff/item-send-plan";
 
 const reasons: Record<RedistributionPreview["blockers"][number]["reason"], string> = {
+  location_unavailable: "ce plan a été remplacé ou sa localisation ne peut plus être lue. La redistribution est bloquée",
   unchanged: "les apports occupent déjà les lignes de ce découpage",
   edited: "ligne modifiée ou chiffrée dans le devis", quantity: "quantité saisie dans le devis",
   section: "section personnalisée", used: "ligne utilisée ailleurs", identity: "apports de caractéristiques différentes",
@@ -18,6 +19,9 @@ const reasons: Record<RedistributionPreview["blockers"][number]["reason"], strin
   mixed: "les apports du poste utilisent plusieurs découpages", depth: "profondeur maximale des sections atteinte",
   quantity_limit: "quantité supérieure au plafond du devis",
 };
+
+const locationStates: Record<string, string> = { confirmed: "confirmé", corrected: "saisi", proposed: "lu, à confirmer",
+  unknown: "inconnu", multiple: "plusieurs valeurs lues" };
 
 const quantity = (value: number) => value.toLocaleString("fr-FR", { maximumFractionDigits: 4 });
 const intentions = new Map<string, string>();
@@ -144,7 +148,8 @@ export function ItemRedistributionPanel({ jobId, viewerKey, versionId, disabled 
       </li>)}</ul>
       <ul>{preview.parts.map((part) => <li key={part.id}>
         {part.plan_name} · {preview.sources.find((source) => source.target_id === part.from_target)?.label} · {quantity(part.quantity)} {part.unit}
-        {part.pages.length ? ` · p. ${part.pages.join(", ")}` : ""} → {part.label}
+        {part.pages.length ? ` · p. ${part.pages.join(", ")}` : ""} → {part.label ?? "Localisation indisponible"}
+        {part.available && ` · bâtiment ${locationStates[part.building_state ?? "unknown"]} · niveau ${locationStates[part.level_state ?? "unknown"]}`}
       </li>)}</ul>
       {preview.blockers.length ? <Alert variant="warning">
         {preview.blockers.map((blocker, index) => <p key={index}>{blocker.title} · {reasons[blocker.reason]}.</p>)}

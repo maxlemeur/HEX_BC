@@ -1,3 +1,4 @@
+\ir takeoff-item-redistribution-locations.sql
 -- A separate draft already holds three units from a different plan. Copy the stored
 -- shapes of the existing fixture, substituting a new job, document, part and line.
 select is(extensions.dblink_exec('race_setup',format($prior$
@@ -49,9 +50,10 @@ select is((select x.result::jsonb->>'replayed' from extensions.dblink('race_a',p
   'false','the other plan could feed this item before the redistribution');
 select is(extensions.dblink_exec('race_a','rollback'),'ROLLBACK','restore the shared starting point');
 create function pg_temp.redistribution_sql(mode text, request integer) returns text language sql stable as $$
-  select format('select public.redistribute_takeoff_item(%L,%L,%L,%L,%L,%L,false,%L,%L)::text',
+  select format('select public.redistribute_takeoff_item(%L,%L,%L,%L,%L,%L,false,%L,%L,%L::jsonb)::text',
     pg_temp.tenant(),pg_temp.f(1),pg_temp.f(20),pg_temp.f(970),pg_temp.f(300),mode,pg_temp.f(request),
-    public.preview_takeoff_item_redistribution(pg_temp.tenant(),pg_temp.f(1),pg_temp.f(20),pg_temp.f(970),pg_temp.f(300),mode,false)->>'digest')
+    pg_temp.preview_read(pg_temp.tenant(),pg_temp.f(1),pg_temp.f(20),pg_temp.f(970),pg_temp.f(300),mode,false)->>'digest',
+    pg_temp.location_input(pg_temp.tenant(),pg_temp.f(1),pg_temp.f(20),pg_temp.f(970),pg_temp.f(300),mode,false))
 $$;
 create function pg_temp.loser(waiting text, holding text, refusal text) returns setof text language plpgsql as $$
 begin

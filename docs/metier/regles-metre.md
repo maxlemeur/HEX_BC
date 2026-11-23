@@ -1614,7 +1614,10 @@ Depuis le plan envoyé ou l’aperçu d’un envoi vers un brouillon existant, u
 dans l’affaire choisit un poste et un découpage. Le brouillon doit utiliser le moteur 3. L’aperçu
 reprend toutes les parts vivantes du poste dans ce brouillon, y compris celles d’autres plans.
 Il montre la page, la quantité brute, la ligne de départ et le compartiment d’arrivée. Les arrondis
-s’appliquent après regroupement. Les niveaux de deux bâtiments restent distincts.
+s’appliquent après regroupement. Les niveaux de deux bâtiments restent distincts. Le serveur relit
+la localisation du fichier conservé avec le même lecteur et le même découpage que l’envoi.
+L’aperçu indique pour chaque part l’origine du bâtiment et du niveau. Si le plan a disparu,
+a été remplacé ou ne peut plus être lu, le poste entier attend une décision.
 
 Le membre confirme l’aperçu sous son bail d’édition. Une saisie de quantité, un prix, une section
 personnalisée, une ligne utilisée ailleurs ou supprimée dans l’éditeur demandent une décision.

@@ -1,9 +1,14 @@
 import "server-only";
 
+import { z } from "zod";
+
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { TakeoffError, TakeoffErrorCode } from "@/lib/takeoff/errors";
 import { takeoffModuleDefault } from "@/lib/takeoff/feature-flags";
 import { redistributionRequestSchema, redistributionResponseSchema, type RedistributionOption } from "@/lib/takeoff/item-redistribution-contracts";
+import { redistributionLocation } from "@/lib/takeoff/item-redistribution-location";
+import { readTakeoffJobPlanLocations } from "@/lib/takeoff/plan-location-server";
+import type { TakeoffJobPlanLocation } from "@/lib/takeoff/plan-location-contracts";
 import { itemSendMemberMayWrite } from "@/lib/takeoff/item-send-preview-server";
 import { getAuthenticatedTakeoffContext } from "@/lib/takeoff/job-read-server";
 import { takeoffJobIdSchema } from "@/lib/takeoff/schemas";
@@ -58,9 +63,28 @@ export async function redistributeTakeoffItem(rawJobId: string, body: unknown) {
   const args = { p_tenant: ctx.tenantId, p_actor: ctx.userId, p_project: job.project_id, p_version: request.version_id,
     p_item: request.item_id, p_mode: request.breakdown, p_module: takeoffModuleDefault() };
   const service = createServiceRoleClient();
+  const { data: facts, error: factsError } = await service.rpc("read_takeoff_item_redistribution_documents", {
+    p_tenant: args.p_tenant, p_actor: args.p_actor, p_project: args.p_project, p_version: args.p_version,
+    p_item: args.p_item, p_module: args.p_module,
+  });
+  if (factsError) refusal(jobId, factsError.message);
+  const documents = z.object({ has_buildings: z.boolean(), parts: z.record(z.string(), z.object({
+    part_id: z.string().uuid(), job_id: z.string().uuid(), file_id: z.string().uuid().nullable(), hash: z.string().nullable(),
+    name: z.string().nullable(), revision: z.number().int().nullable(),
+  })) }).parse(facts);
+  const plans = new Map<string, TakeoffJobPlanLocation[]>();
+  for (const source of Object.values(documents.parts)) {
+    if (plans.has(source.job_id)) continue;
+    const read = await readTakeoffJobPlanLocations(source.job_id).catch(() => null);
+    plans.set(source.job_id, read?.project_id === job.project_id ? read.plans : []);
+  }
+  const p_locations = { has_buildings: documents.has_buildings, parts: Object.fromEntries(
+    Object.entries(documents.parts).map(([id, source]) => [id, redistributionLocation(source,
+      plans.get(source.job_id)?.find((plan) => plan.plan_file_id === source.file_id), request.breakdown, documents.has_buildings)])),
+  };
   const { data, error } = request.action === "preview"
-    ? await service.rpc("preview_takeoff_item_redistribution", args)
-    : await service.rpc("redistribute_takeoff_item", { ...args, p_request: request.request_id, p_digest: request.digest });
+    ? await service.rpc("preview_takeoff_item_redistribution", { ...args, p_locations })
+    : await service.rpc("redistribute_takeoff_item", { ...args, p_locations, p_request: request.request_id, p_digest: request.digest });
   if (error) refusal(jobId, error.message);
   return redistributionResponseSchema.parse(request.action === "preview" ? { action: "preview", preview: data }
     : { action: "confirm", ...(data && typeof data === "object" ? data : {}) });
