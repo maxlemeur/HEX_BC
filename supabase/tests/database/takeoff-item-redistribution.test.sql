@@ -172,5 +172,53 @@ select results_eq($$select id,to_jsonb(i) from public.estimate_items i where ver
   union all select id,to_jsonb(p) from public.takeoff_item_send_parts p where version_id=pg_temp.f(30)
   order by 1$$,$$select * from source_rows order by id$$,'the source estimate and journal stay intact');
 
+-- A copy of a copy keeps each original send identity on its own receipt, even if
+-- its intermediate receipt can no longer be read.
+set local role authenticated;
+create temp table nested_copy as select public.duplicate_estimate_version(id,false) id from copied;
+reset role;
+select results_eq($$select distinct (r.write_plan->>'original_send_receipt_id')::uuid
+  from public.takeoff_item_send_parts p join public.takeoff_item_send_receipts r on r.id=p.receipt_id
+  where p.version_id=(select id from nested_copy) order by 1$$,
+  $$values (pg_temp.f(71)),(pg_temp.f(72))$$,'a nested copy retains both original send identities in its own journal');
+
+select set_config('miaouffrage.estimate_v3_writer',pg_temp.f(30)::text,true);
+update public.estimate_items set title='Lavabo personnalisé' where id in
+  (select estimate_item_id from public.takeoff_item_send_targets where version_id=pg_temp.f(30) and item_id=pg_temp.f(50));
+set local role authenticated;
+create temp table custom_copy as select public.duplicate_estimate_version(pg_temp.f(30),false) id;
+reset role;
+select ok((select public.preview_takeoff_item_redistribution(pg_temp.f(10),pg_temp.f(1),pg_temp.f(20),id,pg_temp.f(50),'by_level',true)
+  ->'blockers' @> '[{"reason":"edited","title":"Lavabo personnalisé"}]' from custom_copy),
+  'a copied line personalized before duplication is named and protected on its own draft');
+
+-- One historical edit at a time. A user can restore the old visible value. The audit
+-- still contains the change, and even a subsequently duplicated line must retain it.
+create function pg_temp.history_protected(field text) returns boolean language plpgsql as $$
+declare original public.estimate_items; test_copy uuid; source_blocked boolean; copy_blocked boolean;
+begin
+  begin
+    select i.* into strict original from public.estimate_items i join public.takeoff_item_send_targets t
+      on i.id=t.estimate_item_id where t.version_id=(select id from copied) and t.item_id=pg_temp.f(50) order by i.id limit 1;
+    insert into public.audit_logs(tenant_id,user_id,table_name,record_id,estimate_version_id,action,before_data,after_data)
+      values(original.tenant_id,pg_temp.f(1),'estimate_items',original.id,original.version_id,'UPDATE',
+        jsonb_set(to_jsonb(original),array[field],case when field='quantity' then '21'::jsonb else 'null'::jsonb end),
+        jsonb_set(to_jsonb(original),array[field],case when field='quantity' then '19'::jsonb else '"historical value"'::jsonb end));
+    source_blocked:=public.preview_takeoff_item_redistribution(pg_temp.f(10),pg_temp.f(1),pg_temp.f(20),
+      original.version_id,pg_temp.f(50),'together',true)->'blockers' @> '[{"reason":"edited"}]';
+    test_copy:=public.duplicate_estimate_version(original.version_id,false);
+    copy_blocked:=public.preview_takeoff_item_redistribution(pg_temp.f(10),pg_temp.f(1),pg_temp.f(20),
+      test_copy,pg_temp.f(50),'together',true)->'blockers' @> '[{"reason":"edited"}]';
+    raise exception using errcode='Z0001';
+  exception when sqlstate 'Z0001' then null; end;
+  return source_blocked and copy_blocked;
+end;
+$$;
+select ok(pg_temp.history_protected(field),field||' edits stay protected on the draft and on its copy')
+from unnest(array['title','description','position','parent_id','quantity','unit_code','category_id','aid','line_nature','pricing_status',
+  'unit_price_ht_cents','fo_price_origin','selected_supplier_price_id','product_id','offer_choice','supply_type_id','was_not_priced',
+  'status_reason','tax_rate_bp','k_fo','k_fo_manual','fo_provision','k_mo','k_mo_atelier','k_mo_chantier','h_mo','h_mo_per_unit',
+  'h_mo_atelier','h_mo_atelier_per_unit','h_mo_chantier','h_mo_chantier_per_unit','h_mo_majoration','labor_role_id',
+  'labor_role_atelier_id','labor_role_chantier_id','source_provider','source_job_id','source_file_name','source_page','source_metadata']) field;
 select * from finish();
 rollback;

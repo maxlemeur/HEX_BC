@@ -135,6 +135,15 @@ $$;
 -- A touched section or a line carrying an editor's own fields can never be removed.
 -- Financial inputs, third-party uses and quantity are checked on the current row as
 -- well, including when a copy inherited a value before the copy's own audit began.
+-- The audit compares every stored column except updated_at, the four derived prices/totals
+-- and the quantity transitions explained by receipts. In particular it protects:
+-- title, description, position, parent_id, quantity, unit_code, category_id, aid, line_nature,
+-- pricing_status, unit_price_ht_cents, selected_supplier_price_id, fo_price_origin, offer_choice,
+-- product_id, supply_type_id, was_not_priced, status_reason, tax_rate_bp, fo_provision, k_fo,
+-- k_fo_manual, k_mo, k_mo_atelier, k_mo_chantier, h_mo, h_mo_per_unit, h_mo_atelier,
+-- h_mo_atelier_per_unit, h_mo_chantier, h_mo_chantier_per_unit, h_mo_majoration,
+-- labor_role_id, labor_role_atelier_id, labor_role_chantier_id and all source fields.
+-- External components, evidence and review notes are checked as line uses.
 create function private.takeoff_redistribution_edited(p_line public.estimate_items)
 returns boolean language sql stable set search_path='' as $$
   -- Match the multiset of committed quantity transitions against receipt lines.
@@ -157,6 +166,37 @@ returns boolean language sql stable set search_path='' as $$
           or exists(select 1 from jsonb_array_elements(r.result->'destinations') e where e->>'line_id'=p_line.id::text
               and e->'quantity_before'=c.before_qty and e->'quantity'=c.after_qty))))
 $$;
+
+-- A copy starts with new physical lines and a new audit trail. Snapshot the source's
+-- protected identities in the new copy receipt, while the source still exists.
+-- Only copy inserts execute this trigger; a copy of a copy carries the same flags.
+create function private.takeoff_redistribution_copy_protections()
+returns trigger language plpgsql set search_path='' as $$
+declare
+  source public.takeoff_item_send_receipts;
+  protected_targets jsonb;
+  protected_sections jsonb;
+begin
+  select * into source from public.takeoff_item_send_receipts r
+    where r.id=new.copied_from_receipt_id and r.tenant_id=new.tenant_id and r.project_id=new.project_id;
+  if not found then return new; end if;
+  select coalesce(jsonb_agg(jsonb_build_array(t.item_id,t.breakdown,t.compartment_key) order by t.id),'[]') into protected_targets
+  from public.takeoff_item_send_targets t join public.estimate_items i on i.id=t.estimate_item_id
+  where t.created_by_receipt_id=source.id and (private.takeoff_redistribution_edited(i) or
+    source.write_plan->'protected_targets' @> jsonb_build_array(jsonb_build_array(t.item_id,t.breakdown,t.compartment_key)));
+  select coalesce(jsonb_agg(s.section_key order by s.section_key),'[]') into protected_sections
+  from public.takeoff_item_send_sections s join public.estimate_items i on i.id=s.estimate_item_id
+  where s.receipt_id=source.id and (private.takeoff_redistribution_edited(i) or source.write_plan->'protected_sections' ? s.section_key);
+  new.write_plan:=new.write_plan||jsonb_strip_nulls(jsonb_build_object(
+    'protected_targets',protected_targets,'protected_sections',protected_sections,
+    'original_send_receipt_id',case when source.command_kind='send' then source.id::text
+      when source.command_kind='copy' then source.write_plan->>'original_send_receipt_id' end));
+  return new;
+end;
+$$;
+revoke all on function private.takeoff_redistribution_copy_protections() from public,anon,authenticated,service_role;
+create trigger takeoff_item_redistribution_copy_protections before insert on public.takeoff_item_send_receipts
+  for each row when (new.command_kind='copy') execute function private.takeoff_redistribution_copy_protections();
 
 create function public.preview_takeoff_item_redistribution(p_tenant uuid,p_actor uuid,p_project uuid,p_version uuid,p_item uuid,
   p_mode text,p_module boolean)
@@ -190,14 +230,19 @@ begin
   select exists(select 1 from public.takeoff_plan_locations where project_id=p_project and tenant_id=p_tenant and building_choice='value')
     into has_buildings;
 
-  for source in select t as target,i as line,
+  for source in select t as target,i as line,r.write_plan as origin_plan,
       coalesce(sum(p.quantity),0) raw_quantity,
-      coalesce(i.title,(select e.label from public.takeoff_list_revision_entries e
+      coalesce(i.title,(select a.before_data->>'title' from public.audit_logs a
+        where a.tenant_id=p_tenant and a.estimate_version_id=p_version and a.table_name='estimate_items' and a.action='DELETE'
+          and a.before_data#>>'{source_metadata,takeoff_item_send,item_id}'=p_item::text
+          and a.before_data#>>'{source_metadata,takeoff_item_send,compartment_key}'=t.compartment_key
+        order by a.created_at desc,a.id desc limit 1),(select e.label from public.takeoff_list_revision_entries e
         where e.project_id=p_project and e.item_id=p_item order by e.revision_id limit 1),'Ligne supprimée') as title
-    from public.takeoff_item_send_targets t left join public.takeoff_item_send_parts p on p.target_id=t.id and p.state='live'
+    from public.takeoff_item_send_targets t join public.takeoff_item_send_receipts r on r.id=t.created_by_receipt_id
+    left join public.takeoff_item_send_parts p on p.target_id=t.id and p.state='live'
     left join public.estimate_items i on i.id=t.estimate_item_id
     where t.tenant_id=p_tenant and t.project_id=p_project and t.version_id=p_version and t.item_id=p_item
-    group by t.id,i.id having count(p.id)>0 or t.estimate_item_id is not null order by t.id
+    group by t.id,i.id,r.id having count(p.id)>0 or t.estimate_item_id is not null order by t.id
   loop
     reason := null;
     identity := jsonb_build_array((source.line).title,(source.line).category_id,(source.line).tax_rate_bp,(source.line).k_fo,(source.target).unit_code,(source.target).basis,(source.target).network,(source.target).material,(source.target).diameter);
@@ -219,6 +264,7 @@ begin
       or (source.line).labor_role_atelier_id is not null or (source.line).labor_role_chantier_id is not null
       or (source.line).was_not_priced or (source.line).line_nature is distinct from 'supply_only'
       or (source.line).pricing_status<>'priced' or private.takeoff_redistribution_edited(source.line)
+      or source.origin_plan->'protected_targets' @> jsonb_build_array(jsonb_build_array(p_item,(source.target).breakdown,(source.target).compartment_key))
       or (source.line).source_provider is distinct from 'takeoff'
       or (source.line).source_file_name is not null or (source.line).source_page is not null
       or (source.line).source_metadata is distinct from jsonb_build_object('takeoff_item_send',jsonb_build_object(
@@ -282,7 +328,8 @@ begin
       union select i.parent_id from paths join public.estimate_items i on i.id=paths.id where i.parent_id is not null)
     select i.id,i.title from paths join public.estimate_items i on i.id=paths.id
       left join public.takeoff_item_send_sections s on s.version_id=p_version and s.estimate_item_id=i.id
-      where s.id is null or s.title<>i.title or private.takeoff_redistribution_edited(i) order by i.id
+      left join public.takeoff_item_send_receipts r on r.id=s.receipt_id
+      where s.id is null or s.title<>i.title or private.takeoff_redistribution_edited(i) or r.write_plan->'protected_sections' ? s.section_key order by i.id
   loop
     blockers:=blockers||jsonb_build_array(jsonb_build_object('reason','section','title',section.title,'line_id',section.id));
   end loop;
@@ -427,9 +474,9 @@ begin
         join public.takeoff_item_send_receipts r on r.id=c.id and r.tenant_id=p_tenant and r.project_id=p_project
         where r.command_kind='copy' and r.write_plan->>'copied_from_receipt_id' is not null
     ), sources as (select id from receipts union
-      select r.id from jsonb_array_elements(plan->'parts')p join public.takeoff_item_send_receipts r on r.job_id=(p->>'job_id')::uuid
-      where r.tenant_id=p_tenant and r.project_id=p_project and r.command_kind='send'
-        and exists(select 1 from jsonb_array_elements(moves)m where m->>'part_id'=p->>'id'))
+      select (r.write_plan->>'original_send_receipt_id')::uuid from receipts c
+      join public.takeoff_item_send_receipts r on r.id=c.id and r.tenant_id=p_tenant and r.project_id=p_project
+      where r.command_kind='copy' and r.write_plan->>'original_send_receipt_id' is not null)
     select coalesce(jsonb_agg(id order by id),'[]') from sources));
   insert into public.takeoff_item_send_receipts(id,tenant_id,project_id,version_id,request_id,command_kind,format_version,
     actor_id,plan_sha256,version_created,write_plan,result)
