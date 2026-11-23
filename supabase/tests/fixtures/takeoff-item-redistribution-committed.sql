@@ -20,8 +20,11 @@ insert into plans
 select 'redistribution-committed',jsonb_set(plan,'{targets,0,quantity_after}',
   to_jsonb(3 + (plan#>>'{targets,0,quantity_after}')::numeric)),null
 from pg_temp.plan_into(pg_temp.f(1320),pg_temp.f(970)) as p(plan);
+select is(extensions.dblink_exec('race_a','begin'),'BEGIN','the second send enters its transaction');
+select is(extensions.dblink_exec('race_a',pg_temp.as_server_sql()),'SET','call the server-only writer');
 select is((select x.res::jsonb->>'replayed' from extensions.dblink('race_a',pg_temp.send_sql(955,'redistribution-committed'))
-  as x(res text)),'false','a second genuine send into the occupied physical line commits');
+  as x(res text)),'false','a second genuine send changes the occupied physical line');
+select is(extensions.dblink_exec('race_a','commit'),'COMMIT','the second send commits');
 select is((select i.quantity from public.estimate_items i join public.takeoff_item_send_targets t on t.estimate_item_id=i.id
   where t.version_id=pg_temp.f(970)),5::numeric,'the committed physical line now holds three plus two');
 select is((select x.res::jsonb->'blockers' from extensions.dblink('race_setup',format(

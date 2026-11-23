@@ -18,6 +18,7 @@ $$;
 -- A length rounds up once per destination. The raw 1.2 m and 0.2 m therefore
 -- occupy two metres together, and two plus one when split across levels.
 savepoint length_fixture;
+insert into public.measurement_units(code,label,symbol,dimension,sort_order) values('m','Mètre','m','length',990) on conflict do nothing;
 set local session_replication_role=replica;
 update public.takeoff_item_send_parts set unit='m',unit_code='m',
   quantity=case id when pg_temp.f(101) then 1.2 else 0.2 end where version_id=pg_temp.f(30);
@@ -147,6 +148,8 @@ create function pg_temp.move_sql(extra text) returns text language sql as $$
     (select target_id from public.takeoff_item_send_parts where id=pg_temp.f(102)),extra,pg_temp.f(101))
 $$;
 select set_config('mergeone.takeoff_item_redistribution',pg_temp.f(200)::text,true);
+select throws_ok(pg_temp.move_sql(''),'42501','TAKEOFF_ITEM_SEND_IMMUTABLE',
+  'even the table owner needs a receipt listing this exact old and new target');
 select throws_ok(pg_temp.move_sql(',quantity=9'),'42501','TAKEOFF_ITEM_SEND_IMMUTABLE','move cannot change quantity');
 select throws_ok(pg_temp.move_sql(',pages=array[2]'),'42501','TAKEOFF_ITEM_SEND_IMMUTABLE','move cannot change pages');
 select throws_ok(pg_temp.move_sql($$,state='redistributed'$$),'42501','TAKEOFF_ITEM_SEND_IMMUTABLE','reserved state stays unwritten');

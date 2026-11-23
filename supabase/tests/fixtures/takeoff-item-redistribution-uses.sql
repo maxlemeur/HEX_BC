@@ -10,21 +10,24 @@ begin
     'snapshot_fingerprint','synthetic','confidence_label','high','scope_type','line','comment','A conserver',
     'source_label','Plan','source_kind','history','source_record_table','estimate_items','source_ref','Ligne témoin',
     'line_position',1,'draft_node_id',pg_temp.f(452),'review_reference',pg_temp.f(452)::text,'source_comment_id',pg_temp.f(454),
-    'suggestion_id',pg_temp.f(455),'line_id',pg_temp.f(452),'cause_code','quantity_gap','scope_ref','line:lavabo',
+    'suggestion_id',pg_temp.f(455),'line_id',pg_temp.f(452),'cause_code','missing_proof','scope_ref','line:lavabo',
     'position',1,'title','Témoin','explanation_id',pg_temp.f(457),'candidate_id',pg_temp.f(458))||extra||jsonb_build_object(edge,pg_temp.f(61));
+  if relation='public.estimate_items'::regclass then
+    select (to_jsonb(i)-'id')||jsonb_build_object('parent_id',pg_temp.f(61)) into fields from public.estimate_items i where i.id=pg_temp.f(62);
+  end if;
   select string_agg(quote_ident(attname),',' order by attnum) into columns_ from pg_catalog.pg_attribute
     where attrelid=relation and attnum>0 and not attisdropped and fields ? attname::text;
   begin
-    perform set_config('session_replication_role','replica',true);
     execute format('insert into %1$s (%2$s) select %2$s from jsonb_populate_record(null::%1$s,$1)',relation,columns_) using fields;
-    perform set_config('session_replication_role','origin',true);
     observed:=pg_temp.preview('by_level')->'blockers' @> '[{"reason":"used","title":"Lavabo"}]';
     raise exception using errcode='Z0001';
   exception when sqlstate 'Z0001' then null;
+    when others then raise warning 'Fixture % (%), ERROR: %',relation,edge,sqlerrm; return false;
   end;
   return observed;
 end;
 $$;
+set local session_replication_role=replica;
 select ok(pg_temp.protects_use(relation::regclass,edge,extra::jsonb),relation||'.'||edge||' protects its estimate line')
 from (values
   ('public.estimate_items','parent_id','{"item_type":"section"}'),
@@ -54,3 +57,4 @@ from (values
   ('public.estimate_review_comments','scope_id','{}'),
   ('public.estimate_review_correction_items','scope_id','{}')
 ) as cases(relation,edge,extra);
+set local session_replication_role=origin;

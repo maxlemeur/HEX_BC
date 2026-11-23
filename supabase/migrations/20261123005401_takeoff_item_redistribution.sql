@@ -43,6 +43,10 @@ begin
         and exists (select 1 from public.takeoff_item_send_targets t
           where (t.id,t.tenant_id,t.project_id,t.version_id,t.item_id) =
             (new.target_id,old.tenant_id,old.project_id,old.version_id,old.item_id) and t.estimate_item_id is not null)
+        and exists (select 1 from public.takeoff_item_send_receipts r
+          where r.id=private.takeoff_uuid_or_null(to_jsonb(current_setting('mergeone.takeoff_item_redistribution'))) and r.command_kind='redistribute'
+            and (r.tenant_id,r.project_id,r.version_id)=(old.tenant_id,old.project_id,old.version_id)
+            and r.result->'moves' @> jsonb_build_array(jsonb_build_object('part_id',old.id,'from_target',old.target_id,'to_target',new.target_id)))
       then return new;
       end if;
     elsif tg_op = 'INSERT' then
@@ -448,6 +452,7 @@ declare
   origin public.takeoff_item_send_targets;
   next_pos integer;
   moves jsonb:='[]';
+  moved_count bigint;
   reached jsonb:='[]';
   result jsonb;
   other_amounts jsonb;
@@ -528,9 +533,8 @@ begin
     end if;
     with changing as (select (p->>'id')::uuid id,(p->>'from_target')::uuid old_target
       from jsonb_array_elements(plan->'parts')p where p->>'key'=destination->>'key' and p->>'from_target'<>target::text),
-    moved as (update public.takeoff_item_send_parts part set target_id=target from changing c
-      where part.id=c.id and part.target_id=c.old_target and part.state='live'
-      returning part.id,c.old_target,part.receipt_id,part.quantity)
+    moved as (select p.id,c.old_target,p.receipt_id,p.quantity from changing c join public.takeoff_item_send_parts p
+      on p.id=c.id and p.target_id=c.old_target and p.state='live')
     select moves||coalesce(jsonb_agg(jsonb_build_object('part_id',id,'from_target',old_target,'to_target',target,
       'from_line',s->'line_id','to_line',line_id,'from_line_before',s->'quantity',
       'from_line_after',(select d->'quantity' from jsonb_array_elements(plan->'destinations')d where d->>'target_id'=old_target::text),
@@ -566,6 +570,13 @@ begin
   insert into public.takeoff_item_send_receipts(id,tenant_id,project_id,version_id,request_id,command_kind,format_version,
     actor_id,plan_sha256,version_created,write_plan,result)
   values(receipt,p_tenant,p_project,p_version,p_request,'redistribute',1,p_actor,p_digest,false,plan,result);
+  -- Receipt and moves commit atomically. The journal guard authorizes only the
+  -- exact transitions listed by this receipt; every listed part must be updated.
+  update public.takeoff_item_send_parts p set target_id=m.to_target from jsonb_to_recordset(moves)
+    as m(part_id uuid,from_target uuid,to_target uuid)
+    where p.id=m.part_id and p.target_id=m.from_target and p.state='live';
+  get diagnostics moved_count=row_count;
+  if moved_count<>jsonb_array_length(moves) then raise exception 'REDISTRIBUTION_STALE' using errcode='40001'; end if;
   perform set_config('miaouffrage.estimate_v3_writer',old_writer,true);
   perform set_config('mergeone.takeoff_item_redistribution',old_redistribution,true);
   perform set_config('mergeone.takeoff_item_send',old_send,true);
