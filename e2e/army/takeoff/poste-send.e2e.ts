@@ -320,7 +320,7 @@ describe("Envoi d’un plan au devis, poste par poste", () => {
     // A correction after the send is authoritative. Neither PDF proposes a building.
     for (const [plan, bytes, level] of [[planA, pdfs.a, "RDC"], [planB, pdfs.b, "Combles"]] as const) {
       const saved = await apiRequest(ui.browser, "PUT", `/api/takeoff/plan-sets/${seeded.planSetId}/files/${plan.fileId}/location`, {
-        content_hash: await sha256(bytes), expected_revision: 1, building: { choice: "reading" }, level: { choice: "value", value: level } });
+        content_hash: await sha256(bytes), expected_revision: 1, building: { choice: "reading", value: null }, level: { choice: "value", value: level } });
       expect(saved.status).toBe(200);
     }
     await app.open(`/dashboard/affaires/${seeded.projectId}/takeoff`);
