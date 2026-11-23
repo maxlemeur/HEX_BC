@@ -184,7 +184,9 @@ describe("Envoi d’un plan au devis, poste par poste", () => {
       await expect(dialog().getByRole("region", "Déplacements des apports")).toContainText("Lavabo");
       await expect(dialog()).toContainText("ligne modifiée");
       await expect(dialog().getByRole("button", "Confirmer la redistribution")).toBeDisabled();
+      shots.push(await ui.app.screenshot("poste-redistribution-prix-protege"));
       await dialog().getByRole("button", "Annuler", { exact: true }).click();
+      expect((await readOwnedLines(seeded.projectId)).find((line) => line.id === lavabo.id)?.inputs).toEqual(inputsBefore);
       expect(inputsBefore).toMatchObject({ unit_price_ht_cents: 4200, tax_rate_bp: 1000, k_fo: 1.15, h_mo_per_unit: 0.75, k_mo: 1.1 });
       // One item, five, from A and B, each part live with its plan.
       const parts = await readOwnedParts(seeded.projectId);
@@ -317,10 +319,15 @@ describe("Envoi d’un plan au devis, poste par poste", () => {
     await expect(dialog()).toContainText("Redistribution enregistrée.");
     await app.open(`/dashboard/affaires/${seeded.projectId}/takeoff`);
     await waitForHydration(ui.browser);
+    await screen.getByRole("button", "Redistribuer les apports de « plan-b.pdf »", { exact: true }).click();
+    await dialog().getByLabel("Nouveau découpage").selectOption({ value: "by_level" });
+    await dialog().getByRole("button", "Prévisualiser la redistribution").click();
+    await expect(dialog().getByRole("region", "Déplacements des apports")).toContainText("Lavabo · Ensemble · 5 u");
+    const afterReload = await ui.app.screenshot("poste-redistribution-apres-rechargement");
     const combined = (await readOwnedLines(seeded.projectId)).filter((line) => line.item_type === "line");
     expect(combined.map((line) => [line.title, line.quantity])).toEqual([["Lavabo", 5]]);
     expect(combined[0].inputs.unit_price_ht_cents).toBe(lines[0].inputs.unit_price_ht_cents);
-    await recordEvidence(army, "POSTE-ENVOI02", { projectId: seeded.projectId, lines, screenshots: [shot] });
+    await recordEvidence(army, "POSTE-ENVOI02", { projectId: seeded.projectId, lines, combined, screenshots: [shot, afterReload] });
   });
 
   test("POSTE-ENVOI03 une liste tirée du DPGF sans ligne du DPGF au devis renvoie à l’import confirmé et n’importe rien", options,
