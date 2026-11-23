@@ -52,6 +52,18 @@ describe("the confirmed count-mark readers", () => {
     expect(result.pins[0]).toMatchObject({ page: 7, dn: "DN 20", evidence: ["tile-1"] });
   });
 
+  it.each([[349.75, 350.25], [350.25, 349.75]])("reconciles seam estimates %s and %s into one object", async (left, right) => {
+    const result = await readCountMarkTiles(page, target, async ({ id, crop }) => {
+      const x = id === 0 ? left : right;
+      const localX = (value: number) => (value - crop.x0) / (crop.x1 - crop.x0);
+      return { status: "complete", pins: id > 1 ? [] : [
+        { poste: target.id, dn: 20, x0: localX(x - 2), x1: localX(x + 2), y0: 0.3, y1: 0.32 },
+      ] };
+    });
+    expect(result.tiles).toEqual(Array(4).fill("read"));
+    expect(pageProposals([], result.pins, page, target.id, "DN 20").marks).toHaveLength(1);
+  });
+
   it("retains actual coverage and makes no further attempt after an unknown outcome", async () => {
     const visits: number[] = [];
     const result = await readCountMarkTiles(page, target, async ({ id }) => {
