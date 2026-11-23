@@ -248,10 +248,17 @@ create temp table first_targets as select pg_temp.targets(array[300]) as targets
 select is(extensions.dblink_exec('race_a', 'begin'), 'BEGIN', 'the first tab confirms a new measure of the first item');
 select is((select x.answer from extensions.dblink('race_a', pg_temp.remeasure_sql(700, array[300], 2, pg_temp.job(1)))
   as x(answer text)), 'admitted:', 'admitted, not yet committed');
+select is(extensions.dblink_send_query('race_setup', pg_temp.remeasure_sql(700, array[300], 2, pg_temp.job(1),
+  (select targets from first_targets))), 1, 'a second click sends the exact same intent before the admission commits');
+select ok(pg_temp.waits_for('race_setup', 'race_a'), 'the repeated click waits for admission');
 select is(extensions.dblink_send_query('race_b', pg_temp.remeasure_sql(701, array[300], 3, pg_temp.job(1))), 1,
   'the second tab confirms the same selection meanwhile');
 select ok(pg_temp.waits_for('race_b', 'race_a'), 'the second waits for the first');
 select is(extensions.dblink_exec('race_a', 'commit'), 'COMMIT', 'the first commits');
+select ok(pg_temp.answered('race_setup'), 'the repeated click receives its receipt');
+select is((select x.answer from extensions.dblink_get_result('race_setup') as x(answer text)), 'replayed:',
+  'both clicks share a single admission');
+select is((select count(*)::integer from extensions.dblink_get_result('race_setup') as x(answer text)), 0, 'the replay is done');
 select ok(pg_temp.answered('race_b'), 'the second answers');
 select is((select x.answer from extensions.dblink_get_result('race_b') as x(answer text)), 'already_running:',
   'an analysis of the affaire runs: the selection is kept for later');
