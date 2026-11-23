@@ -3143,6 +3143,7 @@ declare
   read_ record;
   scope_pages integer[];
   ref numeric;
+  invalid_part jsonb;
   old_sum numeric;
   keep_sum numeric;
   keep_count integer;
@@ -3194,6 +3195,20 @@ begin
       blockers:=blockers||jsonb_build_array(jsonb_build_object('reason','source_unavailable','item_id',item)); continue;
     end if;
     if source_<>'withdraw' then
+      -- Composition rounds the line, but the journal stores each source quantity
+      -- exactly. Check the raw parts before either composing or planning additions.
+      select f into invalid_part from jsonb_array_elements(change->'parts') f
+        cross join lateral (select (f->>'quantity')::numeric as q) raw
+        where (raw.q>0 and raw.q<=999999999.999 and raw.q=round(raw.q,3)) is not true
+        limit 1;
+      if found then
+        blockers:=blockers||jsonb_build_array(jsonb_build_object('reason','quantity_unwritable','item_id',item,
+          'entry_id',invalid_part->'entry_id','observation_id',invalid_part->'observation_id','source',source_,
+          'quantity',invalid_part->'quantity','unit',invalid_part->'unit',
+          'message',format('La quantité %s %s doit être positive, au plus égale à 999999999,999 et comporter au plus trois décimales. Corrigez la quantité avant de confirmer.',
+            invalid_part->>'quantity',invalid_part->>'unit')));
+        continue;
+      end if;
       -- A correction cannot consume a part from another analysis even when an
       -- ordinary send of this logical plan would replace it. Disjoint parts stay.
       select case source_ when 'verified_count' then private.takeoff_count_answer_scope(a)

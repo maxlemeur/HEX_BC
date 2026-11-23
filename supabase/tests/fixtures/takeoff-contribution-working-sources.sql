@@ -258,3 +258,4 @@ from (values ('tenant','42501',null::boolean),('affaire','42501',null),('viewer'
 select is(pg_temp.length_to_count_line(),
   '["line_unit_changed",true,"u","TAKEOFF_REVISION_DECISION_REQUIRED",1,1,"m","live"]'::jsonb,
   'changing a length line to a count blocks the measured replacement under the same unit rule');
+\ir takeoff-revision-precision.sql
