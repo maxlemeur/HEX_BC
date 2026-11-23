@@ -10,7 +10,7 @@ import type { EstimateItemRecord } from "@/lib/estimate-calculations";
 import { buildEstimateV2SnapshotProjection } from "@/lib/estimate-v2-snapshot";
 import { resolveCalcEngineVersion, resolveEstimateEngineVersion } from "@/lib/estimates/calc-engine-version";
 import { isUnifiedEngine, usesPerUnitLabor } from "@/lib/estimates/engine/capabilities";
-import { ApiError, badRequest, conflict, internalError, notFound } from "@/lib/http/api-response";
+import { ApiError, badRequest, conflict, estimateAnalysisOutOfScope, internalError, notFound } from "@/lib/http/api-response";
 import {
   assertLinePlacementAllowed, assertSectionPlacementAllowed, assertSectionSubtreePlacementAllowed,
 } from "@/lib/estimates/estimate-placement-helpers";
@@ -229,7 +229,7 @@ export async function prepareEstimateBatch(input: {
             p_tenant: tenantId, p_version: versionId, p_job: jobId,
           });
           if (error) throw unavailable();
-          if (!held) throw badRequest("Cette version du devis ne détient pas cette analyse.", undefined, "ESTIMATE_ANALYSIS_OUT_OF_SCOPE");
+          if (!held) throw estimateAnalysisOutOfScope();
         })();
         checkedReferences.set(cacheKey, promise);
       }

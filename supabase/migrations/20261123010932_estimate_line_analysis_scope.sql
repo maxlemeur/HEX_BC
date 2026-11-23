@@ -19,14 +19,30 @@ $$;
 revoke all on function public.estimate_version_holds_analysis(uuid,uuid,uuid) from public, anon, authenticated, service_role;
 grant execute on function public.estimate_version_holds_analysis(uuid,uuid,uuid) to authenticated, service_role;
 
--- A writing transaction stabilizes the two mutable inputs before checking.
--- The key of an attached job is immutable and the tenant FK protects its existence.
+-- Include every mutable scope column in a non-partial unique key. PostgreSQL
+-- can then protect it with KEY SHARE while ordinary metadata updates proceed.
+create unique index estimate_versions_analysis_scope_key on public.estimate_versions (id, tenant_id, project_id);
+create unique index takeoff_version_links_analysis_scope_key
+  on public.takeoff_version_links (takeoff_job_id, target_version_id, source_version_id, tenant_id);
+
 create function private.lock_estimate_analysis_scope(p_tenant uuid, p_version uuid, p_job uuid)
 returns void language plpgsql set search_path = '' as $$
+declare owner_version uuid;
 begin
-  perform 1 from public.estimate_versions v where v.id = p_version and v.tenant_id = p_tenant for share nowait;
-  perform 1 from public.takeoff_version_links l where l.takeoff_job_id = p_job and l.target_version_id = p_version
-    and l.tenant_id = p_tenant for share nowait;
+  -- The assignment already holds the job through its FK or the batch job lock.
+  -- An attached job cannot move. Lock only the rows its membership depends on.
+  select j.estimate_version_id into owner_version
+  from public.estimate_versions v join public.takeoff_jobs j on j.id = p_job and j.tenant_id = v.tenant_id
+  where v.id = p_version and v.tenant_id = p_tenant for key share of v skip locked;
+  if found and owner_version is distinct from p_version then
+    perform 1 from public.takeoff_version_links l where l.takeoff_job_id = p_job and l.target_version_id = p_version
+      and l.tenant_id = p_tenant and l.source_version_id = owner_version for key share skip locked;
+  end if;
+  -- A missing or exclusively held identity cannot authorize this assignment.
+  -- SKIP LOCKED keeps the deferred check from waiting above the line lock.
+  if not found or not public.estimate_version_holds_analysis(p_tenant, p_version, p_job) then
+    raise exception using errcode = 'M0A01', message = 'Cette version du devis ne détient pas cette analyse.';
+  end if;
 end
 $$;
 revoke all on function private.lock_estimate_analysis_scope(uuid,uuid,uuid) from public, anon, authenticated, service_role;
@@ -42,9 +58,6 @@ begin
       and i.tenant_id = new.tenant_id and i.version_id = new.version_id
   ) then return null; end if;
   perform private.lock_estimate_analysis_scope(new.tenant_id, new.version_id, new.source_job_id);
-  if not public.estimate_version_holds_analysis(new.tenant_id, new.version_id, new.source_job_id) then
-    raise exception using errcode = 'M0A01', message = 'Cette version du devis ne détient pas cette analyse.';
-  end if;
   return null;
 end
 $$;
@@ -174,9 +187,6 @@ begin
           perform 1 from public.takeoff_jobs j where j.id=item.source_job_id and j.tenant_id=target_tenant for share nowait;
           if op->>'op'='create' then
             perform private.lock_estimate_analysis_scope(target_tenant, p_version_id, item.source_job_id);
-            if not public.estimate_version_holds_analysis(target_tenant, p_version_id, item.source_job_id) then
-              raise exception using errcode='M0A01', message='Cette version du devis ne détient pas cette analyse.';
-            end if;
           elsif not found then
             perform private.estimate_batch_error('INVALID_INPUT');
           end if;

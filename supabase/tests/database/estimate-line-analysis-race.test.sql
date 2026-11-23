@@ -28,9 +28,9 @@ begin
   insert into public.estimate_versions(id,tenant_id,project_id,version_number,status,calc_engine_version,margin_multiplier,tax_rate_bp)
   select pg_temp.aid(20+n),tenant,pg_temp.aid(10),n,'draft',2,1,0 from generate_series(1,2) n;
   insert into public.takeoff_jobs(id,tenant_id,estimate_version_id,level,status,source_file_name,created_by)
-  select pg_temp.aid(n),tenant,pg_temp.aid(21),'B','completed','plan.pdf',pg_temp.aid(1) from generate_series(31,31) n;
+  select pg_temp.aid(n),tenant,pg_temp.aid(21),'B','completed','plan.pdf',pg_temp.aid(1) from generate_series(31,32) n;
   insert into public.takeoff_version_links(tenant_id,takeoff_job_id,source_version_id,target_version_id)
-  select tenant,pg_temp.aid(n),pg_temp.aid(21),pg_temp.aid(22) from generate_series(31,31) n;
+  select tenant,pg_temp.aid(n),pg_temp.aid(21),pg_temp.aid(22) from generate_series(31,32) n;
   insert into public.estimate_items(id,tenant_id,version_id,item_type,position,title)
   values(pg_temp.aid(40),tenant,pg_temp.aid(22),'section',1,'Lot');
   insert into public.estimate_items(id,tenant_id,version_id,parent_id,item_type,position,title,quantity,unit_price_ht_cents,
@@ -59,6 +59,12 @@ select dblink_exec('analysis_editor', $writer$
       '[]',d.projection,d.totals,'{"labor_roles":[],"margin_tiers":[],"labor_split_flag":null}',null)->>'committed')::boolean
     from draft_write d
   $batch$;
+  create function pg_temp.create_section(item integer, job integer) returns uuid language sql as $unit$
+    select (public.atomic_create_estimate_item(d.id,
+      jsonb_build_object('id',pg_temp.aid(item),'item_type','section','position',item,'title','Autre lot','source_job_id',pg_temp.aid(job)),
+      d.projection,d.totals,d.updated_at,pg_temp.aid(50),'{"labor_roles":[],"margin_tiers":[],"labor_split_flag":null}')#>>'{item,id}')::uuid
+    from draft_write d
+  $unit$;
 $writer$);
 select dblink_exec(name, $claims$
   set request.jwt.claim.sub = 'd5080000-0000-4000-8000-000000000001';
@@ -75,14 +81,40 @@ from dblink('analysis_editor',$q$select coalesce(sum(calls),0)::bigint from pg_s
   where funcname in ('lock_estimate_analysis_scope','estimate_version_holds_analysis')$q$) as t(calls bigint);
 select dblink_exec('analysis_editor','set role authenticated; commit');
 
-select dblink_exec('analysis_links',$q$begin; update public.takeoff_version_links set linked_at=clock_timestamp()
-  where target_version_id=pg_temp.aid(22) and takeoff_job_id=pg_temp.aid(31)$q$);
+select is(dblink_exec('analysis_links',$q$begin; update public.takeoff_version_links set linked_at=clock_timestamp()
+  where target_version_id=pg_temp.aid(22) and takeoff_job_id=pg_temp.aid(31)$q$),'UPDATE 1','the link timestamp is being refreshed');
 select is(saved,true,'a timestamp refresh permits a concurrent editor save') from dblink('analysis_editor',
   $$select pg_temp.save_description('Texte enregistré')$$) as t(saved boolean);
 select is((select description from public.estimate_items where id='d5080000-0000-4000-8000-000000000041'),
   'Texte enregistré','the edit is visible after commit');
 
+select dblink_exec('analysis_editor','begin');
+select is(created,'d5080000-0000-4000-8000-000000000042'::uuid,'the unit writer returns the section ID')
+from dblink('analysis_editor','select pg_temp.create_section(42,31)') as t(created uuid);
+select is(dblink_exec('analysis_editor','commit',false),'COMMIT','unit creation commits during the timestamp refresh');
+select is((select count(*) from public.estimate_items where id='d5080000-0000-4000-8000-000000000042'),1::bigint,
+  'the new inherited section is persisted');
 select dblink_exec('analysis_links','commit');
+
+select is(dblink_exec('analysis_editor',$q$begin; update public.estimate_items set source_job_id=source_job_id
+  where id=pg_temp.aid(41)$q$),'UPDATE 1','the assignment reaches the inherited line');
+select is(dblink_exec('analysis_links',$q$begin; update public.estimate_versions set title='Nouveau titre'
+  where id=pg_temp.aid(22)$q$),'UPDATE 1','the other session changes the draft title');
+select is(dblink_exec('analysis_editor','commit',false),'COMMIT','a same-value assignment commits during a title edit');
+select dblink_exec('analysis_links','commit');
+
+-- The second link starts with no dependent line. The unit writer has returned
+-- inside its transaction when the other session actually removes the link.
+select dblink_exec('analysis_editor','begin');
+select is(created,'d5080000-0000-4000-8000-000000000043'::uuid,'the contested creation is staged')
+from dblink('analysis_editor','select pg_temp.create_section(43,32)') as t(created uuid);
+select is(dblink_exec('analysis_links',$q$begin; delete from public.takeoff_version_links
+  where target_version_id=pg_temp.aid(22) and takeoff_job_id=pg_temp.aid(32)$q$),'DELETE 1','the other session removes the link');
+select throws_ok($$select extensions.dblink_exec('analysis_editor','commit')$$,'M0A01',
+  'Cette version du devis ne détient pas cette analyse.','removal in progress surfaces the domain refusal at commit');
+select is(dblink_exec('analysis_links','commit'),'COMMIT','the genuine removal commits');
+select is((select count(*) from public.estimate_items where id='d5080000-0000-4000-8000-000000000043'),0::bigint,
+  'the refused unit creation leaves no row');
 
 select dblink_exec('analysis_links','reset role');
 select dblink_exec('analysis_links', $clean$
@@ -92,6 +124,7 @@ begin
   delete from public.estimate_projects where id=pg_temp.aid(10);
   delete from auth.users where id=pg_temp.aid(1);
   delete from public.feature_flags where tenant_id=tenant;
+  delete from public.estimate_rules where tenant_id=tenant;
   delete from public.audit_logs where tenant_id=tenant;
   delete from public.tenants where id=tenant;
 end

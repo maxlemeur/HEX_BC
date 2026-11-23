@@ -83,6 +83,10 @@ export function isCalculationContextConflict(error: SupabaseErrorLike) {
   return error.code === "40001" && error.message === "ESTIMATE_CREATE_CONTEXT_CHANGED";
 }
 
+export function estimateAnalysisOutOfScope() {
+  return badRequest("Cette version du devis ne détient pas cette analyse.", undefined, "ESTIMATE_ANALYSIS_OUT_OF_SCOPE");
+}
+
 export function mapSupabaseError(
   error: SupabaseErrorLike,
   fallbackMessage: string
@@ -98,7 +102,7 @@ export function mapSupabaseError(
   }
 
   if (error.code === "M0A01") {
-    return badRequest("Cette version du devis ne détient pas cette analyse.", undefined, "ESTIMATE_ANALYSIS_OUT_OF_SCOPE");
+    return estimateAnalysisOutOfScope();
   }
 
   if (isCalculationContextConflict(error)) {

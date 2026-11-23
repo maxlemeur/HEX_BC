@@ -5,7 +5,7 @@ import {
   type EstimateBatchItem,
 } from "@/lib/estimates/batch-preparation";
 import { canonicalizeEstimateBatchOperations } from "@/lib/estimates/batch-request";
-import { ApiError, badRequest, conflict, type SupabaseErrorLike } from "@/lib/http/api-response";
+import { ApiError, badRequest, conflict, estimateAnalysisOutOfScope, type SupabaseErrorLike } from "@/lib/http/api-response";
 import { batchOperationSchema, type BatchOperationInput } from "@/lib/estimates/schemas";
 import {
   assertDraftLockOwnedByCurrentUser, assertDraftStatus, getAuthenticatedContext,
@@ -82,6 +82,7 @@ const RPC_ERRORS: Record<string, [ApiError["status"], string]> = {
 };
 
 function rpcError(error: SupabaseErrorLike, mutation: boolean) {
+  if (error.code === "M0A01") return estimateAnalysisOutOfScope();
   const known = RPC_ERRORS[error.message];
   if (known && ["22023", "42501", "40001", "55000", "P0001", "P0002"].includes(error.code)) {
     return new ApiError({ status: known[0], code: error.message, message: known[1] });

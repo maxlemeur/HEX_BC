@@ -12,6 +12,7 @@ export enum TakeoffErrorCode {
   NOT_FOUND = "NOT_FOUND",
   CONFLICT = "CONFLICT",
   VALIDATION_ERROR = "VALIDATION_ERROR",
+  ESTIMATE_ANALYSIS_OUT_OF_SCOPE = "ESTIMATE_ANALYSIS_OUT_OF_SCOPE",
   INTERNAL_ERROR = "INTERNAL_ERROR",
   READ_ONLY = "READ_ONLY",
   TAKEOFF_MODULE_DISABLED = "TAKEOFF_MODULE_DISABLED",
@@ -219,6 +220,7 @@ function getStatusFromCode(code: TakeoffErrorCode): TakeoffErrorStatus {
 
   if (
     code === TakeoffErrorCode.BAD_REQUEST ||
+    code === TakeoffErrorCode.ESTIMATE_ANALYSIS_OUT_OF_SCOPE ||
     code === TakeoffErrorCode.TAKEOFF_FILE_REQUIRED
   ) {
     return 400;

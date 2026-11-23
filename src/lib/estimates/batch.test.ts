@@ -210,6 +210,13 @@ describe("executeEstimateBatch", () => {
     ]);
   });
 
+  it("reports a deferred analysis refusal returned by the commit RPC", async () => {
+    db.commit.mockResolvedValue({ data: null, error: { code: "M0A01", message: "scoped refusal" } });
+    await expect(executeEstimateBatch(VERSION_ID, [{ op: "create", data: { item_type: "section", title: "Lot" } }], OPTIONS))
+      .rejects.toMatchObject({ status: 400, code: "ESTIMATE_ANALYSIS_OUT_OF_SCOPE",
+        message: "Cette version du devis ne détient pas cette analyse." });
+  });
+
   // Replaces the old expectation that a failed compensation still proves false.
   it("does not claim committed=false when the commit transport has an unknown outcome", async () => {
     db.commit.mockRejectedValue(new Error("Connection closed after dispatch"));
