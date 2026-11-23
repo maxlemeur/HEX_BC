@@ -12,7 +12,43 @@ const id = z.string().uuid();
 const revision = z.number().int().nonnegative();
 const digest = z.string().regex(/^[0-9a-f]{64}$/);
 const source = z.enum(["entered", "measured", "verified_count", "withdraw"]);
-const scope = { version_id: id, receipt_id: id };
+const requestId = id.toLowerCase();
+const lineChoices = z
+  .record(id, z.enum(["keep_entry", "use_retained"]))
+  .refine(
+    (lines) => new Set(Object.keys(lines).map((key) => key.toLowerCase())).size === Object.keys(lines).length,
+    "Une seule décision par ligne.",
+  )
+  .overwrite((lines) =>
+    Object.fromEntries(Object.entries(lines).map(([key, choice]) => [key.toLowerCase(), choice])),
+  );
+
+const additionChoices = itemSendPreviewRequestSchema.omit({ destination: true }).overwrite((choices) => {
+  if (!choices.resolutions) return choices;
+  return {
+    ...choices,
+    resolutions: choices.resolutions.map(({ key, choice }) => ({
+      key,
+      choice:
+        choice.kind === "line" ? { ...choice, estimate_item_id: choice.estimate_item_id.toLowerCase() } : choice,
+    })),
+  };
+});
+const revisionMarks = countMarksEditRequestSchema.overwrite((command) => ({
+  intentKey: command.intentKey.toLowerCase(),
+  revisions: Object.fromEntries(
+    Object.entries(command.revisions).map(([key, value]) => [key.toLowerCase(), value]),
+  ),
+  gestures: command.gestures.map((gesture) => ({
+    ...gesture,
+    ...("key" in gesture && { key: gesture.key.toLowerCase() }),
+    ...("answer_id" in gesture && { answer_id: gesture.answer_id.toLowerCase() }),
+    ...("to_answer_id" in gesture && { to_answer_id: gesture.to_answer_id.toLowerCase() }),
+    ...("mark_id" in gesture && { mark_id: gesture.mark_id.toLowerCase() }),
+    ...("same_as" in gesture && { same_as: gesture.same_as.toLowerCase() }),
+  })),
+}));
+const scope = { version_id: requestId, receipt_id: requestId };
 const expected = z
   .object({
     work_revision: revision,
@@ -33,21 +69,21 @@ const selection = z.union([
 ]);
 export const revisionChoicesSchema = z
   .object({
-    lines: z.record(id, z.enum(["keep_entry", "use_retained"])).optional(),
-    leave_out: z.array(id).max(1000).optional(),
+    lines: lineChoices.optional(),
+    leave_out: z.array(requestId).max(1000).optional(),
     page_decisions: z.array(itemSendPageDecisionSchema).max(1000).optional(),
-    additions: itemSendPreviewRequestSchema.omit({ destination: true }).optional(),
+    additions: additionChoices.optional(),
   })
   .strict();
 export type RevisionChoices = z.infer<typeof revisionChoicesSchema>;
 export const revisionRequestSchema = z.discriminatedUnion("action", [
-  z.object({ action: z.literal("read"), items: z.array(id).min(1).max(1000) }).strict(),
+  z.object({ action: z.literal("read"), items: z.array(requestId).min(1).max(1000) }).strict(),
   z
     .object({
       action: z.literal("entry"),
       ...scope,
-      answer_id: id,
-      intent_id: id,
+      answer_id: requestId,
+      intent_id: requestId,
       expected_revision: revision,
       entry: z.union([
         quantityEntrySchema.extend({
@@ -59,12 +95,12 @@ export const revisionRequestSchema = z.discriminatedUnion("action", [
     })
     .strict(),
   z
-    .object({ action: z.literal("choose"), ...scope, answer_id: id, intent_id: id, expected, choice: selection })
+    .object({ action: z.literal("choose"), ...scope, answer_id: requestId, intent_id: requestId, expected, choice: selection })
     .strict(),
-  z.object({ action: z.literal("marks"), ...scope, command: countMarksEditRequestSchema }).strict(),
+  z.object({ action: z.literal("marks"), ...scope, command: revisionMarks }).strict(),
   z.object({ action: z.literal("preview"), ...scope, choices: revisionChoicesSchema }).strict(),
   z
-    .object({ action: z.literal("confirm"), ...scope, choices: revisionChoicesSchema, intent_id: id, digest })
+    .object({ action: z.literal("confirm"), ...scope, choices: revisionChoicesSchema, intent_id: requestId, digest })
     .strict(),
 ]);
 export type RevisionRequest = z.infer<typeof revisionRequestSchema>;

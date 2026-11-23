@@ -72,7 +72,7 @@ function planEntryForWriter(entry: EntryCommand) {
 
 export async function reviseContribution(rawJobId: string, body: unknown) {
   const ctx = await getAuthenticatedTakeoffContext();
-  const jobId = parseWithSchema(takeoffJobIdSchema, rawJobId, "Identifiant de lecture invalide.");
+  const jobId = parseWithSchema(takeoffJobIdSchema.toLowerCase(), rawJobId, "Identifiant de lecture invalide.");
   const request = parseWithSchema(revisionRequestSchema, body, "Demande de correction invalide.");
   const job = await ctx.supabase
     .from("takeoff_jobs")
@@ -148,9 +148,7 @@ export async function reviseContribution(rawJobId: string, body: unknown) {
     const result = await ctx.supabase.rpc("edit_takeoff_revision_marks", {
       ...memberScope,
       p_intent_key: command.intentKey,
-      p_revisions: Object.fromEntries(
-        Object.entries(command.revisions).map(([key, val]) => [key.toLowerCase(), val]),
-      ),
+      p_revisions: command.revisions,
       p_gestures: command.gestures as unknown as Json,
     });
     if (result.error) {

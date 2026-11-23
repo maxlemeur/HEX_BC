@@ -230,6 +230,45 @@ describe("Correction d’un apport de plan au devis", () => {
           `select count(*) from public.takeoff_item_send_receipts where version_id='${line.version_id}' and command_kind='revise';`,
         ),
       ).toEqual(["1"]);
+      const copy = await apiRequest<{ data: { version_id: string } }>(
+        ui.browser,
+        "POST",
+        `/api/estimates/${line.version_id}/duplicate`,
+      );
+      expect(copy.status).toBe(201);
+      const versionsFor = async (jobId: string) => {
+        const url = `/api/takeoff/jobs/${jobId}/item-send/revision`;
+        const read = await apiRequest<{ data: { versions: RevisionVersion[] } }>(ui.browser, "POST", url, {
+          action: "read",
+          items: [itemId],
+        });
+        expect(read.status).toBe(200);
+        const versions = read.body.data.versions.map(({ version_id, receipt_id }) => ({ version_id, receipt_id }));
+        for (const scope of versions) {
+          const next = await apiRequest(ui.browser, "POST", url, { action: "preview", ...scope, choices: {} });
+          expect(next.status, JSON.stringify(next.body)).toBe(200);
+        }
+        return versions;
+      };
+      const destinations = await versionsFor(plan.jobId);
+      expect(destinations.map((v) => v.version_id).sort()).toEqual(
+        [line.version_id, copy.body.data.version_id].sort(),
+      );
+      expect(await versionsFor(plan.jobId.toUpperCase())).toEqual(destinations);
+      const upper = await ui.browser.evaluate(
+        ({ jobId, versionId }) => {
+          const address = new URL(location.href);
+          address.searchParams.set("lecture", jobId.toUpperCase());
+          address.searchParams.set("versionId", versionId.toUpperCase());
+          return address.pathname + address.search;
+        },
+        { jobId: plan.jobId, versionId: copy.body.data.version_id },
+      );
+      await app.open(upper);
+      await waitForHydration(ui.browser);
+      await expect(detail.getByLabel("Devis à consulter ou corriger")).toHaveValue(copy.body.data.version_id);
+      await detail.getByRole("button", "Prévisualiser la correction").click();
+      await expect(detail.getByRole("group", "Aperçu de la correction")).toBeVisible();
       await recordEvidence(army, "POSTE-REVISION01", {
         projectId: seeded.projectId,
         line: line.id,
