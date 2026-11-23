@@ -476,7 +476,10 @@ begin
   perform 1 from public.estimate_projects where id=p_project and tenant_id=p_tenant for no key update;
   perform pg_advisory_xact_lock(hashtextextended('takeoff-rules:'||p_version,0));
   perform pg_advisory_xact_lock(hashtextextended(p_version::text,0));
-  perform 1 from public.estimate_versions where id=p_version and project_id=p_project and tenant_id=p_tenant for no key update;
+  -- The estimate-item revision trigger takes UPDATE on this version. Take the
+  -- same lock at rank 3, before a line FK can hold KEY SHARE on the version
+  -- while waiting for our rank-8 line lock.
+  perform 1 from public.estimate_versions where id=p_version and project_id=p_project and tenant_id=p_tenant for update;
   -- Rank 8. A referencing FK must acquire KEY SHARE on the line we might delete. Taking
   -- UPDATE before re-reading its uses prevents even an ON DELETE CASCADE from losing a use.
   perform 1 from public.estimate_items i where i.version_id=p_version and (i.item_type='section' or exists

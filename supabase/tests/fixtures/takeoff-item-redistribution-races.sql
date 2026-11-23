@@ -67,10 +67,49 @@ end;
 $$;
 select is(extensions.dblink_exec('race_a','begin'), 'BEGIN','redistributing the previously sent item');
 select is(extensions.dblink_exec('race_a',pg_temp.as_server_sql()),'SET','through the server');
-select is((select x.receipt::jsonb->>'replayed' from extensions.dblink('race_a',pg_temp.redistribution_sql('by_level',950)) x(receipt text)),
+-- The outlier review references both version and line. This independent
+-- structure match references the line through its own draft instead.
+select is(extensions.dblink_exec('race_setup',format(
+  'insert into public.estimate_structure_drafts(id,tenant_id,project_id,target_version_id,created_by) values(%L,%L,%L,%L,%L)',
+  pg_temp.f(980),pg_temp.tenant(),pg_temp.f(20),pg_temp.f(970),pg_temp.f(1))),'INSERT 0 1','a structure draft can hold a match');
+select is(extensions.dblink_connect('race_line',(select connection from race_connection)),'OK','a separate structure writer connects');
+insert into race_pids select 'race_line',pid from extensions.dblink('race_line','select pg_backend_pid()') as x(pid integer);
+-- SHARE admits both the writer's row locks and the incoming FK's KEY SHARE,
+-- but pauses the first physical insert. No application hook is needed.
+select is(extensions.dblink_exec('race_setup','begin; lock table public.estimate_items in share mode'),
+  'LOCK TABLE','pause physical writes before any line is replaced');
+select is(extensions.dblink_send_query('race_a',pg_temp.redistribution_sql('by_level',950)),1,'start the redistribution');
+select ok(pg_temp.waits_for('race_a','race_setup'),'the command reached its first physical write');
+select is(extensions.dblink_send_query('race_c',format($review$
+  insert into public.estimate_item_outlier_dismissals(version_id,item_id,flag_key,dismissed_by)
+  values (%L,%L,'quantity_outlier',%L) returning item_id::text
+$review$,pg_temp.f(970),pg_temp.f(973),pg_temp.f(1))),1,'a member references the old physical line');
+select ok(pg_temp.waits_for('race_c','race_a'),'the version-scoped review waits for the redistribution');
+select is(extensions.dblink_send_query('race_line',format($match$
+  insert into public.estimate_structure_draft_nodes(tenant_id,draft_id,order_index,hierarchy_level,label,normalized_label,
+    confidence,default_action,duplicate_match_item_id) values(%L,%L,0,1,'Lavabo','lavabo',1,'merge',%L)
+  returning duplicate_match_item_id::text
+$match$,pg_temp.tenant(),pg_temp.f(980),pg_temp.f(973))),1,'the structure writer inserts a reference to the same line');
+select ok(pg_temp.waits_for('race_line','race_a'),'the line-only foreign key waits before the removal');
+select is(extensions.dblink_exec('race_setup','commit'),'COMMIT','release the physical write');
+select is((select x.receipt::jsonb->>'replayed' from extensions.dblink_get_result('race_a',false) x(receipt text)),
   'false','redistribution completes while its transaction stays open');
+select is((select count(*) from extensions.dblink_get_result('race_a',false) x(receipt text)),0::bigint,'writer returned its receipt');
 select is(extensions.dblink_send_query('race_b',pg_temp.send_sql(951,'redistribution-other-plan')),1,'a later plan send into the same item starts');
 select * from pg_temp.loser('race_b','race_a','TAKEOFF_ITEM_SEND_PREVIEW_STALE');
+select ok(pg_temp.answered('race_c'),'the dependent writer returns after the removal commits');
+select is((select count(*) from extensions.dblink_get_result('race_c',false) x(item_id text)),0::bigint,
+  'the dependent was never inserted against the removed line');
+select matches(extensions.dblink_error_message('race_c'),'violates foreign key constraint.*item_id_fkey',
+  'the line foreign key refuses the losing insert');
+select is((select count(*) from extensions.dblink_get_result('race_c',false) x(item_id text)),0::bigint,'dependent session is ready');
+select is((select count(*) from extensions.dblink_get_result('race_line',false) x(item_id text)),0::bigint,
+  'the structural match was never committed against the removed line');
+select matches(extensions.dblink_error_message('race_line'),'violates foreign key constraint.*duplicate_match_item_id_fkey',
+  'the independent line key refuses its losing insert');
+select is(extensions.dblink_disconnect('race_line'),'OK','the structure writer disconnects');
+select is(extensions.dblink_exec('race_setup',format('delete from public.estimate_structure_drafts where id=%L',pg_temp.f(980))),
+  'DELETE 1','remove the test structure draft');
 select results_eq($$select i.quantity,t.breakdown from public.takeoff_item_send_targets t join public.estimate_items i on i.id=t.estimate_item_id
   where t.version_id=pg_temp.f(970) and t.item_id=pg_temp.f(300)$$,$$values (3::numeric,'by_level'::text)$$,'one live destination and the original three');
 
