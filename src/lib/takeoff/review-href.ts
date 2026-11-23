@@ -1,16 +1,21 @@
 /**
  * The address of a takeoff's review in its affaire: `/dashboard/affaires/{projectId}/takeoff/{jobId}/review`, or its
  * targeted review (TI-664 L5c) under `/review/targeted`. When supplied, the estimate version comes first, followed in order by
- * the review mode, the view, the DPGF view and the line: the journeys compare these addresses as strings.
+ * the review mode, the view, the DPGF view, the comparison's other job and threshold, and the line: the journeys compare
+ * these addresses as strings.
  */
 export type TakeoffReviewHrefInput = {
   projectId: string;
   jobId: string;
   versionId?: string | null;
   targeted?: boolean;
-  reviewMode?: "validation" | "production";
-  view?: "dpgf";
+  /** « assisted » is read from old addresses only: no screen writes it. */
+  reviewMode?: "assisted" | "validation" | "production";
+  view?: "dpgf" | "items" | "tables" | "compare";
   dpgfView?: "exceptions_only";
+  /** The comparison of two readings (`view=compare`), as the review writes it: the other job and the threshold. */
+  compareWith?: string;
+  threshold?: string;
   line?: string;
 };
 
@@ -21,6 +26,8 @@ export function takeoffReviewHref(input: TakeoffReviewHrefInput): string {
     ["reviewMode", input.reviewMode],
     ["view", input.view],
     ["dpgfView", input.dpgfView],
+    ["compareWith", input.compareWith],
+    ["threshold", input.threshold],
     ["line", input.line],
   ];
   const search = query

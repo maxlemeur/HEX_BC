@@ -9,6 +9,8 @@ import { TakeoffItemListPanel } from "@/components/takeoff/TakeoffItemListPanel"
 import TakeoffActivityCenter from "@/components/takeoff/TakeoffActivityCenter";
 import { TakeoffFlowHierarchyPanel } from "@/components/takeoff/TakeoffFlowHierarchyPanel";
 import { TakeoffItemDetailScreen } from "@/components/takeoff/item-detail/TakeoffItemDetailScreen";
+import { TakeoffEarlierAnalysesPanel, TakeoffEarlierAnalysisScreen } from "@/components/takeoff/TakeoffEarlierAnalysis";
+import { TakeoffLinkNotice } from "@/components/takeoff/TakeoffLinkNotice";
 import { getUserContext } from "@/lib/auth/server";
 import {
   fetchAffaireHubPlansSummary,
@@ -16,12 +18,15 @@ import {
   fetchAffaireProjectBasic,
   fetchProjectVersionList,
 } from "@/lib/affaires/server";
+import { readEarlierAnalysisParam } from "@/lib/takeoff/earlier-analysis";
+import { readEarlierTakeoffAnalysis } from "@/lib/takeoff/earlier-analysis-server";
 import { isTakeoffEnabled } from "@/lib/takeoff/feature-flags";
 import { itemTableReturnHref } from "@/lib/takeoff/item-detail-address";
 import { buildTakeoffLaunchContext } from "@/lib/takeoff/launch-context";
 import { isTakeoffLaunchActive } from "@/lib/takeoff/launch-request-server";
 import { fetchPlanSetsForProject } from "@/lib/takeoff/plans";
 import { TAKEOFF_ITEM_DETAIL_PARAMS } from "@/lib/takeoff/review-href";
+import { resolveTakeoffReviewLink } from "@/lib/takeoff/review-link";
 
 type Props = {
   params: Promise<{ projectId: string }>;
@@ -54,6 +59,11 @@ export default async function AffaireTakeoffPage({ params, searchParams }: Props
     redirect(`${takeoffZoneHref}&metreOptions=1${planSet}#metre`);
   }
 
+  const search = new URLSearchParams();
+  for (const [name, value] of Object.entries(query)) {
+    for (const entry of Array.isArray(value) ? value : value === undefined ? [] : [value]) search.append(name, entry);
+  }
+
   // The detail of an item opened from the table of items (`?poste=…`): the same page, its address and its reads
   // (the table's routes, which check the member's access to the affaire), the table one step back.
   if (query[TAKEOFF_ITEM_DETAIL_PARAMS.itemId] !== undefined) {
@@ -61,10 +71,6 @@ export default async function AffaireTakeoffPage({ params, searchParams }: Props
       if (err !== null && typeof err === "object" && "code" in err && (err as { code: string }).code === "NOT_FOUND") notFound();
       throw err;
     });
-    const search = new URLSearchParams();
-    for (const [name, value] of Object.entries(query)) {
-      for (const entry of Array.isArray(value) ? value : value === undefined ? [] : [value]) search.append(name, entry);
-    }
     return (
       <div className="space-y-3">
         <Breadcrumbs items={[
@@ -78,6 +84,23 @@ export default async function AffaireTakeoffPage({ params, searchParams }: Props
         </Suspense>
       </div>
     );
+  }
+
+  // An analysis of the affaire not read against its list, read only as it was kept (`?anterieure=…`), the table one
+  // step back. A job read against the list is not one: the table shows it, as its review's link does.
+  const earlierJob = readEarlierAnalysisParam(search);
+  if (earlierJob !== null) {
+    const project = await fetchAffaireProjectBasic(projectId).catch((err: unknown) => {
+      if (err !== null && typeof err === "object" && "code" in err && (err as { code: string }).code === "NOT_FOUND") notFound();
+      throw err;
+    });
+    const earlier = earlierJob === "invalid" ? null : await readEarlierTakeoffAnalysis(project.id, earlierJob).catch((err: unknown) => {
+      if (err !== null && typeof err === "object" && "status" in err && [403, 404].includes((err as { status: number }).status)) return null;
+      throw err;
+    });
+    if (!earlier) notFound();
+    if (earlier.kind === "list") redirect(resolveTakeoffReviewLink({ projectId: earlier.projectId, jobId: earlierJob }, earlier.facts).href);
+    return <TakeoffEarlierAnalysisScreen projectId={project.id} projectName={project.name} view={earlier.view} query={search} />;
   }
 
   const [
@@ -148,6 +171,10 @@ export default async function AffaireTakeoffPage({ params, searchParams }: Props
             stage="Étude"
             context="L’IA lit vos plans et propose les quantités. Vous les vérifiez avant de les reporter au devis."
           />
+          <Suspense>
+            {/* Why the table opened as it did, after a link to the review of an analysis read against the list. */}
+            <TakeoffLinkNotice projectId={projectId} query={search} />
+          </Suspense>
           {launchRequestsActive ? (
             <p className="mb-4 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
               Le métré de l’affaire se lance et se relance depuis son état, sur la page de l’affaire.
@@ -164,6 +191,12 @@ export default async function AffaireTakeoffPage({ params, searchParams }: Props
         </>
       }
       help={<TakeoffFlowHierarchyPanel />}
+      earlier={(
+        <Suspense>
+          {/* Beside the table, once the affaire has a list: its analyses that were not read against it. */}
+          <TakeoffEarlierAnalysesPanel projectId={projectId} query={search} />
+        </Suspense>
+      )}
       versions={versions}
       launchContext={launchContext}
       latestJobContext={

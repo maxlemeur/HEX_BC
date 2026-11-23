@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useMemo } from "react";
+import { useMemo, type ReactNode } from "react";
 
 import type { ReviewItem } from "@/components/takeoff/TakeoffReviewPage";
 import TakeoffReviewTable, {
@@ -58,6 +58,8 @@ export type TakeoffReviewExpertProps = {
   onSetCompareWithJobId: (id: string | null) => void;
   onSetCompareThreshold: (threshold: number) => void;
   onApplyDiffSelection: (selectedBaseItemIds: string[]) => Promise<void>;
+  /** A comparison read only (a reading of the affaire's list, lot 4), with where to act instead. */
+  compareReadOnlyNote?: ReactNode;
   applySelectionSubmitting: boolean;
   applySelectionError: string | null;
 
@@ -170,6 +172,7 @@ export function TakeoffReviewExpert({
   onSetCompareWithJobId,
   onSetCompareThreshold,
   onApplyDiffSelection,
+  compareReadOnlyNote,
   applySelectionSubmitting,
   applySelectionError,
   dpgfCompareData,
@@ -373,7 +376,8 @@ export function TakeoffReviewExpert({
             <TakeoffDiffView
               key={`${compareData.base_job_id}:${compareData.other_job_id}:${compareData.threshold}`}
               compare={compareData}
-              onApplySelection={readOnly ? undefined : onApplyDiffSelection}
+              readOnlyNote={compareReadOnlyNote}
+              onApplySelection={readOnly || compareReadOnlyNote ? undefined : onApplyDiffSelection}
               isApplyingSelection={applySelectionSubmitting}
               applySelectionError={applySelectionError}
             />
