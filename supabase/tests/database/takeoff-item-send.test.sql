@@ -539,6 +539,12 @@ select is((select count(*)::integer from public.draft_locks l join public.estima
   where v.project_id = pg_temp.f(20)), 0, 'the lease of the version it created lives only in its transaction');
 create temp table footprint_first as select pg_temp.footprint() as value;
 
+create temp table draft_source as
+select id, tenant_id, project_id from public.estimate_versions where id = (select version_id from public.takeoff_item_send_receipts where request_id = pg_temp.f(710));
+grant select on draft_source to authenticated;
+\ir ../fixtures/copied-takeoff-draft-delete.sql
+
+
 -- 3. The same request: the same plan answers the same receipt, nothing written twice; another plan, another member or
 --    another job under it is a conflict; another request for the job finds it sent.
 select pg_temp.sign_in(1);

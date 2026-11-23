@@ -489,6 +489,12 @@ select throws_ok($$update public.takeoff_send_receipts set result = '{}' where j
   '42501', 'TAKEOFF_SEND_RECEIPT_IMMUTABLE', 'a receipt is never rewritten, not even by the service role');
 reset role;
 
+create temp table draft_source as
+select id, tenant_id, project_id from public.estimate_versions where id = pg_temp.fixture(100);
+grant select on draft_source to authenticated;
+\ir ../fixtures/copied-takeoff-draft-delete.sql
+
+
 -- 6. A replay returns the receipt; nothing is created twice. The same request with other content is a conflict.
 select pg_temp.sign_in(1);
 set local role authenticated;

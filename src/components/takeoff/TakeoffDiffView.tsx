@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 
 import type {
   TakeoffDiffChangedEntry,
@@ -16,6 +16,11 @@ import { Card } from "@/components/ui/card";
 
 type TakeoffDiffViewProps = {
   compare: TakeoffJobCompareResponse;
+  /**
+   * A comparison read only (a reading of the affaire's list, lot 4): no selection and no apply, this note in their place
+   * (where to act instead).
+   */
+  readOnlyNote?: ReactNode;
   onApplySelection?: (selectedBaseItemIds: string[]) => void | Promise<void>;
   isApplyingSelection?: boolean;
   applySelectionError?: string | null;
@@ -154,12 +159,14 @@ function InlineDiffEntry({
   entry,
   selected,
   onSelectionChange,
+  readOnly = false,
 }: {
   entry: UnifiedDiffEntry;
   selected: boolean;
   onSelectionChange: (selected: boolean) => void;
+  readOnly?: boolean;
 }) {
-  const selectable = isSelectableEntry(entry);
+  const selectable = !readOnly && isSelectableEntry(entry);
 
   return (
     <article className={`rounded-xl border p-4 ${CHANGE_TYPE_CARD_CSS[entry.changeType]}`}>
@@ -244,12 +251,14 @@ function SideBySideDiffEntry({
   entry,
   selected,
   onSelectionChange,
+  readOnly = false,
 }: {
   entry: UnifiedDiffEntry;
   selected: boolean;
   onSelectionChange: (selected: boolean) => void;
+  readOnly?: boolean;
 }) {
-  const selectable = isSelectableEntry(entry);
+  const selectable = !readOnly && isSelectableEntry(entry);
 
   return (
     <article className={`rounded-xl border p-4 ${CHANGE_TYPE_CARD_CSS[entry.changeType]}`}>
@@ -327,6 +336,7 @@ function SideBySideDiffEntry({
 
 export default function TakeoffDiffView({
   compare,
+  readOnlyNote,
   onApplySelection,
   isApplyingSelection = false,
   applySelectionError = null,
@@ -477,32 +487,38 @@ export default function TakeoffDiffView({
             </button>
           </div>
 
-          <label className="ml-auto flex items-center gap-2 text-xs text-foreground-secondary">
-            <input
-              type="checkbox"
-              checked={allVisibleSelected}
-              onChange={(event) => toggleVisibleSelection(event.target.checked)}
-              disabled={visibleSelectableIds.length === 0}
-            />
-            Tout sélectionner (visible)
-          </label>
+          {readOnlyNote ? null : (
+            <label className="ml-auto flex items-center gap-2 text-xs text-foreground-secondary">
+              <input
+                type="checkbox"
+                checked={allVisibleSelected}
+                onChange={(event) => toggleVisibleSelection(event.target.checked)}
+                disabled={visibleSelectableIds.length === 0}
+              />
+              Tout sélectionner (visible)
+            </label>
+          )}
         </div>
 
-        <div className="mt-3 flex flex-wrap items-center gap-3">
-          <span className="text-xs text-muted-foreground">
-            Sélection : {selectedIdsArray.length} ligne(s)
-          </span>
-          <button
-            type="button"
-            className={buttonVariants({ variant: "primary" })}
-            onClick={() => {
-              void onApplySelection?.(selectedIdsArray);
-            }}
-            disabled={!onApplySelection || isApplyingSelection || selectableIds.length === 0}
-          >
-            {isApplyingSelection ? "Application…" : "Appliquer la sélection"}
-          </button>
-        </div>
+        {readOnlyNote ? (
+          <div className="mt-3 text-sm text-foreground-secondary">{readOnlyNote}</div>
+        ) : (
+          <div className="mt-3 flex flex-wrap items-center gap-3">
+            <span className="text-xs text-muted-foreground">
+              Sélection : {selectedIdsArray.length} ligne(s)
+            </span>
+            <button
+              type="button"
+              className={buttonVariants({ variant: "primary" })}
+              onClick={() => {
+                void onApplySelection?.(selectedIdsArray);
+              }}
+              disabled={!onApplySelection || isApplyingSelection || selectableIds.length === 0}
+            >
+              {isApplyingSelection ? "Application…" : "Appliquer la sélection"}
+            </button>
+          </div>
+        )}
 
         {applySelectionError ? (
           <p className="mt-2 text-sm text-danger">{applySelectionError}</p>
@@ -525,6 +541,7 @@ export default function TakeoffDiffView({
                   key={entry.key}
                   entry={entry}
                   selected={selected}
+                  readOnly={Boolean(readOnlyNote)}
                   onSelectionChange={(nextSelected) => {
                     if (!selectableId) return;
                     toggleItemSelection(selectableId, nextSelected);
@@ -538,6 +555,7 @@ export default function TakeoffDiffView({
                 key={entry.key}
                 entry={entry}
                 selected={selected}
+                readOnly={Boolean(readOnlyNote)}
                 onSelectionChange={(nextSelected) => {
                   if (!selectableId) return;
                   toggleItemSelection(selectableId, nextSelected);

@@ -27,6 +27,7 @@ import { writeDirectionDebugLog } from "./debug";
 import type { DirectionDashboardQuery } from "./schemas";
 import { dedupeLabels } from "@/lib/text/dedupe-labels";
 import { resolveAlertJobId } from "@/lib/direction/alert-job-id";
+import { readTakeoffJobsReadingListOrNone } from "@/lib/takeoff/review-link-server";
 
 type EstimateVersionApprovalStatus =
   Database["public"]["Enums"]["estimate_version_approval_status"];
@@ -95,6 +96,8 @@ type TakeoffJobRow = {
   status: string;
   created_at: string;
   completed_at: string | null;
+  /** Read against the affaire's list (lot 4): its exceptions open the table of items. */
+  reads_list?: boolean;
 };
 
 type ProfileRow = {
@@ -167,7 +170,8 @@ export type DirectionDashboardPageData = {
   pagination: DirectionDashboardPagination;
 };
 
-type ProjectAlertSignals = { latestJobId: string | null; marginBp: number | null; alerts: DirectionSyntheticAlert[] };
+type ProjectAlertSignals = { latestJobId: string | null; latestJobReadsList?: boolean; marginBp: number | null;
+  alerts: DirectionSyntheticAlert[] };
 
 type DirectionPlansMetrics = {
   coveragePercent: number | null;
@@ -591,7 +595,11 @@ async function listReviewCyclesByVersionId(versionIds: string[]) {
   };
 }
 
-async function listLatestJobsByVersionId(versionIds: string[]) {
+/**
+ * The latest completed or applied job of each version. `listReadings` says whether each was read against the affaire's
+ * list (lot 4); the approvals queue reads that once for its whole page and asks for none here.
+ */
+async function listLatestJobsByVersionId(versionIds: string[], listReadings = true) {
   if (versionIds.length === 0) {
     return new Map<string, TakeoffJobRow>();
   }
@@ -623,6 +631,10 @@ async function listLatestJobsByVersionId(versionIds: string[]) {
       jobs.set(row.estimate_version_id, row);
     }
   }
+  if (!listReadings) return jobs;
+  // Optional: when it fails the radar keeps its signals, each alert with today's link.
+  const readingList = await readTakeoffJobsReadingListOrNone(context.supabase, context.tenantId, [...jobs.values()].map((row) => row.id));
+  for (const row of jobs.values()) row.reads_list = readingList.has(row.id.toLowerCase());
 
   return jobs;
 }
@@ -946,7 +958,9 @@ async function resolveDirectionMarginBp(context: Awaited<ReturnType<typeof getAu
 export const fetchDirectionProjectSignals = cache(
   async (
     projectId: string,
-    versionId: string
+    versionId: string,
+    /** Whether the latest job's list reading is read here (the approvals queue reads it once for its page). */
+    listReadings = true
   ): Promise<ProjectAlertSignals> => {
     const version = await getDirectionVersionById(projectId, versionId);
 
@@ -958,7 +972,7 @@ export const fetchDirectionProjectSignals = cache(
     const [context, latestJobsByVersionId, alertsByVersionId, workspace] =
       await Promise.all([
         getAuthenticatedContext(),
-        listLatestJobsByVersionId([version.id]),
+        listLatestJobsByVersionId([version.id], listReadings),
         listRiskAlertsByVersionId([version.id]),
         fetchAffaireIntakeWorkspace(projectId).catch(() => null),
       ]);
@@ -988,6 +1002,7 @@ export const fetchDirectionProjectSignals = cache(
     const fixedDiscountSignal = await resolveDirectionFixedDiscount(context, version);
     return {
       latestJobId,
+      latestJobReadsList: latestJobsByVersionId.get(version.id)?.reads_list ?? false,
       marginBp,
       alerts: buildDirectionSyntheticAlerts({
         projectId,
@@ -1007,6 +1022,7 @@ export const fetchDirectionProjectSignals = cache(
         ),
         sendTargetAt,
         latestJobId,
+        latestJobReadsList: latestJobsByVersionId.get(version.id)?.reads_list ?? false,
         alerts: actionableAlerts,
       }),
     };
@@ -1102,6 +1118,7 @@ export async function fetchDirectionDashboardPageData(
         riskScore,
         sendTargetAt,
         latestJobId,
+        latestJobReadsList: latestJobsByVersionId.get(version.id)?.reads_list ?? false,
         alerts: actionableAlerts,
       });
       const lotLabels = dedupeLabels(

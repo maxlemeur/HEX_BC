@@ -322,7 +322,15 @@ describe("Envoi d’un plan au devis, poste par poste", () => {
       expect([await readOwnedVersions(seeded.projectId), await countOwnedReceipts(seeded.projectId)]).toEqual([[], 0]);
 
       // The review of this plan does not offer today's send, which refuses a plan read against the list: it offers this one.
-      await app.open(`/dashboard/affaires/${seeded.projectId}/takeoff/${seeded.plans[0].jobId}/review`);
+      // Its address leads to the table of items filtered on the plan (lot 4, the entries: review-link.ts), which offers
+      // it; the targeted review, which stays, offers it above its lines.
+      const takeoff = `/dashboard/affaires/${seeded.projectId}/takeoff`;
+      await app.open(`${takeoff}/${seeded.plans[0].jobId}/review`);
+      await expect(ui.browser).toHaveURL(`${takeoff}?postePlan=${seeded.plans[0].fileId}&lien=analyse&lienAnalyse=${seeded.plans[0].jobId}`);
+      await waitForHydration(ui.browser);
+      await expect(ui.locator('[data-testid="poste-plan-send"]').getByRole("button", "Envoyer ce plan au devis", { exact: true }))
+        .toBeVisible({ timeout: 30_000 });
+      await app.open(`${takeoff}/${seeded.plans[0].jobId}/review/targeted`);
       await waitForHydration(ui.browser);
       const notice = ui.locator('[data-testid="item-send-review-notice"]');
       await expect(notice).toContainText("Ce plan a été lu contre la liste des postes", { timeout: 30_000 });

@@ -2,6 +2,7 @@ import { NavigationLink as Link } from "@/components/navigation/NavigationFeedba
 import { listTakeoffCompletionNotifications } from "@/lib/takeoff/completion-notifications";
 import { formatTakeoffCompletionDate, TAKEOFF_COMPLETION_LABELS } from "@/lib/takeoff/completion-outcome";
 import { takeoffReviewHref } from "@/lib/takeoff/review-href";
+import { takeoffRequestNoticeHref } from "@/lib/takeoff/review-link";
 import { takeoffCompletionFailureReason } from "@/lib/takeoff/visible-status";
 
 import { markTakeoffCompletionRead } from "./actions";
@@ -42,8 +43,10 @@ export default async function NotificationsPage({
             const activityHref = takeoffEnabled && notice.job_id
               ? `${projectHref}/takeoff?job=${encodeURIComponent(notice.job_id)}`
               : null;
-            // The end of a launch request (no job of its own): the takeoff's zone on the affaire, with its reviews.
-            const zoneHref = takeoffEnabled && notice.subject_kind === "request" ? `${projectHref}?view=overview#metre` : null;
+            // The end of a launch request (no job of its own): the takeoff's zone on the affaire, with its reviews; for a
+            // request read against the affaire's list, the table of items, the request's plans above it.
+            const zoneHref = takeoffEnabled && notice.subject_kind === "request" && notice.request_id
+              ? takeoffRequestNoticeHref(notice.project_id, notice.request_id, notice.readsList) : null;
             // A cached activity page may still show the job as pending.
             const NoticeLink = !reviewHref && activityHref ? "a" : Link;
             const deliveryLabel = deliveryLabels[notice.delivery_state];
@@ -64,7 +67,8 @@ export default async function NotificationsPage({
                   )}
                   {deliveryLabel && <p className="mt-1 text-sm text-slate-700">{deliveryLabel}</p>}
                   <NoticeLink href={reviewHref ?? activityHref ?? zoneHref ?? projectHref} className="mt-2 inline-block text-sm font-medium text-blue-700 underline">
-                    {reviewHref ? "Ouvrir la revue" : activityHref ? "Ouvrir le suivi du métré" : zoneHref ? "Ouvrir l’état du métré" : "Ouvrir l’affaire"}
+                    {reviewHref ? "Ouvrir la revue" : activityHref ? "Ouvrir le suivi du métré"
+                      : zoneHref ? notice.readsList ? "Ouvrir les postes du métré" : "Ouvrir l’état du métré" : "Ouvrir l’affaire"}
                   </NoticeLink>
                 </div>
                 {!notice.read_at && (
