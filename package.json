@@ -140,7 +140,7 @@
     "jsdom": "^31.0.1",
     "playwright": "1.65.1",
     "postcss": "8.5.33",
-    "supabase": "3.0.0",
+    "supabase": "3.2.0",
     "tailwindcss": "^4",
     "tsx": "^4.23.15",
     "typescript": "^6.0.3",
