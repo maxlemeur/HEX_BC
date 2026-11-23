@@ -75,6 +75,10 @@ export type ItemSendObservation = {
   measurementBasis: string | null;
 };
 
+export type ItemSendSource = "measured" | "entered" | "verified_count";
+export type ItemSendCountProof = { quantity: number; unit: string; pages: readonly number[]; marksRevision: number };
+export type ItemSendCountTotal = ItemSendCountProof & { jobId: string; answerId: string | null; readingRevision: number | null };
+
 /** The stored answer of one item on this plan, with its review decision and the entry of this plan's scope (lot 4 PR 4). */
 export type ItemSendAnswer = {
   itemId: string;
@@ -92,6 +96,9 @@ export type ItemSendAnswer = {
    * every page of the plan's unit.
    */
   searchedPages?: readonly number[];
+  quantitySource?: "verified_count";
+  verifiedCount?: ItemSendCountProof | null;
+  readingRevision?: number;
   /** False when a later reading of the same plan replaced this answer: nothing of it is sent (B2's current answer). */
   current?: boolean;
 };
@@ -153,6 +160,7 @@ export type ItemSendEarlierTarget = {
     planKey: string | null;
     /** The identity the part was stored with (migration C): the one compared and echoed, never derived again. */
     identity?: ItemSendIdentity;
+    verifiedCount?: { marksRevision: number; readingRevision: number | null };
   }>;
 };
 export type ItemSendEarlierSection = { key: string; estimateItemId: string };
@@ -216,7 +224,7 @@ export type ItemSendInput = {
    * The plan read: its logical key (the same across its revisions), its name, the pages its unit reads (empty when
    * unknown: then it stands on every page) and its location.
    */
-  plan: { key: string; name: string; pages: readonly number[]; location: ItemSendPlanLocation | null };
+  plan: { key: string; name: string; pages: readonly number[]; pageCount?: number | null; location: ItemSendPlanLocation | null };
   list: { revisionId: string; revision: number };
   /** The sealed list revision, in document order. */
   items: readonly ItemSendListItem[];
@@ -254,7 +262,8 @@ export type ItemSendIdentity = { unit: string; basis: string | null; network: st
 export type ItemSendContribution = {
   answerId: string;
   answerRevision: string;
-  kind: "measured" | "entered";
+  marksRevision?: number;
+  kind: ItemSendSource;
   observationIds: string[];
   quantity: number;
   unit: string;
@@ -302,6 +311,7 @@ export type ItemSendTarget = {
   line: ItemSendTargetLine;
   quantity: ItemSendQuantity;
   contributions: ItemSendContribution[];
+  replacedVerifiedTotal?: ItemSendCountTotal;
   rule: ItemSendRuleEffect | null;
   resolution: ItemSendChoice["kind"] | null;
   /** The earlier parts of this same plan this send replaces (a revision of the plan's part, confirmed with the send). */
@@ -315,7 +325,7 @@ export type ItemSendNotSent = { itemId: string; label: string; reason: ItemSendN
 /** A part of an answer that does not enter the estimate, with what it would have brought. */
 export type ItemSendPartNotSent = {
   itemId: string;
-  kind: "measured" | "entered";
+  kind: ItemSendSource;
   observationIds: string[];
   pages: number[];
   quantity: number;
@@ -325,7 +335,7 @@ export type ItemSendPartNotSent = {
 };
 
 export type ItemSendToResolveKind = "target_missing" | "target_multiple" | "identity_conflict" | "entered_quantity"
-  | "breakdown_mixed" | "page_decision" | "section_depth" | "quantity_unwritable" | "compartment_changed";
+  | "breakdown_mixed" | "page_decision" | "section_depth" | "quantity_unwritable" | "compartment_changed" | "verified_total_indivisible";
 export type ItemSendOption =
   | { kind: "line"; estimateItemId: string; title: string | null }
   | { kind: "new_line" }
@@ -343,6 +353,7 @@ export type ItemSendToResolve = {
    * quantity typed by hand, the line typed.
    */
   page: number | null;
+  verifiedTotal?: ItemSendCountTotal;
   heldItemIds: string[];
   earlierLines: Array<{ estimateItemId: string; title: string | null; quantity: number }>;
   options: ItemSendOption[];
@@ -406,14 +417,14 @@ export type ItemSendWritePlan = {
       retained: number; rounded_from: number | null; gap: { absolute: number; percent: number | null; requires_review: boolean } | null; kept_entry: boolean };
     rule: { rule_id: string | null; rule_version: string | null; action: ItemSendRuleAction; effect: ItemSendRuleEffectKind;
       category_id: string | null; assembly_id: string | null } | null;
-    contributions: Array<{ answer_id: string; answer_revision: string; kind: "measured" | "entered"; observation_ids: string[];
+    contributions: Array<{ answer_id: string; answer_revision: string; marks_revision?: number; kind: ItemSendSource; observation_ids: string[];
       quantity: number; unit: string; pages: number[]; identity: SnakeIdentity }>;
     replaces: Array<{ job_id: string; answer_id: string | null; observation_ids: string[]; quantity: number }>;
   }>;
   page_contributions: Array<{ page: number; item_ids: string[]; target_keys: string[]; observation_ids: string[] }>;
   page_decisions: Array<{ page: number | null; decision: "replace" | "keep_both"; reason_code: string | null; note: string | null }>;
   left_out: Array<{ item_id: string; reason: ItemSendNotSentReason; rule_id: string | null; rule_version: string | null }>;
-  parts_not_sent: Array<{ item_id: string; kind: "measured" | "entered"; observation_ids: string[]; pages: number[]; quantity: number;
+  parts_not_sent: Array<{ item_id: string; kind: ItemSendSource; observation_ids: string[]; pages: number[]; quantity: number;
     unit: string | null; reason: ItemSendPartNotSent["reason"] }>;
   /** What the plan was computed from: the writer reads each again under its locks and refuses the plan when one moved. */
   dependencies: {
@@ -539,7 +550,7 @@ export function itemSendCompartment(breakdown: ItemSendBreakdown, location: Item
 }
 
 type Part = {
-  kind: "measured" | "entered";
+  kind: ItemSendSource;
   answer: ItemSendAnswer;
   observationIds: string[];
   quantity: number;
@@ -690,6 +701,13 @@ export function planTakeoffItemSend(input: ItemSendInput): ItemSendPlan {
   const earlierSections = new Map(input.earlier.sections.filter((section) => destination.kind === "existing_draft"
     && destination.sections.some(({ id }) => id === section.estimateItemId)).map((section) => [section.key, section.estimateItemId]));
   const createdSections = new Map<string, ItemSendSection>();
+  const historyByItem = new Map<string, ItemSendEarlierTarget["parts"][number][]>();
+  for (const target of [...input.earlier.targets, ...(input.earlier.displaced ?? [])]) {
+    const key = lower(target.itemId);
+    const history = historyByItem.get(key) ?? [];
+    history.push(...target.parts);
+    historyByItem.set(key, history);
+  }
 
   // A line feeds one item at most: a line live for an item in this draft (an earlier send), proven for an item of this
   // plan, or chosen for one, is neither another item's target nor offered to it.
@@ -727,9 +745,12 @@ export function planTakeoffItemSend(input: ItemSendInput): ItemSendPlan {
       basis: observation.measurementBasis, pages: observation.page === null ? [] : [observation.page] }));
     // An entry is this plan's part for the item: it stands on every page the plan's unit reads, whatever pages the
     // answer searched, for the page guard as for its page contribution.
-    const entered: Part | null = answer.entry ? { kind: "entered", answer, observationIds: [], quantity: answer.entry.quantity,
+    const entered: Part | null = answer.quantitySource !== "verified_count" && answer.entry ? { kind: "entered", answer, observationIds: [], quantity: answer.entry.quantity,
       unit: answer.entry.unit, basis: null, pages: [...new Set(input.plan.pages)].sort((left, right) => left - right) } : null;
-    const answerParts = () => (entered ? [entered] : measuredParts());
+    const proof = answer.verifiedCount;
+    const counted: Part | null = answer.quantitySource === "verified_count" && answer.decision?.kind === "accepted" && proof
+      ? { kind: "verified_count", answer, observationIds: [], quantity: proof.quantity, unit: proof.unit, basis: null, pages: [...proof.pages] } : null;
+    const answerParts = () => (answer.quantitySource === "verified_count" ? (counted ? [counted] : []) : entered ? [entered] : measuredParts());
     // A later reading of the plan replaced this answer: what it read is no longer this plan's (B2's current answer).
     if (answer.current === false) { notSent(item, "superseded"); continue; }
     if (rule?.effect === "skipped") { notSent(item, "rule_skip", answerParts()); continue; }
@@ -737,7 +758,10 @@ export function planTakeoffItemSend(input: ItemSendInput): ItemSendPlan {
     if (answer.decision?.kind === "set_aside") { notSent(item, "set_aside", answerParts()); continue; }
 
     let parts: Part[];
-    if (entered) {
+    if (answer.quantitySource === "verified_count") {
+      if (!counted) { notSent(item, "not_accepted"); continue; }
+      parts = [counted];
+    } else if (entered) {
       if (!answer.entry!.included) { notSent(item, "hypothesis_not_included", [entered]); continue; }
       parts = [entered];
     } else if (answer.outcome === "not_found") {
@@ -779,6 +803,39 @@ export function planTakeoffItemSend(input: ItemSendInput): ItemSendPlan {
     }
     const identity = identityOf(unit, [...bases][0] ?? item.measurementBasis, item.qualifiers);
 
+    // A count certifies the whole item in the scope checked. Its evidence pages only locate marks.
+    const itemHistory = historyByItem.get(lower(item.id)) ?? [];
+    const ofThisPlan = (part: ItemSendEarlierTarget["parts"][number]) => part.planKey !== null && lower(part.planKey) === lower(input.plan.key);
+    const previousCount = itemHistory.find((part) => part.verifiedCount && ofThisPlan(part));
+    const countTotal = (part: ItemSendEarlierTarget["parts"][number]): ItemSendCountTotal => ({
+      jobId: part.jobId, answerId: part.answerId, quantity: part.quantity, unit: part.unit, pages: part.pages, ...part.verifiedCount!,
+    });
+    const readPages = new Set(counted ? unitPages : answer.searchedPages ?? unitPages);
+    const wholePlan = (covered: Set<number>) => {
+      const size = input.plan.pageCount;
+      if (!size || size > readPages.size || size > covered.size) return false;
+      for (let page = 1; page <= size; page++) if (!readPages.has(page) || !covered.has(page)) return false;
+      return true;
+    };
+    const blockedCount = (covered: Set<number>): ItemSendCountTotal | null => {
+      if (!previousCount && !counted) return null;
+      const whole = wholePlan(covered);
+      if (previousCount && !whole) return countTotal(previousCount);
+      if (counted && proof && itemHistory.some((part) => ofThisPlan(part)
+        && (part.pages.length ? part.pages.some((page) => !covered.has(page)) : !whole))) {
+        return { ...proof, jobId: input.job.id, answerId: answer.answerId, readingRevision: answer.readingRevision ?? null };
+      }
+      return null;
+    };
+    const resolveCount = (total: ItemSendCountTotal) => {
+      const key = `verified-total:${item.id}`;
+      const options: ItemSendOption[] = [{ kind: "leave_out" }];
+      if (offered(key, options)) notSent(item, "left_out", parts);
+      else ask({ key, kind: "verified_total_indivisible", itemId: item.id, label: item.label, compartmentKey: null, options, verifiedTotal: total });
+    };
+    // A page decision cannot supply pages the reading missed.
+    if (previousCount && !wholePlan(readPages)) { resolveCount(countTotal(previousCount)); continue; }
+
     // A page another analysis brought into the estimate: its parts wait for the page decision the confirmation takes,
     // never counted twice; with that decision they are sent, without it they are held, or left out by choice.
     const sendable = parts.filter((part) => {
@@ -808,7 +865,8 @@ export function planTakeoffItemSend(input: ItemSendInput): ItemSendPlan {
     // Summed in thousandths: the parts are exact at that scale, so the sum is.
     const added = sendable.reduce((sum, part) => sum + itemSendThousandths(part.quantity)!, 0) / 1000;
     const contributions: ItemSendContribution[] = sendable.map((part) => ({ answerId: answer.answerId, answerRevision: answer.revision,
-      kind: part.kind, observationIds: part.observationIds, quantity: part.quantity, unit, pages: part.pages, identity }));
+      kind: part.kind, observationIds: part.observationIds, quantity: part.quantity, unit, pages: part.pages, identity,
+      ...(part.kind === "verified_count" && proof ? { marksRevision: proof.marksRevision } : {}) }));
     const leaveOut = () => notSent(item, "left_out", sendable);
     const position = positions.get(item.id)!;
     const dpgfItem = dpgfBound(item);
@@ -817,19 +875,24 @@ export function planTakeoffItemSend(input: ItemSendInput): ItemSendPlan {
     // part of this plan on a page it covers is replaced; on another page it stays.
     const notSentPages = new Set(result.partsNotSent.filter((entry) => entry.itemId === item.id
       && (entry.reason === "page_held" || entry.reason === "left_out")).flatMap((entry) => entry.pages));
-    const covered = new Set((entered ? unitPages : [...new Set(answer.searchedPages ?? unitPages)]).filter((page) => !notSentPages.has(page)
+    const covered = new Set((entered || counted ? unitPages : [...readPages]).filter((page) => !notSentPages.has(page)
       && !heldEntries.some((entry) => (entry.page === null || entry.page === page) && holdsFor(entry, item.id) && !decisions.has(entry.key))));
     for (const decision of decisions.values()) if (decision.decision === "replace" && decision.page !== null) covered.add(decision.page);
     // The earlier parts of this item a « Remplacer » page decision takes out, where this plan sends a part of it.
     const pageReplaced = heldEntries.filter((entry) => decisions.get(entry.key)?.decision === "replace"
       && sendable.some((part) => onPage(part.pages, entry.page)))
       .flatMap((entry) => entry.parts.filter((part) => lower(part.itemId) === lower(item.id)));
+    const otherPlanCount = itemHistory.find((part) => part.verifiedCount && !ofThisPlan(part)
+      && pageReplaced.some((heldPart) => sourceKey(heldPart) === sourceKey(part)));
+    const blocked = otherPlanCount ? countTotal(otherPlanCount) : blockedCount(covered);
+    if (blocked) { resolveCount(blocked); continue; }
     /** Once this item has its target: what its replaced pages take out must leave a line this plan feeds. */
     const takeOut = () => { for (const part of pageReplaced) pageReplacedAll.set(lower(part.partId), part); };
     const compartment: ItemSendCompartment = dpgfItem ? { key: "dpgf", label: ITEM_SEND_DPGF_COMPARTMENT_LABEL, reason: null }
       : itemSendCompartment(input.breakdown, input.plan.location, input.affaireNamesBuilding);
     const targetKey = `${item.id}|${compartment.key}`;
-    const base = { key: targetKey, itemId: item.id, label: item.label, position, compartment, unit, contributions, rule };
+    const base = { key: targetKey, itemId: item.id, label: item.label, position, compartment, unit, contributions, rule,
+      ...(previousCount ? { replacedVerifiedTotal: countTotal(previousCount) } : {}) };
 
     /** A quantity engine 3 cannot write as shown is to resolve, never rounded silently after the preview. */
     const writable = (after: number, facts: NonNullable<ItemSendToResolve["facts"]>) => {
@@ -938,7 +1001,6 @@ export function planTakeoffItemSend(input: ItemSendInput): ItemSendPlan {
     };
 
     type EarlierPart = ItemSendEarlierTarget["parts"][number];
-    const ofThisPlan = (part: EarlierPart) => part.planKey !== null && lower(part.planKey) === lower(input.plan.key);
     const replacesOf = (parts: readonly EarlierPart[]): ItemSendTarget["replaces"] => parts.map((part) => ({ jobId: part.jobId,
       answerId: part.answerId, observationIds: [...part.observationIds].sort(byText), quantity: part.quantity }));
     /**
@@ -950,10 +1012,10 @@ export function planTakeoffItemSend(input: ItemSendInput): ItemSendPlan {
     const earlierOf = (targets: readonly ItemSendEarlierTarget[], stored: readonly DpgfContribution[] = []): Earlier | null | "indivisible" => {
       const parts = targets.flatMap((target) => target.parts);
       const inCovered = (page: number) => covered.has(page);
-      if (parts.some((part) => ofThisPlan(part) && part.pages.length > 0 && part.pages.some(inCovered) && !part.pages.every(inCovered))) {
+      if (parts.some((part) => !part.verifiedCount && ofThisPlan(part) && part.pages.length > 0 && part.pages.some(inCovered) && !part.pages.every(inCovered))) {
         return "indivisible";
       }
-      const replaced = (part: EarlierPart) => (ofThisPlan(part) && (part.pages.length > 0 ? part.pages.every(inCovered) : unitPages.every(inCovered)))
+      const replaced = (part: EarlierPart) => (ofThisPlan(part) && (part.verifiedCount || (part.pages.length > 0 ? part.pages.every(inCovered) : unitPages.every(inCovered))))
         || pageReplaced.some((held) => sourceKey(held) === sourceKey(part));
       const kept = parts.filter((part) => !replaced(part));
       if (!kept.every((part) => sameIdentity(part.identity ?? identityOf(unitCode(part.unit) ?? "", part.basis, part.qualifiers), identity))) {
@@ -1188,7 +1250,7 @@ function writePlanOf(input: ItemSendInput, plan: ItemSendPlan, destination: Excl
           assembly_id: target.rule.assemblyId } : null,
         // In a canonical order: the order the observations were read in never changes the plan.
         contributions: target.contributions.map((contribution) => ({ answer_id: contribution.answerId, answer_revision: contribution.answerRevision,
-          kind: contribution.kind, observation_ids: [...contribution.observationIds].sort(byText), quantity: contribution.quantity,
+          kind: contribution.kind, ...(contribution.kind === "verified_count" ? { marks_revision: contribution.marksRevision } : {}), observation_ids: [...contribution.observationIds].sort(byText), quantity: contribution.quantity,
           unit: contribution.unit, pages: [...contribution.pages].sort((left, right) => left - right), identity: snakeIdentity(contribution.identity) }))
           .sort((left, right) => byText(canonical([left.kind, left.observation_ids, left.pages]), canonical([right.kind, right.observation_ids, right.pages]))),
         replaces: target.replaces.map((part) => ({ job_id: part.jobId, answer_id: part.answerId, observation_ids: part.observationIds,

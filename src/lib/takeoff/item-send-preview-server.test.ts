@@ -548,6 +548,19 @@ describe("confirmTakeoffItemSend", () => {
     expect(error.message).toMatch(/[a-zàâçéèêëîïôûùüÿœ]/);
   });
 
+  it("names the held count, its reading and mark pages, and both ways to resolve the scope", () => {
+    const proof = { job_id: REQUEST_ID, answer_id: null, reading_revision: 3, marks_revision: 8,
+      quantity: 2, unit: "u", pages: [2, 7] };
+    const error = mapItemSendRpcError({ message: "TAKEOFF_ITEM_SEND_VERIFIED_TOTAL_INDIVISIBLE", code: "40001",
+      details: JSON.stringify({ ...proof, reason: "verified_total_indivisible" }) }, JOB);
+    expect(error).toMatchObject({ status: 409, code: "TAKEOFF_ITEM_SEND_VERIFIED_TOTAL_INDIVISIBLE",
+      details: { verified_total: proof } });
+    expect(error.message).toContain("Le devis conserve le comptage de 2 u, issu de la lecture n° 3 (repères pages 2, 7)");
+    expect(error.message).toContain("une lecture qui couvre tout le plan");
+    expect(error.message).toContain("conserver le total précédent");
+    expect(error.message).toContain("Rien n’a été écrit.");
+  });
+
   it("tells the member, in French, every refusal of the writer; nothing was written", () => {
     const cases: Array<[string, string | null, string | null, number]> = [
       ["TAKEOFF_ITEM_SEND_PREVIEW_STALE", "40001", '{"reason": "mapping_changed"}', 409],

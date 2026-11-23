@@ -33,6 +33,7 @@ import {
   type ItemSendDraftLine,
   type ItemSendInput,
   type ItemSendLocationField,
+  type ItemSendCountTotal,
   type ItemSendNotSentReason,
   type ItemSendOption,
   type ItemSendPageDecision,
@@ -108,6 +109,7 @@ const TO_RESOLVE_MESSAGES: Record<ItemSendToResolveKind, string> = {
   identity_conflict: "La ligne du devis porte une autre identité quantitative (unité, base, réseau, matière ou diamètre) que cette "
     + "mesure : elle n’est pas alimentée.",
   entered_quantity: "La quantité de cette ligne a été saisie à la main : conservez la saisie ou retenez la quantité du métré.",
+  verified_total_indivisible: "Il faut une lecture qui couvre tout le plan pour remplacer le total précédent.",
   breakdown_mixed: "Ce poste est déjà envoyé dans ce devis avec un autre découpage : envoyez ce plan avec le même découpage.",
   page_decision: "Cette page est déjà au devis par une autre analyse : elle ne compte pas deux fois. Sa décision (remplacer ou garder "
     + "les deux) se prend à la confirmation ; d’ici là ses apports attendent.",
@@ -434,7 +436,7 @@ export async function computeItemSendState(ctx: Context, jobId: string, request:
   const unitPages = unit.pages.length > 0 ? [...unit.pages]
     : unit.page_count ? Array.from({ length: unit.page_count }, (_, index) => index + 1) : [];
   const base: Omit<ItemSendInput, "destination"> = {
-    job: jobFacts, plan: { key: plan.logical_id, name: plan.name, pages: unitPages, location: null },
+    job: jobFacts, plan: { key: plan.logical_id, name: plan.name, pages: unitPages, pageCount: plan.page_count, location: null },
     list: { revisionId: list.revision_id, revision: list.revision }, items: reading.items, scope: reading.scope, answers: reading.answers,
     affaireEntries: reading.affaireEntries, earlier: { targets: [], sections: [], displaced: [] }, pagesInEstimate: [], rules: new Map(),
     breakdown: request.breakdown ?? "together", affaireNamesBuilding: false,
@@ -552,6 +554,20 @@ async function readSentLanding(ctx: Context, jobId: string): Promise<string | nu
   return takeoffItemSendLandingHref(version, { lines_written: focus ? [focus] : [], sections_created: [] });
 }
 
+function countOnWire(total: ItemSendCountTotal) {
+  return { job_id: total.jobId, answer_id: total.answerId, reading_revision: total.readingRevision, marks_revision: total.marksRevision,
+    quantity: total.quantity, unit: total.unit, pages: [...total.pages] };
+}
+
+export function heldCountMessage(total: ReturnType<typeof countOnWire>, jobId: string) {
+  const reading = total.reading_revision === null ? `l’analyse ${total.job_id}` : `la lecture n° ${total.reading_revision}`;
+  const pages = `${total.pages.length === 1 ? "page" : "pages"} ${total.pages.join(", ")}`;
+  const origin = total.job_id === jobId ? "Le comptage proposé" : "Le devis conserve le comptage";
+  return `${origin} de ${total.quantity} ${total.unit}, issu de ${reading} (repères ${pages}). `
+    + "Pour remplacer le total précédent, retenez une quantité sur une lecture qui couvre tout le plan. "
+    + "Vous pouvez aussi conserver le total précédent.";
+}
+
 function respond(jobId: string, shown: { plan: { key: string; name: string }; list: { revision_id: string; revision: number }; projectId: string },
   computed: ReturnType<typeof planTakeoffItemSend>, chosen: {
     destinations: ItemSendPreviewResponse["destinations"]; destination: ItemSendPreviewResponse["destination"]; label: string | null;
@@ -583,6 +599,9 @@ function respond(jobId: string, shown: { plan: { key: string; name: string }; li
       section_key: target.line.kind === "new_line" ? target.line.sectionKey : null,
       compartment: target.compartment,
       unit: target.unit,
+      ...(target.replacedVerifiedTotal || target.contributions[0]?.kind === "verified_count"
+        ? { quantity_source: target.contributions[0].kind } : {}),
+      ...(target.replacedVerifiedTotal ? { replaced_verified_total: countOnWire(target.replacedVerifiedTotal) } : {}),
       quantity_before: target.quantity.before, quantity_after: target.quantity.after, reference: target.quantity.reference,
       entered: target.quantity.entered, earlier: target.quantity.earlier, replaced: target.quantity.replaced, added: target.quantity.added,
       measured: target.quantity.measured,
@@ -601,7 +620,8 @@ function respond(jobId: string, shown: { plan: { key: string; name: string }; li
     to_resolve: computed.toResolve.map((entry) => ({ key: entry.key, kind: entry.kind, item_id: entry.itemId, label: entry.label,
       page: entry.page, held_item_ids: entry.heldItemIds,
       earlier_lines: entry.earlierLines.map((line) => ({ estimate_item_id: line.estimateItemId, title: line.title, quantity: line.quantity })),
-      message: TO_RESOLVE_MESSAGES[entry.kind], options: entry.options.map(toOption), facts: entry.facts })),
+      ...(entry.verifiedTotal ? { verified_total: countOnWire(entry.verifiedTotal) } : {}),
+      message: entry.verifiedTotal ? heldCountMessage(countOnWire(entry.verifiedTotal), jobId) : TO_RESOLVE_MESSAGES[entry.kind], options: entry.options.map(toOption), facts: entry.facts })),
     not_added: computed.notAdded.map((entry) => ({ item_id: entry.itemId, role: entry.role, quantity: entry.quantity, unit: entry.unit,
       page: entry.page })),
     page_contributions: computed.pageContributions.map((page) => ({ page: page.page, item_ids: page.itemIds })),

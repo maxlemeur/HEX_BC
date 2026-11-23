@@ -8,6 +8,7 @@ import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { asFiniteNumber, asRecord } from "@/lib/value-guards";
 import type { Database } from "@/types/database";
 import { ITEM_AGGREGATE_STATES, type ItemAggregateState } from "./item-answer-aggregation";
+import { readCountMarkSummariesForAccess } from "./count-marks-server";
 import { parseTakeoffItemAnswer, type TakeoffItemAnswer } from "./item-answers";
 import { getTakeoffLowConfidenceThresholdForTenant } from "./feature-flags";
 import {
@@ -194,6 +195,40 @@ async function countMarksRevisions(client: Client, answerIds: readonly string[])
   return revisions;
 }
 
+async function markedQuantities(access: AffaireAccess, revisions: ReadonlyMap<string, number>, answers: ReadonlyMap<string, TakeoffItemAnswer>) {
+  const client = access.context.supabase as unknown as Client;
+  const marks = new Map<string, NonNullable<ItemReadingInput["verifiedMarks"]>>();
+  const decisions = new Map<string, NonNullable<ItemReadingInput["quantityDecision"]>>();
+  const whole = new Map<string, NonNullable<ItemTableRow["wholeEntry"]>>();
+  const marked = [...revisions].filter(([, revision]) => revision > 0).map(([answerId]) => answerId);
+  // A PostgREST IN filter carries these UUIDs in the URL.
+  const batchSize = 100;
+  for (let start = 0; start < marked.length; start += batchSize) {
+    const ids = marked.slice(start, start + batchSize);
+    const items = [...new Set(ids.flatMap((id) => answers.get(id)?.itemId ?? []))];
+    const [summaries, choices, totals] = await Promise.all([
+      readCountMarkSummariesForAccess(access, ids),
+      client.from("takeoff_item_answer_decisions").select("answer_id,quantity_source,marks_revision,chosen_entry_revision")
+        .eq("tenant_id", access.context.tenantId).eq("project_id", access.project.id).eq("kind", "accepted").in("answer_id", ids),
+      client.from("takeoff_item_entries").select("item_id,quantity,unit,included").eq("tenant_id", access.context.tenantId)
+        .eq("project_id", access.project.id).is("plan_logical_id", null).in("item_id", items),
+    ]);
+    if (choices.error) readFailure(choices.error);
+    if (totals.error) readFailure(totals.error);
+    for (const [id, summary] of Object.entries(summaries)) marks.set(id, { revision: summary.revision, counted: summary.counted,
+      unit: summary.unit, verified: summary.state === "verified", quantity: summary.quantity,
+      pages: summary.pages.filter((page) => page.retained > 0).map((page) => page.page) });
+    for (const row of choices.data ?? []) {
+      const source = row.quantity_source;
+      if ((source === "verified_count" || source === "entered" || source === "measured") && row.marks_revision !== null) {
+        decisions.set(row.answer_id, { source, marksRevision: row.marks_revision, entryRevision: row.chosen_entry_revision });
+      }
+    }
+    for (const row of totals.data ?? []) whole.set(row.item_id, { quantity: row.quantity, unit: row.unit, included: row.included });
+  }
+  return { marks, decisions, whole };
+}
+
 function rawReadings(row: TableRow) {
   return Array.isArray(row.readings) ? row.readings.map((entry) => asRecord(entry) ?? {}) : [];
 }
@@ -245,6 +280,7 @@ async function tableRows(access: AffaireAccess, rows: readonly TableRow[]): Prom
     answers.size ? countMarksRevisions(client, [...answers.keys()]) : new Map<string, number>(),
     endedAttempts.length ? endedAttemptReasons(client, access.context.tenantId, [...new Set(endedAttempts)]) : new Map<string, string>(),
   ]);
+  const sources = await markedQuantities(access, marksRevisions, answers);
   return rows.map((row): ItemTableRow => {
     if (!isState(row.state) || !isDecision(row.decision)) throw new TypeError("Poste illisible.");
     const readings = rawReadings(row).map((reading): ItemReadingInput => {
@@ -262,7 +298,9 @@ async function tableRows(access: AffaireAccess, rows: readonly TableRow[]): Prom
         answer: answer ? answerView(answer, contributions, { expectedUnit: row.expected_unit, lowConfidenceThreshold }) : null,
         decision: decisionOf(reading.decision),
         decisionRevision: asFiniteNumber(reading.decision_revision) ?? 0,
-        marksRevision: answer ? marksRevisions.get(answer.answerId) ?? 0 : 0,
+        marksRevision: answer ? sources.marks.get(answer.answerId)?.revision ?? marksRevisions.get(answer.answerId) ?? 0 : 0,
+        ...(answer && sources.marks.has(answer.answerId) ? { verifiedMarks: sources.marks.get(answer.answerId) } : {}),
+        ...(answer && sources.decisions.has(answer.answerId) ? { quantityDecision: sources.decisions.get(answer.answerId) } : {}),
         entry: entryOf(reading.entry),
         sent: reading.sent === true,
         attempt: attempt ? { unit: attempt.unit, reason: attempt.unit === "failed" || attempt.unit === "canceled"
@@ -285,6 +323,7 @@ async function tableRows(access: AffaireAccess, rows: readonly TableRow[]): Prom
       decision: row.decision,
       readings,
       entry: entryOf(row.entry),
+      ...(sources.whole.has(row.item_id) ? { wholeEntry: sources.whole.get(row.item_id) } : {}),
     };
   });
 }

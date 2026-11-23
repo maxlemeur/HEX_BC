@@ -65,6 +65,7 @@ function memberClient() {
       : table === "takeoff_list_revisions" ? [{ id: "44444444-4444-4444-8444-444444444444", revision: 2, item_count: 2 }]
         : table === "takeoff_item_review_events" ? events
           : table === "takeoff_jobs" ? jobRows
+          : table === "takeoff_item_entries" || table === "takeoff_item_answer_decisions" ? []
           : table === "takeoff_count_answer_states" ? marksStates
           : table === "profiles" ? [{ id: MEMBER, full_name: " Léa Martin " }] : (() => { throw new Error(`Unexpected read of ${table}.`); })();
     const builder: Record<string, unknown> = {};
@@ -72,7 +73,7 @@ function memberClient() {
     const filters: Array<[string, unknown]> = [];
     let order: { column: string; ascending: boolean } | null = null;
     let range: [number, number] | null = null;
-    for (const method of ["select", "in", "limit"]) builder[method] = () => builder;
+    for (const method of ["select", "in", "limit", "is"]) builder[method] = () => builder;
     builder.eq = (column: string, value: unknown) => {
       filters.push([column, value]);
       return builder;
@@ -100,6 +101,7 @@ function memberClient() {
   };
   const rpc = (name: string, args: Record<string, unknown>) => {
     calls.push({ name, args });
+    if (name === "read_takeoff_count_mark_summaries") return Promise.resolve({ data: [], error: null });
     if (name === "read_takeoff_item_table") {
       const offset = Number(args.p_offset ?? 0);
       return Promise.resolve({ data: offset > 0 && tableRows.length && tableRows[0].page_offset === 0 ? [] : tableRows, error: null });

@@ -18,6 +18,7 @@ import { plural } from "@/lib/text/plural";
 type Preview = ItemSendPreviewResponse;
 type Destination = NonNullable<Preview["destination"]>;
 
+const sourceLabels = { verified_count: "Comptage vérifié", measured: "Mesure retenue", entered: "Saisie du plan" } as const;
 const quantity = new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 3 });
 export const formatItemSendQuantity = (value: number | null, unit?: string | null) =>
   value === null ? "" : `${quantity.format(value)}${unit ? ` ${unit}` : ""}`;
@@ -195,8 +196,19 @@ export function ItemSendLines({ lines }: { lines: Preview["lines"] }) {
               </td>
               <td className="tabular-nums">{line.quantity_before === null ? "—" : formatItemSendQuantity(line.quantity_before, line.unit)}</td>
               <td className="tabular-nums">{line.earlier ? formatItemSendQuantity(line.earlier, line.unit) : "—"}</td>
-              <td className="tabular-nums">{line.replaced ? formatItemSendQuantity(line.replaced, line.unit) : "—"}</td>
-              <td className="tabular-nums">{formatItemSendQuantity(line.added, line.unit)}</td>
+              <td className="tabular-nums">
+                {line.replaced_verified_total ? <>
+                  {formatItemSendQuantity(line.replaced_verified_total.quantity, line.replaced_verified_total.unit)}
+                  <span className="block text-xs text-muted-foreground">
+                    Comptage vérifié de {line.replaced_verified_total.reading_revision == null ? `l’analyse ${line.replaced_verified_total.job_id}`
+                      : `la lecture n° ${line.replaced_verified_total.reading_revision}`} · p. {line.replaced_verified_total.pages.join(", ")}
+                  </span>
+                </> : line.replaced ? formatItemSendQuantity(line.replaced, line.unit) : "—"}
+              </td>
+              <td className="tabular-nums">
+                {formatItemSendQuantity(line.added, line.unit)}
+                {line.quantity_source ? <span className="block text-xs text-muted-foreground">{sourceLabels[line.quantity_source]}</span> : null}
+              </td>
               {withDpgf ? (
                 <td className="tabular-nums">
                   {line.reference !== null ? formatItemSendQuantity(line.reference, line.unit) : ""}
@@ -253,7 +265,7 @@ export function ItemSendNotSent({ data, labels }: { data: Preview; labels: Reado
               <tr key={`${part.item_id}-${part.observation_ids.join(",")}-${index}`}>
                 <th scope="row" className="text-left font-medium">{labels.get(part.item_id) ?? "Poste"}</th>
                 <td className="tabular-nums">{part.pages.length > 0 ? part.pages.join(", ") : "toutes"}</td>
-                <td className="tabular-nums">{formatItemSendQuantity(part.quantity, part.unit)}{part.kind === "entered" ? " saisi" : ""}</td>
+                <td className="tabular-nums">{formatItemSendQuantity(part.quantity, part.unit)}{part.kind === "entered" ? " saisi" : part.kind === "verified_count" ? " · Comptage vérifié" : ""}</td>
                 <td className="whitespace-normal">{part.message}</td>
               </tr>
             ))}

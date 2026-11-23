@@ -70,6 +70,9 @@ function invalid(message: string): never {
 function assertCommandShape(command: ItemReviewCommand) {
   const ids = command.targets.map(({ itemId }) => itemId.toLowerCase());
   if (new Set(ids).size !== ids.length) invalid("Un poste figure deux fois dans la sélection.");
+  if (command.gesture === "accept_measured" && command.quantity_choice && (command.targets.length !== 1 || command.scope.kind !== "plan")) {
+    throw unprocessableEntity("Choisissez la quantité pour un seul poste sur son plan.");
+  }
   if (command.gesture === "set_aside") {
     const length = noteLength(command.note ?? "");
     if (command.reason === "other" && (length < ITEM_SET_ASIDE_NOTE.min || length > ITEM_SET_ASIDE_NOTE.max)) {
@@ -146,7 +149,7 @@ export async function runItemReviewCommand(projectId: string, received: ItemRevi
   const itemIds = command.targets.map(({ itemId }) => itemId);
   const { lines } = await loadItemLines(access, { scope: command.scope, itemIds });
   const labels = new Map(lines.map((line) => [line.itemId, line.label]));
-  const plan = planItemReviewCommand(lines, { gesture: command.gesture, targets: command.targets });
+  const plan = planItemReviewCommand(lines, command);
   // A stale selection still goes to the database, the same command already recorded answering what it answered; it goes
   // with every item to apply, never with none, so that the database records no command that applied nothing on a stale
   // selection: it answers the receipt of the same command, refuses the selection as stale (its predicate is the
@@ -165,6 +168,7 @@ export async function runItemReviewCommand(projectId: string, received: ItemRevi
           entry_revision: answer.entryRevision, ...(answer.marksRevision !== undefined ? { marks_revision: answer.marksRevision } : {}) })) })),
       apply,
       skipped,
+      ...(command.gesture === "accept_measured" && command.quantity_choice ? { quantity_choice: command.quantity_choice } : {}),
       ...(command.gesture === "set_aside" ? { reason: command.reason, ...(command.note?.trim() ? { note: command.note.trim() } : {}) } : {}),
       ...(command.gesture === "enter_quantity" ? { values: command.values, entry: command.entry } : {}),
     },

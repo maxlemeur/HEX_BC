@@ -2,6 +2,7 @@ import "server-only";
 
 import { z } from "zod";
 
+import { readAllRowsInChunks } from "@/lib/supabase/read-all";
 import { mapSupabaseError } from "@/lib/http/api-response";
 import { TakeoffError, TakeoffErrorCode, toTakeoffError } from "@/lib/takeoff/errors";
 import { readSealedItemListItems } from "@/lib/takeoff/item-list-server";
@@ -59,6 +60,9 @@ const factsSchema = z.discriminatedUnion("state", [
       outcome: z.enum(["measured", "uncertain", "not_found"]),
       current: z.boolean(),
       searched_pages: z.array(page),
+      quantity_source: z.literal("verified_count").optional(),
+      verified_count: z.object({ quantity: z.number().int().positive(), unit: z.string(), pages: z.array(page),
+        marks_revision: z.number().int().positive() }).nullable().optional(),
       observations: z.array(z.object({
         observation_id: uuid,
         role: z.enum(["contribution", "candidate", "alternative"]),
@@ -152,6 +156,9 @@ export async function readItemSendFacts(member: Member, input: {
     outcome: answer.outcome,
     current: answer.current,
     searchedPages: answer.searched_pages,
+    ...(answer.quantity_source === "verified_count" ? { quantitySource: answer.quantity_source,
+      verifiedCount: answer.verified_count ? { quantity: answer.verified_count.quantity, unit: answer.verified_count.unit,
+        pages: answer.verified_count.pages, marksRevision: answer.verified_count.marks_revision } : null } : {}),
     observations: answer.observations.map((observation) => ({ observationId: observation.observation_id, role: observation.role,
       source: observation.source === "vector" ? "vector" : "model", quantity: observation.quantity, unit: observation.unit,
       page: observation.page, measurementBasis: observation.measurement_basis })),
@@ -180,11 +187,29 @@ export async function readItemSendEarlierState(member: Member, input: { projectI
   const parsed = draftSchema.safeParse(data);
   if (!parsed.success) unreadable(input.jobId, "Ce que le brouillon tient des envois par poste est illisible.");
   const draft = parsed.data;
+  const answerIds = [...new Set([...draft.earlier_targets, ...draft.displaced_targets].flatMap((target) =>
+    target.parts.flatMap((part) => part.answer_id && !part.observation_ids.length ? [part.answer_id] : [])))];
+  const { data: counts, error: countError } = await readAllRowsInChunks(answerIds, (ids) =>
+    member.supabase.from("takeoff_item_send_parts").select("id,item_id,plan_logical_id,job_id,answer_id,marks_revision", { count: "exact" })
+      .eq("tenant_id", member.tenantId).eq("project_id", input.projectId).eq("version_id", input.versionId)
+      .eq("state", "live").eq("kind", "verified_count").in("answer_id", ids));
+  if (countError) failed(countError, "Impossible de lire la preuve des comptages du brouillon.", input.jobId);
+  const { data: readings, error: readingError } = await readAllRowsInChunks([...new Set((counts ?? []).map((row) => row.answer_id))], (ids) =>
+    member.supabase.from("takeoff_item_answers").select("id,reading_revision", { count: "exact" })
+      .eq("tenant_id", member.tenantId).eq("project_id", input.projectId).in("id", ids));
+  if (readingError) failed(readingError, "Impossible de lire les lectures de ces comptages.", input.jobId);
+  const revisions = new Map(readings?.map((row) => [row.id, row.reading_revision]));
+  const proofs = new Map((counts ?? []).map((row) => [JSON.stringify([row.item_id, row.plan_logical_id, row.job_id, row.answer_id]),
+    { marksRevision: row.marks_revision!, readingRevision: revisions.get(row.answer_id) ?? null }]));
+  const partsOf = (target: { item_id: string; parts: z.infer<typeof partSchema>[] }) => target.parts.map((part) => {
+    const verifiedCount = !part.observation_ids.length && proofs.get(JSON.stringify([target.item_id, part.plan_key, part.job_id, part.answer_id]));
+    return verifiedCount ? { ...partOf(part), verifiedCount } : partOf(part);
+  });
   return {
     targets: draft.earlier_targets.map((target) => ({ itemId: target.item_id, breakdown: breakdownOf(target.breakdown),
-      compartmentKey: target.compartment_key, estimateItemId: target.estimate_item_id, parts: target.parts.map(partOf) })),
+      compartmentKey: target.compartment_key, estimateItemId: target.estimate_item_id, parts: partsOf(target) })),
     displaced: draft.displaced_targets.map((target) => ({ itemId: target.item_id, breakdown: breakdownOf(target.breakdown),
-      compartmentKey: target.compartment_key, parts: target.parts.map(partOf) })),
+      compartmentKey: target.compartment_key, parts: partsOf(target) })),
     sections: draft.sections.map((section) => ({ key: section.key, estimateItemId: section.estimate_item_id })),
     pagesInEstimate: draft.pages_in_estimate.map((entry) => ({ page: entry.page, earlierJobIds: entry.earlier_job_ids,
       estimateItemIds: entry.estimate_item_ids, today: entry.today, todayEstimateItemIds: entry.today_estimate_item_ids,

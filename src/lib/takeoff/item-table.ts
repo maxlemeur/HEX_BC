@@ -117,6 +117,14 @@ export type ItemAnswerDecision =
  * the pair is answered, in flight or ended, the current answer (also while a new reading runs), its decision and the
  * revision of its decision (which goes on after a reinstatement), and the plan's entry.
  */
+export type ItemQuantitySource = "measured" | "entered" | "verified_count";
+export type ItemVerifiedMarks = {
+  revision: number; counted: boolean; unit: string | null; quantity: number | null; pages: number[]; verified?: boolean;
+};
+type ItemQuantityDecision = { source: ItemQuantitySource; marksRevision: number; entryRevision: number | null };
+export type ItemQuantityOptions = { verifiedQuantity: number; unit: string; alternativeSource: "measured" | "entered";
+  alternativeQuantity: number | null; alternativeUnit: string; allowCount: boolean; allowAlternative: boolean };
+export type ItemQuantityChoice = { source: ItemQuantitySource; verified_quantity: number; alternative_quantity: number | null };
 export type ItemReadingInput = {
   itemId: string;
   planKey: string;
@@ -129,6 +137,8 @@ export type ItemReadingInput = {
   decisionRevision: number;
   /** The answer's counted marks revision (lot 5; 0 without marks): what an acceptance certifies, frozen with a selection. */
   marksRevision?: number;
+  verifiedMarks?: ItemVerifiedMarks;
+  quantityDecision?: ItemQuantityDecision;
   entry: ItemEntryView | null;
   /** The answer's plan was sent to an estimate (its job applied): its rows are the estimate's, no bulk gesture writes them. */
   sent: boolean;
@@ -174,7 +184,10 @@ export type ItemTableFilter = {
 };
 
 /** One item of a page as the database gives it: its facts, its state and its decision (SQL's), its readings, its entry. */
+type ScopedQuantity = Pick<ItemEntryView, "quantity" | "unit" | "included">;
+
 export type ItemTableRow = {
+  wholeEntry?: ScopedQuantity;
   item: ItemTablePoste;
   state: ItemAggregateState;
   coverage: { expected: number; answered: number; inFlight: number; ended: number };
@@ -187,7 +200,7 @@ export type ItemTableRow = {
 /** Why a gesture does not apply to a line, by its code: the screen words each one. */
 export const ITEM_INELIGIBILITIES = [
   "not_measured", "coverage_incomplete", "anomaly", "dpgf_gap", "unit_conflict", "already_decided", "entered", "no_answer",
-  "already_set_aside", "not_set_aside", "not_entry_state", "no_entry_to_include", "reading", "no_plan", "sent",
+  "quantity_choice", "already_set_aside", "not_set_aside", "not_entry_state", "no_entry_to_include", "reading", "no_plan", "sent",
 ] as const;
 export type ItemIneligibility = (typeof ITEM_INELIGIBILITIES)[number];
 
@@ -204,6 +217,8 @@ export type ItemReviewTarget = {
 };
 
 export type ItemTableLine = {
+  wholeEntry?: ScopedQuantity;
+  quantityOptions?: ItemQuantityOptions;
   itemId: string;
   position: number;
   label: string;
@@ -215,7 +230,7 @@ export type ItemTableLine = {
   state: ItemAggregateState;
   coverage: { expected: number; answered: number; inFlight: number; ended: number };
   observed: { quantity: number; unit: string; partial: boolean } | null;
-  retained: { quantity: number; unit: string; source: "measured" | "entered" | "mixed"; partial: boolean } | null;
+  retained: { quantity: number; unit: string; source: ItemQuantitySource | "mixed"; partial: boolean } | null;
   entry: ItemEntryView | null;
   gap: { quantity: number; percent: number | null; requiresReview: boolean } | null;
   reasons: string[];
@@ -276,7 +291,7 @@ const setAsideAll = (readings: readonly LineReading[]) => {
   return answered.length > 0 && answered.every(({ decision }) => decision?.kind === "set_aside");
 };
 
-type Part = { quantity: number; unit: string; source: "measured" | "entered" };
+type Part = { quantity: number; unit: string; source: ItemQuantitySource };
 
 /**
  * What the line counts, plan by plan: an answer set aside counts nothing (a plan's entry on it neither), a plan's included
@@ -288,6 +303,13 @@ function partsOf(readings: readonly LineReading[], prospect: boolean) {
   let undecided = false;
   for (const reading of readings) {
     if (!reading.answer || reading.decision?.kind === "set_aside") continue;
+    if (reading.quantityDecision?.source === "verified_count") {
+      const marks = reading.verifiedMarks;
+      if (reading.decision?.kind === "accepted" && marks?.quantity != null && marks.unit) {
+        parts.push({ quantity: marks.quantity, unit: marks.unit, source: "verified_count" });
+      } else undecided = true;
+      continue;
+    }
     if (reading.entry) {
       if (reading.entry.included) parts.push({ quantity: reading.entry.quantity, unit: reading.entry.unit, source: "entered" });
       continue;
@@ -303,7 +325,7 @@ function partsOf(readings: readonly LineReading[], prospect: boolean) {
 
 const oneUnit = (parts: readonly Part[]) => parts.every(({ unit }) => toUnitToken(unit) === toUnitToken(parts[0].unit));
 
-function retainedOf(readings: readonly LineReading[], entry: ItemEntryView | null, complete: boolean): ItemTableLine["retained"] {
+function retainedOf(readings: readonly LineReading[], entry: ScopedQuantity | null, complete: boolean): ItemTableLine["retained"] {
   // A line every answer of which is set aside counts nothing: its entry is kept for the history and a reinstatement.
   if (setAsideAll(readings)) return null;
   if (entry) {
@@ -317,7 +339,7 @@ function retainedOf(readings: readonly LineReading[], entry: ItemEntryView | nul
 }
 
 /** What an acceptance of the line's measured answers would retain: the basis of the DPGF gap and of the unit conflict. */
-function prospectOf(readings: readonly LineReading[], entry: ItemEntryView | null) {
+function prospectOf(readings: readonly LineReading[], entry: ScopedQuantity | null) {
   if (setAsideAll(readings)) return { total: null, unitConflict: false };
   if (entry) return { total: entry.included ? { quantity: entry.quantity } : null, unitConflict: false };
   const { parts } = partsOf(readings, true);
@@ -334,6 +356,20 @@ function gapOf(item: ItemTablePoste, basis: { quantity: number } | null, complet
     requiresReview: pair.requiresReview };
 }
 
+function quantityOptions(item: ItemTablePoste, reading: LineReading, entry: ItemEntryView | null): ItemQuantityOptions | undefined {
+  const { answer, verifiedMarks: marks } = reading;
+  if (!answer || !marks?.counted || marks.quantity == null || !marks.unit || reading.sent || reading.decision?.kind === "set_aside") return;
+  if (entry && (!entry.included || toUnitToken(entry.unit) !== toUnitToken(marks.unit))) return;
+  const measured = reviewedParts(answer);
+  const alternativeQuantity = entry?.quantity ?? (measured.length ? itemPartsTotal(measured.map((part) => part.quantity)) : null);
+  if (!entry && marks.quantity === alternativeQuantity) return;
+  const goodRows = answer.outcome !== "measured" || !answer.anomalies.length;
+  return { verifiedQuantity: marks.quantity, unit: marks.unit, alternativeSource: entry ? "entered" : "measured",
+    alternativeQuantity, alternativeUnit: entry?.unit ?? marks.unit,
+    allowCount: goodRows && !gapOf(item, { quantity: marks.quantity }, true)?.requiresReview,
+    allowAlternative: goodRows && alternativeQuantity !== null && !gapOf(item, { quantity: alternativeQuantity }, true)?.requiresReview };
+}
+
 function eligibility(line: Omit<ItemTableLine, "eligibility" | "remeasurePlans">, plans: readonly ItemTablePlan[], scope: ItemTableScope) {
   const answered = line.readings.filter(({ answer }) => answer);
   const undecided = answered.filter(({ decision, entry }) => !decision && !entry);
@@ -344,8 +380,9 @@ function eligibility(line: Omit<ItemTableLine, "eligibility" | "remeasurePlans">
   const accept = (() => {
     if (sent) return no("sent");
     if (line.state === "reading" || line.state === "incomplete" || line.state === "failed") return no("coverage_incomplete");
+    if (line.quantityOptions || line.reasons.includes("quantity_choice")) return no("quantity_choice");
     if (line.state !== "measured") return no("not_measured");
-    if (line.entry) return no("entered");
+    if (line.wholeEntry || line.entry) return no("entered");
     if (!undecided.length) return no("already_decided");
     if (undecided.some(({ answer }) => answer!.anomalies.length > 0)) return no("anomaly");
     if (line.gap?.requiresReview) return no("dpgf_gap");
@@ -378,7 +415,10 @@ function eligibility(line: Omit<ItemTableLine, "eligibility" | "remeasurePlans">
  * of whose positive rows is no longer verified is no decision. The page and the rows are two reads; a targeted save
  * committed between them leaves an acceptance read before over a row read after: that row is never retained.
  */
-function effectiveDecision(reading: ItemReadingInput) {
+function effectiveDecision(reading: ItemReadingInput, entry: ItemEntryView | null) {
+  const chosen = reading.quantityDecision;
+  if (chosen?.source === "verified_count" && (chosen.marksRevision !== reading.marksRevision
+    || chosen.entryRevision !== (entry?.revision ?? null) || reading.verifiedMarks?.quantity == null)) return null;
   const withdrawn = reading.decision?.kind === "accepted" && reading.answer?.observations.some(({ role, row }) =>
     role === "contribution" && row !== null && !row.isVerified);
   return withdrawn ? null : reading.decision;
@@ -394,7 +434,7 @@ function buildLine(row: ItemTableRow, plans: readonly ItemTablePlan[], scope: It
   const { item } = row;
   let withdrawn = false;
   const lineReadings: LineReading[] = row.readings.map((reading) => {
-    const decision = effectiveDecision(reading);
+    const decision = effectiveDecision(reading, scope.kind === "plan" ? row.entry : reading.entry);
     if (decision !== reading.decision) withdrawn = true;
     return {
       planKey: reading.planKey,
@@ -403,6 +443,8 @@ function buildLine(row: ItemTableRow, plans: readonly ItemTablePlan[], scope: It
       unit: reading.unit,
       answer: reading.answer,
       decision,
+      ...(reading.verifiedMarks ? { verifiedMarks: reading.verifiedMarks } : {}),
+      ...(reading.quantityDecision ? { quantityDecision: reading.quantityDecision } : {}),
       // In a plan's scope the entry of the plan is the line's own: it is not also a part of a reading.
       entry: scope.kind === "plan" ? null : reading.entry,
       sent: reading.sent,
@@ -412,8 +454,11 @@ function buildLine(row: ItemTableRow, plans: readonly ItemTablePlan[], scope: It
   const aggregate = aggregateItemReadings(row.readings.map(asPlanReading));
   const complete = row.coverage.expected > 0 && row.coverage.answered === row.coverage.expected;
   // The raw reading stays observed; what is retained, and judged against the DPGF, is the reviewed rows as they now are.
-  const retained = retainedOf(lineReadings, row.entry, complete);
-  const prospect = prospectOf(lineReadings, row.entry);
+  const planReading = scope.kind === "plan" ? lineReadings[0] : undefined;
+  const effectiveEntry = row.wholeEntry ?? (planReading?.quantityDecision?.source === "verified_count" ? null : row.entry);
+  const options = planReading && !row.wholeEntry ? quantityOptions(item, planReading, row.entry) : undefined;
+  const retained = retainedOf(lineReadings, effectiveEntry, complete);
+  const prospect = prospectOf(lineReadings, effectiveEntry);
   const gap = gapOf(item, prospect.total, complete);
 
   const reasons = new Set<string>();
@@ -427,6 +472,9 @@ function buildLine(row: ItemTableRow, plans: readonly ItemTablePlan[], scope: It
     for (const anomaly of answer.anomalies) reasons.add(`anomaly:${anomaly}`);
     if (answer.unreadablePages.length) reasons.add("unreadable_pages");
   }
+  if (scope.kind === "affaire" && !row.entry && lineReadings.some((reading) => quantityOptions(item, reading, reading.entry))) {
+    reasons.add("quantity_choice");
+  }
   if (prospect.unitConflict) reasons.add("unit_conflict");
   if (row.readings.some(({ answer, sent }) => answer && sent)) reasons.add("sent");
   if (gap?.requiresReview) reasons.add("dpgf_gap");
@@ -434,6 +482,8 @@ function buildLine(row: ItemTableRow, plans: readonly ItemTablePlan[], scope: It
 
   const base = {
     itemId: item.id,
+    ...(row.wholeEntry ? { wholeEntry: row.wholeEntry } : {}),
+    ...(options ? { quantityOptions: options } : {}),
     position: item.position,
     label: item.label,
     expectedUnit: item.expectedUnit,
@@ -579,7 +629,7 @@ export type ItemReviewPlan =
  * eligible lines, and the others named with their reason.
  */
 export function planItemReviewCommand(lines: readonly ItemTableLine[], command: { gesture: Exclude<ItemReviewGesture, "remeasure">;
-  targets: readonly ItemReviewTarget[] }): ItemReviewPlan {
+  targets: readonly ItemReviewTarget[]; quantity_choice?: ItemQuantityChoice }): ItemReviewPlan {
   const { stale } = checkItemReviewTargets(lines, command.targets, command.gesture);
   if (stale.length) return { kind: "stale", stale };
   const byId = new Map(lines.map((line) => [line.itemId.toLowerCase(), line]));
@@ -587,6 +637,17 @@ export function planItemReviewCommand(lines: readonly ItemTableLine[], command: 
   const skipped: Extract<ItemReviewPlan, { kind: "planned" }>["skipped"] = [];
   for (const target of command.targets) {
     const line = byId.get(target.itemId.toLowerCase())!;
+    const choice = command.quantity_choice;
+    const options = line.quantityOptions;
+    if (choice && command.gesture === "accept_measured") {
+      if (command.targets.length !== 1 || !options || options.verifiedQuantity !== choice.verified_quantity
+        || options.alternativeQuantity !== choice.alternative_quantity
+        || !(choice.source === "verified_count" ? options.allowCount : choice.source === options.alternativeSource && options.allowAlternative)) {
+        return { kind: "stale", stale: [{ itemId: line.itemId, label: line.label }] };
+      }
+      apply.push({ itemId: line.itemId, label: line.label });
+      continue;
+    }
     const verdict = line.eligibility[command.gesture];
     if (verdict.eligible) apply.push({ itemId: line.itemId, label: line.label });
     else skipped.push({ itemId: line.itemId, label: line.label, reason: verdict.reason! });
