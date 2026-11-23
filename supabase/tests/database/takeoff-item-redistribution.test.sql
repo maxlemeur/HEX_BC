@@ -100,6 +100,7 @@ begin
   return observed;
 end;
 $$;
+\ir ../fixtures/takeoff-revision-line-protections.sql
 select is(pg_temp.edited_preview('update public.estimate_items set quantity=7 where id=pg_temp.f(61)')#>>'{blockers,0,title}',
   'Lavabo','the line with a typed quantity is named');
 select is(pg_temp.edited_preview('update public.estimate_items set quantity=7 where id=pg_temp.f(61);
@@ -157,6 +158,9 @@ update public.takeoff_item_send_parts set target_id=pg_temp.f(91) where id=pg_te
 set local session_replication_role=origin;
 select ok(pg_temp.preview('by_level')->'blockers' @> '[{"reason":"mixed","title":"Lavabo"}]','a draft mixing modes for one item names its lines');
 select throws_ok($$select pg_temp.confirm('by_level',pg_temp.preview('by_level')->>'digest',206)$$,'55000','REDISTRIBUTION_PROTECTED','even a fresh mixed plan writes nothing');
+select ok(not exists(select 1 from jsonb_array_elements(private.takeoff_revision_line_protections(
+  pg_temp.f(10),pg_temp.f(1),pg_temp.f(20),pg_temp.f(30),pg_temp.f(50),true)) b where b->>'reason'='mixed'),
+  'a disagreement between redistribution modes is not a protection of either individual line');
 rollback to before_mixed;
 create temp table result as select pg_temp.confirm('by_level',plan->>'digest',200) as receipt from shown;
 select results_eq($$select t.compartment_key,i.quantity from public.takeoff_item_send_targets t join public.estimate_items i on i.id=t.estimate_item_id
