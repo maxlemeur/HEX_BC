@@ -4,6 +4,7 @@ import { getAuthenticatedTenantContext } from "@/lib/auth/tenant-context";
 import { mapSupabaseError } from "@/lib/http/api-response";
 import { toTakeoffNoticeOutcome } from "@/lib/takeoff/completion-outcome";
 import { isTakeoffEnabled } from "@/lib/takeoff/feature-flags";
+import { readTakeoffRequestsReadingListOrNone } from "@/lib/takeoff/review-link-server";
 
 const PAGE_SIZE = 30;
 
@@ -19,10 +20,15 @@ export async function listTakeoffCompletionNotifications(page: number) {
     .range((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
   if (error) throw mapSupabaseError(error, "Impossible de charger vos notifications.");
   const rows = data ?? [];
-  const notifications = rows.slice(0, PAGE_SIZE).flatMap((row) => {
+  const shown = rows.slice(0, PAGE_SIZE);
+  // The requests that read the affaire's list (lot 4): their end opens the table of items. When that read fails, the
+  // notifications are listed as they are, each request's end with today's link.
+  const readingList = await readTakeoffRequestsReadingListOrNone(supabase, tenantId,
+    shown.map((row) => (row.subject_kind === "request" ? row.request_id : null)));
+  const notifications = shown.flatMap((row) => {
     // A launch request's end may be partial: some of its plans were read.
     const outcome = toTakeoffNoticeOutcome(row.outcome);
-    return outcome ? [{ ...row, outcome }] : [];
+    return outcome ? [{ ...row, outcome, readsList: Boolean(row.request_id && readingList.has(row.request_id.toLowerCase())) }] : [];
   });
   return { notifications, hasOlder: rows.length > PAGE_SIZE, takeoffEnabled: await isTakeoffEnabled(tenantId) };
 }

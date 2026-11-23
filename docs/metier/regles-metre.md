@@ -622,6 +622,72 @@ dialogues, ses annonces, son retrait) que si c’est encore ce qui l’a lancé,
 succès. Deux relectures de postes différents vont chacune à leur terme. Une confirmation dont
 la commande est partie ne se ferme pas avant sa réponse : la fermer ne l’annulerait pas.
 
+### Liens vers une analyse et analyses antérieures (lot 4)
+
+Un lien vers la revue d’une analyse (un favori, la « Revue » d’une analyse, une notification,
+le radar, la file d’approbation, un lien sur une copie de version, l’adresse d’une ancienne
+version redirigée vers la revue) est d’abord vérifié par le serveur comme aujourd’hui : accès
+au job dans l’affaire, puis à sa version ou à son report. Ensuite seulement, un seul
+résolveur décide de l’écran
+([`review-link.ts`](../../src/lib/takeoff/review-link.ts)) ; la redirection n’est jamais
+l’autorisation, l’écran d’arrivée vérifie de nouveau.
+
+- Une analyse du premier format (sans commande de mesure, extraction libre, analyse groupée,
+  autre fournisseur) ouvre ce qu’elle ouvre aujourd’hui, à la même adresse : son mode
+  (`reviewMode=assisted|production|validation`), sa vue (`view=dpgf`, `dpgfView=exceptions_only`),
+  sa ligne, sa version et son report.
+- Une analyse lue contre la liste des postes se revoit dans le tableau des postes, sans effet
+  de bord : sa revue, dans tout mode et tout onglet sauf DPGF, mène au tableau filtré sur le
+  plan qu’elle a lu, toutes décisions montrées (un favori de l’onglet « Items » garde le
+  `dpgfView` de l’onglet DPGF dans son adresse : il nomme les postes, pas les écarts) ; une
+  adresse qui nomme la vue DPGF mène aux postes « À vérifier » de ce plan ; une ligne de devis
+  écrite par l’envoi par poste au détail de ce poste sur cette lecture (ou au tableau, sur ce
+  poste, si cette lecture ne l’a pas lu) ; une ligne rattachée à aucun poste au tableau du
+  plan ; une ligne dont le poste a été retiré de la liste depuis son envoi au tableau du plan,
+  qui le dit (sa lecture est conservée, mais le tableau et le détail lisent la liste actuelle
+  et ne la montrent pas). Rien de l’ancienne adresse (mode, vue, ligne, version) ne passe dans
+  celle du tableau, qui reste dans l’affaire du lien. Le tableau dit pourquoi il s’ouvre
+  ainsi : quelle analyse, ce qu’il en montre, et les avertissements que sa lecture a gardés
+  (ouvrages vus hors de la liste, lectures écartées), que sa revue montrait.
+- Deux adresses restent celles d’aujourd’hui pour toute analyse : sa revue ciblée, écran de
+  correction que le détail d’une ligne du tableau ouvre pendant le lot 4, et une adresse que
+  la revue affiche comme la comparaison de deux lectures, lecture de l’historique (le mode
+  « Production » sur `view=compare`, dans une version : la règle de
+  [`review-view.ts`](../../src/lib/takeoff/review-view.ts), que la revue et le résolveur
+  lisent toutes deux). Pour une analyse lue contre la liste, `view=compare` dans un autre mode
+  (« Validation », par défaut, ou « Assisté ») ou sans version afficherait son ancienne revue
+  modifiable : cette adresse mène au tableau comme les autres. Sa comparaison ne propose ni
+  changement de mode, ni sélection, ni « Appliquer la sélection » : elle dit que ses lignes se
+  corrigent dans la revue ciblée et ses postes se décident dans le tableau ; celle d’une
+  analyse du premier format garde ses modes et son geste d’aujourd’hui.
+- L’envoi par poste d’une analyse lue contre la liste (« Envoyer ce plan au devis ») reste
+  atteignable de partout où il est offert : sa ligne dans l’analyse des plans, le tableau des
+  postes filtré sur son plan (là où mènent les liens de sa revue), sa revue ciblée et, de sa
+  revue complète, la seule adresse qui s’y ouvre encore, sa comparaison (l’envoi n’y modifie
+  pas la comparaison).
+- L’adresse se lit telle qu’elle est écrite, comme la revue la lit : une valeur qui n’est pas
+  exactement une valeur connue (« dpgf » entouré d’espaces, une majuscule) n’est pas cette
+  valeur.
+- La notification de fin d’une demande lue contre la liste ouvre le tableau des postes (avec
+  les plans de la demande au-dessus) ; le lien du radar et de la file d’approbation vers une
+  version dont la dernière analyse a lu la liste ouvre les postes « À vérifier » de l’affaire
+  (une version reçoit les lectures de plusieurs plans). Les autres gardent leur adresse. Si
+  la lecture qui dit qu’une analyse ou une demande a lu la liste échoue, la file, le radar et
+  les notifications s’affichent quand même, chaque lien avec son adresse d’aujourd’hui (que
+  la revue redirige ensuite pour une analyse lue contre la liste).
+
+**Analyse antérieure.** Une fois la liste de l’affaire enregistrée, le tableau des postes est
+suivi de ses analyses qui n’ont pas été lues contre elle (ancien format, analyse groupée, en
+échec, autre fournisseur). Chacune s’ouvre en lecture seule (`?anterieure=…`, le tableau à un
+pas en arrière) telle qu’elle a été conservée : ses lignes dans leur ordre (désignation,
+quantité, unité, page, fichier, et l’exclusion avec son motif enregistré), ses tableaux
+extraits et ses avertissements (au plus ses 200 premières lignes : l’écran dit que les autres
+se consultent dans sa revue). Elle dit « Liste demandée non enregistrée » et « Couverture
+inconnue » : rien n’y est complété d’après la liste ou le gabarit d’aujourd’hui, aucun poste
+n’y est dit non trouvé, et aucune ligne n’y est dite vérifiée (les marques de la revue
+Assistée sont une navigation, pas une validation humaine). Sa revue, où se fait son envoi,
+reste à un clic.
+
 ## Contrat actuel de contrôle ciblé — TI-681
 
 Les avertissements de quantité, y compris une confiance faible, recommandent un

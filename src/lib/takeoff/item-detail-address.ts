@@ -1,12 +1,6 @@
 import type { ItemTableResponseLine } from "@/lib/takeoff/item-table-contracts";
 import { itemTableAddressParams, readItemTableAddress, withItemTableParams } from "@/lib/takeoff/item-table-query";
-import {
-  TAKEOFF_ITEM_DETAIL_PARAMS as P,
-  takeoffItemDetailHref,
-  takeoffReviewHref,
-  withoutTakeoffItemDetail,
-  type TakeoffReviewHrefInput,
-} from "@/lib/takeoff/review-href";
+import { TAKEOFF_ITEM_DETAIL_PARAMS as P, takeoffItemDetailHref, withoutTakeoffItemDetail } from "@/lib/takeoff/review-href";
 
 /**
  * The address of the detail of an item on its plan (lot 5, second depth of the review), read the same way by the
@@ -141,40 +135,6 @@ export function itemTableLineDetailHref(projectId: string, line: Pick<ItemTableR
 /** The first line of the table's page that holds the item at `index` of the queue (pages of `limit` lines). */
 export function itemTablePageOffset(index: number, limit: number) {
   return index > 0 && limit > 0 ? Math.floor(index / limit) * limit : 0;
-}
-
-/**
- * What the `line` of an old review link designates, by the contract of the screen it was written for: the targeted
- * review's line is a takeoff line (a takeoff item of its job), the full review's (from the exceptions and the risk
- * radar) is an estimate line. Neither is an item of the affaire's list: it is resolved in the link's context.
- */
-export function historicalLineContract(link: TakeoffReviewHrefInput): "takeoff_line" | "estimate_line" | null {
-  if (!link.line) return null;
-  return link.targeted ? "takeoff_line" : "estimate_line";
-}
-
-/** An item of the affaire's list that an old link's line is evidence for, as the stored answers tell it. */
-export type HistoricalLineMatch = { itemId: string; planKey: string | null; answerId: string | null };
-
-export type HistoricalReviewResolution =
-  | { kind: "historical"; href: string }
-  | { kind: "detail"; href: string }
-  | { kind: "choice"; historicalHref: string; options: Array<{ itemId: string; href: string }> };
-
-/**
- * Where an old review link leads now. It keeps opening what it opened (the historical reader, its version, carry-over,
- * mode and view, as the same string) unless its line is known as the evidence of items of the list: one item opens its
- * detail on that reading, with the link's version as context; several are offered to choose, the historical reader
- * among them. No item identifier is ever made up from a line.
- */
-export function resolveHistoricalReviewLink(link: TakeoffReviewHrefInput, matches: readonly HistoricalLineMatch[]): HistoricalReviewResolution {
-  const historicalHref = takeoffReviewHref(link);
-  const unique = [...new Map(matches.map((match) => [`${match.itemId}:${match.planKey ?? ""}:${match.answerId ?? ""}`, match])).values()];
-  if (!historicalLineContract(link) || unique.length === 0) return { kind: "historical", href: historicalHref };
-  const href = (match: HistoricalLineMatch) => takeoffItemDetailHref({ projectId: link.projectId, itemId: match.itemId,
-    planKey: match.planKey, jobId: link.jobId, answerId: match.answerId, versionId: link.versionId ?? null });
-  if (unique.length === 1) return { kind: "detail", href: href(unique[0]!) };
-  return { kind: "choice", historicalHref, options: unique.map((match) => ({ itemId: match.itemId, href: href(match) })) };
 }
 
 /** A stand-in item, so that a plan request naming no item (the dossier's plan) is read by the address's rules. */
