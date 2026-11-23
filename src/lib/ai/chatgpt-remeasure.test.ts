@@ -1,22 +1,34 @@
 import { afterEach, expect, it, vi } from "vitest";
 import { z } from "zod";
+import { LocalChatGptConnectionWithdrawnError } from "./chatgpt-sign-in-errors";
 
+const account = vi.hoisted(() => ({ model: "usual", authorizationId: "connection", revoked: false, write: vi.fn() }));
 vi.mock("@/lib/ai/chatgpt-local-auth", () => ({
   isLocalChatGptEnabled: () => true, hasLocalChatGptPlanAccess: () => true,
-  getLocalChatGptCredential: async () => ({ accessToken: "fixture", authorizationId: "connection",
-    profileId: "profile", model: "usual", reasoningEffort: "low" }),
+  getLocalChatGptCredential: async () => {
+    if (account.revoked) throw new LocalChatGptConnectionWithdrawnError();
+    return { accessToken: "fixture", authorizationId: account.authorizationId,
+      profileId: "profile", model: account.model, reasoningEffort: "low" };
+  },
 }));
 vi.mock("@/lib/ai/chatgpt-local-store", () => ({
+  saveChatGptStore: account.write,
   getChatGptHostId: async () => "host",
-  readChatGptStore: async () => ({ selectedId: "profile", profiles: [{ id: "profile", model: "usual",
-    reasoningEffort: "low", authorizationId: "connection" }] }),
+  readChatGptStore: async () => ({ selectedId: "profile", profiles: [{ id: "profile", model: account.model,
+    reasoningEffort: "low", authorizationId: account.authorizationId }] }),
 }));
 import { readMeasureCatalogue } from "@/lib/takeoff/item-measure-catalogue-server";
 import { resolveLocalTakeoffProvider } from "@/lib/ai/chatgpt-takeoff";
 import { localGroupsCall } from "@/lib/takeoff/vectors/group-local-model-server";
 import { takeoffVectorLocalGroupsHook } from "@/lib/takeoff/vectors/worker-server";
 
-afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs(); });
+afterEach(() => {
+  account.revoked = false;
+  account.model = "usual";
+  account.authorizationId = "connection";
+  vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
+});
 
 it.each([null, "high"] as const)("sends the confirmed model and effort %s for both page and group requests", async (effort) => {
   const requests: Array<Record<string, unknown>> = [];
@@ -34,15 +46,27 @@ it.each([null, "high"] as const)("sends the confirmed model and effort %s for bo
   const provider = await resolveLocalTakeoffProvider({ from: () => query } as never, {
     id: "job", created_by: "member", tenant_id: "tenant", execution_host_id: "host", execution_provider: "chatgpt_local",
     launch_request_id: "request", preparation_snapshot: { confirmed_by: "member", execution_selection: {
-      profileId: "profile", hostId: "host", model: "usual", reasoningEffort: "low", authorizationId: "connection" },
+      profileId: "profile", hostId: "host", model: "previous-default", reasoningEffort: "medium", authorizationId: "connection" },
     remeasure_setting: { model: "chosen", reasoningEffort: effort } },
   } as never);
+  account.model = "edited-before-pdf";
   await provider.call({ prompt: "Mesurer", schema: z.object({ quantity: z.number() }) });
   const hook = takeoffVectorLocalGroupsHook({ jobId: "job", tenantId: "tenant", userId: "member", provider })!;
   const call = await localGroupsCall(hook.owner, hook.local!.selection, hook.local!.useProfile);
+  account.model = "edited-before-group";
   await call({ prompt: "Classer", images: [] });
+  expect(account.write).not.toHaveBeenCalled();
   expect(requests.map((body) => [body.model, Object.hasOwn(body, "reasoning"), body.reasoning]))
     .toEqual(Array(2).fill(["chosen", effort !== null, effort ? { effort } : undefined]));
+  account.authorizationId = "new-connection";
+  const withdrawn = { details: { reason: "CHATGPT_ACCESS_REVOKED" } };
+  await expect(provider.call({ prompt: "Mesurer", schema: z.object({}) })).rejects.toMatchObject(withdrawn);
+  await expect(call({ prompt: "Classer", images: [] })).rejects.toMatchObject(withdrawn);
+  account.revoked = true;
+  await expect(provider.call({ prompt: "Mesurer", schema: z.object({}) })).rejects.toMatchObject(withdrawn);
+  await expect(call({ prompt: "Classer", images: [] })).rejects.toMatchObject(withdrawn);
+  expect(requests).toHaveLength(2);
+  expect(account.write).not.toHaveBeenCalled();
 });
 
 it("reports an exhausted subscription from the catalogue before any model request", async () => {

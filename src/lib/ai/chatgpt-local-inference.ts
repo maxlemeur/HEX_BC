@@ -3,6 +3,9 @@ import "server-only";
 import { z } from "zod";
 import { StructuredAiError } from "@/lib/ai/structured-ai-diagnostic";
 
+import { LocalChatGptConnectionWithdrawnError } from "@/lib/ai/chatgpt-sign-in-errors";
+export { LocalChatGptConnectionWithdrawnError } from "@/lib/ai/chatgpt-sign-in-errors";
+
 import { getLocalChatGptCredential } from "@/lib/ai/chatgpt-local-auth";
 import { readChatGptStore, saveChatGptStore, withChatGptLock, type ChatGptOwner } from "@/lib/ai/chatgpt-local-store";
 import type { StructuredCallOptions, StructuredCallResult } from "@/lib/ai/structured-call";
@@ -278,18 +281,11 @@ export async function assertLocalChatGptOverride(owner: ChatGptOwner, credential
  * without a known usage (`onUnknownUsage`: no answer, or an answer without its usage). A recording that fails stops the
  * call's caller.
  */
-type LocalChatGptSelection = { profileId: string; model: string; reasoningEffort?: ChatGptReasoningEffort | null;
+type LocalChatGptSelection = { remeasureSetting?: LocalChatGptOverride; profileId: string; model: string; reasoningEffort?: ChatGptReasoningEffort | null;
   authorizationId?: string | null; beforeSend?: () => Promise<unknown>;
   onUsage?: (usage: { totalTokens: number; costCents: number; trusted: boolean }, call: unknown) => Promise<void>;
   onUnknownUsage?: (call: unknown) => Promise<void> };
 
-/** A takeoff call whose pinned connection was withdrawn, renewed or never recorded: nothing is sent. */
-export class LocalChatGptConnectionWithdrawnError extends Error {
-  constructor() {
-    super("La connexion ChatGPT a été retirée ou renouvelée depuis la confirmation. Reprenez le métré avec votre forfait.");
-    this.name = "LocalChatGptConnectionWithdrawnError";
-  }
-}
 export type LocalChatGptResult<T> = StructuredCallResult<T> & { reasoningEffort: ChatGptReasoningEffort | null };
 /** An answer that is not JSON (SyntaxError) or does not match the schema (ZodError). */
 export type LocalChatGptSchemaError = SyntaxError | z.ZodError;
@@ -311,16 +307,19 @@ export function callLocalChatGptStructured<T>(owner: ChatGptOwner, options: Stru
 export async function callLocalChatGptStructured<T>(owner: ChatGptOwner, options: StructuredCallOptions<T>, selection?: LocalChatGptSelection, override?: LocalChatGptOverride, mode?: { returnRawOnSchemaError: true }): Promise<LocalChatGptResult<T> | LocalChatGptRawResult<T>> {
   const startedAt = Date.now();
   const credential = await getLocalChatGptCredential(owner);
-  if (!credential) throw new Error("Connectez votre compte ChatGPT.");
-  if (!credential.model) throw new Error("Choisissez un modèle ChatGPT dans Mon profil.");
-  const profileEffort = credential.reasoningEffort ?? null;
-  if (selection && (credential.profileId !== selection.profileId || credential.model !== selection.model || profileEffort !== (selection.reasoningEffort ?? null))) {
-    throw new Error("Le compte, le modèle ou le niveau d’effort ChatGPT a changé. Relancez le métré.");
-  }
-  if (selection && "authorizationId" in selection && (!selection.authorizationId || credential.authorizationId !== selection.authorizationId)) {
+  if (selection && "authorizationId" in selection && (!selection.authorizationId || credential?.authorizationId !== selection.authorizationId)) {
     throw new LocalChatGptConnectionWithdrawnError();
   }
-  const sent = !override ? { model: credential.model, reasoningEffort: profileEffort }
+  if (!credential) throw new Error("Connectez votre compte ChatGPT.");
+  const model = selection?.remeasureSetting?.model ?? credential.model;
+  if (!model) throw new Error("Choisissez un modèle ChatGPT dans Mon profil.");
+  const profileEffort = credential.reasoningEffort ?? null;
+  if (selection && (credential.profileId !== selection.profileId || (!selection.remeasureSetting
+    && (credential.model !== selection.model || profileEffort !== (selection.reasoningEffort ?? null))))) {
+    throw new Error("Le compte, le modèle ou le niveau d’effort ChatGPT a changé. Relancez le métré.");
+  }
+  override = selection?.remeasureSetting ?? override;
+  const sent = !override ? { model, reasoningEffort: profileEffort }
     : checkedOverrides.get(override) === overrideScope(owner, credential.profileId) ? override
       : await assertLocalChatGptOverride(owner, credential, override);
   const reasoningEffort = sent.reasoningEffort;

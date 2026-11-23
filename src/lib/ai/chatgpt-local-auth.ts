@@ -7,7 +7,7 @@ import path from "node:path";
 import { createRemoteJWKSet, jwtVerify } from "jose";
 import { z } from "zod";
 
-import { ChatGptSignInError } from "@/lib/ai/chatgpt-sign-in-errors";
+import { ChatGptSignInError, LocalChatGptConnectionWithdrawnError } from "@/lib/ai/chatgpt-sign-in-errors";
 
 import {
   getChatGptHostId, localChatGptDirectory, readChatGptStore, saveChatGptStore,
@@ -293,7 +293,7 @@ export async function getLocalChatGptCredential(owner: ChatGptOwner) {
     const store = await readChatGptStore(owner);
     const profile = store.profiles.find((item) => item.id === store.selectedId);
     if (!profile) return null;
-    if (!hasLocalChatGptPlanAccess(profile)) throw new Error("Autorisez l’utilisation du forfait ChatGPT en reconnectant le compte.");
+    if (!hasLocalChatGptPlanAccess(profile)) throw new LocalChatGptConnectionWithdrawnError("Autorisez l’utilisation du forfait ChatGPT en reconnectant le compte.");
     if ((profile.expiresAt ?? 0) <= Date.now() + 60_000) {
       if (!profile.refreshToken) throw new Error("Reconnectez ChatGPT pour renouveler l’accès.");
       const tokens = await requestTokens(new URLSearchParams({
@@ -308,7 +308,7 @@ export async function getLocalChatGptCredential(owner: ChatGptOwner) {
       // A refresh that withdrew the plan's access withdraws the connection's authorization with it.
       if (!hasLocalChatGptPlanAccess(profile)) delete profile.authorizationId;
       await saveChatGptStore(owner, store);
-      if (!hasLocalChatGptPlanAccess(profile)) throw new Error("Le forfait ChatGPT n’est plus autorisé. Reconnectez le compte.");
+      if (!hasLocalChatGptPlanAccess(profile)) throw new LocalChatGptConnectionWithdrawnError("Le forfait ChatGPT n’est plus autorisé. Reconnectez le compte.");
     }
     return { accessToken: profile.accessToken!, model: profile.model, reasoningEffort: profile.reasoningEffort ?? null, profileId: profile.id,
       authorizationId: profile.authorizationId ?? null };
