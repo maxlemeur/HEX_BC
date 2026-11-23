@@ -1012,6 +1012,26 @@
       ]
     },
     {
+      "id": "takeoff-item-verified-count",
+      "note": "POSTE-COMPTAGE01 accepte un comptage vérifié sur le plan, confirme son envoi et relit la quantité dans le devis.",
+      "paths": [
+        "src/components/takeoff/count-marks/**",
+        "src/components/takeoff/item-detail/**",
+        "src/components/takeoff/item-table/**",
+        "src/components/takeoff/item-send/**",
+        "src/lib/takeoff/count-marks*.ts",
+        "src/lib/takeoff/item-table*.ts",
+        "src/lib/takeoff/item-review-commands-server.ts",
+        "src/lib/takeoff/item-send*.ts",
+        "supabase/migrations/*_takeoff_verified_count_source.sql",
+        "e2e/army/takeoff/count-marks-support.ts",
+        "e2e/army/takeoff/poste-send-support.ts"
+      ],
+      "journeys": [
+        "e2e/army/takeoff/poste-verified-count.e2e.ts"
+      ]
+    },
+    {
       "id": "takeoff-count-marks",
       "note": "Repères comptés d’un poste (lot 5 PR 3b, REPERES01) : lecture par lots, commande de correction, doublon, révision dépassée, rejeu, historique, lecteur, plan envoyé ; rien d’envoyé ne bouge.",
       "paths": [
