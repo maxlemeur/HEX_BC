@@ -458,6 +458,10 @@ describe("choosing how much one plan sends", () => {
     const [stale] = buildItemLines([{ ...current, decision: "pending", readings: [{ ...verified, marksRevision: 4,
       decision: null, verifiedMarks: { ...marks, revision: 4 } }] }], { plans: PLANS, scope: plan });
     expect(stale.retained).toBeNull();
+    const [lost] = buildItemLines([{ ...current, decision: "pending", readings: [{ ...verified, decision: null,
+      marksRevision: 4, verifiedMarks: { ...marks, revision: 4, quantity: null, pages: [] } }] }], { plans: PLANS, scope: plan });
+    expect(lost.retained).toBeNull();
+    expect(lost.quantityOptions).toMatchObject({ verifiedQuantity: null, alternativeQuantity: 7, allowCount: false, allowAlternative: true });
     const [whole] = buildItemLines([{ ...current, wholeEntry: { quantity: 9, unit: "u", included: true } }], { plans: PLANS, scope: plan });
     expect(whole.retained).toMatchObject({ source: "entered", quantity: 9 });
     expect(whole.quantityOptions).toBeUndefined();

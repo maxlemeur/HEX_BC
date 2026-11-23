@@ -9,16 +9,18 @@ export function ItemQuantityChoiceButtons({ options, disabled, onChoose }: {
     alternative_quantity: options.alternativeQuantity });
   return (
     <div role="group" aria-label="Quantité retenue pour ce poste sur ce plan" className="space-y-1.5">
-      <p className="text-sm">La quantité retenue sera envoyée au devis pour ce poste sur ce plan.</p>
+      <p className="text-sm">{options.verifiedQuantity === null
+        ? "Le comptage reste à vérifier. Vous pouvez retenir la saisie de ce plan pour le devis."
+        : "La quantité retenue sera envoyée au devis pour ce poste sur ce plan."}</p>
       <div className="flex flex-wrap gap-2">
         {options.alternativeQuantity !== null ? (
           <Button variant="outline" size="sm" disabled={disabled || !options.allowAlternative} onClick={() => choose(options.alternativeSource)}>
             {options.alternativeSource === "entered" ? "Conserver la saisie du plan" : "Conserver la mesure"} ({formatItemQuantity(options.alternativeQuantity, options.alternativeUnit)})
           </Button>
         ) : null}
-        <Button variant="outline" size="sm" disabled={disabled || !options.allowCount} onClick={() => choose("verified_count")}>
+        {options.verifiedQuantity !== null ? <Button variant="outline" size="sm" disabled={disabled || !options.allowCount} onClick={() => choose("verified_count")}>
           Retenir le comptage vérifié ({formatItemQuantity(options.verifiedQuantity, options.unit)})
-        </Button>
+        </Button> : null}
       </div>
     </div>
   );

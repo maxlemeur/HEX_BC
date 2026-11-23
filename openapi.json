@@ -47240,9 +47240,16 @@
                           "type": "object",
                           "properties": {
                             "verifiedQuantity": {
-                              "type": "integer",
-                              "minimum": 0,
-                              "maximum": 9007199254740991
+                              "anyOf": [
+                                {
+                                  "type": "integer",
+                                  "minimum": 0,
+                                  "maximum": 9007199254740991
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
                             },
                             "unit": {
                               "type": "string",
@@ -48785,9 +48792,16 @@
                     "type": "object",
                     "properties": {
                       "verifiedQuantity": {
-                        "type": "integer",
-                        "minimum": 0,
-                        "maximum": 9007199254740991
+                        "anyOf": [
+                          {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
                       },
                       "unit": {
                         "type": "string",
@@ -51170,9 +51184,16 @@
                     ]
                   },
                   "verified_quantity": {
-                    "type": "integer",
-                    "exclusiveMinimum": 0,
-                    "maximum": 9007199254740991
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "exclusiveMinimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
                   },
                   "alternative_quantity": {
                     "type": [

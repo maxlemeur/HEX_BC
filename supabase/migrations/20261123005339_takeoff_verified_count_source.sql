@@ -55,14 +55,16 @@ language sql stable set search_path = '' as $$
     'alternative_unit', coalesce(e.unit, count_ ->> 'unit'), 'entry_revision', e.revision,
     'available', not exists (select 1 from public.takeoff_item_entries whole where whole.tenant_id = a.tenant_id and whole.project_id = a.project_id
       and whole.item_id = a.item_id and whole.plan_logical_id is null) and coalesce(e.included, true)
-      and (e.id is null or private.takeoff_item_send_unit(e.unit) = private.takeoff_item_send_unit(count_ ->> 'unit')))
+      and (e.id is null or count_ is null or private.takeoff_item_send_unit(e.unit) = private.takeoff_item_send_unit(count_ ->> 'unit')))
   from public.takeoff_item_answers a cross join lateral private.takeoff_verified_count(a.id) count_
   left join public.takeoff_item_entries e on e.tenant_id = a.tenant_id and e.project_id = a.project_id
     and e.item_id = a.item_id and e.plan_logical_id = a.plan_logical_id
   left join lateral (select private.takeoff_item_total(array_agg(i.quantity)) as quantity
     from public.takeoff_item_answer_observations o join public.takeoff_items i on i.id = o.takeoff_item_id
     where o.answer_id = a.id and o.role = 'contribution' and not i.is_excluded having count(*) > 0) measured on true
-  where a.id = p_answer and count_ is not null
+  where a.id = p_answer and (count_ is not null or (e.id is not null and exists (
+    select 1 from public.takeoff_item_answer_decisions d where d.answer_id = a.id
+      and d.kind = 'accepted' and d.quantity_source = 'verified_count')))
 $$;
 revoke all on function private.takeoff_item_quantity_options(uuid) from public, anon, authenticated, service_role;
 
@@ -365,11 +367,11 @@ begin
       and case when source_choice is null then opts -> 'available' = 'true'::jsonb
         and (opts ->> 'alternative_source' = 'entered'
           or opts -> 'alternative_quantity' is distinct from opts #> '{verified,quantity}')
-      else (opts -> 'available' = 'true'::jsonb and source_choice -> 'verified_quantity' = opts #> '{verified,quantity}'
+      else (opts -> 'available' = 'true'::jsonb and source_choice -> 'verified_quantity' = coalesce(opts #> '{verified,quantity}','null'::jsonb)
         and source_choice -> 'alternative_quantity' = opts -> 'alternative_quantity'
         and (opts ->> 'alternative_source' = 'entered'
           or opts -> 'alternative_quantity' is distinct from opts #> '{verified,quantity}')
-        and (chosen_source = 'verified_count' or (chosen_source = opts ->> 'alternative_source'
+        and ((chosen_source = 'verified_count' and opts #>> '{verified,quantity}' is not null) or (chosen_source = opts ->> 'alternative_source'
           and opts ->> 'alternative_quantity' is not null))) is not true end;
   end if;
 

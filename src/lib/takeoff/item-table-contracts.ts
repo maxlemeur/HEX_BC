@@ -134,7 +134,7 @@ const lineSchema = z.object({
   ),
   coverage: z.object({ expected: count, answered: count, inFlight: count, ended: count }).strict(),
   observed: z.object({ quantity, unit, partial: z.boolean() }).strict().nullable(),
-  quantityOptions: z.object({ verifiedQuantity: count, unit, alternativeSource: z.enum(["measured", "entered"]),
+  quantityOptions: z.object({ verifiedQuantity: count.nullable(), unit, alternativeSource: z.enum(["measured", "entered"]),
     alternativeQuantity: quantity.nullable(), alternativeUnit: unit, allowCount: z.boolean(), allowAlternative: z.boolean() }).strict().optional(),
   wholeEntry: z.object({ quantity, unit, included: z.boolean() }).strict().optional(),
   retained: z.object({ quantity, unit, source: z.enum(["measured", "entered", "verified_count", "mixed"]), partial: z.boolean() }).strict().nullable(),
@@ -257,7 +257,7 @@ export const itemSelectionResponseSchema = z.object({
 export type ItemSelectionResponse = z.infer<typeof itemSelectionResponseSchema>;
 
 const quantityChoiceSchema = z.object({ source: z.enum(["verified_count", "measured", "entered"]),
-  verified_quantity: z.number().int().positive(), alternative_quantity: quantity.nullable() }).strict();
+  verified_quantity: z.number().int().positive().nullable(), alternative_quantity: quantity.nullable() }).strict();
 const commandBase = {
   command_version: z.literal(ITEM_REVIEW_COMMAND_VERSION),
   intent_key: uuid.describe("Clé d’intention : la même clé rend la même réponse, une autre commande sous la même clé est un conflit."),

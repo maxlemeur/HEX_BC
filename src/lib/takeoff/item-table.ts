@@ -122,9 +122,9 @@ export type ItemVerifiedMarks = {
   revision: number; counted: boolean; unit: string | null; quantity: number | null; pages: number[]; verified?: boolean;
 };
 type ItemQuantityDecision = { source: ItemQuantitySource; marksRevision: number; entryRevision: number | null };
-export type ItemQuantityOptions = { verifiedQuantity: number; unit: string; alternativeSource: "measured" | "entered";
+export type ItemQuantityOptions = { verifiedQuantity: number | null; unit: string; alternativeSource: "measured" | "entered";
   alternativeQuantity: number | null; alternativeUnit: string; allowCount: boolean; allowAlternative: boolean };
-export type ItemQuantityChoice = { source: ItemQuantitySource; verified_quantity: number; alternative_quantity: number | null };
+export type ItemQuantityChoice = { source: ItemQuantitySource; verified_quantity: number | null; alternative_quantity: number | null };
 export type ItemReadingInput = {
   itemId: string;
   planKey: string;
@@ -358,7 +358,14 @@ function gapOf(item: ItemTablePoste, basis: { quantity: number } | null, complet
 
 function quantityOptions(item: ItemTablePoste, reading: LineReading, entry: ItemEntryView | null): ItemQuantityOptions | undefined {
   const { answer, verifiedMarks: marks } = reading;
-  if (!answer || !marks?.counted || marks.quantity == null || !marks.unit || reading.sent || reading.decision?.kind === "set_aside") return;
+  if (!answer || reading.sent || reading.decision?.kind === "set_aside") return;
+  if (marks?.quantity == null) {
+    if (reading.quantityDecision?.source !== "verified_count" || !entry?.included) return;
+    return { verifiedQuantity: null, unit: entry.unit, alternativeSource: "entered", alternativeQuantity: entry.quantity,
+      alternativeUnit: entry.unit, allowCount: false, allowAlternative: (answer.outcome !== "measured" || !answer.anomalies.length)
+        && !gapOf(item, { quantity: entry.quantity }, true)?.requiresReview };
+  }
+  if (!marks.counted || !marks.unit) return;
   if (entry && (!entry.included || toUnitToken(entry.unit) !== toUnitToken(marks.unit))) return;
   const measured = reviewedParts(answer);
   const alternativeQuantity = entry?.quantity ?? (measured.length ? itemPartsTotal(measured.map((part) => part.quantity)) : null);

@@ -612,6 +612,55 @@ begin
   return jsonb_build_array(reviewed ->> 'outcome',parts);
 end;
 $$;
+create function pg_temp.restore_surviving_plan_entry() returns jsonb language plpgsql as $$
+declare
+ a uuid := (select id from public.takeoff_item_answers where item_id=pg_temp.f(311));
+ t uuid:=pg_temp.tenant(); p uuid:= pg_temp.f(21); actor_ uuid:=pg_temp.f(1);
+ scope_ jsonb:=jsonb_build_object('scope', jsonb_build_object('kind','plan','plan_logical_id',pg_temp.plan_file(21)));
+ enter_ jsonb:=jsonb_build_object('values',jsonb_build_array(jsonb_build_object('item_id',pg_temp.f(311),'quantity',7,'unit','u')),
+   'entry',jsonb_build_object('category','site_survey'));
+ choice jsonb; r jsonb; result_ jsonb; held uuid;
+begin
+ begin
+ perform set_config('request.jwt.claims',jsonb_build_object('role','authenticated','sub',actor_)::text,true);
+ perform set_config('request.jwt.claim.sub',actor_::text,true);
+   r:= public.review_takeoff_items(t,p,pg_temp.cmd('enter_quantity',7011,array[311],scope_||enter_));
+   if (r ->> 'outcome') is distinct from 'applied' then raise exception 'setup enter %',r; end if;
+
+ perform public.edit_takeoff_count_marks(t,p,pg_temp.f(7012),jsonb_build_object(a,0),jsonb_build_array(
+   jsonb_build_object('op','add','answer_id',a,'key',pg_temp.f(7013),'page',2,'x',0.7,'y',0.8,
+   'geometry','{"version":1,"view_box":[0,0,100,100],"rotation":0,"user_unit":1,"width":100,"height":100}'::jsonb),
+   jsonb_build_object('op','verify','answer_id',a,'pages','[2,7]'::jsonb)));
+ choice:=pg_temp.cmd('accept_measured',7014,array[311],scope_||jsonb_build_object('quantity_choice',
+    jsonb_build_object('source','verified_count','alternative_quantity',7,'verified_quantity',1)));
+ choice:=jsonb_set(jsonb_set(choice,'{targets,0,entry_revision}','1'::jsonb),'{targets,0,answers,0,entry_revision}','0');
+ r:=public.review_takeoff_items(t,p,choice);
+ if (r ->> 'outcome') is distinct from 'applied' then raise exception 'setup count %',r; end if;
+   select mark_id into strict held from public.takeoff_count_mark_attributions where answer_id=a and state='retained';
+   perform public.edit_takeoff_count_marks(t,p,pg_temp.f(7015),jsonb_build_object(a,1),
+     jsonb_build_array(jsonb_build_object('op','remove','answer_id',a,'mark_id',held,'reason','duplicate'),
+     jsonb_build_object('op','verify','answer_id',a,'pages','[2]'::jsonb)));
+   choice:=pg_temp.cmd('enter_quantity',7016,array[311],scope_||enter_);
+   choice:=jsonb_set(jsonb_set(choice,'{targets,0,entry_revision}','1'),'{targets,0,answers,0,entry_revision}','0');
+   r:=public.review_takeoff_items(t,p,choice);
+   choice:=pg_temp.cmd('accept_measured',7017,array[311],scope_||jsonb_build_object('quantity_choice',
+     jsonb_build_object('source','entered','alternative_quantity',7,'verified_quantity',null)));
+   choice:=jsonb_set(jsonb_set(choice,'{targets,0,entry_revision}','2'),'{targets,0,answers,0,entry_revision}','0');
+   choice:=public.review_takeoff_items(t,p,choice);
+   result_:=jsonb_build_array(r->>'outcome',choice->>'outcome',
+      (select e.quantity from public.takeoff_item_entries e where item_id=pg_temp.f(311)),
+      (select decision from public.read_takeoff_item_table(t,p,pg_temp.plan_file(21),p_item_ids=>array[pg_temp.f(311)])),
+      (select coalesce(jsonb_agg(s->'quantity'),'[]') from private.takeoff_item_send_resolved_parts(t,p,pg_temp.job(21),array[2,7]) s where s->>'item_id'=pg_temp.f(311)::text));
+ raise sqlstate 'Z1000';
+ exception when sqlstate 'Z1000' then null;
+ end;
+ return result_;
+end;
+$$;
+select is(pg_temp.restore_surviving_plan_entry(),'["applied","applied",7,"entered",[7]]'::jsonb,
+  'the user can explicitly retain the surviving typed 7 after the last verified mark is removed');
+
+
 select is(pg_temp.keep_measure(false),'["applied",[["measured",2,true]]]'::jsonb,
   'keeping the measured two preserves the measured observation and its quantity');
 select is(pg_temp.keep_measure(true),'["applied",[["measured",2,true]]]'::jsonb,
