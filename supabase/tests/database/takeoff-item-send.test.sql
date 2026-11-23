@@ -1705,6 +1705,16 @@ grant select on copy20 to authenticated;
 select is(pg_temp.c_rows((select version_id from copy20)), (select rows_ from source_before),
   'the copy holds the original''s live targets, parts, sections and page contributions, keyed to its own lines');
 select is(pg_temp.c_all((select version_id from draft)), (select digest from source_before), 'the original is untouched');
+select results_eq($$select c.kind, bool_and(
+    (to_jsonb(c) - array['id','version_id','target_id','receipt_id','copied_from_part_id','created_at']) =
+    (to_jsonb(s) - array['id','version_id','target_id','receipt_id','copied_from_part_id','created_at'])
+      and c.marks_revision is null and s.marks_revision is null)
+  from public.takeoff_item_send_parts c join public.takeoff_item_send_parts s on s.id = c.copied_from_part_id
+  where c.version_id = (select version_id from copy20) and c.kind in ('entered','measured')
+  group by c.kind order by c.kind$$,
+  $$values ('entered'::text,true),('measured'::text,true)$$,
+  'copying an entered or measured part retains every source field without a marks revision');
+
 select is((select count(*)::integer from public.takeoff_item_send_targets t where t.version_id = (select version_id from copy20)
     and (t.estimate_item_id is null or not exists (select 1 from public.estimate_items i where i.id = t.estimate_item_id
       and i.version_id = t.version_id))), 0,
