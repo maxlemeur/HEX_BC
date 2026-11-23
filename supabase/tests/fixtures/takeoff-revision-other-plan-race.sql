@@ -20,8 +20,8 @@ select is(extensions.dblink_exec('race_setup',format('update public.takeoff_prep
   confirmed_at=%L where project_id=%L',snapshot->'preparation',snapshot,snapshot->>'confirmed_at',pg_temp.f(21))),'UPDATE 1','confirm the second plan')
 from second_plan_request;
 select is((select x.outcome from second_plan_request p cross join lateral extensions.dblink('race_setup',format(
-  'select outcome from public.launch_manual_takeoff_plan_request(%L,%L,%L,%L,''initial'',null,%L,%L,%L,%L,%L,%L,2,%L::uuid[])',
-  pg_temp.tenant(),pg_temp.f(21),pg_temp.f(1),pg_temp.f(9521),pg_temp.host(),pg_temp.selection(),p.manifest,p.snapshot,
+  'select outcome from public.launch_manual_takeoff_plan_request(%L,%L,%L,%L,''reread_plans'',%L,%L,%L,%L,%L,%L,%L,2,%L::uuid[])',
+  pg_temp.tenant(),pg_temp.f(21),pg_temp.f(1),pg_temp.f(9521),pg_temp.job(21),pg_temp.host(),pg_temp.selection(),p.manifest,p.snapshot,
   jsonb_build_array(jsonb_build_object('id',pg_temp.f(9522),'plan_set_id',pg_temp.f(41),'launch_unit_key','plan:'||pg_temp.f(9520),
     'source_file_name','plan-b.pdf','source_file_type','application/pdf','source_file_size_bytes',8,'prompt_version','fixture','execution_host_id',pg_temp.host())),
   pg_temp.f(41),array[pg_temp.f(9520)])) x(outcome text)),'admitted','the second plan is admitted');
@@ -58,7 +58,8 @@ begin
   plan_:=pg_temp.plan(21,v,310,3)||jsonb_build_object('job_id',job_,'plan_key',pg_temp.f(9520),'sections','[]'::jsonb);
   select i.* into strict line_ from public.takeoff_item_send_targets t join public.estimate_items i on i.id=t.estimate_item_id
     where t.version_id=v and t.item_id=pg_temp.f(310);
-  facts:=public.read_takeoff_item_send_facts(pg_temp.tenant(),pg_temp.f(21),job_);
+  select x.body into strict facts from extensions.dblink('race_a',format(
+    'select public.read_takeoff_item_send_facts(%L,%L,%L)',pg_temp.tenant(),pg_temp.f(21),job_)) x(body jsonb);
   select jsonb_build_object('answer_id',s->'answer_id','answer_revision',s->'answer_revision','kind','measured','quantity',s->'quantity','unit',s->'unit',
     'observation_ids',jsonb_build_array(s->'observation_id'),'pages',s->'pages','identity',jsonb_build_object('unit','u','basis',null,
     'network',null,'material',null,'diameter',null)) into strict c from private.takeoff_item_send_resolved_parts(pg_temp.tenant(),pg_temp.f(21),job_,array[2,7]) s;

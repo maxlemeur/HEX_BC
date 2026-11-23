@@ -585,12 +585,12 @@ revoke all on function public.edit_takeoff_revision_marks(uuid,uuid,uuid,uuid,uu
 grant execute on function public.edit_takeoff_revision_marks(uuid,uuid,uuid,uuid,uuid,jsonb,jsonb) to authenticated;
 
 -- Each working decision is tied to its destination draft. An estimate copy may
--- share the analysis's marks while retaining a different source or typed amount.
+-- share the analysis's marks and plan entry while retaining different confirmed contributions.
 create table private.takeoff_revision_choices (
   id uuid primary key default gen_random_uuid(),
   tenant_id uuid not null,
   project_id uuid not null,
-  version_id uuid not null,
+  version_id uuid not null references public.estimate_versions(id) on delete cascade,
   receipt_id uuid not null,
   job_id uuid not null,
   answer_id uuid not null,
@@ -801,7 +801,7 @@ begin
     into locations from jsonb_each(docs->'parts') e;
   preview := public.preview_takeoff_item_redistribution(p_tenant,p_actor,p_project,p_version,p_item,'together',p_module,locations);
   return coalesce((select jsonb_agg(b order by b->>'line_id') from jsonb_array_elements(preview->'blockers') b
-    where b->>'reason' not in ('identity','section')
+    where b->>'reason' not in ('identity','section','mixed')
       and exists(select from jsonb_array_elements(preview->'sources') s where s->'line_id'=b->'line_id')), '[]'::jsonb);
 end;
 $$;
@@ -3136,6 +3136,8 @@ declare
   protection jsonb;
   foreign_parts jsonb;
   page_rows jsonb;
+  offered_line_choices uuid[] := '{}';
+  kept_parts jsonb;
   choices_for_pages jsonb:=coalesce(p_choices->'page_decisions','[]');
   page_conflicts jsonb;
   read_ record;
@@ -3261,7 +3263,11 @@ begin
       end if;
     end if;
     select sum(p.quantity),coalesce(sum(p.quantity) filter(where not(p.id=any(own_ids))),0),
-      count(*) filter(where not(p.id=any(own_ids))) into old_sum,keep_sum,keep_count from public.takeoff_item_send_parts p
+      count(*) filter(where not(p.id=any(own_ids))),
+      coalesce(jsonb_agg(jsonb_build_object('id',p.id,'job_id',p.job_id,'item_id',p.item_id,
+        'plan_logical_id',p.plan_logical_id,'kind',p.kind,'pages',p.pages,'quantity',p.quantity,'unit',p.unit)
+        order by p.id) filter(where not(p.id=any(own_ids))),'[]'::jsonb)
+      into old_sum,keep_sum,keep_count,kept_parts from public.takeoff_item_send_parts p
       where p.target_id=current_target and p.state='live';
     ref:=null; legacy:=0; protective:=0;
     if target.line_kind='dpgf_line' then
@@ -3280,6 +3286,7 @@ begin
         'item_id',item,'line',protection)); continue; end if;
       action:='delete_line'; after_qty:=null;
     elsif line.quantity is distinct from expected then
+      offered_line_choices:=array_append(offered_line_choices,line.id);
       choice_:=p_choices#>>array['lines',line.id::text];
       if choice_='keep_entry' and (ref is null or line.quantity>=desired) then after_qty:=line.quantity;
       elsif choice_ is distinct from 'use_retained' then
@@ -3293,9 +3300,12 @@ begin
     actions:=actions||jsonb_build_array(jsonb_build_object('action',action,'item_id',item,'target_id',target.id,
       'estimate_item_id',line.id,'title',line.title,'quantity_before',line.quantity,'quantity_after',after_qty,
       'earlier_parts',own_ids,'parts',change->'parts','unit_code',target.unit_code,'price_cents',line.unit_price_ht_cents,
-      'kept_quantity',keep_sum,'breakdown',target.breakdown,'compartment',target.compartment_key,'updated_at',line.updated_at));
+      'kept_quantity',keep_sum,'kept_parts',kept_parts,'breakdown',target.breakdown,'compartment',target.compartment_key,'updated_at',line.updated_at));
   end loop;
-  if exists(select 1 from jsonb_array_elements_text(p_choices->'leave_out') x
+  if exists(select 1 from jsonb_each_text(p_choices->'lines') l
+      where not coalesce(private.takeoff_uuid_or_null(to_jsonb(l.key))=any(offered_line_choices),false)
+        or (l.value in ('keep_entry','use_retained')) is not true)
+    or exists(select 1 from jsonb_array_elements_text(p_choices->'leave_out') x
       where not exists(select 1 from jsonb_array_elements(changes) c where c->>'item_id'=x))
     or (select count(*)<>count(distinct x) from jsonb_array_elements_text(p_choices->'leave_out') x) then
     raise exception 'TAKEOFF_REVISION_INVALID' using errcode='22023';
@@ -3646,6 +3656,7 @@ begin
       (w.tenant_id,w.project_id,w.version_id,w.job_id,w.answer_id)=(p_tenant,p_project,p_version,p_job,a.id)) w on true
     left join lateral (select jsonb_agg(jsonb_build_object('id',p.id,'receipt_id',p.receipt_id,'target_id',p.target_id,
       'estimate_item_id',t.estimate_item_id,'kind',p.kind,'quantity',p.quantity,'unit',p.unit,'marks_revision',p.marks_revision,
+      'entry_id',p.entry_id,'entry_revision',p.entry_revision,
       'pages',p.pages,'compartment',t.compartment_key,'line_title',i.title) order by p.id) as all_
       from public.takeoff_item_send_parts p join public.takeoff_item_send_targets t on t.id=p.target_id
       left join public.estimate_items i on i.id=t.estimate_item_id

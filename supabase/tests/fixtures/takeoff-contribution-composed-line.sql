@@ -9,6 +9,7 @@ declare
   target public.takeoff_item_send_targets; line public.estimate_items; line_data jsonb;
   request_ jsonb; confirmed jsonb; preview_ jsonb; receipt_ uuid; head uuid; edited jsonb; marked uuid;
   result_ jsonb; docs jsonb; locations jsonb; moved jsonb; geometry_ jsonb; before_qty numeric;
+  choices jsonb:='{}';
   ignore_cols text[]:=array['updated_at','quantity','pu_ht_cents','line_total_ht_cents','line_tax_cents','line_total_ttc_cents'];
 begin
   begin
@@ -66,7 +67,8 @@ begin
     head:=part.receipt_id;
     select * into strict target from public.takeoff_item_send_targets where id=part.target_id;
     perform set_config('miaouffrage.estimate_v3_writer',version_::text,true);
-    update public.estimate_items set unit_price_ht_cents=1234 where id=target.estimate_item_id;
+    update public.estimate_items set unit_price_ht_cents=1234,
+      quantity=case when scenario in ('keep_entry','use_retained') then 9 else quantity end where id=target.estimate_item_id;
     perform public.estimate_v3_complete_entry_for_writer(version_,array[target.estimate_item_id]);
     select to_jsonb(i)-ignore_cols,i.quantity into line_data,before_qty from public.estimate_items i where id=target.estimate_item_id;
     select to_jsonb(p) into strict b_before from public.takeoff_item_send_parts p where p.version_id=version_ and p.job_id=b.job_id and p.state='live';
@@ -78,8 +80,23 @@ begin
       jsonb_build_object('work_revision',0,'marks_revision',private.takeoff_count_marks_revision(answer_),'answer_revision',part.answer_revision,
       'plan_entry_revision',null),'{"source":"verified_count"}');
     preview_:=public.preview_takeoff_contribution_revision(tenant_,actor_,project_,version_,head,true,'{}');
-    confirmed:=public.confirm_takeoff_contribution_revision(tenant_,actor_,project_,version_,head,true,pg_temp.f(9322),preview_->>'digest','{}');
+    if scenario in ('keep_entry','use_retained') then
+      if preview_#>'{blockers,0}' @> '{"reason":"typed_line","entered":9,"retained":4}' is not true then
+        raise exception 'both amounts must be shown before choosing';
+      end if;
+      begin
+        perform public.confirm_takeoff_contribution_revision(tenant_,actor_,project_,version_,head,true,
+          pg_temp.f(9322),preview_->>'digest','{}');
+        raise exception 'the member must first choose which quantity to keep';
+      exception when sqlstate '55000' then
+        if sqlerrm<>'TAKEOFF_REVISION_DECISION_REQUIRED' then raise; end if;
+      end;
+      choices:=jsonb_build_object('lines',jsonb_build_object(target.estimate_item_id,scenario));
+      preview_:=public.preview_takeoff_contribution_revision(tenant_,actor_,project_,version_,head,true,choices);
+    end if;
+    confirmed:=public.confirm_takeoff_contribution_revision(tenant_,actor_,project_,version_,head,true,pg_temp.f(9322),preview_->>'digest',choices);
     select jsonb_build_array(before_qty,preview_#>'{actions,0,quantity_after}',i.quantity,i.unit_price_ht_cents,to_jsonb(i)-ignore_cols=line_data,
+      preview_#>'{actions,0,kept_parts,0,id}'=b_before->'id' and preview_#>'{actions,0,kept_parts,0,pages}'=b_before->'pages',
       part.quantity,(select p.quantity from public.takeoff_item_send_parts p where p.receipt_id=(confirmed->>'receipt_id')::uuid),
       exists(select 1 from public.takeoff_item_send_parts p where p.id=(b_before->>'id')::uuid and to_jsonb(p)=b_before),
       case scenario when 'redistributed' then target.breakdown='by_level' when 'copy' then exists(
@@ -93,6 +110,9 @@ begin
   end;
 end;
 $$;
-select is(pg_temp.composed_revision(scenario),'[5,4,4,1234,true,3,2,true,true]'::jsonb,
+select is(pg_temp.composed_revision(scenario),'[5,4,4,1234,true,true,3,2,true,true]'::jsonb,
   format('%s: removing one of three marks leaves the two units from the other plan and the line price unchanged',scenario))
 from (values ('source'),('redistributed'),('copy')) cases(scenario);
+select is(pg_temp.composed_revision(choice),jsonb_build_array(9,expected,expected,1234,true,true,3,2,true,true),
+  'a typed nine requires an explicit line choice: '||choice)
+from (values ('keep_entry',9),('use_retained',4)) cases(choice,expected);
