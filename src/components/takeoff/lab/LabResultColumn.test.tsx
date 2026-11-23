@@ -23,5 +23,6 @@ describe("LabResultColumn", () => {
     const spend = screen.getByRole("group", { name: "Dépense de la clé API" });
     expect(spend.textContent).not.toContain("NaN");
     expect(spend.textContent).toContain("Clé API OpenAI · plafond 1,00 $ US");
+    expect(spend.textContent).toContain("barème OpenAI du 18/11/2026");
   });
 });

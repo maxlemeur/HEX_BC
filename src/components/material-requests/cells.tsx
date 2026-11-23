@@ -64,17 +64,25 @@ export function AlertWords({
   );
 }
 
-/** Every alert of a line, in words: under the fields of a card, and under its row once the line is unfolded. */
+/** Every alert of a line, in words. The sheet can keep selected messages at the cell instead. */
 export function AlertSummary({
   position,
   alerts,
+  quietInSheet,
   className,
-}: Readonly<{ position: number; alerts: CellAlerts; className?: string }>) {
+}: Readonly<{
+  position: number;
+  alerts: CellAlerts;
+  quietInSheet?: (alert: MaterialRequestLineAlert) => boolean;
+  className?: string;
+}>) {
   if (alerts.length === 0) return null;
   return (
-    <ul aria-label={`Points à régler, ligne ${position}`} className={cn("space-y-0.5 text-xs", className)}>
+    <ul aria-label={`Points à régler, ligne ${position}`}
+      className={cn("space-y-0.5 text-xs", quietInSheet && alerts.every(quietInSheet) && "sheet:sr-only", className)}>
       {alerts.map((alert) => (
-        <AlertWords key={alert.code} as="li" alert={alert} className={cn(!alert.blocking && "font-normal")} />
+        <AlertWords key={alert.code} as="li" alert={alert}
+          className={cn(!alert.blocking && "font-normal", quietInSheet?.(alert) && "sheet:sr-only")} />
       ))}
     </ul>
   );

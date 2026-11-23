@@ -33,6 +33,13 @@ const FILE_2 = "ffffffff-ffff-4fff-8fff-ffffffffffff";
 const BASE = `/api/affaires/${PROJECT_ID}/material-requests/${REQUEST_ID}`;
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn(), replace: vi.fn(), refresh: vi.fn() }) }));
+vi.mock("@/app/dashboard/_actions/chatgpt", () => ({
+  loadPhotoAnalysisModelOptions: vi.fn().mockResolvedValue({
+    billingSource: "chatgpt_plan", connectionId: null,
+    models: [{ id: "gpt-6.2-sol", name: "GPT-6.2 Sol", reasoningEfforts: ["high"], defaultReasoningEffort: "high" }],
+    preferences: { model: "gpt-6.2-sol", reasoningEffort: "high" },
+  }),
+}));
 
 import { MaterialRequestEditor } from "@/components/material-requests/MaterialRequestEditor";
 
@@ -118,7 +125,9 @@ async function openOriginal(routes: Record<string, Route>) {
   render(<MaterialRequestEditor projectId={PROJECT_ID} requestId={REQUEST_ID} />);
   await screen.findByRole("heading", { name: "Lignes" });
   await user.click(screen.getByRole("button", { name: "Voir l’original" }));
-  return { user, original: await screen.findByRole("dialog", { name: "Original de la demande" }) };
+  const original = await screen.findByRole("dialog", { name: "Original de la demande" });
+  await waitFor(() => expect(within(original).queryByText("Chargement des modèles…")).not.toBeInTheDocument());
+  return { user, original };
 }
 
 const writes = () => calls.filter((call) => call.method !== "GET");
@@ -153,6 +162,7 @@ describe("AI reading of the photos of a material request", () => {
     });
 
     await user.click(within(original).getByRole("button", { name: "Analyser les photos avec l’IA" }));
+    expect(await within(original).findByText(/^3 lignes créées en brouillon\./)).toBeTruthy();
 
     await waitFor(() => expect(writes()).toHaveLength(3));
     expect(writes().map((call) => `${call.method} ${call.path}`)).toEqual([

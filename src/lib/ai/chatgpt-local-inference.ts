@@ -10,7 +10,7 @@ import { getLocalChatGptCredential } from "@/lib/ai/chatgpt-local-auth";
 import { readChatGptStore, saveChatGptStore, withChatGptLock, type ChatGptOwner } from "@/lib/ai/chatgpt-local-store";
 import type { StructuredCallOptions, StructuredCallResult } from "@/lib/ai/structured-call";
 import {
-  chatGptModelReasoningCapabilities, chatGptPreferencesSchema, DEFAULT_CHATGPT_MODEL,
+  chatGptDefaultPreferences, chatGptModelReasoningCapabilities, chatGptPreferencesSchema,
   type ChatGptAvailableModel, type ChatGptPreferences, type ChatGptReasoningEffort,
 } from "@/lib/ai/chatgpt-model-preferences";
 
@@ -49,18 +49,33 @@ export async function fetchLocalChatGptModels(credential: { accessToken: string 
     .map((model) => ({ id: model.slug, name: model.display_name, ...chatGptModelReasoningCapabilities(model) }));
 }
 
+/** The account catalog and starting settings for a single analysis. User preferences are not saved here. */
+export async function readLocalChatGptModelOptions(owner: ChatGptOwner) {
+  const credential = await getLocalChatGptCredential(owner);
+  if (!credential) throw new Error("Connectez d’abord votre compte ChatGPT.");
+  const models = await fetchLocalChatGptModels(credential);
+  const saved = models.find((model) => model.id === credential.model);
+  const reasoningEffort = credential.reasoningEffort;
+  const preferences = saved ? {
+    model: saved.id,
+    reasoningEffort: reasoningEffort !== null && saved.reasoningEfforts.includes(reasoningEffort) ? reasoningEffort : null,
+  } : chatGptDefaultPreferences(models) ?? (models[0] ? { model: models[0].id, reasoningEffort: null } : null);
+  return { models, preferences };
+}
+
 export async function listLocalChatGptModels(owner: ChatGptOwner): Promise<ChatGptAvailableModel[]> {
   const credential = await getLocalChatGptCredential(owner);
   if (!credential) throw new Error("Connectez d’abord votre compte ChatGPT.");
   const models = await fetchLocalChatGptModels(credential);
-  if (!credential.model && models.some((model) => model.id === DEFAULT_CHATGPT_MODEL)) {
+  const defaults = credential.model ? null : chatGptDefaultPreferences(models);
+  if (defaults) {
     await withChatGptLock(owner, async () => {
       const store = await readChatGptStore(owner);
       if (store.selectedId !== credential.profileId) throw new Error("Le compte a changé. Rechargez les modèles.");
       const profile = store.profiles.find((item) => item.id === credential.profileId);
       if (profile && !profile.model) {
-        profile.model = DEFAULT_CHATGPT_MODEL;
-        profile.reasoningEffort = null;
+        profile.model = defaults.model;
+        profile.reasoningEffort = defaults.reasoningEffort;
         await saveChatGptStore(owner, store);
       }
     });
@@ -299,19 +314,20 @@ export type LocalChatGptRawResult<T> =
   | (Omit<LocalChatGptResult<T>, "data"> & { data: null; rawText: string; schemaError: LocalChatGptSchemaError });
 
 export function callLocalChatGptStructured<T>(owner: ChatGptOwner, options: StructuredCallOptions<T>,
-  selection?: LocalChatGptSelection, override?: LocalChatGptOverride): Promise<LocalChatGptResult<T>>;
+  selection?: LocalChatGptSelection, override?: LocalChatGptOverride, mode?: { allowUnselectedModel: true }): Promise<LocalChatGptResult<T>>;
 /** Provider errors still throw; only the answer's parse comes back as `schemaError`. */
 export function callLocalChatGptStructured<T>(owner: ChatGptOwner, options: StructuredCallOptions<T>,
   selection: LocalChatGptSelection | undefined, override: LocalChatGptOverride | undefined,
   mode: { returnRawOnSchemaError: true }): Promise<LocalChatGptRawResult<T>>;
-export async function callLocalChatGptStructured<T>(owner: ChatGptOwner, options: StructuredCallOptions<T>, selection?: LocalChatGptSelection, override?: LocalChatGptOverride, mode?: { returnRawOnSchemaError: true }): Promise<LocalChatGptResult<T> | LocalChatGptRawResult<T>> {
+export async function callLocalChatGptStructured<T>(owner: ChatGptOwner, options: StructuredCallOptions<T>, selection?: LocalChatGptSelection, override?: LocalChatGptOverride, mode?: { returnRawOnSchemaError?: true; allowUnselectedModel?: true }): Promise<LocalChatGptResult<T> | LocalChatGptRawResult<T>> {
   const startedAt = Date.now();
   const credential = await getLocalChatGptCredential(owner);
   if (selection && "authorizationId" in selection && (!selection.authorizationId || credential?.authorizationId !== selection.authorizationId)) {
     throw new LocalChatGptConnectionWithdrawnError();
   }
   if (!credential) throw new Error("Connectez votre compte ChatGPT.");
-  const model = selection?.remeasureSetting?.model ?? credential.model;
+  const model = selection?.remeasureSetting?.model ?? credential.model
+    ?? (mode?.allowUnselectedModel ? override?.model : null);
   if (!model) throw new Error("Choisissez un modèle ChatGPT dans Mon profil.");
   const profileEffort = credential.reasoningEffort ?? null;
   if (selection && (credential.profileId !== selection.profileId || (!selection.remeasureSetting

@@ -525,9 +525,15 @@ test("ChatGPT local: PDF plan uses the chosen subscription provider and persists
     expect(liveProbe.model).toBe("gpt-6.1-terra");
     expect(liveProbe.reasoningEffort).toBe("medium");
     await ui.app.open("/dashboard/profile");
-    await expect(screen.getByRole("combobox", "Modèle ChatGPT", { exact: true })).toHaveValue("gpt-6.1-terra");
+    const model = screen.getByRole("combobox", "Modèle ChatGPT", { exact: true });
     const effort = screen.getByRole("combobox", "Effort de raisonnement", { exact: true });
-    await expect(effort).toHaveValue(newProfileWithoutPreferences ? "auto" : "medium");
+    await expect(model).toBeEnabled();
+    const sol = await model.getByRole("option", /^GPT-6.2 Sol/).count();
+    const initialModel = newProfileWithoutPreferences && sol ? "gpt-6.2-sol" : "gpt-6.1-terra";
+    await expect(model).toHaveValue(initialModel);
+    const initialEffort = newProfileWithoutPreferences ? (await effort.getByRole("option", "Élevé", { exact: true }).count() ? "high" : "auto") : "medium";
+    await expect(effort).toHaveValue(initialEffort);
+    if (initialModel !== "gpt-6.1-terra") await model.selectOption({ value: "gpt-6.1-terra" });
     await effort.selectOption({ value: "medium" });
     await expect(screen.getByText("Préférences ChatGPT enregistrées.", { exact: true })).toBeVisible();
     await expect(effort).toBeEnabled();
@@ -538,8 +544,7 @@ test("ChatGPT local: PDF plan uses the chosen subscription provider and persists
     const selected = stored.profiles.find((profile: { id: string }) => profile.id === stored.selectedId);
     expect(selected).toMatchObject({ model: "gpt-6.1-terra", reasoningEffort: "medium" });
     const screenshot = await app.screenshot("chatgpt-profile-terra-medium");
-    await recordEvidence(army, "chatgpt-profile-preferences", { defaultModel: "gpt-6.1-terra", newProfileWithoutPreferences,
-      initialEffort: newProfileWithoutPreferences ? null : "medium",
+    await recordEvidence(army, "chatgpt-profile-preferences", { initialModel, newProfileWithoutPreferences, initialEffort,
       persisted: { model: selected.model, reasoningEffort: selected.reasoningEffort }, reopenedUiMatches: true, screenshot });
   }
   const ids = await createEstimateViaWizard(ui, { projectName: prefix, title: "Métré PDF forfait local" }, army);

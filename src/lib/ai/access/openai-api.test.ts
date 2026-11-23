@@ -156,6 +156,32 @@ describe("add and verify a key", () => {
     expect([keychain.state.reads, openai.sent.length]).toEqual([reads, sent]);
   });
 
+  it("refreshes an existing key’s catalog using a single discovery request", async () => {
+    let models = listed();
+    const openai = fakeOpenAi(() => models.clone());
+    const { service, keychain } = access(openai.fetch);
+    await service.save(OWNER, { key: fictionalKey() });
+    models = listed(["gpt-6.1-terra", "gpt-6.2-astra", "gpt-6.2-sol", "gpt-4o-mini"]);
+    const refreshed = await service.refreshModels(OWNER);
+    expect(refreshed).toMatchObject({ status: "saved", connection: { version: 1, lastTest: null, lastUsedAt: null,
+      offeredModels: ["gpt-6.1-terra", "gpt-6.2-astra", "gpt-6.2-sol"].map((id) => expect.objectContaining({ id, verified: true })) } });
+    expect(await service.state(OWNER)).toEqual(refreshed);
+    expect(keychain.items.size).toBe(1);
+    expect(openai.sent.map(({ url, method, body }) => [url, method, body])).toEqual([
+      ["https://api.openai.com/v1/models", "GET", null], ["https://api.openai.com/v1/models", "GET", null],
+    ]);
+  });
+
+  it("leaves the last known catalog in place when OpenAI denies discovery", async () => {
+    let models = listed();
+    const { service } = access(fakeOpenAi(() => models.clone()).fetch);
+    await service.save(OWNER, { key: fictionalKey() });
+    const before = await service.state(OWNER);
+    models = providerError(403, { code: "missing_scope" });
+    expect((await failure(service.refreshModels(OWNER))).code).toBe("AI_KEY_MODELS_PERMISSION");
+    expect(await service.state(OWNER)).toEqual(before);
+  });
+
   it("refuses a key OpenAI refuses definitively, and keeps nothing", async () => {
     // Review round 2, item J: OpenAI's published example puts ip_not_authorized in error.type.
     for (const refusal of [providerError(401, { code: "invalid_api_key" }), providerError(401, { type: "invalid_request_error", code: "ip_not_authorized" }),
@@ -181,7 +207,7 @@ describe("add and verify a key", () => {
       const { service, keychain } = access(openai.fetch);
       const first = await service.save(OWNER, { key });
       expect(first).toEqual({ outcome: "needs_model_test", models: [
-        expect.objectContaining({ id: "gpt-6.1-terra", verified: false }), expect.objectContaining({ id: "gpt-6.1-sol", verified: false })] });
+        ...["gpt-6.1-terra", "gpt-6.1-sol", "gpt-6.2-astra", "gpt-6.2-sol"].map((id) => expect.objectContaining({ id, verified: false }))] });
       expect(keychain.items.size).toBe(0);
       expect(openai.sent).toHaveLength(1);
       const second = await service.save(OWNER, { key, testModel: "gpt-6.1-sol" });

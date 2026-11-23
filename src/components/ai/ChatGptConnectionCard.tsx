@@ -5,7 +5,6 @@ import { ChevronDownIcon, ExternalLinkIcon } from "lucide-react";
 
 import {
   chooseChatGptAccount,
-  chooseChatGptPreferences,
   connectChatGpt,
   disconnectChatGpt,
   loadChatGptConnection,
@@ -19,24 +18,22 @@ import { Button } from "@/components/ui/button";
 import { FieldLabel } from "@/components/ui/field";
 import { InfoPopover } from "@/components/ui/info-popover";
 import { NativeSelect } from "@/components/ui/native-select";
-import { CHATGPT_REASONING_EFFORT_LABELS } from "@/lib/ai/chatgpt-model-preferences";
+import type { ChatGptAvailableModel, ChatGptPreferences } from "@/lib/ai/chatgpt-model-preferences";
 import { chatGptSignInErrorMessage } from "@/lib/ai/chatgpt-sign-in-errors";
 
 type Connection = NonNullable<
   Awaited<ReturnType<typeof loadChatGptConnection>>
 >;
-type Models = Awaited<ReturnType<typeof loadChatGptModels>>;
+export type ChatGptAnalysisOptions = { models: ChatGptAvailableModel[]; preferences: ChatGptPreferences | null };
 
-/**
- * The ChatGPT subscription, first entry of « Accès IA » in Mon profil: the default source, with every command it
- * had as its own card (« Mon forfait ChatGPT »).
- */
-export function ChatGptConnectionCard() {
+/** Sign-in and account management for the member’s ChatGPT subscription. */
+export function ChatGptConnectionCard({ onOptionsChange, selectedModel }: Readonly<{
+  onOptionsChange?: (options: ChatGptAnalysisOptions | null) => void;
+  selectedModel?: string;
+}> = {}) {
   const id = useId();
   const section = { variant: "plain" as const, headingLevel: 3 as const, title: "Abonnement ChatGPT" };
-  const sectionActions = (actions?: React.ReactNode) => <><Badge variant="outline" size="sm">Par défaut</Badge>{actions}</>;
   const [connection, setConnection] = useState<Connection | null>(null);
-  const [models, setModels] = useState<Models>([]);
   const [busy, setBusy] = useState(false);
   const [isLocal, setIsLocal] = useState(false);
   const [loaded, setLoaded] = useState(false);
@@ -47,14 +44,20 @@ export function ChatGptConnectionCard() {
   const reload = useCallback(async () => {
     let state = await loadChatGptConnection();
     setConnection(state);
-    setModels([]);
+    onOptionsChange?.(state?.sharing ? {
+      models: [], preferences: state.model ? { model: state.model, reasoningEffort: state.reasoningEffort } : null,
+    } : null);
     if (state?.sharing) {
-      setModels(await loadChatGptModels());
+      const models = await loadChatGptModels();
       state = await loadChatGptConnection();
+      if (state?.sharing) onOptionsChange?.({
+        models,
+        preferences: state.model ? { model: state.model, reasoningEffort: state.reasoningEffort } : null,
+      });
     }
     setConnection(state);
     return state;
-  }, []);
+  }, [onOptionsChange]);
 
   useEffect(() => {
     if (process.env.NODE_ENV === "production") return;
@@ -113,13 +116,13 @@ export function ChatGptConnectionCard() {
     // A hosted build: the subscription is connected from the Mac's own MergeOne.
     if (!isLocal && process.env.NODE_ENV === "production") {
       return (
-        <PageSection {...section} actions={sectionActions()}>
+        <PageSection {...section}>
           <p className="text-sm text-muted-foreground">L’abonnement ChatGPT se connecte depuis MergeOne lancé sur votre Mac.</p>
         </PageSection>
       );
     }
     return (
-      <PageSection {...section} actions={sectionActions()}>
+      <PageSection {...section}>
         {error ? (
           <div className="space-y-3">
             <Alert variant="danger">{error}</Alert>
@@ -146,10 +149,6 @@ export function ChatGptConnectionCard() {
   const selected = connection.profiles.find(
     (profile) => profile.id === connection.selectedId,
   );
-  const selectedModel = models.find((model) => model.id === connection.model);
-  const hasCurrentEffortOption =
-    !connection.reasoningEffort ||
-    selectedModel?.reasoningEfforts.includes(connection.reasoningEffort);
   const connectionInfo = (
     <InfoPopover
       label="À propos du forfait ChatGPT"
@@ -175,7 +174,7 @@ export function ChatGptConnectionCard() {
   );
 
   return (
-    <PageSection {...section} actions={sectionActions(connectionInfo)}>
+    <PageSection {...section} actions={connectionInfo}>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="text-xs text-muted-foreground">Compte actif</p>
@@ -212,128 +211,7 @@ export function ChatGptConnectionCard() {
         </Alert>
       ) : null}
 
-      {connection.sharing ? (
-        <div className="mt-5 grid gap-4 sm:grid-cols-2">
-          <div className="min-w-0">
-            <div className="flex items-center justify-between gap-2">
-              <FieldLabel htmlFor={`${id}-model`}>Modèle ChatGPT</FieldLabel>
-              <InfoPopover
-                label="À propos du modèle ChatGPT"
-                title="Modèle ChatGPT"
-              >
-                <p>
-                  Cette liste contient les modèles accessibles avec le compte
-                  sélectionné. Le choix s’applique aux prochaines demandes.
-                  Changer de compte, de modèle ou d’effort pendant un métré peut
-                  interrompre son traitement.
-                </p>
-                <p>
-                  Lors d’un changement de modèle, un effort non proposé par ce
-                  modèle revient sur Automatique. La confirmation est affichée
-                  après l’enregistrement.
-                </p>
-              </InfoPopover>
-            </div>
-            <NativeSelect
-              id={`${id}-model`}
-              disabled={busy || models.length === 0}
-              value={connection.model ?? ""}
-              onChange={(event) => {
-                const model = models.find(
-                  (item) => item.id === event.target.value,
-                );
-                if (!model) return;
-                const reasoningEffort =
-                  connection.reasoningEffort &&
-                  model.reasoningEfforts.includes(connection.reasoningEffort)
-                    ? connection.reasoningEffort
-                    : null;
-                void run(async () => {
-                  await chooseChatGptPreferences({
-                    model: model.id,
-                    reasoningEffort,
-                  });
-                  await reload();
-                  setMessage(
-                    connection.reasoningEffort && !reasoningEffort
-                      ? "Modèle enregistré. L’effort est revenu sur Automatique car le niveau précédent n’est pas proposé pour ce modèle."
-                      : "Préférences ChatGPT enregistrées.",
-                  );
-                });
-              }}
-            >
-              <option value="" disabled>
-                Choisir un modèle
-              </option>
-              {connection.model && !selectedModel ? (
-                <option value={connection.model}>
-                  {connection.model} · sélection actuelle
-                </option>
-              ) : null}
-              {models.map((model) => (
-                <option key={model.id} value={model.id}>
-                  {model.name}
-                  {model.id === "gpt-6.1-terra" ? " · par défaut" : ""}
-                </option>
-              ))}
-            </NativeSelect>
-          </div>
-          <div className="min-w-0">
-            <div className="flex items-center justify-between gap-2">
-              <FieldLabel htmlFor={`${id}-effort`}>
-                Effort de raisonnement
-              </FieldLabel>
-              <InfoPopover
-                label="À propos de l’effort de raisonnement"
-                title="Effort de raisonnement"
-              >
-                <p>
-                  Un effort plus élevé peut aider sur les réponses complexes,
-                  avec davantage de temps et de consommation.
-                </p>
-                <p>
-                  Automatique reprend le réglage du modèle. Seuls les niveaux
-                  proposés pour le modèle sélectionné sont disponibles. Changer
-                  l’effort pendant un métré peut interrompre son traitement.
-                </p>
-              </InfoPopover>
-            </div>
-            <NativeSelect
-              id={`${id}-effort`}
-              disabled={busy || !selectedModel}
-              value={connection.reasoningEffort ?? "auto"}
-              onChange={(event) => {
-                if (!selectedModel) return;
-                const reasoningEffort =
-                  selectedModel.reasoningEfforts.find(
-                    (effort) => effort === event.target.value,
-                  ) ?? null;
-                void run(async () => {
-                  await chooseChatGptPreferences({
-                    model: selectedModel.id,
-                    reasoningEffort,
-                  });
-                  await reload();
-                  setMessage("Préférences ChatGPT enregistrées.");
-                });
-              }}
-            >
-              <option value="auto">Automatique</option>
-              {!hasCurrentEffortOption && connection.reasoningEffort ? (
-                <option value={connection.reasoningEffort}>
-                  {CHATGPT_REASONING_EFFORT_LABELS[connection.reasoningEffort]} · sélection
-                  actuelle
-                </option>
-              ) : null}
-              {selectedModel?.reasoningEfforts.map((effort) => (
-                <option key={effort} value={effort}>
-                  {CHATGPT_REASONING_EFFORT_LABELS[effort]}
-                </option>
-              ))}
-            </NativeSelect>
-          </div>
-        </div>
-      ) : (
+      {!connection.sharing ? (
         <div className="mt-4 space-y-3">
           {selected?.connected ? (
             <p className="text-sm text-muted-foreground">
@@ -353,7 +231,7 @@ export function ChatGptConnectionCard() {
             {selected ? "Reconnecter ChatGPT" : "Continue with ChatGPT"}
           </Button>
         </div>
-      )}
+      ) : null}
 
       {error ? (
         <Alert variant="danger" className="mt-4">
@@ -409,7 +287,7 @@ export function ChatGptConnectionCard() {
                 <Button
                   type="button"
                   variant="outline"
-                  disabled={busy || !connection.model}
+                  disabled={busy || !(selectedModel ?? connection.model)}
                   onClick={() =>
                     void run(async () => {
                       const result = await testChatGptConnection();

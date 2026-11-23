@@ -167,7 +167,7 @@ describe("lab extraction on the member's API key", () => {
     const [config] = run.configs;
     expect(config).toMatchObject({ provider: "api_key", api_provider: "openai", model: "gpt-6.1-terra", reasoning_effort: "medium", status: "ok",
       error_code: null, message: null, usage: { input: 4_000, output: 300, reasoning: 600, total: 4_900 },
-      billing: { source: "personal_api_key", provider: "openai", place: "local", currency: "USD", price_table: "openai-standard-2026-11-18",
+      billing: { source: "personal_api_key", provider: "openai", place: "local", currency: "USD", price_table: "openai-standard-2026-11-22",
         model_used: "gpt-6.1-terra-2026-10-01", service_tier: "default", ceiling_nano_usd: 1_000_000_000, allotment_nano_usd: 1_000_000_000,
         input_tokens_counted: 40_000, max_output_tokens: 32_000, bound_nano_usd: 40_000 * 2_500 + 32_000 * 5_000,
         connection_version: 1, request_id: "req_lab",

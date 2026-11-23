@@ -1,7 +1,7 @@
 "use client";
 
 import type {
-  ApiKeyAccessState, ApiKeySaveResult, ApiKeyTestResult,
+  ApiKeyAccessState, ApiKeySaveResult, ApiKeyTestResult, AiAnalysisPreferences,
 } from "@/lib/ai/access/contracts";
 
 // The browser side of « Mon profil › Clé API ». The key is sent once, in the
@@ -29,10 +29,16 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 export const aiAccessApi = {
   state: () => request<ApiKeyAccessState>(""),
+  refreshModels: () => request<ApiKeyAccessState>("", { method: "PATCH" }),
+  saveAnalysisPreferences: (preferences: AiAnalysisPreferences, connectionId: string | null) => request<ApiKeyAccessState>("", {
+    method: "PATCH", body: JSON.stringify({ ...preferences, connectionId }),
+  }),
   save: (key: string, testModel: string | null = null) => request<ApiKeySaveResult>("", {
     method: "PUT", body: JSON.stringify({ provider: "openai", key, testModel }),
   }),
-  test: (model: string) => request<ApiKeyTestResult>("/test", { method: "POST", body: JSON.stringify({ provider: "openai", model }) }),
+  test: (model: string) => request<ApiKeyTestResult>("/test", {
+    method: "POST", body: JSON.stringify({ provider: "openai", model }),
+  }),
   remove: () => request<ApiKeyAccessState>("", { method: "DELETE" }),
 };
 

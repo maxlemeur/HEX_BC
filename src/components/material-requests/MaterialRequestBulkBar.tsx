@@ -1,10 +1,12 @@
 "use client";
 
-import { useId, useState } from "react";
+import { useId, useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/button";
+import { Combobox } from "@/components/ui/combobox";
 import { Input } from "@/components/ui/input";
 import { NativeSelect } from "@/components/ui/native-select";
+import type { MaterialRequestSupplierOption } from "@/lib/material-requests/client";
 import {
   MATERIAL_REQUEST_IMPUTATION_LABELS,
   MATERIAL_REQUEST_IMPUTATIONS,
@@ -14,7 +16,7 @@ import {
 import { plural } from "@/lib/text/plural";
 
 type BulkPatch = BulkUpdateMaterialRequestLinesInput["patch"];
-type BulkField = "material" | "material_precision" | "unit" | "zone" | "imputation";
+type BulkField = "material" | "material_precision" | "unit" | "zone" | "imputation" | "supplier_id";
 
 const BULK_FIELDS: ReadonlyArray<{ key: BulkField; label: string; maxLength?: number }> = [
   { key: "material", label: "Matière", maxLength: 120 },
@@ -22,6 +24,7 @@ const BULK_FIELDS: ReadonlyArray<{ key: BulkField; label: string; maxLength?: nu
   { key: "unit", label: "Unité", maxLength: 20 },
   { key: "zone", label: "Repère", maxLength: 80 },
   { key: "imputation", label: "Imputation" },
+  { key: "supplier_id", label: "Fournisseur" },
 ];
 
 /** Only the chosen column leaves: one material or one zone often holds for a whole sheet, nothing more. */
@@ -36,6 +39,7 @@ function buildPatch(field: BulkField, value: string, imputation: MaterialRequest
   if (field === "material") return { material: trimmed };
   if (field === "material_precision") return { material_precision: trimmed };
   if (field === "unit") return { unit: trimmed };
+  if (field === "supplier_id") return { supplier_id: trimmed };
   return { zone: trimmed };
 }
 
@@ -47,6 +51,7 @@ export function MaterialRequestBulkBar({
   onClear,
   materialListId,
   unitListId,
+  supplierOptions,
 }: Readonly<{
   selectedCount: number;
   busy: boolean;
@@ -55,6 +60,7 @@ export function MaterialRequestBulkBar({
   onClear: () => void;
   materialListId: string;
   unitListId: string;
+  supplierOptions: readonly MaterialRequestSupplierOption[];
 }>) {
   const fieldId = useId();
   const valueId = useId();
@@ -63,6 +69,10 @@ export function MaterialRequestBulkBar({
   const [value, setValue] = useState("");
   const [imputation, setImputation] = useState<MaterialRequestImputation>("project");
   const [category, setCategory] = useState("");
+  const suppliers = useMemo(
+    () => supplierOptions.map(({ id, label, name }) => ({ value: id, label, keywords: [name] })),
+    [supplierOptions],
+  );
   const none = selectedCount === 0;
   const patch = buildPatch(field, value, imputation, category);
   const definition = BULK_FIELDS.find((entry) => entry.key === field) ?? BULK_FIELDS[0];
@@ -133,6 +143,17 @@ export function MaterialRequestBulkBar({
                 </option>
               ))}
             </NativeSelect>
+          ) : field === "supplier_id" ? (
+            <Combobox
+              id={valueId}
+              size="sm"
+              value={value}
+              options={suppliers}
+              placeholder="Chercher un fournisseur…"
+              emptyMessage="Aucun fournisseur trouvé."
+              disabled={none || busy}
+              onValueChange={setValue}
+            />
           ) : (
             <Input
               id={valueId}

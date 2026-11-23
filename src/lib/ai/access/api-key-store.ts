@@ -7,6 +7,7 @@ import { setTimeout } from "node:timers/promises";
 import { z } from "zod";
 
 import { ApiKeyError } from "@/lib/ai/access/api-key-errors";
+import { aiAnalysisPreferencesSchema, photoAiPreferencesSchema, DEFAULT_AI_ANALYSIS_PREFERENCES, type AiAnalysisPreferences } from "@/lib/ai/access/contracts";
 import { ownerKey, writePrivateJson, type ChatGptOwner } from "@/lib/ai/chatgpt-local-store";
 
 // What MergeOne remembers about a member's key, beside the Keychain: the
@@ -31,7 +32,7 @@ const connectionSchema = z.object({
   version: z.number().int().positive(),
   suffix: z.string().regex(/^[A-Za-z0-9_-]{4}$/),
   verification: z.enum(["models_listed", "model_tested"]),
-  /** Qualified models the key listed when saved; null when the key may not list models (saved after a model test). */
+  /** Qualified models the key last listed; null when the key was saved after a model test. */
   models: z.array(z.string().max(200)).max(50).nullable(),
   saved_at: z.string(),
   last_test: z.object({ at: z.string(), model: z.string().max(200) }).strict().nullable(),
@@ -42,6 +43,8 @@ const fileSchema = z.object({
   schema_version: z.literal(1),
   next_version: z.number().int().positive(),
   connections: z.object({ openai: connectionSchema.optional() }).strict(),
+  photo_preferences: photoAiPreferencesSchema.optional(),
+  analysis_preferences: aiAnalysisPreferencesSchema.optional(),
   pending: z.array(itemRefSchema).max(100).default([]),
   retired: z.array(itemRefSchema).max(100).default([]),
 }).strict();
@@ -49,6 +52,10 @@ const fileSchema = z.object({
 export type StoredApiKeyConnection = z.infer<typeof connectionSchema>;
 export type AiAccessFile = z.infer<typeof fileSchema>;
 export type AiAccessItemRef = z.infer<typeof itemRefSchema>;
+
+export function readAnalysisPreferences(file: AiAccessFile): AiAnalysisPreferences {
+  return file.analysis_preferences ?? file.photo_preferences ?? DEFAULT_AI_ANALYSIS_PREFERENCES;
+}
 
 export const defaultAiAccessDirectory = () => path.join(process.cwd(), ".private", "ai-access");
 

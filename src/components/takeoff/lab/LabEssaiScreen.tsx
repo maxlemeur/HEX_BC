@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { ChevronDown, ChevronUp, Crop, PanelLeftClose, PanelLeftOpen, Play, Plus, RotateCcw, X } from "lucide-react";
 import type { PDFDocumentProxy } from "pdfjs-dist";
 
@@ -110,13 +110,19 @@ export function LabEssaiScreen() {
   const apiKeyReady = state.api_key.status === "saved";
   // The models the key listed when it was saved: the lab neither opens the Keychain nor calls OpenAI before a launch.
   const apiModels = state.api_key.models;
+  const analysisDefaults = state.analysis_defaults;
 
   const defaultConfig = useCallback((descriptor: LabTaskDescriptor | null): DraftConfig => {
     const providers = descriptor?.providers ?? ["chatgpt"];
-    const provider = providers.find((entry) => entry !== "decisions" || state.decisions.available) ?? providers[0];
-    const model = state.chatgpt.model ?? models?.[0]?.id ?? "";
-    return { provider, model, reasoningEffort: provider === "chatgpt" ? state.chatgpt.reasoning_effort : null };
-  }, [models, state.chatgpt.model, state.chatgpt.reasoning_effort, state.decisions.available]);
+    const preferred = analysisDefaults ? (analysisDefaults.source === "personal_api_key" ? "api_key" : "chatgpt") : null;
+    const provider = preferred && providers.includes(preferred) ? preferred
+      : providers.find((entry) => entry !== "decisions" || state.decisions.available) ?? providers[0];
+    if (provider === "api_key") return { provider, model: analysisDefaults?.apiKey?.model ?? apiModels[0]?.id ?? "",
+      reasoningEffort: analysisDefaults?.apiKey?.reasoningEffort ?? null };
+    if (provider === "decisions") return { provider, model: state.decisions.model, reasoningEffort: null };
+    return { provider, model: analysisDefaults?.chatgpt?.model ?? state.chatgpt.model ?? models?.[0]?.id ?? "",
+      reasoningEffort: analysisDefaults?.chatgpt ? analysisDefaults.chatgpt.reasoningEffort : state.chatgpt.reasoning_effort };
+  }, [analysisDefaults, apiModels, models, state.chatgpt.model, state.chatgpt.reasoning_effort, state.decisions.available, state.decisions.model]);
 
   useEffect(() => {
     setConfigs((current) => (current.length > 0 ? current : [defaultConfig(task)]));
@@ -144,7 +150,7 @@ export function LabEssaiScreen() {
   function chooseTask(id: string) {
     const next = state.tasks.find((entry) => entry.id === id) ?? null;
     setTaskId(id);
-    // Another task starts from its own default configuration (Decisions first for a choice).
+    // Each task starts with the member’s defaults where the task supports their source.
     setConfigs([defaultConfig(next)]);
   }
 
@@ -152,9 +158,14 @@ export function LabEssaiScreen() {
     setConfigs((current) => current.map((config, position) => {
       if (position !== index) return config;
       const next = { ...config, ...patch };
-      if (patch.provider === "chatgpt" && (config.provider !== "chatgpt" || !next.model)) next.model = state.chatgpt.model ?? models?.[0]?.id ?? "";
-      // The key's own models: a subscription model is never carried over to the key, nor the reverse.
-      if (patch.provider === "api_key" && config.provider !== "api_key") next.model = apiModels[0]?.id ?? "";
+      if (patch.provider === "chatgpt" && (config.provider !== "chatgpt" || !next.model)) {
+        next.model = analysisDefaults?.chatgpt?.model ?? state.chatgpt.model ?? models?.[0]?.id ?? "";
+        if (analysisDefaults?.chatgpt) next.reasoningEffort = analysisDefaults.chatgpt.reasoningEffort;
+      }
+      if (patch.provider === "api_key" && config.provider !== "api_key") {
+        next.model = analysisDefaults?.apiKey?.model ?? apiModels[0]?.id ?? "";
+        if (analysisDefaults?.apiKey) next.reasoningEffort = analysisDefaults.apiKey.reasoningEffort;
+      }
       if (patch.model !== undefined || patch.provider !== undefined) {
         const listed = next.provider === "api_key" ? apiModels : models;
         const efforts = listed?.find((model) => model.id === next.model)?.reasoningEfforts ?? [];
@@ -165,11 +176,14 @@ export function LabEssaiScreen() {
     }));
   }
 
-  const modelOptions = useMemo(() => {
-    const listed = models ?? [];
-    const profile = state.chatgpt.model;
-    return profile && !listed.some((model) => model.id === profile) ? [...listed, { id: profile, name: profile, reasoningEfforts: [], defaultReasoningEffort: null }] : listed;
-  }, [models, state.chatgpt.model]);
+  const profile = state.chatgpt.model;
+  const modelOptions = models ?? (profile ? [{ id: profile, name: profile, reasoningEfforts: [], defaultReasoningEffort: null }] : []);
+  const unavailableModel = models !== null && configs.some((config) =>
+    config.provider === "chatgpt" && config.model && !models.some((model) => model.id === config.model));
+  const unavailableEffort = configs.some(({ provider, model, reasoningEffort }) => {
+    if (provider !== "chatgpt" || reasoningEffort === null) return false;
+    return models?.find((entry) => entry.id === model)?.reasoningEfforts.includes(reasoningEffort) === false;
+  });
 
   // Decisions reads one rendered page: on a multi-page document the essai names it for every configuration.
   const decisionsPage = configs.some((config) => config.provider === "decisions") && (document?.pages ?? 1) > 1;
@@ -185,6 +199,8 @@ export function LabEssaiScreen() {
     : prompt.length > task.promptMax ? `Le prompt dépasse ${formatInteger(task.promptMax)} caractères.`
     : configs.some((config) => config.provider === "chatgpt") && !chatgptReady ? state.chatgpt.message ?? "ChatGPT n’est pas prêt."
     : configs.some((config) => config.provider === "chatgpt" && !config.model) ? modelsError ?? "Choisissez un modèle ChatGPT."
+    : unavailableModel ? "Le modèle ChatGPT choisi est indisponible. Choisissez un autre modèle."
+    : unavailableEffort ? "L’effort choisi est indisponible. Choisissez un autre effort."
     : keyConfigured && !apiKeyReady ? state.api_key.message ?? "Ajoutez votre clé API OpenAI dans Mon profil."
     : configs.some((config) => config.provider === "api_key" && !config.model) ? "Choisissez un modèle pour la clé API."
     : configs.some((config) => config.provider === "decisions") && !state.decisions.available ? state.decisions.message
@@ -300,7 +316,10 @@ export function LabEssaiScreen() {
               {!apiKeyReady && keyConfigured ? <p className="text-xs text-warning">{state.api_key.message}</p> : null}
               {configs.map((config, index) => {
                 const options = config.provider === "api_key" ? apiModels : modelOptions;
-                const efforts = options.find((model) => model.id === config.model)?.reasoningEfforts ?? [];
+                const model = options.find((option) => option.id === config.model);
+                const efforts = model?.reasoningEfforts ?? [];
+                const missingModel = !model && config.model;
+                const missingEffort = config.reasoningEffort !== null && !efforts.includes(config.reasoningEffort) ? config.reasoningEffort : null;
                 const ready = config.provider === "api_key" ? apiKeyReady : chatgptReady;
                 const id = LAB_CONFIG_IDS[index];
                 return (
@@ -330,7 +349,10 @@ export function LabEssaiScreen() {
                         <div className="space-y-1 text-xs">
                           <label htmlFor={`${fieldId}-${id}-model`} className="block text-muted-foreground">Modèle</label>
                           <NativeSelect id={`${fieldId}-${id}-model`} size="sm" value={config.model} onChange={(event) => updateConfig(index, { model: event.target.value })} disabled={!ready}>
-                            {options.length === 0 ? <option value="">—</option> : null}
+                            {!config.model ? <option value="" disabled>Choisir un modèle</option> : null}
+                            {missingModel ? <option value={config.model} disabled>
+                              {config.model}{models !== null || config.provider === "api_key" ? " · indisponible" : ""}
+                            </option> : null}
                             {options.map((model) => <option key={model.id} value={model.id}>{model.id}</option>)}
                           </NativeSelect>
                         </div>
@@ -339,6 +361,9 @@ export function LabEssaiScreen() {
                           <NativeSelect id={`${fieldId}-${id}-effort`} size="sm" value={config.reasoningEffort ?? "auto"} disabled={!ready}
                             onChange={(event) => updateConfig(index, { reasoningEffort: event.target.value === "auto" ? null : event.target.value as ChatGptReasoningEffort })}>
                             <option value="auto">Automatique</option>
+                            {missingEffort !== null ? <option value={missingEffort} disabled>
+                              {CHATGPT_REASONING_EFFORT_LABELS[missingEffort]}{models !== null || config.provider === "api_key" ? " · indisponible" : ""}
+                            </option> : null}
                             {efforts.map((effort) => <option key={effort} value={effort}>{CHATGPT_REASONING_EFFORT_LABELS[effort]}</option>)}
                           </NativeSelect>
                         </div>

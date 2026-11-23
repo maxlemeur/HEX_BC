@@ -287,7 +287,7 @@ describe("MaterialRequestEditor", () => {
     expect(missing).toHaveAttribute("aria-invalid", "true");
     expect(missing).toHaveAccessibleDescription(expect.stringContaining("Quantité à renseigner."));
     // The tint fills the cell of the value to fix: that is the one place the sheet says it.
-    expect(missing.closest(".mr-cell")).toHaveClass("bg-warning-light");
+    expect(missing.closest('[data-line-field="quantity"]')).toHaveClass("bg-warning-light");
 
     // No banner names the line: the count beside the title leads to the first value to fix.
     expect(screen.queryByRole("region", { name: "À corriger d’abord" })).not.toBeInTheDocument();
@@ -300,7 +300,7 @@ describe("MaterialRequestEditor", () => {
     const complete = screen.getByLabelText("Quantité, ligne 1");
     expect(complete).not.toHaveAttribute("aria-invalid", "true");
     expect(complete).toHaveAccessibleDescription("");
-    expect(complete.closest(".mr-cell")).not.toHaveClass("bg-warning-light");
+    expect(complete.closest('[data-line-field="quantity"]')).not.toHaveClass("bg-warning-light");
 
     expect(within(screen.getByRole("list", { name: "Points à régler, ligne 2" })).getByText("Quantité à renseigner.")).toBeVisible();
     expect(screen.queryByRole("list", { name: "Points à régler, ligne 1" })).not.toBeInTheDocument();
@@ -326,8 +326,8 @@ describe("MaterialRequestEditor", () => {
     const material = screen.getByLabelText("Matière, ligne 1");
     expect(material).toHaveAccessibleDescription(expect.stringContaining("Diffère de la matière de la demande"));
     expect(material).not.toHaveAttribute("aria-invalid", "true");
-    expect(material.closest(".mr-cell")).toHaveClass("bg-warning-subtle");
-    expect(material.closest(".mr-cell")).not.toHaveClass("bg-warning-light");
+    expect(material.closest('[data-line-field="material"]')).toHaveClass("bg-warning-subtle");
+    expect(material.closest('[data-line-field="material"]')).not.toHaveClass("bg-warning-light");
     expect(screen.getByRole("button", { name: "Valider les lignes sans alerte (0)" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Valider la ligne 1" })).toBeEnabled();
   });

@@ -8,6 +8,7 @@ import {
   isLocalChatGptEnabled,
 } from "@/lib/ai/chatgpt-local-auth";
 import { callLocalChatGptStructured } from "@/lib/ai/chatgpt-local-inference";
+import type { ChatGptPreferences } from "@/lib/ai/chatgpt-model-preferences";
 import { readChatGptStore } from "@/lib/ai/chatgpt-local-store";
 import type { ChatGptOwner } from "@/lib/ai/chatgpt-local-store";
 import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
@@ -22,6 +23,7 @@ export type StructuredAiAvailability = { available: boolean; message: string };
 /** Read-only preflight: no inference, credential renewal or provider request. */
 export async function getStructuredAiAvailability(
   owner: ChatGptOwner,
+  { allowUnselectedModel = false }: { allowUnselectedModel?: boolean } = {},
 ): Promise<StructuredAiAvailability> {
   if (!isLocalChatGptEnabled())
     return {
@@ -46,7 +48,7 @@ export async function getStructuredAiAvailability(
         message:
           "Reconnectez votre forfait ChatGPT dans Mon profil pour autoriser l’analyse.",
       };
-    if (!profile.model)
+    if (!profile.model && !allowUnselectedModel)
       return {
         available: false,
         message:
@@ -70,6 +72,7 @@ export async function getStructuredAiAvailability(
 export async function callStructuredAi<T>(
   options: StructuredCallOptions<T>,
   workflowOwner?: ChatGptOwner | null,
+  override?: ChatGptPreferences,
 ): Promise<StructuredCallResult<T> & { provider: "chatgpt" }> {
   if (isLocalChatGptEnabled()) {
     if (workflowOwner === null)
@@ -80,7 +83,7 @@ export async function callStructuredAi<T>(
     if (workflowOwner === undefined)
       assertLocalChatGptHost((await headers()).get("host"));
     const owner = workflowOwner ?? (await getAuthenticatedContext());
-    const availability = await getStructuredAiAvailability(owner);
+    const availability = await getStructuredAiAvailability(owner, { allowUnselectedModel: override !== undefined });
     if (!availability.available)
       throw new StructuredAiError("AI_NOT_CONFIGURED", availability.message);
     const store = await readChatGptStore(owner);
@@ -95,7 +98,9 @@ export async function callStructuredAi<T>(
         );
       // Once selected, a failure never silently switches to a paid API provider.
       return {
-        ...(await callLocalChatGptStructured(owner, options)),
+        ...(override
+          ? await callLocalChatGptStructured(owner, options, undefined, override, { allowUnselectedModel: true })
+          : await callLocalChatGptStructured(owner, options)),
         provider: "chatgpt",
       };
     }

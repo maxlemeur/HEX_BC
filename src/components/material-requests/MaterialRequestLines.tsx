@@ -170,12 +170,11 @@ const ALERT_COLUMN: Record<NonNullable<MaterialRequestLineAlert["field"]>, LineC
 };
 
 /**
- * Where an alert of a draft line is settled, inside its row: the cell of the field it names, the choice of its
- * hint, or a gesture read once the line is unfolded (`unfold`). Without a place of its own (`selector` null), the
+ * Where an alert of a draft line is settled: the field it names or a control in the unfolded details (`unfold`). Without a place of its own (`selector` null), the
  * words of the alert are read under the unfolded row.
  */
 function lineAlertTarget(alert: MaterialRequestLineAlert): { selector: string | null; unfold: boolean } {
-  if (alert.code === "quantity_doubtful") return { selector: '[data-line-field="quantity"] input[type="checkbox"]', unfold: false };
+  if (alert.code === "quantity_doubtful") return { selector: '[data-line-alert="quantity_doubtful"] input[type="checkbox"]', unfold: true };
   if (alert.field) return { selector: `[data-line-field="${ALERT_COLUMN[alert.field]}"] input:not([type="checkbox"])`, unfold: false };
   return { selector: `[data-line-alert="${alert.code}"]`, unfold: true };
 }
@@ -553,6 +552,7 @@ export function MaterialRequestLines({
             busy={busy}
             materialListId={materialListId}
             unitListId={unitListId}
+            supplierOptions={data.supplierOptions}
             onApply={(patch) => guarded(() => editor.applyToLines(selectedIds, patch))}
             onValidate={() => void validate(selectedIds)}
             onClear={() => setSelection(new Set())}

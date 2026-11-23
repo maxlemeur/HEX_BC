@@ -17,6 +17,7 @@ import {
   CELL_LINE,
   CELL_PAD,
   fromRequest,
+  LINE_BAND,
   LINE_COLUMNS,
   LINE_GRID,
   supplierFromRequest,
@@ -71,10 +72,10 @@ export function MaterialRequestLineSummary(props: WorkbenchProps) {
       "relative grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1 rounded-lg border border-border px-3 py-2.5 text-sm sm:px-4",
       "sheet:items-start sheet:gap-0 sheet:rounded-none sheet:border-0 sheet:border-b sheet:p-0 sheet:last:rounded-b-lg sheet:last:border-b-0",
       LINE_GRID,
-      inspected ? SELECTED_ROW : "bg-surface sheet:hover:bg-surface-subtle/60",
+      inspected ? cn(SELECTED_ROW, "sheet:border-border-strong") : "bg-surface sheet:hover:bg-surface-subtle/60",
     )}>
       {/* Under the boxes of the lines still edited: a validated line is not selected. */}
-      <div aria-hidden="true" className={cn("hidden sheet:row-span-4 sheet:block sheet:self-stretch sheet:border-r sheet:border-border", AT.select.at)} />
+      <div aria-hidden="true" className={cn("hidden sheet:block sheet:self-stretch sheet:border-r sheet:border-border", AT.select.at)} />
       <div className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-0.5 sheet:contents">
         <button type="button" aria-label={`Afficher les détails de la ligne ${line.position}`} aria-pressed={inspected} onClick={onInspect}
           className={cn("block max-w-full break-words text-left font-semibold text-foreground hover:text-primary focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-ring sheet:font-normal", CELL, CELL_LINE, AT.type.at)}>
@@ -101,17 +102,16 @@ export function MaterialRequestLineSummary(props: WorkbenchProps) {
         </div>
       </div>
       <div className={cn("flex items-center justify-end gap-1", AT.state.at, CELL, CELL_LINE, "sheet:px-1.5")}>
-        <Badge variant={validated ? "success" : "neutral"} title={validated ? "Validée" : "Brouillon"} className={cn(validated && "xl:border-transparent xl:bg-transparent xl:px-0")}>
-          {validated ? <Check aria-hidden="true" /> : null}
-          {/* Where the row is short of room, the mark alone: the word is read by a screen reader and on hover. */}
-          <span className={cn(validated && "max-sm:sr-only sheet:max-xl:sr-only")}>{validated ? "Validée" : "Brouillon"}</span>
+        <Badge variant={validated ? "success" : "neutral"} title={validated ? "Validée" : "Brouillon"}
+          className={cn(validated && "size-7 shrink-0 justify-center rounded-control px-0")}>
+          {validated ? <Check aria-hidden="true" className="size-3.5" /> : null}
+          <span className={cn(validated && "sr-only")}>{validated ? "Validée" : "Brouillon"}</span>
         </Badge>
         {canWrite && validated && props.orderStatusKnown && !ordered ? (
           <Button
             type="button"
             variant="outline"
-            size="sm"
-            className="px-2"
+            size="icon-xs"
             aria-label={`Modifier la ligne ${line.position}`}
             title="Rouvrir en brouillon pour modifier"
             loading={busy}
@@ -161,7 +161,7 @@ export function MaterialRequestLineSummary(props: WorkbenchProps) {
       ) : null}
       {error ? <p role="alert" className={cn("col-span-full text-sm text-danger sheet:[grid-column:2/-1] sheet:row-start-3 sheet:pb-2", CELL_PAD)}>{error}</p> : null}
       {opened ? (
-        <div hidden={!inspected} className="col-span-full mt-1.5 min-w-0 border-t border-border pt-3 sheet:mt-0 sheet:[grid-column:2/-1] sheet:row-start-4 sheet:px-2.5 sheet:pb-4">
+        <div hidden={!inspected} className={cn("col-span-full mt-1.5 min-w-0 border-t border-border pt-3 sheet:mt-0 sheet:row-start-4", LINE_BAND)}>
           <MaterialRequestLineInspector {...props} />
         </div>
       ) : null}
@@ -187,13 +187,13 @@ function MaterialRequestLineInspector(props: WorkbenchProps) {
   ];
   return (
     // Under its row: what the line is on the left, what can still be done to it on the right.
-    <aside aria-label={`Détails de la ligne ${line.position}`} className="min-w-0 max-w-5xl md:grid md:grid-cols-2 md:items-start md:gap-x-10">
+    <aside aria-label={`Détails de la ligne ${line.position}`} className="min-w-0 max-w-5xl md:grid md:grid-cols-2 md:items-start md:gap-x-6">
       {/* The row above already names the line. */}
       <h3 className="sr-only">{line.product_type || article?.designation || "À préciser"}</h3>
-      <dl className="space-y-3 text-sm">
+      <dl className="space-y-2 text-sm">
         {values.map(([name, value]) => <div key={name} className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)] gap-4"><dt className="text-muted-foreground">{name}</dt><dd className="min-w-0 break-words font-medium text-foreground">{value}</dd></div>)}
       </dl>
-      <AlertSummary position={line.position} alerts={props.alerts} className="mt-5 space-y-2 text-sm md:col-start-1" />
+      <AlertSummary position={line.position} alerts={props.alerts} className="mt-3 space-y-1.5 text-sm md:col-start-1" />
       <div className="mt-3 space-y-4 md:col-start-2 md:row-span-2 md:row-start-1 md:mt-0">
         <MaterialRequestSupplierCell layout="inspector" line={line} editable={canWrite} supplierOptions={props.supplierOptions} ownSupplier={ownSupplier}
           requestSupplierLabel={inheritedSupplier ? fromRequest(inheritedSupplier) : null} proposal={props.supplierProposal} reference={props.supplierReference}

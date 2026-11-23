@@ -38,9 +38,11 @@ import {
 } from "@/lib/material-requests/contracts";
 import {
   MATERIAL_REQUEST_PHOTO_ANALYSIS_MAX_BYTES,
+  materialRequestPhotoAnalysisInputSchema,
   type MaterialRequestPhotoAnalysis,
   type MaterialRequestPhotoAnalysisAvailability,
 } from "@/lib/material-requests/photo-analysis";
+import { materialRequestQuoteComparisonSchema, quoteComparisonSettingsSchema } from "@/lib/material-requests/quote-comparison";
 import {
   LINE_SUPPLIER_REASONS,
   productPreferredSupplierSchema,
@@ -496,14 +498,16 @@ export const materialRequestOperations: OpenApiOperationDefinition[] = [
   },
   {
     tags, method: "post", path: `${one}/files/{fileId}/analysis`, summary: "Lire un original avec l'IA",
-    description: `Fait lire une photo de la demande par un modèle de vision, sur le forfait ChatGPT de l'appelant, et répond des lignes en brouillon dans l'ordre de lecture : les mots du technicien (original_text) à côté de ce qui a été lu (quantité, unité, dimension, type, matière, précision, référence, zone). Rien n'est écrit : l'écran ajoute ces lignes par POST lines ou lines/replace, et le bureau relit chaque ligne face à la photo. Un champ qui n'est pas écrit sur la photo reste absent ; une quantité raturée ou arrondie est marquée quantity_doubtful. Une photo par appel, de ${MATERIAL_REQUEST_PHOTO_ANALYSIS_MAX_BYTES / (1024 * 1024)} Mo au plus ; la rotation d'affichage de la photo est indiquée au modèle, ses octets partent tels quels. Seuls les originaux de la demande se lisent : le fichier d'un devis, une photo dont le dépôt n'a pas abouti ou en cours de suppression répondent 404. Une photo sans article répond lines vide.`,
+    description: `Fait lire une photo de la demande par un modèle de vision, avec le forfait ChatGPT ou la clé API OpenAI personnelle choisie dans le profil de l'appelant, et répond des lignes en brouillon dans l'ordre de lecture : les mots du technicien (original_text) à côté de ce qui a été lu (quantité, unité, dimension, type, matière, précision, référence, zone). Rien n'est écrit : l'écran ajoute ces lignes par POST lines ou lines/replace, et le bureau relit chaque ligne face à la photo. Un champ qui n'est pas écrit sur la photo reste absent ; une quantité raturée ou arrondie est marquée quantity_doubtful. Une photo par appel, de ${MATERIAL_REQUEST_PHOTO_ANALYSIS_MAX_BYTES / (1024 * 1024)} Mo au plus ; la rotation d'affichage de la photo est indiquée au modèle, ses octets partent tels quels. Seuls les originaux de la demande se lisent : le fichier d'un devis, une photo dont le dépôt n'a pas abouti ou en cours de suppression répondent 404. Une photo sans article répond lines vide.`,
     parameters: [project, requestId, fileId],
+    requestBody: jsonBody({ name: "MaterialRequestPhotoAnalysisInput", schema: materialRequestPhotoAnalysisInputSchema, required: false,
+      description: "Source, modèle et effort pour une lecture. Avec la clé API, envoyer son identifiant de connexion et les préférences de lecture. Un effort null utilise celui du modèle. Une requête sans source utilise le forfait ChatGPT." }),
     responses: {
       "200": success("ApiMaterialRequestPhotoAnalysis", "Lignes lues, non enregistrées.", photoAnalysis),
       ...writeRefusals,
-      "409": refusal("MATERIAL_REQUEST_PHOTO_ANALYSIS_UNAVAILABLE : aucune lecture ne peut être lancée pour l'appelant ici (instance sans IA, forfait ChatGPT à connecter ou à reconnecter) ; le message dit quoi faire. details.status : disabled ou unavailable."),
+      "409": refusal("MATERIAL_REQUEST_PHOTO_ANALYSIS_UNAVAILABLE : aucune lecture ne peut être lancée pour l'appelant ici (instance sans IA, forfait ou clé API à configurer) ; le message dit quoi faire. details.status : disabled ou unavailable. MATERIAL_REQUEST_PHOTO_SETTINGS_UNAVAILABLE : la source, la clé ou les modèles disponibles ont changé."),
       "413": refusal("MATERIAL_REQUEST_PHOTO_TOO_LARGE : la photo est trop lourde pour être envoyée au modèle."),
-      "503": refusal("MATERIAL_REQUEST_PHOTO_ANALYSIS_FAILED : la lecture n'a pas donné de lignes. details.reason : AI_QUOTA, AI_RATE_LIMIT, AI_REQUEST_REJECTED, TIMEOUT, INVALID_ANSWER ou PROVIDER_ERROR. Rien n'est réessayé automatiquement."),
+      "503": refusal("MATERIAL_REQUEST_PHOTO_ANALYSIS_FAILED : la lecture n'a pas donné de lignes. details.reason : AI_QUOTA, AI_RATE_LIMIT, AI_REQUEST_REJECTED, TIMEOUT, INVALID_ANSWER, PROVIDER_ERROR ou un code AI_KEY_* pour la clé API. Rien n'est réessayé automatiquement."),
     },
   },
   {
@@ -558,6 +562,22 @@ export const materialRequestOperations: OpenApiOperationDefinition[] = [
       "404": refusal("NOT_FOUND : affaire ou demande d'ailleurs, ligne d'une autre demande, fournisseur d'un autre tenant."),
       "409": refusal(`MATERIAL_REQUEST_QUOTE_SUPPLIER_OPEN : ce fournisseur a déjà un devis demandé ou reçu pour cette demande ; rien n'est écrit. ${quoteBusy}`),
       "422": refusal("MATERIAL_REQUEST_QUOTE_LINES_ALREADY_RETAINED : une ligne a déjà un devis retenu (details : positions, line_ids) ; rien n'est écrit."),
+    },
+  },
+  {
+    tags, method: "post", path: `${one}/quotes/{quoteId}/files/{fileId}/comparison`,
+    summary: "Comparer une pièce du devis avec le message envoyé",
+    description: "Compare un PDF ou une image jointe au devis avec le message enregistré pour ce fournisseur. Retourne les quantités comparables, les écarts techniques et leurs citations. Une pièce par appel, sans modification du devis ni de la demande.",
+    parameters: [project, requestId, quoteId, fileId],
+    requestBody: jsonBody({ name: "QuoteComparisonSettings", schema: quoteComparisonSettingsSchema,
+      description: "Source, modèle et effort pour l’analyse. Avec une clé API personnelle, renseigner la connexion et ses préférences." }),
+    responses: {
+      "200": success("ApiMaterialRequestQuoteComparison", "Comparaison à vérifier, non enregistrée.", materialRequestQuoteComparisonSchema),
+      ...writeRefusals,
+      "400": refusal("BAD_REQUEST : pièce illisible ou de type incompatible."),
+      "409": refusal("La source IA est indisponible ou ses réglages ont changé."),
+      "413": refusal("La pièce dépasse la taille acceptée pour la comparaison."),
+      "503": refusal("MATERIAL_REQUEST_QUOTE_COMPARISON_FAILED : la lecture ou la comparaison a échoué."),
     },
   },
   {

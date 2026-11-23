@@ -4,10 +4,16 @@ import { useEffect, useId, useRef, useState } from "react";
 import Link from "next/link";
 import { ChevronLeft, ChevronRight, ImagePlus, Maximize2, RotateCcw, RotateCw, Scissors, Sparkles, Trash2 } from "lucide-react";
 
+import { loadPhotoAnalysisModelOptions } from "@/app/dashboard/_actions/chatgpt";
+import { ReasoningEffortSelect } from "@/components/ai/ReasoningEffortSelect";
+import { formatUsdCeiling } from "@/lib/ai/access/openai-pricing";
+import type { ChatGptPreferences } from "@/lib/ai/chatgpt-model-preferences";
 import { useToast } from "@/components/feedback/toast-provider";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { FieldLabel } from "@/components/ui/field";
+import { NativeSelect } from "@/components/ui/native-select";
 import { Textarea } from "@/components/ui/textarea";
 import {
   analyzeMaterialRequestPhoto,
@@ -24,6 +30,7 @@ import {
   type MaterialRequestFileRotation,
   type MaterialRequestLineInput,
 } from "@/lib/material-requests/contracts";
+import { MATERIAL_REQUEST_PHOTO_API_CEILING_NANO_USD } from "@/lib/material-requests/photo-analysis";
 import { splitSourceText } from "@/lib/material-requests/source-text";
 
 import { ConfirmButton } from "./cells";
@@ -197,7 +204,7 @@ function Photos({ editor }: Readonly<{ editor: MaterialRequestEditorApi }>) {
           <p role="status" className="text-sm text-muted-foreground">
             {progress ? photoUploadStepLabel(progress) : null}
           </p>
-          <PhotoAnalysis editor={editor} />
+          <PhotoAnalysis key={editor.requestId} editor={editor} />
         </>
       ) : null}
       {error ? (
@@ -215,14 +222,13 @@ const PROFILE_HREF = "/dashboard/profile";
 const READ_KEPT = "Les photos déjà lues ne seront pas relues.";
 
 /**
- * The AI reading of the photos: each original is read in turn, on the ChatGPT plan of the member who asks, and what
- * was read becomes draft lines, as the splitting of the pasted message does. It decides nothing: the office reads
+ * Each original is read in turn with the member’s chosen AI source. The reading becomes draft lines,
+ * as the splitting of the pasted message does. It decides nothing: the office reads
  * every line against the photo. Nothing is created unless every photo was read; a photo already read is not read
  * again when the reading is taken up after a failure or a stop. Lines that are all drafts no quote holds may be
  * replaced instead of added to, on the office's choice, and only if they are still the ones it saw when it chose.
  */
 function PhotoAnalysis({ editor }: Readonly<{ editor: MaterialRequestEditorApi }>) {
-  const toast = useToast();
   const hintId = useId();
   const { data, projectId, requestId } = editor;
   const availability = data.photoAnalysis ?? null;
@@ -232,7 +238,22 @@ function PhotoAnalysis({ editor }: Readonly<{ editor: MaterialRequestEditorApi }
   const [choosing, setChoosing] = useState(false);
   const [error, setError] = useState<{ message: string; profile: boolean } | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  /** What each photo gave, by photo and angle, until lines are created from it. */
+  const [settings, setSettings] = useState<Awaited<ReturnType<typeof loadPhotoAnalysisModelOptions>> | null>(null);
+  const [settingsError, setSettingsError] = useState(false);
+  const [settingsAttempt, setSettingsAttempt] = useState(0);
+  const ready = availability?.status === "available";
+  const canConfigure = ready && files.length > 0;
+  useEffect(() => {
+    if (!canConfigure) return;
+    let active = true;
+    void loadPhotoAnalysisModelOptions().then((result) => {
+      if (active) setSettings(result);
+    }).catch(() => {
+      if (active) setSettingsError(true);
+    });
+    return () => { active = false; };
+  }, [canConfigure, settingsAttempt]);
+  /** What each photo gave at its angle and reading settings, until lines are created from it. */
   const read = useRef(new Map<string, MaterialRequestLineInput[]>());
   const reading = useRef<AbortController | null>(null);
   /** How many lines the screen shows now, for the room left under the cap: a reading takes minutes. */
@@ -256,12 +277,25 @@ function PhotoAnalysis({ editor }: Readonly<{ editor: MaterialRequestEditorApi }
   const kept = lines.filter((line) => line.status !== "draft" || line.price_quote_id !== null).length;
   const replaceable = lines.length > 0 && kept === 0;
   const several = files.length > 1;
+  const preferences = settings?.preferences ?? null;
+  const selectedModel = settings?.models.find((model) => model.id === preferences?.model);
+
+  const changePreferences = (next: ChatGptPreferences) => {
+    if (!settings || run || choosing) return;
+    const reread = read.current.size > 0;
+    read.current.clear();
+    setSettings({ ...settings, preferences: next });
+    setError(null);
+    setNotice(reread ? "Les photos seront relues avec les nouveaux réglages." : null);
+  };
 
   const start = async (mode: "add" | "replace") => {
-    if (run) return;
+    if (!ready || !settings || !preferences || run) return;
     // What the office saw when it chose: the drafts, and everything typed on them.
     const expected = lines.map((line) => line.id);
     const seen = JSON.stringify(lines);
+    const analysisSettings = { preferences, billingSource: settings.billingSource, connectionId: settings.connectionId ?? undefined };
+    const settingsKey = JSON.stringify(analysisSettings);
     const controller = new AbortController();
     reading.current = controller;
     setChoosing(false);
@@ -273,11 +307,11 @@ function PhotoAnalysis({ editor }: Readonly<{ editor: MaterialRequestEditorApi }
     try {
       for (const file of files) {
         position += 1;
-        const key = `${file.id}:${file.rotation}`;
+        const key = `${settingsKey}:${file.id}:${file.rotation}`;
         let found = read.current.get(key);
         if (!found) {
           setRun({ step: "reading", position, total: files.length });
-          found = (await analyzeMaterialRequestPhoto(projectId, requestId, file.id, controller.signal)).lines;
+          found = (await analyzeMaterialRequestPhoto(projectId, requestId, file.id, controller.signal, analysisSettings)).lines;
           read.current.set(key, found);
         }
         if (found.length === 0) empty.push(position);
@@ -325,27 +359,67 @@ function PhotoAnalysis({ editor }: Readonly<{ editor: MaterialRequestEditorApi }
     }
     read.current.clear();
     const doubtful = created.filter((line) => line.quantity_doubtful).length;
-    toast.success({
-      title: mode === "replace"
-        ? `${plural(created.length, "ligne", "lignes")} en brouillon, à la place ${expected.length > 1 ? `des ${expected.length} précédentes` : "de la précédente"}`
-        : `${plural(created.length, "ligne créée", "lignes créées")} en brouillon`,
-      description: doubtful > 0
-        ? `Lues par l’IA : relisez chaque ligne face à la photo avant de valider. ${plural(doubtful, "quantité est", "quantités sont")} à vérifier sur l’original.`
-        : "Lues par l’IA : relisez chaque ligne face à la photo avant de valider.",
-    });
-    const remarks: string[] = [];
+    const summary = mode === "replace"
+      ? `${plural(created.length, "ligne", "lignes")} en brouillon, à la place ${expected.length > 1 ? `des ${expected.length} précédentes` : "de la précédente"}.`
+      : `${plural(created.length, "ligne créée", "lignes créées")} en brouillon.`;
+    const remarks = [summary, "Relisez chaque ligne face à la photo avant de valider."];
+    if (doubtful > 0) {
+      remarks.push(`${plural(doubtful, "quantité est", "quantités sont")} à vérifier sur l’original.`);
+    }
     if (drafts.length > created.length) {
       remarks.push(`${drafts.length} lignes lues sur les photos, ${created.length} créées : une demande en compte ${MATERIAL_REQUEST_MAX_LINES} au plus. Les suivantes sont à reprendre à la main.`);
     }
     if (empty.length > 0) {
       remarks.push(empty.length > 1 ? `Aucun article lu sur les photos ${empty.join(", ")}.` : `Aucun article lu sur la photo ${empty[0]}.`);
     }
-    setNotice(remarks.length > 0 ? remarks.join(" ") : null);
+    setNotice(remarks.join(" "));
   };
 
-  const ready = availability.status === "available";
   return (
     <div className="space-y-2 border-t border-border pt-3">
+      {ready ? (
+        settingsError ? (
+          <div className="flex flex-wrap items-center gap-2">
+            <p role="status" className="text-sm text-muted-foreground">Impossible de charger les modèles disponibles.</p>
+            <Button type="button" size="sm" variant="outline" onClick={() => {
+              setSettingsError(false);
+              setSettingsAttempt((attempt) => attempt + 1);
+            }}>Réessayer</Button>
+          </div>
+        ) : !settings ? (
+          <p role="status" className="text-sm text-muted-foreground">Chargement des modèles…</p>
+        ) : preferences ? (
+          <>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="min-w-0 space-y-1.5">
+                <FieldLabel htmlFor={`${hintId}-model`}>Modèle d’analyse</FieldLabel>
+                <NativeSelect id={`${hintId}-model`} value={preferences.model} disabled={run !== null || choosing}
+                  onChange={(event) => {
+                    const next = settings.models.find((model) => model.id === event.target.value);
+                    if (!next) return;
+                    const effort = preferences.reasoningEffort;
+                    changePreferences({
+                      model: next.id,
+                      reasoningEffort: effort !== null && next.reasoningEfforts.includes(effort) ? effort : null,
+                    });
+                  }}>
+                  {settings.models.map((model) => <option key={model.id} value={model.id}>{model.name}</option>)}
+                </NativeSelect>
+              </div>
+              <ReasoningEffortSelect id={`${hintId}-effort`} efforts={selectedModel?.reasoningEfforts ?? []}
+                value={preferences.reasoningEffort} disabled={run !== null || choosing}
+                onChange={(reasoningEffort) => changePreferences({ ...preferences, reasoningEffort })} />
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {settings.billingSource === "personal_api_key"
+                ? `Clé API OpenAI · jusqu’à ${formatUsdCeiling(MATERIAL_REQUEST_PHOTO_API_CEILING_NANO_USD * files.length)} pour cette lecture (${formatUsdCeiling(MATERIAL_REQUEST_PHOTO_API_CEILING_NANO_USD)} par photo).`
+                : "Abonnement ChatGPT"}
+            </p>
+          </>
+        ) : (
+          <p role="status" className="text-sm text-muted-foreground">Aucun modèle disponible pour cette source.</p>
+        )
+      ) : null}
       {!choosing ? (
         // Kept while the photos are read, so that the focus has somewhere to stay.
         <Button
@@ -354,7 +428,7 @@ function PhotoAnalysis({ editor }: Readonly<{ editor: MaterialRequestEditorApi }
           variant="outline"
           size="sm"
           loading={run !== null}
-          disabled={!ready}
+          disabled={!ready || !preferences}
           aria-describedby={run === null ? hintId : undefined}
           onClick={() => {
             // Adding is never a loss; replacing drafts is the office's choice.
@@ -385,7 +459,7 @@ function PhotoAnalysis({ editor }: Readonly<{ editor: MaterialRequestEditorApi }
       {run === null && !choosing ? (
         <p id={hintId} className="text-xs text-muted-foreground">
           {ready ? (
-            `L’IA lit ${several ? "chaque photo" : "la photo"} avec votre forfait ChatGPT et propose des lignes en brouillon${lines.length > 0 && !replaceable ? ", ajoutées à la suite des lignes existantes" : ""}. Elle ne valide rien : chaque ligne se relit face à l’original.`
+            `L’IA lit ${several ? "chaque photo" : "la photo"} et propose des lignes en brouillon${lines.length > 0 && !replaceable ? ", ajoutées à la suite des lignes existantes" : ""}. Elle ne valide rien : chaque ligne se relit face à l’original.`
           ) : (
             <>
               {availability.message}{" "}

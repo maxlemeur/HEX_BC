@@ -11,6 +11,7 @@ import { readChatGptStore, saveChatGptStore } from "@/lib/ai/chatgpt-local-store
 const owner = { userId: "user-a", tenantId: "tenant-a" };
 const terra = { slug: "gpt-6.1-terra", display_name: "GPT-6.1 Terra", visibility: "list" };
 const sol = { slug: "gpt-6.1-sol", display_name: "GPT-6.1 Sol", visibility: "list" };
+const sol62 = { slug: "gpt-6.2-sol", display_name: "GPT-6.2 Sol", visibility: "list" };
 let directory: string;
 let fetchMock: ReturnType<typeof vi.fn>;
 
@@ -28,7 +29,7 @@ beforeEach(async () => {
     return profile ? { accessToken: profile.accessToken!, model: profile.model, reasoningEffort: profile.reasoningEffort, profileId: profile.id,
       authorizationId: profile.authorizationId ?? null } : null;
   });
-  fetchMock = vi.fn().mockImplementation(async () => Response.json({ models: [terra, sol] }));
+  fetchMock = vi.fn().mockImplementation(async () => Response.json({ models: [terra, sol, sol62] }));
   vi.stubGlobal("fetch", fetchMock);
 });
 
@@ -39,11 +40,12 @@ afterEach(async () => {
 });
 
 describe("persisted ChatGPT model and reasoning preferences", () => {
-  it("selects accessible Terra for an unset profile, with automatic effort and unchanged credentials", async () => {
+  it.each([sol62, terra])("selects $slug at high effort for an unset profile, keeping credentials", async (model) => {
+    fetchMock.mockResolvedValueOnce(Response.json({ models: model === terra ? [terra, sol] : [terra, sol, sol62] }));
     const models = await listLocalChatGptModels(owner);
     expect(models.find((model) => model.id === terra.slug)?.reasoningEfforts).toEqual(["none", "low", "medium", "high", "xhigh", "max"]);
     expect((await readChatGptStore(owner)).profiles[0]).toMatchObject({
-      model: terra.slug, reasoningEffort: null, accessToken: "fixture-only-access", refreshToken: "fixture-only-refresh",
+      model: model.slug, reasoningEffort: "high", accessToken: "fixture-only-access", refreshToken: "fixture-only-refresh",
     });
     expect(JSON.stringify(models)).not.toContain("fixture-only");
   });
@@ -71,7 +73,7 @@ describe("persisted ChatGPT model and reasoning preferences", () => {
     expect((await readChatGptStore(owner)).profiles[0].model).toBe(sol.slug);
   });
 
-  it("does not invent another default when Terra is unavailable to this account", async () => {
+  it("leaves the selection empty when neither Sol 6.2 nor Terra is available", async () => {
     fetchMock.mockResolvedValueOnce(Response.json({ models: [sol] }));
     await listLocalChatGptModels(owner);
     expect((await readChatGptStore(owner)).profiles[0].model).toBeNull();

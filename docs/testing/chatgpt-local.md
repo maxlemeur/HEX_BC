@@ -45,19 +45,26 @@ reprise Gemini ; ne l’appliquer à une base partagée qu’après autorisation
    `npm run dev -- --port 3015` et ouvrir cette même adresse avec le port 3015.
    Conserver la même adresse pendant le parcours OAuth.
 3. Dans **Accès IA › Abonnement ChatGPT**, choisir **Continue with ChatGPT** et consentir
-   à l’utilisation du forfait avec un compte éligible. **GPT-6.1 Terra** est
-   sélectionné par défaut si le compte le propose et qu’aucun modèle n’est encore
-   choisi. Un choix déjà enregistré est conservé. Le modèle reste modifiable
-   parmi ceux réellement disponibles pour ce compte.
+   à l’utilisation du forfait avec un compte éligible. MergeOne sélectionne
+   **GPT-6.2 Sol** avec un effort **Élevé** (`high`) pour un compte sans préférence
+   si le catalogue le permet. Sinon, MergeOne propose **GPT-6.1 Terra** comme
+   modèle de repli s’il est disponible. Dans **Réglages IA par défaut**, le menu
+   **Modèle ChatGPT** permet de choisir un modèle proposé pour le compte, par
+   exemple GPT-6.2 Astra. Ce choix préremplit **Modèle d’analyse** et **Effort de
+   raisonnement** dans **Voir l’original**, où le bureau peut régler la lecture
+   des photos sans modifier ses préférences de profil.
 4. Choisir l’**Effort de raisonnement** : Automatique conserve le réglage du
    modèle. Les niveaux supportés par Terra sont Sans raisonnement, Faible,
    Moyen, Élevé, Très élevé et Maximum (`none`, `low`, `medium`, `high`,
    `xhigh`, `max`). Le sélecteur conserve ceux annoncés pour votre compte.
    [La documentation de Terra](https://developers.openai.com/api/docs/models/gpt-6.1-terra)
-   indique `medium` par défaut. Les choix proposés dépendent du modèle.
+   indique `medium` par défaut. Astra et Sol 6.2 proposent des efforts de
+   Faible à Maximum selon le compte. [Catalogue OpenAI](https://developers.openai.com/api/docs/models)
    Un effort incompatible revient sur Automatique lors d’un changement de modèle,
    avec un message explicite. Les préférences sont enregistrées par connexion,
    conservées après recharge et transmises aux prochaines demandes ChatGPT.
+   **Rétablir les réglages par défaut** applique le modèle et l’effort proposés
+   par MergeOne pour ce compte.
 5. **Tester la connexion** envoie une courte demande réelle, qui utilise le
    forfait. **Gérer ma consommation** ouvre les limites dans ChatGPT.
 
@@ -178,11 +185,18 @@ aussi ce forfait. Il s'active à part avec `MERGEONE_ASSISTANT=1` : voir
 ## Clé API OpenAI
 
 « Mon profil › Accès IA » montre deux entrées : **Abonnement ChatGPT** (la source
-par défaut, avec toutes ses commandes) et **Clé API**. Dans cette version, la clé
-sert **uniquement au labo métré** ([guide du labo](takeoff-lab.md#clé-api-openai)) :
-les autres traitements restent sur le forfait, et aucun ne passe de l’un à
-l’autre. Un forfait expiré ou absent ne déclenche jamais d’appel sur la clé ; une
-clé refusée ne bascule jamais sur le forfait.
+proposé initialement) et **Clé API** pour connecter ses accès. Dans **Réglages
+IA par défaut**, le membre choisit la source, le modèle et le niveau de
+raisonnement. Dans **Par usage**, il peut choisir un couple modèle-effort pour
+les photos et le labo métré. L’option **Hériter des réglages par défaut** reprend
+le couple du réglage général pour la source choisie.
+
+La fenêtre **Voir l’original** affiche la source avant la lecture et permet
+d’ajuster le modèle et l’effort de l’analyse en cours. Avec la clé, les appels
+sont facturés au compte API OpenAI du membre, avec un plafond de 1,00 $ US par
+photo. Le [labo métré](takeoff-lab.md#clé-api-openai) préremplit la configuration
+lorsque la tâche permet la source choisie. Le métré de production utilise son
+mandat ChatGPT et son budget de lancement.
 
 - **Ajouter** : coller la clé dans le champ masqué, puis **Vérifier et
   enregistrer**. Le champ n’existe que sur l’adresse de boucle locale
@@ -204,9 +218,11 @@ clé refusée ne bascule jamais sur le forfait.
   modèle ; la clé n’est enregistrée que si ce test réussit. Un refus définitif
   (`invalid_api_key`, `ip_not_authorized`, lus dans `error.code` comme dans
   `error.type`) reste « OpenAI a refusé cette clé ».
-- **Tester le modèle** : un petit appel facturable, annoncé avec son plafond (au
-  plus 0,10 $ US), sans document client. « Modèle testé le … » signifie seulement
-  que cet appel a abouti.
+- **Actualiser les modèles** récupère le catalogue OpenAI avec la clé déjà enregistrée, sans appel de génération. Les modèles disponibles apparaissent ensuite dans le menu.
+- **Tester le modèle** envoie un petit appel facturable, sans document client.
+  MergeOne utilise l’effort minimal accepté par le modèle choisi. Le plafond
+  affiché inclut les jetons de raisonnement et reste au plus de 0,10 $ US.
+  « Modèle testé le … » signifie que cet appel a abouti.
 - **Remplacer** vérifie la nouvelle clé, l’écrit dans **son propre élément** du
   Trousseau et la relit ; seulement alors le descriptif local bascule sur elle,
   par un renommage atomique, puis l’ancien élément est supprimé. Une
@@ -223,10 +239,10 @@ clé refusée ne bascule jamais sur le forfait.
   OpenAI : l’état et les modèles viennent du descriptif local.
 - Modèles proposés : l’intersection du catalogue de la clé et des modèles
   qualifiés et tarifés dans `src/lib/ai/access/openai-pricing.ts`. Barème
-  Standard relevé le 18 novembre 2026 (recherches sur developers.openai.com :
-  pages des modèles, tarifs, référence Responses, guide du cache de prompt) :
-  GPT-6.1 Terra 1 / 0,05 / 5 $ US et GPT-6.1 Sol 2 / 0,10 / 10 $ US par million
-  de jetons d’entrée, d’entrée en cache et de sortie ; une écriture en cache
+  Standard relevé le 22 novembre 2026. Prix par million de jetons d’entrée,
+  d’entrée en cache et de sortie en $ US : GPT-6.1 Terra 1 / 0,05 / 5,
+  GPT-6.1 Sol et GPT-6.2 Sol 2 / 0,10 / 10, GPT-6.2 Astra 8 / 0,40 / 40.
+  Une écriture en cache
   coûte 1,25 × l’entrée (30 min) ou 2,5 × (12 h) ; au-delà de 272 000 jetons
   d’entrée, toute la requête est facturée 2 × en entrée et 1,5 × en sortie. Un
   modèle sans tarif connu n’est ni proposé ni appelé.
@@ -367,7 +383,7 @@ Le parcours `ChatGPT local: PDF plan` utilise aussi le plan fictif
 12,5 m de tuyauterie (segments de 5 m et 7,5 m) et quatre vannes. Il choisit
 explicitement ChatGPT, vérifie les quantités, les unités, la page source,
 la persistance et l’absence de transport Gemini. La qualification live du modèle
-par défaut utilise `gpt-6.1-terra` et `reasoningEffort: "medium"`, sélectionné
+de cette recette utilise `gpt-6.1-terra` et `reasoningEffort: "medium"`, sélectionné
 depuis le profil puis vérifié après recharge et dans la requête Responses.
 Le mode live décrit ci-dessus
 fait réellement passer ce PDF au modèle du forfait ; le mode CI conserve une
