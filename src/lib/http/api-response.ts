@@ -97,6 +97,10 @@ export function mapSupabaseError(
     return forbidden("Accès refusé.", publicDetails, "FORBIDDEN");
   }
 
+  if (error.code === "M0A01") {
+    return badRequest("Cette version du devis ne détient pas cette analyse.", undefined, "ESTIMATE_ANALYSIS_OUT_OF_SCOPE");
+  }
+
   if (isCalculationContextConflict(error)) {
     return conflict(
       "Un calcul de devis est en cours dans l'entreprise. Réessayez dans un instant.",

@@ -225,16 +225,11 @@ export async function prepareEstimateBatch(input: {
       let promise = checkedReferences.get(cacheKey);
       if (!promise) {
         promise = (async () => {
-          const { data: job, error } = await supabase.from("takeoff_jobs").select("id, estimate_version_id")
-            .eq("tenant_id", tenantId).eq("id", jobId).maybeSingle();
+          const { data: held, error } = await supabase.rpc("estimate_version_holds_analysis", {
+            p_tenant: tenantId, p_version: versionId, p_job: jobId,
+          });
           if (error) throw unavailable();
-          if (!job?.estimate_version_id) throw badRequest("source_job_id invalide.");
-          if (job.estimate_version_id === versionId) return;
-          const { data: link, error: linkError } = await supabase.from("takeoff_version_links").select("id")
-            .eq("tenant_id", tenantId).eq("takeoff_job_id", jobId)
-            .eq("source_version_id", job.estimate_version_id).eq("target_version_id", versionId).maybeSingle();
-          if (linkError) throw unavailable();
-          if (!link) throw badRequest("Le métré source n’est pas lié à cette version.");
+          if (!held) throw badRequest("Cette version du devis ne détient pas cette analyse.", undefined, "ESTIMATE_ANALYSIS_OUT_OF_SCOPE");
         })();
         checkedReferences.set(cacheKey, promise);
       }

@@ -382,6 +382,7 @@
     "20261122194343_affaire_site_contacts.sql": "fa1330fd7cb18f87081280c95e6c687e57220f70a85ec2b3410def91ff172adc",
     "20261122205109_takeoff_item_send_writer.sql": "9e35184f0473ed440245d8a4b78628e1b8065e905179a105d522ee5c6bfe15df",
     "20261122220405_takeoff_item_remeasure_admission.sql": "dd1e9c6cd19d0bbb4f23d1827b12cf49a68d7b18cfc5f04b9fbe97f3a4dcd1d3",
-    "20261123000925_takeoff_item_send_copy.sql": "88485bfc1595b9611b29c2d78afb66499d02c3c22fcaa41c6a6798187415ef34"
+    "20261123000925_takeoff_item_send_copy.sql": "88485bfc1595b9611b29c2d78afb66499d02c3c22fcaa41c6a6798187415ef34",
+    "20261123010932_estimate_line_analysis_scope.sql": "28a867db93073e38d1f41c64e267794effab7e33f7544dd6e67e22bd8a4821cf"
   }
 }
