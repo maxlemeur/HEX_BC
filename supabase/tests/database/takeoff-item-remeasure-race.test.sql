@@ -210,7 +210,7 @@ select is((select x.claimed from extensions.dblink('race_setup', pg_temp.claim_s
 -- A second real connection checks the authority held by the freshly claimed attempt, independently of the dispatcher.
 select is((select x.live from extensions.dblink('race_b',format(
   'select private.takeoff_count_mark_lease_live(j,%L) from public.takeoff_jobs j where id=%L',
-  pg_temp.f(902),pg_temp.job(2))) as x(live boolean)),true,'the current lease and its live host slot agree');
+  pg_temp.f(901),pg_temp.job(1))) as x(live boolean)),true,'the current lease and its live host slot agree');
 select is((select split_part(x.answer, ':', 2) from extensions.dblink('race_setup', pg_temp.publish_sql(1, 901, array[300], array[301]))
   as x(answer text)), 'false', 'and publishes its answers');
 
@@ -248,11 +248,19 @@ $$;
 
 -- 1. Two confirmations at once: the first tab's is admitted, not yet committed; the second tab's waits, then answers that
 --    an analysis of the affaire runs; the first one's answer lost and sent again is replayed.
+select is(extensions.dblink_exec('race_setup',format($rows$insert into public.takeoff_count_pages(
+  tenant_id,project_id,plan_logical_id,plan_file_id,plan_content_sha256,page,geometry_version,view_box,rotation,user_unit,width,height)
+  select %1$L,%2$L,%3$L,%3$L,%4$L,p,1,array[0,0,w,500],0,1,w,500 from (values (2,700),(7,720)) s(p,w)$rows$,
+  pg_temp.tenant(),pg_temp.f(20),pg_temp.f(100),pg_temp.digest(pg_temp.f(100)))),'INSERT 0 2','both original page widths are known');
+select is(extensions.dblink_exec('race_setup',format($rows$insert into public.feature_flags(tenant_id,flag_key,enabled,value)
+  values (%1$L,'TAKEOFF_C_CHUNK_THRESHOLD_PAGES',true,'1'),(%1$L,'TAKEOFF_C_CHUNK_SIZE_PAGES',true,'1')
+  on conflict (tenant_id,flag_key) do update set enabled=true,value=excluded.value$rows$,pg_temp.tenant())),'INSERT 0 2',
+  'the admitted unit reads two one-page fragments');
 create function pg_temp.tile_confirmation() returns jsonb language sql immutable as $$
   select jsonb_build_object('preview_digest',repeat('c',64),'shown_sha256',repeat('b',64),'page',null,
     'setting','{"model":"modele-fictif","reasoning_effort":null}'::jsonb,
     'count_marks','{"pages":[{"page":2,"width_points":700},{"page":7,"width_points":720}],
-    "tile_calls":10,"other_calls":1,"total_calls":11}'::jsonb)
+    "tile_calls":10,"other_calls":2.0,"total_calls":12}'::jsonb)
 $$;
 create temp table first_targets as select pg_temp.targets(array[300]) as targets;
 select is(extensions.dblink_exec('race_a', 'begin'), 'BEGIN', 'the first tab confirms a new measure of the first item');
@@ -279,6 +287,11 @@ select is(pg_temp.requests(), 2, 'one new request admitted, once');
 -- Its analysis reads the first item and publishes.
 select is((select x.claimed from extensions.dblink('race_setup', pg_temp.claim_sql(2, 902)) as x(claimed bigint)), 1::bigint,
   'the new measure is read');
+select is((select x.outcome from extensions.dblink('race_setup',format('select outcome from public.reserve_takeoff_launch_call(%L,%L,%L,%L,30000)',
+  pg_temp.job(2),pg_temp.f(902),'call:1','pdf')) as x(outcome text)),'reserved','an integral allowance confirmed as 2.0 admits the first call');
+select ok((select x.left_ is not null from extensions.dblink('race_setup',format(
+  'select remaining_tokens from public.record_takeoff_launch_usage(%L,%L,%L,10,0)',pg_temp.job(2),pg_temp.f(902),'call:1'))
+  as x(left_ bigint)),'the first call is settled on its own receipt');
 select is((select split_part(x.answer, ':', 2) from extensions.dblink('race_setup', pg_temp.publish_sql(2, 902, array[300], result_extra =>
   '{"count_mark_generation":{"pages":[],"marks":[]},"provider_meta":{"count_marks":[
   {"page":2,"vector_state":"read","tiles":["not_read","not_read","not_read","not_read"],"limited":false},

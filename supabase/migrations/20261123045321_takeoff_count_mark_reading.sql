@@ -32,6 +32,52 @@ end;
 $$;
 revoke all on function private.takeoff_count_mark_schedule_valid(jsonb) from public, anon, authenticated, service_role;
 
+-- One item is exactly one batch. Use the tenant's fragmenting and the paid classifier lane of the admitted unit.
+-- Widths are those already recorded for the admitted copy of these bytes. Missing geometry is an explicit refusal.
+create function private.takeoff_count_mark_schedule(p_tenant uuid,p_project uuid,plan jsonb,unit jsonb)
+returns jsonb language plpgsql stable set search_path = '' as $$
+declare
+  pages integer[];
+  sheets jsonb;
+  tile_calls integer;
+  other_calls integer;
+  fragment_size numeric;
+  fragment_threshold numeric;
+  overlap numeric;
+  n integer;
+begin
+  n := jsonb_array_length(plan -> 'pages');
+  if n=0 then n := (plan ->> 'page_count')::numeric::integer; end if;
+  if n is null or n not between 1 and 6 then raise exception 'TAKEOFF_MARKS_SCOPE_INVALID' using errcode='22023'; end if;
+  pages := case when jsonb_array_length(plan -> 'pages')=0 then array(select generate_series(1,n))
+    else array(select value::numeric::integer from jsonb_array_elements_text(plan -> 'pages')) end;
+  select jsonb_agg(jsonb_build_object('page',g.page,'width_points',g.width) order by g.page),
+    sum(case when g.width>700 then 6 else 4 end)::integer into sheets,tile_calls
+  from public.takeoff_count_pages g where g.tenant_id=p_tenant and g.project_id=p_project
+    and g.plan_file_id=(plan ->> 'plan_file_id')::uuid and g.plan_logical_id=(plan ->> 'logical_id')::uuid
+    and g.plan_content_sha256=plan ->> 'content_sha256' and g.page=any(pages);
+  if coalesce(jsonb_array_length(sheets),0) <> n then
+    raise exception 'TAKEOFF_MARKS_GEOMETRY_UNKNOWN' using errcode='22023';
+  end if;
+  if tile_calls>24 then raise exception 'TAKEOFF_MARKS_SCOPE_INVALID' using errcode='22023'; end if;
+  select coalesce(max(v) filter(where k='TAKEOFF_C_CHUNK_THRESHOLD_PAGES' and v>=1),15),
+    coalesce(max(v) filter(where k='TAKEOFF_C_CHUNK_SIZE_PAGES' and v>=1),10),
+    coalesce(max(v) filter(where k='TAKEOFF_C_CHUNK_OVERLAP_PAGES' and v>=0),2)
+  into fragment_threshold,fragment_size,overlap from (
+    select flag_key k,case when trim(value) ~ '^[+]?[0-9]{1,15}([.][0-9]+)?$' then trunc(value::numeric) end v
+    from public.feature_flags where tenant_id=p_tenant and enabled and flag_key in
+      ('TAKEOFF_C_CHUNK_THRESHOLD_PAGES','TAKEOFF_C_CHUNK_SIZE_PAGES','TAKEOFF_C_CHUNK_OVERLAP_PAGES')
+  ) settings;
+  other_calls := case when n<=fragment_threshold or n<=fragment_size then 1
+    else 1+ceil((n-fragment_size)/(fragment_size-least(fragment_size-1,overlap)))::integer end;
+  if unit -> 'paid_vector_groups'='true'::jsonb then
+    other_calls := other_calls + least(40,25*least(n,(unit ->> 'vector_pages')::numeric::integer));
+  end if;
+  return jsonb_build_object('pages',sheets,'tile_calls',tile_calls,'other_calls',other_calls,'total_calls',tile_calls+other_calls);
+end;
+$$;
+revoke all on function private.takeoff_count_mark_schedule(uuid,uuid,jsonb,jsonb) from public, anon, authenticated, service_role;
+
 create or replace function private.takeoff_item_remeasure_confirmation_valid(p_confirmation jsonb)
 returns boolean language sql immutable set search_path = '' as $$
   select coalesce(pg_catalog.jsonb_typeof(p_confirmation) = 'object'
@@ -113,9 +159,6 @@ begin
       and (p_manifest #> '{plans,0,pages}') @> schedule_pages) end) then
       raise exception 'TAKEOFF_MARKS_SCOPE_INVALID' using errcode = '22023';
     end if;
-    schedule := schedule || jsonb_build_object('tile_calls',(schedule ->> 'tile_calls')::numeric::integer,
-      'other_calls',(schedule ->> 'other_calls')::numeric::integer,'total_calls',(schedule ->> 'total_calls')::numeric::integer);
-    p_snapshot := p_snapshot || jsonb_build_object('remeasure_count_marks',schedule);
   end if;
   -- Each item asked is an entry of the revision the order seals, a revision of this affaire (revisions never change).
   if not exists (select 1 from public.takeoff_list_revisions r where r.id = (p_manifest #>> '{order,list,revision_id}')::uuid
@@ -203,6 +246,13 @@ begin
         and pg_catalog.jsonb_typeof(stored.value -> 'page_count') = 'number'
         and m.value -> 'page_count' is distinct from stored.value -> 'page_count') then
     raise exception 'TAKEOFF_LAUNCH_SEAL_INVALID' using errcode = '22023';
+  end if;
+  if schedule is not null then
+    schedule := private.takeoff_count_mark_schedule(p_tenant_id,p_project_id,p_manifest #> '{plans,0}',p_manifest #> '{units,0}');
+    if schedule is distinct from p_confirmation -> 'count_marks' then
+      raise exception 'TAKEOFF_MARKS_SCOPE_INVALID' using errcode='22023';
+    end if;
+    p_snapshot := p_snapshot || jsonb_build_object('remeasure_count_marks',schedule);
   end if;
   if one_item then
     -- Build the worker-only setting from the confirmation covered by the receipt. The

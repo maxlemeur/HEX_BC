@@ -794,7 +794,7 @@ create function pg_temp.mark_option(widths numeric[], pages integer[], tile_call
 language sql immutable as $$
   select jsonb_build_object('count_marks', jsonb_build_object('pages', (select jsonb_agg(
     jsonb_build_object('page', p, 'width_points', w) order by ord) from unnest(pages, widths) with ordinality s(p,w,ord)),
-    'tile_calls', tile_calls, 'other_calls', 2.0, 'total_calls', tile_calls + 2))
+    'tile_calls', tile_calls, 'other_calls', 1.0, 'total_calls', tile_calls + 1))
 $$;
 select ok(private.takeoff_item_remeasure_confirmation_valid(pg_temp.detail_confirm(null) ||
   pg_temp.mark_option(array[700,701,700,701,700], array[1,2,3,4,5], 24)), '24 calls on mixed widths fit exactly');
@@ -808,6 +808,11 @@ select ok(not private.takeoff_item_remeasure_confirmation_valid(pg_temp.confirma
   pg_temp.mark_option(array[700], array[2], 4)), 'only the plan detail may request tile reading');
 select throws_ok($$select * from pg_temp.detail_measure(2,14,303,1,320,pg_temp.mark_option(array[700],array[7],4))$$,
   '22023','TAKEOFF_MARKS_SCOPE_INVALID','the schedule must cover precisely the admitted page');
+select throws_ok($$select * from pg_temp.detail_measure(2,14,303,1,320,pg_temp.mark_option(array[700],array[2],4))$$,
+  '22023','TAKEOFF_MARKS_GEOMETRY_UNKNOWN','an ordinary first request gets a precise refusal until its geometry is recorded');
+insert into public.takeoff_count_pages(tenant_id,project_id,plan_logical_id,plan_file_id,plan_content_sha256,page,
+  geometry_version,view_box,rotation,user_unit,width,height)
+values(pg_temp.f(10),pg_temp.f(20),pg_temp.plan(1),pg_temp.plan(1),pg_temp.digest(pg_temp.plan(1)),2,1,array[0,0,700,500],0,1,700,500);
 select is((select outcome from pg_temp.detail_measure(2,14,303,1,320,pg_temp.mark_option(array[700],array[2],4))),
   'admitted','the explicit tile option is admitted');
 select is((select preparation_snapshot -> 'remeasure_count_marks' from public.takeoff_jobs where id = pg_temp.job(14,pg_temp.plan(1))),
@@ -833,10 +838,9 @@ select is(pg_temp.reserve_mark_call('tile:2:1'),'TILE_ALREADY_ATTEMPTED','a sett
 select is(pg_temp.reserve_mark_call('call:1','pdf'),'reserved','the first ordinary reservation accepts the integral 2.0 from the confirmation');
 select is(private.takeoff_count_mark_attempt_refusal((pg_temp.request_of(pg_temp.job(14,pg_temp.plan(1)))).id,'call:1'),
   'CALL_ALREADY_ATTEMPTED','a pending ordinary reservation has no further permission to send');
-select is(pg_temp.reserve_mark_call('call:2','vector_group'),'reserved','the second ordinary read fits the shown bound');
+select is(pg_temp.reserve_mark_call('call:2','vector_group'),'BUDGET_EXHAUSTED','one page and no paid groups admits one ordinary read');
 select is(pg_temp.reserve_mark_call('call:3','pdf'),'BUDGET_EXHAUSTED','a third ordinary read exceeds the confirmed total');
 select remaining_tokens from public.record_takeoff_launch_usage(pg_temp.job(14,pg_temp.plan(1)),pg_temp.f(916),'call:1',100,0) \gset
-select remaining_tokens from public.record_takeoff_launch_usage(pg_temp.job(14,pg_temp.plan(1)),pg_temp.f(916),'call:2',100,0) \gset
 select is(pg_temp.reserve_mark_call('tile:2:2'),'reserved','a later tile starts after settlement');
 select public.record_takeoff_launch_call_unknown(pg_temp.job(14,pg_temp.plan(1)),pg_temp.f(916),'tile:2:2') as frozen \gset
 select is(pg_temp.reserve_mark_call('tile:2:3'),'USAGE_UNKNOWN','an unknown result freezes the next tile');
