@@ -291,7 +291,7 @@ describe("Propositions de repères", () => {
       });
     }
     const seeded = await seedPublishedItemTable(owner, { name: `${army.runPrefix}-PROPOSES`, labels: ["Vanne fictive"],
-      answers: ["uncertain"], planPdf: Buffer.from(await pdf.save()), countMarks: ([item]) => {
+      answers: ["uncertain"], planPdf: Buffer.from(await pdf.save()), readTiles: { 2: [1, 2] }, countMarks: ([item]) => {
         const source = (method: string, ref: string, id: string) => ({
           item_id: item, state: "proposed", method, method_version: "1", source_key: id, source_ref: ref, subtype: "vanne",
         });
@@ -353,7 +353,7 @@ describe("Propositions de repères", () => {
     expect(seeded.publicationMs).toBeGreaterThan(0);
     const denseShot = await app.screenshot("reperes02-page-dense");
     await recordEvidence(army, "REPERES02", {
-      densePage: 7, physicalMarks: loaded, publicationMs: seeded.publicationMs, readMs, openMs,
+      densePage: 7, physicalMarks: loaded, terminalPublicationMs: seeded.publicationMs, readMs, openMs,
       shots: { origins: originsShot, dense: denseShot },
     });
   });

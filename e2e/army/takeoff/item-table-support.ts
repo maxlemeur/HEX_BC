@@ -3,6 +3,8 @@ import { createHash, randomUUID } from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
 
 import { createEmptyTakeoffPreparation } from "@/lib/takeoff/preparation";
+import { countMarkPageFrames } from "@/lib/takeoff/count-mark-geometry-server";
+import { countMarkSchedule } from "@/lib/takeoff/count-mark-schedule";
 
 import { querySql } from "../local/calculation-gate-support";
 import type { DedicatedOwner } from "../local/dedicated-owner";
@@ -33,6 +35,8 @@ const text = (value: string) => `'${value.replaceAll("'", "''")}'`;
  */
 export async function seedPublishedItemTable(owner: DedicatedOwner, input: { name: string; labels: string[]; answers: SeededAnswer[];
   planPdf?: Buffer;
+  /** Recorded tile ordinals for a single-item proposal reading of the synthetic PDF. */
+  readTiles?: Record<number, number[]>;
   /** Machine marks the same attempt publishes after the answers (public.publish_takeoff_count_marks, generation 1). */
   countMarks?: (itemIds: string[]) => { pages: unknown; marks: unknown } }):
   Promise<SeededItemTable> {
@@ -77,8 +81,17 @@ export async function seedPublishedItemTable(owner: DedicatedOwner, input: { nam
     quantity: 1, unit: "u", confidence: 0.9, evidence: "Symbole relevé (fictif)", source_file_name: "plan-1.pdf", source_page: 2,
     metadata: {} }] : []);
   const marks = input.countMarks?.(itemIds) ?? null;
+  const frames = input.readTiles && input.planPdf && await countMarkPageFrames(input.planPdf, [2, 7]);
+  if (input.readTiles && (!frames || !marks || itemIds.length !== 1)) throw new Error("An opted-in fixture needs one item, its PDF and its marks.");
+  const schedule = frames && countMarkSchedule(frames.map(({ page, geometry }) => ({ page, width_points: geometry.width })), 1);
+  const coverage = schedule?.pages.map(({ page, width_points }) => ({
+    page, vector_state: "read", limited: false,
+    tiles: Array.from({ length: width_points > 700 ? 6 : 4 }, (_, index) =>
+      input.readTiles![page]?.includes(index + 1) ? "read" : "not_read"),
+  }));
   const hypotheses = input.answers.flatMap((answer, index) => answer === "hypothesis" ? [rowIds[index]!] : []);
-  const result = { extracted_json: {}, warnings: [], tables: [], provider_meta: {}, confidence: null, token_count: 10, cost_cents: 0,
+  const result = { extracted_json: {}, warnings: [], tables: [], provider_meta: coverage ? { count_marks: coverage } : {},
+    ...(coverage && { count_mark_generation: marks }), confidence: null, token_count: 10, cost_cents: 0,
     duration_ms: 5, job_duration_ms: 6, run_metrics: [] };
   const plan = { entry_key: ids.plan, plan_file_id: ids.plan, name: "plan-1.pdf", logical_id: ids.plan, intake_document_id: null,
     generation: "generation-fictive-1", content_sha256: planDigest, pages: [2, 7], page_count: 9 };
@@ -139,11 +152,13 @@ insert into private.takeoff_completion_activation (active_from) values (now() - 
 insert into private.takeoff_plan_dispatch_activation (active_from) values (now() - interval '1 minute') on conflict do nothing;
 insert into private.takeoff_item_list_order_activation (active_from) values (now() - interval '1 minute') on conflict do nothing;
 
-select outcome from public.launch_manual_takeoff_plan_request('${owner.tenantId}', '${ids.project}', '${owner.userId}', '${ids.intent}',
-  'initial', null, ${text(host)}, ${literal(selection)},
+${frames ? `select public.attest_takeoff_count_mark_pages('${owner.tenantId}','${ids.project}','${ids.plan}','${ids.plan}',
+  '${planDigest}',${literal(frames)});` : ""}
+select outcome from public.${schedule ? "launch_takeoff_item_remeasure" : "launch_manual_takeoff_plan_request"}('${owner.tenantId}', '${ids.project}', '${owner.userId}', '${ids.intent}',
+  ${schedule ? "" : "'initial',"} null, ${text(host)}, ${literal(selection)},
   jsonb_build_object('format_version', 2, 'intent', 'initial',
     'order', jsonb_build_object('kind', 'item_list', 'version', 2, 'list', jsonb_build_object('revision_id', '${ids.revision}',
-      'revision', 1, 'content_sha256', repeat('1', 64), 'item_count', ${itemIds.length})),
+      'revision', 1, 'content_sha256', repeat('1', 64), 'item_count', ${itemIds.length}${schedule ? `, 'asked_item_ids', ${literal(itemIds)}` : ""})),
     'dispatch', '{"order":"display_name","version":1}'::jsonb,
     'units', jsonb_build_array(jsonb_build_object('key', 'plan:${ids.plan}', 'ordinal', 1, 'plans', jsonb_build_array('${ids.plan}'),
       'pages', '[2, 7]'::jsonb, 'page_count', 9, 'vector_pages', 0, 'budget', '{"tokens":400000,"cost_cents":2500}'::jsonb)),
@@ -154,14 +169,20 @@ select outcome from public.launch_manual_takeoff_plan_request('${owner.tenantId}
   jsonb_build_array(jsonb_build_object('id', '${ids.job}', 'plan_set_id', '${ids.planSet}', 'launch_unit_key', 'plan:${ids.plan}',
     'source_file_name', 'plan-1.pdf', 'source_file_type', 'application/pdf', 'source_file_size_bytes', 8, 'prompt_version', 'fixture',
     'execution_host_id', ${text(host)})),
-  '${ids.planSet}', 1, array['${ids.plan}'::uuid]);
+  '${ids.planSet}', 1, array['${ids.plan}'::uuid]${schedule ? `, ${literal([{ item_id: itemIds[0], answers: [] }])},
+  ${literal({ preview_digest: "a".repeat(64), shown_sha256: planDigest, page: null,
+    setting: { model: selection.model, reasoning_effort: null }, count_marks: schedule })}` : ""});
 select job_id from public.dispatch_next_takeoff_host_job(${text(host)});
 select count(*) from public.claim_observed_local_takeoff_job('${ids.job}', '${owner.tenantId}', ${text(host)}, clock_timestamp(),
   '${ids.token}', clock_timestamp() + interval '30 minutes', 'modele-fictif', 'fixture', 'pending', 0);
+${Object.entries(input.readTiles ?? {}).flatMap(([page, ordinals]) => ordinals.map((n) => `
+select outcome from public.reserve_takeoff_launch_call('${ids.job}','${ids.token}','tile:${Number(page)}:${Number(n)}','count_tile',30000);
+select remaining_tokens from public.record_takeoff_launch_usage('${ids.job}','${ids.token}','tile:${Number(page)}:${Number(n)}',10,0);`)).join("\n")}
+${schedule ? "select 'MARKS_BEGIN=' || extract(epoch from clock_timestamp());" : ""}
 select answer_count from public.publish_takeoff_item_answers('${ids.job}', '${ids.token}', now(), 'modele-fictif',
   'takeoff-c-postes-v1', '{"schema_version":"v2","prompt_version":"takeoff-c-postes-v1"}'::jsonb, array[2, 7], ${literal(answers)},
   '[]'::jsonb, ${literal(result)}, ${literal(rows)}, null);
-${marks ? `select 'MARKS_BEGIN=' || extract(epoch from clock_timestamp());
+${schedule ? "select 'MARKS_END=' || extract(epoch from clock_timestamp());" : marks ? `select 'MARKS_BEGIN=' || extract(epoch from clock_timestamp());
 select public.publish_takeoff_count_marks('${ids.job}', '${ids.token}', 1, ${literal(marks.pages)}, ${literal(marks.marks)}) ->> 'marks';
 select 'MARKS_END=' || extract(epoch from clock_timestamp());
 ` : ""}-- The hypotheses made estimates, excluded as public.exclude_new_takeoff_hypothesis excludes a new estimated row.
