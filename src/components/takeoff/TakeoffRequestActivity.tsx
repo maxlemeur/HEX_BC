@@ -72,7 +72,7 @@ function describeDates(request: Activity) {
 
 type LocationTarget = { setId: string; fileId: string; name: string };
 type Command = { jobId: string; kind: "resubmit" | "cancel" };
-type SendTarget = { jobId: string; name: string };
+type SendTarget = { jobId: string; name: string; redistribution?: boolean };
 
 /**
  * Whether a read says this member sends a plan read against the list at all: a plan of such a request, read to its end and
@@ -192,6 +192,11 @@ function RequestUnits({ projectId, request, onLocate, onCommand, onSendItems, pe
                   Envoyer ce plan au devis
                 </Button>
               ) : null}
+              {!grouped && job?.canRedistributeItems ? <Button type="button" variant="outline" size="sm"
+                aria-label={`Redistribuer les apports de « ${name} »`}
+                onClick={() => onSendItems({ jobId: unit.jobId, name, redistribution: true })}>
+                Redistribuer les apports
+              </Button> : null}
               {job?.canResubmit ? (
                 <Button type="button" variant="outline" size="sm" disabled={pending !== null}
                   onClick={() => onCommand({ jobId: unit.jobId, kind: "resubmit" })}>
@@ -370,7 +375,7 @@ export function TakeoffRequestActivity({ projectId, viewerKey, live, linked, onS
     const named = reads.map((read) => [read.current, ...read.history].flatMap((request) => request?.jobs ?? [])
       .find((job) => job.jobId === sending.jobId)).find((job) => job !== undefined);
     const right = reads.map(takeoffItemSendRight).find((value) => value !== null) ?? null;
-    return named?.canSendItems === true && right !== false;
+    return (sending.redistribution ? named?.canRedistributeItems : named?.canSendItems) === true && right !== false;
   })();
   const observedAt = live.data?.observedAt;
   const failedRead = Boolean(live.error) && Boolean(live.data);
@@ -455,7 +460,7 @@ export function TakeoffRequestActivity({ projectId, viewerKey, live, linked, onS
           open onOpenChange={(open) => { if (!open) setLocating(null); }} onSaved={() => undefined} />
       ) : null}
       {sending && sendable ? (
-        <TakeoffItemSendDialog open jobId={sending.jobId} planName={sending.name} viewerKey={viewerKey}
+        <TakeoffItemSendDialog open redistributionOnly={sending.redistribution} jobId={sending.jobId} planName={sending.name} viewerKey={viewerKey}
           onOpenChange={(open) => { if (!open) setSending(null); }} onSent={onChanged} />
       ) : null}
     </section>

@@ -18,6 +18,7 @@ vi.mock("@/lib/estimates/client-locks", () => ({
   releaseEstimateDraftLock: network.release, renewEstimateDraftLock: network.renew, acquireEstimateDraftLock: network.acquire,
 }));
 vi.mock("@/lib/takeoff/client", async () => ({
+  requestItemRedistribution: async () => ({ action: "list", options: [] }),
   confirmTakeoffItemSend: network.confirm, previewTakeoffItemSend: network.preview,
   isTakeoffApiError: (await import("@/lib/takeoff/client-http")).isTakeoffApiError,
 }));
