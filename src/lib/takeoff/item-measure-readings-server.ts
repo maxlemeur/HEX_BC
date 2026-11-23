@@ -7,13 +7,14 @@ import { describeTakeoffJobFailure } from "@/lib/takeoff/visible-status";
 import { itemMeasureReadingsSchema } from "@/lib/takeoff/item-table-contracts";
 import { asRecord } from "@/lib/value-guards";
 
-export async function readItemMeasureReadings(projectId: string, itemId: string, planKey: string) {
+export async function readItemMeasureReadings(projectId: string, itemId: string, planKey: string, receipt?: { jobId: string; requestId: string }) {
   const { context, project } = await requireAffaireAccess(projectId, "read");
   const { supabase, userId, tenantId } = context;
-  const { data: job, error } = await supabase.from("takeoff_jobs").select("id,launch_request_id,preparation_snapshot")
+  let query = supabase.from("takeoff_jobs").select("id,launch_request_id,preparation_snapshot")
     .eq("project_id", project.id).eq("tenant_id", tenantId).eq("created_by", userId)
-    .eq("preparation_snapshot->>remeasure_item", itemId).eq("preparation_snapshot->>remeasure_plan", planKey)
-    .order("created_at", { ascending: false }).order("id", { ascending: false }).limit(1).maybeSingle();
+    .eq("preparation_snapshot->>remeasure_item", itemId).eq("preparation_snapshot->>remeasure_plan", planKey);
+  if (receipt) query = query.eq("id", receipt.jobId).eq("launch_request_id", receipt.requestId);
+  const { data: job, error } = await query.order("created_at", { ascending: false }).order("id", { ascending: false }).limit(1).maybeSingle();
   if (error) throw mapSupabaseError(error, "Impossible de lire la dernière demande de mesure.");
   if (!job?.launch_request_id) return null;
   const previous = asRecord(job.preparation_snapshot)?.remeasure_previous_answer;

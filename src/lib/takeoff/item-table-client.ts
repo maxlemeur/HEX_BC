@@ -98,7 +98,7 @@ export function itemReviewStaleLines(error: unknown) {
   return parsed.success ? parsed.data.stale : null;
 }
 
-export function fetchItemMeasureReadings(projectId: string, item: string, plan: string) {
-  return call(`${base(projectId)}/remeasure?${new URLSearchParams({ item, plan })}`, { method: "GET", cache: "no-store" },
+export function fetchItemMeasureReadings(projectId: string, item: string, plan: string, receipt?: { jobId: string; requestId: string }) {
+  return call(`${base(projectId)}/remeasure?${new URLSearchParams({ item, plan, ...receipt })}`, { method: "GET", cache: "no-store" },
     itemMeasureReadingsSchema, "Impossible de lire la dernière mesure de ce poste.", TAKEOFF_READ_REQUEST_TIMEOUT_MS);
 }

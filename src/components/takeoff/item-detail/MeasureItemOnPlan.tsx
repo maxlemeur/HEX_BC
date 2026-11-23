@@ -51,6 +51,7 @@ export function MeasureItemOnPlan({ projectId, line, plan, page, listRevisionId,
   const [unsure, setUnsure] = useState(false);
   const operation = useRef(0);
   const submitting = useRef(false);
+  const receipt = useRef<{ requestId: string; jobId: string } | undefined>(undefined);
   const completed = useRef<string | null>(null);
   const refreshed = useEffectEvent(onRefresh);
   useEffect(() => () => { operation.current++; }, []);
@@ -59,12 +60,14 @@ export function MeasureItemOnPlan({ projectId, line, plan, page, listRevisionId,
     let pendingJob: string | undefined;
     let timer: ReturnType<typeof setTimeout>;
     async function read() {
+      const followed = receipt.current;
       try {
-        const result = await fetchItemMeasureReadings(projectId, line.itemId, plan.key);
-        if (!live) return;
+        const result = await fetchItemMeasureReadings(projectId, line.itemId, plan.key, followed);
+        if (!live || followed !== receipt.current) return;
         setReadFailed(false);
         setReadings(result);
         if (result?.state === "queued" || result?.state === "running") {
+          if (!followed) receipt.current = { requestId: result.requestId, jobId: result.jobId };
           pendingJob = result.jobId;
           timer = setTimeout(read, 2500);
         } else if (result && (watch > 0 || pendingJob === result.jobId) && completed.current !== result.jobId) {
@@ -72,8 +75,10 @@ export function MeasureItemOnPlan({ projectId, line, plan, page, listRevisionId,
           refreshed();
         }
       } catch (error) {
+        if (!live || followed !== receipt.current) return;
         if (isTakeoffReadRefusal(error) && onRefused(error)) return;
-        if (live) { setReadFailed(true); setMessage(failure(error)); }
+        setReadFailed(true);
+        setMessage(failure(error));
       }
     }
     void read();
@@ -126,6 +131,8 @@ export function MeasureItemOnPlan({ projectId, line, plan, page, listRevisionId,
         setMessage("Une demande de métré est déjà active sur cette affaire. Votre sélection est conservée.");
         setNeedsPreview(true);
       } else {
+        if (result.receipt && result.requestId) receipt.current = { requestId: result.requestId, jobId: result.receipt.jobId };
+        setReadings(null);
         setOpen(false);
         setMessage(`Demande enregistrée sur votre forfait. Reçu ${result.requestId}.`);
         setWatch((n) => n + 1);

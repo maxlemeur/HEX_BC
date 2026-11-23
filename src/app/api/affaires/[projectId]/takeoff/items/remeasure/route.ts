@@ -27,9 +27,11 @@ export async function POST(request: Request, { params }: { params: Promise<{ pro
 export async function GET(request: Request, { params }: { params: Promise<{ projectId: string }> }) {
   try {
     const scope = paramsSchema.safeParse(await params);
-    const query = z.object({ item: z.uuid(), plan: z.uuid() }).safeParse(Object.fromEntries(new URL(request.url).searchParams));
+    const query = z.object({ item: z.uuid(), plan: z.uuid(), jobId: z.uuid().optional(), requestId: z.uuid().optional() })
+      .refine(({ jobId, requestId }) => Boolean(jobId) === Boolean(requestId)).safeParse(Object.fromEntries(new URL(request.url).searchParams));
     if (!scope.success || !query.success) throw badRequest("Poste ou plan invalide.");
-    return ok(await readItemMeasureReadings(scope.data.projectId, query.data.item, query.data.plan));
+    const { item, plan, jobId, requestId } = query.data;
+    return ok(await readItemMeasureReadings(scope.data.projectId, item, plan, jobId && requestId ? { jobId, requestId } : undefined));
   } catch (error) {
     return toErrorResponse(error);
   }

@@ -6795,7 +6795,7 @@
         "tags": [
           "Takeoff"
         ],
-        "summary": "Comparer les lectures de la dernière mesure du membre sur ce plan",
+        "summary": "Comparer les lectures d’une mesure du membre sur ce plan",
         "description": "État de la demande du membre et réponses précédente et nouvelle pour le poste et le plan.",
         "parameters": [
           {
@@ -6823,6 +6823,24 @@
             "required": true,
             "schema": {
               "$ref": "#/components/schemas/ReadAffaireTakeoffItemMeasurePlanParameter"
+            }
+          },
+          {
+            "name": "jobId",
+            "in": "query",
+            "description": "Analyse du reçu, avec requestId. Sans reçu, la dernière mesure du membre.",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/ReadAffaireTakeoffItemMeasureJobIdParameter"
+            }
+          },
+          {
+            "name": "requestId",
+            "in": "query",
+            "description": "Demande du reçu, avec jobId.",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/ReadAffaireTakeoffItemMeasureRequestIdParameter"
             }
           }
         ],
@@ -50145,6 +50163,16 @@
         "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
       },
       "ReadAffaireTakeoffItemMeasurePlanParameter": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      },
+      "ReadAffaireTakeoffItemMeasureJobIdParameter": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      },
+      "ReadAffaireTakeoffItemMeasureRequestIdParameter": {
         "type": "string",
         "format": "uuid",
         "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
