@@ -383,6 +383,6 @@
     "20261122205109_takeoff_item_send_writer.sql": "9e35184f0473ed440245d8a4b78628e1b8065e905179a105d522ee5c6bfe15df",
     "20261122220405_takeoff_item_remeasure_admission.sql": "dd1e9c6cd19d0bbb4f23d1827b12cf49a68d7b18cfc5f04b9fbe97f3a4dcd1d3",
     "20261123000925_takeoff_item_send_copy.sql": "88485bfc1595b9611b29c2d78afb66499d02c3c22fcaa41c6a6798187415ef34",
-    "20261123005339_takeoff_verified_count_source.sql": "5b7b44837deba364f255846f7f6b6f702ea7524b6dd19929c29501f90f19e51f"
+    "20261123005339_takeoff_verified_count_source.sql": "4d888c3aa3b8c64ab3b6d1bced380a578a25e28001fd8ddb673089d5078ed92e"
   }
 }

@@ -805,9 +805,9 @@ create function pg_temp.chosen() returns jsonb language sql immutable as $$
     'choice', jsonb_build_object('kind', 'line', 'estimate_item_id', pg_temp.f(950))))
 $$;
 -- The existing page-2 line is from an earlier send. A member can explicitly
--- withhold the bathtub which spans that page; page 8 holds no such line.
+-- withhold the bathtub across both held pages after deciding page 7. Page 8 holds no such line.
 with facts as (
-  select pg_temp.second('[]','[]') as plan,
+  select pg_temp.second('[{"page":7,"decision":"replace","reason_code":null}]','[]') as plan,
     (select jsonb_agg(s) from private.takeoff_item_send_resolved_parts(pg_temp.f(10),pg_temp.f(20),
       pg_temp.job(20,2),array[2,7]) s) as parts,
     private.takeoff_item_send_held_pages(pg_temp.f(10),(select version_id from draft),pg_temp.job(20,2),
@@ -1491,6 +1491,97 @@ insert into public.draft_locks (version_id, user_id, tenant_id, expires_at, sess
 values (pg_temp.f(991), pg_temp.f(1), pg_temp.f(10), now() + interval '10 minutes', gen_random_uuid());
 select is(private.takeoff_item_send_dpgf_reference(pg_temp.f(10), (select source_metadata from public.estimate_items where id = pg_temp.f(993))),
   4::numeric, 'point 11: an explicit null DPGF quantity falls back to the mapped row''s « 4,0 », as the preview reads it');
+-- A retained DPGF item can have a page left out and a typed existing line kept
+-- for its remaining part. Exercise this fork on its own reading and restore
+-- the original single-item affaire before the other sends use it.
+create function pg_temp.mixed_page_and_entry() returns jsonb language plpgsql as $$
+declare
+  job_ uuid := pg_temp.job(22,8);
+  wire text := $mixed_write${
+  "sections": [{"key":"complement","title":"Compléments du métré hors DPGF","parent_key":null,"parent_id":null}],
+  "targets": [{"key":"LAVABO_ID|together","item_id":"LAVABO_ID","compartment_key":"together","line":{"kind":"new_line","section_key":"complement","section_id":null,"title":"Lavabo","unit_code":"u","order":1},"unit_code":"u","quantity_after":1,"quantity":{"reference":null,"entered":null,"earlier":0,"replaced":0,"added":1,"measured":1,"retained":1,"rounded_from":null,"gap":null,"kept_entry":false},"rule":null,"contributions":[{"answer_id":"LAVABO_ANSWER","answer_revision":"LAVABO_REVISION","kind":"measured","observation_ids":["LAVABO_OBS"],"quantity":1,"unit":"u","pages":[7],"identity":{"unit":"u","basis":null,"network":null,"material":null,"diameter":null}}],"replaces":[]}],
+  "page_contributions": [{"page":7,"item_ids":["LAVABO_ID"],"target_keys":["LAVABO_ID|together"],"observation_ids":["LAVABO_OBS"]}],
+  "page_decisions": [],
+  "left_out": [{"item_id":"WC_ID","reason":"entry_suspended","rule_id":null,"rule_version":null}],
+  "parts_not_sent": [{"item_id":"WC_ID","kind":"measured","observation_ids":["WC_OBS_2"],"pages":[2],"quantity":2,"unit":"u","reason":"left_out"},{"item_id":"WC_ID","kind":"measured","observation_ids":["WC_OBS_7"],"pages":[7],"quantity":5,"unit":"u","reason":"entry_suspended"}],
+  "resolutions": [{"key":"entry:WC_ID|dpgf","choice":{"kind":"keep_entry"}},{"key":"page:2","choice":{"kind":"leave_out"}}]
+}$mixed_write$;
+  action_ jsonb;
+  part_ jsonb;
+  plan_ jsonb;
+  answers_ jsonb;
+  answer_ jsonb;
+  result_ jsonb;
+begin
+  begin
+    set local session_replication_role = replica;
+    insert into public.takeoff_list_items(id,tenant_id,project_id,origin_kind,created_in_revision,created_by)
+    values (pg_temp.f(321),pg_temp.f(10),pg_temp.f(22),'manual',1,pg_temp.f(1));
+    insert into public.takeoff_list_revision_entries(revision_id,tenant_id,project_id,item_id,position,source_key,label,expected_unit,origin_kind,origin)
+    values (pg_temp.f(330),pg_temp.f(10),pg_temp.f(22),pg_temp.f(321),1,'manual:lavabo','Lavabo','u','manual','{"kind":"manual"}');
+    update public.takeoff_list_revisions set item_count=2 where id=pg_temp.f(330);
+    -- The WC has a proven raw row of its own. The original line continues
+    -- to hold page 2 through a different analysis.
+    insert into public.dpgf_rows_mapped(id,tenant_id,import_id,payload,raw_row_id,status)
+    values(pg_temp.f(2436),pg_temp.f(10),pg_temp.f(340),'{"designation":"WC","quantity":"4","unit":"u"}',pg_temp.f(341),'mapped');
+    set local session_replication_role = origin;
+    perform set_config('miaouffrage.estimate_v3_writer',pg_temp.f(991)::text,true);
+    insert into public.estimate_items(id,tenant_id,version_id,parent_id,item_type,position,title,quantity,unit_code,pricing_status,
+      unit_price_ht_cents,tax_rate_bp,k_fo,h_mo,h_mo_majoration,k_mo,pu_ht_cents,line_total_ht_cents,line_tax_cents,line_total_ttc_cents,
+      source_provider,source_metadata)
+    values(pg_temp.f(2437),pg_temp.f(10),pg_temp.f(991),pg_temp.f(992),'line',2,'WC',4.5,'u','priced',
+      0,2000,1,0,1,1,0,0,0,0,'dpgf',jsonb_build_object('import_id',pg_temp.f(340),'mapped_row_id',pg_temp.f(2436),'dpgf_source_quantity',4));
+    perform public.estimate_v3_complete_entry_for_writer(pg_temp.f(991),array[pg_temp.f(2437)]);
+    perform set_config('miaouffrage.estimate_v3_writer','',true);
+    if (select outcome from pg_temp.launch(22,8)) <> 'admitted' then raise exception 'mixed reading not admitted'; end if;
+    perform public.dispatch_next_takeoff_host_job(pg_temp.host());
+    perform pg_temp.claim(job_,2430);
+    answers_ := jsonb_set(pg_temp.wc_answers(),'{0,observations}',jsonb_build_array(
+      pg_temp.observation('contribution',2,2,'u',2431),pg_temp.observation('contribution',7,5,'u',2432)));
+    answers_ := answers_ || jsonb_build_array(jsonb_build_object('item_id',pg_temp.f(321),'outcome','measured','reasons','[]'::jsonb,
+      'searched_pages','[2,7]'::jsonb,'unreadable_pages','[]'::jsonb,'quantity','{"value":1,"unit":"u"}'::jsonb,'candidate',null,
+      'observations',jsonb_build_array(pg_temp.observation('contribution',7,1,'u',2433))));
+    perform pg_temp.publish(job_,2430,answers_,jsonb_build_array(pg_temp.row_(2431,2,2),pg_temp.row_(2432,5,7),
+      pg_temp.row_(2433,1,7)),null,array[2,7],'[]'::jsonb);
+    update public.takeoff_items set rules_stale=false,rules_evaluated_at=now(),rule_results='[]'::jsonb where job_id=job_;
+    if public.review_takeoff_items(pg_temp.f(10),pg_temp.f(22),pg_temp.cmd('accept_measured',2434,array[320,321],array[320,321]))
+      ->> 'outcome' <> 'applied' then raise exception 'mixed quantities not accepted'; end if;
+
+    -- Bind only database-generated identities and stamps. Every action,
+    -- page choice and exclusion is the image emitted by the planner test.
+    wire:=replace(replace(wire,'WC_ID',pg_temp.f(320)::text),'LAVABO_ID',pg_temp.f(321)::text);
+    part_:=pg_temp.parts(job_,321,22)->0;
+    wire:=replace(replace(replace(wire,'LAVABO_ANSWER',part_->>'answer_id'),'LAVABO_REVISION',part_->>'answer_revision'),
+      'LAVABO_OBS',part_#>>'{observation_ids,0}');
+    for part_ in select value from jsonb_array_elements(pg_temp.parts(job_,320,22)) loop
+      wire:=replace(wire,'WC_OBS_'||(part_#>>'{pages,0}'),part_#>>'{observation_ids,0}');
+    end loop;
+    action_:=wire::jsonb;
+    plan_:=pg_temp.plan(job_,pg_temp.f(991),action_->'targets',action_->'sections',null,22) || (action_-'resolutions');
+    plan_:=jsonb_set(plan_,'{dependencies,resolutions}',action_->'resolutions');
+    -- The dialog's held-page dependency names the other analysis's line.
+    plan_:=jsonb_set(plan_,'{dependencies,lines}',(select jsonb_build_array(jsonb_build_object('estimate_item_id',i.id,
+      'updated_at',i.updated_at,'quantity',i.quantity,'dpgf',jsonb_build_object('import_id',pg_temp.f(340),
+      'raw_row_id',pg_temp.f(343),'reference',4))) from public.estimate_items i where i.id=pg_temp.f(993)));
+    insert into plans values ('mixed_choices',plan_,null);
+    begin
+      answer_ := pg_temp.send(2435,'mixed_choices');
+      select jsonb_build_array(answer_->>'parts_written', (select quantity from public.estimate_items where id=pg_temp.f(2437)),
+        (select count(*) from public.takeoff_item_send_parts where job_id=job_ and item_id=pg_temp.f(320)),
+        (select quantity from public.takeoff_item_send_parts where job_id=job_ and item_id=pg_temp.f(321)))
+        into result_;
+    exception when serialization_failure then
+      get stacked diagnostics answer_ = pg_exception_detail;
+      result_ := jsonb_build_array(sqlerrm,answer_);
+    end;
+    raise exception using errcode='Z1000',message='restore the original reading';
+  exception when sqlstate 'Z1000' then null; end;
+  return result_;
+end;
+$$;
+select is(pg_temp.mixed_page_and_entry(), '["1",4.5,0,1]'::jsonb,
+  'a held page and a suspended entry can coexist: keep 4.5, send the other item for one');
+
 create function pg_temp.wc(p_parts jsonb, p_decisions jsonb, p_not_sent jsonb, p_after numeric, p_kind text default 'dpgf_line')
 returns jsonb language sql as $$
   select jsonb_set(jsonb_set(jsonb_set(jsonb_set(jsonb_set(pg_temp.plan(pg_temp.job(22, 1), pg_temp.f(991), jsonb_build_array(

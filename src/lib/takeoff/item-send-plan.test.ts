@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 
@@ -1099,4 +1100,39 @@ describe("a verified count retained on a plan", () => {
     expect(createHash("sha256").update(itemSendPlanCanonical(plan.writePlan!)).digest("hex")).toBe(
       source === "measured" ? "4fe27667013e4d53cb2330db29d401ab890555d35a8f8fd4a5683fa6bee867cc" : "e66fa209644c28dd01511bd1e5ef6fe3a2ffe6f5a32b3ae5efb4f22910e69d6f");
   });
+});
+
+it("can keep a typed DPGF line after leaving out one of its pages and still send another item", () => {
+  const item = dpgfItem(20, "WC", "u", "raw-20", "mapped-20", 4);
+  const complement = { ...lavabo, sections: [] };
+  const wcReading = measured(item, [{ quantity: 2, page: 2 }, { quantity: 5, page: 7 }]);
+  const otherReading = measured(complement, [{ quantity: 1, page: 7 }]);
+  const plan = planTakeoffItemSend(input({
+    items: [item, complement],
+    answers: [
+      { ...wcReading, observations: wcReading.observations.map((o) => ({ ...o, observationId: `WC_OBS_${o.page}` })) },
+      { ...otherReading, revision: "LAVABO_REVISION", answerId: "LAVABO_ANSWER",
+        observations: otherReading.observations.map((o) => ({ ...o, observationId: "LAVABO_OBS" })) },
+    ],
+    plan: { key: "plan-a", name: "Plan A", location: null, pages: [2, 7] },
+    destination: draft([dpgfLine(20, "mapped-20", "raw-20", 4, { quantity: 4.5 })]),
+    pagesInEstimate: [{ page: 2, earlierJobIds: [OTHER_JOB], estimateItemIds: [lineId(30)], today: true,
+      todayEstimateItemIds: [lineId(30)], parts: [] }],
+    resolutions: [{ key: "page:2", choice: { kind: "leave_out" } },
+      { key: `entry:${item.id}|dpgf`, choice: { kind: "keep_entry" } }],
+  }));
+  expect(plan.confirmable).toBe(true);
+  expect(plan.writePlan?.targets.map(({ item_id, quantity_after }) => [item_id, quantity_after])).toEqual([[lavabo.id, 1]]);
+  expect(plan.writePlan?.left_out.map(({ item_id, reason }) => [item_id, reason])).toEqual([[item.id, "entry_suspended"]]);
+  expect(plan.writePlan?.parts_not_sent.map(({ pages, quantity, reason }) => [pages, quantity, reason]))
+    .toEqual(expect.arrayContaining([[[2], 2, "left_out"], [[7], 5, "entry_suspended"]]));
+  expect(plan.writePlan?.parts_not_sent).toHaveLength(2);
+  const wire = plan.writePlan!;
+  const actions = { sections: wire.sections, targets: wire.targets, page_contributions: wire.page_contributions,
+    page_decisions: wire.page_decisions, left_out: wire.left_out, parts_not_sent: wire.parts_not_sent,
+    resolutions: wire.dependencies.resolutions };
+  const sql = readFileSync("supabase/tests/database/takeoff-item-send.test.sql", "utf8");
+  const fixture = sql.split("$mixed_write$")[1];
+  expect(JSON.parse(JSON.stringify(actions).replaceAll(complement.id, "LAVABO_ID").replaceAll(item.id, "WC_ID")))
+    .toEqual(JSON.parse(fixture));
 });

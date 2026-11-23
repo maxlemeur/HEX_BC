@@ -1748,34 +1748,51 @@ begin
       having bool_or(identity_.unit is null) or count(distinct identity_.unit) > 1 or count(distinct identity_.basis) > 1
         or (li.expected_unit is not null and bool_or(private.takeoff_item_send_unit(li.expected_unit) <> identity_.unit))
         or (li.measurement_basis is not null and bool_or(private.takeoff_item_send_folded(li.measurement_basis) <> identity_.basis))
+    ), item_reasons as materialized (
+      select x as omission from jsonb_array_elements(plan->'left_out') x
+      where exists(select 1 from omitted o where o.part->'item_id'=x->'item_id')
+    ), declared as materialized (
+      select x as excluded from jsonb_array_elements(plan->'parts_not_sent') x
+      where exists(select 1 from omitted o where o.part->'item_id'=x->'item_id')
+    ), matched as materialized (
+      select o.part,d.excluded,i.omission from omitted o join declared d
+        on d.excluded->'item_id'=o.part->'item_id' and d.excluded->'kind'=o.part->'kind'
+        and d.excluded->'quantity'=o.part->'quantity' and d.excluded->'unit'=o.part->'unit'
+        and d.excluded->'pages'=o.part->'pages' and d.excluded->'observation_ids'=
+          case when o.part->>'kind'='measured' then jsonb_build_array(o.part->'observation_id') else '[]'::jsonb end
+        and (o.part->>'kind'<>'verified_count' or d.excluded->'marks_revision'=o.part->'marks_revision')
+      join item_reasons i on i.omission->'item_id'=o.part->'item_id'
+    ), checked as materialized (
+      select m.*,case m.excluded->>'reason'
+        when 'rule_skip' then exists(select 1 from jsonb_array_elements(deps->'rules') applied
+          join public.takeoff_list_revision_entries li on li.revision_id=launch.item_list_revision_id
+            and li.item_id=(m.part->>'item_id')::uuid
+          where applied->'item_id'=m.part->'item_id' and applied->'rule_id'=m.omission->'rule_id'
+            and (m.omission->>'rule_version' is null or m.omission->'rule_version'=applied->'rule_version')
+            and private.takeoff_item_send_skip_rule(tenant,li.label,private.takeoff_uuid_or_null(applied->'rule_id')))
+        when 'unit_incompatible' then exists(select 1 from incompatible i where i.item_id=(m.part->>'item_id')::uuid)
+        when 'left_out' then dialog.valid
+        when 'entry_suspended' then dialog.valid
+        else false end as valid,coalesce(dialog.on_page,false) as on_page
+      from matched m left join lateral (
+        select bool_or(true) as valid,bool_or(r->>'key' like 'page:%') as on_page
+        from jsonb_array_elements(deps->'resolutions') r
+        where m.excluded->>'reason' in ('left_out','entry_suspended')
+          and private.takeoff_item_send_exclusion_choice(plan,m.part,job_parts,held,r,m.excluded->>'reason',
+            (plan_entry->>'page_count')::integer,coalesce(version_row.max_section_depth,
+              (p_request#>>'{version_payload,max_section_depth}')::integer,3))
+      ) dialog on true
     )
-    select 1 from omitted o where not exists (
-      select 1 from jsonb_array_elements(plan -> 'parts_not_sent') excluded
-      join jsonb_array_elements(plan -> 'left_out') omission on omission -> 'item_id' = excluded -> 'item_id'
-        and omission -> 'reason' = excluded -> 'reason'
-      where excluded -> 'item_id' = o.part -> 'item_id' and excluded -> 'kind' = o.part -> 'kind'
-        and excluded -> 'quantity' = o.part -> 'quantity' and excluded -> 'unit' = o.part -> 'unit'
-        and excluded -> 'pages' = o.part -> 'pages'
-        and excluded -> 'observation_ids' = case when o.part ->> 'kind' = 'measured'
-          then jsonb_build_array(o.part -> 'observation_id') else '[]'::jsonb end
-        and (o.part ->> 'kind' <> 'verified_count' or excluded -> 'marks_revision' = o.part -> 'marks_revision')
-        and case omission ->> 'reason'
-          when 'rule_skip' then exists (select 1 from jsonb_array_elements(deps -> 'rules') applied
-            join public.takeoff_list_revision_entries li on li.revision_id = launch.item_list_revision_id
-              and li.item_id = (o.part ->> 'item_id')::uuid
-            where applied -> 'item_id' = o.part -> 'item_id' and applied -> 'rule_id' = omission -> 'rule_id'
-              and private.takeoff_item_send_skip_rule(tenant,li.label,private.takeoff_uuid_or_null(applied -> 'rule_id')))
-          when 'left_out' then exists (select 1 from jsonb_array_elements(deps -> 'resolutions') resolution
-            where private.takeoff_item_send_exclusion_choice(plan,o.part,job_parts,held,resolution,'left_out',
-              (plan_entry ->> 'page_count')::integer,coalesce(version_row.max_section_depth,
-                (p_request #>> '{version_payload,max_section_depth}')::integer,3)))
-          when 'entry_suspended' then exists (select 1 from jsonb_array_elements(deps -> 'resolutions') resolution
-            where private.takeoff_item_send_exclusion_choice(plan,o.part,job_parts,held,resolution,'entry_suspended',
-              (plan_entry ->> 'page_count')::integer,coalesce(version_row.max_section_depth,
-                (p_request #>> '{version_payload,max_section_depth}')::integer,3)))
-          when 'unit_incompatible' then exists (select 1 from incompatible i where i.item_id = (o.part ->> 'item_id')::uuid)
-          else false end
-    )
+    -- Every stored part has a valid declaration and every declared part belongs
+    -- to the item. The whole item's reason describes the remaining parts. A
+    -- page choice may explain individual parts removed before that decision.
+    select 1 from omitted o where not exists(select 1 from checked c where c.part=o.part and c.valid)
+    union all select 1 from declared d where not exists(select 1 from checked c where c.excluded=d.excluded and c.valid)
+    union all select 1 from item_reasons i where not exists(
+      select 1 from checked c where c.omission=i.omission and c.valid and c.excluded->'reason'=i.omission->'reason'
+    ) or exists(select 1 from checked c where c.omission=i.omission and c.valid
+      and c.excluded->'reason'<>i.omission->'reason' and not (c.on_page and i.omission->>'reason' in ('entry_suspended','left_out')))
+    union all select 1 from item_reasons group by omission->'item_id' having count(*)<>1
   ) then
     raise exception 'TAKEOFF_ITEM_SEND_PREVIEW_STALE' using errcode = '40001',
       detail = jsonb_build_object('reason','item_changed')::text;
