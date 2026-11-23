@@ -116,6 +116,39 @@ select is(dblink_exec('analysis_links','commit'),'COMMIT','the genuine removal c
 select is((select count(*) from public.estimate_items where id='d5080000-0000-4000-8000-000000000043'),0::bigint,
   'the refused unit creation leaves no row');
 
+-- With only the copied empty section attributed, the source may go. Let its
+-- FK cleanup wait for the edited section row. The draft's NOWAIT guard must
+-- have passed the source job and link before that ordinary row wait.
+select is(dblink_exec('analysis_editor',$q$update public.estimate_items set source_job_id=null
+  where id=pg_temp.aid(41)$q$),'UPDATE 1','only the empty section still names the job');
+select is(dblink_exec('analysis_editor',$q$begin; update public.estimate_items set source_job_id=source_job_id
+  where id=pg_temp.aid(42)$q$),'UPDATE 1','the editor retains the empty section reference');
+select dblink_exec('analysis_editor','set constraints all immediate');
+create temp table analysis_pids as select name, pid from (values ('analysis_editor'),('analysis_links')) sessions(name)
+  cross join lateral dblink(name,'select pg_backend_pid()') as backend(pid integer);
+create function pg_temp.deletion_waits_for_section() returns boolean language plpgsql as $$
+declare
+  deleting integer := (select pid from analysis_pids where name='analysis_links');
+  editing integer := (select pid from analysis_pids where name='analysis_editor');
+begin
+  for attempt in 1..100 loop
+    if editing = any(pg_blocking_pids(deleting)) then return true; end if;
+    if dblink_is_busy('analysis_links')=0 then return false; end if;
+    perform pg_sleep(0.01);
+  end loop;
+  return false;
+end
+$$;
+select dblink_send_query('analysis_links',$q$delete from public.estimate_versions where id=pg_temp.aid(21) returning id$q$);
+select ok(pg_temp.deletion_waits_for_section(),'deletion waits for the section row held by the editor');
+select is(dblink_exec('analysis_editor','commit'),'COMMIT','the ordinary save commits during source removal');
+select results_eq($$select id from dblink_get_result('analysis_links',false) as removed(id uuid)$$,
+  $$values ('d5080000-0000-4000-8000-000000000021'::uuid)$$,'the source draft is deleted after the save');
+select * from dblink_get_result('analysis_links',false) as drained(id uuid);
+select results_eq($$select title,source_job_id from public.estimate_items
+  where id='d5080000-0000-4000-8000-000000000042'$$,$$values ('Autre lot'::text,null::uuid)$$,
+  'the empty section survives with its analysis cleared');
+
 select dblink_exec('analysis_links','reset role');
 select dblink_exec('analysis_links', $clean$
 do $fixtures$

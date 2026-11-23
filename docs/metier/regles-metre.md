@@ -872,7 +872,9 @@ décision et le refus à l'application.
   version détient cette analyse ou en a hérité. Dans une copie de section au moteur 2,
   la ligne garde ce lien si la version de destination détient l’analyse. Sinon, le badge
   de provenance conserve le fichier et la page disponibles, sans lien vers l’analyse.
-  La copie conserve la quantité et le prix.
+  La copie conserve la quantité et le prix. Dans une autre affaire, cette ligne compte
+  comme une ligne ordinaire. La page reste disponible pour le premier envoi d’un métré
+  de cette affaire, même si la version source est ensuite supprimée.
 - **Lecture.** `GET /api/takeoff/jobs/{jobId}/page-contributions?version_id=` (la
   version revue ; 404 si elle est illisible ou si le métré n'en fait pas partie), et
   `POST /api/takeoff/page-contributions` avant un lancement. Lecture seule, sous la
