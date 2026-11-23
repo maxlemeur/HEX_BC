@@ -488,6 +488,52 @@ reset role;
 insert into plans values ('first', pg_temp.plan(pg_temp.job(20, 1), null,
   jsonb_build_array(pg_temp.new_line(pg_temp.job(20, 1), 300, 3)),
   '[{"key": "list:", "title": "Métré", "parent_key": null, "parent_id": null}]'::jsonb, pg_temp.payload(700)), pg_temp.payload(700));
+-- On a first draft with one allowed section, a level below the section needs
+-- a depth choice. Both spellings below refer to the one unresolved building
+-- reading on the exact plan file. A saved choice narrows the key.
+create function pg_temp.level_exclusion(p_key text, p_building text, p_other_building boolean,
+  p_level text default 'RDC', p_source_matches boolean default true) returns boolean language plpgsql as $$
+declare
+  plan_ jsonb;
+  parts_ jsonb;
+  allowed boolean;
+begin
+  begin
+    set local session_replication_role = replica;
+    update public.takeoff_plan_locations set building_choice=p_building,
+      building=case when p_building='value' then 'A' end,level=p_level,
+      content_hash=case when p_source_matches then content_hash else repeat('0',64) end
+      where plan_file_id=pg_temp.f(100);
+    if p_other_building then
+      insert into public.takeoff_plan_locations(tenant_id,project_id,source_kind,source_id,content_hash,revision,
+        building_choice,building,building_set_by,building_set_at,building_set_revision,level_choice,level_set_by,
+        level_set_at,level_set_revision,plan_file_id,document_name,created_by,updated_by)
+      values(pg_temp.f(10),pg_temp.f(20),'plan_file',pg_temp.f(100),repeat('a',64),1,'value','B',pg_temp.f(1),now(),1,
+        'unknown',pg_temp.f(1),now(),1,pg_temp.f(100),'Ancienne lecture',pg_temp.f(1),pg_temp.f(1));
+    end if;
+    set local session_replication_role = origin;
+    select jsonb_set(jsonb_set(body,'{breakdown}','"by_level"'),'{dependencies,location_generation}','1') into plan_ from plans where name='first';
+    select jsonb_agg(p) into parts_ from private.takeoff_item_send_resolved_parts(pg_temp.f(10),pg_temp.f(20),pg_temp.job(20,1),array[2,7]) p;
+    allowed:=private.takeoff_item_send_exclusion_choice(plan_,parts_->0,parts_,'[]',jsonb_build_object(
+      'key','depth:'||pg_temp.f(300)||'|'||p_key,'choice','{"kind":"leave_out"}'::jsonb),'left_out',9,1);
+    raise exception using errcode='Z1000',message='restore the location';
+  exception when sqlstate 'Z1000' then null; end;
+  return allowed;
+end;
+$$;
+select is(pg_temp.level_exclusion(k,b,other,level,exact),ok,description)
+from (values
+  ('level:[null,"rdc"]','reading',false,'RDC',true,true,'no building read: the confirmed level stands alone'),
+  ('unallocated','reading',false,'RDC',true,true,'an unconfirmed building read puts the same level in unallocated'),
+  ('level:[null,"roof"]','reading',false,'RDC',true,false,'a different level is never a third reading result'),
+  ('level:[null,"rdc"]','reading',true,'RDC',true,false,'a confirmed building in the affaire rules out a level alone'),
+  ('unallocated','value',false,'RDC',true,false,'an explicit building and level form a known compartment'),
+  ('level:[null,"rdc"]','value',false,'RDC',true,false,'an explicit building cannot disappear from the level key'),
+  ('unallocated','unknown',false,'RDC',true,false,'an explicit unknown building with no building in the affaire resolves to the level alone'),
+  ('level:[null,"rdc"]','reading',false,'R+1',true,false,'another confirmed level rules out the old level'),
+  ('level:[null,"rdc"]','reading',false,'RDC',false,false,'a location on different file bytes cannot attest this level')
+) v(k,b,other,level,exact,ok,description);
+
 -- The writer is the server's: a member's session never calls it, nor submits a plan of its own.
 select pg_temp.sign_in(1);
 set local role authenticated;
@@ -2096,6 +2142,24 @@ insert into plans select 'wc_copy', jsonb_set(pg_temp.plan(pg_temp.job(22, 3), (
     'dpgf', jsonb_build_object('import_id', pg_temp.f(340), 'raw_row_id', null,
       'reference', private.takeoff_item_send_dpgf_reference(pg_temp.f(10), i.source_metadata))))
     from public.estimate_items i where i.id = (select id from copy22_line))), null;
+-- Classify the two new measured parts against their actual line in the copied draft.
+-- The ordinary confirmation below writes 3 + 5 to the WC. No conflict is offered.
+with facts as (
+  select body as plan, (select jsonb_agg(p) from private.takeoff_item_send_resolved_parts(
+    pg_temp.f(10), pg_temp.f(22), pg_temp.job(22,3), array[2,7]) p) as parts
+  from plans where name = 'wc_copy'
+), choices(action, suffix, choice, reason) as (values
+  ('breakdown','','leave_out','left_out'), ('verified-total','','leave_out','left_out'),
+  ('quantity','','leave_out','left_out'), ('quantity','|dpgf','leave_out','left_out'),
+  ('target','|dpgf','leave_out','left_out'), ('compartment','|dpgf','leave_out','left_out'),
+  ('depth','|dpgf','leave_out','left_out'), ('identity','|dpgf','leave_out','left_out'),
+  ('entry','|dpgf','leave_out','left_out'), ('entry','|dpgf','keep_entry','entry_suspended')
+)
+select is(private.takeoff_item_send_exclusion_choice(f.plan, p, f.parts, '[]', jsonb_build_object(
+    'key', c.action || ':' || pg_temp.f(320) || c.suffix, 'choice', jsonb_build_object('kind', c.choice)), c.reason, 9, 3),
+  false, format('a bound DPGF line offers no %s %s exclusion for its measured %s', c.action || c.suffix, c.choice, p ->> 'quantity'))
+from facts f cross join lateral jsonb_array_elements(f.parts) p cross join choices c;
+
 select pg_temp.sign_in(1);
 set local role authenticated;
 select is((pg_temp.send(795, 'wc_copy') ->> 'parts_replaced'), '2',

@@ -1017,160 +1017,283 @@ returns boolean language sql stable set search_path = '' as $$
 $$;
 revoke all on function private.takeoff_item_send_skip_rule(uuid,text,uuid) from public, anon, authenticated, service_role;
 
--- The member supplies a dialog choice. Check the case in which that choice
--- is offered against the same locked version, reading, scope and journal.
+-- Only the annotation for the sealed file and content hash supplies confirmed
+-- values. A PDF's unpersisted building suggestion can distinguish two keys
+-- only for a known level, a building left to reading and no confirmed building
+-- in this affaire. Keep NFC, accents and JSON quoting as itemSendCompartment does.
+create function private.takeoff_item_send_compartment_keys(p_job uuid,p_plan uuid,p_breakdown text,p_revision integer)
+returns text[] language sql stable set search_path = '' as $$
+  with source as (
+    select j.tenant_id,j.project_id,src.source_kind,src.source_id,d.document ->> 'content_hash' as hash
+    from public.takeoff_jobs j join public.takeoff_launch_requests r on r.id=j.launch_request_id
+    cross join lateral private.takeoff_item_send_plan_read(j,r.manifest) d
+    cross join lateral private.resolve_takeoff_plan_location_source(j.tenant_id,j.project_id,(d.document->>'plan_file_id')::uuid) src
+    where j.id=p_job and d.plan_entry->>'logical_id'=p_plan::text and exists (
+      select 1 from jsonb_array_elements(j.preparation_snapshot #> '{preparation,sources}') s
+      where s->>'document_id'=d.document->>'plan_file_id' and s->>'content_hash'=d.document->>'content_hash'
+        and s->>'kind'='plan' and s->'active'='true' and s->'confirmed'='true')
+  ), loc as (
+    select a.*,exists(select 1 from public.takeoff_plan_locations l where l.tenant_id=s.tenant_id
+      and l.project_id=s.project_id and l.building_choice='value') as affaire_has_building
+    from source s left join public.takeoff_plan_locations a on a.tenant_id=s.tenant_id and a.project_id=s.project_id
+      and a.source_kind=s.source_kind and a.source_id=s.source_id and a.content_hash=s.hash
+    where a.revision is not distinct from p_revision
+  ), keys as (
+    select loc.*,to_json(lower(btrim(regexp_replace(normalize(building,NFC),w.pattern,' ','g')) collate pg_catalog."und-x-icu"))::text as b,
+      to_json(lower(btrim(regexp_replace(normalize(level,NFC),w.pattern,' ','g')) collate pg_catalog."und-x-icu"))::text as l
+    from loc cross join (values ('[\t\n\v\f\r \u00A0\u1680\u2000-\u200A\u2028\u2029\u202F\u205F\u3000\uFEFF]+')) w(pattern)
+  )
+  select case when p_breakdown='together' then array['together'] else coalesce((select case
+    when p_breakdown='by_building' and b is not null then array['building:['||b||']']
+    when p_breakdown='by_level' and l is not null and b is not null then array['level:['||b||','||l||']']
+    when p_breakdown='by_level' and l is not null and not affaire_has_building and building_choice='unknown'
+      then array['level:[null,'||l||']']
+    when p_breakdown='by_level' and l is not null and not affaire_has_building and building_choice='reading'
+      then array['level:[null,'||l||']','unallocated']
+    else array['unallocated'] end from keys),case when p_revision is null then array['unallocated'] else '{}'::text[] end) end
+$$;
+revoke all on function private.takeoff_item_send_compartment_keys(uuid,uuid,text,integer) from public,anon,authenticated,service_role;
+
+-- Undecided overlaps for this exact part. The same list selects what still
+-- contributes to the item's quantity after its explicit page decisions.
+create function private.takeoff_item_send_waiting_pages(p_plan jsonb,p_part jsonb,p_held jsonb)
+returns text[] language sql immutable set search_path = '' as $$
+  select array(select 'page:'||coalesce(h->>'page','all') from jsonb_array_elements(p_held) h
+    where (h->>'page' is null or p_part->'pages'='[]' or p_part->'pages' @> jsonb_build_array(h->'page'))
+      and ((h->>'today')::boolean or exists(select 1 from jsonb_array_elements(h->'parts') hp
+        where (hp->>'item_id'=p_part->>'item_id' and hp->>'plan_key'=p_plan->>'plan_key') is not true))
+      and not exists(select 1 from jsonb_array_elements(p_plan->'page_decisions') d where d->'page'=h->'page'))
+$$;
+revoke all on function private.takeoff_item_send_waiting_pages(jsonb,jsonb,jsonb) from public,anon,authenticated,service_role;
+
+-- The dialog offers a choice only at the first applicable step for the item.
+-- rule_skip: the winning active skip rule on the sealed label, at the locked rule stamp.
+-- unit_incompatible: the retained units/bases disagree with one another or the sealed item.
+-- quantity:<item>: an individual retained quantity cannot fit numeric(12,3).
+-- verified-total:<item>: a partial reading would divide a live total of this plan,
+-- or a page replacement would take a verified total from another plan.
+-- page:<page>: this part overlaps a held page without a page decision; every
+-- other undecided overlap must also be explicitly left out.
+-- breakdown:<item>: an ordinary item has a live target of another breakdown.
+-- target:<key>: no unique free raw-row line of the item's DPGF import and no
+-- previously bound DPGF line; or ordinary live targets are ambiguous/claimed,
+-- or only a deleted ordinary line's live parts remain in this compartment.
+-- identity:<key>: the selected line's unit or a kept part's quantitative identity differs.
+-- compartment:<key>: another live line still carries this plan's part of the same item.
+-- depth:<key>: the new or explicitly recreated line's actual section path exceeds the draft limit.
+-- entry:<key>: the selected line differs from its expected prior quantity. keep_entry
+-- suspends only with a DPGF reference and a typed value below the retained total.
+-- quantity:<key>: the selected existing or new line's final quantity cannot fit numeric(12,3).
+-- The member supplies the key and choice; every branch below checks its place in this order.
 create function private.takeoff_item_send_exclusion_choice(p_plan jsonb,p_part jsonb,p_parts jsonb,
   p_held jsonb,p_resolution jsonb,p_reason text,p_page_count integer,p_max_depth integer)
 returns boolean language plpgsql stable set search_path = '' as $$
 declare
-  item uuid := (p_part ->> 'item_id')::uuid;
-  job_id_ uuid := (p_plan ->> 'job_id')::uuid;
-  version_ uuid := (p_plan #>> '{destination,version_id}')::uuid;
-  plan_ uuid := (p_plan ->> 'plan_key')::uuid;
-  key_ text := p_resolution ->> 'key';
-  choice_ text := p_resolution #>> '{choice,kind}';
-  action_ text := split_part(key_,':',1);
-  target_ text := substr(key_,length(action_)+2);
+  item uuid := (p_part->>'item_id')::uuid;
+  job_ uuid := (p_plan->>'job_id')::uuid;
+  version_ uuid := (p_plan#>>'{destination,version_id}')::uuid;
+  plan_ uuid := (p_plan->>'plan_key')::uuid;
+  key_ text := p_resolution->>'key';
+  choice_ text := p_resolution#>>'{choice,kind}';
+  target_key text;
   compartment text;
   entry_ public.takeoff_list_revision_entries;
   line_ public.estimate_items;
-  covered_ integer[];
-  unit_pages_ integer[] := array(select x::integer from jsonb_array_elements_text(p_plan #> '{dependencies,plan_pages}') x);
-  whole_ boolean;
-  counted boolean := p_part ->> 'kind' = 'verified_count';
-  with_dpgf boolean;
-  dpgf boolean;
-  added_ numeric;
-  unit_ text := private.takeoff_item_send_unit(p_part ->> 'unit');
-  basis_ text;
-  kept_ numeric;
-  prior_ numeric;
-  retained_ numeric;
-  expected_ numeric;
-  reference_ numeric;
-  legacy_ numeric;
-  protective_ numeric;
-  history_count integer;
+  unit_pages integer[] := array(select x::integer from jsonb_array_elements_text(p_plan#>'{dependencies,plan_pages}') x);
+  read_pages integer[];
+  covered integer[];
+  replaced_pages uuid[];
+  counted boolean := p_part->>'kind'='verified_count';
+  unit_ text; basis_ text; incompatible boolean; raw_invalid boolean;
+  waiting text[]; page_choices text[];
+  with_dpgf boolean; bound boolean;
+  choices jsonb := p_plan#>'{dependencies,resolutions}';
+  candidates uuid[]; offered_lines uuid[]; selected uuid; picked jsonb;
+  missing boolean; elsewhere boolean; incompatible_part boolean; cut_part boolean;
+  depth_ integer; added_ numeric; retained_ numeric; after_ numeric;
+  kept_ numeric; prior_ numeric; expected_ numeric; reference_ numeric; legacy_ numeric := 0; protective_ numeric := 0;
+  earlier_count integer;
 begin
-  if choice_ is distinct from (case when p_reason = 'entry_suspended' then 'keep_entry' else 'leave_out' end)
-      or (p_reason = 'entry_suspended' and action_ <> 'entry') then return false; end if;
-  if action_ = 'page' then
-    return exists (select 1 from jsonb_array_elements(p_held) h
-      where key_ = 'page:' || coalesce(h ->> 'page','all')
-        and (h ->> 'page' is null or p_part -> 'pages' = '[]' or p_part -> 'pages' @> jsonb_build_array(h -> 'page'))
-        and ((h ->> 'today')::boolean or exists (select 1 from jsonb_array_elements(h -> 'parts') hp
-          where (hp ->> 'item_id' = item::text and hp ->> 'plan_key' = plan_::text) is not true))
-        and not exists (select 1 from jsonb_array_elements(p_plan -> 'page_decisions') d where d -> 'page' = h -> 'page'));
+  if choice_ is distinct from (case p_reason when 'entry_suspended' then 'keep_entry' when 'left_out' then 'leave_out' end)
+    or choice_ is null then return false; end if;
+  select * into strict entry_ from public.takeoff_list_revision_entries e
+    where e.revision_id=(p_plan#>>'{list,revision_id}')::uuid and e.item_id=item;
+
+  select bool_or(q<=0 or q>999999999.999 or q<>round(q,3)), min(u),min(b),
+    bool_or(u is null) or count(distinct u)>1 or count(distinct b)>1
+      or coalesce(bool_or(u<>private.takeoff_item_send_unit(entry_.expected_unit)),false)
+      or coalesce(bool_or(b<>private.takeoff_item_send_folded(entry_.measurement_basis)),false)
+    into raw_invalid,unit_,basis_,incompatible
+    from (select (s->>'quantity')::numeric q,private.takeoff_item_send_unit(s->>'unit') u,
+      private.takeoff_item_send_folded(s->>'basis') b from jsonb_array_elements(p_parts) s where s->>'item_id'=item::text) quantities;
+  if raw_invalid then return key_='quantity:'||item and choice_='leave_out'; end if;
+  if incompatible then return false; end if;
+  select case when counted then unit_pages else a.searched_pages end into read_pages
+    from public.takeoff_item_answers a where a.id=(p_part->>'answer_id')::uuid;
+  if not private.takeoff_item_send_whole_plan(p_page_count,read_pages,read_pages) and exists(
+    select 1 from public.takeoff_item_send_parts p where p.version_id=version_ and p.item_id=item
+      and p.plan_logical_id=plan_ and p.state='live' and p.kind='verified_count') then
+    return key_='verified-total:'||item and choice_='leave_out';
   end if;
-  if split_part(target_,'|',1) <> item::text then return false; end if;
-  select e.* into strict entry_ from public.takeoff_list_revision_entries e
-    where e.revision_id = (p_plan #>> '{list,revision_id}')::uuid and e.item_id = item;
-  if action_ = 'breakdown' then
-    return target_ = item::text and exists (select 1 from public.takeoff_item_send_targets t
-      where t.version_id = version_ and t.item_id = item and t.estimate_item_id is not null and t.breakdown <> p_plan ->> 'breakdown');
+
+  waiting:=private.takeoff_item_send_waiting_pages(p_plan,p_part,p_held);
+  if cardinality(waiting)>0 then
+    page_choices:=array(select r->>'key' from jsonb_array_elements(choices || jsonb_build_array(p_resolution)) r
+      where r#>>'{choice,kind}'='leave_out');
+    return key_=any(waiting) and choice_='leave_out' and waiting <@ page_choices;
   end if;
-  select array(select distinct x from unnest(case when p_part ->> 'kind' = 'entered' then unit_pages_
-      when counted then private.takeoff_count_answer_scope(a) else a.searched_pages end) x
-    where not exists (select 1 from jsonb_array_elements(p_held) h
-      where (h ->> 'page' is null or (h ->> 'page')::integer = x)
-        and ((h ->> 'today')::boolean or exists (select 1 from jsonb_array_elements(h -> 'parts') hp
-          where (hp ->> 'item_id' = item::text and hp ->> 'plan_key' = plan_::text) is not true))
-        and not exists (select 1 from jsonb_array_elements(p_plan -> 'page_decisions') d where d -> 'page' = h -> 'page'))
-    union select (d ->> 'page')::integer from jsonb_array_elements(p_plan -> 'page_decisions') d
-      where d ->> 'decision' = 'replace' and d ->> 'page' is not null order by 1),
-    private.takeoff_item_send_whole_plan(p_page_count,case when counted then private.takeoff_count_answer_scope(a)
-      else a.searched_pages end,case when counted then private.takeoff_count_answer_scope(a) else a.searched_pages end)
-    into covered_,whole_ from public.takeoff_item_answers a where a.id = (p_part ->> 'answer_id')::uuid;
-  if action_ = 'verified-total' then
-    return target_ = item::text and exists (select 1 from public.takeoff_item_send_parts p
-      where p.version_id = version_ and p.item_id = item and p.state = 'live' and (
-        (p.plan_logical_id = plan_ and private.takeoff_item_send_count_scope(p.kind,p.pages,counted,covered_,
-          whole_ and private.takeoff_item_send_whole_plan(p_page_count,covered_,covered_)) = 'refuse')
-        or (p.kind = 'verified_count' and p.plan_logical_id <> plan_ and exists (
-          select 1 from jsonb_array_elements(p_held) h join jsonb_array_elements(p_plan -> 'page_decisions') d
-            on d -> 'page' = h -> 'page' and d ->> 'decision' = 'replace'
-          where (h ->> 'page' is null or p_part -> 'pages' = '[]' or p_part -> 'pages' @> jsonb_build_array(h -> 'page'))
-            and exists (select 1 from jsonb_array_elements(h -> 'parts') hp where hp ->> 'part_id' = p.id::text)))));
+  select sum((s->>'quantity')::numeric) into added_ from jsonb_array_elements(p_parts) s where s->>'item_id'=item::text
+    and cardinality(private.takeoff_item_send_waiting_pages(p_plan,s,p_held))=0;
+  select array(select pg from unnest(case when counted or p_part->>'kind'='entered' then unit_pages else read_pages end) pg
+    where cardinality(private.takeoff_item_send_waiting_pages(p_plan,p_part||jsonb_build_object('pages',jsonb_build_array(pg)),p_held))=0
+      and not exists(select 1 from jsonb_array_elements(p_parts) s where s->>'item_id'=item::text
+        and s->'pages' @> to_jsonb(pg) and cardinality(private.takeoff_item_send_waiting_pages(p_plan,s,p_held))>0)
+    union select (d->>'page')::integer from jsonb_array_elements(p_plan->'page_decisions') d
+      where d->>'decision'='replace' and d->>'page' is not null) into covered;
+  select array(select distinct (hp->>'part_id')::uuid from jsonb_array_elements(p_held) h
+    join jsonb_array_elements(p_plan->'page_decisions') d on d->'page'=h->'page' and d->>'decision'='replace'
+    cross join jsonb_array_elements(h->'parts') hp where hp->>'item_id'=item::text and exists(
+      select 1 from jsonb_array_elements(p_parts) s where s->>'item_id'=item::text
+        and cardinality(private.takeoff_item_send_waiting_pages(p_plan,s,p_held))=0
+        and (h->>'page' is null or s->'pages'='[]' or s->'pages' @> jsonb_build_array(h->'page')))) into replaced_pages;
+  if exists(select 1 from public.takeoff_item_send_parts p where p.version_id=version_ and p.item_id=item and p.state='live'
+      and ((p.plan_logical_id=plan_ and private.takeoff_item_send_count_scope(p.kind,p.pages,counted,covered,
+        private.takeoff_item_send_whole_plan(p_page_count,read_pages,covered))='refuse')
+      or (p.plan_logical_id<>plan_ and p.kind='verified_count' and p.id=any(replaced_pages)))) then
+    return key_='verified-total:'||item and choice_='leave_out';
   end if;
-  select sum((s ->> 'quantity')::numeric), min(private.takeoff_item_send_folded(s ->> 'basis')) into added_,basis_
-    from jsonb_array_elements(p_parts) s where s ->> 'item_id' = item::text;
-  if action_ = 'quantity' and target_ = item::text then
-    return exists (select 1 from jsonb_array_elements(p_parts) s
-      where s ->> 'item_id' = item::text and not private.takeoff_item_answer_is_number(s -> 'quantity',0.001,999999999.999,false))
-      or exists (select 1 from jsonb_array_elements(p_parts) s where s ->> 'item_id' = item::text
-        and (s ->> 'quantity')::numeric <> round((s ->> 'quantity')::numeric,3));
+
+  select count(*)>0,coalesce(bool_or(entry_.origin_kind='dpgf'
+    and lower(i.source_metadata->>'import_id')=lower(entry_.origin->>'importId')),false)
+  into with_dpgf,bound from public.estimate_items i
+  where i.version_id=version_ and i.item_type='line' and i.source_provider='dpgf';
+  if not bound and exists(select 1 from public.takeoff_item_send_targets t where t.version_id=version_
+    and t.item_id=item and t.estimate_item_id is not null and t.breakdown<>p_plan->>'breakdown') then
+    return key_='breakdown:'||item and choice_='leave_out';
   end if;
-  compartment := substr(target_,length(item::text)+2);
-  select exists (select 1 from public.estimate_items i where i.version_id = version_ and i.item_type = 'line' and i.source_provider = 'dpgf'),
-    entry_.origin_kind = 'dpgf' and exists (select 1 from public.estimate_items i where i.version_id = version_
-      and i.item_type = 'line' and i.source_provider = 'dpgf' and lower(i.source_metadata ->> 'import_id') = lower(entry_.origin ->> 'importId'))
-    into with_dpgf,dpgf;
-  if not (case when dpgf then compartment = 'dpgf' else case p_plan ->> 'breakdown' when 'together' then compartment = 'together'
-    when 'by_level' then compartment = 'unallocated' or compartment like 'level:%'
-    when 'by_building' then compartment = 'unallocated' or compartment like 'building:%' else false end end)
+  target_key:=substr(key_,strpos(key_,':')+1);
+  if split_part(target_key,'|',1)<>item::text then return false; end if;
+  compartment:=substr(target_key,length(item::text)+2);
+  if target_key<>item||'|'||compartment or not (compartment=any(case when bound then array['dpgf']
+    else private.takeoff_item_send_compartment_keys(job_,plan_,p_plan->>'breakdown',(p_plan#>>'{dependencies,location_generation}')::integer) end))
     then return false; end if;
-  if action_ = 'depth' then
-    return not dpgf and (case when with_dpgf then 1 + (jsonb_array_length(entry_.sections) > 0)::integer
-      else greatest(1,jsonb_array_length(entry_.sections)) end + (compartment <> 'together')::integer) > p_max_depth;
-  elsif action_ = 'compartment' then
-    return exists (select 1 from public.takeoff_item_send_parts p join public.takeoff_item_send_targets t on t.id = p.target_id
-      where p.version_id = version_ and p.item_id = item and p.plan_logical_id = plan_ and p.state = 'live'
-        and t.compartment_key <> compartment);
-  elsif action_ = 'target' then
-    if dpgf then
-      return not exists (select 1 from public.takeoff_item_send_targets t where t.version_id = version_ and t.item_id = item
-        and t.breakdown = 'dpgf' and t.estimate_item_id is not null)
-        and (select count(*) from public.read_estimate_dpgf_raw_rows(entry_.tenant_id,version_) l
-          where l.import_id::text = lower(entry_.origin ->> 'importId') and l.raw_row_id::text = lower(entry_.origin ->> 'rawRowId')
-            and not exists (select 1 from public.takeoff_item_send_targets t where t.version_id = version_
-              and t.estimate_item_id = l.estimate_item_id and t.item_id <> item)) <> 1;
+  select r->'choice' into picked from jsonb_array_elements(choices) r where r->>'key'='target:'||target_key;
+  if bound then
+    -- A live binding wins even if an extra copy of the raw row is present.
+    select t.estimate_item_id into selected from public.takeoff_item_send_targets t
+      where t.version_id=version_ and t.item_id=item and t.breakdown='dpgf' and t.estimate_item_id is not null;
+    if selected is null then
+      with free_lines as materialized (
+        select i.id,raw.raw_row_id from public.estimate_items i
+        left join public.read_estimate_dpgf_raw_rows(entry_.tenant_id,version_) raw on raw.estimate_item_id=i.id
+          and raw.import_id::text=lower(entry_.origin->>'importId')
+        where i.version_id=version_ and i.item_type='line' and i.source_provider='dpgf'
+          and lower(i.source_metadata->>'import_id')=lower(entry_.origin->>'importId')
+          and not exists(select 1 from public.takeoff_item_send_targets t where t.version_id=version_
+            and t.estimate_item_id=i.id and t.item_id<>item)
+      ), reserved as materialized (
+        -- The first scoped item with one proven free line for its raw row
+        -- claims that line before the planner visits the items' decisions.
+        select distinct on (f.id) f.id,e.item_id from free_lines f
+        join public.takeoff_list_revision_entries e on e.revision_id=entry_.revision_id and e.origin_kind='dpgf'
+          and lower(e.origin->>'importId')=lower(entry_.origin->>'importId') and lower(e.origin->>'rawRowId')=f.raw_row_id::text
+        join public.takeoff_item_answers a on a.job_id=job_ and a.item_id=e.item_id
+        where not exists(select 1 from public.takeoff_item_send_targets t where t.version_id=version_
+          and t.item_id=e.item_id and t.breakdown='dpgf' and t.estimate_item_id is not null)
+          and (select count(*) from free_lines other where other.raw_row_id=f.raw_row_id)=1
+        order by f.id,e.position
+      ), available as (
+        select f.* from free_lines f where not exists(select 1 from reserved r where r.id=f.id and r.item_id<>item)
+          and not exists(select 1 from jsonb_array_elements(choices) resolution
+            join public.takeoff_list_revision_entries e on e.revision_id=entry_.revision_id and e.position<entry_.position
+              and resolution->>'key'='target:'||e.item_id||'|dpgf'
+            where resolution#>>'{choice,kind}'='line' and resolution#>>'{choice,estimate_item_id}'=f.id::text
+              and exists(select 1 from jsonb_array_elements(p_parts) part where part->>'item_id'=e.item_id::text)
+              and exists(select 1 from jsonb_array_elements(p_plan->'targets') target
+                where target->>'item_id'=e.item_id::text and target#>>'{line,estimate_item_id}'=f.id::text))
+      )
+      select array(select id from available where raw_row_id::text=lower(entry_.origin->>'rawRowId')),
+        array(select f.id from available f join public.estimate_items i on i.id=f.id where private.takeoff_item_send_unit(i.unit_code)=unit_)
+        into candidates,offered_lines;
+      if cardinality(candidates)=1 then selected:=candidates[1];
+      else
+        if key_='target:'||target_key then return choice_='leave_out'; end if;
+        if cardinality(candidates)>1 then offered_lines:=candidates; end if;
+        selected:=private.takeoff_uuid_or_null(picked->'estimate_item_id');
+        if picked->>'kind' is distinct from 'line' or (selected=any(offered_lines)) is not true then return false; end if;
+      end if;
     end if;
-    return (select count(t.estimate_item_id) > 1 or (count(*) > 0 and count(t.estimate_item_id) = 0)
-      from public.takeoff_item_send_targets t where t.version_id = version_ and t.item_id = item and t.compartment_key = compartment);
+  else
+    select array(select t.estimate_item_id from public.takeoff_item_send_targets t where t.version_id=version_
+      and t.item_id=item and t.compartment_key=compartment and t.estimate_item_id is not null) into candidates;
+    if cardinality(candidates)=1 then selected:=candidates[1];
+    elsif cardinality(candidates)>1 then
+      if key_='target:'||target_key then return choice_='leave_out'; end if;
+      selected:=private.takeoff_uuid_or_null(picked->'estimate_item_id');
+      if picked->>'kind' is distinct from 'line' or (selected=any(candidates)) is not true then return false; end if;
+    end if;
   end if;
-  -- A line is this item's existing target, a selected line of its DPGF import,
-  -- or the line independently proven by that import's raw-row lineage.
-  for line_ in select i.* from public.estimate_items i where i.version_id = version_ and i.item_type = 'line'
-    and not exists (select 1 from public.takeoff_item_send_targets t where t.estimate_item_id = i.id and t.item_id <> item)
-    and (exists (select 1 from public.takeoff_item_send_targets t where t.item_id = item and t.estimate_item_id = i.id
-        and t.compartment_key = compartment)
-      or (dpgf and i.source_provider = 'dpgf' and lower(i.source_metadata ->> 'import_id') = lower(entry_.origin ->> 'importId')
-        and (exists (select 1 from public.read_estimate_dpgf_raw_rows(entry_.tenant_id,version_) l
-          where l.estimate_item_id = i.id and l.raw_row_id::text = lower(entry_.origin ->> 'rawRowId'))
-        or exists (select 1 from jsonb_array_elements(p_plan #> '{dependencies,resolutions}') r
-          where r ->> 'key' = 'target:' || target_ and r #>> '{choice,kind}' = 'line' and r #>> '{choice,estimate_item_id}' = i.id::text))))
-  loop
-    select coalesce(sum(p.quantity),0),coalesce(sum(p.quantity) filter (where p.plan_logical_id <> plan_
-      or (not (p.pages <@ covered_) or (cardinality(p.pages) = 0 and not (unit_pages_ <@ covered_)))),0),count(*)
-      into prior_,kept_,history_count from public.takeoff_item_send_parts p join public.takeoff_item_send_targets t on t.id = p.target_id
-      where t.estimate_item_id = line_.id and t.item_id = item and p.state = 'live';
-    if action_ = 'identity' then
-      if private.takeoff_item_send_unit(line_.unit_code) is distinct from unit_ or exists (
-        select 1 from public.takeoff_item_send_parts p join public.takeoff_item_send_targets t on t.id = p.target_id
-        where t.estimate_item_id = line_.id and t.item_id = item and p.state = 'live'
-          and (p.plan_logical_id <> plan_ or not (p.pages <@ covered_) or (cardinality(p.pages) = 0 and not (unit_pages_ <@ covered_)))
-          and (p.unit_code,p.basis,p.network,p.material,p.diameter) is distinct from (unit_,
-            coalesce(basis_,private.takeoff_item_send_folded(entry_.measurement_basis)),private.takeoff_item_send_folded(entry_.qualifiers ->> 'network'),
-            private.takeoff_item_send_folded(entry_.qualifiers ->> 'material'),private.takeoff_item_send_diameter(entry_.qualifiers ->> 'diameter'))) then return true; end if;
+  select exists(select 1 from public.takeoff_item_send_parts p join public.takeoff_item_send_targets t on t.id=p.target_id
+    where p.version_id=version_ and p.item_id=item and p.plan_logical_id=plan_ and p.state='live'
+      and t.estimate_item_id is not null and t.estimate_item_id is distinct from selected) into elsewhere;
+  if selected is null then
+    if bound then return false; end if;
+    if elsewhere then return key_='compartment:'||target_key and choice_='leave_out'; end if;
+    select exists(select 1 from public.takeoff_item_send_targets t join public.takeoff_item_send_parts p on p.target_id=t.id and p.state='live'
+      where t.version_id=version_ and t.item_id=item and t.breakdown=p_plan->>'breakdown'
+        and t.compartment_key=compartment and t.estimate_item_id is null) into missing;
+    if missing then
+      if key_='target:'||target_key then return choice_='leave_out'; end if;
+      if picked->>'kind' is distinct from 'new_line' then return false; end if;
     end if;
-    reference_ := null; legacy_ := 0; protective_ := 0;
-    if dpgf then
-      reference_ := private.takeoff_item_send_dpgf_reference(entry_.tenant_id,line_.source_metadata);
-      select coalesce(sum(l.quantity),0),coalesce(sum(l.protective),0),history_count + count(*) into legacy_,protective_,history_count
-        from private.takeoff_item_send_legacy_dpgf_parts(line_.source_metadata,job_id_) l;
+    depth_:=(case when with_dpgf then 1+(jsonb_array_length(entry_.sections)>0)::integer
+      else greatest(1,jsonb_array_length(entry_.sections)) end)+(compartment<>'together')::integer;
+    if depth_>p_max_depth then return key_='depth:'||target_key and choice_='leave_out'; end if;
+    after_:=private.takeoff_item_send_rounded(added_,private.takeoff_item_send_length_factor(unit_));
+  else
+    select * into strict line_ from public.estimate_items i where i.id=selected and i.version_id=version_ and i.item_type='line';
+    if not bound and exists(select 1 from public.takeoff_item_send_targets t where t.estimate_item_id=selected and t.item_id<>item) then
+      return key_='target:'||target_key and choice_='leave_out';
     end if;
-    retained_ := private.takeoff_item_send_composed(reference_,kept_ + legacy_ + added_,protective_,private.takeoff_item_send_length_factor(line_.unit_code));
-    expected_ := case when history_count = 0 then reference_ else private.takeoff_item_send_composed(reference_,
-      prior_ + legacy_,protective_,private.takeoff_item_send_length_factor(line_.unit_code)) end;
-    if action_ = 'entry' and round(line_.quantity,4) <> round(coalesce(expected_,0),4)
-      and (choice_ = 'leave_out' or (reference_ is not null and line_.quantity < retained_)) then return true; end if;
-    if action_ = 'quantity' and (retained_ > 999999999.999 or retained_ <= 0 or round(retained_,3) <> retained_) then return true; end if;
-  end loop;
-  if action_ = 'quantity' then
-    retained_ := private.takeoff_item_send_rounded(added_,private.takeoff_item_send_length_factor(unit_));
-    return retained_ > 999999999.999 or retained_ <= 0 or round(retained_,3) <> retained_;
+    with history as (
+      select p.*,p.id=any(replaced_pages) or (p.plan_logical_id=plan_ and (p.kind='verified_count'
+        or case when cardinality(p.pages)>0 then p.pages <@ covered else unit_pages <@ covered end)) as replaced
+      from public.takeoff_item_send_parts p join public.takeoff_item_send_targets t on t.id=p.target_id
+      where p.version_id=version_ and p.item_id=item and p.state='live' and t.estimate_item_id=selected
+    )
+    select count(*),coalesce(sum(quantity),0),coalesce(sum(quantity) filter(where not replaced),0),
+      bool_or(plan_logical_id=plan_ and kind<>'verified_count' and pages && covered and not (pages <@ covered)),
+      bool_or(not replaced and (unit_code,basis,network,material,diameter) is distinct from
+        (unit_,coalesce(basis_,private.takeoff_item_send_folded(entry_.measurement_basis)),
+         private.takeoff_item_send_folded(entry_.qualifiers->>'network'),private.takeoff_item_send_folded(entry_.qualifiers->>'material'),
+         private.takeoff_item_send_diameter(entry_.qualifiers->>'diameter')))
+      into earlier_count,prior_,kept_,cut_part,incompatible_part from history;
+    if cut_part then return false; end if;
+    if incompatible_part then return key_='identity:'||target_key and choice_='leave_out'; end if;
+    if elsewhere then return key_='compartment:'||target_key and choice_='leave_out'; end if;
+    if private.takeoff_item_send_unit(line_.unit_code) is distinct from unit_ then
+      return key_='identity:'||target_key and choice_='leave_out';
+    end if;
+    if bound then
+      reference_:=private.takeoff_item_send_dpgf_reference(entry_.tenant_id,line_.source_metadata);
+      select earlier_count+count(*),coalesce(sum(l.quantity),0),coalesce(sum(l.protective),0) into earlier_count,legacy_,protective_
+        from private.takeoff_item_send_legacy_dpgf_parts(line_.source_metadata,job_) l;
+    end if;
+    expected_:=case when earlier_count=0 then reference_ else private.takeoff_item_send_composed(reference_,
+      prior_+legacy_,protective_,private.takeoff_item_send_length_factor(line_.unit_code)) end;
+    retained_:=private.takeoff_item_send_composed(reference_,kept_+legacy_+added_,protective_,private.takeoff_item_send_length_factor(line_.unit_code));
+    after_:=retained_;
+    if round(line_.quantity,4)<>round(coalesce(expected_,0),4) then
+      if key_='entry:'||target_key then return choice_='leave_out' or (choice_='keep_entry' and reference_ is not null and line_.quantity<retained_); end if;
+      select r->'choice' into picked from jsonb_array_elements(choices) r where r->>'key'='entry:'||target_key;
+      if picked->>'kind'='keep_entry' then
+        if reference_ is not null and line_.quantity<retained_ then return false; end if;
+        after_:=line_.quantity;
+      elsif picked->>'kind' is distinct from 'use_retained' then return false; end if;
+    end if;
   end if;
-  return false;
+  return key_='quantity:'||target_key and choice_='leave_out' and
+    (after_<=0 or after_>999999999.999 or after_<>round(after_,3));
 end;
 $$;
 revoke all on function private.takeoff_item_send_exclusion_choice(jsonb,jsonb,jsonb,jsonb,jsonb,text,integer,integer)
