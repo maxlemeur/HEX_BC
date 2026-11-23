@@ -697,5 +697,76 @@ select results_eq($$select line ->> 'title', line ->> 'unit', line ? 'unitless_s
 select is(private.takeoff_send_line_unit(3::smallint, null, 'Texte libre'), null::text,
   'an engine 3 line without a unit code has no unit, whatever its description says');
 
+
+-- Two readings of the same page. Engine 2 previously lost the job when the owner deleted
+-- the source: a send without a page decision could then count three washbasins as six.
+select pg_temp.affaire(950, 12, 6, 'Copie de la page');
+select pg_temp.plan(951, 952, 950, 12);
+select pg_temp.prepare(950, 12, 6, 952, 1);
+select pg_temp.admit(953, 950, 951, 12, 6);
+select pg_temp.measure(954, 953, 12, 952, 'Lavabo', 3, 'u');
+select pg_temp.prepare(950, 12, 6, 952, 2);
+select pg_temp.admit(955, 950, 951, 12, 6);
+select pg_temp.measure(956, 955, 12, 952, 'Lavabo', 3, 'u');
+drop table if exists pg_temp._takeoff_apply_source, pg_temp._takeoff_apply_created_ids,
+  pg_temp._takeoff_apply_matches, pg_temp._takeoff_apply_unmatched;
+insert into commands values ('source-to-copy', pg_temp.command(953, pg_temp.first_draft(957, 2), pg_temp.new_section(958)));
+select pg_temp.sign_in(6);
+set local role authenticated;
+select pg_temp.confirm('source-to-copy');
+set constraints all immediate;
+set constraints all deferred;
+create temp table page_copy as select public.duplicate_estimate_version(pg_temp.fx(957), false) as id;
+savepoint before_source_removal;
+select throws_like($$delete from public.estimate_versions where id = pg_temp.fx(957)$$,
+  '%ESTIMATE_DRAFT_TAKEOFF_IN_USE%', 'the original draft stays while its copy holds the measured lines');
+reset role;
+select is((select (private.takeoff_page_contributions(id, pg_temp.fx(955)) ->> 'other_takeoff_line_count')::int from page_copy),
+  1, 'the second reading still sees the three washbasins already held on its page');
+drop table if exists pg_temp._takeoff_apply_source, pg_temp._takeoff_apply_created_ids,
+  pg_temp._takeoff_apply_matches, pg_temp._takeoff_apply_unmatched;
+insert into public.draft_locks(version_id, user_id, tenant_id, expires_at, session_id)
+select id, pg_temp.fx(6), pg_temp.fx(12), now() + interval '30 minutes', gen_random_uuid() from page_copy;
+insert into commands select 'same-page-copy', pg_temp.command(955, jsonb_build_object('kind','existing_draft','version_id',id),
+  pg_temp.new_section(959)) from page_copy;
+set local role authenticated;
+create temp table repeated_page_preview as
+select pg_temp.run(body || jsonb_build_object('request_id', gen_random_uuid())) as preview
+from commands where name = 'same-page-copy';
+select is((select preview #>> '{error,code}' from repeated_page_preview), 'TAKEOFF_PAGE_ALREADY_APPLIED',
+  'the second send tells the owner that the page is already in the estimate');
+select pg_temp.confirm('same-page-copy', preview->'outcome')
+from repeated_page_preview where preview ? 'outcome';
+reset role;
+select results_eq($$select count(*),sum(quantity) from public.estimate_items
+  where version_id = (select id from page_copy) and item_type = 'line'$$,
+  $$values (1::bigint,3::numeric)$$,'the copy holds exactly three washbasins');
+
+
+rollback to before_source_removal;
+reset role;
+
+-- Foreign references are not dependencies of this affaire. Seed the two out-of-scope
+-- references as the fixture owner; the DELETE itself is still the original engineer's.
+select pg_temp.affaire(960,10,1,'Autre entreprise');
+insert into public.estimate_versions(id,tenant_id,project_id,version_number,status,calc_engine_version,margin_multiplier,tax_rate_bp)
+values(pg_temp.fx(961),pg_temp.fx(10),pg_temp.fx(960),1,'draft',2,1,0);
+insert into public.estimate_items(tenant_id,version_id,item_type,position,title)
+select tenant_id,id,'section',99,'Lot témoin' from public.estimate_versions where id in (pg_temp.fx(120),pg_temp.fx(961));
+insert into public.estimate_items(tenant_id,version_id,parent_id,item_type,position,title,source_job_id,quantity,
+  unit_price_ht_cents,tax_rate_bp,k_fo,h_mo,k_mo,pu_ht_cents,line_total_ht_cents,line_tax_cents,line_total_ttc_cents)
+select tenant_id,version_id,id,'line',1,'Ligne témoin',pg_temp.fx(953),1,0,0,1,0,1,0,0,0,0
+from public.estimate_items where version_id in (pg_temp.fx(120),pg_temp.fx(961)) and item_type='section' and position=99;
+select is((select count(*) from public.estimate_items where version_id in (pg_temp.fx(120), pg_temp.fx(961))
+  and source_job_id=pg_temp.fx(953)), 2::bigint, 'two out-of-scope lines name the job');
+select pg_temp.sign_in(6);
+set local role authenticated;
+delete from public.estimate_versions where id=(select id from page_copy);
+with removed as (
+  delete from public.estimate_versions where id = pg_temp.fx(957) returning id
+)
+select is(count(*), 1::bigint, 'neither another affaire nor another tenant holds the source') from removed;
+reset role;
+
 select * from finish();
 rollback;

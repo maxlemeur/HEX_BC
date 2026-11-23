@@ -701,6 +701,12 @@ select is(
   'fixture: S2, S5 and the freshness version are created as v3 drafts by the canonical RPC (M4)'
 );
 
+-- S2 will be issued through the normal workflow below. Give it a draft parent
+-- before its identity, document and seal are captured.
+update public.estimate_versions
+set parent_version_id = 'a3270000-0000-4000-8000-000000000170', variant_label = 'A'
+where id = 'a3270000-0000-4000-8000-000000000120';
+
 select is(
   (
     select array_agg(concat_ws('|', version.calc_engine_version, version.gross_ht_cents, version.discount_applied_cents,
@@ -1330,6 +1336,12 @@ select is(
   'ok',
   'F27-19 the frozen S2 v3 with its contract 2 document is issued manually under seal marker 5'
 );
+
+select matches(pg_temp.v3_probe(array[
+  'set local request.jwt.claim.sub = ''a3270000-0000-4000-8000-000000000001''',
+  'set local role authenticated',
+  'delete from public.estimate_versions where id = ''a3270000-0000-4000-8000-000000000170'''
+]), 'PGRST .*ESTIMATE_DRAFT_ISSUED_VARIANT.*', 'the owner learns why the issued variant needs its draft parent');
 
 select is(
   pg_temp.v3_probe(array['set local role service_role'], $a$
