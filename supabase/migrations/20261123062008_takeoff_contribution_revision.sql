@@ -3243,6 +3243,15 @@ begin
     if line.id is null then
       blockers:=blockers||jsonb_build_array(jsonb_build_object('reason','part_not_isolated','item_id',item,'target_id',current_target)); continue;
     end if;
+    -- The target remembers the unit at send time. A subsequent editor save can
+    -- change the physical line, including after redistribution or on a copy.
+    if private.takeoff_item_send_unit(line.unit_code) is distinct from target.unit_code then
+      blockers:=blockers||jsonb_build_array(jsonb_build_object('reason','line_unit_changed','item_id',item,
+        'line_id',line.id,'title',line.title,'unit_code',line.unit_code,'contribution_unit',target.unit_code,
+        'message',format('La ligne « %s » est en %s. Son apport est en %s. Vérifiez son unité dans le devis avant de confirmer.',
+          line.title,coalesce(line.unit_code,'unité inconnue'),target.unit_code)));
+      continue;
+    end if;
     if source_<>'withdraw' and exists(select 1 from jsonb_array_elements(change->'parts') f
         where private.takeoff_item_send_unit(f->>'unit') is distinct from target.unit_code or
           (private.takeoff_item_send_folded(f->>'basis') is not null and
@@ -3299,7 +3308,7 @@ begin
     end if;
     actions:=actions||jsonb_build_array(jsonb_build_object('action',action,'item_id',item,'target_id',target.id,
       'estimate_item_id',line.id,'title',line.title,'quantity_before',line.quantity,'quantity_after',after_qty,
-      'earlier_parts',own_ids,'parts',change->'parts','unit_code',target.unit_code,'price_cents',line.unit_price_ht_cents,
+      'earlier_parts',own_ids,'parts',change->'parts','unit_code',line.unit_code,'price_cents',line.unit_price_ht_cents,
       'kept_quantity',keep_sum,'kept_parts',kept_parts,'breakdown',target.breakdown,'compartment',target.compartment_key,'updated_at',line.updated_at));
   end loop;
   if exists(select 1 from jsonb_each_text(p_choices->'lines') l

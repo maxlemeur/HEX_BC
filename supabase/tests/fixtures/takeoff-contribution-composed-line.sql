@@ -1,6 +1,8 @@
 -- A member sends A's three verified objects. The two units from plan B are a
 -- persisted journal fixture. Keep B's complete part and the price inputs and
 -- compare them after removing exactly one of A's three marks.
+\ir takeoff-revision-line-unit.sql
+
 create function pg_temp.composed_revision(scenario text) returns jsonb language plpgsql as $$
 declare
   tenant_ uuid:=pg_temp.tenant(); project_ uuid:=pg_temp.f(21); actor_ uuid:=pg_temp.f(1);
@@ -52,10 +54,10 @@ begin
     update public.estimate_items set quantity=5 where id=target.estimate_item_id;
     perform public.estimate_v3_complete_entry_for_writer(version_,array[target.estimate_item_id]);
     perform set_config('mergeone.takeoff_item_send','',true);
-    if scenario='copy' then version_:=public.duplicate_estimate_version(version_,false); end if;
+    if scenario in ('copy','unit_copy') then version_:=public.duplicate_estimate_version(version_,false); end if;
     insert into public.draft_locks(version_id,user_id,tenant_id,expires_at,session_id)
       values(version_,actor_,tenant_,clock_timestamp()+interval '15 minutes',gen_random_uuid());
-    if scenario='redistributed' then
+    if scenario in ('redistributed','unit_redistributed') then
       docs:=public.read_takeoff_item_redistribution_documents(tenant_,actor_,project_,version_,item_,true);
       select docs||jsonb_build_object('parts',jsonb_object_agg(e.key,jsonb_build_object('source',e.value,'available',true,
         'key','level:[null,"rdc"]','label','RDC','building_state','unknown','level_state','confirmed'))) into locations from jsonb_each(docs->'parts') e;
@@ -67,7 +69,7 @@ begin
     head:=part.receipt_id;
     select * into strict target from public.takeoff_item_send_targets where id=part.target_id;
     perform set_config('miaouffrage.estimate_v3_writer',version_::text,true);
-    update public.estimate_items set unit_price_ht_cents=1234,
+    update public.estimate_items set unit_price_ht_cents=case when scenario in ('unit_source','unit_copy','unit_redistributed') then 0 else 1234 end,
       quantity=case when scenario in ('keep_entry','use_retained') then 9 else quantity end where id=target.estimate_item_id;
     perform public.estimate_v3_complete_entry_for_writer(version_,array[target.estimate_item_id]);
     select to_jsonb(i)-ignore_cols,i.quantity into line_data,before_qty from public.estimate_items i where id=target.estimate_item_id;
@@ -80,6 +82,25 @@ begin
       jsonb_build_object('work_revision',0,'marks_revision',private.takeoff_count_marks_revision(answer_),'answer_revision',part.answer_revision,
       'plan_entry_revision',null),'{"source":"verified_count"}');
     preview_:=public.preview_takeoff_contribution_revision(tenant_,actor_,project_,version_,head,true,'{}');
+    if scenario in ('unit_source','unit_copy','unit_redistributed') then
+      perform pg_temp.change_line_unit(target.estimate_item_id,'ml');
+      declare
+        old_digest text:=preview_->>'digest'; blocked jsonb; stale text; refusal text;
+      begin
+        preview_:=public.preview_takeoff_contribution_revision(tenant_,actor_,project_,version_,head,true,'{}');
+        blocked:=preview_#>'{blockers,0}';
+        begin perform public.confirm_takeoff_contribution_revision(tenant_,actor_,project_,version_,head,true,
+          pg_temp.f(9322),old_digest,'{}'); exception when others then stale:=sqlerrm; end;
+        begin perform public.confirm_takeoff_contribution_revision(tenant_,actor_,project_,version_,head,true,
+          pg_temp.f(9322),preview_->>'digest','{}'); exception when others then refusal:=sqlerrm; end;
+        select jsonb_build_array(blocked->'reason',blocked->>'line_id'=i.id::text,blocked->>'title'=i.title,
+          blocked->'unit_code',length(blocked->>'message')>0,stale,refusal,i.quantity,i.unit_code,
+          exists(select 1 from public.takeoff_item_send_parts p where p.id=part.id and p.quantity=3 and p.state='live'),
+          (select count(*) from public.takeoff_item_send_receipts r where r.amends_receipt_id=head))
+          into result_ from public.estimate_items i where i.id=target.estimate_item_id;
+        raise exception using errcode='P4444';
+      end;
+    end if;
     if scenario in ('keep_entry','use_retained') then
       if preview_#>'{blockers,0}' @> '{"reason":"typed_line","entered":9,"retained":4}' is not true then
         raise exception 'both amounts must be shown before choosing';
@@ -116,3 +137,8 @@ from (values ('source'),('redistributed'),('copy')) cases(scenario);
 select is(pg_temp.composed_revision(choice),jsonb_build_array(9,expected,expected,1234,true,true,3,2,true,true),
   'a typed nine requires an explicit line choice: '||choice)
 from (values ('keep_entry',9),('use_retained',4)) cases(choice,expected);
+
+select is(pg_temp.composed_revision(scenario),
+  '["line_unit_changed",true,true,"ml",true,"TAKEOFF_REVISION_STALE","TAKEOFF_REVISION_DECISION_REQUIRED",5,"ml",true,0]'::jsonb,
+  scenario||': changing the current line to metres blocks the count, preserves its part and names the physical line')
+from (values ('unit_source'),('unit_redistributed'),('unit_copy')) cases(scenario);

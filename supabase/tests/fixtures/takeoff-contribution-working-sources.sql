@@ -254,3 +254,7 @@ $$;
 select is(pg_temp.revision_rights(variant),jsonb_build_array(code,code,code,0,editable),
   format('working marks, revision preview and confirmation recheck %s with zero receipts written',variant))
 from (values ('tenant','42501',null::boolean),('affaire','42501',null),('viewer','42501',null),('issued','55000',false)) cases(variant,code,editable);
+
+select is(pg_temp.length_to_count_line(),
+  '["line_unit_changed",true,"u","TAKEOFF_REVISION_DECISION_REQUIRED",1,1,"m","live"]'::jsonb,
+  'changing a length line to a count blocks the measured replacement under the same unit rule');
