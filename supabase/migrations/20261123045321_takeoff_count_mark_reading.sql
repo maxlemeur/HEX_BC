@@ -102,7 +102,7 @@ begin
     or not private.takeoff_item_remeasure_confirmation_valid(p_confirmation) then
     raise exception 'TAKEOFF_ITEM_REMEASURE_INVALID' using errcode = '22023';
   end if;
-  requested_page := (p_confirmation ->> 'page')::integer;
+  requested_page := (p_confirmation ->> 'page')::numeric::integer;
   if schedule is not null then
     select jsonb_agg(s -> 'page' order by (s ->> 'page')::numeric) into schedule_pages
     from jsonb_array_elements(schedule -> 'pages') s;
@@ -113,6 +113,8 @@ begin
       and (p_manifest #> '{plans,0,pages}') @> schedule_pages) end) then
       raise exception 'TAKEOFF_MARKS_SCOPE_INVALID' using errcode = '22023';
     end if;
+    schedule := schedule || jsonb_build_object('tile_calls',(schedule ->> 'tile_calls')::numeric::integer,
+      'other_calls',(schedule ->> 'other_calls')::numeric::integer,'total_calls',(schedule ->> 'total_calls')::numeric::integer);
     p_snapshot := p_snapshot || jsonb_build_object('remeasure_count_marks',schedule);
   end if;
   -- Each item asked is an entry of the revision the order seals, a revision of this affaire (revisions never change).

@@ -788,7 +788,7 @@ create function pg_temp.mark_option(widths numeric[], pages integer[], tile_call
 language sql immutable as $$
   select jsonb_build_object('count_marks', jsonb_build_object('pages', (select jsonb_agg(
     jsonb_build_object('page', p, 'width_points', w) order by ord) from unnest(pages, widths) with ordinality s(p,w,ord)),
-    'tile_calls', tile_calls, 'other_calls', 2, 'total_calls', tile_calls + 2))
+    'tile_calls', tile_calls, 'other_calls', 2.0, 'total_calls', tile_calls + 2))
 $$;
 select ok(private.takeoff_item_remeasure_confirmation_valid(pg_temp.detail_confirm(null) ||
   pg_temp.mark_option(array[700,701,700,701,700], array[1,2,3,4,5], 24)), '24 calls on mixed widths fit exactly');
@@ -824,7 +824,7 @@ select is(pg_temp.reserve_mark_call('tile:2:2'),'TILE_IN_FLIGHT','another tile c
 select is(pg_temp.reserve_mark_call('tile:2:1'),'TILE_ALREADY_ATTEMPTED','an outstanding tile cannot be sent twice');
 select remaining_tokens from public.record_takeoff_launch_usage(pg_temp.job(14,pg_temp.plan(1)),pg_temp.f(916),'tile:2:1',100,0) \gset
 select is(pg_temp.reserve_mark_call('tile:2:1'),'TILE_ALREADY_ATTEMPTED','a settled tile cannot be retried');
-select is(pg_temp.reserve_mark_call('call:1','pdf'),'reserved','the first ordinary read fits alongside the tiles');
+select is(pg_temp.reserve_mark_call('call:1','pdf'),'reserved','the first ordinary reservation accepts the integral 2.0 from the confirmation');
 select is(pg_temp.reserve_mark_call('call:2','vector_group'),'reserved','the second ordinary read fits the shown bound');
 select is(pg_temp.reserve_mark_call('call:3','pdf'),'BUDGET_EXHAUSTED','a third ordinary read exceeds the confirmed total');
 select remaining_tokens from public.record_takeoff_launch_usage(pg_temp.job(14,pg_temp.plan(1)),pg_temp.f(916),'call:1',100,0) \gset
