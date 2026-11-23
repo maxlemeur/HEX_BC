@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { Toast as ToastPrimitive } from "@base-ui/react/toast";
 import { CircleCheckIcon, InfoIcon, OctagonXIcon, TriangleAlertIcon } from "lucide-react";
+import Link from "next/link";
 
 import { ToastClose, ToastDescription, ToastPortal, ToastTitle, ToastViewport } from "@/components/ui/toast";
 import type { PendingToast, ToastController, ToastVariant } from "@/components/feedback/toast-provider";
@@ -15,6 +16,8 @@ const variants = {
   info: { icon: InfoIcon, color: "text-info" },
 };
 type RendererProps = { connect: (controller: ToastController | null) => void };
+const isAction = (value: unknown): value is { label: string; href: string } => typeof value === "object" && value !== null
+  && typeof (value as { label?: unknown }).label === "string" && typeof (value as { href?: unknown }).href === "string";
 
 function Notifications({ connect }: RendererProps) {
   const { add, close, toasts } = ToastPrimitive.useToastManager();
@@ -33,6 +36,7 @@ function Notifications({ connect }: RendererProps) {
         id: next.id,
         title: next.title,
         description: next.description,
+        data: next.action,
         type: variant,
         timeout: next.durationMs ?? 4000,
         priority: variant === "error" || variant === "warning" ? "high" : "low",
@@ -75,6 +79,9 @@ function Notifications({ connect }: RendererProps) {
           <div className="min-w-0 flex-1 space-y-1">
             <ToastTitle className="font-semibold" />
             {notification.description ? <ToastDescription /> : null}
+            {isAction(notification.data) ? (
+              <Link href={notification.data.href} className="text-sm font-medium underline underline-offset-2">{notification.data.label}</Link>
+            ) : null}
           </div>
           <ToastClose />
         </ToastPrimitive.Root>;

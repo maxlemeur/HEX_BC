@@ -355,6 +355,15 @@ describe("planTakeoffItemSend — DPGF targets and entries", () => {
       options: [expect.objectContaining({ estimateItemId: lineId(20) }), expect.objectContaining({ estimateItemId: lineId(24) }), { kind: "leave_out" }] })]);
   });
 
+  // Review of #499, round two, point 1: the question names the line typed by hand, so that the member's choice is bound to
+  // that line (two proven lines of one raw row can ask the same question with the same quantities).
+  it("names the line a question about a quantity typed by hand is about", () => {
+    const typed = dpgfLine(20, "mapped-20", "raw-20", 4, { quantity: 9 });
+    const plan = planTakeoffItemSend(input({ items: [ef], answers: [measured(ef, [{ quantity: 5, page: 1 }])], destination: draft([typed]) }));
+    expect(plan.toResolve[0]).toEqual(expect.objectContaining({ kind: "entered_quantity",
+      earlierLines: [{ estimateItemId: lineId(20), title: typed.title, quantity: 9 }] }));
+  });
+
   it("keeps the reference, the entered value, the measure and the quantity retained apart on a line typed by hand", () => {
     const typed = dpgfLine(20, "mapped-20", "raw-20", 4, { quantity: 9 });
     const plan = planTakeoffItemSend(input({ items: [ef], answers: [measured(ef, [{ quantity: 5, page: 1 }])], destination: draft([typed]) }));

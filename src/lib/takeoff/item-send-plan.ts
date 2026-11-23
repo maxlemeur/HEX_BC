@@ -338,7 +338,10 @@ export type ItemSendToResolve = {
   itemId: string | null;
   label: string | null;
   compartmentKey: string | null;
-  /** A page waiting for its decision, the items whose parts on it are held, and the estimate's lines already there. */
+  /**
+   * A page waiting for its decision, the items whose parts on it are held, and the estimate's lines already there; for a
+   * quantity typed by hand, the line typed.
+   */
   page: number | null;
   heldItemIds: string[];
   earlierLines: Array<{ estimateItemId: string; title: string | null; quantity: number }>;
@@ -646,7 +649,8 @@ export function planTakeoffItemSend(input: ItemSendInput): ItemSendPlan {
   const resolutions = new Map(input.resolutions.map((resolution) => [resolution.key, resolution.choice]));
   /** The resolutions applied: the plan records them among its dependencies. */
   const resolved = new Set<string>();
-  const ask = (entry: Omit<ItemSendToResolve, "page" | "heldItemIds" | "earlierLines" | "facts"> & Partial<Pick<ItemSendToResolve, "facts">>) =>
+  const ask = (entry: Omit<ItemSendToResolve, "page" | "heldItemIds" | "earlierLines" | "facts">
+    & Partial<Pick<ItemSendToResolve, "facts" | "earlierLines">>) =>
     result.toResolve.push({ page: null, heldItemIds: [], earlierLines: [], facts: null, ...entry });
   /** A choice the member made among the options shown, else null (a choice not offered is never applied). */
   const offered = (key: string, options: ItemSendOption[]) => {
@@ -862,8 +866,10 @@ export function planTakeoffItemSend(input: ItemSendInput): ItemSendPlan {
         const options: ItemSendOption[] = [{ kind: "keep_entry" }, { kind: "use_retained" }, { kind: "leave_out" }];
         const picked = offered(key, options);
         if (!picked) {
+          // The line typed by hand is named: a choice is bound to it, never carried onto another line asking the same.
           ask({ key, kind: "entered_quantity", itemId: item.id, label: item.label, compartmentKey: compartment.key, options,
-            facts: { reference, entered: line.quantity, measured: total.measured, retained } });
+            facts: { reference, entered: line.quantity, measured: total.measured, retained },
+            earlierLines: [{ estimateItemId: line.id, title: line.title, quantity: line.quantity }] });
           return;
         }
         if (picked.kind === "leave_out") { leaveOut(); return; }

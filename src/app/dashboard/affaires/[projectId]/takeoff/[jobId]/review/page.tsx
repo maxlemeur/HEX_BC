@@ -53,6 +53,7 @@ export default async function AffaireTakeoffReviewPage({ params, searchParams }:
         versionId={scope.versionId} canEdit={scope.canEdit}
         projectId={projectId}
         readsItemList={facts.readsList}
+        viewerKey={`${tenantId}:${profile?.id ?? ""}`}
       />
       <TakeoffPlanLocationsPanel jobId={jobId} />
     </div>

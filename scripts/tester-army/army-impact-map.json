@@ -1043,7 +1043,24 @@
       ],
       "journeys": [
         "e2e/army/takeoff/poste-bulk-review.e2e.ts",
-        "e2e/army/takeoff/poste-detail.e2e.ts"
+        "e2e/army/takeoff/poste-detail.e2e.ts",
+        "e2e/army/takeoff/poste-send.e2e.ts"
+      ]
+    },
+    {
+      "id": "takeoff-item-send",
+      "note": "Envoi d’un plan au devis poste par poste (lot 4 PR 5c, POSTE-ENVOI01, POSTE-ENVOI02) : aperçu sans écriture, premier brouillon créé, A puis B sur une ligne de cinq, saisie à la main protégée, page déjà au devis, bail de l’éditeur, découpage par niveau, entrée absente sans droit d’écrire.",
+      "paths": [
+        "src/components/takeoff/item-send/**",
+        "src/components/takeoff/TakeoffRequestActivity.tsx",
+        "src/lib/takeoff/item-send*.ts",
+        "src/lib/takeoff/request-activity*.ts",
+        "src/app/api/takeoff/jobs/[jobId]/item-send/**",
+        "supabase/migrations/*_takeoff_item_send_writer.sql",
+        "e2e/army/takeoff/poste-send-support.ts"
+      ],
+      "journeys": [
+        "e2e/army/takeoff/poste-send.e2e.ts"
       ]
     },
     {

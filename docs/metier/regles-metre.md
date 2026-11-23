@@ -605,6 +605,11 @@ l’autorisation, l’écran d’arrivée vérifie de nouveau.
   liste, la comparaison ne propose ni sélection ni « Appliquer la sélection » : elle dit que
   ses lignes se corrigent dans la revue ciblée et ses postes se décident dans le tableau ;
   celle d’une analyse du premier format garde son geste d’aujourd’hui.
+- L’envoi par poste d’une analyse lue contre la liste (« Envoyer ce plan au devis ») reste
+  atteignable de partout où il est offert : sa ligne dans l’analyse des plans, le tableau des
+  postes filtré sur son plan (là où mènent les liens de sa revue), sa revue ciblée et, de sa
+  revue complète, la seule adresse qui s’y ouvre encore, sa comparaison (l’envoi n’y modifie
+  pas la comparaison).
 - L’adresse se lit telle qu’elle est écrite, comme la revue la lit : une valeur qui n’est pas
   exactement une valeur connue (« dpgf » entouré d’espaces, une majuscule) n’est pas cette
   valeur.
@@ -1477,6 +1482,31 @@ brouillon : il est créé comme « Créer un devis » le crée, sous la politiqu
 moteur, son contrat de création), depuis les réglages canoniques du serveur
 (`prepareCanonicalEstimateCreation`, comme l'envoi d'aujourd'hui) — coefficients et remise compris,
 jamais une valeur de la demande — et ses réglages créés sont comparés à ceux que l'aperçu a montrés.
+
+**L'écran.** « Envoyer ce plan au devis » ouvre l'envoi d'un plan lu contre la liste, depuis sa ligne
+dans l'analyse des plans ou depuis le tableau des postes filtré sur ce plan ; il nomme le plan et ne
+coche aucun autre plan. L'entrée n'existe que pour un plan lu contre la liste, lu jusqu'au bout et pas
+encore envoyé, et pour un membre qui écrit l'affaire (la règle `takeoff_item_list_may_write`, celle
+que l'aperçu revérifie) ; un plan aux formats d'aujourd'hui garde l'envoi d'aujourd'hui, depuis sa
+revue ; la revue d'un plan lu contre la liste ne propose pas l'envoi d'aujourd'hui, mais celui-ci. L'aperçu, lu seul, montre le brouillon créé (le premier, V1) ou alimenté, le découpage
+(« Ensemble » par défaut, « Par niveau », « Par bâtiment », chacun recalculant l'aperçu), les sections
+créées, chaque ligne avec sa quantité avant, ce que d'autres analyses y ont déjà apporté, ce qu'un envoi
+précédent de ce même plan y avait apporté et que celui-ci remplace, l'apport de ce plan et la quantité
+après, puis les postes et les parts qui ne partent pas avec leur motif. Chaque choix demandé est
+explicite, avec sa conséquence, et rien n'est coché d'avance : une ligne parmi celles présentées,
+« Conserver la saisie » ou « Retenir le métré », laisser un poste de côté, et la décision d'une page déjà
+au devis (« Remplacer », « Garder les deux » avec sa raison et, pour un périmètre complémentaire, sa
+note, ou laisser ses apports de côté) ; tant que la raison manque, la page attend. Un bouton confirme,
+en nommant le plan et le devis. Sur un brouillon existant, l'écrivain exige le bail de l'éditeur du
+membre : l'écran le prend à la confirmation comme l'envoi d'aujourd'hui (le renouvelle, sinon le
+prend) et le rend ensuite ; tenu par un autre membre, l'écran le nomme et rien n'est écrit. Un refus
+relit l'aperçu, garde les choix qui s'y appliquent encore, dit lesquels ne s'appliquent plus et ce qui
+a changé (une ligne saisie à la main depuis l'aperçu : ce qu'elle tient maintenant, et le choix à
+faire). Un double clic n'envoie qu'une fois (une clé d'intention par plan confirmé). Annuler n'écrit
+rien, pas même un bail. Une lecture ou une confirmation qui se termine après que le membre a changé
+d'avis n'agit pas sur ce qui est montré (`useCompletions`). Après l'envoi, le devis s'ouvre sur la
+première ligne écrite, mise en évidence ; le métré montre le plan comme reporté au devis, et le tableau
+des postes de ce plan dit qu'il est envoyé et fermé aux gestes en bloc.
 
 L'envoi des métrés d'aujourd'hui (une analyse groupée, hors demande ou par plan sans liste) est
 inchangé, sauf vers un devis alimenté poste par poste : l'envoi groupé, l'envoi d'un plan aux formats

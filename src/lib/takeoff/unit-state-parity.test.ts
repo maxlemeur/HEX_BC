@@ -23,7 +23,7 @@ describe("the state of a unit", () => {
   it("is derived by the activity centre as the database decides it, row for row", () => {
     const matrix = readMatrix();
     expect(matrix.length).toBe(20);
-    const manifest: TakeoffRequestManifest = { formatVersion: 1, plans: new Map(), omitted: [],
+    const manifest: TakeoffRequestManifest = { formatVersion: 1, itemList: false, plans: new Map(), omitted: [],
       units: matrix.map((row) => ({ key: `unit:${row.n}`, ordinal: row.n, plans: [], pages: null })) };
     const jobs: TakeoffRequestUnitJobRow[] = matrix.map((row) => ({ id: `job-${row.n}`, launch_request_id: "request",
       launch_unit_key: `unit:${row.n}`, status: row.status, started_at: row.started ? "2026-11-21T08:00:00.000Z" : null,

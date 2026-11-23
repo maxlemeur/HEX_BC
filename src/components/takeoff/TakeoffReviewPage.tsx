@@ -1,5 +1,6 @@
 "use client";
 
+import { useItemListSend } from "@/components/takeoff/item-send/useItemListSend";
 import { TakeoffUnmeasuredQuantities, takeoffUnmeasuredQuantityMessages } from "@/components/takeoff/review/TakeoffUnmeasuredQuantities";
 
 import dynamic from "next/dynamic";
@@ -143,6 +144,8 @@ type TakeoffReviewPageProps = {
    * in the table.
    */
   readsItemList?: boolean;
+  /** The member and their tenant: the activity of this analysis's request is theirs alone. */
+  viewerKey?: string;
 };
 
 type ViewTab = "tables" | "items" | "compare" | "dpgf";
@@ -161,6 +164,7 @@ export default function TakeoffReviewPage({
   canEdit = true,
   projectId,
   readsItemList = false,
+  viewerKey = "",
 }: TakeoffReviewPageProps) {
   const toast = useToast();
   const router = useRouter();
@@ -1047,11 +1051,15 @@ export default function TakeoffReviewPage({
     confirm: handleApplyConfirm,
   } = useTakeoffApplyConfirm({ jobId, versionId, onApplied: handleApplied });
 
+  // A plan read against the list of items is sent item by item (lot 4): today's send refuses it, so it is not offered.
+  const itemListSend = useItemListSend({ projectId, jobId, viewerKey, onSent: handleApplied });
+  useEffect(() => { if (itemListSend.itemList) setApplyWizardOpen(false); }, [itemListSend.itemList]);
   const handleOpenApplyWizard = useCallback(() => {
+    if (itemListSend.itemList) { itemListSend.open(); return; }
     if (!readiness.canOpen) return;
     setApplyWizardOpen(true);
     setApplyError(null);
-  }, [readiness.canOpen, setApplyError]);
+  }, [itemListSend, readiness.canOpen, setApplyError]);
 
   const reviewTitle = "Revue des exceptions & preuves";
   const backHref = `/dashboard/affaires/${projectId}/takeoff`;
@@ -1080,6 +1088,7 @@ export default function TakeoffReviewPage({
 
   return (
     <div className="animate-fade-in space-y-4">
+      {itemListSend.element}
       <ProductionRibbon
         ariaLabel="Ruban métier de la revue de métrés"
         testId="takeoff-review-production-ribbon"
