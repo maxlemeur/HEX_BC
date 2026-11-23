@@ -1,0 +1,325 @@
+{
+  "source": {
+    "pull_request": 510,
+    "commit": "d48052ce6bc53d4a073a9fee82005f44cd996de3",
+    "path": "supabase/migrations/20261123061045_takeoff_count_mark_reading.sql",
+    "bytes": 65185,
+    "sha256": "f250b13c1e906813b16f03c328e7151efab51cfd18601b0edcb9f7f9f6fc5697"
+  },
+  "applied": {
+    "version": "20261123165035",
+    "name": "20261123061045_takeoff_count_mark_reading",
+    "statements": 1,
+    "bytes": 65185,
+    "sha256": "f250b13c1e906813b16f03c328e7151efab51cfd18601b0edcb9f7f9f6fc5697",
+    "final_lf": true,
+    "attempts": 1
+  },
+  "history_before": {
+    "total": 442,
+    "matching": 0,
+    "latest": "20261123073404",
+    "previous_sha256": "b3aef88822d4b14985aa504060481bb080a3addbf8965752fafbf29bf07bc3de"
+  },
+  "history_after": {
+    "total": 443,
+    "matching": 1,
+    "latest": "20261123165035",
+    "previous_sha256": "b3aef88822d4b14985aa504060481bb080a3addbf8965752fafbf29bf07bc3de"
+  },
+  "preflight": {
+    "checked_at": "2026-11-23 16:50:29.449158+00",
+    "pending": 0,
+    "processing": 0,
+    "open_requests": 0,
+    "unsettled_reservations": 0,
+    "unknown_outcome": 0,
+    "branch_violations": 0
+  },
+  "activation_rows_before_and_after": {
+    "completion": [
+      {
+        "singleton": true,
+        "active_from": "2026-11-23T10:17:52.585943+00:00",
+        "pickup_grace": "00:15:00",
+        "wait_ceiling": "24:00:00"
+      }
+    ],
+    "launch": [
+      {
+        "singleton": true,
+        "active_from": "2026-11-23T10:18:01.287077+00:00"
+      }
+    ],
+    "item_list_order": [
+      {
+        "singleton": true,
+        "active_from": "2026-11-23T10:18:17.965838+00:00"
+      }
+    ],
+    "plan_dispatch": [
+      {
+        "singleton": true,
+        "active_from": "2026-11-23T10:18:08.964482+00:00"
+      }
+    ]
+  },
+  "catalog_checks": {
+    "sql": true,
+    "history": true,
+    "body": true,
+    "metadata": true,
+    "access": true,
+    "private_table": true,
+    "column": true,
+    "activation": true,
+    "health": true
+  },
+  "functions": [
+    {
+      "name": "private.assert_takeoff_launch_seal",
+      "signature": "private.assert_takeoff_launch_seal(takeoff_launch_requests, jsonb, jsonb)",
+      "previous_source": "20261121231238_takeoff_plan_dispatcher",
+      "previous_verified_prosrc_md5": "21143544b47a66c29ff7199610306028",
+      "verified_prosrc_md5": "538513821680e3f6979cbf2a9525a202",
+      "owner": "postgres",
+      "security_definer": false,
+      "acl": "{postgres=X/postgres}"
+    },
+    {
+      "name": "private.takeoff_attested_mark_frames",
+      "signature": "private.takeoff_attested_mark_frames(uuid, uuid, jsonb)",
+      "previous_source": null,
+      "previous_verified_prosrc_md5": null,
+      "verified_prosrc_md5": "142cc2d96ae3344dc01f142fb2d54021",
+      "owner": "postgres",
+      "security_definer": false,
+      "acl": "{postgres=X/postgres}"
+    },
+    {
+      "name": "private.takeoff_confirmed_count_mark_schedule",
+      "signature": "private.takeoff_confirmed_count_mark_schedule(takeoff_jobs)",
+      "previous_source": null,
+      "previous_verified_prosrc_md5": null,
+      "verified_prosrc_md5": "34f3521d52bcbd3819dc8cc46e07bf1a",
+      "owner": "postgres",
+      "security_definer": false,
+      "acl": "{postgres=X/postgres}"
+    },
+    {
+      "name": "private.takeoff_count_mark_attempt_refusal",
+      "signature": "private.takeoff_count_mark_attempt_refusal(uuid, text)",
+      "previous_source": null,
+      "previous_verified_prosrc_md5": null,
+      "verified_prosrc_md5": "68db6542b54196aa6de3011a777e6b3e",
+      "owner": "postgres",
+      "security_definer": false,
+      "acl": "{postgres=X/postgres}"
+    },
+    {
+      "name": "private.takeoff_count_mark_chunking",
+      "signature": "private.takeoff_count_mark_chunking(uuid)",
+      "previous_source": null,
+      "previous_verified_prosrc_md5": null,
+      "verified_prosrc_md5": "2dc662e84204520d8a15be91ad87cfd2",
+      "owner": "postgres",
+      "security_definer": false,
+      "acl": "{postgres=X/postgres}"
+    },
+    {
+      "name": "private.takeoff_count_mark_classifier_calls",
+      "signature": "private.takeoff_count_mark_classifier_calls(jsonb, integer)",
+      "previous_source": null,
+      "previous_verified_prosrc_md5": null,
+      "verified_prosrc_md5": "14527d0236b7d081d3dec9f243fa38ce",
+      "owner": "postgres",
+      "security_definer": false,
+      "acl": "{postgres=X/postgres}"
+    },
+    {
+      "name": "private.takeoff_count_mark_lease_live",
+      "signature": "private.takeoff_count_mark_lease_live(takeoff_jobs, uuid)",
+      "previous_source": null,
+      "previous_verified_prosrc_md5": null,
+      "verified_prosrc_md5": "b4cf6190682636b94e8e2c98d1c07b63",
+      "owner": "postgres",
+      "security_definer": false,
+      "acl": "{postgres=X/postgres}"
+    },
+    {
+      "name": "private.takeoff_count_mark_schedule",
+      "signature": "private.takeoff_count_mark_schedule(uuid, uuid, jsonb, jsonb, jsonb)",
+      "previous_source": null,
+      "previous_verified_prosrc_md5": null,
+      "verified_prosrc_md5": "daaceef7b595eda678f261ee6ca72e81",
+      "owner": "postgres",
+      "security_definer": false,
+      "acl": "{postgres=X/postgres}"
+    },
+    {
+      "name": "private.takeoff_count_mark_schedule_valid",
+      "signature": "private.takeoff_count_mark_schedule_valid(jsonb)",
+      "previous_source": null,
+      "previous_verified_prosrc_md5": null,
+      "verified_prosrc_md5": "c4d6566f7c2b81a3e97a22a5bce15b0b",
+      "owner": "postgres",
+      "security_definer": false,
+      "acl": "{postgres=X/postgres}"
+    },
+    {
+      "name": "private.takeoff_count_mark_tile_status",
+      "signature": "private.takeoff_count_mark_tile_status(text, text)",
+      "previous_source": null,
+      "previous_verified_prosrc_md5": null,
+      "verified_prosrc_md5": "848a618b618c113aa084954236aef67c",
+      "owner": "postgres",
+      "security_definer": false,
+      "acl": "{postgres=X/postgres}"
+    },
+    {
+      "name": "private.takeoff_fragment_setting",
+      "signature": "private.takeoff_fragment_setting(text, integer, integer)",
+      "previous_source": null,
+      "previous_verified_prosrc_md5": null,
+      "verified_prosrc_md5": "e7a189e4dbd0fc266caf70055c290186",
+      "owner": "postgres",
+      "security_definer": false,
+      "acl": "{postgres=X/postgres}"
+    },
+    {
+      "name": "private.takeoff_item_remeasure_confirmation_valid",
+      "signature": "private.takeoff_item_remeasure_confirmation_valid(jsonb)",
+      "previous_source": "20261123004501_takeoff_measure_item_on_plan",
+      "previous_verified_prosrc_md5": "a973a44cb49d23311865849e07456adb",
+      "verified_prosrc_md5": "216c3b357290a12a7c7c20353c418ec5",
+      "owner": "postgres",
+      "security_definer": false,
+      "acl": "{postgres=X/postgres}"
+    },
+    {
+      "name": "public.attest_takeoff_count_mark_pages",
+      "signature": "public.attest_takeoff_count_mark_pages(uuid, uuid, uuid, uuid, text, jsonb)",
+      "previous_source": null,
+      "previous_verified_prosrc_md5": null,
+      "verified_prosrc_md5": "ef8fbe0d663fc940c44acbec170e3d20",
+      "owner": "postgres",
+      "security_definer": true,
+      "acl": "{postgres=X/postgres,service_role=X/postgres}"
+    },
+    {
+      "name": "public.launch_takeoff_item_remeasure",
+      "signature": "public.launch_takeoff_item_remeasure(uuid, uuid, uuid, uuid, uuid, text, jsonb, jsonb, jsonb, jsonb, uuid, integer, uuid[], jsonb, jsonb, boolean)",
+      "previous_source": "20261123004501_takeoff_measure_item_on_plan",
+      "previous_verified_prosrc_md5": "8ed14b073a0a8eb4d3a371e57f62dd6f",
+      "verified_prosrc_md5": "91a127ab998c1ea571a2b13dd37a6cc2",
+      "owner": "postgres",
+      "security_definer": true,
+      "acl": "{postgres=X/postgres,service_role=X/postgres}"
+    },
+    {
+      "name": "public.publish_takeoff_item_answers",
+      "signature": "public.publish_takeoff_item_answers(uuid, uuid, timestamp with time zone, text, text, jsonb, integer[], jsonb, jsonb, jsonb, jsonb, jsonb)",
+      "previous_source": "20261123004501_takeoff_measure_item_on_plan",
+      "previous_verified_prosrc_md5": "7dff9fe5f97faeaae70c7361a534425a",
+      "verified_prosrc_md5": "f78b931f4012b2e3af51c3597c7ff773",
+      "owner": "postgres",
+      "security_definer": true,
+      "acl": "{postgres=X/postgres,service_role=X/postgres}"
+    },
+    {
+      "name": "public.reserve_takeoff_launch_call",
+      "signature": "public.reserve_takeoff_launch_call(uuid, uuid, text, text, bigint, boolean)",
+      "previous_source": "20261121231238_takeoff_plan_dispatcher",
+      "previous_verified_prosrc_md5": "3d69f1fc06e71b6b1e3c5fe8495b289f",
+      "verified_prosrc_md5": "05ce0d69622583ddcab802f8a0fa4a06",
+      "owner": "postgres",
+      "security_definer": true,
+      "acl": "{postgres=X/postgres,service_role=X/postgres}"
+    }
+  ],
+  "private_table": {
+    "schema": "private",
+    "relname": "takeoff_attested_count_pages",
+    "owner": "postgres",
+    "rls": false,
+    "acl": "{postgres=arwdDxtm/postgres}",
+    "policies": 0,
+    "rows": 0,
+    "api_privileges": {
+      "anon": false,
+      "service_role": false,
+      "authenticated": false
+    },
+    "public_privilege": false
+  },
+  "column": {
+    "attname": "count_mark_schedule",
+    "type": "jsonb",
+    "not_null": false,
+    "has_default": false,
+    "nonnull_schedules": 0
+  },
+  "constraints": [
+    {
+      "table_name": "private.takeoff_launch_commands",
+      "name": "takeoff_launch_commands_check",
+      "definition": "CHECK (((count_mark_schedule IS NULL) OR ((answer = 'admitted'::text) AND private.takeoff_count_mark_schedule_valid(count_mark_schedule))))",
+      "validated": true
+    },
+    {
+      "table_name": "private.takeoff_launch_usage",
+      "name": "takeoff_launch_usage_branch_check",
+      "definition": "CHECK ((branch = ANY (ARRAY['pdf'::text, 'vector_group'::text, 'other'::text, 'count_tile'::text])))",
+      "validated": true
+    }
+  ],
+  "endpoint_before_and_after": {
+    "status": 200,
+    "ok": true,
+    "version": "0.9.0",
+    "db": "up"
+  },
+  "advisors": {
+    "security": {
+      "before": {
+        "rls_enabled_no_policy": 31,
+        "authenticated_security_definer_function_executable": 104,
+        "auth_leaked_password_protection": 1
+      },
+      "after": {
+        "rls_enabled_no_policy": 31,
+        "authenticated_security_definer_function_executable": 104,
+        "auth_leaked_password_protection": 1
+      },
+      "added": [],
+      "removed": []
+    },
+    "performance": {
+      "before": {
+        "unindexed_foreign_keys": 247,
+        "unused_index": 324,
+        "multiple_permissive_policies": 6
+      },
+      "after": {
+        "unindexed_foreign_keys": 248,
+        "unused_index": 324,
+        "multiple_permissive_policies": 6
+      },
+      "added": [
+        {
+          "name": "unindexed_foreign_keys",
+          "level": "INFO",
+          "detail": "Table \\`private.takeoff_attested_count_pages\\` has a foreign key \\`takeoff_attested_count_pages_page_id_fkey\\` without a covering index. This can lead to suboptimal query performance.",
+          "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0001_unindexed_foreign_keys"
+        }
+      ],
+      "removed": []
+    },
+    "health": {
+      "before": {},
+      "after": {},
+      "added": [],
+      "removed": []
+    }
+  }
+}
