@@ -78,6 +78,110 @@ end;
 $$;
 revoke all on function private.takeoff_count_mark_schedule(uuid,uuid,jsonb,jsonb) from public, anon, authenticated, service_role;
 
+-- Only the single-item admission can write this private receipt. The worker snapshot is its projection.
+alter table private.takeoff_launch_commands add column count_mark_schedule jsonb
+  check (count_mark_schedule is null or (answer='admitted' and private.takeoff_count_mark_schedule_valid(count_mark_schedule)));
+
+create function private.takeoff_confirmed_count_mark_schedule(job public.takeoff_jobs)
+returns jsonb language sql stable set search_path = '' as $$
+  select c.count_mark_schedule from public.takeoff_launch_requests r
+  join private.takeoff_launch_commands c on c.tenant_id=r.tenant_id and c.project_id=r.project_id
+    and c.intent_key=r.intent_key and c.request_id=r.id and c.created_by=r.payer_id
+  where r.id=job.launch_request_id and r.tenant_id=job.tenant_id and r.project_id=job.project_id and c.job_id=job.id
+$$;
+revoke all on function private.takeoff_confirmed_count_mark_schedule(public.takeoff_jobs) from public, anon, authenticated, service_role;
+
+create or replace function private.assert_takeoff_launch_seal(p_request public.takeoff_launch_requests, p_manifest jsonb, p_snapshot jsonb)
+returns void language plpgsql volatile set search_path = '' as $$
+declare
+  units integer;
+begin
+  if p_snapshot ? 'remeasure_count_marks' and (
+    nullif(current_setting('mergeone.takeoff_item_remeasure',true),'') is distinct from p_request.intent_key::text
+    or p_manifest -> 'format_version' is distinct from '2'::jsonb
+    or p_manifest #> '{order,list,asked_item_ids}' is distinct from jsonb_build_array(p_snapshot -> 'remeasure_item')
+    or p_snapshot #> '{remeasure_setting,model}' is null
+    or p_manifest #> '{plans,0,logical_id}' is distinct from p_snapshot -> 'remeasure_plan'
+    or jsonb_array_length(p_manifest -> 'units') <> 1) then
+    raise exception 'TAKEOFF_LAUNCH_SEAL_INVALID' using errcode='22023';
+  end if;
+  if jsonb_typeof(p_manifest) is distinct from 'object'
+    or (p_manifest -> 'format_version' is distinct from '1'::jsonb and p_manifest -> 'format_version' is distinct from '2'::jsonb)
+    or jsonb_typeof(p_manifest -> 'units') is distinct from 'array'
+    or jsonb_typeof(p_manifest -> 'plans') is distinct from 'array' or jsonb_array_length(p_manifest -> 'plans') = 0
+    or jsonb_typeof(p_manifest #> '{budget,tokens}') is distinct from 'number' or (p_manifest #>> '{budget,tokens}')::numeric < 1
+    or jsonb_typeof(p_manifest #> '{budget,cost_cents}') is distinct from 'number' or (p_manifest #>> '{budget,cost_cents}')::numeric < 0
+    or jsonb_typeof(p_snapshot) is distinct from 'object' or p_snapshot -> 'schema_version' is distinct from '1'::jsonb
+    or p_snapshot ->> 'confirmed_by' is distinct from p_request.payer_id::text
+    or p_snapshot -> 'execution_selection' is distinct from p_request.mandate_selection
+    or p_snapshot #> '{readiness,can_launch}' is distinct from 'true'::jsonb
+    or p_snapshot #>> '{preparation,processing,level}' is distinct from 'C'
+    or p_snapshot #>> '{preparation,processing,provider}' is distinct from 'chatgpt'
+    or p_snapshot #>> '{preparation,destination,kind}' is distinct from 'analysis_only' then
+    raise exception 'TAKEOFF_LAUNCH_SEAL_INVALID' using errcode = '22023';
+  end if;
+  units := jsonb_array_length(p_manifest -> 'units');
+  if p_manifest -> 'format_version' = '1'::jsonb then
+    if units <> 1 or p_manifest #>> '{units,0,key}' is distinct from 'grouped' then
+      raise exception 'TAKEOFF_LAUNCH_SEAL_INVALID' using errcode = '22023';
+    end if;
+    perform private.assert_takeoff_launch_order(p_request, p_manifest);
+    return;
+  end if;
+  if not private.takeoff_plan_dispatch_active()
+    or units not between 1 and 20 or units <> jsonb_array_length(p_manifest -> 'plans')
+    or p_manifest #>> '{dispatch,order}' is distinct from 'display_name'
+    -- Unit i holds plan i, keyed by its entry, at place i.
+    or exists (
+      select 1 from jsonb_array_elements(p_manifest -> 'units') with ordinality as u(value, position)
+      join jsonb_array_elements(p_manifest -> 'plans') with ordinality as p(value, position) using (position)
+      where u.value ->> 'key' is distinct from 'plan:' || lower(p.value ->> 'entry_key')
+        or u.value -> 'ordinal' is distinct from to_jsonb(u.position)
+        or u.value -> 'plans' is distinct from jsonb_build_array(p.value ->> 'entry_key')
+        or jsonb_typeof(u.value #> '{budget,tokens}') is distinct from 'number'
+        or jsonb_typeof(u.value #> '{budget,cost_cents}') is distinct from 'number'
+        or jsonb_typeof(u.value -> 'vector_pages') is distinct from 'number'
+        or (u.value #>> '{budget,tokens}')::numeric not between 1 and (p_manifest #>> '{budget,tokens}')::numeric
+        or (u.value #>> '{budget,cost_cents}')::numeric not between 0 and (p_manifest #>> '{budget,cost_cents}')::numeric
+        or (u.value ->> 'vector_pages')::numeric not between 0 and 60
+        -- The unit reads its plan's pages, and counts its plan's pages.
+        or u.value -> 'pages' is distinct from p.value -> 'pages'
+        or u.value -> 'page_count' is distinct from p.value -> 'page_count')
+    -- Each plan is its source as the snapshot reads it: the same copy, name, digest and retained pages (the manifest lists
+    -- them in ascending order; its unit's projection gives the worker that order), so that what the worker reads and what
+    -- the activity shows are the same pages.
+    or exists (
+      select 1 from jsonb_array_elements(p_manifest -> 'plans') p(value)
+      left join lateral (select s.value from jsonb_array_elements(p_snapshot #> '{preparation,sources}') s(value)
+        where s.value -> 'active' = 'true'::jsonb and s.value ->> 'kind' = 'plan' and s.value ->> 'document_id' = p.value ->> 'entry_key'
+        limit 1) source on true
+      where source.value is null
+        or p.value ->> 'plan_file_id' is distinct from p.value ->> 'entry_key'
+        or p.value ->> 'name' is distinct from source.value ->> 'document_name'
+        -- A plan without its digest is refused, as its worker refuses it.
+        or nullif(source.value ->> 'content_hash', '') is null
+        or p.value ->> 'content_sha256' is distinct from source.value ->> 'content_hash'
+        or jsonb_typeof(p.value -> 'pages') is distinct from 'array'
+        or p.value -> 'pages' is distinct from (select coalesce(jsonb_agg(page.value order by (page.value #>> '{}')::numeric), '[]'::jsonb)
+          from jsonb_array_elements(case when jsonb_typeof(source.value -> 'pages') = 'array' then source.value -> 'pages'
+            else '[]'::jsonb end) page(value)))
+    or (select sum((u.value #>> '{budget,tokens}')::numeric) from jsonb_array_elements(p_manifest -> 'units') u(value))
+      not between (p_manifest #>> '{budget,tokens}')::numeric and (p_manifest #>> '{budget,tokens}')::numeric + units - 1
+    or (select sum((u.value #>> '{budget,cost_cents}')::numeric) from jsonb_array_elements(p_manifest -> 'units') u(value))
+      not between (p_manifest #>> '{budget,cost_cents}')::numeric and (p_manifest #>> '{budget,cost_cents}')::numeric + units - 1
+    or (select sum((u.value ->> 'vector_pages')::numeric) from jsonb_array_elements(p_manifest -> 'units') u(value)) > 60
+    -- Every plan the snapshot reads is a unit, and only those.
+    or (select coalesce(array_agg(s.value ->> 'document_id' order by s.value ->> 'document_id'), '{}')
+        from jsonb_array_elements(p_snapshot #> '{preparation,sources}') s(value)
+        where s.value -> 'active' = 'true'::jsonb and s.value ->> 'kind' = 'plan')
+      is distinct from (select array_agg(p.value ->> 'entry_key' order by p.value ->> 'entry_key')
+        from jsonb_array_elements(p_manifest -> 'plans') p(value)) then
+    raise exception 'TAKEOFF_LAUNCH_SEAL_INVALID' using errcode = '22023';
+  end if;
+  perform private.assert_takeoff_launch_order(p_request, p_manifest);
+end;
+$$;
+
 create or replace function private.takeoff_item_remeasure_confirmation_valid(p_confirmation jsonb)
 returns boolean language sql immutable set search_path = '' as $$
   select coalesce(pg_catalog.jsonb_typeof(p_confirmation) = 'object'
@@ -288,6 +392,12 @@ begin
       p_module_default, digest, true) as l;
     perform pg_catalog.set_config('mergeone.takeoff_item_remeasure', '', true);
     if launched.outcome = 'admitted' then
+      if schedule is not null then
+        update private.takeoff_launch_commands c set count_mark_schedule=schedule where c.tenant_id=p_tenant_id
+          and c.project_id=p_project_id and c.intent_key=p_intent_key and c.request_id=launched.request_id
+          and c.job_id=launched.job_id and c.answer='admitted';
+        if not found then raise exception 'TAKEOFF_LAUNCH_SEAL_INVALID' using errcode='22023'; end if;
+      end if;
       stale_items := private.takeoff_item_remeasure_stale(p_tenant_id, p_project_id, p_manifest, p_targets);
       if coalesce(pg_catalog.cardinality(stale_items), 0) > 0 then
         raise exception 'TAKEOFF_ITEM_REMEASURE_STALE' using errcode = 'TKRMS';
@@ -389,7 +499,7 @@ begin
     raise exception 'TAKEOFF_ANSWERS_LEASE_INVALID' using errcode = '55000';
   end if;
 
-  schedule := job.preparation_snapshot -> 'remeasure_count_marks';
+  schedule := private.takeoff_confirmed_count_mark_schedule(job);
   if schedule is not null then
     if jsonb_typeof(generation) is distinct from 'object'
       or generation - array['pages','marks'] <> '{}'::jsonb
@@ -603,6 +713,7 @@ declare
   balance record;
   refusal text;
   bound bigint;
+  schedule jsonb;
 begin
   if p_call_key is null or length(p_call_key) not between 1 and 120 or p_branch not in ('pdf', 'vector_group', 'other', 'count_tile')
     or p_estimate_tokens is null or p_estimate_tokens < 1 then
@@ -626,7 +737,8 @@ begin
     return query select 'refused'::text, refusal, null::bigint, null::bigint, null::bigint;
     return;
   end if;
-  if p_branch = 'count_tile' and not coalesce(job.preparation_snapshot ? 'remeasure_count_marks',false) then
+  schedule := private.takeoff_confirmed_count_mark_schedule(job);
+  if p_branch = 'count_tile' and schedule is null then
     return query select 'refused'::text, 'TILE_OUTSIDE_SCOPE'::text, null::bigint, null::bigint, null::bigint;
     return;
   end if;
@@ -637,7 +749,7 @@ begin
   -- The job's row, then the request's: the order of every writer of both.
   select * into request from public.takeoff_launch_requests r where r.id = job.launch_request_id for update;
   -- Waiting for the request can take the last seconds of a valid lease. Check both clocks under the lock.
-  if job.preparation_snapshot ? 'remeasure_count_marks' and not private.takeoff_count_mark_lease_live(job,p_lease_token) then
+  if schedule is not null and not private.takeoff_count_mark_lease_live(job,p_lease_token) then
     raise exception 'TAKEOFF_LAUNCH_USAGE_LEASE_REQUIRED' using errcode = '42501';
   end if;
   -- Before the owner's activation of one analysis per plan, a call of a grouped analysis is checked as M4 checked it (its
@@ -658,7 +770,7 @@ begin
   end if;
   -- For the optional readers the confirmation buys one attempt per named tile, across
   -- all leases. Replaying a reservation must never authorize a second physical call.
-  if job.preparation_snapshot ? 'remeasure_count_marks' then
+  if schedule is not null then
     refusal := private.takeoff_count_mark_attempt_refusal(request.id,p_call_key);
     if refusal is not null then
       return query select 'refused'::text, refusal, null::bigint, null::bigint, null::bigint;
@@ -666,7 +778,7 @@ begin
     end if;
     if p_branch = 'count_tile' then
       if not exists (
-        select 1 from jsonb_array_elements(job.preparation_snapshot #> '{remeasure_count_marks,pages}') s
+        select 1 from jsonb_array_elements(schedule -> 'pages') s
         cross join lateral generate_series(1,case when (s ->> 'width_points')::numeric > 700 then 6 else 4 end) t(i)
         where p_call_key = 'tile:' || ((s ->> 'page')::numeric::integer)::text || ':' || t.i::text) then
         refusal := 'TILE_OUTSIDE_SCOPE';
@@ -678,7 +790,7 @@ begin
       refusal := 'TILE_IN_FLIGHT';
     elsif (select count(*) from private.takeoff_launch_usage l where l.request_id = request.id and l.branch <> 'count_tile'
         )
-        >= (job.preparation_snapshot #>> '{remeasure_count_marks,other_calls}')::integer then
+        >= (schedule ->> 'other_calls')::integer then
       refusal := 'BUDGET_EXHAUSTED';
     end if;
     if refusal is not null then

@@ -815,6 +815,11 @@ insert into public.takeoff_count_pages(tenant_id,project_id,plan_logical_id,plan
 values(pg_temp.f(10),pg_temp.f(20),pg_temp.plan(1),pg_temp.plan(1),pg_temp.digest(pg_temp.plan(1)),2,1,array[0,0,700,500],0,1,700,500);
 select is((select outcome from pg_temp.detail_measure(2,14,303,1,320,pg_temp.mark_option(array[700],array[2],4))),
   'admitted','the explicit tile option is admitted');
+select is((select to_jsonb(c) -> 'count_mark_schedule' from private.takeoff_launch_commands c
+  where c.job_id=pg_temp.job(14,pg_temp.plan(1))),pg_temp.mark_option(array[700],array[2],4) -> 'count_marks',
+  'the admission receipt seals consent independently of the job projection');
+select is((select to_jsonb(c) ->> 'count_mark_schedule' from private.takeoff_launch_commands c
+  where c.job_id=pg_temp.job(1,pg_temp.plan(0))),null::text,'the ordinary whole-list receipt has no consent to localisation');
 select is((select preparation_snapshot -> 'remeasure_count_marks' from public.takeoff_jobs where id = pg_temp.job(14,pg_temp.plan(1))),
   pg_temp.mark_option(array[700],array[2],4) -> 'count_marks','the worker receives the exact bound');
 select is((select outcome from pg_temp.detail_measure(2,14,303,1,320,pg_temp.mark_option(array[700],array[2],4))),
