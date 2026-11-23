@@ -14,6 +14,26 @@ $$;
 create function pg_temp.confirm(mode text,digest text,request integer) returns jsonb language sql as $$
   select public.redistribute_takeoff_item(pg_temp.f(10),pg_temp.f(1),pg_temp.f(20),pg_temp.f(30),pg_temp.f(50),mode,true,pg_temp.f(request),digest)
 $$;
+-- A length rounds up once per destination. The raw 1.2 m and 0.2 m therefore
+-- occupy two metres together, and two plus one when split across levels.
+savepoint length_fixture;
+set local session_replication_role=replica;
+update public.takeoff_item_send_parts set unit='m',unit_code='m',
+  quantity=case id when pg_temp.f(101) then 1.2 else 0.2 end where version_id=pg_temp.f(30);
+update public.takeoff_item_send_targets set unit_code='m' where version_id=pg_temp.f(30);
+update public.estimate_items set quantity=2,unit_code='m',description='m' where id=pg_temp.f(61);
+set local session_replication_role=origin;
+create temp table length_preview as select pg_temp.preview('by_level') as plan;
+select results_eq($$select (d->>'raw')::numeric,(d->>'quantity')::numeric from length_preview,
+  jsonb_array_elements(plan->'destinations') d order by 1$$,
+  $$values (0.2::numeric,1::numeric),(1.2,2)$$,'the preview shows the raw and rounded length of each new line');
+select pg_temp.confirm('by_level',plan->>'digest',207) from length_preview;
+select is((select sum(i.quantity) from public.estimate_items i join public.takeoff_item_send_targets t
+  on t.estimate_item_id=i.id where t.item_id=pg_temp.f(50)),3::numeric,'the split writes the announced three metres');
+select is((select sum(quantity) from public.takeoff_item_send_parts where item_id=pg_temp.f(50)),1.4::numeric,
+  'the same raw 1.4 metres remain in the two observations');
+rollback to length_fixture;
+
 create temp table shown as select pg_temp.preview('by_level') as plan;
 select is((select plan->'blockers' from shown),'[]'::jsonb,'intact line is movable');
 select results_eq($$select value->>'label',(value->>'quantity')::numeric from shown,jsonb_array_elements(plan->'destinations') order by 1$$,
@@ -124,5 +144,33 @@ select results_eq($$select * from public.takeoff_item_send_receipts where versio
   $$select * from initial_receipts order by id$$,'the two send receipts stay unchanged');
 select results_eq($$select * from public.estimate_items where id=pg_temp.f(62)$$,$$select * from kept_line$$,
   'every column of the unrelated priced line survives both redistributions');
+-- A genuine version copy owns distinct parts. Its redistribution links back to
+-- both original sends and changes no line, target or part on the source.
+create temp table source_rows as
+select id,to_jsonb(i) as row from public.estimate_items i where version_id=pg_temp.f(30)
+union all select id,to_jsonb(t) from public.takeoff_item_send_targets t where version_id=pg_temp.f(30)
+union all select id,to_jsonb(p) from public.takeoff_item_send_parts p where version_id=pg_temp.f(30);
+select set_config('request.jwt.claim.sub',pg_temp.f(1)::text,true);
+select set_config('request.jwt.claims',jsonb_build_object('sub',pg_temp.f(1),'role','authenticated')::text,true);
+set local role authenticated;
+create temp table copied as select public.duplicate_estimate_version(pg_temp.f(30),false) id;
+reset role;
+insert into public.draft_locks(tenant_id,version_id,user_id,expires_at,session_id)
+  select pg_temp.f(10),id,pg_temp.f(1),clock_timestamp()+interval '10 minutes',gen_random_uuid() from copied;
+create temp table copy_plan as select public.preview_takeoff_item_redistribution(pg_temp.f(10),pg_temp.f(1),
+  pg_temp.f(20),id,pg_temp.f(50),'by_level',true) plan from copied;
+select is((select plan->'blockers' from copy_plan),'[]'::jsonb,'copied pristine targets can be redistributed');
+create temp table copy_result as select public.redistribute_takeoff_item(pg_temp.f(10),pg_temp.f(1),pg_temp.f(20),
+  id,pg_temp.f(50),'by_level',true,pg_temp.f(203),plan->>'digest') receipt from copied cross join copy_plan;
+select ok((select receipt->'source_receipts' @> jsonb_build_array(pg_temp.f(71),pg_temp.f(72)) from copy_result),
+  'redistribution in the copy references the original sends');
+select results_eq($$select i.quantity from public.estimate_items i join public.takeoff_item_send_targets t on t.estimate_item_id=i.id
+  where t.version_id=(select id from copied) order by i.quantity$$,$$values (2::numeric),(3::numeric)$$,
+  'the copy holds two and three on its own lines');
+select results_eq($$select id,to_jsonb(i) from public.estimate_items i where version_id=pg_temp.f(30)
+  union all select id,to_jsonb(t) from public.takeoff_item_send_targets t where version_id=pg_temp.f(30)
+  union all select id,to_jsonb(p) from public.takeoff_item_send_parts p where version_id=pg_temp.f(30)
+  order by 1$$,$$select * from source_rows order by id$$,'the source estimate and journal stay intact');
+
 select * from finish();
 rollback;

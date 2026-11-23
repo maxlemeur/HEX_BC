@@ -4,10 +4,13 @@ begin;
 set local lock_timeout = '5s';
 lock table public.takeoff_item_send_receipts in access exclusive mode nowait;
 alter table public.takeoff_item_send_receipts
-  alter column job_id drop not null,
   drop constraint takeoff_item_send_receipts_command_kind_check,
-  add constraint takeoff_item_send_receipts_command_kind_check check (command_kind in ('send','redistribute')),
-  add constraint takeoff_item_send_receipts_job_kind_check check ((command_kind='send') = (job_id is not null));
+  drop constraint takeoff_item_send_receipts_send_identity_check,
+  add constraint takeoff_item_send_receipts_command_kind_check check (command_kind in ('send','copy','redistribute')),
+  add constraint takeoff_item_send_receipts_send_identity_check check (
+    (command_kind='send' and job_id is not null and request_id is not null) or
+    (command_kind='copy' and job_id is null and request_id is null) or
+    (command_kind='redistribute' and job_id is null and request_id is not null));
 
 create or replace function private.guard_takeoff_item_send_write()
 returns trigger language plpgsql set search_path = '' as $$
