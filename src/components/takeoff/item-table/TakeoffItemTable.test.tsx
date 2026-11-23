@@ -273,6 +273,28 @@ describe("TakeoffItemTable", () => {
     expect(screen.getByTestId("poste-selection-count")).toHaveTextContent("1 poste sélectionné");
   });
 
+  // The remeasure's preview follows the same rule.
+  it("shows a remeasure's preview only in the dialog it was asked for", async () => {
+    let release: (value: Awaited<ReturnType<typeof client.previewItemRemeasure>>) => void = () => {};
+    client.previewItemRemeasure.mockImplementationOnce(() => new Promise((resolve) => { release = resolve; }));
+    renderTable();
+    await screen.findByRole("row", { name: /Baignoire/ });
+    tick("Baignoire");
+    fireEvent.click(screen.getByRole("button", { name: "Demander une nouvelle mesure (1)" }));
+    await waitFor(() => expect(client.previewItemRemeasure).toHaveBeenCalledTimes(1));
+    fireEvent.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Annuler" }));
+    client.previewItemRemeasure.mockResolvedValueOnce(fixtureRemeasurePreview({ items: [{ itemId: fixtureItemId(3), label: "Baignoire" }],
+      previewDigest: "b".repeat(64) }));
+    fireEvent.click(screen.getByRole("button", { name: "Demander une nouvelle mesure (1)" }));
+    await screen.findByTestId("poste-remeasure-preview");
+    await act(async () => { release(fixtureRemeasurePreview({ previewDigest: "a".repeat(64) }) as never); });
+    // The first dialog's preview, arriving late, never replaces the one shown.
+    client.sendItemRemeasure.mockResolvedValue({ outcome: "admitted", requestId: "55555555-5555-4555-8555-555555555555" });
+    fireEvent.click(screen.getByRole("button", { name: "Confirmer la demande sur mon forfait" }));
+    await waitFor(() => expect(client.sendItemRemeasure).toHaveBeenCalledTimes(1));
+    expect(client.sendItemRemeasure.mock.calls[0][1]).toMatchObject({ preview_digest: "b".repeat(64) });
+  });
+
   it("sets the selection aside with one reason chosen once, confirmed by Enter, a note required for « Autre »", async () => {
     client.sendItemReviewCommand.mockResolvedValue({ outcome: "applied", applied: [{ itemId: fixtureItemId(3), label: "Baignoire", answers: 2 }],
       skipped: [{ itemId: fixtureItemId(5), label: "Receveur de douche", reason: "no_answer" }] });
@@ -525,17 +547,66 @@ describe("TakeoffItemTable", () => {
     tick("Receveur de douche");
     fireEvent.click(screen.getByRole("button", { name: "Demander une nouvelle mesure (1)" }));
     const preview = await screen.findByTestId("poste-remeasure-preview");
-    expect(client.previewItemRemeasure).toHaveBeenCalledWith(FIXTURE_ITEM_PROJECT, { kind: "affaire" }, [fixtureItemId(5)]);
+    // What the member saw goes with it: the list revision shown and the line's readings, frozen when it was ticked.
+    const shownLine = table().page.lines.find(({ itemId }) => itemId === fixtureItemId(5))!;
+    const seen = { list_revision_id: table().list!.revisionId, targets: [shownLine.targets] };
+    expect(client.previewItemRemeasure).toHaveBeenCalledWith(FIXTURE_ITEM_PROJECT, { kind: "affaire" }, [fixtureItemId(5)], seen);
     expect(preview).toHaveTextContent("Forfait utilisé : celui de Léa Martin");
-    expect(preview).toHaveTextContent("Réglage de Mon profil : modele-a · effort moyen.");
+    // The profile's setting, used as it is: no effort is offered for this request alone (the Mac would refuse another).
+    expect(preview).toHaveTextContent("Réglage de Mon profil : modele-a · effort moyen. La demande l’utilise tel quel.");
+    expect(within(preview).queryByRole("combobox")).not.toBeInTheDocument();
     expect(preview).toHaveTextContent("Plan RDC");
     expect(preview).toHaveTextContent("1 poste mesuré");
-    fireEvent.change(within(preview).getByRole("combobox", { name: "Effort pour cette demande seulement" }), { target: { value: "high" } });
+    // What its admission reads and reserves on the member's subscription, sized on the items asked.
+    expect(screen.getByTestId("poste-remeasure-reading")).toHaveTextContent(
+      "1 poste lu sur 2 plans, en 2 appels payants. Budget réservé sur votre forfait : 66 000 jetons au plus (2 appels payants).");
+    const reads = client.fetchItemTable.mock.calls.length;
     fireEvent.click(screen.getByRole("button", { name: "Confirmer la demande sur mon forfait" }));
     await waitFor(() => expect(client.sendItemRemeasure).toHaveBeenCalledTimes(1));
     expect(client.sendItemRemeasure.mock.calls[0][1]).toMatchObject({ item_ids: [fixtureItemId(5)], plan_keys: [RDC, R1],
-      setting: { reasoning_effort: "high" }, preview_digest: "a".repeat(64) });
+      setting: null, preview_digest: "a".repeat(64), seen });
     expect(await screen.findByTestId("poste-notice")).toHaveTextContent("Nouvelle mesure demandée");
+    // The table is read again at once: the items asked now read « En lecture » on their plans.
+    await waitFor(() => expect(client.fetchItemTable.mock.calls.length).toBeGreaterThan(reads));
+  });
+
+  it("says why the reading of the selection is refused before anything is paid, and offers no confirmation", async () => {
+    client.previewItemRemeasure.mockResolvedValue(fixtureRemeasurePreview({ reading: { state: "refused",
+      reason: "Ces plans ne peuvent pas être lus seuls avec la préparation confirmée : revoyez les options du métré." } }));
+    renderTable();
+    await screen.findByRole("row", { name: /Baignoire/ });
+    tick("Baignoire");
+    fireEvent.click(screen.getByRole("button", { name: "Demander une nouvelle mesure (1)" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("revoyez les options du métré");
+    expect(screen.queryByTestId("poste-remeasure-reading")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Confirmer la demande sur mon forfait" })).toBeDisabled();
+  });
+
+  it("names the items a confirmation found read again since the preview, and applies nothing", async () => {
+    client.previewItemRemeasure.mockResolvedValue(fixtureRemeasurePreview());
+    client.sendItemRemeasure.mockRejectedValue(new TakeoffApiError("Des postes de la sélection ont changé depuis son affichage.", 409,
+      { stale: [{ itemId: fixtureItemId(3), label: "Baignoire" }] }, "TAKEOFF_ITEM_REVIEW_STALE"));
+    renderTable();
+    await screen.findByRole("row", { name: /Baignoire/ });
+    tick("Baignoire");
+    fireEvent.click(screen.getByRole("button", { name: "Demander une nouvelle mesure (1)" }));
+    await screen.findByTestId("poste-remeasure-preview");
+    fireEvent.click(screen.getByRole("button", { name: "Confirmer la demande sur mon forfait" }));
+    expect(await screen.findByTestId("poste-notice")).toHaveTextContent("Rien n’a été appliqué : Baignoire a changé depuis la sélection.");
+  });
+
+  it("shows in the detail the earlier reading kept, and that its new measure did not end, with its reason", async () => {
+    client.fetchItemTable.mockResolvedValue(table({ readings: SCENARIO.map((reading) => reading.itemId === fixtureItemId(3)
+      && reading.planKey === RDC ? { ...reading, unit: "failed" as const,
+        attempt: { unit: "failed" as const, reason: "Le service d’analyse n’a pas pu terminer le métré." } } : reading) }));
+    renderTable();
+    await screen.findByRole("row", { name: /Baignoire/ });
+    fireEvent.click(screen.getByRole("button", { name: "Détail du poste « Baignoire »" }));
+    const detail = await screen.findByTestId(`poste-detail-${fixtureItemId(3)}`);
+    expect(within(detail).getByTestId(`poste-reading-attempt-${RDC}`)).toHaveTextContent(
+      "La nouvelle mesure de ce plan n’a pas abouti : Le service d’analyse n’a pas pu terminer le métré. La lecture précédente ci-dessous reste celle retenue.");
+    expect(detail).toHaveTextContent("Plan RDC · A · RDC · Non trouvé");
+    expect(within(detail).queryByTestId(`poste-reading-attempt-${R1}`)).not.toBeInTheDocument();
   });
 
   it("keeps the selection ready, without a confirmation, while another analysis of the affaire runs", async () => {

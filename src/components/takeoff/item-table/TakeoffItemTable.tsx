@@ -7,7 +7,6 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import useSWR from "swr";
 import { ChevronDown } from "lucide-react";
 
-import type { ChatGptReasoningEffort } from "@/lib/ai/chatgpt-model-preferences";
 import { isTakeoffApiError } from "@/lib/takeoff/client-http";
 import { itemTableLineDetailHref } from "@/lib/takeoff/item-detail-address";
 import { isTakeoffReadRefusal } from "../useTakeoffRequestActivity";
@@ -25,6 +24,7 @@ import {
   ITEM_REVIEW_COMMAND_VERSION,
   ITEM_TABLE_PAGE_SIZES,
   type ItemRemeasurePreview,
+  type ItemRemeasureSeen,
   type ItemReviewCommand,
   type ItemReviewResult,
   type ItemTableResponseLine,
@@ -276,7 +276,7 @@ export function TakeoffItemTable({ projectId, viewerKey, signature }: {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- read back once per scope, then read their lines again
   }, [draftsKey, scopeKey]);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
-  const [dialog, setDialog] = useState<null | { gesture: Gesture; intentKey: string }>(null);
+  const [dialog, setDialog] = useState<null | { gesture: Gesture; intentKey: string; seen?: ItemRemeasureSeen }>(null);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<Notice | null>(null);
   const [preview, setPreview] = useState<{ value: ItemRemeasurePreview | null; error: string | null }>({ value: null, error: null });
@@ -290,6 +290,8 @@ export function TakeoffItemTable({ projectId, viewerKey, signature }: {
   const filterKey = JSON.stringify(address.filter);
   const forSelection = useCompletions({ screen: screenKey, item: selectionToken(selection) });
   const forFilter = useCompletions({ screen: screenKey, item: selectionToken(selection), reading: filterKey });
+  // The remeasure's dialog (lot 4 PR 4b): its preview is shown only in the dialog it was asked for.
+  const forDialog = useCompletions({ screen: screenKey, item: dialog?.intentKey ?? null });
 
   const navigate = useCallback((partial: Partial<ItemTableAddress>) => {
     const next = withItemTableParams(searchParams.toString(), itemTableAddressParams(partial, PREFIX));
@@ -387,36 +389,57 @@ export function TakeoffItemTable({ projectId, viewerKey, signature }: {
   const base = (intentKey: string) => ({ command_version: ITEM_REVIEW_COMMAND_VERSION, intent_key: intentKey, scope: selection.scope,
     targets: selectedTargets(selection) });
 
-  const openRemeasure = useCallback(async () => {
-    setDialog({ gesture: "remeasure", intentKey: newIntent() });
-    setPreview({ value: null, error: null });
-    try {
-      setPreview({ value: await previewItemRemeasure(projectId, selection.scope, Object.keys(selection.items)), error: null });
-    } catch (caught) {
-      setPreview({ value: null, error: isTakeoffApiError(caught) ? caught.message : "Impossible de préparer la nouvelle mesure." });
-    }
-  }, [projectId, selection]);
+  // What the member saw of the selection: the list revision of the table shown and each line's readings, frozen with the
+  // selection when it was ticked. The preview and the confirmation compare them with the readings stored now.
+  const seenOfSelection = useCallback((): ItemRemeasureSeen => ({ list_revision_id: data?.list?.revisionId ?? null,
+    targets: Object.values(selection.items).map(({ target }) => target) }), [data?.list?.revisionId, selection]);
 
-  const confirmRemeasure = useCallback(async (effort: ChatGptReasoningEffort | null) => {
+  const openRemeasure = useCallback(async () => {
+    const intentKey = newIntent();
+    setDialog({ gesture: "remeasure", intentKey, seen: seenOfSelection() });
+    setPreview({ value: null, error: null });
+    // The preview is shown in the dialog it was asked for only: one closed, or opened again since, never receives it.
+    const completion = forDialog({ screen: screenKey, item: intentKey });
+    try {
+      const value = await previewItemRemeasure(projectId, selection.scope, Object.keys(selection.items), seenOfSelection());
+      if (completion.current()) setPreview({ value, error: null });
+    } catch (caught) {
+      if (completion.current()) {
+        setPreview({ value: null, error: isTakeoffApiError(caught) ? caught.message : "Impossible de préparer la nouvelle mesure." });
+      }
+    }
+  }, [projectId, selection, seenOfSelection, forDialog, screenKey]);
+
+  const confirmRemeasure = useCallback(async () => {
     if (!dialog || !preview.value) return;
     setBusy(true);
+    const started = selection;
+    const completion = forSelection({ screen: screenKey, item: selectionToken(started) });
     try {
       const result = await sendItemRemeasure(projectId, { command_version: ITEM_REVIEW_COMMAND_VERSION, intent_key: dialog.intentKey,
         scope: selection.scope, item_ids: preview.value.items.map(({ itemId }) => itemId),
         plan_keys: preview.value.plans.map(({ key: planKey }) => planKey),
-        setting: effort ? { reasoning_effort: effort } : null, preview_digest: preview.value.previewDigest });
-      setNotice(result.outcome === "already_running"
-        ? { tone: "info", text: "Une analyse de l’affaire est en cours : la sélection reste prête pour la nouvelle mesure." }
-        : { tone: "success", text: "Nouvelle mesure demandée : les postes seront lus de nouveau sur votre forfait." });
-      if (result.outcome !== "already_running") updateSelection(emptyItemSelection(selection.scope));
+        // The profile's setting as it is: the Mac reads a request with its payer's profile.
+        setting: null, preview_digest: preview.value.previewDigest,
+        seen: dialog.seen ?? seenOfSelection() });
+      if (completion.ownScreen()) {
+        setNotice(result.outcome === "already_running"
+          ? { tone: "info", text: "Une analyse de l’affaire est en cours : la sélection reste prête pour la nouvelle mesure." }
+          : { tone: "success", text: "Nouvelle mesure demandée : les postes seront lus de nouveau sur votre forfait." });
+      }
+      if (result.outcome !== "already_running") {
+        if (completion.current()) updateSelection(emptyItemSelection(started.scope));
+        // The items asked read « En lecture » on their plans now: the table shows it at once.
+        void refresh();
+      }
       setDialog(null);
     } catch (caught) {
       setDialog(null);
-      await failure(caught, selection);
+      await failure(caught, started);
     } finally {
       setBusy(false);
     }
-  }, [dialog, preview.value, projectId, selection, updateSelection, failure]);
+  }, [dialog, preview.value, projectId, selection, updateSelection, failure, refresh, seenOfSelection, forSelection, screenKey]);
 
   // « Tous les résultats du filtre »: applied only if the member still holds the selection and the filter it was asked for.
   const selectFilter = useCallback(async () => {
@@ -819,7 +842,7 @@ export function TakeoffItemTable({ projectId, viewerKey, signature }: {
       ) : null}
       {dialog?.gesture === "remeasure" ? (
         <RemeasureDialog scopeLabel={label} busy={busy} preview={preview.value} loadError={preview.error}
-          onClose={() => setDialog(null)} onConfirm={(effort) => void confirmRemeasure(effort)} />
+          onClose={() => setDialog(null)} onConfirm={() => void confirmRemeasure()} />
       ) : null}
     </JourneyPanel>
   );

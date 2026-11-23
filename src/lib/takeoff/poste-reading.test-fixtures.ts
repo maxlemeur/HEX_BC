@@ -1,5 +1,6 @@
 import type { StructuredCall, StructuredCallOptions } from "@/lib/ai/structured-call";
 import type { PosteExchangeAnswer, PosteExchangeManifest, PosteExchangeOutput } from "@/lib/takeoff/poste-exchange";
+import type { Poste } from "@/lib/takeoff/poste-list";
 
 /**
  * The controlled provider of the second measuring order, for isolated tests and the owned-worker journeys: it reads the
@@ -71,4 +72,20 @@ export function controlledPosteCall(script: PosteScript = posteNotFound, options
   }) as ControlledPosteCall;
   call.received = received;
   return call;
+}
+
+/**
+ * A sealed list whose batches depend on the items' order (planPosteBatches splits on count and on bytes): 24 designations
+ * of 3,900 accented characters (7,800 bytes each), then 24 short ones, their identifiers interleaved (long even, short
+ * odd). Read in the list's order it makes 4 batches; sorted by identifier, 3. A plan of 90 pages read in fragments of
+ * 10 pages (2 of overlap) makes 11 fragments: 44 reading calls in the list's order, above a plan's ceiling of 40; 33 by
+ * identifier. Fictional designations.
+ */
+export function orderSensitivePosteList(): Poste[] {
+  const entry = (index: number, label: string): Poste => ({ id: `eeeeeeee-0000-4000-8000-${String(index).padStart(12, "0")}`, label,
+    expectedUnit: "u", measurementBasis: null, qualifiers: {}, sections: [{ id: "s", title: "Plomberie", order: 1 }], synonyms: [],
+    referenceQuantity: null, origin: { kind: "manual", intentId: `i-${index}`, addedBy: "aaaaaaaa-0000-4000-8000-000000000001",
+      addedAt: "2026-11-22T08:00:00.000Z", addedInRevision: 1 } });
+  return [...Array.from({ length: 24 }, (_, k) => entry(2 * k, `Désignation détaillée ${k} `.padEnd(3_900, "é"))),
+    ...Array.from({ length: 24 }, (_, k) => entry(2 * k + 1, `Poste court ${k}`))];
 }

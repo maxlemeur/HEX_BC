@@ -43,7 +43,8 @@ const poste = (id: string, position: number, label: string, extra: Partial<ItemT
 function reading(itemId: string, planKey: string, answer: ItemAnswerView | null, extra: Partial<ItemReadingInput> = {}): ItemReadingInput {
   const plan = DETAIL_PLANS.find(({ key }) => key === planKey)!;
   return { itemId, planKey, planName: plan.name, location: plan.location?.label ?? null, unit: answer ? "succeeded" : "queued",
-    reading: answer ? "answered" : "in_flight", answer, decision: null, decisionRevision: 0, entry: null, sent: false, ...extra };
+    reading: answer ? "answered" : "in_flight", answer, decision: null, decisionRevision: 0, entry: null, sent: false, attempt: null,
+    ...extra };
 }
 
 /** A contribution and its row; an accepted answer's rows are verified (the table counts it undecided otherwise). */

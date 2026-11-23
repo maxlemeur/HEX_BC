@@ -105,7 +105,12 @@ export const TAKEOFF_GROUPED_UNIT_KEY = "grouped";
  */
 export type TakeoffLaunchOrder =
   | { kind: "free_extraction"; version: 1; list: null }
-  | { kind: "item_list"; version: 2; list: { revision_id: string; revision: number; content_sha256: string; item_count: number } };
+  | { kind: "item_list"; version: 2; list: { revision_id: string; revision: number; content_sha256: string; item_count: number;
+    /**
+     * The items a new measure of a selection asks (lot 4 PR 4b), in their canonical order (by identifier, as lower-case
+     * text); absent, every entry of the revision is asked. `item_count` stays the revision's count.
+     */
+    asked_item_ids?: string[] } };
 
 export const TAKEOFF_FREE_EXTRACTION_ORDER: TakeoffLaunchOrder = { kind: "free_extraction", version: 1, list: null };
 

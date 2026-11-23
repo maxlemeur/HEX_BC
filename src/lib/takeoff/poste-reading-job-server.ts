@@ -8,7 +8,7 @@ import type { TakeoffChunkingRuntimeConfig } from "@/lib/takeoff/chunking";
 import { TAKEOFF_PAID_CALL_ESTIMATE_TOKENS } from "@/lib/takeoff/launch-call-ledger";
 import { describeTakeoffLaunchReason, readTakeoffLaunchUnit, type AnyTakeoffLaunchManifest } from "@/lib/takeoff/launch-request";
 import { planPosteBatches } from "@/lib/takeoff/poste-exchange";
-import { boundPosteReadingRequest, describePosteReadingBounds, posteReadingBoundsOfManifest } from "@/lib/takeoff/poste-reading-bounds";
+import { boundPosteReadingRequest, describePosteReadingBounds, posteReadingBoundsOfManifest, postesAskedBy } from "@/lib/takeoff/poste-reading-bounds";
 import { buildLevelCRunMetricRows } from "@/lib/takeoff/level-c-chunk-metrics";
 import { prepareLevelCReading, type ProcessLevelCMetricsSummary } from "@/lib/takeoff/level-c-reading";
 import type { Poste } from "@/lib/takeoff/poste-list";
@@ -35,7 +35,9 @@ import { takeoffVectorGroupCallsBound, type VectorPageOutcome } from "@/lib/take
  * with the request's sealed manifest, whose every unit its re-check before a paid call plans again.
  */
 export type TakeoffItemListOrder = { requestId: string; revisionId: string; revision: number; itemCount: number; contentSha256: string;
-  manifest: AnyTakeoffLaunchManifest };
+  manifest: AnyTakeoffLaunchManifest;
+  /** The items a new measure of a selection asks (its order's asked_item_ids), else null: every item of the revision. */
+  askedItemIds: string[] | null };
 
 const failure = (jobId: string, message: string, retryable = false) =>
   new TakeoffError({ code: TakeoffErrorCode.INTERNAL_ERROR, retryable, jobId, level: TAKEOFF_LEVEL_C, message });
@@ -60,14 +62,17 @@ export async function readTakeoffItemListOrder(supabase: Supabase,
   if (!order || order.kind === "free_extraction") return null;
   const list = order.kind === "item_list" && order.version === 2 ? order.list : null;
   // The database sealed the manifest's shape (assert_takeoff_launch_seal); its units, plans and envelope are checked present.
+  const asked = list?.asked_item_ids;
   if (!list || typeof list.revision_id !== "string" || typeof list.revision !== "number" || typeof list.item_count !== "number"
     || typeof list.content_sha256 !== "string" || data.item_list_revision_id !== list.revision_id
+    || (asked !== undefined && (!Array.isArray(asked) || asked.length === 0 || asked.some((id) => typeof id !== "string")))
     || !Array.isArray(manifest.units) || !Array.isArray(manifest.plans) || typeof manifest.budget?.tokens !== "number"
     || (job.project_id && data.project_id !== job.project_id)) {
     throw failure(job.id, "La commande de mesure de cette analyse est invalide : relancez la lecture de ce plan.");
   }
   return { requestId: data.id, revisionId: list.revision_id, revision: list.revision, itemCount: list.item_count,
-    contentSha256: list.content_sha256, manifest: manifest as AnyTakeoffLaunchManifest };
+    contentSha256: list.content_sha256, manifest: manifest as AnyTakeoffLaunchManifest,
+    askedItemIds: Array.isArray(asked) ? (asked as string[]).map((id) => id.toLowerCase()) : null };
 }
 
 /**
@@ -187,6 +192,12 @@ export async function processItemListLevelC(input: {
   } catch {
     throw failure(job.id, "La liste des postes scellée par cette analyse n’a pas pu être lue.");
   }
+  // A new measure of a selection asks only its items (the database's rule, private.takeoff_request_asked_items): the
+  // reading, its bounds and its publication are those items, in the revision's order (as its admission sized them), each
+  // present.
+  const asked = postesAskedBy(items, input.order.askedItemIds);
+  if (!asked) throw failure(job.id, "Un poste demandé par cette analyse n’est pas dans sa liste : relancez la lecture.");
+  items = asked;
   assertReadingWithinBounds(job, { manifest: input.order.manifest, items, pageCount, maxPage: Math.max(...readPages), config, planFile,
     fileName: sourceFile.fileName });
   // Each context file with its kind (the reading keeps the CCTP only); a file whose kind is not known is never attached.
