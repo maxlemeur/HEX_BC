@@ -63,12 +63,21 @@ export const ITEM_SEND_BLOCKERS = ["not_completed", "already_sent", "read_only",
 export const ITEM_SEND_NOT_SENT_REASONS = ["set_aside", "not_accepted", "not_found", "uncertain", "empty", "unit_incompatible",
   "hypothesis_not_included", "rule_skip", "affaire_entry", "no_answer", "left_out", "entry_suspended", "superseded"] as const;
 export const ITEM_SEND_TO_RESOLVE_KINDS = ["target_missing", "target_multiple", "identity_conflict", "entered_quantity",
-  "breakdown_mixed", "page_decision", "section_depth", "quantity_unwritable", "compartment_changed"] as const;
+  "breakdown_mixed", "page_decision", "section_depth", "quantity_unwritable", "compartment_changed", "verified_total_indivisible"] as const;
 export const ITEM_SEND_INVALID_DECISIONS = ["page_not_held", "replace_not_cuttable", "keep_both_same_line", "part_indivisible",
   "part_elsewhere"] as const;
 const ruleActions = ["none", "rename", "set_category", "skip", "set_price", "apply_assembly"] as const;
 const ruleEffects = ["none", "renamed", "categorized", "skipped", "price_ignored", "assembly_indicated"] as const;
 
+const quantitySourceSchema = z.enum(["measured", "entered", "verified_count"]);
+export const itemSendCountTotalSchema = z.object({
+  job_id: uuid, answer_id: uuid.nullable(), reading_revision: z.number().int().positive().nullable(),
+  marks_revision: z.number().int().positive(), quantity: z.number().int().positive(), unit: z.string(),
+  pages: z.array(z.number().int().positive()),
+});
+export const itemSendHeldQuantitySchema = itemSendCountTotalSchema.omit({ marks_revision: true }).extend({
+  source: z.enum(["measured", "entered"]), quantity: z.number(),
+});
 const gapSchema = z.object({ absolute: z.number(), percent: z.number().nullable(), requires_review: z.boolean() }).strict();
 const optionSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("line"), estimate_item_id: uuid, title: z.string().nullable() }).strict(),
@@ -108,6 +117,8 @@ export const itemSendPreviewResponseSchema = z.object({
     compartment: z.object({ key: z.string(), label: z.string(), reason: z.enum(["location_unknown", "location_multiple", "location_to_confirm"])
       .nullable() }).strict(),
     unit: z.string(),
+    quantity_source: quantitySourceSchema.optional(),
+    replaced_verified_total: itemSendCountTotalSchema.optional(),
     quantity_before: z.number().nullable(),
     quantity_after: z.number(),
     reference: z.number().nullable(),
@@ -126,12 +137,14 @@ export const itemSendPreviewResponseSchema = z.object({
   }).strict()),
   not_sent: z.array(z.object({ item_id: uuid, label: z.string(), reason: z.enum(ITEM_SEND_NOT_SENT_REASONS), message: z.string() }).strict()),
   /** Every part of an answer that does not enter the estimate, with its observations, pages and quantity. */
-  parts_not_sent: z.array(z.object({ item_id: uuid, kind: z.enum(["measured", "entered"]), observation_ids: z.array(z.string()),
+  parts_not_sent: z.array(z.object({ item_id: uuid, kind: quantitySourceSchema, observation_ids: z.array(z.string()),
     pages: z.array(z.number().int().positive()), quantity: z.number(), unit: z.string().nullable(),
     reason: z.enum(["page_held", ...ITEM_SEND_NOT_SENT_REASONS]), message: z.string() }).strict()),
   to_resolve: z.array(z.object({
     key: z.string(),
     kind: z.enum(ITEM_SEND_TO_RESOLVE_KINDS),
+    verified_total: itemSendCountTotalSchema.optional(),
+    held_part: itemSendHeldQuantitySchema.optional(),
     item_id: uuid.nullable(),
     label: z.string().nullable(),
     page: z.number().int().positive().nullable(),

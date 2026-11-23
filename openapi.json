@@ -5480,7 +5480,7 @@
           "Takeoff"
         ],
         "summary": "Lire les repères comptés d’un poste sur une page de son plan",
-        "description": "Lecteurs de l’affaire. Les repères d’une réponse (un poste lu sur un plan) sur une page de sa portée, par lots dans un ordre stable (curseur apres), dans les états demandés (proposés, à attribuer, retenus par défaut ; retirés et nouvelle lecture sur demande), avec la géométrie de la page enregistrée, la révision des repères de la réponse et le total serveur des états demandés, à part du nombre chargé. Joint le décompte serveur de la réponse (nombre proposé, nombre relu sur la portée vérifiée, quantité retenue d’un poste compté en pièces, null et jamais 0) et ce que le membre peut faire : corriger s’il est opérateur du métré de l’affaire, sinon lecture seule, de même pour un plan déjà envoyé au devis ou une lecture remplacée. La page et le décompte sont rendus à une même révision : relus tant qu’ils diffèrent, puis refusés en 409 (TAKEOFF_MARKS_READ_CHANGING) s’ils changent encore. Une quantité comptée sur le plan est montrée et n’est jamais envoyée : le tableau des postes et l’envoi lisent ce qu’ils lisaient. Une réponse que le membre ne lit pas, ou une page hors de sa portée, est introuvable. N’écrit rien.",
+        "description": "Lecteurs de l’affaire. Les repères d’une réponse (un poste lu sur un plan) sur une page de sa portée, par lots dans un ordre stable (curseur apres), dans les états demandés (proposés, à attribuer, retenus par défaut ; retirés et nouvelle lecture sur demande), avec la géométrie de la page enregistrée, la révision des repères de la réponse et le total serveur des états demandés, à part du nombre chargé. Joint le décompte serveur de la réponse (nombre proposé, nombre relu sur la portée vérifiée, quantité retenue d’un poste compté en pièces, null et jamais 0) et ce que le membre peut faire : corriger s’il est opérateur du métré de l’affaire, sinon lecture seule, de même pour un plan déjà envoyé au devis ou une lecture remplacée. La page et le décompte sont rendus à une même révision : relus tant qu’ils diffèrent, puis refusés en 409 (TAKEOFF_MARKS_READ_CHANGING) s’ils changent encore. Pour un poste compté en pièces, le membre peut retenir ce comptage à l’acceptation du poste sur le plan. L’envoi compare la révision des repères à celle de la quantité retenue avant de la porter au devis. Une réponse que le membre ne lit pas, ou une page hors de sa portée, est introuvable. N’écrit rien.",
         "parameters": [
           {
             "name": "projectId",
@@ -7169,7 +7169,7 @@
           }
         ],
         "requestBody": {
-          "description": "Commande versionnée : geste, portée, cibles avec leurs révisions et clé d’intention.",
+          "description": "Geste, portée, cibles avec leurs révisions et clé d’intention. Pour accepter un poste compté sur un plan, quantity_choice précise la source retenue et les deux quantités comparées quand la mesure diffère ou qu’une saisie existe sur ce plan.",
           "required": true,
           "content": {
             "application/json": {
@@ -28712,7 +28712,7 @@
           "Takeoff"
         ],
         "summary": "Confirmer l'envoi par poste des reponses d'un plan",
-        "description": "Lot 4 : recalcule le plan d'ecriture depuis les faits enregistres et les choix du membre, comme l'apercu, le refuse (409) si son empreinte differe de celle confirmee, puis l'ecrivain du serveur (public.send_takeoff_item_plan, role de service, membre authentifie en parametre) relit chaque droit apres ses attentes et ecrit en une transaction : premier brouillon (cree comme « Creer un devis »), sections, lignes creees ou alimentees, parts par poste, pages et recu. Une meme cle d'intention renvoie son recu ; un autre plan sous la meme cle est un conflit (409). Chaque refus dit au membre pourquoi ; rien n'est ecrit.",
+        "description": "Lot 4 : recalcule le plan d'ecriture depuis les faits enregistres et les choix du membre, comme l'apercu, le refuse (409) si son empreinte differe de celle confirmee, puis l'ecrivain du serveur (public.send_takeoff_item_plan, role de service, membre authentifie en parametre) relit chaque droit apres ses attentes et ecrit en une transaction : premier brouillon (cree comme « Creer un devis »), sections, lignes creees ou alimentees, parts par poste, pages et recu. Une meme cle d'intention renvoie son recu ; un autre plan sous la meme cle est un conflit (409). Une révision de repères différente expire l’aperçu, même à quantité égale. Le code TAKEOFF_ITEM_SEND_VERIFIED_TOTAL_INDIVISIBLE (409) protège un total vérifié si le nouvel envoi le laisserait coexister avec une autre quantité du même plan. Chaque refus dit au membre pourquoi ; rien n'est ecrit.",
         "parameters": [
           {
             "name": "jobId",
@@ -28825,7 +28825,7 @@
           "Takeoff"
         ],
         "summary": "Apercu de l'envoi par poste des reponses d'un plan",
-        "description": "Lecture seule (lot 4) : pour l'analyse d'un plan lue contre la liste des postes, ce que deviendrait le devis : premier brouillon a creer, sections (lot puis famille de la liste, compartiment du decoupage), lignes creees ou alimentees (ligne du DPGF a sa place, ligne d'un envoi anterieur du meme poste), quantites avant et apres, reference, saisie, mesure et quantite retenue, lignes non envoyees et leur motif, points a trancher et leurs choix, lectures non additionnees, apports de page et regles sans effet sur les prix. Moteur 3 seul. N'ecrit rien. Tant que les reponses par poste ne sont pas enregistrees, repond 409.",
+        "description": "Lecture seule (lot 4) : pour l'analyse d'un plan lue contre la liste des postes, ce que deviendrait le devis : premier brouillon a creer, sections (lot puis famille de la liste, compartiment du decoupage), lignes creees ou alimentees (ligne du DPGF a sa place, ligne d'un envoi anterieur du meme poste), quantites avant et apres, reference, saisie, mesure et quantite retenue, lignes non envoyees et leur motif, points a trancher et leurs choix, lectures non additionnees, apports de page et regles sans effet sur les prix. Le comptage vérifié porte la révision des repères. Un total vérifié précédent est montré avec la quantité qui le remplace ou le motif qui le protège. Moteur 3 seul. N'ecrit rien. Tant que les reponses par poste ne sont pas enregistrees, repond 409.",
         "parameters": [
           {
             "name": "jobId",
@@ -33596,12 +33596,14 @@
               "NOT_FOUND",
               "CONFLICT",
               "VALIDATION_ERROR",
+              "ESTIMATE_ANALYSIS_OUT_OF_SCOPE",
               "INTERNAL_ERROR",
               "READ_ONLY",
               "TAKEOFF_MODULE_DISABLED",
               "TAKEOFF_FILE_REQUIRED",
               "TAKEOFF_FILE_TOO_LARGE",
               "TAKEOFF_FILE_TYPE_INVALID",
+              "TAKEOFF_ITEM_SEND_VERIFIED_TOTAL_INDIVISIBLE",
               "TAKEOFF_PDF_CORRUPTED",
               "TAKEOFF_PDF_NOT_INTERPRETABLE",
               "TAKEOFF_LEVEL_UNSUPPORTED",
@@ -33674,12 +33676,14 @@
                   "NOT_FOUND",
                   "CONFLICT",
                   "VALIDATION_ERROR",
+                  "ESTIMATE_ANALYSIS_OUT_OF_SCOPE",
                   "INTERNAL_ERROR",
                   "READ_ONLY",
                   "TAKEOFF_MODULE_DISABLED",
                   "TAKEOFF_FILE_REQUIRED",
                   "TAKEOFF_FILE_TOO_LARGE",
                   "TAKEOFF_FILE_TYPE_INVALID",
+                  "TAKEOFF_ITEM_SEND_VERIFIED_TOTAL_INDIVISIBLE",
                   "TAKEOFF_PDF_CORRUPTED",
                   "TAKEOFF_PDF_NOT_INTERPRETABLE",
                   "TAKEOFF_LEVEL_UNSUPPORTED",
@@ -47543,6 +47547,84 @@
                             }
                           ]
                         },
+                        "quantityOptions": {
+                          "type": "object",
+                          "properties": {
+                            "verifiedQuantity": {
+                              "anyOf": [
+                                {
+                                  "type": "integer",
+                                  "minimum": 0,
+                                  "maximum": 9007199254740991
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "unit": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 64
+                            },
+                            "alternativeSource": {
+                              "type": "string",
+                              "enum": [
+                                "measured",
+                                "entered"
+                              ]
+                            },
+                            "alternativeQuantity": {
+                              "type": [
+                                "number",
+                                "null"
+                              ]
+                            },
+                            "alternativeUnit": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 64
+                            },
+                            "allowCount": {
+                              "type": "boolean"
+                            },
+                            "allowAlternative": {
+                              "type": "boolean"
+                            }
+                          },
+                          "required": [
+                            "verifiedQuantity",
+                            "unit",
+                            "alternativeSource",
+                            "alternativeQuantity",
+                            "alternativeUnit",
+                            "allowCount",
+                            "allowAlternative"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "wholeEntry": {
+                          "type": "object",
+                          "properties": {
+                            "quantity": {
+                              "type": "number"
+                            },
+                            "unit": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 64
+                            },
+                            "included": {
+                              "type": "boolean"
+                            }
+                          },
+                          "required": [
+                            "quantity",
+                            "unit",
+                            "included"
+                          ],
+                          "additionalProperties": false
+                        },
                         "retained": {
                           "anyOf": [
                             {
@@ -47561,6 +47643,7 @@
                                   "enum": [
                                     "measured",
                                     "entered",
+                                    "verified_count",
                                     "mixed"
                                   ]
                                 },
@@ -48072,6 +48155,92 @@
                                   }
                                 ]
                               },
+                              "verifiedMarks": {
+                                "type": "object",
+                                "properties": {
+                                  "revision": {
+                                    "type": "integer",
+                                    "minimum": 0,
+                                    "maximum": 9007199254740991
+                                  },
+                                  "counted": {
+                                    "type": "boolean"
+                                  },
+                                  "unit": {
+                                    "anyOf": [
+                                      {
+                                        "type": "string",
+                                        "minLength": 1,
+                                        "maxLength": 64
+                                      },
+                                      {
+                                        "type": "null"
+                                      }
+                                    ]
+                                  },
+                                  "quantity": {
+                                    "type": [
+                                      "number",
+                                      "null"
+                                    ]
+                                  },
+                                  "pages": {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "integer",
+                                      "exclusiveMinimum": 0,
+                                      "maximum": 9007199254740991
+                                    }
+                                  },
+                                  "verified": {
+                                    "type": "boolean"
+                                  }
+                                },
+                                "required": [
+                                  "revision",
+                                  "counted",
+                                  "unit",
+                                  "quantity",
+                                  "pages"
+                                ],
+                                "additionalProperties": false
+                              },
+                              "quantityDecision": {
+                                "type": "object",
+                                "properties": {
+                                  "source": {
+                                    "type": "string",
+                                    "enum": [
+                                      "verified_count",
+                                      "entered",
+                                      "measured"
+                                    ]
+                                  },
+                                  "marksRevision": {
+                                    "type": "integer",
+                                    "minimum": 0,
+                                    "maximum": 9007199254740991
+                                  },
+                                  "entryRevision": {
+                                    "anyOf": [
+                                      {
+                                        "type": "integer",
+                                        "minimum": 0,
+                                        "maximum": 9007199254740991
+                                      },
+                                      {
+                                        "type": "null"
+                                      }
+                                    ]
+                                  }
+                                },
+                                "required": [
+                                  "source",
+                                  "marksRevision",
+                                  "entryRevision"
+                                ],
+                                "additionalProperties": false
+                              },
                               "decision": {
                                 "anyOf": [
                                   {
@@ -48432,6 +48601,7 @@
                                         "already_decided",
                                         "entered",
                                         "no_answer",
+                                        "quantity_choice",
                                         "already_set_aside",
                                         "not_set_aside",
                                         "not_entry_state",
@@ -48472,6 +48642,7 @@
                                         "already_decided",
                                         "entered",
                                         "no_answer",
+                                        "quantity_choice",
                                         "already_set_aside",
                                         "not_set_aside",
                                         "not_entry_state",
@@ -48512,6 +48683,7 @@
                                         "already_decided",
                                         "entered",
                                         "no_answer",
+                                        "quantity_choice",
                                         "already_set_aside",
                                         "not_set_aside",
                                         "not_entry_state",
@@ -48552,6 +48724,7 @@
                                         "already_decided",
                                         "entered",
                                         "no_answer",
+                                        "quantity_choice",
                                         "already_set_aside",
                                         "not_set_aside",
                                         "not_entry_state",
@@ -48592,6 +48765,7 @@
                                         "already_decided",
                                         "entered",
                                         "no_answer",
+                                        "quantity_choice",
                                         "already_set_aside",
                                         "not_set_aside",
                                         "not_entry_state",
@@ -48632,6 +48806,7 @@
                                         "already_decided",
                                         "entered",
                                         "no_answer",
+                                        "quantity_choice",
                                         "already_set_aside",
                                         "not_set_aside",
                                         "not_entry_state",
@@ -48940,6 +49115,84 @@
                       }
                     ]
                   },
+                  "quantityOptions": {
+                    "type": "object",
+                    "properties": {
+                      "verifiedQuantity": {
+                        "anyOf": [
+                          {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "unit": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 64
+                      },
+                      "alternativeSource": {
+                        "type": "string",
+                        "enum": [
+                          "measured",
+                          "entered"
+                        ]
+                      },
+                      "alternativeQuantity": {
+                        "type": [
+                          "number",
+                          "null"
+                        ]
+                      },
+                      "alternativeUnit": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 64
+                      },
+                      "allowCount": {
+                        "type": "boolean"
+                      },
+                      "allowAlternative": {
+                        "type": "boolean"
+                      }
+                    },
+                    "required": [
+                      "verifiedQuantity",
+                      "unit",
+                      "alternativeSource",
+                      "alternativeQuantity",
+                      "alternativeUnit",
+                      "allowCount",
+                      "allowAlternative"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "wholeEntry": {
+                    "type": "object",
+                    "properties": {
+                      "quantity": {
+                        "type": "number"
+                      },
+                      "unit": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 64
+                      },
+                      "included": {
+                        "type": "boolean"
+                      }
+                    },
+                    "required": [
+                      "quantity",
+                      "unit",
+                      "included"
+                    ],
+                    "additionalProperties": false
+                  },
                   "retained": {
                     "anyOf": [
                       {
@@ -48958,6 +49211,7 @@
                             "enum": [
                               "measured",
                               "entered",
+                              "verified_count",
                               "mixed"
                             ]
                           },
@@ -49469,6 +49723,92 @@
                             }
                           ]
                         },
+                        "verifiedMarks": {
+                          "type": "object",
+                          "properties": {
+                            "revision": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 9007199254740991
+                            },
+                            "counted": {
+                              "type": "boolean"
+                            },
+                            "unit": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 64
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "quantity": {
+                              "type": [
+                                "number",
+                                "null"
+                              ]
+                            },
+                            "pages": {
+                              "type": "array",
+                              "items": {
+                                "type": "integer",
+                                "exclusiveMinimum": 0,
+                                "maximum": 9007199254740991
+                              }
+                            },
+                            "verified": {
+                              "type": "boolean"
+                            }
+                          },
+                          "required": [
+                            "revision",
+                            "counted",
+                            "unit",
+                            "quantity",
+                            "pages"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "quantityDecision": {
+                          "type": "object",
+                          "properties": {
+                            "source": {
+                              "type": "string",
+                              "enum": [
+                                "verified_count",
+                                "entered",
+                                "measured"
+                              ]
+                            },
+                            "marksRevision": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 9007199254740991
+                            },
+                            "entryRevision": {
+                              "anyOf": [
+                                {
+                                  "type": "integer",
+                                  "minimum": 0,
+                                  "maximum": 9007199254740991
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            }
+                          },
+                          "required": [
+                            "source",
+                            "marksRevision",
+                            "entryRevision"
+                          ],
+                          "additionalProperties": false
+                        },
                         "decision": {
                           "anyOf": [
                             {
@@ -49829,6 +50169,7 @@
                                   "already_decided",
                                   "entered",
                                   "no_answer",
+                                  "quantity_choice",
                                   "already_set_aside",
                                   "not_set_aside",
                                   "not_entry_state",
@@ -49869,6 +50210,7 @@
                                   "already_decided",
                                   "entered",
                                   "no_answer",
+                                  "quantity_choice",
                                   "already_set_aside",
                                   "not_set_aside",
                                   "not_entry_state",
@@ -49909,6 +50251,7 @@
                                   "already_decided",
                                   "entered",
                                   "no_answer",
+                                  "quantity_choice",
                                   "already_set_aside",
                                   "not_set_aside",
                                   "not_entry_state",
@@ -49949,6 +50292,7 @@
                                   "already_decided",
                                   "entered",
                                   "no_answer",
+                                  "quantity_choice",
                                   "already_set_aside",
                                   "not_set_aside",
                                   "not_entry_state",
@@ -49989,6 +50333,7 @@
                                   "already_decided",
                                   "entered",
                                   "no_answer",
+                                  "quantity_choice",
                                   "already_set_aside",
                                   "not_set_aside",
                                   "not_entry_state",
@@ -50029,6 +50374,7 @@
                                   "already_decided",
                                   "entered",
                                   "no_answer",
+                                  "quantity_choice",
                                   "already_set_aside",
                                   "not_set_aside",
                                   "not_entry_state",
@@ -51772,6 +52118,7 @@
                         "already_decided",
                         "entered",
                         "no_answer",
+                        "quantity_choice",
                         "already_set_aside",
                         "not_set_aside",
                         "not_entry_state",
@@ -51942,6 +52289,43 @@
               "gesture": {
                 "type": "string",
                 "const": "accept_measured"
+              },
+              "quantity_choice": {
+                "type": "object",
+                "properties": {
+                  "source": {
+                    "type": "string",
+                    "enum": [
+                      "verified_count",
+                      "measured",
+                      "entered"
+                    ]
+                  },
+                  "verified_quantity": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "exclusiveMinimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "alternative_quantity": {
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  }
+                },
+                "required": [
+                  "source",
+                  "verified_quantity",
+                  "alternative_quantity"
+                ],
+                "additionalProperties": false
               }
             },
             "required": [
@@ -52636,6 +53020,7 @@
                         "already_decided",
                         "entered",
                         "no_answer",
+                        "quantity_choice",
                         "already_set_aside",
                         "not_set_aside",
                         "not_entry_state",
@@ -107543,6 +107928,79 @@
                     "unit": {
                       "type": "string"
                     },
+                    "quantity_source": {
+                      "type": "string",
+                      "enum": [
+                        "measured",
+                        "entered",
+                        "verified_count"
+                      ]
+                    },
+                    "replaced_verified_total": {
+                      "type": "object",
+                      "properties": {
+                        "job_id": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        "answer_id": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "reading_revision": {
+                          "anyOf": [
+                            {
+                              "type": "integer",
+                              "exclusiveMinimum": 0,
+                              "maximum": 9007199254740991
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "marks_revision": {
+                          "type": "integer",
+                          "exclusiveMinimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "quantity": {
+                          "type": "integer",
+                          "exclusiveMinimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "unit": {
+                          "type": "string"
+                        },
+                        "pages": {
+                          "type": "array",
+                          "items": {
+                            "type": "integer",
+                            "exclusiveMinimum": 0,
+                            "maximum": 9007199254740991
+                          }
+                        }
+                      },
+                      "required": [
+                        "job_id",
+                        "answer_id",
+                        "reading_revision",
+                        "marks_revision",
+                        "quantity",
+                        "unit",
+                        "pages"
+                      ],
+                      "additionalProperties": false
+                    },
                     "quantity_before": {
                       "type": [
                         "number",
@@ -107748,7 +108206,8 @@
                       "type": "string",
                       "enum": [
                         "measured",
-                        "entered"
+                        "entered",
+                        "verified_count"
                       ]
                     },
                     "observation_ids": {
@@ -107829,8 +108288,139 @@
                         "page_decision",
                         "section_depth",
                         "quantity_unwritable",
-                        "compartment_changed"
+                        "compartment_changed",
+                        "verified_total_indivisible"
                       ]
+                    },
+                    "verified_total": {
+                      "type": "object",
+                      "properties": {
+                        "job_id": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        "answer_id": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "reading_revision": {
+                          "anyOf": [
+                            {
+                              "type": "integer",
+                              "exclusiveMinimum": 0,
+                              "maximum": 9007199254740991
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "marks_revision": {
+                          "type": "integer",
+                          "exclusiveMinimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "quantity": {
+                          "type": "integer",
+                          "exclusiveMinimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "unit": {
+                          "type": "string"
+                        },
+                        "pages": {
+                          "type": "array",
+                          "items": {
+                            "type": "integer",
+                            "exclusiveMinimum": 0,
+                            "maximum": 9007199254740991
+                          }
+                        }
+                      },
+                      "required": [
+                        "job_id",
+                        "answer_id",
+                        "reading_revision",
+                        "marks_revision",
+                        "quantity",
+                        "unit",
+                        "pages"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "held_part": {
+                      "type": "object",
+                      "properties": {
+                        "job_id": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        "answer_id": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "reading_revision": {
+                          "anyOf": [
+                            {
+                              "type": "integer",
+                              "exclusiveMinimum": 0,
+                              "maximum": 9007199254740991
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "quantity": {
+                          "type": "number"
+                        },
+                        "unit": {
+                          "type": "string"
+                        },
+                        "pages": {
+                          "type": "array",
+                          "items": {
+                            "type": "integer",
+                            "exclusiveMinimum": 0,
+                            "maximum": 9007199254740991
+                          }
+                        },
+                        "source": {
+                          "type": "string",
+                          "enum": [
+                            "measured",
+                            "entered"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "job_id",
+                        "answer_id",
+                        "reading_revision",
+                        "quantity",
+                        "unit",
+                        "pages",
+                        "source"
+                      ],
+                      "additionalProperties": false
                     },
                     "item_id": {
                       "anyOf": [

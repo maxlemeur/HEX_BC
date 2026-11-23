@@ -856,6 +856,8 @@ select results_eq($$select r #>> array['summaries', pg_temp.baignoire()::text, '
     pg_temp.g('verify', jsonb_build_object('answer_id', pg_temp.baignoire(), 'pages', '[2, 7]'::jsonb)))) r) x$$,
   $$values ('verified'::text, false, 1, 'null'::jsonb)$$, 'a verified mark of a surface item gives no quantity');
 reset role;
+select is(private.takeoff_item_quantity_options(pg_temp.baignoire()),null::jsonb,
+  'a fully verified surface has no count to choose in its acceptance');
 
 -- An add or a move that would leave two retained marks of one answer on one object (within 4 points) needs the member's
 -- « distinct object »: two marks on one spot cannot even be told apart on a screen.

@@ -1,5 +1,6 @@
 "use client";
 
+import { ItemQuantityChoiceButtons } from "@/components/takeoff/item-table/ItemQuantityChoice";
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
@@ -196,6 +197,10 @@ export function TakeoffItemDetailScreen({ projectId, viewerKey }: {
     setNotice(null);
     // Asked on what is shown now, and offered on it: otherwise nothing is opened nor sent.
     if (!shown || request.key !== shown.key || !shown.offered.includes(request.gesture)) return;
+    if (request.gesture === "accept_measured" && request.quantityChoice && shown.line.quantityOptions) {
+      void runCommand({ ...base(shown.line, newIntent()), gesture: "accept_measured", quantity_choice: request.quantityChoice }, "accepté", null);
+      return;
+    }
     if (request.gesture === "include_entry") {
       void runCommand({ command_version: ITEM_REVIEW_COMMAND_VERSION, intent_key: newIntent(), scope: tableAddress.scope,
         gesture: "include_entry", targets: [shown.line.targets] }, "inclus", null);
@@ -246,7 +251,14 @@ export function TakeoffItemDetailScreen({ projectId, viewerKey }: {
           no navigation, no server render per arrow. */}
       <TakeoffItemDetail projectId={projectId} address={detail.address} reader={reader} tableQuery={query} onBack={back}
         onGesture={onGesture} onRefused={withdrawOnRefusal} refresh={refresh} onShown={setShown} />
-      {active?.gesture === "accept_measured" ? (
+      {active?.gesture === "accept_measured" && active.line.quantityOptions ? (
+        <Dialog open onOpenChange={(open) => { if (!open && !busy) close(); }}>
+          <DialogContent><DialogHeader><DialogTitle>Quantité de ce poste sur le plan</DialogTitle></DialogHeader>
+            <ItemQuantityChoiceButtons options={active.line.quantityOptions} disabled={busy} onChoose={(choice) => void runCommand({
+              ...base(active.line, active.intentKey), gesture: "accept_measured", quantity_choice: choice }, "accepté", pending)} />
+          </DialogContent>
+        </Dialog>
+      ) : active?.gesture === "accept_measured" ? (
         <AcceptMeasuredDialog scopeLabel={scopeLabel} busy={busy} total={1} eligible={1} onClose={close}
           onConfirm={() => void runCommand({ ...base(active.line, active.intentKey), gesture: "accept_measured" }, "accepté", pending)} />
       ) : null}

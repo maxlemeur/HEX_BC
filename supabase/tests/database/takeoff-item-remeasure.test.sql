@@ -678,6 +678,12 @@ select is((select quantity from private.takeoff_item_send_job_parts(pg_temp.f(10
   pg_temp.job(2,pg_temp.plan(0)),array[2])),5::numeric,'the current reading can send the included entry');
 select is((select count(*)::integer from private.takeoff_item_send_job_parts(pg_temp.f(10),pg_temp.f(20),
   pg_temp.job(8,pg_temp.plan(0)),array[2])),0,'the comparison supplies no sendable part');
+select results_eq($$select p->>'kind',(p->>'quantity')::numeric from private.takeoff_item_send_resolved_parts(
+  pg_temp.f(10),pg_temp.f(20),pg_temp.job(2,pg_temp.plan(0)),array[2]) p$$,$$values ('entered'::text,5::numeric)$$,
+  'confirmation retains the original reading and its plan entry');
+select is((select count(*) from private.takeoff_item_send_resolved_parts(pg_temp.f(10),pg_temp.f(20),
+  pg_temp.job(8,pg_temp.plan(0)),array[2])),0::bigint,'confirmation enumerates no retained part for the comparison');
+
 delete from public.takeoff_item_entries where item_id = pg_temp.f(300) and plan_logical_id = pg_temp.plan(0);
 
 select is((select p.job from pg_temp.pairs() p where p.item = pg_temp.f(300) and p.plan = pg_temp.plan(0)),

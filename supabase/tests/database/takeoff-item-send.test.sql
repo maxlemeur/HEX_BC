@@ -282,6 +282,12 @@ create function pg_temp.review(command jsonb) returns jsonb language sql as $$
   select public.review_takeoff_items(pg_temp.f(10), pg_temp.f(20), command)
 $$;
 
+-- Record the member's exclusion in the current reading. Later confirmations read the
+-- decision revision, and only the other accepted items can produce estimate parts.
+create function pg_temp.exclude_item(item integer, intent integer) returns text language sql as $$
+  select pg_temp.review(pg_temp.cmd('set_aside',intent,array[item],array[item],'{"reason":"out_of_scope"}')) ->> 'outcome'
+$$;
+
 -- The write plan the server builds (src/lib/takeoff/item-send-plan.ts), read here from what is stored, as the service
 -- reads it before the member confirms: built as the owner (the private readers are no member's), kept in a table the
 -- member's session reads.
@@ -386,7 +392,10 @@ create function pg_temp.plan(p_job uuid, p_version uuid, p_targets jsonb, p_sect
     'destination', case when p_version is null then jsonb_build_object('kind', 'first_draft')
       else jsonb_build_object('kind', 'existing_draft', 'version_id', p_version) end,
     'engine', 3, 'breakdown', 'together', 'sections', p_sections, 'targets', p_targets,
-    'page_contributions', pg_temp.page_contributions(p_targets), 'page_decisions', '[]'::jsonb, 'left_out', '[]'::jsonb,
+    'page_contributions', pg_temp.page_contributions(p_targets), 'page_decisions', '[]'::jsonb,
+    'left_out', coalesce((select jsonb_agg(jsonb_build_object('item_id',a.item_id,'reason','set_aside') order by a.item_id)
+      from public.takeoff_item_answers a join public.takeoff_item_answer_decisions d on d.answer_id = a.id
+      where a.job_id = p_job and d.kind = 'set_aside'), '[]'::jsonb),
     'parts_not_sent', '[]'::jsonb,
     'dependencies', jsonb_build_object('answers', pg_temp.answers_of(p_job, p_project),
       'affaire_entries', coalesce((select jsonb_agg(jsonb_build_object('item_id', e.item_id, 'revision', e.revision))
@@ -479,6 +488,52 @@ reset role;
 insert into plans values ('first', pg_temp.plan(pg_temp.job(20, 1), null,
   jsonb_build_array(pg_temp.new_line(pg_temp.job(20, 1), 300, 3)),
   '[{"key": "list:", "title": "Métré", "parent_key": null, "parent_id": null}]'::jsonb, pg_temp.payload(700)), pg_temp.payload(700));
+-- On a first draft with one allowed section, a level below the section needs
+-- a depth choice. Both spellings below refer to the one unresolved building
+-- reading on the exact plan file. A saved choice narrows the key.
+create function pg_temp.level_exclusion(p_key text, p_building text, p_other_building boolean,
+  p_level text default 'RDC', p_source_matches boolean default true) returns boolean language plpgsql as $$
+declare
+  plan_ jsonb;
+  parts_ jsonb;
+  allowed boolean;
+begin
+  begin
+    set local session_replication_role = replica;
+    update public.takeoff_plan_locations set building_choice=p_building,
+      building=case when p_building='value' then 'A' end,level=p_level,
+      content_hash=case when p_source_matches then content_hash else repeat('0',64) end
+      where plan_file_id=pg_temp.f(100);
+    if p_other_building then
+      insert into public.takeoff_plan_locations(tenant_id,project_id,source_kind,source_id,content_hash,revision,
+        building_choice,building,building_set_by,building_set_at,building_set_revision,level_choice,level_set_by,
+        level_set_at,level_set_revision,plan_file_id,document_name,created_by,updated_by)
+      values(pg_temp.f(10),pg_temp.f(20),'plan_file',pg_temp.f(100),repeat('a',64),1,'value','B',pg_temp.f(1),now(),1,
+        'unknown',pg_temp.f(1),now(),1,pg_temp.f(100),'Ancienne lecture',pg_temp.f(1),pg_temp.f(1));
+    end if;
+    set local session_replication_role = origin;
+    select jsonb_set(jsonb_set(body,'{breakdown}','"by_level"'),'{dependencies,location_generation}','1') into plan_ from plans where name='first';
+    select jsonb_agg(p) into parts_ from private.takeoff_item_send_resolved_parts(pg_temp.f(10),pg_temp.f(20),pg_temp.job(20,1),array[2,7]) p;
+    allowed:=private.takeoff_item_send_exclusion_choice(plan_,parts_->0,parts_,'[]',jsonb_build_object(
+      'key','depth:'||pg_temp.f(300)||'|'||p_key,'choice','{"kind":"leave_out"}'::jsonb),'left_out',9,1);
+    raise exception using errcode='Z1000',message='restore the location';
+  exception when sqlstate 'Z1000' then null; end;
+  return allowed;
+end;
+$$;
+select is(pg_temp.level_exclusion(k,b,other,level,exact),ok,description)
+from (values
+  ('level:[null,"rdc"]','reading',false,'RDC',true,true,'no building read: the confirmed level stands alone'),
+  ('unallocated','reading',false,'RDC',true,true,'an unconfirmed building read puts the same level in unallocated'),
+  ('level:[null,"roof"]','reading',false,'RDC',true,false,'a different level is never a third reading result'),
+  ('level:[null,"rdc"]','reading',true,'RDC',true,false,'a confirmed building in the affaire rules out a level alone'),
+  ('unallocated','value',false,'RDC',true,false,'an explicit building and level form a known compartment'),
+  ('level:[null,"rdc"]','value',false,'RDC',true,false,'an explicit building cannot disappear from the level key'),
+  ('unallocated','unknown',false,'RDC',true,false,'an explicit unknown building with no building in the affaire resolves to the level alone'),
+  ('level:[null,"rdc"]','reading',false,'R+1',true,false,'another confirmed level rules out the old level'),
+  ('level:[null,"rdc"]','reading',false,'RDC',false,false,'a location on different file bytes cannot attest this level')
+) v(k,b,other,level,exact,ok,description);
+
 -- The writer is the server's: a member's session never calls it, nor submits a plan of its own.
 select pg_temp.sign_in(1);
 set local role authenticated;
@@ -527,6 +582,9 @@ select results_eq($$select g.page, g.item_ids, cardinality(g.part_ids) from publ
   $$values (2, array[pg_temp.f(300)], 1), (7, array[pg_temp.f(300)], 1)$$, 'one page contribution per page');
 select results_eq($$select j.status::text, j.estimate_version_id is not null from public.takeoff_jobs j where j.id = pg_temp.job(20, 1)$$,
   $$values ('applied'::text, true)$$, 'the job is sent: linked and applied');
+select is((select public.estimate_version_holds_analysis(i.tenant_id,i.version_id,i.source_job_id)
+  from public.estimate_items i where i.id=(select t.estimate_item_id from public.takeoff_item_send_targets t)),true,
+  'the item send attaches the analysis of its new line before commit');
 select results_eq($$select r.request_id, r.job_id, r.version_created, r.command_kind, r.actor_id, r.result ->> 'lines_written',
     r.result ->> 'parts_written', (r.result ->> 'focus_item_id')::uuid = (select t.estimate_item_id from public.takeoff_item_send_targets t)
   from public.takeoff_item_send_receipts r$$,
@@ -755,13 +813,36 @@ create function pg_temp.chosen() returns jsonb language sql immutable as $$
   select jsonb_build_array(jsonb_build_object('key', 'target:' || pg_temp.f(302) || '|dpgf',
     'choice', jsonb_build_object('kind', 'line', 'estimate_item_id', pg_temp.f(950))))
 $$;
+-- The existing page-2 line is from an earlier send. A member can explicitly
+-- withhold the bathtub across both held pages after deciding page 7. Page 8 holds no such line.
+with facts as (
+  select pg_temp.second('[{"page":7,"decision":"replace","reason_code":null}]','[]') as plan,
+    (select jsonb_agg(s) from private.takeoff_item_send_resolved_parts(pg_temp.f(10),pg_temp.f(20),
+      pg_temp.job(20,2),array[2,7]) s) as parts,
+    private.takeoff_item_send_held_pages(pg_temp.f(10),(select version_id from draft),pg_temp.job(20,2),
+      pg_temp.document(),array[2,7]) as held
+)
+select is(private.takeoff_item_send_exclusion_choice(f.plan,p,f.parts,f.held,jsonb_build_object(
+    'key','page:'||page,'choice',jsonb_build_object('kind','leave_out')),'left_out',9,3),allowed,
+    format('leaving a whole typed part out on page %s requires the actual held page in this draft',page))
+  from facts f cross join lateral jsonb_array_elements(f.parts) p cross join (values (2,true),(8,false)) pages(page,allowed)
+  where p ->> 'item_id' = pg_temp.f(302)::text;
+insert into plans values ('manual_into_dpgf', pg_temp.second(pg_temp.decisions(), pg_temp.chosen(), true));
+insert into plans values ('undeclared_bathtub', pg_temp.second(pg_temp.decisions(), pg_temp.chosen()));
+select pg_temp.sign_in(1);
+set local role authenticated;
+select is(pg_temp.refusal($$select pg_temp.send(720, 'manual_into_dpgf')$$), '40001 TAKEOFF_ITEM_SEND_PREVIEW_STALE target_unproven',
+  'point 5: an item of the list made by hand never feeds a DPGF line, even chosen');
+select is(pg_temp.refusal($$select pg_temp.send(720, 'undeclared_bathtub')$$), '40001 TAKEOFF_ITEM_SEND_PREVIEW_STALE item_changed',
+  'a measured-only target cannot silently omit the retained typed bathtub');
+select is(pg_temp.exclude_item(302, 2402), 'applied', 'the member sets the bathtub aside for the lavabo-only second send');
+reset role;
 insert into plans values ('second', pg_temp.second(pg_temp.decisions(), pg_temp.chosen()));
 insert into plans values ('no_decision', pg_temp.second('[]'::jsonb, pg_temp.chosen()));
 insert into plans values ('replace_today', pg_temp.second(jsonb_set(pg_temp.decisions(), '{0}',
   '{"page": 2, "decision": "replace", "reason_code": null}'), pg_temp.chosen()));
 insert into plans values ('keep_both_bare', pg_temp.second(jsonb_set(pg_temp.decisions(), '{0}',
   '{"page": 2, "decision": "keep_both", "reason_code": "complementary_scope", "note": "court"}'), pg_temp.chosen()));
-insert into plans values ('manual_into_dpgf', pg_temp.second(pg_temp.decisions(), pg_temp.chosen(), true));
 insert into plans select 'forged_after', jsonb_set(body, '{targets,0,quantity_after}', '6') from plans where name = 'second';
 insert into plans select 'forged_part', jsonb_set(body, '{targets,0,contributions,0,quantity}', '40') from plans where name = 'second';
 insert into plans select 'forged_replaces', jsonb_set(body, '{targets,0,replaces}', '[]') from plans where name = 'second';
@@ -784,8 +865,6 @@ select is(pg_temp.refusal($$select pg_temp.send(720, 'replace_today')$$), '22023
   'a page of today''s send is never replaced part by part: its reading has no part per item');
 select is(pg_temp.refusal($$select pg_temp.send(720, 'keep_both_bare')$$), '22023 TAKEOFF_ITEM_SEND_INVALID',
   '« garder les deux » for a complementary scope needs its note');
-select is(pg_temp.refusal($$select pg_temp.send(720, 'manual_into_dpgf')$$), '40001 TAKEOFF_ITEM_SEND_PREVIEW_STALE target_unproven',
-  'point 5: an item of the list made by hand never feeds a DPGF line, even chosen');
 select is(pg_temp.refusal($$select pg_temp.send(720, 'forged_after')$$), '40001 TAKEOFF_ITEM_SEND_PREVIEW_STALE quantity_changed',
   'a quantity given by the caller is compared, never applied');
 select is(pg_temp.refusal($$select pg_temp.send(720, 'forged_part')$$), '40001 TAKEOFF_ITEM_SEND_PREVIEW_STALE item_changed',
@@ -878,6 +957,7 @@ where job_id = pg_temp.job(20, 3);
 select pg_temp.sign_in(1);
 set local role authenticated;
 select is(pg_temp.review(pg_temp.cmd('accept_measured', 603, array[300], array[300])) ->> 'outcome', 'applied', 'accepted');
+select is(pg_temp.exclude_item(302, 2403), 'applied', 'the lavabo-only reading explicitly sets the bathtub aside');
 reset role;
 select set_config('miaouffrage.estimate_v3_writer', (select version_id::text from draft), true);
 update public.estimate_items set quantity = 7 where id = (select line_id from draft);
@@ -926,6 +1006,9 @@ from (values (960, 2, 2, 'draft'), (961, 3, 3, 'sent'), (962, 4, 3, 'draft')) as
 set local session_replication_role = origin;
 insert into public.draft_locks (version_id, user_id, tenant_id, expires_at, session_id)
 select v, pg_temp.f(1), pg_temp.f(10), now() + interval '10 minutes', gen_random_uuid() from unnest(array[pg_temp.f(960), pg_temp.f(962)]) v;
+-- This fixture is a copy that lost its send journal; it still holds the original analysis.
+insert into public.takeoff_version_links (tenant_id, takeoff_job_id, source_version_id, target_version_id)
+select pg_temp.f(10), pg_temp.job(20, 2), version_id, pg_temp.f(962) from draft;
 select set_config('miaouffrage.estimate_v3_writer', pg_temp.f(962)::text, true);
 insert into public.estimate_items (id, tenant_id, version_id, parent_id, item_type, position, title)
 values (pg_temp.f(964), pg_temp.f(10), pg_temp.f(962), null, 'section', 1, 'Métré');
@@ -946,6 +1029,7 @@ where job_id = pg_temp.job(20, 4);
 select pg_temp.sign_in(1);
 set local role authenticated;
 select is(pg_temp.review(pg_temp.cmd('accept_measured', 604, array[300], array[300])) ->> 'outcome', 'applied', 'accepted');
+select is(pg_temp.exclude_item(302, 2404), 'applied', 'the lavabo-only reading explicitly sets the bathtub aside');
 reset role;
 insert into plans values
   ('engine_v2', pg_temp.plan(pg_temp.job(20, 4), pg_temp.f(960), jsonb_build_array(pg_temp.new_line(pg_temp.job(20, 4), 300, 3)),
@@ -1290,6 +1374,12 @@ returns jsonb language sql as $$
     '{page_contributions}', pg_temp.page_contributions(jsonb_build_array(jsonb_build_object('item_id', pg_temp.f(302),
       'key', pg_temp.f(302) || '|together', 'contributions', pg_temp.parts(p_job, 302)))))
 $$;
+select pg_temp.sign_in(1);
+set local role authenticated;
+select is(pg_temp.review(pg_temp.cmd('reinstate',2420,array[302],array[302])) ->> 'outcome','applied',
+  'the member reinstates the bathtub for the unit-alias send');
+select is(pg_temp.exclude_item(300, 2421), 'applied', 'the bathtub-only send explicitly sets the lavabo aside');
+reset role;
 insert into plans values ('alias', pg_temp.bathtub(pg_temp.job(20, 4)));
 select pg_temp.sign_in(1);
 set local role authenticated;
@@ -1417,6 +1507,139 @@ insert into public.draft_locks (version_id, user_id, tenant_id, expires_at, sess
 values (pg_temp.f(991), pg_temp.f(1), pg_temp.f(10), now() + interval '10 minutes', gen_random_uuid());
 select is(private.takeoff_item_send_dpgf_reference(pg_temp.f(10), (select source_metadata from public.estimate_items where id = pg_temp.f(993))),
   4::numeric, 'point 11: an explicit null DPGF quantity falls back to the mapped row''s « 4,0 », as the preview reads it');
+-- A retained DPGF item can have a page left out and a typed existing line kept
+-- for its remaining part. Exercise this fork on its own reading and restore
+-- the original single-item affaire before the other sends use it.
+create function pg_temp.mixed_page_and_entry(scenario text default 'send') returns jsonb language plpgsql as $$
+declare
+  job_ uuid := pg_temp.job(22,8);
+  wire text := $mixed_write${
+  "sections": [{"key":"complement","title":"Compléments du métré hors DPGF","parent_key":null,"parent_id":null}],
+  "targets": [{"key":"LAVABO_ID|together","item_id":"LAVABO_ID","compartment_key":"together","line":{"kind":"new_line","section_key":"complement","section_id":null,"title":"Lavabo","unit_code":"u","order":1},"unit_code":"u","quantity_after":1,"quantity":{"reference":null,"entered":null,"earlier":0,"replaced":0,"added":1,"measured":1,"retained":1,"rounded_from":null,"gap":null,"kept_entry":false},"rule":null,"contributions":[{"answer_id":"LAVABO_ANSWER","answer_revision":"LAVABO_REVISION","kind":"measured","observation_ids":["LAVABO_OBS"],"quantity":1,"unit":"u","pages":[7],"identity":{"unit":"u","basis":null,"network":null,"material":null,"diameter":null}}],"replaces":[]}],
+  "page_contributions": [{"page":7,"item_ids":["LAVABO_ID"],"target_keys":["LAVABO_ID|together"],"observation_ids":["LAVABO_OBS"]}],
+  "page_decisions": [],
+  "left_out": [{"item_id":"WC_ID","reason":"entry_suspended","rule_id":null,"rule_version":null}],
+  "parts_not_sent": [{"item_id":"WC_ID","kind":"measured","observation_ids":["WC_OBS_2"],"pages":[2],"quantity":2,"unit":"u","reason":"left_out"},{"item_id":"WC_ID","kind":"measured","observation_ids":["WC_OBS_7"],"pages":[7],"quantity":5,"unit":"u","reason":"entry_suspended"}],
+  "resolutions": [{"key":"entry:WC_ID|dpgf","choice":{"kind":"keep_entry"}},{"key":"page:2","choice":{"kind":"leave_out"}}]
+}$mixed_write$;
+  action_ jsonb;
+  part_ jsonb;
+  plan_ jsonb;
+  answers_ jsonb;
+  answer_ jsonb;
+  result_ jsonb;
+begin
+  begin
+    set local session_replication_role = replica;
+    insert into public.takeoff_list_items(id,tenant_id,project_id,origin_kind,created_in_revision,created_by)
+    values (pg_temp.f(321),pg_temp.f(10),pg_temp.f(22),'manual',1,pg_temp.f(1));
+    insert into public.takeoff_list_revision_entries(revision_id,tenant_id,project_id,item_id,position,source_key,label,expected_unit,origin_kind,origin)
+    values (pg_temp.f(330),pg_temp.f(10),pg_temp.f(22),pg_temp.f(321),1,'manual:lavabo','Lavabo','u','manual','{"kind":"manual"}');
+    update public.takeoff_list_revisions set item_count=2 where id=pg_temp.f(330);
+    -- The WC has a proven raw row of its own. The original line continues
+    -- to hold page 2 through a different analysis.
+    insert into public.dpgf_rows_mapped(id,tenant_id,import_id,payload,raw_row_id,status)
+    values(pg_temp.f(2436),pg_temp.f(10),pg_temp.f(340),'{"designation":"WC","quantity":"4","unit":"u"}',pg_temp.f(341),'mapped');
+    set local session_replication_role = origin;
+    perform set_config('miaouffrage.estimate_v3_writer',pg_temp.f(991)::text,true);
+    insert into public.estimate_items(id,tenant_id,version_id,parent_id,item_type,position,title,quantity,unit_code,pricing_status,
+      unit_price_ht_cents,tax_rate_bp,k_fo,h_mo,h_mo_majoration,k_mo,pu_ht_cents,line_total_ht_cents,line_tax_cents,line_total_ttc_cents,
+      source_provider,source_metadata)
+    values(pg_temp.f(2437),pg_temp.f(10),pg_temp.f(991),pg_temp.f(992),'line',2,'WC',4.5,'u','priced',
+      0,2000,1,0,1,1,0,0,0,0,'dpgf',jsonb_build_object('import_id',pg_temp.f(340),'mapped_row_id',pg_temp.f(2436),'dpgf_source_quantity',4));
+    perform public.estimate_v3_complete_entry_for_writer(pg_temp.f(991),array[pg_temp.f(2437)]);
+    perform set_config('miaouffrage.estimate_v3_writer','',true);
+    if (select outcome from pg_temp.launch(22,8)) <> 'admitted' then raise exception 'mixed reading not admitted'; end if;
+    perform public.dispatch_next_takeoff_host_job(pg_temp.host());
+    perform pg_temp.claim(job_,2430);
+    answers_ := jsonb_set(pg_temp.wc_answers(),'{0,observations}',jsonb_build_array(
+      pg_temp.observation('contribution',2,2,'u',2431),pg_temp.observation('contribution',7,5,'u',2432)));
+    answers_ := answers_ || jsonb_build_array(jsonb_build_object('item_id',pg_temp.f(321),'outcome','measured','reasons','[]'::jsonb,
+      'searched_pages','[2,7]'::jsonb,'unreadable_pages','[]'::jsonb,'quantity','{"value":1,"unit":"u"}'::jsonb,'candidate',null,
+      'observations',jsonb_build_array(pg_temp.observation('contribution',7,1,'u',2433))));
+    perform pg_temp.publish(job_,2430,answers_,jsonb_build_array(pg_temp.row_(2431,2,2),pg_temp.row_(2432,5,7),
+      pg_temp.row_(2433,1,7)),null,array[2,7],'[]'::jsonb);
+    update public.takeoff_items set rules_stale=false,rules_evaluated_at=now(),rule_results='[]'::jsonb where job_id=job_;
+    if public.review_takeoff_items(pg_temp.f(10),pg_temp.f(22),pg_temp.cmd('accept_measured',2434,array[320,321],array[320,321]))
+      ->> 'outcome' <> 'applied' then raise exception 'mixed quantities not accepted'; end if;
+
+    -- Bind only database-generated identities and stamps. Every action,
+    -- page choice and exclusion is the image emitted by the planner test.
+    wire:=replace(replace(wire,'WC_ID',pg_temp.f(320)::text),'LAVABO_ID',pg_temp.f(321)::text);
+    part_:=pg_temp.parts(job_,321,22)->0;
+    wire:=replace(replace(replace(wire,'LAVABO_ANSWER',part_->>'answer_id'),'LAVABO_REVISION',part_->>'answer_revision'),
+      'LAVABO_OBS',part_#>>'{observation_ids,0}');
+    for part_ in select value from jsonb_array_elements(pg_temp.parts(job_,320,22)) loop
+      wire:=replace(wire,'WC_OBS_'||(part_#>>'{pages,0}'),part_#>>'{observation_ids,0}');
+    end loop;
+    action_:=wire::jsonb;
+    plan_:=pg_temp.plan(job_,pg_temp.f(991),action_->'targets',action_->'sections',null,22) || (action_-'resolutions');
+    plan_:=jsonb_set(plan_,'{dependencies,resolutions}',action_->'resolutions');
+    -- The dialog's held-page dependency names the other analysis's line.
+    plan_:=jsonb_set(plan_,'{dependencies,lines}',(select jsonb_build_array(jsonb_build_object('estimate_item_id',i.id,
+      'updated_at',i.updated_at,'quantity',i.quantity,'dpgf',jsonb_build_object('import_id',pg_temp.f(340),
+      'raw_row_id',pg_temp.f(343),'reference',4))) from public.estimate_items i where i.id=pg_temp.f(993)));
+    if scenario='remaining_line' then
+      -- Two lines now prove the lavabo's row. The earlier WC explicitly picks
+      -- one, then keeps its typed entry. Only the other remains for the lavabo.
+      set local session_replication_role=replica;
+      update public.takeoff_list_revision_entries set origin_kind='dpgf',origin=jsonb_build_object(
+        'kind','dpgf','importId',pg_temp.f(340),'rawRowId',case when item_id=pg_temp.f(321) then pg_temp.f(341) else pg_temp.f(2439) end)
+        where revision_id=pg_temp.f(330);
+      update public.estimate_items set source_metadata=jsonb_set(source_metadata,'{mapped_row_id}',to_jsonb(pg_temp.f(2436)))
+        where id=pg_temp.f(993);
+      set local session_replication_role=origin;
+      plan_:=jsonb_set(plan_,'{dependencies,resolutions}',action_->'resolutions'||jsonb_build_array(jsonb_build_object(
+        'key','target:'||pg_temp.f(320)||'|dpgf','choice',jsonb_build_object('kind','line','estimate_item_id',pg_temp.f(2437)))));
+      select jsonb_agg(p) into answers_ from private.takeoff_item_send_resolved_parts(
+        pg_temp.f(10),pg_temp.f(22),job_,array[2,7]) p;
+      select value into part_ from jsonb_array_elements(answers_) where value->>'item_id'=pg_temp.f(321)::text;
+      result_:=to_jsonb(private.takeoff_item_send_exclusion_choice(plan_,part_,answers_,
+        private.takeoff_item_send_held_pages(pg_temp.f(10),pg_temp.f(991),job_,pg_temp.document(22),array[2,7]),
+        jsonb_build_object('key','target:'||pg_temp.f(321)||'|dpgf','choice',jsonb_build_object('kind','leave_out')),'left_out',9,3));
+      raise exception using errcode='Z1000',message='restore the original mapping';
+    end if;
+    if scenario='winning_skip' then
+      insert into public.takeoff_mapping_rules(id,tenant_id,name,match_pattern,match_type,action,action_params,priority,is_active)
+        select pg_temp.f(2448),pg_temp.f(10),'Hors lot',e.label,'exact','skip','{}',1,true
+        from public.takeoff_list_revision_entries e where e.revision_id=pg_temp.f(330) and e.item_id=pg_temp.f(320);
+      plan_:=jsonb_set(plan_,'{dependencies,stamps,mapping}',to_jsonb(public.takeoff_mapping_rules_stamp(pg_temp.f(10))));
+    elsif scenario='unwritable' then
+      insert into public.takeoff_item_entries(tenant_id,project_id,item_id,plan_logical_id,quantity,unit,category,
+        included,revision,actor_id,entered_at,command_id)
+      select pg_temp.f(10),pg_temp.f(22),pg_temp.f(320),pg_temp.f(102),5.0001,'m','site_survey',true,1,
+        pg_temp.f(1),now(),d.command_id from public.takeoff_item_answer_decisions d
+        join public.takeoff_item_answers a on a.id=d.answer_id where a.job_id=job_ and a.item_id=pg_temp.f(320);
+      plan_:=jsonb_set(plan_,'{dependencies,answers}',pg_temp.answers_of(job_,22));
+      plan_:=jsonb_set(plan_,'{left_out,0,reason}','"unit_incompatible"');
+      plan_:=jsonb_set(plan_,'{parts_not_sent}',(select jsonb_agg(jsonb_build_object(
+        'item_id',pg_temp.f(320),'kind',p->'kind','observation_ids',p->'observation_ids','pages',p->'pages',
+        'quantity',p->'quantity','unit',p->'unit','reason','unit_incompatible')) from jsonb_array_elements(pg_temp.parts(job_,320,22)) p));
+    end if;
+    insert into plans values ('mixed_choices',plan_,null);
+    begin
+      answer_ := pg_temp.send(2435,'mixed_choices');
+      select jsonb_build_array(answer_->>'parts_written', (select quantity from public.estimate_items where id=pg_temp.f(2437)),
+        (select count(*) from public.takeoff_item_send_parts where job_id=job_ and item_id=pg_temp.f(320)),
+        (select quantity from public.takeoff_item_send_parts where job_id=job_ and item_id=pg_temp.f(321)))
+        into result_;
+    exception when serialization_failure then
+      get stacked diagnostics answer_ = pg_exception_detail;
+      result_ := jsonb_build_array(sqlerrm,answer_);
+    end;
+    raise exception using errcode='Z1000',message='restore the original reading';
+  exception when sqlstate 'Z1000' then null; end;
+  return result_;
+end;
+$$;
+select is(pg_temp.mixed_page_and_entry(), '["1",4.5,0,1]'::jsonb,
+  'a held page and a suspended entry can coexist: keep 4.5, send the other item for one');
+select is(pg_temp.mixed_page_and_entry('remaining_line'),'false'::jsonb,
+  'the line selected before keeping a typed entry is reserved even when the earlier item writes no target');
+select is(pg_temp.mixed_page_and_entry(scenario),'["TAKEOFF_ITEM_SEND_PREVIEW_STALE",{"reason":"item_changed"}]'::jsonb,explanation)
+from (values ('winning_skip','a winning exact skip stops the dialog before its page and entry choices'),
+  ('unwritable','a quantity outside the engine precision needs a quantity choice before any unit exclusion')) cases(scenario,explanation);
+
 create function pg_temp.wc(p_parts jsonb, p_decisions jsonb, p_not_sent jsonb, p_after numeric, p_kind text default 'dpgf_line')
 returns jsonb language sql as $$
   select jsonb_set(jsonb_set(jsonb_set(jsonb_set(jsonb_set(pg_temp.plan(pg_temp.job(22, 1), pg_temp.f(991), jsonb_build_array(
@@ -1702,6 +1925,40 @@ create function pg_temp.c_all(p_version uuid) returns text language sql stable a
     (select string_agg(to_jsonb(g)::text, ',' order by g.id) from public.takeoff_item_send_pages g where g.version_id = p_version),
     (select string_agg(to_jsonb(i)::text, ',' order by i.id) from public.estimate_items i where i.version_id = p_version)))
 $$;
+-- A redistribution keeps a historical target with no line or live parts.
+-- Its former key is metadata on schemas that store it. The copy carries
+-- neither the historical target nor an apparent deletion on that former key.
+create function pg_temp.copy_with_vacated_target() returns jsonb language plpgsql as $$
+declare
+  source_ uuid := (select version_id from draft);
+  former text := 'level:[null,"rdc"]';
+  vacated text := 'vacated:' || pg_temp.f(2440);
+  copy_ uuid;
+  result_ jsonb;
+begin
+  begin
+    set local session_replication_role=replica;
+    insert into public.takeoff_item_send_targets
+      select (jsonb_populate_record(null::public.takeoff_item_send_targets,to_jsonb(t)||jsonb_build_object(
+        'id',pg_temp.f(2440),'breakdown','by_level','compartment_key',vacated,'estimate_item_id',null,
+        'vacated_compartment_key',former))).*
+      from public.takeoff_item_send_targets t where t.version_id=source_ and t.estimate_item_id is not null limit 1;
+    set local session_replication_role=origin;
+    copy_:=public.duplicate_estimate_version(source_,false);
+    select jsonb_build_array(
+      (select count(*) from public.takeoff_item_send_targets t where t.version_id=source_ and t.compartment_key=vacated
+        and t.estimate_item_id is null and (not (to_jsonb(t)?'vacated_compartment_key') or to_jsonb(t)->>'vacated_compartment_key'=former)),
+      (select count(*) from public.takeoff_item_send_targets t where t.version_id=copy_ and
+        (t.compartment_key in (vacated,former) or to_jsonb(t)->>'vacated_compartment_key'=former)),
+      exists(select 1 from public.takeoff_item_send_parts p where p.version_id=copy_ and p.state='live')) into result_;
+    raise exception using errcode='Z1000',message='restore the draft before its other copy tests';
+  exception when sqlstate 'Z1000' then null; end;
+  return result_;
+end;
+$$;
+select is(pg_temp.copy_with_vacated_target(),'[1,0,true]'::jsonb,
+  'copying a draft carries its live parts and leaves a vacated target behind with its former key');
+
 create temp table source_before as select pg_temp.c_all((select version_id from draft)) as digest,
   pg_temp.c_rows((select version_id from draft)) as rows_;
 select ok((select rows_ from source_before) like '%' || pg_temp.f(199) || '%', 'the original holds another plan''s part');
@@ -1712,9 +1969,25 @@ set local role authenticated;
 create temp table copy20 as select public.duplicate_estimate_version((select version_id from draft), false) as version_id;
 reset role;
 grant select on copy20 to authenticated;
+set constraints public.estimate_line_analysis_scope immediate;
+set constraints public.estimate_line_analysis_scope deferred;
+select is((select bool_and(public.estimate_version_holds_analysis(i.tenant_id,i.version_id,i.source_job_id))
+  from public.estimate_items i where i.version_id=(select version_id from copy20) and i.source_job_id is not null),
+  true,'the duplicate inherits the analyses referenced by its lines');
+
 select is(pg_temp.c_rows((select version_id from copy20)), (select rows_ from source_before),
   'the copy holds the original''s live targets, parts, sections and page contributions, keyed to its own lines');
 select is(pg_temp.c_all((select version_id from draft)), (select digest from source_before), 'the original is untouched');
+select results_eq($$select c.kind, bool_and(
+    (to_jsonb(c) - array['id','version_id','target_id','receipt_id','copied_from_part_id','created_at']) =
+    (to_jsonb(s) - array['id','version_id','target_id','receipt_id','copied_from_part_id','created_at'])
+      and c.marks_revision is null and s.marks_revision is null)
+  from public.takeoff_item_send_parts c join public.takeoff_item_send_parts s on s.id = c.copied_from_part_id
+  where c.version_id = (select version_id from copy20) and c.kind in ('entered','measured')
+  group by c.kind order by c.kind$$,
+  $$values ('entered'::text,true),('measured'::text,true)$$,
+  'copying an entered or measured part retains every source field without a marks revision');
+
 select is((select count(*)::integer from public.takeoff_item_send_targets t where t.version_id = (select version_id from copy20)
     and (t.estimate_item_id is null or not exists (select 1 from public.estimate_items i where i.id = t.estimate_item_id
       and i.version_id = t.version_id))), 0,
@@ -1767,6 +2040,7 @@ select pg_temp.sign_in(1);
 set local role authenticated;
 select is(pg_temp.review(pg_temp.cmd('accept_measured', 660, array[300], array[300])) ->> 'outcome', 'applied',
   'its lavabo accepted');
+select is(pg_temp.exclude_item(302, 2406), 'applied', 'the lavabo-only reading explicitly sets the bathtub aside');
 reset role;
 -- The pages of the plan held in a version for this reading, as the page guard reads them (by titles of their lines).
 create function pg_temp.held_shape(p_job uuid, p_version uuid) returns jsonb language sql stable as $$
@@ -1860,6 +2134,7 @@ select pg_temp.sign_in(1);
 set local role authenticated;
 select is(pg_temp.review(pg_temp.cmd('accept_measured', 670, array[300], array[300])) ->> 'outcome', 'applied',
   'its lavabo accepted');
+select is(pg_temp.exclude_item(302, 2414), 'applied', 'the lavabo-only reading explicitly sets the bathtub aside');
 reset role;
 -- What an unknown copy path would leave (the marker on a line no target holds): the integrity case, refused.
 create function pg_temp.marked_duplicate() returns jsonb language plpgsql as $$
@@ -1926,6 +2201,7 @@ select pg_temp.sign_in(1);
 set local role authenticated;
 select is(pg_temp.review(pg_temp.cmd('accept_measured', 680, array[300], array[300])) ->> 'outcome', 'applied',
   'its lavabo accepted');
+select is(pg_temp.exclude_item(302, 2415), 'applied', 'the lavabo-only reading explicitly sets the bathtub aside');
 reset role;
 insert into plans values ('thirteenth_template', pg_temp.plan(pg_temp.job(20, 15), pg_temp.f(1970),
   jsonb_build_array(pg_temp.new_line(pg_temp.job(20, 15), 300, 3)),
@@ -2055,6 +2331,24 @@ insert into plans select 'wc_copy', jsonb_set(pg_temp.plan(pg_temp.job(22, 3), (
     'dpgf', jsonb_build_object('import_id', pg_temp.f(340), 'raw_row_id', null,
       'reference', private.takeoff_item_send_dpgf_reference(pg_temp.f(10), i.source_metadata))))
     from public.estimate_items i where i.id = (select id from copy22_line))), null;
+-- Classify the two new measured parts against their actual line in the copied draft.
+-- The ordinary confirmation below writes 3 + 5 to the WC. No conflict is offered.
+with facts as (
+  select body as plan, (select jsonb_agg(p) from private.takeoff_item_send_resolved_parts(
+    pg_temp.f(10), pg_temp.f(22), pg_temp.job(22,3), array[2,7]) p) as parts
+  from plans where name = 'wc_copy'
+), choices(action, suffix, choice, reason) as (values
+  ('breakdown','','leave_out','left_out'), ('verified-total','','leave_out','left_out'),
+  ('quantity','','leave_out','left_out'), ('quantity','|dpgf','leave_out','left_out'),
+  ('target','|dpgf','leave_out','left_out'), ('compartment','|dpgf','leave_out','left_out'),
+  ('depth','|dpgf','leave_out','left_out'), ('identity','|dpgf','leave_out','left_out'),
+  ('entry','|dpgf','leave_out','left_out'), ('entry','|dpgf','keep_entry','entry_suspended')
+)
+select is(private.takeoff_item_send_exclusion_choice(f.plan, p, f.parts, '[]', jsonb_build_object(
+    'key', c.action || ':' || pg_temp.f(320) || c.suffix, 'choice', jsonb_build_object('kind', c.choice)), c.reason, 9, 3),
+  false, format('a bound DPGF line offers no %s %s exclusion for its measured %s', c.action || c.suffix, c.choice, p ->> 'quantity'))
+from facts f cross join lateral jsonb_array_elements(f.parts) p cross join choices c;
+
 select pg_temp.sign_in(1);
 set local role authenticated;
 select is((pg_temp.send(795, 'wc_copy') ->> 'parts_replaced'), '2',

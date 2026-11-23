@@ -402,9 +402,7 @@ copie du plan, tels que le serveur les donne (jamais des gestes de l’onglet no
 enregistrés), une fois que le serveur a prouvé la réponse que cette analyse a donnée pour le
 poste sur ce plan, et mène à la lecture actuelle. Le retour du navigateur depuis le détail
 rend le clavier au « Détail » de la ligne qui l’a ouvert, pour le membre qui l’a ouvert,
-sauf si le membre a lui-même donné le clavier à une autre ligne. Tant qu’un envoi ne vérifie pas la
-révision des repères, une quantité comptée sur le plan est montrée et n’est jamais
-envoyée : le tableau des postes et l’envoi gardent la quantité qu’ils retiennent.
+sauf si le membre a lui-même donné le clavier à une autre ligne. Un comptage vérifié devient une quantité du devis quand le membre le retient sur le plan et confirme l’envoi.
 
 Une acceptance du tableau des postes retient aussi la révision des repères de la réponse
 acceptée, et compare celle que la sélection a vue : des repères modifiés depuis rendent la
@@ -420,6 +418,22 @@ nombre égal, l’acceptance n’est plus une décision : le poste redevient « 
 le tableau, ses compteurs et la commande, et s’accepte de nouveau sur les repères actuels.
 Écarter puis réintégrer un poste rend l’acceptance telle qu’elle était, liée aux repères
 sur lesquels elle avait été prise. Une réponse sans repères garde son acceptance.
+
+Sur un plan, un poste compté en pièces peut retenir le nombre de repères après
+vérification de toutes les pages de la lecture. Si la mesure indique 2 unités et le
+comptage 1, le membre choisit dans la décision du poste la quantité qui sera envoyée.
+Lorsque mesure et comptage concordent, accepter conserve la mesure. Une saisie du plan
+demande un choix de source même à nombre égal. Une saisie pour toute l’affaire garde sa
+portée sur tous les plans. Sur une longueur ou une surface, les repères vérifiés
+localisent les objets et la mesure conserve son unité.
+
+Le devis garde la quantité du comptage retenu, les pages portant ses repères et leur
+révision. Une copie du brouillon conserve cette preuve. Une confirmation relit la
+révision sous verrou et refuse un aperçu dont les repères ont changé, même à nombre égal.
+Une autre lecture du même plan peut remplacer ce total en entier si elle couvre chaque
+page du document. L’aperçu présente le comptage précédent, sa lecture et la nouvelle
+quantité retenue. Si la couverture est partielle ou inconnue, le membre peut conserver
+le total précédent ou retenir une quantité sur une lecture qui couvre tout le plan.
 
 Une ligne de devis créée depuis un import garde dans sa provenance l’import et la
 ligne mappée. La ligne mappée nomme la ligne brute dont elle vient ; quand une
@@ -890,6 +904,13 @@ décision et le refus à l'application.
 - **Provenance périmée.** Une clé d'arrondi, de ligne DPGF ou de remplacement écrite
   par un autre métré que le dernier de la ligne (une fusion ultérieure l'a gardée) ne
   compte pas.
+- Une ligne peut renvoyer à une analyse de son entreprise et de son affaire lorsque sa
+  version détient cette analyse ou en a hérité. Dans une copie de section au moteur 2,
+  la ligne garde ce lien si la version de destination détient l’analyse. Sinon, le badge
+  de provenance conserve le fichier et la page disponibles, sans lien vers l’analyse.
+  La copie conserve la quantité et le prix. Dans une autre affaire, cette ligne compte
+  comme une ligne ordinaire. La page reste disponible pour le premier envoi d’un métré
+  de cette affaire, même si la version source est ensuite supprimée.
 - **Lecture.** `GET /api/takeoff/jobs/{jobId}/page-contributions?version_id=` (la
   version revue ; 404 si elle est illisible ou si le métré n'en fait pas partie), et
   `POST /api/takeoff/page-contributions` avant un lancement. Lecture seule, sous la

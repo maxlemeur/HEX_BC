@@ -70,7 +70,7 @@ async function marksPage(access: AffaireAccess, query: { answerId: string; page:
   return data === null ? null : parseTakeoffCountMarksPage(data);
 }
 
-async function summaries(access: AffaireAccess, answerIds: readonly string[]) {
+export async function readCountMarkSummariesForAccess(access: AffaireAccess, answerIds: readonly string[]) {
   const { context, project } = access;
   const { data, error } = await clientOf(access).rpc("read_takeoff_count_mark_summaries", {
     p_tenant_id: context.tenantId, p_project_id: project.id, p_answer_ids: answerIds.slice(0, 500),
@@ -95,7 +95,7 @@ export async function readAnswerCountMarks(projectId: string, query: {
 /** The server-side count of each answer given (at most 500), by answer. */
 export async function readAnswerCountMarkSummaries(projectId: string, answerIds: readonly string[]):
   Promise<Record<string, TakeoffCountMarkSummary>> {
-  return summaries(await requireAffaireAccess(projectId, "read"), answerIds);
+  return readCountMarkSummariesForAccess(await requireAffaireAccess(projectId, "read"), answerIds);
 }
 
 /**
@@ -174,7 +174,7 @@ export async function readCountMarksView(projectId: string, query: { answerId: s
   // The page and the count are two reads: they are answered together only at one revision of the answer's marks.
   let read: { page: TakeoffCountMarksPage | null; summary: TakeoffCountMarkSummary | undefined } | null = null;
   for (let attempt = 0; attempt < VIEW_READ_ATTEMPTS && !read; attempt += 1) {
-    const [page, counted] = await Promise.all([marksPage(access, { ...query, answerId }), summaries(access, [answerId])]);
+    const [page, counted] = await Promise.all([marksPage(access, { ...query, answerId }), readCountMarkSummariesForAccess(access, [answerId])]);
     const summary = counted[answerId];
     if (!page || !summary || page.revision === summary.revision) read = { page, summary };
   }

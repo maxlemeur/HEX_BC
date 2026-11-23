@@ -1,5 +1,7 @@
 "use client";
 
+import { ItemQuantityChoiceButtons } from "./ItemQuantityChoice";
+import type { ItemQuantityChoice } from "@/lib/takeoff/item-table";
 import Link from "next/link";
 
 import type { ItemTableResponseLine } from "@/lib/takeoff/item-table-contracts";
@@ -38,12 +40,13 @@ function EntryFacts({ entry, names }: { entry: Entry; names: Record<string, stri
  * quantity entered, and the review's history (who accepted, set aside or reinstated it, and why). The targeted proof and
  * correction of the existing review stays one link away.
  */
-export function ItemTableLineDetail({ line, projectId, names, canReview, busy, onIncludeEntry, historyVersion, onRefused }: {
+export function ItemTableLineDetail({ line, projectId, names, canReview, busy, onIncludeEntry, onChooseQuantity, historyVersion, onRefused }: {
   line: ItemTableResponseLine;
   projectId: string;
   names: Record<string, string>;
   canReview: boolean;
   busy: boolean;
+  onChooseQuantity: (choice: ItemQuantityChoice) => void;
   onIncludeEntry: (line: ItemTableResponseLine) => void;
   /** Moves with each read of the table: the history is read again with it. */
   historyVersion: number;
@@ -114,6 +117,12 @@ export function ItemTableLineDetail({ line, projectId, names, canReview, busy, o
                         ))}
                       </ul>
                     ) : null}
+                    {reading.verifiedMarks?.verified ? <p>{reading.verifiedMarks.quantity === null ? "Repères vérifiés, sans quantité" :
+                      `Comptage vérifié${reading.quantityDecision?.source === "verified_count" && reading.decision?.kind === "accepted" ? " retenu" : ""} · ${formatItemQuantity(reading.verifiedMarks.quantity, reading.verifiedMarks.unit)}`}</p> : null}
+                    {line.wholeEntry && reading.verifiedMarks ? <p>Total saisi pour toute l’affaire · {formatItemQuantity(line.wholeEntry.quantity, line.wholeEntry.unit)}.
+                      {" "}{line.wholeEntry.included ? "Ce total va au devis." : "Cette hypothèse attend son inclusion."} Pour le modifier, ouvrez le total de l’affaire.</p> : null}
+                    {canReview && line.quantityOptions ? <ItemQuantityChoiceButtons options={line.quantityOptions} disabled={busy}
+                      onChoose={onChooseQuantity} /> : null}
                     {reading.decision ? (
                       <p>
                         {reading.decision.kind === "accepted" ? "Accepté"

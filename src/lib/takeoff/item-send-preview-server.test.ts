@@ -224,6 +224,12 @@ beforeEach(() => {
 });
 
 describe("previewTakeoffItemSend", () => {
+  it("returns the failed save when the transaction declines the analysis reference", () => {
+    expect(mapItemSendRpcError({ code: "M0A01", message: "database diagnostic" }, JOB)).toMatchObject({
+      status: 400, code: "ESTIMATE_ANALYSIS_OUT_OF_SCOPE", message: "Cette version du devis ne détient pas cette analyse.",
+    });
+  });
+
   it("refuses a takeoff not read against the list: today's send stays the way to send it", async () => {
     for (const sealed of [manifest("free_extraction"), manifest("item_list", 1)]) {
       setUp({ manifest: sealed });
@@ -326,7 +332,7 @@ describe("previewTakeoffItemSend", () => {
     vi.mocked(readItemSendEarlierState).mockResolvedValue({ targets: [], sections: [], displaced: [],
       pagesInEstimate: [{ page: 3, earlierJobIds: ["job-earlier"], estimateItemIds: [LINE], today: true, todayEstimateItemIds: [LINE], parts: [] }] });
     const preview = await previewTakeoffItemSend(JOB, {});
-    expect(readItemSendEarlierState).toHaveBeenCalledWith(expect.anything(), { projectId: PROJECT, versionId: VERSION, jobId: JOB });
+    expect(readItemSendEarlierState).toHaveBeenCalledWith(expect.anything(), { projectId: PROJECT, versionId: VERSION, jobId: JOB, incomingCountItems: [] });
     expect(preview.to_resolve).toEqual([expect.objectContaining({ kind: "page_decision", page: 3, held_item_ids: [LAVABO] })]);
     expect(preview.parts_not_sent).toEqual([expect.objectContaining({ item_id: LAVABO, kind: "entered", pages: [1, 2, 3, 4], reason: "page_held" })]);
   });
@@ -546,6 +552,30 @@ describe("confirmTakeoffItemSend", () => {
     const error = mapItemSendRpcError({ message: "TAKEOFF_APPLY_LOCK_REQUIRED", code: "P0001" }, JOB);
     expect(error.message).not.toContain("a échoué");
     expect(error.message).toMatch(/[a-zàâçéèêëîïôûùüÿœ]/);
+  });
+
+  it("names the held count, its reading and mark pages, and both ways to resolve the scope", () => {
+    const proof = { job_id: REQUEST_ID, answer_id: null, reading_revision: 3, marks_revision: 8,
+      quantity: 2, unit: "u", pages: [2, 7] };
+    const error = mapItemSendRpcError({ message: "TAKEOFF_ITEM_SEND_VERIFIED_TOTAL_INDIVISIBLE", code: "40001",
+      details: JSON.stringify({ ...proof, reason: "verified_total_indivisible" }) }, JOB);
+    expect(error).toMatchObject({ status: 409, code: "TAKEOFF_ITEM_SEND_VERIFIED_TOTAL_INDIVISIBLE",
+      details: { verified_total: proof } });
+    expect(error.message).toContain("Le devis conserve le comptage de 2 u, issu de la lecture n° 3 (repères pages 2, 7)");
+    expect(error.message).toContain("une lecture qui couvre tout le plan");
+    expect(error.message).toContain("conserver le total précédent");
+    expect(error.message).toContain("Rien n’a été écrit.");
+  });
+
+  it.each([["entered", "la saisie"], ["measured", "la mesure"]])("names the earlier %s part held by the writer", (source, label) => {
+    const held = { source, job_id: REQUEST_ID, answer_id: null, reading_revision: 3, quantity: 7.5, unit: "u", pages: [2] };
+    const error = mapItemSendRpcError({ message: "TAKEOFF_ITEM_SEND_VERIFIED_TOTAL_INDIVISIBLE", code: "40001",
+      details: JSON.stringify({ job_id: JOB, answer_id: null, reading_revision: 4, marks_revision: 1, quantity: 1,
+        unit: "u", pages: [7], held_part: held }) }, JOB);
+    expect(error.details).toMatchObject({ held_part: held });
+    expect(error.message).toContain(`Le devis conserve ${label} de 7,5 u de la lecture n° 3 (page 2)`);
+    expect(error.message).toContain("une lecture qui couvre tout le plan");
+    expect(error.message).toContain("conserver le total précédent");
   });
 
   it("tells the member, in French, every refusal of the writer; nothing was written", () => {

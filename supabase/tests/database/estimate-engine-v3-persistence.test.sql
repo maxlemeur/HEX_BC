@@ -1907,6 +1907,9 @@ select is(
          (select count(*) from public.estimate_versions where project_id = 'a3250000-0000-4000-8000-000000000010'),
          (select count(*) from public.estimate_items item join v3_fx fixture on fixture.key = 'tenant_a' and item.tenant_id = fixture.id))$a$),
     pg_temp.v3_probe(array[
+      format($s$insert into public.takeoff_jobs (tenant_id,estimate_version_id,level,status,source_file_name,created_by)
+        values (%L,'a3250000-0000-4000-8000-000000000180','A','completed','plan-fictif.pdf',
+          'a3250000-0000-4000-8000-000000000001')$s$,pg_temp.fx('tenant_a')),
       'set local role authenticated',
       $s$select set_config('request.jwt.claim.sub', 'a3250000-0000-4000-8000-000000000001', true)$s$,
       format(

@@ -10,7 +10,7 @@ import type { EstimateItemRecord } from "@/lib/estimate-calculations";
 import { buildEstimateV2SnapshotProjection } from "@/lib/estimate-v2-snapshot";
 import { resolveCalcEngineVersion, resolveEstimateEngineVersion } from "@/lib/estimates/calc-engine-version";
 import { isUnifiedEngine, usesPerUnitLabor } from "@/lib/estimates/engine/capabilities";
-import { ApiError, badRequest, conflict, internalError, notFound } from "@/lib/http/api-response";
+import { ApiError, badRequest, conflict, estimateAnalysisOutOfScope, internalError, notFound } from "@/lib/http/api-response";
 import {
   assertLinePlacementAllowed, assertSectionPlacementAllowed, assertSectionSubtreePlacementAllowed,
 } from "@/lib/estimates/estimate-placement-helpers";
@@ -179,7 +179,7 @@ export async function prepareEstimateBatch(input: {
   const foProvisionOf = (supplyTypeId: string | null, origin?: unknown, lineNature?: string | null) =>
     perUnitLabor ? deriveFoProvision(supplyTypeId, supplyTypeProvisions, origin, lineNature) : 1;
 
-  function references(data: Partial<Item>) {
+  function references(data: Partial<Item>, previousAnalysis?: Item["source_job_id"]) {
     const checks: Promise<void>[] = [];
     const check = (field: keyof Item, table: "estimate_categories" | "labor_roles" | "supply_types" |
       "products" | "supplier_pricebook", owner: boolean) => {
@@ -219,22 +219,17 @@ export async function prepareEstimateBatch(input: {
     check("supply_type_id", "supply_types", false);
     check("product_id", "products", false);
     check("selected_supplier_price_id", "supplier_pricebook", false);
-    if (typeof data.source_job_id === "string") {
+    if (typeof data.source_job_id === "string" && data.source_job_id !== previousAnalysis) {
       const jobId = data.source_job_id;
       const cacheKey = `takeoff_jobs:${jobId}`;
       let promise = checkedReferences.get(cacheKey);
       if (!promise) {
         promise = (async () => {
-          const { data: job, error } = await supabase.from("takeoff_jobs").select("id, estimate_version_id")
-            .eq("tenant_id", tenantId).eq("id", jobId).maybeSingle();
+          const { data: held, error } = await supabase.rpc("estimate_version_holds_analysis", {
+            p_tenant: tenantId, p_version: versionId, p_job: jobId,
+          });
           if (error) throw unavailable();
-          if (!job?.estimate_version_id) throw badRequest("source_job_id invalide.");
-          if (job.estimate_version_id === versionId) return;
-          const { data: link, error: linkError } = await supabase.from("takeoff_version_links").select("id")
-            .eq("tenant_id", tenantId).eq("takeoff_job_id", jobId)
-            .eq("source_version_id", job.estimate_version_id).eq("target_version_id", versionId).maybeSingle();
-          if (linkError) throw unavailable();
-          if (!link) throw badRequest("Le métré source n’est pas lié à cette version.");
+          if (!held) throw estimateAnalysisOutOfScope();
         })();
         checkedReferences.set(cacheKey, promise);
       }
@@ -372,14 +367,14 @@ export async function prepareEstimateBatch(input: {
         const patch = engineItemWrite(rawPatch, current.item_type);
         if (perUnitLabor && "k_fo" in rawPatch && !("k_fo_manual" in rawPatch)) patch.k_fo_manual = true;
         validateAid(patch);
-        await references(patch);
+        await references(patch, current.source_job_id);
         const next = perUnitLabor && current.item_type === "line"
           ? await resolveFoPrice({ ...current, ...patch }, current) : { ...current, ...patch };
         // Derived values in old client buffers are never a pricing authority.
         for (const field of DERIVED_FIELDS) next[field] = current[field];
         // A sparse patch may keep the same type while changing its price origin.
         // Load that type's provision before deriving the TS projection, as SQL does.
-        await references(next);
+        await references(next, current.source_job_id);
         if (next.item_type === "line") {
           next.line_nature = resolvePromotedEstimateLineNature(current, patch);
           if (supplyTypeChanged(current.supply_type_id, next.supply_type_id) ||

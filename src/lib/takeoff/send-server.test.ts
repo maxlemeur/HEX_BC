@@ -288,6 +288,12 @@ beforeEach(() => {
 });
 
 describe("previewTakeoffSend — a destination that cannot receive the send", () => {
+  it("returns the failed save when the transaction declines the analysis reference", () => {
+    expect(mapSendTakeoffRpcError({ code: "M0A01", message: "database diagnostic" }, JOB)).toMatchObject({
+      status: 400, code: "ESTIMATE_ANALYSIS_OUT_OF_SCOPE", message: "Cette version du devis ne détient pas cette analyse.",
+    });
+  });
+
   it("names a draft that holds DPGF lines as blocked, before reading anything of it", async () => {
     setUp([{ id: DPGF_DRAFT, dpgf: true }]);
 

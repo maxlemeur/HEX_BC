@@ -40,7 +40,10 @@ function optionText(option: Option, point: Point): { label: string; consequence:
       consequence: point.facts && point.facts.entered !== null
         ? `La quantité de la ligne passe de ${formatItemSendQuantity(point.facts.entered)} à ${formatItemSendQuantity(point.facts.retained)}.`
         : "La ligne prend la quantité que retient le métré." };
-    case "leave_out": return { label: "Laisser ce poste de côté",
+    case "leave_out": if (point.kind === "verified_total_indivisible") return {
+      label: "Conserver le total précédent", consequence: "La quantité de ce poste reste celle du devis.",
+    };
+    return { label: "Laisser ce poste de côté",
       consequence: "Rien n’est écrit pour ce poste ; il reste dans le tableau des postes." };
   }
 }

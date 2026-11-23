@@ -1,5 +1,7 @@
 "use client";
 
+import type { ItemQuantityChoice } from "@/lib/takeoff/item-table";
+
 import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { ArrowLeft, ListTree } from "lucide-react";
 
@@ -53,7 +55,7 @@ import { ITEM_STATE_LABELS, formatItemQuantity } from "@/lib/takeoff/item-table-
  */
 
 /** A gesture asked on what the detail shows (`key`: the item and the reading shown when it was asked). */
-export type ItemDetailGestureRequest = { gesture: ItemDetailKeyGesture; line: ItemDetailLine; initial: string | null; key: string };
+export type ItemDetailGestureRequest = { quantityChoice?: ItemQuantityChoice; gesture: ItemDetailKeyGesture; line: ItemDetailLine; initial: string | null; key: string };
 
 /**
  * What the detail shows, for the page that confirms its gestures: the item and its reading (`key`), the item's line as
@@ -360,14 +362,14 @@ function ItemDetailView({ projectId, address, reader, tableQuery, onBack, onGest
   // What is offered on what is shown: the one rule the buttons, the keys and the page's confirmations read.
   const offer = useCallback((requested: ItemDetailOfferedGesture) =>
     itemDetailGestureOffer({ line: line!, choice, canReview: canReview && Boolean(onGesture) }, requested), [canReview, choice, line, onGesture]);
-  const gesture = useCallback((requested: ItemDetailKeyGesture, initial: string | null) => {
+  const gesture = useCallback((requested: ItemDetailKeyGesture, initial: string | null, quantityChoice?: ItemQuantityChoice) => {
     if (!line) return;
     const offered = offer(requested);
     if (!offered.offered) {
       setNotice(itemDetailGestureRefusalLabel(requested, offered));
       return;
     }
-    onGesture!({ gesture: requested, line, initial, key });
+    onGesture!({ gesture: requested, line, initial, key, ...(quantityChoice ? { quantityChoice } : {}) });
   }, [key, line, offer, onGesture]);
 
   // The journal of the item shown: a refusal of one of its reads withdraws the detail while that item is shown; a
@@ -540,7 +542,7 @@ function ItemDetailView({ projectId, address, reader, tableQuery, onBack, onGest
                 historyVersion={version} onRefused={historyRefused} historyScope={`lecteur-${readerIdentity(reader)}`}
                 proof={chosen.kind === "reading" && !chosen.current ? resolution.state === "ready" ? "proven"
                   : resolution.state === "loading" ? "pending" : "unproven" : null}
-                decide={{ offer, onGesture: (requested) => gesture(requested, null) }}
+                decide={{ offer, onGesture: (requested, quantityChoice) => gesture(requested, null, quantityChoice) }}
                 onObservation={(observation) => go({ page: observation.page, observationId: observation.observationId,
                   answerId: answer?.answerId ?? null })}
                 onPlan={(planKey, jobId) => go({ planKey, jobId, receipt: planKey === view?.plan.key ? address.receipt : undefined, page: null, source: null, answerId: null, observationId: null })} />
