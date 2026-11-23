@@ -1,0 +1,680 @@
+{
+  "source": {
+    "pr": 522,
+    "commit": "227f22ee8d0c8a0ed02878abb1bfc6676953c9b1",
+    "path": "supabase/migrations/20261123062008_takeoff_contribution_revision.sql",
+    "bytes": 282294,
+    "sha256": "2f7d23647ae669b0d2d3a46f80abe145c7c6a79b39f5bb3f0b95f91fcd542e56"
+  },
+  "migration": {
+    "version": "20261123181038",
+    "name": "20261123062008_takeoff_contribution_revision",
+    "statements": 1,
+    "bytes": 282294,
+    "sha256": "2f7d23647ae669b0d2d3a46f80abe145c7c6a79b39f5bb3f0b95f91fcd542e56",
+    "final_lf": true
+  },
+  "attempts": 1,
+  "before": {
+    "total": 443,
+    "matching": 0,
+    "latest": "20261123165035",
+    "previous_sha256": "96cc2dd6bfc118e950ea4c41c099f0c5e403896a28acc3c76e6d17d9ccdf119a"
+  },
+  "after": {
+    "total": 444,
+    "matching": 1,
+    "latest": "20261123181038",
+    "previous_sha256": "96cc2dd6bfc118e950ea4c41c099f0c5e403896a28acc3c76e6d17d9ccdf119a"
+  },
+  "checks": {
+    "stored_sql": true,
+    "history": true,
+    "functions": true,
+    "replaced": true,
+    "access": true,
+    "activations": true,
+    "row_counts": true,
+    "journal": true,
+    "health": true
+  },
+  "preflight": {
+    "checked_at": "2026-11-23 18:10:25.909408+00",
+    "pending": 0,
+    "processing": 0,
+    "open_requests": 0,
+    "unsettled_reservations": 0,
+    "unknown_outcome": 0,
+    "send_locks": 0,
+    "bad_receipts": 0,
+    "pr_identity_rows": 0,
+    "pr_lock_rows": 0
+  },
+  "tables_with_equal_counts": [
+    "private.takeoff_item_send_checks",
+    "private.takeoff_plan_send_checks",
+    "private.takeoff_send_commands",
+    "private.takeoff_send_receipt_effects",
+    "public.estimate_items",
+    "public.takeoff_item_send_pages",
+    "public.takeoff_item_send_parts",
+    "public.takeoff_item_send_receipts",
+    "public.takeoff_item_send_sections",
+    "public.takeoff_item_send_targets",
+    "public.takeoff_jobs",
+    "public.takeoff_send_receipts"
+  ],
+  "activations": {
+    "completion": [
+      {
+        "singleton": true,
+        "active_from": "2026-11-23T10:17:52.585943+00:00",
+        "pickup_grace": "00:15:00",
+        "wait_ceiling": "24:00:00"
+      }
+    ],
+    "launch": [
+      {
+        "singleton": true,
+        "active_from": "2026-11-23T10:18:01.287077+00:00"
+      }
+    ],
+    "item_list_order": [
+      {
+        "singleton": true,
+        "active_from": "2026-11-23T10:18:17.965838+00:00"
+      }
+    ],
+    "plan_dispatch": [
+      {
+        "singleton": true,
+        "active_from": "2026-11-23T10:18:08.964482+00:00"
+      }
+    ]
+  },
+  "functions": [
+    {
+      "name": "private.apply_takeoff_item_send_plan",
+      "md5": "48e759f3af9817fbe4826c6722f4052d",
+      "signature": "private.apply_takeoff_item_send_plan(uuid, uuid, boolean, jsonb, uuid, jsonb, boolean)",
+      "owner": "postgres",
+      "definer": true,
+      "acl": "{postgres=X/postgres}",
+      "config": [
+        "search_path=\"\""
+      ],
+      "anon": false,
+      "authenticated": false,
+      "service_role": false,
+      "public_execute": false,
+      "expected_md5": "48e759f3af9817fbe4826c6722f4052d",
+      "previous_source": null,
+      "previous_verified_md5": null
+    },
+    {
+      "name": "private.edit_takeoff_marks_in_scope",
+      "md5": "c61607096d3eaf6814c51827944759c1",
+      "signature": "private.edit_takeoff_marks_in_scope(uuid, uuid, uuid, jsonb, jsonb, uuid, uuid)",
+      "owner": "postgres",
+      "definer": true,
+      "acl": "{postgres=X/postgres}",
+      "config": [
+        "search_path=\"\""
+      ],
+      "anon": false,
+      "authenticated": false,
+      "service_role": false,
+      "public_execute": false,
+      "expected_md5": "c61607096d3eaf6814c51827944759c1",
+      "previous_source": null,
+      "previous_verified_md5": null
+    },
+    {
+      "name": "private.guard_takeoff_item_send_write",
+      "md5": "21fc082fbee7950e1edb33542677f969",
+      "signature": "private.guard_takeoff_item_send_write()",
+      "owner": "postgres",
+      "definer": false,
+      "acl": "{postgres=X/postgres}",
+      "config": [
+        "search_path=\"\""
+      ],
+      "anon": false,
+      "authenticated": false,
+      "service_role": false,
+      "public_execute": false,
+      "expected_md5": "21fc082fbee7950e1edb33542677f969",
+      "previous_source": "20261123005401_takeoff_item_redistribution.sql",
+      "previous_verified_md5": "4d6b75528cac81f8f229cb30cb645d72"
+    },
+    {
+      "name": "private.include_takeoff_hypothesis",
+      "md5": "aa5ac883d704d5068183a09be1c266ea",
+      "signature": "private.include_takeoff_hypothesis(uuid, uuid, uuid, uuid, timestamp with time zone, uuid)",
+      "owner": "postgres",
+      "definer": false,
+      "acl": "{postgres=X/postgres}",
+      "config": [
+        "search_path=\"\""
+      ],
+      "anon": false,
+      "authenticated": false,
+      "service_role": false,
+      "public_execute": false,
+      "expected_md5": "aa5ac883d704d5068183a09be1c266ea",
+      "previous_source": null,
+      "previous_verified_md5": null
+    },
+    {
+      "name": "private.record_takeoff_contribution_pages",
+      "md5": "d05f81cded84cdcd97977fa5b5b039bc",
+      "signature": "private.record_takeoff_contribution_pages(uuid, uuid, uuid, uuid, uuid, jsonb)",
+      "owner": "postgres",
+      "definer": false,
+      "acl": "{postgres=X/postgres}",
+      "config": [
+        "search_path=\"\""
+      ],
+      "anon": false,
+      "authenticated": false,
+      "service_role": false,
+      "public_execute": false,
+      "expected_md5": "d05f81cded84cdcd97977fa5b5b039bc",
+      "previous_source": null,
+      "previous_verified_md5": null
+    },
+    {
+      "name": "private.takeoff_item_send_carry_copy",
+      "md5": "215d84a37f42c86a206099e1427d9981",
+      "signature": "private.takeoff_item_send_carry_copy(uuid, uuid)",
+      "owner": "postgres",
+      "definer": true,
+      "acl": "{postgres=X/postgres}",
+      "config": [
+        "search_path=\"\""
+      ],
+      "anon": false,
+      "authenticated": false,
+      "service_role": false,
+      "public_execute": false,
+      "expected_md5": "215d84a37f42c86a206099e1427d9981",
+      "previous_source": "20261123050517_takeoff_verified_count_source.sql",
+      "previous_verified_md5": "62a8c5848b805565b0543001aca85f06"
+    },
+    {
+      "name": "private.takeoff_item_send_page_choices_valid",
+      "md5": "580673dfb868407a220c1c42b0253e55",
+      "signature": "private.takeoff_item_send_page_choices_valid(jsonb)",
+      "owner": "postgres",
+      "definer": false,
+      "acl": "{postgres=X/postgres}",
+      "config": [
+        "search_path=\"\""
+      ],
+      "anon": false,
+      "authenticated": false,
+      "service_role": false,
+      "public_execute": false,
+      "expected_md5": "580673dfb868407a220c1c42b0253e55",
+      "previous_source": null,
+      "previous_verified_md5": null
+    },
+    {
+      "name": "private.takeoff_item_send_plan_valid",
+      "md5": "1f162c93a81f00b7767ccccdff199d3a",
+      "signature": "private.takeoff_item_send_plan_valid(jsonb)",
+      "owner": "postgres",
+      "definer": false,
+      "acl": "{postgres=X/postgres}",
+      "config": [
+        "search_path=\"\""
+      ],
+      "anon": false,
+      "authenticated": false,
+      "service_role": false,
+      "public_execute": false,
+      "expected_md5": "1f162c93a81f00b7767ccccdff199d3a",
+      "previous_source": "20261123050517_takeoff_verified_count_source.sql",
+      "previous_verified_md5": "931d38ebf441d801164bbf098a978df6"
+    },
+    {
+      "name": "private.takeoff_revision_items",
+      "md5": "2c91c8761d7e976cc0edf4eee14cf365",
+      "signature": "private.takeoff_revision_items(uuid, uuid, uuid, uuid, uuid)",
+      "owner": "postgres",
+      "definer": false,
+      "acl": "{postgres=X/postgres}",
+      "config": [
+        "search_path=\"\""
+      ],
+      "anon": false,
+      "authenticated": false,
+      "service_role": false,
+      "public_execute": false,
+      "expected_md5": "2c91c8761d7e976cc0edf4eee14cf365",
+      "previous_source": null,
+      "previous_verified_md5": null
+    },
+    {
+      "name": "private.takeoff_revision_line_protections",
+      "md5": "c724bc56344abed0fd73f8fdb4d71d11",
+      "signature": "private.takeoff_revision_line_protections(uuid, uuid, uuid, uuid, uuid, boolean)",
+      "owner": "postgres",
+      "definer": false,
+      "acl": "{postgres=X/postgres}",
+      "config": [
+        "search_path=\"\""
+      ],
+      "anon": false,
+      "authenticated": false,
+      "service_role": false,
+      "public_execute": false,
+      "expected_md5": "c724bc56344abed0fd73f8fdb4d71d11",
+      "previous_source": null,
+      "previous_verified_md5": null
+    },
+    {
+      "name": "private.takeoff_revision_require_head",
+      "md5": "cfa900a07bcc9c64e15993e0cf2d3959",
+      "signature": "private.takeoff_revision_require_head(uuid)",
+      "owner": "postgres",
+      "definer": false,
+      "acl": "{postgres=X/postgres}",
+      "config": [
+        "search_path=\"\""
+      ],
+      "anon": false,
+      "authenticated": false,
+      "service_role": false,
+      "public_execute": false,
+      "expected_md5": "cfa900a07bcc9c64e15993e0cf2d3959",
+      "previous_source": null,
+      "previous_verified_md5": null
+    },
+    {
+      "name": "private.takeoff_revision_scope",
+      "md5": "9c4f599cf4dbf7f441c257a2f58f8d31",
+      "signature": "private.takeoff_revision_scope(uuid, uuid, uuid, uuid)",
+      "owner": "postgres",
+      "definer": false,
+      "acl": "{postgres=X/postgres}",
+      "config": [
+        "search_path=\"\""
+      ],
+      "anon": false,
+      "authenticated": false,
+      "service_role": false,
+      "public_execute": false,
+      "expected_md5": "9c4f599cf4dbf7f441c257a2f58f8d31",
+      "previous_source": null,
+      "previous_verified_md5": null
+    },
+    {
+      "name": "private.takeoff_revision_sources",
+      "md5": "842da0d534662414f1297507be2d5df6",
+      "signature": "private.takeoff_revision_sources(takeoff_item_answers)",
+      "owner": "postgres",
+      "definer": false,
+      "acl": "{postgres=X/postgres}",
+      "config": [
+        "search_path=\"\""
+      ],
+      "anon": false,
+      "authenticated": false,
+      "service_role": false,
+      "public_execute": false,
+      "expected_md5": "842da0d534662414f1297507be2d5df6",
+      "previous_source": null,
+      "previous_verified_md5": null
+    },
+    {
+      "name": "private.write_takeoff_plan_entries",
+      "md5": "230b5e81add3ec8dc6b8db0e8829b4f5",
+      "signature": "private.write_takeoff_plan_entries(uuid, uuid, uuid, uuid, timestamp with time zone, uuid, jsonb)",
+      "owner": "postgres",
+      "definer": false,
+      "acl": "{postgres=X/postgres}",
+      "config": [
+        "search_path=\"\""
+      ],
+      "anon": false,
+      "authenticated": false,
+      "service_role": false,
+      "public_execute": false,
+      "expected_md5": "230b5e81add3ec8dc6b8db0e8829b4f5",
+      "previous_source": null,
+      "previous_verified_md5": null
+    },
+    {
+      "name": "public.confirm_takeoff_contribution_revision",
+      "md5": "836e8aee058d271ed9f4709a37c9291e",
+      "signature": "public.confirm_takeoff_contribution_revision(uuid, uuid, uuid, uuid, uuid, boolean, uuid, text, jsonb)",
+      "owner": "postgres",
+      "definer": true,
+      "acl": "{postgres=X/postgres,service_role=X/postgres}",
+      "config": [
+        "search_path=\"\""
+      ],
+      "anon": false,
+      "authenticated": false,
+      "service_role": true,
+      "public_execute": false,
+      "expected_md5": "836e8aee058d271ed9f4709a37c9291e",
+      "previous_source": null,
+      "previous_verified_md5": null
+    },
+    {
+      "name": "public.edit_takeoff_count_marks",
+      "md5": "5841f73b5777ceb62f8b170e9dcf9dab",
+      "signature": "public.edit_takeoff_count_marks(uuid, uuid, uuid, jsonb, jsonb)",
+      "owner": "postgres",
+      "definer": true,
+      "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "config": [
+        "search_path=\"\""
+      ],
+      "anon": false,
+      "authenticated": true,
+      "service_role": false,
+      "public_execute": false,
+      "expected_md5": "5841f73b5777ceb62f8b170e9dcf9dab",
+      "previous_source": "20261122193622_takeoff_item_acceptance_marks_revision.sql",
+      "previous_verified_md5": "c94bfdb0542d65e74f0f363e0490e792"
+    },
+    {
+      "name": "public.edit_takeoff_revision_entry",
+      "md5": "d11cd690fbd41cb4eedd917c3435ecbe",
+      "signature": "public.edit_takeoff_revision_entry(uuid, uuid, uuid, uuid, uuid, uuid, integer, jsonb)",
+      "owner": "postgres",
+      "definer": true,
+      "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "config": [
+        "search_path=\"\""
+      ],
+      "anon": false,
+      "authenticated": true,
+      "service_role": false,
+      "public_execute": false,
+      "expected_md5": "d11cd690fbd41cb4eedd917c3435ecbe",
+      "previous_source": null,
+      "previous_verified_md5": null
+    },
+    {
+      "name": "public.edit_takeoff_revision_marks",
+      "md5": "7bd6dff09e0899d6fc14159bc7360a44",
+      "signature": "public.edit_takeoff_revision_marks(uuid, uuid, uuid, uuid, uuid, jsonb, jsonb)",
+      "owner": "postgres",
+      "definer": true,
+      "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "config": [
+        "search_path=\"\""
+      ],
+      "anon": false,
+      "authenticated": true,
+      "service_role": false,
+      "public_execute": false,
+      "expected_md5": "7bd6dff09e0899d6fc14159bc7360a44",
+      "previous_source": null,
+      "previous_verified_md5": null
+    },
+    {
+      "name": "public.preview_takeoff_contribution_revision",
+      "md5": "04d273e10c06482c97c3be9358b1273b",
+      "signature": "public.preview_takeoff_contribution_revision(uuid, uuid, uuid, uuid, uuid, boolean, jsonb)",
+      "owner": "postgres",
+      "definer": true,
+      "acl": "{postgres=X/postgres,service_role=X/postgres}",
+      "config": [
+        "search_path=\"\""
+      ],
+      "anon": false,
+      "authenticated": false,
+      "service_role": true,
+      "public_execute": false,
+      "expected_md5": "04d273e10c06482c97c3be9358b1273b",
+      "previous_source": null,
+      "previous_verified_md5": null
+    },
+    {
+      "name": "public.read_takeoff_contribution_revision",
+      "md5": "16d0e19b0faaf426151959e866f7e456",
+      "signature": "public.read_takeoff_contribution_revision(uuid, uuid, uuid, uuid, uuid[])",
+      "owner": "postgres",
+      "definer": true,
+      "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "config": [
+        "search_path=\"\""
+      ],
+      "anon": false,
+      "authenticated": true,
+      "service_role": false,
+      "public_execute": false,
+      "expected_md5": "16d0e19b0faaf426151959e866f7e456",
+      "previous_source": null,
+      "previous_verified_md5": null
+    },
+    {
+      "name": "public.review_takeoff_items",
+      "md5": "dd96c8a7ca2ca6193e4eab737a6d4cff",
+      "signature": "public.review_takeoff_items(uuid, uuid, jsonb)",
+      "owner": "postgres",
+      "definer": true,
+      "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "config": [
+        "search_path=\"\""
+      ],
+      "anon": false,
+      "authenticated": true,
+      "service_role": false,
+      "public_execute": false,
+      "expected_md5": "dd96c8a7ca2ca6193e4eab737a6d4cff",
+      "previous_source": "20261123050517_takeoff_verified_count_source.sql",
+      "previous_verified_md5": "0a3f01eaaa693c6fa8dc86fed44dc0af"
+    },
+    {
+      "name": "public.review_takeoff_revision_item",
+      "md5": "4c033ddf5d51ef75039b90d543ad086d",
+      "signature": "public.review_takeoff_revision_item(uuid, uuid, uuid, uuid, uuid, uuid, jsonb, jsonb)",
+      "owner": "postgres",
+      "definer": true,
+      "acl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "config": [
+        "search_path=\"\""
+      ],
+      "anon": false,
+      "authenticated": true,
+      "service_role": false,
+      "public_execute": false,
+      "expected_md5": "4c033ddf5d51ef75039b90d543ad086d",
+      "previous_source": null,
+      "previous_verified_md5": null
+    },
+    {
+      "name": "public.send_takeoff_item_plan",
+      "md5": "78d37c25a584d3e21d9f387ad782ba02",
+      "signature": "public.send_takeoff_item_plan(uuid, uuid, boolean, jsonb)",
+      "owner": "postgres",
+      "definer": true,
+      "acl": "{postgres=X/postgres,service_role=X/postgres}",
+      "config": [
+        "search_path=\"\""
+      ],
+      "anon": false,
+      "authenticated": false,
+      "service_role": true,
+      "public_execute": false,
+      "expected_md5": "78d37c25a584d3e21d9f387ad782ba02",
+      "previous_source": "20261123050517_takeoff_verified_count_source.sql",
+      "previous_verified_md5": "4d8dd1da022b84d6aa7282d895cfbffc"
+    }
+  ],
+  "constraints": [
+    {
+      "table_name": "private.takeoff_revision_choices",
+      "conname": "takeoff_revision_choices_pkey",
+      "definition": "PRIMARY KEY (id)",
+      "validated": true
+    },
+    {
+      "table_name": "private.takeoff_revision_choices",
+      "conname": "takeoff_revision_choices_receipt_id_tenant_id_project_id_v_fkey",
+      "definition": "FOREIGN KEY (receipt_id, tenant_id, project_id, version_id) REFERENCES takeoff_item_send_receipts(id, tenant_id, project_id, version_id) ON DELETE CASCADE",
+      "validated": true
+    },
+    {
+      "table_name": "private.takeoff_revision_choices",
+      "conname": "takeoff_revision_choices_revision_check",
+      "definition": "CHECK ((revision > 0))",
+      "validated": true
+    },
+    {
+      "table_name": "private.takeoff_revision_choices",
+      "conname": "takeoff_revision_choices_tenant_id_intent_id_key",
+      "definition": "UNIQUE (tenant_id, intent_id)",
+      "validated": true
+    },
+    {
+      "table_name": "private.takeoff_revision_choices",
+      "conname": "takeoff_revision_choices_version_id_fkey",
+      "definition": "FOREIGN KEY (version_id) REFERENCES estimate_versions(id) ON DELETE CASCADE",
+      "validated": true
+    },
+    {
+      "table_name": "private.takeoff_revision_choices",
+      "conname": "takeoff_revision_choices_version_id_job_id_answer_id_revisi_key",
+      "definition": "UNIQUE (version_id, job_id, answer_id, revision)",
+      "validated": true
+    },
+    {
+      "table_name": "takeoff_item_send_receipts",
+      "conname": "takeoff_item_revision_parent_check",
+      "definition": "CHECK ((((command_kind = 'revise'::text) = (amends_receipt_id IS NOT NULL)) AND (amends_receipt_id IS DISTINCT FROM id)))",
+      "validated": true
+    },
+    {
+      "table_name": "takeoff_item_send_receipts",
+      "conname": "takeoff_item_revision_parent_fkey",
+      "definition": "FOREIGN KEY (amends_receipt_id, tenant_id, project_id, version_id) REFERENCES takeoff_item_send_receipts(id, tenant_id, project_id, version_id) DEFERRABLE INITIALLY DEFERRED",
+      "validated": true
+    },
+    {
+      "table_name": "takeoff_item_send_receipts",
+      "conname": "takeoff_item_send_receipts_command_kind_check",
+      "definition": "CHECK ((command_kind = ANY (ARRAY['send'::text, 'copy'::text, 'redistribute'::text, 'revise'::text])))",
+      "validated": true
+    },
+    {
+      "table_name": "takeoff_item_send_receipts",
+      "conname": "takeoff_item_send_receipts_send_identity_check",
+      "definition": "CHECK ((((command_kind = 'send'::text) AND (job_id IS NOT NULL) AND (request_id IS NOT NULL)) OR ((command_kind = 'copy'::text) AND (job_id IS NULL) AND (request_id IS NULL)) OR ((command_kind = ANY (ARRAY['redistribute'::text, 'revise'::text])) AND (job_id IS NULL) AND (request_id IS NOT NULL))))",
+      "validated": true
+    }
+  ],
+  "predecessor_index": {
+    "definition": "CREATE UNIQUE INDEX takeoff_item_revision_parent_key ON public.takeoff_item_send_receipts USING btree (amends_receipt_id) WHERE (amends_receipt_id IS NOT NULL)",
+    "unique": true,
+    "valid": true,
+    "ready": true
+  },
+  "column": {
+    "type": "uuid",
+    "not_null": false,
+    "has_default": false
+  },
+  "choices": {
+    "rls": true,
+    "owner": "postgres",
+    "acl": "{postgres=arwdDxtm/postgres}",
+    "rows": 0,
+    "api": {
+      "anon": false,
+      "service_role": false,
+      "authenticated": false
+    }
+  },
+  "production": {
+    "http": 200,
+    "version": "0.9.0",
+    "db": "up"
+  },
+  "advisors": {
+    "security": {
+      "before": {
+        "rls_enabled_no_policy": 31,
+        "authenticated_security_definer_function_executable": 104,
+        "auth_leaked_password_protection": 1
+      },
+      "after": {
+        "rls_enabled_no_policy": 32,
+        "authenticated_security_definer_function_executable": 108,
+        "auth_leaked_password_protection": 1
+      },
+      "added": [
+        {
+          "name": "rls_enabled_no_policy",
+          "level": "INFO",
+          "detail": "Table \\`private.takeoff_revision_choices\\` has RLS enabled, but no policies exist",
+          "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0008_rls_enabled_no_policy"
+        },
+        {
+          "name": "authenticated_security_definer_function_executable",
+          "level": "WARN",
+          "detail": "Function `public.edit_takeoff_revision_entry(p_tenant uuid, p_project uuid, p_version uuid, p_receipt uuid, p_answer uuid, p_intent uuid, p_expected_revision integer, p_entry jsonb)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/edit_takeoff_revision_entry`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+          "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0029_authenticated_security_definer_function_executable"
+        },
+        {
+          "name": "authenticated_security_definer_function_executable",
+          "level": "WARN",
+          "detail": "Function `public.edit_takeoff_revision_marks(p_tenant_id uuid, p_project_id uuid, p_version_id uuid, p_receipt_id uuid, p_intent_key uuid, p_revisions jsonb, p_gestures jsonb)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/edit_takeoff_revision_marks`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+          "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0029_authenticated_security_definer_function_executable"
+        },
+        {
+          "name": "authenticated_security_definer_function_executable",
+          "level": "WARN",
+          "detail": "Function `public.read_takeoff_contribution_revision(p_tenant uuid, p_project uuid, p_version uuid, p_job uuid, p_items uuid[])` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/read_takeoff_contribution_revision`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+          "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0029_authenticated_security_definer_function_executable"
+        },
+        {
+          "name": "authenticated_security_definer_function_executable",
+          "level": "WARN",
+          "detail": "Function `public.review_takeoff_revision_item(p_tenant_id uuid, p_project_id uuid, p_version_id uuid, p_receipt_id uuid, p_answer_id uuid, p_intent_id uuid, p_expected jsonb, p_choice jsonb)` can be executed by the `authenticated` role as a `SECURITY DEFINER` function via `/rest/v1/rpc/review_takeoff_revision_item`. Revoke `EXECUTE` or switch it to `SECURITY INVOKER` if that is not intentional.",
+          "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0029_authenticated_security_definer_function_executable"
+        }
+      ],
+      "removed": []
+    },
+    "performance": {
+      "before": {
+        "unindexed_foreign_keys": 248,
+        "unused_index": 324,
+        "multiple_permissive_policies": 6
+      },
+      "after": {
+        "unindexed_foreign_keys": 250,
+        "unused_index": 324,
+        "multiple_permissive_policies": 6
+      },
+      "added": [
+        {
+          "name": "unindexed_foreign_keys",
+          "level": "INFO",
+          "detail": "Table \\`private.takeoff_revision_choices\\` has a foreign key \\`takeoff_revision_choices_receipt_id_tenant_id_project_id_v_fkey\\` without a covering index. This can lead to suboptimal query performance.",
+          "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0001_unindexed_foreign_keys"
+        },
+        {
+          "name": "unindexed_foreign_keys",
+          "level": "INFO",
+          "detail": "Table \\`public.takeoff_item_send_receipts\\` has a foreign key \\`takeoff_item_revision_parent_fkey\\` without a covering index. This can lead to suboptimal query performance.",
+          "remediation": "https://supabase.com/docs/guides/database/database-linter?lint=0001_unindexed_foreign_keys"
+        }
+      ],
+      "removed": []
+    },
+    "health": {
+      "before": {},
+      "after": {},
+      "added": [],
+      "removed": []
+    }
+  }
+}
