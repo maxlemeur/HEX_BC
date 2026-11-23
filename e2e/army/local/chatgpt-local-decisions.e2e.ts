@@ -624,6 +624,7 @@ if (!existsSync(liveProbePath)) test("MRIA01 the photo of a material request is 
     const reading = { provider: "chatgpt-fixture", task: "material-request-photo", detail: "high", turned: true };
     const astra = { ...reading, model: "gpt-6.2-astra", reasoningEffort: "xhigh" };
     expect(await readings()).toEqual([astra]);
+    await expect(original.getByRole("status").filter({ hasText: "2 lignes créées en brouillon" })).toBeVisible();
     const screenshot = await app.screenshot("material-request-photo-analysis");
 
     // Drafts exist: nothing is read again before the office has chosen, and its choice replaces exactly those drafts.

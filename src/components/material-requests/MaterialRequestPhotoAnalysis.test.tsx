@@ -162,6 +162,7 @@ describe("AI reading of the photos of a material request", () => {
     });
 
     await user.click(within(original).getByRole("button", { name: "Analyser les photos avec l’IA" }));
+    expect(await within(original).findByText(/^3 lignes créées en brouillon\./)).toBeTruthy();
 
     await waitFor(() => expect(writes()).toHaveLength(3));
     expect(writes().map((call) => `${call.method} ${call.path}`)).toEqual([

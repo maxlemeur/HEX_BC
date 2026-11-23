@@ -229,7 +229,6 @@ const READ_KEPT = "Les photos déjà lues ne seront pas relues.";
  * replaced instead of added to, on the office's choice, and only if they are still the ones it saw when it chose.
  */
 function PhotoAnalysis({ editor }: Readonly<{ editor: MaterialRequestEditorApi }>) {
-  const toast = useToast();
   const hintId = useId();
   const { data, projectId, requestId } = editor;
   const availability = data.photoAnalysis ?? null;
@@ -360,22 +359,20 @@ function PhotoAnalysis({ editor }: Readonly<{ editor: MaterialRequestEditorApi }
     }
     read.current.clear();
     const doubtful = created.filter((line) => line.quantity_doubtful).length;
-    toast.success({
-      title: mode === "replace"
-        ? `${plural(created.length, "ligne", "lignes")} en brouillon, à la place ${expected.length > 1 ? `des ${expected.length} précédentes` : "de la précédente"}`
-        : `${plural(created.length, "ligne créée", "lignes créées")} en brouillon`,
-      description: doubtful > 0
-        ? `Lues par l’IA : relisez chaque ligne face à la photo avant de valider. ${plural(doubtful, "quantité est", "quantités sont")} à vérifier sur l’original.`
-        : "Lues par l’IA : relisez chaque ligne face à la photo avant de valider.",
-    });
-    const remarks: string[] = [];
+    const summary = mode === "replace"
+      ? `${plural(created.length, "ligne", "lignes")} en brouillon, à la place ${expected.length > 1 ? `des ${expected.length} précédentes` : "de la précédente"}.`
+      : `${plural(created.length, "ligne créée", "lignes créées")} en brouillon.`;
+    const remarks = [summary, "Relisez chaque ligne face à la photo avant de valider."];
+    if (doubtful > 0) {
+      remarks.push(`${plural(doubtful, "quantité est", "quantités sont")} à vérifier sur l’original.`);
+    }
     if (drafts.length > created.length) {
       remarks.push(`${drafts.length} lignes lues sur les photos, ${created.length} créées : une demande en compte ${MATERIAL_REQUEST_MAX_LINES} au plus. Les suivantes sont à reprendre à la main.`);
     }
     if (empty.length > 0) {
       remarks.push(empty.length > 1 ? `Aucun article lu sur les photos ${empty.join(", ")}.` : `Aucun article lu sur la photo ${empty[0]}.`);
     }
-    setNotice(remarks.length > 0 ? remarks.join(" ") : null);
+    setNotice(remarks.join(" "));
   };
 
   return (
