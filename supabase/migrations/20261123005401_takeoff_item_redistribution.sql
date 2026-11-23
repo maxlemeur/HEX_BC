@@ -154,6 +154,7 @@ begin
       ('public.estimate_version_zero_applications'::regclass,'parent_section_item_id'),
       ('public.estimate_version_zero_lines'::regclass,'materialized_estimate_item_id'),
       ('public.purchase_order_items'::regclass,'source_estimate_item_id'),
+      ('private.estimate_purchase_transfers'::regclass,'source_item_id'),
       ('public.takeoff_dpgf_links'::regclass,'estimate_item_id'),
       ('public.takeoff_dpgf_review_decisions'::regclass,'estimate_item_id'),
       ('public.takeoff_price_suggestions'::regclass,'estimate_item_id'),

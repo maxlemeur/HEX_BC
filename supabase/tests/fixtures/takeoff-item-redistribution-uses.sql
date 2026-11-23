@@ -58,3 +58,10 @@ from (values
   ('public.estimate_review_correction_items','scope_id','{}')
 ) as cases(relation,edge,extra);
 set local session_replication_role=origin;
+
+savepoint purchase_transfer;
+insert into private.estimate_purchase_transfers(tenant_id,source_version_id,source_item_id,item_title,purchase_order_id,reference,quantity,created_by)
+values(pg_temp.f(10),pg_temp.f(30),pg_temp.f(61),'Lavabo',pg_temp.f(612),'Fictif',5,pg_temp.f(1));
+select is(private.takeoff_redistribution_used_lines(array[pg_temp.f(61)]),array[pg_temp.f(61)],
+  'a purchase transfer alone still uses its source line');
+rollback to purchase_transfer;
