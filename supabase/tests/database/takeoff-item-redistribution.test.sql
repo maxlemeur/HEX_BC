@@ -97,6 +97,10 @@ rollback to before_mixed;
 create temp table result as select pg_temp.confirm('by_level',plan->>'digest',200) as receipt from shown;
 select results_eq($$select t.compartment_key,i.quantity from public.takeoff_item_send_targets t join public.estimate_items i on i.id=t.estimate_item_id
   where t.item_id=pg_temp.f(50) order by 1$$,$$values ('level:["a","r+1"]'::text,2::numeric),('level:["a","rdc"]',3)$$,'the two lines hold the announced quantities');
+select results_eq($$select t.compartment_key,i.source_job_id,i.source_file_name,i.source_page
+  from public.takeoff_item_send_targets t join public.estimate_items i on i.id=t.estimate_item_id where t.item_id=pg_temp.f(50) order by 1$$,
+  $$values ('level:["a","r+1"]',pg_temp.f(42),null::text,null::integer),('level:["a","rdc"]',pg_temp.f(41),null,null)$$,
+  'a new line opens the analysis that contributed to that destination and keeps the send file/page convention');
 select is((select pg_temp.confirm('by_level',plan->>'digest',200)->>'receipt_id' from shown),
   (select receipt->>'receipt_id' from result),'the same intention returns the original receipt');
 select throws_ok($$select pg_temp.confirm('by_level',(select plan->>'digest' from shown),201)$$,'40001','REDISTRIBUTION_STALE','another intention requires a fresh preview');
@@ -137,6 +141,8 @@ select set_config('mergeone.takeoff_item_send','',true);
 select pg_temp.confirm('together',pg_temp.preview('together')->>'digest',202);
 select results_eq($$select i.quantity from public.takeoff_item_send_targets t join public.estimate_items i on i.id=t.estimate_item_id where t.item_id=pg_temp.f(50)$$,
   $$values (5::numeric)$$,'back to one line of five');
+select is((select i.source_job_id from public.estimate_items i join public.takeoff_item_send_targets t
+  on t.estimate_item_id=i.id where t.item_id=pg_temp.f(50)),pg_temp.f(41),'a combined destination keeps its first contributor as origin');
 select results_eq($$select id,to_jsonb(p)-'target_id' from public.takeoff_item_send_parts p where version_id=pg_temp.f(30) order by id$$,
   $$select * from initial_parts order by id$$,'every raw column of both original parts is conserved');
 select results_eq($$select * from public.takeoff_item_send_pages where version_id=pg_temp.f(30) order by id$$,$$select * from initial_pages order by id$$,'same pages and part IDs');

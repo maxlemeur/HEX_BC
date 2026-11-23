@@ -189,6 +189,7 @@ begin
   where s.receipt_id=source.id and (private.takeoff_redistribution_edited(i) or source.write_plan->'protected_sections' ? s.section_key);
   new.write_plan:=new.write_plan||jsonb_strip_nulls(jsonb_build_object(
     'protected_targets',protected_targets,'protected_sections',protected_sections,
+    'original_send_time',case when source.command_kind='send' then to_jsonb(source.created_at) else source.write_plan->'original_send_time' end,
     'original_send_receipt_id',case when source.command_kind='send' then source.id::text
       when source.command_kind='copy' then source.write_plan->>'original_send_receipt_id' end));
   return new;
@@ -373,6 +374,7 @@ declare
   destination jsonb;
   target uuid;
   line_id uuid;
+  creating_job uuid;
   parent uuid;
   prototype public.estimate_items;
   origin public.takeoff_item_send_targets;
@@ -432,12 +434,21 @@ begin
       values(p_tenant,p_project,p_version,destination->>'section_key',destination->>'label',parent,receipt);
     end if;
     if target is null then
+      -- The send sets only its creating job when inserting a line, and keeps that job
+      -- on later contributions. Select the earliest send among the parts reaching this
+      -- destination. The page reader resolves their individual documents from the journal.
+      select p.job_id into creating_job from jsonb_array_elements(plan->'parts') as x
+        join public.takeoff_item_send_parts p on p.id=(x->>'id')::uuid
+        join public.takeoff_item_send_receipts r on r.id=p.receipt_id
+        where x->>'key'=destination->>'key'
+        order by coalesce((r.write_plan->>'original_send_time')::timestamptz,r.created_at),
+          coalesce((r.write_plan->>'original_send_receipt_id')::uuid,r.id),p.id limit 1;
       select coalesce(max(position),0)+1 into next_pos from public.estimate_items where version_id=p_version and parent_id=parent;
       insert into public.estimate_items(tenant_id,version_id,parent_id,item_type,position,title,description,quantity,unit_code,
         pricing_status,unit_price_ht_cents,tax_rate_bp,k_fo,fo_provision,k_fo_manual,h_mo,h_mo_majoration,k_mo,pu_ht_cents,line_total_ht_cents,
         line_tax_cents,line_total_ttc_cents,category_id,source_provider,source_job_id,source_metadata)
       values(p_tenant,p_version,parent,'line',next_pos,prototype.title,origin.unit_code,(destination->>'quantity')::numeric,
-        origin.unit_code,'priced',0,prototype.tax_rate_bp,prototype.k_fo,prototype.fo_provision,prototype.k_fo_manual,0,1,1,0,0,0,0,prototype.category_id,'takeoff',prototype.source_job_id,
+        origin.unit_code,'priced',0,prototype.tax_rate_bp,prototype.k_fo,prototype.fo_provision,prototype.k_fo_manual,0,1,1,0,0,0,0,prototype.category_id,'takeoff',creating_job,
         jsonb_build_object('takeoff_item_send',jsonb_build_object('version',1,'item_id',p_item,'compartment_key',destination->>'key','breakdown',p_mode)))
       returning id into line_id;
       insert into public.takeoff_item_send_targets(tenant_id,project_id,version_id,item_id,breakdown,compartment_key,estimate_item_id,
