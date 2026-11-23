@@ -136,7 +136,7 @@ async function readSource(supabase: Supabase, projectId: string, planFileId: str
  * reads the affaire), and only from the path its identity gives (tenant, set, file, sanitized name): a historical row
  * pointing elsewhere is never followed. The bytes never leave this server; only their digest and reading do.
  */
-async function readPlanBytes(tenantId: string, file: { id: string; plan_set_id: string; file_name: string; file_path: string;
+export async function readPlanBytes(tenantId: string, file: { id: string; plan_set_id: string; file_name: string; file_path: string;
   file_size_bytes: number }): Promise<{ bytes: Uint8Array } | { bytes: null; notStored: boolean }> {
   if (file.file_size_bytes > PLAN_FILE_MAX_SIZE_BYTES || file.file_path !== buildPlanFileStoragePath({
     tenantId, setId: file.plan_set_id, fileId: file.id, fileName: sanitizePlanPdfFilename(file.file_name),

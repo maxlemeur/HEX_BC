@@ -342,10 +342,15 @@ armyTest("TKPR03 a new measure of one item reads it alone on its plans, and the 
       await ui.browser.reload();
       await waitForHydration(ui.browser);
       const comparison = screen.getByTestId("poste-mesure-resultat");
+      const expectPageComparison = async () => {
+        await expect(comparison.getByText("Lecture précédente · actuelle · 2 u · pages 1, 2", { exact: true })).toBeVisible();
+        await expect(comparison.getByText("Nouvelle lecture · Non trouvé · pages 1", { exact: true })).toBeVisible();
+        await expect(comparison.getByText("La nouvelle lecture est une comparaison en lecture seule. Vos corrections restent sur la lecture actuelle.",
+          { exact: true })).toBeVisible();
+      };
       await expect(comparison).toContainText("En attente de lecture");
       await runOwnedPlanDispatch(ui, owner, dossier.projectId);
-      await expect(comparison).toContainText("Lecture précédente · 2 u");
-      await expect(comparison).toContainText("Nouvelle lecture · Non trouvé · pages 1");
+      await expectPageComparison();
       const currentItem = screen.getByRole("option", new RegExp(`^${WC}`));
       await expect(currentItem).toContainText("Mesuré");
       await expect(currentItem).toContainText("2 u");
@@ -364,7 +369,7 @@ armyTest("TKPR03 a new measure of one item reads it alone on its plans, and the 
       await waitForHydration(ui.browser);
       await expect(comparison).toContainText(detailRequest);
       await expect(comparison).toContainText("Lecture terminée");
-      await expect(comparison).toContainText("Lecture précédente · 2 u");
+      await expectPageComparison();
 
       const readReceipt = (item: string, plan: string, requestId: string) => {
         const query = new URLSearchParams({ item, plan, jobId: detailJob, requestId });

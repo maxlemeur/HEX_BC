@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import type { ChatGptReasoningEffort } from "@/lib/ai/chatgpt-model-preferences";
+import { chatGptPreferencesSchema, chatGptReasoningEffortSchema, type ChatGptPreferences, type ChatGptReasoningEffort } from "@/lib/ai/chatgpt-model-preferences";
 
 // « Accès IA » (lot 1): three separate questions, never one field.
 // - Who pays: the billing source. The ChatGPT subscription, or a member's own API key.
@@ -10,6 +10,32 @@ import type { ChatGptReasoningEffort } from "@/lib/ai/chatgpt-model-preferences"
 
 export const AI_BILLING_SOURCES = ["chatgpt_plan", "personal_api_key"] as const;
 export type AiBillingSource = (typeof AI_BILLING_SOURCES)[number];
+
+export const photoAiPreferencesSchema = z.object({
+  billingSource: z.enum(AI_BILLING_SOURCES),
+  apiModel: z.string().trim().min(1).max(200).nullable(),
+}).strict();
+
+export const AI_ANALYSIS_USAGES = { photos: "Analyse photo", takeoff_lab: "Labo métré" } as const;
+export type AiAnalysisUsage = keyof typeof AI_ANALYSIS_USAGES;
+
+const usageOverridesSchema = z.object({
+  chatgpt_plan: chatGptPreferencesSchema.optional(),
+  personal_api_key: chatGptPreferencesSchema.optional(),
+}).strict();
+
+export const aiAnalysisPreferencesSchema = photoAiPreferencesSchema.extend({
+  apiReasoningEffort: chatGptReasoningEffortSchema.nullable().optional(),
+  overrides: z.object({
+    photos: usageOverridesSchema.optional(),
+    takeoff_lab: usageOverridesSchema.optional(),
+  }).strict().optional(),
+});
+
+export type AiAnalysisPreferences = z.infer<typeof aiAnalysisPreferencesSchema>;
+export const DEFAULT_AI_ANALYSIS_PREFERENCES: AiAnalysisPreferences = { billingSource: "chatgpt_plan", apiModel: null };
+
+export const aiAnalysisPreferencesUpdateSchema = aiAnalysisPreferencesSchema.extend({ connectionId: z.uuid().nullable() });
 
 export const AI_API_PROVIDERS = ["openai"] as const;
 export type AiApiProvider = (typeof AI_API_PROVIDERS)[number];
@@ -43,14 +69,15 @@ export type ApiKeyConnectionView = {
   savedAt: string;
   lastTest: { at: string; model: string } | null;
   lastUsedAt: string | null;
-  /** Qualified models the key listed when saved (all qualified, unverified, when it may not list): no Keychain read, no call. */
+  /** Qualified models from the last catalog check (all qualified and unverified if the key cannot list models). */
   offeredModels: ApiKeyOfferedModel[];
 };
 
-export type ApiKeyAccessState =
+export type ApiKeyAccessState = (
   | { status: "unavailable"; message: string }
   | { status: "empty"; placeLabel: string; /** Something the member should know about the last change (a deferred Keychain cleanup). */ notice?: string }
-  | { status: "saved"; connection: ApiKeyConnectionView };
+  | { status: "saved"; connection: ApiKeyConnectionView }
+) & { analysisPreferences?: AiAnalysisPreferences };
 
 /** A model this code qualified, priced, and offered by the key's model list (or not checked: `verified` false). */
 export type ApiKeyOfferedModel = {
@@ -60,6 +87,24 @@ export type ApiKeyOfferedModel = {
   defaultReasoningEffort: AiReasoningEffort | null;
   verified: boolean;
 };
+
+/** A saved key’s model and effort for an analysis, with the use-specific choice applied first. */
+export function resolveApiAnalysisPreferences(
+  settings: AiAnalysisPreferences,
+  models: readonly ApiKeyOfferedModel[],
+  usage: AiAnalysisUsage,
+): ChatGptPreferences | null {
+  const override = settings.overrides?.[usage]?.personal_api_key;
+  const available = models.find((model) => model.id === override?.model);
+  if (override && available && (override.reasoningEffort === null || available.reasoningEfforts.includes(override.reasoningEffort))) {
+    return override;
+  }
+  const model = models.find((entry) => entry.id === settings.apiModel) ?? (settings.apiModel === null ? models[0] : undefined);
+  if (!model) return null;
+  const effort = settings.apiReasoningEffort;
+  return { model: model.id, reasoningEffort: effort === null || (effort !== undefined && model.reasoningEfforts.includes(effort))
+    ? effort : model.defaultReasoningEffort };
+}
 
 /** The answer to « Vérifier et enregistrer »: saved, or a key that may not list models and needs one explicit model test. */
 export type ApiKeySaveResult =

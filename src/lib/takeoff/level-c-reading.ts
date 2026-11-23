@@ -19,7 +19,7 @@ import {
   takeoffSourceProvenance,
   type NormalizedTakeoffItemForInsert,
 } from "@/lib/takeoff/exchange-normalization";
-import { getTakeoffLevelCProcessingConfigForTenant } from "@/lib/takeoff/feature-flags";
+import { getTakeoffLevelCProcessingConfigForTenant, type TakeoffChunkingConfig } from "@/lib/takeoff/feature-flags";
 import type { TakeoffJobProcessingRow } from "@/lib/takeoff/job-lifecycle";
 import {
   cloneLevelCChunkMetrics,
@@ -70,6 +70,7 @@ export async function prepareLevelCReading(input: {
   supabase: Supabase;
   job: TakeoffJobProcessingRow;
   sourceFile: DownloadedTakeoffFile;
+  chunking?: TakeoffChunkingConfig;
 }) {
   if (!isPdfMimeType(input.sourceFile.mimeType)) {
     throw new TakeoffError({
@@ -115,7 +116,7 @@ export async function prepareLevelCReading(input: {
     }
   );
   const requestBudget = await readTakeoffRequestBudget(input.job);
-  const config = boundTakeoffAttemptByRequest(tenantConfig, requestBudget, input.job.id);
+  const config = boundTakeoffAttemptByRequest({ ...tenantConfig, ...input.chunking }, requestBudget, input.job.id);
 
   if (pageCount > config.maxPdfPages) {
     throw new TakeoffError({

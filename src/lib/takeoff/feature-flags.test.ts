@@ -85,6 +85,17 @@ describe("takeoff feature flags", () => {
     });
   });
 
+  it.each([
+    ["1e0", 1], ["  +2.9e0 ", 2], [".9e1", 9], ["0x10", 16], ["0o10", 8], ["0b10", 2],
+    ["1e999", null], ["0xg", null], ["-2", null], ["", null],
+  ] as const)("reads the fragment settings %j for admission and execution", async (raw, value) => {
+    vi.mocked(getFeatureFlagValueForTenant).mockResolvedValue(raw);
+    expect(await getTakeoffChunkingConfigForTenant(TENANT_ID)).toMatchObject({
+      thresholdPages: value ?? TAKEOFF_C_CHUNK_THRESHOLD_PAGES_DEFAULT,
+      chunkSizePages: value ?? TAKEOFF_C_CHUNK_SIZE_PAGES_DEFAULT,
+    });
+  });
+
   it("clamps overlap below chunk size", async () => {
     vi.mocked(getFeatureFlagValueForTenant).mockImplementation(async (_tenantId, key) => {
       if (key === "TAKEOFF_C_CHUNK_THRESHOLD_PAGES") return "15";

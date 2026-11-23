@@ -1,4 +1,5 @@
 import "server-only";
+import { publishedMarkCoverage } from "./count-mark-schedule";
 
 import { requireAffaireAccess } from "@/lib/affaires/access-server";
 import { mapSupabaseError } from "@/lib/http/api-response";
@@ -20,7 +21,7 @@ export async function readItemMeasureReadings(projectId: string, itemId: string,
   const previous = asRecord(job.preparation_snapshot)?.remeasure_previous_answer;
   const answer = async (where: { jobId: string } | { answerId: string }) => {
     const query = supabase.from("takeoff_item_answers").select(
-      "id, job_id, list_revision_id, plan_file_id, plan_generation, outcome, quantity, unit, searched_pages, unreadable_pages, reasons, comparison_only, observations:takeoff_item_answer_observations!takeoff_item_answer_observations_answer_fkey(id, ordinal, page, evidence)",
+      "id, job_id, list_revision_id, plan_file_id, plan_generation, outcome, quantity, unit, searched_pages, unreadable_pages, reasons, comparison_only, publication:takeoff_item_answer_publications!takeoff_item_answers_publication_fkey(result:takeoff_results!takeoff_item_answer_publications_result_id_fkey(coverage:provider_meta->count_marks)), observations:takeoff_item_answer_observations!takeoff_item_answer_observations_answer_fkey(id, ordinal, page, evidence)",
     )
       .eq("tenant_id", tenantId).eq("project_id", project.id).eq("item_id", itemId).eq("plan_logical_id", planKey);
     const { data, error: failure } = await ("jobId" in where ? query.eq("job_id", where.jobId) : query.eq("id", where.answerId)).maybeSingle();
@@ -31,6 +32,7 @@ export async function readItemMeasureReadings(projectId: string, itemId: string,
       return typeof text === "string" ? [text] : [];
     }) : [];
     return {
+      coverage: publishedMarkCoverage(data.publication?.result?.coverage),
       answerId: data.id, jobId: data.job_id, listRevisionId: data.list_revision_id, planFileId: data.plan_file_id,
       generation: data.plan_generation, outcome: data.outcome, quantity: data.quantity, unit: data.unit,
       pages: data.searched_pages, unreadablePages: data.unreadable_pages, reasons, comparisonOnly: data.comparison_only,

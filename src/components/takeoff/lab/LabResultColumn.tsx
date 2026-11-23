@@ -68,7 +68,8 @@ export function AnswerBars({ answer }: { answer: LabAnswer }) {
 
 /** What a configuration on the member's key cost, in US dollars, and with which model. */
 function BillingLines({ billing, apiProvider }: { billing: LabBilling; apiProvider: string }) {
-  const table = billing.price_table === OPENAI_PRICE_TABLE.id ? `barème OpenAI du ${new Date(`${OPENAI_PRICE_TABLE.verifiedOn}T12:00:00Z`).toLocaleDateString("fr-FR")}` : billing.price_table;
+  const date = /^openai-standard-(\d{4})-(\d{2})-(\d{2})$/.exec(billing.price_table);
+  const table = date ? `barème OpenAI du ${date[3]}/${date[2]}/${date[1]}` : billing.price_table;
   const usage = billing.usage;
   return (
     <div role="group" aria-label="Dépense de la clé API" className="rounded-md border border-border-subtle bg-surface-subtle p-2 text-xs">

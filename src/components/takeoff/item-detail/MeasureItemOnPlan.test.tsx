@@ -14,6 +14,7 @@ vi.mock("@/lib/takeoff/item-table-client", () => ({
 }));
 afterEach(() => { cleanup(); window.history.replaceState(null, "", "/"); vi.resetAllMocks(); });
 
+const openComparison = vi.fn();
 function MeasureFromAddress() {
   const [query, setQuery] = useState(window.location.search);
   const read = readItemDetailAddress(new URLSearchParams(query));
@@ -24,7 +25,7 @@ function MeasureFromAddress() {
     setQuery(window.location.search);
   };
   return <MeasureItemOnPlan projectId={DETAIL_PROJECT} line={basinLine} plan={planViews()[JOB_RDC + ":" + PLAN_RDC].plan}
-    receipt={read.address.receipt} onFollow={follow} page={1} listRevisionId={SET}
+    onOpenComparison={openComparison} receipt={read.address.receipt} onFollow={follow} page={1} listRevisionId={SET}
     onRefused={neverRefused} onRefresh={vi.fn()} onOpenCurrent={vi.fn()} />;
 }
 const neverRefused = () => false;
@@ -110,4 +111,45 @@ it("shows no result for an explicitly named foreign receipt even when the member
   await waitFor(() => expect(fetchItemMeasureReadings).toHaveBeenCalledWith(DETAIL_PROJECT, basinLine.itemId, PLAN_RDC,
     { requestId: MEMBER, jobId: PLAN_RDC }));
   expect(screen.queryByTestId("poste-mesure-resultat")).toBeNull();
+});
+
+it("keeps the member’s marks on the current reading and opens the new proposals on their own comparison", async () => {
+  const answer = { answerId: MEMBER, jobId: JOB_RDC, listRevisionId: SET, planFileId: SET, generation: null,
+    outcome: "uncertain" as const, quantity: null, unit: "u", pages: [1, 2], unreadablePages: [], reasons: [], observations: [], comparisonOnly: false };
+  vi.mocked(fetchItemMeasureReadings).mockResolvedValue({ jobId: PLAN_RDC, requestId: SET, state: "succeeded",
+    reason: null, previous: answer, latest: { ...answer, jobId: PLAN_RDC, answerId: SET, comparisonOnly: true,
+      coverage: [{ page: 1, vector_state: "no_layer", limited: false, tiles: ["read", "failed", "not_read", "not_read"] }] } });
+  openMeasure();
+  const result = await screen.findByTestId("poste-mesure-resultat");
+  expect(result.textContent).toContain("Vos corrections restent sur la lecture actuelle");
+  expect(result.textContent).toContain("Tuile 2 en échec");
+  fireEvent.click(screen.getByRole("button", { name: "Voir les propositions de la comparaison" }));
+  expect(openComparison).toHaveBeenCalledWith(PLAN_RDC, 1);
+  expect(screen.getAllByRole("button", { name: "Mesurer tout le plan" })).toHaveLength(1);
+});
+
+it("warns before paying for proposals that cannot be adopted and offers the whole plan", async () => {
+  vi.mocked(fetchItemMeasureReadings).mockResolvedValue(null);
+  vi.mocked(previewItemRemeasure).mockImplementation(async (_project, _scope, _items, _seen, detail) => ({
+    plans: [{ key: PLAN_RDC, name: "RDC" }], items: [{ itemId: basinLine.itemId, label: basinLine.label }],
+    payer: { memberId: MEMBER, name: "Léa" }, running: false, skipped: [], previewDigest: "a".repeat(64),
+    subscription: { state: "ready", model: "usual", reasoningEffort: null }, models: [{ id: "usual", name: "Usuel", reasoningEfforts: [] }],
+    detail: { hostProof: "f".repeat(64), revision: "B", pages: detail?.page ? [1] : [1,2], pageCount: 2, previousPages: [1,2],
+      effect: detail?.page ? "compare" : "replace", ...(detail?.proposeMarks && { markSchedule: {
+        pages: [{ page: 1, width_points: 595 }], tile_calls: 4, other_calls: 2, total_calls: 6 } }) },
+    reading: { state: "ready", calls: 2, budgetTokens: 2000, summary: "Lecture bornée." },
+  }));
+  openMeasure();
+  fireEvent.click(screen.getByRole("button", { name: "Mesurer ce poste" }));
+  await screen.findByLabelText("Modèle");
+  const option = screen.getByRole("checkbox", { name: "Proposer des repères à vérifier" }) as HTMLInputElement;
+  expect(option.checked).toBe(false);
+  fireEvent.change(screen.getByLabelText("Portée"), { target: { value: "page" } });
+  await screen.findByText(/La lecture précédente est indivisible/);
+  fireEvent.click(option);
+  expect((await screen.findByText(/ne pourront pas être adoptées/)).textContent).toContain("lecture seule");
+  expect(screen.getByText(/4 appels de repérage/).textContent).toContain("6 appels au maximum");
+  fireEvent.click(screen.getByRole("button", { name: "Mesurer tout le plan" }));
+  await screen.findByText(/La nouvelle lecture remplacera/);
+  expect(sendItemRemeasure).not.toHaveBeenCalled();
 });

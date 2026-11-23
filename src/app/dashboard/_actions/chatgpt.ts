@@ -10,6 +10,7 @@ import {
 import { callLocalChatGptStructured, listLocalChatGptModels, selectLocalChatGptPreferences } from "@/lib/ai/chatgpt-local-inference";
 import { chatGptPreferencesSchema, type ChatGptPreferences } from "@/lib/ai/chatgpt-model-preferences";
 import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
+import { readPhotoAnalysisModelOptions } from "@/lib/material-requests/document-analysis-server";
 
 async function context() {
   const requestHeaders = await headers();
@@ -41,6 +42,11 @@ export async function chooseChatGptAccount(profileId: string) {
 export async function loadChatGptModels() {
   const { owner } = await context();
   return listLocalChatGptModels(owner);
+}
+
+export async function loadPhotoAnalysisModelOptions() {
+  const { owner } = await context();
+  return readPhotoAnalysisModelOptions(owner);
 }
 
 export async function chooseChatGptPreferences(input: ChatGptPreferences) {

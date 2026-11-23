@@ -257,12 +257,12 @@ export async function resolveLocalTakeoffProvider(supabase: ServerSupabaseClient
   const pinned = takeoffExecutionSelectionSchema.safeParse((job.preparation_snapshot as { execution_selection?: unknown } | null)?.execution_selection);
   if (!pinned.success || !pinned.data.authorizationId) throw connectionWithdrawn(job.id);
   const { ledger } = hooks;
-  const paidSelection = (branch: TakeoffPaidCallBranch): PaidSelection => ({
+  const paidSelection = (branch: TakeoffPaidCallBranch, tileKey?: string): PaidSelection => ({
     profileId: current.profileId, model: current.model, reasoningEffort: current.reasoningEffort ?? null,
     authorizationId: pinned.data.authorizationId,
     ...(setting && { remeasureSetting: setting }),
     ...(ledger ? {
-      beforeSend: () => ledger.beforePaidCall(branch),
+      beforeSend: () => tileKey ? ledger.beforePaidCall(branch, tileKey) : ledger.beforePaidCall(branch),
       onUsage: (usage: { totalTokens: number; costCents: number; trusted: boolean }, call: unknown) => ledger.recordPaidUsage(call as TakeoffPaidCall, usage),
       onUnknownUsage: (call: unknown) => ledger.recordUnknownUsage(call as TakeoffPaidCall),
     } : {}),
@@ -277,10 +277,31 @@ export async function resolveLocalTakeoffProvider(supabase: ServerSupabaseClient
     assertOwnerActive,
     call: async <T>(options: StructuredCallOptions<T>) => {
       await assertOwnerActive();
+      const tile = options.takeoffTile;
+      if (tile && (!setting || !ledger)) throw new TakeoffError({ code: TakeoffErrorCode.CONFLICT, jobId: job.id, retryable: false,
+        message: "La mesure par tuiles nécessite le forfait et le réglage confirmés." });
+      const paid = tile ? paidSelection("count_tile", `tile:${tile.page}:${tile.ordinal}`) : selection;
+      let unknown = false;
+      let settledTokens: number | undefined;
+      if (tile) {
+        const onUsage = paid.onUsage!;
+        const onUnknown = paid.onUnknownUsage!;
+        paid.onUsage = async (usage, call) => {
+          unknown = true;
+          await onUsage(usage, call);
+          unknown = !usage.trusted;
+          settledTokens = usage.totalTokens;
+        };
+        paid.onUnknownUsage = async (call) => { unknown = true; await onUnknown(call); };
+      }
       try {
-        return setting ? await callLocalChatGptStructured(owner, options, selection, setting)
-          : await callLocalChatGptStructured(owner, options, selection);
+        const answer = setting ? await callLocalChatGptStructured(owner, options, paid, setting)
+          : await callLocalChatGptStructured(owner, options, paid);
+        if (unknown) throw new Error("usage");
+        return answer;
       } catch (error) {
+        if (tile && unknown) throw new TakeoffError({ code: TakeoffErrorCode.TAKEOFF_USAGE_UNRECORDED, jobId: job.id, retryable: false,
+          details: { tileAttempted: true }, message: "La consommation de cette tuile est inconnue. La lecture par tuiles est arrêtée." });
         // The job's own refusals keep their name: its right to pay, a usage its ledger could not record.
         if (error instanceof TakeoffError) throw error;
         if (error instanceof LocalChatGptConnectionWithdrawnError) throw connectionWithdrawn(job.id);
@@ -292,7 +313,7 @@ export async function resolveLocalTakeoffProvider(supabase: ServerSupabaseClient
           message: error instanceof Error && error.message.startsWith("Limite du forfait ChatGPT")
             ? "Limite du forfait ChatGPT atteinte. Consultez Gérer ma consommation dans Mon profil."
             : "Le métré ChatGPT a échoué. Vérifiez le compte, le modèle, le niveau d’effort et la connexion dans Mon profil, puis relancez le métré.",
-          details: { provider: "chatgpt" },
+          details: { provider: "chatgpt", ...(tile && { paidUsage: settledTokens, truncated: error instanceof Error && "truncated" in error && error.truncated === true }) },
         });
       }
     },

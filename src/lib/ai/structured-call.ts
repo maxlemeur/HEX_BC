@@ -18,6 +18,8 @@ export type StructuredCallContext = {
 };
 
 export type StructuredCallOptions<T> = {
+  /** Original PDF page and one-based tile ordinal in an opted-in takeoff schedule. */
+  takeoffTile?: { page: number; ordinal: number };
   prompt: string;
   schema: z.ZodType<T>;
   files?: StructuredCallFile[];

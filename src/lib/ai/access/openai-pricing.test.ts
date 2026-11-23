@@ -1,11 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { z } from "zod";
 
 import {
   boundCountedCall, boundModelTest, costOfOpenAiUsage, formatUsd, formatUsdCeiling, LAB_API_KEY_CEILING_NANO_USD,
-  LAB_MIN_USEFUL_OUTPUT_TOKENS, labMaxOutputTokens, maxOutputWithin, OPENAI_PRICE_TABLE, OPENAI_SCHEMA_TOKENS_ALLOWANCE, openAiQualifiedModel,
+  LAB_MIN_USEFUL_OUTPUT_TOKENS, labMaxOutputTokens, maxOutputWithin, MODEL_TEST_CEILING_NANO_USD, OPENAI_PRICE_TABLE, openAiQualifiedModel,
 } from "@/lib/ai/access/openai-pricing";
-import { TakeoffExchangeSchema } from "@/lib/takeoff/schemas";
 
 // The money of a paid call, in US dollars, before and after it. Failure modes:
 // - a bound that is not an upper bound: input guessed instead of counted, the
@@ -22,8 +20,8 @@ const usage = (fields: Partial<{ input: number; cachedInput: number; cacheWrite:
 
 describe("OpenAI price table", () => {
   it("is dated, pins the Standard tier and qualifies only priced models", () => {
-    expect(OPENAI_PRICE_TABLE).toMatchObject({ verifiedOn: "2026-11-18", serviceTier: "default" });
-    expect(Object.keys(OPENAI_PRICE_TABLE.models).sort()).toEqual(["gpt-6.1-sol", "gpt-6.1-terra"]);
+    expect(OPENAI_PRICE_TABLE).toMatchObject({ verifiedOn: "2026-11-22", serviceTier: "default" });
+    expect(Object.keys(OPENAI_PRICE_TABLE.models).sort()).toEqual(["gpt-6.1-sol", "gpt-6.1-terra", "gpt-6.2-astra", "gpt-6.2-sol"]);
     expect(openAiQualifiedModel("gpt-6.1-terra")).toMatchObject({ inputNanoPerToken: 1_000, cachedInputNanoPerToken: 50, outputNanoPerToken: 5_000,
       cacheWrite30mNanoPerToken: 1_250, cacheWrite12hNanoPerToken: 2_500, reasoningEfforts: ["none", "low", "medium", "high", "xhigh", "max"] });
     expect(openAiQualifiedModel("gpt-6.1-sol")).toMatchObject({ inputNanoPerToken: 2_000, cachedInputNanoPerToken: 100, outputNanoPerToken: 10_000,
@@ -31,9 +29,16 @@ describe("OpenAI price table", () => {
     expect(openAiQualifiedModel("gpt-4o")).toBeNull();
   });
 
-  it("bounds the model test's schema within its allowance", () => {
-    const bytes = Buffer.byteLength(JSON.stringify(z.toJSONSchema(TakeoffExchangeSchema, { unrepresentable: "any" })));
-    expect(bytes).toBeLessThan(OPENAI_SCHEMA_TOKENS_ALLOWANCE);
+  it.each([
+    ["gpt-6.2-astra", [8_000, 400, 10_000, 20_000, 40_000], 80_960_000],
+    ["gpt-6.2-sol", [2_000, 100, 2_500, 5_000, 10_000], 20_240_000],
+  ] as const)("prices %s at Standard rates and fits the model-test ceiling", (model, rates, bound) => {
+    const [inputNanoPerToken, cachedInputNanoPerToken, cacheWrite30mNanoPerToken, cacheWrite12hNanoPerToken, outputNanoPerToken] = rates;
+    expect(openAiQualifiedModel(model)).toMatchObject({ inputNanoPerToken, cachedInputNanoPerToken,
+      cacheWrite30mNanoPerToken, cacheWrite12hNanoPerToken, outputNanoPerToken,
+      reasoningEfforts: ["low", "medium", "high", "xhigh", "max"] });
+    expect(boundModelTest(model)).toEqual({ status: "priced", nanoUsd: bound });
+    expect(bound).toBeLessThanOrEqual(MODEL_TEST_CEILING_NANO_USD);
   });
 });
 
@@ -89,9 +94,9 @@ describe("output budget from what is left under the ceiling", () => {
   });
 
   it("bounds a text-only call by its bytes, which bound its tokens", () => {
-    // The model test: a question of at most 200 bytes, 1 024 output tokens.
+    // The model test: input of at most 1 000 bytes, framing allowance and 1 024 output tokens.
     expect(boundModelTest("gpt-6.1-terra"))
-      .toMatchObject({ nanoUsd: (200 + OPENAI_SCHEMA_TOKENS_ALLOWANCE + 1_000) * 2_500 + 1_024 * 5_000 });
+      .toMatchObject({ nanoUsd: (1_000 + 1_000) * 2_500 + 1_024 * 5_000 });
   });
 });
 

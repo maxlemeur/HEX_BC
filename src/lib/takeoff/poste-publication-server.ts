@@ -45,6 +45,7 @@ export type TakeoffItemAnswersPublication = {
   p_findings: Array<{ page: number; designation: string; evidence: string; chunk_id: string }>;
   /** As `finalize_local_takeoff_result` takes it: the result row, its usage and its run metrics. */
   p_result: {
+    count_mark_generation?: Awaited<ReturnType<typeof import("./count-mark-worker-server").produceCountMarkGeneration>>["generation"];
     extracted_json: Record<string, unknown>;
     warnings: Array<{ code: string; message: string; severity: "info" | "warning" | "error" }>;
     tables: [];

@@ -548,7 +548,7 @@ export async function completeMaterialRequestFiles(
 async function requireFile(access: MaterialRequestAccess, requestId: string, fileId: string) {
   const { data, error } = await access.context.supabase
     .from("material_request_files")
-    .select("id, quote_id, storage_path, file_name, mime_type, stored_at, removed_at")
+    .select("id, quote_id, storage_path, file_name, mime_type, byte_size, stored_at, removed_at")
     .eq("id", fileId)
     .eq("tenant_id", access.context.tenantId)
     .eq("project_id", access.project.id)
@@ -566,11 +566,31 @@ export async function readMaterialRequestFile(
 ): Promise<{ body: Blob; mimeType: string; fileName: string }> {
   const access = await requireProjectAccess(projectId, "read");
   const file = await requireFile(access, requestId, fileId);
+  return downloadStoredFile(access, file);
+}
+
+/** File bytes for the comparison, scoped to the supplier quote of the URL before asking storage. */
+export async function readMaterialRequestQuoteFile(
+  access: MaterialRequestAccess,
+  requestId: string,
+  quoteId: string,
+  fileId: string,
+  maxBytes: number,
+): Promise<{ body: Blob; mimeType: string; fileName: string }> {
+  const file = await requireFile(access, requestId, fileId);
+  if (file.quote_id !== quoteId || file.stored_at === null || file.removed_at !== null) {
+    throw notFound("Pièce introuvable dans ce devis.");
+  }
+  if (file.byte_size > maxBytes) throw payloadTooLarge("Cette pièce est trop volumineuse pour être comparée.");
+  return downloadStoredFile(access, file);
+}
+
+async function downloadStoredFile(access: MaterialRequestAccess, file: Awaited<ReturnType<typeof requireFile>>) {
   // Not stored (yet, or ever), or on its way out: there is nothing to serve, and storage is not asked.
   if (file.stored_at === null || file.removed_at !== null) throw notFound(FILE_NOT_FOUND_MESSAGE);
   const { data, error } = await access.context.supabase.storage.from(MATERIAL_REQUESTS_BUCKET).download(file.storage_path);
   if (error || !data) {
-    console.error("Material request original could not be read", { fileId, error });
+    console.error("Material request original could not be read", { fileId: file.id, error });
     throw internalError("Impossible de récupérer cet original.");
   }
   // The type recorded and verified at upload, never the one storage or the browser would guess.

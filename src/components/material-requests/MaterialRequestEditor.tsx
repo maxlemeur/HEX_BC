@@ -212,6 +212,7 @@ function ReadyEditor({
               affaireName={affaireName}
               headingId={`${ids}-consultation`}
               canCreateSupplier={canEditCatalogue}
+              visible={step === "devis"}
               onGoToLines={() => goToStep("lignes")}
               onGoToOrders={() => goToStep("commande")}
             />

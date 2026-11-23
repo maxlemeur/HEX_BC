@@ -2836,7 +2836,7 @@
           "Demandes de matériel"
         ],
         "summary": "Lire un original avec l'IA",
-        "description": "Fait lire une photo de la demande par un modèle de vision, sur le forfait ChatGPT de l'appelant, et répond des lignes en brouillon dans l'ordre de lecture : les mots du technicien (original_text) à côté de ce qui a été lu (quantité, unité, dimension, type, matière, précision, référence, zone). Rien n'est écrit : l'écran ajoute ces lignes par POST lines ou lines/replace, et le bureau relit chaque ligne face à la photo. Un champ qui n'est pas écrit sur la photo reste absent ; une quantité raturée ou arrondie est marquée quantity_doubtful. Une photo par appel, de 15 Mo au plus ; la rotation d'affichage de la photo est indiquée au modèle, ses octets partent tels quels. Seuls les originaux de la demande se lisent : le fichier d'un devis, une photo dont le dépôt n'a pas abouti ou en cours de suppression répondent 404. Une photo sans article répond lines vide.",
+        "description": "Fait lire une photo de la demande par un modèle de vision, avec le forfait ChatGPT ou la clé API OpenAI personnelle choisie dans le profil de l'appelant, et répond des lignes en brouillon dans l'ordre de lecture : les mots du technicien (original_text) à côté de ce qui a été lu (quantité, unité, dimension, type, matière, précision, référence, zone). Rien n'est écrit : l'écran ajoute ces lignes par POST lines ou lines/replace, et le bureau relit chaque ligne face à la photo. Un champ qui n'est pas écrit sur la photo reste absent ; une quantité raturée ou arrondie est marquée quantity_doubtful. Une photo par appel, de 15 Mo au plus ; la rotation d'affichage de la photo est indiquée au modèle, ses octets partent tels quels. Seuls les originaux de la demande se lisent : le fichier d'un devis, une photo dont le dépôt n'a pas abouti ou en cours de suppression répondent 404. Une photo sans article répond lines vide.",
         "parameters": [
           {
             "name": "projectId",
@@ -2866,6 +2866,17 @@
             }
           }
         ],
+        "requestBody": {
+          "description": "Source, modèle et effort pour une lecture. Avec la clé API, envoyer son identifiant de connexion et les préférences de lecture. Un effort null utilise celui du modèle. Une requête sans source utilise le forfait ChatGPT.",
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MaterialRequestPhotoAnalysisInput"
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "description": "Lignes lues, non enregistrées.",
@@ -2918,7 +2929,7 @@
             }
           },
           "409": {
-            "description": "MATERIAL_REQUEST_PHOTO_ANALYSIS_UNAVAILABLE : aucune lecture ne peut être lancée pour l'appelant ici (instance sans IA, forfait ChatGPT à connecter ou à reconnecter) ; le message dit quoi faire. details.status : disabled ou unavailable.",
+            "description": "MATERIAL_REQUEST_PHOTO_ANALYSIS_UNAVAILABLE : aucune lecture ne peut être lancée pour l'appelant ici (instance sans IA, forfait ou clé API à configurer) ; le message dit quoi faire. details.status : disabled ou unavailable. MATERIAL_REQUEST_PHOTO_SETTINGS_UNAVAILABLE : la source, la clé ou les modèles disponibles ont changé.",
             "content": {
               "application/json": {
                 "schema": {
@@ -2948,7 +2959,7 @@
             }
           },
           "503": {
-            "description": "MATERIAL_REQUEST_PHOTO_ANALYSIS_FAILED : la lecture n'a pas donné de lignes. details.reason : AI_QUOTA, AI_RATE_LIMIT, AI_REQUEST_REJECTED, TIMEOUT, INVALID_ANSWER ou PROVIDER_ERROR. Rien n'est réessayé automatiquement.",
+            "description": "MATERIAL_REQUEST_PHOTO_ANALYSIS_FAILED : la lecture n'a pas donné de lignes. details.reason : AI_QUOTA, AI_RATE_LIMIT, AI_REQUEST_REJECTED, TIMEOUT, INVALID_ANSWER, PROVIDER_ERROR ou un code AI_KEY_* pour la clé API. Rien n'est réessayé automatiquement.",
             "content": {
               "application/json": {
                 "schema": {
@@ -5154,6 +5165,156 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/affaires/{projectId}/material-requests/{requestId}/quotes/{quoteId}/files/{fileId}/comparison": {
+      "post": {
+        "tags": [
+          "Demandes de matériel"
+        ],
+        "summary": "Comparer une pièce du devis avec le message envoyé",
+        "description": "Compare un PDF ou une image jointe au devis avec le message enregistré pour ce fournisseur. Retourne les quantités comparables, les écarts techniques et leurs citations. Une pièce par appel, sans modification du devis ni de la demande.",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "description": "Affaire du tenant actif.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/MaterialRequestProjectId"
+            }
+          },
+          {
+            "name": "requestId",
+            "in": "path",
+            "description": "Demande de cette affaire.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/MaterialRequestId"
+            }
+          },
+          {
+            "name": "quoteId",
+            "in": "path",
+            "description": "Devis de cette demande.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/MaterialRequestQuoteId"
+            }
+          },
+          {
+            "name": "fileId",
+            "in": "path",
+            "description": "Original ou fichier d'un devis de cette demande.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/MaterialRequestFileId"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "Source, modèle et effort pour l’analyse. Avec une clé API personnelle, renseigner la connexion et ses préférences.",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/QuoteComparisonSettings"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Comparaison à vérifier, non enregistrée.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiMaterialRequestQuoteComparison"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "BAD_REQUEST : pièce illisible ou de type incompatible.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiMaterialRequestError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentification requise.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "FORBIDDEN : l'écriture demande le propriétaire de l'affaire ou un administrateur, avec le rôle admin ou engineer.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiMaterialRequestError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NOT_FOUND : affaire d'un autre tenant ou archivée, ou identifiant d'une autre affaire.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiMaterialRequestError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "La source IA est indisponible ou ses réglages ont changé.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiMaterialRequestError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "La pièce dépasse la taille acceptée pour la comparaison.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiMaterialRequestError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Erreur interne serveur.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "MATERIAL_REQUEST_QUOTE_COMPARISON_FAILED : la lecture ou la comparaison a échoué.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiMaterialRequestError"
                 }
               }
             }
@@ -37968,6 +38129,57 @@
         ],
         "additionalProperties": false
       },
+      "MaterialRequestPhotoAnalysisInput": {
+        "type": "object",
+        "properties": {
+          "preferences": {
+            "type": "object",
+            "properties": {
+              "model": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              },
+              "reasoningEffort": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "enum": [
+                      "none",
+                      "low",
+                      "medium",
+                      "high",
+                      "xhigh",
+                      "max"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "model",
+              "reasoningEffort"
+            ],
+            "additionalProperties": false
+          },
+          "billingSource": {
+            "type": "string",
+            "enum": [
+              "chatgpt_plan",
+              "personal_api_key"
+            ]
+          },
+          "connectionId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          }
+        },
+        "additionalProperties": false
+      },
       "ApiMaterialRequestPhotoAnalysis": {
         "type": "object",
         "properties": {
@@ -43660,6 +43872,557 @@
         ],
         "additionalProperties": false
       },
+      "QuoteComparisonSettings": {
+        "type": "object",
+        "properties": {
+          "preferences": {
+            "type": "object",
+            "properties": {
+              "model": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              },
+              "reasoningEffort": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "enum": [
+                      "none",
+                      "low",
+                      "medium",
+                      "high",
+                      "xhigh",
+                      "max"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "model",
+              "reasoningEffort"
+            ],
+            "additionalProperties": false
+          },
+          "billingSource": {
+            "type": "string",
+            "enum": [
+              "chatgpt_plan",
+              "personal_api_key"
+            ]
+          },
+          "connectionId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          }
+        },
+        "required": [
+          "preferences",
+          "billingSource"
+        ],
+        "additionalProperties": false
+      },
+      "ApiMaterialRequestQuoteComparison": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "reference": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 500
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "date": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 500
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "revision": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 500
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "total_ht": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 500
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "commercial_notes": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 500
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "complete": {
+                "type": "boolean"
+              },
+              "lines": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "requested": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "text": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 500
+                          },
+                          "quantity": {
+                            "anyOf": [
+                              {
+                                "type": "number",
+                                "minimum": 0,
+                                "maximum": 1000000
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "unit": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 40
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          }
+                        },
+                        "required": [
+                          "text",
+                          "quantity",
+                          "unit"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "offered": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "text": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 500
+                          },
+                          "page": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": 9007199254740991
+                          },
+                          "row": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": 9007199254740991
+                          },
+                          "quantity": {
+                            "anyOf": [
+                              {
+                                "type": "number",
+                                "minimum": 0,
+                                "maximum": 1000000
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "unit": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 40
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "pack_quantity": {
+                            "anyOf": [
+                              {
+                                "type": "number",
+                                "exclusiveMinimum": 0,
+                                "maximum": 1000000
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "pack_unit": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 40
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "requested_group": {
+                            "anyOf": [
+                              {
+                                "type": "integer",
+                                "minimum": 1,
+                                "maximum": 9007199254740991
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "technical": {
+                            "type": "string",
+                            "enum": [
+                              "compatible",
+                              "different",
+                              "not_specified"
+                            ]
+                          },
+                          "observation": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 500
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "price": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 500
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "delay": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 500
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          }
+                        },
+                        "required": [
+                          "text",
+                          "page",
+                          "row",
+                          "quantity",
+                          "unit",
+                          "pack_quantity",
+                          "pack_unit",
+                          "requested_group",
+                          "technical",
+                          "observation",
+                          "price",
+                          "delay"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "missing",
+                        "short",
+                        "mismatch",
+                        "review",
+                        "excess",
+                        "covered"
+                      ]
+                    },
+                    "requested_quantity": {
+                      "type": [
+                        "number",
+                        "null"
+                      ]
+                    },
+                    "offered_quantity": {
+                      "type": [
+                        "number",
+                        "null"
+                      ]
+                    },
+                    "difference": {
+                      "type": [
+                        "number",
+                        "null"
+                      ]
+                    },
+                    "unit": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 40
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "requested",
+                    "offered",
+                    "status",
+                    "requested_quantity",
+                    "offered_quantity",
+                    "difference",
+                    "unit"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "unmatched_request": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "unmatched_offers": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "text": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 500
+                    },
+                    "page": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 9007199254740991
+                    },
+                    "row": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 9007199254740991
+                    },
+                    "quantity": {
+                      "anyOf": [
+                        {
+                          "type": "number",
+                          "minimum": 0,
+                          "maximum": 1000000
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "unit": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 40
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "pack_quantity": {
+                      "anyOf": [
+                        {
+                          "type": "number",
+                          "exclusiveMinimum": 0,
+                          "maximum": 1000000
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "pack_unit": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 40
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "requested_group": {
+                      "anyOf": [
+                        {
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 9007199254740991
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "technical": {
+                      "type": "string",
+                      "enum": [
+                        "compatible",
+                        "different",
+                        "not_specified"
+                      ]
+                    },
+                    "observation": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 500
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "price": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 500
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "delay": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 500
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "text",
+                    "page",
+                    "row",
+                    "quantity",
+                    "unit",
+                    "pack_quantity",
+                    "pack_unit",
+                    "requested_group",
+                    "technical",
+                    "observation",
+                    "price",
+                    "delay"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "file_id": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "model": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "reference",
+              "date",
+              "revision",
+              "total_ht",
+              "commercial_notes",
+              "complete",
+              "lines",
+              "unmatched_request",
+              "unmatched_offers",
+              "file_id",
+              "model"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "ok",
+          "data"
+        ],
+        "additionalProperties": false
+      },
       "ApiMaterialRequestQuoteRetained": {
         "type": "object",
         "properties": {
@@ -44990,6 +45753,9 @@
                           },
                           "publishedAt": {
                             "type": "string"
+                          },
+                          "qualified": {
+                            "type": "boolean"
                           }
                         },
                         "required": [
@@ -45226,6 +45992,50 @@
                 ],
                 "additionalProperties": false
               },
+              "coverage": {
+                "type": "object",
+                "properties": {
+                  "page": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "vector_state": {
+                    "type": "string",
+                    "enum": [
+                      "read",
+                      "no_layer",
+                      "failed",
+                      "not_read"
+                    ]
+                  },
+                  "tiles": {
+                    "minItems": 4,
+                    "maxItems": 6,
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "enum": [
+                        "read",
+                        "truncated",
+                        "failed",
+                        "unknown",
+                        "not_read"
+                      ]
+                    }
+                  },
+                  "limited": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "page",
+                  "vector_state",
+                  "tiles",
+                  "limited"
+                ],
+                "additionalProperties": false
+              },
               "edit": {
                 "type": "object",
                 "properties": {
@@ -45239,7 +46049,8 @@
                         "enum": [
                           "forbidden",
                           "sent",
-                          "replaced"
+                          "replaced",
+                          "comparison"
                         ]
                       },
                       {
@@ -50706,6 +51517,54 @@
                       {
                         "type": "object",
                         "properties": {
+                          "coverage": {
+                            "maxItems": 6,
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "page": {
+                                  "type": "integer",
+                                  "exclusiveMinimum": 0,
+                                  "maximum": 9007199254740991
+                                },
+                                "vector_state": {
+                                  "type": "string",
+                                  "enum": [
+                                    "read",
+                                    "no_layer",
+                                    "failed",
+                                    "not_read"
+                                  ]
+                                },
+                                "tiles": {
+                                  "minItems": 4,
+                                  "maxItems": 6,
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string",
+                                    "enum": [
+                                      "read",
+                                      "truncated",
+                                      "failed",
+                                      "unknown",
+                                      "not_read"
+                                    ]
+                                  }
+                                },
+                                "limited": {
+                                  "type": "boolean"
+                                }
+                              },
+                              "required": [
+                                "page",
+                                "vector_state",
+                                "tiles",
+                                "limited"
+                              ],
+                              "additionalProperties": false
+                            }
+                          },
                           "outcome": {
                             "type": "string",
                             "enum": [
@@ -50838,6 +51697,54 @@
                       {
                         "type": "object",
                         "properties": {
+                          "coverage": {
+                            "maxItems": 6,
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "page": {
+                                  "type": "integer",
+                                  "exclusiveMinimum": 0,
+                                  "maximum": 9007199254740991
+                                },
+                                "vector_state": {
+                                  "type": "string",
+                                  "enum": [
+                                    "read",
+                                    "no_layer",
+                                    "failed",
+                                    "not_read"
+                                  ]
+                                },
+                                "tiles": {
+                                  "minItems": 4,
+                                  "maxItems": 6,
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string",
+                                    "enum": [
+                                      "read",
+                                      "truncated",
+                                      "failed",
+                                      "unknown",
+                                      "not_read"
+                                    ]
+                                  }
+                                },
+                                "limited": {
+                                  "type": "boolean"
+                                }
+                              },
+                              "required": [
+                                "page",
+                                "vector_state",
+                                "tiles",
+                                "limited"
+                              ],
+                              "additionalProperties": false
+                            }
+                          },
                           "outcome": {
                             "type": "string",
                             "enum": [
@@ -51100,6 +52007,10 @@
                     "type": "null"
                   }
                 ]
+              },
+              "proposeMarks": {
+                "type": "boolean",
+                "const": true
               }
             },
             "required": [
@@ -51107,6 +52018,57 @@
               "contentSha256",
               "generation",
               "page"
+            ],
+            "additionalProperties": false
+          },
+          "mark_schedule": {
+            "type": "object",
+            "properties": {
+              "pages": {
+                "minItems": 1,
+                "maxItems": 6,
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "page": {
+                      "type": "integer",
+                      "exclusiveMinimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "width_points": {
+                      "type": "number",
+                      "exclusiveMinimum": 0
+                    }
+                  },
+                  "required": [
+                    "page",
+                    "width_points"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "tile_calls": {
+                "type": "integer",
+                "minimum": 4,
+                "maximum": 24
+              },
+              "other_calls": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 80
+              },
+              "total_calls": {
+                "type": "integer",
+                "minimum": 5,
+                "maximum": 104
+              }
+            },
+            "required": [
+              "pages",
+              "tile_calls",
+              "other_calls",
+              "total_calls"
             ],
             "additionalProperties": false
           },
@@ -51529,6 +52491,10 @@
                     "type": "null"
                   }
                 ]
+              },
+              "proposeMarks": {
+                "type": "boolean",
+                "const": true
               }
             },
             "required": [
@@ -51640,6 +52606,57 @@
                         "type": "null"
                       }
                     ]
+                  },
+                  "markSchedule": {
+                    "type": "object",
+                    "properties": {
+                      "pages": {
+                        "minItems": 1,
+                        "maxItems": 6,
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "page": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0,
+                              "maximum": 9007199254740991
+                            },
+                            "width_points": {
+                              "type": "number",
+                              "exclusiveMinimum": 0
+                            }
+                          },
+                          "required": [
+                            "page",
+                            "width_points"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "tile_calls": {
+                        "type": "integer",
+                        "minimum": 4,
+                        "maximum": 24
+                      },
+                      "other_calls": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 80
+                      },
+                      "total_calls": {
+                        "type": "integer",
+                        "minimum": 5,
+                        "maximum": 104
+                      }
+                    },
+                    "required": [
+                      "pages",
+                      "tile_calls",
+                      "other_calls",
+                      "total_calls"
+                    ],
+                    "additionalProperties": false
                   },
                   "previousPages": {
                     "type": "array",

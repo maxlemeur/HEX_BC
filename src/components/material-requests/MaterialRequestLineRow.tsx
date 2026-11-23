@@ -29,7 +29,6 @@ import { cn } from "@/lib/utils";
 import {
   alertCellClass,
   AlertSummary,
-  AlertWords,
   ChoiceCell,
   ConfirmButton,
   FoldArrow,
@@ -105,6 +104,10 @@ export type LineRowProps = Readonly<{
   ordered?: MaterialRequestOrderLink | null;
 }>;
 
+function repeatsHighlightedField(alert: MaterialRequestLineAlert) {
+  return alert.code === "unit_missing" || alert.code === "material_missing";
+}
+
 function alertsOf(alerts: readonly MaterialRequestLineAlert[], field: MaterialRequestLineAlert["field"]): CellAlerts {
   return alerts.filter((alert) => alert.field === field);
 }
@@ -155,12 +158,15 @@ export function fromRequest(value: string): string {
 
 /** The columns of the lines sheet, shared by its header and by every line. The last one holds the actions. */
 export const LINE_GRID =
-  "sheet:grid sheet:grid-cols-[2.25rem_4.25rem_3.75rem_minmax(7rem,1.2fr)_minmax(4.5rem,0.7fr)_minmax(5.5rem,0.8fr)_minmax(10rem,1.8fr)_minmax(9rem,1.5fr)_7.25rem] xl:grid-cols-[2.25rem_5.5rem_3.75rem_minmax(8.5rem,1.2fr)_minmax(6rem,0.85fr)_minmax(7rem,0.8fr)_minmax(14rem,1.75fr)_minmax(12rem,1.5fr)_11.5rem]";
+  "sheet:grid sheet:grid-cols-[2.25rem_4.25rem_3.75rem_minmax(7rem,1.2fr)_minmax(4.5rem,0.7fr)_minmax(5.5rem,0.8fr)_minmax(10rem,1.8fr)_minmax(9rem,1.5fr)_7.25rem] xl:grid-cols-[2.25rem_5.5rem_3.75rem_minmax(8.5rem,1.2fr)_minmax(6rem,0.85fr)_minmax(7rem,0.8fr)_minmax(14rem,1.75fr)_minmax(12rem,1.5fr)_7.25rem]";
 
 /** The cells touch: no gap between the columns and no box around a field, the grid lines bound them (`sheet-cell`). */
 export const CELL_LINE = "sheet:border-l sheet:border-border";
 /** The padding of a cell that holds text rather than a field: the text sits where a field's own text does. */
 export const CELL_PAD = "sheet:px-2.5";
+/** The details belong to the line above and take up their own row in the sheet. */
+export const LINE_BAND =
+  "sheet:[grid-column:1/-1] sheet:min-w-0 sheet:border-t sheet:border-border sheet:bg-surface-subtle sheet:px-3 sheet:py-2.5 sheet:shadow-[inset_2px_0_0_var(--border-strong)]";
 
 /**
  * The columns of the lines sheet, in the order of `LINE_GRID`: what the header says over each (`short` where the
@@ -180,25 +186,15 @@ export const LINE_COLUMNS = {
 } as const;
 export type LineColumn = keyof typeof LINE_COLUMNS;
 
-/** What a draft line holds beside its columns: its arrow, and the rows read once it is unfolded. */
-const AT = {
-  /** The arrow that unfolds the line sits at the end of its actions. */
-  toggle: "sheet:[grid-column:9] sheet:row-start-1 sheet:self-start sheet:justify-self-end",
-  wording: "sheet:[grid-column:2/7] sheet:row-start-2",
-  details: "sheet:[grid-column:2/7] sheet:row-start-3",
-  failure: "sheet:[grid-column:2/7] sheet:row-start-4",
-  /** A cell that runs the height of an unfolded line. */
-  tall: "sheet:row-span-4",
-} as const;
 const COLUMN = LINE_COLUMNS;
 
 /*
  * Below the sheet's width a line is a card on a grid of its own: its head (the box, the technician's words, its
  * actions and its arrow) on one row, then what it asks, then its article and its supplier. `CARD` gives each part its
- * place there; in the sheet every part is placed by `LINE_COLUMNS` and `AT` instead.
+ * place there. The sheet aligns its cells under `LINE_COLUMNS` and puts the details on their own row.
  */
 const LINE =
-  "grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto_auto] items-center gap-x-2 gap-y-2.5 rounded-lg border border-border bg-surface p-3 sm:px-4 sheet:grid-rows-[auto_auto_auto_1fr] sheet:items-start sheet:gap-0 sheet:rounded-none sheet:border-0 sheet:border-b sheet:p-0 sheet:last:rounded-b-lg sheet:last:border-b-0 sheet:hover:bg-surface-subtle/60";
+  "grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto_auto] items-center gap-x-2 gap-y-2.5 rounded-lg border border-border bg-surface p-3 sm:px-4 sheet:items-start sheet:gap-0 sheet:rounded-none sheet:border-0 sheet:border-b sheet:p-0 sheet:last:rounded-b-lg sheet:last:border-b-0 sheet:hover:bg-surface-subtle/60";
 const CARD = {
   select: "max-sheet:order-1",
   wording: "max-sheet:order-2",
@@ -210,35 +206,34 @@ const CARD = {
   failure: "col-span-full max-sheet:order-8",
 } as const;
 
-/** The technician's own words: what the office checks the line against. In the sheet they are read once unfolded. */
+/** The original expands in the flow of the line, including when the next line is already open. */
 function OriginalWording({ text, shown }: Readonly<{ text: string | null; shown: boolean }>) {
-  const place = cn("min-w-0 text-sm text-muted-foreground sheet:pt-2", CARD.wording, CELL_PAD, AT.wording, !shown && "sheet:hidden");
+  const place = cn("min-w-0 text-sm text-muted-foreground sheet:col-span-full", CARD.wording, !shown && "sheet:hidden");
   if (!text) return <p className={place}>Ligne ajoutée à la main</p>;
   return (
-    <p className={cn(place, "break-words")}>
-      {/* At the head of a card the quotation marks say whose words these are. */}
-      <span className="max-sheet:sr-only">Texte du technicien : </span>
-      <span className="font-medium text-foreground">« {text} »</span>
-    </p>
+    <details className={cn("group/original", place)}>
+      <summary className="flex min-w-0 cursor-pointer list-none items-baseline gap-1.5 rounded-sm focus-visible:outline-2 focus-visible:outline-ring [&::-webkit-details-marker]:hidden">
+        <span className="shrink-0 text-xs max-sheet:sr-only">Texte du technicien</span>
+        <span className="min-w-0 truncate font-medium text-foreground group-open/original:whitespace-normal group-open/original:break-words">
+          « {text} »
+        </span>
+        <span aria-hidden="true" className="ml-auto shrink-0 self-start px-0.5 font-semibold text-primary">
+          <span className="group-open/original:hidden">+</span>
+          <span className="hidden group-open/original:inline">−</span>
+        </span>
+      </summary>
+    </details>
   );
 }
 
 const FIELD_LABEL = "mb-1 block text-xs font-medium text-muted-foreground";
 
-/**
- * One field of a line under its visible name; in the sheet the column header names it instead. The field keeps its
- * own accessible name (« Quantité, ligne 3 », which starts with the visible one); the tint says an alert names it.
- *
- * In the sheet the words of the alert, and the choice that settles it without a value (`hint`), open under the cell
- * while the cursor is in it (`mr-cell-hint`): the tint says there is something, the cell says what once entered. In a
- * card that choice sits under its field, and the words are read on the line under the fields, on the card's width.
- */
+/** A highlighted cell keeps its reason in its tooltip and in the input's accessible description. */
 function Field({
   name,
   alerts,
   className,
   column,
-  hint,
   children,
 }: Readonly<{
   name: string;
@@ -246,8 +241,6 @@ function Field({
   className?: string;
   /** The column of the sheet the field is the cell of; without it, a field read once the line is unfolded. */
   column?: LineColumn;
-  /** A choice that belongs to the field (« Sans dimension »): under it in a card, in its hint in the sheet. */
-  hint?: ReactNode;
   children: ReactNode;
 }>) {
   const noted = alerts ?? [];
@@ -262,7 +255,7 @@ function Field({
         "min-w-0 rounded-md",
         // In a card the tint is a halo around the field; in the sheet it fills the cell.
         noted.length > 0 && cn("max-sheet:-m-1.5 max-sheet:p-1.5", alertCellClass(noted)),
-        inTable && cn("mr-cell sheet:sheet-cell sheet:relative sheet:rounded-none", COLUMN[column].at),
+        inTable && cn("sheet:sheet-cell sheet:rounded-none", COLUMN[column].at),
         className,
       )}
     >
@@ -270,16 +263,6 @@ function Field({
         <span className={cn(FIELD_LABEL, inTable && "sheet:hidden")}>{name}</span>
         {children}
       </label>
-      {inTable && (noted.length > 0 || hint) ? (
-        // In a card the choice keeps to one line, wider than a narrow field if it must.
-        <div className={cn("mr-cell-hint space-y-1", hint ? "max-sheet:mt-1.5 max-sheet:w-max" : "max-sheet:hidden")}>
-          {/* A card says the alerts under its fields, and the field describes itself to a screen reader: said once. */}
-          {noted.map((alert) => (
-            <AlertWords key={alert.code} alert={alert} aria-hidden className="text-xs max-sheet:hidden" />
-          ))}
-          {hint}
-        </div>
-      ) : null}
     </div>
   );
 }
@@ -344,9 +327,8 @@ function UsualPackaging({
   return (
     <div
       className={cn(
-        "flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground sheet:pb-1.5",
+        "flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground",
         CARD.asked,
-        CELL_PAD,
       )}
     >
       <span>Usuel : {describePackaging(packaging, packaging.unit)}</span>
@@ -404,10 +386,12 @@ function Sourcing(props: LineRowProps & { expanded: boolean }) {
   const { line, request, supplierOptions, canWrite, expanded } = props;
   const ownSupplier = supplierName(supplierOptions, line.supplier_id);
   const requestSupplier = supplierFromRequest(request, supplierOptions);
-  const block = cn("min-w-0 sheet:self-stretch", CELL_LINE);
+  const block = "min-w-0 sheet:self-stretch";
   return (
     <div className={cn("grid gap-x-4 gap-y-2.5 md:grid-cols-2 sheet:contents", CARD.sourcing)}>
-      <div className={cn(block, "sheet:px-2.5 sheet:py-1", COLUMN.article.at, AT.tall)}>
+      <div role="group" aria-label={`Article, ligne ${line.position}`} className={cn(block, expanded
+        ? "sheet:col-start-2 sheet:row-span-2 sheet:row-start-2 sheet:self-start sheet:rounded-md sheet:border sheet:border-border sheet:bg-surface sheet:p-2"
+        : cn(CELL_LINE, CELL_PAD, COLUMN.article.at, "sheet:py-1"))}>
         <p className={cn(FIELD_LABEL, "sheet:hidden")}>Article</p>
         <MaterialRequestArticleCell
           line={line}
@@ -419,6 +403,7 @@ function Sourcing(props: LineRowProps & { expanded: boolean }) {
           notice={props.articleNotice}
           conflict={props.articleConflict}
           expanded={expanded}
+          compactProposal={expanded}
           onLink={props.onLinkArticle}
           onUnlink={props.onUnlinkArticle}
           onOpenPanel={props.onOpenArticles}
@@ -426,8 +411,10 @@ function Sourcing(props: LineRowProps & { expanded: boolean }) {
         />
       </div>
       {/* A supplier is purchasing information: the office may set or change it on a validated line too, which stays validated. */}
-      <div className={cn(block, "sheet:sheet-cell", COLUMN.supplier.at, AT.tall)}>
-        <p className={cn(FIELD_LABEL, "sheet:hidden")}>Fournisseur</p>
+      <div className={cn(block, expanded
+        ? "sheet:col-start-1 sheet:row-start-3 sheet:grid sheet:grid-cols-[auto_minmax(0,1fr)] sheet:items-start sheet:gap-2"
+        : cn(COLUMN.supplier.at, CELL_LINE, "sheet:sheet-cell"))}>
+        <p className={cn(FIELD_LABEL, expanded ? "sheet:mb-0 sheet:pt-2" : "sheet:hidden")}>Fournisseur</p>
         <MaterialRequestSupplierCell
           line={line}
           editable={canWrite}
@@ -440,6 +427,7 @@ function Sourcing(props: LineRowProps & { expanded: boolean }) {
           article={props.article}
           proposalRead={props.supplierProposalRead}
           expanded={expanded}
+          layout={expanded ? "inspector" : "cell"}
           onChooseTypeSupplier={props.onChooseTypeSupplier}
           onSave={props.onSave}
           onRetain={props.onRetainSupplier}
@@ -489,8 +477,10 @@ export function MaterialRequestLineRow(props: LineRowProps) {
   const moreOpen = unfolded ?? holdsMore;
   // A change the server refused is still in its cell: validating now would validate the older value.
   const unsaved = change === "failed";
-  // Unfolded, a line under the fields parts them from what is read below.
-  const cell = cn(CELL_LINE, moreOpen && "sheet:border-b sheet:border-border");
+  const proposedArticle = props.proposals.status === "ready" ? props.proposals.candidates[0]?.article : undefined;
+  const shownArticle = props.article?.designation ?? proposedArticle?.designation ?? (line.product_id ? "Article rattaché" : "—");
+  const inheritedSupplier = supplierFromRequest(request, props.supplierOptions);
+  const shownSupplier = supplierName(props.supplierOptions, line.supplier_id) ?? (inheritedSupplier ? fromRequest(inheritedSupplier) : "—");
 
   const act = async (action: () => Promise<SaveResult>) => {
     const result = await action();
@@ -499,20 +489,20 @@ export function MaterialRequestLineRow(props: LineRowProps) {
   };
 
   return (
-    <li id={`material-request-line-${line.id}`} tabIndex={-1} aria-label={`Ligne ${n}`} className={cn(LINE, LINE_GRID, selected && "border-primary/50 bg-primary/5 sheet:hover:bg-primary/5")}>
-      {/* The cell runs the height of the line; the box stays on the row of the fields. */}
-        <div className={cn("sheet:self-stretch sheet:border-r sheet:border-border", CARD.select, COLUMN.select.at, AT.tall)}>
-          <div className="flex items-center sheet:h-9 sheet:justify-center">
-            <input
-              type="checkbox"
-              className="size-4 shrink-0 accent-primary"
-              aria-label={`Sélectionner la ligne ${n}`}
-              checked={selected}
-              onChange={(event) => onSelectedChange(event.currentTarget.checked)}
-            />
-          </div>
+    <li id={`material-request-line-${line.id}`} tabIndex={-1} aria-label={`Ligne ${n}`}
+      className={cn(LINE, LINE_GRID, moreOpen && "sheet:border-border-strong", selected && "border-primary/50 bg-primary/5 sheet:hover:bg-primary/5")}>
+      {/* Keep the checkbox aligned with the editable cells, above the details. */}
+      <div className={cn("sheet:self-stretch sheet:border-r sheet:border-border", CARD.select, COLUMN.select.at)}>
+        <div className="flex items-center sheet:h-9 sheet:justify-center">
+          <input
+            type="checkbox"
+            className="size-4 shrink-0 accent-primary"
+            aria-label={`Sélectionner la ligne ${n}`}
+            checked={selected}
+            onChange={(event) => onSelectedChange(event.currentTarget.checked)}
+          />
         </div>
-      <OriginalWording text={line.original_text} shown={moreOpen} />
+      </div>
 
       {/* In a card: quantity, unit and type on a row, size and material under them; from 768 px, the five on one row. */}
       <div className={cn("grid grid-cols-[4.5rem_4rem_minmax(0,1fr)] gap-x-3 gap-y-2.5 md:grid-cols-[5rem_4.5rem_minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,1.2fr)] sheet:contents", CARD.asked)}>
@@ -520,17 +510,7 @@ export function MaterialRequestLineRow(props: LineRowProps) {
           name="Quantité"
           column="quantity"
           alerts={alertsOf(alerts, "quantity")}
-          className={cn(moreOpen && "sheet:border-b sheet:border-border")}
-          hint={
-            moreOpen || line.quantity_doubtful ? (
-              <ToggleCell
-                label={`Quantité à vérifier, ligne ${n}`}
-                text="Quantité à vérifier"
-                checked={line.quantity_doubtful}
-                onCommit={(quantity_doubtful) => onSave({ quantity_doubtful })}
-              />
-            ) : null
-          }
+          className={CELL_LINE}
         >
           <QuantityCell
             label={`Quantité, ligne ${n}`}
@@ -541,7 +521,7 @@ export function MaterialRequestLineRow(props: LineRowProps) {
             onAbandon={() => onForget(["quantity"])}
           />
         </Field>
-        <Field name="Unité" column="unit" alerts={alertsOf(alerts, "unit")} className={cell}>
+        <Field name="Unité" column="unit" alerts={alertsOf(alerts, "unit")} className={CELL_LINE}>
           <TextCell
             label={`Unité, ligne ${n}`}
             value={line.unit}
@@ -553,7 +533,7 @@ export function MaterialRequestLineRow(props: LineRowProps) {
             onAbandon={() => onForget(["unit"])}
           />
         </Field>
-        <Field name="Type" column="type" alerts={alertsOf(alerts, "product_type")} className={cell}>
+        <Field name="Type" column="type" alerts={alertsOf(alerts, "product_type")} className={CELL_LINE}>
           <TextCell
             label={`Type, ligne ${n}`}
             value={line.product_type}
@@ -568,17 +548,7 @@ export function MaterialRequestLineRow(props: LineRowProps) {
           name="DN / dimension"
           column="dimension"
           alerts={alertsOf(alerts, "dimension")}
-          className={cn("max-md:col-span-2", cell)}
-          hint={
-            moreOpen || line.no_dimension || !line.dimension ? (
-              <ToggleCell
-                label={`Sans dimension, ligne ${n}`}
-                text="Sans dimension"
-                checked={line.no_dimension}
-                onCommit={(no_dimension) => onSave({ no_dimension })}
-              />
-            ) : null
-          }
+          className={cn("max-md:col-span-2", CELL_LINE)}
         >
           <TextCell
             label={`DN / dimension, ligne ${n}`}
@@ -591,7 +561,7 @@ export function MaterialRequestLineRow(props: LineRowProps) {
             onAbandon={() => onForget(["dimension"])}
           />
         </Field>
-        <Field name="Matière" column="material" alerts={alertsOf(alerts, "material")} className={cell}>
+        <Field name="Matière" column="material" alerts={alertsOf(alerts, "material")} className={CELL_LINE}>
           <TextCell
             label={`Matière, ligne ${n}`}
             value={line.material}
@@ -606,191 +576,207 @@ export function MaterialRequestLineRow(props: LineRowProps) {
         </Field>
       </div>
 
-      {/* The arrow that unfolds the line: at the end of its row in the sheet, at the end of its head in a card. */}
-      <Button
-        type="button"
-        variant="ghost"
-        size="xs"
-        className={cn("w-7 px-0 sheet:relative sheet:z-[1] sheet:my-1 sheet:mr-1.5", CARD.toggle, AT.toggle)}
-        aria-expanded={moreOpen}
-        aria-controls={moreId}
-        aria-label={`Détails de la ligne ${n}`}
-        title={moreOpen ? "Replier la ligne" : "Déplier la ligne"}
-        onClick={() => onUnfoldedChange(!moreOpen)}
-      >
-        <FoldArrow open={moreOpen} />
-      </Button>
+      {moreOpen ? (
+        <>
+          <div aria-hidden="true" className={cn("hidden min-w-0 sheet:flex sheet:min-h-9 sheet:items-center", CELL_LINE, CELL_PAD, COLUMN.article.at)}>
+            <span className={cn("truncate text-sm", !line.product_id && "text-muted-foreground")} title={shownArticle}>{shownArticle}</span>
+          </div>
+          <div aria-hidden="true" className={cn("hidden min-w-0 sheet:flex sheet:min-h-9 sheet:items-center", CELL_LINE, CELL_PAD, COLUMN.supplier.at)}>
+            <span className={cn("truncate text-sm", !line.supplier_id && "text-muted-foreground")} title={shownSupplier}>{shownSupplier}</span>
+          </div>
+        </>
+      ) : null}
+      <div className={cn("max-sheet:contents", moreOpen
+        ? cn(LINE_BAND, "sheet:row-start-2 sheet:grid sheet:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)] sheet:items-start sheet:gap-x-4 sheet:gap-y-2")
+        : "sheet:contents")}>
+        <OriginalWording text={line.original_text} shown={moreOpen} />
+        <div
+          className={cn(
+            "min-w-0 space-y-2 sheet:[grid-column:1] sheet:row-start-2",
+            CARD.details,
+            !moreOpen && "sheet:hidden",
+            // A folded card keeps the words of its alerts under its fields; with none, this part takes no room.
+            !moreOpen && alerts.length === 0 && !unsaved && "max-sheet:hidden",
+          )}
+        >
+          <div id={summaryId} className={cn("min-w-0 space-y-1 empty:hidden", !unsaved && alerts.every(repeatsHighlightedField) && "sheet:sr-only")}>
+            <AlertSummary position={n} alerts={alerts} quietInSheet={repeatsHighlightedField} />
+            {unsaved ? (
+              <p className="text-xs font-medium text-danger">
+                Une modification de cette ligne n’est pas enregistrée : elle ne peut pas être validée en l’état.
+              </p>
+            ) : null}
+          </div>
+          {duplicate ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="xs"
+              data-line-alert="possible_duplicate"
+              aria-label={`Doublon : garder la ligne ${n}`}
+              onClick={() => void act(() => onSave({ duplicate_acknowledged: true }))}
+            >
+              Doublon : garder cette ligne
+            </Button>
+          ) : null}
 
-      <div
-        className={cn(
-          "min-w-0 space-y-2 sheet:pb-2.5 sheet:pt-1.5",
-          CARD.details,
-          CELL_PAD,
-          AT.details,
-          !moreOpen && "sheet:hidden",
-          // A folded card keeps the words of its alerts under its fields; with none, this part takes no room.
-          !moreOpen && alerts.length === 0 && !unsaved && "max-sheet:hidden",
-        )}
-      >
-        <div id={summaryId} className="min-w-0 space-y-1 empty:hidden">
-          <AlertSummary position={n} alerts={alerts} />
-          {unsaved ? (
-            <p className="text-xs font-medium text-danger">
-              Une modification de cette ligne n’est pas enregistrée : elle ne peut pas être validée en l’état.
+          <div id={moreId} hidden={!moreOpen} className="space-y-2">
+            <div className="grid grid-cols-2 gap-x-3 gap-y-2.5 md:grid-cols-4 sheet:gap-2">
+              <Field name="Précision / norme">
+                <TextCell
+                  label={`Précision / norme, ligne ${n}`}
+                  value={line.material_precision}
+                  maxLength={120}
+                  onCommit={(material_precision) => onSave({ material_precision })}
+                  onAbandon={() => onForget(["material_precision"])}
+                />
+              </Field>
+              <Field name="Référence écrite">
+                <TextCell
+                  label={`Référence écrite, ligne ${n}`}
+                  value={line.reference}
+                  maxLength={120}
+                  // The one the technician wrote: the catalogue's « référence » or a supplier's « référence fournisseur ».
+                  placeholder="Référence d’origine"
+                  onCommit={(reference) => onSave({ reference })}
+                  onAbandon={() => onForget(["reference"])}
+                />
+              </Field>
+              <Field name="Repère">
+                <TextCell
+                  label={`Repère, ligne ${n}`}
+                  value={line.zone}
+                  maxLength={80}
+                  onCommit={(zone) => onSave({ zone })}
+                  onAbandon={() => onForget(["zone"])}
+                />
+              </Field>
+              <div className="min-w-0">
+                <Field name="Imputation">
+                  <ChoiceCell
+                    label={`Imputation, ligne ${n}`}
+                    value={line.imputation}
+                    options={IMPUTATION_OPTIONS}
+                    onCommit={(next) => {
+                      const imputation = (next ?? "project") as MaterialRequestImputation;
+                      return onSave(imputation === "project" ? { imputation, overhead_category: null } : { imputation });
+                    }}
+                  />
+                </Field>
+                {line.imputation === "overhead" ? (
+                  <div className="mt-1">
+                    <TextCell
+                      label={`Catégorie de frais généraux, ligne ${n}`}
+                      value={line.overhead_category}
+                      maxLength={80}
+                      placeholder="Catégorie (ex. EPI)"
+                      onCommit={(overhead_category) => onSave({ overhead_category })}
+                      onAbandon={() => onForget(["overhead_category"])}
+                    />
+                  </div>
+                ) : null}
+              </div>
+            </div>
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+              <div data-line-alert="quantity_doubtful">
+                <ToggleCell
+                  label={`Quantité à vérifier, ligne ${n}`}
+                  text="Quantité à vérifier"
+                  checked={line.quantity_doubtful}
+                  onCommit={(quantity_doubtful) => onSave({ quantity_doubtful })}
+                />
+              </div>
+              <ToggleCell label={`Sans dimension, ligne ${n}`} text="Sans dimension" checked={line.no_dimension}
+                onCommit={(no_dimension) => onSave({ no_dimension })} />
+            </div>
+          </div>
+        </div>
+
+        <Sourcing {...props} expanded={moreOpen} />
+        <div className={cn("max-sheet:contents sheet:min-w-0 sheet:empty:hidden", moreOpen
+          ? "sheet:col-span-full"
+          : "sheet:[grid-column:2/-1] sheet:row-start-2 sheet:px-2.5")}>
+          <UsualPackaging
+            line={line}
+            article={props.article}
+            locked={line.price_quote_id !== null || Boolean(props.ordered)}
+            change={change}
+            onSave={(patch) => act(() => onSave(patch))}
+          />
+          {error ? (
+            <p role="alert" className={cn("text-xs font-medium text-danger", CARD.failure)}>
+              {error}
             </p>
           ) : null}
         </div>
-        {duplicate ? (
+      </div>
+      {/* Group the actions in one cell so their focus rings and confirmation can never cover the fields. */}
+      <div
+        className={cn(
+          "max-sheet:contents sheet:flex sheet:min-h-9 sheet:min-w-0 sheet:flex-wrap sheet:items-center sheet:justify-end sheet:gap-1 sheet:self-stretch sheet:px-1.5 sheet:py-0.5",
+          CELL_LINE,
+          COLUMN.state.at,
+        )}
+      >
+        <div className={cn("flex min-w-0 flex-wrap items-center justify-end gap-1 sheet:contents", CARD.state)}>
+          <span className="sr-only">
+            <span>Brouillon</span>
+            {blocking.length > 0 ? `, ${blocking.length} à régler` : ""}
+          </span>
+          {offCell.length > 0 && !moreOpen ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-xs"
+              className="text-warning max-sheet:hidden"
+              aria-label={`Voir ce qui retient la ligne ${n}`}
+              title={offCell.map((alert) => alert.message).join(" ")}
+              onClick={() => onUnfoldedChange(true)}
+            >
+              <TriangleAlert aria-hidden="true" />
+            </Button>
+          ) : null}
           <Button
             type="button"
             variant="outline"
-            size="xs"
-            data-line-alert="possible_duplicate"
-            aria-label={`Doublon : garder la ligne ${n}`}
-            onClick={() => void act(() => onSave({ duplicate_acknowledged: true }))}
+            size="icon-xs"
+            className={cn(offCell.length > 0 && !moreOpen && "sheet:sr-only")}
+            loading={validating}
+            disabled={blocking.length > 0 || unsaved}
+            aria-label={`Valider la ligne ${n}`}
+            aria-describedby={blocking.length > 0 || unsaved ? summaryId : undefined}
+            title="Valider la ligne"
+            onClick={async () => {
+              setValidating(true);
+              await act(onValidate);
+              setValidating(false);
+            }}
           >
-            Doublon : garder cette ligne
+            <Check aria-hidden="true" />
           </Button>
-        ) : null}
-
-        <div id={moreId} hidden={!moreOpen} className="grid grid-cols-2 gap-x-3 gap-y-2.5 md:grid-cols-4">
-          <Field name="Précision / norme">
-            <TextCell
-              label={`Précision / norme, ligne ${n}`}
-              value={line.material_precision}
-              maxLength={120}
-              onCommit={(material_precision) => onSave({ material_precision })}
-              onAbandon={() => onForget(["material_precision"])}
-            />
-          </Field>
-          <Field name="Référence écrite">
-            <TextCell
-              label={`Référence écrite, ligne ${n}`}
-              value={line.reference}
-              maxLength={120}
-              // The one the technician wrote: the catalogue's « référence » or a supplier's « référence fournisseur ».
-              placeholder="Telle que le technicien l’a écrite"
-              onCommit={(reference) => onSave({ reference })}
-              onAbandon={() => onForget(["reference"])}
-            />
-          </Field>
-          <Field name="Repère">
-            <TextCell
-              label={`Repère, ligne ${n}`}
-              value={line.zone}
-              maxLength={80}
-              onCommit={(zone) => onSave({ zone })}
-              onAbandon={() => onForget(["zone"])}
-            />
-          </Field>
-          <div className="min-w-0">
-            <Field name="Imputation">
-              <ChoiceCell
-                label={`Imputation, ligne ${n}`}
-                value={line.imputation}
-                options={IMPUTATION_OPTIONS}
-                onCommit={(next) => {
-                  const imputation = (next ?? "project") as MaterialRequestImputation;
-                  return onSave(imputation === "project" ? { imputation, overhead_category: null } : { imputation });
-                }}
-              />
-            </Field>
-            {line.imputation === "overhead" ? (
-              <div className="mt-1">
-                <TextCell
-                  label={`Catégorie de frais généraux, ligne ${n}`}
-                  value={line.overhead_category}
-                  maxLength={80}
-                  placeholder="Catégorie (ex. EPI)"
-                  onCommit={(overhead_category) => onSave({ overhead_category })}
-                  onAbandon={() => onForget(["overhead_category"])}
-                />
-              </div>
-            ) : null}
-          </div>
-        </div>
-      </div>
-
-      {/*
-        Under the fields in the sheet, whether the line is folded or not: the usual packaging of its article (in a card,
-        right under the quantity), then what an action of the line could not do.
-      */}
-      <div className={cn("max-sheet:contents sheet:min-w-0", AT.failure)}>
-        <UsualPackaging
-          line={line}
-          article={props.article}
-          locked={line.price_quote_id !== null || Boolean(props.ordered)}
-          change={change}
-          onSave={(patch) => act(() => onSave(patch))}
-        />
-        {error ? (
-          <p role="alert" className={cn("text-xs font-medium text-danger sheet:pb-2", CARD.failure, CELL_PAD)}>
-            {error}
-          </p>
-        ) : null}
-      </div>
-
-      <Sourcing {...props} expanded={moreOpen} />
-      {/* Last in the line, as in its last column: the keyboard reaches the state and its actions after the fields. */}
-      <div
-        className={cn(
-          "flex flex-wrap items-center justify-end gap-1 sheet:content-start sheet:self-stretch sheet:py-0.5 sheet:pl-1.5 sheet:pr-9",
-          CARD.state,
-          CELL_LINE,
-          COLUMN.state.at,
-          AT.tall,
-        )}
-      >
-        {/*
-          Every editable line is a draft and « Valider » says so, and what holds the line is the tint of its fields:
-          the words are kept for a screen reader.
-        */}
-        <span className="sr-only">
-          <span>Brouillon</span>
-          {blocking.length > 0 ? `, ${blocking.length} à régler` : ""}
-        </span>
-        {offCell.length > 0 && !moreOpen ? (
-          <Button
-            type="button"
-            variant="ghost"
+          <ConfirmButton
+            label={`Supprimer la ligne ${n}`}
+            confirmLabel={`Confirmer la suppression de la ligne ${n}`}
+            confirmText="Supprimer ?"
             size="icon-sm"
-            className="text-warning max-sheet:hidden"
-            aria-label={`Voir ce qui retient la ligne ${n}`}
-            title={offCell.map((alert) => alert.message).join(" ")}
-            onClick={() => onUnfoldedChange(true)}
+            onConfirm={() => act(onDelete)}
           >
-            <TriangleAlert aria-hidden="true" />
-          </Button>
-        ) : null}
+            <Trash2 aria-hidden="true" />
+          </ConfirmButton>
+        </div>
         <Button
           type="button"
-          variant="outline"
-          size="sm"
-          className="max-sm:px-2 sheet:max-xl:px-2"
-          loading={validating}
-          disabled={blocking.length > 0 || unsaved}
-          aria-label={`Valider la ligne ${n}`}
-          aria-describedby={blocking.length > 0 || unsaved ? summaryId : undefined}
-          title="Valider la ligne"
-          onClick={async () => {
-            setValidating(true);
-            await act(onValidate);
-            setValidating(false);
-          }}
+          variant="ghost"
+          size="icon-xs"
+          className={CARD.toggle}
+          aria-expanded={moreOpen}
+          aria-controls={moreId}
+          aria-label={`Détails de la ligne ${n}`}
+          title={moreOpen ? "Replier la ligne" : "Déplier la ligne"}
+          onClick={() => onUnfoldedChange(!moreOpen)}
         >
-          <Check aria-hidden="true" />
-          {/* Where the row is short of room, the mark alone: the word is read on hover and by a screen reader. */}
-          <span className="max-sm:sr-only sheet:max-xl:sr-only">Valider</span>
+          <FoldArrow open={moreOpen} />
         </Button>
-        <ConfirmButton
-          label={`Supprimer la ligne ${n}`}
-          confirmLabel={`Confirmer la suppression de la ligne ${n}`}
-          confirmText="Supprimer ?"
-          size="icon-sm"
-          onConfirm={() => act(onDelete)}
-        >
-          <Trash2 aria-hidden="true" />
-        </ConfirmButton>
       </div>
     </li>
   );

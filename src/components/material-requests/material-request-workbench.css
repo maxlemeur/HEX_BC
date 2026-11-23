@@ -80,29 +80,3 @@
   .material-request-editor .mr-quote-files { padding-top: 0.75rem; }
   .material-request-editor .mr-supplier-workspace > div > [role="group"] { padding-block: 0.5rem; }
 }
-
-/*
- * Lines sheet (from 1080 px, the `sheet:` breakpoint): a field is a cell of a spreadsheet (`sheet-cell`, in
- * `sheet-cells.css`), and a missing value is the tint of its cell. What a tinted cell asks, and the choice that
- * settles it without a value, open under the cell (`mr-cell`) while the cursor is in it. The hint stays in the page
- * (transparent, not removed) so that the choice it holds can take the focus.
- */
-@media (min-width: 67.5rem) {
-  .material-request-editor .mr-cell-hint {
-    position: absolute;
-    top: 100%;
-    left: -1px;
-    z-index: 20;
-    width: max-content;
-    min-width: calc(100% + 2px);
-    max-width: 22rem;
-    padding: 0.5rem 0.625rem;
-    border: 1px solid var(--border-strong);
-    border-radius: 0 0 0.5rem 0.5rem;
-    background: var(--surface);
-    box-shadow: 0 8px 20px #0f172a1f;
-    opacity: 0;
-    pointer-events: none;
-  }
-  .material-request-editor .mr-cell:focus-within > .mr-cell-hint { opacity: 1; pointer-events: auto; }
-}

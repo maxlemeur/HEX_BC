@@ -1,3 +1,4 @@
+import { markPageCoverageSchema } from "./count-mark-schedule";
 import { z } from "zod";
 
 import {
@@ -45,12 +46,13 @@ export const countMarkDuplicateDetailSchema = z.object({
 export type CountMarkDuplicateDetail = z.infer<typeof countMarkDuplicateDetailSchema>;
 
 /** Why the member may only read the marks shown: no operator right, a plan already sent, or a later reading. */
-export const TAKEOFF_COUNT_MARKS_READ_ONLY_REASONS = ["forbidden", "sent", "replaced"] as const;
+export const TAKEOFF_COUNT_MARKS_READ_ONLY_REASONS = ["forbidden", "sent", "replaced", "comparison"] as const;
 export type TakeoffCountMarksReadOnlyReason = (typeof TAKEOFF_COUNT_MARKS_READ_ONLY_REASONS)[number];
 
 export const TAKEOFF_COUNT_MARKS_READ_ONLY_LABELS: Record<TakeoffCountMarksReadOnlyReason, string> = {
   forbidden: "Lecture seule : un opérateur du métré de l’affaire peut corriger ces repères.",
   sent: TAKEOFF_COUNT_MARKS_PLAN_SENT_MESSAGE,
+  comparison: "Propositions de la comparaison, en lecture seule. Mesurez tout le plan pour obtenir des propositions à vérifier sur la lecture actuelle.",
   replaced: "Une lecture plus récente de ce poste sur ce plan a remplacé celle-ci : ses repères se consultent seulement.",
 };
 
@@ -171,7 +173,7 @@ const proposalSchema = z.object({
   method: z.string(), methodVersion: z.string(), state: z.enum(["proposed", "to_attribute"]), x: z.number(), y: z.number(),
   box: numbers(4).nullable(), rawCentre: numbers(2).nullable(), rawBox: numbers(4).nullable(), rawFrame: z.string().nullable(),
   sourceRef: z.string().nullable(), subtype: z.string().nullable(), diameterMm: z.number().nullable(),
-  diameterSource: z.string().nullable(), confidence: z.number().nullable(), publishedAt: timestamp,
+  diameterSource: z.string().nullable(), confidence: z.number().nullable(), publishedAt: timestamp, qualified: z.boolean().optional(),
 }).strict();
 
 const markSchema = z.object({
@@ -208,6 +210,7 @@ export const countMarksViewSchema = z.object({
   nextAfter: uuid.nullable(),
   marks: z.array(markSchema),
   summary: countMarkSummarySchema,
+  coverage: markPageCoverageSchema.optional(),
   edit: z.object({ allowed: z.boolean(), reason: z.enum(TAKEOFF_COUNT_MARKS_READ_ONLY_REASONS).nullable() }).strict(),
   viewerId: uuid,
   names: z.record(uuid, z.string()),

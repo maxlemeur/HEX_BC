@@ -488,7 +488,7 @@ test("LAB05 an OpenAI key saved in « Mon profil » runs a level-C extraction wi
   // it; recomputed here to give the fixture its SHA-256 and to look for it where it must not be.
   const key = labFictionalApiKey(process.env.E2E_LOGIN_PASSWORD!);
   const suffix = key.slice(-4);
-  const control = (mode: "normal" | "echo") => writeFile(apiKeyControl, JSON.stringify({ keySha256: createHash("sha256").update(key).digest("hex"), mode }));
+  const control = (mode: "normal" | "echo" | "catalog-updated") => writeFile(apiKeyControl, JSON.stringify({ keySha256: createHash("sha256").update(key).digest("hex"), mode }));
   await control("normal");
   const metadata = path.resolve(".private/ai-access", `${createHash("sha256").update(JSON.stringify([memberOwner.userId, memberOwner.tenantId])).digest("hex")}.json`);
   const transportStart = (await readTransport()).length;
@@ -501,7 +501,7 @@ test("LAB05 an OpenAI key saved in « Mon profil » runs a level-C extraction wi
     await expect(accessCard.getByRole("heading", "Abonnement ChatGPT", { exact: true })).toBeVisible();
     await expect(accessCard.getByRole("button", "Continue with ChatGPT", { exact: true })).toBeVisible();
     const keyEntry = accessCard.getByRole("region", "Clé API");
-    await expect(keyEntry.getByText("Utilisée uniquement dans le labo métré. Vos autres analyses restent sur l’abonnement ChatGPT.", { exact: true })).toBeVisible();
+    await expect(keyEntry.getByText("La clé API peut servir aux analyses photo et au labo métré.", { exact: true })).toBeVisible();
     const field = keyEntry.getByLabel("Clé API OpenAI", { exact: true });
     // The SDK refuses any locator read of a secure field (value, text, attribute): the page answers for its type.
     expect(await browser.evaluate(() => document.querySelector<HTMLInputElement>("input[name=openai-api-key]")?.type ?? null)).toBe("password");
@@ -516,13 +516,26 @@ test("LAB05 an OpenAI key saved in « Mon profil » runs a level-C extraction wi
     await waitForHydration(browser);
     await expect(keyEntry.getByText(masked, { exact: true })).toBeVisible();
     await expect(keyEntry.getByText("Jamais", { exact: true })).toBeVisible();
-    await expect(keyEntry.getByRole("combobox", "Modèle à tester", { exact: true })).toHaveValue("gpt-6.1-terra");
-    await expect(keyEntry.getByText(/petit appel facturable sur votre compte API OpenAI, au plus 0,03 \$ US, sans aucun document client/)).toBeVisible();
+    const testModel = keyEntry.getByRole("combobox", "Modèle à tester", { exact: true });
+    await expect(testModel).toHaveValue("gpt-6.1-terra");
+    await expect(testModel.getByRole("option", "GPT-6.2 Astra", { exact: true })).toHaveCount(0);
+    await control("catalog-updated");
+    await keyEntry.getByRole("button", "Actualiser les modèles", { exact: true }).click();
+    await expect(keyEntry.getByText("Liste des modèles actualisée.", { exact: true })).toBeVisible();
+    await expect(testModel.getByRole("option", "GPT-6.2 Astra", { exact: true })).toHaveCount(1);
+    await expect(testModel.getByRole("option", "GPT-6.2 Sol", { exact: true })).toHaveCount(1);
+    await expect(keyEntry.getByText(/petit appel facturable sur votre compte API OpenAI, au plus 0,02 \$ US, sans aucun document client/)).toBeVisible();
     await keyEntry.getByRole("button", "Tester le modèle", { exact: true }).click();
     await expect(keyEntry.getByText(/^Modèle testé le .* : gpt-6\.1-terra a répondu\. Coût estimé : moins de 0,01 \$ US\.$/)).toBeVisible();
     const state = await apiRequest<{ data: unknown }>(browser, "GET", "/api/ai-access/api-key");
     expect(state.body.data).toMatchObject({ status: "saved", connection: { provider: "openai", suffix, verification: "models_listed", version: 1,
       lastTest: { model: "gpt-6.1-terra" }, lastUsedAt: null } });
+    for (const [model, price] of [["gpt-6.2-astra", "0,09"], ["gpt-6.2-sol", "0,03"]]) {
+      await testModel.selectOption({ value: model });
+      await expect(keyEntry.getByText(`Le test envoie un petit appel facturable sur votre compte API OpenAI, au plus ${price} $ US, sans aucun document client.`, { exact: true })).toBeVisible();
+      await keyEntry.getByRole("button", "Tester le modèle", { exact: true }).click();
+      await expect(keyEntry.getByText(`: ${model} a répondu.`, { exact: false })).toBeVisible();
+    }
     const profileScreenshot = await app.screenshot("lab05-profile-key-saved-1440");
 
     // The lab, ChatGPT disconnected: drawing it reaches neither the Keychain nor OpenAI; the source is picked explicitly.
@@ -595,11 +608,14 @@ test("LAB05 an OpenAI key saved in « Mon profil » runs a level-C extraction wi
     // and the billed calls, the model test without document and the two plans.
     const sent = (await readTransport()).slice(transportStart);
     expect(sent.filter((entry) => entry.provider !== "api-key-fixture" || !["models", "count", "responses"].includes(String(entry.operation)))).toEqual([]);
+    expect(sent.filter((entry) => entry.operation === "models")).toHaveLength(2);
     expect(sent.filter((entry) => entry.operation === "count").map((entry) => [entry.model, entry.inputKind])).toEqual([
       ["gpt-6.1-terra", "pdf"], ["gpt-6.1-terra", "pdf"]]);
     expect(sent.filter((entry) => entry.operation === "responses").map((entry) => [entry.model, entry.reasoningEffort, entry.inputKind, entry.format,
       entry.store, entry.maxOutputTokens, entry.serviceTier])).toEqual([
       ["gpt-6.1-terra", "none", "none", "json_schema", false, 1_024, "default"],
+      ["gpt-6.2-astra", "low", "none", "json_schema", false, 1_024, "default"],
+      ["gpt-6.2-sol", "low", "none", "json_schema", false, 1_024, "default"],
       ["gpt-6.1-terra", "medium", "pdf", "json_object", false, 32_000, "default"],
       ["gpt-6.1-terra", "medium", "pdf", "json_object", false, 32_000, "default"],
     ]);

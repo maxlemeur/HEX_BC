@@ -22,7 +22,7 @@ evidence does not qualify authenticated business or real backend behavior.
 
 ## Review
 
-- Independent findings and their disposition for a substantial change:
+- Independent findings and their disposition, when `AGENTS.md` (« Review and delivery ») requires a reviewer; otherwise "none needed":
 - Corrections rechecked against the final diff and affected journeys:
 
 ## Delivery and recovery

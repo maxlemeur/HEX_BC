@@ -30,7 +30,11 @@ globalThis[Symbol.for("mergeone.e2e.aiSecretStore")] = {
   remove: (service, account) => { values.delete(`${service}\u0000${account}`); },
 };
 
-const EFFORTS = { "gpt-6.1-terra": ["none", "low", "medium", "high", "xhigh", "max"], "gpt-6.1-sol": ["low", "medium", "high", "xhigh", "max"] };
+const REASONING_EFFORTS = ["low", "medium", "high", "xhigh", "max"];
+const EFFORTS = {
+  "gpt-6.1-terra": ["none", ...REASONING_EFFORTS], "gpt-6.1-sol": REASONING_EFFORTS,
+  "gpt-6.2-astra": REASONING_EFFORTS, "gpt-6.2-sol": REASONING_EFFORTS,
+};
 const COUNTED_INPUT_TOKENS = 40_000;
 const control = () => JSON.parse(readFileSync(process.env.ARMY_API_KEY_CONTROL, "utf8"));
 const log = (entry) => appendFile(process.env.ARMY_CHATGPT_TRANSPORT_LOG, JSON.stringify({ provider: "api-key-fixture", ...entry }) + "\n");
@@ -54,7 +58,9 @@ globalThis.fetch = async (input, init) => {
   if (url.pathname === "/v1/models") {
     assert.equal(init?.method ?? "GET", "GET");
     await log({ operation: "models" });
-    return json({ object: "list", data: ["gpt-6.1-terra", "gpt-6.1-sol", "gpt-4o-mini"].map((id) => ({ id, object: "model", created: 1, owned_by: "openai" })) });
+    const ids = ["gpt-6.1-terra", "gpt-6.1-sol", "gpt-4o-mini"];
+    if (mode === "catalog-updated") ids.push("gpt-6.2-astra", "gpt-6.2-sol");
+    return json({ object: "list", data: ids.map((id) => ({ id, object: "model", created: 1, owned_by: "openai" })) });
   }
   const body = JSON.parse(init.body);
   assert(Object.hasOwn(EFFORTS, body.model), "Only qualified models are sent.");

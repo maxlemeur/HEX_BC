@@ -122,7 +122,7 @@ export const openApiRouteExclusions = [
   },
   {
     path: "/api/ai-access/api-key",
-    methods: ["GET", "PUT", "DELETE"],
+    methods: ["GET", "PUT", "PATCH", "DELETE"],
     reason: LOCAL_AI_API_KEY,
   },
   {

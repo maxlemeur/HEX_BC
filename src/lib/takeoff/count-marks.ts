@@ -36,7 +36,7 @@ export function takeoffCountMarkSummaryLabel(summary: Pick<TakeoffCountMarkSumma
 }
 
 export const TAKEOFF_COUNT_MARK_STATE_LABELS: Record<TakeoffCountMarkState, string> = {
-  proposed: "Repère proposé",
+  proposed: "Repère proposé — à vérifier",
   to_attribute: "À attribuer",
   retained: "Retenu",
   removed: "Retiré",
@@ -335,6 +335,7 @@ export type TakeoffCountMarkProposal = {
   diameterSource: string | null;
   confidence: number | null;
   publishedAt: string;
+  qualified?: boolean;
 };
 
 export type TakeoffCountMark = {

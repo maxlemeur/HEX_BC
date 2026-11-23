@@ -20,10 +20,10 @@ import { boundModelTest, formatUsd, formatUsdCeiling } from "@/lib/ai/access/ope
 // « Clé API » in « Mon profil › Accès IA ». The key is typed in a masked field,
 // sent once to the local server, and the field is emptied: the page then knows
 // only the provider, the masked suffix, the place, the dates and the models the
-// key listed when saved (drawing the page opens neither the Keychain nor a call
+// key last listed (drawing the page opens neither the Keychain nor a call
 // to OpenAI). Nothing here shows or copies a saved key. The field exists only
 // on the loopback address: from another host the key would cross the network
-// in clear. In this lot the key serves the takeoff lab only.
+// in clear. The key can be selected for photo analysis and takeoff lab runs.
 
 const OPENAI_KEYS_URL = "https://platform.openai.com/api-keys";
 const OPENAI_USAGE_URL = "https://platform.openai.com/usage";
@@ -48,14 +48,19 @@ function ModelSelect({ id, models, value, onChange, disabled }: {
   );
 }
 
-export function ApiKeyAccessEntry() {
+export function ApiKeyAccessEntry({ state: managedState, onStateChange }: Readonly<{
+  state?: ApiKeyAccessState | null;
+  onStateChange?: (state: ApiKeyAccessState) => void;
+}> = {}) {
   const id = useId();
   // A hosted build has no Keychain: no request, the entry says where the key works. Inlined at build time, so the
   // server and the browser draw the same thing.
   const hosted = process.env.NODE_ENV === "production";
   /** The page's own address, read once mounted: the field is offered on the loopback address only. */
   const [loopback, setLoopback] = useState<{ allowed: boolean; profileUrl: string } | null>(null);
-  const [state, setState] = useState<ApiKeyAccessState | null>(null);
+  const [localState, setLocalState] = useState<ApiKeyAccessState | null>(null);
+  const state = managedState === undefined ? localState : managedState;
+  const setState = onStateChange ?? setLocalState;
   const [loadError, setLoadError] = useState<string | null>(null);
   const [candidate, setCandidate] = useState("");
   const [replacing, setReplacing] = useState(false);
@@ -72,11 +77,12 @@ export function ApiKeyAccessEntry() {
     const page = currentPageUrl();
     setLoopback({ allowed: isLoopbackPage(page), profileUrl: `http://127.0.0.1${page.port ? `:${page.port}` : ""}/dashboard/profile` });
     void aiAccessApi.state().then(setState).catch((cause: unknown) => setLoadError(aiAccessErrorMessage(cause)));
-  }, [hosted]);
+  }, [hosted, setState]);
 
-  // The models the key listed when it was saved: no Keychain read, no call to OpenAI to draw them.
+  // The last catalog check is read from local metadata.
   const models = state?.status === "saved" ? state.connection.offeredModels : [];
-  const selectedModel = models.some((entry) => entry.id === model) ? model : models[0]?.id ?? "";
+  const savedModel = models.find((entry) => entry.id === model) ?? models[0];
+  const selectedModel = savedModel?.id ?? "";
 
   async function run(effect: () => Promise<void>) {
     setBusy(true);
@@ -91,9 +97,9 @@ export function ApiKeyAccessEntry() {
     }
   }
 
-  function save(testModel: string | null) {
+  function save(candidateModel: string | null) {
     void run(async () => {
-      const result = await aiAccessApi.save(candidate, testModel);
+      const result = await aiAccessApi.save(candidate, candidateModel);
       if (result.outcome === "needs_model_test") {
         setNeedsTest(result.models);
         setModel(result.models[0]?.id ?? "");
@@ -103,7 +109,7 @@ export function ApiKeyAccessEntry() {
       setNeedsTest(null);
       setReplacing(false);
       setState(result.state);
-      setMessage({ text: testModel
+      setMessage({ text: candidateModel
         ? `Clé enregistrée : le modèle a répondu. Coût estimé du test : ${formatUsd(result.testCostNanoUsd)}.`
         : "Clé reconnue par OpenAI et enregistrée dans le Trousseau de ce Mac." });
     });
@@ -112,7 +118,7 @@ export function ApiKeyAccessEntry() {
   const help = (
     <InfoPopover label="À propos de la clé API" title="Clé API dans MergeOne">
       <p>La clé est conservée dans le Trousseau macOS de ce Mac, pour votre compte dans cette entreprise. Elle ne quitte ce Mac que vers OpenAI.</p>
-      <p>Dans cette version, elle sert uniquement au labo métré. Vos autres analyses continuent d’utiliser l’abonnement ChatGPT, qui reste la source par défaut.</p>
+      <p>La source et le modèle de vos analyses se choisissent dans les réglages IA.</p>
       <p>MergeOne n’utilise jamais la clé à la place d’un abonnement expiré, ni l’abonnement à la place d’une clé refusée.</p>
     </InfoPopover>
   );
@@ -143,7 +149,7 @@ export function ApiKeyAccessEntry() {
 
   return (
     <PageSection variant="plain" headingLevel={3} title={title} actions={<>{badge}{help}</>}>
-      <p className="text-sm text-muted-foreground">Utilisée uniquement dans le labo métré. Vos autres analyses restent sur l’abonnement ChatGPT.</p>
+      <p className="text-sm text-muted-foreground">La clé API peut servir aux analyses photo et au labo métré.</p>
       {state.status === "empty" && state.notice ? <Alert variant="warning" className="mt-4">{state.notice}</Alert> : null}
 
       {saved ? (
@@ -232,6 +238,10 @@ export function ApiKeyAccessEntry() {
             </Alert>
           ) : (
             <div className="flex flex-wrap gap-2">
+              <Button type="button" variant="outline" disabled={busy} onClick={() => void run(async () => {
+                setState(await aiAccessApi.refreshModels());
+                setMessage({ text: "Liste des modèles actualisée." });
+              })}>Actualiser les modèles</Button>
               {keyEntryAllowed ? (
                 <Button type="button" variant="outline" disabled={busy} onClick={() => { setReplacing(true); setMessage(null); setError(null); }}>Remplacer</Button>
               ) : null}

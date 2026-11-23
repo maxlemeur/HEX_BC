@@ -1,6 +1,8 @@
 import { z } from "zod";
 
-export const DEFAULT_CHATGPT_MODEL = "gpt-6.1-terra";
+export const DEFAULT_CHATGPT_MODEL = "gpt-6.2-sol";
+export const DEFAULT_CHATGPT_MODEL_NAME = "GPT-6.2 Sol";
+export const DEFAULT_CHATGPT_REASONING_EFFORT = "high";
 export const CHATGPT_REASONING_EFFORTS = ["none", "low", "medium", "high", "xhigh", "max"] as const;
 export const chatGptReasoningEffortSchema = z.enum(CHATGPT_REASONING_EFFORTS);
 export type ChatGptReasoningEffort = z.infer<typeof chatGptReasoningEffortSchema>;
@@ -20,10 +22,22 @@ export type ChatGptAvailableModel = {
   defaultReasoningEffort: ChatGptReasoningEffort | null;
 };
 
-// Official model pages verified 2026-10-29. Unknown models need account metadata.
+export function chatGptDefaultPreferences(models: readonly ChatGptAvailableModel[]): ChatGptPreferences | null {
+  const model = models.find((entry) => entry.id === DEFAULT_CHATGPT_MODEL) ?? models.find((entry) => entry.id === "gpt-6.1-terra");
+  if (!model) return null;
+  return {
+    model: model.id,
+    reasoningEffort: model.reasoningEfforts.includes(DEFAULT_CHATGPT_REASONING_EFFORT) ? DEFAULT_CHATGPT_REASONING_EFFORT : null,
+  };
+}
+
+// https://developers.openai.com/api/docs/models lists the supported efforts.
+// Unknown models need account metadata.
 const documentedEfforts: Record<string, readonly ChatGptReasoningEffort[]> = {
   "gpt-6.1-terra": CHATGPT_REASONING_EFFORTS,
   "gpt-6.1-sol": ["low", "medium", "high", "xhigh", "max"],
+  "gpt-6.2-astra": ["low", "medium", "high", "xhigh", "max"],
+  "gpt-6.2-sol": ["low", "medium", "high", "xhigh", "max"],
 };
 
 export function chatGptModelReasoningCapabilities(model: {
