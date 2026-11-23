@@ -1,4 +1,5 @@
 import "server-only";
+import { z } from "zod";
 import { isDeepStrictEqual } from "node:util";
 
 import type { StructuredCall, TokenUsage } from "@/lib/ai/structured-call";
@@ -16,6 +17,31 @@ import type { Poste } from "./poste-list";
 import { jsonbTextBytes } from "./rules/jsonb-size";
 import { extractVectorPage } from "./vectors/extraction";
 
+const fragmentSetting = z.number().positive().refine(Number.isInteger);
+const executionSchema = z.object({
+  pdf_calls: z.number().int().min(1).max(40),
+  classifier_calls: z.number().int().min(0).max(40),
+  chunking: z.object({
+    thresholdPages: fragmentSetting, chunkSizePages: fragmentSetting, maxPdfPages: fragmentSetting,
+    overlapPages: z.number().nonnegative().refine(Number.isInteger),
+  }),
+});
+
+function changed(jobId: string) {
+  return new TakeoffError({
+    code: TakeoffErrorCode.TAKEOFF_PREPARATION_SOURCE_CHANGED, retryable: false, jobId,
+    message: "La portée ou les appels du repérage ont changé. Rouvrez le récapitulatif.",
+  });
+}
+
+export function countMarkExecution(snapshot: unknown, jobId: string) {
+  const record = asRecord(snapshot);
+  if (!record || !("remeasure_count_marks" in record)) return null;
+  const execution = executionSchema.safeParse(record.remeasure_count_mark_execution);
+  if (!execution.success || execution.data.chunking.overlapPages >= execution.data.chunking.chunkSizePages) throw changed(jobId);
+  return execution.data;
+}
+
 /** Check the sealed option against the original PDF and the remaining allowance before the first paid read. */
 export async function prepareCountMarkReading(input: {
   jobId: string;
@@ -24,19 +50,14 @@ export async function prepareCountMarkReading(input: {
   bytes?: Uint8Array;
   planFileId: string;
   pages: number[];
-  otherCalls: number;
+  pdfCalls: number;
+  classifierCalls: number;
   remainingTokens: number;
 }) {
   const snapshot = asRecord(input.snapshot);
   if (!snapshot || !("remeasure_count_marks" in snapshot)) return null;
   const schedule = countMarkScheduleSchema.safeParse(snapshot.remeasure_count_marks);
-  const changed = () =>
-    new TakeoffError({
-      code: TakeoffErrorCode.TAKEOFF_PREPARATION_SOURCE_CHANGED,
-      retryable: false,
-      jobId: input.jobId,
-      message: "La portée ou les appels du repérage ont changé. Rouvrez le récapitulatif.",
-    });
+  const execution = countMarkExecution(snapshot, input.jobId)!;
   const [item] = input.items;
   if (
     !schedule.success ||
@@ -45,12 +66,12 @@ export async function prepareCountMarkReading(input: {
     snapshot.remeasure_item !== item.id ||
     input.pages.length !== schedule.data.pages.length
   )
-    throw changed();
+    throw changed(input.jobId);
   const frames = await countMarkPageFrames(
     input.bytes,
     [...input.pages].sort((a, b) => a - b),
   ).catch(() => {
-    throw changed();
+    throw changed(input.jobId);
   });
   const sealed = schedule.data;
   if (
@@ -60,14 +81,16 @@ export async function prepareCountMarkReading(input: {
         page !== sealed.pages[index].page || geometry.width !== sealed.pages[index].width_points,
     )
   )
-    throw changed();
-  const current = countMarkSchedule(sealed.pages, input.otherCalls);
+    throw changed(input.jobId);
+  const current = countMarkSchedule(sealed.pages, input.pdfCalls + input.classifierCalls);
   if (
-    current.other_calls > sealed.other_calls ||
+    input.pdfCalls !== execution.pdf_calls ||
+    input.classifierCalls !== execution.classifier_calls ||
+    current.other_calls !== sealed.other_calls ||
     current.tile_calls !== sealed.tile_calls ||
     sealed.total_calls !== sealed.tile_calls + sealed.other_calls
   )
-    throw changed();
+    throw changed(input.jobId);
   if (current.total_calls * TAKEOFF_PAID_CALL_ESTIMATE_TOKENS > input.remainingTokens) {
     throw new TakeoffError({
       code: TakeoffErrorCode.TAKEOFF_LEVEL_C_BUDGET_EXCEEDED,

@@ -388,6 +388,6 @@
     "20261123005401_takeoff_item_redistribution.sql": "1e2af95b17a5573a27a60f56e7ef70d814e8fe3735dbcd5553cc6efc34499f27",
     "20261123010932_estimate_line_analysis_scope.sql": "b41bddd5cd94226fd4e404a0bdfb1f178ec4adc09e901c6624d51e0b1eb21b13",
     "20261123050517_takeoff_verified_count_source.sql": "c08d5e605e8b33e38aee37845f992723450250f6d9f1ae9870fbdfc1965dbb0e",
-    "20261123061045_takeoff_count_mark_reading.sql": "18d51e4164dcf3bb04d5d915a7e201e734c0f072519a1ef5d02c0929db7dee74"
+    "20261123061045_takeoff_count_mark_reading.sql": "f250b13c1e906813b16f03c328e7151efab51cfd18601b0edcb9f7f9f6fc5697"
   }
 }

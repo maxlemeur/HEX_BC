@@ -24,9 +24,11 @@ it("renders every agreed crop of the original turned fiction and retains both re
     bytes: fiction.bytes,
     items: [item],
     pages: [fiction.page],
-    otherCalls: 1,
+    pdfCalls: 1, classifierCalls: 0,
     remainingTokens: 1_000_000,
     snapshot: { remeasure_item: item.id, remeasure_count_marks: schedule,
+      remeasure_count_mark_execution: { pdf_calls: 1, classifier_calls: 0,
+        chunking: { thresholdPages: 15, chunkSizePages: 10, overlapPages: 2, maxPdfPages: 200 } },
       remeasure_count_mark_frames: await countMarkPageFrames(fiction.bytes, [fiction.page]) },
   });
   const seen: number[] = [];

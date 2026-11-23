@@ -1,6 +1,6 @@
 import "server-only";
 
-import { prepareCountMarkReading, produceCountMarkGeneration } from "./count-mark-worker-server";
+import { countMarkExecution, prepareCountMarkReading, produceCountMarkGeneration } from "./count-mark-worker-server";
 import type { StructuredCall } from "@/lib/ai/structured-call";
 import { TakeoffError, TakeoffErrorCode } from "@/lib/takeoff/errors";
 import { readSealedItemListItems } from "@/lib/takeoff/item-list-server";
@@ -86,19 +86,20 @@ export async function readTakeoffItemListOrder(supabase: Supabase,
  * past the budget what is left (a request whose earlier attempts spent its share is relaunched).
  */
 function assertReadingWithinBounds(job: TakeoffJobProcessingRow, input: { manifest: AnyTakeoffLaunchManifest; items: readonly Poste[];
-  pageCount: number; maxPage: number; config: TakeoffChunkingRuntimeConfig & { maxTotalTokens: number }; planFile: { plan_file_id: string }; fileName: string }) {
+  pageCount: number; maxPage: number; config: TakeoffChunkingRuntimeConfig & { maxTotalTokens: number }; planFile: { plan_file_id: string }; fileName: string; paidClassifier?: boolean }) {
   const unit = readTakeoffLaunchUnit(job.preparation_snapshot)!;
   const request = posteReadingBoundsOfManifest(input.manifest, input.config, TAKEOFF_PAID_CALL_ESTIMATE_TOKENS, input.items,
-    takeoffVectorGroupCallsBound, new Map([[unit.key, input.pageCount]]));
+    input.paidClassifier === undefined ? takeoffVectorGroupCallsBound
+      : (pages) => job.created_by ? takeoffVectorGroupCallsBound(Math.min(pages,input.pageCount),input.paidClassifier) : 0, new Map([[unit.key, input.pageCount]]));
   const own = request?.units.find((entry) => entry.key === unit.key);
   if (!request || !own) throw failure(job.id, "Le plan de cette analyse n’est pas une unité de sa demande : relancez la lecture de ce plan.");
   const attempt = boundPosteReadingRequest({ batches: planPosteBatches(input.items).map((batch) => batch.length),
     units: [{ key: unit.key, pieces: [{ id: input.planFile.plan_file_id, name: input.fileName }], pages: input.pageCount,
       maxPage: input.maxPage,
-      budgetTokens: unit.budget?.tokens ?? input.config.maxTotalTokens, vectorCalls: own.calls - own.fragments * own.batches }],
+      budgetTokens: unit.budget?.tokens ?? input.config.maxTotalTokens, vectorCalls: own.classifierCalls }],
     requestBudgetTokens: input.config.maxTotalTokens, chunking: input.config, estimateTokensPerCall: TAKEOFF_PAID_CALL_ESTIMATE_TOKENS });
   const bounds = !request.ok ? request : attempt;
-  if (bounds.ok) return own.calls;
+  if (bounds.ok) return own;
   const exceeded = [...bounds.exceeded, ...bounds.units.flatMap((entry) => entry.exceeded)];
   const tooLarge = exceeded.some((limit) => limit !== "budget");
   throw new TakeoffError({ status: 422, retryable: false, jobId: job.id, level: TAKEOFF_LEVEL_C,
@@ -170,7 +171,7 @@ export async function processItemListLevelC(input: {
   now: () => Date;
   renewLease: () => Promise<void>;
   /** The vector reading of the job's pages, as the processor makes it for the first format. */
-  readVectors: () => Promise<VectorPageOutcome[]>;
+  readVectors: (paidClassifier?: boolean) => Promise<VectorPageOutcome[]>;
 }): Promise<ProcessItemListResult> {
   const { job, sourceFile } = input;
   if (!readTakeoffLaunchUnit(job.preparation_snapshot)?.key.startsWith("plan:")) {
@@ -178,7 +179,9 @@ export async function processItemListLevelC(input: {
       message: "La lecture contre la liste des postes se fait plan par plan : une analyse groupée ne la lit pas." });
   }
   const planFile = unitPlanFile(job, sourceFile);
-  const prepared = await prepareLevelCReading({ supabase: input.supabase, job, sourceFile });
+  const execution = countMarkExecution(job.preparation_snapshot, job.id);
+  const paidClassifier = execution ? execution.classifier_calls > 0 : undefined;
+  const prepared = await prepareLevelCReading({ supabase: input.supabase, job, sourceFile, chunking: execution?.chunking });
   const { pageCount, requestBudget } = prepared;
   const readPages = planPagesOf(pageCount, sourceFile.sourcePageNumbersByPage);
   assertSealedPages(job, input.order.manifest, readPages);
@@ -199,12 +202,12 @@ export async function processItemListLevelC(input: {
   const asked = postesAskedBy(items, input.order.askedItemIds);
   if (!asked) throw failure(job.id, "Un poste demandé par cette analyse n’est pas dans sa liste : relancez la lecture.");
   items = asked;
-  const otherCalls = assertReadingWithinBounds(job, { manifest: input.order.manifest, items, pageCount, maxPage: Math.max(...readPages), config, planFile,
-    fileName: sourceFile.fileName });
+  const bounds = assertReadingWithinBounds(job, { manifest: input.order.manifest, items, pageCount, maxPage: Math.max(...readPages), config, planFile,
+    fileName: sourceFile.fileName, paidClassifier });
   const original = sourceFile.originalPdfSources?.find(({ document }) => document.kind === "plan_file" && document.plan_file_id === planFile.plan_file_id);
   const markReading = await prepareCountMarkReading({ jobId: job.id, snapshot: job.preparation_snapshot, items,
     planFileId: planFile.plan_file_id, bytes: original && new Uint8Array(original.bytes), pages: readPages,
-    otherCalls, remainingTokens: config.maxTotalTokens });
+    pdfCalls: bounds.readingCalls, classifierCalls: bounds.classifierCalls, remainingTokens: config.maxTotalTokens });
   // Each context file with its kind (the reading keeps the CCTP only); a file whose kind is not known is never attached.
   const references: PosteReadingReference[] = (sourceFile.contextFiles ?? []).map((file, index) => ({ ...file,
     ...(sourceFile.contextReferences?.[index] ?? { kind: "other" as const, name: "Pièce", revision: null }) }));
@@ -212,7 +215,7 @@ export async function processItemListLevelC(input: {
     config, references, preparation: sourceFile.preparationSnapshot,
     pdf: { fileName: sourceFile.fileName, bytes: sourceFile.bytes, originalPageNumbers: sourceFile.sourcePageNumbersByPage } });
   // The vector reading travels with the answers: what the database could not store of it is left out before the call.
-  const vectors = storableVectorOutcomes(await input.readVectors());
+  const vectors = storableVectorOutcomes(await input.readVectors(paidClassifier));
   const vectorOutcomes = vectors.outcomes;
   const plan = finishPlanReading(reading, items, posteVectorReadings(vectorOutcomes, planFile.plan_file_id), job.id);
   // These positions are evidence for human review. Only the independent item reading above supplies observations.

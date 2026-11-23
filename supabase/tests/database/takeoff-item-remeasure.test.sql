@@ -1012,6 +1012,10 @@ select is((select outcome from pg_temp.detail_measure(null,16,303,1,320,
     "tile_calls":10,"other_calls":2.0,"total_calls":12}}')),'admitted','two real PDF fragments admit other_calls spelled 2.0');
 select is((select count_mark_schedule ->> 'other_calls' from private.takeoff_launch_commands
   where job_id=pg_temp.job(16,pg_temp.plan(1))),'2','the admission receipt stores its SQL-derived integer');
+update public.feature_flags set value='15' where tenant_id=pg_temp.f(10) and flag_key='TAKEOFF_C_CHUNK_THRESHOLD_PAGES';
+select is((select preparation_snapshot -> 'remeasure_count_mark_execution' from public.takeoff_jobs where id=pg_temp.job(16,pg_temp.plan(1))),
+  '{"chunking":{"thresholdPages":1,"chunkSizePages":1,"overlapPages":0,"maxPdfPages":200},"pdf_calls":2,"classifier_calls":0}'::jsonb,
+  'the worker receives both paid lane ceilings and the fragment layout agreed before the flag changed');
 select is(pg_temp.claim(pg_temp.job(16,pg_temp.plan(1)),918),1,'the whole-plan reading is claimed');
 select is((select outcome from public.reserve_takeoff_launch_call(pg_temp.job(16,pg_temp.plan(1)),pg_temp.f(918),
   'call:1','pdf',30000)),'reserved','the first ordinary call of the two-fragment reading is granted');

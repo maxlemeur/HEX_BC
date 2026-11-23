@@ -317,11 +317,11 @@ async function processTakeoffLevel(
       // A plan's unit reads its share of the dossier's vector pages; any other job, the pages of a grouped analysis.
       const claimed = job;
       const unit = readTakeoffLaunchUnit(claimed.preparation_snapshot);
-      const readVectors = async () => isTakeoffVectorReadingEnabled()
+      const readVectors = async (paidClassifier?: boolean) => isTakeoffVectorReadingEnabled()
         ? await readTakeoffVectorPages(sourceFile, {
           onPage: renewProcessingLease, context: { jobId: claimed.id, tenantId: claimed.tenant_id },
           ...(unit ? { maxPages: unit.vectorPages } : {}),
-          decisions: takeoffVectorLocalGroupsHook({ jobId: claimed.id, tenantId: claimed.tenant_id, userId: claimed.created_by ?? null,
+          decisions: takeoffVectorLocalGroupsHook({ paidClassifier, jobId: claimed.id, tenantId: claimed.tenant_id, userId: claimed.created_by ?? null,
             provider: localProvider, beforeCall: async () => {
               await assertProviderTenantActive();
               await renewProcessingLease();
