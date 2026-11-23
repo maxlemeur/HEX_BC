@@ -145,6 +145,7 @@ export function ItemRedistributionPanel({ jobId, viewerKey, versionId, disabled 
       <h4 className="font-medium">Répartition proposée</h4>
       <ul>{preview.destinations.map((dest) => <li key={dest.key}>
         {dest.label} · {quantity(dest.quantity)} {preview.sources[0]?.unit}
+        {dest.line_id === null ? " · ligne à créer" : " · ligne existante"}
         {dest.raw !== dest.quantity ? ` (avant arrondi : ${quantity(dest.raw)})` : ""}
       </li>)}</ul>
       <ul>{preview.parts.map((part) => <li key={part.id}>

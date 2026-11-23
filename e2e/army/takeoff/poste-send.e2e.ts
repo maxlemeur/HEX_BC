@@ -329,8 +329,8 @@ describe("Envoi d’un plan au devis, poste par poste", () => {
     await dialog().getByLabel("Nouveau découpage").selectOption({ value: "by_level" });
     await dialog().getByRole("button", "Prévisualiser la redistribution").click();
     await expect(dialog().getByRole("region", "Déplacements des apports")).toContainText("Lavabo · Ensemble · 5 u");
-    await expect(dialog().getByRole("region", "Déplacements des apports")).toContainText("Combles · 2 u");
-    await expect(dialog().getByRole("region", "Déplacements des apports")).toContainText("RDC · 3 u");
+    await expect(dialog().getByRole("region", "Déplacements des apports")).toContainText("Combles · 2 u · ligne à créer");
+    await expect(dialog().getByRole("region", "Déplacements des apports")).toContainText("RDC · 3 u · ligne à créer");
     const afterReload = await ui.app.screenshot("poste-redistribution-apres-rechargement");
     const combined = (await readOwnedLines(seeded.projectId)).filter((line) => line.item_type === "line");
     expect(combined.map((line) => [line.title, line.quantity])).toEqual([["Lavabo", 5]]);
