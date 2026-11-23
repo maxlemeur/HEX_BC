@@ -262,6 +262,13 @@ begin
 end;
 $$;
 
+create function private.takeoff_count_mark_tile_status(attempt text, reading text)
+returns text language sql immutable set search_path = '' as $$
+  select case when attempt is null then 'not_read' when attempt <> 'observed' then 'unknown'
+    when reading in ('read','truncated') then reading else 'failed' end
+$$;
+revoke all on function private.takeoff_count_mark_tile_status(text,text) from public, anon, authenticated, service_role;
+
 create or replace function public.publish_takeoff_item_answers(
   p_job_id uuid, p_lease_token uuid, p_completed_at timestamptz, p_model text, p_prompt_version text, p_exchange jsonb,
   p_unit_pages integer[], p_answers jsonb, p_findings jsonb, p_result jsonb, p_items jsonb, p_vector jsonb default null
@@ -356,6 +363,23 @@ begin
             or exists (select 1 from jsonb_array_elements_text(c.sheet -> 'tiles') t(status)
               where coalesce(t.status,'') not in ('read','truncated','failed','not_read','unknown'))
           else true end) then
+      raise exception 'TAKEOFF_MARKS_COVERAGE_INVALID' using errcode = '22023';
+    end if;
+    if exists (
+      select 1 from jsonb_array_elements(coverage) c(sheet)
+      cross join lateral jsonb_array_elements_text(c.sheet -> 'tiles') with ordinality t(status,ordinal)
+      left join private.takeoff_launch_usage u on u.job_id = job.id and u.lease_token = p_lease_token
+        and u.branch = 'count_tile' and u.call_key = 'tile:' || (c.sheet ->> 'page') || ':' || t.ordinal::text
+      where t.status is distinct from private.takeoff_count_mark_tile_status(u.state,t.status)
+    ) or exists (
+      select 1 from jsonb_array_elements(generation -> 'marks') m(mark)
+      cross join lateral jsonb_array_elements(m.mark -> 'proposals') p(source)
+      where p.source ->> 'method' = 'tile' and not exists (
+        select 1 from jsonb_array_elements(coverage) c(sheet)
+        cross join lateral jsonb_array_elements_text(c.sheet -> 'tiles') with ordinality t(status,ordinal)
+        where c.sheet -> 'page' = m.mark -> 'page' and t.status = 'read'
+          and p.source ->> 'source_ref' = 'tile:' || t.ordinal::text)
+    ) then
       raise exception 'TAKEOFF_MARKS_COVERAGE_INVALID' using errcode = '22023';
     end if;
   elsif generation is not null or coverage is not null then

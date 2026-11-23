@@ -277,8 +277,8 @@ select is((select x.claimed from extensions.dblink('race_setup', pg_temp.claim_s
   'the new measure is read');
 select is((select split_part(x.answer, ':', 2) from extensions.dblink('race_setup', pg_temp.publish_sql(2, 902, array[300], result_extra =>
   '{"count_mark_generation":{"pages":[],"marks":[]},"provider_meta":{"count_marks":[
-  {"page":2,"vector_state":"read","tiles":["read","read","read","read"],"limited":false},
-  {"page":7,"vector_state":"no_layer","tiles":["read","read","read","read","read","read"],"limited":false}]}}'))
+  {"page":2,"vector_state":"read","tiles":["not_read","not_read","not_read","not_read"],"limited":false},
+  {"page":7,"vector_state":"no_layer","tiles":["not_read","not_read","not_read","not_read","not_read","not_read"],"limited":false}]}}'))
   as x(answer text)), 'false', 'and publishes the first item''s answer');
 
 -- 2. A confirmation while a bulk review of the same item commits: the review holds the affaire's review key; the

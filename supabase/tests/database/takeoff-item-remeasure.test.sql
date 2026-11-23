@@ -842,6 +842,11 @@ select public.record_takeoff_launch_call_unknown(pg_temp.job(14,pg_temp.plan(1))
 select is(pg_temp.reserve_mark_call('tile:2:3'),'USAGE_UNKNOWN','an unknown result freezes the next tile');
 select throws_ok($$select pg_temp.publish_one(14,303,1)$$,'22023','TAKEOFF_MARKS_COVERAGE_INVALID',
   'the job cannot finish with its requested readers silently omitted');
+select results_eq($$select private.takeoff_count_mark_tile_status(state, reading)
+  from (values ('observed','read'),('observed','truncated'),('observed','failed'),('unknown','read'),
+    ('reserved','read'),(null,'read')) v(state,reading)$$,
+  $$values ('read'::text),('truncated'),('failed'),('unknown'),('unknown'),('not_read')$$,
+  'terminal coverage is derived from observed, undecided or absent attempts');
 create function pg_temp.machine_result() returns jsonb language sql immutable as $$
   select jsonb_build_object('provider_meta', '{"count_marks":[{"page":2,"vector_state":"no_layer",
     "tiles":["read","unknown","not_read","not_read"],"limited":false}]}'::jsonb,
@@ -865,6 +870,9 @@ select throws_ok($$select pg_temp.publish_one(14,303,1,jsonb_set(pg_temp.machine
   '22023','TAKEOFF_MARKS_ITEM_FOREIGN','a foreign item rolls back the terminal answer');
 select is((select count(*) from public.takeoff_item_answers where job_id=pg_temp.job(14,pg_temp.plan(1))),0::bigint,
   'the failed generation committed neither result nor answer');
+select throws_ok($$select pg_temp.publish_one(14,303,1,jsonb_set(pg_temp.machine_result(),'{count_mark_generation,marks}',
+  (select jsonb_agg(pg_temp.machine_result() #> '{count_mark_generation,marks,0}') from generate_series(1,5001))))$$,
+  '22023','TAKEOFF_MARKS_COVERAGE_INVALID','a page of 5,001 proposed objects exceeds the publication ceiling');
 select is(pg_temp.publish_one(14,303,1,pg_temp.machine_result()),1,'the answer and proposal commit together');
 select is(pg_temp.publish_one(14,303,1,pg_temp.machine_result()),1,'a lost response replays the entire generation');
 select is((select count(*) from public.takeoff_count_mark_proposals where job_id=pg_temp.job(14,pg_temp.plan(1))),1::bigint,
