@@ -127,6 +127,17 @@ const evidence = () => within(screen.getByRole("complementary", { name: "Preuve 
 const dialog = () => within(screen.getByRole("dialog"));
 
 describe("TakeoffItemDetailScreen, the decisions", () => {
+  it("keeps the plan evidence visible and withdraws quantity decisions while it is being read again", async () => {
+    scenario.readings = DETAIL_READINGS.map((reading) => reading.itemId === ITEMS.basin && reading.planKey === PLAN_R1
+      ? { ...reading, unit: "running", reading: "in_flight", attempt: { unit: "running", reason: null },
+        verifiedMarks: { revision: 1, verified: true, counted: true, quantity: 1, unit: "u", pages: [1] } } : reading);
+    open(ITEMS.basin, PLAN_R1, JOB_R1, `postePlan=${PLAN_R1}&tab=jobs`);
+    await settle();
+    expect(evidence().getByText(/Deux lavabos, sanitaires étage/)).toBeInTheDocument();
+    expect(evidence().queryByRole("group", { name: "Quantité retenue pour ce poste sur ce plan" })).not.toBeInTheDocument();
+    expect(client.sendItemReviewCommand).not.toHaveBeenCalled();
+  });
+
   it("accepts the item shown through the table's confirmation and its one command, in the table's scope, then reads it again", async () => {
     const result = { outcome: "applied", applied: [{ itemId: ITEMS.homonym, label: "Lavabo céramique", answers: 1 }], skipped: [] };
     client.sendItemReviewCommand.mockResolvedValue(result);

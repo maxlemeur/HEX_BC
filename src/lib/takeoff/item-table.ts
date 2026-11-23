@@ -356,9 +356,9 @@ function gapOf(item: ItemTablePoste, basis: { quantity: number } | null, complet
     requiresReview: pair.requiresReview };
 }
 
-function quantityOptions(item: ItemTablePoste, reading: LineReading, entry: ItemEntryView | null): ItemQuantityOptions | undefined {
+function quantityOptions(item: ItemTablePoste, reading: ItemReadingInput, entry: ItemEntryView | null): ItemQuantityOptions | undefined {
   const { answer, verifiedMarks: marks } = reading;
-  if (!answer || reading.sent || reading.decision?.kind === "set_aside") return;
+  if (reading.reading !== "answered" || !answer || reading.sent || reading.decision?.kind === "set_aside") return;
   if (marks?.quantity == null) {
     if (reading.quantityDecision?.source !== "verified_count" || !entry?.included) return;
     return { verifiedQuantity: null, unit: entry.unit, alternativeSource: "entered", alternativeQuantity: entry.quantity,
@@ -461,7 +461,7 @@ function buildLine(row: ItemTableRow, plans: readonly ItemTablePlan[], scope: It
   const aggregate = aggregateItemReadings(row.readings.map(asPlanReading));
   const complete = row.coverage.expected > 0 && row.coverage.answered === row.coverage.expected;
   // The raw reading stays observed; what is retained, and judged against the DPGF, is the reviewed rows as they now are.
-  const planReading = scope.kind === "plan" ? lineReadings[0] : undefined;
+  const planReading = scope.kind === "plan" ? row.readings[0] : undefined;
   const effectiveEntry = row.wholeEntry ?? (planReading?.quantityDecision?.source === "verified_count" ? null : row.entry);
   const options = planReading && !row.wholeEntry ? quantityOptions(item, planReading, row.entry) : undefined;
   const retained = retainedOf(lineReadings, effectiveEntry, complete);
@@ -479,7 +479,7 @@ function buildLine(row: ItemTableRow, plans: readonly ItemTablePlan[], scope: It
     for (const anomaly of answer.anomalies) reasons.add(`anomaly:${anomaly}`);
     if (answer.unreadablePages.length) reasons.add("unreadable_pages");
   }
-  if (scope.kind === "affaire" && !row.entry && lineReadings.some((reading) => quantityOptions(item, reading, reading.entry))) {
+  if (scope.kind === "affaire" && !row.entry && row.readings.some((reading) => quantityOptions(item, reading, reading.entry))) {
     reasons.add("quantity_choice");
   }
   if (prospect.unitConflict) reasons.add("unit_conflict");

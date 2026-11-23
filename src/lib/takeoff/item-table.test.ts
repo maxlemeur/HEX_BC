@@ -446,6 +446,17 @@ describe("choosing how much one plan sends", () => {
     expect(line.eligibility.accept_measured).toEqual({ eligible: false, reason: "quantity_choice" });
   });
 
+  it("keeps the earlier evidence visible without a quantity choice while its plan is being read again", () => {
+    const active = { ...reading, reading: "in_flight" as const, unit: "running" as const };
+    const current = row(item, "reading", "pending", [active]);
+    const [line] = lines([current], plan);
+    expect(line.readings[0].verifiedMarks?.quantity).toBe(1);
+    expect(line.quantityOptions).toBeUndefined();
+    expect(line.eligibility.accept_measured).toEqual({ eligible: false, reason: "coverage_incomplete" });
+    expect(lines([current])[0].reasons).not.toContain("quantity_choice");
+    expect(lines([row(item, "measured", "pending", [reading])], plan)[0].quantityOptions?.allowCount).toBe(true);
+  });
+
   it("keeps the plan entry editable while the count wins, and holds both when its proof expires", () => {
     const verified = { ...reading, answer: { ...reading.answer!, observations: reading.answer!.observations.map((part) => ({
       ...part, row: { ...part.row!, isVerified: true } })) }, decision: accepted(), quantityDecision: {
