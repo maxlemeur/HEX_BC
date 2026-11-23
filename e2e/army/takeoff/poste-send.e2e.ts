@@ -317,12 +317,20 @@ describe("Envoi d’un plan au devis, poste par poste", () => {
     await expect(dialog().getByRole("region", "Déplacements des apports")).toContainText("Ensemble · 5 u");
     await dialog().getByRole("button", "Confirmer la redistribution").click();
     await expect(dialog()).toContainText("Redistribution enregistrée.");
+    // A correction after the send is authoritative. Neither PDF proposes a building.
+    for (const [plan, bytes, level] of [[planA, pdfs.a, "RDC"], [planB, pdfs.b, "Combles"]] as const) {
+      const saved = await apiRequest(ui.browser, "PUT", `/api/takeoff/plan-sets/${seeded.planSetId}/files/${plan.fileId}/location`, {
+        content_hash: await sha256(bytes), expected_revision: 1, building: { choice: "reading" }, level: { choice: "value", value: level } });
+      expect(saved.status).toBe(200);
+    }
     await app.open(`/dashboard/affaires/${seeded.projectId}/takeoff`);
     await waitForHydration(ui.browser);
     await screen.getByRole("button", "Redistribuer les apports de « plan-b.pdf »", { exact: true }).click();
     await dialog().getByLabel("Nouveau découpage").selectOption({ value: "by_level" });
     await dialog().getByRole("button", "Prévisualiser la redistribution").click();
     await expect(dialog().getByRole("region", "Déplacements des apports")).toContainText("Lavabo · Ensemble · 5 u");
+    await expect(dialog().getByRole("region", "Déplacements des apports")).toContainText("Combles · 2 u");
+    await expect(dialog().getByRole("region", "Déplacements des apports")).toContainText("RDC · 3 u");
     const afterReload = await ui.app.screenshot("poste-redistribution-apres-rechargement");
     const combined = (await readOwnedLines(seeded.projectId)).filter((line) => line.item_type === "line");
     expect(combined.map((line) => [line.title, line.quantity])).toEqual([["Lavabo", 5]]);
