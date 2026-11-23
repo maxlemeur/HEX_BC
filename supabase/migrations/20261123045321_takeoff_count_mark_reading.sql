@@ -32,6 +32,13 @@ end;
 $$;
 revoke all on function private.takeoff_count_mark_schedule_valid(jsonb) from public, anon, authenticated, service_role;
 
+create function private.takeoff_count_mark_classifier_calls(unit jsonb,pages integer)
+returns integer language sql immutable set search_path = '' as $$
+  select case when unit -> 'paid_vector_groups' = 'true'::jsonb
+    then least(40,25*least(pages,(unit ->> 'vector_pages')::numeric::integer)) else 0 end
+$$;
+revoke all on function private.takeoff_count_mark_classifier_calls(jsonb,integer) from public, anon, authenticated, service_role;
+
 -- One item is exactly one batch. Use the tenant's fragmenting and the paid classifier lane of the admitted unit.
 -- Widths are those already recorded for the admitted copy of these bytes. Missing geometry is an explicit refusal.
 create function private.takeoff_count_mark_schedule(p_tenant uuid,p_project uuid,plan jsonb,unit jsonb)
@@ -70,9 +77,7 @@ begin
   ) settings;
   other_calls := case when n<=fragment_threshold or n<=fragment_size then 1
     else 1+ceil((n-fragment_size)/(fragment_size-least(fragment_size-1,overlap)))::integer end;
-  if unit -> 'paid_vector_groups'='true'::jsonb then
-    other_calls := other_calls + least(40,25*least(n,(unit ->> 'vector_pages')::numeric::integer));
-  end if;
+  other_calls := other_calls + private.takeoff_count_mark_classifier_calls(unit,n);
   return jsonb_build_object('pages',sheets,'tile_calls',tile_calls,'other_calls',other_calls,'total_calls',tile_calls+other_calls);
 end;
 $$;
@@ -714,6 +719,8 @@ declare
   refusal text;
   bound bigint;
   schedule jsonb;
+  classifier_calls integer := 0;
+  lane_calls integer;
 begin
   if p_call_key is null or length(p_call_key) not between 1 and 120 or p_branch not in ('pdf', 'vector_group', 'other', 'count_tile')
     or p_estimate_tokens is null or p_estimate_tokens < 1 then
@@ -749,7 +756,7 @@ begin
   -- The job's row, then the request's: the order of every writer of both.
   select * into request from public.takeoff_launch_requests r where r.id = job.launch_request_id for update;
   -- Waiting for the request can take the last seconds of a valid lease. Check both clocks under the lock.
-  if schedule is not null and not private.takeoff_count_mark_lease_live(job,p_lease_token) then
+  if schedule is not null and private.takeoff_count_mark_lease_live(job,p_lease_token) is not true then
     raise exception 'TAKEOFF_LAUNCH_USAGE_LEASE_REQUIRED' using errcode = '42501';
   end if;
   -- Before the owner's activation of one analysis per plan, a call of a grouped analysis is checked as M4 checked it (its
@@ -788,10 +795,13 @@ begin
     elsif exists (select 1 from private.takeoff_launch_usage l where l.request_id = request.id
         and l.branch = 'count_tile' and l.state = 'reserved') then
       refusal := 'TILE_IN_FLIGHT';
-    elsif (select count(*) from private.takeoff_launch_usage l where l.request_id = request.id and l.branch <> 'count_tile'
-        )
-        >= (schedule ->> 'other_calls')::integer then
-      refusal := 'BUDGET_EXHAUSTED';
+    else
+      classifier_calls := private.takeoff_count_mark_classifier_calls(request.manifest #> '{units,0}',jsonb_array_length(schedule -> 'pages'));
+      lane_calls := case p_branch when 'pdf' then (schedule ->> 'other_calls')::integer - classifier_calls
+        when 'vector_group' then classifier_calls else 0 end;
+      if (select count(*) from private.takeoff_launch_usage l where l.request_id=request.id and l.branch=p_branch) >= lane_calls then
+        refusal := 'BUDGET_EXHAUSTED';
+      end if;
     end if;
     if refusal is not null then
       return query select 'refused'::text, refusal, null::bigint, null::bigint, null::bigint;

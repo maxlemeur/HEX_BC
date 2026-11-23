@@ -300,6 +300,24 @@ select results_eq($$select outcome,reason from public.reserve_takeoff_launch_cal
 select results_eq($$select branch,state from private.takeoff_launch_usage where job_id=pg_temp.job(1,pg_temp.plan(0))
   and call_key='tile:2:1'$$,$$values ('pdf'::text,'reserved'::text)$$,'ordinary reservation writes its original branch');
 select remaining_tokens from public.record_takeoff_launch_usage(pg_temp.job(1,pg_temp.plan(0)),pg_temp.f(901),'tile:2:1',10,0) \gset
+-- Distinct ordinary calls keep the released lanes, opaque keys and settlement.
+create function pg_temp.ordinary_call_receipt(opaque text,lane text) returns text[] language plpgsql as $$
+declare
+  sent record;
+  entry private.takeoff_launch_usage%rowtype;
+begin
+  select * into sent from public.reserve_takeoff_launch_call(pg_temp.job(1,pg_temp.plan(0)),pg_temp.f(901),opaque,lane,30000);
+  select * into entry from private.takeoff_launch_usage where job_id=pg_temp.job(1,pg_temp.plan(0)) and call_key=opaque;
+  perform public.record_takeoff_launch_usage(entry.job_id,entry.lease_token,opaque,10,0);
+  return array[sent.outcome,sent.reason,entry.call_key,entry.branch,entry.state];
+end;
+$$;
+select results_eq($$select pg_temp.ordinary_call_receipt(k,lane) from
+    (values ('call:23','pdf'),('symbol:fixture','vector_group'),('tile:7:3','other')) k(k,lane)$$,
+  $$values (array['reserved',null,'call:23','pdf','reserved']),
+    (array['reserved',null,'symbol:fixture','vector_group','reserved']),
+    (array['reserved',null,'tile:7:3','other','reserved'])$$,
+  'ordinary keys and branches preserve their receipt and ledger row');
 select is((select answer_count from pg_temp.publish(pg_temp.job(1, pg_temp.plan(0)), 901,
     jsonb_build_array(pg_temp.measured(300, 811, 2), pg_temp.not_found(301), pg_temp.not_found(302)),
     jsonb_build_array(pg_temp.row_(811, 2, 'plan-a.pdf')))), 3, 'its answers published, every item of the list');
@@ -799,6 +817,8 @@ $$;
 select ok(private.takeoff_item_remeasure_confirmation_valid(pg_temp.detail_confirm(null) ||
   pg_temp.mark_option(array[700,701,700,701,700], array[1,2,3,4,5], 24)), '24 calls on mixed widths fit exactly');
 select ok(not private.takeoff_item_remeasure_confirmation_valid(pg_temp.detail_confirm(null) ||
+  pg_temp.mark_option(array[700,701,700,701,700],array[1,2,3,4,5],25)), 'a command of 25 localisation calls is refused');
+select ok(not private.takeoff_item_remeasure_confirmation_valid(pg_temp.detail_confirm(null) ||
   pg_temp.mark_option(array[701,701,700,701,700], array[1,2,3,4,5], 26)), '26 calls need a smaller scope');
 select ok(not private.takeoff_item_remeasure_confirmation_valid(pg_temp.detail_confirm(null) ||
   pg_temp.mark_option(array[701], array[2], 4)), 'a wide page cannot be confirmed at the small-page bound');
@@ -813,6 +833,17 @@ select throws_ok($$select * from pg_temp.detail_measure(2,14,303,1,320,pg_temp.m
 insert into public.takeoff_count_pages(tenant_id,project_id,plan_logical_id,plan_file_id,plan_content_sha256,page,
   geometry_version,view_box,rotation,user_unit,width,height)
 values(pg_temp.f(10),pg_temp.f(20),pg_temp.plan(1),pg_temp.plan(1),pg_temp.digest(pg_temp.plan(1)),2,1,array[0,0,700,500],0,1,700,500);
+insert into public.takeoff_count_pages(tenant_id,project_id,plan_logical_id,plan_file_id,plan_content_sha256,page,
+  geometry_version,view_box,rotation,user_unit,width,height)
+values(pg_temp.f(10),pg_temp.f(20),pg_temp.plan(1),pg_temp.plan(1),pg_temp.digest(pg_temp.plan(1)),7,1,array[0,0,701,500],0,1,701,500);
+select results_eq($$
+  select private.takeoff_count_mark_schedule(pg_temp.f(10),pg_temp.f(20),manifest #> '{plans,0}',unit)
+  from (select pg_temp.manifest(pg_temp.list(320,array[303]),array[pg_temp.plan(1)]) as manifest) m
+  cross join (values ('{"vector_pages":0}'::jsonb),('{"vector_pages":2,"paid_vector_groups":true}'::jsonb)) shape(unit)
+  order by (unit->>'vector_pages')::integer$$,
+  $$values ('{"pages":[{"page":2,"width_points":700},{"page":7,"width_points":701}],"tile_calls":10,"other_calls":1,"total_calls":11}'::jsonb),
+    ('{"pages":[{"page":2,"width_points":700},{"page":7,"width_points":701}],"tile_calls":10,"other_calls":41,"total_calls":51}'::jsonb)$$,
+  'recorded widths and admitted work determine the schedule on either side of 700');
 select is((select outcome from pg_temp.detail_measure(2,14,303,1,320,pg_temp.mark_option(array[700],array[2],4))),
   'admitted','the explicit tile option is admitted');
 select is((select to_jsonb(c) -> 'count_mark_schedule' from private.takeoff_launch_commands c
@@ -840,6 +871,7 @@ select is(pg_temp.reserve_mark_call('tile:2:2'),'TILE_IN_FLIGHT','another tile c
 select is(pg_temp.reserve_mark_call('tile:2:1'),'TILE_ALREADY_ATTEMPTED','an outstanding tile cannot be sent twice');
 select remaining_tokens from public.record_takeoff_launch_usage(pg_temp.job(14,pg_temp.plan(1)),pg_temp.f(916),'tile:2:1',100,0) \gset
 select is(pg_temp.reserve_mark_call('tile:2:1'),'TILE_ALREADY_ATTEMPTED','a settled tile cannot be retried');
+select is(pg_temp.reserve_mark_call('groups:1','vector_group'),'BUDGET_EXHAUSTED','the sealed unit runs no paid vector groups');
 select is(pg_temp.reserve_mark_call('call:1','pdf'),'reserved','the first ordinary reservation accepts the integral 2.0 from the confirmation');
 select is(private.takeoff_count_mark_attempt_refusal((pg_temp.request_of(pg_temp.job(14,pg_temp.plan(1)))).id,'call:1'),
   'CALL_ALREADY_ATTEMPTED','a pending ordinary reservation has no further permission to send');

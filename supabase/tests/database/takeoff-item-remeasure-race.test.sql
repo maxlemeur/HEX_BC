@@ -287,6 +287,29 @@ select is(pg_temp.requests(), 2, 'one new request admitted, once');
 -- Its analysis reads the first item and publishes.
 select is((select x.claimed from extensions.dblink('race_setup', pg_temp.claim_sql(2, 902)) as x(claimed bigint)), 1::bigint,
   'the new measure is read');
+-- Check the decision after a real request-row wait using a short-lived copy of the lease row.
+-- Both connections use read-only probes of the payment ledger; no paid call is issued.
+select is(extensions.dblink_exec('race_a','begin'),'BEGIN','hold the opted-in request while its deadline advances');
+select is((select id from extensions.dblink('race_a',format(
+  'select r.id from public.takeoff_launch_requests r join public.takeoff_jobs j on j.launch_request_id=r.id where j.id=%L for update of r',
+  pg_temp.job(2))) as x(id uuid)),(select launch_request_id from public.takeoff_jobs where id=pg_temp.job(2)), 'the request is locked');
+select is(extensions.dblink_send_query('race_b',format($probe$
+  with locked as materialized (
+    select r.id from public.takeoff_launch_requests r join public.takeoff_jobs j on j.launch_request_id=r.id
+    where j.id=%1$L for key share of r
+  ) select private.takeoff_count_mark_lease_live(jsonb_populate_record(j,
+    jsonb_build_object('processing_lease_expires_at',statement_timestamp()+interval '0.1 seconds')),%2$L)
+    from locked join public.takeoff_jobs j on j.launch_request_id=locked.id where j.id=%1$L
+  $probe$,pg_temp.job(2),pg_temp.f(902))),1,'the second connection submits the liveness probe');
+select ok(pg_temp.waits_for('race_b','race_a'),'the probe waits on the request');
+select pg_sleep(0.12) as deadline_passed \gset
+select is(extensions.dblink_exec('race_a','commit'),'COMMIT','release the request after the probe lease expires');
+select ok(pg_temp.answered('race_b'),'the probe resumes');
+select is((select live from extensions.dblink_get_result('race_b') as x(live boolean)),false,
+  'the lease deadline is evaluated after the lock is acquired');
+select is((select count(*)::integer from extensions.dblink_get_result('race_b') as x(live boolean)),0,'the probe is done');
+select is((select count(*)::integer from private.takeoff_launch_usage where job_id=pg_temp.job(2)),0,
+  'the synthetic deadline check leaves the expense ledger empty');
 select is((select x.outcome from extensions.dblink('race_setup',format('select outcome from public.reserve_takeoff_launch_call(%L,%L,%L,%L,30000)',
   pg_temp.job(2),pg_temp.f(902),'call:1','pdf')) as x(outcome text)),'reserved','an integral allowance confirmed as 2.0 admits the first call');
 select ok((select x.left_ is not null from extensions.dblink('race_setup',format(
