@@ -110,7 +110,7 @@ contract take precedence over historical reports and procedures.
 | SQL/RLS/migration | `npm run db:ci:local` on an owned stack, plus affected journeys. Army's SQL/RLS checks do not replace it: parallel builds omit statement ceilings. |
 | Final code | `npm run verify:pr` once per push, as the last check on the tree you push: after the independent review's fixes and any merge of `main` (about 3 minutes cold, 1.5 warm). Fix rounds before that use `verify:fast` and the targeted tests. Its checks run in parallel and all of them always run; a green check prints one line, a red one its whole output (`npm run check:quality -- --verbose` prints everything). |
 | Performance | Follow [statement budgets](docs/testing/large-estimate-statement-budget.md) and [browser measurements](docs/testing/tester-army-performance.md) for real inputs and largest supported volumes; fix over-budget writes, never relax budgets. |
-| Authorized release preparation | `npm run check:release`; a build is not deployment evidence. |
+| Release preparation | `npm run check:release`, run on your own initiative: it builds and serves the application on this machine only, with blank shared credentials. The deployment itself needs the owner's go, and a build is not deployment evidence. |
 
 - Diagnose failures before rerunning affected checks; never mask them with retries
   or higher timeouts. A timeout the diagnosis ties to machine load (the failing
