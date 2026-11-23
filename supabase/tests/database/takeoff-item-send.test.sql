@@ -527,6 +527,9 @@ select results_eq($$select g.page, g.item_ids, cardinality(g.part_ids) from publ
   $$values (2, array[pg_temp.f(300)], 1), (7, array[pg_temp.f(300)], 1)$$, 'one page contribution per page');
 select results_eq($$select j.status::text, j.estimate_version_id is not null from public.takeoff_jobs j where j.id = pg_temp.job(20, 1)$$,
   $$values ('applied'::text, true)$$, 'the job is sent: linked and applied');
+select is((select public.estimate_version_holds_analysis(i.tenant_id,i.version_id,i.source_job_id)
+  from public.estimate_items i where i.id=(select t.estimate_item_id from public.takeoff_item_send_targets t)),true,
+  'the item send attaches the analysis of its new line before commit');
 select results_eq($$select r.request_id, r.job_id, r.version_created, r.command_kind, r.actor_id, r.result ->> 'lines_written',
     r.result ->> 'parts_written', (r.result ->> 'focus_item_id')::uuid = (select t.estimate_item_id from public.takeoff_item_send_targets t)
   from public.takeoff_item_send_receipts r$$,
@@ -926,6 +929,9 @@ from (values (960, 2, 2, 'draft'), (961, 3, 3, 'sent'), (962, 4, 3, 'draft')) as
 set local session_replication_role = origin;
 insert into public.draft_locks (version_id, user_id, tenant_id, expires_at, session_id)
 select v, pg_temp.f(1), pg_temp.f(10), now() + interval '10 minutes', gen_random_uuid() from unnest(array[pg_temp.f(960), pg_temp.f(962)]) v;
+-- This fixture is a copy that lost its send journal; it still holds the original analysis.
+insert into public.takeoff_version_links (tenant_id, takeoff_job_id, source_version_id, target_version_id)
+select pg_temp.f(10), pg_temp.job(20, 2), version_id, pg_temp.f(962) from draft;
 select set_config('miaouffrage.estimate_v3_writer', pg_temp.f(962)::text, true);
 insert into public.estimate_items (id, tenant_id, version_id, parent_id, item_type, position, title)
 values (pg_temp.f(964), pg_temp.f(10), pg_temp.f(962), null, 'section', 1, 'Métré');
@@ -1712,6 +1718,12 @@ set local role authenticated;
 create temp table copy20 as select public.duplicate_estimate_version((select version_id from draft), false) as version_id;
 reset role;
 grant select on copy20 to authenticated;
+set constraints public.estimate_line_analysis_scope immediate;
+set constraints public.estimate_line_analysis_scope deferred;
+select is((select bool_and(public.estimate_version_holds_analysis(i.tenant_id,i.version_id,i.source_job_id))
+  from public.estimate_items i where i.version_id=(select version_id from copy20) and i.source_job_id is not null),
+  true,'the duplicate inherits the analyses referenced by its lines');
+
 select is(pg_temp.c_rows((select version_id from copy20)), (select rows_ from source_before),
   'the copy holds the original''s live targets, parts, sections and page contributions, keyed to its own lines');
 select is(pg_temp.c_all((select version_id from draft)), (select digest from source_before), 'the original is untouched');

@@ -84,6 +84,16 @@ describe("shouldExposeErrorDetails", () => {
   });
 });
 
+it("reports an out-of-scope estimate analysis without database details", () => {
+  const error = mapEstimatesSupabaseError({ code: "M0A01", message: "database detail" }, "Échec");
+  expect(error).toMatchObject({
+    status: 400,
+    code: "ESTIMATE_ANALYSIS_OUT_OF_SCOPE",
+    message: "Cette version du devis ne détient pas cette analyse.",
+  });
+  expect(error.details).toBeUndefined();
+});
+
 describe("buildErrorResponseBody", () => {
   it("omits details in never mode and logs them", () => {
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});

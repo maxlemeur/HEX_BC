@@ -229,13 +229,16 @@ select set_config('request.jwt.claims',jsonb_build_object('sub',pg_temp.f(1),'ro
 -- Recreate a #500 copy from before this migration: the physical duplication is
 -- genuine, but its original receipt had no record of the member's protected work.
 savepoint historical_copy;
+-- Drain pending receipt events before each ALTER; duplication writes its inheritance links after its lines.
 set constraints all immediate;
 alter table public.takeoff_item_send_receipts disable trigger takeoff_item_redistribution_copy_protections;
+set constraints public.estimate_line_analysis_scope deferred;
 set local role authenticated;
 create temp table legacy_copy as select public.duplicate_estimate_version(pg_temp.f(30),false) id;
 reset role;
 set constraints all immediate;
 alter table public.takeoff_item_send_receipts enable trigger takeoff_item_redistribution_copy_protections;
+set constraints public.estimate_line_analysis_scope deferred;
 set local role authenticated;
 create temp table legacy_descendant as select public.duplicate_estimate_version(id,false) id from legacy_copy;
 reset role;

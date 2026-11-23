@@ -463,6 +463,8 @@ select is(pg_temp.da_apply('two pages', 1, 2, 'da-1-2'), 'ok', 'a second takeoff
 reset role;
 select is((pg_temp.da_target(1)).quantity, 23::numeric,
   'the target holds max(20, 12.4 + 10.2) rounded up once: the second takeoff no longer overwrites the first');
+select is((select public.estimate_version_holds_analysis(i.tenant_id,i.version_id,i.source_job_id)
+  from pg_temp.da_target(1) i),true,'the DPGF line references an analysis held by its version');
 select is(pg_temp.da_composition(1), '[[1, 1, 12.4], [2, 1, 10.2]]'::jsonb, 'its composition names both takeoffs, line by line');
 select is((pg_temp.da_target(1)).source_metadata #>> '{takeoff_quantity_policy,version}', '2', 'stored as a version 2 policy');
 -- 8. D2 reads every takeoff of the target: both pages are in the estimate.

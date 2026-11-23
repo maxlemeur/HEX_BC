@@ -796,8 +796,7 @@ select lives_ok($$delete from public.estimate_versions where id=pg_temp.fx(957)$
 rollback to before_source_removal;
 reset role;
 
--- Foreign references are not dependencies of this affaire. Seed the two out-of-scope
--- references as the fixture owner; the DELETE itself is still the original engineer's.
+-- Unrelated drafts keep their ordinary lines when this source is removed.
 select pg_temp.affaire(960,10,1,'Autre entreprise');
 insert into public.estimate_versions(id,tenant_id,project_id,version_number,status,calc_engine_version,margin_multiplier,tax_rate_bp)
 values(pg_temp.fx(961),pg_temp.fx(10),pg_temp.fx(960),1,'draft',2,1,0);
@@ -805,25 +804,24 @@ insert into public.estimate_items(tenant_id,version_id,item_type,position,title)
 select tenant_id,id,'section',99,'Lot témoin' from public.estimate_versions where id in (pg_temp.fx(120),pg_temp.fx(961));
 insert into public.estimate_items(tenant_id,version_id,parent_id,item_type,position,title,source_job_id,quantity,
   unit_price_ht_cents,tax_rate_bp,k_fo,h_mo,k_mo,pu_ht_cents,line_total_ht_cents,line_tax_cents,line_total_ttc_cents)
-select tenant_id,version_id,id,'line',1,'Ligne témoin',pg_temp.fx(953),1,0,0,1,0,1,0,0,0,0
+select tenant_id,version_id,id,'line',1,'Ligne témoin',null,1,0,0,1,0,1,0,0,0,0
 from public.estimate_items where version_id in (pg_temp.fx(120),pg_temp.fx(961)) and item_type='section' and position=99;
-select is((select count(*) from public.estimate_items where version_id in (pg_temp.fx(120), pg_temp.fx(961))
-  and source_job_id=pg_temp.fx(953)), 2::bigint, 'two out-of-scope lines name the job');
 select pg_temp.sign_in(6);
 set local role authenticated;
 delete from public.estimate_versions where id=(select id from page_copy);
 with removed as (
   delete from public.estimate_versions where id = pg_temp.fx(957) returning id
 )
-select is(count(*), 1::bigint, 'neither another affaire nor another tenant holds the source') from removed;
+select is(count(*), 1::bigint, 'the unrelated drafts permit source removal') from removed;
 reset role;
-
+select is((select count(*) from public.estimate_items where version_id in (pg_temp.fx(120),pg_temp.fx(961))
+  and title='Ligne témoin' and source_job_id is null), 2::bigint, 'both ordinary lines survived the deletion');
 
 rollback to before_source_removal;
 reset role;
 
--- Known limit pending the engine-2 cross-affaire section-copy fix. The owner imports
--- a real section into a second affaire containing identical bytes of the plan.
+-- The receiving affaire has an independent analysis of the same plan bytes.
+-- Copy the real section and check its page guard on either side of source deletion.
 \ir ../fixtures/estimate-section-copy-payload.sql
 select pg_temp.affaire(974,12,6,'Other project within same tenant');
 select pg_temp.plan(975,976,974,12);
@@ -839,12 +837,16 @@ insert into public.draft_locks(version_id,user_id,tenant_id,expires_at,session_i
 select pg_temp.sign_in(6);
 set local role authenticated;
 select public.copy_estimate_items_atomic(pg_temp.fx(9740),pg_temp.fx(9741),pg_temp.cp29_copy((select parent_id from public.estimate_items where version_id=pg_temp.fx(957) and item_type='line'),pg_temp.fx(9740),1));
+select results_eq($$select quantity, source_job_id from public.estimate_items
+  where version_id=pg_temp.fx(9740) and item_type='line'$$,
+  $$values (3::numeric,null::uuid)$$, 'the other affaire receives the three washbasins as an ordinary line');
 delete from public.estimate_versions where id=(select id from page_copy);
 reset role;
 drop table if exists pg_temp._takeoff_apply_source, pg_temp._takeoff_apply_created_ids, pg_temp._takeoff_apply_matches, pg_temp._takeoff_apply_unmatched;
 insert into commands values('before-cross',pg_temp.command(977,pg_temp.draft(9740),pg_temp.new_section(9742)));
 set local role authenticated;
-select is((select pg_temp.run(body || jsonb_build_object('request_id',gen_random_uuid())) #>> '{error,code}' from commands where name='before-cross'),'TAKEOFF_PAGE_ALREADY_APPLIED','same plan bytes in the other affaire are recognized before deletion');
+select ok((select pg_temp.run(body || jsonb_build_object('request_id',gen_random_uuid())) ? 'outcome'
+  from commands where name='before-cross'), 'the receiving affaire holds no page before the source is deleted');
 delete from public.estimate_versions where id=pg_temp.fx(957);
 reset role;
 drop table if exists pg_temp._takeoff_apply_source, pg_temp._takeoff_apply_created_ids, pg_temp._takeoff_apply_matches, pg_temp._takeoff_apply_unmatched;
@@ -852,11 +854,13 @@ insert into commands values('after-cross',pg_temp.command(977,pg_temp.draft(9740
 set local role authenticated;
 create temp table cross_after as select pg_temp.run(body || jsonb_build_object('request_id',gen_random_uuid())) as result from commands where name='after-cross';
 select ok((select result ? 'outcome' from cross_after),
-  'known limit: engine 2 accepts the same page in the other affaire once the source is gone');
+  'deleting the source leaves the receiving affaire free to send its own analysis');
 select pg_temp.confirm('after-cross', result->'outcome') from cross_after where result ? 'outcome';
 reset role;
-select is((select sum(quantity) from public.estimate_items where version_id=pg_temp.fx(9740) and item_type='line'),6::numeric,
-  'known limit: the cross-affaire section and the second confirmation each count three washbasins');
+select results_eq($$select source_job_id,quantity from public.estimate_items where version_id=pg_temp.fx(9740)
+  and item_type='line' order by source_job_id nulls first$$,
+  $$values (null::uuid,3::numeric),(pg_temp.fx(977),3::numeric)$$,
+  'the copied quantity stays ordinary and the confirmed quantity belongs to the receiving analysis');
 
 select * from finish();
 rollback;

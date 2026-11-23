@@ -544,6 +544,9 @@ reset role;
 select results_eq($$select trim_scale(quantity), unit_price_ht_cents, source_job_id from public.estimate_items
   where version_id = pg_temp.fixture(100) and title = 'Lavabo'$$,
   $$values (5::numeric, 0, pg_temp.fixture(62))$$, 'one line of five, its price unchanged');
+select is((select public.estimate_version_holds_analysis(i.tenant_id,i.version_id,i.source_job_id)
+  from public.estimate_items i where i.version_id=pg_temp.fixture(100) and i.title='Lavabo'), true,
+  'the draft owns the analysis on the accumulated line');
 select is((select count(*) from public.estimate_items where version_id = pg_temp.fixture(100) and item_type = 'line'), 2::bigint,
   'B adds no second washbasin line');
 select is((select private.takeoff_estimate_line_item_ids(source_metadata, source_job_id) from public.estimate_items
