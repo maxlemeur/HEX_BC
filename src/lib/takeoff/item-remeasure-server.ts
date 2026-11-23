@@ -1,4 +1,5 @@
 import "server-only";
+import { countMarkSchedule, MARK_SCOPE_REFUSAL, type CountMarkSchedule } from "./count-mark-schedule";
 
 import type { AuthenticatedTenantContext } from "@/lib/auth/tenant-context";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
@@ -14,7 +15,7 @@ import {
   countUnstoredPlanPages, databaseError, dispatchLaunchRequestJobs, launchError, logicalPlanKey, planPagesPastLimit,
   planSetCopiesSetAside, planUnitJobs, readPlansAnalysedBefore, relaunchManifest, sealedPlanSetId,
 } from "@/lib/takeoff/launch-request-server";
-import { posteReadingRefusal, postesAskedBy, sizePosteReadingManifest, type PosteReadingBounds } from "@/lib/takeoff/poste-reading-bounds";
+import { POSTE_READING_BUDGET_MARGIN, posteReadingRefusal, postesAskedBy, sizePosteReadingManifest, type PosteReadingBounds } from "@/lib/takeoff/poste-reading-bounds";
 import {
   createTakeoffPreparationSnapshot, TakeoffPreparationNotReadyError, takeoffExecutionSelectionSchema, type TakeoffExecutionSelection,
   type TakeoffPreparationSnapshot,
@@ -51,6 +52,7 @@ export type TakeoffItemRemeasurePlan = {
   snapshot: TakeoffPreparationSnapshot;
   manifest: TakeoffPlanLaunchManifest;
   bounds: PosteReadingBounds;
+  markSchedule?: CountMarkSchedule;
 };
 
 async function readMeasurePreparation(context: Context, projectId: string) {
@@ -156,6 +158,32 @@ export async function planTakeoffItemRemeasure(context: Context, input: {
   if (!sized.bounds) return { refusal: "La lecture de ces postes n’a pas pu être bornée : rouvrez l’aperçu." };
   const tooLarge = posteReadingRefusal(sized.bounds);
   if (tooLarge) return { refusal: describeTakeoffLaunchReason(tooLarge.reason, tooLarge.pieces, sized.bounds) };
+  let markSchedule: CountMarkSchedule | undefined;
+  if (detail?.proposeMarks) {
+    const piece = sized.manifest.plans[0];
+    const count = piece.pages.length || piece.page_count || countedPages.get(piece.plan_file_id);
+    if (!count || count > 6) return { refusal: MARK_SCOPE_REFUSAL };
+    const pages = piece.pages.length ? [...piece.pages].sort((a,b) => a-b) : Array.from({ length: count }, (_,i) => i+1);
+    const { data: known, error } = await service.from("takeoff_count_pages").select("page,width")
+      .eq("tenant_id", context.tenantId).eq("project_id", input.projectId).eq("plan_file_id", piece.plan_file_id)
+      .eq("plan_logical_id", piece.logical_id).eq("plan_content_sha256", piece.content_sha256).in("page", pages).order("page");
+    if (error) databaseError(error, "Impossible de lire la géométrie enregistrée pour ce plan.");
+    if (known.length !== pages.length) {
+      return { refusal: "La géométrie d’une page est inconnue pour cette copie. Choisissez une page connue ou désactivez les propositions." };
+    }
+    const unit = sized.manifest.units[0];
+    unit.paid_vector_groups = takeoffVectorGroupCallsBound(unit.vector_pages) > 0;
+    try {
+      markSchedule = countMarkSchedule(known.map(({ page, width }) => ({ page, width_points: width })), sized.bounds.calls);
+    } catch {
+      return { refusal: MARK_SCOPE_REFUSAL };
+    }
+    const estimate = markSchedule.total_calls * TAKEOFF_PAID_CALL_ESTIMATE_TOKENS;
+    if (estimate > config.maxTotalTokens) return { refusal: "Les lectures et les propositions dépassent le budget du métré. Choisissez la page affichée seule ou désactivez les propositions." };
+    const tokens = Math.min(config.maxTotalTokens, estimate * POSTE_READING_BUDGET_MARGIN);
+    sized.manifest.budget = { ...sized.manifest.budget, tokens };
+    sized.manifest.units[0].budget = { ...sized.manifest.units[0].budget, tokens };
+  }
   // The analysis it re-reads: the latest of its plans', else the affaire's latest.
   const latest = async (keys: string[] | null) => {
     // A page published beside an indivisible reading cannot be the predecessor of the next measure.
@@ -170,7 +198,7 @@ export async function planTakeoffItemRemeasure(context: Context, input: {
   };
   const predecessorJobId = await latest(sized.manifest.plans.map((plan) => `plan:${plan.plan_file_id.toLowerCase()}`)) ?? await latest(null);
   if (!predecessorJobId && !detail) return { refusal: "L’affaire n’a encore aucune analyse : lancez d’abord le métré de l’affaire." };
-  return { plan: { planSetId, preparationRevision: confirmed.preparation_revision,
+  return { plan: { ...(markSchedule && { markSchedule }), planSetId, preparationRevision: confirmed.preparation_revision,
     planFileIds: sized.manifest.plans.map((plan) => plan.plan_file_id),
     planKeys: sized.manifest.plans.map((plan) => plan.logical_id), predecessorJobId, listRevisionId: order.list.revision_id,
     askedItemIds: asked, snapshot, manifest: { ...sized.manifest, intent: predecessorJobId ? "reread_plans" : "initial" }, bounds: sized.bounds } };
@@ -187,6 +215,12 @@ function remeasureError(error: { code?: string; message: string }): never {
     case "TAKEOFF_ITEM_REMEASURE_INACTIVE":
       throw new TakeoffError({ status: 503, code: TakeoffErrorCode.CONFLICT, retryable: false,
         message: "La nouvelle mesure d’une sélection de postes n’est pas encore ouverte : aucune analyse n’a été lancée." });
+    case "TAKEOFF_MARKS_GEOMETRY_UNKNOWN":
+      throw new TakeoffError({ status: 422, code: TakeoffErrorCode.VALIDATION_ERROR, retryable: false,
+        message: "La géométrie d’une page est inconnue pour cette copie. Choisissez une page connue ou désactivez les propositions." });
+    case "TAKEOFF_MARKS_SCOPE_INVALID":
+      throw new TakeoffError({ status: 409, code: TakeoffErrorCode.CONFLICT, retryable: false,
+        message: "Les pages ou le nombre d’appels ont changé. Rouvrez le récapitulatif." });
     case "TAKEOFF_ITEM_REMEASURE_INVALID":
       throw new TakeoffError({ status: 422, code: TakeoffErrorCode.VALIDATION_ERROR, retryable: false,
         message: "La demande de nouvelle mesure est invalide : rouvrez l’aperçu." });
@@ -209,7 +243,7 @@ function remeasureError(error: { code?: string; message: string }): never {
  * database compares under its locks. Its jobs are handed to the Mac once admitted.
  */
 /** What the member confirmed besides the readings: the preview confirmed (its digest) and the setting chosen for it. */
-export type TakeoffItemRemeasureConfirmation = { preview_digest: string; page?: number | null; shown_sha256?: string; setting: { model?: string; reasoning_effort: string | null } | null };
+export type TakeoffItemRemeasureConfirmation = { preview_digest: string; count_marks?: CountMarkSchedule; page?: number | null; shown_sha256?: string; setting: { model?: string; reasoning_effort: string | null } | null };
 export type TakeoffItemRemeasureTargets = Array<{ item_id: string; answers: string[] }>;
 
 /** The setting a confirmation seals, as the request's snapshot and the database's digest hold it. */

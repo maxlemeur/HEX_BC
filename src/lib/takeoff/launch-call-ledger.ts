@@ -14,7 +14,7 @@ import { takeoffModuleDefault } from "@/lib/takeoff/feature-flags";
  * the owner's activation of one analysis per plan, a grouped analysis's call is checked as lot 2 checked it, reserves
  * nothing, and its usage is recorded once answered.
  */
-export type TakeoffPaidCallBranch = "pdf" | "vector_group" | "other";
+export type TakeoffPaidCallBranch = "pdf" | "vector_group" | "other" | "count_tile";
 
 /**
  * A call that may be sent: its key in the ledger and whether it holds a reservation (a call of a grouped analysis before
@@ -24,7 +24,7 @@ export type TakeoffPaidCall = { readonly key: string; readonly reserved: boolean
 
 export type TakeoffPaidCallLedger = {
   /** Before a paid call is sent: its right and its reservation; throws the refusal, and nothing is sent. */
-  beforePaidCall(branch: TakeoffPaidCallBranch): Promise<TakeoffPaidCall>;
+  beforePaidCall(branch: TakeoffPaidCallBranch, tileKey?: string): Promise<TakeoffPaidCall>;
   /**
    * The usage the call's answer carried: settles its reservation once, only with a total the provider stated (`trusted`;
    * otherwise a reserved call stays held as unknown); a failure to record stops the job.
@@ -51,6 +51,14 @@ const forbidden = (jobId: string, message: string) =>
 /** The refusal of a paid call in French, the same for the check before an attempt and the reservation of each call. */
 export function takeoffPaymentRefusal(jobId: string, reason: string | null): TakeoffError {
   switch (reason) {
+    case "CALL_ALREADY_ATTEMPTED":
+      return new TakeoffError({ status: 409, code: TakeoffErrorCode.CONFLICT, retryable: false, jobId,
+        message: "Cet appel a déjà été réservé. Aucun nouvel appel n’a été envoyé." });
+    case "TILE_OUTSIDE_SCOPE":
+    case "TILE_IN_FLIGHT":
+    case "TILE_ALREADY_ATTEMPTED":
+      return new TakeoffError({ status: 409, code: TakeoffErrorCode.CONFLICT, retryable: false, jobId,
+        message: "Cette tuile ne peut plus être lue dans la mesure confirmée. Aucun nouvel appel n’a été lancé." });
     case "BUDGET_EXHAUSTED":
       return new TakeoffError({ status: 422, code: TakeoffErrorCode.TAKEOFF_REQUEST_BUDGET_EXHAUSTED, retryable: false, jobId,
         message: "Le budget de cette analyse est épuisé par ses tentatives précédentes. Relancez l’analyse depuis les options du métré." });
@@ -98,9 +106,9 @@ export function createTakeoffCallLedger(job: { id: string; launch_request_id?: s
   };
 
   return {
-    async beforePaidCall(branch) {
+    async beforePaidCall(branch, tileKey) {
       if (halted) throw halted;
-      const key = `call:${++calls}`;
+      const key = tileKey ?? `call:${++calls}`;
       for (let waits = 0; ; waits += 1) {
         const token = lease();
         const { data, error } = await service().rpc("reserve_takeoff_launch_call", {

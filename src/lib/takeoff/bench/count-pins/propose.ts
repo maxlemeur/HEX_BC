@@ -7,6 +7,7 @@ import {
   emptyBox,
   extendBox,
   SegmentIndex,
+  textFrame,
   type Point,
   type Segment,
 } from "../../vectors/geometry";
@@ -40,7 +41,19 @@ export function readDeterministic(sheet: Sheet) {
   const e = sheet.extraction;
   const index = indexSymbolPage(e);
   const reading = readVectorPage(e);
-  const field = (p: Point) => !reading.legend.boxes.some((box) => boxContains(box, p));
+  const excluded = [...reading.legend.boxes, ...(reading.networks?.excluded.diagram_frames ?? [])];
+  const field = (p: Point) => !excluded.some((box) => boxContains(box, p));
+  // Some schedules have no surrounding frame. Exclude the immediate sample rows
+  // under an explicit heading, in its own writing direction even on a turned page.
+  const headings = e.texts.filter((text) =>
+    /^(?:l[ée]gende|d[ée]tail type)(?:$|\s)/iu.test(text.str.trim())
+  ).map((text) => ({ ...text, axes: textFrame(text.angle) }));
+  const onInstallation = (point: Point) => field(point) && !headings.some((heading) => {
+    const dx = point.x - heading.x, dy = point.y - heading.y;
+    const along = heading.axes.along(dx, dy), up = heading.axes.up(dx, dy);
+    return along >= -heading.height && along <= Math.max(heading.width, 14 * heading.height)
+      && up >= -4 * heading.height && up <= heading.height;
+  });
   const segments: Segment[] = [];
   const visible = e.groups.map(
     (g) => !isNearWhite(g.color) && !e.layers.some((l) => l.id === g.layer && !l.visible),
@@ -90,6 +103,7 @@ export function readDeterministic(sheet: Sheet) {
     }
     const tip = tips.length === 1 ? tips[0] : null;
     const point = tip ?? centre;
+    if (!field(point)) continue;
     labels.push({
       ...point,
       sheet: sheet.id,
@@ -219,6 +233,7 @@ export function readDeterministic(sheet: Sheet) {
     pipe: pipes,
     "label+example": combine(namedExamples, labels, 4),
     "label+pipe": det,
-    "all-deterministic": combine(det, named, 4),
+    "all-deterministic": combine(det, named, 4).filter(onInstallation),
+    onInstallation,
   };
 }

@@ -851,6 +851,14 @@ contient une paire sans DN émis, `agreement: "poste-only"` indique un accord
 sur le poste seul. Les plans vides, les
 légendes, les détails et les doublons restent visibles dans le reçu.
 
+Le worker réutilise les lecteurs déterministes du banc sans exemple fourni, le
+découpage par tuiles, la restitution de leurs coordonnées et la fusion. Les cadres
+de légende et de schéma reconnus, et les premières lignes d’échantillons sous un
+titre « Légende » ou « Détail type », sont exclus des propositions. Sur un scan,
+le lecteur par tuiles reçoit la même consigne. Un détail dessiné sans titre ni
+cadre identifiable peut encore être proposé. Le membre peut le retirer avec le
+motif « Légende ou détail ».
+
 Pour qualifier une famille sur des documents réels, il faut des dossiers
 indépendants réservés et des zones intégralement vérifiées par un métreur,
 y compris des zones vides. L'exactitude d'un poste entier exige la vérification

@@ -1,3 +1,6 @@
+import { PDFDocument } from "pdf-lib";
+import { seedPublishedItemTable } from "./item-table-support";
+import { COUNT_MARKS_GEOMETRY } from "./count-marks-support";
 import { randomUUID } from "node:crypto";
 
 import { apiRequest, recordEvidence } from "../critical/fixtures";
@@ -265,4 +268,87 @@ describe("Repères comptés d’un poste", () => {
         history: history.map(({ gesture, page, reasonCode }) => ({ gesture, page, reasonCode })),
         stored: await querySql(`select count(*) from public.takeoff_count_mark_events where project_id = '${seeded.projectId}';`) });
     });
+});
+
+describe("Propositions de repères", () => {
+  test("REPERES02 montre les lectures, conserve une adoption et un retrait et ouvre une page de 5 000 propositions", options, async ({ ui }) => {
+    const { app, army, screen } = ui;
+    const owner = await signUpDedicatedOwner(ui.browser, app.baseUrl!, army.runPrefix, { tag: "PROPOSES" });
+    const pdf = await PDFDocument.create();
+    for (let page = 1; page <= 9; page++) {
+      const sheet = pdf.addPage([842, 595]);
+      sheet.drawText(`Plan fictif - page ${page}`, { x: 30, y: 570, size: 12 });
+      if (page === 2) {
+        sheet.drawCircle({ x: 0.15 * 842, y: 0.8 * 595, size: 4 });
+        sheet.drawCircle({ x: 0.6 * 842, y: 0.6 * 595, size: 4 });
+      }
+      if (page === 7) for (let i = 0; i < 5000; i++) sheet.drawCircle({
+        x: ((i % 100) + 0.5) * 842 / 100, y: 595 - (Math.floor(i / 100) + 0.5) * 595 / 50, size: 1,
+      });
+    }
+    const seeded = await seedPublishedItemTable(owner, { name: `${army.runPrefix}-PROPOSES`, labels: ["Vanne fictive"],
+      answers: ["uncertain"], planPdf: Buffer.from(await pdf.save()), countMarks: ([item]) => {
+        const source = (method: string, ref: string, id: string) => ({
+          item_id: item, state: "proposed", method, method_version: "1", source_key: id, source_ref: ref, subtype: "vanne",
+        });
+        return { pages: [2,7].map((page) => ({ page, geometry: COUNT_MARKS_GEOMETRY })), marks: [
+          { page: 2, x: .15, y: .2, proposals: [source("vector","label:leader-1","draw"), source("tile","tile:1","tile")] },
+          { page: 2, x: .6, y: .4, proposals: [source("tile","tile:2","other")] },
+          ...Array.from({ length: 5000 }, (_, i) => ({ page: 7, x: ((i%100)+.5)/100, y: (Math.floor(i/100)+.5)/50,
+            proposals: [source("vector","label:leader-" + i, "dense:" + i)] })),
+        ] };
+      } });
+    const answers = await readCountAnswers(seeded.projectId);
+    const answer = answers[seeded.itemIds[0]]!;
+    const detail = `/dashboard/affaires/${seeded.projectId}/takeoff?poste=${seeded.itemIds[0]}&plan=${seeded.planId}`;
+    await app.open(detail + "&page=2");
+    await waitForHydration(ui.browser);
+    const panel = screen.getByRole("button","Repères du poste", { exact: true });
+    if (await panel.getAttribute("aria-expanded") !== "true") await panel.click();
+    const list = screen.getByRole("grid","Repères du poste sur la page");
+    const agreed = list.getByRole("row", /Deux lectures concordantes/);
+    await expect(agreed).toContainText("Lecture par tuile n° 1 v1 · non qualifié");
+    const originsShot = await app.screenshot("reperes02-origines");
+    await agreed.click();
+    await list.press("r");
+    await list.getByRole("row", /Lecture par tuile n° 2/).click();
+    await list.press("Delete");
+    const dialog = screen.getByRole("dialog");
+    await dialog.getByRole("radio","Légende ou détail").click();
+    await dialog.getByRole("button","Retirer le repère",{ exact: true }).click();
+    await screen.getByRole("button","Enregistrer (2)").click();
+    await expect(ui.locator('[data-testid="reperes-proposes"]')).toContainText("5000");
+    await app.open(detail + "&page=2");
+    await waitForHydration(ui.browser);
+    if (await panel.getAttribute("aria-expanded") !== "true") await panel.click();
+    await expect(list).toContainText("Retenu");
+    await expect(list.getByRole("row", /Lecture par tuile n° 2/)).toHaveCount(0);
+    const view = (page: number, more = "") => apiRequest<Envelope<MarksView & { nextAfter: string | null }>>(ui.browser,
+      "GET", `/api/affaires/${seeded.projectId}/takeoff/count-marks?reponse=${answer}&page=${page}${more}`);
+    expect((await view(2)).body.data.summary).toMatchObject({ retained: 1, proposed: 5000, reread: 0, quantity: null });
+    expect((await view(2, "&etats=removed")).body.data.total).toBe(1);
+    const readStart = performance.now();
+    let after: string | null = null;
+    let loaded = 0;
+    do {
+      const lot: MarksView & { nextAfter: string | null } = (await view(7, after ? `&apres=${after}` : "")).body.data;
+      loaded += lot.loaded;
+      after = lot.nextAfter;
+    } while (after);
+    const readMs = Math.round(performance.now() - readStart);
+    expect(loaded).toBe(5000);
+    const openStart = performance.now();
+    await app.open(detail + "&page=7");
+    await waitForHydration(ui.browser);
+    await expect(screen.getByRole("img", "plan-1.pdf, page 7", { exact: true })).toBeVisible({ timeout: 30_000 });
+    if (await panel.getAttribute("aria-expanded") !== "true") await panel.click();
+    await expect(ui.locator('[data-testid="reperes-charges"]')).toContainText("5000 au total");
+    const openMs = Math.round(performance.now() - openStart);
+    expect(seeded.publicationMs).toBeGreaterThan(0);
+    const denseShot = await app.screenshot("reperes02-page-dense");
+    await recordEvidence(army, "REPERES02", {
+      densePage: 7, physicalMarks: loaded, publicationMs: seeded.publicationMs, readMs, openMs,
+      shots: { origins: originsShot, dense: denseShot },
+    });
+  });
 });

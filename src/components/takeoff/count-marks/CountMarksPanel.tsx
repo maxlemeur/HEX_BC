@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type RefObject } from "react";
 
+import { describeMarkCoverage } from "@/lib/takeoff/count-mark-schedule";
 import { useCountMarks, type CountMarksContextValue, type CountMarksTarget } from "@/components/takeoff/count-marks/CountMarksScope";
 import { CountMarksHistory } from "@/components/takeoff/count-marks/CountMarksHistory";
 import { COUNT_MARKS_PANEL_ID } from "@/components/takeoff/count-marks/CountMarksTools";
@@ -554,6 +555,7 @@ export function CountMarksPanel() {
             </div>
           </header>
           <CountSummary marks={marks} />
+          {loaded.view.coverage && <p className="px-3 py-1.5 text-xs">{describeMarkCoverage(loaded.view.coverage)}</p>}
           {!marks.canEdit && loaded.view.edit.reason ? (
             <p className="border-b border-border bg-surface-subtle px-3 py-1.5 text-xs text-foreground-secondary" data-testid="reperes-lecture-seule">
               {TAKEOFF_COUNT_MARKS_READ_ONLY_LABELS[loaded.view.edit.reason]}

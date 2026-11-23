@@ -325,6 +325,28 @@ observation), même après la suppression de l’analyse ; seul un opérateur de
 les modifie, et son droit est vérifié de nouveau après chaque attente ; une lecture
 remplacée garde ses repères en lecture seule.
 
+**Demander des propositions.** Dans « Mesurer ce poste », le membre peut cocher
+« Proposer des repères à vérifier » avant de confirmer. Le récapitulatif donne le
+nombre maximal d’appels sur son forfait avec le modèle et l’effort choisis. Pour
+chaque page, la largeur visible enregistrée pour cette copie détermine le découpage
+en quatre tuiles jusqu’à 700 points inclus et six au-delà. Les tuiles sont lues en
+série, avec un maximum de 24 par demande. Une géométrie inconnue ou une portée
+trop grande demande une nouvelle sélection. Les lectures du poste, y compris la
+classification vectorielle éventuelle, figurent aussi dans le total.
+
+Une proposition conserve l’origine de ses lectures. Deux lecteurs qui situent
+sans ambiguïté le même objet peuvent fournir deux observations au même repère.
+Les voisins en concurrence restent à attribuer. Le détail indique les tuiles
+effectivement lues, tronquées, en échec, de consommation inconnue ou non lues,
+et les pages sans couche vectorielle. Une consommation inconnue interrompt les
+appels suivants. Toutes les configurations de lecture portent « non qualifié ».
+
+La mesure d’une seule page d’une réponse indivisible sur plusieurs pages produit
+une comparaison. Avant de confirmer, le membre voit que ses propositions seront
+en lecture seule et peut choisir « Mesurer tout le plan ». S’il corrige ses repères
+pendant une nouvelle mesure, ses corrections restent sur la réponse actuelle.
+La nouvelle lecture et ses propositions s’ouvrent à côté, sur leur propre copie.
+
 **Les repères à l’écran.** Le détail d’un poste sur son plan dessine les repères de la
 page affichée à leur place, quels que soient le zoom et le déplacement, chacun avec sa
 forme et son signe (retenu ✓, proposé ?, à attribuer !, nouvelle lecture N) ; un repère

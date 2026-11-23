@@ -274,7 +274,7 @@ async function remeasurePreview(input: { scope: ItemTableScope; itemIds: string[
   }
   const reading: ItemRemeasurePreview["reading"] = !planned ? { state: "refused", reason: "Aucun poste de la sélection ne peut être mesuré de nouveau." }
     : "refusal" in planned ? { state: "refused", reason: planned.refusal }
-      : { state: "ready", summary: describePosteReadingBounds({ ...planned.plan.bounds, ok: true }), calls: planned.plan.bounds.calls,
+      : { state: "ready", summary: describePosteReadingBounds({ ...planned.plan.bounds, ok: true }), calls: planned.plan.markSchedule?.total_calls ?? planned.plan.bounds.calls,
         budgetTokens: planned.plan.manifest.budget.tokens };
   // Each item's answers as the member saw them (the same as stored now, compared above): what the database compares again
   // under its locks, and what identifies the confirmation.
@@ -292,6 +292,7 @@ async function remeasurePreview(input: { scope: ItemTableScope; itemIds: string[
     }
   }
   const detail = input.detail && file ? {
+    ...(planned && "plan" in planned && planned.plan.markSchedule && { markSchedule: planned.plan.markSchedule }),
     hostProof: subscription.selection ? measureHostProof(access, subscription.selection.hostId) : null,
     revision: source?.revision ?? file.generation, pages: file.pages, pageCount: file.page_count, previousPages, effect,
   } : undefined;
@@ -311,7 +312,7 @@ async function remeasurePreview(input: { scope: ItemTableScope; itemIds: string[
         list: list?.revisionId ?? null, readings: targets,
         reading: reading.state === "ready" ? { calls: reading.calls, budgetTokens: reading.budgetTokens } : reading,
         // The preparation it was planned on: its revision and each plan as sealed (its copy, identity, bytes and pages).
-        prepared: planned && "plan" in planned ? { revision: planned.plan.preparationRevision,
+        prepared: planned && "plan" in planned ? { ...(planned.plan.markSchedule && { markSchedule: planned.plan.markSchedule }), revision: planned.plan.preparationRevision,
           plans: planned.plan.manifest.plans.map((plan) => [plan.plan_file_id, plan.logical_id, plan.content_sha256, plan.pages,
             plan.page_count]) } : null })).digest("hex"),
       skipped: key ? [] : selected.filter(({ eligibility }) => !eligibility.remeasure.eligible)
@@ -371,7 +372,8 @@ export async function runItemRemeasure(projectId: string, command: ItemRemeasure
   if (command.detail && (command.item_ids.length !== 1 || command.plan_keys.length !== 1 || command.scope.kind !== "plan"
       || command.scope.planKey !== command.plan_keys[0] || !command.setting?.model)) invalid("Confirmez le poste, le plan et le modèle depuis le récapitulatif.");
   if (!command.detail && command.setting?.model) invalid("Choisissez le modèle depuis le poste ouvert sur le plan.");
-  const confirmation = { ...(command.detail && { page: command.detail.page, shown_sha256: createHash("sha256").update(canonical(command.detail)).digest("hex") }), preview_digest: command.preview_digest, setting: command.setting };
+  if (!!command.detail?.proposeMarks !== !!command.mark_schedule) invalid("Relisez le nombre d’appels des propositions avant de confirmer.");
+  const confirmation = { ...(command.mark_schedule && { count_marks: command.mark_schedule }), ...(command.detail && { page: command.detail.page, shown_sha256: createHash("sha256").update(canonical(command.detail)).digest("hex") }), preview_digest: command.preview_digest, setting: command.setting };
   // A lost answer sent again: replayed by what the member confirmed alone, before anything is planned (the items it
   // admitted read « En lecture » since); another confirmation under the key is the database's conflict.
   const subscription = await readLocalChatGptSubscription({ userId: access.context.userId, tenantId: access.context.tenantId },
@@ -415,7 +417,7 @@ export async function runItemRemeasure(projectId: string, command: ItemRemeasure
     invalid(planned.refusal);
   }
   // What is admitted is what was confirmed: a plan made since on other revisions, plans, calls or budget is stale.
-  if (!samePlan(confirmed, planned.plan)) staleRefusal(items);
+  if (canonical(command.mark_schedule ?? null) !== canonical(planned.plan.markSchedule ?? null) || !samePlan(confirmed, planned.plan)) staleRefusal(items);
   const answer = await launchTakeoffItemRemeasure(access.context, { projectId: access.project.id, intentKey: command.intent_key,
     plan: planned.plan, selection: sealed, targets, confirmation, host: (await headers()).get("host") });
   if (answer.outcome === "stale") {

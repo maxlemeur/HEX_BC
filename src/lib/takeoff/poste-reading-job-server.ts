@@ -1,5 +1,6 @@
 import "server-only";
 
+import { prepareCountMarkReading, produceCountMarkGeneration } from "./count-mark-worker-server";
 import type { StructuredCall } from "@/lib/ai/structured-call";
 import { TakeoffError, TakeoffErrorCode } from "@/lib/takeoff/errors";
 import { readSealedItemListItems } from "@/lib/takeoff/item-list-server";
@@ -97,7 +98,7 @@ function assertReadingWithinBounds(job: TakeoffJobProcessingRow, input: { manife
       budgetTokens: unit.budget?.tokens ?? input.config.maxTotalTokens, vectorCalls: own.calls - own.fragments * own.batches }],
     requestBudgetTokens: input.config.maxTotalTokens, chunking: input.config, estimateTokensPerCall: TAKEOFF_PAID_CALL_ESTIMATE_TOKENS });
   const bounds = !request.ok ? request : attempt;
-  if (bounds.ok) return;
+  if (bounds.ok) return own.calls;
   const exceeded = [...bounds.exceeded, ...bounds.units.flatMap((entry) => entry.exceeded)];
   const tooLarge = exceeded.some((limit) => limit !== "budget");
   throw new TakeoffError({ status: 422, retryable: false, jobId: job.id, level: TAKEOFF_LEVEL_C,
@@ -198,8 +199,12 @@ export async function processItemListLevelC(input: {
   const asked = postesAskedBy(items, input.order.askedItemIds);
   if (!asked) throw failure(job.id, "Un poste demandé par cette analyse n’est pas dans sa liste : relancez la lecture.");
   items = asked;
-  assertReadingWithinBounds(job, { manifest: input.order.manifest, items, pageCount, maxPage: Math.max(...readPages), config, planFile,
+  const otherCalls = assertReadingWithinBounds(job, { manifest: input.order.manifest, items, pageCount, maxPage: Math.max(...readPages), config, planFile,
     fileName: sourceFile.fileName });
+  const original = sourceFile.originalPdfSources?.find(({ document }) => document.kind === "plan_file" && document.plan_file_id === planFile.plan_file_id);
+  const markReading = await prepareCountMarkReading({ jobId: job.id, snapshot: job.preparation_snapshot, items,
+    planFileId: planFile.plan_file_id, bytes: original && new Uint8Array(original.bytes), pages: readPages,
+    otherCalls, remainingTokens: config.maxTotalTokens });
   // Each context file with its kind (the reading keeps the CCTP only); a file whose kind is not known is never attached.
   const references: PosteReadingReference[] = (sourceFile.contextFiles ?? []).map((file, index) => ({ ...file,
     ...(sourceFile.contextReferences?.[index] ?? { kind: "other" as const, name: "Pièce", revision: null }) }));
@@ -210,6 +215,13 @@ export async function processItemListLevelC(input: {
   const vectors = storableVectorOutcomes(await input.readVectors());
   const vectorOutcomes = vectors.outcomes;
   const plan = finishPlanReading(reading, items, posteVectorReadings(vectorOutcomes, planFile.plan_file_id), job.id);
+  // These positions are evidence for human review. Only the independent item reading above supplies observations.
+  const marks = markReading && await produceCountMarkGeneration(markReading, input.call, input.model);
+  if (marks) {
+    for (const key of ["inputTokens", "outputTokens", "reasoningTokens", "totalTokens"] as const) reading.tokenUsage[key] += marks.usage[key];
+    reading.costCents += marks.costCents;
+    reading.calls += marks.calls;
+  }
   // Every call is paid: a renewal that could not be made (a transport error is reported as a conflict) never discards the
   // reading. The command checks the lease under its lock, and only its own answer that the lease is lost ends the attempt.
   await input.renewLease().catch(() => undefined);
@@ -221,6 +233,10 @@ export async function processItemListLevelC(input: {
     list: { revisionId: input.order.revisionId, revision: input.order.revision, itemCount: input.order.itemCount },
     runMetrics: buildLevelCRunMetricRows({ supabase: input.supabase, job, metrics: reading.metrics,
       hint: { sourceFileName: sourceFile.fileName } }) });
+  if (marks) {
+    publication.p_result.count_mark_generation = marks.generation;
+    publication.p_result.provider_meta.count_marks = marks.coverage;
+  }
   const resultId = await publishTakeoffItemAnswers(input.supabase, publication, { renewLease: input.renewLease });
   await logCompletedAuditEvent({ supabase: input.supabase, userId: input.userId, job, resultId, itemsCount: publication.p_items.length,
     warningsCount: publication.p_result.warnings.length, durationMs: totalDurationMs });

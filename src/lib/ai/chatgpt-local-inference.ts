@@ -131,7 +131,7 @@ export async function* chatGptStreamEvents(response: Response, observe?: (event:
         observe?.(parsed);
         if (["response.failed", "response.incomplete", "error"].includes(parsed.type ?? "")) {
           const error = parsed.response?.error as { code?: string } | undefined;
-          throw providerError(error?.code ?? parsed.code);
+          throw Object.assign(providerError(error?.code ?? parsed.code), { truncated: parsed.type === "response.incomplete" });
         }
         yield parsed;
       }

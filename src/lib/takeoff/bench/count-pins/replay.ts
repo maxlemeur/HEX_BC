@@ -1,9 +1,11 @@
 import { z } from "zod";
 import type { Box } from "../../vectors/geometry";
-import type { JudgedPin, PageFrame, Poste } from "./types";
+import type { JudgedPin, PageFrame, Pin } from "./types";
+
+import { WIDE_PAGE } from "../../count-mark-schedule";
 
 export const TILE_OVERLAP = 12;
-export const WIDE_PAGE = 700;
+export { WIDE_PAGE };
 export const REPLAY_SCHEMA_VERSION = 2;
 
 const unit = z.number().min(0).max(1);
@@ -45,7 +47,7 @@ function tileCentre(low: number, high: number, cropLow: number, cropHigh: number
   return centre;
 }
 
-export function replayTiles(page: PageFrame, targets: readonly Poste[], recordings: unknown[]) {
+export function replayTiles(page: PageFrame, targets: readonly { id: string; organ: Pin["organ"]; requiresDn: boolean }[], recordings: unknown[]) {
   const planned = tileLayout(page);
   const tiles = { planned: planned.length, complete: 0, truncated: 0, invalid: 0, missing: 0, unexpected: 0 };
   const byId = new Map<number, unknown[]>();

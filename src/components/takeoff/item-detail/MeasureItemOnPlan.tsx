@@ -1,5 +1,6 @@
 "use client";
 
+import { describeMarkCoverage } from "@/lib/takeoff/count-mark-schedule";
 import { useEffect, useEffectEvent, useRef, useState } from "react";
 import { CHATGPT_REASONING_EFFORT_LABELS, type ChatGptReasoningEffort } from "@/lib/ai/chatgpt-model-preferences";
 import { isTakeoffReadRefusal } from "@/components/takeoff/useTakeoffRequestActivity";
@@ -14,7 +15,7 @@ import { ITEM_REVIEW_COMMAND_VERSION, type ItemMeasureReadings, type ItemRemeasu
 
 type Props = { projectId: string; line: ItemDetailLine; plan: ItemDetailPlanView["plan"]; page: number; listRevisionId: string | null;
   receipt: ItemDetailAddress["receipt"]; onFollow: (receipt: NonNullable<ItemDetailAddress["receipt"]>) => void;
-  onRefresh: () => void; onOpenCurrent: () => void; onRefused: (error: unknown) => boolean };
+  onOpenComparison: (jobId: string, page: number) => void; onRefresh: () => void; onOpenCurrent: () => void; onRefused: (error: unknown) => boolean };
 type Summary = { preview: ItemRemeasurePreview; command: Omit<ItemRemeasureCommand, "setting"> };
 const effects = { first: "Cette mesure donnera une première réponse au poste sur ce plan.",
   compare: "La lecture précédente est indivisible. Vous pourrez comparer les deux lectures. Pour la remplacer, mesurez tout le plan.",
@@ -30,6 +31,7 @@ function Reading({ title, reading }: { title: string; reading: NonNullable<ItemM
   return <div className="min-w-0 space-y-1">
     <p>{title} · {value}{reading.pages.length > 0 ? ` · pages ${reading.pages.join(", ")}` : ""}</p>
     {reading.unreadablePages.length > 0 && <p>Pages illisibles · {reading.unreadablePages.join(", ")}</p>}
+    {reading.coverage?.map((sheet) => <p key={sheet.page}>{describeMarkCoverage(sheet)}</p>)}
     {reading.reasons.map((reason, index) => <p key={index}>{reason}</p>)}
     {reading.observations.length > 0 && <details><summary>Observations ({reading.observations.length})</summary>
       <ul>{reading.observations.map((o) => <li key={o.id}>Page {o.page} · {o.evidence || "Preuve absente"}</li>)}</ul>
@@ -37,13 +39,14 @@ function Reading({ title, reading }: { title: string; reading: NonNullable<ItemM
   </div>;
 }
 
-export function MeasureItemOnPlan({ projectId, line, plan, page, listRevisionId, receipt, onFollow, onRefresh, onOpenCurrent, onRefused }: Props) {
+export function MeasureItemOnPlan({ projectId, line, plan, page, listRevisionId, receipt, onFollow, onRefresh, onOpenCurrent, onOpenComparison, onRefused }: Props) {
   const [open, setOpen] = useState(false);
   const [summary, setSummary] = useState<Summary | null>(null);
   const [message, setMessage] = useState("");
   const [model, setModel] = useState("");
   const [effort, setEffort] = useState<ChatGptReasoningEffort | null>(null);
   const [busy, setBusy] = useState(false);
+  const [proposeMarks, setProposeMarks] = useState(false);
   const [singlePage, setSinglePage] = useState(false);
   const [readings, setReadings] = useState<ItemMeasureReadings>(null);
   const [readFailed, setReadFailed] = useState(false);
@@ -94,10 +97,11 @@ export function MeasureItemOnPlan({ projectId, line, plan, page, listRevisionId,
     return () => { live = false; clearTimeout(timer); };
   }, [projectId, line.itemId, plan.key, requestId, jobId, watch, onRefused]);
 
-  async function show(onlyPage: boolean, keepSetting = false) {
+  async function show(onlyPage: boolean, keepSetting = false, marks = keepSetting && proposeMarks) {
     if (submitting.current || !plan.planFileId) return;
     const id = ++operation.current;
     setSinglePage(onlyPage);
+    setProposeMarks(marks);
     setOpen(true);
     setSummary(null);
     setMessage("");
@@ -105,7 +109,7 @@ export function MeasureItemOnPlan({ projectId, line, plan, page, listRevisionId,
     setChangedCopy(false);
     setUnsure(false);
     const scope = { kind: "plan" as const, planKey: plan.key };
-    const detail = { fileId: plan.planFileId, generation: plan.generation, contentSha256: plan.contentSha256, page: onlyPage ? page : null };
+    const detail = { ...(marks && { proposeMarks: true as const }), fileId: plan.planFileId, generation: plan.generation, contentSha256: plan.contentSha256, page: onlyPage ? page : null };
     const prior = line.readings.find((r) => r.planKey === plan.key)?.answer;
     const seen = { list_revision_id: listRevisionId, targets: [{ ...line.targets, answers: line.targets.answers.filter((a) => a.answerId === prior?.answerId) }] };
     try {
@@ -116,7 +120,7 @@ export function MeasureItemOnPlan({ projectId, line, plan, page, listRevisionId,
         setEffort(preview.subscription.state === "ready" ? preview.subscription.reasoningEffort : null);
       }
       setSummary({ preview, command: { command_version: ITEM_REVIEW_COMMAND_VERSION, intent_key: crypto.randomUUID(),
-        scope, detail, host_proof: preview.detail?.hostProof ?? undefined, item_ids: [line.itemId], plan_keys: [plan.key], seen, preview_digest: preview.previewDigest } });
+        scope, detail, ...(preview.detail?.markSchedule && { mark_schedule: preview.detail.markSchedule }), host_proof: preview.detail?.hostProof ?? undefined, item_ids: [line.itemId], plan_keys: [plan.key], seen, preview_digest: preview.previewDigest } });
     } catch (error) {
       if (isTakeoffReadRefusal(error) && onRefused(error)) return;
       if (operation.current === id) {
@@ -175,8 +179,16 @@ export function MeasureItemOnPlan({ projectId, line, plan, page, listRevisionId,
       <p>{states[readings.state]} {readings.reason}</p>
       <p>Reçu de la demande · {readings.requestId}</p>
       {readings.latest ? <><div className="grid gap-2 sm:grid-cols-2">
-        <Reading title="Lecture précédente" reading={readings.previous} /><Reading title="Nouvelle lecture" reading={readings.latest} /></div>
-        {readings.latest.comparisonOnly ? <p>La lecture précédente est conservée. Mesurez tout le plan pour la remplacer.</p> : null}</> : null}
+        <Reading title={readings.previous && line.readings.some((r) => r.answer?.answerId === readings.previous!.answerId) ? "Lecture précédente · actuelle" : "Lecture précédente"} reading={readings.previous} /><Reading title="Nouvelle lecture" reading={readings.latest} /></div>
+        {readings.latest.comparisonOnly && <div>
+          <p>La nouvelle lecture est une comparaison en lecture seule. Vos corrections restent sur la lecture actuelle.</p>
+          {readings.latest.coverage?.length ? <>
+            <Button size="xs" variant="outline" onClick={() => onOpenComparison(readings.latest!.jobId, readings.latest!.coverage![0].page)}>
+              Voir les propositions de la comparaison
+            </Button>
+            <Button size="xs" variant="outline" onClick={() => void show(false, false, true)}>Mesurer tout le plan</Button>
+          </> : <p>Mesurez tout le plan pour remplacer la lecture actuelle.</p>}
+        </div>}</> : null}
     </div> : null}
     <Dialog open={open} onOpenChange={(value) => { if (!value && !submitting.current && !unsure) { operation.current++; setOpen(false); } }}>
       <DialogContent><DialogHeader><DialogTitle>Mesurer ce poste</DialogTitle>
@@ -184,6 +196,16 @@ export function MeasureItemOnPlan({ projectId, line, plan, page, listRevisionId,
         <label>Portée <select value={singlePage ? "page" : "plan"} disabled={busy || unsure} onChange={(e) => void show(e.target.value === "page", true)}>
           <option value="plan">Toutes les pages admises du plan</option><option value="page">Page affichée seule · {page}</option>
         </select></label>
+        <label><input type="checkbox" checked={proposeMarks} disabled={busy || unsure}
+          onChange={(e) => void show(singlePage, true, e.target.checked)} /> Proposer des repères à vérifier</label>
+        {proposeMarks && preview?.detail?.markSchedule && <p>
+          {preview.detail.markSchedule.tile_calls} appels de repérage en série et {preview.detail.markSchedule.other_calls} autres appels,
+          soit {preview.detail.markSchedule.total_calls} appels au maximum. Lecteurs non qualifiés.
+        </p>}
+        {proposeMarks && preview?.detail?.effect === "compare" && <p>
+          Ces propositions seront en lecture seule et ne pourront pas être adoptées. Pour les vérifier, mesurez tout le plan.
+          <Button size="xs" variant="outline" disabled={busy || unsure} onClick={() => void show(false,true)}>Mesurer tout le plan</Button>
+        </p>}
         {preview ? <>
           <p>Indice du document · {preview.detail?.revision ?? "Non renseigné"}</p>
           {preview.detail ? <><p>Pages admises · {preview.detail.pages.length ? preview.detail.pages.join(", ") : `Tout le plan (${preview.detail.pageCount ?? "nombre inconnu"} pages)`}</p>
@@ -198,7 +220,7 @@ export function MeasureItemOnPlan({ projectId, line, plan, page, listRevisionId,
               onChange={(e) => setEffort(e.target.value as ChatGptReasoningEffort || null)}>
               <option value="">Automatique</option>{selected?.reasoningEfforts.map((f) => <option key={f} value={f}>{CHATGPT_REASONING_EFFORT_LABELS[f]}</option>)}
             </select></label></>}
-          {preview.reading.state === "ready" ? <p>{preview.reading.summary} Budget réservé · {preview.reading.budgetTokens.toLocaleString("fr-FR")} jetons.</p>
+          {preview.reading.state === "ready" ? <p>{preview.detail?.markSchedule && "Hors repérage · "}{preview.reading.summary} Budget réservé · {preview.reading.budgetTokens.toLocaleString("fr-FR")} jetons.</p>
             : <p role="alert">{preview.reading.reason}</p>}
           {preview.running ? <p>Une demande de métré est déjà active sur cette affaire. Votre sélection est conservée.</p> : null}
         </> : !message ? <p role="status">Préparation du récapitulatif…</p> : null}

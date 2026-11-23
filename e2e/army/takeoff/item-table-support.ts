@@ -14,7 +14,7 @@ import type { DedicatedOwner } from "../local/dedicated-owner";
 // the activations they need and removes them before its commit: nothing stays activated. Fictional values only.
 
 export type SeededAnswer = "measured" | "hypothesis" | "uncertain" | "not_found";
-export type SeededItemTable = { projectId: string; jobId: string; itemIds: string[]; rowIds: Array<string | null> };
+export type SeededItemTable = { projectId: string; jobId: string; itemIds: string[]; rowIds: Array<string | null>; planId: string; publicationMs?: number };
 
 const literal = (value: unknown) => `'${JSON.stringify(value).replaceAll("'", "''")}'::jsonb`;
 const text = (value: string) => `'${value.replaceAll("'", "''")}'`;
@@ -161,7 +161,9 @@ select count(*) from public.claim_observed_local_takeoff_job('${ids.job}', '${ow
 select answer_count from public.publish_takeoff_item_answers('${ids.job}', '${ids.token}', now(), 'modele-fictif',
   'takeoff-c-postes-v1', '{"schema_version":"v2","prompt_version":"takeoff-c-postes-v1"}'::jsonb, array[2, 7], ${literal(answers)},
   '[]'::jsonb, ${literal(result)}, ${literal(rows)}, null);
-${marks ? `select public.publish_takeoff_count_marks('${ids.job}', '${ids.token}', 1, ${literal(marks.pages)}, ${literal(marks.marks)}) ->> 'marks';
+${marks ? `select 'MARKS_BEGIN=' || extract(epoch from clock_timestamp());
+select public.publish_takeoff_count_marks('${ids.job}', '${ids.token}', 1, ${literal(marks.pages)}, ${literal(marks.marks)}) ->> 'marks';
+select 'MARKS_END=' || extract(epoch from clock_timestamp());
 ` : ""}-- The hypotheses made estimates, excluded as public.exclude_new_takeoff_hypothesis excludes a new estimated row.
 update public.takeoff_items set metadata = '{"quantity_nature":"estimated"}'::jsonb, is_excluded = true,
   exclusion_reason = 'Hypothèse non présélectionnée : quantité estimée, sans mesure sur un plan. Incluez la ligne pour la compter.'
@@ -177,7 +179,9 @@ select 'ITEM_TABLE_SEEDED';
 `;
   const output = await querySql(sql);
   if (!output.includes("ITEM_TABLE_SEEDED")) throw new Error("The item table seed did not commit.");
-  return { projectId: ids.project, jobId: ids.job, itemIds, rowIds };
+  const instant = (label: string) => Number(output.find((line) => line.startsWith(label))?.slice(label.length));
+  return { projectId: ids.project, jobId: ids.job, planId: ids.plan, itemIds, rowIds,
+    ...(marks && { publicationMs: Math.round(1000 * (instant("MARKS_END=") - instant("MARKS_BEGIN="))) }) };
 }
 
 export type OwnedDecision = { item_id: string; kind: string; reason: string | null; note: string | null; revision: number; actor_id: string };

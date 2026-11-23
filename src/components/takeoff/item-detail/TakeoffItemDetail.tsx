@@ -511,6 +511,7 @@ function ItemDetailView({ projectId, address, reader, tableQuery, onBack, onGest
               {canReview && line && view?.plan.planFileId && view.document.kind !== "unavailable" && !earlierReading ? (
                 <MeasureItemOnPlan key={`${itemId}:${view.plan.key}:${view.plan.planFileId}`} projectId={projectId} line={line}
                   plan={view.plan} page={opening.page} listRevisionId={fresh[itemId]?.listRevisionId ?? (outside?.line.itemId === itemId ? outside.listRevisionId : context?.listRevisionId) ?? null}
+                  onOpenComparison={(jobId, page) => go({ planKey: view.plan.key, jobId, page, answerId: null, observationId: null, source: null })}
                   receipt={address.receipt} onFollow={(receipt) => go({ receipt })}
                   onOpenCurrent={() => setCurrentCopy({ original: originalKey, plan: view.plan.key, revision: (current?.revision ?? 0) + 1 })}
                   onRefused={measureRefused} onRefresh={() => { rereadItem(itemId); go({ planKey: view.plan.key, jobId: null, answerId: null, observationId: null, source: null }); }} />
@@ -519,7 +520,8 @@ function ItemDetailView({ projectId, address, reader, tableQuery, onBack, onGest
               {earlierReading ? (
                 <p className="flex shrink-0 flex-wrap items-center gap-2 border-t border-border bg-surface px-3 py-2 text-xs text-foreground-secondary"
                   data-testid="reperes-lecture-ancienne">
-                  {earlierAnswer ? "Repères de cette lecture plus ancienne, sur sa propre copie du plan, en lecture seule."
+                  {earlierAnswer && address.receipt?.jobId === earlierJob ? "Propositions de la comparaison sur sa propre copie du plan, en lecture seule. Vos corrections restent sur la lecture actuelle."
+                    : earlierAnswer ? "Repères de cette lecture plus ancienne, sur sa propre copie du plan, en lecture seule."
                     : "Les repères comptés sont ceux de la lecture actuelle de ce poste, sur sa propre copie du plan."}
                   <Button size="xs" variant="outline" onClick={() => go({ planKey: earlierReading.planKey,
                     jobId: earlierReading.reading.answer!.jobId, page: null, answerId: null, observationId: null })}>
