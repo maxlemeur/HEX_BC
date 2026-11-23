@@ -207,6 +207,10 @@ select is((select x.outcome from extensions.dblink('race_setup', pg_temp.launch_
   'the affaire reads its plan against its list');
 select is((select x.claimed from extensions.dblink('race_setup', pg_temp.claim_sql(1, 901)) as x(claimed bigint)), 1::bigint,
   'the worker reads the plan');
+-- A second real connection checks the authority held by the freshly claimed attempt, independently of the dispatcher.
+select is((select x.live from extensions.dblink('race_b',format(
+  'select private.takeoff_count_mark_lease_live(j,%L) from public.takeoff_jobs j where id=%L',
+  pg_temp.f(902),pg_temp.job(2))) as x(live boolean)),true,'the current lease and its live host slot agree');
 select is((select split_part(x.answer, ':', 2) from extensions.dblink('race_setup', pg_temp.publish_sql(1, 901, array[300], array[301]))
   as x(answer text)), 'false', 'and publishes its answers');
 

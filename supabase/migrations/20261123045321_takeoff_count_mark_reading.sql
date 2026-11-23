@@ -528,6 +528,14 @@ returns text language sql stable set search_path = '' as $$
 $$;
 revoke all on function private.takeoff_count_mark_attempt_refusal(uuid,text) from public, anon, authenticated, service_role;
 
+create function private.takeoff_count_mark_lease_live(job public.takeoff_jobs, token uuid)
+returns boolean language sql volatile set search_path = '' as $$
+  select job.status='processing' and job.processing_lease_token=token and job.processing_lease_expires_at>clock_timestamp()
+    and exists (select 1 from private.takeoff_host_slots s where s.host_id=job.execution_host_id and s.job_id=job.id
+      and s.holder_token=token and s.expires_at>clock_timestamp())
+$$;
+revoke all on function private.takeoff_count_mark_lease_live(public.takeoff_jobs,uuid) from public, anon, authenticated, service_role;
+
 -- The new lane is explicit. Existing callers keep the full namespace of opaque keys in each released lane.
 alter table private.takeoff_launch_usage drop constraint takeoff_launch_usage_branch_check;
 alter table private.takeoff_launch_usage add constraint takeoff_launch_usage_branch_check
@@ -578,6 +586,10 @@ begin
   end if;
   -- The job's row, then the request's: the order of every writer of both.
   select * into request from public.takeoff_launch_requests r where r.id = job.launch_request_id for update;
+  -- Waiting for the request can take the last seconds of a valid lease. Check both clocks under the lock.
+  if job.preparation_snapshot ? 'remeasure_count_marks' and not private.takeoff_count_mark_lease_live(job,p_lease_token) then
+    raise exception 'TAKEOFF_LAUNCH_USAGE_LEASE_REQUIRED' using errcode = '42501';
+  end if;
   -- Before the owner's activation of one analysis per plan, a call of a grouped analysis is checked as M4 checked it (its
   -- request's balance) and reserves nothing: its usage is recorded once answered, as before; nothing new is written.
   if not private.takeoff_plan_dispatch_active() and request.manifest -> 'format_version' is distinct from '2'::jsonb then
