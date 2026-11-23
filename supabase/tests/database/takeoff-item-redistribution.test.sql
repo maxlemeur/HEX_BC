@@ -158,9 +158,11 @@ create function pg_temp.move_sql(extra text) returns text language sql as $$
   select format('update public.takeoff_item_send_parts set target_id=%L %s where id=%L',
     (select target_id from public.takeoff_item_send_parts where id=pg_temp.f(102)),extra,pg_temp.f(101))
 $$;
-select set_config('mergeone.takeoff_item_redistribution',pg_temp.f(200)::text,true);
+select set_config('mergeone.takeoff_item_redistribution',(select receipt->>'receipt_id' from result),true);
+savepoint exact_move;
 select throws_ok(pg_temp.move_sql(''),'42501','TAKEOFF_ITEM_SEND_IMMUTABLE',
   'even the table owner needs a receipt listing this exact old and new target');
+rollback to exact_move;
 select throws_ok(pg_temp.move_sql(',quantity=9'),'42501','TAKEOFF_ITEM_SEND_IMMUTABLE','move cannot change quantity');
 select throws_ok(pg_temp.move_sql(',pages=array[2]'),'42501','TAKEOFF_ITEM_SEND_IMMUTABLE','move cannot change pages');
 select throws_ok(pg_temp.move_sql($$,state='redistributed'$$),'42501','TAKEOFF_ITEM_SEND_IMMUTABLE','reserved state stays unwritten');
