@@ -69,7 +69,7 @@ export class LocalGroupsRequestError extends Error {
 }
 
 /** The profile a job runs with (as level C pins it, chatgpt-takeoff.ts): another account or model selected mid-job stops it. */
-export type LocalGroupsSelection = { profileId: string; model: string; reasoningEffort?: ChatGptReasoningEffort | null };
+export type LocalGroupsSelection = { authorizationId?: string | null; remeasureSetting?: LocalChatGptOverride; profileId: string; model: string; reasoningEffort?: ChatGptReasoningEffort | null };
 
 const ACCESS_LOST = "Le forfait ChatGPT n’est plus accessible : reconnectez-le dans Mon profil.";
 
@@ -83,13 +83,17 @@ async function accountOf(owner: ChatGptOwner, selection?: LocalGroupsSelection) 
     } catch (error) {
       // A blip reaching OpenAI while the credential is renewed is read again once; a refused renewal, a plan access
       // withdrawn or an unreadable store is final.
+      if (selection?.remeasureSetting && error instanceof LocalChatGptConnectionWithdrawnError) throw takeoffChatGptConnectionWithdrawn();
       if (attempt === 1 && error instanceof ChatGptSignInError && error.reason === "network") continue;
       throw new LocalGroupsStop("local_access", ACCESS_LOST);
     }
   }
+  if (selection?.remeasureSetting && (!selection.authorizationId || credential?.authorizationId !== selection.authorizationId)) {
+    throw takeoffChatGptConnectionWithdrawn();
+  }
   if (!credential) throw new LocalGroupsStop("local_access", "Connectez votre forfait ChatGPT dans Mon profil.");
-  if (selection && (credential.profileId !== selection.profileId || credential.model !== selection.model
-    || (credential.reasoningEffort ?? null) !== (selection.reasoningEffort ?? null))) {
+  if (selection && (credential.profileId !== selection.profileId || (!selection.remeasureSetting && (credential.model !== selection.model
+    || (credential.reasoningEffort ?? null) !== (selection.reasoningEffort ?? null))))) {
     throw new LocalGroupsStop("local_access", "Le compte ou le modèle ChatGPT a changé pendant le métré.");
   }
   return credential;
@@ -110,7 +114,7 @@ function planStop(error: unknown): LocalGroupsStop | null {
  */
 export async function localGroupsCall(owner: ChatGptOwner, selection?: LocalGroupsSelection, useProfile = false): Promise<LocalGroupsCall> {
   const credential = await accountOf(owner, selection);
-  let override: LocalChatGptOverride | undefined;
+  let override: LocalChatGptOverride | undefined = selection?.remeasureSetting;
   // Read once per job, the listing is read again once after a failure that is no answer of the account (a network
   // blip, an unreadable listing): one blip would otherwise leave the whole job to the rules. The account's answers (the
   // model not offered, a quota, a rate limit, a refused access) are final.

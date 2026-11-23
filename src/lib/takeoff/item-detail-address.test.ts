@@ -44,6 +44,17 @@ describe("readItemDetailAddress", () => {
       address: detail({ planKey: PIECE, jobId: JOB, page: 7 }) });
   });
 
+  it("round trips a measure receipt independently of the displayed reading and removes it on return to the table", () => {
+    const href = itemDetailHref(PROJECT, detail({ planKey: PIECE, jobId: JOB, receipt: { requestId: VERSION, jobId: ANSWER } }));
+    const search = new URL(href, "https://app.test").search;
+    expect(read(search)).toEqual({ kind: "detail",
+      address: detail({ planKey: PIECE, jobId: JOB, receipt: { requestId: VERSION, jobId: ANSWER } }) });
+    expect(itemTableReturnHref(PROJECT, search, null)).toBe(TAKEOFF);
+    for (const pair of [`demandeMesure=${VERSION}`, `analyseMesure=${ANSWER}`, `demandeMesure=${VERSION}&analyseMesure=bad`]) {
+      expect(read(`poste=${ITEM}&plan=${PIECE}&${pair}`)).toEqual({ kind: "invalid" });
+    }
+  });
+
   it("reads a dossier piece and its generation for a plan no analysis sealed, apart from the plan", () => {
     expect(read(`poste=${ITEM}&source=${PIECE}&generation=g-2&page=2`)).toEqual({ kind: "detail",
       address: detail({ source: { documentId: PIECE, generation: "g-2" }, page: 2 }) });

@@ -6424,6 +6424,15 @@
             }
           },
           {
+            "name": "detail",
+            "in": "query",
+            "description": "Pour un poste sans lecture, inclure les plans de la préparation confirmée.",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/GetAffaireTakeoffItemsDetailParameter"
+            }
+          },
+          {
             "name": "plan",
             "in": "query",
             "description": "Portée d’un plan (son identité logique) ; sans valeur, toute l’affaire.",
@@ -6594,6 +6603,15 @@
             "required": true,
             "schema": {
               "$ref": "#/components/schemas/GetAffaireTakeoffItemItemIdParameter"
+            }
+          },
+          {
+            "name": "detail",
+            "in": "query",
+            "description": "Pour un poste sans lecture, inclure les plans de la préparation confirmée.",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/GetAffaireTakeoffItemDetailParameter"
             }
           }
         ],
@@ -6791,6 +6809,132 @@
       }
     },
     "/api/affaires/{projectId}/takeoff/items/remeasure": {
+      "get": {
+        "tags": [
+          "Takeoff"
+        ],
+        "summary": "Comparer les lectures d’une mesure du membre sur ce plan",
+        "description": "État de la demande du membre et réponses précédente et nouvelle pour le poste et le plan.",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "description": "Affaire cible.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/ReadAffaireTakeoffItemMeasureProjectIdParameter"
+            }
+          },
+          {
+            "name": "item",
+            "in": "query",
+            "description": "Poste.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/ReadAffaireTakeoffItemMeasureItemParameter"
+            }
+          },
+          {
+            "name": "plan",
+            "in": "query",
+            "description": "Plan.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/ReadAffaireTakeoffItemMeasurePlanParameter"
+            }
+          },
+          {
+            "name": "jobId",
+            "in": "query",
+            "description": "Analyse du reçu, avec requestId. Sans reçu, la dernière mesure du membre.",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/ReadAffaireTakeoffItemMeasureJobIdParameter"
+            }
+          },
+          {
+            "name": "requestId",
+            "in": "query",
+            "description": "Demande du reçu, avec jobId.",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/ReadAffaireTakeoffItemMeasureRequestIdParameter"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Lectures à comparer.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiTakeoffItemMeasureReadings"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requete invalide ou payload non conforme.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentification requise.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Acces interdit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Ressource introuvable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflit metier ou de concurrence.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Erreur interne serveur.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          }
+        }
+      },
       "post": {
         "tags": [
           "Takeoff"
@@ -46819,6 +46963,10 @@
         "format": "uuid",
         "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
       },
+      "GetAffaireTakeoffItemsDetailParameter": {
+        "type": "string",
+        "const": "1"
+      },
       "GetAffaireTakeoffItemsPlanParameter": {
         "type": "string",
         "maxLength": 200
@@ -48568,6 +48716,10 @@
         "format": "uuid",
         "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
       },
+      "GetAffaireTakeoffItemDetailParameter": {
+        "type": "string",
+        "const": "1"
+      },
       "ApiTakeoffItemLineResponse": {
         "type": "object",
         "properties": {
@@ -48578,6 +48730,18 @@
           "data": {
             "type": "object",
             "properties": {
+              "listRevisionId": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "projectId": {
                 "type": "string",
                 "format": "uuid",
@@ -50127,6 +50291,357 @@
         ],
         "additionalProperties": false
       },
+      "ReadAffaireTakeoffItemMeasureProjectIdParameter": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      },
+      "ReadAffaireTakeoffItemMeasureItemParameter": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      },
+      "ReadAffaireTakeoffItemMeasurePlanParameter": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      },
+      "ReadAffaireTakeoffItemMeasureJobIdParameter": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      },
+      "ReadAffaireTakeoffItemMeasureRequestIdParameter": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      },
+      "ApiTakeoffItemMeasureReadings": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          },
+          "data": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "jobId": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "requestId": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "state": {
+                    "type": "string",
+                    "enum": [
+                      "queued",
+                      "running",
+                      "succeeded",
+                      "failed",
+                      "canceled",
+                      "not_started"
+                    ]
+                  },
+                  "reason": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "previous": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "outcome": {
+                            "type": "string",
+                            "enum": [
+                              "measured",
+                              "uncertain",
+                              "not_found"
+                            ]
+                          },
+                          "quantity": {
+                            "type": [
+                              "number",
+                              "null"
+                            ]
+                          },
+                          "unit": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 64
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "answerId": {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                          },
+                          "jobId": {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                          },
+                          "listRevisionId": {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                          },
+                          "planFileId": {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                          },
+                          "generation": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "pages": {
+                            "type": "array",
+                            "items": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0,
+                              "maximum": 9007199254740991
+                            }
+                          },
+                          "unreadablePages": {
+                            "type": "array",
+                            "items": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0,
+                              "maximum": 9007199254740991
+                            }
+                          },
+                          "reasons": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          },
+                          "observations": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "id": {
+                                  "type": "string",
+                                  "format": "uuid",
+                                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                },
+                                "page": {
+                                  "type": "integer",
+                                  "exclusiveMinimum": 0,
+                                  "maximum": 9007199254740991
+                                },
+                                "evidence": {
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "id",
+                                "page",
+                                "evidence"
+                              ],
+                              "additionalProperties": false
+                            }
+                          },
+                          "comparisonOnly": {
+                            "type": "boolean"
+                          }
+                        },
+                        "required": [
+                          "outcome",
+                          "quantity",
+                          "unit",
+                          "answerId",
+                          "jobId",
+                          "listRevisionId",
+                          "planFileId",
+                          "generation",
+                          "pages",
+                          "unreadablePages",
+                          "reasons",
+                          "observations",
+                          "comparisonOnly"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "latest": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "outcome": {
+                            "type": "string",
+                            "enum": [
+                              "measured",
+                              "uncertain",
+                              "not_found"
+                            ]
+                          },
+                          "quantity": {
+                            "type": [
+                              "number",
+                              "null"
+                            ]
+                          },
+                          "unit": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 64
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "answerId": {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                          },
+                          "jobId": {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                          },
+                          "listRevisionId": {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                          },
+                          "planFileId": {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                          },
+                          "generation": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "pages": {
+                            "type": "array",
+                            "items": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0,
+                              "maximum": 9007199254740991
+                            }
+                          },
+                          "unreadablePages": {
+                            "type": "array",
+                            "items": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0,
+                              "maximum": 9007199254740991
+                            }
+                          },
+                          "reasons": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          },
+                          "observations": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "id": {
+                                  "type": "string",
+                                  "format": "uuid",
+                                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                },
+                                "page": {
+                                  "type": "integer",
+                                  "exclusiveMinimum": 0,
+                                  "maximum": 9007199254740991
+                                },
+                                "evidence": {
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "id",
+                                "page",
+                                "evidence"
+                              ],
+                              "additionalProperties": false
+                            }
+                          },
+                          "comparisonOnly": {
+                            "type": "boolean"
+                          }
+                        },
+                        "required": [
+                          "outcome",
+                          "quantity",
+                          "unit",
+                          "answerId",
+                          "jobId",
+                          "listRevisionId",
+                          "planFileId",
+                          "generation",
+                          "pages",
+                          "unreadablePages",
+                          "reasons",
+                          "observations",
+                          "comparisonOnly"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "jobId",
+                  "requestId",
+                  "state",
+                  "reason",
+                  "previous",
+                  "latest"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "ok",
+          "data"
+        ],
+        "additionalProperties": false
+      },
       "RemeasureAffaireTakeoffItemsProjectIdParameter": {
         "type": "string",
         "format": "uuid",
@@ -50203,11 +50718,66 @@
               "description": "Identité logique du plan (pièce du dossier, ou copie déposée dans le jeu de plans) : stable d’une copie à l’autre."
             }
           },
+          "detail": {
+            "type": "object",
+            "properties": {
+              "fileId": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "contentSha256": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{64}$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "generation": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "page": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 100000
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "fileId",
+              "contentSha256",
+              "generation",
+              "page"
+            ],
+            "additionalProperties": false
+          },
+          "host_proof": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
           "setting": {
             "anyOf": [
               {
                 "type": "object",
                 "properties": {
+                  "model": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  },
                   "reasoning_effort": {
                     "anyOf": [
                       {
@@ -50236,7 +50806,7 @@
                 "type": "null"
               }
             ],
-            "description": "Réglage de cette demande ; nul : celui de Mon profil, tel quel. Un effort autre que celui de Mon profil est refusé : il n’est pas encore possible pour une seule demande."
+            "description": "Réglage ponctuel confirmé depuis le plan. Le tableau utilise le réglage de Mon profil."
           },
           "preview_digest": {
             "type": "string",
@@ -50378,6 +50948,38 @@
                     "type": "null"
                   }
                 ]
+              },
+              "receipt": {
+                "type": "object",
+                "properties": {
+                  "intentKey": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "jobId": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "state": {
+                    "type": "string",
+                    "enum": [
+                      "queued",
+                      "running",
+                      "succeeded",
+                      "failed",
+                      "canceled",
+                      "not_started"
+                    ]
+                  }
+                },
+                "required": [
+                  "intentKey",
+                  "jobId",
+                  "state"
+                ],
+                "additionalProperties": false
               }
             },
             "required": [
@@ -50544,6 +51146,52 @@
               "targets"
             ],
             "additionalProperties": false
+          },
+          "detail": {
+            "type": "object",
+            "properties": {
+              "fileId": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "contentSha256": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{64}$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "generation": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "page": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 100000
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "fileId",
+              "contentSha256",
+              "generation",
+              "page"
+            ],
+            "additionalProperties": false
           }
         },
         "required": [
@@ -50603,6 +51251,107 @@
                   "required": [
                     "key",
                     "name"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "detail": {
+                "type": "object",
+                "properties": {
+                  "hostProof": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "pattern": "^[0-9a-f]{64}$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "revision": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "pages": {
+                    "type": "array",
+                    "items": {
+                      "type": "integer",
+                      "exclusiveMinimum": 0,
+                      "maximum": 9007199254740991
+                    }
+                  },
+                  "pageCount": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "previousPages": {
+                    "type": "array",
+                    "items": {
+                      "type": "integer",
+                      "exclusiveMinimum": 0,
+                      "maximum": 9007199254740991
+                    }
+                  },
+                  "effect": {
+                    "type": "string",
+                    "enum": [
+                      "first",
+                      "replace",
+                      "compare"
+                    ]
+                  }
+                },
+                "required": [
+                  "hostProof",
+                  "revision",
+                  "pages",
+                  "pageCount",
+                  "previousPages",
+                  "effect"
+                ],
+                "additionalProperties": false
+              },
+              "models": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "reasoningEfforts": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "enum": [
+                          "none",
+                          "low",
+                          "medium",
+                          "high",
+                          "xhigh",
+                          "max"
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "name",
+                    "reasoningEfforts"
                   ],
                   "additionalProperties": false
                 }

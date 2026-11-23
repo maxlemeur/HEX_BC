@@ -5,7 +5,7 @@ import { randomUUID } from "node:crypto";
 
 import { expect } from "e2e";
 
-import { armyTest, recordEvidence } from "../critical/fixtures";
+import { apiRequest, armyTest, recordEvidence } from "../critical/fixtures";
 import { waitForHydration } from "../critical/hydration-support";
 import { querySql } from "../local/calculation-gate-support";
 import {
@@ -34,12 +34,14 @@ const ITEMS = [{ id: "lavabo-colonne", label: LAVABO, expectedUnit: "u" }, { id:
 const options = { session: "army" as const, trace: "off" as const, tags: ["critical", "takeoff-worker", "local"], timeout: 300_000 };
 
 /** An affaire of two plans, A (2 pages) and B (1 page), its request admitted by the member's command with the list sealed. */
-async function admittedRequest(ui: WorkerUi, owner: WorkerOwner, templated: { done: boolean }, objective?: "estimate") {
+async function admittedRequest(ui: WorkerUi, owner: WorkerOwner, templated: { done: boolean }, objective?: "estimate",
+  beforeLaunch?: (dossier: Awaited<ReturnType<typeof seedPlanDossier>>) => Promise<void>) {
   const dossier = await seedPlanDossier(ui, owner, [{ name: "plan-a.pdf", pages: 2 }, { name: "plan-b.pdf", pages: 1 }], { objective });
   if (!templated.done) {
     await publishOwnedItemTemplate(dossier.setup, owner, ITEMS);
     templated.done = true;
   }
+  await beforeLaunch?.(dossier);
   const command = await runOwnedTakeoffCommand(owner, ["launch", dossier.projectId, dossier.planSetId, randomUUID(), "1",
     dossier.plans.map((plan) => plan.id).join(",")]);
   expect(command).toMatchObject({ result: { outcome: "admitted" } });
@@ -208,7 +210,23 @@ armyTest("TKPR03 a new measure of one item reads it alone on its plans, and the 
     await activateOwnedPlanDispatch();
     await activateOwnedItemListOrder();
     try {
-      const { dossier, jobA, jobB } = await admittedRequest(ui, owner, { done: false });
+      const { dossier, jobA, jobB } = await admittedRequest(ui, owner, { done: false }, undefined, async (first) => {
+        const takeoff = `/dashboard/affaires/${first.projectId}/takeoff`;
+        await ui.app.open(`${takeoff}?postes=liste`);
+        await waitForHydration(ui.browser);
+        await ui.screen.getByRole("button", "Enregistrer la liste proposée", { exact: true }).click();
+        await expect(ui.screen.getByText("Liste enregistrée · révision 1 · 3 postes", { exact: false })).toBeVisible();
+        const ids = await itemIdsByLabel(first.projectId);
+        await ui.app.open(`${takeoff}?poste=${ids[WC]}`);
+        await waitForHydration(ui.browser);
+        await expect(ui.screen.getByRole("button", /plan-a.pdf.*À mesurer/)).toBeVisible();
+        await ui.screen.getByRole("button", /plan-b.pdf.*À mesurer/).click();
+        await ui.screen.getByRole("button", "Mesurer ce poste", { exact: true }).click();
+        const summary = ui.screen.getByRole("dialog", "Mesurer ce poste", { exact: true });
+        await expect(summary).toContainText("plan-b.pdf");
+        await expect(summary).toContainText("Cette mesure donnera une première réponse au poste sur ce plan.");
+        expect(await readOwnedPlanJobs(first.projectId)).toHaveLength(0);
+      });
       const [planA, planB] = dossier.plans.map((plan) => plan.id);
       await runOwnedPlanDispatch(ui, owner, dossier.projectId, {
         itemAnswers: { [jobA.id]: { items: { [LAVABO]: { quantity: 3, unit: "u", page: 2 } } } } });
@@ -300,7 +318,69 @@ armyTest("TKPR03 a new measure of one item reads it alone on its plans, and the 
       const detail = screen.getByTestId(`poste-detail-${ids[WC]}`);
       await expect(detail).toContainText("Mesuré");
       await expect(detail).toContainText("Non trouvé");
-      await recordEvidence(ui.army, "takeoff-item-remeasure", { requestId, jobs: [jobA.id, jobB.id, newA.id, newB.id],
+      const address = `/dashboard/affaires/${dossier.projectId}/takeoff?poste=${ids[WC]}&plan=${planA}&page=1`;
+      await ui.app.open(address);
+      await waitForHydration(ui.browser);
+      await screen.getByRole("button", "Mesurer ce poste", { exact: true }).click();
+      const summary = screen.getByRole("dialog", "Mesurer ce poste", { exact: true });
+      await expect(summary).toContainText("Couverture précédente · 1, 2");
+      await expect(summary).toContainText("Détaillé");
+      const screenshots = [await ui.app.screenshot("mesurer-poste-recapitulatif")];
+      await screen.getByLabel("Portée").selectOption({ value: "page" });
+      await expect(summary).toContainText("La lecture précédente est indivisible");
+      await expect(summary).toContainText("MergeOne local");
+      await expect(screen.getByRole("button", "Mesurer avec mon forfait", { exact: true })).toBeDisabled();
+      screenshots.push(await ui.app.screenshot("mesurer-poste-refus"));
+      await ui.browser.keyboard.press("Escape");
+      await expect(summary).not.toBeVisible();
+      const detailKey = randomUUID();
+      const admission = await runOwnedTakeoffCommand(owner, ["measure-item", dossier.projectId, ids[WC], detailKey,
+        planA, dossier.plans[0].hash, "1"]);
+      expect(admission).toMatchObject({ result: { outcome: "admitted", receipt: { intentKey: detailKey, state: "queued" } } });
+      const detailJob = admission.result!.receipt!.jobId;
+      const detailRequest = admission.result!.requestId!;
+      await ui.browser.reload();
+      await waitForHydration(ui.browser);
+      const comparison = screen.getByTestId("poste-mesure-resultat");
+      await expect(comparison).toContainText("En attente de lecture");
+      await runOwnedPlanDispatch(ui, owner, dossier.projectId);
+      await expect(comparison).toContainText("Lecture précédente · 2 u");
+      await expect(comparison).toContainText("Nouvelle lecture · Non trouvé · pages 1");
+      const currentItem = screen.getByRole("option", new RegExp(`^${WC}`));
+      await expect(currentItem).toContainText("Mesuré");
+      await expect(currentItem).toContainText("2 u");
+      await expect(screen.getByRole("button", "Mesurer tout le plan", { exact: true })).toBeVisible();
+      screenshots.push(await ui.app.screenshot("mesurer-poste-comparaison"));
+      const published = (await ownedAnswers(dossier.projectId)).filter((answer) => answer.job_id === detailJob);
+      expect(published).toMatchObject([{ item_id: ids[WC], plan_file_id: planA, outcome: "not_found", replaces: null }]);
+      // Another request must still name the last business reading of this plan as its predecessor.
+      const next = await runOwnedTakeoffCommand(owner, ["measure-item", dossier.projectId, ids[WC], randomUUID(),
+        planA, dossier.plans[0].hash, "1"]);
+      expect(next).toMatchObject({ result: { outcome: "admitted" } });
+      const predecessor = await dossier.setup.from("takeoff_launch_requests").select("predecessor_job_id")
+        .eq("id", next.result!.requestId).single();
+      expect(predecessor.data?.predecessor_job_id).toBe(newA.id);
+      await ui.browser.reload();
+      await waitForHydration(ui.browser);
+      await expect(comparison).toContainText(detailRequest);
+      await expect(comparison).toContainText("Lecture terminée");
+      await expect(comparison).toContainText("Lecture précédente · 2 u");
+
+      const readReceipt = (item: string, plan: string, requestId: string) => {
+        const query = new URLSearchParams({ item, plan, jobId: detailJob, requestId });
+        return apiRequest(ui.browser, "GET", `/api/affaires/${dossier.projectId}/takeoff/items/remeasure?${query}`);
+      };
+      for (const [item, plan, requested] of [[ids[LAVABO], planA, detailRequest], [ids[WC], planB, detailRequest],
+        [ids[WC], planA, next.result!.requestId!]]) {
+        expect(await readReceipt(item, plan, requested)).toMatchObject({ status: 200, body: { ok: true, data: null } });
+      }
+      // Another member of the same affaire can open the item but cannot follow the payer's receipt.
+      const colleague = await signUpWorkerOwner(ui, "TKPR3R");
+      await querySql(`update public.tenant_memberships set is_default = false where user_id = '${colleague.userId}';
+        insert into public.tenant_memberships (tenant_id,user_id,role,is_default)
+        values ('${owner.tenantId}','${colleague.userId}','director',true);`);
+      expect(await readReceipt(ids[WC], planA, detailRequest)).toMatchObject({ status: 200, body: { ok: true, data: null } });
+      await recordEvidence(ui.army, "takeoff-item-remeasure", { requestId, screenshots, detailJob, jobs: [jobA.id, jobB.id, newA.id, newB.id],
         added: added.map(({ plan_file_id, outcome }) => [plan_file_id === planA ? "A" : "B", outcome]) });
     } finally {
       await deactivateOwnedItemListOrder();

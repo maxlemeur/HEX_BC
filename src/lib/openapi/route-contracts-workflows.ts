@@ -9,6 +9,7 @@ import {
   itemRemeasureCommandSchema,
   itemRemeasurePreviewRequestSchema,
   itemRemeasurePreviewSchema,
+  itemMeasureReadingsSchema,
   itemRemeasureResultSchema,
   itemReviewCommandSchema,
   itemReviewResultSchema,
@@ -737,6 +738,7 @@ const takeoffOperationsContracts: RouteContract[] = [
     tags: ["Takeoff"],
     pathParameters: [{ name: "projectId", schema: uuidSchema, description: "Affaire cible." }],
     queryParameters: [
+      { name: "detail", schema: z.literal("1"), description: "Pour un poste sans lecture, inclure les plans de la préparation confirmée." },
       { name: "plan", schema: z.string().max(200), description: "Portée d’un plan (son identité logique) ; sans valeur, toute l’affaire." },
       { name: "state", schema: z.enum(ITEM_AGGREGATE_STATES), description: "États à garder (répétable ou séparé par des virgules)." },
       { name: "family", schema: z.string().max(4000), description: "Chemins de sections à garder (répétable)." },
@@ -759,6 +761,9 @@ const takeoffOperationsContracts: RouteContract[] = [
     tags: ["Takeoff"],
     pathParameters: [{ name: "projectId", schema: uuidSchema, description: "Affaire cible." },
       { name: "itemId", schema: uuidSchema, description: "Poste de la liste." }],
+    queryParameters: [
+      { name: "detail", schema: z.literal("1"), description: "Pour un poste sans lecture, inclure les plans de la préparation confirmée." },
+    ],
     success: [{ status: "200", description: "Le poste.", schema: {
       schemaName: "ApiTakeoffItemLineResponse", schema: z.object({ ok: z.literal(true), data: itemTableLineResponseSchema }), io: "output",
     } }],
@@ -821,6 +826,22 @@ const takeoffOperationsContracts: RouteContract[] = [
     body: { schema: itemRemeasurePreviewRequestSchema, description: "Portée et postes sélectionnés (un seul suffit)." },
     success: [{ status: "200", description: "Aperçu de la demande.", schema: {
       schemaName: "ApiTakeoffItemRemeasurePreviewResponse", schema: z.object({ ok: z.literal(true), data: itemRemeasurePreviewSchema }), io: "output",
+    } }],
+  },
+  {
+    id: "read-affaire-takeoff-item-measure",
+    method: "get",
+    path: "/api/affaires/{projectId}/takeoff/items/remeasure",
+    summary: "Comparer les lectures d’une mesure du membre sur ce plan",
+    description: "État de la demande du membre et réponses précédente et nouvelle pour le poste et le plan.",
+    tags: ["Takeoff"],
+    pathParameters: [{ name: "projectId", schema: uuidSchema, description: "Affaire cible." }],
+    queryParameters: [{ name: "item", schema: uuidSchema, required: true, description: "Poste." },
+      { name: "plan", schema: uuidSchema, required: true, description: "Plan." },
+      { name: "jobId", schema: uuidSchema, description: "Analyse du reçu, avec requestId. Sans reçu, la dernière mesure du membre." },
+      { name: "requestId", schema: uuidSchema, description: "Demande du reçu, avec jobId." }],
+    success: [{ status: "200", description: "Lectures à comparer.", schema: {
+      schemaName: "ApiTakeoffItemMeasureReadings", schema: z.object({ ok: z.literal(true), data: itemMeasureReadingsSchema }), io: "output",
     } }],
   },
   {
