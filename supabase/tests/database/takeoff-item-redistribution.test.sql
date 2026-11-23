@@ -1,0 +1,128 @@
+begin;
+create extension if not exists pgtap with schema extensions;
+set local search_path=extensions,public,pg_catalog;
+select no_plan();
+\ir ../fixtures/takeoff-item-redistribution.sql
+
+create temp table kept_line as select * from public.estimate_items where id=pg_temp.f(62);
+create temp table initial_parts as select id,to_jsonb(p)-'target_id' as raw from public.takeoff_item_send_parts p where version_id=pg_temp.f(30);
+create temp table initial_pages as select * from public.takeoff_item_send_pages where version_id=pg_temp.f(30);
+create temp table initial_receipts as select * from public.takeoff_item_send_receipts where version_id=pg_temp.f(30);
+create function pg_temp.preview(mode text, actor integer default 1, project integer default 20) returns jsonb language sql as $$
+  select public.preview_takeoff_item_redistribution(pg_temp.f(10),pg_temp.f(actor),pg_temp.f(project),pg_temp.f(30),pg_temp.f(50),mode,true)
+$$;
+create function pg_temp.confirm(mode text,digest text,request integer) returns jsonb language sql as $$
+  select public.redistribute_takeoff_item(pg_temp.f(10),pg_temp.f(1),pg_temp.f(20),pg_temp.f(30),pg_temp.f(50),mode,true,pg_temp.f(request),digest)
+$$;
+create temp table shown as select pg_temp.preview('by_level') as plan;
+select is((select plan->'blockers' from shown),'[]'::jsonb,'intact line is movable');
+select results_eq($$select value->>'label',(value->>'quantity')::numeric from shown,jsonb_array_elements(plan->'destinations') order by 1$$,
+  $$values ('A · R+1'::text,2::numeric),('A · RDC',3)$$,'the preview splits the five by their plans');
+select throws_ok($$select pg_temp.preview('by_level',2)$$,'42501','REDISTRIBUTION_FORBIDDEN','a reader cannot preview');
+select throws_ok($$select pg_temp.preview('by_level',3)$$,'42501','REDISTRIBUTION_FORBIDDEN','another tenant cannot preview');
+select throws_ok($$select pg_temp.preview('by_level',1,21)$$,'42501','REDISTRIBUTION_FORBIDDEN','another affaire cannot preview this version');
+savepoint before_seal;
+set local session_replication_role=replica;
+update public.estimate_versions set status='sent' where id=pg_temp.f(30);
+set local session_replication_role=origin;
+select throws_ok($$select pg_temp.preview('by_level')$$,'55000','REDISTRIBUTION_SEALED','issued versions stay read-only');
+select throws_ok($$select pg_temp.confirm('by_level',(select plan->>'digest' from shown),210)$$,'55000','REDISTRIBUTION_SEALED','an earlier preview cannot write after issue');
+rollback to before_seal;
+create function pg_temp.edited_preview(statement text) returns jsonb language plpgsql as $$
+declare observed jsonb;
+begin
+  begin
+    perform set_config('miaouffrage.estimate_v3_writer',pg_temp.f(30)::text,true);
+    execute statement;
+    observed := pg_temp.preview('by_level');
+    raise exception using errcode='Z0001';
+  exception when sqlstate 'Z0001' then null;
+  end;
+  return observed;
+end;
+$$;
+select is(pg_temp.edited_preview('update public.estimate_items set quantity=7 where id=pg_temp.f(61)')#>>'{blockers,0,title}',
+  'Lavabo','the line with a typed quantity is named');
+select is(pg_temp.edited_preview('update public.estimate_items set quantity=7 where id=pg_temp.f(61);
+  update public.estimate_items set quantity=5 where id=pg_temp.f(61)')#>>'{blockers,0,reason}',
+  'edited','a manual edit remains protected even when the quantity later equals the measured total');
+select is(pg_temp.edited_preview('update public.estimate_items set unit_price_ht_cents=3250,h_mo_per_unit=1.5 where id=pg_temp.f(61)')#>>'{blockers,0,title}',
+  'Lavabo','the priced line is protected');
+select is(pg_temp.edited_preview($$update public.estimate_items set title='Section personnalisée' where id=pg_temp.f(60)$$)#>>'{blockers,0,title}',
+  'Section personnalisée','the edited section is named');
+select is(pg_temp.edited_preview($$insert into public.estimate_item_outlier_dismissals(tenant_id,version_id,item_id,flag_key,dismissed_by)
+  values(pg_temp.f(10),pg_temp.f(30),pg_temp.f(61),'quantity_outlier',pg_temp.f(1))$$)#>>'{blockers,0,reason}',
+  'used','a real third-party reference protects the line');
+select is(pg_temp.edited_preview('delete from public.estimate_items where id=pg_temp.f(61)')#>>'{blockers,0,reason}',
+  'deleted','a line deleted deliberately is not recreated');
+select is((select plan->'remove_lines' from shown),jsonb_build_array(pg_temp.f(61)), 'only the original line will be removed');
+select is(pg_temp.preview('together')#>>'{blockers,0,reason}','unchanged','a confirmation must actually move contributions');
+savepoint before_missing_lease;
+delete from public.draft_locks where version_id=pg_temp.f(30);
+select throws_ok($$select pg_temp.confirm('by_level',(select plan->>'digest' from shown),205)$$,'55P03','REDISTRIBUTION_LEASE','confirmation needs the member lease');
+rollback to before_missing_lease;
+savepoint before_mixed;
+set local session_replication_role=replica;
+insert into public.estimate_items select (jsonb_populate_record(null::public.estimate_items,
+  to_jsonb(i)||jsonb_build_object('id',pg_temp.f(63),'position',3,'quantity',2))).*
+  from public.estimate_items i where id=pg_temp.f(61);
+insert into public.takeoff_item_send_targets select (jsonb_populate_record(null::public.takeoff_item_send_targets,
+  to_jsonb(t)||jsonb_build_object('id',pg_temp.f(91),'estimate_item_id',pg_temp.f(63),'breakdown','by_level','compartment_key','unallocated'))).*
+  from public.takeoff_item_send_targets t where id=pg_temp.f(90);
+update public.takeoff_item_send_parts set target_id=pg_temp.f(91) where id=pg_temp.f(102);
+set local session_replication_role=origin;
+select ok(pg_temp.preview('by_level')->'blockers' @> '[{"reason":"mixed","title":"Lavabo"}]','a draft mixing modes for one item names its lines');
+select throws_ok($$select pg_temp.confirm('by_level',pg_temp.preview('by_level')->>'digest',206)$$,'55000','REDISTRIBUTION_PROTECTED','even a fresh mixed plan writes nothing');
+rollback to before_mixed;
+create temp table result as select pg_temp.confirm('by_level',plan->>'digest',200) as receipt from shown;
+select results_eq($$select t.compartment_key,i.quantity from public.takeoff_item_send_targets t join public.estimate_items i on i.id=t.estimate_item_id
+  where t.item_id=pg_temp.f(50) order by 1$$,$$values ('level:["a","r+1"]'::text,2::numeric),('level:["a","rdc"]',3)$$,'the two lines hold the announced quantities');
+select is((select pg_temp.confirm('by_level',plan->>'digest',200)->>'receipt_id' from shown),
+  (select receipt->>'receipt_id' from result),'the same intention returns the original receipt');
+select throws_ok($$select pg_temp.confirm('by_level',(select plan->>'digest' from shown),201)$$,'40001','REDISTRIBUTION_STALE','another intention requires a fresh preview');
+select is((select receipt->'source_receipts' from result),jsonb_build_array(pg_temp.f(71),pg_temp.f(72)),'receipt names both sends');
+select is((select jsonb_array_length(receipt->'moves') from result),2,'receipt records each move');
+select results_eq($$select (held.value->>'part_id')::uuid,(held.value->>'estimate_item_id')::uuid
+  from initial_pages page cross join lateral jsonb_array_elements(private.takeoff_item_send_held_pages(
+    pg_temp.f(10),pg_temp.f(30),pg_temp.f(199),page.document,array[1])) seen
+  cross join lateral jsonb_array_elements(seen->'parts') held order by 1$$,
+  $$select p.id,t.estimate_item_id from public.takeoff_item_send_parts p join public.takeoff_item_send_targets t on t.id=p.target_id
+  where p.version_id=pg_temp.f(30) order by p.id$$,'page guard finds the original part on its new physical line');
+select is((select estimate_item_id from public.takeoff_item_send_targets where id=pg_temp.f(90)),null::uuid,'retired target keeps its history');
+select is((select count(*) from public.takeoff_item_send_targets where created_by_receipt_id=(select (receipt->>'receipt_id')::uuid from result)),
+  2::bigint,'both new targets refer to this receipt');
+
+-- Synthetic same-scope destinations exist after the split. Altering anything else is prohibited even inside the command.
+create function pg_temp.move_sql(extra text) returns text language sql as $$
+  select format('update public.takeoff_item_send_parts set target_id=%L %s where id=%L',
+    (select target_id from public.takeoff_item_send_parts where id=pg_temp.f(102)),extra,pg_temp.f(101))
+$$;
+select set_config('mergeone.takeoff_item_redistribution',pg_temp.f(200)::text,true);
+select throws_ok(pg_temp.move_sql(',quantity=9'),'42501','TAKEOFF_ITEM_SEND_IMMUTABLE','move cannot change quantity');
+select throws_ok(pg_temp.move_sql(',pages=array[2]'),'42501','TAKEOFF_ITEM_SEND_IMMUTABLE','move cannot change pages');
+select throws_ok(pg_temp.move_sql($$,state='redistributed'$$),'42501','TAKEOFF_ITEM_SEND_IMMUTABLE','reserved state stays unwritten');
+select throws_ok(pg_temp.move_sql(',item_id=gen_random_uuid()'),'42501','TAKEOFF_ITEM_SEND_IMMUTABLE','move cannot change item');
+create temp table direct_move as select pg_temp.move_sql('') as statement;
+grant select on direct_move to service_role,authenticated;
+set local role service_role;
+select throws_ok((select statement from direct_move),'42501','TAKEOFF_ITEM_SEND_WRITER_REQUIRED','service role direct write is refused even with the marker');
+reset role;
+set local role authenticated;
+select throws_ok((select statement from direct_move),'42501','permission denied for table takeoff_item_send_parts','member with the marker has SELECT only');
+reset role;
+select set_config('mergeone.takeoff_item_redistribution','',true);
+select set_config('mergeone.takeoff_item_send','send',true);
+select throws_ok(pg_temp.move_sql(''),'42501','TAKEOFF_ITEM_SEND_IMMUTABLE','the send cannot move a part');
+select set_config('mergeone.takeoff_item_send','',true);
+select pg_temp.confirm('together',pg_temp.preview('together')->>'digest',202);
+select results_eq($$select i.quantity from public.takeoff_item_send_targets t join public.estimate_items i on i.id=t.estimate_item_id where t.item_id=pg_temp.f(50)$$,
+  $$values (5::numeric)$$,'back to one line of five');
+select results_eq($$select id,to_jsonb(p)-'target_id' from public.takeoff_item_send_parts p where version_id=pg_temp.f(30) order by id$$,
+  $$select * from initial_parts order by id$$,'every raw column of both original parts is conserved');
+select results_eq($$select * from public.takeoff_item_send_pages where version_id=pg_temp.f(30) order by id$$,$$select * from initial_pages order by id$$,'same pages and part IDs');
+select results_eq($$select * from public.takeoff_item_send_receipts where version_id=pg_temp.f(30) and command_kind='send' order by id$$,
+  $$select * from initial_receipts order by id$$,'the two send receipts stay unchanged');
+select results_eq($$select * from public.estimate_items where id=pg_temp.f(62)$$,$$select * from kept_line$$,
+  'every column of the unrelated priced line survives both redistributions');
+select * from finish();
+rollback;

@@ -620,6 +620,8 @@ select ok(extensions.dblink_error_message('race_b') like '%TAKEOFF_ITEM_SEND_DRA
 select is((select count(*)::integer from extensions.dblink_get_result('race_b', false) as x(answer text)), 0, 'and is done');
 select is((select string_agg(i.id || ':' || i.quantity || ':' || i.updated_at, ',' order by i.id) from public.estimate_items i
   where i.version_id = pg_temp.f(730)), (select rows_ from estimate_before), 'the estimate is unchanged');
+\ir ../fixtures/takeoff-item-redistribution-races.sql
+
 select is(extensions.dblink_exec('race_setup', $cleanup$
 begin;
 set local session_replication_role = replica;
