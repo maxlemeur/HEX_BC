@@ -3433,6 +3433,18 @@ begin
   perform pg_advisory_xact_lock(hashtextextended('takeoff-rules:'||p_version,0));
   perform pg_advisory_xact_lock(hashtextextended(p_version::text,0));
   perform 1 from public.estimate_versions where (tenant_id,project_id,id)=(p_tenant,p_project,p_version) for update;
+  -- The version lock serializes duplicate confirmations with the first commit
+  -- and with issuance. Recover an authorized committed intent before asking
+  -- whether the draft can still accept a new write.
+  select * into prior from public.takeoff_item_send_receipts where tenant_id=p_tenant and request_id=p_intent;
+  if found then
+    perform private.takeoff_redistribution_check_scope(p_tenant,p_actor,p_project,p_version,p_module);
+    if prior.command_kind='revise' and prior.amends_receipt_id=p_receipt and prior.version_id=p_version and prior.project_id=p_project
+      and prior.actor_id=p_actor and prior.plan_sha256=p_digest and prior.write_plan->'choices'=p_choices then
+      return prior.result||jsonb_build_object('receipt_id',prior.id,'replayed',true);
+    end if;
+    raise exception 'TAKEOFF_REVISION_INTENT_CONFLICT' using errcode='40001';
+  end if;
   job:=private.takeoff_revision_scope(p_tenant,p_project,p_version,p_receipt);
   perform pg_advisory_xact_lock(hashtextextended('takeoff-job-rules:'||job,0));
   perform pg_advisory_xact_lock(hashtextextended('takeoff-job:'||job,0));
@@ -3456,14 +3468,6 @@ begin
     or i.id in (select private.takeoff_uuid_or_null(e->'estimate_item_id')
       from jsonb_array_elements(p_choices#>'{send_plan,dependencies,lines}') e)) order by i.id for update;
   perform private.takeoff_redistribution_check_scope(p_tenant,p_actor,p_project,p_version,p_module);
-  select * into prior from public.takeoff_item_send_receipts where tenant_id=p_tenant and request_id=p_intent;
-  if found then
-    if prior.command_kind='revise' and prior.amends_receipt_id=p_receipt and prior.version_id=p_version
-      and prior.actor_id=p_actor and prior.plan_sha256=p_digest and prior.write_plan->'choices'=p_choices then
-      return prior.result||jsonb_build_object('receipt_id',prior.id,'replayed',true);
-    end if;
-    raise exception 'TAKEOFF_REVISION_INTENT_CONFLICT' using errcode='40001';
-  end if;
   preview:=public.preview_takeoff_contribution_revision(p_tenant,p_actor,p_project,p_version,p_receipt,p_module,p_choices);
   if preview->>'digest' is distinct from p_digest then raise exception 'TAKEOFF_REVISION_STALE' using errcode='40001'; end if;
   if preview->'changes'='[]' or preview->'blockers'<>'[]' then

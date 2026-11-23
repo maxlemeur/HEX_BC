@@ -274,3 +274,4 @@ select is(pg_temp.length_to_count_line(),
   'changing a length line to a count blocks the measured replacement under the same unit rule');
 \ir takeoff-revision-precision.sql
 \ir takeoff-revision-include-hypothesis.sql
+\ir takeoff-revision-sealed-replay.sql
