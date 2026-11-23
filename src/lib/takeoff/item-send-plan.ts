@@ -707,8 +707,12 @@ export function planTakeoffItemSend(input: ItemSendInput): ItemSendPlan {
   };
   /** An item of a DPGF import goes to a line of that import while the draft holds one (never to a new line then). */
   const dpgfBound = (item: ItemSendListItem) => item.origin.kind === "dpgf" && linesOfImport(item.origin.importId).length > 0;
+  // An item that holds a live DPGF target in the draft reserves that line (claimed above) and no other: a line of its raw
+  // row come back stays free for another item.
+  const holdsDpgfTarget = (item: ItemSendListItem) => input.earlier.targets.some((target) => lower(target.itemId) === lower(item.id)
+    && target.breakdown === "dpgf" && draftLines.some((line) => lower(line.id) === lower(target.estimateItemId)));
   for (const item of scoped) {
-    if (!dpgfBound(item)) continue;
+    if (!dpgfBound(item) || holdsDpgfTarget(item)) continue;
     const proven = dpgfCandidates(item);
     if (proven.length === 1) claim(proven[0].id, item.id);
   }
@@ -983,7 +987,13 @@ export function planTakeoffItemSend(input: ItemSendInput): ItemSendPlan {
 
     if (dpgfItem) {
       const candidates = dpgfCandidates(item);
-      let line = candidates.length === 1 ? candidates[0] : null;
+      // The item's live DPGF target in the destination comes first, as the writer feeds it (one live DPGF target per item
+      // and version): the line proven or chosen once is the item's line. Another line of its row (a section copied in the
+      // editor, an ordinary line of the draft) or a line of its raw row come back is never asked about nor chosen; the
+      // raw row's match counts only when the item has no live target here.
+      const fedLine = draftLines.find((candidate) => input.earlier.targets.some((target) => lower(target.itemId) === lower(item.id)
+        && target.breakdown === "dpgf" && lower(target.estimateItemId) === lower(candidate.id)));
+      let line = fedLine ?? (candidates.length === 1 ? candidates[0] : null);
       let resolution: ItemSendChoice["kind"] | null = null;
       if (!line) {
         const key = `target:${targetKey}`;

@@ -451,8 +451,9 @@ describe("confirmTakeoffItemSend", () => {
     setUp({});
     const preview = await previewTakeoffItemSend(JOB, {});
     const state = await computeItemSendState({ ...(await getAuthenticatedTakeoffContext()), tenantRole: "admin" } as never, JOB, {});
-    return { preview, receipt: { id: "efefefef-efef-4fef-8fef-efefefefefef", tenant_id: TENANT, request_id: REQUEST_ID, job_id: JOB,
-      project_id: PROJECT, version_id: VERSION, actor_id: MEMBER, write_plan: JSON.parse(JSON.stringify(state.writePlan)), result: { job_id: JOB,
+    return { preview, receipt: { id: "efefefef-efef-4fef-8fef-efefefefefef", tenant_id: TENANT, request_id: REQUEST_ID,
+      command_kind: "send", job_id: JOB, project_id: PROJECT, version_id: VERSION, actor_id: MEMBER,
+      write_plan: JSON.parse(JSON.stringify(state.writePlan)), result: { job_id: JOB,
         version_id: VERSION, version_created: true, lines_written: 1, parts_written: 1, parts_replaced: 0, focus_item_id: LINE },
       ...overrides } };
   }
@@ -478,6 +479,19 @@ describe("confirmTakeoffItemSend", () => {
     expect(written).toEqual([]);
   });
 
+  // The copy of a draft fed by item (#500) meets the landing of #499: a copy's receipt names no job, so a plan already sent
+  // lands on the version its send wrote, never on a copy of it, even one whose receipt would come first.
+  it("lands a plan already sent on its send's version, never on a copy's receipt", async () => {
+    const { receipt } = await committedReceipt();
+    const copyReceipt = { id: "cdcdcdcd-cdcd-4dcd-8dcd-cdcdcdcdcdcd", tenant_id: TENANT, request_id: null, command_kind: "copy", job_id: null,
+      project_id: PROJECT, version_id: OTHER_VERSION, actor_id: MEMBER, write_plan: {}, created_at: "2026-11-22T00:00:00.000Z",
+      result: { version_id: OTHER_VERSION, copied_from_receipt_id: receipt.id, source_job_id: JOB } };
+    setUp({ receipts: [copyReceipt, { ...receipt, created_at: "2026-11-22T01:00:00.000Z" }], sent: true });
+    const preview = await previewTakeoffItemSend(JOB, {});
+    expect(preview.blocked).toEqual({ reason: "already_sent", message: "Les postes de ce plan ont déjà été envoyés au devis.",
+      href: `/dashboard/estimates/${VERSION}/edit?focusItemId=${LINE}` });
+  });
+
   it("replays only the same choices, of the same author, still allowed to write (closing 9)", async () => {
     const { preview, receipt } = await committedReceipt();
     setUp({ receipts: [receipt] });
@@ -500,6 +514,32 @@ describe("confirmTakeoffItemSend", () => {
     const error = await refusal(confirmTakeoffItemSend(JOB, { request_id: REQUEST_ID, plan_digest: preview.plan_digest }));
     expect([error.status, (error.details as { guard?: string }).guard]).toEqual([409, "item_send_preview_stale"]);
     expect(written).toEqual([]);
+  });
+
+  it("answers stale when a line the plan feeds was typed by hand after the preview (follow-up of #484)", async () => {
+    const fed: Row = { id: LINE, tenant_id: TENANT, version_id: VERSION, parent_id: null, item_type: "line", position: 1, title: "Lavabo",
+      unit_code: "u", pricing_status: "priced", quantity: 3, updated_at: "2026-11-22T08:00:00.000Z", source_provider: "takeoff" };
+    setUp({ versions: [version(VERSION, 3)], items: [fed] });
+    vi.mocked(readItemSendEarlierState).mockResolvedValue({ targets: [{ itemId: LAVABO, breakdown: "together", compartmentKey: "together",
+      estimateItemId: LINE, parts: [{ jobId: "job-earlier", answerId: "answer-earlier", observationIds: ["obs-earlier"], quantity: 3,
+        unit: "u", basis: null, qualifiers: {}, pages: [9], planKey: "plan-earlier" }] }], sections: [], displaced: [], pagesInEstimate: [] });
+    const preview = await previewTakeoffItemSend(JOB, {});
+    expect([preview.confirmable, preview.lines]).toEqual([true, [expect.objectContaining({ estimate_item_id: LINE, quantity_before: 3 })]]);
+    // The member types the line's quantity in the editor meanwhile: the confirmation meets a line to settle that the
+    // preview did not show, a preview to read again, never a refusal of what the member confirmed.
+    Object.assign(fed, { quantity: 7, updated_at: "2026-11-22T09:00:00.000Z" });
+    const error = await refusal(confirmTakeoffItemSend(JOB, { request_id: REQUEST_ID, plan_digest: preview.plan_digest }));
+    expect([error.status, (error.details as { guard?: string }).guard]).toEqual([409, "item_send_preview_stale"]);
+    expect(written).toEqual([]);
+  });
+
+  it("never answers a copy's receipt as a send's: its intention key reaches the writer (review of #500, point 3)", async () => {
+    // A receipt « copy » (a copy of a draft carried it) under the member's intention key: never the replay of a send.
+    setUp({ receipts: [{ id: "cdcdcdcd-cdcd-4dcd-8dcd-cdcdcdcdcdcd", tenant_id: TENANT, request_id: REQUEST_ID, command_kind: "copy",
+      job_id: JOB, project_id: PROJECT, actor_id: MEMBER, write_plan: {}, result: {} }] });
+    const preview = await previewTakeoffItemSend(JOB, {});
+    await confirmTakeoffItemSend(JOB, { request_id: REQUEST_ID, plan_digest: preview.plan_digest });
+    expect(written).toEqual([expect.objectContaining({ p_request: expect.objectContaining({ request_id: REQUEST_ID }) })]);
   });
 
   it("gives the member what to do for a refusal of the guard of the applied job, never the generic failure", () => {
