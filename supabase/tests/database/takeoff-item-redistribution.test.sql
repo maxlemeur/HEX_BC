@@ -85,19 +85,30 @@ select is(pg_temp.edited_preview($$update public.estimate_items set title='Secti
 select is(pg_temp.edited_preview($$insert into public.estimate_item_outlier_dismissals(tenant_id,version_id,item_id,flag_key,dismissed_by)
   values(pg_temp.f(10),pg_temp.f(30),pg_temp.f(61),'quantity_outlier',pg_temp.f(1))$$)#>>'{blockers,0,reason}',
   'used','a real third-party reference protects the line');
--- Live business references include historical modules that do not declare an FK.
-select is(pg_temp.edited_preview($q$
-  insert into private.estimate_source_reviews(id,tenant_id,project_id,version_id,revision)
-    values(pg_temp.f(400),pg_temp.f(10),pg_temp.f(20),pg_temp.f(30),1);
-  insert into private.estimate_source_coverage_requirements(id,review_id,revision,prescription,expected_service,scope)
-    values(pg_temp.f(401),pg_temp.f(400),1,'Sanitaires','Lavabo','{"mode":"unspecified"}');
-  insert into private.estimate_source_coverage_links(id,requirement_id,kind,item_id,justification,target_key)
-    values(pg_temp.f(402),pg_temp.f(401),'line',pg_temp.f(61),'Lot sanitaire','line:'||pg_temp.f(61))
-$q$)#>>'{blockers,0,reason}','used','the CCTP requirement keeps its available estimate line');
-select is(pg_temp.edited_preview($q$
-  insert into public.affaire_register_entries(tenant_id,project_id,version_id,kind,text,status,origin_kind,scope_type,scope_id,scope_label)
-    values(pg_temp.f(10),pg_temp.f(20),pg_temp.f(30),'assumption','Conserver le lavabo','open','manual','line',pg_temp.f(61),'Lavabo')
-$q$)#>>'{blockers,0,reason}','used','the line-scoped affaire register protects the line');
+-- Coverage and register scopes must still resolve after a refused confirmation.
+savepoint cctp;
+insert into private.estimate_source_reviews(id,tenant_id,project_id,version_id,revision)
+  values(pg_temp.f(400),pg_temp.f(10),pg_temp.f(20),pg_temp.f(30),1);
+insert into private.estimate_source_coverage_requirements(id,review_id,revision,prescription,expected_service,scope)
+  values(pg_temp.f(401),pg_temp.f(400),1,'Sanitaires','Lavabo','{"mode":"unspecified"}');
+insert into private.estimate_source_coverage_links(id,requirement_id,kind,item_id,justification,target_key)
+  values(pg_temp.f(402),pg_temp.f(401),'line',pg_temp.f(61),'Lot sanitaire','line:'||pg_temp.f(61));
+select ok(pg_temp.preview('by_level')->'blockers' @> '[{"reason":"used","title":"Lavabo"}]','CCTP names its protected line');
+select throws_ok($$select pg_temp.confirm('by_level',pg_temp.preview('by_level')->>'digest',213)$$,'55000','REDISTRIBUTION_PROTECTED',
+  'a fresh confirmation refuses the CCTP dependency');
+select is(private.source_coverage_facts(pg_temp.f(401))#>>'{targets,0,state}','available','the real coverage reader still resolves the line');
+update private.estimate_source_coverage_requirements set scope=jsonb_build_object('dpgfLotId',pg_temp.f(62)) where id=pg_temp.f(401);
+select is(private.takeoff_redistribution_used_lines(array[pg_temp.f(62)]),array[pg_temp.f(62)],'the JSON scope protects its referenced identifier');
+rollback to cctp;
+savepoint registre;
+insert into public.affaire_register_entries(tenant_id,project_id,version_id,kind,text,status,origin_kind,scope_type,scope_id,scope_label)
+  values(pg_temp.f(10),pg_temp.f(20),pg_temp.f(30),'assumption','Conserver le lavabo','open','manual','line',pg_temp.f(61),'Lavabo');
+select ok(pg_temp.preview('by_level')->'blockers' @> '[{"reason":"used","title":"Lavabo"}]','the register names its protected line');
+select throws_ok($$select pg_temp.confirm('by_level',pg_temp.preview('by_level')->>'digest',214)$$,'55000','REDISTRIBUTION_PROTECTED',
+  'a fresh confirmation refuses the register dependency');
+select is((select i.title from public.affaire_register_entries e join public.estimate_items i on i.id=e.scope_id
+  where e.version_id=pg_temp.f(30)),'Lavabo','the register still names its physical line');
+rollback to registre;
 \ir ../fixtures/takeoff-item-redistribution-uses.sql
 select is(pg_temp.edited_preview('delete from public.estimate_items where id=pg_temp.f(61)')#>>'{blockers,0,reason}',
   'deleted','a line deleted deliberately is not recreated');
