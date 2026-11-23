@@ -60,6 +60,8 @@ export const TAKEOFF_ITEM_DETAIL_PARAMS = {
   generation: "generation",
   answerId: "reponse",
   observationId: "observation",
+  measureRequestId: "demandeMesure",
+  measureJobId: "analyseMesure",
   versionId: "versionId",
 } as const;
 
@@ -72,6 +74,7 @@ export type TakeoffItemDetailHrefInput = {
   source?: { documentId: string; generation?: string | null } | null;
   answerId?: string | null;
   observationId?: string | null;
+  receipt?: { requestId: string; jobId: string };
   versionId?: string | null;
   /** The query of the page the detail is opened from (the table's `poste…` parameters and the page's own): kept as is. */
   from?: string | URLSearchParams;
@@ -95,6 +98,8 @@ export function takeoffItemDetailHref(input: TakeoffItemDetailHrefInput): string
     generation: input.source ? input.source.generation : null,
     answerId: input.answerId,
     observationId: input.observationId,
+    measureRequestId: input.receipt?.requestId,
+    measureJobId: input.receipt?.jobId,
     versionId: input.versionId,
   };
   for (const [key, name] of Object.entries(TAKEOFF_ITEM_DETAIL_PARAMS) as Array<[keyof typeof TAKEOFF_ITEM_DETAIL_PARAMS, string]>) {

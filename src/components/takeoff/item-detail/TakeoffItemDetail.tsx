@@ -511,6 +511,7 @@ function ItemDetailView({ projectId, address, reader, tableQuery, onBack, onGest
               {canReview && line && view?.plan.planFileId && view.document.kind !== "unavailable" && !earlierReading ? (
                 <MeasureItemOnPlan key={`${itemId}:${view.plan.key}:${view.plan.planFileId}`} projectId={projectId} line={line}
                   plan={view.plan} page={opening.page} listRevisionId={fresh[itemId]?.listRevisionId ?? (outside?.line.itemId === itemId ? outside.listRevisionId : context?.listRevisionId) ?? null}
+                  receipt={address.receipt} onFollow={(receipt) => go({ receipt })}
                   onOpenCurrent={() => setCurrentCopy({ original: originalKey, plan: view.plan.key, revision: (current?.revision ?? 0) + 1 })}
                   onRefused={measureRefused} onRefresh={() => { rereadItem(itemId); go({ planKey: view.plan.key, jobId: null, answerId: null, observationId: null, source: null }); }} />
               ) : null}
@@ -540,7 +541,7 @@ function ItemDetailView({ projectId, address, reader, tableQuery, onBack, onGest
                 decide={{ offer, onGesture: (requested) => gesture(requested, null) }}
                 onObservation={(observation) => go({ page: observation.page, observationId: observation.observationId,
                   answerId: answer?.answerId ?? null })}
-                onPlan={(planKey, jobId) => go({ planKey, jobId, page: null, source: null, answerId: null, observationId: null })} />
+                onPlan={(planKey, jobId) => go({ planKey, jobId, receipt: planKey === view?.plan.key ? address.receipt : undefined, page: null, source: null, answerId: null, observationId: null })} />
             ) : null}
           </div>
         </div>

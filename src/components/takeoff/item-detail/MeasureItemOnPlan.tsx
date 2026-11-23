@@ -6,12 +6,14 @@ import { isTakeoffReadRefusal } from "@/components/takeoff/useTakeoffRequestActi
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { isTakeoffApiError } from "@/lib/takeoff/client-http";
+import type { ItemDetailAddress } from "@/lib/takeoff/item-detail-address";
 import type { ItemDetailPlanView } from "@/lib/takeoff/item-detail-contracts";
 import type { ItemDetailLine } from "@/lib/takeoff/item-detail";
 import { fetchItemMeasureReadings, previewItemRemeasure, sendItemRemeasure } from "@/lib/takeoff/item-table-client";
 import { ITEM_REVIEW_COMMAND_VERSION, type ItemMeasureReadings, type ItemRemeasureCommand, type ItemRemeasurePreview } from "@/lib/takeoff/item-table-contracts";
 
 type Props = { projectId: string; line: ItemDetailLine; plan: ItemDetailPlanView["plan"]; page: number; listRevisionId: string | null;
+  receipt: ItemDetailAddress["receipt"]; onFollow: (receipt: NonNullable<ItemDetailAddress["receipt"]>) => void;
   onRefresh: () => void; onOpenCurrent: () => void; onRefused: (error: unknown) => boolean };
 type Summary = { preview: ItemRemeasurePreview; command: Omit<ItemRemeasureCommand, "setting"> };
 const effects = { first: "Cette mesure donnera une première réponse au poste sur ce plan.",
@@ -35,7 +37,7 @@ function Reading({ title, reading }: { title: string; reading: NonNullable<ItemM
   </div>;
 }
 
-export function MeasureItemOnPlan({ projectId, line, plan, page, listRevisionId, onRefresh, onOpenCurrent, onRefused }: Props) {
+export function MeasureItemOnPlan({ projectId, line, plan, page, listRevisionId, receipt, onFollow, onRefresh, onOpenCurrent, onRefused }: Props) {
   const [open, setOpen] = useState(false);
   const [summary, setSummary] = useState<Summary | null>(null);
   const [message, setMessage] = useState("");
@@ -51,31 +53,38 @@ export function MeasureItemOnPlan({ projectId, line, plan, page, listRevisionId,
   const [unsure, setUnsure] = useState(false);
   const operation = useRef(0);
   const submitting = useRef(false);
-  const receipt = useRef<{ requestId: string; jobId: string } | undefined>(undefined);
-  const completed = useRef<string | null>(null);
+  const readGeneration = useRef(0);
+  const refreshWhenDone = useRef<string | null>(null);
+  const follow = useEffectEvent(onFollow);
+  const requestId = receipt?.requestId;
+  const jobId = receipt?.jobId;
   const refreshed = useEffectEvent(onRefresh);
   useEffect(() => () => { operation.current++; }, []);
   useEffect(() => {
     let live = true;
-    let pendingJob: string | undefined;
+    const generation = readGeneration.current;
+    const followed = requestId && jobId ? { requestId, jobId } : undefined;
+    setReadings(null);
     let timer: ReturnType<typeof setTimeout>;
     async function read() {
-      const followed = receipt.current;
       try {
         const result = await fetchItemMeasureReadings(projectId, line.itemId, plan.key, followed);
-        if (!live || followed !== receipt.current) return;
+        if (!live || generation !== readGeneration.current) return;
         setReadFailed(false);
         setReadings(result);
-        if (result?.state === "queued" || result?.state === "running") {
-          if (!followed) receipt.current = { requestId: result.requestId, jobId: result.jobId };
-          pendingJob = result.jobId;
+        if (!result) return;
+        const pending = result.state === "queued" || result.state === "running";
+        if (pending) refreshWhenDone.current = result.jobId;
+        if (!followed) {
+          follow({ requestId: result.requestId, jobId: result.jobId });
+        } else if (pending) {
           timer = setTimeout(read, 2500);
-        } else if (result && (watch > 0 || pendingJob === result.jobId) && completed.current !== result.jobId) {
-          completed.current = result.jobId;
+        } else if (refreshWhenDone.current === result.jobId) {
+          refreshWhenDone.current = null;
           refreshed();
         }
       } catch (error) {
-        if (!live || followed !== receipt.current) return;
+        if (!live || generation !== readGeneration.current) return;
         if (isTakeoffReadRefusal(error) && onRefused(error)) return;
         setReadFailed(true);
         setMessage(failure(error));
@@ -83,7 +92,7 @@ export function MeasureItemOnPlan({ projectId, line, plan, page, listRevisionId,
     }
     void read();
     return () => { live = false; clearTimeout(timer); };
-  }, [projectId, line.itemId, plan.key, watch, onRefused]);
+  }, [projectId, line.itemId, plan.key, requestId, jobId, watch, onRefused]);
 
   async function show(onlyPage: boolean, keepSetting = false) {
     if (submitting.current || !plan.planFileId) return;
@@ -131,11 +140,15 @@ export function MeasureItemOnPlan({ projectId, line, plan, page, listRevisionId,
         setMessage("Une demande de métré est déjà active sur cette affaire. Votre sélection est conservée.");
         setNeedsPreview(true);
       } else {
-        if (result.receipt && result.requestId) receipt.current = { requestId: result.requestId, jobId: result.receipt.jobId };
+        if (result.receipt && result.requestId) {
+          readGeneration.current++;
+          refreshWhenDone.current = result.receipt.jobId;
+          onFollow({ requestId: result.requestId, jobId: result.receipt.jobId });
+        }
         setReadings(null);
         setOpen(false);
         setMessage(`Demande enregistrée sur votre forfait. Reçu ${result.requestId}.`);
-        setWatch((n) => n + 1);
+        if (result.receipt?.jobId === jobId) setWatch((n) => n + 1);
       }
     } catch (error) {
       if ((isTakeoffReadRefusal(error) && onRefused(error)) || id !== operation.current) return;

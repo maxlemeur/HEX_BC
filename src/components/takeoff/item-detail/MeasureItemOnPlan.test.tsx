@@ -1,7 +1,9 @@
+import { useState } from "react";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 
 import { basinLine, DETAIL_PROJECT, JOB_RDC, MEMBER, PLAN_RDC, planViews, SET } from "@/lib/takeoff/item-detail.test-fixtures";
+import { itemDetailHref, readItemDetailAddress } from "@/lib/takeoff/item-detail-address";
 import { TakeoffApiError } from "@/lib/takeoff/client-http";
 import { fetchItemMeasureReadings, previewItemRemeasure, sendItemRemeasure } from "@/lib/takeoff/item-table-client";
 import type { ItemRemeasureResult } from "@/lib/takeoff/item-table-contracts";
@@ -10,7 +12,26 @@ import { MeasureItemOnPlan } from "./MeasureItemOnPlan";
 vi.mock("@/lib/takeoff/item-table-client", () => ({
   fetchItemMeasureReadings: vi.fn(), previewItemRemeasure: vi.fn(), sendItemRemeasure: vi.fn(),
 }));
-afterEach(() => { cleanup(); vi.resetAllMocks(); });
+afterEach(() => { cleanup(); window.history.replaceState(null, "", "/"); vi.resetAllMocks(); });
+
+function MeasureFromAddress() {
+  const [query, setQuery] = useState(window.location.search);
+  const read = readItemDetailAddress(new URLSearchParams(query));
+  if (read.kind !== "detail") throw new Error("Expected an item detail address");
+  const follow = (receipt: { requestId: string; jobId: string }) => {
+    const href = itemDetailHref(DETAIL_PROJECT, { ...read.address, receipt }, query);
+    window.history.replaceState(null, "", href);
+    setQuery(window.location.search);
+  };
+  return <MeasureItemOnPlan projectId={DETAIL_PROJECT} line={basinLine} plan={planViews()[JOB_RDC + ":" + PLAN_RDC].plan}
+    receipt={read.address.receipt} onFollow={follow} page={1} listRevisionId={SET}
+    onRefused={neverRefused} onRefresh={vi.fn()} onOpenCurrent={vi.fn()} />;
+}
+const neverRefused = () => false;
+function openMeasure(search = "") {
+  window.history.replaceState(null, "", `?poste=${basinLine.itemId}&plan=${PLAN_RDC}${search}`);
+  return render(<MeasureFromAddress />);
+}
 
 it("keeps one immutable confirmation across a double click and a lost admission response", async () => {
   vi.mocked(fetchItemMeasureReadings).mockResolvedValue(null);
@@ -26,8 +47,7 @@ it("keeps one immutable confirmation across a double click and a lost admission 
   vi.mocked(sendItemRemeasure).mockReturnValueOnce(response.promise).mockResolvedValueOnce({
     outcome: "replayed", requestId: SET, receipt: { intentKey: SET, jobId: JOB_RDC, state: "queued" },
   });
-  render(<MeasureItemOnPlan projectId={DETAIL_PROJECT} line={basinLine} plan={planViews()[JOB_RDC + ":" + PLAN_RDC].plan}
-    page={1} listRevisionId={SET} onRefused={() => false} onRefresh={vi.fn()} onOpenCurrent={vi.fn()} />);
+  openMeasure();
   fireEvent.click(screen.getByRole("button", { name: "Mesurer ce poste" }));
   const model = await screen.findByLabelText("Modèle");
   expect((model as HTMLSelectElement).value).toBe("usual");
@@ -48,7 +68,7 @@ it("keeps one immutable confirmation across a double click and a lost admission 
   expect(screen.getByRole("status").textContent).toContain(SET);
 });
 
-it("follows its own receipt when a second tab has since admitted another measure of the same item", async () => {
+it("follows its own receipt across a reload when a second tab admits another measure of the same item", async () => {
   vi.mocked(fetchItemMeasureReadings).mockResolvedValue(null);
   vi.mocked(previewItemRemeasure).mockResolvedValue({
     plans: [{ key: PLAN_RDC, name: "RDC" }], items: [{ itemId: basinLine.itemId, label: basinLine.label }],
@@ -61,17 +81,33 @@ it("follows its own receipt when a second tab has since admitted another measure
 
   const firstRequest = SET;
   const responseA = {requestId:firstRequest, jobId:JOB_RDC, state:"succeeded", reason:null, previous:null, latest:null} as const;
+  let firstCompleted = false;
   const responseB = {...responseA, requestId:MEMBER, jobId:PLAN_RDC, state:"queued"} as const;
   vi.mocked(fetchItemMeasureReadings).mockResolvedValueOnce(null).mockImplementation(async (_project, _item, _plan, receipt) =>
-    receipt?.jobId === JOB_RDC && receipt.requestId === firstRequest ? responseA : responseB);
+    receipt?.jobId === JOB_RDC && receipt.requestId === firstRequest ? (firstCompleted ? responseA : { ...responseA, state: "running" }) : responseB);
   vi.mocked(sendItemRemeasure).mockResolvedValueOnce({outcome:"admitted", requestId:firstRequest,
     receipt:{intentKey:firstRequest,jobId:JOB_RDC,state:"queued"}});
-  render(<MeasureItemOnPlan projectId={DETAIL_PROJECT} line={basinLine} plan={planViews()[JOB_RDC + ":" + PLAN_RDC].plan}
-    page={1} listRevisionId={SET} onRefused={() => false} onRefresh={vi.fn()} onOpenCurrent={vi.fn()} />);
+  const firstTab = openMeasure();
   fireEvent.click(screen.getByRole("button", {name:"Mesurer ce poste"}));
   await screen.findByLabelText("Modèle");
   fireEvent.click(screen.getByRole("button", {name:"Mesurer avec mon forfait"}));
   const result = await screen.findByTestId("poste-mesure-resultat");
   expect(result.textContent).toContain(firstRequest);
-  expect(result.textContent).toContain("Lecture terminée");
+  expect(result.textContent).toContain("Lecture en cours");
+
+  firstCompleted = true;
+  firstTab.unmount();
+  render(<MeasureFromAddress />);
+  const reopened = await screen.findByTestId("poste-mesure-resultat");
+  expect(reopened.textContent).toContain(firstRequest);
+  expect(reopened.textContent).toContain("Lecture terminée");
+});
+
+it("shows no result for an explicitly named foreign receipt even when the member has a recent measure", async () => {
+  const own = { requestId: SET, jobId: JOB_RDC, state: "succeeded", reason: null, previous: null, latest: null } as const;
+  vi.mocked(fetchItemMeasureReadings).mockImplementation(async (_project, _item, _plan, receipt) => receipt ? null : own);
+  openMeasure(`&demandeMesure=${MEMBER}&analyseMesure=${PLAN_RDC}`);
+  await waitFor(() => expect(fetchItemMeasureReadings).toHaveBeenCalledWith(DETAIL_PROJECT, basinLine.itemId, PLAN_RDC,
+    { requestId: MEMBER, jobId: PLAN_RDC }));
+  expect(screen.queryByTestId("poste-mesure-resultat")).toBeNull();
 });

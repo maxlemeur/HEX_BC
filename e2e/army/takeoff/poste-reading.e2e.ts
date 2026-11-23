@@ -5,7 +5,7 @@ import { randomUUID } from "node:crypto";
 
 import { expect } from "e2e";
 
-import { armyTest, recordEvidence } from "../critical/fixtures";
+import { apiRequest, armyTest, recordEvidence } from "../critical/fixtures";
 import { waitForHydration } from "../critical/hydration-support";
 import { querySql } from "../local/calculation-gate-support";
 import {
@@ -338,6 +338,7 @@ armyTest("TKPR03 a new measure of one item reads it alone on its plans, and the 
         planA, dossier.plans[0].hash, "1"]);
       expect(admission).toMatchObject({ result: { outcome: "admitted", receipt: { intentKey: detailKey, state: "queued" } } });
       const detailJob = admission.result!.receipt!.jobId;
+      const detailRequest = admission.result!.requestId!;
       await ui.browser.reload();
       await waitForHydration(ui.browser);
       const comparison = screen.getByTestId("poste-mesure-resultat");
@@ -359,6 +360,26 @@ armyTest("TKPR03 a new measure of one item reads it alone on its plans, and the 
       const predecessor = await dossier.setup.from("takeoff_launch_requests").select("predecessor_job_id")
         .eq("id", next.result!.requestId).single();
       expect(predecessor.data?.predecessor_job_id).toBe(newA.id);
+      await ui.browser.reload();
+      await waitForHydration(ui.browser);
+      await expect(comparison).toContainText(detailRequest);
+      await expect(comparison).toContainText("Lecture terminée");
+      await expect(comparison).toContainText("Lecture précédente · 2 u");
+
+      const readReceipt = (item: string, plan: string, requestId: string) => {
+        const query = new URLSearchParams({ item, plan, jobId: detailJob, requestId });
+        return apiRequest(ui.browser, "GET", `/api/affaires/${dossier.projectId}/takeoff/items/remeasure?${query}`);
+      };
+      for (const [item, plan, requested] of [[ids[LAVABO], planA, detailRequest], [ids[WC], planB, detailRequest],
+        [ids[WC], planA, next.result!.requestId!]]) {
+        expect(await readReceipt(item, plan, requested)).toMatchObject({ status: 200, body: { ok: true, data: null } });
+      }
+      // Another member of the same affaire can open the item but cannot follow the payer's receipt.
+      const colleague = await signUpWorkerOwner(ui, "TKPR3R");
+      await querySql(`update public.tenant_memberships set is_default = false where user_id = '${colleague.userId}';
+        insert into public.tenant_memberships (tenant_id,user_id,role,is_default)
+        values ('${owner.tenantId}','${colleague.userId}','director',true);`);
+      expect(await readReceipt(ids[WC], planA, detailRequest)).toMatchObject({ status: 200, body: { ok: true, data: null } });
       await recordEvidence(ui.army, "takeoff-item-remeasure", { requestId, screenshots, detailJob, jobs: [jobA.id, jobB.id, newA.id, newB.id],
         added: added.map(({ plan_file_id, outcome }) => [plan_file_id === planA ? "A" : "B", outcome]) });
     } finally {
