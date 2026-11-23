@@ -718,6 +718,7 @@ select is(extensions.dblink_exec('race_setup', format($lease$begin; delete from 
   values (%1$L, %2$L, %3$L, clock_timestamp() + interval '30 minutes', gen_random_uuid()); commit;$lease$,
   pg_temp.f(730), pg_temp.f(1), pg_temp.tenant())), 'COMMIT', 'the member holds V1''s lease again');
 \ir ../fixtures/takeoff-item-redistribution-races.sql
+\ir ../fixtures/takeoff-item-redistribution-vacated.sql
 insert into plans values ('20-second-reading', pg_temp.plan_into(pg_temp.f(1120), pg_temp.f(730)), null);
 create temp table v1_before as select pg_temp.held_by(pg_temp.f(730)) as held;
 select is(extensions.dblink_exec('race_a', 'begin'), 'BEGIN', 'a tab confirms the second reading''s send into V1');

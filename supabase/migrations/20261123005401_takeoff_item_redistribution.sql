@@ -2,7 +2,7 @@
 -- No data rewrite. The receipt and the new targets are created only by explicit confirmation.
 begin;
 set local lock_timeout = '5s';
-lock table public.takeoff_item_send_receipts in access exclusive mode nowait;
+lock table public.takeoff_item_send_receipts, public.takeoff_item_send_targets in access exclusive mode nowait;
 alter table public.takeoff_item_send_receipts
   drop constraint takeoff_item_send_receipts_command_kind_check,
   drop constraint takeoff_item_send_receipts_send_identity_check,
@@ -12,6 +12,12 @@ alter table public.takeoff_item_send_receipts
     (command_kind='copy' and job_id is null and request_id is null) or
     (command_kind='redistribute' and job_id is null and request_id is not null));
 
+-- Release the writer's lookup key while keeping the target ID, its former compartment,
+-- and every historical part referencing it. Existing targets acquire only a null column.
+alter table public.takeoff_item_send_targets add column vacated_compartment_key text;
+comment on column public.takeoff_item_send_targets.vacated_compartment_key is
+  'Original compartment of a target emptied by redistribution. Its lookup key is then vacated:<target UUID>.';
+
 create or replace function private.guard_takeoff_item_send_write()
 returns trigger language plpgsql set search_path = '' as $$
 begin
@@ -19,6 +25,10 @@ begin
     if pg_catalog.pg_trigger_depth() > 1 then
       return old;
     end if;
+    raise exception 'TAKEOFF_ITEM_SEND_IMMUTABLE' using errcode = '42501';
+  end if;
+  if tg_op='INSERT' and tg_table_name='takeoff_item_send_targets'
+    and pg_catalog.to_jsonb(new)->>'vacated_compartment_key' is not null then
     raise exception 'TAKEOFF_ITEM_SEND_IMMUTABLE' using errcode = '42501';
   end if;
   -- A line deleted: its foreign key empties the link, from inside the deletion; nothing else of the row moves.
@@ -48,6 +58,20 @@ begin
             and (r.tenant_id,r.project_id,r.version_id)=(old.tenant_id,old.project_id,old.version_id)
             and r.result->'moves' @> jsonb_build_array(jsonb_build_object('part_id',old.id,'from_target',old.target_id,'to_target',new.target_id)))
       then return new;
+      end if;
+    elsif tg_op='UPDATE' and tg_table_name='takeoff_item_send_targets' then
+      -- A prior member-deleted target for this same compartment can still own
+      -- replaced parts after a recreation. Keep it too, under its own archive key.
+      if old.estimate_item_id is null and old.vacated_compartment_key is null
+        and new.vacated_compartment_key=old.compartment_key and new.compartment_key='vacated:'||old.id
+        and to_jsonb(new)-array['compartment_key','vacated_compartment_key']
+          = to_jsonb(old)-array['compartment_key','vacated_compartment_key']
+        and not exists(select from public.takeoff_item_send_parts p where p.target_id=old.id and p.state='live')
+        and exists(select from public.takeoff_item_send_receipts r
+          where r.id=private.takeoff_uuid_or_null(to_jsonb(current_setting('mergeone.takeoff_item_redistribution')))
+            and r.command_kind='redistribute' and (r.tenant_id,r.project_id,r.version_id)=(old.tenant_id,old.project_id,old.version_id)
+            and r.write_plan->>'item_id'=old.item_id::text and r.result->'vacated_target_ids' @> jsonb_build_array(old.id)) then
+        return new;
       end if;
     elsif tg_op = 'INSERT' then
       if (tg_table_name = 'takeoff_item_send_receipts' and pg_catalog.to_jsonb(new)->>'command_kind' = 'redistribute'
@@ -567,7 +591,13 @@ begin
   if other_amounts is distinct from private.takeoff_redistribution_other_amounts(p_version,p_item) then
     raise exception 'REDISTRIBUTION_OTHER_AMOUNTS' using errcode='55000';
   end if;
-  result:=jsonb_build_object('destinations',reached,'moves',moves,'source_receipts',
+  result:=jsonb_build_object('destinations',reached,'moves',moves,'vacated_target_ids',(
+    select coalesce(jsonb_agg(t.id order by t.id),'[]') from public.takeoff_item_send_targets t
+    join jsonb_array_elements(plan->'sources') s on t.breakdown=s->>'breakdown' and t.compartment_key=s->>'key'
+    where t.version_id=p_version and t.item_id=p_item and t.estimate_item_id is null
+      and plan->'remove_lines' @> jsonb_build_array(s->'line_id')
+      and (t.id=(s->>'target_id')::uuid or not exists(
+        select from public.takeoff_item_send_parts p where p.target_id=t.id and p.state='live'))),'source_receipts',
     (with recursive receipts(id) as (
       select (m->>'receipt_id')::uuid from jsonb_array_elements(moves)m
       union select (r.write_plan->>'copied_from_receipt_id')::uuid from receipts c
@@ -588,6 +618,10 @@ begin
     where p.id=m.part_id and p.target_id=m.from_target and p.state='live';
   get diagnostics moved_count=row_count;
   if moved_count<>jsonb_array_length(moves) then raise exception 'REDISTRIBUTION_STALE' using errcode='40001'; end if;
+  -- The ordinary writer treats a matching line-less target as a member deletion.
+  -- Release only compartments whose line this receipt removed and whose live parts have moved.
+  update public.takeoff_item_send_targets t set vacated_compartment_key=t.compartment_key,compartment_key='vacated:'||t.id
+    where t.id in (select value::uuid from jsonb_array_elements_text(result->'vacated_target_ids'));
   perform set_config('miaouffrage.estimate_v3_writer',old_writer,true);
   perform set_config('mergeone.takeoff_item_redistribution',old_redistribution,true);
   perform set_config('mergeone.takeoff_item_send',old_send,true);
