@@ -448,7 +448,8 @@ begin
     (select r.decision from public.read_takeoff_item_table(tenant_,project_,null,p_item_ids => array[pg_temp.f(311)]) r));
 end;
 $$;
-create function pg_temp.entry_choice(whole boolean, chosen text, typed integer, check_table boolean default false) returns jsonb language plpgsql as $$
+create function pg_temp.entry_choice(whole boolean, chosen text, typed integer, check_table boolean default false,
+  restore_source text default null) returns jsonb language plpgsql as $$
 declare
   a uuid := (select id from public.takeoff_item_answers where item_id = pg_temp.f(311));
   scope_ jsonb := jsonb_build_object('kind','plan','plan_logical_id',pg_temp.f(101));
@@ -521,9 +522,33 @@ begin
       second_reader := second_reader || jsonb_build_array(pg_temp.entry_table(2));
       tables_ := tables_ || jsonb_build_array(pg_temp.entry_table(1));
     end if;
+    if restore_source is not null then
+      if restore_source = 'stale' then
+        perform public.edit_takeoff_count_marks(pg_temp.tenant(),pg_temp.f(21),pg_temp.f(968),jsonb_build_object(a,1),
+          jsonb_build_array(jsonb_build_object('op','move','mark_id',(select mark_id from public.takeoff_count_mark_attributions
+            where answer_id = a and state = 'retained'),'x',0.5,'y',0.4)));
+      end if;
+      if (public.review_takeoff_items(pg_temp.tenant(),pg_temp.f(21),pg_temp.cmd('set_aside',969,array[311],
+            '{"reason":"out_of_scope"}')) ->> 'outcome') is distinct from 'applied' then
+        raise exception 'set aside failed';
+      end if;
+      if (public.review_takeoff_items(pg_temp.tenant(),pg_temp.f(21),pg_temp.cmd('reinstate',970,array[311]))
+            ->> 'outcome') is distinct from 'applied' then
+        raise exception 'reinstatement failed';
+      end if;
+      select jsonb_build_array(
+        (select r.decision from public.read_takeoff_item_table(pg_temp.tenant(),pg_temp.f(21),pg_temp.plan_file(21),
+          p_item_ids => array[pg_temp.f(311)]) r),
+        (select f ->> 'quantity_source' from jsonb_array_elements(public.read_takeoff_item_send_facts(
+          pg_temp.tenant(),pg_temp.f(21),pg_temp.job(21)) -> 'answers') f where f ->> 'answer_id' = a::text),
+        (select jsonb_agg(jsonb_build_array(s ->> 'kind', s -> 'quantity')) from private.takeoff_item_send_resolved_parts(
+          pg_temp.tenant(),pg_temp.f(21),pg_temp.job(21),array[2,7]) s where s ->> 'answer_id' = a::text))
+        into tables_;
+    end if;
     raise sqlstate 'Z1000';
   exception when sqlstate 'Z1000' then null; -- Restore the fixture between choices.
   end;
+  if restore_source is not null then return tables_; end if;
   if check_table then return jsonb_build_array(tables_,second_reader = tables_); end if;
   return jsonb_build_array(before_,answer ->> 'outcome',after_,entry_) || coalesce(tables_,'[]');
 end;
@@ -536,6 +561,12 @@ select is(pg_temp.entry_choice(false,'entered',7),
   '[[["entered",7]],"applied",[["entered",7]],[7,1,false]]'::jsonb,'keeping the plan entry sends seven only once');
 select is(pg_temp.entry_choice(false,null,1),
   '[[["entered",1]],"stale",[["entered",1]],[1,1,false]]'::jsonb,'equal typed and counted quantities still require a source choice');
+select is(pg_temp.entry_choice(false,'verified_count',7,false,'accepted'),
+  '["accepted","verified_count",[["verified_count",1]]]'::jsonb,
+  'reinstating an unchanged acceptance restores its verified count for the table, preview and writer');
+select is(pg_temp.entry_choice(false,'verified_count',7,false,'stale'),
+  '["entered",null,[["entered",7]]]'::jsonb,
+  'when reinstatement restores no acceptance, the table, preview and writer all return to the plan entry');
 
 select is(pg_temp.entry_choice(false,'verified_count',7,true),
   '[[[2,[[0,2,0],[1,2,1]],["entered",7,1],"entered"],

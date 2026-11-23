@@ -536,7 +536,10 @@ begin
         'decided_at', case when p.decision_effective <> 'none' then d.decided_at end)
         -- The marks revision an acceptance set aside was taken on, given back with it by a reinstatement.
         || case when p.decision_effective = 'accepted' and coalesce(d.marks_revision, 0) > 0
-          then pg_catalog.jsonb_build_object('marks_revision', d.marks_revision) else '{}'::jsonb end,
+          then pg_catalog.jsonb_build_object('marks_revision', d.marks_revision) else '{}'::jsonb end
+        || case when p.decision_effective = 'accepted' and d.quantity_source is not null
+          then pg_catalog.jsonb_build_object('quantity_source', d.quantity_source, 'chosen_entry_revision', d.chosen_entry_revision)
+          else '{}'::jsonb end,
       pg_catalog.jsonb_build_object('kind', 'set_aside', 'reason', p_command ->> 'reason',
         'note', nullif(pg_catalog.btrim(p_command ->> 'note'), ''),
         'rows', coalesce((select pg_catalog.jsonb_object_agg(i.id::text, private.takeoff_item_review_row_state(i))
@@ -551,7 +554,7 @@ begin
     from pg_temp.takeoff_review_written w join pg_temp.takeoff_review_pairs p on p.answer_id = w.answer_id
     on conflict (answer_id) do update set kind = excluded.kind, reason = excluded.reason, note = excluded.note,
       revision = excluded.revision, actor_id = excluded.actor_id, decided_at = excluded.decided_at,
-      command_id = excluded.command_id, marks_revision = null;
+      command_id = excluded.command_id, marks_revision = null, quantity_source = null, chosen_entry_revision = null;
 
   elsif gesture = 'reinstate' then
     insert into pg_temp.takeoff_review_written
@@ -627,7 +630,10 @@ begin
       command_id = this_command,
       -- An acceptance given back is bound to the marks it was taken on: changed since, it is a decision to take again.
       marks_revision = case when r.whole and r.previous ->> 'kind' = 'accepted'
-        then (r.previous ->> 'marks_revision')::integer end
+        then (r.previous ->> 'marks_revision')::integer end,
+      quantity_source = case when r.whole and r.previous ->> 'kind' = 'accepted' then r.previous ->> 'quantity_source' end,
+      chosen_entry_revision = case when r.whole and r.previous ->> 'kind' = 'accepted'
+        then (r.previous ->> 'chosen_entry_revision')::integer end
     from pg_temp.takeoff_review_restored r where d.answer_id = r.answer_id;
     insert into public.takeoff_item_review_events (tenant_id, project_id, command_id, item_id, answer_id, plan_logical_id,
       event, before, after, actor_id, at)
