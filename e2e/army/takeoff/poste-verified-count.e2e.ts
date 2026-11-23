@@ -47,16 +47,20 @@ describe("Quantité vérifiée d’un poste sur un plan", () => {
       const receiptPreview = await app.screenshot("poste-comptage-apercu");
       await dialog.getByRole("button", `Créer le devis et y envoyer « ${name} »`, { exact: true }).click();
       await expect(ui.browser).toHaveURL(/\/dashboard\/estimates\/[0-9a-f-]{36}\/edit\?focusItemId=[0-9a-f-]{36}$/, { timeout: 60_000 });
-      const [line] = (await readOwnedLines(seeded.projectId)).filter((row) => row.item_type === "line");
+      const lines = (await readOwnedLines(seeded.projectId)).filter((row) => row.item_type === "line");
+      expect(lines).toHaveLength(1);
+      const [line] = lines;
       await app.open(`/dashboard/estimates/${line.version_id}/edit?focusItemId=${line.id}`);
       const reloadedLine = `[data-estimate-item-id="${line.id}"]`;
       await expect(ui.browser.locator(reloadedLine)).toBeVisible({ timeout: 60_000 });
       await expect(ui.browser.locator(`${reloadedLine} input[aria-label="Quantité pour Lavabo"]`)).toHaveValue("1");
       expect(line.quantity).toBe(1);
       expect(await countOwnedReceipts(seeded.projectId)).toBe(1);
-      const proof = JSON.parse((await querySql(`select jsonb_build_array(kind,quantity,marks_revision,pages)
-        from public.takeoff_item_send_parts where project_id = '${seeded.projectId}' and item_id = '${itemId}' and state = 'live';`)).at(-1)!);
-      expect(proof).toEqual(["verified_count", 1, 1, [2]]);
+      const parts = await querySql(`select jsonb_build_array(item_id,kind,quantity,marks_revision,pages)
+        from public.takeoff_item_send_parts where project_id = '${seeded.projectId}' and version_id = '${line.version_id}' and state = 'live';`);
+      expect(parts).toHaveLength(1);
+      const proof = JSON.parse(parts[0]);
+      expect(proof).toEqual([itemId, "verified_count", 1, 1, [2]]);
       await recordEvidence(army, "POSTE-COMPTAGE01", { projectId: seeded.projectId, itemId, line: line.id,
         observed: 2, retained: line.quantity, proof, screenshots: [choice, receiptPreview] });
     });
