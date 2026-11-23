@@ -213,6 +213,8 @@ export type TakeoffPlanLaunchUnit = {
   budget: { tokens: number; cost_cents: number };
   /** Its pages of the dossier's vector reading, allotted in the recorded order (TAKEOFF_LAUNCH_VECTOR_PAGES in all). */
   vector_pages: number;
+  /** Whether this one-item command includes a paid vector classifier in its agreed bound. */
+  paid_vector_groups?: boolean;
 };
 export type AnyTakeoffLaunchManifest = TakeoffLaunchManifest | TakeoffPlanLaunchManifest;
 

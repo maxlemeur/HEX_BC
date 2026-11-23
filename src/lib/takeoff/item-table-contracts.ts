@@ -1,3 +1,4 @@
+import { markCoverageSchema, countMarkScheduleSchema } from "./count-mark-schedule";
 import { z } from "zod";
 
 import { chatGptReasoningEffortSchema } from "@/lib/ai/chatgpt-model-preferences";
@@ -309,7 +310,7 @@ export const itemRemeasureSeenSchema = z.object({
 export type ItemRemeasureSeen = z.infer<typeof itemRemeasureSeenSchema>;
 
 const detailScope = z.object({ fileId: uuid, contentSha256: z.string().regex(/^[a-f0-9]{64}$/).nullable(),
-  generation: z.string().nullable(), page: page.max(100000).nullable() }).strict();
+  generation: z.string().nullable(), page: page.max(100000).nullable(), proposeMarks: z.literal(true).optional() }).strict();
 export type ItemMeasureScope = z.infer<typeof detailScope>;
 
 export const itemRemeasurePreviewRequestSchema = z.object({
@@ -324,7 +325,7 @@ export const itemRemeasurePreviewSchema = z.object({
   items: z.array(z.object({ itemId: uuid, label: z.string() }).strict()),
   plans: z.array(z.object({ key: planKey, name: z.string() }).strict()),
   detail: z.object({ hostProof: z.string().regex(/^[0-9a-f]{64}$/).nullable(), revision: z.string().nullable(), pages: z.array(page), pageCount: count.nullable(),
-    previousPages: z.array(page), effect: z.enum(["first", "replace", "compare"]) }).strict().optional(),
+    markSchedule: countMarkScheduleSchema.optional(), previousPages: z.array(page), effect: z.enum(["first", "replace", "compare"]) }).strict().optional(),
   models: z.array(z.object({ id: z.string(), name: z.string(), reasoningEfforts: z.array(chatGptReasoningEffortSchema) }).strict()).optional(),
   payer: z.object({ memberId: uuid, name: z.string().nullable() }).strict()
     .describe("Le membre qui confirme : la demande utilise son propre forfait ChatGPT, jamais celui du signataire du dossier."),
@@ -352,6 +353,7 @@ export const itemRemeasureCommandSchema = z.object({
   item_ids: z.array(uuid).min(1).max(ITEM_REVIEW_LIMITS.items),
   plan_keys: z.array(planKey).min(1).max(200),
   detail: detailScope.optional(),
+  mark_schedule: countMarkScheduleSchema.optional(),
   host_proof: z.string().regex(/^[0-9a-f]{64}$/).optional(),
   setting: z.object({ model: z.string().trim().min(1).max(200).optional(), reasoning_effort: chatGptReasoningEffortSchema.nullable() }).strict().nullable()
     .describe("Réglage ponctuel confirmé depuis le plan. Le tableau utilise le réglage de Mon profil."),
@@ -371,6 +373,7 @@ export const itemRemeasureResultSchema = z.object({
 export type ItemRemeasureResult = z.infer<typeof itemRemeasureResultSchema>;
 
 const measureReading = z.object({
+  coverage: markCoverageSchema.optional(),
   outcome: z.enum(ITEM_ANSWER_OUTCOMES), quantity: quantity.nullable(), unit: unit.nullable(),
   answerId: uuid, jobId: uuid, listRevisionId: uuid, planFileId: uuid, generation: z.string().nullable(),
   pages: z.array(page), unreadablePages: z.array(page), reasons: z.array(z.string()),

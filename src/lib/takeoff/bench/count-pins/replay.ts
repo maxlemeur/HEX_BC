@@ -1,9 +1,12 @@
 import { z } from "zod";
-import type { Box } from "../../vectors/geometry";
-import type { JudgedPin, PageFrame, Poste } from "./types";
+import { boxContains, type Box } from "../../vectors/geometry";
+import { MATCH_RADIUS } from "./score";
+import type { JudgedPin, PageFrame, Pin } from "./types";
+
+import { WIDE_PAGE } from "../../count-mark-schedule";
 
 export const TILE_OVERLAP = 12;
-export const WIDE_PAGE = 700;
+export { WIDE_PAGE };
 export const REPLAY_SCHEMA_VERSION = 2;
 
 const unit = z.number().min(0).max(1);
@@ -45,7 +48,58 @@ function tileCentre(low: number, high: number, cropLow: number, cropHigh: number
   return centre;
 }
 
-export function replayTiles(page: PageFrame, targets: readonly Poste[], recordings: unknown[]) {
+type CropDetection = { pin: JudgedPin; tile: ReturnType<typeof tileLayout>[number] };
+
+// Reconcile in page space first. A component is one object only when every source tile
+// contributes once and every pair corroborates it. Nearby competing objects keep their positions.
+function reconcileTiles(detections: CropDetection[]): JudgedPin[] {
+  const cells = new Map<string, number[]>();
+  const peers = detections.map(() => [] as number[]);
+  for (const [i, { pin, tile }] of detections.entries()) {
+    const x = Math.floor(pin.x / MATCH_RADIUS), y = Math.floor(pin.y / MATCH_RADIUS);
+    for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) {
+      for (const j of cells.get(`${x + dx},${y + dy}`) ?? []) {
+        const other = detections[j];
+        if (other.tile.id === tile.id || other.pin.poste !== pin.poste ||
+          !boxContains(tile.crop, other.pin) || !boxContains(other.tile.crop, pin) ||
+          Math.hypot(pin.x - other.pin.x, pin.y - other.pin.y) > MATCH_RADIUS) continue;
+        peers[i].push(j);
+        peers[j].push(i);
+      }
+    }
+    const key = `${x},${y}`;
+    if (!cells.has(key)) cells.set(key, []);
+    cells.get(key)!.push(i);
+  }
+  const seen = new Set<number>();
+  const result: JudgedPin[] = [];
+  for (let i = 0; i < detections.length; i++) {
+    if (seen.has(i)) continue;
+    const group = [i];
+    seen.add(i);
+    for (const j of group) for (const k of peers[j]) {
+      if (!seen.has(k)) { seen.add(k); group.push(k); }
+    }
+    if (group.some((j) => peers[j].length !== group.length - 1)) {
+      for (const j of group) {
+        const { pin } = detections[j];
+        result.push({ ...pin, evidence: [...pin.evidence, "ambiguous-neighbours"] });
+      }
+      continue;
+    }
+    const sources = group.map((j) => detections[j]);
+    const x = sources.reduce((sum, source) => sum + source.pin.x, 0) / sources.length;
+    const y = sources.reduce((sum, source) => sum + source.pin.y, 0) / sources.length;
+    const owner = sources.find(({ tile: { core } }) => x >= core.x0 && x < core.x1 && y >= core.y0 && y < core.y1);
+    const pin = (owner ?? sources[0]).pin;
+    const diameters = new Set(sources.map((source) => source.pin.dn).filter((dn) => dn !== null));
+    result.push(diameters.size > 1 ? { ...pin, dn: null, evidence: [...pin.evidence, "conflicting-DN"] }
+      : { ...pin, dn: [...diameters][0] ?? null });
+  }
+  return result;
+}
+
+export function replayTiles(page: PageFrame, targets: readonly { id: string; organ: Pin["organ"]; requiresDn: boolean }[], recordings: unknown[]) {
   const planned = tileLayout(page);
   const tiles = { planned: planned.length, complete: 0, truncated: 0, invalid: 0, missing: 0, unexpected: 0 };
   const byId = new Map<number, unknown[]>();
@@ -57,9 +111,10 @@ export function replayTiles(page: PageFrame, targets: readonly Poste[], recordin
     }
     byId.set(id, [...(byId.get(id) ?? []), recording]);
   }
-  const pins: JudgedPin[] = [];
+  const detections: CropDetection[] = [];
   const catalogue = new Map(targets.map((target) => [target.id, target]));
-  for (const { id, crop, core } of planned) {
+  for (const tile of planned) {
+    const { id, crop, core } = tile;
     const inputs = byId.get(id);
     if (!inputs) {
       tiles.missing++;
@@ -89,17 +144,15 @@ export function replayTiles(page: PageFrame, targets: readonly Poste[], recordin
         x0: crop.x0 + hit.x0 * (crop.x1 - crop.x0), x1: crop.x0 + hit.x1 * (crop.x1 - crop.x0),
         y0: crop.y0 + hit.y0 * (crop.y1 - crop.y0), y1: crop.y0 + hit.y1 * (crop.y1 - crop.y0),
       };
-      // Half-open cores assign interior boundaries to the next tile on each axis.
       const x = tileCentre(hit.x0, hit.x1, crop.x0, crop.x1, core.x0, core.x1);
       const y = tileCentre(hit.y0, hit.y1, crop.y0, crop.y1, core.y0, core.y1);
-      if (x < core.x0 || y < core.y0 || x >= core.x1 || y >= core.y1) continue;
-      pins.push({
+      detections.push({ tile, pin: {
         x, y, box, ...recorded,
         poste: hit.poste, organ: catalogue.get(hit.poste)!.organ,
         dn: hit.dn === null ? null : "DN " + hit.dn,
         method: "tile-replay", evidence: ["tile-" + id],
-      });
+      } });
     }
   }
-  return { status: tiles.complete === planned.length && tiles.unexpected === 0 ? "complete" as const : "partial" as const, pins, tiles };
+  return { status: tiles.complete === planned.length && tiles.unexpected === 0 ? "complete" as const : "partial" as const, pins: reconcileTiles(detections), tiles };
 }

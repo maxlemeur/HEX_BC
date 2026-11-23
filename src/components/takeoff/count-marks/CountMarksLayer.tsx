@@ -2,6 +2,7 @@
 
 import { useEffect, useId, useRef, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent } from "react";
 
+import { countMarkOriginLabel } from "@/lib/takeoff/count-marks-view";
 import { useCountMarks } from "@/components/takeoff/count-marks/CountMarksScope";
 import type { ItemDetailPageFrame } from "@/components/takeoff/item-detail/ItemDetailPlanPane";
 import {
@@ -151,10 +152,11 @@ export function CountMarksLayer({ frame }: { frame: ItemDetailPageFrame }) {
       {drawn.map((mark) => {
         const claimed = (mark.mark?.others ?? []).filter((other) => other.state === "retained");
         const claim = claimed.length ? ` · retenu aussi pour ${claimed.map((other) => `« ${itemLabels[other.itemId] ?? "un autre poste"} »`).join(", ")}` : "";
+        const origin = mark.mark && loaded ? countMarkOriginLabel(mark.mark, loaded.view.names, loaded.view.viewerId) : null;
         return (
           <span key={mark.markId} data-testid="repere" data-mark={mark.markId} data-state={mark.state} data-unsaved={String(mark.unsaved)}
             data-claimed={String(claimed.length > 0)} aria-hidden="true"
-            title={`${COUNT_MARK_SHOWN_STATE_LABELS[mark.state]}${mark.unsaved ? " (non enregistré)" : ""}${claim}`}
+            title={`${COUNT_MARK_SHOWN_STATE_LABELS[mark.state]}${mark.unsaved ? " (non enregistré)" : ""}${claim}${origin ? " · " + origin : ""}`}
             className={markClass(mark, mark.markId === activeId, claimed.length > 0)}
             style={{ left: `${mark.x * 100}%`, top: `${mark.y * 100}%` }}
             onClick={(event) => {

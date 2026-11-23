@@ -30,34 +30,41 @@ afterEach(() => {
   vi.unstubAllEnvs();
 });
 
-it.each([null, "high"] as const)("sends the confirmed model and effort %s for both page and group requests", async (effort) => {
+it.each([null, "high"] as const)("sends the confirmed model and effort %s for page, group and tile requests", async (effort) => {
   const requests: Array<Record<string, unknown>> = [];
   vi.stubGlobal("fetch", async (url: string, init: RequestInit) => {
     if (url.endsWith("/models")) return Response.json({ models: [{ slug: "chosen", display_name: "Chosen",
       visibility: "list", supported_reasoning_levels: ["high"] }] });
     requests.push(JSON.parse(String(init.body)));
-    const answer = requests.length === 1 ? { quantity: 2 } : { groupes: [] };
-    return new Response(`data: ${JSON.stringify({ type: "response.completed", response: { status: "completed",
+    const answer = [{ quantity: 2 }, { groupes: [] }, { pins: [] }][requests.length - 1];
+    return new Response(`data: ${JSON.stringify({ type: "response.completed", response: { status: "completed", usage: { input_tokens: 3, output_tokens: 4, total_tokens: 7 },
       output: [{ type: "message", content: [{ type: "output_text", text: JSON.stringify(answer) }] }] } })}\n\n`);
   });
   vi.stubEnv("MERGEONE_TAKEOFF_DECISIONS", "1");
   vi.stubEnv("MERGEONE_TAKEOFF_VECTORS", "1");
   const query = { select: () => query, eq: () => query, maybeSingle: async () => ({ data: { user_id: "member" } }) };
+  const beforePaidCall = vi.fn(async (branch: string, key?: string) => ({ key: key ?? branch, reserved: true }));
+  const ledger = { beforePaidCall, recordPaidUsage: vi.fn(), recordUnknownUsage: vi.fn() };
   const provider = await resolveLocalTakeoffProvider({ from: () => query } as never, {
     id: "job", created_by: "member", tenant_id: "tenant", execution_host_id: "host", execution_provider: "chatgpt_local",
     launch_request_id: "request", preparation_snapshot: { confirmed_by: "member", execution_selection: {
       profileId: "profile", hostId: "host", model: "previous-default", reasoningEffort: "medium", authorizationId: "connection" },
     remeasure_setting: { model: "chosen", reasoningEffort: effort } },
-  } as never);
+  } as never, { ledger });
   account.model = "edited-before-pdf";
   await provider.call({ prompt: "Mesurer", schema: z.object({ quantity: z.number() }) });
   const hook = takeoffVectorLocalGroupsHook({ jobId: "job", tenantId: "tenant", userId: "member", provider })!;
   const call = await localGroupsCall(hook.owner, hook.local!.selection, hook.local!.useProfile);
   account.model = "edited-before-group";
   await call({ prompt: "Classer", images: [] });
+  account.model = "edited-before-tile";
+  const tile = { prompt: "Localiser", takeoffTile: { page: 7, ordinal: 3 }, schema: z.object({ pins: z.array(z.number()) }) };
+  await provider.call(tile);
+  expect(beforePaidCall.mock.calls).toEqual([["pdf"], ["vector_group"], ["count_tile", "tile:7:3"]]);
+  expect(ledger.recordPaidUsage).toHaveBeenCalledWith({ key: "tile:7:3", reserved: true }, { totalTokens: 7, costCents: 0, trusted: true });
   expect(account.write).not.toHaveBeenCalled();
   expect(requests.map((body) => [body.model, Object.hasOwn(body, "reasoning"), body.reasoning]))
-    .toEqual(Array(2).fill(["chosen", effort !== null, effort ? { effort } : undefined]));
+    .toEqual(Array(3).fill(["chosen", effort !== null, effort ? { effort } : undefined]));
   account.authorizationId = "new-connection";
   const withdrawn = { details: { reason: "CHATGPT_ACCESS_REVOKED" } };
   await expect(provider.call({ prompt: "Mesurer", schema: z.object({}) })).rejects.toMatchObject(withdrawn);
@@ -65,7 +72,8 @@ it.each([null, "high"] as const)("sends the confirmed model and effort %s for bo
   account.revoked = true;
   await expect(provider.call({ prompt: "Mesurer", schema: z.object({}) })).rejects.toMatchObject(withdrawn);
   await expect(call({ prompt: "Classer", images: [] })).rejects.toMatchObject(withdrawn);
-  expect(requests).toHaveLength(2);
+  await expect(provider.call(tile)).rejects.toMatchObject(withdrawn);
+  expect(requests).toHaveLength(3);
   expect(account.write).not.toHaveBeenCalled();
 });
 

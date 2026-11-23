@@ -1,4 +1,5 @@
 import "server-only";
+import { countMarkReaderStatus, publishedMarkCoverage, type MarkCoverage } from "./count-mark-schedule";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
@@ -107,7 +108,7 @@ function mayOperate(access: AffaireAccess) {
     || (context.tenantRole === "engineer" && project.user_id === context.userId));
 }
 
-type AnswerFacts = { answerId: string; itemId: string; sent: boolean; replaced: boolean };
+type AnswerFacts = { answerId: string; itemId: string; sent: boolean; replaced: boolean; comparison: boolean; coverage?: MarkCoverage; setting?: { jobId: string; model: string; effort: string | null } };
 
 /**
  * What decides whether an answer's marks may still be corrected besides the member's right: its plan sent to an estimate
@@ -119,12 +120,12 @@ async function answerFacts(access: AffaireAccess, answerIds: readonly string[]):
   const { context, project } = access;
   const ids = [...new Set(answerIds.map((value) => value.toLowerCase()))];
   const { data: answers, error } = await client.from("takeoff_item_answers")
-    .select("id, item_id, job_id, plan_logical_id, reading_revision, comparison_only")
+    .select("id, item_id, job_id, plan_logical_id, reading_revision, comparison_only, publication:takeoff_item_answer_publications!takeoff_item_answers_publication_fkey(result:takeoff_results!takeoff_item_answer_publications_result_id_fkey(coverage:provider_meta->count_marks))")
     .eq("tenant_id", context.tenantId).eq("project_id", project.id).in("id", ids);
   if (error) throw mapSupabaseError(error, READ_FAILURE);
   if (!answers?.length) return new Map();
   const [{ data: jobs, error: jobsError }, { data: later, error: laterError }] = await Promise.all([
-    client.from("takeoff_jobs").select("id, status").eq("tenant_id", context.tenantId)
+    client.from("takeoff_jobs").select("id, status, model:preparation_snapshot->remeasure_setting->>model, effort:preparation_snapshot->remeasure_setting->>reasoningEffort").eq("tenant_id", context.tenantId)
       .in("id", [...new Set(answers.map(({ job_id }) => job_id))]),
     client.from("takeoff_item_answers").select("item_id, plan_logical_id, reading_revision").eq("comparison_only", false)
       .eq("tenant_id", context.tenantId).eq("project_id", project.id)
@@ -134,10 +135,16 @@ async function answerFacts(access: AffaireAccess, answerIds: readonly string[]):
   if (jobsError) throw mapSupabaseError(jobsError, READ_FAILURE);
   if (laterError) throw mapSupabaseError(laterError, READ_FAILURE);
   const applied = new Set((jobs ?? []).filter(({ status }) => status === "applied").map(({ id }) => id));
+  const settings = new Map((jobs ?? []).flatMap((job) => typeof job.model === "string" ? [[job.id, {
+    jobId: job.id, model: job.model, effort: typeof job.effort === "string" ? job.effort : null,
+  }] as const] : []));
   return new Map(answers.map((answer) => [answer.id, {
+    setting: settings.get(answer.job_id),
     answerId: answer.id,
     itemId: answer.item_id,
     sent: applied.has(answer.job_id),
+    comparison: answer.comparison_only,
+    coverage: publishedMarkCoverage(answer.publication?.result?.coverage),
     replaced: answer.comparison_only || (later ?? []).some((other) => other.item_id === answer.item_id && other.plan_logical_id === answer.plan_logical_id
       && other.reading_revision > answer.reading_revision),
   }]));
@@ -175,9 +182,15 @@ export async function readCountMarksView(projectId: string, query: { answerId: s
   const { page, summary } = read;
   if (!page || !summary || !fact) throw notFound(NOT_READ, undefined, "TAKEOFF_MARKS_ANSWER_NOT_FOUND");
   const reason: TakeoffCountMarksReadOnlyReason | null = !mayOperate(access) ? "forbidden" : fact.sent ? "sent"
-    : fact.replaced ? "replaced" : null;
+    : fact.comparison ? "comparison" : fact.replaced ? "replaced" : null;
   const names = await memberNames(access, page.marks.flatMap((mark) => [mark.createdBy, mark.movedBy, mark.decidedBy]));
-  return { ...page, summary, edit: { allowed: reason === null, reason }, viewerId: access.context.userId, names };
+  const setting = fact.setting;
+  const marks = setting ? page.marks.map((mark) => ({ ...mark, proposals: mark.proposals.map((proposal) => ({
+    ...proposal, qualified: proposal.jobId === setting.jobId &&
+      countMarkReaderStatus(proposal.method === "vector" ? proposal.sourceRef?.split(":")[0] ?? "vector" : proposal.method,
+        proposal.subtype ?? "", setting.model, setting.effort, proposal.methodVersion) === "qualifié",
+  })) })) : page.marks;
+  return { ...page, marks, summary, coverage: fact.coverage?.find((sheet) => sheet.page === query.page), edit: { allowed: reason === null, reason }, viewerId: access.context.userId, names };
 }
 
 /** What a refusal for a possible duplicate names, read from the command's detail; null when it names nothing readable. */

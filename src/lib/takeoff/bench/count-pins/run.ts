@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { boxContains } from "../../vectors/geometry";
 import { extractVectorPage } from "../../vectors/extraction";
 import { FICTION_TARGETS, fictionalSheets } from "./fiction";
-import { combine } from "./fusion";
+import { combineReaders } from "./fusion";
 import { readDeterministic } from "./propose";
 import { replayTiles, tileLayout } from "./replay";
 import { aggregateSpatial, compareReaders, quantityScore } from "./report";
@@ -57,13 +57,6 @@ function syntheticRecordings(page: PageFrame, points: Awaited<ReturnType<typeof 
   });
 }
 
-function combineReaders(vector: JudgedPin[], replay: JudgedPin[]): JudgedPin[] {
-  // Keep the list identity in charge of pairing, even if two postes share a family.
-  return [...new Set([...vector, ...replay].map((pin) => pin.poste))].flatMap((poste) =>
-    combine(vector.filter((pin) => pin.poste === poste), replay.filter((pin) => pin.poste === poste), MATCH_RADIUS),
-  );
-}
-
 const KNOWN_FAMILIES = new Set<string>(FICTION_TARGETS.map(({ organ }) => organ));
 // A mark of a family outside the list is scored on the unattributed row.
 const familyOf = (pin: JudgedPin) => pin.organ !== null && KNOWN_FAMILIES.has(pin.organ) ? pin.organ : null;
@@ -90,7 +83,8 @@ async function measurePage(fixture: Awaited<ReturnType<typeof fictionalSheets>>[
     const readsReplay = method === "tile-replay" || method === "fusion-with-replay";
     const pins =
       method === "tile-replay" ? replay.pins :
-      method === "fusion-with-replay" ? combineReaders(typePins(vector?.["all-deterministic"] ?? [], FICTION_TARGETS), replay.pins) :
+      method === "fusion-with-replay" ? combineReaders(typePins(vector?.["all-deterministic"] ?? [], FICTION_TARGETS),
+        vector ? replay.pins.filter(vector.onInstallation) : replay.pins) :
       typePins(pinsByMethod[method] ?? [], FICTION_TARGETS);
     const exampleCount = readerExamples[method];
     // Both the reader and the accounting use the first one or two examples per family.

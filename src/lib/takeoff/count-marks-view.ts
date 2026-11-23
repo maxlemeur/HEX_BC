@@ -382,12 +382,30 @@ const who = (actorId: string | null, names: Names, viewerId: string | null) =>
   actorId === null ? null : actorId === viewerId ? "vous" : names[actorId] ?? "un membre";
 
 /** Where a mark comes from and who corrected it: « Ajouté par vous », « Proposé par l’analyse · Corrigé par … ». */
-export function countMarkOriginLabel(mark: Pick<TakeoffCountMark, "origin" | "createdBy" | "movedBy">, names: Names,
+export function countMarkOriginLabel(mark: Pick<TakeoffCountMark, "origin" | "createdBy" | "movedBy"> & Partial<Pick<TakeoffCountMark, "proposals">>, names: Names,
   viewerId: string | null) {
   const origin = mark.origin === "manual"
     ? (mark.createdBy && mark.createdBy === viewerId ? "Ajouté par vous" : `${TAKEOFF_COUNT_MARK_ORIGIN_LABELS.manual}${mark.createdBy ? ` par ${who(mark.createdBy, names, viewerId)}` : ""}`)
     : TAKEOFF_COUNT_MARK_ORIGIN_LABELS.machine;
-  return mark.movedBy ? `${origin} · Corrigé par ${who(mark.movedBy, names, viewerId)}` : origin;
+  const sources = mark.proposals ?? [];
+  const parts = [origin];
+  if (sources.length) {
+    const readers = new Set(sources.map((p) => p.method));
+    if (sources.some((p) => p.sourceKey.startsWith("neighbours:")) || new Set(sources.map((p) => p.diameterMm).filter((dn) => dn !== null)).size > 1) {
+      parts.push("Lectures en désaccord");
+    } else if (readers.has("vector") && readers.has("tile")) parts.push("Deux lectures concordantes");
+    for (const source of sources) {
+      const variant = source.sourceRef?.split(":")[0];
+      const draw = variant === "label" ? "libellé" : variant === "pipe" ? "raccordement" : "symbole";
+      const tile = source.sourceRef?.match(/^tile:(\d+)$/)?.[1];
+      const method = source.method === "vector" ? `Lecture du dessin (${draw})` : source.method === "tile" && tile
+        ? `Lecture par tuile n° ${tile}` : "Lecture de symboles";
+      parts.push(`${method} v${source.methodVersion} · ${source.qualified ? "qualifié" : "non qualifié"}`
+        + (source.diameterMm === null ? "" : ` · DN ${source.diameterMm}`));
+    }
+  }
+  if (mark.movedBy) parts.push(`Corrigé par ${who(mark.movedBy, names, viewerId)}`);
+  return parts.join(" · ");
 }
 
 export const COUNT_MARK_SHOWN_STATE_LABELS: Record<CountMarkShownState, string> = {

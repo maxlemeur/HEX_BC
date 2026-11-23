@@ -116,8 +116,8 @@ export function isTakeoffVectorReadingEnabled() {
  * does not run (the conditions of `takeoffVectorLocalGroupsHook`), else the local plan's caps per document and per page.
  * What the bounds of a reading against a list of items count (lot 4), at the admission and in the worker alike.
  */
-export function takeoffVectorGroupCallsBound(vectorPages: number) {
-  if (vectorPages <= 0 || !isTakeoffVectorReadingEnabled() || !isTakeoffDecisionsSelected() || !isLocalChatGptEnabled()) return 0;
+export function takeoffVectorGroupCallsBound(vectorPages: number, paidClassifier = isTakeoffDecisionsSelected()) {
+  if (vectorPages <= 0 || !isTakeoffVectorReadingEnabled() || !paidClassifier || !isLocalChatGptEnabled()) return 0;
   return Math.min(GROUP_LOCAL_MODEL_LIMITS.requestsPerDocument, GROUP_LOCAL_MODEL_LIMITS.requestsPerPage * vectorPages);
 }
 
@@ -146,13 +146,14 @@ export type TakeoffVectorDecisionsHook = {
  * spending; otherwise none.
  */
 export function takeoffVectorLocalGroupsHook(input: {
+  paidClassifier?: boolean;
   jobId: string; tenantId: string; userId: string | null;
   /** The job's local provider (resolveLocalTakeoffProvider): its pinned selection and the creator's membership check. */
   provider: { selection: LocalGroupsSelection; groupsSelection?: LocalGroupsSelection; assertOwnerActive: () => Promise<void>;
     useProfileForVectorGroups?: boolean };
   beforeCall?: () => Promise<void>;
 }): TakeoffVectorDecisionsHook | undefined {
-  if (!isTakeoffVectorReadingEnabled() || !isTakeoffDecisionsSelected() || !isLocalChatGptEnabled() || !input.userId) return undefined;
+  if (!isTakeoffVectorReadingEnabled() || !(input.paidClassifier ?? isTakeoffDecisionsSelected()) || !isLocalChatGptEnabled() || !input.userId) return undefined;
   // Before each plan request, as before each level C one: the creator is still a member (their plan receives the
   // images), then the job's own check (tenant, lease).
   const { provider } = input;

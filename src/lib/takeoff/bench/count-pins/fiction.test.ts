@@ -44,3 +44,16 @@ it("generates real CropBox, UserUnit, rotation, raster-only and empty PDF pages"
     }
   }
 }, 15_000);
+
+it("keeps installed occurrences and excludes samples next to legend and repeated-detail headings on turned sheets", async () => {
+  const sheets = await fictionalSheets();
+  for (const sheet of sheets.filter((s) => s.support === "vector" && s.truth.length)) {
+    const extraction = await extractVectorPage(sheet.bytes, sheet.page);
+    const reader = readDeterministic({ id: sheet.id, generation: "fixture", extraction, examples: [] });
+    for (const zone of Object.values(sheet.negativeZones)) {
+      const sample = { x: (zone.x0 + zone.x1) / 2, y: (zone.y0 + zone.y1) / 2 };
+      expect(reader.onInstallation(sample)).toBe(false);
+    }
+    expect(sheet.truth.every(reader.onInstallation)).toBe(true);
+  }
+}, 15_000);

@@ -152,7 +152,7 @@ create function pg_temp.targets(items integer[]) returns jsonb language sql stab
 $$;
 -- The server's statement: a new measure of these items on the plan, re-reading its latest analysis.
 create function pg_temp.remeasure_sql(key integer, items integer[], n integer, predecessor uuid, targets jsonb default null,
-  p_revision integer default null)
+  p_revision integer default null, confirmation jsonb default null)
 returns text language sql stable as $$
   select format($remeasure$select outcome || ':' || coalesce(pg_catalog.array_to_string(stale, ','), '')
     from public.launch_takeoff_item_remeasure(%L, %L, %L, %L, %L, %L, %L::jsonb, %L::jsonb, %L::jsonb, %L::jsonb, %L, %s, %L::uuid[],
@@ -160,7 +160,7 @@ returns text language sql stable as $$
     pg_temp.tenant(), pg_temp.f(20), pg_temp.f(1), pg_temp.f(key), predecessor, pg_temp.host(), pg_temp.selection(),
     pg_temp.manifest(items, p_revision), pg_temp.snapshot(), pg_temp.jobs(n), pg_temp.f(40), pg_temp.prep_revision(),
     array[pg_temp.f(100)], coalesce(targets, pg_temp.targets(items)),
-    jsonb_build_object('preview_digest', repeat('c', 64), 'setting', null))
+    coalesce(confirmation,jsonb_build_object('preview_digest', repeat('c', 64), 'setting', null)))
 $$;
 create function pg_temp.claim_sql(n integer, token integer) returns text language sql stable as $$
   select format($claim$select count(*) from public.claim_observed_local_takeoff_job(%L, %L, %L, clock_timestamp(), %L,
@@ -168,7 +168,7 @@ create function pg_temp.claim_sql(n integer, token integer) returns text languag
     pg_temp.job(n), pg_temp.tenant(), pg_temp.host(), pg_temp.f(token))
 $$;
 -- A publication of a job's answers: each item named measured (2 on page 2, one row of the result), or not found.
-create function pg_temp.publish_sql(n integer, token integer, measured integer[], absent integer[] default '{}') returns text
+create function pg_temp.publish_sql(n integer, token integer, measured integer[], absent integer[] default '{}', result_extra jsonb default '{}') returns text
 language sql stable as $$
   select format($publish$select result_id::text || ':' || replayed::text from public.publish_takeoff_item_answers(%L, %L,
     '2026-11-22T09:00:00Z', 'modele-fictif', 'takeoff-c-postes-v1',
@@ -187,7 +187,7 @@ language sql stable as $$
           'chunk_id', 'f1-b1')),
         'searched_pages', '[2, 7]'::jsonb, 'unreadable_pages', '[]'::jsonb, 'observations', '[]'::jsonb) from unnest(absent) i) answers),
     jsonb_build_object('extracted_json', '{}'::jsonb, 'warnings', '[]'::jsonb, 'tables', '[]'::jsonb, 'provider_meta', '{}'::jsonb,
-      'token_count', 10, 'cost_cents', 0, 'duration_ms', 5),
+      'token_count', 10, 'cost_cents', 0, 'duration_ms', 5) || result_extra,
     (select coalesce(jsonb_agg(jsonb_build_object('id', pg_temp.f(8000 + 10 * n + i - 300), 'designation', 'Poste (fictif)',
       'quantity', 2, 'unit', 'u', 'confidence', 0.9, 'evidence', 'Symboles fictifs', 'source_file_name', 'plan-1.pdf',
       'source_page', 2, 'metadata', '{}'::jsonb)), '[]'::jsonb) from unnest(measured) i))
@@ -207,6 +207,10 @@ select is((select x.outcome from extensions.dblink('race_setup', pg_temp.launch_
   'the affaire reads its plan against its list');
 select is((select x.claimed from extensions.dblink('race_setup', pg_temp.claim_sql(1, 901)) as x(claimed bigint)), 1::bigint,
   'the worker reads the plan');
+-- A second real connection checks the authority held by the freshly claimed attempt, independently of the dispatcher.
+select is((select x.live from extensions.dblink('race_b',format(
+  'select private.takeoff_count_mark_lease_live(j,%L) from public.takeoff_jobs j where id=%L',
+  pg_temp.f(901),pg_temp.job(1))) as x(live boolean)),true,'the current lease and its live host slot agree');
 select is((select split_part(x.answer, ':', 2) from extensions.dblink('race_setup', pg_temp.publish_sql(1, 901, array[300], array[301]))
   as x(answer text)), 'false', 'and publishes its answers');
 
@@ -244,12 +248,28 @@ $$;
 
 -- 1. Two confirmations at once: the first tab's is admitted, not yet committed; the second tab's waits, then answers that
 --    an analysis of the affaire runs; the first one's answer lost and sent again is replayed.
+select is((select x.ok from extensions.dblink('race_setup',format($rows$
+  select 1 from public.attest_takeoff_count_mark_pages(%1$L,%2$L,%3$L,%3$L,%4$L,
+    (select jsonb_agg(jsonb_build_object('page',p,'geometry',jsonb_build_object('version',1,'view_box',array[0,0,w,500],
+      'rotation',0,'user_unit',1,'width',w,'height',500)) order by p) from (values (2,700),(7,720)) sheets(p,w)))$rows$,
+  pg_temp.tenant(),pg_temp.f(20),pg_temp.f(100),pg_temp.digest(pg_temp.f(100)))) x(ok integer)),1,
+  'the original page frames are attested before admission');
+select is(extensions.dblink_exec('race_setup',format($rows$insert into public.feature_flags(tenant_id,flag_key,enabled,value)
+  values (%1$L,'TAKEOFF_C_CHUNK_THRESHOLD_PAGES',true,'1'),(%1$L,'TAKEOFF_C_CHUNK_SIZE_PAGES',true,'1')
+  on conflict (tenant_id,flag_key) do update set enabled=true,value=excluded.value$rows$,pg_temp.tenant())),'INSERT 0 2',
+  'the admitted unit reads two one-page fragments');
+create function pg_temp.tile_confirmation() returns jsonb language sql immutable as $$
+  select jsonb_build_object('preview_digest',repeat('c',64),'shown_sha256',repeat('b',64),'page',null,
+    'setting','{"model":"modele-fictif","reasoning_effort":null}'::jsonb,
+    'count_marks','{"pages":[{"page":2,"width_points":700},{"page":7,"width_points":720}],
+    "tile_calls":10,"other_calls":2.0,"total_calls":12}'::jsonb)
+$$;
 create temp table first_targets as select pg_temp.targets(array[300]) as targets;
 select is(extensions.dblink_exec('race_a', 'begin'), 'BEGIN', 'the first tab confirms a new measure of the first item');
-select is((select x.answer from extensions.dblink('race_a', pg_temp.remeasure_sql(700, array[300], 2, pg_temp.job(1)))
+select is((select x.answer from extensions.dblink('race_a', pg_temp.remeasure_sql(700, array[300], 2, pg_temp.job(1), confirmation => pg_temp.tile_confirmation()))
   as x(answer text)), 'admitted:', 'admitted, not yet committed');
 select is(extensions.dblink_send_query('race_setup', pg_temp.remeasure_sql(700, array[300], 2, pg_temp.job(1),
-  (select targets from first_targets))), 1, 'a second click sends the exact same intent before the admission commits');
+  (select targets from first_targets), confirmation => pg_temp.tile_confirmation())), 1, 'a second click sends the exact same intent before the admission commits');
 select ok(pg_temp.waits_for('race_setup', 'race_a'), 'the repeated click waits for admission');
 select is(extensions.dblink_send_query('race_b', pg_temp.remeasure_sql(701, array[300], 3, pg_temp.job(1))), 1,
   'the second tab confirms the same selection meanwhile');
@@ -264,12 +284,56 @@ select is((select x.answer from extensions.dblink_get_result('race_b') as x(answ
   'an analysis of the affaire runs: the selection is kept for later');
 select is((select count(*)::integer from extensions.dblink_get_result('race_b') as x(answer text)), 0, 'and is done');
 select is((select x.answer from extensions.dblink('race_b', pg_temp.remeasure_sql(700, array[300], 2, pg_temp.job(1),
-  (select targets from first_targets))) as x(answer text)), 'replayed:', 'the first one''s answer sent again is replayed');
+  (select targets from first_targets), confirmation => pg_temp.tile_confirmation())) as x(answer text)), 'replayed:', 'the first one''s answer sent again is replayed');
 select is(pg_temp.requests(), 2, 'one new request admitted, once');
 -- Its analysis reads the first item and publishes.
 select is((select x.claimed from extensions.dblink('race_setup', pg_temp.claim_sql(2, 902)) as x(claimed bigint)), 1::bigint,
   'the new measure is read');
-select is((select split_part(x.answer, ':', 2) from extensions.dblink('race_setup', pg_temp.publish_sql(2, 902, array[300]))
+-- Check the decision after a real request-row wait using a short-lived copy of the lease row.
+-- Both connections use read-only probes of the payment ledger; no paid call is issued.
+select is(extensions.dblink_exec('race_a','begin'),'BEGIN','hold the opted-in request while its deadline advances');
+select is((select id from extensions.dblink('race_a',format(
+  'select r.id from public.takeoff_launch_requests r join public.takeoff_jobs j on j.launch_request_id=r.id where j.id=%L for update of r',
+  pg_temp.job(2))) as x(id uuid)),(select launch_request_id from public.takeoff_jobs where id=pg_temp.job(2)), 'the request is locked');
+select is(extensions.dblink_send_query('race_b',format($probe$
+  with locked as materialized (
+    select r.id from public.takeoff_launch_requests r join public.takeoff_jobs j on j.launch_request_id=r.id
+    where j.id=%1$L for key share of r
+  ) select private.takeoff_count_mark_lease_live(jsonb_populate_record(j,
+    jsonb_build_object('processing_lease_expires_at',statement_timestamp()+interval '0.1 seconds')),%2$L)
+    from locked join public.takeoff_jobs j on j.launch_request_id=locked.id where j.id=%1$L
+  $probe$,pg_temp.job(2),pg_temp.f(902))),1,'the second connection submits the liveness probe');
+select ok(pg_temp.waits_for('race_b','race_a'),'the probe waits on the request');
+select pg_sleep(0.12) as deadline_passed \gset
+select is(extensions.dblink_exec('race_a','commit'),'COMMIT','release the request after the probe lease expires');
+select ok(pg_temp.answered('race_b'),'the probe resumes');
+select is((select live from extensions.dblink_get_result('race_b') as x(live boolean)),false,
+  'the lease deadline is evaluated after the lock is acquired');
+select is((select count(*)::integer from extensions.dblink_get_result('race_b') as x(live boolean)),0,'the probe is done');
+select is((select count(*)::integer from private.takeoff_launch_usage where job_id=pg_temp.job(2)),0,
+  'the synthetic deadline check leaves the expense ledger empty');
+-- Exercise the actual reservation entry point across two sessions with the claimed job's live lease.
+select is(extensions.dblink_exec('race_a','begin'),'BEGIN','the first connection holds the request for a concurrent reader');
+select is((select id from extensions.dblink('race_a',format(
+  'select r.id from public.takeoff_launch_requests r join public.takeoff_jobs j on j.launch_request_id=r.id where j.id=%L for update of r',
+  pg_temp.job(2))) as x(id uuid)),(select launch_request_id from public.takeoff_jobs where id=pg_temp.job(2)), 'the request row is held');
+select is(extensions.dblink_send_query('race_b',format('select outcome from public.reserve_takeoff_launch_call(%L,%L,%L,%L,30000)',
+  pg_temp.job(2),pg_temp.f(902),'call:1','pdf')),1,'the worker submits its real paid-lane reservation');
+select ok(pg_temp.waits_for('race_b','race_a'),'the actual reservation waits for the request row');
+select is((select count(*) from private.takeoff_launch_usage where job_id=pg_temp.job(2)),0::bigint,'a waiting reservation records no expense');
+select is(extensions.dblink_exec('race_a','commit'),'COMMIT','release the request under the valid lease');
+select ok(pg_temp.answered('race_b'),'the reservation completes');
+select is((select outcome from extensions.dblink_get_result('race_b') as x(outcome text)),'reserved',
+  'the still-live lease receives one permission against its integral two-call allowance');
+select is((select count(*)::integer from extensions.dblink_get_result('race_b') as x(outcome text)),0,'the worker has its receipt');
+select is((select count(*) from private.takeoff_launch_usage where job_id=pg_temp.job(2)),1::bigint,'one ledger row committed after the wait');
+select ok((select x.left_ is not null from extensions.dblink('race_setup',format(
+  'select remaining_tokens from public.record_takeoff_launch_usage(%L,%L,%L,10,0)',pg_temp.job(2),pg_temp.f(902),'call:1'))
+  as x(left_ bigint)),'the first call is settled on its own receipt');
+select is((select split_part(x.answer, ':', 2) from extensions.dblink('race_setup', pg_temp.publish_sql(2, 902, array[300], result_extra =>
+  '{"count_mark_generation":{"pages":[],"marks":[]},"provider_meta":{"count_marks":[
+  {"page":2,"vector_state":"read","tiles":["not_read","not_read","not_read","not_read"],"limited":false},
+  {"page":7,"vector_state":"no_layer","tiles":["not_read","not_read","not_read","not_read","not_read","not_read"],"limited":false}]}}'))
   as x(answer text)), 'false', 'and publishes the first item''s answer');
 
 -- 2. A confirmation while a bulk review of the same item commits: the review holds the affaire's review key; the
