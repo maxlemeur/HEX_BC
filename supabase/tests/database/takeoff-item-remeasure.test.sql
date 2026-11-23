@@ -638,10 +638,11 @@ language sql as $$
   select * from public.launch_takeoff_item_remeasure(pg_temp.f(10), pg_temp.f(20), pg_temp.f(2), pg_temp.f(702 + round_no),
     pg_temp.job(1,pg_temp.plan(plan_no)), pg_temp.host(), pg_temp.selection() || '{"profileId":"autre-profil","authorizationId":"seconde-connexion"}',
     jsonb_set(jsonb_set(pg_temp.manifest(pg_temp.list(revision_no,array[item_no]),array[pg_temp.plan(plan_no)]),
-      '{plans,0,pages}', jsonb_build_array(page_no)), '{units,0,pages}', jsonb_build_array(page_no)),
-    jsonb_set(jsonb_set(pg_temp.snapshot(array[pg_temp.plan(plan_no)],2), '{preparation,sources,0,pages}', jsonb_build_array(page_no)),
+      '{plans,0,pages}', scope.pages), '{units,0,pages}', scope.pages),
+    jsonb_set(jsonb_set(pg_temp.snapshot(array[pg_temp.plan(plan_no)],2), '{preparation,sources,0,pages}', scope.pages),
       '{execution_selection}', pg_temp.selection() || '{"profileId":"autre-profil","authorizationId":"seconde-connexion"}'), pg_temp.jobs(round_no,array[pg_temp.plan(plan_no)]), pg_temp.f(40),1,
     array[pg_temp.plan(plan_no)], pg_temp.targets(array[item_no],array[pg_temp.plan(plan_no)]), pg_temp.detail_confirm(page_no) || extra)
+  from (select case when page_no is null then '[2,7]'::jsonb else jsonb_build_array(page_no) end as pages) scope
 $$;
 select throws_ok($$select * from pg_temp.detail_measure(6)$$, '22023','TAKEOFF_LAUNCH_SEAL_INVALID','a page outside the preparation is refused');
 select is((select outcome from pg_temp.detail_measure(2)), 'admitted','a member may confirm a single admitted page');
@@ -878,7 +879,7 @@ select is(pg_temp.reserve_mark_call('tile:2:1'),'TILE_ALREADY_ATTEMPTED','an out
 select remaining_tokens from public.record_takeoff_launch_usage(pg_temp.job(14,pg_temp.plan(1)),pg_temp.f(916),'tile:2:1',100,0) \gset
 select is(pg_temp.reserve_mark_call('tile:2:1'),'TILE_ALREADY_ATTEMPTED','a settled tile cannot be retried');
 select is(pg_temp.reserve_mark_call('groups:1','vector_group'),'BUDGET_EXHAUSTED','the sealed unit runs no paid vector groups');
-select is(pg_temp.reserve_mark_call('call:1','pdf'),'reserved','the first ordinary reservation accepts the integral 2.0 from the confirmation');
+select is(pg_temp.reserve_mark_call('call:1','pdf'),'reserved','the first ordinary reservation accepts an integral JSON number with a decimal point');
 select is(private.takeoff_count_mark_attempt_refusal((pg_temp.request_of(pg_temp.job(14,pg_temp.plan(1)))).id,'call:1'),
   'CALL_ALREADY_ATTEMPTED','a pending ordinary reservation has no further permission to send');
 select is(pg_temp.reserve_mark_call('call:2','vector_group'),'BUDGET_EXHAUSTED','one page and no paid groups admits one ordinary read');
@@ -936,5 +937,61 @@ select results_eq($$select a.job_id,t.state,m.x,m.y from public.takeoff_count_ma
   $$values (pg_temp.job(10,pg_temp.plan(1)),'retained'::text,0.1,0.2),
     (pg_temp.job(14,pg_temp.plan(1)),'proposed'::text,0.5,0.25)$$,
   'the current answer keeps the member’s coordinates and only the comparison carries the proposed pin');
+-- The verified-count choice and send consume the member's decision on the current answer.
+-- Read their actual inputs again after replaying the identical terminal publication.
+create function pg_temp.count_choice(round_no integer) returns jsonb language sql stable as $$
+  select jsonb_build_object('comparison',a.comparison_only,'measured',a.quantity,
+    'count',private.takeoff_verified_count(a.id) -> 'quantity',
+    'choice',private.takeoff_item_quantity_options(a.id) #> '{verified,quantity}',
+    'send_parts',(select count(*) from private.takeoff_item_send_resolved_parts(a.tenant_id,a.project_id,a.job_id,array[2])))
+  from public.takeoff_item_answers a where a.job_id=pg_temp.job(round_no,pg_temp.plan(1))
+$$;
+select is(pg_temp.count_choice(14),'{"comparison":true,"measured":null,"count":null,"choice":null,"send_parts":0}'::jsonb,
+  'a comparison with a proposed mark contributes neither a count, an acceptance choice nor a sendable part');
+
+select is((select outcome from pg_temp.detail_measure(2,15,303,1,320,pg_temp.mark_option(array[700],array[2],4))),
+  'admitted','the next single-page reading sees the member’s current revision');
+select is(pg_temp.claim(pg_temp.job(15,pg_temp.plan(1)),917),1,'the new reading starts');
+select is((select outcome from public.reserve_takeoff_launch_call(pg_temp.job(15,pg_temp.plan(1)),pg_temp.f(917),
+  'tile:2:1','count_tile',30000)),'reserved','its first tile may be read');
+select remaining_tokens from public.record_takeoff_launch_usage(pg_temp.job(15,pg_temp.plan(1)),pg_temp.f(917),'tile:2:1',100,0) \gset
+create function pg_temp.current_generation() returns jsonb language sql immutable as $$
+  select jsonb_set(pg_temp.machine_result(),'{provider_meta,count_marks,0,tiles,1}','"not_read"')
+$$;
+select is(pg_temp.publish_one(15,303,1,pg_temp.current_generation()),1,'one proposed object is published on the current answer');
+select is(pg_temp.count_choice(15),'{"comparison":false,"measured":null,"count":null,"choice":null,"send_parts":0}'::jsonb,
+  'the proposed-only current page has no count, no acceptance choice and nothing to send');
+select a.id as verified_answer,t.mark_id as adopted_mark from public.takeoff_item_answers a
+  join public.takeoff_count_mark_attributions t on t.answer_id=a.id where a.job_id=pg_temp.job(15,pg_temp.plan(1)) \gset
+select pg_temp.sign_in(1);
+set local role authenticated;
+select is(public.edit_takeoff_count_marks(pg_temp.f(10),pg_temp.f(20),pg_temp.f(952),
+  jsonb_build_object(:'verified_answer',1),jsonb_build_array(
+    jsonb_build_object('op','retain','answer_id',:'verified_answer','mark_id',:'adopted_mark'),
+    jsonb_build_object('op','verify','answer_id',:'verified_answer','pages',jsonb_build_array(2)))) ->> 'replayed',
+  'false','the member adopts the one proposal and verifies its page');
+reset role;
+select is(pg_temp.count_choice(15),'{"comparison":false,"measured":null,"count":1,"choice":1,"send_parts":0}'::jsonb,
+  'one adopted and verified object offers exactly one unit, with nothing sent before explicit acceptance');
+select is(pg_temp.publish_one(15,303,1,pg_temp.current_generation()),1,'a repeated terminal result replays after verification');
+select is(pg_temp.count_choice(15),'{"comparison":false,"measured":null,"count":1,"choice":1,"send_parts":0}'::jsonb,
+  'replaying the generation preserves the verified count and its single available unit');
+select is((select count(*) from public.takeoff_count_mark_proposals where job_id=pg_temp.job(15,pg_temp.plan(1))),
+  1::bigint,'replaying the generation preserves its single source');
+-- On this tenant two pages form two separate PDF fragments. The agreement can spell two as 2.0.
+insert into public.feature_flags(tenant_id,flag_key,enabled,value) values
+  (pg_temp.f(10),'TAKEOFF_C_CHUNK_THRESHOLD_PAGES',true,'1'),
+  (pg_temp.f(10),'TAKEOFF_C_CHUNK_SIZE_PAGES',true,'1'),
+  (pg_temp.f(10),'TAKEOFF_C_CHUNK_OVERLAP_PAGES',true,'0')
+on conflict (tenant_id,flag_key) do update set enabled=excluded.enabled,value=excluded.value;
+select is((select outcome from pg_temp.detail_measure(null,16,303,1,320,
+  '{"count_marks":{"pages":[{"page":2,"width_points":700},{"page":7,"width_points":701}],
+    "tile_calls":10,"other_calls":2.0,"total_calls":12}}')),'admitted','two real PDF fragments admit other_calls spelled 2.0');
+select is((select count_mark_schedule ->> 'other_calls' from private.takeoff_launch_commands
+  where job_id=pg_temp.job(16,pg_temp.plan(1))),'2','the admission receipt stores its SQL-derived integer');
+select is(pg_temp.claim(pg_temp.job(16,pg_temp.plan(1)),918),1,'the whole-plan reading is claimed');
+select is((select outcome from public.reserve_takeoff_launch_call(pg_temp.job(16,pg_temp.plan(1)),pg_temp.f(918),
+  'call:1','pdf',30000)),'reserved','the first ordinary call of the two-fragment reading is granted');
+select remaining_tokens from public.record_takeoff_launch_usage(pg_temp.job(16,pg_temp.plan(1)),pg_temp.f(918),'call:1',100,0) \gset
 select * from finish();
 rollback;
