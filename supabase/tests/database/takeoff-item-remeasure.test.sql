@@ -609,7 +609,7 @@ create function pg_temp.detail_confirm(page_no integer) returns jsonb language s
     'setting', jsonb_build_object('model','autre-modele','reasoning_effort','high'))
 $$;
 create function pg_temp.detail_measure(page_no integer, round_no integer default 8, item_no integer default 300,
-  plan_no integer default 0, revision_no integer default 310) returns table (outcome text, request_id uuid, job_id uuid, stale uuid[])
+  plan_no integer default 0, revision_no integer default 310, extra jsonb default '{}') returns table (outcome text, request_id uuid, job_id uuid, stale uuid[])
 language sql as $$
   select * from public.launch_takeoff_item_remeasure(pg_temp.f(10), pg_temp.f(20), pg_temp.f(2), pg_temp.f(702 + round_no),
     pg_temp.job(1,pg_temp.plan(plan_no)), pg_temp.host(), pg_temp.selection() || '{"profileId":"autre-profil","authorizationId":"seconde-connexion"}',
@@ -617,7 +617,7 @@ language sql as $$
       '{plans,0,pages}', jsonb_build_array(page_no)), '{units,0,pages}', jsonb_build_array(page_no)),
     jsonb_set(jsonb_set(pg_temp.snapshot(array[pg_temp.plan(plan_no)],2), '{preparation,sources,0,pages}', jsonb_build_array(page_no)),
       '{execution_selection}', pg_temp.selection() || '{"profileId":"autre-profil","authorizationId":"seconde-connexion"}'), pg_temp.jobs(round_no,array[pg_temp.plan(plan_no)]), pg_temp.f(40),1,
-    array[pg_temp.plan(plan_no)], pg_temp.targets(array[item_no],array[pg_temp.plan(plan_no)]), pg_temp.detail_confirm(page_no))
+    array[pg_temp.plan(plan_no)], pg_temp.targets(array[item_no],array[pg_temp.plan(plan_no)]), pg_temp.detail_confirm(page_no) || extra)
 $$;
 select throws_ok($$select * from pg_temp.detail_measure(6)$$, '22023','TAKEOFF_LAUNCH_SEAL_INVALID','a page outside the preparation is refused');
 select is((select outcome from pg_temp.detail_measure(2)), 'admitted','a member may confirm a single admitted page');
@@ -629,12 +629,12 @@ select results_eq($$select created_by, preparation_snapshot #>> '{execution_sele
   $$values (pg_temp.f(2), 'autre-profil'::text, 'seconde-connexion'::text, '{"model":"autre-modele","reasoningEffort":"high"}'::jsonb)$$,
   'the job freezes the acting member, their connection and the distinct effective setting');
 select is(pg_temp.claim(pg_temp.job(8,pg_temp.plan(0)), 910),1,'the page reading starts');
-create function pg_temp.publish_one(round_no integer, item_no integer, plan_no integer) returns integer language sql as $$
+create function pg_temp.publish_one(round_no integer, item_no integer, plan_no integer, result_extra jsonb default '{}') returns integer language sql as $$
   select answer_count from public.publish_takeoff_item_answers(pg_temp.job(round_no,pg_temp.plan(plan_no)),pg_temp.f(902 + round_no),now(),
     'autre-modele','takeoff-c-postes-v1','{"schema_version":"v2","prompt_version":"takeoff-c-postes-v1"}',array[2],
     jsonb_build_array(jsonb_set(case when round_no = 8 then pg_temp.measured(item_no, 871, 5) else pg_temp.not_found(item_no) end,
       '{searched_pages}', '[2]')), '[]',
-    '{"extracted_json":{},"warnings":[],"tables":[],"provider_meta":{},"token_count":10,"cost_cents":0,"duration_ms":5,"run_metrics":[]}',
+    '{"extracted_json":{},"warnings":[],"tables":[],"provider_meta":{},"token_count":10,"cost_cents":0,"duration_ms":5,"run_metrics":[]}'::jsonb || result_extra,
     case when round_no = 8 then jsonb_build_array(pg_temp.row_(871, 5, 'plan-a.pdf')) else '[]'::jsonb end)
 $$;
 select is(pg_temp.publish_one(8, 300, 0), 1,
@@ -783,5 +783,95 @@ select is(pg_temp.publish_one(11, 303, 1), 1, 'the changed predecessor still all
 select results_eq($$select comparison_only, replaces_answer_id from public.takeoff_item_answers
   where job_id = pg_temp.job(11, pg_temp.plan(1))$$, $$values (true, null::uuid)$$, 'a member edit protects the earlier answer');
 
+-- The page widths are the visible, rotated widths at scale one, read from the confirmed PDF.
+create function pg_temp.mark_option(widths numeric[], pages integer[], tile_calls integer) returns jsonb
+language sql immutable as $$
+  select jsonb_build_object('count_marks', jsonb_build_object('pages', (select jsonb_agg(
+    jsonb_build_object('page', p, 'width_points', w) order by ord) from unnest(pages, widths) with ordinality s(p,w,ord)),
+    'tile_calls', tile_calls, 'other_calls', 2, 'total_calls', tile_calls + 2))
+$$;
+select ok(private.takeoff_item_remeasure_confirmation_valid(pg_temp.detail_confirm(null) ||
+  pg_temp.mark_option(array[700,701,700,701,700], array[1,2,3,4,5], 24)), '24 calls on mixed widths fit exactly');
+select ok(not private.takeoff_item_remeasure_confirmation_valid(pg_temp.detail_confirm(null) ||
+  pg_temp.mark_option(array[701,701,700,701,700], array[1,2,3,4,5], 26)), '26 calls need a smaller scope');
+select ok(not private.takeoff_item_remeasure_confirmation_valid(pg_temp.detail_confirm(null) ||
+  pg_temp.mark_option(array[701], array[2], 4)), 'a wide page cannot be confirmed at the small-page bound');
+select ok(not private.takeoff_item_remeasure_confirmation_valid(pg_temp.detail_confirm(null) ||
+  pg_temp.mark_option(array[700,700], array[2,2], 8)), 'a duplicate sheet is refused');
+select ok(not private.takeoff_item_remeasure_confirmation_valid(pg_temp.confirmation('a') ||
+  pg_temp.mark_option(array[700], array[2], 4)), 'only the plan detail may request tile reading');
+select throws_ok($$select * from pg_temp.detail_measure(2,14,303,1,320,pg_temp.mark_option(array[700],array[7],4))$$,
+  '22023','TAKEOFF_MARKS_SCOPE_INVALID','the schedule must cover precisely the admitted page');
+select is((select outcome from pg_temp.detail_measure(2,14,303,1,320,pg_temp.mark_option(array[700],array[2],4))),
+  'admitted','the explicit tile option is admitted');
+select is((select preparation_snapshot -> 'remeasure_count_marks' from public.takeoff_jobs where id = pg_temp.job(14,pg_temp.plan(1))),
+  pg_temp.mark_option(array[700],array[2],4) -> 'count_marks','the worker receives the exact bound');
+select is((select outcome from pg_temp.detail_measure(2,14,303,1,320,pg_temp.mark_option(array[700],array[2],4))),
+  'replayed','the same tile confirmation returns the same receipt');
+select throws_ok($$select * from pg_temp.detail_measure(2,14,303,1,320)$$,'23505','TAKEOFF_LAUNCH_INTENT_CONFLICT',
+  'disabling the option changes the intent');
+select throws_ok($$select * from pg_temp.detail_measure(2,14,303,1,320,pg_temp.mark_option(array[701],array[2],6))$$,
+  '23505','TAKEOFF_LAUNCH_INTENT_CONFLICT','a different bound changes the intent');
+select is(pg_temp.claim(pg_temp.job(14,pg_temp.plan(1)),916),1,'the opted-in reading starts');
+create function pg_temp.reserve_mark_call(call_key text, branch text default 'other') returns text language sql as $$
+  select coalesce(reason,outcome) from public.reserve_takeoff_launch_call(pg_temp.job(14,pg_temp.plan(1)),pg_temp.f(916),
+    call_key,branch,30000)
+$$;
+select is(pg_temp.reserve_mark_call('tile:7:1'),'TILE_OUTSIDE_SCOPE','a tile of another page cannot spend');
+select is(pg_temp.reserve_mark_call('tile:2:5'),'TILE_OUTSIDE_SCOPE','a fifth tile on a narrow page cannot spend');
+select is(pg_temp.reserve_mark_call('tile:2:1'),'reserved','the first tile is reserved');
+select is(pg_temp.reserve_mark_call('tile:2:2'),'TILE_IN_FLIGHT','another tile cannot start concurrently');
+select is(pg_temp.reserve_mark_call('tile:2:1'),'TILE_ALREADY_ATTEMPTED','an outstanding tile cannot be sent twice');
+select remaining_tokens from public.record_takeoff_launch_usage(pg_temp.job(14,pg_temp.plan(1)),pg_temp.f(916),'tile:2:1',100,0) \gset
+select is(pg_temp.reserve_mark_call('tile:2:1'),'TILE_ALREADY_ATTEMPTED','a settled tile cannot be retried');
+select is(pg_temp.reserve_mark_call('call:1','pdf'),'reserved','the first ordinary read fits alongside the tiles');
+select is(pg_temp.reserve_mark_call('call:2','vector_group'),'reserved','the second ordinary read fits the shown bound');
+select is(pg_temp.reserve_mark_call('call:3','pdf'),'BUDGET_EXHAUSTED','a third ordinary read exceeds the confirmed total');
+select remaining_tokens from public.record_takeoff_launch_usage(pg_temp.job(14,pg_temp.plan(1)),pg_temp.f(916),'call:1',100,0) \gset
+select remaining_tokens from public.record_takeoff_launch_usage(pg_temp.job(14,pg_temp.plan(1)),pg_temp.f(916),'call:2',100,0) \gset
+select is(pg_temp.reserve_mark_call('tile:2:2'),'reserved','a later tile starts after settlement');
+select public.record_takeoff_launch_call_unknown(pg_temp.job(14,pg_temp.plan(1)),pg_temp.f(916),'tile:2:2') as frozen \gset
+select is(pg_temp.reserve_mark_call('tile:2:3'),'USAGE_UNKNOWN','an unknown result freezes the next tile');
+select throws_ok($$select pg_temp.publish_one(14,303,1)$$,'22023','TAKEOFF_MARKS_COVERAGE_INVALID',
+  'the job cannot finish with its requested readers silently omitted');
+create function pg_temp.machine_result() returns jsonb language sql immutable as $$
+  select jsonb_build_object('provider_meta', '{"count_marks":[{"page":2,"vector_state":"no_layer",
+    "tiles":["read","unknown","not_read","not_read"],"limited":false}]}'::jsonb,
+    'count_mark_generation', jsonb_build_object('pages', '[{"page":2,"geometry":{"version":1,"view_box":[0,0,700,500],
+    "width":700,"height":500,"user_unit":1,"rotation":0}}]'::jsonb, 'marks', jsonb_build_array(jsonb_build_object(
+    'page',2,'x',0.5,'y',0.25,'proposals', jsonb_build_array(jsonb_build_object('item_id',pg_temp.f(303),
+    'state','proposed','method','tile','method_version','1','source_key','tile-1:1','source_ref','tile:1'))))))
+$$;
+-- A real member corrects the current answer between admission and terminal publication.
+select id as current_answer from public.takeoff_item_answers where job_id=pg_temp.job(10,pg_temp.plan(1)) \gset
+select pg_temp.sign_in(1);
+set local role authenticated;
+select is(public.edit_takeoff_count_marks(pg_temp.f(10),pg_temp.f(20),pg_temp.f(950),
+  jsonb_build_object(:'current_answer',1),jsonb_build_array(jsonb_build_object('op','add',
+  'key',pg_temp.f(951),'answer_id',:'current_answer','page',2,'x',0.1,'y',0.2,
+  'geometry',pg_temp.machine_result() #> '{count_mark_generation,pages,0,geometry}'))) ->> 'replayed',
+  'false','a member adds their own mark while the worker reads');
+reset role;
+select throws_ok($$select pg_temp.publish_one(14,303,1,jsonb_set(pg_temp.machine_result(),
+  '{count_mark_generation,marks,0,proposals,0,item_id}', to_jsonb(pg_temp.f(301))))$$,
+  '22023','TAKEOFF_MARKS_ITEM_FOREIGN','a foreign item rolls back the terminal answer');
+select is((select count(*) from public.takeoff_item_answers where job_id=pg_temp.job(14,pg_temp.plan(1))),0::bigint,
+  'the failed generation committed neither result nor answer');
+select is(pg_temp.publish_one(14,303,1,pg_temp.machine_result()),1,'the answer and proposal commit together');
+select is(pg_temp.publish_one(14,303,1,pg_temp.machine_result()),1,'a lost response replays the entire generation');
+select is((select count(*) from public.takeoff_count_mark_proposals where job_id=pg_temp.job(14,pg_temp.plan(1))),1::bigint,
+  'one source remains after replay');
+select is((select quantity from public.takeoff_item_answers where job_id=pg_temp.job(14,pg_temp.plan(1))),null::numeric,
+  'a proposed pin supplies no measured quantity');
+select is((select private.takeoff_count_mark_summary(id)->'quantity' from public.takeoff_item_answers
+  where job_id=pg_temp.job(14,pg_temp.plan(1))), 'null'::jsonb,'a proposal supplies no verified quantity');
+select is((select comparison_only from public.takeoff_item_answers where job_id=pg_temp.job(14,pg_temp.plan(1))),true,
+  'the proposal belongs to the comparison after a member edit');
+select results_eq($$select a.job_id,t.state,m.x,m.y from public.takeoff_count_mark_attributions t
+  join public.takeoff_item_answers a on a.id=t.answer_id join public.takeoff_count_marks m on m.id=t.mark_id
+  where a.item_id=pg_temp.f(303) order by a.reading_revision$$,
+  $$values (pg_temp.job(10,pg_temp.plan(1)),'retained'::text,0.1,0.2),
+    (pg_temp.job(14,pg_temp.plan(1)),'proposed'::text,0.5,0.25)$$,
+  'the current answer keeps the member’s coordinates and only the comparison carries the proposed pin');
 select * from finish();
 rollback;

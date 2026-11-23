@@ -152,7 +152,7 @@ create function pg_temp.targets(items integer[]) returns jsonb language sql stab
 $$;
 -- The server's statement: a new measure of these items on the plan, re-reading its latest analysis.
 create function pg_temp.remeasure_sql(key integer, items integer[], n integer, predecessor uuid, targets jsonb default null,
-  p_revision integer default null)
+  p_revision integer default null, confirmation jsonb default null)
 returns text language sql stable as $$
   select format($remeasure$select outcome || ':' || coalesce(pg_catalog.array_to_string(stale, ','), '')
     from public.launch_takeoff_item_remeasure(%L, %L, %L, %L, %L, %L, %L::jsonb, %L::jsonb, %L::jsonb, %L::jsonb, %L, %s, %L::uuid[],
@@ -160,7 +160,7 @@ returns text language sql stable as $$
     pg_temp.tenant(), pg_temp.f(20), pg_temp.f(1), pg_temp.f(key), predecessor, pg_temp.host(), pg_temp.selection(),
     pg_temp.manifest(items, p_revision), pg_temp.snapshot(), pg_temp.jobs(n), pg_temp.f(40), pg_temp.prep_revision(),
     array[pg_temp.f(100)], coalesce(targets, pg_temp.targets(items)),
-    jsonb_build_object('preview_digest', repeat('c', 64), 'setting', null))
+    coalesce(confirmation,jsonb_build_object('preview_digest', repeat('c', 64), 'setting', null)))
 $$;
 create function pg_temp.claim_sql(n integer, token integer) returns text language sql stable as $$
   select format($claim$select count(*) from public.claim_observed_local_takeoff_job(%L, %L, %L, clock_timestamp(), %L,
@@ -168,7 +168,7 @@ create function pg_temp.claim_sql(n integer, token integer) returns text languag
     pg_temp.job(n), pg_temp.tenant(), pg_temp.host(), pg_temp.f(token))
 $$;
 -- A publication of a job's answers: each item named measured (2 on page 2, one row of the result), or not found.
-create function pg_temp.publish_sql(n integer, token integer, measured integer[], absent integer[] default '{}') returns text
+create function pg_temp.publish_sql(n integer, token integer, measured integer[], absent integer[] default '{}', result_extra jsonb default '{}') returns text
 language sql stable as $$
   select format($publish$select result_id::text || ':' || replayed::text from public.publish_takeoff_item_answers(%L, %L,
     '2026-11-22T09:00:00Z', 'modele-fictif', 'takeoff-c-postes-v1',
@@ -187,7 +187,7 @@ language sql stable as $$
           'chunk_id', 'f1-b1')),
         'searched_pages', '[2, 7]'::jsonb, 'unreadable_pages', '[]'::jsonb, 'observations', '[]'::jsonb) from unnest(absent) i) answers),
     jsonb_build_object('extracted_json', '{}'::jsonb, 'warnings', '[]'::jsonb, 'tables', '[]'::jsonb, 'provider_meta', '{}'::jsonb,
-      'token_count', 10, 'cost_cents', 0, 'duration_ms', 5),
+      'token_count', 10, 'cost_cents', 0, 'duration_ms', 5) || result_extra,
     (select coalesce(jsonb_agg(jsonb_build_object('id', pg_temp.f(8000 + 10 * n + i - 300), 'designation', 'Poste (fictif)',
       'quantity', 2, 'unit', 'u', 'confidence', 0.9, 'evidence', 'Symboles fictifs', 'source_file_name', 'plan-1.pdf',
       'source_page', 2, 'metadata', '{}'::jsonb)), '[]'::jsonb) from unnest(measured) i))
@@ -244,12 +244,18 @@ $$;
 
 -- 1. Two confirmations at once: the first tab's is admitted, not yet committed; the second tab's waits, then answers that
 --    an analysis of the affaire runs; the first one's answer lost and sent again is replayed.
+create function pg_temp.tile_confirmation() returns jsonb language sql immutable as $$
+  select jsonb_build_object('preview_digest',repeat('c',64),'shown_sha256',repeat('b',64),'page',null,
+    'setting','{"model":"modele-fictif","reasoning_effort":null}'::jsonb,
+    'count_marks','{"pages":[{"page":2,"width_points":700},{"page":7,"width_points":720}],
+    "tile_calls":10,"other_calls":1,"total_calls":11}'::jsonb)
+$$;
 create temp table first_targets as select pg_temp.targets(array[300]) as targets;
 select is(extensions.dblink_exec('race_a', 'begin'), 'BEGIN', 'the first tab confirms a new measure of the first item');
-select is((select x.answer from extensions.dblink('race_a', pg_temp.remeasure_sql(700, array[300], 2, pg_temp.job(1)))
+select is((select x.answer from extensions.dblink('race_a', pg_temp.remeasure_sql(700, array[300], 2, pg_temp.job(1), confirmation => pg_temp.tile_confirmation()))
   as x(answer text)), 'admitted:', 'admitted, not yet committed');
 select is(extensions.dblink_send_query('race_setup', pg_temp.remeasure_sql(700, array[300], 2, pg_temp.job(1),
-  (select targets from first_targets))), 1, 'a second click sends the exact same intent before the admission commits');
+  (select targets from first_targets), confirmation => pg_temp.tile_confirmation())), 1, 'a second click sends the exact same intent before the admission commits');
 select ok(pg_temp.waits_for('race_setup', 'race_a'), 'the repeated click waits for admission');
 select is(extensions.dblink_send_query('race_b', pg_temp.remeasure_sql(701, array[300], 3, pg_temp.job(1))), 1,
   'the second tab confirms the same selection meanwhile');
@@ -264,12 +270,15 @@ select is((select x.answer from extensions.dblink_get_result('race_b') as x(answ
   'an analysis of the affaire runs: the selection is kept for later');
 select is((select count(*)::integer from extensions.dblink_get_result('race_b') as x(answer text)), 0, 'and is done');
 select is((select x.answer from extensions.dblink('race_b', pg_temp.remeasure_sql(700, array[300], 2, pg_temp.job(1),
-  (select targets from first_targets))) as x(answer text)), 'replayed:', 'the first one''s answer sent again is replayed');
+  (select targets from first_targets), confirmation => pg_temp.tile_confirmation())) as x(answer text)), 'replayed:', 'the first one''s answer sent again is replayed');
 select is(pg_temp.requests(), 2, 'one new request admitted, once');
 -- Its analysis reads the first item and publishes.
 select is((select x.claimed from extensions.dblink('race_setup', pg_temp.claim_sql(2, 902)) as x(claimed bigint)), 1::bigint,
   'the new measure is read');
-select is((select split_part(x.answer, ':', 2) from extensions.dblink('race_setup', pg_temp.publish_sql(2, 902, array[300]))
+select is((select split_part(x.answer, ':', 2) from extensions.dblink('race_setup', pg_temp.publish_sql(2, 902, array[300], result_extra =>
+  '{"count_mark_generation":{"pages":[],"marks":[]},"provider_meta":{"count_marks":[
+  {"page":2,"vector_state":"read","tiles":["read","read","read","read"],"limited":false},
+  {"page":7,"vector_state":"no_layer","tiles":["read","read","read","read","read","read"],"limited":false}]}}'))
   as x(answer text)), 'false', 'and publishes the first item''s answer');
 
 -- 2. A confirmation while a bulk review of the same item commits: the review holds the affaire's review key; the
