@@ -698,7 +698,9 @@ export function TakeoffItemTable({ projectId, viewerKey, signature }: {
                                 <>{formatItemQuantity(line.retained.quantity, line.retained.unit)}
                                   {line.retained.source !== "measured" || line.retained.partial ? (
                                     <span className="text-muted-foreground">
-                                      {line.retained.source === "entered" ? " saisi" : line.retained.source === "mixed" ? " mesuré et saisi" : ""}
+                                      {line.retained.source === "entered" ? " saisi" : line.retained.source === "verified_count" ? " comptage vérifié" : line.retained.source === "mixed"
+                                        ? (line.readings.some(({ quantityDecision, decision }) => quantityDecision?.source === "verified_count" && decision?.kind === "accepted")
+                                          ? " dont comptage vérifié" : " mesuré et saisi") : ""}
                                       {line.retained.partial ? " partiel" : ""}
                                     </span>
                                   ) : null}</>
@@ -765,6 +767,8 @@ export function TakeoffItemTable({ projectId, viewerKey, signature }: {
                               <td colSpan={columns} className="whitespace-normal">
                                 <ItemTableLineDetail line={line} projectId={projectId} names={data.names} canReview={canReview} busy={busy}
                                   historyVersion={historyVersion} onRefused={withdrawOnRefusal}
+                                  onChooseQuantity={(choice) => void runCommand({ command_version: ITEM_REVIEW_COMMAND_VERSION,
+                                    intent_key: newIntent(), scope: address.scope, gesture: "accept_measured", quantity_choice: choice, targets: [line.targets] }, "accepté")}
                                   onIncludeEntry={(target) => void runCommand({ command_version: ITEM_REVIEW_COMMAND_VERSION,
                                     intent_key: newIntent(), scope: address.scope, gesture: "include_entry", targets: [target.targets] }, "inclus")} />
                               </td>

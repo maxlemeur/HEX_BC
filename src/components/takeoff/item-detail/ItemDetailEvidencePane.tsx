@@ -1,5 +1,7 @@
 "use client";
 
+import { ItemQuantityChoiceButtons } from "@/components/takeoff/item-table/ItemQuantityChoice";
+import type { ItemQuantityChoice } from "@/lib/takeoff/item-table";
 import { forwardRef } from "react";
 
 import type { ItemDetailDocumentState } from "@/components/takeoff/item-detail/ItemDetailPlanPane";
@@ -63,7 +65,7 @@ type Props = {
    * offered the gestures the line admits on its current state, a reader none. The page confirms and sends them by the
    * table's command.
    */
-  decide: { offer: (gesture: ItemDetailOfferedGesture) => ItemDetailGestureOffer; onGesture: (gesture: ItemDetailOfferedGesture) => void };
+  decide: { offer: (gesture: ItemDetailOfferedGesture) => ItemDetailGestureOffer; onGesture: (gesture: ItemDetailOfferedGesture, quantityChoice?: ItemQuantityChoice) => void };
   /**
    * For an earlier reading: whether the server proved that this analysis answered the item on this plan (`proven`), is
    * checking it (`pending`) or could not (`unproven`). Nothing calls it an earlier reading of the item before it is proven.
@@ -90,7 +92,9 @@ function DecisionButtons({ line, decide }: { line: ItemDetailLine; decide: Props
   }
   return (
     <div role="group" aria-label="Décider du poste" className="flex flex-wrap gap-1.5 pt-1">
-      {open.map((gesture) => (
+      {open.includes("accept_measured") && line.quantityOptions ? <ItemQuantityChoiceButtons options={line.quantityOptions}
+        onChoose={(choice) => decide.onGesture("accept_measured", choice)} /> : null}
+      {open.filter((gesture) => gesture !== "accept_measured" || !line.quantityOptions).map((gesture) => (
         <Button key={gesture} size="xs" variant={gesture === "accept_measured" ? "primary" : "outline"} onClick={() => decide.onGesture(gesture)}>
           {ITEM_DETAIL_GESTURE_LABELS[gesture]}
         </Button>
@@ -261,6 +265,10 @@ export const ItemDetailEvidencePane = forwardRef<HTMLHeadingElement, Props>(func
         <p>{line.coverage.expected === 0 ? "Aucun plan lu" : `${line.coverage.answered} plan${line.coverage.answered > 1 ? "s" : ""} sur ${line.coverage.expected} ont répondu`}
           {line.coverage.inFlight ? ` · ${line.coverage.inFlight} en lecture` : ""}</p>
         <p>Observé : {line.observed ? `${formatItemQuantity(line.observed.quantity, line.observed.unit)}${line.observed.partial ? " (partiel)" : ""}` : "—"}</p>
+        {reading?.verifiedMarks?.verified ? <p>{reading.verifiedMarks.quantity === null ? "Repères vérifiés, sans quantité" :
+          `Comptage vérifié${reading.quantityDecision?.source === "verified_count" && reading.decision?.kind === "accepted" ? " retenu" : ""} · ${formatItemQuantity(reading.verifiedMarks.quantity, reading.verifiedMarks.unit)}`}</p> : null}
+        {line.wholeEntry ? <p>Total saisi pour toute l’affaire · {formatItemQuantity(line.wholeEntry.quantity, line.wholeEntry.unit)}.
+          {" "}{line.wholeEntry.included ? "Ce total va au devis." : "Cette hypothèse attend son inclusion."} Pour le modifier, ouvrez le total de l’affaire.</p> : null}
         <p>Retenu : {line.retained ? `${formatItemQuantity(line.retained.quantity, line.retained.unit)}${line.retained.partial ? " (partiel)" : ""}` : "—"}</p>
         {line.reasons.length ? <p className="text-xs">{[...new Set(line.reasons.map(itemReasonLabel))].join(" · ")}</p> : null}
       </Section>

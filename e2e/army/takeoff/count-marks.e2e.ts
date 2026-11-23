@@ -12,7 +12,7 @@ import { describe, expect, nativeTest as test } from "./native-ui";
 // against its list and whose machine marks were published by the same attempt (count-marks-support.ts). An operator
 // reads a page of marks and its count, corrects them in one command, meets the duplicate rule, a stale revision and a
 // replay, reads the history; a member who may only read, a plan already sent and a page outside the reading are
-// refused. Until a send verifies the marks revision, a quantity counted from marks is shown and never sent. Both items
+// refused. Before the member retains the count on its plan, the send uses the accepted measurement. Both items
 // are accepted in the table first, on the tenant's default engine (3), as the send by item requires: the job's rows,
 // the plan's send preview (it refuses a job read against the list, whose send is item by item) and the valve's line of
 // the items' send preview (its reviewed row, never a count) answer the same before and after the correction; the
@@ -115,7 +115,7 @@ describe("Repères comptés d’un poste", () => {
       // facets of decisions), and the table without it.
       type Table = Awaited<ReturnType<typeof table>>;
       const basinLine = (snapshot: Table) => snapshot.lines.find((line) => line.itemId === seeded.basin) as unknown as {
-        decision: string; retained: unknown; readings: Array<{ decision: unknown }>; eligibility: Record<string, unknown> };
+        decision: string; retained: unknown; reasons: string[]; readings: Array<{ decision: unknown; verifiedMarks?: { quantity: number | null } }>; eligibility: Record<string, unknown> };
       const basinDecision = (snapshot: Table) => {
         const line = basinLine(snapshot);
         return { decision: line.decision, retained: line.retained, reading: line.readings[0]!.decision,
@@ -125,8 +125,9 @@ describe("Repères comptés d’un poste", () => {
         facets: omit(snapshot.facets as object, ["decisions"]),
         lines: snapshot.lines.map((line) => {
           if (line.itemId !== seeded.basin) return line;
-          const { readings, eligibility } = line as unknown as { readings: object[]; eligibility: object };
-          return { ...omit(line, ["decision", "retained"]), readings: readings.map((reading) => omit(reading, ["decision"])),
+          const { readings, eligibility, reasons } = basinLine(snapshot);
+          return { ...omit(line, ["decision", "retained"]), reasons: reasons.filter((reason) => reason !== "quantity_choice"),
+            readings: readings.map((reading) => omit(reading, ["decision", "verifiedMarks"])),
             eligibility: omit(eligibility, ["accept_measured"]) };
         }),
       });
@@ -201,7 +202,7 @@ describe("Repères comptés d’un poste", () => {
 
       // The selection follows the marks the member corrected (revision 1 to 4), the other item's not.
       expect(await selectedMarks()).toEqual({ [seeded.basin]: [4], [seeded.valve]: [1] });
-      // A quantity counted from marks is shown, never sent. The correction moves one thing only: the lavabo's acceptance,
+      // The revised count now needs a choice on the plan. The earlier measured acceptance,
       // taken on the marks it changed, is a decision to take again (#485). The job's rows, the stored inputs, the plan's
       // send and the rest of the table have not moved.
       const corrected = { table: await table(), rows: await rows(), planSend: await planSend(), itemSend: await itemSend(),
@@ -209,12 +210,15 @@ describe("Repères comptés d’un poste", () => {
       expect(corrected.rows).toEqual(before.rows);
       expect(corrected.stored).toEqual(before.stored);
       expect(corrected.planSend).toEqual(before.planSend);
+      expect(basinLine(before.table).readings[0].verifiedMarks?.quantity).toBeNull();
+      expect(basinLine(corrected.table).readings[0].verifiedMarks).toMatchObject({ quantity: 4, revision: 4, pages: [2] });
+      expect(basinLine(corrected.table).reasons).toContain("quantity_choice");
       expect(withoutBasinDecision(corrected.table)).toEqual(withoutBasinDecision(before.table));
       expect(basinDecision(before.table)).toEqual({ decision: "accepted", retained: { quantity: 1, unit: "u", source: "measured", partial: false },
         reading: expect.objectContaining({ kind: "accepted", revision: 1, actorId: owner.userId }),
         accept: { eligible: false, reason: "already_decided" }, decisions: { pending: 0, accepted: 2, set_aside: 0, entered: 0, none: 0 } });
       expect(basinDecision(corrected.table)).toEqual({ decision: "pending", retained: null, reading: null,
-        accept: { eligible: true, reason: null }, decisions: { pending: 1, accepted: 1, set_aside: 0, entered: 0, none: 0 } });
+        accept: { eligible: false, reason: "quantity_choice" }, decisions: { pending: 1, accepted: 1, set_aside: 0, entered: 0, none: 0 } });
       // The items' send: the valve's line as before, from its reviewed row (1 u), never its marks; the lavabo, undecided
       // again, leaves the plan and is named with its reason, its row among the parts not sent. Everything else of the
       // preview is as before; its digest follows the plan.

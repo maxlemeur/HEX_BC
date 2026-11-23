@@ -101,7 +101,7 @@ function CountSummary({ marks }: { marks: CountMarksContextValue }) {
           </dd>
         </div>
         <div>
-          <dt className="text-muted-foreground">Quantité retenue</dt>
+          <dt className="text-muted-foreground">Quantité comptée</dt>
           <dd className="font-mono text-sm tabular-nums text-foreground" data-testid="reperes-quantite">
             {summary.quantity === null ? "—" : `${summary.quantity}${unit ? ` ${unit}` : ""}`}
           </dd>
@@ -112,7 +112,9 @@ function CountSummary({ marks }: { marks: CountMarksContextValue }) {
         {summary.retained === 0 && summary.removed > 0 && summary.state !== "no_mark_retained" ? " · Aucun repère retenu" : ""}
       </p>
       <p className="text-muted-foreground">
-        Compté sur le plan, ce nombre n’est pas envoyé au devis : le tableau des postes et l’envoi gardent la quantité qu’ils retiennent.
+        {summary.counted
+          ? "Le comptage vérifié peut être retenu pour le devis à l’acceptation du poste sur ce plan."
+          : "Ces repères localisent les objets sur le plan."}
       </p>
       {preview ? (
         <p className="text-foreground-secondary" data-testid="reperes-apres">

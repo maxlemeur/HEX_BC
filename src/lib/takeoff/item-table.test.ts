@@ -431,3 +431,50 @@ describe("the frozen selection and the review commands", () => {
       .toEqual({ kind: "stale", stale: [{ itemId: "item-1", label: "Poste 1" }] });
   });
 });
+
+describe("choosing how much one plan sends", () => {
+  const item = poste("lavabo", 1, "Lavabo");
+  const plan = { kind: "plan", planKey: "plan-a" } as const;
+  const marks = { revision: 3, unit: "u", counted: true, quantity: 1, pages: [2] };
+  const reading = read(item.id, plan.planKey, answer("measured", 2), null, { verifiedMarks: marks, marksRevision: 3 });
+  const entry: ItemEntryView = { itemId: item.id, scope: "plan", planKey: plan.planKey, revision: 7, quantity: 7, unit: "u",
+    category: "site_survey", note: null, included: true, actorId: "member-1", at: "2026-11-22T09:00:00Z", previous: null };
+
+  it("reserves a disagreement for an individual acceptance", () => {
+    const [line] = buildItemLines([row(item, "measured", "pending", [reading])], { plans: PLANS, scope: plan });
+    expect(line.quantityOptions).toMatchObject({ verifiedQuantity: 1, alternativeQuantity: 2, alternativeSource: "measured" });
+    expect(line.eligibility.accept_measured).toEqual({ eligible: false, reason: "quantity_choice" });
+  });
+
+  it("keeps the earlier evidence visible without a quantity choice while its plan is being read again", () => {
+    const active = { ...reading, reading: "in_flight" as const, unit: "running" as const };
+    const current = row(item, "reading", "pending", [active]);
+    const [line] = lines([current], plan);
+    expect(line.readings[0].verifiedMarks?.quantity).toBe(1);
+    expect(line.quantityOptions).toBeUndefined();
+    expect(line.eligibility.accept_measured).toEqual({ eligible: false, reason: "coverage_incomplete" });
+    expect(lines([current])[0].reasons).not.toContain("quantity_choice");
+    expect(lines([row(item, "measured", "pending", [reading])], plan)[0].quantityOptions?.allowCount).toBe(true);
+  });
+
+  it("keeps the plan entry editable while the count wins, and holds both when its proof expires", () => {
+    const verified = { ...reading, answer: { ...reading.answer!, observations: reading.answer!.observations.map((part) => ({
+      ...part, row: { ...part.row!, isVerified: true } })) }, decision: accepted(), quantityDecision: {
+      source: "verified_count" as const, marksRevision: 3, entryRevision: 7 } };
+    const current = { ...row(item, "measured", "accepted", [verified]), entry };
+    const [line] = buildItemLines([current], { plans: PLANS, scope: plan });
+    expect(line.retained).toMatchObject({ quantity: 1, source: "verified_count" });
+    expect(line.entry?.quantity).toBe(7);
+    expect(line.targets.entryRevision).toBe(7);
+    const [stale] = buildItemLines([{ ...current, decision: "pending", readings: [{ ...verified, marksRevision: 4,
+      decision: null, verifiedMarks: { ...marks, revision: 4 } }] }], { plans: PLANS, scope: plan });
+    expect(stale.retained).toBeNull();
+    const [lost] = buildItemLines([{ ...current, decision: "pending", readings: [{ ...verified, decision: null,
+      marksRevision: 4, verifiedMarks: { ...marks, revision: 4, quantity: null, pages: [] } }] }], { plans: PLANS, scope: plan });
+    expect(lost.retained).toBeNull();
+    expect(lost.quantityOptions).toMatchObject({ verifiedQuantity: null, alternativeQuantity: 7, allowCount: false, allowAlternative: true });
+    const [whole] = buildItemLines([{ ...current, wholeEntry: { quantity: 9, unit: "u", included: true } }], { plans: PLANS, scope: plan });
+    expect(whole.retained).toMatchObject({ source: "entered", quantity: 9 });
+    expect(whole.quantityOptions).toBeUndefined();
+  });
+});

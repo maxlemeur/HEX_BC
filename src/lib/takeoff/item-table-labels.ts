@@ -42,6 +42,7 @@ export const ITEM_INELIGIBILITY_LABELS: Record<ItemIneligibility, string> = {
   dpgf_gap: "écart à la DPGF à vérifier",
   unit_conflict: "unités différentes selon les plans",
   already_decided: "déjà décidé",
+  quantity_choice: "choisir la quantité sur le plan",
   entered: "quantité saisie",
   no_answer: "aucune lecture à écarter",
   already_set_aside: "déjà écarté",
@@ -71,6 +72,7 @@ export function itemReasonLabel(reason: string): string {
   switch (reason) {
     case "dpgf_gap": return "Écart à la DPGF à vérifier";
     case "unit_conflict": return "Unités différentes selon les plans";
+    case "quantity_choice": return "Choisir la quantité sur le plan";
     case "hypothesis_to_include": return "Hypothèse saisie, à inclure";
     case "unreadable_pages": return "Pages illisibles";
     case "reading_ended": return "Un plan n’a pas répondu";

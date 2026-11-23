@@ -134,7 +134,10 @@ const lineSchema = z.object({
   ),
   coverage: z.object({ expected: count, answered: count, inFlight: count, ended: count }).strict(),
   observed: z.object({ quantity, unit, partial: z.boolean() }).strict().nullable(),
-  retained: z.object({ quantity, unit, source: z.enum(["measured", "entered", "mixed"]), partial: z.boolean() }).strict().nullable(),
+  quantityOptions: z.object({ verifiedQuantity: count.nullable(), unit, alternativeSource: z.enum(["measured", "entered"]),
+    alternativeQuantity: quantity.nullable(), alternativeUnit: unit, allowCount: z.boolean(), allowAlternative: z.boolean() }).strict().optional(),
+  wholeEntry: z.object({ quantity, unit, included: z.boolean() }).strict().optional(),
+  retained: z.object({ quantity, unit, source: z.enum(["measured", "entered", "verified_count", "mixed"]), partial: z.boolean() }).strict().nullable(),
   entry: entrySchema.nullable(),
   gap: z.object({ quantity, percent: quantity.nullable(), requiresReview: z.boolean() }).strict().nullable(),
   reasons: z.array(z.string()),
@@ -146,6 +149,10 @@ const lineSchema = z.object({
     location: z.string().nullable(),
     unit: z.enum(TAKEOFF_UNIT_STATES),
     answer: answerSchema.nullable(),
+    verifiedMarks: z.object({ revision: count, counted: z.boolean(), unit: unit.nullable(), quantity: quantity.nullable(),
+      pages: z.array(z.number().int().positive()), verified: z.boolean().optional() }).strict().optional(),
+    quantityDecision: z.object({ source: z.enum(["verified_count", "entered", "measured"]), marksRevision: count,
+      entryRevision: count.nullable() }).strict().optional(),
     decision: decisionSchema.nullable(),
     entry: entrySchema.nullable(),
     sent: z.boolean().describe("Le plan de la réponse est envoyé au devis : aucun geste en bloc n’écrit ses lignes."),
@@ -250,6 +257,8 @@ export const itemSelectionResponseSchema = z.object({
 
 export type ItemSelectionResponse = z.infer<typeof itemSelectionResponseSchema>;
 
+const quantityChoiceSchema = z.object({ source: z.enum(["verified_count", "measured", "entered"]),
+  verified_quantity: z.number().int().positive().nullable(), alternative_quantity: quantity.nullable() }).strict();
 const commandBase = {
   command_version: z.literal(ITEM_REVIEW_COMMAND_VERSION),
   intent_key: uuid.describe("Clé d’intention : la même clé rend la même réponse, une autre commande sous la même clé est un conflit."),
@@ -261,7 +270,7 @@ const commandBase = {
 export const ITEM_SET_ASIDE_NOTE = { min: 3, max: 500 } as const;
 
 export const itemReviewCommandSchema = z.discriminatedUnion("gesture", [
-  z.object({ ...commandBase, gesture: z.literal("accept_measured") }).strict(),
+  z.object({ ...commandBase, gesture: z.literal("accept_measured"), quantity_choice: quantityChoiceSchema.optional() }).strict(),
   z.object({ ...commandBase, gesture: z.literal("set_aside"), reason: z.enum(ITEM_SET_ASIDE_REASONS),
     note: z.string().max(2000).optional() }).strict(),
   z.object({ ...commandBase, gesture: z.literal("reinstate") }).strict(),

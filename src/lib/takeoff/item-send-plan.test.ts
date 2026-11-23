@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -1021,4 +1023,116 @@ describe("planTakeoffItemSend — the item's live DPGF target comes first (revie
     expect(plan.toResolve).toEqual([]);
     expect(fedLines(plan)).toEqual([chosen.id]);
   });
+});
+
+describe("a verified count retained on a plan", () => {
+  const entry = { revision: 1, quantity: 7, unit: "u", category: "site_survey", included: true };
+  const proof = { quantity: 1, marksRevision: 4, pages: [2], unit: "u" };
+  const old = part({ planKey: "plan-a", pages: [2], quantity: 1, observationIds: [],
+    verifiedCount: { marksRevision: 3, readingRevision: 1 } });
+  const before = { targets: [{ itemId: lavabo.id, breakdown: "together" as const, compartmentKey: "together",
+    estimateItemId: lineId(10), parts: [old] }], sections: [] };
+
+  it("sends only the chosen count and binds its marks revision, including when a plan entry exists", () => {
+    const answer = measured(lavabo, [{ quantity: 2, page: 2 }], { quantitySource: "verified_count", verifiedCount: proof, entry });
+    const make = (a: ItemSendAnswer) => planTakeoffItemSend(input({ items: [lavabo], answers: [a] }));
+    const plan = make(answer);
+    expect(plan.targets[0].quantity.after).toBe(1);
+    expect(plan.writePlan?.targets[0].contributions).toMatchObject([{ kind: "verified_count", quantity: 1,
+      pages: [2], marks_revision: 4, observation_ids: [] }]);
+    const moved = make({ ...answer, verifiedCount: { ...proof, marksRevision: 5 } });
+    expect(itemSendPlanCanonical(moved.writePlan!)).not.toBe(itemSendPlanCanonical(plan.writePlan!));
+    expect(make({ ...answer, decision: null, verifiedCount: null }).targets).toHaveLength(0);
+    expect(planTakeoffItemSend(input({ items: [lavabo], answers: [answer],
+      affaireEntries: [{ itemId: lavabo.id, revision: 2 }] })).notSent[0].reason).toBe("affaire_entry");
+  });
+
+  it.each([["measured", [7], 9], ["verified_count", [7], 9], ["entered", [2], 9],
+    ["measured", [1, 2], null]] as const)("shows the held count before confirming a %s reading on %j (total pages %s)", (source, pages, pageCount) => {
+    const answer = measured(lavabo, [{ quantity: 2, page: pages[0] }], { searchedPages: pages,
+      ...(source === "verified_count" ? { quantitySource: source, verifiedCount: { ...proof, pages: [pages[0]] } } : {}),
+      ...(source === "entered" ? { entry } : {}) });
+    const plan = planTakeoffItemSend(input({ items: [lavabo], answers: [answer], earlier: before,
+      plan: { key: "plan-a", name: "Plan A", pages: [...pages], pageCount, location: null },
+      destination: draft([line(10, { quantity: 1 })]) }));
+    expect(plan.targets).toHaveLength(0);
+    expect(plan.toResolve).toMatchObject([{ kind: "verified_total_indivisible", itemId: lavabo.id,
+      verifiedTotal: { quantity: 1, pages: [2], jobId: OTHER_JOB, marksRevision: 3, readingRevision: 1 },
+      options: [{ kind: "leave_out" }] }]);
+    expect(plan.confirmable).toBe(false);
+  });
+
+  it.each(["measured", "entered"] as const)("identifies the earlier %s part held against a new partial count", (source) => {
+    const prior = part({ quantity: 7.5, planKey: "plan-a", pages: [2], readingRevision: 3,
+      observationIds: source === "measured" ? ["obs-earlier"] : [] });
+    const answer = measured(lavabo, [], { quantitySource: "verified_count", verifiedCount: { ...proof, pages: [7] } });
+    const plan = planTakeoffItemSend(input({ items: [lavabo], answers: [answer],
+      plan: { key: "plan-a", name: "Plan A", pages: [7], pageCount: 9, location: null },
+      earlier: { ...before, targets: [{ ...before.targets[0], parts: [prior] }] }, destination: draft([line(10)]) }));
+    expect(plan.toResolve).toMatchObject([{ kind: "verified_total_indivisible", verifiedTotal: { quantity: 1 },
+      heldPart: { source, jobId: OTHER_JOB, answerId: prior.answerId, readingRevision: 3, pages: [2], quantity: 7.5, unit: "u" } }]);
+    expect(plan.confirmable).toBe(false);
+  });
+
+  it.each(["measured", "entered", "verified_count"] as const)("shows the whole replacement with the new %s source", (source) => {
+    const answer = measured(lavabo, [{ quantity: 2, page: 1 }], { searchedPages: [1, 2],
+      ...(source === "verified_count" ? { quantitySource: source, verifiedCount: proof } : {}),
+      ...(source === "entered" ? { entry } : {}) });
+    const plan = planTakeoffItemSend(input({ items: [lavabo], answers: [answer], earlier: before,
+      plan: { key: "plan-a", name: "Plan A", pages: [1, 2], pageCount: 2, location: null },
+      destination: draft([line(10, { quantity: 1 })]) }));
+    expect(plan.toResolve).toHaveLength(0);
+    expect(plan.targets[0]).toMatchObject({
+      quantity: { replaced: 1, earlier: 0, after: source === "measured" ? 2 : source === "entered" ? 7 : 1 },
+      contributions: [{ kind: source }],
+      replacedVerifiedTotal: { quantity: 1, pages: [2], jobId: OTHER_JOB, marksRevision: 3, readingRevision: 1 },
+    });
+  });
+
+  it.each(["measured", "entered"] as const)("preserves the exact write plan for a disjoint %s source", (source) => {
+    const answer = measured(lavabo, [], { observations: [{ observationId: "obs-7", quantity: 2, unit: "u",
+      page: 7, role: "contribution", source: "model", measurementBasis: null }], searchedPages: [7],
+      entry: source === "entered" ? entry : null });
+    const plan = planTakeoffItemSend(input({ items: [lavabo], answers: [answer],
+      plan: { key: "plan-a", name: "Plan A", pages: [7], location: null }, destination: draft([line(10, { quantity: 3 })]),
+      earlier: { targets: [{ ...before.targets[0], parts: [part({ planKey: "plan-a", pages: [2] })] }], sections: [] } }));
+    expect(plan.targets[0].quantity.after).toBe(source === "measured" ? 5 : 10);
+    expect(createHash("sha256").update(itemSendPlanCanonical(plan.writePlan!)).digest("hex")).toBe(
+      source === "measured" ? "4fe27667013e4d53cb2330db29d401ab890555d35a8f8fd4a5683fa6bee867cc" : "e66fa209644c28dd01511bd1e5ef6fe3a2ffe6f5a32b3ae5efb4f22910e69d6f");
+  });
+});
+
+it("can keep a typed DPGF line after leaving out one of its pages and still send another item", () => {
+  const item = dpgfItem(20, "WC", "u", "raw-20", "mapped-20", 4);
+  const complement = { ...lavabo, sections: [] };
+  const wcReading = measured(item, [{ quantity: 2, page: 2 }, { quantity: 5, page: 7 }]);
+  const otherReading = measured(complement, [{ quantity: 1, page: 7 }]);
+  const plan = planTakeoffItemSend(input({
+    items: [item, complement],
+    answers: [
+      { ...wcReading, observations: wcReading.observations.map((o) => ({ ...o, observationId: `WC_OBS_${o.page}` })) },
+      { ...otherReading, revision: "LAVABO_REVISION", answerId: "LAVABO_ANSWER",
+        observations: otherReading.observations.map((o) => ({ ...o, observationId: "LAVABO_OBS" })) },
+    ],
+    plan: { key: "plan-a", name: "Plan A", location: null, pages: [2, 7] },
+    destination: draft([dpgfLine(20, "mapped-20", "raw-20", 4, { quantity: 4.5 })]),
+    pagesInEstimate: [{ page: 2, earlierJobIds: [OTHER_JOB], estimateItemIds: [lineId(30)], today: true,
+      todayEstimateItemIds: [lineId(30)], parts: [] }],
+    resolutions: [{ key: "page:2", choice: { kind: "leave_out" } },
+      { key: `entry:${item.id}|dpgf`, choice: { kind: "keep_entry" } }],
+  }));
+  expect(plan.confirmable).toBe(true);
+  expect(plan.writePlan?.targets.map(({ item_id, quantity_after }) => [item_id, quantity_after])).toEqual([[lavabo.id, 1]]);
+  expect(plan.writePlan?.left_out.map(({ item_id, reason }) => [item_id, reason])).toEqual([[item.id, "entry_suspended"]]);
+  expect(plan.writePlan?.parts_not_sent.map(({ pages, quantity, reason }) => [pages, quantity, reason]))
+    .toEqual(expect.arrayContaining([[[2], 2, "left_out"], [[7], 5, "entry_suspended"]]));
+  expect(plan.writePlan?.parts_not_sent).toHaveLength(2);
+  const wire = plan.writePlan!;
+  const actions = { sections: wire.sections, targets: wire.targets, page_contributions: wire.page_contributions,
+    page_decisions: wire.page_decisions, left_out: wire.left_out, parts_not_sent: wire.parts_not_sent,
+    resolutions: wire.dependencies.resolutions };
+  const sql = readFileSync("supabase/tests/database/takeoff-item-send.test.sql", "utf8");
+  const fixture = sql.split("$mixed_write$")[1];
+  expect(JSON.parse(JSON.stringify(actions).replaceAll(complement.id, "LAVABO_ID").replaceAll(item.id, "WC_ID")))
+    .toEqual(JSON.parse(fixture));
 });

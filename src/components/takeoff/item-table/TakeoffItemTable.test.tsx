@@ -595,6 +595,20 @@ describe("TakeoffItemTable", () => {
     expect(await screen.findByTestId("poste-notice")).toHaveTextContent("Rien n’a été appliqué : Baignoire a changé depuis la sélection.");
   });
 
+  it("shows the previous count in an expanded plan row without offering to accept it during a new reading", async () => {
+    searchParams.set("postePlan", RDC);
+    const reading = { ...fixtureReading(1, RDC, fixtureAnswer("measured", 2)), unit: "running" as const,
+      reading: "in_flight" as const, attempt: { unit: "running" as const, reason: null },
+      verifiedMarks: { revision: 1, verified: true, counted: true, quantity: 1, unit: "u", pages: [2] } };
+    client.fetchItemTable.mockResolvedValue(table({ scope: { kind: "plan", planKey: RDC }, readings: [reading] }));
+    renderTable();
+    fireEvent.click(await screen.findByRole("button", { name: "Détail du poste « WC »" }));
+    const detail = await screen.findByTestId(`poste-detail-${fixtureItemId(1)}`);
+    expect(detail).toHaveTextContent("Nouvelle mesure en cours");
+    expect(detail).toHaveTextContent("Comptage vérifié");
+    expect(within(detail).queryByRole("group", { name: "Quantité retenue pour ce poste sur ce plan" })).not.toBeInTheDocument();
+  });
+
   it("shows in the detail the earlier reading kept, and that its new measure did not end, with its reason", async () => {
     client.fetchItemTable.mockResolvedValue(table({ readings: SCENARIO.map((reading) => reading.itemId === fixtureItemId(3)
       && reading.planKey === RDC ? { ...reading, unit: "failed" as const,

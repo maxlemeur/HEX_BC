@@ -114,6 +114,8 @@ export function itemDetailGestureOffer(input: { line: ItemDetailLine; choice: It
   if (!input.canReview) return { offered: false, reason: "reader" };
   if (input.choice.kind === "mismatch") return { offered: false, reason: "not_shown" };
   if (input.choice.kind === "reading" && !input.choice.current) return { offered: false, reason: "earlier_reading" };
+  if (gesture === "accept_measured" && input.line.quantityOptions && input.choice.kind === "reading"
+    && (input.line.quantityOptions.allowCount || input.line.quantityOptions.allowAlternative)) return { offered: true };
   const eligibility = input.line.eligibility[gesture];
   return eligibility.eligible ? { offered: true } : { offered: false, reason: "ineligible", ineligibility: eligibility.reason };
 }
