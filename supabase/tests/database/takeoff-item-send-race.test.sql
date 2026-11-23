@@ -982,6 +982,8 @@ select is(extensions.dblink_exec('race_setup', format($restore$update public.ten
   where user_id = %L and tenant_id = %L$restore$, pg_temp.f(1), pg_temp.tenant())), 'UPDATE 1', 'the member an engineer again');
 
 -- 2. Affaire 21: the same request twice at once.
+\ir ../fixtures/takeoff-contribution-composed-line.sql
+
 insert into plans values ('21-again', pg_temp.count_plan(), pg_temp.payload(721));
 select is(extensions.dblink_exec('race_a', 'begin'), 'BEGIN', 'a tab confirms the plan''s send');
 select is(extensions.dblink_exec('race_a', pg_temp.as_server_sql()), 'SET', 'through the server');
@@ -1017,6 +1019,11 @@ select is((select count(*)::integer from extensions.dblink('race_b',pg_temp.send
 select ok(extensions.dblink_error_message('race_b') like '%TAKEOFF_ITEM_SEND_ALREADY_SENT%',
   'the writer refuses another send of the same source job');
 select is(pg_temp.written(21),'1/1/1/1/applied','the original receipt and live part are still the only ones');
+
+\ir ../fixtures/takeoff-contribution-working-marks.sql
+\ir ../fixtures/takeoff-contribution-working-sources.sql
+\ir ../fixtures/takeoff-contribution-reattribution.sql
+\ir ../fixtures/takeoff-contribution-shared-entry.sql
 
 -- 3. Affaire 20: a targeted save of the contributing row holds the job's rules while the plan is confirmed.
 insert into plans values ('20-first', pg_temp.plan(20, null, 300, 2, pg_temp.payload(720)), pg_temp.payload(720));
@@ -1357,6 +1364,274 @@ select isnt(pg_temp.held_by((select version_id from copy_one)), (select held fro
 select is((select count(*)::integer from public.takeoff_item_send_parts p where p.version_id = pg_temp.f(730)
   and p.job_id = pg_temp.f(1220)), 0, 'and V1 holds nothing of it');
 
+-- Replay a fresh reading into C, the surviving copy. The underlying PDF has
+-- nine pages. The requested pages change with the member's preparation.
+-- All five scenarios run the real admission, publication, review and writer,
+-- each rolled back to the same source and copy.
+-- The detail's “Mesurer ce poste” admission with page=null asks exactly one item.
+create function pg_temp.measure_poste(pages_ integer[],snapshot_ jsonb) returns text language plpgsql as $$
+declare
+  m record;
+  manifest_ jsonb;
+  outcome_ text;
+begin
+  select * into strict m from revision_mark_request;
+  select r.manifest into strict manifest_ from public.takeoff_jobs j join public.takeoff_launch_requests r on r.id=j.launch_request_id
+    where j.id=pg_temp.job(21);
+  manifest_:=jsonb_set(jsonb_set(jsonb_set(manifest_,'{order,list,asked_item_ids}',jsonb_build_array(pg_temp.f(310))),
+    '{units,0,pages}',to_jsonb(pages_)),'{plans,0,pages}',to_jsonb(pages_));
+  select x.outcome into outcome_ from public.launch_takeoff_item_remeasure(pg_temp.tenant(),pg_temp.f(21),pg_temp.f(1),pg_temp.f(621),
+    pg_temp.job(21),pg_temp.host(),pg_temp.selection(),manifest_,snapshot_,
+    jsonb_build_array(jsonb_build_object('id',pg_temp.f(1121),'plan_set_id',pg_temp.f(41),'launch_unit_key','plan:'||pg_temp.plan_file(21),
+      'source_file_name','plan-1.pdf','source_file_type','application/pdf','source_file_size_bytes',8,'prompt_version','fixture',
+      'execution_host_id',pg_temp.host())),pg_temp.f(41),2,array[pg_temp.plan_file(21)],
+    jsonb_build_array(jsonb_build_object('item_id',pg_temp.f(310),'answers',jsonb_build_array(m.answer_id))),
+    jsonb_build_object('preview_digest',repeat('a',64),'page',null,'shown_sha256',repeat('b',64),
+      'setting',jsonb_build_object('model','modele-fictif','reasoning_effort',null))) x;
+  return outcome_;
+end;
+$$;
+create function pg_temp.followup_scope(pages_ integer[], source_ text, fault text default null, prior_ text default 'verified_count') returns jsonb language plpgsql as $$
+declare
+  project_ uuid := pg_temp.f(21);
+  tenant_ uuid := pg_temp.tenant();
+  job_ uuid := pg_temp.f(1121);
+  actor_ uuid := pg_temp.f(1);
+  version_ uuid;
+  source_own boolean := coalesce(fault like 'source_working%',false);
+  shared_entry boolean:=coalesce(fault='source_shared_entry',false);
+  previous_preview jsonb;
+  after_preview jsonb;
+  stale_confirmation text;
+  source_receipt uuid;
+  item_ uuid := pg_temp.f(310);
+  plan_ uuid := pg_temp.plan_file(21);
+  token_ uuid := pg_temp.f(981);
+  counted boolean := source_ = 'verified_count';
+  typed boolean := source_ = 'entered';
+  full_ boolean := cardinality(pages_) = 9;
+  snapshot_ jsonb := pg_temp.snapshot(21,pages_,2);
+  targets_ jsonb;
+  plan jsonb;
+  contribution jsonb;
+  line record;
+  previous public.takeoff_item_send_parts;
+  facts jsonb;
+  answer_ uuid;
+  empty_answer jsonb;
+  measured_answer jsonb;
+  row_ jsonb;
+  command jsonb;
+  record_ jsonb;
+  request_ jsonb;
+  read_ text;
+  detail_ text;
+begin
+  begin
+    if shared_entry then
+      if pg_temp.stage_shared_revision_entry() is distinct from '[8,true,8,7,8,7,8,8,true,true,8,null]'::jsonb then
+        raise exception 'the confirmed copy and the source must hold separate sent amounts';
+      end if;
+    end if;
+    if source_own or shared_entry then
+      select draft,receipt into strict version_,source_receipt from revision_mark_request;
+    else
+      select id into strict version_ from marked_next_copy;
+    end if;
+    if fault in ('working_edit_before_reread','copy_working_witness') or source_own then
+      -- Change the shared proof through the working command while this reading
+      -- is still current. Its original draft and its copy keep the confirmed 1.
+      perform set_config('request.jwt.claims',jsonb_build_object('role','authenticated','sub',actor_)::text,true);
+      perform set_config('request.jwt.claim.sub',actor_::text,true);
+      perform public.edit_takeoff_revision_marks(tenant_,project_,m.draft,m.receipt,pg_temp.f(987),m.revisions,m.gestures)
+        from revision_mark_request m;
+      if source_own then
+        perform pg_temp.revision_choice('verified_count',3,0);
+        previous_preview:=public.preview_takeoff_contribution_revision(tenant_,actor_,project_,version_,source_receipt,true,'{}');
+        if previous_preview->'blockers'<>'[]' or previous_preview#>>'{actions,0,quantity_after}' is null then
+          raise exception 'expected confirmable working correction before remeasurement: %',previous_preview;
+        end if;
+      end if;
+    end if;
+    update public.takeoff_preparations set revision = 2,draft = snapshot_ -> 'preparation',
+      confirmed_snapshot = snapshot_,confirmed_at = (snapshot_ ->> 'confirmed_at')::timestamptz
+      where project_id = project_;
+    if source_own or shared_entry then read_:=pg_temp.measure_poste(pages_,snapshot_);
+    else execute pg_temp.relaunch_sql(21,pages_,2) into read_; end if;
+    if read_ is distinct from 'admitted' then raise exception 'expected new reading, got %', read_; end if;
+    perform public.dispatch_next_takeoff_host_job(pg_temp.host());
+    execute replace(pg_temp.claim_sql(21,981),pg_temp.job(21)::text,job_::text) into read_;
+    if read_ is distinct from '1' then raise exception 'expected a claimed reading, got %',read_; end if;
+    empty_answer := jsonb_build_object('item_id',item_,'outcome','not_found','searched_pages',pages_,'unreadable_pages','[]'::jsonb,
+      'reasons',jsonb_build_array(jsonb_build_object('code','NO_INDICATION','by','model','text','Aucun indice (fictif).',
+        'chunk_id','f1-b1')),'observations','[]'::jsonb);
+    measured_answer := jsonb_build_object('item_id',item_,'outcome','measured','searched_pages',pages_,'unreadable_pages','[]'::jsonb,
+      'reasons','[]'::jsonb,'quantity',jsonb_build_object('value',2,'unit','u'),
+      'observations',jsonb_build_array(jsonb_build_object('page',pages_[1],'evidence','Deux symboles fictifs','method','symbol_count',
+        'confidence',0.9,'quantity',2,'unit','u','role','contribution','source','model','chunk_id','f1-b1','takeoff_item_id',pg_temp.f(871))));
+    row_ := jsonb_build_object('id',pg_temp.f(871),'designation','Poste 0 (fictif)','quantity',2,'unit','u',
+      'confidence',0.9,'evidence','Deux symboles fictifs','source_file_name','plan-1.pdf','source_page',pages_[1],'metadata','{}'::jsonb);
+    perform public.publish_takeoff_item_answers(job_,token_,'2026-11-22T10:00:00Z','modele-fictif','takeoff-c-postes-v1',
+      '{"schema_version":"v2","prompt_version":"takeoff-c-postes-v1"}',pages_,
+      case when shared_entry then jsonb_build_array(empty_answer) when source_own then jsonb_build_array(measured_answer)
+        else jsonb_build_array(case when typed then empty_answer else measured_answer end,
+          jsonb_set(empty_answer,'{item_id}',to_jsonb(pg_temp.f(311)))) end,'[]',
+      '{"extracted_json":{},"warnings":[],"tables":[],"provider_meta":{},"token_count":10,"cost_cents":0,"duration_ms":5}',
+      case when typed then '[]'::jsonb else jsonb_build_array(row_) end);
+    update public.takeoff_items set rules_stale = false,rules_evaluated_at = now(),rule_results = '[]' where job_id = job_;
+    perform set_config('request.jwt.claims',jsonb_build_object('role','authenticated','sub',actor_)::text,true);
+    perform set_config('request.jwt.claim.sub',actor_::text,true);
+    select id into strict answer_ from public.takeoff_item_answers where job_id = job_ and item_id = item_;
+    if counted then
+      perform public.edit_takeoff_count_marks(tenant_,project_,pg_temp.f(982),jsonb_build_object(answer_,0),jsonb_build_array(
+        jsonb_build_object('op','add','answer_id',answer_,'key',pg_temp.f(983),'page',pages_[1],'x',0.8,'y',0.2,
+          'geometry','{"version":1,"view_box":[0,0,100,100],"rotation":0,"user_unit":1,"width":100,"height":100}'::jsonb),
+        jsonb_build_object('op','verify','answer_id',answer_,'pages',pages_)));
+    end if;
+    command := pg_temp.cmd(case when typed then 'enter_quantity' else 'accept_measured' end,984,array[310],
+      jsonb_build_object('scope',jsonb_build_object('kind','plan','plan_logical_id',plan_)));
+    command := jsonb_set(command,'{targets,0,answers}',jsonb_build_array(jsonb_build_object('answer_id',answer_,
+      'entry_revision',0,'decision_revision',0,'marks_revision',private.takeoff_count_marks_revision(answer_))));
+    if counted then command := command || '{"quantity_choice":{"source":"verified_count","alternative_quantity":2,"verified_quantity":1}}';
+    elsif typed then command := command || jsonb_build_object('entry',jsonb_build_object('category','site_survey'),
+      'values',jsonb_build_array(jsonb_build_object('item_id',item_,'quantity',7,'unit','u'))); end if;
+    if not shared_entry then
+      record_ := public.review_takeoff_items(tenant_,project_,command);
+      if record_ ->> 'outcome' <> 'applied' then raise exception 'expected an accepted reading, got %',record_; end if;
+    end if;
+    select * into strict previous from public.takeoff_item_send_parts where version_id = version_ and item_id = item_ and state = 'live';
+    if prior_ in ('measured','entered') then
+      -- Build a copied earlier ordinary contribution. The send below uses the normal locked writer.
+      perform set_config('mergeone.takeoff_item_send','fixture',true);
+      insert into public.takeoff_item_send_receipts
+        select (jsonb_populate_record(null::public.takeoff_item_send_receipts,to_jsonb(r)
+          || jsonb_build_object('id',pg_temp.f(9897)))).* from public.takeoff_item_send_receipts r
+        where r.id = previous.receipt_id and r.command_kind = 'copy';
+      update public.takeoff_item_send_parts set state = 'replaced',replaced_by_receipt_id = pg_temp.f(9897),
+        replaced_at = now() where id = previous.id;
+      previous.id := pg_temp.f(9894);
+      previous.receipt_id := pg_temp.f(9897);
+      previous.copied_from_part_id := null;
+      previous.kind := prior_;
+      previous.quantity := 7.5;
+      previous.marks_revision := null;
+      if prior_ = 'measured' then
+        previous.observation_ids := array[pg_temp.f(9886)];
+        previous.takeoff_item_ids := array[pg_temp.f(9885)];
+      else
+        previous.entry_id := pg_temp.f(9884);
+        previous.entry_revision := 1;
+      end if;
+      insert into public.takeoff_item_send_parts select previous.*;
+      perform set_config('mergeone.takeoff_item_send','',true);
+    end if;
+    select i.* into strict line from public.takeoff_item_send_targets t join public.estimate_items i on i.id = t.estimate_item_id
+      where t.id = previous.target_id;
+    insert into public.draft_locks(version_id,user_id,tenant_id,expires_at,session_id)
+      values(version_,actor_,tenant_,now()+interval '10 minutes',gen_random_uuid()) on conflict(version_id) do nothing;
+    facts := public.read_takeoff_item_send_facts(tenant_,project_,job_);
+    select jsonb_build_object('answer_id',answer_,'answer_revision',s -> 'answer_revision','kind',source_,
+      'quantity',case when shared_entry then (s->>'quantity')::numeric when typed then 7 when counted then 1 else 2 end,'unit','u',
+      'observation_ids',case when typed or counted then '[]'::jsonb else jsonb_build_array(s -> 'observation_id') end,
+      'pages',case when typed then to_jsonb(pages_) else jsonb_build_array(pages_[1]) end,
+      'identity','{"unit":"u","basis":null,"network":null,"material":null,"diameter":null}'::jsonb)
+      || case when counted then jsonb_build_object('marks_revision',1) else '{}'::jsonb end into strict contribution
+      from private.takeoff_item_send_resolved_parts(tenant_,project_,job_,pages_) s where s ->> 'item_id' = item_::text;
+    targets_ := jsonb_build_array(jsonb_build_object('key',item_||'|together','item_id',item_,'compartment_key','together',
+      'line',jsonb_build_object('kind','earlier_line','estimate_item_id',line.id,'expected_updated_at',line.updated_at,
+        'expected_quantity',line.quantity),'unit_code','u','quantity_after',(contribution ->> 'quantity')::numeric + case when full_ then 0 else 1 end,
+      'quantity',jsonb_build_object('kept_entry',false),'rule',null,'contributions',jsonb_build_array(contribution),
+      'replaces',case when full_ then jsonb_build_array(jsonb_build_object('job_id',previous.job_id,'answer_id',previous.answer_id,
+          'observation_ids','[]'::jsonb,'quantity',previous.quantity)) else '[]'::jsonb end));
+    plan := pg_temp.plan(21,version_,310,2) || jsonb_build_object('job_id',job_,'targets',targets_,'sections','[]'::jsonb,
+      'page_contributions',(select jsonb_agg(jsonb_build_object('page',page,'item_ids',jsonb_build_array(item_),
+        'target_keys',jsonb_build_array(item_||'|together'),'observation_ids',contribution->'observation_ids') order by page)
+        from jsonb_array_elements(contribution -> 'pages') page));
+    plan := jsonb_set(plan,'{dependencies,plan_pages}',to_jsonb(pages_));
+    plan := jsonb_set(plan,'{dependencies,answers}',(select jsonb_agg(jsonb_build_object('item_id',a -> 'item_id',
+      'answer_id',a -> 'answer_id','revision',a -> 'revision','decision_revision',a #> '{decision,revision}',
+      'entry_revision',a #> '{entry,revision}') order by a ->> 'item_id') from jsonb_array_elements(facts->'answers') a));
+    plan := jsonb_set(plan,'{dependencies,stamps,job}',to_jsonb(public.takeoff_rule_job_stamp(tenant_,project_,job_)));
+    plan := jsonb_set(plan,'{dependencies,stamps,context}',(select jsonb_build_object('peers',s->>'peers','locations',s->>'locations')
+      from private.takeoff_send_context_stamps(private.takeoff_send_context(tenant_,project_,job_,version_)) s));
+    plan := jsonb_set(plan,'{dependencies,lines}',jsonb_build_array(jsonb_build_object('estimate_item_id',line.id,
+      'updated_at',line.updated_at,'quantity',line.quantity,'dpgf',null)));
+    plan := jsonb_set(plan,'{dependencies,pages_in_estimate}',(select coalesce(jsonb_agg(jsonb_build_object('page',h->'page',
+      'earlier_job_ids',h->'earlier_job_ids','estimate_item_ids',h->'estimate_item_ids')),'[]'::jsonb)
+      from jsonb_array_elements(private.takeoff_item_send_held_pages(tenant_,version_,job_,pg_temp.document(21),pages_)) h));
+    if fault = 'other_quantity' then
+      plan := jsonb_set(plan,'{targets,0,replaces,0,quantity}','9');
+    elsif fault = 'older_proof' then
+      update public.takeoff_count_answer_states set revision = revision + 1 where answer_id = previous.answer_id;
+    end if;
+    if fault in ('source_working_witness','source_working_partial','source_working_wrong_part','source_working_wrong_sent',
+        'source_working_wrong_current','copy_working_witness') then
+      plan:=jsonb_set(plan,'{targets,0,replaces}',jsonb_build_array(jsonb_build_object('job_id',previous.job_id,
+        'answer_id',previous.answer_id,'observation_ids',previous.observation_ids,'quantity',previous.quantity,
+        'corrected_proof',jsonb_build_object('part_id',case when fault='source_working_wrong_part' then pg_temp.f(996) else previous.id end,
+          'sent_revision',case when fault='source_working_wrong_sent' then 1 else previous.marks_revision end,
+          'current_revision',case when fault='source_working_wrong_current' then 4 else 3 end))));
+    end if;
+    request_ := jsonb_build_object('request_id',pg_temp.f(985),'plan',plan);
+    begin
+      perform set_config('request.jwt.claims','{"role":"service_role"}',true);
+      perform set_config('request.jwt.claim.sub','',true);
+      perform public.send_takeoff_item_plan(tenant_,actor_,false,request_);
+      select jsonb_build_array('sent',p.kind,p.quantity,i.quantity,old.state) into strict record_
+        from public.takeoff_item_send_parts p join public.estimate_items i on i.id = line.id
+        join public.takeoff_item_send_parts old on old.id = previous.id
+        where p.version_id = version_ and p.job_id = job_ and p.state = 'live';
+    exception when sqlstate '22023' then record_:=jsonb_build_array(sqlerrm);
+    when sqlstate '40001' then
+      get stacked diagnostics detail_ = pg_exception_detail;
+      if prior_ in ('measured','entered') then
+        record_ := jsonb_build_array(sqlerrm,detail_::jsonb -> 'held_part' = jsonb_build_object(
+          'job_id',previous.job_id,'answer_id',previous.answer_id,'reading_revision',
+          (select a.reading_revision from public.takeoff_item_answers a where a.id = previous.answer_id),
+          'source',prior_,'pages',previous.pages,'quantity',7.5,'unit',previous.unit),
+          (select count(*) from public.takeoff_item_send_receipts where job_id = job_));
+      elsif fault is not null then
+        record_ := jsonb_build_array(sqlerrm,detail_::jsonb -> 'reason',
+          (select quantity from public.estimate_items where id = line.id),
+          (select count(*) from public.takeoff_item_send_receipts where job_id = job_));
+      else
+        record_ := jsonb_build_array(sqlerrm,detail_::jsonb -> 'quantity',detail_::jsonb -> 'pages',
+        detail_::jsonb ->> 'job_id' = previous.job_id::text,(select quantity from public.estimate_items where id = line.id),
+        (select count(*) from public.takeoff_item_send_receipts where job_id = job_));
+      end if;
+    end;
+    if source_own then
+      begin
+        perform public.confirm_takeoff_contribution_revision(tenant_,actor_,project_,version_,source_receipt,true,pg_temp.f(9699),
+          previous_preview->>'digest','{}');
+      exception when others then stale_confirmation:=sqlerrm; end;
+      after_preview:=public.preview_takeoff_contribution_revision(tenant_,actor_,project_,version_,source_receipt,true,'{}');
+      record_:=record_||jsonb_build_array(stale_confirmation,after_preview#>>'{blockers,0,reason}',
+        (select a.comparison_only from public.takeoff_item_answers a where a.id=answer_));
+    end if;
+    raise sqlstate 'Z1000';
+  exception when sqlstate 'Z1000' then null;
+  end;
+  return record_;
+end;
+$$;
+select is(pg_temp.followup_scope(array[1,2,3,4,5,6,7,8,9],'measured','source_working'),
+  '["TAKEOFF_ITEM_SEND_PREVIEW_STALE","earlier_send_changed",1,0,"TAKEOFF_REVISION_STALE","review_required",false]'::jsonb,
+  'on the original draft a whole-plan detail measurement supersedes the pending proof but the old send shape cannot replace it');
+
+select is(pg_temp.followup_scope(array[1,2,3,4,5,6,7,8,9],'measured','source_working_witness'),
+  '["sent","measured",2,2,"replaced","TAKEOFF_REVISION_STALE",null,false]'::jsonb,
+  'the complete reading explicitly replaces the corrected historical proof on the source, leaving no pending correction');
+select is(pg_temp.followup_scope(array[7],'measured','source_working_partial')->0,
+  '"TAKEOFF_ITEM_SEND_VERIFIED_TOTAL_INDIVISIBLE"'::jsonb,'a proof witness cannot make a partial reading cover the previous total');
+select is(pg_temp.followup_scope(array[1,2,3,4,5,6,7,8,9],'measured',fault)->1,
+  '"earlier_send_changed"'::jsonb,format('a whole reading refuses a wrong corrected-proof field: %s',fault))
+from (values ('source_working_wrong_part'),('source_working_wrong_sent'),('source_working_wrong_current')) inputs(fault);
+
+select is(pg_temp.followup_scope(array[1,2,3,4,5,6,7,8,9],'entered','source_shared_entry'),
+  '["sent","entered",8,8,"replaced"]'::jsonb,
+  'a subsequent ordinary measurement on the source sends eight from the shared entry edited on the copy');
+
 -- Copies own their proof. Read each part through its own version, even after
 -- deleting the intermediate draft. The original analysis stays on the first draft.
 create temp table marked_copy as select x.id from extensions.dblink('race_a',
@@ -1412,181 +1687,9 @@ select is(pg_temp.earlier_proof((select id from marked_next_copy),false),'[true,
 select is(pg_temp.earlier_proof((select id from marked_next_copy),true),'[false,2,3,1]'::jsonb,
   'the copied part is equally stale at constant count even after its immediate source was deleted');
 
--- Replay a fresh reading into C, the surviving copy. The underlying PDF has
--- nine pages. The requested pages change with the member's preparation.
--- All five scenarios run the real admission, publication, review and writer,
--- each rolled back to the same source and copy.
-create function pg_temp.followup_scope(pages_ integer[], source_ text, fault text default null, prior_ text default 'verified_count') returns jsonb language plpgsql as $$
-declare
-  project_ uuid := pg_temp.f(21);
-  tenant_ uuid := pg_temp.tenant();
-  job_ uuid := pg_temp.f(1121);
-  actor_ uuid := pg_temp.f(1);
-  version_ uuid := (select id from marked_next_copy);
-  item_ uuid := pg_temp.f(310);
-  plan_ uuid := pg_temp.plan_file(21);
-  token_ uuid := pg_temp.f(981);
-  counted boolean := source_ = 'verified_count';
-  typed boolean := source_ = 'entered';
-  full_ boolean := cardinality(pages_) = 9;
-  snapshot_ jsonb := pg_temp.snapshot(21,pages_,2);
-  targets_ jsonb;
-  plan jsonb;
-  contribution jsonb;
-  line record;
-  previous public.takeoff_item_send_parts;
-  facts jsonb;
-  answer_ uuid;
-  empty_answer jsonb;
-  measured_answer jsonb;
-  row_ jsonb;
-  command jsonb;
-  record_ jsonb;
-  request_ jsonb;
-  read_ text;
-  detail_ text;
-begin
-  begin
-    update public.takeoff_preparations set revision = 2,draft = snapshot_ -> 'preparation',
-      confirmed_snapshot = snapshot_,confirmed_at = (snapshot_ ->> 'confirmed_at')::timestamptz
-      where project_id = project_;
-    execute pg_temp.relaunch_sql(21,pages_,2) into read_;
-    if read_ is distinct from 'admitted' then raise exception 'expected new reading, got %', read_; end if;
-    perform public.dispatch_next_takeoff_host_job(pg_temp.host());
-    execute replace(pg_temp.claim_sql(21,981),pg_temp.job(21)::text,job_::text) into read_;
-    if read_ is distinct from '1' then raise exception 'expected a claimed reading, got %',read_; end if;
-    empty_answer := jsonb_build_object('item_id',item_,'outcome','not_found','searched_pages',pages_,'unreadable_pages','[]'::jsonb,
-      'reasons',jsonb_build_array(jsonb_build_object('code','NO_INDICATION','by','model','text','Aucun indice (fictif).',
-        'chunk_id','f1-b1')),'observations','[]'::jsonb);
-    measured_answer := jsonb_build_object('item_id',item_,'outcome','measured','searched_pages',pages_,'unreadable_pages','[]'::jsonb,
-      'reasons','[]'::jsonb,'quantity',jsonb_build_object('value',2,'unit','u'),
-      'observations',jsonb_build_array(jsonb_build_object('page',pages_[1],'evidence','Deux symboles fictifs','method','symbol_count',
-        'confidence',0.9,'quantity',2,'unit','u','role','contribution','source','model','chunk_id','f1-b1','takeoff_item_id',pg_temp.f(871))));
-    row_ := jsonb_build_object('id',pg_temp.f(871),'designation','Poste 0 (fictif)','quantity',2,'unit','u',
-      'confidence',0.9,'evidence','Deux symboles fictifs','source_file_name','plan-1.pdf','source_page',pages_[1],'metadata','{}'::jsonb);
-    perform public.publish_takeoff_item_answers(job_,token_,'2026-11-22T10:00:00Z','modele-fictif','takeoff-c-postes-v1',
-      '{"schema_version":"v2","prompt_version":"takeoff-c-postes-v1"}',pages_,
-      jsonb_build_array(case when typed then empty_answer else measured_answer end,
-        jsonb_set(empty_answer,'{item_id}',to_jsonb(pg_temp.f(311)))),'[]',
-      '{"extracted_json":{},"warnings":[],"tables":[],"provider_meta":{},"token_count":10,"cost_cents":0,"duration_ms":5}',
-      case when typed then '[]'::jsonb else jsonb_build_array(row_) end);
-    update public.takeoff_items set rules_stale = false,rules_evaluated_at = now(),rule_results = '[]' where job_id = job_;
-    perform set_config('request.jwt.claims',jsonb_build_object('role','authenticated','sub',actor_)::text,true);
-    perform set_config('request.jwt.claim.sub',actor_::text,true);
-    select id into strict answer_ from public.takeoff_item_answers where job_id = job_ and item_id = item_;
-    if counted then
-      perform public.edit_takeoff_count_marks(tenant_,project_,pg_temp.f(982),jsonb_build_object(answer_,0),jsonb_build_array(
-        jsonb_build_object('op','add','answer_id',answer_,'key',pg_temp.f(983),'page',pages_[1],'x',0.8,'y',0.2,
-          'geometry','{"version":1,"view_box":[0,0,100,100],"rotation":0,"user_unit":1,"width":100,"height":100}'::jsonb),
-        jsonb_build_object('op','verify','answer_id',answer_,'pages',pages_)));
-    end if;
-    command := pg_temp.cmd(case when typed then 'enter_quantity' else 'accept_measured' end,984,array[310],
-      jsonb_build_object('scope',jsonb_build_object('kind','plan','plan_logical_id',plan_)));
-    command := jsonb_set(command,'{targets,0,answers}',jsonb_build_array(jsonb_build_object('answer_id',answer_,
-      'entry_revision',0,'decision_revision',0,'marks_revision',private.takeoff_count_marks_revision(answer_))));
-    if counted then command := command || '{"quantity_choice":{"source":"verified_count","alternative_quantity":2,"verified_quantity":1}}';
-    elsif typed then command := command || jsonb_build_object('entry',jsonb_build_object('category','site_survey'),
-      'values',jsonb_build_array(jsonb_build_object('item_id',item_,'quantity',7,'unit','u'))); end if;
-    record_ := public.review_takeoff_items(tenant_,project_,command);
-    if record_ ->> 'outcome' <> 'applied' then raise exception 'expected an accepted reading, got %',record_; end if;
-    select * into strict previous from public.takeoff_item_send_parts where version_id = version_ and item_id = item_ and state = 'live';
-    if prior_ in ('measured','entered') then
-      -- Build a copied earlier ordinary contribution. The send below uses the normal locked writer.
-      perform set_config('mergeone.takeoff_item_send','fixture',true);
-      insert into public.takeoff_item_send_receipts
-        select (jsonb_populate_record(null::public.takeoff_item_send_receipts,to_jsonb(r)
-          || jsonb_build_object('id',pg_temp.f(9897)))).* from public.takeoff_item_send_receipts r
-        where r.id = previous.receipt_id and r.command_kind = 'copy';
-      update public.takeoff_item_send_parts set state = 'replaced',replaced_by_receipt_id = pg_temp.f(9897),
-        replaced_at = now() where id = previous.id;
-      previous.id := pg_temp.f(9894);
-      previous.receipt_id := pg_temp.f(9897);
-      previous.copied_from_part_id := null;
-      previous.kind := prior_;
-      previous.quantity := 7.5;
-      previous.marks_revision := null;
-      if prior_ = 'measured' then
-        previous.observation_ids := array[pg_temp.f(9886)];
-        previous.takeoff_item_ids := array[pg_temp.f(9885)];
-      else
-        previous.entry_id := pg_temp.f(9884);
-        previous.entry_revision := 1;
-      end if;
-      insert into public.takeoff_item_send_parts select previous.*;
-      perform set_config('mergeone.takeoff_item_send','',true);
-    end if;
-    select i.* into strict line from public.takeoff_item_send_targets t join public.estimate_items i on i.id = t.estimate_item_id
-      where t.id = previous.target_id;
-    insert into public.draft_locks(version_id,user_id,tenant_id,expires_at,session_id)
-      values(version_,actor_,tenant_,now()+interval '10 minutes',gen_random_uuid());
-    facts := public.read_takeoff_item_send_facts(tenant_,project_,job_);
-    select jsonb_build_object('answer_id',answer_,'answer_revision',s -> 'answer_revision','kind',source_,
-      'quantity',case when typed then 7 when counted then 1 else 2 end,'unit','u',
-      'observation_ids',case when typed or counted then '[]'::jsonb else jsonb_build_array(s -> 'observation_id') end,
-      'pages',case when typed then to_jsonb(pages_) else jsonb_build_array(pages_[1]) end,
-      'identity','{"unit":"u","basis":null,"network":null,"material":null,"diameter":null}'::jsonb)
-      || case when counted then jsonb_build_object('marks_revision',1) else '{}'::jsonb end into strict contribution
-      from private.takeoff_item_send_resolved_parts(tenant_,project_,job_,pages_) s where s ->> 'item_id' = item_::text;
-    targets_ := jsonb_build_array(jsonb_build_object('key',item_||'|together','item_id',item_,'compartment_key','together',
-      'line',jsonb_build_object('kind','earlier_line','estimate_item_id',line.id,'expected_updated_at',line.updated_at,
-        'expected_quantity',line.quantity),'unit_code','u','quantity_after',(contribution ->> 'quantity')::numeric + case when full_ then 0 else 1 end,
-      'quantity',jsonb_build_object('kept_entry',false),'rule',null,'contributions',jsonb_build_array(contribution),
-      'replaces',case when full_ then jsonb_build_array(jsonb_build_object('job_id',previous.job_id,'answer_id',previous.answer_id,
-          'observation_ids','[]'::jsonb,'quantity',previous.quantity)) else '[]'::jsonb end));
-    plan := pg_temp.plan(21,version_,310,2) || jsonb_build_object('job_id',job_,'targets',targets_,'sections','[]'::jsonb,
-      'page_contributions',(select jsonb_agg(jsonb_build_object('page',page,'item_ids',jsonb_build_array(item_),
-        'target_keys',jsonb_build_array(item_||'|together'),'observation_ids',contribution->'observation_ids') order by page)
-        from jsonb_array_elements(contribution -> 'pages') page));
-    plan := jsonb_set(plan,'{dependencies,plan_pages}',to_jsonb(pages_));
-    plan := jsonb_set(plan,'{dependencies,answers}',(select jsonb_agg(jsonb_build_object('item_id',a -> 'item_id',
-      'answer_id',a -> 'answer_id','revision',a -> 'revision','decision_revision',a #> '{decision,revision}',
-      'entry_revision',a #> '{entry,revision}') order by a ->> 'item_id') from jsonb_array_elements(facts->'answers') a));
-    plan := jsonb_set(plan,'{dependencies,stamps,job}',to_jsonb(public.takeoff_rule_job_stamp(tenant_,project_,job_)));
-    plan := jsonb_set(plan,'{dependencies,stamps,context}',(select jsonb_build_object('peers',s->>'peers','locations',s->>'locations')
-      from private.takeoff_send_context_stamps(private.takeoff_send_context(tenant_,project_,job_,version_)) s));
-    plan := jsonb_set(plan,'{dependencies,lines}',jsonb_build_array(jsonb_build_object('estimate_item_id',line.id,
-      'updated_at',line.updated_at,'quantity',line.quantity,'dpgf',null)));
-    plan := jsonb_set(plan,'{dependencies,pages_in_estimate}',(select coalesce(jsonb_agg(jsonb_build_object('page',h->'page',
-      'earlier_job_ids',h->'earlier_job_ids','estimate_item_ids',h->'estimate_item_ids')),'[]'::jsonb)
-      from jsonb_array_elements(private.takeoff_item_send_held_pages(tenant_,version_,job_,pg_temp.document(21),pages_)) h));
-    if fault = 'other_quantity' then
-      plan := jsonb_set(plan,'{targets,0,replaces,0,quantity}','9');
-    elsif fault = 'older_proof' then
-      update public.takeoff_count_answer_states set revision = revision + 1 where answer_id = previous.answer_id;
-    end if;
-    request_ := jsonb_build_object('request_id',pg_temp.f(985),'plan',plan);
-    begin
-      perform set_config('request.jwt.claims','{"role":"service_role"}',true);
-      perform set_config('request.jwt.claim.sub','',true);
-      perform public.send_takeoff_item_plan(tenant_,actor_,false,request_);
-      select jsonb_build_array('sent',p.kind,p.quantity,i.quantity,old.state) into strict record_
-        from public.takeoff_item_send_parts p join public.estimate_items i on i.id = line.id
-        join public.takeoff_item_send_parts old on old.id = previous.id
-        where p.version_id = version_ and p.job_id = job_ and p.state = 'live';
-    exception when sqlstate '40001' then
-      get stacked diagnostics detail_ = pg_exception_detail;
-      if prior_ in ('measured','entered') then
-        record_ := jsonb_build_array(sqlerrm,detail_::jsonb -> 'held_part' = jsonb_build_object(
-          'job_id',previous.job_id,'answer_id',previous.answer_id,'reading_revision',
-          (select a.reading_revision from public.takeoff_item_answers a where a.id = previous.answer_id),
-          'source',prior_,'pages',previous.pages,'quantity',7.5,'unit',previous.unit),
-          (select count(*) from public.takeoff_item_send_receipts where job_id = job_));
-      elsif fault is not null then
-        record_ := jsonb_build_array(sqlerrm,detail_::jsonb -> 'reason',
-          (select quantity from public.estimate_items where id = line.id),
-          (select count(*) from public.takeoff_item_send_receipts where job_id = job_));
-      else
-        record_ := jsonb_build_array(sqlerrm,detail_::jsonb -> 'quantity',detail_::jsonb -> 'pages',
-        detail_::jsonb ->> 'job_id' = previous.job_id::text,(select quantity from public.estimate_items where id = line.id),
-        (select count(*) from public.takeoff_item_send_receipts where job_id = job_));
-      end if;
-    end;
-    raise sqlstate 'Z1000';
-  exception when sqlstate 'Z1000' then null;
-  end;
-  return record_;
-end;
-$$;
+select is(pg_temp.followup_scope(array[1,2,3,4,5,6,7,8,9],'measured','copy_working_witness'),
+  '["sent","measured",2,2,"replaced"]'::jsonb,'the same complete replacement names the surviving copy’s own part');
+
 select is(pg_temp.followup_scope(array[7],'verified_count',null,prior_),
   '["TAKEOFF_ITEM_SEND_VERIFIED_TOTAL_INDIVISIBLE",true,0]'::jsonb,
   format('refusing the partial count identifies the held %s quantity, pages and original reading of the copy',prior_))
@@ -1604,9 +1707,10 @@ from (values ('measured','["sent","measured",2,2,"replaced"]'::jsonb),('entered'
 select is(pg_temp.followup_scope(array[1,2,3,4,5,6,7,8,9],'measured',fault),
   '["TAKEOFF_ITEM_SEND_PREVIEW_STALE","earlier_send_changed",1,0]'::jsonb,
   format('a full send to the surviving copy refuses %s and leaves the line and receipts intact',fault))
-from (values ('older_proof'),('other_quantity')) faults(fault);
+from (values ('older_proof'),('other_quantity'),('working_edit_before_reread')) faults(fault);
 
 \ir ../fixtures/takeoff-item-redistribution-committed.sql
+\ir ../fixtures/takeoff-contribution-races.sql
 
 select is(extensions.dblink_exec('race_setup', $cleanup$
 begin;

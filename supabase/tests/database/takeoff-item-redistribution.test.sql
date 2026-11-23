@@ -100,6 +100,7 @@ begin
   return observed;
 end;
 $$;
+\ir ../fixtures/takeoff-revision-line-protections.sql
 select is(pg_temp.edited_preview('update public.estimate_items set quantity=7 where id=pg_temp.f(61)')#>>'{blockers,0,title}',
   'Lavabo','the line with a typed quantity is named');
 select is(pg_temp.edited_preview('update public.estimate_items set quantity=7 where id=pg_temp.f(61);
