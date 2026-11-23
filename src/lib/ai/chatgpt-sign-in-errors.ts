@@ -33,3 +33,11 @@ export function chatGptSignInErrorMessage(reason: string | null) {
   return reason !== null && Object.hasOwn(messages, reason)
     ? messages[reason as ChatGptSignInFailure] : messages.unknown;
 }
+
+/** A connection no longer authorizes calls on its subscription. */
+export class LocalChatGptConnectionWithdrawnError extends Error {
+  constructor(message = "La connexion ChatGPT a été retirée ou renouvelée depuis la confirmation. Reprenez le métré avec votre forfait.") {
+    super(message);
+    this.name = "LocalChatGptConnectionWithdrawnError";
+  }
+}

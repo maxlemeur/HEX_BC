@@ -7,6 +7,7 @@ import { CountMarksLayer } from "@/components/takeoff/count-marks/CountMarksLaye
 import { CountMarksPanel } from "@/components/takeoff/count-marks/CountMarksPanel";
 import { CountMarksScope, type CountMarksAnswer } from "@/components/takeoff/count-marks/CountMarksScope";
 import { CountMarksTools } from "@/components/takeoff/count-marks/CountMarksTools";
+import { MeasureItemOnPlan } from "./MeasureItemOnPlan";
 import { ItemDetailEvidencePane } from "@/components/takeoff/item-detail/ItemDetailEvidencePane";
 import { isRightRefusal, useCompletions } from "@/components/takeoff/item-detail/useCompletions";
 import {
@@ -188,13 +189,16 @@ function ItemDetailView({ projectId, address, reader, tableQuery, onBack, onGest
   // carries governs the gestures, whatever happens to the item. Reads of different items live until they end: only a later
   // read of the same item, or the end of this screen, makes a reply obsolete. A save of an answer's counted marks (lot 5)
   // reads its item again the same way.
-  const [fresh, setFresh] = useState<Record<string, ItemDetailLine | null>>({});
+  const [fresh, setFresh] = useState<Record<string, ItemDetailLineRead | null>>({});
   const rereads = useRef<Record<string, number>>({});
   const read = found?.page.page.lines[found.index] ?? (outside?.line.itemId === itemId ? outside.line : null);
-  const gone = fresh[itemId] === null;
-  const line = itemId in fresh ? fresh[itemId] ?? null : read;
+  const gone = itemId in fresh && !fresh[itemId]?.line;
+  const storedLine = itemId in fresh ? fresh[itemId]?.line ?? null : read;
   const context = found?.page ?? (anchor !== null ? queue.page(anchor) : null);
   const canReview = rights ?? false;
+  const plans = fresh[itemId]?.plans ?? (outside?.line.itemId === itemId ? outside.plans : context?.plans);
+  const line = useMemo(() => storedLine && canReview && storedLine.coverage.answered === 0 && plans
+    ? { ...storedLine, remeasurePlans: plans.map(({ key }) => key) } : storedLine, [storedLine, canReview, plans]);
   // A notice belongs to the item it was said for.
   const [noticeFor, setNoticeFor] = useState(itemId);
   if (noticeFor !== itemId) {
@@ -202,15 +206,25 @@ function ItemDetailView({ projectId, address, reader, tableQuery, onBack, onGest
     setNotice("");
   }
   const names = useMemo(() => ({ ...(context?.names ?? {}), ...(outside?.names ?? {}) }), [context, outside]);
-  const planNames = useMemo(() => Object.fromEntries((context?.plans ?? []).map(({ key, name }) => [key, name])), [context]);
+  const planNames = useMemo(() => Object.fromEntries((plans ?? []).map(({ key, name }) => [key, name])), [plans]);
   const position = queue.position(itemId);
 
-  const chosen = useMemo<ItemDetailPlanChoice>(() => (line ? chooseItemDetailPlan(line, address) : { kind: "none" }), [line, address]);
+  const original = useMemo<ItemDetailPlanChoice>(() => (line ? chooseItemDetailPlan(line, address) : { kind: "none" }), [line, address]);
+  const originalKey = `${itemId}|${choiceKey(original)}`;
+  const [currentCopy, setCurrentCopy] = useState<{ original: string; plan: string; revision: number } | null>(null);
+  const current = currentCopy?.original === originalKey ? currentCopy : null;
+  const chosen = useMemo<ItemDetailPlanChoice>(() => current
+    ? { kind: "dossier", planKey: current.plan, planName: planNames[current.plan] ?? null, reading: null } : original,
+  [current, original, planNames]);
   // A plan is resolved again each time it is opened (another plan, reading or piece), never for a page turned or an item
   // shown on the same plan: the request is read when the plan changes, not followed.
-  const key = `${itemId}|${choiceKey(chosen)}`;
+  const key = `${itemId}|${choiceKey(chosen)}|${current?.revision ?? 0}`;
   // What is shown, to which every completion is addressed (the screen: this member and scope, remounted otherwise).
   const begin = useCompletions({ screen: DETAIL_SCREEN, item: itemId, reading: key });
+  const measureRefused = useMemo(() => {
+    const completion = begin({ screen: DETAIL_SCREEN, item: itemId });
+    return (error: unknown) => completion.ownScreen() && onRefused(error);
+  }, [begin, itemId, onRefused]);
   const rereadItem = useCallback((target: string) => {
     const asked = (rereads.current[target] ?? 0) + 1;
     rereads.current[target] = asked;
@@ -218,7 +232,7 @@ function ItemDetailView({ projectId, address, reader, tableQuery, onBack, onGest
     const latest = () => done.ownScreen() && rereads.current[target] === asked;
     void reader.readLine(target).then((read) => {
       if (!latest()) return;
-      setFresh((current) => ({ ...current, [target]: read?.line ?? null }));
+      setFresh((current) => ({ ...current, [target]: read }));
       if (read) setRights(read.canReview);
     }).catch((caught: unknown) => {
       if (isRightRefusal(caught) ? done.ownScreen() : latest() && done.current()) onRefused(caught);
@@ -409,7 +423,8 @@ function ItemDetailView({ projectId, address, reader, tableQuery, onBack, onGest
   }, [load.state]);
 
   // The queue as read so far (`revision` follows its pages), the item outside the filter first.
-  const shownLines = revision >= 0 ? [...(outside && outside.line.itemId === itemId && !found ? [outside.line] : []), ...(context?.page.lines ?? [])] : [];
+  const shownLines = revision >= 0 ? [...(outside && outside.line.itemId === itemId && !found ? [outside.line] : []), ...(context?.page.lines ?? [])]
+    .map((entry) => fresh[entry.itemId]?.line ?? entry) : [];
 
   // The counted marks of the reading shown (lot 5): its answer, the items of the queue by their label, and the items of
   // the same reading a mark may be given to. Only the item's current reading: an earlier one's plan is another sheet, and
@@ -476,7 +491,7 @@ function ItemDetailView({ projectId, address, reader, tableQuery, onBack, onGest
                   onClick={() => { if (entry.itemId !== itemId) openItem(entry.itemId); list.current?.focus(); }}>
                   <span className="block truncate text-sm font-medium text-foreground" title={entry.label}>{entry.label}</span>
                   <span className="flex items-center justify-between gap-2 text-muted-foreground">
-                    <span>{ITEM_STATE_LABELS[entry.state]}{entry === outside?.line ? " · hors du filtre" : ""}</span>
+                    <span>{ITEM_STATE_LABELS[entry.state]}{!found && entry.itemId === outside?.line.itemId ? " · hors du filtre" : ""}</span>
                     <span className="font-mono tabular-nums">{entry.observed ? formatItemQuantity(entry.observed.quantity, entry.observed.unit) : "—"}</span>
                   </span>
                 </li>
@@ -493,6 +508,13 @@ function ItemDetailView({ projectId, address, reader, tableQuery, onBack, onGest
                 pagesOfInterest={pagesOfInterest} onPage={(page) => go({ page, observationId: null })} onDocumentState={setDocumentState}
                 emptyMessage="Aucun plan n’est associé à ce poste pour le moment."
                 tools={<CountMarksTools />} layer={(frame) => <CountMarksLayer frame={frame} />} />
+              {canReview && line && view?.plan.planFileId && view.document.kind !== "unavailable" && !earlierReading ? (
+                <MeasureItemOnPlan key={`${itemId}:${view.plan.key}:${view.plan.planFileId}`} projectId={projectId} line={line}
+                  plan={view.plan} page={opening.page} listRevisionId={fresh[itemId]?.listRevisionId ?? (outside?.line.itemId === itemId ? outside.listRevisionId : context?.listRevisionId) ?? null}
+                  receipt={address.receipt} onFollow={(receipt) => go({ receipt })}
+                  onOpenCurrent={() => setCurrentCopy({ original: originalKey, plan: view.plan.key, revision: (current?.revision ?? 0) + 1 })}
+                  onRefused={measureRefused} onRefresh={() => { rereadItem(itemId); go({ planKey: view.plan.key, jobId: null, answerId: null, observationId: null, source: null }); }} />
+              ) : null}
               <CountMarksPanel />
               {earlierReading ? (
                 <p className="flex shrink-0 flex-wrap items-center gap-2 border-t border-border bg-surface px-3 py-2 text-xs text-foreground-secondary"
@@ -519,7 +541,7 @@ function ItemDetailView({ projectId, address, reader, tableQuery, onBack, onGest
                 decide={{ offer, onGesture: (requested) => gesture(requested, null) }}
                 onObservation={(observation) => go({ page: observation.page, observationId: observation.observationId,
                   answerId: answer?.answerId ?? null })}
-                onPlan={(planKey, jobId) => go({ planKey, jobId, page: null, source: null, answerId: null, observationId: null })} />
+                onPlan={(planKey, jobId) => go({ planKey, jobId, receipt: planKey === view?.plan.key ? address.receipt : undefined, page: null, source: null, answerId: null, observationId: null })} />
             ) : null}
           </div>
         </div>

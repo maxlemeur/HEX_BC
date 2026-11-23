@@ -92,22 +92,22 @@ export function createItemDetailReader(input: { projectId: string; table: ItemDe
  * hold it (that route's 404 carries no right): the detail then says the item is not found.
  */
 export function itemTableDetailSource(projectId: string, address: ItemTableAddress): ItemDetailTableSource {
-  const pageOf = (read: ItemTableResponse) => ({ page: read.page, canReview: read.canReview, names: read.names, plans: read.plans });
+  const pageOf = (read: ItemTableResponse) => ({ listRevisionId: read.list?.revisionId, page: read.page, canReview: read.canReview, names: read.names, plans: read.plans });
   return {
     async readQueue(request) {
       return pageOf(await fetchItemTable(projectId, request.kind === "focus"
-        ? { ...address, offset: 0, focusItemId: request.itemId } : { ...address, offset: request.offset, focusItemId: null }));
+        ? { ...address, offset: 0, focusItemId: request.itemId } : { ...address, offset: request.offset, focusItemId: null }, true));
     },
     async readLine(itemId) {
       if (address.scope.kind === "plan") {
-        const read = await fetchItemTable(projectId, { ...address, filter: {}, offset: 0, focusItemId: itemId });
+        const read = await fetchItemTable(projectId, { ...address, filter: {}, offset: 0, focusItemId: itemId }, true);
         // The right of this reply holds whatever happens to the item: an item no longer in the scope comes back without its line.
         const line = read.page.lines.find((entry) => entry.itemId === itemId) ?? null;
-        return { line, canReview: read.canReview, names: read.names, plans: read.plans };
+        return { listRevisionId: read.list?.revisionId, line, canReview: read.canReview, names: read.names, plans: read.plans };
       }
       try {
-        const read = await fetchItemLine(projectId, itemId);
-        return { line: read.line, canReview: read.canReview, names: read.names, plans: read.plans };
+        const read = await fetchItemLine(projectId, itemId, true);
+        return { listRevisionId: read.listRevisionId, line: read.line, canReview: read.canReview, names: read.names, plans: read.plans };
       } catch (error) {
         if (isTakeoffApiError(error) && error.status === 404) return null;
         throw error;

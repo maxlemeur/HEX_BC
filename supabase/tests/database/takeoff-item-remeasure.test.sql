@@ -132,7 +132,7 @@ create function pg_temp.seen(item integer, plans uuid[]) returns jsonb language 
   select coalesce(jsonb_agg(a.id order by a.id), '[]'::jsonb) from public.takeoff_item_answers a
   where a.item_id = pg_temp.f(item) and a.plan_logical_id = any (plans)
     and a.reading_revision = (select max(b.reading_revision) from public.takeoff_item_answers b
-      where b.item_id = a.item_id and b.plan_logical_id = a.plan_logical_id)
+      where b.item_id = a.item_id and b.plan_logical_id = a.plan_logical_id and not b.comparison_only)
 $$;
 create function pg_temp.targets(items integer[], plans uuid[]) returns jsonb language sql stable as $$
   select jsonb_agg(jsonb_build_object('item_id', pg_temp.f(i), 'answers', pg_temp.seen(i, plans)) order by pg_temp.f(i))
@@ -250,6 +250,41 @@ insert into private.takeoff_launch_activation (active_from) values (now() - inte
 insert into private.takeoff_completion_activation (active_from) values (now() - interval '1 minute');
 insert into private.takeoff_plan_dispatch_activation (active_from) values (now() - interval '1 minute');
 insert into private.takeoff_item_list_order_activation (active_from) values (now() - interval '1 minute');
+
+select pg_temp.sign_in(1);
+select is((select count(*)::integer from public.count_takeoff_item_table(pg_temp.f(10),pg_temp.f(20))
+  where facet = 'state' and value = 'to_measure' and items = 3), 1, 'three unanswered items are visible before the first job');
+select is((select count(*)::integer from public.count_takeoff_item_table(pg_temp.f(10),pg_temp.f(20)) where facet = 'plan'),
+  0, 'the table has no historical plan before any job');
+select results_eq($$select (source ->> 'document_id')::uuid from public.takeoff_preparations p
+  cross join lateral jsonb_array_elements(p.confirmed_snapshot #> '{preparation,sources}') source
+  where p.project_id = pg_temp.f(20) and source ->> 'kind' = 'plan' and source -> 'active' = 'true' order by 1$$,
+  $$values (pg_temp.plan(0)), (pg_temp.plan(1))$$, 'both plans are available from the preparation used by admission');
+-- A failed attempt is history, but leaves the first answer available on either confirmed plan.
+create function pg_temp.first_measure(key integer, round_ integer, plan_ uuid, prior uuid) returns text language sql as $$
+  select outcome from public.launch_takeoff_item_remeasure(pg_temp.f(10), pg_temp.f(20), pg_temp.f(1), pg_temp.f(key),
+    prior, pg_temp.host(), pg_temp.selection(), pg_temp.manifest(pg_temp.list(310, array[300]), array[plan_]),
+    pg_temp.snapshot(array[plan_]), pg_temp.jobs(round_, array[plan_]), pg_temp.f(40), 1, array[plan_],
+    pg_temp.targets(array[300], array[plan_]), jsonb_build_object('preview_digest', repeat('a',64), 'page', null,
+      'shown_sha256', repeat('b',64), 'setting', jsonb_build_object('model', 'modele-fictif', 'reasoning_effort', null)))
+$$;
+savepoint first_measure;
+select pg_temp.first_measure(720, 12, pg_temp.plan(0), null) as admitted_a \gset
+select pg_temp.claim(pg_temp.job(12, pg_temp.plan(0)), 904) as claimed_a \gset
+select public.record_local_takeoff_failure(pg_temp.job(12, pg_temp.plan(0)), pg_temp.f(10), pg_temp.f(904),
+  jsonb_build_object('completed_at', clock_timestamp(), 'duration_ms', 5, 'error_code', 'AI_PROVIDER',
+    'error_message', 'Échec fictif', 'analysis_outcome', 'failure', 'last_error_at', clock_timestamp(), 'next_retry_at', null),
+  '{"extracted_json": {}, "warnings": [], "tables": [], "provider_meta": {"status": "failed"}, "token_count": 0,
+    "cost_cents": 0, "duration_ms": 5}') is not null as failed_a \gset
+select count(*) = 1 and bool_and(plan = pg_temp.plan(0) and reading = 'ended' and unit_state = 'failed' and answer is null)
+  as only_failed_a from pg_temp.pairs() where item = pg_temp.f(300) \gset
+select pg_temp.first_measure(721, 13, pg_temp.plan(1), pg_temp.job(12, pg_temp.plan(0))) as admitted_b \gset
+rollback to first_measure;
+select is(:'admitted_a'::text, 'admitted', 'the first request of an affair may be a single item on a plan');
+select is(:'claimed_a'::integer, 1, 'the first measure starts on plan A');
+select ok(:'failed_a'::boolean, 'the attempt on plan A fails');
+select ok(:'only_failed_a'::boolean, 'the only reading is the failed attempt on A, without an answer');
+select is(:'admitted_b'::text, 'admitted', 'an item without an answer can still request its first measure on B');
 
 -- The first reading of the affaire, on both plans, against the whole list: the lavabo measured on each plan (2 on A, 1
 -- on B), the valve and the bathtub not found.
@@ -561,6 +596,100 @@ select results_eq($$select quantity, revision from public.takeoff_item_entries w
   $$values (1::numeric, 1)$$, 'the entered quantity is untouched');
 select is(pg_temp.state(300), 'measured', 'the lavabo is measured again');
 
+create function pg_temp.peer_context(source_plan integer) returns jsonb language sql stable as $$
+select private.takeoff_send_context(pg_temp.f(10),pg_temp.f(20),pg_temp.job(case when source_plan = 0 then 2 else 1 end,pg_temp.plan(source_plan)),null)
+$$;
+create temp table peer_before as select pg_temp.peer_context(1) as context;
+-- A second member compares one admitted page to the existing two-page reading.
+create temp table prior_stamp as select public.takeoff_rule_job_stamp(pg_temp.f(10), pg_temp.f(20),
+  pg_temp.job(2,pg_temp.plan(0))) as value;
+update public.tenant_memberships set role = 'admin' where tenant_id = pg_temp.f(10) and user_id = pg_temp.f(2);
+create function pg_temp.detail_confirm(page_no integer) returns jsonb language sql stable as $$
+  select jsonb_build_object('preview_digest', repeat('a',64), 'page', page_no, 'shown_sha256', repeat('c', 64),
+    'setting', jsonb_build_object('model','autre-modele','reasoning_effort','high'))
+$$;
+create function pg_temp.detail_measure(page_no integer, round_no integer default 8, item_no integer default 300,
+  plan_no integer default 0, revision_no integer default 310) returns table (outcome text, request_id uuid, job_id uuid, stale uuid[])
+language sql as $$
+  select * from public.launch_takeoff_item_remeasure(pg_temp.f(10), pg_temp.f(20), pg_temp.f(2), pg_temp.f(702 + round_no),
+    pg_temp.job(1,pg_temp.plan(plan_no)), pg_temp.host(), pg_temp.selection() || '{"profileId":"autre-profil","authorizationId":"seconde-connexion"}',
+    jsonb_set(jsonb_set(pg_temp.manifest(pg_temp.list(revision_no,array[item_no]),array[pg_temp.plan(plan_no)]),
+      '{plans,0,pages}', jsonb_build_array(page_no)), '{units,0,pages}', jsonb_build_array(page_no)),
+    jsonb_set(jsonb_set(pg_temp.snapshot(array[pg_temp.plan(plan_no)],2), '{preparation,sources,0,pages}', jsonb_build_array(page_no)),
+      '{execution_selection}', pg_temp.selection() || '{"profileId":"autre-profil","authorizationId":"seconde-connexion"}'), pg_temp.jobs(round_no,array[pg_temp.plan(plan_no)]), pg_temp.f(40),1,
+    array[pg_temp.plan(plan_no)], pg_temp.targets(array[item_no],array[pg_temp.plan(plan_no)]), pg_temp.detail_confirm(page_no))
+$$;
+select throws_ok($$select * from pg_temp.detail_measure(6)$$, '22023','TAKEOFF_LAUNCH_SEAL_INVALID','a page outside the preparation is refused');
+select is((select outcome from pg_temp.detail_measure(2)), 'admitted','a member may confirm a single admitted page');
+select is((select outcome from pg_temp.detail_measure(2)), 'replayed','a repeated confirmation returns the receipt');
+select throws_ok($$select * from pg_temp.detail_measure(7)$$, '23505','TAKEOFF_LAUNCH_INTENT_CONFLICT','another page conflicts under the key');
+select results_eq($$select created_by, preparation_snapshot #>> '{execution_selection,profileId}', preparation_snapshot #>> '{execution_selection,authorizationId}',
+    preparation_snapshot -> 'remeasure_setting'
+  from public.takeoff_jobs where id = pg_temp.job(8,pg_temp.plan(0))$$,
+  $$values (pg_temp.f(2), 'autre-profil'::text, 'seconde-connexion'::text, '{"model":"autre-modele","reasoningEffort":"high"}'::jsonb)$$,
+  'the job freezes the acting member, their connection and the distinct effective setting');
+select is(pg_temp.claim(pg_temp.job(8,pg_temp.plan(0)), 910),1,'the page reading starts');
+create function pg_temp.publish_one(round_no integer, item_no integer, plan_no integer) returns integer language sql as $$
+  select answer_count from public.publish_takeoff_item_answers(pg_temp.job(round_no,pg_temp.plan(plan_no)),pg_temp.f(902 + round_no),now(),
+    'autre-modele','takeoff-c-postes-v1','{"schema_version":"v2","prompt_version":"takeoff-c-postes-v1"}',array[2],
+    jsonb_build_array(jsonb_set(case when round_no = 8 then pg_temp.measured(item_no, 871, 5) else pg_temp.not_found(item_no) end,
+      '{searched_pages}', '[2]')), '[]',
+    '{"extracted_json":{},"warnings":[],"tables":[],"provider_meta":{},"token_count":10,"cost_cents":0,"duration_ms":5,"run_metrics":[]}',
+    case when round_no = 8 then jsonb_build_array(pg_temp.row_(871, 5, 'plan-a.pdf')) else '[]'::jsonb end)
+$$;
+select is(pg_temp.publish_one(8, 300, 0), 1,
+  'the page reading and its positive observation are published');
+select results_eq($$select comparison_only, replaces_answer_id, searched_pages, quantity from public.takeoff_item_answers
+  where job_id=pg_temp.job(8,pg_temp.plan(0))$$,$$values (true,null::uuid,array[2],5::numeric)$$,'the comparison replaces nothing');
+select is((select a.job_id from pg_temp.pairs() p join public.takeoff_item_answers a on a.id=p.answer
+  where p.item=pg_temp.f(300) and p.plan=pg_temp.plan(0)),pg_temp.job(2,pg_temp.plan(0)),'the complete reading remains current');
+select is(public.takeoff_rule_job_stamp(pg_temp.f(10), pg_temp.f(20), pg_temp.job(2,pg_temp.plan(0))),
+  (select value from prior_stamp), 'a comparison leaves the earlier job’s dependency stamp intact');
+-- An included plan entry makes the current answer sendable, independently of the answer’s decision.
+insert into public.takeoff_item_entries (tenant_id, project_id, item_id, plan_logical_id, quantity, unit, category,
+  included, revision, actor_id, entered_at, command_id)
+select tenant_id, project_id, pg_temp.f(300), pg_temp.plan(0), 5, 'u', 'site_survey', true, 1, actor_id, now(), id
+from public.takeoff_item_review_commands where intent_key = pg_temp.f(601);
+select is((select quantity from private.takeoff_item_send_job_parts(pg_temp.f(10),pg_temp.f(20),
+  pg_temp.job(2,pg_temp.plan(0)),array[2])),5::numeric,'the current reading can send the included entry');
+select is((select count(*)::integer from private.takeoff_item_send_job_parts(pg_temp.f(10),pg_temp.f(20),
+  pg_temp.job(8,pg_temp.plan(0)),array[2])),0,'the comparison supplies no sendable part');
+delete from public.takeoff_item_entries where item_id = pg_temp.f(300) and plan_logical_id = pg_temp.plan(0);
+
+select is((select p.job from pg_temp.pairs() p where p.item = pg_temp.f(300) and p.plan = pg_temp.plan(0)),
+  pg_temp.job(2,pg_temp.plan(0)), 'the table names the current analysis of A after the comparison');
+select is(pg_temp.peer_context(1)->'peers', (select context->'peers' from peer_before),
+  'comparison must preserve the current job used by the send of plan B');
+select is(private.takeoff_send_context_stamps(pg_temp.peer_context(1)), (select private.takeoff_send_context_stamps(context) from peer_before),
+  'confirmation of a send on B retains the context approved before the page comparison on A');
+-- Recover the *same receipt* using the confirmation the member sent before editing their defaults.
+create function pg_temp.recover_page(selection_delta jsonb, confirmation jsonb) returns uuid language sql as $$
+  select request_id from public.replay_takeoff_item_remeasure(pg_temp.f(10), pg_temp.f(20), pg_temp.f(2), pg_temp.f(710),
+    array[pg_temp.plan(0)], pg_temp.f(310), pg_temp.targets(array[300],array[pg_temp.plan(0)]),
+    pg_temp.selection() || '{"profileId":"autre-profil","authorizationId":"seconde-connexion"}' || selection_delta, confirmation)
+  where outcome = 'replayed'
+$$;
+select is(pg_temp.recover_page('{"model":"new-default","reasoningEffort":"low"}',pg_temp.detail_confirm(2)),
+  (select launch_request_id from public.takeoff_jobs where id = pg_temp.job(8,pg_temp.plan(0))),
+  'unchanged detail confirmation recovers its original receipt after a profile default edit');
+select throws_ok($$select pg_temp.recover_page('{}',jsonb_set(pg_temp.detail_confirm(2),'{setting,model}','"another-model"'))$$,
+  '23505','TAKEOFF_LAUNCH_INTENT_CONFLICT','another confirmed model conflicts under the original key');
+select throws_ok($$select pg_temp.recover_page('{}',jsonb_set(pg_temp.detail_confirm(2),'{setting,reasoning_effort}','null'))$$,
+  '23505','TAKEOFF_LAUNCH_INTENT_CONFLICT','another confirmed effort conflicts under the original key');
+select throws_ok($$select pg_temp.recover_page('{"authorizationId":"another-connection"}',pg_temp.detail_confirm(2))$$,
+  '23505','TAKEOFF_LAUNCH_INTENT_CONFLICT','a new account connection cannot recover the earlier receipt');
+
+create temp table peer_before_b as select pg_temp.peer_context(0) as context;
+select is((select outcome from pg_temp.detail_measure(2, 12, 300, 1)), 'admitted', 'a comparison of B is admitted');
+select is(pg_temp.claim(pg_temp.job(12, pg_temp.plan(1)), 914), 1, 'the comparison of B starts');
+select is(pg_temp.publish_one(12, 300, 1), 1, 'the comparison of B publishes');
+select is((select comparison_only from public.takeoff_item_answers where job_id = pg_temp.job(12, pg_temp.plan(1))),
+  true, 'the reverse case also publishes a comparison beside the current reading');
+select is(pg_temp.peer_context(0)->'peers', (select context->'peers' from peer_before_b),
+  'the send on A keeps its peer after a comparison on B');
+select is(private.takeoff_send_context_stamps(pg_temp.peer_context(0)), (select private.takeoff_send_context_stamps(context) from peer_before_b),
+  'the confirmation of the send on A keeps its approved stamps');
+
 -- 5. A plan already sent is measured again: its new analysis is not sent, and nothing of the sent one changes.
 set local session_replication_role = replica;
 update public.takeoff_jobs set status = 'applied' where id = pg_temp.job(1, pg_temp.plan(1));
@@ -631,6 +760,28 @@ select results_eq($$select s.state, s.expected from private.takeoff_item_reading
   'on plan B nothing is expected of it (no request asked it there): to measure, which that scope does not list');
 select results_eq($$select pg_temp.state(i) from unnest(array[300, 301, 302]) i$$,
   $$values ('measured'::text), ('not_found'), ('not_found')$$, 'the other items keep their states on the latest revision');
+
+-- The new item has no reading on B. Its first single-page answer can become current, and the same scope can replace it.
+select is((select outcome from pg_temp.detail_measure(2, 9, 303, 1, 320)), 'admitted', 'the first page of a new item is admitted');
+select is(pg_temp.claim(pg_temp.job(9, pg_temp.plan(1)), 911), 1, 'its first page starts');
+select is(pg_temp.publish_one(9, 303, 1), 1, 'its first page publishes');
+select results_eq($$select comparison_only, replaces_answer_id from public.takeoff_item_answers
+  where job_id = pg_temp.job(9, pg_temp.plan(1))$$, $$values (false, null::uuid)$$, 'a first reading becomes current');
+select is((select outcome from pg_temp.detail_measure(2, 10, 303, 1, 320)), 'admitted', 'the same page is admitted again');
+select is(pg_temp.claim(pg_temp.job(10, pg_temp.plan(1)), 912), 1, 'the replacement starts');
+select is(pg_temp.publish_one(10, 303, 1), 1, 'the same page publishes');
+select results_eq($$select comparison_only, replaces_answer_id from public.takeoff_item_answers
+  where job_id = pg_temp.job(10, pg_temp.plan(1))$$, $$select false, id from public.takeoff_item_answers
+  where job_id = pg_temp.job(9, pg_temp.plan(1))$$, 'an exact page replaces its predecessor');
+select is((select outcome from pg_temp.detail_measure(2, 11, 303, 1, 320)), 'admitted', 'a further page is admitted');
+select is(pg_temp.claim(pg_temp.job(11, pg_temp.plan(1)), 913), 1, 'it starts');
+-- Simulate the committed edit while the worker is reading. Human edits increment this revision under the row lock.
+insert into public.takeoff_count_answer_states (answer_id, tenant_id, project_id, revision, member_edited)
+  select id, tenant_id, project_id, 1, true from public.takeoff_item_answers where job_id = pg_temp.job(10, pg_temp.plan(1))
+  on conflict (answer_id) do update set revision = 1, member_edited = true;
+select is(pg_temp.publish_one(11, 303, 1), 1, 'the changed predecessor still allows comparison');
+select results_eq($$select comparison_only, replaces_answer_id from public.takeoff_item_answers
+  where job_id = pg_temp.job(11, pg_temp.plan(1))$$, $$values (true, null::uuid)$$, 'a member edit protects the earlier answer');
 
 select * from finish();
 rollback;

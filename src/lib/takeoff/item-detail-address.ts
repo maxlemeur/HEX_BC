@@ -1,6 +1,6 @@
 import type { ItemTableResponseLine } from "@/lib/takeoff/item-table-contracts";
 import { itemTableAddressParams, readItemTableAddress, withItemTableParams } from "@/lib/takeoff/item-table-query";
-import { TAKEOFF_ITEM_DETAIL_PARAMS as P, takeoffItemDetailHref, withoutTakeoffItemDetail } from "@/lib/takeoff/review-href";
+import { type TakeoffItemDetailHrefInput, TAKEOFF_ITEM_DETAIL_PARAMS as P, takeoffItemDetailHref, withoutTakeoffItemDetail } from "@/lib/takeoff/review-href";
 
 /**
  * The address of the detail of an item on its plan (lot 5, second depth of the review), read the same way by the
@@ -29,6 +29,7 @@ export type ItemDetailAddress = {
   answerId: string | null;
   observationId: string | null;
   versionId: string | null;
+  receipt?: TakeoffItemDetailHrefInput["receipt"];
 };
 
 export type ItemDetailAddressRead = { kind: "none" } | { kind: "invalid" } | { kind: "detail"; address: ItemDetailAddress };
@@ -70,6 +71,10 @@ export function readItemDetailAddress(params: Params): ItemDetailAddressRead {
     }
     const documentId = uuid(params, P.sourceId);
     const generation = opaque(params, P.generation, OPAQUE_MAX);
+    const requestId = uuid(params, P.measureRequestId);
+    const jobId = uuid(params, P.measureJobId);
+    const namesReceipt = params.getAll(P.measureRequestId).length + params.getAll(P.measureJobId).length > 0;
+    if (namesReceipt && !(requestId && jobId)) return { kind: "invalid" };
     const address: ItemDetailAddress = {
       itemId,
       planKey: opaque(params, P.planKey, PLAN_KEY_MAX),
@@ -79,6 +84,7 @@ export function readItemDetailAddress(params: Params): ItemDetailAddressRead {
       answerId: uuid(params, P.answerId),
       observationId: opaque(params, P.observationId, OPAQUE_MAX),
       versionId: uuid(params, P.versionId),
+      ...(requestId && jobId && { receipt: { requestId, jobId } }),
     };
     // A generation names the bytes of a dossier piece; a dossier piece is named only before any reading sealed the plan
     // (a reading resolves its own copy), and never beside a plan named otherwise; an observation belongs to an answer.
@@ -87,7 +93,7 @@ export function readItemDetailAddress(params: Params): ItemDetailAddressRead {
     if (address.observationId && !address.answerId) return { kind: "invalid" };
     // A reading is a reading of a plan: a job alone would let the screen pick another plan than the one it read.
     if (address.jobId && !address.planKey) return { kind: "invalid" };
-    if (page !== null && !address.planKey && !address.source) return { kind: "invalid" };
+    if ((page !== null || address.receipt) && !address.planKey && !address.source) return { kind: "invalid" };
     return { kind: "detail", address };
   } catch (error) {
     if (error instanceof InvalidAddress) return { kind: "invalid" };
