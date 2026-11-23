@@ -780,6 +780,8 @@ select isnt(pg_temp.held_by((select version_id from copy_one)), (select held fro
 select is((select count(*)::integer from public.takeoff_item_send_parts p where p.version_id = pg_temp.f(730)
   and p.job_id = pg_temp.f(1220)), 0, 'and V1 holds nothing of it');
 
+\ir ../fixtures/takeoff-item-redistribution-committed.sql
+
 select is(extensions.dblink_exec('race_setup', $cleanup$
 begin;
 set local session_replication_role = replica;

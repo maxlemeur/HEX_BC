@@ -80,16 +80,3 @@ select is(extensions.dblink_send_query('race_b',pg_temp.redistribution_sql('by_b
 select * from pg_temp.loser('race_b','race_a','REDISTRIBUTION_STALE');
 select results_eq($$select i.quantity,t.breakdown from public.takeoff_item_send_targets t join public.estimate_items i on i.id=t.estimate_item_id
   where t.version_id=pg_temp.f(970) and t.item_id=pg_temp.f(300)$$,$$values (3::numeric,'together'::text)$$,'only the first confirmation took effect');
-
-select is(extensions.dblink_exec('race_setup','begin'),'BEGIN','a member prices the line');
-select is((select x.locked from extensions.dblink('race_setup',format(
-  'select pg_advisory_xact_lock(hashtextextended(%L,0))::text',pg_temp.f(970)::text))x(locked text)),'','editor holds the version key');
-select is(extensions.dblink_exec('race_setup',format($edit$
-  set local miaouffrage.estimate_v3_writer=%1$L;
-  update public.estimate_items set unit_price_ht_cents=4200 where id in
-    (select estimate_item_id from public.takeoff_item_send_targets where version_id=%1$L and item_id=%2$L)
-$edit$,pg_temp.f(970),pg_temp.f(300))),'UPDATE 1','member enters a price on the live line');
-select is(extensions.dblink_send_query('race_b',pg_temp.redistribution_sql('by_level',954)),1,'confirmation starts on its earlier preview');
-select * from pg_temp.loser('race_b','race_setup','REDISTRIBUTION_STALE');
-select results_eq($$select i.quantity,i.unit_price_ht_cents from public.takeoff_item_send_targets t join public.estimate_items i on i.id=t.estimate_item_id
-  where t.version_id=pg_temp.f(970) and t.item_id=pg_temp.f(300)$$,$$values (3::numeric,4200)$$,'the edit and all three units remain on the line');

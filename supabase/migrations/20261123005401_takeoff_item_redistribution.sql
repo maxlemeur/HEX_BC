@@ -137,18 +137,25 @@ $$;
 -- well, including when a copy inherited a value before the copy's own audit began.
 create function private.takeoff_redistribution_edited(p_line public.estimate_items)
 returns boolean language sql stable set search_path='' as $$
-  select exists(select 1 from public.audit_logs a where a.tenant_id=p_line.tenant_id
-    and a.estimate_version_id=p_line.version_id and a.record_id=p_line.id and a.table_name='estimate_items' and a.action='UPDATE'
-    and ((a.before_data - array['updated_at','quantity','pu_ht_cents','line_total_ht_cents','line_tax_cents','line_total_ttc_cents'])
-      is distinct from (a.after_data - array['updated_at','quantity','pu_ht_cents','line_total_ht_cents','line_tax_cents','line_total_ttc_cents'])
-      or (a.before_data->'quantity' is distinct from a.after_data->'quantity' and not exists (
-        select 1 from public.takeoff_item_send_receipts r where r.version_id=p_line.version_id and r.tenant_id=p_line.tenant_id
-          and r.xmin=a.xmin and (
-            exists(select 1 from jsonb_array_elements(r.result->'lines') e where e->>'estimate_item_id'=p_line.id::text
-              and e->'quantity_before'=a.before_data->'quantity' and e->'quantity_after'=a.after_data->'quantity')
-            or exists(select 1 from jsonb_array_elements(r.result->'destinations') e where e->>'line_id'=p_line.id::text
-              and e->'quantity_before'=a.before_data->'quantity' and e->'quantity'=a.after_data->'quantity')
-          )))))
+  -- Match the multiset of committed quantity transitions against receipt lines.
+  -- A writer can insert its receipt in a subtransaction. A manual round trip
+  -- contributes extra audit transitions that no confirmed writer can account for.
+  with edits as (
+    select a.before_data,a.after_data from public.audit_logs a where a.tenant_id=p_line.tenant_id
+      and a.estimate_version_id=p_line.version_id and a.record_id=p_line.id and a.table_name='estimate_items' and a.action='UPDATE'
+  ), changes as (
+    select before_data->'quantity' as before_qty,after_data->'quantity' as after_qty,count(*) as n from edits
+    where before_data->'quantity' is distinct from after_data->'quantity' group by 1,2
+  )
+  select exists(select 1 from edits where
+    (before_data - array['updated_at','quantity','pu_ht_cents','line_total_ht_cents','line_tax_cents','line_total_ttc_cents'])
+    is distinct from (after_data - array['updated_at','quantity','pu_ht_cents','line_total_ht_cents','line_tax_cents','line_total_ttc_cents']))
+    or exists(select 1 from changes c where c.n>(
+      select count(*) from public.takeoff_item_send_receipts r where r.version_id=p_line.version_id and r.tenant_id=p_line.tenant_id
+        and (exists(select 1 from jsonb_array_elements(r.result->'lines') e where e->>'estimate_item_id'=p_line.id::text
+              and e->'quantity_before'=c.before_qty and e->'quantity_after'=c.after_qty)
+          or exists(select 1 from jsonb_array_elements(r.result->'destinations') e where e->>'line_id'=p_line.id::text
+              and e->'quantity_before'=c.before_qty and e->'quantity'=c.after_qty))))
 $$;
 
 create function public.preview_takeoff_item_redistribution(p_tenant uuid,p_actor uuid,p_project uuid,p_version uuid,p_item uuid,
