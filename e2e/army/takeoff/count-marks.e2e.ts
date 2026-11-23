@@ -312,8 +312,10 @@ describe("Propositions de repères", () => {
     const list = screen.getByRole("grid","Repères du poste sur la page");
     const agreed = list.getByRole("row", /Deux lectures concordantes/);
     await expect(agreed).toContainText("Lecture par tuile n° 1 v1 · non qualifié");
-    const originsShot = await app.screenshot("reperes02-origines");
+    await expect(screen.getByRole("img", "plan-1.pdf, page 2", { exact: true })).toBeVisible({ timeout: 30_000 });
     await agreed.click();
+    await agreed.getByRole("gridcell", /Deux lectures concordantes/).scrollIntoView();
+    const originsShot = await app.screenshot("reperes02-origines");
     await list.press("r");
     await list.getByRole("row", /Lecture par tuile n° 2/).click();
     await list.press("Delete");
