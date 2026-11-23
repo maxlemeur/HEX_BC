@@ -5,6 +5,9 @@ import type { ItemQuantityChoice } from "@/lib/takeoff/item-table";
 import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { ArrowLeft, ListTree } from "lucide-react";
 
+import { RevisionPanel } from "@/components/takeoff/contribution-revision/RevisionPanel";
+import { useContributionRevisions } from "@/components/takeoff/contribution-revision/useContributionRevisions";
+import { useRevisionMarksReader } from "@/components/takeoff/contribution-revision/useRevisionMarksReader";
 import { CountMarksLayer } from "@/components/takeoff/count-marks/CountMarksLayer";
 import { CountMarksPanel } from "@/components/takeoff/count-marks/CountMarksPanel";
 import { CountMarksScope, type CountMarksAnswer } from "@/components/takeoff/count-marks/CountMarksScope";
@@ -66,6 +69,7 @@ export type ItemDetailShown = { key: string; line: ItemDetailLine; offered: read
 const OFFERED_GESTURES = ["accept_measured", "set_aside", "enter_quantity", "include_entry"] as const satisfies readonly ItemDetailOfferedGesture[];
 
 type Props = {
+  viewerKey?: string;
   projectId: string;
   address: ItemDetailAddress;
   reader: ItemDetailReader;
@@ -125,7 +129,7 @@ const neverRefused = () => false;
 /** The detail's screen: one per member and scope (a new reader remounts it), so its own completions name it alone. */
 const DETAIL_SCREEN = "detail";
 
-function ItemDetailView({ projectId, address, reader, tableQuery, onBack, onGesture, onAddressChange, onRefused = neverRefused,
+function ItemDetailView({ projectId, viewerKey, address, reader, tableQuery, onBack, onGesture, onAddressChange, onRefused = neverRefused,
   refresh = null, onShown }: Props) {
   const version = refresh?.version ?? 0;
   const queue = useMemo(() => new ItemDetailQueue(), []);
@@ -441,6 +445,17 @@ function ItemDetailView({ projectId, address, reader, tableQuery, onBack, onGest
     jobId: reading.answer.jobId, scopePages: [...new Set([...reading.answer.searchedPages, ...reading.answer.unreadablePages])] }
     : earlierAnswer && earlierJob ? { answerId: earlierAnswer.answerId, jobId: earlierJob, scopePages: earlierAnswer.scopePages }
       : null), [earlierAnswer, earlierJob, reading]);
+  const sentJob = reading?.sent ? reading.answer?.jobId : null;
+  const viewer = viewerKey ?? String(readerIdentity(reader));
+  const revisionRead = useContributionRevisions(viewer, projectId, sentJob ? [{ jobId:sentJob, itemId }] : []);
+  const versions = sentJob ? revisionRead.data?.[sentJob] : undefined;
+  const destination = versions?.find(v=>v.version_id===address.versionId) ?? (!address.versionId && versions?.length===1 ? versions[0] : undefined);
+  const revisionItem = destination?.items.find(i=>i.item_id===itemId);
+  const revisionEditable = !!(canReview && destination?.editable && revisionItem?.current && reading?.unit!=="running" && reading?.unit!=="queued" && reading?.attempt?.unit!=="queued" && reading?.attempt?.unit!=="running");
+  const revisionReceipt = revisionEditable ? destination?.receipt_id : null;
+  const revisionVersion = destination?.version_id;
+  const revisionMarks = useRevisionMarksReader(projectId,sentJob,revisionVersion,revisionReceipt);
+  const refreshRevision = revisionRead.mutate;
   const itemLabels = Object.fromEntries(shownLines.map((entry) => [entry.itemId, entry.label]));
   // The item of each answer the detail knows (the answer shown, every reading of the queue loaded): a save names every
   // answer its command changed, with the item when the marks know it (a reattribution's target, another item holding a
@@ -451,7 +466,8 @@ function ItemDetailView({ projectId, address, reader, tableQuery, onBack, onGest
   const marksSaved = useCallback((answers: ReadonlyArray<{ answerId: string; itemId: string | null }>) => {
     const items = new Set(answers.flatMap(({ answerId, itemId: named }) => named ?? answerItems.current[answerId] ?? []));
     for (const target of items) rereadItem(target);
-  }, [rereadItem]);
+    if (sentJob) void refreshRevision();
+  }, [rereadItem, refreshRevision, sentJob]);
 
   return (
     <div className="flex min-h-[36rem] flex-col rounded-lg border border-border bg-surface-subtle" data-testid="poste-detail">
@@ -503,8 +519,8 @@ function ItemDetailView({ projectId, address, reader, tableQuery, onBack, onGest
               ↑ ↓ poste · Entrée preuve · Échap tableau{canReview ? " · V accepter · E écarter · I inclure · F2 saisir" : ""}
             </p>
           </aside>
-          <CountMarksScope projectId={projectId} answer={marksAnswer} page={opening.page} itemLabels={itemLabels} onSaved={marksSaved}
-            readOnly={earlierAnswer !== null} onRefused={onRefused} showPage={(next) => go({ page: next, observationId: null })}>
+          <CountMarksScope key={revisionVersion ?? "plan"} reader={revisionMarks} revisionVersion={revisionVersion} projectId={projectId} answer={marksAnswer} page={opening.page} itemLabels={itemLabels} onSaved={marksSaved}
+            readOnly={earlierAnswer !== null || (!!sentJob && !revisionEditable)} onRefused={onRefused} showPage={(next) => go({ page: next, observationId: null })}>
             <div className="flex min-h-0 min-w-0 flex-1 flex-col">
               <ItemDetailPlanPane resolution={line ? resolution : { state: "loading" }} page={opening.page} requestedMissing={opening.requestedMissing}
                 pagesOfInterest={pagesOfInterest} onPage={(page) => go({ page, observationId: null })} onDocumentState={setDocumentState}
@@ -518,7 +534,17 @@ function ItemDetailView({ projectId, address, reader, tableQuery, onBack, onGest
                   onOpenCurrent={() => setCurrentCopy({ original: originalKey, plan: view.plan.key, revision: (current?.revision ?? 0) + 1 })}
                   onRefused={measureRefused} onRefresh={() => { rereadItem(itemId); go({ planKey: view.plan.key, jobId: null, answerId: null, observationId: null, source: null }); }} />
               ) : null}
-              <CountMarksPanel />
+              {sentJob && versions && versions.length>1 && <label className="px-3">Devis à consulter ou corriger
+                <select value={destination?.version_id??""} onChange={e=>go({versionId:e.target.value || null})}>
+                  <option value="">Choisir un devis</option>{versions.map(v=><option key={v.version_id} value={v.version_id}>V{v.version_number} · {v.status==="draft"?"brouillon":"lecture seule"}</option>)}
+                </select></label>}
+              {sentJob && revisionRead.error && <p role="alert">Impossible de lire les apports du devis. <button onClick={()=>void refreshRevision()}>Réessayer</button></p>}
+              {sentJob && versions?.length===0 && <p>La lecture a déjà été envoyée. Son historique ne permet pas d’isoler un apport à corriger.</p>}
+              {sentJob && destination && revisionItem && <RevisionPanel key={`${viewer}/${sentJob}/${destination.version_id}/${itemId}`}
+                version={destination} measuredAnswer={reading?.answer?.outcome==="measured"} item={revisionItem} viewer={viewer} editable={revisionEditable} planId={reading!.planKey}
+                onRefused={onRefused} onItem={id=>go({itemId:id,page:null,answerId:null,observationId:null})}
+                refresh={async()=>{rereadItem(itemId);return (await refreshRevision())?.[sentJob]?.find(v=>v.version_id===destination.version_id);}}/>}
+              <CountMarksPanel sent={!!sentJob} />
               {earlierReading ? (
                 <p className="flex shrink-0 flex-wrap items-center gap-2 border-t border-border bg-surface px-3 py-2 text-xs text-foreground-secondary"
                   data-testid="reperes-lecture-ancienne">

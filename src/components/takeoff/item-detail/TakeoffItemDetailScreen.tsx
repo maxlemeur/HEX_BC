@@ -249,7 +249,7 @@ export function TakeoffItemDetailScreen({ projectId, viewerKey }: {
       ) : null}
       {/* A move inside replaces the address natively (history.replaceState), which the router's search parameters follow:
           no navigation, no server render per arrow. */}
-      <TakeoffItemDetail projectId={projectId} address={detail.address} reader={reader} tableQuery={query} onBack={back}
+      <TakeoffItemDetail viewerKey={viewerKey} projectId={projectId} address={detail.address} reader={reader} tableQuery={query} onBack={back}
         onGesture={onGesture} onRefused={withdrawOnRefusal} refresh={refresh} onShown={setShown} />
       {active?.gesture === "accept_measured" && active.line.quantityOptions ? (
         <Dialog open onOpenChange={(open) => { if (!open && !busy) close(); }}>

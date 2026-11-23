@@ -1074,6 +1074,20 @@ describe("a verified count retained on a plan", () => {
     expect(plan.confirmable).toBe(false);
   });
 
+  it("binds a whole-plan replacement to the local part, sent proof and corrected marks in the preview and digest", () => {
+    const correctedProof = { part_id: "old-local-part", sent_revision: 3, current_revision: 5 };
+    const earlier = { ...before, targets: [{ ...before.targets[0], parts: [{ ...old,
+      verifiedCount: { marksRevision: 3, readingRevision: 1, correctedProof } }] }] };
+    const make = (pages: number[]) => planTakeoffItemSend(input({ items: [lavabo], earlier,
+      answers: [measured(lavabo, [{ quantity: 2, page: 1 }], { searchedPages: pages })],
+      plan: { key: "plan-a", name: "Plan A", pages, pageCount: 2, location: null },
+      destination: draft([line(10, { quantity: 1 })]) }));
+    expect(make([1]).targets).toEqual([]);
+    const whole = make([1, 2]);
+    expect(whole.targets[0].replacedVerifiedTotal?.correctedProof).toEqual(correctedProof);
+    expect(whole.writePlan?.targets[0].replaces[0].corrected_proof).toEqual(correctedProof);
+  });
+
   it.each(["measured", "entered", "verified_count"] as const)("shows the whole replacement with the new %s source", (source) => {
     const answer = measured(lavabo, [{ quantity: 2, page: 1 }], { searchedPages: [1, 2],
       ...(source === "verified_count" ? { quantitySource: source, verifiedCount: proof } : {}),

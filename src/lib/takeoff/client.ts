@@ -1,3 +1,4 @@
+import { revisionResponseSchema, type RevisionRequest } from "@/lib/takeoff/contribution-revision-contracts";
 import { redistributionResponseSchema, type RedistributionRequest } from "@/lib/takeoff/item-redistribution-contracts";
 import { parseTakeoffApplyResponse, parseTakeoffPreviewConversionResponse } from "@/lib/takeoff/apply-response-contracts";
 import {
@@ -1175,4 +1176,11 @@ export async function requestItemRedistribution(jobId: string, payload: Redistri
     "Impossible de vérifier la redistribution.", true
   );
   return validateTakeoffResponse(jobId, () => parseTakeoffResponse(redistributionResponseSchema, response));
+}
+
+export async function requestContributionRevision(jobId: string, payload: RevisionRequest, signal?: AbortSignal) {
+  const response = await requestTakeoffJson<unknown>(`/api/takeoff/jobs/${encodeURIComponent(jobId)}/item-send/revision`,
+    { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload), signal },
+    "Impossible de vérifier la correction de cet envoi.", true);
+  return validateTakeoffResponse(jobId, () => parseTakeoffResponse(revisionResponseSchema, response));
 }

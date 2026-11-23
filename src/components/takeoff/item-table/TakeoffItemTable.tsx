@@ -4,6 +4,8 @@ import dynamic from "next/dynamic";
 import Link from "next/link";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { RevisionQuantities } from "@/components/takeoff/contribution-revision/RevisionQuantities";
+import { useContributionRevisions } from "@/components/takeoff/contribution-revision/useContributionRevisions";
 import useSWR from "swr";
 import { ChevronDown } from "lucide-react";
 
@@ -303,6 +305,8 @@ export function TakeoffItemTable({ projectId, viewerKey, signature }: {
   const scrolledFocus = useRef<string | null>(null);
   const focusId = address.focusItemId;
   const lines = data?.page.lines;
+  const revisions = useContributionRevisions(viewerKey,projectId,(lines??[]).flatMap(line=>line.readings.flatMap(
+    r=>r.sent && r.answer ? [{jobId:r.answer.jobId,itemId:line.itemId}]:[])));
   useEffect(() => {
     if (lines) withLines(lines);
   }, [lines, withLines]);
@@ -705,6 +709,11 @@ export function TakeoffItemTable({ projectId, viewerKey, signature }: {
                                     </span>
                                   ) : null}</>
                               ) : null}
+                              {line.readings.filter(r=>r.sent && r.answer).flatMap(r=>revisions.data?.[r.answer!.jobId]?.flatMap(v=>{
+                                const item=v.items.find(i=>i.item_id===line.itemId);
+                                return item?[<RevisionQuantities key={`${r.answer!.jobId}/${v.version_id}`} item={item} version={v.version_number}/>]:[];
+                              })??[])}
+                              {revisions.error && line.readings.some(r=>r.sent) && <span>Impossible de lire les apports du devis.</span>}
                             </td>
                             {canReview ? (
                               <td>

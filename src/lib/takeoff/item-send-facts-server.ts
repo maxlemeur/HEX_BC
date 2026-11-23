@@ -207,8 +207,19 @@ export async function readItemSendEarlierState(member: Member, input: { projectI
       .eq("tenant_id", member.tenantId).eq("project_id", input.projectId).in("id", ids));
   if (readingError) failed(readingError, "Impossible de lire les lectures des quantités de ce poste.", input.jobId);
   const revisions = new Map(readings?.map((row) => [row.id, row.reading_revision]));
+  const currentMarks = new Map<string, number>();
+  const countAnswers = [...new Set((counts ?? []).map(part => part.answer_id))];
+  for (let offset = 0; offset < countAnswers.length; offset += 500) {
+    const read = await member.supabase.rpc("read_takeoff_count_mark_summaries", {
+      p_tenant_id: member.tenantId, p_project_id: input.projectId, p_answer_ids: countAnswers.slice(offset, offset + 500),
+    });
+    if (read.error) failed(read.error, "Impossible de vérifier la révision des repères précédents.", input.jobId);
+    for (const row of read.data ?? []) currentMarks.set(row.answer_id, z.object({ revision: z.number().int() }).parse(row.summary).revision);
+  }
   const proofs = new Map((counts ?? []).map((row) => [JSON.stringify([row.item_id, row.plan_logical_id, row.job_id, row.answer_id]),
-    { marksRevision: row.marks_revision!, readingRevision: revisions.get(row.answer_id) ?? null }]));
+    { marksRevision: row.marks_revision!, readingRevision: revisions.get(row.answer_id) ?? null,
+      ...(row.marks_revision !== null && (currentMarks.get(row.answer_id) ?? 0) > row.marks_revision
+        ? { correctedProof: {part_id: row.id, sent_revision: row.marks_revision, current_revision: currentMarks.get(row.answer_id)!} } : {}) }]));
   const partsOf = (target: { item_id: string; parts: z.infer<typeof partSchema>[] }) => target.parts.map((part) => {
     const verifiedCount = !part.observation_ids.length && proofs.get(JSON.stringify([target.item_id, part.plan_key, part.job_id, part.answer_id]));
     if (verifiedCount) return { ...partOf(part), verifiedCount };

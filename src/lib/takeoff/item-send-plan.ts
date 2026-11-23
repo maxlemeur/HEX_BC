@@ -8,7 +8,7 @@ import {
 import { round4 } from "@/lib/takeoff/dpgf-quantity-policy";
 import { itemSendDiameter, itemSendFolded } from "@/lib/takeoff/item-send-fold";
 import type {
-  ItemSendListItem, ItemSendSource, ItemSendCountTotal, ItemSendHeldQuantity, ItemSendAnswer,
+  ItemSendListItem, ItemSendSource, CorrectedCountProof, ItemSendCountTotal, ItemSendHeldQuantity, ItemSendAnswer,
   ItemSendLocationField, ItemSendPlanLocation, ItemSendDraftLine, ItemSendDestinationState,
 } from "@/lib/takeoff/item-send-input-facts";
 import type { ItemSendRuleAction, ItemSendRuleEffect, ItemSendRuleEffectKind } from "@/lib/takeoff/item-send-rules";
@@ -88,7 +88,7 @@ export type ItemSendEarlierTarget = {
     /** The identity the part was stored with (migration C): the one compared and echoed, never derived again. */
     identity?: ItemSendIdentity;
     readingRevision?: number | null;
-    verifiedCount?: { marksRevision: number; readingRevision: number | null };
+    verifiedCount?: { correctedProof?: CorrectedCountProof; marksRevision: number; readingRevision: number | null };
   }>;
 };
 export type ItemSendEarlierSection = { key: string; estimateItemId: string };
@@ -243,7 +243,7 @@ export type ItemSendTarget = {
   rule: ItemSendRuleEffect | null;
   resolution: ItemSendChoice["kind"] | null;
   /** The earlier parts of this same plan this send replaces (a revision of the plan's part, confirmed with the send). */
-  replaces: Array<{ jobId: string; answerId: string | null; observationIds: string[]; quantity: number }>;
+  replaces: Array<{ correctedProof?: CorrectedCountProof; jobId: string; answerId: string | null; observationIds: string[]; quantity: number }>;
 };
 
 export type ItemSendNotSentReason = "set_aside" | "not_accepted" | "not_found" | "uncertain" | "empty" | "unit_incompatible"
@@ -349,7 +349,7 @@ export type ItemSendWritePlan = {
       category_id: string | null; assembly_id: string | null } | null;
     contributions: Array<{ answer_id: string; answer_revision: string; marks_revision?: number; kind: ItemSendSource; observation_ids: string[];
       quantity: number; unit: string; pages: number[]; identity: SnakeIdentity }>;
-    replaces: Array<{ job_id: string; answer_id: string | null; observation_ids: string[]; quantity: number }>;
+    replaces: Array<{ corrected_proof?: CorrectedCountProof; job_id: string; answer_id: string | null; observation_ids: string[]; quantity: number }>;
   }>;
   page_contributions: Array<{ page: number; item_ids: string[]; target_keys: string[]; observation_ids: string[] }>;
   page_decisions: Array<{ page: number | null; decision: "replace" | "keep_both"; reason_code: string | null; note: string | null }>;
@@ -534,6 +534,12 @@ const sameIdentity = (left: ItemSendIdentity, right: ItemSendIdentity) => left.u
   && left.network === right.network && left.material === right.material && left.diameter === right.diameter;
 const snakeIdentity = (identity: ItemSendIdentity): SnakeIdentity => ({ ...identity });
 
+
+export function itemSendAnswerDependencies(answers: readonly ItemSendAnswer[]): ItemSendWritePlan["dependencies"]["answers"] {
+  return [...answers].sort((left, right) => byText(left.itemId, right.itemId)).map((answer) => ({ item_id: answer.itemId,
+        answer_id: answer.answerId, revision: answer.revision, decision_revision: answer.decision?.revision ?? null,
+        entry_revision: answer.entry?.revision ?? null }));
+}
 
 /**
  * The send by item writes engine 3 lines only (a unit code, a line status, hours per unit in columns): never another
@@ -936,7 +942,8 @@ export function planTakeoffItemSend(input: ItemSendInput): ItemSendPlan {
 
     type EarlierPart = ItemSendEarlierTarget["parts"][number];
     const replacesOf = (parts: readonly EarlierPart[]): ItemSendTarget["replaces"] => parts.map((part) => ({ jobId: part.jobId,
-      answerId: part.answerId, observationIds: [...part.observationIds].sort(byText), quantity: part.quantity }));
+      answerId: part.answerId, observationIds: [...part.observationIds].sort(byText), quantity: part.quantity,
+      ...(ofThisPlan(part) && wholePlan(covered) && part.verifiedCount?.correctedProof ? { correctedProof: part.verifiedCount.correctedProof } : {}) }));
     /**
      * This item's earlier parts on a line (the writer's rule, twin of its replacement): this plan's parts on the pages
      * this confirmation covers, and those a « Remplacer » decision takes out, are replaced; every other part stays, and
@@ -1188,7 +1195,7 @@ function writePlanOf(input: ItemSendInput, plan: ItemSendPlan, destination: Excl
           unit: contribution.unit, pages: [...contribution.pages].sort((left, right) => left - right), identity: snakeIdentity(contribution.identity) }))
           .sort((left, right) => byText(canonical([left.kind, left.observation_ids, left.pages]), canonical([right.kind, right.observation_ids, right.pages]))),
         replaces: target.replaces.map((part) => ({ job_id: part.jobId, answer_id: part.answerId, observation_ids: part.observationIds,
-          quantity: part.quantity })).sort((left, right) => byText(canonical(left), canonical(right))),
+          quantity: part.quantity, ...(part.correctedProof ? { corrected_proof: part.correctedProof } : {}) })).sort((left, right) => byText(canonical(left), canonical(right))),
       };
     }),
     page_contributions: plan.pageContributions.map((page) => ({ page: page.page, item_ids: page.itemIds, target_keys: page.targetKeys,
@@ -1205,9 +1212,7 @@ function writePlanOf(input: ItemSendInput, plan: ItemSendPlan, destination: Excl
       pages: part.pages, quantity: part.quantity, unit: part.unit, reason: part.reason }))
       .sort((left, right) => byText(canonical(left), canonical(right))),
     dependencies: {
-      answers: [...input.answers].sort((left, right) => byText(left.itemId, right.itemId)).map((answer) => ({ item_id: answer.itemId,
-        answer_id: answer.answerId, revision: answer.revision, decision_revision: answer.decision?.revision ?? null,
-        entry_revision: answer.entry?.revision ?? null })),
+      answers: itemSendAnswerDependencies(input.answers),
       affaire_entries: [...input.affaireEntries].sort((left, right) => byText(left.itemId, right.itemId))
         .map((entry) => ({ item_id: entry.itemId, revision: entry.revision })),
       rules: [...input.scope].sort(byText).flatMap((itemId) => {

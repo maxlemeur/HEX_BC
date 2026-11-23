@@ -202,6 +202,7 @@ export function ItemSendLines({ lines }: { lines: Preview["lines"] }) {
                   <span className="block text-xs text-muted-foreground">
                     Comptage vérifié de {line.replaced_verified_total.reading_revision == null ? `l’analyse ${line.replaced_verified_total.job_id}`
                       : `la lecture n° ${line.replaced_verified_total.reading_revision}`} · p. {line.replaced_verified_total.pages.join(", ")}
+                    {line.replaced_verified_total.corrected_proof ? " · Remplace cet apport dont les repères ont été corrigés depuis sans confirmation." : null}
                   </span>
                 </> : line.replaced ? formatItemSendQuantity(line.replaced, line.unit) : "—"}
               </td>

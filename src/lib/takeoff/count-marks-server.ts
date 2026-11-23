@@ -226,6 +226,12 @@ function refusalError(code: TakeoffCountMarkEditRefusal, details?: unknown) {
   }
 }
 
+export function throwMarkEditRefusal(error: { message: string; details: string; code: string; hint: string }): never {
+  const refusal = takeoffCountMarkEditRefusal(error.message);
+  if (refusal === "TAKEOFF_MARKS_OBJECT_DUPLICATE") throw refusalError(refusal, duplicateDetail(error.details) ?? undefined);
+  throw refusal ? refusalError(refusal) : mapSupabaseError(error, EDIT_FAILURE);
+}
+
 async function runEdit(access: AffaireAccess, command: { intentKey: string; revisions: Record<string, number>;
   gestures: readonly TakeoffCountMarkGesture[] }): Promise<TakeoffCountMarkEditResult> {
   const { context, project } = access;
@@ -234,9 +240,7 @@ async function runEdit(access: AffaireAccess, command: { intentKey: string; revi
     p_revisions: command.revisions, p_gestures: command.gestures as unknown as EditArgs["p_gestures"],
   });
   if (error) {
-    const refusal = takeoffCountMarkEditRefusal(error.message);
-    if (refusal === "TAKEOFF_MARKS_OBJECT_DUPLICATE") throw refusalError(refusal, duplicateDetail(error.details) ?? undefined);
-    throw refusal ? refusalError(refusal) : mapSupabaseError(error, EDIT_FAILURE);
+    throwMarkEditRefusal(error);
   }
   return parseTakeoffCountMarkEditResult(data);
 }

@@ -1,3 +1,4 @@
+import { revisionRequestSchema, revisionResponseSchema } from "@/lib/takeoff/contribution-revision-contracts";
 import { redistributionRequestSchema, redistributionResponseSchema } from "@/lib/takeoff/item-redistribution-contracts";
 import { takeoffReviewContextResponseSchema } from "@/lib/takeoff/review-context-contracts";
 import { estimateOfferChoiceInputSchema, estimateOfferChoiceReceiptSchema } from "@/lib/estimates/offer-choice";
@@ -3269,6 +3270,19 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
     requestBody: takeoffItemSendPreviewBody,
     responses: {
       "200": jsonResponse("Apercu de l'envoi par poste.", apiTakeoffItemSendPreviewSchemaDefinition),
+      ...takeoffJobsErrorResponses,
+    },
+  },
+  {
+    method: "post",
+    path: "/api/takeoff/jobs/{jobId}/item-send/revision",
+    summary: "Corriger un apport déjà envoyé au devis",
+    description: "Lit les apports par version, prépare les corrections de repères, de saisie ou de source et confirme leur différence dans le brouillon réservé. Une confirmation identique retrouve son reçu après émission. Un aperçu périmé répond 409.",
+    tags: ["Takeoff"],
+    parameters: [takeoffJobIdPathParameter],
+    requestBody: jsonBody({ name: "TakeoffContributionRevisionRequest", description: "Action du membre sur le reçu du devis.", schema: revisionRequestSchema }),
+    responses: {
+      "200": jsonResponse("Apports, aperçu ou reçu de correction.", successResponseSchemaDefinition("ApiTakeoffContributionRevisionResponse", revisionResponseSchema)),
       ...takeoffJobsErrorResponses,
     },
   },
