@@ -11,7 +11,7 @@ import { register } from "tsx/cjs/api";
 // that member, on this host (the application under test has no local ChatGPT runtime to pay with). What the command
 // hands to after() is not run here: the journey's own worker serves the Mac's queue with a controlled provider.
 const [verb, projectId, ...rest] = process.argv.slice(2);
-assert(["launch", "stop", "remeasure"].includes(verb ?? ""));
+assert(["launch", "stop", "remeasure", "measure-item"].includes(verb ?? ""));
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 assert(uuid.test(projectId ?? ""));
 assert.equal(process.env.E2E_ARMY_TAKEOFF_WORKER, "1");
@@ -69,6 +69,28 @@ try {
     result = await run(async () => launchTakeoffRelaunch({ context: await getAuthenticatedContext(), projectId, planSetId, intentKey,
       preparationRevision: Number(revision ?? "1"), planFileIds, predecessorJobId: predecessor && predecessor !== "-" ? predecessor : null,
       host: app.host }));
+  } else if (verb === "measure-item") {
+    const [item, intentKey, planKey, contentSha256, originalPage] = rest;
+    assert([item, intentKey, planKey].every((id) => uuid.test(id ?? "")));
+    assert(/^[0-9a-f]{64}$/.test(contentSha256) && /^[1-9][0-9]*$/.test(originalPage));
+    // Only the catalogue read is simulated. Every other request still goes through the owned-network guard.
+    const guardedFetch = globalThis.fetch;
+    globalThis.fetch = (url, options) => String(url) === "https://api.openai.com/v1/models"
+      ? Promise.resolve(Response.json({ models: [{ slug: "army", display_name: "Army", visibility: "list" },
+        { slug: "army-detail", display_name: "Army détail", visibility: "list", supported_reasoning_levels: ["high"] }] }))
+      : guardedFetch(url, options);
+    const scope = { kind: "plan", planKey };
+    result = await run(async () => {
+      const table = await readAffaireItemTable(projectId, { scope, filter: {}, offset: 0, limit: 100, focusItemId: item });
+      const line = table.page.lines.find((entry) => entry.itemId === item);
+      assert(line && table.list);
+      const seen = { list_revision_id: table.list.revisionId, targets: [line.targets] };
+      const detail = { fileId: planKey, generation: null, contentSha256, page: Number(originalPage) };
+      const preview = await previewItemRemeasure(projectId, { scope, detail, itemIds: [item], seen });
+      const command = { command_version: 1, intent_key: intentKey, scope, detail, host_proof: preview.detail?.hostProof, item_ids: [item], plan_keys: [planKey],
+        setting: { model: "army-detail", reasoning_effort: "high" }, preview_digest: preview.previewDigest, seen };
+      return runItemRemeasure(projectId, command);
+    });
   } else if (verb === "remeasure") {
     // The items of the affaire's table selected, and the confirmation's key: the preview the dialog shows, then its
     // explicit confirmation with that preview's digest (the member's own subscription, the profile's setting). With the

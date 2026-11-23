@@ -5,6 +5,7 @@ import {
   ITEM_REVIEW_COMMAND_VERSION,
   itemRemeasurePreviewSchema,
   itemRemeasureResultSchema,
+  itemMeasureReadingsSchema,
   itemReviewResultSchema,
   itemReviewStaleDetailsSchema,
   itemHistoryResponseSchema,
@@ -46,8 +47,9 @@ async function call<T>(path: string, init: RequestInit, schema: z.ZodType<T>, fa
 
 const base = (projectId: string) => `/api/affaires/${encodeURIComponent(projectId)}/takeoff/items`;
 
-export function fetchItemTable(projectId: string, address: ItemTableAddress) {
+export function fetchItemTable(projectId: string, address: ItemTableAddress, detail = false) {
   const params = withItemTableParams("", itemTableAddressParams(address));
+  if (detail) params.set("detail", "1");
   const query = params.toString();
   return call(`${base(projectId)}${query ? `?${query}` : ""}`, { method: "GET" }, itemTableResponseSchema, READ_FAILURE,
     TAKEOFF_READ_REQUEST_TIMEOUT_MS);
@@ -60,8 +62,8 @@ export function fetchItemHistory(projectId: string, itemId: string, page: { offs
 }
 
 /** One item of the list outside any filter (a link of the radar, the detail of an item). */
-export function fetchItemLine(projectId: string, itemId: string) {
-  return call(`${base(projectId)}/${encodeURIComponent(itemId)}`, { method: "GET" }, itemTableLineResponseSchema, READ_FAILURE,
+export function fetchItemLine(projectId: string, itemId: string, detail = false) {
+  return call(`${base(projectId)}/${encodeURIComponent(itemId)}${detail ? "?detail=1" : ""}`, { method: "GET" }, itemTableLineResponseSchema, READ_FAILURE,
     TAKEOFF_READ_REQUEST_TIMEOUT_MS);
 }
 
@@ -79,9 +81,9 @@ export function sendItemReviewCommand(projectId: string, command: ItemReviewComm
 }
 
 /** The preview of a new measure of the selection, with what the member saw of it (the list revision, each line's readings). */
-export function previewItemRemeasure(projectId: string, scope: ItemTableScope, itemIds: string[], seen: ItemRemeasureSeen) {
+export function previewItemRemeasure(projectId: string, scope: ItemTableScope, itemIds: string[], seen: ItemRemeasureSeen, detail?: import("./item-table-contracts").ItemMeasureScope) {
   return call(`${base(projectId)}/remeasure/preview`, { method: "POST", body: JSON.stringify({
-    command_version: ITEM_REVIEW_COMMAND_VERSION, scope, item_ids: itemIds, seen,
+    command_version: ITEM_REVIEW_COMMAND_VERSION, scope, item_ids: itemIds, seen, detail,
   }) }, itemRemeasurePreviewSchema, "Impossible de préparer la nouvelle mesure.", TAKEOFF_READ_REQUEST_TIMEOUT_MS);
 }
 
@@ -95,4 +97,9 @@ export function itemReviewStaleLines(error: unknown) {
   if (!(error instanceof TakeoffApiError) || error.status !== 409) return null;
   const parsed = itemReviewStaleDetailsSchema.safeParse(error.details);
   return parsed.success ? parsed.data.stale : null;
+}
+
+export function fetchItemMeasureReadings(projectId: string, item: string, plan: string, receipt?: { jobId: string; requestId: string }) {
+  return call(`${base(projectId)}/remeasure?${new URLSearchParams({ item, plan, ...receipt })}`, { method: "GET", cache: "no-store" },
+    itemMeasureReadingsSchema, "Impossible de lire la dernière mesure de ce poste.", TAKEOFF_READ_REQUEST_TIMEOUT_MS);
 }

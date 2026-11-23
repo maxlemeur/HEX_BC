@@ -32,7 +32,7 @@ import {
   COPY_RDC, DETAIL_ITEMS, DETAIL_PROJECT, DETAIL_READINGS, ITEMS, JOB_EARLIER, JOB_R1, JOB_RDC, JOB_SCAN, MEMBER, MEMBER_NAME, PLAN_R1,
   PLAN_RDC, PLAN_SCAN, OUTSIDE_ITEM, basinLine, fixtureItemDetailReader, notFoundLine, planViews,
 } from "@/lib/takeoff/item-detail.test-fixtures";
-import { fixturePoste } from "@/lib/takeoff/item-table.test-fixtures";
+import { fixturePoste, fixtureReading } from "@/lib/takeoff/item-table.test-fixtures";
 
 const rendered: Array<{ url: string; page: number }> = [];
 const failing = new Set<string>();
@@ -129,6 +129,7 @@ beforeEach(() => {
   window.history.replaceState(null, "", `${TAKEOFF}?${TABLE}&poste=${ITEMS.basin}`);
   vi.stubGlobal("fetch", vi.fn(async (input: string) => {
     fetches.push(String(input));
+    if (String(input).includes("/items/remeasure?")) return Response.json({ ok: true, data: null });
     const item = /\/items\/([^/]+)\/history/.exec(String(input))?.[1] ?? null;
     const events = item === ITEMS.basin ? [{ id: 1, event: "accepted", planKey: PLAN_RDC, takeoffItemId: null, before: null,
       after: { kind: "accepted" }, actorId: MEMBER, at: "2026-11-21T10:00:00.000Z" }] : [];
@@ -1011,4 +1012,36 @@ describe("TakeoffItemDetail, review of #483", () => {
     expect(onGesture).not.toHaveBeenCalled();
     expect(screen.getByTestId("poste-detail-notice").textContent).toBe("Les décisions portent sur la lecture actuelle de ce plan.");
   });
+});
+
+it("opens either admitted plan for a first measure before the affair has any job", async () => {
+  open(address({ itemId: ITEMS.toMeasure }), { readings: [], canReview: true }, (reader) => {
+    const read = reader.readQueue.bind(reader);
+    reader.readQueue = async (request) => {
+      const response = await read(request);
+      return { ...response, plans: [PLAN_RDC, PLAN_R1].map((key, i) => ({ key, name: i ? "Étage" : "RDC", location: null })),
+        page: { ...response.page, lines: response.page.lines.map((line) => ({ ...line, readings: [], remeasurePlans: [] })) } };
+    };
+  });
+  await settle();
+  expect(screen.getByRole("button", { name: /RDC.*À mesurer/ })).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: /Étage.*À mesurer/ }));
+  await settle();
+  expect(screen.getByRole("button", { name: /Étage.*À mesurer/ }).getAttribute("aria-current")).toBe("true");
+  expect(screen.getByRole("button", { name: "Mesurer ce poste" })).toBeTruthy();
+});
+
+it("offers the other confirmed plan when the only attempt failed before publishing an answer", async () => {
+  const failed = { ...fixtureReading(3, PLAN_RDC, "failed"), itemId: ITEMS.toMeasure, planName: "RDC" };
+  open(address({ itemId: ITEMS.toMeasure }), { readings: [failed], canReview: true }, (reader) => {
+    const read = reader.readQueue.bind(reader);
+    reader.readQueue = async (request) => ({ ...await read(request),
+      plans: [{ key: PLAN_RDC, name: "RDC", location: null }, { key: PLAN_R1, name: "Étage", location: null }] });
+  });
+  await settle();
+  const other = screen.getByRole("button", { name: /Étage.*À mesurer/ });
+  fireEvent.click(other);
+  await settle();
+  expect(other.getAttribute("aria-current")).toBe("true");
+  expect(screen.getByRole("button", { name: "Mesurer ce poste" })).toBeTruthy();
 });

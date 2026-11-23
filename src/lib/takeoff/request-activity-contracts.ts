@@ -57,6 +57,7 @@ const jobSchema = z.object({
   resume: takeoffActivityResumeSchema.nullable().describe("Décision de reprise d’une analyse arrêtée, la même que son détail."),
   canCancel: z.boolean(),
   canResubmit: z.boolean().describe("Vrai si et seulement si resume.action vaut retry_now."),
+  canRedistributeItems: z.boolean().optional().describe("Les apports de cette analyse envoyée peuvent être consultés pour une redistribution."),
   canSendItems: z.boolean().describe(
     "Ce membre peut envoyer au devis les postes retenus de ce plan : lu contre la liste des postes, terminé, pas encore envoyé, "
     + "et le membre écrit l’affaire (son propriétaire ingénieur ou un administrateur). Le serveur revérifie tout à l’aperçu.",

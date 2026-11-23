@@ -183,6 +183,7 @@ export type ItemTableResponse = z.infer<typeof itemTableResponseSchema>;
 
 /** One item of the list on its own, outside any filter (a link of the radar, the detail): null when the list does not hold it. */
 export const itemTableLineResponseSchema = z.object({
+  listRevisionId: uuid.nullable().optional(),
   projectId: uuid,
   canReview: z.boolean(),
   line: lineSchema,
@@ -298,16 +299,24 @@ export const itemRemeasureSeenSchema = z.object({
 
 export type ItemRemeasureSeen = z.infer<typeof itemRemeasureSeenSchema>;
 
+const detailScope = z.object({ fileId: uuid, contentSha256: z.string().regex(/^[a-f0-9]{64}$/).nullable(),
+  generation: z.string().nullable(), page: page.max(100000).nullable() }).strict();
+export type ItemMeasureScope = z.infer<typeof detailScope>;
+
 export const itemRemeasurePreviewRequestSchema = z.object({
   command_version: z.literal(ITEM_REVIEW_COMMAND_VERSION),
   scope: itemTableScopeSchema,
   item_ids: z.array(uuid).min(1).max(ITEM_REVIEW_LIMITS.items),
   seen: itemRemeasureSeenSchema,
+  detail: detailScope.optional(),
 }).strict();
 
 export const itemRemeasurePreviewSchema = z.object({
   items: z.array(z.object({ itemId: uuid, label: z.string() }).strict()),
   plans: z.array(z.object({ key: planKey, name: z.string() }).strict()),
+  detail: z.object({ hostProof: z.string().regex(/^[0-9a-f]{64}$/).nullable(), revision: z.string().nullable(), pages: z.array(page), pageCount: count.nullable(),
+    previousPages: z.array(page), effect: z.enum(["first", "replace", "compare"]) }).strict().optional(),
+  models: z.array(z.object({ id: z.string(), name: z.string(), reasoningEfforts: z.array(chatGptReasoningEffortSchema) }).strict()).optional(),
   payer: z.object({ memberId: uuid, name: z.string().nullable() }).strict()
     .describe("Le membre qui confirme : la demande utilise son propre forfait ChatGPT, jamais celui du signataire du dossier."),
   subscription: z.discriminatedUnion("state", [
@@ -333,8 +342,10 @@ export const itemRemeasureCommandSchema = z.object({
   scope: itemTableScopeSchema,
   item_ids: z.array(uuid).min(1).max(ITEM_REVIEW_LIMITS.items),
   plan_keys: z.array(planKey).min(1).max(200),
-  setting: z.object({ reasoning_effort: chatGptReasoningEffortSchema.nullable() }).strict().nullable()
-    .describe("Réglage de cette demande ; nul : celui de Mon profil, tel quel. Un effort autre que celui de Mon profil est refusé : il n’est pas encore possible pour une seule demande."),
+  detail: detailScope.optional(),
+  host_proof: z.string().regex(/^[0-9a-f]{64}$/).optional(),
+  setting: z.object({ model: z.string().trim().min(1).max(200).optional(), reasoning_effort: chatGptReasoningEffortSchema.nullable() }).strict().nullable()
+    .describe("Réglage ponctuel confirmé depuis le plan. Le tableau utilise le réglage de Mon profil."),
   preview_digest: z.string().regex(/^[0-9a-f]{64}$/)
     .describe("Empreinte de l’aperçu confirmé : payeur et réglage, plans, postes et leurs lectures, appels et budget."),
   seen: itemRemeasureSeenSchema.describe("Ce que le membre a vu de la sélection : la révision de la liste et les lectures de chaque poste."),
@@ -345,6 +356,19 @@ export type ItemRemeasureCommand = z.infer<typeof itemRemeasureCommandSchema>;
 export const itemRemeasureResultSchema = z.object({
   outcome: z.enum(["admitted", "replayed", "already_running"]),
   requestId: uuid.nullable(),
+  receipt: z.object({ intentKey: uuid, jobId: uuid, state: z.enum(TAKEOFF_UNIT_STATES) }).strict().optional(),
 }).strict();
 
 export type ItemRemeasureResult = z.infer<typeof itemRemeasureResultSchema>;
+
+const measureReading = z.object({
+  outcome: z.enum(ITEM_ANSWER_OUTCOMES), quantity: quantity.nullable(), unit: unit.nullable(),
+  answerId: uuid, jobId: uuid, listRevisionId: uuid, planFileId: uuid, generation: z.string().nullable(),
+  pages: z.array(page), unreadablePages: z.array(page), reasons: z.array(z.string()),
+  observations: z.array(z.object({ id: uuid, page, evidence: z.string() }).strict()), comparisonOnly: z.boolean(),
+}).strict();
+export const itemMeasureReadingsSchema = z.object({
+  jobId: uuid, requestId: uuid, state: z.enum(TAKEOFF_UNIT_STATES), reason: z.string().nullable(),
+  previous: measureReading.nullable(), latest: measureReading.nullable(),
+}).strict().nullable();
+export type ItemMeasureReadings = z.infer<typeof itemMeasureReadingsSchema>;

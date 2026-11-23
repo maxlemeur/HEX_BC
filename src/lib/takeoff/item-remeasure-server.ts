@@ -21,6 +21,7 @@ import {
 } from "@/lib/takeoff/preparation";
 import { assertConfirmedTakeoffPreparation } from "@/lib/takeoff/preparation-server";
 import { takeoffVectorGroupCallsBound } from "@/lib/takeoff/vectors/worker-server";
+import type { ItemMeasureScope } from "./item-table-contracts";
 import type { Json } from "@/types/database";
 
 // Lot 4 PR 4b: the new measure of a selection of items from the table of items — its plan (for the preview and the
@@ -44,7 +45,7 @@ export type TakeoffItemRemeasurePlan = {
   /** The plans' current copies, in the manifest's order, and their logical keys (the table's). */
   planFileIds: string[];
   planKeys: string[];
-  predecessorJobId: string;
+  predecessorJobId: string | null;
   listRevisionId: string;
   askedItemIds: string[];
   snapshot: TakeoffPreparationSnapshot;
@@ -52,21 +53,19 @@ export type TakeoffItemRemeasurePlan = {
   bounds: PosteReadingBounds;
 };
 
-export async function planTakeoffItemRemeasure(context: Context, input: {
-  projectId: string; planKeys: readonly string[]; itemIds: readonly string[]; selection: TakeoffExecutionSelection | null;
-}): Promise<{ plan: TakeoffItemRemeasurePlan } | { refusal: string; stale?: boolean }> {
+async function readMeasurePreparation(context: Context, projectId: string) {
   const service = createServiceRoleClient();
   // The admission is refused unless one analysis per plan is active: the preview says so, never offers it.
   if (!await isTakeoffPlanDispatchActive(service)) {
     return { refusal: "La nouvelle mesure d’une sélection n’est pas encore ouverte : la lecture plan par plan n’est pas activée sur cette affaire." };
   }
   const { data: record, error } = await service.from("takeoff_preparations").select("revision")
-    .eq("tenant_id", context.tenantId).eq("project_id", input.projectId).maybeSingle();
+    .eq("tenant_id", context.tenantId).eq("project_id", projectId).maybeSingle();
   if (error) databaseError(error, "Impossible de lire la préparation du métré de l’affaire.");
   if (!record) return { refusal: "La préparation du métré de l’affaire n’est pas confirmée : confirmez-la avant une nouvelle mesure." };
   let confirmed: TakeoffPreparationSnapshot;
   try {
-    confirmed = await assertConfirmedTakeoffPreparation({ context, estimateVersionId: null, projectId: input.projectId,
+    confirmed = await assertConfirmedTakeoffPreparation({ context, estimateVersionId: null, projectId,
       preparationRevision: record.revision, level: "C", provider: "chatgpt" });
   } catch (caught) {
     if (caught instanceof TakeoffError) return { refusal: caught.message };
@@ -75,13 +74,28 @@ export async function planTakeoffItemRemeasure(context: Context, input: {
   const planSetId = sealedPlanSetId(confirmed);
   if (!planSetId) return { refusal: "La préparation confirmée ne retient aucun plan à lire." };
   const config = await getTakeoffLevelCProcessingConfigForTenant(context.tenantId, { supabase: service });
-  const order = await sealedMeasuringOrder(service, { tenantId: context.tenantId, projectId: input.projectId, payerId: context.userId,
+  const order = await sealedMeasuringOrder(service, { tenantId: context.tenantId, projectId, payerId: context.userId,
     perPlan: true });
   if ("blocked" in order || order.order.kind !== "item_list") {
     return { refusal: "Les postes ne sont pas encore lus contre la liste, plan par plan : aucune nouvelle mesure n’est possible." };
   }
   // The selection's plans, by their logical key, at their current copies in the confirmed preparation.
   const everyPlan = await relaunchManifest(service, context, planSetId, confirmed, config, "reread_plans", [], order.order);
+  return { confirmed, planSetId, service, config, order: order.order, items: order.items, everyPlan };
+}
+
+/** Called by the detail for an operator looking at an existing item-list revision. */
+export async function readFirstMeasurePlans(context: Context, projectId: string) {
+  const prepared = await readMeasurePreparation(context, projectId);
+  return prepared.everyPlan?.manifest.plans.map(({ logical_id: key, name }) => ({ key, name, location: null })) ?? [];
+}
+
+export async function planTakeoffItemRemeasure(context: Context, input: {
+  projectId: string; planKeys: readonly string[]; itemIds: readonly string[]; detail?: ItemMeasureScope; selection: TakeoffExecutionSelection | null;
+}): Promise<{ plan: TakeoffItemRemeasurePlan } | { refusal: string; stale?: boolean; changedCopy?: boolean }> {
+  const prepared = await readMeasurePreparation(context, input.projectId);
+  if (!prepared.everyPlan) return { refusal: prepared.refusal };
+  const { confirmed, planSetId, service, config, order, items, everyPlan } = prepared;
   const copyOf = new Map(everyPlan.manifest.plans.map((plan) => [plan.logical_id.toLowerCase(), plan.plan_file_id]));
   const scope = input.planKeys.map((key) => copyOf.get(key.toLowerCase()));
   if (!scope.length || scope.some((id) => !id)) {
@@ -89,15 +103,27 @@ export async function planTakeoffItemRemeasure(context: Context, input: {
   }
   // The order seals the items asked by identifier, in their canonical order; they are read and sized in the list's.
   const asked = [...new Set(input.itemIds.map((id) => id.toLowerCase()))].sort();
-  const askedItems = postesAskedBy(order.items, asked);
+  const askedItems = postesAskedBy(items, asked);
   if (!asked.length || !askedItems) {
     return { refusal: "Un poste de la sélection n’est plus dans la liste : rafraîchissez la sélection.", stale: true };
+  }
+  const detail = input.detail;
+  const file = everyPlan.manifest.plans.find((p) => p.plan_file_id === scope[0]);
+  if (detail && (!file || scope.length !== 1 || asked.length !== 1 || detail.fileId !== file.plan_file_id
+    || (detail.contentSha256 && detail.contentSha256 !== file.content_sha256)
+    || (detail.generation && file.generation !== detail.generation))) {
+    return { refusal: "Le document a changé. Rouvrez le poste sur le plan actuel et relisez le récapitulatif.", stale: true, changedCopy: true };
+  }
+  if (detail?.page && file && (file.pages.length ? !file.pages.includes(detail.page)
+    : file.page_count !== null && detail.page > file.page_count)) {
+    return { refusal: "La page affichée ne fait pas partie des pages admises de ce plan." };
   }
   let snapshot: TakeoffPreparationSnapshot;
   try {
     snapshot = createTakeoffPreparationSnapshot({
       preparation: { ...confirmed.preparation, sources: confirmed.preparation.sources.map((source) =>
-        source.kind === "plan" && source.active && !scope.includes(source.document_id) ? { ...source, active: false } : source) },
+        source.kind !== "plan" || !source.active ? source : !scope.includes(source.document_id) ? { ...source, active: false }
+          : detail?.page ? { ...source, pages: [detail.page] } : source) },
       confirmedBy: context.userId, confirmedAt: new Date().toISOString(), revision: confirmed.preparation_revision,
       ...(input.selection ? { executionSelection: input.selection } : {}),
     });
@@ -108,11 +134,14 @@ export async function planTakeoffItemRemeasure(context: Context, input: {
     throw caught;
   }
   const countedPages = await countUnstoredPlanPages(service, snapshot.preparation.sources);
+  if (detail?.page && file && !file.pages.length && detail.page > (file.page_count ?? countedPages.get(file.plan_file_id) ?? 0)) {
+    return { refusal: "La page affichée ne fait pas partie des pages admises de ce plan." };
+  }
   const pastLimit = snapshot.preparation.sources.filter((source) => source.kind === "plan" && source.active
     && (source.page_count ?? countedPages.get(source.document_id) ?? 0) > config.maxPdfPages);
   if (pastLimit.length) return { refusal: planPagesPastLimit(pastLimit, config.maxPdfPages).message };
   // The order seals the latest revision, and the items asked; the other plans an earlier analysis read stay its.
-  const sealed: TakeoffLaunchOrder = { ...order.order, list: { ...order.order.list, asked_item_ids: asked } };
+  const sealed: TakeoffLaunchOrder = { ...order, list: { ...order.list, asked_item_ids: asked } };
   const { manifest: grouped, held } = await relaunchManifest(service, context, planSetId, snapshot, config, "reread_plans",
     planSetCopiesSetAside(confirmed.preparation.sources, planSetId), sealed);
   const reading = new Set(grouped.plans.map((plan) => logicalPlanKey({ id: plan.plan_file_id, intake_document_id: plan.intake_document_id })));
@@ -129,18 +158,22 @@ export async function planTakeoffItemRemeasure(context: Context, input: {
   if (tooLarge) return { refusal: describeTakeoffLaunchReason(tooLarge.reason, tooLarge.pieces, sized.bounds) };
   // The analysis it re-reads: the latest of its plans', else the affaire's latest.
   const latest = async (keys: string[] | null) => {
-    let query = service.from("takeoff_jobs").select("id").eq("tenant_id", context.tenantId).eq("project_id", input.projectId);
+    // A page published beside an indivisible reading cannot be the predecessor of the next measure.
+    let query = service.from("takeoff_jobs")
+      .select("id,comparison:takeoff_item_answer_publications(answers:takeoff_item_answers!inner(id))")
+      .eq("tenant_id", context.tenantId).eq("project_id", input.projectId)
+      .eq("comparison.answers.comparison_only", true).is("comparison", null);
     if (keys) query = query.in("launch_unit_key", keys);
     const { data, error: jobError } = await query.order("created_at", { ascending: false }).order("id", { ascending: false }).limit(1);
     if (jobError) databaseError(jobError, "Impossible de lire les analyses de l’affaire.");
     return data?.[0]?.id ?? null;
   };
   const predecessorJobId = await latest(sized.manifest.plans.map((plan) => `plan:${plan.plan_file_id.toLowerCase()}`)) ?? await latest(null);
-  if (!predecessorJobId) return { refusal: "L’affaire n’a encore aucune analyse : lancez d’abord le métré de l’affaire." };
+  if (!predecessorJobId && !detail) return { refusal: "L’affaire n’a encore aucune analyse : lancez d’abord le métré de l’affaire." };
   return { plan: { planSetId, preparationRevision: confirmed.preparation_revision,
     planFileIds: sized.manifest.plans.map((plan) => plan.plan_file_id),
-    planKeys: sized.manifest.plans.map((plan) => plan.logical_id), predecessorJobId, listRevisionId: order.order.list.revision_id,
-    askedItemIds: asked, snapshot, manifest: sized.manifest, bounds: sized.bounds } };
+    planKeys: sized.manifest.plans.map((plan) => plan.logical_id), predecessorJobId, listRevisionId: order.list.revision_id,
+    askedItemIds: asked, snapshot, manifest: { ...sized.manifest, intent: predecessorJobId ? "reread_plans" : "initial" }, bounds: sized.bounds } };
 }
 
 /** The answer of the admission: admitted, replayed or kept for later, or stale with the items whose reading changed. */
@@ -176,7 +209,7 @@ function remeasureError(error: { code?: string; message: string }): never {
  * database compares under its locks. Its jobs are handed to the Mac once admitted.
  */
 /** What the member confirmed besides the readings: the preview confirmed (its digest) and the setting chosen for it. */
-export type TakeoffItemRemeasureConfirmation = { preview_digest: string; setting: { reasoning_effort: string | null } | null };
+export type TakeoffItemRemeasureConfirmation = { preview_digest: string; page?: number | null; shown_sha256?: string; setting: { model?: string; reasoning_effort: string | null } | null };
 export type TakeoffItemRemeasureTargets = Array<{ item_id: string; answers: string[] }>;
 
 /** The setting a confirmation seals, as the request's snapshot and the database's digest hold it. */
@@ -194,7 +227,7 @@ export async function launchTakeoffItemRemeasure(context: Context, input: {
     jobKey: `takeoff-item-remeasure:${input.projectId}:${input.intentKey}`, hostId: input.selection.hostId, manifest: plan.manifest });
   const { data, error } = await service.rpc("launch_takeoff_item_remeasure", {
     p_tenant_id: context.tenantId, p_project_id: input.projectId, p_actor: context.userId, p_intent_key: input.intentKey,
-    p_predecessor_job_id: plan.predecessorJobId, p_host: input.selection.hostId,
+    p_predecessor_job_id: plan.predecessorJobId as string, p_host: input.selection.hostId,
     p_selection: sealedSelectionValue(input.selection), p_manifest: units.manifest as unknown as Json,
     p_snapshot: plan.snapshot as unknown as Json, p_jobs: units.jobs as unknown as Json, p_plan_set_id: plan.planSetId,
     p_preparation_revision: plan.preparationRevision, p_plan_file_ids: plan.planFileIds,

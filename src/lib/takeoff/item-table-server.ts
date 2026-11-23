@@ -5,6 +5,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { requireAffaireAccess, type AffaireAccess } from "@/lib/affaires/access-server";
 import { mapSupabaseError, unprocessableEntity } from "@/lib/http/api-response";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
+import { readFirstMeasurePlans } from "./item-remeasure-server";
 import { asFiniteNumber, asRecord } from "@/lib/value-guards";
 import type { Database } from "@/types/database";
 import { ITEM_AGGREGATE_STATES, type ItemAggregateState } from "./item-answer-aggregation";
@@ -384,7 +385,7 @@ export async function loadItemLines(access: AffaireAccess, input: { scope: ItemT
 }
 
 /** A page of the table for any reader of the affaire; the gestures it offers are for its takeoff operators. */
-export async function readAffaireItemTable(projectId: string, query: ItemTableQuery): Promise<ItemTableResponse> {
+export async function readAffaireItemTable(projectId: string, query: ItemTableQuery, detail = false): Promise<ItemTableResponse> {
   const access = await requireAffaireAccess(projectId, "read");
   const [list, facets, canReview] = await Promise.all([latestList(access), readFacets(access, query.scope), reviewerRight(access)]);
   let rows = list ? await readRows(access, { ...query, offset: query.offset, limit: query.limit }) : [];
@@ -392,13 +393,15 @@ export async function readAffaireItemTable(projectId: string, query: ItemTableQu
   if (list && !rows.length && query.offset > 0) rows = await readRows(access, { ...query, offset: 0, limit: query.limit });
   const plans = plansOf(facets);
   const lines = buildItemLines(await tableRows(access, rows), { plans, scope: query.scope });
+  const detailPlans = detail && canReview && list && lines.some((line) => line.coverage.answered === 0)
+    ? await readFirstMeasurePlans(access.context, access.project.id) : plans;
   return {
     projectId: access.project.id,
     canReview,
     list,
     scope: query.scope,
     filter: query.filter,
-    plans,
+    plans: detailPlans,
     facets,
     page: { lines, total: rows[0]?.matching_items ?? 0, offset: rows[0]?.page_offset ?? 0, limit: query.limit,
       focusFound: rows[0]?.focus_found ?? false },
@@ -408,15 +411,16 @@ export async function readAffaireItemTable(projectId: string, query: ItemTableQu
 }
 
 /** One item of the list on its own, outside any filter (a link of the radar, the detail of an item); null when absent. */
-export async function readAffaireItemLine(projectId: string, itemId: string): Promise<ItemTableLineResponse | null> {
+export async function readAffaireItemLine(projectId: string, itemId: string, detail = false): Promise<ItemTableLineResponse | null> {
   const access = await requireAffaireAccess(projectId, "read");
-  const [{ lines, plans }, canReview] = await Promise.all([
+  const [{ lines, plans, list }, canReview] = await Promise.all([
     loadItemLines(access, { scope: { kind: "affaire" }, itemIds: [itemId], withPlans: true }),
     reviewerRight(access),
   ]);
   const [line] = lines;
   if (!line) return null;
-  return { projectId: access.project.id, canReview, line, plans,
+  const detailPlans = detail && canReview && list && line.coverage.answered === 0 ? await readFirstMeasurePlans(access.context, access.project.id) : plans;
+  return { projectId: access.project.id, canReview, line, plans: detailPlans, ...(detail && { listRevisionId: list?.revisionId ?? null }),
     names: await memberNames(access.context.supabase as unknown as Client, lines) };
 }
 

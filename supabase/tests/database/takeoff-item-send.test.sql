@@ -1342,8 +1342,12 @@ insert into plans values ('recreated', pg_temp.bathtub(pg_temp.job(20, 5),
   (select jsonb_agg(jsonb_build_object('job_id', p.job_id, 'answer_id', p.answer_id, 'observation_ids', to_jsonb(p.observation_ids),
     'quantity', p.quantity)) from public.takeoff_item_send_parts p where p.item_id = pg_temp.f(302) and p.state = 'live'),
   jsonb_build_array(jsonb_build_object('key', 'target:' || pg_temp.f(302) || '|together', 'choice', '{"kind": "new_line"}'::jsonb))));
+insert into plans select 'member-deleted-no-choice', jsonb_set(body,'{dependencies,resolutions}','[]'), null
+  from plans where name='recreated';
 select pg_temp.sign_in(1);
 set local role authenticated;
+select throws_ok($$select pg_temp.send(776,'member-deleted-no-choice')$$,'40001','TAKEOFF_ITEM_SEND_PREVIEW_STALE',
+  'a member-deleted line with a live part still requires an explicit recreation');
 select is((pg_temp.send(775, 'recreated') ->> 'parts_replaced'), '1',
   'point 8: the recreated line retires the displaced part, never refused for ever');
 reset role;

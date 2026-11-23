@@ -148,6 +148,7 @@ function childEnv(owner: WorkerOwner, extra: Record<string, string> = {}) {
 }
 
 export type CommandAnswer = { result?: { outcome: string; requestId?: string | null; jobId?: string | null; state?: string; canceledUnits?: number;
+    receipt?: { intentKey: string; jobId: string; state: string };
     sent?: { planKeys: string[]; digest: string };
     preview?: { plans: Array<{ key: string; name: string }>; items: Array<{ itemId: string; label: string }>;
       reading: { state: string; calls?: number; budgetTokens?: number; summary?: string; reason?: string }; subscription: string } };

@@ -6424,6 +6424,15 @@
             }
           },
           {
+            "name": "detail",
+            "in": "query",
+            "description": "Pour un poste sans lecture, inclure les plans de la préparation confirmée.",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/GetAffaireTakeoffItemsDetailParameter"
+            }
+          },
+          {
             "name": "plan",
             "in": "query",
             "description": "Portée d’un plan (son identité logique) ; sans valeur, toute l’affaire.",
@@ -6594,6 +6603,15 @@
             "required": true,
             "schema": {
               "$ref": "#/components/schemas/GetAffaireTakeoffItemItemIdParameter"
+            }
+          },
+          {
+            "name": "detail",
+            "in": "query",
+            "description": "Pour un poste sans lecture, inclure les plans de la préparation confirmée.",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/GetAffaireTakeoffItemDetailParameter"
             }
           }
         ],
@@ -6791,6 +6809,132 @@
       }
     },
     "/api/affaires/{projectId}/takeoff/items/remeasure": {
+      "get": {
+        "tags": [
+          "Takeoff"
+        ],
+        "summary": "Comparer les lectures d’une mesure du membre sur ce plan",
+        "description": "État de la demande du membre et réponses précédente et nouvelle pour le poste et le plan.",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "description": "Affaire cible.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/ReadAffaireTakeoffItemMeasureProjectIdParameter"
+            }
+          },
+          {
+            "name": "item",
+            "in": "query",
+            "description": "Poste.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/ReadAffaireTakeoffItemMeasureItemParameter"
+            }
+          },
+          {
+            "name": "plan",
+            "in": "query",
+            "description": "Plan.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/ReadAffaireTakeoffItemMeasurePlanParameter"
+            }
+          },
+          {
+            "name": "jobId",
+            "in": "query",
+            "description": "Analyse du reçu, avec requestId. Sans reçu, la dernière mesure du membre.",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/ReadAffaireTakeoffItemMeasureJobIdParameter"
+            }
+          },
+          {
+            "name": "requestId",
+            "in": "query",
+            "description": "Demande du reçu, avec jobId.",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/ReadAffaireTakeoffItemMeasureRequestIdParameter"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Lectures à comparer.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiTakeoffItemMeasureReadings"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requete invalide ou payload non conforme.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentification requise.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Acces interdit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Ressource introuvable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflit metier ou de concurrence.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Erreur interne serveur.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          }
+        }
+      },
       "post": {
         "tags": [
           "Takeoff"
@@ -28788,6 +28932,119 @@
         }
       }
     },
+    "/api/takeoff/jobs/{jobId}/item-send/redistribution": {
+      "post": {
+        "tags": [
+          "Takeoff"
+        ],
+        "summary": "Redistribuer les apports confirmés d’un poste du devis",
+        "description": "Liste les destinations et postes de l’affaire, prévisualise leur découpage ou confirme l’aperçu sous le bail du membre.",
+        "parameters": [
+          {
+            "name": "jobId",
+            "in": "path",
+            "description": "Identifiant UUID du job takeoff.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/TakeoffJobIdPathParameter"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "Action et sélection du membre.",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TakeoffRedistributionRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Sélection, aperçu ou reçu.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiTakeoffRedistributionResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requete invalide ou payload non conforme.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiTakeoffFailureResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentification requise.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiTakeoffFailureResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Acces interdit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiTakeoffFailureResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Job takeoff introuvable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiTakeoffFailureResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflit metier ou de concurrence.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiTakeoffFailureResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation metier echouee.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiTakeoffFailureResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Erreur interne serveur.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiTakeoffFailureResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/takeoff/jobs/{jobId}/items": {
       "patch": {
         "tags": [
@@ -46708,6 +46965,10 @@
         "format": "uuid",
         "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
       },
+      "GetAffaireTakeoffItemsDetailParameter": {
+        "type": "string",
+        "const": "1"
+      },
       "GetAffaireTakeoffItemsPlanParameter": {
         "type": "string",
         "maxLength": 200
@@ -48457,6 +48718,10 @@
         "format": "uuid",
         "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
       },
+      "GetAffaireTakeoffItemDetailParameter": {
+        "type": "string",
+        "const": "1"
+      },
       "ApiTakeoffItemLineResponse": {
         "type": "object",
         "properties": {
@@ -48467,6 +48732,18 @@
           "data": {
             "type": "object",
             "properties": {
+              "listRevisionId": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "projectId": {
                 "type": "string",
                 "format": "uuid",
@@ -50016,6 +50293,357 @@
         ],
         "additionalProperties": false
       },
+      "ReadAffaireTakeoffItemMeasureProjectIdParameter": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      },
+      "ReadAffaireTakeoffItemMeasureItemParameter": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      },
+      "ReadAffaireTakeoffItemMeasurePlanParameter": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      },
+      "ReadAffaireTakeoffItemMeasureJobIdParameter": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      },
+      "ReadAffaireTakeoffItemMeasureRequestIdParameter": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      },
+      "ApiTakeoffItemMeasureReadings": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          },
+          "data": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "jobId": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "requestId": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "state": {
+                    "type": "string",
+                    "enum": [
+                      "queued",
+                      "running",
+                      "succeeded",
+                      "failed",
+                      "canceled",
+                      "not_started"
+                    ]
+                  },
+                  "reason": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "previous": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "outcome": {
+                            "type": "string",
+                            "enum": [
+                              "measured",
+                              "uncertain",
+                              "not_found"
+                            ]
+                          },
+                          "quantity": {
+                            "type": [
+                              "number",
+                              "null"
+                            ]
+                          },
+                          "unit": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 64
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "answerId": {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                          },
+                          "jobId": {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                          },
+                          "listRevisionId": {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                          },
+                          "planFileId": {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                          },
+                          "generation": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "pages": {
+                            "type": "array",
+                            "items": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0,
+                              "maximum": 9007199254740991
+                            }
+                          },
+                          "unreadablePages": {
+                            "type": "array",
+                            "items": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0,
+                              "maximum": 9007199254740991
+                            }
+                          },
+                          "reasons": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          },
+                          "observations": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "id": {
+                                  "type": "string",
+                                  "format": "uuid",
+                                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                },
+                                "page": {
+                                  "type": "integer",
+                                  "exclusiveMinimum": 0,
+                                  "maximum": 9007199254740991
+                                },
+                                "evidence": {
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "id",
+                                "page",
+                                "evidence"
+                              ],
+                              "additionalProperties": false
+                            }
+                          },
+                          "comparisonOnly": {
+                            "type": "boolean"
+                          }
+                        },
+                        "required": [
+                          "outcome",
+                          "quantity",
+                          "unit",
+                          "answerId",
+                          "jobId",
+                          "listRevisionId",
+                          "planFileId",
+                          "generation",
+                          "pages",
+                          "unreadablePages",
+                          "reasons",
+                          "observations",
+                          "comparisonOnly"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "latest": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "outcome": {
+                            "type": "string",
+                            "enum": [
+                              "measured",
+                              "uncertain",
+                              "not_found"
+                            ]
+                          },
+                          "quantity": {
+                            "type": [
+                              "number",
+                              "null"
+                            ]
+                          },
+                          "unit": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 64
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "answerId": {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                          },
+                          "jobId": {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                          },
+                          "listRevisionId": {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                          },
+                          "planFileId": {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                          },
+                          "generation": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "pages": {
+                            "type": "array",
+                            "items": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0,
+                              "maximum": 9007199254740991
+                            }
+                          },
+                          "unreadablePages": {
+                            "type": "array",
+                            "items": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0,
+                              "maximum": 9007199254740991
+                            }
+                          },
+                          "reasons": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          },
+                          "observations": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "id": {
+                                  "type": "string",
+                                  "format": "uuid",
+                                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                },
+                                "page": {
+                                  "type": "integer",
+                                  "exclusiveMinimum": 0,
+                                  "maximum": 9007199254740991
+                                },
+                                "evidence": {
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "id",
+                                "page",
+                                "evidence"
+                              ],
+                              "additionalProperties": false
+                            }
+                          },
+                          "comparisonOnly": {
+                            "type": "boolean"
+                          }
+                        },
+                        "required": [
+                          "outcome",
+                          "quantity",
+                          "unit",
+                          "answerId",
+                          "jobId",
+                          "listRevisionId",
+                          "planFileId",
+                          "generation",
+                          "pages",
+                          "unreadablePages",
+                          "reasons",
+                          "observations",
+                          "comparisonOnly"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "jobId",
+                  "requestId",
+                  "state",
+                  "reason",
+                  "previous",
+                  "latest"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "ok",
+          "data"
+        ],
+        "additionalProperties": false
+      },
       "RemeasureAffaireTakeoffItemsProjectIdParameter": {
         "type": "string",
         "format": "uuid",
@@ -50092,11 +50720,66 @@
               "description": "Identité logique du plan (pièce du dossier, ou copie déposée dans le jeu de plans) : stable d’une copie à l’autre."
             }
           },
+          "detail": {
+            "type": "object",
+            "properties": {
+              "fileId": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "contentSha256": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{64}$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "generation": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "page": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 100000
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "fileId",
+              "contentSha256",
+              "generation",
+              "page"
+            ],
+            "additionalProperties": false
+          },
+          "host_proof": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
           "setting": {
             "anyOf": [
               {
                 "type": "object",
                 "properties": {
+                  "model": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  },
                   "reasoning_effort": {
                     "anyOf": [
                       {
@@ -50125,7 +50808,7 @@
                 "type": "null"
               }
             ],
-            "description": "Réglage de cette demande ; nul : celui de Mon profil, tel quel. Un effort autre que celui de Mon profil est refusé : il n’est pas encore possible pour une seule demande."
+            "description": "Réglage ponctuel confirmé depuis le plan. Le tableau utilise le réglage de Mon profil."
           },
           "preview_digest": {
             "type": "string",
@@ -50267,6 +50950,38 @@
                     "type": "null"
                   }
                 ]
+              },
+              "receipt": {
+                "type": "object",
+                "properties": {
+                  "intentKey": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "jobId": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "state": {
+                    "type": "string",
+                    "enum": [
+                      "queued",
+                      "running",
+                      "succeeded",
+                      "failed",
+                      "canceled",
+                      "not_started"
+                    ]
+                  }
+                },
+                "required": [
+                  "intentKey",
+                  "jobId",
+                  "state"
+                ],
+                "additionalProperties": false
               }
             },
             "required": [
@@ -50433,6 +51148,52 @@
               "targets"
             ],
             "additionalProperties": false
+          },
+          "detail": {
+            "type": "object",
+            "properties": {
+              "fileId": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "contentSha256": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{64}$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "generation": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "page": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 100000
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "fileId",
+              "contentSha256",
+              "generation",
+              "page"
+            ],
+            "additionalProperties": false
           }
         },
         "required": [
@@ -50492,6 +51253,107 @@
                   "required": [
                     "key",
                     "name"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "detail": {
+                "type": "object",
+                "properties": {
+                  "hostProof": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "pattern": "^[0-9a-f]{64}$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "revision": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "pages": {
+                    "type": "array",
+                    "items": {
+                      "type": "integer",
+                      "exclusiveMinimum": 0,
+                      "maximum": 9007199254740991
+                    }
+                  },
+                  "pageCount": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "previousPages": {
+                    "type": "array",
+                    "items": {
+                      "type": "integer",
+                      "exclusiveMinimum": 0,
+                      "maximum": 9007199254740991
+                    }
+                  },
+                  "effect": {
+                    "type": "string",
+                    "enum": [
+                      "first",
+                      "replace",
+                      "compare"
+                    ]
+                  }
+                },
+                "required": [
+                  "hostProof",
+                  "revision",
+                  "pages",
+                  "pageCount",
+                  "previousPages",
+                  "effect"
+                ],
+                "additionalProperties": false
+              },
+              "models": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "reasoningEfforts": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "enum": [
+                          "none",
+                          "low",
+                          "medium",
+                          "high",
+                          "xhigh",
+                          "max"
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "name",
+                    "reasoningEfforts"
                   ],
                   "additionalProperties": false
                 }
@@ -96449,6 +97311,10 @@
                               "type": "boolean",
                               "description": "Vrai si et seulement si resume.action vaut retry_now."
                             },
+                            "canRedistributeItems": {
+                              "description": "Les apports de cette analyse envoyée peuvent être consultés pour une redistribution.",
+                              "type": "boolean"
+                            },
                             "canSendItems": {
                               "type": "boolean",
                               "description": "Ce membre peut envoyer au devis les postes retenus de ce plan : lu contre la liste des postes, terminé, pas encore envoyé, et le membre écrit l’affaire (son propriétaire ingénieur ou un administrateur). Le serveur revérifie tout à l’aperçu."
@@ -97125,6 +97991,10 @@
                           "canResubmit": {
                             "type": "boolean",
                             "description": "Vrai si et seulement si resume.action vaut retry_now."
+                          },
+                          "canRedistributeItems": {
+                            "description": "Les apports de cette analyse envoyée peuvent être consultés pour une redistribution.",
+                            "type": "boolean"
                           },
                           "canSendItems": {
                             "type": "boolean",
@@ -107171,6 +108041,471 @@
               "plan_digest"
             ],
             "additionalProperties": false
+          }
+        },
+        "required": [
+          "ok",
+          "data"
+        ],
+        "additionalProperties": false
+      },
+      "TakeoffRedistributionRequest": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "action": {
+                "type": "string",
+                "const": "list"
+              }
+            },
+            "required": [
+              "action"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "version_id": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "item_id": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "breakdown": {
+                "type": "string",
+                "enum": [
+                  "together",
+                  "by_level",
+                  "by_building"
+                ]
+              },
+              "action": {
+                "type": "string",
+                "const": "preview"
+              }
+            },
+            "required": [
+              "version_id",
+              "item_id",
+              "breakdown",
+              "action"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "version_id": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "item_id": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "breakdown": {
+                "type": "string",
+                "enum": [
+                  "together",
+                  "by_level",
+                  "by_building"
+                ]
+              },
+              "action": {
+                "type": "string",
+                "const": "confirm"
+              },
+              "request_id": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "digest": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              }
+            },
+            "required": [
+              "version_id",
+              "item_id",
+              "breakdown",
+              "action",
+              "request_id",
+              "digest"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "ApiTakeoffRedistributionResponse": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          },
+          "data": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "action": {
+                    "type": "string",
+                    "const": "list"
+                  },
+                  "options": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "version_id": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        "version_number": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        "item_id": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        "title": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "version_id",
+                        "version_number",
+                        "item_id",
+                        "title"
+                      ],
+                      "additionalProperties": false
+                    }
+                  }
+                },
+                "required": [
+                  "action",
+                  "options"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "action": {
+                    "type": "string",
+                    "const": "preview"
+                  },
+                  "preview": {
+                    "type": "object",
+                    "properties": {
+                      "digest": {
+                        "type": "string",
+                        "pattern": "^[0-9a-f]{64}$"
+                      },
+                      "currency": {
+                        "type": "string"
+                      },
+                      "sources": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "target_id": {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                            },
+                            "line_id": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "format": "uuid",
+                                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "title": {
+                              "type": "string"
+                            },
+                            "quantity": {
+                              "type": [
+                                "number",
+                                "null"
+                              ]
+                            },
+                            "unit": {
+                              "type": "string"
+                            },
+                            "key": {
+                              "type": "string"
+                            },
+                            "label": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "price_cents": {
+                              "type": [
+                                "number",
+                                "null"
+                              ]
+                            },
+                            "tax_rate_bp": {
+                              "type": [
+                                "number",
+                                "null"
+                              ]
+                            },
+                            "hours_per_unit": {
+                              "type": [
+                                "number",
+                                "null"
+                              ]
+                            },
+                            "k_fo": {
+                              "type": [
+                                "number",
+                                "null"
+                              ]
+                            },
+                            "k_mo": {
+                              "type": [
+                                "number",
+                                "null"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "target_id",
+                            "line_id",
+                            "title",
+                            "quantity",
+                            "unit",
+                            "key",
+                            "label",
+                            "price_cents",
+                            "tax_rate_bp",
+                            "hours_per_unit",
+                            "k_fo",
+                            "k_mo"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "parts": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                            },
+                            "from_target": {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                            },
+                            "plan_name": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "label": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "available": {
+                              "type": "boolean"
+                            },
+                            "building_state": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "level_state": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "quantity": {
+                              "type": "number"
+                            },
+                            "unit": {
+                              "type": "string"
+                            },
+                            "pages": {
+                              "type": "array",
+                              "items": {
+                                "type": "integer",
+                                "minimum": -9007199254740991,
+                                "maximum": 9007199254740991
+                              }
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "from_target",
+                            "plan_name",
+                            "label",
+                            "available",
+                            "building_state",
+                            "level_state",
+                            "quantity",
+                            "unit",
+                            "pages"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "destinations": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "key": {
+                              "type": "string"
+                            },
+                            "label": {
+                              "type": "string"
+                            },
+                            "quantity": {
+                              "type": "number"
+                            },
+                            "raw": {
+                              "type": "number"
+                            },
+                            "line_id": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "format": "uuid",
+                                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            }
+                          },
+                          "required": [
+                            "key",
+                            "label",
+                            "quantity",
+                            "raw",
+                            "line_id"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "blockers": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "reason": {
+                              "type": "string",
+                              "enum": [
+                                "copy_history",
+                                "location_unavailable",
+                                "unchanged",
+                                "mixed",
+                                "dpgf",
+                                "deleted",
+                                "quantity",
+                                "edited",
+                                "used",
+                                "identity",
+                                "section",
+                                "quantity_limit",
+                                "depth"
+                              ]
+                            },
+                            "title": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "reason",
+                            "title"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "remove_lines": {
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        }
+                      }
+                    },
+                    "required": [
+                      "digest",
+                      "currency",
+                      "sources",
+                      "parts",
+                      "destinations",
+                      "blockers",
+                      "remove_lines"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "required": [
+                  "action",
+                  "preview"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "action": {
+                    "type": "string",
+                    "const": "confirm"
+                  },
+                  "receipt_id": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "replayed": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "action",
+                  "receipt_id",
+                  "replayed"
+                ],
+                "additionalProperties": false
+              }
+            ]
           }
         },
         "required": [
