@@ -186,7 +186,7 @@ export function MeasureItemOnPlan({ projectId, line, plan, page, listRevisionId,
             <Button size="xs" variant="outline" onClick={() => onOpenComparison(readings.latest!.jobId, readings.latest!.coverage![0].page)}>
               Voir les propositions de la comparaison
             </Button>
-            <Button size="xs" variant="outline" onClick={() => void show(false, false, true)}>Mesurer tout le plan</Button>
+            <p>Pour obtenir des propositions à vérifier, choisissez « Mesurer tout le plan », puis cochez « Proposer des repères à vérifier ».</p>
           </> : <p>Mesurez tout le plan pour remplacer la lecture actuelle.</p>}
         </div>}</> : null}
     </div> : null}

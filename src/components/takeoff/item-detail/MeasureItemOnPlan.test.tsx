@@ -125,6 +125,7 @@ it("keeps the member’s marks on the current reading and opens the new proposal
   expect(result.textContent).toContain("Tuile 2 en échec");
   fireEvent.click(screen.getByRole("button", { name: "Voir les propositions de la comparaison" }));
   expect(openComparison).toHaveBeenCalledWith(PLAN_RDC, 1);
+  expect(screen.getAllByRole("button", { name: "Mesurer tout le plan" })).toHaveLength(1);
 });
 
 it("warns before paying for proposals that cannot be adopted and offers the whole plan", async () => {
