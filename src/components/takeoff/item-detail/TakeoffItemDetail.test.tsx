@@ -32,7 +32,7 @@ import {
   COPY_RDC, DETAIL_ITEMS, DETAIL_PROJECT, DETAIL_READINGS, ITEMS, JOB_EARLIER, JOB_R1, JOB_RDC, JOB_SCAN, MEMBER, MEMBER_NAME, PLAN_R1,
   PLAN_RDC, PLAN_SCAN, OUTSIDE_ITEM, basinLine, fixtureItemDetailReader, notFoundLine, planViews,
 } from "@/lib/takeoff/item-detail.test-fixtures";
-import { fixturePoste } from "@/lib/takeoff/item-table.test-fixtures";
+import { fixturePoste, fixtureReading } from "@/lib/takeoff/item-table.test-fixtures";
 
 const rendered: Array<{ url: string; page: number }> = [];
 const failing = new Set<string>();
@@ -1028,5 +1028,20 @@ it("opens either admitted plan for a first measure before the affair has any job
   fireEvent.click(screen.getByRole("button", { name: /Étage.*À mesurer/ }));
   await settle();
   expect(screen.getByRole("button", { name: /Étage.*À mesurer/ }).getAttribute("aria-current")).toBe("true");
+  expect(screen.getByRole("button", { name: "Mesurer ce poste" })).toBeTruthy();
+});
+
+it("offers the other confirmed plan when the only attempt failed before publishing an answer", async () => {
+  const failed = { ...fixtureReading(3, PLAN_RDC, "failed"), itemId: ITEMS.toMeasure, planName: "RDC" };
+  open(address({ itemId: ITEMS.toMeasure }), { readings: [failed], canReview: true }, (reader) => {
+    const read = reader.readQueue.bind(reader);
+    reader.readQueue = async (request) => ({ ...await read(request),
+      plans: [{ key: PLAN_RDC, name: "RDC", location: null }, { key: PLAN_R1, name: "Étage", location: null }] });
+  });
+  await settle();
+  const other = screen.getByRole("button", { name: /Étage.*À mesurer/ });
+  fireEvent.click(other);
+  await settle();
+  expect(other.getAttribute("aria-current")).toBe("true");
   expect(screen.getByRole("button", { name: "Mesurer ce poste" })).toBeTruthy();
 });

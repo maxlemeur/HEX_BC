@@ -393,7 +393,7 @@ export async function readAffaireItemTable(projectId: string, query: ItemTableQu
   if (list && !rows.length && query.offset > 0) rows = await readRows(access, { ...query, offset: 0, limit: query.limit });
   const plans = plansOf(facets);
   const lines = buildItemLines(await tableRows(access, rows), { plans, scope: query.scope });
-  const detailPlans = detail && canReview && list && lines.some((line) => !line.readings.length)
+  const detailPlans = detail && canReview && list && lines.some((line) => line.coverage.answered === 0)
     ? await readFirstMeasurePlans(access.context, access.project.id) : plans;
   return {
     projectId: access.project.id,
@@ -419,7 +419,7 @@ export async function readAffaireItemLine(projectId: string, itemId: string, det
   ]);
   const [line] = lines;
   if (!line) return null;
-  const detailPlans = detail && canReview && list && !line.readings.length ? await readFirstMeasurePlans(access.context, access.project.id) : plans;
+  const detailPlans = detail && canReview && list && line.coverage.answered === 0 ? await readFirstMeasurePlans(access.context, access.project.id) : plans;
   return { projectId: access.project.id, canReview, line, plans: detailPlans, ...(detail && { listRevisionId: list?.revisionId ?? null }),
     names: await memberNames(access.context.supabase as unknown as Client, lines) };
 }

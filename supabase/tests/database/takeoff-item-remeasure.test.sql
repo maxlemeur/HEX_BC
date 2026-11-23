@@ -260,16 +260,31 @@ select results_eq($$select (source ->> 'document_id')::uuid from public.takeoff_
   cross join lateral jsonb_array_elements(p.confirmed_snapshot #> '{preparation,sources}') source
   where p.project_id = pg_temp.f(20) and source ->> 'kind' = 'plan' and source -> 'active' = 'true' order by 1$$,
   $$values (pg_temp.plan(0)), (pg_temp.plan(1))$$, 'both plans are available from the preparation used by admission');
--- An affair with no previous job can start with a single item on its plan. Exercise the real initial admission,
--- then undo it so the original two-plan fixtures below still start from an empty affair.
-select is(pg_temp.attempt(format($cmd$select outcome from public.launch_takeoff_item_remeasure(%L,%L,%L,%L,null,%L,
-  %L::jsonb,%L::jsonb,%L::jsonb,%L::jsonb,%L,1,%L::uuid[],%L::jsonb,%L::jsonb)$cmd$,
-  pg_temp.f(10), pg_temp.f(20), pg_temp.f(1), pg_temp.f(720), pg_temp.host(), pg_temp.selection(),
-  pg_temp.manifest(pg_temp.list(310, array[300]), array[pg_temp.plan(0)]), pg_temp.snapshot(array[pg_temp.plan(0)]),
-  pg_temp.jobs(12, array[pg_temp.plan(0)]), pg_temp.f(40), array[pg_temp.plan(0)], pg_temp.targets(array[300], array[pg_temp.plan(0)]),
-  jsonb_build_object('preview_digest', repeat('a',64), 'page', null, 'shown_sha256', repeat('b',64),
-    'setting', jsonb_build_object('model', 'modele-fictif', 'reasoning_effort', null)))),
-  'admitted', 'the first request of an affair may be a single item on a plan');
+-- A failed attempt is history, but leaves the first answer available on either confirmed plan.
+create function pg_temp.first_measure(key integer, round_ integer, plan_ uuid, prior uuid) returns text language sql as $$
+  select outcome from public.launch_takeoff_item_remeasure(pg_temp.f(10), pg_temp.f(20), pg_temp.f(1), pg_temp.f(key),
+    prior, pg_temp.host(), pg_temp.selection(), pg_temp.manifest(pg_temp.list(310, array[300]), array[plan_]),
+    pg_temp.snapshot(array[plan_]), pg_temp.jobs(round_, array[plan_]), pg_temp.f(40), 1, array[plan_],
+    pg_temp.targets(array[300], array[plan_]), jsonb_build_object('preview_digest', repeat('a',64), 'page', null,
+      'shown_sha256', repeat('b',64), 'setting', jsonb_build_object('model', 'modele-fictif', 'reasoning_effort', null)))
+$$;
+savepoint first_measure;
+select pg_temp.first_measure(720, 12, pg_temp.plan(0), null) as admitted_a \gset
+select pg_temp.claim(pg_temp.job(12, pg_temp.plan(0)), 904) as claimed_a \gset
+select public.record_local_takeoff_failure(pg_temp.job(12, pg_temp.plan(0)), pg_temp.f(10), pg_temp.f(904),
+  jsonb_build_object('completed_at', clock_timestamp(), 'duration_ms', 5, 'error_code', 'AI_PROVIDER',
+    'error_message', 'Échec fictif', 'analysis_outcome', 'failure', 'last_error_at', clock_timestamp(), 'next_retry_at', null),
+  '{"extracted_json": {}, "warnings": [], "tables": [], "provider_meta": {"status": "failed"}, "token_count": 0,
+    "cost_cents": 0, "duration_ms": 5}') is not null as failed_a \gset
+select count(*) = 1 and bool_and(plan = pg_temp.plan(0) and reading = 'ended' and unit_state = 'failed' and answer is null)
+  as only_failed_a from pg_temp.pairs() where item = pg_temp.f(300) \gset
+select pg_temp.first_measure(721, 13, pg_temp.plan(1), pg_temp.job(12, pg_temp.plan(0))) as admitted_b \gset
+rollback to first_measure;
+select is(:'admitted_a'::text, 'admitted', 'the first request of an affair may be a single item on a plan');
+select is(:'claimed_a'::integer, 1, 'the first measure starts on plan A');
+select ok(:'failed_a'::boolean, 'the attempt on plan A fails');
+select ok(:'only_failed_a'::boolean, 'the only reading is the failed attempt on A, without an answer');
+select is(:'admitted_b'::text, 'admitted', 'an item without an answer can still request its first measure on B');
 
 -- The first reading of the affaire, on both plans, against the whole list: the lavabo measured on each plan (2 on A, 1
 -- on B), the valve and the bathtub not found.

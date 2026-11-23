@@ -197,7 +197,7 @@ function ItemDetailView({ projectId, address, reader, tableQuery, onBack, onGest
   const context = found?.page ?? (anchor !== null ? queue.page(anchor) : null);
   const canReview = rights ?? false;
   const plans = fresh[itemId]?.plans ?? (outside?.line.itemId === itemId ? outside.plans : context?.plans);
-  const line = useMemo(() => storedLine && canReview && !storedLine.readings.length && plans
+  const line = useMemo(() => storedLine && canReview && storedLine.coverage.answered === 0 && plans
     ? { ...storedLine, remeasurePlans: plans.map(({ key }) => key) } : storedLine, [storedLine, canReview, plans]);
   // A notice belongs to the item it was said for.
   const [noticeFor, setNoticeFor] = useState(itemId);

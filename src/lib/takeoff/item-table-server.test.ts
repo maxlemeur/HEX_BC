@@ -3,11 +3,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("server-only", () => ({}));
 vi.mock("@/lib/affaires/access-server", () => ({ requireAffaireAccess: vi.fn() }));
 vi.mock("@/lib/supabase/service-role", () => ({ createServiceRoleClient: vi.fn() }));
+vi.mock("./item-remeasure-server", () => ({ readFirstMeasurePlans: vi.fn() }));
 vi.mock("./feature-flags", () => ({ getTakeoffLowConfidenceThresholdForTenant: vi.fn(async () => 0.5) }));
 
 import { requireAffaireAccess } from "@/lib/affaires/access-server";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { freezeAffaireItemSelection, readAffaireItemHistory, readAffaireItemLine, readAffaireItemTable } from "./item-table-server";
+import { readFirstMeasurePlans } from "./item-remeasure-server";
 import { ITEM_REVIEW_LIMITS } from "./item-table";
 
 const PROJECT = "11111111-1111-4111-8111-111111111111";
@@ -134,6 +136,16 @@ const query = { scope: { kind: "plan" as const, planKey: PLAN }, filter: { state
   locations: ["A|RDC"], decisions: ["pending" as const] }, offset: 0, limit: 50, focusItemId: itemId(1) };
 
 describe("readAffaireItemTable", () => {
+  it("returns the confirmed plans on both detail reads after a failed attempt with no answer", async () => {
+    const failed = { ...tableRow(0).readings[0], unit_state: "failed", reading: "ended", answer: null };
+    tableRows = [tableRow(0, { state: "to_measure", answered: 0, ended: 1, decision: "none", readings: [failed] })];
+    const confirmed = [PLAN, itemId(5)].map((key, i) => ({ key, name: i ? "Étage" : "RDC", location: null }));
+    vi.mocked(readFirstMeasurePlans).mockResolvedValue(confirmed);
+    const page = await readAffaireItemTable(PROJECT, { ...query, scope: { kind: "affaire" }, filter: {} }, true);
+    const single = await readAffaireItemLine(PROJECT, itemId(0), true);
+    expect([page.plans, single?.plans]).toEqual([confirmed, confirmed]);
+  });
+
   it("asks the database for the page in the scope, filtered and focused, and its facets: nothing is filtered here", async () => {
     await readAffaireItemTable(PROJECT, query);
     expect(calls.find(({ name }) => name === "read_takeoff_item_table")?.args).toEqual({ p_tenant_id: TENANT, p_project_id: PROJECT,
