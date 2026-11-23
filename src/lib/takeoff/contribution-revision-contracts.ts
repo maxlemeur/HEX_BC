@@ -127,16 +127,18 @@ export const revisionReadSchema = z.object({
 const version = revisionReadSchema.extend({ version_number: z.number().int(), status: z.string() });
 export type RevisionVersion = z.infer<typeof version>;
 export type RevisionItem = z.infer<typeof revisionItemSchema>;
-export const revisionPartSchema = z.object({
-  kind: source,
+const revisionPart = z.object({
   quantity: z.number(),
   unit: z.string(),
   pages,
   basis: z.string().nullable(),
   observation_id: id.nullable(),
-  marks_revision: revision.nullable(),
   entry_revision: revision.nullable(),
 });
+export const revisionPartSchema = z.discriminatedUnion("kind", [
+  revisionPart.extend({ kind: z.enum(["entered", "measured"]) }),
+  revisionPart.extend({ kind: z.literal("verified_count"), marks_revision: revision.positive() }),
+]);
 export const revisionChangeSchema = correction.extend({
   item_id: id,
   answer_id: id,

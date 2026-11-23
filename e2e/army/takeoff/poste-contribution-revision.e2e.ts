@@ -301,43 +301,37 @@ describe("Ajout d’un poste à un envoi", () => {
         });
         v = await read();
       };
-      const include = async () => {
-        const i = v.items[0];
-        await post(route, {
-          action: "entry",
-          ...scope,
-          answer_id: i.answer_id,
-          expected_revision: i.sources.plan_entry_revision,
-          intent_id: randomUUID(),
-          entry: { action: "include_entry" },
-        });
+      const showItem = async () => {
+        await app.open(`/dashboard/affaires/${seeded.projectId}/takeoff?postePlan=${plan.fileId}`);
+        await waitForHydration(ui.browser);
+        await ui.screen.getByRole("link", "Détail de « Vanne » sur le plan", { exact: true }).click();
+        return ui.locator('[data-testid="revision-detail"]');
+      };
+      const include = async (amount: string) => {
+        const panel = await showItem();
+        await expect(panel).toContainText("Cette hypothèse attend votre décision.");
+        await panel.getByRole("button", "Inclure l’hypothèse du plan").click();
+        const entry = panel.getByRole("button", `Conserver la saisie du plan (${amount} u)`, { exact: true });
+        await expect(entry).toBeEnabled();
+        await entry.click();
+        await expect(panel).toContainText("Correction préparée.");
         v = await read();
-        const x = v.items[0];
-        await post(route, {
-          action: "choose",
-          ...scope,
-          answer_id: x.answer_id,
-          intent_id: randomUUID(),
-          expected: {
-            work_revision: x.work_revision,
-            marks_revision: x.sources.marks_revision,
-            answer_revision: x.answer_revision,
-            plan_entry_revision: x.sources.plan_entry_revision,
-          },
-          choice: { source: "entered" },
-        });
+        return panel;
       };
       const preview = async () =>
         (await post<{ preview: RevisionPreview }>(route, { action: "preview", ...scope, choices: {} })).preview;
       await edit(4.00001);
       expect(v.items[0].sources.entry?.included).toBe(false);
-      await include();
+      const panel = await include("4,00001");
+      await panel.getByRole("button", "Prévisualiser la correction").click();
+      await expect(panel).toContainText("comporter au plus trois décimales");
+      await expect(panel.getByRole("button", "Confirmer la correction")).toBeDisabled();
       const precision = await preview();
       expect(precision.blockers.map((b) => b.reason)).toContain("quantity_unwritable");
       await edit(4.5);
-      await include();
+      await include("4,5");
       const add = await preview();
-      expect(add.blockers, JSON.stringify(add)).toEqual([]);
+      expect(add.blockers).toEqual([]);
       expect(add.additions).toEqual([item]);
       expect(add.addition_preview?.lines.map((l) => l.quantity_after)).toEqual([4.5]);
       const lease = `/api/estimates/${v.version_id}/lock`;
@@ -357,6 +351,17 @@ describe("Ajout d’un poste à un envoi", () => {
       await querySql(`begin; set local session_replication_role=replica; update public.estimate_versions set status='sent',seal_hash=repeat('1',64)
       where id='${v.version_id}'; commit;`);
       expect(await post(route, intent)).toMatchObject({ receipt_id: confirmed.receipt_id, replayed: true });
+      await ui.browser.evaluate(
+        ({ key, command }) => {
+          sessionStorage.setItem(key, JSON.stringify(command));
+          return true;
+        },
+        { key: `takeoff:revise:${owner.tenantId}:${owner.userId}:${plan.jobId}:${v.version_id}`, command: intent },
+      );
+      const issued = await showItem();
+      await expect(issued).toContainText("lecture seule");
+      await issued.getByRole("button", "Retrouver la confirmation précédente").click();
+      await expect(issued).toContainText("Le reçu initial est retrouvé, même après émission du devis.");
     },
   );
 });

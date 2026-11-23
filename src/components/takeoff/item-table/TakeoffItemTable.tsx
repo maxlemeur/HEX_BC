@@ -489,7 +489,7 @@ export function TakeoffItemTable({ projectId, viewerKey, signature }: {
   const columns = canReview ? 14 : 11;
 
   // An access removed: the table, its detail, its history and its dialogs are withdrawn, whatever was read before.
-  const refused = isTakeoffReadRefusal(error) ? error : refusal;
+  const refused = [error, revisions.error].find(isTakeoffReadRefusal) ?? refusal;
   if (refused) {
     return (
       <JourneyPanel headingId="postes-du-metre" title="Postes du métré">

@@ -18,7 +18,7 @@ export function revisionAdditionAnswers(
         ...answer,
         quantitySource: first.kind === "verified_count" ? "verified_count" : undefined,
         verifiedCount:
-          first.kind === "verified_count" && first.marks_revision !== null
+          first.kind === "verified_count"
             ? {
                 quantity: first.quantity,
                 pages: first.pages,
@@ -30,21 +30,22 @@ export function revisionAdditionAnswers(
         entry: first.kind === "entered" ? answer.entry : null,
         observations:
           first.kind === "measured"
-            ? change.parts.flatMap((part) =>
-                part.observation_id
+            ? answer.observations.flatMap((observation) => {
+                const part = change.parts.find(
+                  (candidate) => candidate.observation_id === observation.observationId,
+                );
+                return part
                   ? [
                       {
-                        observationId: part.observation_id,
-                        role: "contribution" as const,
-                        source: "model" as const,
+                        ...observation,
                         quantity: part.quantity,
                         unit: part.unit,
                         page: part.pages[0] ?? null,
                         measurementBasis: part.basis,
                       },
                     ]
-                  : [],
-              )
+                  : [];
+              })
             : answer.observations,
       };
     });

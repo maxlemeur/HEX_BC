@@ -6,7 +6,7 @@ import { releaseEstimateDraftLock } from "@/lib/estimates/client-locks";
 import { ensureTakeoffApplyDraftLock } from "@/lib/takeoff/apply-draft-lock";
 import { requestContributionRevision } from "@/lib/takeoff/client";
 import { TakeoffApiError } from "@/lib/takeoff/client-http";
-import { reconcileRevisionChoices } from "@/lib/takeoff/contribution-revision-choices";
+import { reconcileRevisionChoices, revisionQuestions } from "@/lib/takeoff/contribution-revision-choices";
 import {
   revisionRequestSchema,
   type RevisionChoices,
@@ -46,6 +46,7 @@ export function RevisionPanel({
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [retry, setRetry] = useState<Confirmation | null>(null);
+  const questions = useRef(new Map<string, string>());
   const gate = useRef(false);
   const alive = useRef(true);
   const { job_id: job, version_id: versionId, receipt_id: receipt } = version;
@@ -98,13 +99,16 @@ export function RevisionPanel({
     if (result.action !== "preview") throw new Error("Impossible de lire l’aperçu de correction.");
     return result.preview;
   }
-  async function show(c: RevisionChoices, head = receipt) {
-    setPreview(null);
-    const next = await read(c, head);
+  function display(c: RevisionChoices, next: Preview) {
     if (alive.current) {
       setChoices(next.additions.length ? { ...c, additions: c.additions ?? {} } : c);
+      for (const [key, facts] of revisionQuestions(next)) questions.current.set(key, facts);
       setPreview(next);
     }
+  }
+  async function show(c: RevisionChoices, head = receipt) {
+    setPreview(null);
+    display(c, await read(c, head));
   }
   async function working(action: Extract<RevisionRequest, { action: "choose" | "entry" }>) {
     await run(async () => {
@@ -112,6 +116,8 @@ export function RevisionPanel({
       await refresh();
       if (alive.current) {
         setPreview(null);
+        setChoices({});
+        questions.current.clear();
         setMessage("Correction préparée. Le devis garde sa quantité jusqu’à la confirmation.");
       }
     });
@@ -145,7 +151,14 @@ export function RevisionPanel({
         // a lease on a document that is now read-only.
         const result = stored
           ? await requestContributionRevision(job, command).catch((e) => {
-              if (e instanceof TakeoffApiError && e.message.includes("Réservez le brouillon")) return underLease();
+              if (
+                e instanceof TakeoffApiError &&
+                typeof e.details === "object" &&
+                e.details &&
+                "reason" in e.details &&
+                e.details.reason === "TAKEOFF_REVISION_LEASE"
+              )
+                return underLease();
               throw e;
             })
           : await underLease();
@@ -168,11 +181,23 @@ export function RevisionPanel({
         if (!alive.current) return;
         setPreview(null);
         if (current?.editable && current.receipt_id) {
-          const base = await read(
-            choices.additions?.breakdown ? { additions: { breakdown: choices.additions.breakdown } } : {},
-            current.receipt_id,
-          );
-          await show(reconcileRevisionChoices(choices, base, planId), current.receipt_id);
+          const prior = command.choices;
+          let applied: RevisionChoices = prior.additions?.breakdown
+            ? { additions: { breakdown: prior.additions.breakdown } }
+            : {};
+          let fresh = await read(applied, current.receipt_id);
+          // Resolving a held page can reveal a typed line. Each pass restores
+          // additional decisions the member already made on the same facts.
+          const tried = new Set([JSON.stringify(applied)]);
+          while (alive.current) {
+            const next = reconcileRevisionChoices(prior, fresh, planId, questions.current, applied);
+            const key = JSON.stringify(next);
+            if (tried.has(key)) break;
+            tried.add(key);
+            applied = next;
+            fresh = await read(applied, current.receipt_id);
+          }
+          display(applied, fresh);
         }
         setMessage(`${e.message} Les choix encore applicables sont conservés.`);
       } finally {

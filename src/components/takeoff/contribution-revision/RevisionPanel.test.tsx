@@ -103,3 +103,36 @@ it("explains a stale preview and presents the still applicable line choice on th
   );
   expect(call.mock.calls.filter(([, request]) => request.action === "confirm")).toHaveLength(1);
 });
+
+it("asks again when the same typed line now holds a different quantity", async () => {
+  const call = vi.mocked(requestContributionRevision);
+  call.mockClear();
+  const moved = { ...bare, blockers: [{ ...bare.blockers[0], entered: 9 }] };
+  call
+    .mockResolvedValueOnce({ action: "preview", preview: bare })
+    .mockResolvedValueOnce({ action: "preview", preview: resolved })
+    .mockRejectedValueOnce(
+      new TakeoffApiError("Le devis a changé.", 409, { reason: "TAKEOFF_REVISION_STALE" }, null),
+    )
+    .mockResolvedValue({ action: "preview", preview: moved });
+  render(
+    <RevisionPanel
+      version={version}
+      item={version.items[0]}
+      viewer="second-actor"
+      planId="plan"
+      editable
+      measuredAnswer
+      onItem={() => {}}
+      refresh={async () => version}
+      onRefused={() => false}
+    />,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Prévisualiser la correction" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Conserver la saisie (7)" }));
+  await screen.findByRole("button", { name: "Revoir les choix sur les lignes et les pages" });
+  fireEvent.click(screen.getByRole("button", { name: "Confirmer la correction" }));
+  await screen.findByText(/Le devis a changé.*choix encore applicables/);
+  expect(screen.getByRole("button", { name: "Conserver la saisie (9)" })).toBeVisible();
+  expect(call).toHaveBeenLastCalledWith("job", expect.objectContaining({ action: "preview", choices: {} }));
+});

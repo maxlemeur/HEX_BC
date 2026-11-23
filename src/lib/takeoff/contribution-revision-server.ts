@@ -185,12 +185,27 @@ export async function reviseContribution(rawJobId: string, body: unknown) {
   async function preview() {
     const result = await service.rpc("preview_takeoff_contribution_revision", { ...args, p_choices: choices });
     if (result.error) refuse(result.error.message);
-    const raw = z.object({blockers:z.array(z.object({reason:z.string(),code:z.string().optional(),detail:z.string().nullable().optional()}).passthrough())}).passthrough().parse(result.data);
-    const blockers=raw.blockers.map(b=>b.reason==="addition_refused" && b.code ? {
-      ...b,message:mapItemSendRpcError({message:b.code,details:b.detail},jobId).message,
-      send_code:b.code,
-    }:b);
-    return revisionPreviewSchema.parse({...raw,currency,blockers});
+    const raw = z
+      .object({
+        blockers: z.array(
+          z
+            .object({ reason: z.string(), code: z.string().optional(), detail: z.string().nullable().optional() })
+            .passthrough(),
+        ),
+      })
+      .passthrough()
+      .parse(result.data);
+    const blockers = raw.blockers.map((b) =>
+      b.reason === "addition_refused" && b.code
+        ? {
+            ...b,
+            message:
+              messages[b.code] ?? mapItemSendRpcError({ message: b.code, details: b.detail }, jobId).message,
+            send_code: b.code,
+          }
+        : b,
+    );
+    return revisionPreviewSchema.parse({ ...raw, currency, blockers });
   }
   async function plan() {
     const initial = await preview();

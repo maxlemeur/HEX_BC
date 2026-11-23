@@ -14,6 +14,12 @@ export function quantity(value: number | null, unit?: string | null) {
 
 export function RevisionQuantities({ item, version }: { item: RevisionItem; version: number }) {
   const pending = item.correction;
+  const units = {
+    entered: item.sources.entry?.unit,
+    measured: item.sources.measured_unit,
+    verified_count: item.sources.verified?.unit,
+    withdraw: null,
+  };
   const proof = item.sent.find(
     (part) => part.marks_revision !== null && part.marks_revision !== item.sources.marks_revision,
   );
@@ -24,6 +30,15 @@ export function RevisionQuantities({ item, version }: { item: RevisionItem; vers
     <div className="my-1 flex flex-wrap gap-x-4 gap-y-1 text-xs" aria-label={`Apport du devis V${version}`}>
       <div>
         <strong>Déjà envoyé · V{version}</strong>
+        {item.sent.length > 1 && item.sent.every((part) => part.unit === item.sent[0].unit) && (
+          <div>
+            Total de{" "}
+            {quantity(
+              item.sent.reduce((sum, part) => sum + part.quantity, 0),
+              item.sent[0].unit,
+            )}
+          </div>
+        )}
         {item.sent.length ? (
           item.sent.map((part) => (
             <div key={part.id}>
@@ -40,7 +55,7 @@ export function RevisionQuantities({ item, version }: { item: RevisionItem; vers
         <div>
           <strong>Correction à confirmer</strong>
           <div>
-            {quantity(pending.quantity, pending.source === "withdraw" ? null : item.sources.unit)}
+            {quantity(pending.quantity, pending.source ? units[pending.source] : item.sources.unit)}
             {pending.source && ` · ${sourceNames[pending.source]}`}
           </div>
           {proof && (

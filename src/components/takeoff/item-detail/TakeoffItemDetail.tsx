@@ -448,7 +448,10 @@ function ItemDetailView({ projectId, viewerKey, address, reader, tableQuery, onB
   const sentJob = reading?.sent ? reading.answer?.jobId : null;
   const viewer = viewerKey ?? String(readerIdentity(reader));
   const revisionRead = useContributionRevisions(viewer, projectId, sentJob ? [{ jobId:sentJob, itemId }] : []);
-  const versions = sentJob ? revisionRead.data?.[sentJob] : undefined;
+  useEffect(() => {
+    if (isRightRefusal(revisionRead.error)) onRefused(revisionRead.error);
+  }, [revisionRead.error, onRefused]);
+  const versions = sentJob && !isRightRefusal(revisionRead.error) ? revisionRead.data?.[sentJob] : undefined;
   const destination = versions?.find(v=>v.version_id===address.versionId) ?? (!address.versionId && versions?.length===1 ? versions[0] : undefined);
   const revisionItem = destination?.items.find(i=>i.item_id===itemId);
   const revisionEditable = !!(canReview && destination?.editable && revisionItem?.current && reading?.unit!=="running" && reading?.unit!=="queued" && reading?.attempt?.unit!=="queued" && reading?.attempt?.unit!=="running");

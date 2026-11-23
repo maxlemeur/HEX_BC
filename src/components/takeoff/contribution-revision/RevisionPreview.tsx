@@ -17,7 +17,7 @@ const protections: Record<string, string> = {
   copy_history: "dont l’historique est incomplet",
   deleted: "supprimée",
 };
-function explanation(b: Preview["blockers"][number]) {
+function explanation(b: Preview["blockers"][number], change?: Preview["changes"][number]) {
   if (b.message) return b.message;
   switch (b.reason) {
     case "review_required":
@@ -37,7 +37,7 @@ function explanation(b: Preview["blockers"][number]) {
     case "identity_conflict":
       return "La quantité corrigée utilise une unité ou une base de mesure différente de celle de la ligne.";
     case "other_analysis":
-      return `Cette lecture de ${b.document ?? "ce plan"} retient ${quantity(b.retained ?? null)}. L’apport de ${b.earlier?.map((p) => `${p.document ?? "ce plan"}, lecture ${p.reading_revision ?? p.job_id}, ${quantity(p.quantity, p.unit)}, pages ${p.pages.join(", ") || "inconnues"}`).join(" et ")} reste au devis. Laissez ce poste de côté ou mesurez-le de nouveau sur tout le plan.`;
+      return `La lecture ${b.current_reading_revision ?? "en cours"} de ${b.document ?? "ce plan"} retient ${quantity(b.retained ?? null, change?.parts[0]?.unit)}. L’apport de ${b.earlier?.map((p) => `${p.document ?? "ce plan"}, lecture ${p.reading_revision ?? p.job_id}, ${quantity(p.quantity, p.unit)}, pages ${p.pages.join(", ") || "inconnues"}`).join(" et ")} reste au devis. Laissez ce poste de côté ou mesurez-le de nouveau sur tout le plan.`;
     case "addition_plan_required":
       return "Choisissez comment ajouter les postes au devis.";
     case "addition_refused":
@@ -49,20 +49,20 @@ function explanation(b: Preview["blockers"][number]) {
 type PageDecision = NonNullable<RevisionChoices["page_decisions"]>[number];
 function PageChoice({
   page,
-  replace,
+  onLeaveOut,
   onChoose,
 }: {
   page: number | null;
-  replace: boolean;
+  onLeaveOut?: () => void;
   onChoose: (d: PageDecision) => void;
 }) {
   const [note, setNote] = useState("");
   return (
     <fieldset className="space-x-2">
       <legend>{page === null ? "Toutes les pages" : `Page ${page}`}</legend>
-      {replace && (
-        <Button size="xs" variant="outline" onClick={() => onChoose({ decision: "replace", page })}>
-          Remplacer l’apport de la page
+      {onLeaveOut && (
+        <Button size="xs" variant="outline" onClick={onLeaveOut}>
+          Laisser les apports de cette page de côté
         </Button>
       )}
       {(
@@ -180,7 +180,11 @@ export function RevisionPreview({
       {p.blockers.map((b, i) => (
         <div key={i} className="rounded border p-2">
           <p>
-            {p.changes.find((c) => c.item_id === b.item_id)?.label} {explanation(b)}
+            {p.changes.find((c) => c.item_id === b.item_id)?.label}{" "}
+            {explanation(
+              b,
+              p.changes.find((c) => c.item_id === b.item_id),
+            )}
           </p>
           {b.reason === "typed_line" && b.line_id && (
             <>
@@ -208,7 +212,6 @@ export function RevisionPreview({
                 <PageChoice
                   key={pg.page ?? "all"}
                   page={pg.page}
-                  replace={false}
                   onChoose={(d) => update({ ...choices, page_decisions: pageChoice(d, choices.page_decisions) })}
                 />
               ),
@@ -231,14 +234,40 @@ export function RevisionPreview({
           />
           {add.blocked && <ItemSendBlocked blocked={add.blocked} />}
           <ItemSendLines lines={add.lines} />
+          {add.invalid_page_decisions.map((d) => (
+            <p key={`${d.page}:${d.reason}`} role="alert">
+              {d.message}
+            </p>
+          ))}
           {add.to_resolve.map((point) =>
             point.kind === "page_decision" ? (
-              <PageChoice
-                key={point.key}
-                page={point.page}
-                replace
-                onChoose={(d) => setAdd({ page_decisions: pageChoice(d, choices.additions?.page_decisions) })}
-              />
+              <div key={point.key}>
+                <p>
+                  Cette page est déjà au devis
+                  {point.earlier_lines.length
+                    ? ` sur ${point.earlier_lines.map((line) => `« ${line.title ?? "Sans titre"} » (${quantity(line.quantity)})`).join(", ")}`
+                    : " par une autre analyse"}
+                  .
+                </p>
+                <PageChoice
+                  page={point.page}
+                  onLeaveOut={() =>
+                    setAdd({
+                      resolutions: [
+                        ...(choices.additions?.resolutions ?? []).filter((r) => r.key !== point.key),
+                        { key: point.key, choice: { kind: "leave_out" } },
+                      ],
+                      page_decisions: choices.additions?.page_decisions?.filter((d) => d.page !== point.page),
+                    })
+                  }
+                  onChoose={(d) =>
+                    setAdd({
+                      page_decisions: pageChoice(d, choices.additions?.page_decisions),
+                      resolutions: choices.additions?.resolutions?.filter((r) => r.key !== point.key),
+                    })
+                  }
+                />
+              </div>
             ) : (
               <ItemSendPoint
                 key={point.key}
