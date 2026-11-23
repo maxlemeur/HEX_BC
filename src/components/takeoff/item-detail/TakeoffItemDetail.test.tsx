@@ -1013,3 +1013,20 @@ describe("TakeoffItemDetail, review of #483", () => {
     expect(screen.getByTestId("poste-detail-notice").textContent).toBe("Les décisions portent sur la lecture actuelle de ce plan.");
   });
 });
+
+it("opens either admitted plan for a first measure before the affair has any job", async () => {
+  open(address({ itemId: ITEMS.toMeasure }), { readings: [], canReview: true }, (reader) => {
+    const read = reader.readQueue.bind(reader);
+    reader.readQueue = async (request) => {
+      const response = await read(request);
+      return { ...response, plans: [PLAN_RDC, PLAN_R1].map((key, i) => ({ key, name: i ? "Étage" : "RDC", location: null })),
+        page: { ...response.page, lines: response.page.lines.map((line) => ({ ...line, readings: [], remeasurePlans: [] })) } };
+    };
+  });
+  await settle();
+  expect(screen.getByRole("button", { name: /RDC.*À mesurer/ })).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: /Étage.*À mesurer/ }));
+  await settle();
+  expect(screen.getByRole("button", { name: /Étage.*À mesurer/ }).getAttribute("aria-current")).toBe("true");
+  expect(screen.getByRole("button", { name: "Mesurer ce poste" })).toBeTruthy();
+});

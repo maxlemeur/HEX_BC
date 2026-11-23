@@ -6424,6 +6424,15 @@
             }
           },
           {
+            "name": "detail",
+            "in": "query",
+            "description": "Pour un poste sans lecture, inclure les plans de la préparation confirmée.",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/GetAffaireTakeoffItemsDetailParameter"
+            }
+          },
+          {
             "name": "plan",
             "in": "query",
             "description": "Portée d’un plan (son identité logique) ; sans valeur, toute l’affaire.",
@@ -6594,6 +6603,15 @@
             "required": true,
             "schema": {
               "$ref": "#/components/schemas/GetAffaireTakeoffItemItemIdParameter"
+            }
+          },
+          {
+            "name": "detail",
+            "in": "query",
+            "description": "Pour un poste sans lecture, inclure les plans de la préparation confirmée.",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/GetAffaireTakeoffItemDetailParameter"
             }
           }
         ],
@@ -46832,6 +46850,10 @@
         "format": "uuid",
         "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
       },
+      "GetAffaireTakeoffItemsDetailParameter": {
+        "type": "string",
+        "const": "1"
+      },
       "GetAffaireTakeoffItemsPlanParameter": {
         "type": "string",
         "maxLength": 200
@@ -48580,6 +48602,10 @@
         "type": "string",
         "format": "uuid",
         "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      },
+      "GetAffaireTakeoffItemDetailParameter": {
+        "type": "string",
+        "const": "1"
       },
       "ApiTakeoffItemLineResponse": {
         "type": "object",

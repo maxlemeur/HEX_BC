@@ -299,7 +299,7 @@ async function remeasurePreview(input: { scope: ItemTableScope; itemIds: string[
   return {
     preview: {
       items,
-      plans,
+      plans: key && file ? [{ key, name: file.name }] : plans,
       payer,
       subscription: shown,
       ...(detail && { detail }),

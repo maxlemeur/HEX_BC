@@ -47,8 +47,9 @@ async function call<T>(path: string, init: RequestInit, schema: z.ZodType<T>, fa
 
 const base = (projectId: string) => `/api/affaires/${encodeURIComponent(projectId)}/takeoff/items`;
 
-export function fetchItemTable(projectId: string, address: ItemTableAddress) {
+export function fetchItemTable(projectId: string, address: ItemTableAddress, detail = false) {
   const params = withItemTableParams("", itemTableAddressParams(address));
+  if (detail) params.set("detail", "1");
   const query = params.toString();
   return call(`${base(projectId)}${query ? `?${query}` : ""}`, { method: "GET" }, itemTableResponseSchema, READ_FAILURE,
     TAKEOFF_READ_REQUEST_TIMEOUT_MS);
@@ -61,8 +62,8 @@ export function fetchItemHistory(projectId: string, itemId: string, page: { offs
 }
 
 /** One item of the list outside any filter (a link of the radar, the detail of an item). */
-export function fetchItemLine(projectId: string, itemId: string) {
-  return call(`${base(projectId)}/${encodeURIComponent(itemId)}`, { method: "GET" }, itemTableLineResponseSchema, READ_FAILURE,
+export function fetchItemLine(projectId: string, itemId: string, detail = false) {
+  return call(`${base(projectId)}/${encodeURIComponent(itemId)}${detail ? "?detail=1" : ""}`, { method: "GET" }, itemTableLineResponseSchema, READ_FAILURE,
     TAKEOFF_READ_REQUEST_TIMEOUT_MS);
 }
 

@@ -204,7 +204,10 @@ describe("a new measure of a plan after its answer", () => {
 describe("one item on its own", () => {
   it("reads it outside any filter, and answers null when the list does not hold it", async () => {
     tableRows = [tableRow(1)];
-    expect((await readAffaireItemLine(PROJECT, itemId(1)))?.line.itemId).toBe(itemId(1));
+    const released = await readAffaireItemLine(PROJECT, itemId(1));
+    expect(released?.line.itemId).toBe(itemId(1));
+    expect(released).not.toHaveProperty("listRevisionId");
+    expect(await readAffaireItemLine(PROJECT, itemId(1), true)).toHaveProperty("listRevisionId");
     expect(calls.find(({ name }) => name === "read_takeoff_item_table")?.args).toMatchObject({ p_item_ids: [itemId(1)] });
     tableRows = [];
     expect(await readAffaireItemLine(PROJECT, itemId(9))).toBeNull();

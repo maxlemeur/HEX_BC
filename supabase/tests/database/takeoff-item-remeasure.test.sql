@@ -251,6 +251,15 @@ insert into private.takeoff_completion_activation (active_from) values (now() - 
 insert into private.takeoff_plan_dispatch_activation (active_from) values (now() - interval '1 minute');
 insert into private.takeoff_item_list_order_activation (active_from) values (now() - interval '1 minute');
 
+select pg_temp.sign_in(1);
+select is((select count(*)::integer from public.count_takeoff_item_table(pg_temp.f(10),pg_temp.f(20))
+  where facet = 'state' and value = 'to_measure' and items = 3), 1, 'three unanswered items are visible before the first job');
+select is((select count(*)::integer from public.count_takeoff_item_table(pg_temp.f(10),pg_temp.f(20)) where facet = 'plan'),
+  0, 'the table has no historical plan before any job');
+select results_eq($$select (source ->> 'document_id')::uuid from public.takeoff_preparations p
+  cross join lateral jsonb_array_elements(p.confirmed_snapshot #> '{preparation,sources}') source
+  where p.project_id = pg_temp.f(20) and source ->> 'kind' = 'plan' and source -> 'active' = 'true' order by 1$$,
+  $$values (pg_temp.plan(0)), (pg_temp.plan(1))$$, 'both plans are available from the preparation used by admission');
 -- An affair with no previous job can start with a single item on its plan. Exercise the real initial admission,
 -- then undo it so the original two-plan fixtures below still start from an empty affair.
 select is(pg_temp.attempt(format($cmd$select outcome from public.launch_takeoff_item_remeasure(%L,%L,%L,%L,null,%L,

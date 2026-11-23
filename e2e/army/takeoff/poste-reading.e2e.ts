@@ -34,12 +34,14 @@ const ITEMS = [{ id: "lavabo-colonne", label: LAVABO, expectedUnit: "u" }, { id:
 const options = { session: "army" as const, trace: "off" as const, tags: ["critical", "takeoff-worker", "local"], timeout: 300_000 };
 
 /** An affaire of two plans, A (2 pages) and B (1 page), its request admitted by the member's command with the list sealed. */
-async function admittedRequest(ui: WorkerUi, owner: WorkerOwner, templated: { done: boolean }, objective?: "estimate") {
+async function admittedRequest(ui: WorkerUi, owner: WorkerOwner, templated: { done: boolean }, objective?: "estimate",
+  beforeLaunch?: (dossier: Awaited<ReturnType<typeof seedPlanDossier>>) => Promise<void>) {
   const dossier = await seedPlanDossier(ui, owner, [{ name: "plan-a.pdf", pages: 2 }, { name: "plan-b.pdf", pages: 1 }], { objective });
   if (!templated.done) {
     await publishOwnedItemTemplate(dossier.setup, owner, ITEMS);
     templated.done = true;
   }
+  await beforeLaunch?.(dossier);
   const command = await runOwnedTakeoffCommand(owner, ["launch", dossier.projectId, dossier.planSetId, randomUUID(), "1",
     dossier.plans.map((plan) => plan.id).join(",")]);
   expect(command).toMatchObject({ result: { outcome: "admitted" } });
@@ -208,7 +210,23 @@ armyTest("TKPR03 a new measure of one item reads it alone on its plans, and the 
     await activateOwnedPlanDispatch();
     await activateOwnedItemListOrder();
     try {
-      const { dossier, jobA, jobB } = await admittedRequest(ui, owner, { done: false });
+      const { dossier, jobA, jobB } = await admittedRequest(ui, owner, { done: false }, undefined, async (first) => {
+        const takeoff = `/dashboard/affaires/${first.projectId}/takeoff`;
+        await ui.app.open(`${takeoff}?postes=liste`);
+        await waitForHydration(ui.browser);
+        await ui.screen.getByRole("button", "Enregistrer la liste proposée", { exact: true }).click();
+        await expect(ui.screen.getByText("Liste enregistrée · révision 1 · 3 postes", { exact: false })).toBeVisible();
+        const ids = await itemIdsByLabel(first.projectId);
+        await ui.app.open(`${takeoff}?poste=${ids[WC]}`);
+        await waitForHydration(ui.browser);
+        await expect(ui.screen.getByRole("button", /plan-a.pdf.*À mesurer/)).toBeVisible();
+        await ui.screen.getByRole("button", /plan-b.pdf.*À mesurer/).click();
+        await ui.screen.getByRole("button", "Mesurer ce poste", { exact: true }).click();
+        const summary = ui.screen.getByRole("dialog", "Mesurer ce poste", { exact: true });
+        await expect(summary).toContainText("plan-b.pdf");
+        await expect(summary).toContainText("Cette mesure donnera une première réponse au poste sur ce plan.");
+        expect(await readOwnedPlanJobs(first.projectId)).toHaveLength(0);
+      });
       const [planA, planB] = dossier.plans.map((plan) => plan.id);
       await runOwnedPlanDispatch(ui, owner, dossier.projectId, {
         itemAnswers: { [jobA.id]: { items: { [LAVABO]: { quantity: 3, unit: "u", page: 2 } } } } });

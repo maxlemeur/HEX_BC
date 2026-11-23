@@ -738,6 +738,7 @@ const takeoffOperationsContracts: RouteContract[] = [
     tags: ["Takeoff"],
     pathParameters: [{ name: "projectId", schema: uuidSchema, description: "Affaire cible." }],
     queryParameters: [
+      { name: "detail", schema: z.literal("1"), description: "Pour un poste sans lecture, inclure les plans de la préparation confirmée." },
       { name: "plan", schema: z.string().max(200), description: "Portée d’un plan (son identité logique) ; sans valeur, toute l’affaire." },
       { name: "state", schema: z.enum(ITEM_AGGREGATE_STATES), description: "États à garder (répétable ou séparé par des virgules)." },
       { name: "family", schema: z.string().max(4000), description: "Chemins de sections à garder (répétable)." },
@@ -760,6 +761,9 @@ const takeoffOperationsContracts: RouteContract[] = [
     tags: ["Takeoff"],
     pathParameters: [{ name: "projectId", schema: uuidSchema, description: "Affaire cible." },
       { name: "itemId", schema: uuidSchema, description: "Poste de la liste." }],
+    queryParameters: [
+      { name: "detail", schema: z.literal("1"), description: "Pour un poste sans lecture, inclure les plans de la préparation confirmée." },
+    ],
     success: [{ status: "200", description: "Le poste.", schema: {
       schemaName: "ApiTakeoffItemLineResponse", schema: z.object({ ok: z.literal(true), data: itemTableLineResponseSchema }), io: "output",
     } }],

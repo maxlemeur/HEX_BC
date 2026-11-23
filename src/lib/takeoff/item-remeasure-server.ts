@@ -53,21 +53,19 @@ export type TakeoffItemRemeasurePlan = {
   bounds: PosteReadingBounds;
 };
 
-export async function planTakeoffItemRemeasure(context: Context, input: {
-  projectId: string; planKeys: readonly string[]; itemIds: readonly string[]; detail?: ItemMeasureScope; selection: TakeoffExecutionSelection | null;
-}): Promise<{ plan: TakeoffItemRemeasurePlan } | { refusal: string; stale?: boolean; changedCopy?: boolean }> {
+async function readMeasurePreparation(context: Context, projectId: string) {
   const service = createServiceRoleClient();
   // The admission is refused unless one analysis per plan is active: the preview says so, never offers it.
   if (!await isTakeoffPlanDispatchActive(service)) {
     return { refusal: "La nouvelle mesure d’une sélection n’est pas encore ouverte : la lecture plan par plan n’est pas activée sur cette affaire." };
   }
   const { data: record, error } = await service.from("takeoff_preparations").select("revision")
-    .eq("tenant_id", context.tenantId).eq("project_id", input.projectId).maybeSingle();
+    .eq("tenant_id", context.tenantId).eq("project_id", projectId).maybeSingle();
   if (error) databaseError(error, "Impossible de lire la préparation du métré de l’affaire.");
   if (!record) return { refusal: "La préparation du métré de l’affaire n’est pas confirmée : confirmez-la avant une nouvelle mesure." };
   let confirmed: TakeoffPreparationSnapshot;
   try {
-    confirmed = await assertConfirmedTakeoffPreparation({ context, estimateVersionId: null, projectId: input.projectId,
+    confirmed = await assertConfirmedTakeoffPreparation({ context, estimateVersionId: null, projectId,
       preparationRevision: record.revision, level: "C", provider: "chatgpt" });
   } catch (caught) {
     if (caught instanceof TakeoffError) return { refusal: caught.message };
@@ -76,13 +74,28 @@ export async function planTakeoffItemRemeasure(context: Context, input: {
   const planSetId = sealedPlanSetId(confirmed);
   if (!planSetId) return { refusal: "La préparation confirmée ne retient aucun plan à lire." };
   const config = await getTakeoffLevelCProcessingConfigForTenant(context.tenantId, { supabase: service });
-  const order = await sealedMeasuringOrder(service, { tenantId: context.tenantId, projectId: input.projectId, payerId: context.userId,
+  const order = await sealedMeasuringOrder(service, { tenantId: context.tenantId, projectId, payerId: context.userId,
     perPlan: true });
   if ("blocked" in order || order.order.kind !== "item_list") {
     return { refusal: "Les postes ne sont pas encore lus contre la liste, plan par plan : aucune nouvelle mesure n’est possible." };
   }
   // The selection's plans, by their logical key, at their current copies in the confirmed preparation.
   const everyPlan = await relaunchManifest(service, context, planSetId, confirmed, config, "reread_plans", [], order.order);
+  return { confirmed, planSetId, service, config, order: order.order, items: order.items, everyPlan };
+}
+
+/** Called by the detail for an operator looking at an existing item-list revision. */
+export async function readFirstMeasurePlans(context: Context, projectId: string) {
+  const prepared = await readMeasurePreparation(context, projectId);
+  return prepared.everyPlan?.manifest.plans.map(({ logical_id: key, name }) => ({ key, name, location: null })) ?? [];
+}
+
+export async function planTakeoffItemRemeasure(context: Context, input: {
+  projectId: string; planKeys: readonly string[]; itemIds: readonly string[]; detail?: ItemMeasureScope; selection: TakeoffExecutionSelection | null;
+}): Promise<{ plan: TakeoffItemRemeasurePlan } | { refusal: string; stale?: boolean; changedCopy?: boolean }> {
+  const prepared = await readMeasurePreparation(context, input.projectId);
+  if (!prepared.everyPlan) return { refusal: prepared.refusal };
+  const { confirmed, planSetId, service, config, order, items, everyPlan } = prepared;
   const copyOf = new Map(everyPlan.manifest.plans.map((plan) => [plan.logical_id.toLowerCase(), plan.plan_file_id]));
   const scope = input.planKeys.map((key) => copyOf.get(key.toLowerCase()));
   if (!scope.length || scope.some((id) => !id)) {
@@ -90,7 +103,7 @@ export async function planTakeoffItemRemeasure(context: Context, input: {
   }
   // The order seals the items asked by identifier, in their canonical order; they are read and sized in the list's.
   const asked = [...new Set(input.itemIds.map((id) => id.toLowerCase()))].sort();
-  const askedItems = postesAskedBy(order.items, asked);
+  const askedItems = postesAskedBy(items, asked);
   if (!asked.length || !askedItems) {
     return { refusal: "Un poste de la sélection n’est plus dans la liste : rafraîchissez la sélection.", stale: true };
   }
@@ -128,7 +141,7 @@ export async function planTakeoffItemRemeasure(context: Context, input: {
     && (source.page_count ?? countedPages.get(source.document_id) ?? 0) > config.maxPdfPages);
   if (pastLimit.length) return { refusal: planPagesPastLimit(pastLimit, config.maxPdfPages).message };
   // The order seals the latest revision, and the items asked; the other plans an earlier analysis read stay its.
-  const sealed: TakeoffLaunchOrder = { ...order.order, list: { ...order.order.list, asked_item_ids: asked } };
+  const sealed: TakeoffLaunchOrder = { ...order, list: { ...order.list, asked_item_ids: asked } };
   const { manifest: grouped, held } = await relaunchManifest(service, context, planSetId, snapshot, config, "reread_plans",
     planSetCopiesSetAside(confirmed.preparation.sources, planSetId), sealed);
   const reading = new Set(grouped.plans.map((plan) => logicalPlanKey({ id: plan.plan_file_id, intake_document_id: plan.intake_document_id })));
@@ -155,7 +168,7 @@ export async function planTakeoffItemRemeasure(context: Context, input: {
   if (!predecessorJobId && !detail) return { refusal: "L’affaire n’a encore aucune analyse : lancez d’abord le métré de l’affaire." };
   return { plan: { planSetId, preparationRevision: confirmed.preparation_revision,
     planFileIds: sized.manifest.plans.map((plan) => plan.plan_file_id),
-    planKeys: sized.manifest.plans.map((plan) => plan.logical_id), predecessorJobId, listRevisionId: order.order.list.revision_id,
+    planKeys: sized.manifest.plans.map((plan) => plan.logical_id), predecessorJobId, listRevisionId: order.list.revision_id,
     askedItemIds: asked, snapshot, manifest: { ...sized.manifest, intent: predecessorJobId ? "reread_plans" : "initial" }, bounds: sized.bounds } };
 }
 

@@ -148,7 +148,7 @@ describe("TakeoffItemDetailScreen, the decisions", () => {
     // The item is read again (its line and its journal) in the table's plan, without its filters; the member stays on it.
     expect(client.fetchItemTable.mock.calls.length).toBeGreaterThan(tableReads);
     expect(client.fetchItemTable).toHaveBeenLastCalledWith(DETAIL_PROJECT, expect.objectContaining({
-      scope: { kind: "plan", planKey: PLAN_R1 }, filter: {}, focusItemId: ITEMS.homonym }));
+      scope: { kind: "plan", planKey: PLAN_R1 }, filter: {}, focusItemId: ITEMS.homonym }), true);
     expect(client.fetchItemLine).not.toHaveBeenCalled();
     expect(replace).not.toHaveBeenCalled();
   });
@@ -218,7 +218,7 @@ describe("TakeoffItemDetailScreen, the item read again after a decision", () => 
     }
     // Read again without the table's filters: an item the filter no longer keeps stays decidable.
     expect(client.fetchItemTable).toHaveBeenLastCalledWith(DETAIL_PROJECT, expect.objectContaining({
-      scope: { kind: "plan", planKey: PLAN_RDC }, filter: {}, focusItemId: ITEMS.basin }));
+      scope: { kind: "plan", planKey: PLAN_RDC }, filter: {}, focusItemId: ITEMS.basin }), true);
   });
 
   // Review of #483 (written before the fix): one item read again at a time, so after deciding B, A came back as first read

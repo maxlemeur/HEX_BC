@@ -193,9 +193,12 @@ function ItemDetailView({ projectId, address, reader, tableQuery, onBack, onGest
   const rereads = useRef<Record<string, number>>({});
   const read = found?.page.page.lines[found.index] ?? (outside?.line.itemId === itemId ? outside.line : null);
   const gone = itemId in fresh && !fresh[itemId]?.line;
-  const line = itemId in fresh ? fresh[itemId]?.line ?? null : read;
+  const storedLine = itemId in fresh ? fresh[itemId]?.line ?? null : read;
   const context = found?.page ?? (anchor !== null ? queue.page(anchor) : null);
   const canReview = rights ?? false;
+  const plans = fresh[itemId]?.plans ?? (outside?.line.itemId === itemId ? outside.plans : context?.plans);
+  const line = useMemo(() => storedLine && canReview && !storedLine.readings.length && plans
+    ? { ...storedLine, remeasurePlans: plans.map(({ key }) => key) } : storedLine, [storedLine, canReview, plans]);
   // A notice belongs to the item it was said for.
   const [noticeFor, setNoticeFor] = useState(itemId);
   if (noticeFor !== itemId) {
@@ -203,7 +206,7 @@ function ItemDetailView({ projectId, address, reader, tableQuery, onBack, onGest
     setNotice("");
   }
   const names = useMemo(() => ({ ...(context?.names ?? {}), ...(outside?.names ?? {}) }), [context, outside]);
-  const planNames = useMemo(() => Object.fromEntries((context?.plans ?? []).map(({ key, name }) => [key, name])), [context]);
+  const planNames = useMemo(() => Object.fromEntries((plans ?? []).map(({ key, name }) => [key, name])), [plans]);
   const position = queue.position(itemId);
 
   const original = useMemo<ItemDetailPlanChoice>(() => (line ? chooseItemDetailPlan(line, address) : { kind: "none" }), [line, address]);
