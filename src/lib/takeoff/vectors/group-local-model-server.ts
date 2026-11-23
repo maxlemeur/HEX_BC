@@ -69,7 +69,7 @@ export class LocalGroupsRequestError extends Error {
 }
 
 /** The profile a job runs with (as level C pins it, chatgpt-takeoff.ts): another account or model selected mid-job stops it. */
-export type LocalGroupsSelection = { profileId: string; model: string; reasoningEffort?: ChatGptReasoningEffort | null };
+export type LocalGroupsSelection = { remeasureSetting?: LocalChatGptOverride; profileId: string; model: string; reasoningEffort?: ChatGptReasoningEffort | null };
 
 const ACCESS_LOST = "Le forfait ChatGPT n’est plus accessible : reconnectez-le dans Mon profil.";
 
@@ -110,7 +110,7 @@ function planStop(error: unknown): LocalGroupsStop | null {
  */
 export async function localGroupsCall(owner: ChatGptOwner, selection?: LocalGroupsSelection, useProfile = false): Promise<LocalGroupsCall> {
   const credential = await accountOf(owner, selection);
-  let override: LocalChatGptOverride | undefined;
+  let override: LocalChatGptOverride | undefined = selection?.remeasureSetting;
   // Read once per job, the listing is read again once after a failure that is no answer of the account (a network
   // blip, an unreadable listing): one blip would otherwise leave the whole job to the rules. The account's answers (the
   // model not offered, a quota, a rate limit, a refused access) are final.

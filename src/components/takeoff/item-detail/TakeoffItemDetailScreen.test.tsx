@@ -92,6 +92,7 @@ beforeEach(() => {
   vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
     const url = new URL(String(input), "https://app.test");
     plansAsked.push(`${url.pathname}${url.search}`);
+    if (url.pathname.endsWith("/items/remeasure")) return Response.json({ ok: true, data: null });
     const view = planViews()[`${url.searchParams.get("lecture") ?? ""}:${url.searchParams.get("plan") ?? ""}`];
     return view ? new Response(JSON.stringify({ ok: true, data: view }), { status: 200 })
       : new Response(JSON.stringify({ ok: false, error: { code: "TAKEOFF_ITEM_DETAIL_PLAN_NOT_FOUND", message: "x" } }), { status: 404 });
@@ -345,9 +346,10 @@ describe("TakeoffItemDetailScreen, the way back", () => {
     expect(replace).toHaveBeenCalledWith(
       `/dashboard/affaires/${DETAIL_PROJECT}/takeoff?posteState=measured&posteState=not_found&tab=jobs&posteFocus=${ITEMS.notFound}`,
       { scroll: false });
-    // The plans through the detail's route, and the counted marks of the reading shown (lot 5) through theirs: nothing else.
+    // Navigation reads only the plan, its marks and this member’s latest measure on that plan.
     expect(plansAsked.every((path) => path.startsWith(`/api/affaires/${DETAIL_PROJECT}/takeoff/item-detail/plan?`)
-      || path.startsWith(`/api/affaires/${DETAIL_PROJECT}/takeoff/count-marks?`))).toBe(true);
+      || path.startsWith(`/api/affaires/${DETAIL_PROJECT}/takeoff/count-marks?`)
+      || path.startsWith(`/api/affaires/${DETAIL_PROJECT}/takeoff/items/remeasure?`))).toBe(true);
     expect(plansAsked.some((path) => path.startsWith(`/api/affaires/${DETAIL_PROJECT}/takeoff/item-detail/plan?`))).toBe(true);
   });
 });

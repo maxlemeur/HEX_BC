@@ -28,13 +28,16 @@ function providerError(code?: string, status?: number): Error {
 }
 
 /** The account's listed models, with a credential already read: read-only, it never writes the store. */
-async function fetchLocalChatGptModels(credential: { accessToken: string }): Promise<ChatGptAvailableModel[]> {
+export async function fetchLocalChatGptModels(credential: { accessToken: string }): Promise<ChatGptAvailableModel[]> {
   const response = await fetch(`${ROOT}/models`, {
     headers: { authorization: `Bearer ${credential.accessToken}` },
     signal: AbortSignal.timeout(15_000), cache: "no-store",
   });
   // As for /responses, 401/403 ask to reconnect and 429 is a rate limit; any other failure keeps the connection message.
-  if (!response.ok) throw providerError(undefined, [401, 403, 429].includes(response.status) ? response.status : undefined);
+  if (!response.ok) {
+    const refusal = z.object({ error: z.object({ code: z.string() }) }).safeParse(await response.json().catch(() => null));
+    throw providerError(refusal.success ? refusal.data.error.code : undefined, [401, 403, 429].includes(response.status) ? response.status : undefined);
+  }
   const catalog = z.object({ models: z.array(z.object({
     slug: z.string().min(1), display_name: z.string(), visibility: z.string(),
     supported_reasoning_levels: z.unknown().optional(), default_reasoning_level: z.unknown().optional(),

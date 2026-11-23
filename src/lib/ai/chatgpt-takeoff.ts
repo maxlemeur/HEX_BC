@@ -10,7 +10,7 @@ import type { ServerSupabaseClient } from "@/lib/auth/tenant-context";
 import { assertTakeoffJobUsesLocalProvider, takeoffChatGptConnectionWithdrawn, TakeoffError, TakeoffErrorCode } from "@/lib/takeoff/errors";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import type { StructuredCall, StructuredCallOptions } from "@/lib/ai/structured-call";
-import type { ChatGptReasoningEffort } from "@/lib/ai/chatgpt-model-preferences";
+import { chatGptPreferencesSchema, type ChatGptPreferences, type ChatGptReasoningEffort } from "@/lib/ai/chatgpt-model-preferences";
 import type { TakeoffLevel, TakeoffProvider } from "@/lib/takeoff/types";
 import type { TakeoffJobProcessingRow } from "@/lib/takeoff/job-lifecycle";
 import type { TakeoffPaidCall, TakeoffPaidCallBranch, TakeoffPaidCallLedger } from "@/lib/takeoff/launch-call-ledger";
@@ -185,7 +185,7 @@ export async function assertLocalTakeoffResumeReady(supabase: ServerSupabaseClie
   assertPinnedTakeoffSelection(snapshot, job.created_by, selection);
 }
 
-type PaidSelection = { profileId: string; model: string; reasoningEffort: ChatGptReasoningEffort | null; authorizationId?: string | null;
+type PaidSelection = { remeasureSetting?: ChatGptPreferences; profileId: string; model: string; reasoningEffort: ChatGptReasoningEffort | null; authorizationId?: string | null;
   beforeSend?: () => Promise<TakeoffPaidCall>; onUsage?: (usage: { totalTokens: number; costCents: number; trusted: boolean }, call: unknown) => Promise<void>;
   onUnknownUsage?: (call: unknown) => Promise<void> };
 
@@ -251,18 +251,22 @@ export async function resolveLocalTakeoffProvider(supabase: ServerSupabaseClient
       onUnknownUsage: (call: unknown) => ledger.recordUnknownUsage(call as TakeoffPaidCall),
     } : {}),
   });
+  const snapshot = job.preparation_snapshot;
+  const setting = job.launch_request_id && snapshot && typeof snapshot === "object" && "remeasure_setting" in snapshot
+    ? chatGptPreferencesSchema.parse(snapshot.remeasure_setting) : undefined;
   const selection = paidSelection("pdf");
   return {
-    model: selection.model,
-    reasoningEffort: selection.reasoningEffort,
+    model: setting?.model ?? selection.model,
+    reasoningEffort: setting ? setting.reasoningEffort : selection.reasoningEffort,
     selection,
-    groupsSelection: paidSelection("vector_group"),
+    groupsSelection: { ...paidSelection("vector_group"), ...(setting && { remeasureSetting: setting }) },
     useProfileForVectorGroups,
     assertOwnerActive,
     call: async <T>(options: StructuredCallOptions<T>) => {
       await assertOwnerActive();
       try {
-        return await callLocalChatGptStructured(owner, options, selection);
+        return setting ? await callLocalChatGptStructured(owner, options, selection, setting)
+          : await callLocalChatGptStructured(owner, options, selection);
       } catch (error) {
         // The job's own refusals keep their name: its right to pay, a usage its ledger could not record.
         if (error instanceof TakeoffError) throw error;

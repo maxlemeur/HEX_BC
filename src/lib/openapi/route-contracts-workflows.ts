@@ -9,6 +9,7 @@ import {
   itemRemeasureCommandSchema,
   itemRemeasurePreviewRequestSchema,
   itemRemeasurePreviewSchema,
+  itemMeasureReadingsSchema,
   itemRemeasureResultSchema,
   itemReviewCommandSchema,
   itemReviewResultSchema,
@@ -821,6 +822,20 @@ const takeoffOperationsContracts: RouteContract[] = [
     body: { schema: itemRemeasurePreviewRequestSchema, description: "Portée et postes sélectionnés (un seul suffit)." },
     success: [{ status: "200", description: "Aperçu de la demande.", schema: {
       schemaName: "ApiTakeoffItemRemeasurePreviewResponse", schema: z.object({ ok: z.literal(true), data: itemRemeasurePreviewSchema }), io: "output",
+    } }],
+  },
+  {
+    id: "read-affaire-takeoff-item-measure",
+    method: "get",
+    path: "/api/affaires/{projectId}/takeoff/items/remeasure",
+    summary: "Comparer les lectures de la dernière mesure du membre sur ce plan",
+    description: "État de la demande du membre et réponses précédente et nouvelle pour le poste et le plan.",
+    tags: ["Takeoff"],
+    pathParameters: [{ name: "projectId", schema: uuidSchema, description: "Affaire cible." }],
+    queryParameters: [{ name: "item", schema: uuidSchema, required: true, description: "Poste." },
+      { name: "plan", schema: uuidSchema, required: true, description: "Plan." }],
+    success: [{ status: "200", description: "Lectures à comparer.", schema: {
+      schemaName: "ApiTakeoffItemMeasureReadings", schema: z.object({ ok: z.literal(true), data: itemMeasureReadingsSchema }), io: "output",
     } }],
   },
   {

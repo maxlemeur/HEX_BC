@@ -129,6 +129,7 @@ beforeEach(() => {
   window.history.replaceState(null, "", `${TAKEOFF}?${TABLE}&poste=${ITEMS.basin}`);
   vi.stubGlobal("fetch", vi.fn(async (input: string) => {
     fetches.push(String(input));
+    if (String(input).includes("/items/remeasure?")) return Response.json({ ok: true, data: null });
     const item = /\/items\/([^/]+)\/history/.exec(String(input))?.[1] ?? null;
     const events = item === ITEMS.basin ? [{ id: 1, event: "accepted", planKey: PLAN_RDC, takeoffItemId: null, before: null,
       after: { kind: "accepted" }, actorId: MEMBER, at: "2026-11-21T10:00:00.000Z" }] : [];

@@ -119,14 +119,14 @@ async function answerFacts(access: AffaireAccess, answerIds: readonly string[]):
   const { context, project } = access;
   const ids = [...new Set(answerIds.map((value) => value.toLowerCase()))];
   const { data: answers, error } = await client.from("takeoff_item_answers")
-    .select("id, item_id, job_id, plan_logical_id, reading_revision")
+    .select("id, item_id, job_id, plan_logical_id, reading_revision, comparison_only")
     .eq("tenant_id", context.tenantId).eq("project_id", project.id).in("id", ids);
   if (error) throw mapSupabaseError(error, READ_FAILURE);
   if (!answers?.length) return new Map();
   const [{ data: jobs, error: jobsError }, { data: later, error: laterError }] = await Promise.all([
     client.from("takeoff_jobs").select("id, status").eq("tenant_id", context.tenantId)
       .in("id", [...new Set(answers.map(({ job_id }) => job_id))]),
-    client.from("takeoff_item_answers").select("item_id, plan_logical_id, reading_revision")
+    client.from("takeoff_item_answers").select("item_id, plan_logical_id, reading_revision").eq("comparison_only", false)
       .eq("tenant_id", context.tenantId).eq("project_id", project.id)
       .in("item_id", [...new Set(answers.map(({ item_id }) => item_id))])
       .in("plan_logical_id", [...new Set(answers.map(({ plan_logical_id }) => plan_logical_id))]),
@@ -138,7 +138,7 @@ async function answerFacts(access: AffaireAccess, answerIds: readonly string[]):
     answerId: answer.id,
     itemId: answer.item_id,
     sent: applied.has(answer.job_id),
-    replaced: (later ?? []).some((other) => other.item_id === answer.item_id && other.plan_logical_id === answer.plan_logical_id
+    replaced: answer.comparison_only || (later ?? []).some((other) => other.item_id === answer.item_id && other.plan_logical_id === answer.plan_logical_id
       && other.reading_revision > answer.reading_revision),
   }]));
 }
@@ -384,7 +384,7 @@ export async function readCountMarkTargets(projectId: string, input: { answerId:
   if (!source) throw notFound(NOT_READ, undefined, "TAKEOFF_MARKS_ANSWER_NOT_FOUND");
   const answers = await allRows<{ id: string; item_id: string; reading_revision: number; plan_content_sha256: string;
     searched_pages: number[] | null; unreadable_pages: number[] | null }>((from, to) => client.from("takeoff_item_answers")
-    .select("id, item_id, reading_revision, plan_content_sha256, searched_pages, unreadable_pages")
+    .select("id, item_id, reading_revision, plan_content_sha256, searched_pages, unreadable_pages").eq("comparison_only", false)
     .eq("tenant_id", context.tenantId).eq("project_id", project.id).eq("job_id", source.job_id)
     .eq("plan_logical_id", source.plan_logical_id).neq("item_id", source.item_id).order("id").range(from, to));
   const itemIds = [...new Set(answers.map(({ item_id }) => item_id))];
@@ -393,7 +393,7 @@ export async function readCountMarkTargets(projectId: string, input: { answerId:
   for (const ids of chunks([...itemIds, source.item_id])) {
     const [readings, entries] = await Promise.all([
       allRows<{ item_id: string; reading_revision: number }>((from, to) => client.from("takeoff_item_answers")
-        .select("item_id, reading_revision").eq("tenant_id", context.tenantId).eq("project_id", project.id)
+        .select("item_id, reading_revision").eq("comparison_only", false).eq("tenant_id", context.tenantId).eq("project_id", project.id)
         .eq("plan_logical_id", source.plan_logical_id).in("item_id", ids).order("id").range(from, to)),
       allRows<{ item_id: string; label: string; position: number; expected_unit: string | null }>((from, to) => client
         .from("takeoff_list_revision_entries").select("item_id, label, position, expected_unit")

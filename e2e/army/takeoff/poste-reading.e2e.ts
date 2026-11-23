@@ -300,7 +300,41 @@ armyTest("TKPR03 a new measure of one item reads it alone on its plans, and the 
       const detail = screen.getByTestId(`poste-detail-${ids[WC]}`);
       await expect(detail).toContainText("Mesuré");
       await expect(detail).toContainText("Non trouvé");
-      await recordEvidence(ui.army, "takeoff-item-remeasure", { requestId, jobs: [jobA.id, jobB.id, newA.id, newB.id],
+      const address = `/dashboard/affaires/${dossier.projectId}/takeoff?poste=${ids[WC]}&plan=${planA}&page=1`;
+      await ui.app.open(address);
+      await waitForHydration(ui.browser);
+      await screen.getByRole("button", "Mesurer ce poste", { exact: true }).click();
+      const summary = screen.getByRole("dialog", "Mesurer ce poste", { exact: true });
+      await expect(summary).toContainText("Couverture précédente · 1, 2");
+      await expect(summary).toContainText("Détaillé");
+      const screenshots = [await ui.app.screenshot("mesurer-poste-recapitulatif")];
+      await screen.getByLabel("Portée").selectOption({ value: "page" });
+      await expect(summary).toContainText("La lecture précédente est indivisible");
+      await expect(summary).toContainText("MergeOne local");
+      await expect(screen.getByRole("button", "Mesurer avec mon forfait", { exact: true })).toBeDisabled();
+      screenshots.push(await ui.app.screenshot("mesurer-poste-refus"));
+      await ui.browser.keyboard.press("Escape");
+      await expect(summary).not.toBeVisible();
+      const detailKey = randomUUID();
+      const admission = await runOwnedTakeoffCommand(owner, ["measure-item", dossier.projectId, ids[WC], detailKey,
+        planA, dossier.plans[0].hash, "1"]);
+      expect(admission).toMatchObject({ result: { outcome: "admitted", receipt: { intentKey: detailKey, state: "queued" } } });
+      const detailJob = admission.result!.receipt!.jobId;
+      await ui.browser.reload();
+      await waitForHydration(ui.browser);
+      const comparison = screen.getByTestId("poste-mesure-resultat");
+      await expect(comparison).toContainText("En attente de lecture");
+      await runOwnedPlanDispatch(ui, owner, dossier.projectId);
+      await expect(comparison).toContainText("Lecture précédente · 2 u");
+      await expect(comparison).toContainText("Nouvelle lecture · Non trouvé · pages 1");
+      const currentItem = screen.getByRole("option", new RegExp(`^${WC}`));
+      await expect(currentItem).toContainText("Mesuré");
+      await expect(currentItem).toContainText("2 u");
+      await expect(screen.getByRole("button", "Mesurer tout le plan", { exact: true })).toBeVisible();
+      screenshots.push(await ui.app.screenshot("mesurer-poste-comparaison"));
+      const published = (await ownedAnswers(dossier.projectId)).filter((answer) => answer.job_id === detailJob);
+      expect(published).toMatchObject([{ item_id: ids[WC], plan_file_id: planA, outcome: "not_found", replaces: null }]);
+      await recordEvidence(ui.army, "takeoff-item-remeasure", { requestId, screenshots, detailJob, jobs: [jobA.id, jobB.id, newA.id, newB.id],
         added: added.map(({ plan_file_id, outcome }) => [plan_file_id === planA ? "A" : "B", outcome]) });
     } finally {
       await deactivateOwnedItemListOrder();

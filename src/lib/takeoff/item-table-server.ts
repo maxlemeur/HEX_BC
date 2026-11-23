@@ -410,13 +410,13 @@ export async function readAffaireItemTable(projectId: string, query: ItemTableQu
 /** One item of the list on its own, outside any filter (a link of the radar, the detail of an item); null when absent. */
 export async function readAffaireItemLine(projectId: string, itemId: string): Promise<ItemTableLineResponse | null> {
   const access = await requireAffaireAccess(projectId, "read");
-  const [{ lines, plans }, canReview] = await Promise.all([
+  const [{ lines, plans, list }, canReview] = await Promise.all([
     loadItemLines(access, { scope: { kind: "affaire" }, itemIds: [itemId], withPlans: true }),
     reviewerRight(access),
   ]);
   const [line] = lines;
   if (!line) return null;
-  return { projectId: access.project.id, canReview, line, plans,
+  return { projectId: access.project.id, canReview, line, plans, listRevisionId: list?.revisionId ?? null,
     names: await memberNames(access.context.supabase as unknown as Client, lines) };
 }
 

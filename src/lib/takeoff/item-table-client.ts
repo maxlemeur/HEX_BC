@@ -5,6 +5,7 @@ import {
   ITEM_REVIEW_COMMAND_VERSION,
   itemRemeasurePreviewSchema,
   itemRemeasureResultSchema,
+  itemMeasureReadingsSchema,
   itemReviewResultSchema,
   itemReviewStaleDetailsSchema,
   itemHistoryResponseSchema,
@@ -79,9 +80,9 @@ export function sendItemReviewCommand(projectId: string, command: ItemReviewComm
 }
 
 /** The preview of a new measure of the selection, with what the member saw of it (the list revision, each line's readings). */
-export function previewItemRemeasure(projectId: string, scope: ItemTableScope, itemIds: string[], seen: ItemRemeasureSeen) {
+export function previewItemRemeasure(projectId: string, scope: ItemTableScope, itemIds: string[], seen: ItemRemeasureSeen, detail?: import("./item-table-contracts").ItemMeasureScope) {
   return call(`${base(projectId)}/remeasure/preview`, { method: "POST", body: JSON.stringify({
-    command_version: ITEM_REVIEW_COMMAND_VERSION, scope, item_ids: itemIds, seen,
+    command_version: ITEM_REVIEW_COMMAND_VERSION, scope, item_ids: itemIds, seen, detail,
   }) }, itemRemeasurePreviewSchema, "Impossible de préparer la nouvelle mesure.", TAKEOFF_READ_REQUEST_TIMEOUT_MS);
 }
 
@@ -95,4 +96,9 @@ export function itemReviewStaleLines(error: unknown) {
   if (!(error instanceof TakeoffApiError) || error.status !== 409) return null;
   const parsed = itemReviewStaleDetailsSchema.safeParse(error.details);
   return parsed.success ? parsed.data.stale : null;
+}
+
+export function fetchItemMeasureReadings(projectId: string, item: string, plan: string) {
+  return call(`${base(projectId)}/remeasure?${new URLSearchParams({ item, plan })}`, { method: "GET", cache: "no-store" },
+    itemMeasureReadingsSchema, "Impossible de lire la dernière mesure de ce poste.", TAKEOFF_READ_REQUEST_TIMEOUT_MS);
 }
