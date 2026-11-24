@@ -27252,6 +27252,15 @@
             }
           },
           {
+            "name": "view",
+            "in": "query",
+            "description": "Ajoute les fichiers et pages visibles et replie les tentatives closes du même périmètre avant la pagination. Les compteurs et les fins gardent leur portée.",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/GetTakeoffActivityCenterViewParameter"
+            }
+          },
+          {
             "name": "limit",
             "in": "query",
             "description": "Nombre maximal de resultats.",
@@ -97786,6 +97795,10 @@
         "format": "uuid",
         "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
       },
+      "GetTakeoffActivityCenterViewParameter": {
+        "type": "string",
+        "const": "tracking"
+      },
       "GetTakeoffActivityCenterLimitParameter": {
         "type": "number",
         "exclusiveMinimum": 0
@@ -98097,7 +98110,8 @@
                         {
                           "type": "null"
                         }
-                      ]
+                      ],
+                      "description": "Part des lignes liées. Avec view=tracking, seules les lignes importées du DPGF servent au calcul, et null indique leur absence."
                     },
                     "exceptionCount": {
                       "type": "integer",
@@ -98172,6 +98186,71 @@
                         "string",
                         "null"
                       ]
+                    },
+                    "plans": {
+                      "description": "Fichiers et pages du périmètre lu avec view=tracking, selon la visibilité de leurs sources.",
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "name": {
+                            "type": "string"
+                          },
+                          "pages": {
+                            "type": "array",
+                            "items": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0,
+                              "maximum": 9007199254740991
+                            }
+                          }
+                        },
+                        "required": [
+                          "name",
+                          "pages"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "notStarted": {
+                      "type": "boolean"
+                    },
+                    "model": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "reasoningEffort": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "previousAttempts": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "jobId": {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                          },
+                          "createdAt": {
+                            "type": "string"
+                          },
+                          "statusLabel": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "jobId",
+                          "createdAt",
+                          "statusLabel"
+                        ],
+                        "additionalProperties": false
+                      }
                     }
                   },
                   "required": [
@@ -98223,15 +98302,49 @@
                     },
                     "finishedAt": {
                       "type": "string"
+                    },
+                    "failureReason": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "plans": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "name": {
+                            "type": "string"
+                          },
+                          "pages": {
+                            "type": "array",
+                            "items": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0,
+                              "maximum": 9007199254740991
+                            }
+                          }
+                        },
+                        "required": [
+                          "name",
+                          "pages"
+                        ],
+                        "additionalProperties": false
+                      }
                     }
                   },
                   "required": [
                     "eventId",
                     "outcome",
-                    "finishedAt"
+                    "finishedAt",
+                    "failureReason"
                   ],
                   "additionalProperties": false
                 }
+              },
+              "analysisCompletionsHasOlder": {
+                "type": "boolean"
               },
               "pagination": {
                 "type": "object",
@@ -98264,6 +98377,7 @@
               "counters",
               "jobs",
               "analysisCompletions",
+              "analysisCompletionsHasOlder",
               "pagination"
             ],
             "additionalProperties": false

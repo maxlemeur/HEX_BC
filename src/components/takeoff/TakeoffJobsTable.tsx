@@ -1,9 +1,10 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useState } from "react";
 import { useSWRConfig } from "swr";
 import { getTakeoffOperatorStateLabel } from "@/lib/takeoff/operator-state";
-import { TakeoffJobActions, type ActionKind } from "./TakeoffJobActions";
+import { TakeoffJobActions, TakeoffJobResumeDetails, type ActionKind } from "./TakeoffJobActions";
 import {
   adoptTakeoffResume,
   readTakeoffResumeRefusal,
@@ -19,21 +20,129 @@ import {
   resubmitTakeoffJob,
   type TakeoffActivityCenterResponse,
 } from "@/lib/takeoff/client";
+import { describeTakeoffTrackingStatus } from "@/lib/takeoff/job-list-labels";
+import type { TakeoffActivityCenterJobRow } from "@/lib/takeoff/types";
 import { Badge } from "@/components/ui/badge";
 import {
   PAGE_SIZE_OPTIONS,
   formatCount,
   formatTimestamp,
   getConfidenceBadgeVariant,
-  getOperatorStateBadgeVariant,
   getProcessingStrategyLabel,
-  getProviderBatchStateBadgeVariant,
   getProviderBatchStateLabel,
   getStatusCss,
+  formatActivityPlan,
   isCoverageLow,
 } from "@/components/takeoff/takeoff-job-list-shared";
 import { buttonVariants } from "@/components/ui/button";
 import { NativeSelect } from "@/components/ui/native-select";
+
+type RowProps = {
+  job: TakeoffActivityCenterJobRow;
+  projectId: string;
+  pendingAction?: ActionKind;
+  onAction: (jobId: string, action: ActionKind) => Promise<void>;
+};
+
+const rowCell = "min-w-0 align-top wrap-anywhere max-md:block max-md:!border-0 max-md:!px-0 max-md:!py-0";
+const disclosure = "w-fit cursor-pointer rounded text-xs font-medium text-primary hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary";
+
+function TakeoffTrackingRow({ job, projectId, pendingAction, onAction }: RowProps) {
+  const plans = job.plans ?? [];
+  const previous = job.previousAttempts ?? [];
+  const automaticStart = takeoffExpectsAutomaticStart(job) && (job.dispatchStatus === "queued" || job.dispatchStatus === "trigger_failed");
+  const status = describeTakeoffTrackingStatus({
+    status: job.technicalStatusRaw, fallback: job.statusLabel, errorCode: job.errorCode,
+    notStarted: job.notStarted, automaticStart,
+  });
+  const hasResult = job.technicalStatusRaw === "completed" || job.technicalStatusRaw === "applied";
+  const batchProgress = job.processingStrategy === "batch" && takeoffShowsBatchProgress(job);
+  const operatorLabel = batchProgress && job.operatorState && job.operatorState !== "none" && job.operatorState !== "orphan_to_reconcile"
+    ? getTakeoffOperatorStateLabel(job.operatorState) : null;
+
+  return (
+    <tr role="row" data-testid={`takeoff-tracking-job-${job.jobId}`}
+      className="max-md:grid max-md:grid-cols-[minmax(0,1fr)_auto] max-md:gap-x-3 max-md:gap-y-2 max-md:rounded-lg max-md:border max-md:border-border max-md:p-3">
+      <th scope="row" role="rowheader" className={`${rowCell} text-left font-normal max-md:col-span-2`}>
+        <div className="space-y-1">
+          <p className="font-semibold text-foreground">
+            {plans.length > 0 ? plans.map(formatActivityPlan).join(" · ") : "Fichier non renseigné"}
+          </p>
+          {job.estimateVersionId ? <p className="text-xs text-muted-foreground">Devis {job.versionLabel}</p> : null}
+          {job.carriedOverFrom ? <p className="text-xs text-muted-foreground">Repris de {job.carriedOverFrom}</p> : null}
+          <details className="text-xs text-muted-foreground">
+            <summary className={disclosure}>Détails</summary>
+            <div className="mt-1.5 space-y-1 pb-1">
+              {job.planSetLabel ? <p>Jeu de plans : {job.planSetLabel}</p> : null}
+              <p>Niveau d’analyse : {job.levelLabel}</p>
+              {job.processingStrategy ? <p>Mode de traitement : {getProcessingStrategyLabel(job.processingStrategy)}</p> : null}
+              {job.model ? <p>Modèle : {job.model}</p> : null}
+              {job.reasoningEffort ? <p>Effort de raisonnement : {job.reasoningEffort}</p> : null}
+              {batchProgress ? <p>{getProviderBatchStateLabel({ strategy: job.processingStrategy, state: job.providerBatchState })}</p> : null}
+              {operatorLabel ? <p>{operatorLabel}</p> : null}
+              {automaticStart && job.dispatchCorrelationId ? (
+                <p>Démarrage différé · Suivi {job.dispatchCorrelationId}</p>
+              ) : null}
+              <TakeoffJobResumeDetails job={job} />
+            </div>
+          </details>
+          {previous.length > 0 ? (
+            <details>
+              <summary className={disclosure}>
+                {formatCount(previous.length)} {previous.length === 1 ? "tentative précédente" : "tentatives précédentes"}
+              </summary>
+              <ul className="mt-1.5 space-y-1.5 pb-1 text-xs">
+                {previous.map((attempt) => (
+                  <li key={attempt.jobId}>
+                    <Link className="text-primary underline underline-offset-2" href={`/dashboard/affaires/${projectId}/takeoff?job=${attempt.jobId}`}>
+                      {formatTimestamp(attempt.createdAt)} · {attempt.statusLabel}
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </details>
+          ) : null}
+        </div>
+      </th>
+      <td role="cell" className={`${rowCell} max-md:col-span-2`}>
+        <span className={`status-badge ${getStatusCss(job.statusRaw)} !whitespace-normal`}>{status}</span>
+      </td>
+      <td role="cell" className={`${rowCell} max-md:col-span-2 max-md:empty:hidden`}>{hasResult || job.itemCount > 0 ? (
+        <div className="space-y-1">
+          <p className="font-medium text-foreground">
+            {formatCount(job.itemCount)} {job.itemCount === 1 ? "ligne de métré extraite" : "lignes de métré extraites"}
+          </p>
+          {hasResult && job.confidenceLabel !== "Inconnue" ? (
+            <Badge variant={getConfidenceBadgeVariant(job.confidenceLabel)} size="sm">
+              Confiance : {job.confidenceLabel.toLocaleLowerCase("fr-FR")}
+            </Badge>
+          ) : null}
+          {job.neverApplied || job.appliedCount > 0 ? (
+            <p className="text-xs text-muted-foreground">{job.neverApplied ? "Pas encore envoyé au devis" : "Reporté au devis"}</p>
+          ) : null}
+          {job.coveragePercent !== null ? (
+            <p className={`text-xs ${isCoverageLow(job.coveragePercent) ? "text-danger" : "text-muted-foreground"}`}>
+              Couverture DPGF : {job.coveragePercent} %
+            </p>
+          ) : null}
+          {job.exceptionCount > 0 ? (
+            <p className="text-xs text-warning">
+              {formatCount(job.exceptionCount)} {job.exceptionCount === 1 ? "exception DPGF traitée" : "exceptions DPGF traitées"}
+            </p>
+          ) : null}
+        </div>
+      ) : null}</td>
+      <td role="cell" className={`${rowCell} max-md:self-center`}>
+        <time className="text-xs text-muted-foreground" dateTime={job.createdAt}>
+          <span className="md:hidden">Lancée le </span>{formatTimestamp(job.createdAt)}
+        </time>
+      </td>
+      <td role="cell" className={`${rowCell} max-md:justify-self-end max-md:empty:hidden`}>
+        <TakeoffJobActions job={job} projectId={projectId} pendingAction={pendingAction} onAction={onAction} />
+      </td>
+    </tr>
+  );
+}
 
 type Props = {
   projectId: string;
@@ -155,282 +264,24 @@ export default function TakeoffJobsTable({
         </p>
       ) : (
         <div>
-          <div className="space-y-3 p-4 md:hidden">
-            {jobs.map((job) => {
-              const pendingAction = pendingActions[job.jobId];
-
-              return (
-                <article
-                  key={job.jobId}
-                  className="rounded-xl border border-border bg-surface p-4 shadow-sm"
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <span className="inline-flex items-center rounded-full bg-muted px-2 py-0.5 text-xs font-semibold text-foreground-secondary">
-                        {job.versionLabel}
-                      </span>
-                      {job.carriedOverFrom ? (
-                        <p className="mt-1 text-xs text-subtle-foreground">
-                          Repris de {job.carriedOverFrom}
-                        </p>
-                      ) : null}
-                    </div>
-                    <Badge
-                      variant={getConfidenceBadgeVariant(job.confidenceLabel)}
-                    >
-                      {job.confidenceLabel}
-                    </Badge>
-                  </div>
-
-                  <div className="mt-3 flex flex-wrap items-center gap-2">
-                    <span
-                      className={`status-badge ${getStatusCss(job.statusRaw)}`}
-                    >
-                      {job.statusLabel}
-                    </span>
-                    <Badge variant="neutral" size="sm">
-                      {job.levelLabel}
-                    </Badge>
-                    <Badge variant="neutral" size="sm">
-                      {getProcessingStrategyLabel(job.processingStrategy)}
-                    </Badge>
-                    {job.processingStrategy === "sync" || !takeoffShowsBatchProgress(job) ? null : (
-                      <Badge
-                        variant={getProviderBatchStateBadgeVariant(
-                          job.providerBatchState
-                        )}
-                        size="sm"
-                      >
-                        {getProviderBatchStateLabel({
-                          strategy: job.processingStrategy,
-                          state: job.providerBatchState,
-                        })}
-                      </Badge>
-                    )}
-                    {job.operatorState && job.operatorState !== "none" && job.operatorState !== "orphan_to_reconcile"
-                      && takeoffShowsBatchProgress(job) ? (
-                      <Badge
-                        variant={getOperatorStateBadgeVariant(
-                          job.operatorState
-                        )}
-                        size="sm"
-                      >
-                        {getTakeoffOperatorStateLabel(job.operatorState)}
-                      </Badge>
-                    ) : null}
-                    {takeoffExpectsAutomaticStart(job) && (job.dispatchStatus === "queued" ||
-                    job.dispatchStatus === "trigger_failed") ? (
-                      <Badge variant="warning" size="sm">
-                        Reprise automatique
-                      </Badge>
-                    ) : null}
-                    {job.neverApplied ? (
-                      <Badge variant="warning" size="sm">
-                        Jamais appliqué
-                      </Badge>
-                    ) : null}
-                  </div>
-
-                  <dl className="mt-4 grid grid-cols-2 gap-3 text-sm">
-                    {takeoffExpectsAutomaticStart(job) && (job.dispatchStatus === "queued" ||
-                      job.dispatchStatus === "trigger_failed") &&
-                    job.dispatchCorrelationId ? (
-                      <div className="col-span-2 rounded-lg border border-warning-border bg-warning-light p-2">
-                        <dt className="text-xs font-semibold text-foreground-secondary">
-                          Démarrage différé
-                        </dt>
-                        <dd className="mt-1 text-xs text-muted-foreground">
-                          La demande est conservée. Suivi {job.dispatchCorrelationId}
-                        </dd>
-                      </div>
-                    ) : null}
-                    <div>
-                      <dt className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                        Source
-                      </dt>
-                      <dd className="mt-1 text-foreground">
-                        {job.planSetLabel ?? "-"}
-                      </dd>
-                    </div>
-                    <div>
-                      <dt className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                        Date
-                      </dt>
-                      <dd className="mt-1 text-foreground">
-                        {formatTimestamp(job.createdAt)}
-                      </dd>
-                    </div>
-                    <div>
-                      <dt className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                        Éléments
-                      </dt>
-                      <dd className="mt-1 text-foreground">
-                        {formatCount(job.itemCount)}
-                      </dd>
-                    </div>
-                    <div>
-                      <dt className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                        Couverture DPGF
-                      </dt>
-                      <dd
-                        className={`mt-1 ${isCoverageLow(job.coveragePercent) ? "text-danger" : "text-foreground"}`}
-                      >
-                        {job.coveragePercent === null
-                          ? "Aucun DPGF"
-                          : `${job.coveragePercent}%`}
-                      </dd>
-                    </div>
-                    <div>
-                      <dt className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                        Exceptions
-                      </dt>
-                      <dd
-                        className={`mt-1 ${job.exceptionCount > 0 ? "text-warning font-semibold" : "text-foreground"}`}
-                      >
-                        {job.exceptionCount}
-                      </dd>
-                    </div>
-                  </dl>
-
-                  <div className="mt-4">
-                    <TakeoffJobActions job={job} projectId={projectId} pendingAction={pendingAction} onAction={handleAction} />
-                  </div>
-                </article>
-              );
-            })}
-          </div>
-
-          <div
-            className="relative hidden overflow-x-auto md:block"
-            role="region"
-            aria-label="Analyses de plans"
-            tabIndex={0}
-          >
-            <table className="data-table w-full">
-              <thead>
-                <tr>
-                  <th>Version</th>
-                  <th>Source</th>
-                  <th>Analyse</th>
-                  <th>Statut</th>
-                  <th>Date</th>
-                  <th>Éléments</th>
-                  <th>Couverture DPGF</th>
-                  <th>Exceptions</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {jobs.map((job) => {
-                  const pendingAction = pendingActions[job.jobId];
-
-                  return (
-                    <tr key={job.jobId}>
-                      <td>
-                        <span className="inline-flex items-center rounded-full bg-muted px-2 py-0.5 text-xs font-semibold text-foreground-secondary">
-                          {job.versionLabel}
-                        </span>
-                        {job.carriedOverFrom && (
-                          <span className="mt-0.5 block text-xs text-subtle-foreground">
-                            Repris de {job.carriedOverFrom}
-                          </span>
-                        )}
-                      </td>
-                      <td>{job.planSetLabel ?? "-"}</td>
-                      <td>
-                        <div className="flex flex-col items-start gap-1.5">
-                          <span className="text-sm font-medium text-foreground">
-                            {job.levelLabel}
-                          </span>
-                          <Badge variant="neutral" size="sm">
-                            {getProcessingStrategyLabel(job.processingStrategy)}
-                          </Badge>
-                        </div>
-                      </td>
-                      <td>
-                        <div className="flex flex-col items-start gap-1.5">
-                          <span
-                            className={`status-badge ${getStatusCss(job.statusRaw)}`}
-                          >
-                            {job.statusLabel}
-                          </span>
-                          {/* An immediate analysis has no provider batch: its badge would repeat the strategy. */}
-                          {job.processingStrategy === "sync" || !takeoffShowsBatchProgress(job) ? null : (
-                            <Badge
-                              variant={getProviderBatchStateBadgeVariant(
-                                job.providerBatchState
-                              )}
-                              size="sm"
-                            >
-                              {getProviderBatchStateLabel({
-                                strategy: job.processingStrategy,
-                                state: job.providerBatchState,
-                              })}
-                            </Badge>
-                          )}
-                          <Badge
-                            variant={getConfidenceBadgeVariant(
-                              job.confidenceLabel
-                            )}
-                            size="sm"
-                          >
-                            {job.confidenceLabel}
-                          </Badge>
-                          {job.operatorState && job.operatorState !== "none" && job.operatorState !== "orphan_to_reconcile"
-                      && takeoffShowsBatchProgress(job) ? (
-                            <Badge
-                              variant={getOperatorStateBadgeVariant(
-                                job.operatorState
-                              )}
-                              size="sm"
-                            >
-                              {getTakeoffOperatorStateLabel(job.operatorState)}
-                            </Badge>
-                          ) : null}
-                          {takeoffExpectsAutomaticStart(job) && (job.dispatchStatus === "queued" ||
-                          job.dispatchStatus === "trigger_failed") ? (
-                            <Badge variant="warning" size="sm">
-                              Reprise automatique
-                            </Badge>
-                          ) : null}
-                          {job.neverApplied ? (
-                            <Badge variant="warning" size="sm">
-                              Jamais appliqué
-                            </Badge>
-                          ) : null}
-                        </div>
-                      </td>
-                      <td>{formatTimestamp(job.createdAt)}</td>
-                      <td>{formatCount(job.itemCount)}</td>
-                      <td
-                        className={
-                          isCoverageLow(job.coveragePercent)
-                            ? "!text-danger"
-                            : ""
-                        }
-                      >
-                        {job.coveragePercent === null
-                          ? "Aucun DPGF"
-                          : `${job.coveragePercent}%`}
-                      </td>
-                      <td
-                        className={
-                          job.exceptionCount > 0
-                            ? "!text-warning font-semibold"
-                            : ""
-                        }
-                      >
-                        {job.exceptionCount}
-                      </td>
-                      <td>
-                        <TakeoffJobActions job={job} projectId={projectId} pendingAction={pendingAction} onAction={handleAction} />
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+          <table className="data-table table-fixed max-md:block" role="table" aria-label="Analyses de plans">
+            <thead className="max-md:sr-only" role="rowgroup">
+              <tr role="row">
+                <th scope="col" role="columnheader" className="w-[29%]">Plan ou fichier</th>
+                <th scope="col" role="columnheader" className="w-[26%]">État</th>
+                <th scope="col" role="columnheader">Résultat</th>
+                <th scope="col" role="columnheader" className="w-[13%]">Date de lancement</th>
+                <th scope="col" role="columnheader" className="w-[14%]">Actions</th>
+              </tr>
+            </thead>
+            <tbody role="rowgroup" className="max-md:block max-md:space-y-3 max-md:p-3">
+              {jobs.map((job) => (
+                <TakeoffTrackingRow
+                  key={job.jobId} job={job} projectId={projectId} pendingAction={pendingActions[job.jobId]} onAction={handleAction}
+                />
+              ))}
+            </tbody>
+          </table>
 
           <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border px-4 py-3 sm:px-6">
             <p className="text-sm text-muted-foreground">

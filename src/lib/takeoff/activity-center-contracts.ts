@@ -9,6 +9,7 @@ import {
 } from "@/lib/takeoff/response-contracts";
 
 const outcome = z.enum(["success", "failure", "canceled"]);
+const plans = z.array(z.object({ name: z.string(), pages: z.array(z.number().int().positive()) }));
 
 /** A row of the affaire's activity, as GET /api/takeoff/activity-center returns it. */
 export const takeoffActivityCenterJobRowSchema = z.object({
@@ -36,7 +37,7 @@ export const takeoffActivityCenterJobRowSchema = z.object({
   errorCode: z.string().nullable().describe("Code de diagnostic de l’analyse ; l’écran affiche son motif en français, jamais le code."),
   nextRetryAt: timestamp.nullable(),
   itemCount: count,
-  coveragePercent: z.number().min(0).max(100).nullable(),
+  coveragePercent: z.number().min(0).max(100).nullable().describe("Part des lignes liées. Avec view=tracking, seules les lignes importées du DPGF servent au calcul, et null indique leur absence."),
   exceptionCount: count,
   confidenceLabel: z.string(),
   appliedCount: count,
@@ -48,11 +49,17 @@ export const takeoffActivityCenterJobRowSchema = z.object({
   dispatchOutcome: z.enum(["accepted", "configuration_missing", "http_error", "timeout", "network_error"]).nullable().optional(),
   dispatchCorrelationId: z.string().nullable().optional(),
   dispatchUpdatedAt: timestamp.nullable().optional(),
+  plans: plans.optional().describe("Fichiers et pages du périmètre lu avec view=tracking, selon la visibilité de leurs sources."),
+  notStarted: z.boolean().optional(),
+  model: z.string().nullable().optional(),
+  reasoningEffort: z.string().nullable().optional(),
+  previousAttempts: z.array(z.object({ jobId: uuid, createdAt: timestamp, statusLabel: z.string() })).optional(),
 });
 
 export const takeoffActivityCenterResponseSchema = z.object({
   counters: z.object({ technicalJobs: count, usableJobs: count, blockingExceptionsJobs: count }),
   jobs: z.array(takeoffActivityCenterJobRowSchema),
-  analysisCompletions: z.array(z.object({ eventId: uuid, outcome, finishedAt: timestamp })),
+  analysisCompletions: z.array(z.object({ eventId: uuid, outcome, finishedAt: timestamp, failureReason: z.string().nullable(), plans: plans.optional() })),
+  analysisCompletionsHasOlder: z.boolean(),
   pagination: z.object({ limit: z.number().int().min(1), offset: count, total: count }),
 });

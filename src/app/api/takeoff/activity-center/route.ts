@@ -53,6 +53,7 @@ export async function GET(request: Request) {
       level: searchParams.get("level"),
       period: searchParams.get("period"),
       jobId: jobId?.toLowerCase() ?? null,
+      tracking: searchParams.get("view") === "tracking",
       limit:
         rawLimit != null && Number.isFinite(rawLimit) && rawLimit > 0
           ? rawLimit

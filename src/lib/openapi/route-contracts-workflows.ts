@@ -609,6 +609,7 @@ const takeoffOperationsContracts: RouteContract[] = [
       { name: "level", schema: z.string(), description: "Niveau a filtrer." },
       { name: "period", schema: z.string(), description: "Periode a filtrer." },
       { name: "jobId", schema: uuidSchema, description: "Analyse a afficher seule, avec sa fin." },
+      { name: "view", schema: z.literal("tracking"), description: "Ajoute les fichiers et pages visibles et replie les tentatives closes du même périmètre avant la pagination. Les compteurs et les fins gardent leur portée." },
       { name: "limit", schema: z.number().positive(), description: "Nombre maximal de resultats." },
       { name: "offset", schema: z.number().min(0), description: "Decalage de pagination." },
       { name: "completionsOffset", schema: z.number().min(0), description: "Decalage de la page des fins d’analyse." },
