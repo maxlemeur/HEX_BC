@@ -2,34 +2,33 @@ name: E2E RLS Matrix
 
 # Cette matrice monte une pile Supabase locale en runtime natif, sans Docker :
 # chaque service tourne comme un processus du runner ubuntu-24.04 (glibc 2.39).
-# Le job tourne en entier sur chaque PR, exige par le ruleset de main : il y
-# porte seul pgTAP et la matrice RLS, plafonds de requetes compris. Les jobs
-# Army de la meme PR les lui deleguent au lieu de les rejouer dans chacune
-# de leurs piles (scripts/tester-army/database-checks.ts). Aucune condition
-# ne saute ses etapes : une PR de documentation peut aussi lancer des jobs
-# Army (label army-full, diff vide), qui delegueraient alors a un check qui
-# n'aurait rien execute.
+# Le job tourne en entier sur chaque PR, exige par le ruleset de main, et
+# sur chaque push de main qui ne touche pas que la documentation : il y porte
+# seul pgTAP et la matrice RLS, plafonds de requetes compris. Les jobs Army
+# de la meme PR ou du meme push les lui deleguent au lieu de les rejouer dans
+# chacune de leurs piles (scripts/tester-army/database-checks.ts). Aucune
+# condition ne saute ses etapes : une PR de documentation peut aussi lancer
+# des jobs Army (label army-full, diff vide), qui delegueraient alors a un
+# check qui n'aurait rien execute. Un run rouge de main (push ou planifie)
+# ouvre le ticket « CI rouge sur main » (ci-night-alert.yml).
 on:
   workflow_dispatch:
   pull_request:
     branches: ["main"]
-  # Un push direct sur main qui touche la base (migration, pgTAP, matrice RLS)
-  # est verifie tout de suite, plafonds de requetes compris, au lieu d'attendre
-  # la passe nocturne. Le garde d'historique des migrations de ce push est
-  # celui du Quality Gate (mode push) ; ici il reste en mode local.
+  # Chaque push de main pour lequel les workflows Army tournent (meme
+  # paths-ignore) : leurs jobs lui deleguent pgTAP et la matrice RLS. Un run
+  # de push n'est jamais annule par un plus recent (groupe par run). Le garde
+  # d'historique des migrations de ce push est celui du Quality Gate (mode
+  # push) ; ici il reste en mode local.
   push:
-    branches: ["main"]
-    paths:
-      - "supabase/**"
-      - "src/lib/estimates/rls.e2e.test.ts"
-      - "src/test/supabase*"
-      - "src/test/local-supabase-ci*"
-      - "scripts/*supabase*"
-      - ".github/workflows/e2e-rls-matrix.yml"
+    branches: [main]
+    paths-ignore:
+      - "docs/**"
+      - "**/*.md"
   schedule:
-    # With the pushes above, the only job that measures the CI statement
-    # ceilings on main: the Army suites build alongside their database checks
-    # and skip them.
+    # Avec les pushs ci-dessus, le seul job qui mesure les plafonds de requetes
+    # CI sur main : les suites Army construisent en parallele de leurs
+    # controles de base et les sautent.
     - cron: "15 5 * * *"
 
 permissions:

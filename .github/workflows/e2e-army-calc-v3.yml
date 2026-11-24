@@ -264,9 +264,9 @@ jobs:
       - name: Run native database and TesterArmy calc-v3 phases
         id: journeys
         env:
-          # pgTAP and the RLS matrix of a pull request run once, in the required check rls-matrix
-          # (scripts/tester-army/database-checks.ts); a push to main and a campaign keep their own.
-          ARMY_DATABASE_CHECKS_DELEGATED_TO: ${{ github.event_name == 'pull_request' && 'rls-matrix' || '' }}
+          # pgTAP and the RLS matrix of a pull request or of a push to main run once, in rls-matrix
+          # (scripts/tester-army/database-checks.ts); a scheduled or dispatched campaign keeps its own.
+          ARMY_DATABASE_CHECKS_DELEGATED_TO: ${{ (github.event_name == 'pull_request' || github.event_name == 'push' && github.ref == 'refs/heads/main') && 'rls-matrix' || '' }}
           # The group's phases, comma-separated; "all": the explicit complete campaign.
           CALC_V3_PHASES: ${{ matrix.phases }}
         run: |

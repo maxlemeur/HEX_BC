@@ -4,12 +4,6 @@ import path from "node:path";
 
 import { describe, expect, it, vi } from "vitest";
 
-import type {
-  DatabaseFingerprint,
-  DatabaseSnapshot,
-  DatabaseSnapshotManifest,
-  DatabaseSnapshotOperations,
-} from "@/test/database-snapshot";
 import {
   describeSafeFailure,
   parseLocalSupabaseStatus,
@@ -222,10 +216,7 @@ describe("local Supabase CI", () => {
       await Promise.resolve();
       calls.push("run application");
     });
-    // Without ARMY_DB_SNAPSHOT_DIR the run keeps db reset and touches no snapshot.
-    await expect(runLocalSupabaseCi({ ...dependencies, runApplication })).resolves.toEqual({
-      database: { source: "reset", snapshot: "disabled" },
-    });
+    await expect(runLocalSupabaseCi({ ...dependencies, runApplication })).resolves.toBeUndefined();
     const projectRoot = "C:/temp/miaouffrage-supabase-ci-test";
     const databaseTests = path.join(
       projectRoot,
@@ -322,9 +313,7 @@ describe("local Supabase CI", () => {
     const projectRoot = "C:/temp/miaouffrage-supabase-ci-test";
     const { calls, dependencies } = createDependencies();
     const runApplication = vi.fn(async () => { calls.push("run application"); });
-    await expect(runLocalSupabaseCi({ ...dependencies, runApplication, delegatedDatabaseChecks: "rls-matrix" })).resolves.toEqual({
-      database: { source: "reset", snapshot: "disabled" },
-    });
+    await expect(runLocalSupabaseCi({ ...dependencies, runApplication, delegatedDatabaseChecks: "rls-matrix" })).resolves.toBeUndefined();
     expect(calls).toEqual([
       "--version",
       `start --runtime native --workdir ${projectRoot}`,
@@ -580,9 +569,9 @@ describe("local Supabase CI", () => {
       "github.event_name == 'pull_request' && 'pull_request' || 'local'"
     );
     expect(workflow).not.toContain("github.event.before");
-    // Un push direct sur main qui touche la base lance la matrice sans
-    // attendre la nuit ; les autres pushs ne la lancent pas.
-    expect(workflow).toMatch(/\n  push:\n    branches: \["main"\]\n    paths:\n      - "supabase\/\*\*"\n/u);
+    // Chaque push de main hors documentation lance la matrice : les jobs Army
+    // de ce push lui delegent pgTAP et la matrice RLS.
+    expect(workflow).toMatch(/\n  push:\n    branches: \[main\]\n    paths-ignore:\n      - "docs\/\*\*"\n      - "\*\*\/\*\.md"\n  schedule:\n/u);
     expect(workflow).toContain("github.ref || github.run_id");
     expect(workflow).toContain(
       "cancel-in-progress: ${{ github.event_name == 'pull_request' }}"
@@ -653,144 +642,33 @@ describe("local Supabase CI", () => {
   });
 });
 
-function snapshotFingerprint(overrides: { policies?: string; stack?: string } = {}): DatabaseFingerprint {
-  const components = {
-    columns: "10:aa",
-    data: "5:bb",
-    policies: overrides.policies ?? "2:cc",
-    stack_state: overrides.stack ?? "2:dd",
-  };
-  return {
-    schema: `${components.columns}|${components.policies}`.padEnd(64, "0"),
-    data: components.data.padEnd(64, "0"),
-    stack: components.stack_state.padEnd(64, "0"),
-    components,
-  };
-}
-
-function createSnapshotOperations(options: {
-  afterRestore?: DatabaseFingerprint;
-  hit?: boolean;
-  migrations?: string[];
-} = {}) {
-  const events: string[] = [];
-  const snapshot: DatabaseSnapshot = {
-    directory: "/snapshots/army",
-    dumpPath: "/snapshots/army/postgres.dump",
-    manifest: {
-      fingerprint: snapshotFingerprint(),
-      migrations: options.migrations ?? ["001", "002"],
-    } as DatabaseSnapshotManifest,
-  };
-  let restored = false;
-  const operations: DatabaseSnapshotOperations = {
-    computeKey: vi.fn((postgresBundle: string) => {
-      events.push(`key ${postgresBundle}`);
-      return { key: "k".repeat(64), supabaseCli: PINNED_SUPABASE_CLI_VERSION, postgresBundle, configTemplateSha256: "c".repeat(64), files: [] };
-    }),
-    fingerprint: vi.fn(() => {
-      events.push("fingerprint");
-      return restored ? options.afterRestore ?? snapshotFingerprint() : snapshotFingerprint();
-    }),
-    lookUp: vi.fn(() => {
-      events.push("look up");
-      return options.hit ? { hit: true as const, snapshot } : { hit: false as const, reason: "no snapshot recorded" };
-    }),
-    record: vi.fn(() => {
-      events.push("record");
-      return { dump: { bytes: 3_500_000 } } as DatabaseSnapshotManifest;
-    }),
-    resolveTools: vi.fn(() => ({ bundle: "17.11.0.004-r1", pgDump: "/pg/pg_dump", pgRestore: "/pg/pg_restore", psql: "/pg/psql" })),
-    restore: vi.fn(() => {
-      events.push("restore");
-      restored = true;
-    }),
-  };
-  return { events, operations };
-}
-
-describe("local Supabase CI database snapshot", () => {
+// A database restored with pg_restore behaved unlike one from `db reset`: 22 red Critical runs on main failed
+// pgTAP on a restored database only (pg_restore renumbers the RI trigger OIDs, and with them the order in which
+// cascades fire), while the same tests passed after `db reset` (docs/testing/tester-army-ci.md, "Pile,
+// confidentialité et diagnostic"). Every owned stack now migrates with `db reset`, whatever its environment says.
+describe("local Supabase CI database preparation", () => {
   const projectRoot = "C:/temp/miaouffrage-supabase-ci-test";
-  const snapshotEnvironment = { ARMY_DB_SNAPSHOT_DIR: path.join(os.tmpdir(), "army-db-snapshot-unit") };
-  const migrationOutput = JSON.stringify({ migrations: [{ local: "002", remote: "002" }, { local: "001", remote: "001" }] });
 
-  function snapshotRun(options: Parameters<typeof createSnapshotOperations>[0] = {}) {
-    const run = createDependencies({ migrationOutput });
-    const snapshot = createSnapshotOperations(options);
-    return {
-      ...run,
-      ...snapshot,
-      dependencies: { ...run.dependencies, environment: snapshotEnvironment, databaseSnapshot: snapshot.operations },
-      logs: () => run.dependencies.log.mock.calls.flat().join("\n"),
-    };
-  }
-
-  it("records the reset database on a miss, before pgTAP touches it", async () => {
-    const run = snapshotRun();
-    await expect(runLocalSupabaseCi(run.dependencies)).resolves.toEqual({
-      database: { source: "reset", snapshot: "recorded", key: "k".repeat(64) },
-    });
-    expect(run.calls.slice(0, 6)).toEqual([
+  it("always migrates with db reset, even with the former snapshot directory set", async () => {
+    const run = createDependencies();
+    const environment = { ...run.dependencies.environment, ARMY_DB_SNAPSHOT_DIR: path.join(os.tmpdir(), "army-db-snapshot-unit") };
+    await expect(runLocalSupabaseCi({ ...run.dependencies, environment })).resolves.toBeUndefined();
+    expect(run.calls.slice(0, 4)).toEqual([
       "--version",
       `start --runtime native --workdir ${projectRoot}`,
-      `status --env --workdir ${projectRoot}`,
       `db reset --local --workdir ${projectRoot}`,
       `migration list --local --output-format json --workdir ${projectRoot}`,
-      expect.stringMatching(/^test db --local /),
     ]);
-    expect(run.events).toEqual(["key 17.11.0.004-r1", "look up", "fingerprint", "record"]);
-    expect(run.operations.record).toHaveBeenCalledWith(expect.objectContaining({
-      directory: snapshotEnvironment.ARMY_DB_SNAPSHOT_DIR,
-      databaseUrl: "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
-      migrations: ["001", "002"],
-    }));
-    expect(run.logs()).toContain("Database snapshot miss (no snapshot recorded); running db reset.");
-    expect(run.logs()).not.toContain("postgresql://");
-    expect(run.dependencies.runRls).toHaveBeenCalledOnce();
+    expect(run.dependencies.log.mock.calls.flat().join("\n")).not.toMatch(/snapshot/iu);
+    expect(fs.existsSync(path.join(os.tmpdir(), "army-db-snapshot-unit"))).toBe(false);
   });
 
-  it("restores a verified snapshot instead of db reset and still runs pgTAP and RLS", async () => {
-    const run = snapshotRun({ hit: true });
-    await expect(runLocalSupabaseCi(run.dependencies)).resolves.toEqual({
-      database: { source: "snapshot", snapshot: "restored", key: "k".repeat(64) },
-    });
-    expect(run.calls.some((command) => command.startsWith("db reset"))).toBe(false);
-    expect(run.calls.some((command) => command.startsWith("migration list --local"))).toBe(true);
-    expect(run.calls.some((command) => command.startsWith("test db --local"))).toBe(true);
-    expect(run.events).toEqual(["key 17.11.0.004-r1", "look up", "fingerprint", "restore", "fingerprint"]);
-    expect(run.operations.record).not.toHaveBeenCalled();
-    expect(run.dependencies.runRls).toHaveBeenCalledOnce();
-    expect(run.logs()).toContain("Database snapshot verified");
-  });
-
-  it("falls back to db reset and records again when the restored catalog differs", async () => {
-    const run = snapshotRun({ hit: true, afterRestore: snapshotFingerprint({ policies: "3:cc" }) });
-    await expect(runLocalSupabaseCi(run.dependencies)).resolves.toEqual({
-      database: {
-        source: "reset",
-        snapshot: "rejected",
-        key: "k".repeat(64),
-        reason: "fingerprint policies differs",
-      },
-    });
-    const reset = run.calls.indexOf(`db reset --local --workdir ${projectRoot}`);
-    expect(reset).toBeGreaterThan(run.calls.indexOf(`migration list --local --output-format json --workdir ${projectRoot}`));
-    expect(run.calls.filter((command) => command.startsWith("migration list --local"))).toHaveLength(2);
-    expect(run.events).toEqual(["key 17.11.0.004-r1", "look up", "fingerprint", "restore", "fingerprint", "fingerprint", "record"]);
-    expect(run.logs()).toContain("falling back to db reset");
-    expect(run.dependencies.runRls).toHaveBeenCalledOnce();
-  });
-
-  it("rejects a restore that loses this stack's own state or applied migrations", async () => {
-    const lostStack = snapshotRun({ hit: true, afterRestore: snapshotFingerprint({ stack: "2:ee" }) });
-    await expect(runLocalSupabaseCi(lostStack.dependencies)).resolves.toMatchObject({
-      database: { source: "reset", snapshot: "rejected", reason: "this stack's own state did not survive the restore" },
-    });
-    expect(lostStack.calls.some((command) => command.startsWith("db reset"))).toBe(true);
-
-    const otherMigrations = snapshotRun({ hit: true, migrations: ["001"] });
-    await expect(runLocalSupabaseCi(otherMigrations.dependencies)).resolves.toMatchObject({
-      database: { source: "reset", snapshot: "rejected", reason: "applied migrations differ from the snapshot" },
-    });
+  it("restores no database snapshot in any workflow", () => {
+    const directory = path.join(process.cwd(), ".github", "workflows");
+    for (const file of fs.readdirSync(directory)) {
+      const workflow = fs.readFileSync(path.join(directory, file), "utf8");
+      expect(workflow, file).not.toContain("ARMY_DB_SNAPSHOT_DIR");
+      expect(workflow, file).not.toContain("army-db-snapshot");
+    }
   });
 });
