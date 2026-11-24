@@ -192,7 +192,7 @@ describe("the Quality Gate audit step", () => {
         const summary = path.join(bin, `summary-${head}.md`);
         const result = spawnSync(process.execPath, ["--import", path.join(root, "node_modules/tsx/dist/loader.mjs"), path.join(root, "scripts/check-dependency-audit.ts")], {
           cwd: repository, encoding: "utf8",
-          env: { PATH: `${bin}${path.delimiter}${process.env.PATH ?? ""}`, HOME: process.env.HOME, GITHUB_STEP_SUMMARY: summary,
+          env: { NODE_ENV: "test", PATH: `${bin}${path.delimiter}${process.env.PATH ?? ""}`, HOME: process.env.HOME, GITHUB_STEP_SUMMARY: summary,
             DEPENDENCY_AUDIT_EVENT: "pull_request", DEPENDENCY_AUDIT_BASE: sha.base, DEPENDENCY_AUDIT_FORCED: "" },
         });
         return { ...result, summary: fs.existsSync(summary) ? fs.readFileSync(summary, "utf8") : "" };

@@ -98,8 +98,19 @@ jobs:
         if: ${{ !cancelled() }}
         run: npm run check:repository-hygiene
 
+      # Bloquant seulement quand la PR, ou le push sur main (plage before..after),
+      # modifie package.json, package-lock.json, .npmrc ou les exceptions de
+      # l'audit ; un premier push ou un push force compte comme une
+      # modification. Sinon, un avis publie contre une dependance que le diff ne
+      # touche pas devient un avertissement et une ligne du resume, et l'audit
+      # quotidien de main (dependency-audit-alert.yml) le suit dans un ticket.
+      # Du 16 au 23/11/2026, ces avis ont mis 10 PR au rouge.
       - name: Audit dependencies
         if: ${{ !cancelled() }}
+        env:
+          DEPENDENCY_AUDIT_EVENT: ${{ github.event_name }}
+          DEPENDENCY_AUDIT_BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+          DEPENDENCY_AUDIT_FORCED: ${{ github.event.forced }}
         run: npm run audit:dependencies
 
       # Controle statique (moins d'une seconde) deja present dans check:quality :

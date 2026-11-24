@@ -83,3 +83,14 @@ describe("daily alert of the dependency audit of main", () => {
     expect(alertSimulation({ ALERT_WRITE: "true" })).toContain("simulation");
   });
 });
+
+describe("Dependabot and the pinned Supabase CLI", () => {
+  it("opens no pull request for the CLI, whose upgrade changes the pin, the bundle and the generated types together", () => {
+    const config = fs.readFileSync(path.join(root, ".github/dependabot.yml"), "utf8");
+    const npm = /^ {2}- package-ecosystem: "npm"\n((?: {4}.*\n|\n)+?)(?=^ {2}- |(?![\s\S]))/mu.exec(config)?.[1] ?? "";
+    expect(npm).toMatch(/^ {4}ignore:\n {6}- dependency-name: "supabase"\n/mu);
+    // Ignored outright, not only kept out of a group whose own pull request would still be red.
+    expect(npm.match(/"supabase"/gu)).toHaveLength(1);
+    expect(fs.readFileSync(path.join(root, "docs/testing/tester-army-ci.md"), "utf8")).toContain("## Mise à jour du CLI Supabase");
+  });
+});

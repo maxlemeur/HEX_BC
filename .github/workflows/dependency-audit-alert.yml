@@ -1,0 +1,61 @@
+name: Dependency audit alert
+
+# The npm audit of the Quality Gate blocks only a pull request or a push that
+# changes a dependency file; otherwise a new advisory is a warning nobody may
+# read. Every day this workflow audits main and keeps one issue, « Audit des
+# dépendances rouge sur main »: opened, or commented, while the audit is red,
+# closed on the first clean one (scripts/dependency-audit-alert.ts,
+# docs/testing/tester-army-ci.md, "Audit des dépendances").
+#
+# A dispatch audits the chosen branch; it only simulates unless write is chosen
+# and the branch is main.
+on:
+  # 05:45 UTC: 06:45 in Paris in winter, 07:45 in summer.
+  schedule:
+    - cron: "45 5 * * *"
+  workflow_dispatch:
+    inputs:
+      write:
+        description: "Écrire dans le ticket. Décoché : la décision est seulement affichée dans le résumé."
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dependency-audit-alert
+  cancel-in-progress: false
+
+jobs:
+  alert:
+    name: dependency-audit-alert
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Open, update or close the alert issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          # The script also refuses to write outside main.
+          ALERT_WRITE: ${{ github.event_name == 'schedule' || inputs.write }}
+          # Optional repository variable: comma-separated logins assigned to a new alert.
+          ALERT_ASSIGNEES: ${{ vars.CI_ALERT_ASSIGNEES }}
+        run: node --import tsx scripts/dependency-audit-alert.ts

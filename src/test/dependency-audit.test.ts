@@ -4,6 +4,7 @@ import {
   evaluateDependencyAudit,
   parseDependencyAuditPolicy,
   parseNpmAuditReport,
+  runDependencyAudit,
   runDependencyAuditGate,
 } from "@/test/dependency-audit";
 
@@ -207,6 +208,25 @@ describe("dependency audit gate", () => {
     expect(unused.errors).toContain(
       "unused exception: vulnerable-package source 12345"
     );
+    // The daily alert lists the exception errors apart from the advisories.
+    expect(mismatch.exceptionErrors).toEqual(["unused exception: other-package source 12345"]);
+    expect(expired.exceptionErrors).toEqual([expect.stringContaining("expired exception: vulnerable-package source 12345")]);
+  });
+
+  it("returns a red audit to the daily alert instead of throwing, but still throws when the audit cannot run", () => {
+    const red = runDependencyAudit({
+      executeCommand: () => ({
+        status: 1,
+        stdout: auditReport({
+          "vulnerable-package": { name: "vulnerable-package", severity: "high", via: [advisory("vulnerable-package", 12345)] },
+        }),
+      }),
+      readFile: () => policy(),
+    });
+    expect(red.unexceptedFindings).toMatchObject([{ package: "vulnerable-package", severity: "high", source: 12345 }]);
+    expect(red.errors).toEqual(["high vulnerability: vulnerable-package source 12345"]);
+    expect(() => runDependencyAudit({ executeCommand: () => ({ status: 2, stdout: auditReport() }), readFile: () => policy() }))
+      .toThrow("unexpected exit status 2");
   });
 
   it("rejects incomplete, ambiguous, duplicated, or misspelled policy entries", () => {

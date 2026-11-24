@@ -4,7 +4,7 @@ version: 2
 # 27 jobs), and merging one makes Dependabot rebase the others, which starts
 # them again. Minor and patch updates therefore arrive as one pull request per
 # ecosystem. A major update keeps its own pull request: it is the one likely to
-# break (Supabase CLI 3 on 09/11/2026) and has to be read on its own.
+# break and has to be read on its own.
 updates:
   - package-ecosystem: "npm"
     directory: "/"
@@ -13,6 +13,15 @@ updates:
       day: "monday"
       time: "06:00"
       timezone: "Europe/Paris"
+    # The Supabase CLI is upgraded by hand, as 3.0.0 was: package.json, the
+    # CLI and PostgreSQL bundle pinned in src/test/supabase-cli.ts, and the
+    # generated types (npm run supabase:types), which record the CLI version,
+    # change together (docs/testing/tester-army-ci.md, "Mise à jour du CLI
+    # Supabase"). A pull request Dependabot opens changes only package.json, so
+    # every database and Army job refuses it (« Supabase CLI must be exactly
+    # … »): 3.1.0 and 3.2.0 cost 4 red runs from 16 to 23/11/2026.
+    ignore:
+      - dependency-name: "supabase"
     # A dependency joins the first group whose patterns match it.
     groups:
       vitest:
@@ -25,15 +34,6 @@ updates:
         update-types:
           - "minor"
           - "patch"
-        # The Supabase CLI is pinned twice: in package.json and, with its
-        # PostgreSQL bundle, in src/test/supabase-cli.ts, and the generated
-        # database types record its version. A bump Dependabot writes changes
-        # only package.json, so every database and Army job refuses it
-        # (« Supabase CLI must be exactly … »). Inside the group it turned the
-        # whole weekly pull request red (3.1.0 on 16/11/2026). It keeps its
-        # own pull request, completed by hand like the one for 3.0.0.
-        exclude-patterns:
-          - "supabase"
     open-pull-requests-limit: 5
 
   - package-ecosystem: "github-actions"

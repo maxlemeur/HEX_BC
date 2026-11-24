@@ -44,6 +44,8 @@
     "components.json",
     "config/architecture-budgets.json",
     "config/dependency-audit-policy.json",
+    ".github/workflows/dependency-audit-alert.yml",
+    "scripts/dependency-audit-alert.ts",
     "eslint.config.mjs",
     "openapi.json",
     "vercel.json",
