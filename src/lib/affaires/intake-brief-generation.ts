@@ -536,6 +536,7 @@ export async function generateAffaireBriefDraft(input: {
             missingPieces: input.missingPieces,
           }),
           schema: affaireBriefGenerationSchema,
+          beforeSend: input.renewLease,
           context: { model: AFFAIRE_BRIEF_MODEL, promptVersion: AFFAIRE_BRIEF_PROMPT_VERSION },
         }, input.aiOwner),
       });

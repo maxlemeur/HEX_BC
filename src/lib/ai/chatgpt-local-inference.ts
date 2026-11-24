@@ -400,6 +400,7 @@ export async function callLocalChatGptStructured<T>(owner: ChatGptOwner, options
     }),
     signal: combineAbortSignal(Math.min(options.timeoutMs ?? 60_000, 180_000), options.signal), cache: "no-store",
   };
+  await options.beforeSend?.();
   let answer: Awaited<ReturnType<typeof readChatGptResponse>>;
   try {
     answer = await readChatGptResponse(await fetch(`${ROOT}/responses`, request), recordUsage);

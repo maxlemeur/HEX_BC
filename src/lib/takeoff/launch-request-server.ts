@@ -184,7 +184,7 @@ export async function confirmAffaireBriefWithTakeoff(input: {
   });
   if (error?.message === "INTAKE_ANALYSIS_REQUIRED" || error?.message === "INTAKE_ANALYSIS_RUNNING") {
     return { outcome: "analysis_pending" as const, takeoff: null, message: error.message === "INTAKE_ANALYSIS_REQUIRED"
-      ? "Lancez l’analyse ou retirez les pièces en attente avant de confirmer."
+      ? (error.hint === "Lancez l’analyse pour actualiser le brief avant de confirmer." ? error.hint : "Lancez l’analyse ou retirez les pièces en attente avant de confirmer.")
       : "Attendez la fin de l’analyse du dossier avant de confirmer." };
   }
   if (error?.code === "P0002") return { outcome: "not_found" as const, takeoff: null };

@@ -24,6 +24,8 @@ export type StructuredCallOptions<T> = {
   schema: z.ZodType<T>;
   files?: StructuredCallFile[];
   timeoutMs?: number;
+  /** Check the dossier and its payer after credential resolution and immediately before transmission. */
+  beforeSend?: () => Promise<void>;
   /** Caller cancellation signal, combined with `timeoutMs` on provider requests. */
   signal?: AbortSignal;
   context?: StructuredCallContext;

@@ -1,6 +1,7 @@
 import "server-only";
 
-import { isLocalChatGptEnabled } from "@/lib/ai/chatgpt-local-auth";
+import type { ChatGptOwner } from "@/lib/ai/chatgpt-local-store";
+import { getLocalChatGptCredential, isLocalChatGptEnabled } from "@/lib/ai/chatgpt-local-auth";
 import { hasLocalChatGptStore } from "@/lib/ai/chatgpt-local-store";
 import { createOptionalServiceRoleClient } from "@/lib/supabase/service-role";
 
@@ -9,13 +10,25 @@ import { createOptionalServiceRoleClient } from "@/lib/supabase/service-role";
 const cursors: Record<"paid" | "other", string | null> = { paid: null, other: null };
 const PAGE_SIZE = 20;
 
+export async function hostCanReadIntakeScans(owner: ChatGptOwner) {
+  if (!isLocalChatGptEnabled()) return false;
+  try {
+    if (!await hasLocalChatGptStore(owner)) return false;
+    const credential = await getLocalChatGptCredential(owner);
+    return Boolean(credential?.authorizationId && credential.model);
+  } catch {
+    // Withdrawn, expired without a usable refresh token, or unreadable on this host.
+    return false;
+  }
+}
+
 async function recoverDueLaunch(paid: boolean) {
   const service = createOptionalServiceRoleClient();
-  if (!service || (paid && !isLocalChatGptEnabled())) return null;
+  if (!service) return null;
   const now = new Date().toISOString();
   const lane = paid ? "paid" : "other";
   let query = service.from("affaire_intake_uploads")
-    .select("id,tenant_id,created_by,tenants!inner(is_active)").eq("tenants.is_active", true)
+    .select("id,project_id,tenant_id,created_by")
     .in("status", ["launch_queued", "launch_processing"])
     .or(`and(status.eq.launch_queued,or(next_retry_at.is.null,next_retry_at.lte.${now})),and(status.eq.launch_processing,processing_lease_expires_at.lte.${now})`)
     .order("id").limit(PAGE_SIZE);
@@ -27,21 +40,29 @@ async function recoverDueLaunch(paid: boolean) {
   if (error) throw new Error("Impossible de lire les lancements à reprendre.", { cause: error });
   for (const batch of data) {
     cursors[lane] = batch.id;
-    if (paid && batch.created_by && !await hasLocalChatGptStore({ userId: batch.created_by, tenantId: batch.tenant_id })) continue;
+    const owner = paid && batch.created_by ? { userId: batch.created_by, tenantId: batch.tenant_id } : null;
+    const right = batch.created_by ? await service.rpc("intake_payer_can_write", {
+      p_user_id: batch.created_by, p_project_id: batch.project_id, p_tenant_id: batch.tenant_id,
+    }) : { data: false, error: null };
+    if (right.error) throw new Error("Impossible de vérifier le droit du payeur.", { cause: right.error });
+    if (!right.data || (paid && (!owner || !await hostCanReadIntakeScans(owner)))) {
+      // SQL keeps a live lease and gives another Mac 30 minutes from the last due time.
+      const stopped = await service.rpc("stop_affaire_intake_analysis", { p_upload_id: batch.id, p_lease_token: null });
+      if (stopped.error) throw new Error("Impossible de vérifier le lancement interrompu.", { cause: stopped.error });
+      continue;
+    }
     // SQL rechecks due time and attempts under the lease. An empty claim may have retired
     // an exhausted launch; continue to the next candidate.
     const { processAffaireIntakeAnalysisLaunch } = await import("@/lib/affaires/intake-analysis-server");
-    if (await processAffaireIntakeAnalysisLaunch(batch.id)) return batch.id;
+    if (await processAffaireIntakeAnalysisLaunch(batch.id, owner)) return batch.id;
   }
   if (data.length < PAGE_SIZE) cursors[lane] = null;
   return null;
 }
 
 export async function recoverIntakeAnalysisLaunch() {
-  if (isLocalChatGptEnabled()) {
-    const launchId = await recoverDueLaunch(true);
-    if (launchId) return launchId;
-  }
+  const launchId = await recoverDueLaunch(true);
+  if (launchId) return launchId;
   return recoverDueLaunch(false);
 }
 

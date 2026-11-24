@@ -102,6 +102,7 @@ catch (error) { if (error.code !== "ENOENT") throw new Error("Invalid live probe
 let businessProbe = null;
 try { businessProbe = JSON.parse(readFileSync(path.resolve(".private/chatgpt-local-business-probe.json"), "utf8")); }
 catch (error) { if (error.code !== "ENOENT") throw new Error("Invalid private business probe configuration."); }
+const heldIntakeBriefs = new Set();
 const originalFetch = globalThis.fetch;
 globalThis.fetch = async (input, init) => {
   const url = new URL(typeof input === "string" || input instanceof URL ? input : input.url);
@@ -437,6 +438,30 @@ globalThis.fetch = async (input, init) => {
     return new Response([
       { type: "response.output_text.delta", output_index: 0, content_index: 0, delta: JSON.stringify({ price_reuse_answers: answers }) },
       { type: "response.completed", response: { status: "completed", output: [], usage: { input_tokens: 12, output_tokens: 6, total_tokens: 18 } } },
+    ].map(event => `data: ${JSON.stringify(event)}\n\n`).join(""), { headers: { "content-type": "text/event-stream" } });
+  }
+  const userParts = body.input.find(entry => entry.role === "user")?.content;
+  const briefPrompt = Array.isArray(userParts) && userParts.find(part =>
+    part.type === "input_text" && part.text.includes("Tu produis un brief affaire BTP"))?.text;
+  // Observe only these fictional dossiers. Record the send before returning the held answer.
+  if (briefPrompt && /ARMY-(manual-first|brief-race)-/.test(briefPrompt)) {
+    await appendFile(process.env.ARMY_CHATGPT_TRANSPORT_LOG, JSON.stringify({ provider: "chatgpt-fixture", inputKind: "intake-brief" }) + "\n");
+    assert(userParts.every(part => part.type === "input_text"), "The brief uses its inventory, without file contents.");
+    const inventory = JSON.parse(briefPrompt.split("\nINVENTAIRE_DOCUMENTS\n")[1].split("\n\nPIECES_MANQUANTES")[0]);
+    const pieces = inventory.map(doc => ({ text: doc.fileName + " (" + doc.detectedCategory + ")", sourceDocumentIds: [doc.documentId] }));
+    const output = { summary: pieces[0], projectObject: { text: "Dossier fictif", sourceDocumentIds: [] },
+      scope: [], lots: [], receivedPieces: pieces, assumptions: [], vigilancePoints: [], missingElements: [] };
+    const project = JSON.parse(briefPrompt.split("\nPROJET\n")[1].split("\n\nINVENTAIRE_DOCUMENTS")[0]);
+    const first = !heldIntakeBriefs.has(project.projectId);
+    heldIntakeBriefs.add(project.projectId);
+    const deadline = Date.now() + 90_000;
+    while (first && JSON.parse(readFileSync(process.env.ARMY_DECISIONS_CONTROL, "utf8")).holdIntakeBrief) {
+      if (Date.now() >= deadline) throw new Error("The fictional brief was not released.");
+      await new Promise(resolve => setTimeout(resolve, 50));
+    }
+    return new Response([
+      { type: "response.output_text.delta", output_index: 0, content_index: 0, delta: JSON.stringify(output) },
+      { type: "response.completed", response: { status: "completed", output: [], usage: { input_tokens: 24, output_tokens: 18, total_tokens: 42 } } },
     ].map(event => `data: ${JSON.stringify(event)}\n\n`).join(""), { headers: { "content-type": "text/event-stream" } });
   }
   const classificationSchema = body.input.find(entry => entry.role === "developer")?.content;

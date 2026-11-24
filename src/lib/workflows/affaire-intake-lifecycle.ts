@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { isRecord } from "@/lib/value-guards";
+import { conflict } from "@/lib/http/api-response";
 import {
   affaireIntakeUploadStatusSchema,
   type AffaireIntakeUploadStatus,
@@ -218,6 +220,9 @@ export async function finishAffaireIntakeUploadAttempt(input: {
     }
   );
 
+  if (isRecord(error) && error.code === "40001" && error.message === "INTAKE_BRIEF_INPUT_CHANGED") {
+    throw conflict("Le dossier a changé depuis la publication de son brief. Une nouvelle préparation est nécessaire.");
+  }
   if (error || data !== true) {
     throw new AffaireIntakeLeaseUnavailableError(input.claim.uploadId);
   }

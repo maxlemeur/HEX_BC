@@ -4,6 +4,7 @@ import {
   AffaireIntakeLeaseUnavailableError,
   AffaireIntakeProviderCallError,
   claimAffaireIntakeAnalysisLaunch,
+  finishAffaireIntakeUploadAttempt,
   releaseAffaireIntakeUploadAfterError,
   renewAffaireIntakeUploadLease,
   runAffaireIntakeLeasedProviderEffect,
@@ -32,6 +33,14 @@ describe("affaire intake durable lifecycle", () => {
         attemptCount: 2, launch: { payerId, readScans } });
     },
   );
+
+  it("keeps the publication conflict when inputs change between the receipt and lot closure", async () => {
+    const client = { rpc: vi.fn().mockResolvedValue({ data: null, error: {
+      code: "40001", message: "INTAKE_BRIEF_INPUT_CHANGED",
+    } }) };
+    await expect(finishAffaireIntakeUploadAttempt({ client, claim: CLAIM, status: "ready", now: NOW }))
+      .rejects.toThrow("Le dossier a changé depuis la publication de son brief.");
+  });
 
   it("does not invoke an external effect after a failed active-tenant lease renewal", async () => {
     const client = {

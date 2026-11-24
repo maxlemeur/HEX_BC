@@ -69,6 +69,8 @@ function fixture(options: {
       } else if (table === "affaire_intake_uploads" && url.searchParams.get("status") === "in.(queued,processing,launch_queued,launch_processing)") {
         data = analysisEnded ? [] : options.pendingUploads ?? [];
         answered();
+      } else if (table === "affaire_intake_uploads" && url.searchParams.get("status") === "eq.failed") {
+        data = [];
       } else if (table === "affaire_intake_uploads") {
         await options.uploadGate;
         data = options.noUpload ? null : { id: UPLOAD_ID, tenant_id: TENANT_ID, project_id: PROJECT_ID,

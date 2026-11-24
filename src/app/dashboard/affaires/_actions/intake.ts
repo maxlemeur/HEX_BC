@@ -1,7 +1,7 @@
 "use server";
 
 import { after } from "next/server";
-import { getStructuredAiAvailability } from "@/lib/ai/structured-ai";
+import { hostCanReadIntakeScans } from "@/lib/workflows/intake-launch-recovery";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { deleteIntakeDocumentCopy } from "@/lib/affaires/intake-document-store";
@@ -74,14 +74,15 @@ const readAffaireBriefPayerNoticeInputSchema = z.object({
 
 const launchOutcome = z.discriminatedUnion("outcome", [
   z.object({ outcome: z.literal("launched"), launch_id: z.string().uuid(), piece_count: z.number().int().positive() }),
+  z.object({ outcome: z.literal("brief_only"), launch_id: z.string().uuid(), piece_count: z.literal(0) }),
   z.object({ outcome: z.literal("already_running"), launch_id: z.string().uuid() }),
   z.object({ outcome: z.literal("nothing_waiting"), launch_id: z.null() }),
 ]);
 
 export async function launchAffaireIntakeAnalysis(projectId: string) {
   const { context, project } = await requireAffaireAccess(z.string().uuid().parse(projectId), "write");
-  const { available } = await getStructuredAiAvailability(context);
-  const { data, error } = await context.supabase.rpc("launch_affaire_intake_analysis", {
+  const available = await hostCanReadIntakeScans(context);
+  const { data, error } = await context.supabase.rpc("start_affaire_intake_analysis", {
     p_project_id: project.id, p_read_scans: available,
   });
   if (error) throw new Error("Impossible de réserver les pièces pour l’analyse.", { cause: error });
@@ -89,11 +90,12 @@ export async function launchAffaireIntakeAnalysis(projectId: string) {
   if (result.outcome === "nothing_waiting") return { message: "Aucune pièce n’attend son lancement." };
   if (result.outcome === "already_running") return { message: "Une analyse du dossier est déjà en cours." };
   after(async () => {
-    try { await processAffaireIntakeAnalysisLaunch(result.launch_id); }
+    try { await processAffaireIntakeAnalysisLaunch(result.launch_id, available ? context : null); }
     catch { console.error("La reprise du lancement intake est nécessaire.", { launchId: result.launch_id }); }
   });
   revalidatePath(`/dashboard/affaires/${project.id}`);
-  return { message: available ? "Analyse lancée. Les lectures utilisent votre forfait ChatGPT." :
+  return { message: result.outcome === "brief_only" ? "Préparation du brief lancée. Les pièces déjà classées gardent leur classement."
+    : available ? "Analyse lancée. La transcription des images et des PDF scannés utilise votre forfait ChatGPT." :
     "Votre compte ChatGPT n’est pas connecté ou disponible. Les images et les PDF scannés ne seront pas transcrits. Le classement des pièces et la préparation du brief continuent avec les moyens disponibles." };
 }
 

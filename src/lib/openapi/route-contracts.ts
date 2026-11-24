@@ -435,7 +435,7 @@ const administrationContracts: RouteContract[] = [
   {
     id: "read-affaire-intake-workspace", method: "get", path: "/api/affaires/{projectId}/intake",
     summary: "Lire le dossier de l'affaire", tags: ["Affaires"],
-    description: "Lecture privée sans cache du dossier de l'affaire accessible (pièces, pièces manquantes, brief), telle que la page de l'affaire la rend. La page la relit pendant l'ajout et l'analyse des pièces au lieu de rafraîchir son routeur. Avec plans=1, la réponse ajoute le résumé des plans et métrés quand le module est actif pour le tenant (null sinon) ; elle l'omet quand il n'a pas pu être lu.",
+    description: "Lecture privée sans cache des pièces, des manques et du brief. Les pièces en attente portent le statut awaiting_launch. launchRunning indique une analyse explicite en cours et briefPreparationDue permet de lancer la préparation du brief seul. La page la relit pendant l'ajout et l'analyse des pièces au lieu de rafraîchir son routeur. Avec plans=1, la réponse ajoute le résumé des plans et métrés quand le module est actif pour le tenant (null sinon) ; elle l'omet quand il n'a pas pu être lu.",
     pathParameters: [projectIdParameter],
     queryParameters: [{ name: "plans", schema: z.literal("1"), description: "Ajouter le résumé des plans et métrés de l'affaire." }],
     success: [{ status: "200", description: "Dossier de l'affaire, avec Cache-Control private/no-store." }],
@@ -611,7 +611,7 @@ const administrationContracts: RouteContract[] = [
     path: "/api/affaires/{projectId}/intake/files",
     summary: "Deposer les fichiers d'intake d'une affaire",
     description:
-      "Accepte un lot multipart et conserve les originaux, y compris DWG/DXF/RVT/IFC/FCStd (50 Mo par fichier). Les originaux CAO/BIM nécessitent un export pour l’aperçu et le métré ; les autres pièces sont traitées de façon asynchrone.",
+      "Accepte un lot multipart et conserve les originaux, y compris DWG/DXF/RVT/IFC/FCStd (50 Mo par fichier). Les pièces déposées attendent qu’un membre de l’affaire appuie sur « Lancer l’analyse ». Les originaux CAO/BIM nécessitent un export pour l’aperçu et le métré.",
     tags: ["Affaires"],
     pathParameters: [projectIdParameter],
     body: {

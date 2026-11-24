@@ -84,6 +84,7 @@ export async function buildClassificationFilePayload(input: {
   fileName: string;
   mimeType: string;
   bytes: ArrayBuffer;
+  readScans?: boolean;
 }): Promise<(StructuredCallFile & { issues?: string[] }) | null> {
   const normalizedMimeType = input.mimeType.trim().toLowerCase();
   const extension = getAffaireIntakeFileExtension(input.fileName);
@@ -122,6 +123,12 @@ export async function buildClassificationFilePayload(input: {
     );
   }
 
+  if (input.readScans === false && normalizedMimeType.startsWith("image/")) return null;
+  if (input.readScans === false && normalizedMimeType === "application/pdf") {
+    const { renderPdfPages } = await import("@/lib/pdf/page-render-server");
+    const result = await renderPdfPages(input.bytes, { pages: [1, 2], image: null, maxTextCharsPerPage: TEXT_SNIPPET_MAX_LENGTH });
+    return buildTextFilePayload(result.pages.map(page => page.text).join("\n"));
+  }
   if (isMimeTypeSupportedForAiClassification(normalizedMimeType)) {
     return {
       data: Buffer.from(input.bytes).toString("base64"),

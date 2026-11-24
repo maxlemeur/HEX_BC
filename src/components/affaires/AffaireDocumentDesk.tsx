@@ -277,8 +277,13 @@ export function AffaireDocumentDesk({
       setProgress("");
     }
   }
-  function uploaded() {
+  function showDepositedFiles() {
+    chooseFilter("all");
+    setSearch("");
     setAddFiles(false);
+  }
+  function uploaded() {
+    showDepositedFiles();
     void onReload();
   }
   async function retryAnalysis(items: DossierDocument[]) {
@@ -867,7 +872,7 @@ export function AffaireDocumentDesk({
             onUploadComplete={() => void onReload()}
             onUploadEvent={(event) => {
               uploadFeedback.onUploadEvent(event);
-              if (event.type === "started") setAddFiles(false);
+              if (event.type === "started") showDepositedFiles();
             }}
           />
         </DialogContent>

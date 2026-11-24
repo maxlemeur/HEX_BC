@@ -138,6 +138,10 @@ export async function reclassifyAffaireDocument(input: {
     },
   });
 
+  // A category entered before the launch is metadata. Refreshing the derived
+  // dossier would download linked plans and send its inventory to the model.
+  if (document.classification_status === "awaiting_launch") return { ok: true } as const;
+
   await refreshAffaireIntakeFromActiveDocuments({
     supabase: context.supabase,
     project,
