@@ -96,6 +96,7 @@ armyTest("TKW01 a stored CSV publishes one success and applies exact quantities 
   expect(released.body.data.released).toBe(true);
   const before = await readEstimate(ui.browser, ids.versionId);
   await ui.app.open(`/dashboard/affaires/${ids.projectId}/takeoff`);
+  await expect(ui.screen.getByRole("list", "Fins d’analyse de l’affaire", { exact: true })).toContainText(fileName);
   const reviewPath = `/dashboard/affaires/${ids.projectId}/takeoff/${jobId}/review?versionId=${ids.versionId}`;
   const resultsLink = ui.screen.getByRole("link", "Ouvrir la revue", { exact: true });
   await expect(resultsLink).toBeVisible();
@@ -339,7 +340,7 @@ armyTest("TKW05 terminal provider failure retains its diagnostic without extract
     if (route.request.method === "GET") detailReads.push(new URL(route.request.url).pathname);
     await route.fallback();
   });
-  const failedRow = ui.screen.getByRole("row").filter({ hasText: "Échec à corriger" });
+  const failedRow = ui.screen.getByRole("row").filter({ hasText: "Échec :" });
   try {
     await ui.browser.reload();
     await expect(failedRow).toContainText(reason);
@@ -349,11 +350,12 @@ armyTest("TKW05 terminal provider failure retains its diagnostic without extract
     await ui.screen.getByRole("button", "Voir toutes les analyses", { exact: true }).click();
     await expect(listedRows).toHaveCount(3);
     await ui.app.open(failureHref);
+    await failedRow.getByText("Détails", { exact: true }).click();
     await expect(failedRow).toContainText(`Relances utilisées : ${detail.body.data.job.retry_count} sur 3`);
     expect(detail.body.data.job.can_resubmit).toBe(false);
     expect(detail.body.data.job.resume).toEqual({ action: "new_analysis", reason: "analysis_closed", available_at: null });
     await expect(failedRow).toContainText("Cette analyse est close. Préparez une nouvelle analyse depuis l’affaire.");
-    await expect(failedRow.getByRole("button", "Soumettre à nouveau", { exact: true })).toHaveCount(0);
+    await expect(failedRow.getByRole("button", "Relancer", { exact: true })).toHaveCount(0);
     await expect(ui.screen.getByText("Démarrage immédiat indisponible, reprise automatique active.", { exact: true })).toHaveCount(0);
     expect(detailReads).toEqual([]);
   } finally {
@@ -367,9 +369,10 @@ armyTest("TKW05 terminal provider failure retains its diagnostic without extract
   expect(exhausted.error).toBeNull();
   await ui.browser.reload();
   await expect(failedRow).toContainText("Document bloqué pendant l'analyse.");
+  await failedRow.getByText("Détails", { exact: true }).click();
   await expect(failedRow).toContainText("Relances utilisées : 3 sur 3");
   await expect(failedRow).toContainText("Le nombre maximal de relances est atteint.");
-  await expect(failedRow.getByRole("button", "Soumettre à nouveau", { exact: true })).toHaveCount(0);
+  await expect(failedRow.getByRole("button", "Relancer", { exact: true })).toHaveCount(0);
   const savedNotice = await readOwnedTakeoffNotice(jobId);
   if (!savedNotice) throw new Error("The failure notice is missing.");
   const notice = await openWorkerNotice(ui, savedNotice.id);
@@ -486,9 +489,10 @@ armyTest("TKW07 a historical batch keeps its reference and cannot be requeued", 
   // The failed row of a former provider's job says so and offers no recovery action (a later analysis lists it, as in TKW05).
   await (await localTakeoffFixture(ui.army, ids)).seed("A", [{ designation: "ARMY nouvelle analyse", quantity: 1, unit: "u", confidence: 1 }]);
   await ui.app.open(`/dashboard/affaires/${ids.projectId}/takeoff`);
-  const failedRow = ui.screen.getByRole("row").filter({ hasText: "Échec à corriger" });
+  const failedRow = ui.screen.getByRole("row").filter({ hasText: "Échec :" });
+  await failedRow.getByText("Détails", { exact: true }).click();
   await expect(failedRow).toContainText("Ce fournisseur IA ne permet plus de relancer cette analyse.");
-  await expect(failedRow.getByRole("button", "Soumettre à nouveau", { exact: true })).toHaveCount(0);
+  await expect(failedRow.getByRole("button", "Relancer", { exact: true })).toHaveCount(0);
   await expect(failedRow.getByRole("button", "Vérifier la reprise", { exact: true })).toHaveCount(0);
   expect(await readState()).toEqual(seeded);
   expect((await readEstimate(ui.browser, ids.versionId)).items).toEqual(before.items);
@@ -532,9 +536,9 @@ armyTest("TKW13 the list decides the resume of several stopped analyses without 
   type Refusal = { error: { code: string; details: { resume: unknown } } };
   const resubmit = (jobId: string) => apiRequest<Refusal>(ui.browser, "POST", `/api/takeoff/jobs/${jobId}/resubmit`);
 
-  const rows = ui.screen.getByRole("row").filter({ hasText: "Échec à corriger" });
+  const rows = ui.screen.getByRole("row").filter({ hasText: "Échec :" });
   const [legacyRow, scheduledRow, localRow] = [0, 1, 2].map((index) => rows.nth(index));
-  const retry = (row: typeof localRow) => row.getByRole("button", "Soumettre à nouveau", { exact: true });
+  const retry = (row: typeof localRow) => row.getByRole("button", "Relancer", { exact: true });
   const unavailable = "Pour soumettre cette analyse à nouveau, ouvrez MergeOne sur le Mac connecté.";
   const detailReads: string[] = [];
   await ui.browser.route(JOB_DETAIL_READ, async (route) => {
@@ -544,6 +548,7 @@ armyTest("TKW13 the list decides the resume of several stopped analyses without 
   try {
     await ui.app.open(`/dashboard/affaires/${ids.projectId}/takeoff`);
     await expect(rows).toHaveCount(3);
+    for (const row of [legacyRow, scheduledRow, localRow]) await row.getByText("Détails", { exact: true }).click();
     await expect(localRow).toContainText("Le service d’analyse n’a pas pu terminer le métré.");
     await expect(localRow).toContainText("Relances utilisées : 0 sur 3");
     await expect(localRow).toContainText(unavailable);
@@ -591,6 +596,7 @@ armyTest("TKW13 the list decides the resume of several stopped analyses without 
     expect([refusedRole.status, refusedRole.body.error.code]).toEqual([403, "FORBIDDEN"]);
     expect(refusedRole.body.error.details.resume).toEqual({ action: "none", reason: "read_only", available_at: null });
     await ui.browser.reload();
+    for (const row of [legacyRow, localRow]) await row.getByText("Détails", { exact: true }).click();
     await expect(localRow).toContainText("Ce profil ne peut pas relancer l’analyse. Contactez un ingénieur ou un administrateur.");
     // The job's own facts come first, for a reader too; the banner offers the reader no launch either.
     await expect(legacyRow).toContainText("Ce fournisseur IA ne permet plus de relancer cette analyse. Un ingénieur ou un administrateur peut préparer une nouvelle analyse.");
@@ -605,6 +611,7 @@ armyTest("TKW13 the list decides the resume of several stopped analyses without 
     insert into public.tenant_memberships (tenant_id, user_id, role, is_default) values ('${tenantId}', '${colleague.userId}', 'admin', true)`);
   await ui.app.open(`/dashboard/affaires/${ids.projectId}/takeoff`);
   await expect(rows).toHaveCount(3);
+  await localRow.getByText("Détails", { exact: true }).click();
   await expect(localRow).toContainText(
     "Seule la personne qui a lancé cette analyse peut la démarrer avec son forfait. Préparez une nouvelle analyse avec votre forfait.");
   await expect(retry(localRow)).toHaveCount(0);

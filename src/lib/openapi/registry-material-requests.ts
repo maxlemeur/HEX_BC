@@ -127,7 +127,7 @@ const summaryShape = {
 const listItem: z.ZodType<MaterialRequestListItem> = z.object({
   ...summaryShape, to_order_line_count: z.number().int().min(0).nullable(), has_orders: z.boolean(),
 });
-// An original is an image; the file of a quote (quote_id, TI-691) may also be a PDF.
+// An original or a quote's file (quote_id, TI-691) may be an image or a PDF.
 const file: z.ZodType<MaterialRequestFile> = z.object({
   id: uuid, request_id: uuid, quote_id: uuid.nullable(), file_name: z.string(), mime_type: z.enum(MATERIAL_REQUEST_QUOTE_FILE_MIME_TYPES),
   byte_size: z.number().int().positive(), rotation: z.union([z.literal(0), z.literal(90), z.literal(180), z.literal(270)]),
@@ -450,7 +450,7 @@ export const materialRequestOperations: OpenApiOperationDefinition[] = [
   },
   {
     tags, method: "post", path: `${one}/files`, summary: "Préparer le dépôt d'originaux",
-    description: `Les photos ne passent pas par l'application : le navigateur les envoie au stockage. Cet appel vérifie ce qui est annoncé (de 1 à ${MATERIAL_REQUEST_MAX_FILES} images JPEG, PNG ou WebP de 20 Mo au plus, nom et type concordants, ${MATERIAL_REQUEST_MAX_FILES} originaux conservés par demande), enregistre une ligne invisible par photo et signe un envoi par photo avec la session de l'appelant, sans écrasement possible. Le navigateur envoie ensuite chaque fichier avec uploadToSignedUrl(path, token, fichier) sur le bucket material-requests, puis appelle files/complete. Un seul fichier refusé refuse le lot. Avec quote_id (TI-691), le lot répond à un devis de cette demande encore demandé ou reçu : PDF ou images, ${MATERIAL_REQUEST_QUOTE_MAX_FILES} fichiers conservés par devis, à part des originaux, listés avec le devis et jamais parmi les originaux ; même chemin de stockage (tenant/affaire/demande/fichier/nom).`,
+    description: `Les originaux ne passent pas par l'application : le navigateur les envoie au stockage. Cet appel vérifie ce qui est annoncé (de 1 à ${MATERIAL_REQUEST_MAX_FILES} fichiers PDF ou images JPEG, PNG ou WebP de 20 Mo au plus, nom et type concordants, ${MATERIAL_REQUEST_MAX_FILES} originaux conservés par demande), enregistre une ligne invisible par fichier et signe un envoi par fichier avec la session de l'appelant, sans écrasement possible. Le navigateur envoie ensuite chaque fichier avec uploadToSignedUrl(path, token, fichier) sur le bucket material-requests, puis appelle files/complete. Un seul fichier refusé refuse le lot. Avec quote_id (TI-691), le lot répond à un devis de cette demande encore demandé ou reçu : PDF ou images, ${MATERIAL_REQUEST_QUOTE_MAX_FILES} fichiers conservés par devis, à part des originaux, listés avec le devis et jamais parmi les originaux ; même chemin de stockage (tenant/affaire/demande/fichier/nom).`,
     parameters: [project, requestId],
     requestBody: jsonBody({ name: "MaterialRequestFilesPrepare", description: "Nom, type déclaré et taille de chaque fichier ; quote_id pour la réponse d'un devis.", schema: prepareMaterialRequestFilesSchema }),
     responses: {
@@ -476,7 +476,7 @@ export const materialRequestOperations: OpenApiOperationDefinition[] = [
   },
   {
     tags, method: "get", path: `${one}/files/{fileId}`, summary: "Lire un original ou le fichier d'un devis",
-    description: "Octets de l'image, ou du PDF d'un devis, servis par l'application à qui peut lire l'affaire : aucune URL signée. Réponse privée, non stockable, sans détection de type, avec le type vérifié au dépôt. Une image est servie inline ; le PDF d'un devis, document d'un fournisseur, l'est en pièce jointe (Content-Disposition: attachment), jamais affiché dans l'origine de l'application. Un fichier dont les octets ne sont pas conservés répond 404.",
+    description: "Octets d'un original (image ou PDF) ou d'un fichier de devis, servis par l'application à qui peut lire l'affaire : aucune URL signée. Réponse privée, non stockable, sans détection de type, avec le type vérifié au dépôt. Une image est servie inline ; un PDF l'est en pièce jointe (Content-Disposition: attachment), jamais affiché directement dans l'origine de l'application. Un fichier dont les octets ne sont pas conservés répond 404.",
     parameters: [project, requestId, fileId],
     responses: {
       "200": { description: "Fichier d'origine, jamais réécrit.", contents: MATERIAL_REQUEST_QUOTE_FILE_MIME_TYPES.map((contentType) => ({ contentType })) },
@@ -485,10 +485,15 @@ export const materialRequestOperations: OpenApiOperationDefinition[] = [
   },
   {
     tags, method: "patch", path: `${one}/files/{fileId}`, summary: "Tourner un original",
-    description: "Rotation d'affichage par quarts de tour ; les octets conservés ne changent pas. Le fichier d'un devis retenu ou clos ne tourne plus.",
+    description: "Rotation d'affichage par quarts de tour pour une image ; les octets conservés ne changent pas. Un PDF ne se tourne pas (400). Le fichier d'un devis retenu ou clos ne tourne plus.",
     parameters: [project, requestId, fileId],
     requestBody: jsonBody({ name: "MaterialRequestFileUpdate", description: "Rotation en degrés.", schema: updateMaterialRequestFileSchema }),
-    responses: { "200": success("ApiMaterialRequestFileUpdated", "Rotation enregistrée.", z.object({ file })), ...writeRefusals, "409": quoteReadOnly },
+    responses: {
+      "200": success("ApiMaterialRequestFileUpdated", "Rotation enregistrée.", z.object({ file })),
+      ...writeRefusals,
+      "400": refusal("BAD_REQUEST : un PDF ne se tourne pas."),
+      "409": quoteReadOnly,
+    },
   },
   {
     tags, method: "delete", path: `${one}/files/{fileId}`, summary: "Supprimer un original",
@@ -498,7 +503,7 @@ export const materialRequestOperations: OpenApiOperationDefinition[] = [
   },
   {
     tags, method: "post", path: `${one}/files/{fileId}/analysis`, summary: "Lire un original avec l'IA",
-    description: `Fait lire une photo de la demande par un modèle de vision, avec le forfait ChatGPT ou la clé API OpenAI personnelle choisie dans le profil de l'appelant, et répond des lignes en brouillon dans l'ordre de lecture : les mots du technicien (original_text) à côté de ce qui a été lu (quantité, unité, dimension, type, matière, précision, référence, zone). Rien n'est écrit : l'écran ajoute ces lignes par POST lines ou lines/replace, et le bureau relit chaque ligne face à la photo. Un champ qui n'est pas écrit sur la photo reste absent ; une quantité raturée ou arrondie est marquée quantity_doubtful. Une photo par appel, de ${MATERIAL_REQUEST_PHOTO_ANALYSIS_MAX_BYTES / (1024 * 1024)} Mo au plus ; la rotation d'affichage de la photo est indiquée au modèle, ses octets partent tels quels. Seuls les originaux de la demande se lisent : le fichier d'un devis, une photo dont le dépôt n'a pas abouti ou en cours de suppression répondent 404. Une photo sans article répond lines vide.`,
+    description: `Fait lire un original de la demande (photo ou PDF) par un modèle de vision, avec le forfait ChatGPT ou la clé API OpenAI personnelle choisie dans le profil de l'appelant, et répond des lignes en brouillon dans l'ordre de lecture : les mots du technicien (original_text) à côté de ce qui a été lu (quantité, unité, dimension, type, matière, précision, référence, zone). Rien n'est écrit : l'écran ajoute ces lignes par POST lines ou lines/replace, et le bureau relit chaque ligne face à l'original. Un champ qui n'est pas écrit reste absent ; une quantité raturée ou arrondie est marquée quantity_doubtful. Un original par appel, de ${MATERIAL_REQUEST_PHOTO_ANALYSIS_MAX_BYTES / (1024 * 1024)} Mo au plus ; la rotation d'affichage d'une photo est indiquée au modèle, ses octets partent tels quels. L'annulation de la requête HTTP interrompt l'appel fournisseur. Seuls les originaux de la demande se lisent : le fichier d'un devis, un original dont le dépôt n'a pas abouti ou en cours de suppression répondent 404. Un original sans article répond lines vide.`,
     parameters: [project, requestId, fileId],
     requestBody: jsonBody({ name: "MaterialRequestPhotoAnalysisInput", schema: materialRequestPhotoAnalysisInputSchema, required: false,
       description: "Source, modèle et effort pour une lecture. Avec la clé API, envoyer son identifiant de connexion et les préférences de lecture. Un effort null utilise celui du modèle. Une requête sans source utilise le forfait ChatGPT." }),
@@ -506,7 +511,8 @@ export const materialRequestOperations: OpenApiOperationDefinition[] = [
       "200": success("ApiMaterialRequestPhotoAnalysis", "Lignes lues, non enregistrées.", photoAnalysis),
       ...writeRefusals,
       "409": refusal("MATERIAL_REQUEST_PHOTO_ANALYSIS_UNAVAILABLE : aucune lecture ne peut être lancée pour l'appelant ici (instance sans IA, forfait ou clé API à configurer) ; le message dit quoi faire. details.status : disabled ou unavailable. MATERIAL_REQUEST_PHOTO_SETTINGS_UNAVAILABLE : la source, la clé ou les modèles disponibles ont changé."),
-      "413": refusal("MATERIAL_REQUEST_PHOTO_TOO_LARGE : la photo est trop lourde pour être envoyée au modèle."),
+      "413": refusal("MATERIAL_REQUEST_PHOTO_TOO_LARGE : l'original est trop lourd pour être envoyé au modèle."),
+      "422": refusal("MATERIAL_REQUEST_PHOTO_UNREADABLE : le PDF ne peut pas être ouvert (verrouillé, endommagé ou vide)."),
       "503": refusal("MATERIAL_REQUEST_PHOTO_ANALYSIS_FAILED : la lecture n'a pas donné de lignes. details.reason : AI_QUOTA, AI_RATE_LIMIT, AI_REQUEST_REJECTED, TIMEOUT, INVALID_ANSWER, PROVIDER_ERROR ou un code AI_KEY_* pour la clé API. Rien n'est réessayé automatiquement."),
     },
   },
@@ -652,8 +658,8 @@ export const materialRequestOperations: OpenApiOperationDefinition[] = [
     },
   },
   {
-    tags, method: "post", path: `${one}/lines/replace`, summary: "Redécouper le message : remplacer les lignes en brouillon",
-    description: `Remplace toutes les lignes de la demande, que l'écran nomme dans replaced_ids, par les lignes lues à nouveau dans le message, en brouillon à partir de la position 1 ; la réponse donne toutes les lignes de la demande ensuite. Refusé sans rien écrire si les lignes ne sont plus celles nommées (une autre session en a ajouté ou supprimé), ou si l'une est validée, chiffrée par un devis retenu ou demandée dans un devis. Deux écritures : la suppression des brouillons, puis l'ajout ; si l'ajout échoue, la demande reste sans ligne avec son message, qui se redécoupe. ${MATERIAL_REQUEST_MAX_LINES} lignes au plus de part et d'autre.`,
+    tags, method: "post", path: `${one}/lines/replace`, summary: "Remplacer les lignes en brouillon",
+    description: `Remplace toutes les lignes de la demande, que l'écran nomme dans replaced_ids, par les lignes issues d'un nouveau découpage du message ou d'une lecture IA des originaux, en brouillon à partir de la position 1 ; la réponse donne toutes les lignes de la demande ensuite. Refusé sans rien écrire si les lignes ne sont plus celles nommées (une autre session en a ajouté ou supprimé), ou si l'une est validée, chiffrée par un devis retenu ou demandée dans un devis. Deux écritures : la suppression des brouillons, puis l'ajout ; si l'ajout échoue, la demande reste sans ligne avec ses originaux et son message. ${MATERIAL_REQUEST_MAX_LINES} lignes au plus de part et d'autre.`,
     parameters: [project, requestId],
     requestBody: jsonBody({ name: "MaterialRequestLinesReplace", description: "Lignes remplacées et lignes nouvelles.", schema: replaceMaterialRequestLinesSchema }),
     responses: {

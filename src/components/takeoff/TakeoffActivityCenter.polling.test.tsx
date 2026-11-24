@@ -54,11 +54,11 @@ function light(waiting: boolean, signature: string): TakeoffRequestActivityRespo
 }
 
 /** A row of the list of analyses: a job without a request, running when `technicalStatusRaw` says so. */
-function row(jobId: string, technicalStatusRaw: string, planSetLabel = "Plans du membre 1"): TakeoffActivityCenterJobRow {
+function row(jobId: string, technicalStatusRaw: string): TakeoffActivityCenterJobRow {
   const canceled = technicalStatusRaw === "canceled";
   return {
     jobId, launchRequestId: null, analysisCompletion: null, estimateVersionId: null, versionLabel: "Sans devis", lotLabel: null,
-    planSetLabel, levelLabel: "Détaillé", processingStrategy: "sync", providerBatchState: null, providerBatchUpdatedAt: null,
+    planSetLabel: "Plans du membre 1", plans: [{ name: "Plan du membre 1.pdf", pages: [] }], levelLabel: "Détaillé", processingStrategy: "sync", providerBatchState: null, providerBatchUpdatedAt: null,
     statusLabel: canceled ? "Annulé" : "En traitement", statusRaw: canceled ? "canceled" : "processing", technicalStatusRaw,
     canCancel: false, canResubmit: false,
     resume: { action: "none", reason: "not_stopped", availableAt: null }, errorCode: null, nextRetryAt: null, itemCount: 0,
@@ -180,14 +180,14 @@ describe("TakeoffActivityCenter polling", () => {
     const { rerender } = render(page("tenant-1:member-1"));
     await act(async () => { await Promise.resolve(); await Promise.resolve(); });
     expect(screen.getAllByText("Plan A — niveau 1.pdf").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("Plans du membre 1").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Plan du membre 1.pdf").length).toBeGreaterThan(0);
     // The second member's reads never answer during this test.
     fetchTakeoffRequestActivity.mockImplementation(() => new Promise(() => undefined));
     fetchTakeoffActivityCenter.mockImplementation(() => new Promise(() => undefined));
     rerender(page("tenant-1:member-2"));
     await act(async () => { await Promise.resolve(); });
     expect(screen.queryByText("Plan A — niveau 1.pdf")).toBeNull();
-    expect(screen.queryByText("Plans du membre 1")).toBeNull();
+    expect(screen.queryByText("Plan du membre 1.pdf")).toBeNull();
   });
 
   it("withdraws what was shown when the reads are refused, and reads nothing more", async () => {
@@ -234,13 +234,13 @@ describe("TakeoffActivityCenter polling", () => {
       </SWRConfig>,
     );
     await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-    expect(screen.getAllByText("Plans du membre 1").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Plan du membre 1.pdf").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Plan A — niveau 1.pdf").length).toBeGreaterThan(0);
     refused = true;
     await act(async () => { await vi.advanceTimersByTimeAsync(5_500); });
     expect(screen.getByTestId("takeoff-request-refused")).toBeTruthy();
     expect(screen.queryAllByText("Plan A — niveau 1.pdf")).toHaveLength(0);
-    expect(screen.queryAllByText("Plans du membre 1")).toHaveLength(0);
+    expect(screen.queryAllByText("Plan du membre 1.pdf")).toHaveLength(0);
     expect(screen.queryAllByText("Suivi des analyses")).toHaveLength(0);
   });
 
@@ -266,8 +266,8 @@ describe("TakeoffActivityCenter polling", () => {
     expect(currentReads()).toBeGreaterThanOrEqual(2);
     // Closing round, point 6: the member sees the analysis stopped, not running.
     const statuses = () => [...document.querySelectorAll(".status-badge")].map((badge) => badge.textContent);
-    expect(statuses()).toContain("Annulé");
-    expect(statuses()).not.toContain("En traitement");
+    expect(statuses()).toContain("Arrêté");
+    expect(statuses()).not.toContain("En lecture");
     const settled = [listReads(), currentReads()];
     await act(async () => { await vi.advanceTimersByTimeAsync(120_000); });
     expect([listReads(), currentReads()]).toEqual(settled);

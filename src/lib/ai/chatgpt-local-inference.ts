@@ -30,11 +30,19 @@ function providerError(code?: string, status?: number): Error {
   return new StructuredAiError("AI_PROVIDER_FAILED", "ChatGPT n’a pas terminé la demande. Vérifiez la connexion dans Mon profil.", status);
 }
 
+function combineAbortSignal(timeoutMs: number, signal?: AbortSignal): AbortSignal {
+  const timeout = AbortSignal.timeout(timeoutMs);
+  return signal ? AbortSignal.any([timeout, signal]) : timeout;
+}
+
 /** The account's listed models, with a credential already read: read-only, it never writes the store. */
-export async function fetchLocalChatGptModels(credential: { accessToken: string }): Promise<ChatGptAvailableModel[]> {
+export async function fetchLocalChatGptModels(
+  credential: { accessToken: string },
+  signal?: AbortSignal,
+): Promise<ChatGptAvailableModel[]> {
   const response = await fetch(`${ROOT}/models`, {
     headers: { authorization: `Bearer ${credential.accessToken}` },
-    signal: AbortSignal.timeout(15_000), cache: "no-store",
+    signal: combineAbortSignal(15_000, signal), cache: "no-store",
   });
   // As for /responses, 401/403 ask to reconnect and 429 is a rate limit; any other failure keeps the connection message.
   if (!response.ok) {
@@ -275,11 +283,11 @@ function overrideScope(owner: ChatGptOwner, profileId: string) {
  * AI_RATE_LIMIT.
  */
 export async function assertLocalChatGptOverride(owner: ChatGptOwner, credential: { accessToken: string; profileId: string },
-  override: LocalChatGptOverride): Promise<Readonly<LocalChatGptOverride>> {
+  override: LocalChatGptOverride, signal?: AbortSignal): Promise<Readonly<LocalChatGptOverride>> {
   const parsed = chatGptPreferencesSchema.safeParse(override);
   if (!parsed.success) throw new LocalChatGptOverrideUnavailableError();
   const requested = parsed.data;
-  const model = (await fetchLocalChatGptModels(credential)).find((entry) => entry.id === requested.model);
+  const model = (await fetchLocalChatGptModels(credential, signal)).find((entry) => entry.id === requested.model);
   if (!model || (requested.reasoningEffort !== null && !model.reasoningEfforts.includes(requested.reasoningEffort))) {
     throw new LocalChatGptOverrideUnavailableError();
   }
@@ -334,10 +342,11 @@ export async function callLocalChatGptStructured<T>(owner: ChatGptOwner, options
     && (credential.model !== selection.model || profileEffort !== (selection.reasoningEffort ?? null))))) {
     throw new Error("Le compte, le modèle ou le niveau d’effort ChatGPT a changé. Relancez le métré.");
   }
+  options.signal?.throwIfAborted();
   override = selection?.remeasureSetting ?? override;
   const sent = !override ? { model, reasoningEffort: profileEffort }
     : checkedOverrides.get(override) === overrideScope(owner, credential.profileId) ? override
-      : await assertLocalChatGptOverride(owner, credential, override);
+      : await assertLocalChatGptOverride(owner, credential, override, options.signal);
   const reasoningEffort = sent.reasoningEffort;
   const content: Record<string, unknown>[] = [{ type: "input_text", text: options.prompt }];
   for (const file of options.files ?? []) {
@@ -353,6 +362,7 @@ export async function callLocalChatGptStructured<T>(owner: ChatGptOwner, options
       throw new Error("Ce format de document n’est pas pris en charge par la connexion ChatGPT.");
     }
   }
+  options.signal?.throwIfAborted();
   // The job's right to pay and the call's reservation, with the credential in hand (its lock and refresh may have
   // waited): nothing is sent otherwise.
   const paid = await selection?.beforeSend?.();
@@ -383,7 +393,7 @@ export async function callLocalChatGptStructured<T>(owner: ChatGptOwner, options
         { role: "user", content }],
       text: { format: { type: "json_object" } },
     }),
-    signal: AbortSignal.timeout(Math.min(options.timeoutMs ?? 60_000, 180_000)), cache: "no-store",
+    signal: combineAbortSignal(Math.min(options.timeoutMs ?? 60_000, 180_000), options.signal), cache: "no-store",
   };
   let answer: Awaited<ReturnType<typeof readChatGptResponse>>;
   try {

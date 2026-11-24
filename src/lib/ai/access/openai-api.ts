@@ -90,6 +90,8 @@ export type ApiKeyPrepareInput<T> = {
   outputCap: number;
   /** Below this output budget the call cannot hold a useful answer: refused. */
   minOutputTokens: number;
+  /** Caller cancellation signal, combined with the counting timeout. */
+  signal?: AbortSignal;
 };
 
 /** What a prepared call may cost, once OpenAI counted its input. The request and schema stay inside this module. */
@@ -179,17 +181,25 @@ function safeField(value: string | null | undefined, secret: ApiKeySecret, shape
   return value;
 }
 
+function abortReason(signal: AbortSignal): unknown {
+  return signal.reason instanceof Error ? signal.reason : new DOMException("The operation was aborted", "AbortError");
+}
+
 async function send(deps: OpenAiApiKeyDeps, secret: ApiKeySecret, path: Endpoint,
-  request: { body?: string; timeoutMs: number; lostCode: ApiKeyErrorCode }): Promise<Reply> {
+  request: { body?: string; timeoutMs: number; lostCode: ApiKeyErrorCode; signal?: AbortSignal }): Promise<Reply> {
+  if (request.signal?.aborted) throw abortReason(request.signal);
+  const timeout = AbortSignal.timeout(request.timeoutMs);
+  const signal = request.signal ? AbortSignal.any([timeout, request.signal]) : timeout;
   let response: Response;
   try {
     response = await deps.fetch(`${OPENAI_ORIGIN}${path}`, {
       method: request.body === undefined ? "GET" : "POST",
       headers: { authorization: `Bearer ${secret.reveal("openai-request")}`, ...(request.body === undefined ? {} : { "content-type": "application/json" }) },
       ...(request.body === undefined ? {} : { body: request.body }),
-      signal: AbortSignal.timeout(request.timeoutMs), cache: "no-store", redirect: "error",
+      signal, cache: "no-store", redirect: "error",
     });
   } catch (error) {
+    if (request.signal?.aborted) throw abortReason(request.signal);
     throw new ApiKeyError(notSent(error) ? "AI_KEY_UNREACHABLE" : request.lostCode);
   }
   const requestId = safeField(response.headers.get("x-request-id"), secret, REQUEST_ID);
@@ -197,6 +207,7 @@ async function send(deps: OpenAiApiKeyDeps, secret: ApiKeySecret, path: Endpoint
   try {
     text = await readBounded(response);
   } catch {
+    if (request.signal?.aborted) throw abortReason(request.signal);
     throw new ApiKeyError(response.ok ? request.lostCode : "AI_KEY_PROVIDER_FAILED", { providerStatus: response.status, requestId });
   }
   let body: unknown = null;
@@ -333,9 +344,14 @@ function generationBody(request: SerializedRequest, maxOutputTokens: number) {
 }
 
 /** OpenAI's count of the exact input the call will send. No count, no generation. */
-async function countWith(deps: OpenAiApiKeyDeps, secret: ApiKeySecret, request: SerializedRequest): Promise<number> {
+async function countWith(
+  deps: OpenAiApiKeyDeps,
+  secret: ApiKeySecret,
+  request: SerializedRequest,
+  signal?: AbortSignal,
+): Promise<number> {
   const reply = await send(deps, secret, "/v1/responses/input_tokens", {
-    body: request.text, timeoutMs: COUNT_TIMEOUT_MS, lostCode: "AI_KEY_COUNT_UNAVAILABLE" });
+    body: request.text, timeoutMs: COUNT_TIMEOUT_MS, lostCode: "AI_KEY_COUNT_UNAVAILABLE", signal });
   if (reply.status !== 200) {
     const failure = failureOf(reply, deps.now());
     throw ["AI_KEY_PROVIDER_FAILED", "AI_KEY_REQUEST_REJECTED"].includes(failure.code)
@@ -359,8 +375,17 @@ function usageOf(usage: NonNullable<z.infer<typeof responsesReply>["usage"]>): A
 }
 
 /** One generation, never resent. A reply with usage but no answer throws with that usage: it was billed. */
-async function generateWith(deps: OpenAiApiKeyDeps, secret: ApiKeySecret, request: SerializedRequest, maxOutputTokens: number, timeoutMs: number) {
-  const reply = await send(deps, secret, "/v1/responses", { body: generationBody(request, maxOutputTokens), timeoutMs, lostCode: "AI_KEY_RESPONSE_LOST" });
+async function generateWith(
+  deps: OpenAiApiKeyDeps,
+  secret: ApiKeySecret,
+  request: SerializedRequest,
+  maxOutputTokens: number,
+  timeoutMs: number,
+  signal?: AbortSignal,
+) {
+  const reply = await send(deps, secret, "/v1/responses", {
+    body: generationBody(request, maxOutputTokens), timeoutMs, lostCode: "AI_KEY_RESPONSE_LOST", signal,
+  });
   if (reply.status !== 200) throw failureOf(reply, deps.now());
   const parsed = responsesReply.safeParse(reply.body);
   if (!parsed.success) throw new ApiKeyError("AI_KEY_RESPONSE_LOST", { providerStatus: reply.status, requestId: reply.requestId });
@@ -413,11 +438,12 @@ function lowestEffort(model: string): AiReasoningEffort | null {
   return openAiQualifiedModel(model)?.reasoningEfforts[0] ?? null;
 }
 
-/** Every failure of a use case becomes an ApiKeyError: nothing else crosses the route boundary. */
-async function guarded<T>(effect: () => Promise<T>): Promise<T> {
+/** Every failure of a use case becomes an ApiKeyError: nothing else crosses the route boundary, except caller abort. */
+async function guarded<T>(effect: () => Promise<T>, signal?: AbortSignal): Promise<T> {
   try {
     return await effect();
   } catch (error) {
+    if (signal?.aborted) throw abortReason(signal);
     if (isApiKeyError(error)) throw error;
     if (error instanceof SecretStoreError) {
       throw new ApiKeyError(error.reason === "locked" ? "AI_KEY_KEYCHAIN_LOCKED"
@@ -706,6 +732,7 @@ export function createOpenAiApiKeyAccess(overrides: Partial<OpenAiApiKeyDeps> = 
      * when the price is unknown, the count unavailable, or the budget below a useful answer. Nothing is generated.
      */
     prepare: <T>(owner: AiAccessOwner, input: ApiKeyPrepareInput<T>): Promise<PreparedApiKeyCall> => guarded(async () => {
+      if (input.signal?.aborted) throw abortReason(input.signal);
       const price = openAiQualifiedModel(input.model);
       if (!price) throw new ApiKeyError("AI_KEY_PRICE_UNKNOWN");
       if (input.reasoningEffort !== null && !price.reasoningEfforts.includes(input.reasoningEffort)) throw new ApiKeyError("AI_KEY_MODEL_NOT_OFFERED");
@@ -713,7 +740,7 @@ export function createOpenAiApiKeyAccess(overrides: Partial<OpenAiApiKeyDeps> = 
       // Serialized once: the count and the generation send this exact text.
       const request = serializeRequest({ model: input.model, reasoningEffort: input.reasoningEffort, prompt: input.prompt, schema: input.schema,
         schemaName: "mergeone_extraction", files: input.files });
-      const inputTokens = await countWith(deps, secret, request);
+      const inputTokens = await countWith(deps, secret, request, input.signal);
       const maxOutputTokens = maxOutputWithin({ model: input.model, inputTokens, allotmentNanoUsd: input.allotmentNanoUsd, cap: input.outputCap });
       if (maxOutputTokens < input.minOutputTokens) {
         const smallest = boundCountedCall({ model: input.model, inputTokens, maxOutputTokens: input.minOutputTokens });
@@ -726,24 +753,28 @@ export function createOpenAiApiKeyAccess(overrides: Partial<OpenAiApiKeyDeps> = 
         connectionVersion: connection.version, inputTokens, maxOutputTokens, boundNanoUsd: bound.nanoUsd, allotmentNanoUsd: input.allotmentNanoUsd });
       preparedRequests.set(prepared, { owner: ownerScope(owner), request, schema: input.schema });
       return prepared;
-    }),
+    }, input.signal),
 
     /** Sends a prepared call, once, with the key still in service at that version. */
-    execute: <T>(owner: AiAccessOwner, prepared: PreparedApiKeyCall, options: { timeoutMs: number }): Promise<ApiKeyStructuredResult<T>> =>
+    execute: <T>(owner: AiAccessOwner, prepared: PreparedApiKeyCall, options: { timeoutMs: number; signal?: AbortSignal }): Promise<ApiKeyStructuredResult<T>> =>
       guarded(async () => {
+        if (options.signal?.aborted) throw abortReason(options.signal);
         const held = preparedRequests.get(prepared);
         if (!held) throw new ApiKeyError("AI_KEY_UNEXPECTED");
         if (held.owner !== ownerScope(owner)) throw new ApiKeyError("AI_KEY_CHANGED");
         // Single use: a prepared call is sent at most once.
         preparedRequests.delete(prepared);
         const { secret, connection } = await resolveKey(owner, prepared.connectionVersion);
+        if (options.signal?.aborted) throw abortReason(options.signal);
         const startedAt = Date.now();
         let answer: Awaited<ReturnType<typeof generateWith>>;
         try {
-          answer = await generateWith(deps, secret, held.request, prepared.maxOutputTokens, options.timeoutMs);
+          answer = await generateWith(deps, secret, held.request, prepared.maxOutputTokens, options.timeoutMs, options.signal);
         } catch (error) {
-          // A request that reached OpenAI is a use, billed or not.
-          if (isApiKeyError(error) && error.code !== "AI_KEY_UNREACHABLE") await markUsed(owner, connection.version);
+          // A request that reached OpenAI is a use, billed or not (including one aborted mid-flight after send).
+          if ((isApiKeyError(error) && error.code !== "AI_KEY_UNREACHABLE") || options.signal?.aborted) {
+            await markUsed(owner, connection.version);
+          }
           throw error;
         }
         await markUsed(owner, connection.version);
@@ -761,7 +792,7 @@ export function createOpenAiApiKeyAccess(overrides: Partial<OpenAiApiKeyDeps> = 
           if (error instanceof SyntaxError || error instanceof z.ZodError) return { ...answered, data: null, schemaError: error, refused: answer.refused };
           throw new ApiKeyError("AI_KEY_UNEXPECTED");
         }
-      }),
+      }, options.signal),
   };
 }
 

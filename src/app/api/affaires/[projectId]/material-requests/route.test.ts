@@ -939,7 +939,7 @@ describe("material requests of an affaire: splitting the message again", () => {
       replaced_ids: [LINE_READY, LINE_NO_QUANTITY, LINE_VALIDATED], lines: corrected,
     });
     expect([status, error?.code]).toEqual([409, "MATERIAL_REQUEST_LINES_KEPT"]);
-    expect(error?.message).toBe("Le message n’est pas redécoupé : la ligne Bride DN 50 est validée. Corrigez les lignes dans le tableau.");
+    expect(error?.message).toBe("Les lignes n’ont pas été remplacées : la ligne Bride DN 50 est validée. Corrigez les lignes dans le tableau.");
     expect(fake.writes).toEqual([]);
   });
 
@@ -947,7 +947,7 @@ describe("material requests of an affaire: splitting the message again", () => {
     [
       "priced by a retained quote",
       { material_request_lines: [line(LINE_READY, REQUEST, 1, { price_quote_id: "a0000000-0000-4000-8000-000000000001" }), line(LINE_NO_QUANTITY, REQUEST, 2)] },
-      "Le message n’est pas redécoupé : la ligne Coude 45° DN 20 est dans un devis. Corrigez les lignes dans le tableau.",
+      "Les lignes n’ont pas été remplacées : la ligne Coude 45° DN 20 est dans un devis. Corrigez les lignes dans le tableau.",
     ],
     [
       "asked in a quote",
@@ -958,7 +958,7 @@ describe("material requests of an affaire: splitting the message again", () => {
           { tenant_id: TENANT, project_id: PROJECT, quote_id: "a0000000-0000-4000-8000-000000000003", line_id: LINE_NO_QUANTITY },
         ],
       },
-      "Le message n’est pas redécoupé : les lignes Coude 45° DN 20 et Coude 45° DN 20 sont dans un devis. Corrigez les lignes dans le tableau.",
+      "Les lignes n’ont pas été remplacées : les lignes Coude 45° DN 20 et Coude 45° DN 20 sont dans un devis. Corrigez les lignes dans le tableau.",
     ],
   ])("replaces nothing while a draft line is %s", async (_label, tables, message) => {
     const fake = seed(OWNER, "engineer", { tables });
@@ -975,7 +975,7 @@ describe("material requests of an affaire: splitting the message again", () => {
     const fake = seed(OWNER, "engineer", { tables: { material_request_lines: drafts() } });
     const { status, error } = await call(replaceRoute.POST, "POST", inRequest, { replaced_ids: replaced, lines: corrected });
     expect([status, error?.code]).toEqual([409, "MATERIAL_REQUEST_LINES_CHANGED"]);
-    expect(error?.message).toBe("Les lignes de la demande ont changé entre-temps : rechargez-la, puis redécoupez le message.");
+    expect(error?.message).toBe("Les lignes de la demande ont changé entre-temps : rechargez-la, puis recommencez.");
     expect(fake.writes).toEqual([]);
   });
 
@@ -1177,11 +1177,12 @@ describe("material requests of an affaire: originals", () => {
   });
 
   it.each<[string, Declared, number]>([
-    ["a PDF", declared("bon.pdf", "application/pdf"), 400],
+    ["a Word document", declared("bon.docx", "application/msword"), 400],
     ["a GIF", declared("anim.gif", "image/gif"), 400],
     ["a photo without extension", declared("photo", "image/jpeg"), 400],
     ["a PNG declared as JPEG", declared("capture.png", "image/jpeg"), 400],
     ["a JPEG declared as a PDF", declared("photo.jpg", "application/pdf"), 400],
+    ["a PDF declared as JPEG", declared("bon.pdf", "image/jpeg"), 400],
     ["a photo above 20 MiB", declared("grande.jpg", "image/jpeg", MATERIAL_REQUEST_FILE_MAX_BYTES + 1), 413],
   ])("refuses to prepare %s, naming the file, and prepares nothing of the batch", async (_label, file, expected) => {
     const fake = seed(OWNER, "engineer");
@@ -1190,6 +1191,21 @@ describe("material requests of an affaire: originals", () => {
     expect(error?.message).toContain(file.name);
     expect(fake.writes).toEqual([]);
     expect(fake.storageCalls).toEqual([]);
+  });
+
+  it("prepares, verifies and stores a PDF original, and refuses to rotate it", async () => {
+    const fake = seed(OWNER, "engineer");
+    const pdfBytes = new TextEncoder().encode("%PDF-1.4\n%fake\n");
+    const prepared = await prepare([{ name: "liste.pdf", mime_type: "application/pdf", byte_size: pdfBytes.byteLength }]);
+    expect(prepared.status).toBe(201);
+    const [upload] = (prepared.data as { uploads: Array<{ file: { id: string; mime_type: string }; path: string }> }).uploads;
+    expect(upload.file.mime_type).toBe("application/pdf");
+    fake.objects.set(upload.path, pdfBytes);
+    const completed = await complete([upload.file.id]);
+    expect(completed.status).toBe(200);
+    const rotated = await call(fileRoute.PATCH, "PATCH", { ...inRequest, fileId: upload.file.id }, { rotation: 90 });
+    expect(rotated.status).toBe(400);
+    expect(rotated.error?.message).toBe("Un PDF ne se tourne pas.");
   });
 
   it.each<[string, unknown]>([

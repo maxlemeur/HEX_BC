@@ -15,6 +15,7 @@ Pour exécuter un parcours, commencer par [le guide des tests](../../e2e/README.
 | [Full](../../.github/workflows/e2e-army-full.yml) | Manuel, quotidien à 03:15 UTC et [après un push `main`](#campagnes-de-main-après-un-push) ; parcours de production et phase développement |
 | [Calc-v3](../../.github/workflows/e2e-army-calc-v3.yml) | Manuel, quotidien à 04:45 UTC, PR vers `main` (phases atteintes) et [après un push `main`](#campagnes-de-main-après-un-push) ; phases du [guide calc-v3](tester-army-calc-v3.md), réparties en [groupes](#jobs-parallèles), check `army-calc-v3` |
 | [CI night alert](../../.github/workflows/ci-night-alert.yml) | Après chaque campagne Full ou Calc-v3 et chaque run E2E RLS Matrix de `main` (planifié ou après un push), et manuel ; [ticket d'alerte](#alerte-des-campagnes-de-main) ouvert, commenté ou fermé |
+| [Dependency audit alert](../../.github/workflows/dependency-audit-alert.yml) | Quotidien à 05:45 UTC et manuel ; [audit npm de `main`](#audit-des-dépendances), ticket ouvert, commenté ou fermé |
 
 Le job **Build** exécute `npm run verify:production` sur les PR, sur `main` et
 sur demande. Il compile avec Webpack, vérifie les types Next.js, les budgets et
@@ -268,12 +269,25 @@ donc au ticket « CI rouge sur main : E2E RLS Matrix ».
   E2E RLS Matrix ne lance aucun parcours : son ticket cite le run et le job en
   échec, dont le journal donne l'étape (pgTAP, plafonds ou matrice RLS) ;
 - première campagne verte : le ticket est commenté puis fermé ;
-- campagne annulée ou sans conclusion : rien n'est écrit ;
+- campagne annulée ou sans conclusion : rien n'est écrit. Exception : un run
+  E2E RLS Matrix de push annulé compte comme rouge, car les jobs Army de ce
+  push lui ont délégué pgTAP et la matrice RLS, qui n'ont donc pas tourné pour
+  cette révision ; le ticket dit que ces contrôles ont été annulés ;
 - résultat dépassé : une campagne planifiée et une campagne lancée après un push
   se chevauchent. Quand une autre campagne du même workflow a déjà rendu son
   verdict sur une révision plus récente de `main`, le résultat qui arrive après
   elle n'écrit rien : il ne ferme pas le ticket d'un rouge plus récent et ne
   rouvre pas celui qu'un vert plus récent a fermé.
+
+Les alertes d'une campagne Army passent une à une, dans l'ordre où ses
+campagnes se terminent (un groupe de concurrence par workflow). E2E RLS Matrix
+se termine une fois par push, en parallèle ; or un groupe ne garde qu'un run en
+attente, et une alerte plus récente y annulerait la précédente, rouge
+comprise. Chacune de ses alertes a donc son propre groupe : celle d'un run
+dépassé n'écrit rien, et le résultat dépassé est vérifié une seconde fois juste
+avant d'écrire, pour qu'un vert plus ancien ne ferme pas le ticket qu'un rouge
+plus récent vient de commenter. Deux rouges simultanés peuvent ouvrir deux
+tickets : le suivant commente le plus ancien, et le premier vert les ferme tous.
 
 Seuls les tickets ouverts par le workflow lui-même sont reconnus : le dépôt est
 public et n'importe qui peut ouvrir un ticket du même titre. La variable de dépôt
@@ -285,6 +299,62 @@ Le déclenchement manuel rejoue l'alerte d'un run donné. Il n'écrit que si
 l'option d'écriture est cochée et que ce run est une campagne de `main`
 (planifiée ou après un push) ; sinon la décision est seulement affichée dans le
 résumé du job.
+
+## Audit des dépendances
+
+L'étape « Audit dependencies » du job Statique de Quality Gate
+(`npm run audit:dependencies`) refuse tout avis `moderate`, `high` ou
+`critical` qu'aucune exception active de
+[`config/dependency-audit-policy.json`](../../config/dependency-audit-policy.json)
+ne couvre, ainsi qu'une exception expirée ou inutilisée. Elle ne bloque que
+lorsque le diff touche aux dépendances :
+
+- une PR, quand elle modifie `package.json`, `package-lock.json`, `.npmrc`, le
+  fichier des exceptions ou le code de l'audit (`src/test/dependency-audit.ts`,
+  `src/test/dependency-audit-scope.ts`, `scripts/check-dependency-audit.ts`) ;
+  en CI, le diff va de sa base au commit de fusion que GitHub construit, donc
+  ce que `main` a changé entre-temps ne compte pas ;
+- un push sur `main`, quand sa plage `before..after` modifie l'un d'eux ; un
+  premier push ou un push forcé compte comme une modification ;
+- toujours, hors PR et push : déclenchement manuel, `npm run verify:pr` local.
+
+Sinon l'audit tourne quand même : ses erreurs deviennent un avertissement du
+job et une ligne de son résumé, sans le faire échouer. L'étape « Verify
+dependency signatures » bloque toujours. Du 16 au 23 novembre 2026, des avis
+publiés contre des dépendances que la PR ne touchait pas ont mis 10 PR au
+rouge, chacune pour une relance d'environ 110 minutes de runner.
+
+[`dependency-audit-alert.yml`](../../.github/workflows/dependency-audit-alert.yml)
+audite `main` chaque jour à 05:45 UTC (06:45 à Paris l'hiver) et tient le ticket
+« Audit des dépendances rouge sur main », sur le modèle de
+[l'alerte des campagnes](#alerte-des-campagnes-de-main) : audit rouge, le ticket
+est ouvert ou commenté et liste les avis et les exceptions à revoir ; premier
+audit propre, il est commenté puis fermé. Un audit qui ne peut pas s'exécuter
+laisse le run rouge et n'écrit rien. Le déclenchement manuel n'écrit que si
+l'option d'écriture est cochée et que la branche est `main`. La correction
+(mise à jour, `overrides` ou exception datée) passe par une PR, que l'audit
+bloque donc. Le job détient un jeton qui écrit des tickets : il n'installe aucun
+paquet (`npm audit` lit `package-lock.json` seul) et lance le script avec `node`
+sans chargeur, pour qu'aucun code tiers ne s'exécute à côté de ce jeton.
+
+## Mise à jour du CLI Supabase
+
+Dependabot n'ouvre pas de PR pour le paquet `supabase` (`ignore` dans
+[`.github/dependabot.yml`](../../.github/dependabot.yml)) : la sienne ne modifiait
+que `package.json`, et chaque job base de données ou Army la refusait
+(« Supabase CLI must be exactly … », 4 runs rouges du 16 au 23 novembre 2026).
+Cet `ignore` coupe aussi ses mises à jour de sécurité : un avis contre le CLI
+arrive par le ticket « Audit des dépendances rouge sur main » de
+[l'audit quotidien](#audit-des-dépendances).
+La mise à jour se fait à la main, comme pour 3.0.0
+([PR #176](https://github.com/maxlemeur/HEX_BC/pull/176)), en une PR qui change
+ensemble :
+
+1. la version exacte de `supabase` dans `package.json` et `package-lock.json` ;
+2. `PINNED_SUPABASE_CLI_VERSION` et `PINNED_SUPABASE_POSTGRES_BUNDLE` dans
+   [`src/test/supabase-cli.ts`](../../src/test/supabase-cli.ts) ;
+3. les types générés (`npm run supabase:types`), qui notent la version du CLI ;
+   puis `npm run db:ci:local` et les parcours Army qui lisent la base.
 
 ## Jobs parallèles
 

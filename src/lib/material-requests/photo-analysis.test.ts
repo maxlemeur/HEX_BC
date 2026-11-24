@@ -173,4 +173,15 @@ describe("buildMaterialRequestPhotoPrompt", () => {
     expect(buildMaterialRequestPhotoPrompt({ rotation: 180 })).toMatch(/demi-tour/);
     expect(buildMaterialRequestPhotoPrompt({ rotation: 270 })).toMatch(/quart de tour dans le sens inverse/);
   });
+
+  it("frames a PDF original as a document, mentions multi-page counts, and ignores rotation", () => {
+    const multi = buildMaterialRequestPhotoPrompt({ rotation: 90, isPdf: true, pages: 3 });
+    expect(multi).toMatch(/document PDF/);
+    expect(multi).toMatch(/3 pages/);
+    expect(multi).not.toMatch(/tourne/i);
+
+    const single = buildMaterialRequestPhotoPrompt({ rotation: 0, isPdf: true, pages: 1 });
+    expect(single).toMatch(/document PDF/);
+    expect(single).not.toMatch(/1 pages/);
+  });
 });

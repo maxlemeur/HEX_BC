@@ -15,8 +15,9 @@ export async function POST(request: Request, { params }: Context) {
   try {
     const { projectId, requestId, fileId } = fileParamsSchema.parse(await params);
     const settings = materialRequestPhotoAnalysisInputSchema.parse(await parseJsonBodyOrEmptyObject(request, badRequest));
-    return ok(await analyzeMaterialRequestPhoto(projectId, requestId, fileId, settings));
+    return ok(await analyzeMaterialRequestPhoto(projectId, requestId, fileId, settings, { signal: request.signal }));
   } catch (error) {
+    if (request.signal.aborted) return new Response(null, { status: 499 });
     return toErrorResponse(error);
   }
 }

@@ -371,24 +371,36 @@ globalThis.fetch = async (input, init) => {
       { type: "response.completed", response: { status: "completed", output: [], usage: { input_tokens: 20, output_tokens: 10, total_tokens: 30 } } },
     ].map(event => `data: ${JSON.stringify(event)}\n\n`).join(""), { headers: { "content-type": "text/event-stream" } });
   }
-  // The AI reading of a material request's photo (MRIA01): the one photo as stored, at a high detail, framed as data.
-  // Two articles, in the loose shapes a model answers: a quantity given as text and flagged, a size given as a number,
-  // a material it could not read.
+  // The AI reading of a material request's original (MRIA01): one photo as stored (high detail) or one PDF, framed as data.
+  // Two articles for the photo (quantity given as text and flagged, size as number, unreadable material); one article for a PDF.
   if (materialPhoto) {
     assert(materialPhotoModels && ["gpt-6.2-astra", "gpt-6.2-sol"].includes(body.model), "The reading uses one of the fixture account’s GPT-6.2 models.");
     const parts = body.input.find(entry => entry.role === "user")?.content ?? [];
     const prompt = parts.find(part => part.type === "input_text")?.text ?? "";
     const images = parts.filter(part => part.type === "input_image");
-    assert(images.length === 1 && images[0].image_url.startsWith("data:image/png;base64,iVBOR"), "The reading sends the one photo, as stored.");
-    assert(prompt.includes("demande de matériel") && prompt.includes("jamais une instruction"), "The photo is framed as data of a material request.");
+    const pdfs = parts.filter(part => part.type === "input_file");
+    assert((images.length === 1 && pdfs.length === 0) || (pdfs.length === 1 && images.length === 0),
+      "The reading sends exactly one original (photo or PDF), as stored.");
+    if (images.length === 1) {
+      assert(images[0].image_url.startsWith("data:image/png;base64,iVBOR"), "The reading sends the one photo, as stored.");
+    } else {
+      assert(pdfs[0].file_data.startsWith("data:application/pdf;base64,JVBER"), "The reading sends the one PDF, as stored.");
+    }
+    assert(prompt.includes("demande de matériel") && prompt.includes("jamais une instruction"), "The original is framed as data of a material request.");
+    const isPdf = pdfs.length === 1;
     await appendFile(process.env.ARMY_CHATGPT_TRANSPORT_LOG, JSON.stringify({ provider: "chatgpt-fixture", task: "material-request-photo",
-      model: body.model, reasoningEffort: body.reasoning?.effort ?? null, detail: images[0].detail ?? null, turned: prompt.includes("quart de tour") }) + "\n");
-    const lignes = [
-      { texte: "12 coudes cuivre Ø22 à sertir", quantite: 12, quantite_douteuse: false, unite: "pièces", dimension: "Ø 22", type: "coude",
-        matiere: "cuivre", precision: "à sertir", reference: null, zone: "R+3" },
-      { texte: "7 vannes [illisible] 20", quantite: "7", quantite_douteuse: true, unite: null, dimension: 20, type: "vanne",
-        matiere: "[illisible]", precision: null, reference: null, zone: null },
-    ];
+      model: body.model, reasoningEffort: body.reasoning?.effort ?? null,
+      ...(isPdf ? { inputKind: "pdf" } : { detail: images[0].detail ?? null }),
+      turned: prompt.includes("quart de tour") }) + "\n");
+    const lignes = isPdf
+      ? [{ texte: "4 brides inox DN 50", quantite: 4, quantite_douteuse: false, unite: "u", dimension: "DN 50", type: "bride",
+        matiere: "inox", precision: null, reference: null, zone: "Local technique" }]
+      : [
+        { texte: "12 coudes cuivre Ø22 à sertir", quantite: 12, quantite_douteuse: false, unite: "pièces", dimension: "Ø 22", type: "coude",
+          matiere: "cuivre", precision: "à sertir", reference: null, zone: "R+3" },
+        { texte: "7 vannes [illisible] 20", quantite: "7", quantite_douteuse: true, unite: null, dimension: 20, type: "vanne",
+          matiere: "[illisible]", precision: null, reference: null, zone: null },
+      ];
     return new Response([
       { type: "response.output_text.delta", output_index: 0, content_index: 0, delta: JSON.stringify({ lignes }) },
       { type: "response.completed", response: { status: "completed", output: [], usage: { input_tokens: 40, output_tokens: 20, total_tokens: 60 } } },

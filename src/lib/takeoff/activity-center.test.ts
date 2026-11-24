@@ -160,6 +160,7 @@ function createSupabaseMock(input?: {
     version_id: string;
     item_type: "line" | "section";
     tenant_id: string;
+    source_provider?: string | null;
   }>;
   jobPatches?: Record<string, QueryRow>;
   planFilePatches?: Record<string, QueryRow>;
@@ -461,6 +462,9 @@ describe("listActivityCenterJobs", () => {
     expect(response).toMatchObject({ analysisCompletions: [
       { eventId: EVENT_ID, outcome: "success", finishedAt: FINISHED_AT, failureReason: null },
     ] });
+    const tracking = await listActivityCenterJobs({ project_id: PROJECT_ID, tracking: true });
+    expect(tracking.jobs).toEqual([]);
+    expect(tracking.analysisCompletions).toEqual([{ ...response.analysisCompletions[0], plans: [] }]);
   });
 
   it("lists only the job a failure link names, whatever page it would fall on", async () => {
@@ -607,6 +611,24 @@ describe("listActivityCenterJobs", () => {
     expect(response.jobs.find((job) => job.jobId === JOB_A_ID)?.coveragePercent).toBe(50);
     expect(response.jobs.find((job) => job.jobId === JOB_B_ID)?.coveragePercent).toBe(50);
     expect(response.jobs.find((job) => job.jobId === JOB_C_ID)?.coveragePercent).toBeNull();
+  });
+
+  it("uses only imported DPGF lines for tracking coverage", async () => {
+    const estimateItems = [
+      { id: "estimate-line-1", version_id: VERSION_ID, item_type: "line" as const, tenant_id: TENANT_ID, source_provider: "dpgf" },
+      { id: "estimate-line-2", version_id: VERSION_ID, item_type: "line" as const, tenant_id: TENANT_ID, source_provider: null },
+    ];
+    const list = async (items: typeof estimateItems, tracking: boolean) => {
+      vi.mocked(getAuthenticatedContext).mockResolvedValue({
+        tenantId: TENANT_ID, tenantRole: "admin", supabase: createSupabaseMock({ estimateItems: items }),
+      } as never);
+      return (await listActivityCenterJobs({ project_id: PROJECT_ID, tracking })).jobs
+        .find((job) => job.jobId === JOB_A_ID)?.coveragePercent;
+    };
+
+    expect(await list(estimateItems, true)).toBe(100);
+    expect(await list(estimateItems.slice(1), true)).toBeNull();
+    expect(await list(estimateItems, false)).toBe(50);
   });
 
   it("returns no coverage when the target version has no DPGF line", async () => {

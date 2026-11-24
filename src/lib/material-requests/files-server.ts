@@ -80,16 +80,16 @@ const STORAGE_REMOVE_BATCH = 100;
 /** A signed upload is valid for two hours: an unstored row older than this belongs to nobody's upload. */
 const ABANDONED_AFTER_MS = 3 * 60 * 60 * 1000;
 
-type ImageMimeType = (typeof MATERIAL_REQUEST_FILE_MIME_TYPES)[number];
-type StoredMimeType = ImageMimeType | "application/pdf";
-/** What a batch is: originals of the request (images), or the answer to one quote (PDF or images). */
+type StoredMimeType = (typeof MATERIAL_REQUEST_FILE_MIME_TYPES)[number];
+/** What a batch is: originals of the request (images or PDF), or the answer to one quote (PDF or images). */
 type FileScope = { quoteId: string | null };
 
-const MIME_BY_EXTENSION: Record<(typeof MATERIAL_REQUEST_FILE_EXTENSIONS)[number], ImageMimeType> = {
+const MIME_BY_EXTENSION: Record<(typeof MATERIAL_REQUEST_FILE_EXTENSIONS)[number], StoredMimeType> = {
   jpg: "image/jpeg",
   jpeg: "image/jpeg",
   png: "image/png",
   webp: "image/webp",
+  pdf: "application/pdf",
 };
 const HEIC_EXTENSIONS = new Set(["heic", "heif", "heics", "heifs"]);
 const HEIC_MIME_TYPES = new Set(["image/heic", "image/heif", "image/heic-sequence", "image/heif-sequence"]);
@@ -107,7 +107,7 @@ function ascii(bytes: Uint8Array, start: number, end: number): string {
 }
 
 /** What the first bytes say the file is, whatever its name and declared type claim. */
-function sniffImage(head: Uint8Array): StoredMimeType | "heic" | null {
+function sniffFile(head: Uint8Array): StoredMimeType | "heic" | null {
   if (ascii(head, 0, 5) === "%PDF-") return "application/pdf";
   if (head[0] === 0xff && head[1] === 0xd8 && head[2] === 0xff) return "image/jpeg";
   if (ascii(head, 0, 8) === "\x89PNG\r\n\x1a\n") return "image/png";
@@ -117,29 +117,21 @@ function sniffImage(head: Uint8Array): StoredMimeType | "heic" | null {
 }
 
 /**
- * What is announced must be a JPEG, PNG or WebP of at most 20 MiB, whose name and type agree; or, for a quote, also
- * a PDF.
+ * What is announced must be a PDF or a JPEG, PNG or WebP image of at most 20 MiB, whose name and type agree.
  */
-function checkAnnounced(file: { name: string; mime_type: string; byte_size: number }, scope: FileScope): StoredMimeType {
+function checkAnnounced(file: { name: string; mime_type: string; byte_size: number }): StoredMimeType {
   const extension = extensionOf(file.name);
   const declared = file.mime_type.trim().toLowerCase();
   if (HEIC_EXTENSIONS.has(extension) || HEIC_MIME_TYPES.has(declared)) {
     throw unprocessableEntity(MATERIAL_REQUEST_HEIC_MESSAGE, undefined, MATERIAL_REQUEST_HEIC_UNSUPPORTED);
   }
-  const forQuote = scope.quoteId !== null;
-  const expected: StoredMimeType | undefined = forQuote && extension === "pdf"
-    ? "application/pdf"
-    : (MIME_BY_EXTENSION as Record<string, ImageMimeType | undefined>)[extension];
+  const expected: StoredMimeType | undefined = (MIME_BY_EXTENSION as Record<string, StoredMimeType | undefined>)[extension];
   if (!expected) {
-    throw badRequest(forQuote
-      ? `« ${file.name} » n’est pas un PDF ni une image JPEG, PNG ou WebP.`
-      : `« ${file.name} » n’est pas une image JPEG, PNG ou WebP.`);
+    throw badRequest(`« ${file.name} » n’est pas un PDF ni une image JPEG, PNG ou WebP.`);
   }
   // A browser that does not know the type sends none: the extension then decides.
   if (declared && declared !== expected) {
-    throw badRequest(forQuote
-      ? `« ${file.name} » n’est pas le fichier que son nom annonce : déposez un PDF ou une image JPEG, PNG ou WebP.`
-      : `« ${file.name} » n’est pas l’image que son nom annonce : déposez un fichier JPEG, PNG ou WebP.`);
+    throw badRequest(`« ${file.name} » n’est pas le fichier que son nom annonce : déposez un PDF ou une image JPEG, PNG ou WebP.`);
   }
   if (file.byte_size > MATERIAL_REQUEST_FILE_MAX_BYTES) throw payloadTooLarge(`« ${file.name} » dépasse ${MAX_SIZE_LABEL}.`);
   return expected;
@@ -338,8 +330,8 @@ export async function prepareMaterialRequestFiles(
   // A quote's answer goes to a quote of this request still in progress (404, 409 otherwise).
   const scope: FileScope = { quoteId: quoteId ? (await requireOpenQuote(access, request.id, quoteId)).id : null };
 
-  // Every photo is checked before anything is written: one refusal refuses the batch.
-  const mimeTypes = announced.map((file) => checkAnnounced(file, scope));
+  // Every file is checked before anything is written: one refusal refuses the batch.
+  const mimeTypes = announced.map((file) => checkAnnounced(file));
   await discardLeftovers(access, request.id);
 
   // The cap is on what a reader sees: it is checked again where a batch becomes visible. Photos still
@@ -424,7 +416,7 @@ async function verifyStored(
   if (info.size !== file.byte_size) return "size";
   const { data: stream, error: streamError } = await bucket.download(file.storage_path).asStream();
   if (streamError || !stream) return "missing";
-  return sniffImage(await readHead(stream as ReadableStream<Uint8Array>)) === file.mime_type ? null : "type";
+  return sniffFile(await readHead(stream as ReadableStream<Uint8Array>)) === file.mime_type ? null : "type";
 }
 
 export async function completeMaterialRequestFiles(
@@ -607,6 +599,7 @@ export async function updateMaterialRequestFile(
   // TI-691: the answer of a retained or closed quote is read-only, its display included.
   const file = await requireFile(access, requestId, fileId);
   if (file.quote_id) await requireOpenQuote(access, requestId, file.quote_id);
+  if (file.mime_type === "application/pdf") throw badRequest("Un PDF ne se tourne pas.");
   const { data, error } = await access.context.supabase
     .from("material_request_files")
     .update({ rotation: input.rotation })

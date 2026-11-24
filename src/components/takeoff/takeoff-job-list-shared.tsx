@@ -2,7 +2,9 @@ import type {
   TakeoffJobOperatorState,
   TakeoffProcessingStrategy,
   TakeoffProviderBatchState,
+  TakeoffActivityPlan,
 } from "@/lib/takeoff/types";
+import { describeTakeoffRequestPages } from "@/lib/takeoff/request-activity";
 import {
   getTakeoffVisibleJobStatusLabel,
   TAKEOFF_VISIBLE_JOB_STATUSES,
@@ -62,6 +64,10 @@ export function formatCount(value: number | null | undefined) {
   if (value === null || value === undefined || !Number.isFinite(value))
     return "-";
   return new Intl.NumberFormat("fr-FR").format(value);
+}
+
+export function formatActivityPlan({ name, pages }: TakeoffActivityPlan) {
+  return pages.length ? `${name} · ${describeTakeoffRequestPages(pages)}` : name;
 }
 
 export function resolveErrorTitle(status: number | null) {

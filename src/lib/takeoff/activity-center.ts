@@ -23,6 +23,7 @@ import { resolveTakeoffOperatorState, toTakeoffOperatorStateInput } from "@/lib/
 import { readTakeoffExecution, toTakeoffResumeViewer } from "@/lib/takeoff/resume-viewer-server";
 import { resolveTakeoffVisibleJobStatus, takeoffCompletionFailureReason } from "@/lib/takeoff/visible-status";
 import { getBusinessLevelLabel, getConfidenceLabel } from "@/lib/takeoff/job-list-labels";
+import { groupActivityTrackingAttempts, readActivityTrackingSources, takeoffTrackingNotStarted } from "@/lib/takeoff/activity-tracking-server";
 
 const DEFAULT_LIMIT = 20;
 const MAX_LIMIT = 100;
@@ -42,6 +43,7 @@ type ListActivityCenterJobsInput = {
   offset?: number;
   /** The page of the affaire's shared ends, independent of the page of jobs. */
   completionsOffset?: number;
+  tracking?: boolean;
 };
 
 type SupabaseClient = AuthenticatedTakeoffContext["supabase"];
@@ -49,6 +51,7 @@ type SupabaseClient = AuthenticatedTakeoffContext["supabase"];
 type JobRow = {
   id: string;
   launch_request_id?: string | null;
+  launch_unit_key?: string | null;
   estimate_version_id: string | null;
   plan_set_id: string | null;
   source_file_name: string | null;
@@ -62,6 +65,9 @@ type JobRow = {
   execution_host_id?: string | null;
   created_by?: string | null;
   completed_at?: string | null;
+  started_at?: string | null;
+  model?: string | null;
+  thinking_level?: string | null;
   error_code?: string | null;
   next_retry_at?: string | null;
   processing_strategy: string | null;
@@ -143,6 +149,7 @@ async function listMatchingJobs(
     versionId?: string | null;
     level?: string | null;
     period?: string | null;
+    tracking?: boolean;
   }
 ): Promise<JobRow[]> {
   const jobs: JobRow[] = [];
@@ -154,7 +161,8 @@ async function listMatchingJobs(
       supabase
         .from("takeoff_jobs" as never)
         .select(
-          "id, estimate_version_id, plan_set_id, launch_request_id, source_file_name, source_file_type, level, status, analysis_outcome, analysis_finished_at, analysis_completion_event_id, execution_provider, execution_host_id, created_by, completed_at, error_code, next_retry_at, processing_strategy, provider_batch_id, provider_batch_state, provider_batch_updated_at, provider_reconcile_due_at, provider_reconcile_lease_expires_at, created_at, retry_count, dispatch_status, dispatch_outcome, dispatch_correlation_id, dispatch_updated_at" as never
+          ("id, estimate_version_id, plan_set_id, launch_request_id, source_file_name, source_file_type, level, status, analysis_outcome, analysis_finished_at, analysis_completion_event_id, execution_provider, execution_host_id, created_by, completed_at, error_code, next_retry_at, processing_strategy, provider_batch_id, provider_batch_state, provider_batch_updated_at, provider_reconcile_due_at, provider_reconcile_lease_expires_at, created_at, retry_count, dispatch_status, dispatch_outcome, dispatch_correlation_id, dispatch_updated_at"
+            + (filterOpts.tracking ? ", launch_unit_key, started_at, model, thinking_level" : "")) as never
         )
         .eq("tenant_id" as never, tenantId as never),
       {
@@ -385,7 +393,8 @@ type EnrichmentResult = {
 async function batchEnrich(
   supabase: SupabaseClient,
   tenantId: string,
-  jobs: Array<{ id: string; estimate_version_id: string | null }>
+  jobs: Array<{ id: string; estimate_version_id: string | null }>,
+  tracking: boolean,
 ): Promise<EnrichmentResult> {
   if (jobs.length === 0) {
     return {
@@ -469,12 +478,15 @@ async function batchEnrich(
 
       (async () => {
         const versionIds = [...new Set(jobs.flatMap((job) => job.estimate_version_id ? [job.estimate_version_id] : []))];
-        const { data, error } = await readAllRowsInChunks(versionIds, (pageIds) => supabase
-          .from("estimate_items" as never)
-          .select("id, version_id" as never, { count: "exact" })
-          .eq("tenant_id" as never, tenantId as never)
-          .eq("item_type" as never, "line" as never)
-          .in("version_id" as never, pageIds as never));
+        const { data, error } = await readAllRowsInChunks(versionIds, (pageIds) => {
+          const lines = supabase.from("estimate_items" as never)
+            .select("id, version_id" as never, { count: "exact" })
+            .eq("tenant_id" as never, tenantId as never)
+            .eq("item_type" as never, "line" as never)
+            .in("version_id" as never, pageIds as never);
+          // The tracking view only names the coverage of imported DPGF lines (as in hasTakeoffDpgfTargetLines).
+          return tracking ? lines.eq("source_provider" as never, "dpgf" as never) : lines;
+        });
         if (error) {
           return [] as unknown as Array<{ id: string; version_id: string }>;
         }
@@ -604,6 +616,7 @@ export async function listActivityCenterJobs(
     versionId: input.versionId,
     level: input.level,
     period: input.period,
+    tracking: input.tracking,
   };
 
   // 3. Resolve all matching rows first so source filters and counters stay global.
@@ -686,9 +699,14 @@ export async function listActivityCenterJobs(
     : sourceFilteredRows;
   // Like the status, the named job narrows the list and not the counters.
   const listedRows = jobId ? statusFilteredRows.filter((row) => row.id === jobId) : statusFilteredRows;
+  const tracking = input.tracking ? await readActivityTrackingSources(
+    supabase, tenantId, input.project_id, listedRows, analysisCompletions.map((event) => event.eventId)
+  ) : null;
+  const groups = tracking && !jobId ? groupActivityTrackingAttempts(listedRows, tracking.scopes) : null;
+  const displayRows = groups?.rows ?? listedRows;
   const pageOffset = jobId ? 0 : offset;
-  const pagedRows = listedRows.slice(pageOffset, pageOffset + limit);
-  const total = listedRows.length;
+  const pagedRows = displayRows.slice(pageOffset, pageOffset + limit);
+  const total = displayRows.length;
   const jobIds = pagedRows.map((row) => row.id);
 
   // 5. Batch-enrich completed/applied jobs for the current page only. The lines of every row of the page are counted by
@@ -701,7 +719,7 @@ export async function listActivityCenterJobs(
     { confidence: confidenceMap, exceptions: exceptionMap, coverage: coverageMap, carryOver: carryOverMap },
     itemCountMap,
   ] = await Promise.all([
-    batchEnrich(supabase, tenantId, enrichableJobs),
+    batchEnrich(supabase, tenantId, enrichableJobs, input.tracking === true),
     countTakeoffItemsByJobId({ supabase, tenantId, jobIds }),
   ]);
 
@@ -801,13 +819,22 @@ export async function listActivityCenterJobs(
       dispatchOutcome: row.dispatch_outcome ?? null,
       dispatchCorrelationId: row.dispatch_correlation_id ?? null,
       dispatchUpdatedAt: row.dispatch_updated_at ?? null,
+      ...(tracking && {
+        plans: tracking.scopes.get(row.id)?.plans ?? [],
+        notStarted: takeoffTrackingNotStarted(row),
+        model: row.model ?? null,
+        reasoningEffort: row.thinking_level ?? null,
+        previousAttempts: groups?.previousAttempts.get(row.id) ?? [],
+      }),
     };
   });
 
   return {
     counters,
     jobs,
-    analysisCompletions,
+    analysisCompletions: tracking ? analysisCompletions.map((event) => ({
+      ...event, plans: tracking.eventPlans.get(event.eventId) ?? [],
+    })) : analysisCompletions,
     analysisCompletionsHasOlder,
     pagination: { limit, offset: pageOffset, total },
   };

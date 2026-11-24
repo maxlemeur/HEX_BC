@@ -868,7 +868,7 @@ describe("MaterialRequestEditor", () => {
 
       // While the first photo travels: the operator reads where it is, nothing is listed, nothing can be sent twice.
       expect(await screen.findByText("Envoi de la photo 1 sur 2 : photo-essai-1.jpg…")).toBeVisible();
-      expect(screen.getByRole("button", { name: "Ajouter des photos" })).toBeDisabled();
+      expect(screen.getByRole("button", { name: "Ajouter des photos ou PDF" })).toBeDisabled();
       expect(screen.getByLabelText("Photos à ajouter")).toBeDisabled();
       expect(screen.queryByRole("img")).not.toBeInTheDocument();
       expect(type).toBeEnabled();
@@ -894,7 +894,7 @@ describe("MaterialRequestEditor", () => {
       ]);
       expect(writes()[1].body).toEqual({ ids: [FILE_ID, FILE_2] });
       expect(screen.getByText("Photo 1 sur 2")).toBeVisible();
-      expect(screen.getByRole("button", { name: "Ajouter des photos" })).toBeEnabled();
+      expect(screen.getByRole("button", { name: "Ajouter des photos ou PDF" })).toBeEnabled();
     });
 
     it("shows the server's sentence and sends nothing to storage when the preparation is refused (15)", async () => {
@@ -944,7 +944,7 @@ describe("MaterialRequestEditor", () => {
       expect(events.slice(3).sort()).toEqual([`DELETE ${BASE}/files/${FILE_ID}`, `DELETE ${BASE}/files/${FILE_2}`].sort());
       expect(screen.queryByRole("img")).not.toBeInTheDocument();
       expect(screen.getByText("Pas de photo de l’original.")).toBeVisible();
-      expect(screen.getByRole("button", { name: "Ajouter des photos" })).toBeEnabled();
+      expect(screen.getByRole("button", { name: "Ajouter des photos ou PDF" })).toBeEnabled();
     });
 
     it("waits for the photo in flight, then drops what was prepared, when the operator leaves the request (15)", async () => {

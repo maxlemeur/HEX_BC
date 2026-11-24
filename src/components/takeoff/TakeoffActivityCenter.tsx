@@ -28,6 +28,7 @@ import {
   JobsTableSkeleton,
   PAGE_SIZE_OPTIONS,
   PERIOD_FILTER_OPTIONS,
+  formatActivityPlan,
   formatCount,
   resolveErrorTitle,
 } from "@/components/takeoff/takeoff-job-list-shared";
@@ -89,9 +90,14 @@ type AnalysisCompletion = TakeoffActivityCenterResponse["analysisCompletions"][n
 function AnalysisCompletionList({ label, completions }: { label: string; completions: AnalysisCompletion[] }) {
   return (
     <ul className="journey-panel-body divide-y" aria-label={label}>
-      {completions.map(({ eventId, outcome, finishedAt, failureReason }) => (
+      {completions.map(({ eventId, outcome, finishedAt, failureReason, plans }) => (
         <li key={eventId} className="flex flex-wrap justify-between gap-2 py-2">
-          <span>{TAKEOFF_COMPLETION_LABELS[outcome]}</span>
+          <div className="min-w-0 wrap-anywhere">
+            {plans && plans.length > 0 ? (
+              <p className="font-semibold">{plans.map(formatActivityPlan).join(" · ")}</p>
+            ) : null}
+            <p className="text-sm">{TAKEOFF_COMPLETION_LABELS[outcome]}</p>
+          </div>
           <time dateTime={finishedAt} className="text-sm text-muted-foreground">
             {formatTakeoffCompletionDate(finishedAt)}
           </time>
@@ -122,6 +128,7 @@ type ActivityKey = readonly [
 function fetchActivityPage([, , projectId, version, lot, planSet, status, level, period, job, offset, completionsOffset, limit]: ActivityKey) {
   const filter = (value: string) => (value !== "all" ? value : null);
   return fetchTakeoffActivityCenter(projectId, {
+    view: "tracking",
     versionId: filter(version),
     lot: filter(lot),
     planSetId: filter(planSet),

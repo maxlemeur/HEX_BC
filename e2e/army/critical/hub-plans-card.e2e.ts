@@ -90,6 +90,7 @@ armyTest("HUB12 plans and métrés each offer one next step, from the plan set t
   await expect(screen.getByRole("heading", "Suivi des analyses", { exact: true })).toHaveCount(0);
 
   // A completed analysis never reported to the estimate becomes the next step.
+  await createLineViaApi(browser, estimate.versionId, "ARMY ligne de devis saisie à la main");
   const fixture = await localTakeoffFixture(army, estimate);
   // Historical completed extraction fixture; no worker is invoked.
   const job = await fixture.seed("A", [{ designation: "Radiateur acier 600 W", quantity: 4, unit: "u", confidence: 0.94 }], "ARMY-next-step.csv");
@@ -97,6 +98,16 @@ armyTest("HUB12 plans and métrés each offer one next step, from the plan set t
   await expect(screen.getByRole("heading", "Vérifier le métré proposé", { exact: true })).toBeVisible();
   await expect(screen.getByText(/^L’IA a proposé 1 élément pour /)).toBeVisible();
   await expect(screen.getByRole("heading", "Suivi des analyses", { exact: true })).toBeVisible();
+
+  const analysis = screen.getByRole("row").filter({ hasText: "ARMY-next-step.csv" });
+  await expect(analysis).toContainText("Lu");
+  await expect(analysis).toContainText("1 ligne de métré extraite");
+  await expect(analysis).toContainText("Confiance : élevée");
+  await expect(analysis).toContainText("Pas encore envoyé au devis");
+  await expect(analysis).not.toContainText("Couverture DPGF");
+  await expect(analysis.getByText("Mode de traitement : Immédiate", { exact: true })).toBeHidden();
+  await expect(analysis.getByRole("link", "Vérifier le métré", { exact: true }))
+    .toHaveAttribute("href", `${takeoffPath}/${job.jobId}/review?versionId=${estimate.versionId}`);
 
   // Filters narrow the list, never the next step; their reset keeps the keyboard focus.
   await app.open(`${takeoffPath}?status=action_required`);
