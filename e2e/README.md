@@ -120,10 +120,12 @@ Ces valeurs permettent le rendu anonyme ; elles ne donnent aucun accès backend.
 Le mobile est un viewport de navigateur. `npm run e2e:army:agent` est optionnel, utilise
 le login distinct `npx e2e login openai` et des objectifs bornés suivis
 d’assertions exactes. Le pilote et les personas d’exploration utilisent GPT-6.1
-Terra (`gpt-6.1-terra`) par défaut pour `agent.act`. Quand un test appelle
-`agent.assert`, le même modèle juge le résultat. Les vérifications exactes
-`expect` ne font aucun appel au modèle. `E2E_ARMY_MODEL` permet de choisir
-un autre modèle pour les actions et les jugements.
+Terra (`gpt-6.1-terra`) par défaut pour `agent.act`. `E2E_ARMY_MODEL`
+permet de changer ce modèle. L’exploration métier (`npm run e2e:army:explore`)
+utilise GPT-6.2 Sol pour `agent.assert`. Le reviewer retrouve une affaire
+fictive, ouvre un poste sur son plan et évalue la clarté de la preuve affichée.
+Les assertions `expect` vérifient exactement l’identité du poste, la mesure
+et la page du plan sans appel au modèle.
 
 ## Lire une preuve
 
