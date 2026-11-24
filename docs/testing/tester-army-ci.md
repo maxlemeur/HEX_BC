@@ -268,12 +268,25 @@ donc au ticket « CI rouge sur main : E2E RLS Matrix ».
   E2E RLS Matrix ne lance aucun parcours : son ticket cite le run et le job en
   échec, dont le journal donne l'étape (pgTAP, plafonds ou matrice RLS) ;
 - première campagne verte : le ticket est commenté puis fermé ;
-- campagne annulée ou sans conclusion : rien n'est écrit ;
+- campagne annulée ou sans conclusion : rien n'est écrit. Exception : un run
+  E2E RLS Matrix de push annulé compte comme rouge, car les jobs Army de ce
+  push lui ont délégué pgTAP et la matrice RLS, qui n'ont donc pas tourné pour
+  cette révision ; le ticket dit que ces contrôles ont été annulés ;
 - résultat dépassé : une campagne planifiée et une campagne lancée après un push
   se chevauchent. Quand une autre campagne du même workflow a déjà rendu son
   verdict sur une révision plus récente de `main`, le résultat qui arrive après
   elle n'écrit rien : il ne ferme pas le ticket d'un rouge plus récent et ne
   rouvre pas celui qu'un vert plus récent a fermé.
+
+Les alertes d'une campagne Army passent une à une, dans l'ordre où ses
+campagnes se terminent (un groupe de concurrence par workflow). E2E RLS Matrix
+se termine une fois par push, en parallèle ; or un groupe ne garde qu'un run en
+attente, et une alerte plus récente y annulerait la précédente, rouge
+comprise. Chacune de ses alertes a donc son propre groupe : celle d'un run
+dépassé n'écrit rien, et le résultat dépassé est vérifié une seconde fois juste
+avant d'écrire, pour qu'un vert plus ancien ne ferme pas le ticket qu'un rouge
+plus récent vient de commenter. Deux rouges simultanés peuvent ouvrir deux
+tickets : le suivant commente le plus ancien, et le premier vert les ferme tous.
 
 Seuls les tickets ouverts par le workflow lui-même sont reconnus : le dépôt est
 public et n'importe qui peut ouvrir un ticket du même titre. La variable de dépôt

@@ -160,7 +160,6 @@ export async function runDevLoopSession(input: DevLoopSessionInput) {
       },
       fixtures: session.fixtures,
       database: {
-        provenance: (session.database as { provenance?: unknown } | undefined)?.provenance ?? null,
         checks: "migrations, pgTAP and the RLS matrix ran once, at loop start",
         stackInputsSha256: input.store.current.stackInputsSha256,
       },
