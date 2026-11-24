@@ -16,9 +16,10 @@ Describe the observable result and link the issue or lot when one exists.
 - Remaining failures, skipped/blocked cases and platform/backend limits:
 
 `verify:pr` runs the `check:quality` gate on the current checkout;
-keep the affected TesterArmy/SQL/RLS evidence separate. Include reviewed
-screenshots when the UI changed. Anonymous or simulated
-evidence does not qualify authenticated business or real backend behavior.
+keep the affected TesterArmy/SQL/RLS evidence separate. For a UI change, name
+the screen and viewport checked, in words: a pull request carries no
+screenshots. Anonymous or simulated evidence does not qualify authenticated
+business or real backend behavior.
 
 ## Review
 
