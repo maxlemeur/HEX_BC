@@ -859,6 +859,9 @@ select pg_temp.add_choice_plan(1);
 create temporary table first_plan as
 select pg_temp.manifest(2300) manifest,pg_temp.snapshot(2300) snapshot,pg_temp.jobs(2300) jobs;
 select pg_temp.add_choice_plan(2);
+insert into storage.objects(bucket_id,name,metadata,version)
+select 'plan-files',file_path,jsonb_build_object('size',file_size_bytes),gen_random_uuid()::text
+from public.plan_files where plan_set_id in (pg_temp.f(2080),pg_temp.f(2320));
 create function pg_temp.choose_plans(variadic files int[]) returns uuid language sql as $$
   select c.request_id from public.confirm_affaire_brief_plan_choice(pg_temp.f(10),pg_temp.f(2300),pg_temp.f(1),
     (select updated_at from public.affaire_briefs where project_id=pg_temp.f(2300)),
@@ -873,6 +876,36 @@ where project_id=pg_temp.f(2300);
 select throws_ok($$select * from public.admit_takeoff_launch_request((select request_id from choice_claim),pg_temp.f(2399),
   (select mark from choice_claim),pg_temp.manifest(2300),pg_temp.snapshot(2300),pg_temp.jobs(2300),true)$$,
   '22023','TAKEOFF_BRIEF_PLAN_SCOPE_MISMATCH','a legacy evaluator cannot expand the selected plan to both plans');
+-- A consistent evaluator payload for different bytes cannot charge the confirmed member.
+savepoint other_bytes;
+select throws_ok($$select * from public.admit_takeoff_launch_request((select request_id from choice_claim),pg_temp.f(2399),
+  (select mark from choice_claim),
+  (select replace(manifest::text,pg_temp.digest(pg_temp.f(2321)),repeat('b',64))::jsonb from first_plan),
+  (select replace(snapshot::text,pg_temp.digest(pg_temp.f(2321)),repeat('b',64))::jsonb from first_plan),
+  (select jobs from first_plan),true)$$,'22023','TAKEOFF_BRIEF_PLAN_SCOPE_MISMATCH','the seal must match the SHA-256 of the selected bytes');
+rollback to other_bytes;
+-- The evaluator has read the selected bytes; the object changes before it may admit the jobs.
+savepoint replaced_after_choice;
+update storage.objects set version=gen_random_uuid()::text where name=(select file_path from public.plan_files where id=pg_temp.f(2321));
+select throws_ok($$select * from public.admit_takeoff_launch_request((select request_id from choice_claim),pg_temp.f(2399),
+  (select mark from choice_claim),(select manifest from first_plan),(select snapshot from first_plan),(select jobs from first_plan),true)$$,
+  '22023','TAKEOFF_BRIEF_PLAN_CHANGED','a same-path replacement after confirmation invalidates admission');
+rollback to replaced_after_choice;
+
+-- Change only the other set, after sealing and immediately before the final dossier check.
+insert into public.plan_sets(id,tenant_id,project_id,name) values(pg_temp.f(2340),pg_temp.f(10),pg_temp.f(2300),'Archive');
+create function pg_temp.promote_after_job() returns trigger language plpgsql as $$
+begin
+  update public.plan_sets set metadata='{"default_import_plan_set":true,"source":"import-flow"}' where id=pg_temp.f(2340);
+  return null;
+end;
+$$;
+savepoint promotion;
+create trigger promote_after_job after insert on public.takeoff_jobs for each row execute function pg_temp.promote_after_job();
+select throws_ok($$select * from public.admit_takeoff_launch_request((select request_id from choice_claim),pg_temp.f(2399),
+  (select mark from choice_claim),(select manifest from first_plan),(select snapshot from first_plan),(select jobs from first_plan),true)$$,
+  '22023','TAKEOFF_BRIEF_PLAN_CHANGED','promotion of another import set after sealing rolls back admission');
+rollback to promotion;
 select results_eq($$select outcome from public.admit_takeoff_launch_request((select request_id from choice_claim),pg_temp.f(2399),
   (select mark from choice_claim),(select manifest from first_plan),(select snapshot from first_plan),(select jobs from first_plan),true)$$,
   $$values ('admitted'::text)$$,'the exact selected plan is admitted');
@@ -883,6 +916,32 @@ select pg_temp.choose_plans(2321,2322);
 select results_eq($$select jsonb_object_keys(selected_plans) from public.takeoff_launch_requests
   where project_id=pg_temp.f(2300) and state='evaluating'$$,$$values (pg_temp.f(2322)::text)$$,
   'a later confirmation only requests the newly checked plan, even while the first reading runs');
+
+-- A released manual request holds a real seal for two plans. Fix the worker outcomes
+-- independently of the chooser: one successful read and one stopped before starting.
+update public.plan_sets set name='Plans import' where id=pg_temp.f(2080);
+set local session_replication_role=replica;
+update public.takeoff_jobs set status=case when launch_unit_key='plan:' || pg_temp.f(2081) then 'completed' else 'canceled' end::public.takeoff_job_status,
+  analysis_outcome=case when launch_unit_key='plan:' || pg_temp.f(2081) then 'success' else 'canceled' end,
+  analysis_finished_at=now() where project_id=pg_temp.f(2060);
+set local session_replication_role=origin;
+insert into public.affaire_briefs(project_id,status,summary,project_object) values(pg_temp.f(2060),'a_confirmer','Résumé','Objet');
+create function pg_temp.choose_history(replaced boolean) returns uuid language sql as $$
+  select c.request_id from public.confirm_affaire_brief_plan_choice(pg_temp.f(10),pg_temp.f(2060),pg_temp.f(1),
+    (select updated_at from public.affaire_briefs where project_id=pg_temp.f(2060)),
+    (select jsonb_object_agg(o.plan_file_id,o.plan_version) from public.takeoff_brief_plan_options(pg_temp.f(10),pg_temp.f(2060)) o),
+    null,null,null,'MANDATE_REQUIRED',true,jsonb_build_object('sub',pg_temp.f(1))) c
+$$;
+select pg_temp.choose_history(false);
+select results_eq($$select jsonb_object_keys(selected_plans) from public.takeoff_launch_requests
+  where project_id=pg_temp.f(2060) and origin='automatic'$$,$$values (pg_temp.f(2082)::text)$$,
+  'the unchanged successful manual reading is retained; its stopped, never-started sibling is requested');
+update public.affaire_briefs set status='a_confirmer',confirmed_by=null,confirmed_at=null where project_id=pg_temp.f(2060);
+update storage.objects set version=gen_random_uuid()::text where name=(select file_path from public.plan_files where id=pg_temp.f(2081));
+select pg_temp.choose_history(true);
+select results_eq($$select jsonb_object_keys(selected_plans) from public.takeoff_launch_requests
+  where project_id=pg_temp.f(2060) and origin='automatic' order by 1$$,$$values (pg_temp.f(2081)::text),(pg_temp.f(2082)::text)$$,
+  'the old successful manual reading does not suppress a different PDF under the same UUID');
 
 -- 16. The measuring order of #447 (20261121230719_takeoff_item_lists.sql) with both formats of manifest: the free
 -- extraction, or a list of items of the request's own affaire named by its latest revision. Written before migration A's

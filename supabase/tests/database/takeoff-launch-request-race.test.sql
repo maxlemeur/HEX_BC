@@ -575,6 +575,40 @@ select is((pg_temp.automatic(190)).state, 'not_eligible', 'the start is not set 
 select is((select count(*)::integer from public.takeoff_jobs where project_id = pg_temp.fx(190) and launch_request_id is not null), 0,
   'and nothing is paid');
 
+-- A promotion of the *other* set is outstanding as the service confirms the previous list.
+select extensions.dblink_exec('race_setup',format($setup$
+  begin;
+  update public.affaire_briefs set status='a_confirmer',confirmed_by=null,confirmed_at=null where project_id=%1$L;
+  update public.plan_sets set name='Plans import' where id=%2$L;
+  insert into public.plan_sets(id,project_id,tenant_id,name) values(%3$L,%1$L,%4$L,'Archives');
+  insert into private.takeoff_plan_dispatch_activation(active_from) values(now()-interval '1 hour');
+  insert into storage.objects(bucket_id,name,metadata,version)
+    select 'plan-files',file_path,jsonb_build_object('size',file_size_bytes),gen_random_uuid()::text from public.plan_files where id=%5$L;
+  commit;
+$setup$,pg_temp.fx(190),pg_temp.fx(194),pg_temp.fx(9800),pg_temp.tenant(),pg_temp.fx(195)));
+create temporary table racing_choice as select format($call$
+  select outcome from public.confirm_affaire_brief_plan_choice(%1$L,%2$L,%3$L,%4$L,%5$L::jsonb,null,null,null,
+    'MANDATE_REQUIRED',true,jsonb_build_object('sub',%3$L))
+$call$,pg_temp.tenant(),pg_temp.fx(190),pg_temp.fx(1),(select updated_at from public.affaire_briefs where project_id=pg_temp.fx(190)),
+  (select jsonb_object_agg(o.plan_file_id,o.plan_version) from public.takeoff_brief_plan_options(pg_temp.tenant(),pg_temp.fx(190)) o)) as body;
+select extensions.dblink_exec('race_writer',format($promote$begin; update public.plan_sets set
+  metadata='{"default_import_plan_set":true,"source":"import-flow"}' where id=%L$promote$,pg_temp.fx(9800)));
+select extensions.dblink_send_query('race_b',(select body from racing_choice));
+select ok(pg_temp.waits_for('race_b','race_writer'),'a pending promotion on the other set serializes with the final choice check');
+select extensions.dblink_exec('race_writer','commit');
+select ok(pg_temp.answered('race_b'),'the confirmation finishes after promotion commits');
+select * from extensions.dblink_get_result('race_b',false) as answer(outcome text);
+select is(position('TAKEOFF_BRIEF_PLAN_CHANGED' in extensions.dblink_error_message('race_b'))>0,true,
+  'the obsolete choice is refused after acquiring the dossier lock');
+select * from extensions.dblink_get_result('race_b',false) as answer(outcome text);
+select is((select status from public.affaire_briefs where project_id=pg_temp.fx(190)),'a_confirmer',
+  'the obsolete confirmation never commits');
+select extensions.dblink_exec('race_setup',format($clean$begin;
+  set local storage.allow_delete_query='true';
+  delete from storage.objects where bucket_id='plan-files' and name=%L;
+  delete from private.takeoff_plan_dispatch_activation; commit;$clean$,
+  (select file_path from public.plan_files where id=pg_temp.fx(195))));
+
 -- Clean the committed synthetic fixtures and the cut-offs.
 select is(extensions.dblink_exec('race_setup', $cleanup$
 begin;
