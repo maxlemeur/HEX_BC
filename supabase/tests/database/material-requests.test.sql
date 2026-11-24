@@ -52,11 +52,10 @@ where relation.oid in ('public.material_request_technicians'::regclass, 'public.
   'public.material_request_files'::regclass, 'public.material_request_lines'::regclass);
 select is(has_table_privilege('authenticated', 'public.material_request_technicians', 'DELETE'), false,
   'a client cannot delete a technician');
--- TI-691 (delivery 2) adds application/pdf for the files of a quote; an original stays an image, held by the row's
--- CHECK (counterexample in material-request-quotes.test.sql: an original declared as a PDF is refused).
+-- TI-690/TI-691: both request originals and quote attachments accept JPEG, PNG, WebP and PDF.
 select ok((select not public and file_size_limit = 20971520
     and allowed_mime_types = array['image/jpeg', 'image/png', 'image/webp', 'application/pdf']
-  from storage.buckets where id = 'material-requests'), 'the originals bucket is private, 20 MiB, images and quote PDFs');
+  from storage.buckets where id = 'material-requests'), 'the originals bucket is private, 20 MiB, images and PDFs');
 
 -- Members of tenant 101: 1 engineer who owns the affaire, 2 admin, 3 director, 4 viewer, 5 another
 -- engineer, 7 a second admin. Member 6 belongs to tenant 102 only.
@@ -331,7 +330,7 @@ select throws_ok($$insert into public.material_request_files (id, request_id, st
   values ('a9000000-0000-4000-8000-000000000703', 'a9000000-0000-4000-8000-000000000501',
     'a9000000-0000-4000-8000-000000000101/a9000000-0000-4000-8000-000000000201/a9000000-0000-4000-8000-000000000501/a9000000-0000-4000-8000-000000000703/photo.heic',
     'photo.heic', 'image/heic', 2048, 'a9000000-0000-4000-8000-000000000001')$$,
-  '23514', null, 'only JPEG, PNG and WebP originals are recorded');
+  '23514', null, 'only JPEG, PNG, WebP and PDF originals are recorded');
 select throws_ok($$insert into public.material_request_files (id, request_id, storage_path, file_name, mime_type, byte_size, created_by)
   values ('a9000000-0000-4000-8000-000000000703', 'a9000000-0000-4000-8000-000000000501',
     'a9000000-0000-4000-8000-000000000101/a9000000-0000-4000-8000-000000000201/a9000000-0000-4000-8000-000000000501/a9000000-0000-4000-8000-000000000703/grand.jpg',
@@ -476,6 +475,20 @@ with removed as (delete from storage.objects where bucket_id = 'material-request
   and name = 'a9000000-0000-4000-8000-000000000101/a9000000-0000-4000-8000-000000000201/a9000000-0000-4000-8000-000000000501/a9000000-0000-4000-8000-000000000706/en-cours.jpg' returning id)
 select is((select count(*) from removed), 1::bigint, 'once its row is withdrawn, the object of an original is deleted by who may write');
 delete from public.material_request_files where id in ('a9000000-0000-4000-8000-000000000706', 'a9000000-0000-4000-8000-000000000707');
+select lives_ok($$insert into public.material_request_files (id, request_id, storage_path, file_name, mime_type, byte_size, created_by)
+  values ('a9000000-0000-4000-8000-000000000709', 'a9000000-0000-4000-8000-000000000501',
+    'a9000000-0000-4000-8000-000000000101/a9000000-0000-4000-8000-000000000201/a9000000-0000-4000-8000-000000000501/a9000000-0000-4000-8000-000000000709/liste.pdf',
+    'liste.pdf', 'application/pdf', 4096, 'a9000000-0000-4000-8000-000000000001')$$,
+  'the owner records a PDF original on the request');
+select lives_ok($$insert into storage.objects (bucket_id, name, metadata) values ('material-requests',
+  'a9000000-0000-4000-8000-000000000101/a9000000-0000-4000-8000-000000000201/a9000000-0000-4000-8000-000000000501/a9000000-0000-4000-8000-000000000709/liste.pdf',
+  '{"size":4096}')$$, 'the owner stores the PDF original bytes');
+select lives_ok($$update public.material_request_files set stored_at = now() where id = 'a9000000-0000-4000-8000-000000000709'$$,
+  'the PDF original is marked stored');
+update public.material_request_files set removed_at = now() where id = 'a9000000-0000-4000-8000-000000000709';
+delete from storage.objects where bucket_id = 'material-requests'
+  and name = 'a9000000-0000-4000-8000-000000000101/a9000000-0000-4000-8000-000000000201/a9000000-0000-4000-8000-000000000501/a9000000-0000-4000-8000-000000000709/liste.pdf';
+delete from public.material_request_files where id = 'a9000000-0000-4000-8000-000000000709';
 select is((select count(*) from storage.objects where bucket_id = 'material-requests'), 1::bigint,
   'the stored original of the request is still there');
 reset role;
