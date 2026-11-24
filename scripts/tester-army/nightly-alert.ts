@@ -1,5 +1,5 @@
-// Tells someone when a TesterArmy campaign of main (scheduled, or following a push) is red, and
-// when it is green again. Runs with plain Node (type stripping, no npm install): node builtins,
+// Tells someone when a TesterArmy campaign of main, or the rls-matrix run of main that carries its pgTAP and
+// RLS checks (scheduled, or following a push), is red, and when it is green again. Runs with plain Node (type stripping, no npm install): node builtins,
 // the runner's `gh` and erasable TypeScript syntax. Contract: docs/testing/tester-army-ci.md,
 // section "Alerte des campagnes de main".
 //
@@ -8,7 +8,7 @@
 // campaign closes it. A campaign that did not conclude (cancelled, skipped) changes nothing, nor
 // does one that finishes after another gave its verdict on a later revision of main.
 // The issue names the run, its failed jobs and every journey that did not pass, read from the
-// manifest of the aggregate evidence. It only simulates unless ALERT_WRITE is "true" and the
+// manifest of the aggregate evidence (rls-matrix runs no journey: its failed job is the whole report). It only simulates unless ALERT_WRITE is "true" and the
 // run is a campaign of main: a pull request's or a filtered run's result never reaches the issue.
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -16,10 +16,15 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-/** The campaigns watched, by workflow name: their file and the artifact of their aggregate job. */
-export const ALERT_WORKFLOWS: Record<string, { file: string; artifact: string }> = {
+/**
+ * The runs watched, by workflow name: their file and the artifact of their aggregate job, null for a workflow that
+ * runs no journey. E2E RLS Matrix runs pgTAP and the RLS matrix that the Army jobs of a push to main delegate to it
+ * (scripts/tester-army/database-checks.ts), and its schedule alone measures the CI statement ceilings on main.
+ */
+export const ALERT_WORKFLOWS: Record<string, { file: string; artifact: string | null }> = {
   "TesterArmy Full": { file: ".github/workflows/e2e-army-full.yml", artifact: "army-full-evidence" },
   "TesterArmy calc-v3": { file: ".github/workflows/e2e-army-calc-v3.yml", artifact: "army-calc-v3-evidence" },
+  "E2E RLS Matrix": { file: ".github/workflows/e2e-rls-matrix.yml", artifact: null },
 };
 /**
  * The events whose run of a watched workflow is a campaign of main: the schedule, and a push,
@@ -38,6 +43,8 @@ export type AlertInput = {
   failedJobs: string[];
   /** The aggregate's journeys that did not pass; null when its evidence could not be read. */
   notPassed: string[] | null;
+  /** False for a workflow that runs no journey (E2E RLS Matrix): its failed jobs say everything. */
+  journeys?: boolean;
   /** The open issue of this workflow, if any. */
   openIssue: number | null;
 };
@@ -70,7 +77,9 @@ export function planAlert(input: AlertInput): AlertPlan {
     input.failedJobs.length
       ? `Jobs en échec : ${input.failedJobs.map((job) => `\`${job.replaceAll("`", "'")}\``).join(", ")}`
       : "Aucun job en échec n'a pu être listé : voir le run."];
-  if (input.notPassed === null) {
+  if (input.journeys === false) {
+    lines.push("", "Ce workflow ne lance aucun parcours : il exécute pgTAP, les plafonds de requêtes et la matrice RLS de cette révision. L'étape en échec et son rapport sont dans le journal du run.");
+  } else if (input.notPassed === null) {
     lines.push("", "Les parcours non passés n'ont pas pu être lus (preuves agrégées absentes ou illisibles) : voir le résumé du run.");
   } else if (input.notPassed.length === 0) {
     lines.push("", "Les preuves ne nomment aucun parcours rouge : l'échec peut précéder les parcours (préparation, build, base) ou tenir à l'agrégation des preuves.");
@@ -180,7 +189,8 @@ function main() {
   const open = alertIssues(JSON.parse(gh(["issue", "list", "--repo", repository, "--state", "open", "--search", `in:title "${run.name}"`,
     "--json", "number,title,author", "--limit", "50"])), alertTitles(run.name));
   const plan = planAlert({ workflow: run.name, conclusion, runUrl: run.html_url, revision: run.head_sha, date: run.run_started_at,
-    failedJobs, notPassed: RED.has(conclusion) ? readNotPassed(repository, runId, watched.artifact) : [], openIssue: open[0] ?? null });
+    failedJobs, notPassed: RED.has(conclusion) && watched.artifact !== null ? readNotPassed(repository, runId, watched.artifact) : [],
+    journeys: watched.artifact !== null, openIssue: open[0] ?? null });
 
   const report = [`### Alerte ${run.name}`, "", `Run ${run.html_url} : ${conclusion || "sans conclusion"}. Décision : ${plan.action}${simulated ? ` (${simulated})` : ""}.`, "",
     ...("body" in plan ? ["title" in plan ? `Titre : ${plan.title}` : `Ticket : #${plan.issue}`, "", plan.body] : [])].join("\n");

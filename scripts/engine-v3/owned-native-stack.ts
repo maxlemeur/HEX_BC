@@ -9,7 +9,7 @@
 // upgrade-check.ts keeps its own copy of these steps: it is a 2.0 proof whose bytes the lot
 // replays unchanged; factoring both onto this module is left to a later sub-lot.
 
-import { resolveNativePostgresTools } from "../../src/test/database-snapshot";
+import { resolveNativePostgresTools } from "../../src/test/native-database-tools";
 import { spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import fs from "node:fs";

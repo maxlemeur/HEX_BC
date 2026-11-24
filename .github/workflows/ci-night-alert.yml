@@ -1,23 +1,25 @@
 name: CI night alert
 
 # A TesterArmy campaign of main (scheduled, or following a push) that goes red
-# reaches nobody by itself: no pull request shows it. After each one, this
-# workflow opens an issue naming the run, its failed jobs and every journey that
-# did not pass, adds a comment to it while the campaign stays red, and closes it
-# on the first green one (scripts/tester-army/nightly-alert.ts,
-# docs/testing/tester-army-ci.md, "Alerte des campagnes de main").
+# reaches nobody by itself: no pull request shows it. Nor does a red E2E RLS
+# Matrix run of main, which carries the pgTAP and RLS checks the Army jobs of a
+# push delegate to it. After each one, this workflow opens an issue naming the
+# run, its failed jobs and every journey that did not pass, adds a comment to it
+# while the workflow stays red, and closes it on the first green run
+# (scripts/tester-army/nightly-alert.ts, docs/testing/tester-army-ci.md,
+# "Alerte des campagnes de main").
 #
 # workflow_run executes this file and that script from main, never from a pull
 # request. A dispatch replays the alert of one run; it only simulates unless
 # write is chosen and that run was a campaign of main.
 on:
   workflow_run:
-    workflows: ["TesterArmy Full", "TesterArmy calc-v3"]
+    workflows: ["TesterArmy Full", "TesterArmy calc-v3", "E2E RLS Matrix"]
     types: [completed]
   workflow_dispatch:
     inputs:
       run_id:
-        description: "Identifiant du run TesterArmy Full ou calc-v3 dont rejouer l'alerte."
+        description: "Identifiant du run TesterArmy Full, TesterArmy calc-v3 ou E2E RLS Matrix dont rejouer l'alerte."
         required: true
         type: string
       write:

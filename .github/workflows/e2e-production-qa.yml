@@ -12,7 +12,8 @@ concurrency:
 
 jobs:
   production-qa:
-    if: github.repository == 'maxlemeur/HEX_BC' && github.ref == 'refs/heads/main' && github.ref_protected && github.event_name == 'workflow_dispatch'
+    # The repository id, not its name: the guard keeps production secrets out of forks and must survive a transfer of the repository.
+    if: github.repository_id == '1137812664' &&github.ref == 'refs/heads/main' && github.ref_protected && github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     env:

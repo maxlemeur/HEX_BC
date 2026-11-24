@@ -2,9 +2,9 @@ name: TesterArmy Critical
 
 # The audited target guard is retained. This job has no shared Supabase secrets:
 # run-tester-army-ci creates and destroys its own native loopback stack, then
-# runs real authenticated journeys only after its migrations are verified and,
-# outside a pull request, pgTAP and RLS pass. On a pull request those two run
-# once, in the required check rls-matrix (ARMY_DATABASE_CHECKS_DELEGATED_TO).
+# runs real authenticated journeys only after its migrations are verified. On a
+# pull request and on a push to main, pgTAP and RLS run once, in rls-matrix
+# (ARMY_DATABASE_CHECKS_DELEGATED_TO); a dispatch runs them on each stack.
 #
 # Impact selection (docs/testing/tester-army-ci.md, "Sélection par impact"):
 # a pull request runs only the critical journeys its files reach, recorded as
@@ -496,43 +496,21 @@ jobs:
           key: army-next-${{ runner.os }}-${{ hashFiles('package-lock.json', 'next.config.ts') }}-${{ github.sha }}
           restore-keys: |
             army-next-${{ runner.os }}-${{ hashFiles('package-lock.json', 'next.config.ts') }}-
-      # Pre-migrated database snapshot (src/test/database-snapshot.ts): a hit
-      # restores the database dumped right after a verified db reset; the runner
-      # re-proves the applied migrations and the catalog fingerprint and falls
-      # back to db reset on any mismatch. The key covers every input of the
-      # snapshot's own key; exact key only, since an older snapshot would miss.
-      - name: Restore the pre-migrated database snapshot
-        id: db_snapshot
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ${{ runner.temp }}/army-db-snapshot
-          key: army-db-snapshot-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('supabase/migrations/**', 'supabase/seed*.sql', 'supabase/seeds/**', 'supabase/config.toml', 'src/test/supabase-cli.ts', 'src/test/database-snapshot.ts', 'src/test/local-supabase-ci.ts') }}
       - name: Run native database and TesterArmy critical journeys
         id: journeys
         env:
-          # pgTAP and the RLS matrix of a pull request run once, in the required check rls-matrix
-          # (scripts/tester-army/database-checks.ts); a push to main and a campaign keep their own.
-          ARMY_DATABASE_CHECKS_DELEGATED_TO: ${{ github.event_name == 'pull_request' && 'rls-matrix' || '' }}
+          # pgTAP and the RLS matrix of a pull request or of a push to main run once, in rls-matrix
+          # (scripts/tester-army/database-checks.ts); a scheduled or dispatched campaign keeps its own.
+          ARMY_DATABASE_CHECKS_DELEGATED_TO: ${{ (github.event_name == 'pull_request' || github.event_name == 'push' && github.ref == 'refs/heads/main') && 'rls-matrix' || '' }}
           # Qualified for the critical journeys of the owned ephemeral stack
           # (e2e.config.ts, docs/testing/tester-army-local-development.md).
           E2E_ARMY_WORKERS: "2"
           # Empty for an unsharded whole-suite plan: the runner's own selection.
           ARMY_FILES: ${{ matrix.files }}
           ARMY_SHARD: ${{ matrix.shard }}/${{ matrix.total }}
-          # Opt-in: unset, run-tester-army-ci keeps db reset.
-          ARMY_DB_SNAPSHOT_DIR: ${{ runner.temp }}/army-db-snapshot
           ARMY_BROWSER_INSTALL_DIR: ${{ runner.temp }}/army-browser-install
           ARMY_PREBUILT_BUILD_DIR: ${{ runner.temp }}/army-prebuilt
         run: node --import tsx scripts/run-tester-army-ci.ts critical --shard "$ARMY_SHARD" ${ARMY_FILES:+--files "$ARMY_FILES"}
-      # Only shard 1 of a push to main saves, the snapshot only after a cache
-      # miss; a failed recording leaves no directory (the save step then warns,
-      # stores nothing).
-      - name: Save the pre-migrated database snapshot
-        if: ${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/main' && matrix.shard == 1 && steps.db_snapshot.outputs.cache-hit != 'true' }}
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ${{ runner.temp }}/army-db-snapshot
-          key: ${{ steps.db_snapshot.outputs.cache-primary-key }}
       - name: Retain sanitized business evidence
         if: always() && steps.journeys.outputs.evidence != ''
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -662,22 +640,15 @@ jobs:
           key: army-next-${{ runner.os }}-${{ hashFiles('package-lock.json', 'next.config.ts') }}-${{ github.sha }}
           restore-keys: |
             army-next-${{ runner.os }}-${{ hashFiles('package-lock.json', 'next.config.ts') }}-
-      - name: Restore the pre-migrated database snapshot
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ${{ runner.temp }}/army-db-snapshot
-          key: army-db-snapshot-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('supabase/migrations/**', 'supabase/seed*.sql', 'supabase/seeds/**', 'supabase/config.toml', 'src/test/supabase-cli.ts', 'src/test/database-snapshot.ts', 'src/test/local-supabase-ci.ts') }}
       - name: Run native database and TesterArmy takeoff journeys
         id: journeys
         env:
-          # pgTAP and the RLS matrix of a pull request run once, in the required check rls-matrix
-          # (scripts/tester-army/database-checks.ts); a push to main and a campaign keep their own.
-          ARMY_DATABASE_CHECKS_DELEGATED_TO: ${{ github.event_name == 'pull_request' && 'rls-matrix' || '' }}
+          # pgTAP and the RLS matrix of a pull request or of a push to main run once, in rls-matrix
+          # (scripts/tester-army/database-checks.ts); a scheduled or dispatched campaign keeps its own.
+          ARMY_DATABASE_CHECKS_DELEGATED_TO: ${{ (github.event_name == 'pull_request' || github.event_name == 'push' && github.ref == 'refs/heads/main') && 'rls-matrix' || '' }}
           # Empty for the fail-safe unsharded plan: the runner's whole full selection.
           ARMY_FILES: ${{ matrix.files }}
           ARMY_SHARD: ${{ matrix.shard }}/${{ matrix.total }}
-          # Opt-in: unset, run-tester-army-ci keeps db reset.
-          ARMY_DB_SNAPSHOT_DIR: ${{ runner.temp }}/army-db-snapshot
           ARMY_BROWSER_INSTALL_DIR: ${{ runner.temp }}/army-browser-install
           ARMY_PREBUILT_BUILD_DIR: ${{ runner.temp }}/army-prebuilt
         run: node --import tsx scripts/run-tester-army-ci.ts full --shard "$ARMY_SHARD" ${ARMY_FILES:+--files "$ARMY_FILES"}
