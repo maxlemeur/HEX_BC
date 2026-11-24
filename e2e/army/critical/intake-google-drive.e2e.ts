@@ -5,6 +5,7 @@ import { localClient } from "../takeoff/native-ui";
 import { localDriveStore } from "./google-drive-local-store";
 import { relativeOutputPath } from "../local/sdk-results";
 import { armyTest, createEstimateViaWizard, readEstimate, recordEvidence } from "./fixtures";
+import { waitForHydration } from "./hydration-support";
 
 // Failure to cover: selecting a folder omits descendants or later pages, duplicates
 // existing links, or lets a selection exceed the API's 20-file limit.
@@ -186,6 +187,7 @@ armyTest("DRV02 fictional Drive links persist under real RLS without any stored 
   const hasStoredPlan = async () => (await server.rpc("affaire_has_stored_plan", { p_project_id: ids.projectId })).data;
   expect(await hasStoredPlan()).toBe(true);
   const openDriveLinks = async () => {
+    await waitForHydration(browser);
     await screen.getByRole("button", { name: "Ouvrir les documents", exact: true }).click();
     await expect(screen.getByRole("dialog", "Documents du dossier", { exact: true })).toBeVisible();
     await screen.getByRole("button", { name: "Google Drive", exact: true }).click();
