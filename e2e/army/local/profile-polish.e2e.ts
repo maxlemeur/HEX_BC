@@ -228,8 +228,11 @@ test("PFL01 profile preserves saved details, AI preferences and accessible accou
     await manage();
     const accounts = screen.getByRole("combobox", "Compte ChatGPT", { exact: true });
     await accounts.selectOption({ value: secondId });
-    await expect(model).toHaveValue("gpt-6.1-sol");
-    await expect(effort).toHaveValue("low");
+    await expect(model).toHaveValue("");
+    await expect(model.getByRole("option", "GPT-6.1 Sol", { exact: true })).toHaveCount(0);
+    await model.selectOption({ value: "gpt-6.2-sol" });
+    await expect(screen.getByText("Préférences ChatGPT enregistrées.", { exact: true })).toBeVisible();
+    await expect(model).toHaveValue("gpt-6.2-sol");
     await accounts.selectOption({ value: firstId });
     await expect(model).toHaveValue("gpt-6.1-terra");
     await expect(effort).toHaveValue("medium");

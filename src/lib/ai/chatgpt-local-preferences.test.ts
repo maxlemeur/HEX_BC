@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/ai/chatgpt-local-auth", () => ({ getLocalChatGptCredential: vi.fn() }));
 import { getLocalChatGptCredential } from "@/lib/ai/chatgpt-local-auth";
-import { listLocalChatGptModels, selectLocalChatGptModel, selectLocalChatGptPreferences } from "@/lib/ai/chatgpt-local-inference";
+import { listLocalChatGptModels, readLocalChatGptModelOptions, selectLocalChatGptModel, selectLocalChatGptPreferences } from "@/lib/ai/chatgpt-local-inference";
 import { readChatGptStore, saveChatGptStore } from "@/lib/ai/chatgpt-local-store";
 
 const owner = { userId: "user-a", tenantId: "tenant-a" };
@@ -59,6 +59,19 @@ describe("persisted ChatGPT model and reasoning preferences", () => {
     expect((await readChatGptStore(owner)).profiles[0]).toMatchObject({ model: sol.slug, reasoningEffort: "high" });
   });
 
+  it("hides the retired Sol model and offers an active option for a one-off analysis without overwriting the profile", async () => {
+    const store = await readChatGptStore(owner);
+    store.profiles[0].model = sol.slug;
+    store.profiles[0].reasoningEffort = "low";
+    await saveChatGptStore(owner, store);
+    expect((await listLocalChatGptModels(owner)).map((model) => model.id)).toEqual([terra.slug, sol62.slug]);
+    await expect(readLocalChatGptModelOptions(owner)).resolves.toMatchObject({
+      preferences: { model: sol62.slug, reasoningEffort: "high" },
+    });
+    await expect(selectLocalChatGptModel(owner, sol.slug)).rejects.toThrow("indisponible");
+    expect((await readChatGptStore(owner)).profiles[0]).toMatchObject({ model: sol.slug, reasoningEffort: "low" });
+  });
+
   it("reads an existing private profile without an effort field without changing its model or tokens", async () => {
     const privateDirectory = path.join(directory, ".private", "chatgpt-local");
     const [name] = (await readdir(privateDirectory)).filter((file) => file.endsWith(".json"));
@@ -81,9 +94,9 @@ describe("persisted ChatGPT model and reasoning preferences", () => {
 
   it("resets incompatible effort on model change but rejects an invalid effort on the same model", async () => {
     await selectLocalChatGptPreferences(owner, { model: terra.slug, reasoningEffort: "none" });
-    expect(await selectLocalChatGptModel(owner, sol.slug)).toEqual({ model: sol.slug, reasoningEffort: null, effortReset: true });
-    await expect(selectLocalChatGptPreferences(owner, { model: sol.slug, reasoningEffort: "none" })).rejects.toThrow("n’est pas disponible");
-    expect((await readChatGptStore(owner)).profiles[0]).toMatchObject({ model: sol.slug, reasoningEffort: null });
+    expect(await selectLocalChatGptModel(owner, sol62.slug)).toEqual({ model: sol62.slug, reasoningEffort: null, effortReset: true });
+    await expect(selectLocalChatGptPreferences(owner, { model: sol62.slug, reasoningEffort: "none" })).rejects.toThrow("n’est pas disponible");
+    expect((await readChatGptStore(owner)).profiles[0]).toMatchObject({ model: sol62.slug, reasoningEffort: null });
   });
 
   it("uses advertised reasoning metadata for unknown models and otherwise offers only automatic effort", async () => {

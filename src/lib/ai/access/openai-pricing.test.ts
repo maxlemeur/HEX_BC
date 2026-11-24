@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   boundCountedCall, boundModelTest, costOfOpenAiUsage, formatUsd, formatUsdCeiling, LAB_API_KEY_CEILING_NANO_USD,
-  LAB_MIN_USEFUL_OUTPUT_TOKENS, labMaxOutputTokens, maxOutputWithin, MODEL_TEST_CEILING_NANO_USD, OPENAI_PRICE_TABLE, openAiQualifiedModel,
+  LAB_MIN_USEFUL_OUTPUT_TOKENS, labMaxOutputTokens, maxOutputWithin, MODEL_TEST_CEILING_NANO_USD, OPENAI_PRICE_TABLE, offeredOpenAiModels, openAiQualifiedModel,
 } from "@/lib/ai/access/openai-pricing";
 
 // The money of a paid call, in US dollars, before and after it. Failure modes:
@@ -21,12 +21,18 @@ const usage = (fields: Partial<{ input: number; cachedInput: number; cacheWrite:
 describe("OpenAI price table", () => {
   it("is dated, pins the Standard tier and qualifies only priced models", () => {
     expect(OPENAI_PRICE_TABLE).toMatchObject({ verifiedOn: "2026-11-22", serviceTier: "default" });
-    expect(Object.keys(OPENAI_PRICE_TABLE.models).sort()).toEqual(["gpt-6.1-sol", "gpt-6.1-terra", "gpt-6.2-astra", "gpt-6.2-sol"]);
+    expect(offeredOpenAiModels(null).map((model) => model.id)).toEqual(["gpt-6.1-terra", "gpt-6.2-astra", "gpt-6.2-sol"]);
     expect(openAiQualifiedModel("gpt-6.1-terra")).toMatchObject({ inputNanoPerToken: 1_000, cachedInputNanoPerToken: 50, outputNanoPerToken: 5_000,
       cacheWrite30mNanoPerToken: 1_250, cacheWrite12hNanoPerToken: 2_500, reasoningEfforts: ["none", "low", "medium", "high", "xhigh", "max"] });
-    expect(openAiQualifiedModel("gpt-6.1-sol")).toMatchObject({ inputNanoPerToken: 2_000, cachedInputNanoPerToken: 100, outputNanoPerToken: 10_000,
+    expect(openAiQualifiedModel("gpt-6.2-sol")).toMatchObject({ inputNanoPerToken: 2_000, cachedInputNanoPerToken: 100, outputNanoPerToken: 10_000,
       cacheWrite30mNanoPerToken: 2_500, cacheWrite12hNanoPerToken: 5_000, reasoningEfforts: ["low", "medium", "high", "xhigh", "max"] });
     expect(openAiQualifiedModel("gpt-4o")).toBeNull();
+  });
+
+  it("keeps the previous Sol price for recorded usage while refusing new paid requests for it", () => {
+    expect(openAiQualifiedModel("gpt-6.1-sol")).toBeNull();
+    expect(boundModelTest("gpt-6.1-sol")).toEqual({ status: "unknown_price" });
+    expect(costOfOpenAiUsage("gpt-6.1-sol-2026-10-01", usage({ input: 100, output: 50 }), "default")).toBe(700_000);
   });
 
   it.each([
@@ -51,14 +57,14 @@ describe("bound of a call whose input OpenAI counted", () => {
 
   it("is never below what the call can cost when every input token is written for 12 hours", () => {
     // Review round 2: 200 000 Sol input tokens all written for 12 hours + 50 000 output cost 1,50 $.
-    const bound = boundCountedCall({ model: "gpt-6.1-sol", inputTokens: 200_000, maxOutputTokens: 50_000 });
-    const worst = costOfOpenAiUsage("gpt-6.1-sol", usage({ input: 200_000, cacheWrite: 200_000, cacheWrite12h: 200_000, output: 50_000 }), "default");
+    const bound = boundCountedCall({ model: "gpt-6.2-sol", inputTokens: 200_000, maxOutputTokens: 50_000 });
+    const worst = costOfOpenAiUsage("gpt-6.2-sol", usage({ input: 200_000, cacheWrite: 200_000, cacheWrite12h: 200_000, output: 50_000 }), "default");
     expect(worst).toBe(1_500_000_000);
     expect(bound.status === "priced" && bound.nanoUsd).toBeGreaterThanOrEqual(worst!);
   });
 
   it("applies the long-context rate to the whole request past 272 000 input tokens", () => {
-    expect(boundCountedCall({ model: "gpt-6.1-sol", inputTokens: 300_000, maxOutputTokens: 10_000 }))
+    expect(boundCountedCall({ model: "gpt-6.2-sol", inputTokens: 300_000, maxOutputTokens: 10_000 }))
       .toMatchObject({ nanoUsd: 300_000 * 5_000 * 2 + 10_000 * 10_000 * 1.5 });
   });
 
@@ -71,17 +77,17 @@ describe("bound of a call whose input OpenAI counted", () => {
 describe("output budget from what is left under the ceiling", () => {
   it("takes the largest output the allotment can pay once the counted input is priced, never above the cap", () => {
     // Sol, 300 000 input tokens: the input alone (1,50 $) passes 1,00 $; nothing is left.
-    expect(maxOutputWithin({ model: "gpt-6.1-sol", inputTokens: 300_000, allotmentNanoUsd: LAB_API_KEY_CEILING_NANO_USD, cap: 64_000 })).toBe(0);
+    expect(maxOutputWithin({ model: "gpt-6.2-sol", inputTokens: 300_000, allotmentNanoUsd: LAB_API_KEY_CEILING_NANO_USD, cap: 64_000 })).toBe(0);
     // Sol, one dense page of 40 000 tokens: 0,20 $ of input leaves 0,80 $, that is 80 000 output tokens, capped at 64 000.
-    expect(maxOutputWithin({ model: "gpt-6.1-sol", inputTokens: 40_000, allotmentNanoUsd: LAB_API_KEY_CEILING_NANO_USD, cap: 64_000 })).toBe(64_000);
+    expect(maxOutputWithin({ model: "gpt-6.2-sol", inputTokens: 40_000, allotmentNanoUsd: LAB_API_KEY_CEILING_NANO_USD, cap: 64_000 })).toBe(64_000);
     // Half the ceiling each for two configurations: 0,30 $ left, 30 000 tokens.
-    expect(maxOutputWithin({ model: "gpt-6.1-sol", inputTokens: 40_000, allotmentNanoUsd: 500_000_000, cap: 64_000 })).toBe(30_000);
+    expect(maxOutputWithin({ model: "gpt-6.2-sol", inputTokens: 40_000, allotmentNanoUsd: 500_000_000, cap: 64_000 })).toBe(30_000);
     for (const [inputTokens, allotment] of [[40_000, 500_000_000], [150_000, 1_000_000_000], [250_000, 1_000_000_000], [271_000, 700_000_000]] as const) {
       const cap = 64_000;
-      const budget = maxOutputWithin({ model: "gpt-6.1-sol", inputTokens, allotmentNanoUsd: allotment, cap });
+      const budget = maxOutputWithin({ model: "gpt-6.2-sol", inputTokens, allotmentNanoUsd: allotment, cap });
       // No budget: the input alone passes the allotment, and the call is refused (prepare's minimum).
       if (budget === 0) continue;
-      const bound = boundCountedCall({ model: "gpt-6.1-sol", inputTokens, maxOutputTokens: budget });
+      const bound = boundCountedCall({ model: "gpt-6.2-sol", inputTokens, maxOutputTokens: budget });
       expect(bound.status === "priced" && bound.nanoUsd).toBeLessThanOrEqual(allotment);
     }
   });
