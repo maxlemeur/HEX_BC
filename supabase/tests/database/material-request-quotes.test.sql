@@ -31,9 +31,9 @@
 --     article, type, dimension, material, precision, reference, unit or quantity: DN 50 priced, then DN 65 ordered
 --     at the DN 50 price), or its other columns (zone, imputation...) can no longer be edited;
 -- 11. a line already priced by a retained quote is consulted again;
--- 12. an original of the request is a PDF; a quote's file answers a quote of another request, or a retained or
+-- 12. an unsupported type is recorded on a request or a quote; a quote's file answers a quote of another request, or a retained or
 --     closed quote; a quote keeps more than ten listed files, or its files take the places of the request's twelve
---     originals; a PDF of an open quote cannot be stored;
+--     originals; a PDF of an open quote or of the request itself cannot be stored;
 -- 13. the files of a retained or closed quote change: a file prepared while it was open is completed after the
 --     retaining, a listed file is withdrawn, turned or deleted; or a file attached by mistake to an open quote cannot
 --     be removed, an unstored leftover of a retained quote cannot be cleaned, or the request's deletion cannot
@@ -646,9 +646,9 @@ select matches(pg_temp.pls_run('a9300000-0000-4000-8000-000000000001',
 -- ---------------------------------------------------------------------------
 select throws_ok($$insert into public.material_request_files (id, request_id, storage_path, file_name, mime_type, byte_size)
   values ('a9300000-0000-4000-8000-000000000901', 'a9300000-0000-4000-8000-000000000601',
-    'a9300000-0000-4000-8000-000000000101/a9300000-0000-4000-8000-000000000201/a9300000-0000-4000-8000-000000000601/a9300000-0000-4000-8000-000000000901/devis.pdf',
-    'devis.pdf', 'application/pdf', 2048)$$,
-  '23514', null, '12 an original of the request is not a PDF');
+    'a9300000-0000-4000-8000-000000000101/a9300000-0000-4000-8000-000000000201/a9300000-0000-4000-8000-000000000601/a9300000-0000-4000-8000-000000000901/notes.txt',
+    'notes.txt', 'text/plain', 2048)$$,
+  '23514', null, '12 an original of the request refuses an unsupported type');
 select set_config('test.beta2_prefix', 'a9300000-0000-4000-8000-000000000101/a9300000-0000-4000-8000-000000000201/a9300000-0000-4000-8000-000000000601/', true);
 select is(pg_temp.pls_run('a9300000-0000-4000-8000-000000000001',
   $$insert into public.material_request_files (id, request_id, quote_id, storage_path, file_name, mime_type, byte_size, created_by)
@@ -693,11 +693,14 @@ select lives_ok($$update public.material_request_files set stored_at = now()
   '12 a quote keeps ten listed files');
 select throws_ok($$update public.material_request_files set stored_at = now() where id = 'a9300000-0000-4000-8000-000000000919'$$,
   '23514', 'MATERIAL_REQUEST_QUOTE_FILE_LIMIT', '12 an eleventh is not listed');
--- Twelve originals of the request still fit beside them.
+-- Twelve originals of the request (including a PDF) still fit beside them.
 insert into public.material_request_files (id, request_id, storage_path, file_name, mime_type, byte_size)
 select id, 'a9300000-0000-4000-8000-000000000601',
-  current_setting('test.beta2_prefix') || id || '/photo.jpg', 'photo.jpg', 'image/jpeg', 2048
-from (select ('a9300000-0000-4000-8000-0000000009' || lpad(n::text, 2, '0'))::uuid as id from generate_series(30, 41) n) photos;
+  current_setting('test.beta2_prefix') || id || '/' || case when n = 30 then 'liste.pdf' else 'photo.jpg' end,
+  case when n = 30 then 'liste.pdf' else 'photo.jpg' end,
+  case when n = 30 then 'application/pdf' else 'image/jpeg' end,
+  2048
+from (select n, ('a9300000-0000-4000-8000-0000000009' || lpad(n::text, 2, '0'))::uuid as id from generate_series(30, 41) n) photos;
 insert into storage.objects (bucket_id, name, metadata)
 select 'material-requests', storage_path, '{"size":2048}' from public.material_request_files
 where request_id = 'a9300000-0000-4000-8000-000000000601' and quote_id is null and stored_at is null;
