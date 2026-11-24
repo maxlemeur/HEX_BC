@@ -390,6 +390,7 @@
     "20261123050517_takeoff_verified_count_source.sql": "c08d5e605e8b33e38aee37845f992723450250f6d9f1ae9870fbdfc1965dbb0e",
     "20261123061045_takeoff_count_mark_reading.sql": "f250b13c1e906813b16f03c328e7151efab51cfd18601b0edcb9f7f9f6fc5697",
     "20261123062008_takeoff_contribution_revision.sql": "2f7d23647ae669b0d2d3a46f80abe145c7c6a79b39f5bb3f0b95f91fcd542e56",
-    "20261123185755_takeoff_revision_added_part_marks_revision.sql": "2ff4dba4bfbbb88ee21cd05c7429a3b8d9f93aae915595ed1c297ea4106cc9b8"
+    "20261123185755_takeoff_revision_added_part_marks_revision.sql": "2ff4dba4bfbbb88ee21cd05c7429a3b8d9f93aae915595ed1c297ea4106cc9b8",
+    "20261124174040_material_request_original_pdfs.sql": "ca1f4f384d56799abd1e21a44d5a40737778c1bd24f3fe633a69f60bfa416302"
   }
 }
