@@ -41,7 +41,7 @@ function fixture(options: {
   documentError?: boolean;
   briefError?: boolean;
   /** The affaire's uploads whose analysis has not ended, as the server stored them. */
-  pendingUploads?: Array<{ id: string; status: "queued" | "processing" }>;
+  pendingUploads?: Array<{ id: string; status: "queued" | "processing" | "launch_queued" | "launch_processing" }>;
   /**
    * The batch's run writes the brief then records its end (intake-analysis-server.ts) right after the first of the
    * brief's and the batches' queries has been answered: the end falls between the two queries of one read.
@@ -66,7 +66,7 @@ function fixture(options: {
         data = { id: PROJECT_ID, tenant_id: TENANT_ID,
           user_id: options.denied ? "99999999-9999-4999-8999-999999999999" : USER_ID,
           name: "ARMY loading", reference: "ARMY-LOAD", client_name: "ARMY fictional", is_archived: false };
-      } else if (table === "affaire_intake_uploads" && url.searchParams.get("status") === "in.(queued,processing)") {
+      } else if (table === "affaire_intake_uploads" && url.searchParams.get("status") === "in.(queued,processing,launch_queued,launch_processing)") {
         data = analysisEnded ? [] : options.pendingUploads ?? [];
         answered();
       } else if (table === "affaire_intake_uploads") {
@@ -156,9 +156,10 @@ describe("affaire workspace independent reads", () => {
   // status, after it wrote the brief. An older batch still running counts as much as the latest.
   it("names the affaire's batches whose analysis has not ended, an older one included", async () => {
     const OLDER = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
-    fixture({ pendingUploads: [{ id: OLDER, status: "processing" }, { id: UPLOAD_ID, status: "queued" }] });
+    fixture({ pendingUploads: [{ id: OLDER, status: "processing" }, { id: UPLOAD_ID, status: "launch_queued" }] });
     const workspace = await fetchAffaireIntakeWorkspace(PROJECT_ID);
     expect(workspace.pendingUploadIds).toEqual([OLDER, UPLOAD_ID]);
+    expect(workspace.launchRunning).toBe(true);
   });
 
   // A read that took the brief before the batches could see the brief absent, then the batch finished: the page would

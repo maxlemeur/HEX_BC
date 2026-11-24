@@ -113,7 +113,7 @@ function failureCode(error: unknown) {
 type ServiceClient = ReturnType<typeof createServiceRoleClient>;
 
 /**
- * Reads the piece at arrival, on the plan of the member who added it, with
+ * Reads on the plan selected by the launch or the individual retry, with
  * Terra at a high effort, and records what was read. A reading already done
  * for the same content is not redone. A failure is recorded on the piece and
  * never fails its analysis; only the lease's own error goes up (renewLease).

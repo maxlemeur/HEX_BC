@@ -37,6 +37,7 @@ export type AffaireIntakeDocumentRow = {
   tenant_id: string;
   project_id: string;
   upload_id: string;
+  analysis_launch_id?: string | null;
   created_by: string | null;
   storage_path: string | null;
   deletion_token: string | null;
@@ -115,6 +116,7 @@ export const DOCUMENT_SELECT = [
   "tenant_id",
   "project_id",
   "upload_id",
+  "analysis_launch_id",
   "created_by",
   "storage_path",
   "deletion_token",
@@ -250,6 +252,7 @@ export function normalizeDocumentRow(row: unknown): AffaireIntakeDocumentRow | n
     id: row.id,
     tenant_id: typeof row.tenant_id === "string" ? row.tenant_id : "",
     project_id: typeof row.project_id === "string" ? row.project_id : "",
+    analysis_launch_id: typeof row.analysis_launch_id === "string" ? row.analysis_launch_id : null,
     upload_id: typeof row.upload_id === "string" ? row.upload_id : "",
     created_by: toStringOrNull(row.created_by),
     storage_path: toStringOrNull(row.storage_path),

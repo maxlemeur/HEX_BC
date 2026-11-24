@@ -248,7 +248,7 @@ describe("Drive accounts kept on the server and pieces linked without copies (Go
     expect(document).toMatchObject({
       storage_path: null,
       upload_status: "uploaded",
-      classification_status: "queued",
+      classification_status: "awaiting_launch",
       source_provider: "google_drive",
       drive_connection_id: connectionId,
       drive_file_id: "plan_demo",
@@ -258,7 +258,7 @@ describe("Drive accounts kept on the server and pieces linked without copies (Go
     });
     expect(
       backend.rows("affaire_intake_uploads").get(first.uploads[0]),
-    ).toMatchObject({ status: "queued", last_error: null });
+    ).toMatchObject({ status: "deposited" });
     const replay = await link();
     expect(replay.results[0].status).toBe("already_linked");
     expect(replay.uploads).toEqual([]);

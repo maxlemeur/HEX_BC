@@ -97,7 +97,7 @@ export async function deleteIntakeDocumentCopy({ context, project }: Access, doc
     if (lease.error || !(lease.data as unknown[])?.length) throw new DriveStoreError(409, "Une autre suppression a repris cette pièce. Actualisez le dossier.");
     token = renewed;
     try {
-      await refreshDerivedState?.({ uploadId: document.upload_id, wasUploaded: document.upload_status === "uploaded" });
+      await refreshDerivedState?.({ uploadId: document.upload_id, wasUploaded: document.upload_status === "uploaded" && document.classification_status !== "awaiting_launch" });
     } catch (cause) {
       console.error("Intake deletion refresh failed", { documentId, cause });
       throw new DriveStoreError(500, "Fichier retiré du stockage ; actualisation du dossier interrompue. Reprenez la suppression.");

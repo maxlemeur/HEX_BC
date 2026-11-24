@@ -305,6 +305,8 @@ nativeTest("optional dossier documents allow a blank or sparse manual estimate",
     files: { name: "courrier-client.txt", mimeType: "text/plain", buffer: Buffer.from("Courrier : devis manuel pour une intervention fictive.") },
   } });
   expect(upload.status()).toBe(201);
+  await page.app.open(`/dashboard/affaires/${projectId}?view=dossier`);
+  await page.getByRole("button", { name: "Lancer l’analyse", exact: true }).click();
   await expect.poll(async () => (await activeGaps()).map((entry) => entry.code)).toContain("missing_dpgf");
   await expect.poll(async () => (await activeGaps()).map((entry) => entry.code)).toContain("missing_plans");
   expect((await activeGaps()).filter((entry) => entry.severity === "critical")).toEqual([]);
@@ -319,17 +321,19 @@ nativeTest("optional dossier documents allow a blank or sparse manual estimate",
       files: { name, mimeType: "text/plain", buffer: Buffer.from(`Courrier complémentaire fictif pour le devis manuel (${name}).`) },
     } });
     expect(response.status()).toBe(201);
+    await page.app.open(`/dashboard/affaires/${projectId}?view=dossier`);
+    await page.getByRole("button", { name: "Lancer l’analyse", exact: true }).click();
     await expect.poll(async () => {
       const docs = await client.from("affaire_intake_documents").select("classification_status")
         .eq("project_id", projectId).eq("file_name", name);
       expect(docs.error).toBeNull();
-      return docs.data?.length === 1 && !["queued", "processing"].includes(docs.data[0].classification_status);
+      return docs.data?.length === 1 && !["awaiting_launch", "queued", "processing"].includes(docs.data[0].classification_status);
     }, { timeout: 60_000 }).toBe(true);
     // The upload becomes terminal only after its register synchronization has finished.
     await expect.poll(async () => {
       const uploads = await client.from("affaire_intake_uploads").select("status").eq("project_id", projectId);
       expect(uploads.error).toBeNull();
-      return uploads.data?.every((upload) => !["queued", "processing"].includes(upload.status));
+      return uploads.data?.every((upload) => !["queued", "processing", "launch_queued", "launch_processing"].includes(upload.status));
     }, { timeout: 60_000 }).toBe(true);
   };
   await importCorrespondence("courrier-complementaire.txt");

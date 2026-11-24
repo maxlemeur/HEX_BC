@@ -182,6 +182,11 @@ export async function confirmAffaireBriefWithTakeoff(input: {
     p_module_default: takeoffModuleDefault(), ...selectionParameters(subscription),
     p_actor_claims: session as unknown as Json,
   });
+  if (error?.message === "INTAKE_ANALYSIS_REQUIRED" || error?.message === "INTAKE_ANALYSIS_RUNNING") {
+    return { outcome: "analysis_pending" as const, takeoff: null, message: error.message === "INTAKE_ANALYSIS_REQUIRED"
+      ? "Lancez l’analyse ou retirez les pièces en attente avant de confirmer."
+      : "Attendez la fin de l’analyse du dossier avant de confirmer." };
+  }
   if (error?.code === "P0002") return { outcome: "not_found" as const, takeoff: null };
   if (error) launchError(error, "Impossible de confirmer le brief affaire.");
   const row = ((data ?? []) as Array<GestureRow & { outcome: string }>)[0];

@@ -238,6 +238,7 @@ export async function confirmAffaireBrief(input: { projectId: string; expectedUp
   ]);
   const confirmed = await confirmAffaireBriefWithTakeoff({ context, projectId: project.id, expectedUpdatedAt: input.expectedUpdatedAt,
     notice: input.payerNotice ?? null, host: (await headers()).get("host") });
+  if (confirmed.outcome === "analysis_pending") return { ok: false, message: confirmed.message, takeoff: null } as const;
   if (confirmed.outcome === "not_found") {
     throw notFound("Brief affaire introuvable.");
   }

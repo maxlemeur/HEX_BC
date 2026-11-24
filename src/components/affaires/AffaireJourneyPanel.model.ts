@@ -47,7 +47,7 @@ export function buildAffaireJourney(input: JourneyInput) {
     [null, "validated", "applied"].includes(input.dpgfSource.mappingStatus);
   const cadrageReady = input.intakeWorkspace !== null && (documents.length === 0
     ? input.lineCount > 0 || linkedDpgfReady || (input.plansSummary?.planFileCount ?? 0) > 0
-    : reviewCount === 0 && processingCount === 0 && briefConfirmed);
+    : reviewCount === 0 && processingCount === 0 && !documents.some(doc => doc.classificationStatus === "awaiting_launch") && briefConfirmed);
   const canShowOutput = issued || (cadrageReady && structureReady && !takeoffNeedsWork);
   const current: JourneyStage = showPurchases && accepted ? "achats"
     : issued ? "remise" : !cadrageReady ? "cadrage" : !canShowOutput ? "etude" : "remise";

@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { readAllRows } from "@/lib/supabase/read-all";
 import { internalError, mapSupabaseError } from "@/lib/http/api-response";
 import type { ChatGptOwner } from "@/lib/ai/chatgpt-local-store";
@@ -16,7 +17,7 @@ import {
   normalizeDocumentRow,
 } from "@/lib/affaires/intake-rows";
 import { generateAffaireBriefDraft } from "@/lib/affaires/intake-brief-generation";
-import { fetchAffaireBriefForProject, persistAffaireBriefDraft } from "@/lib/affaires/intake-brief-store";
+import { fetchAffaireBriefForProject, persistAffaireBriefDraft, resumeAffaireBriefDraft } from "@/lib/affaires/intake-brief-store";
 import { getMissingPiecesForProject } from "@/lib/affaires/intake-missing-pieces";
 
 export async function refreshAffaireBriefFromDocuments(input: {
@@ -25,6 +26,7 @@ export async function refreshAffaireBriefFromDocuments(input: {
   uploadId: string;
   documents: AffaireIntakeDocumentRow[];
   actorUserId?: string | null;
+  launchAttempt?: number;
   renewLease?: () => Promise<void>;
   aiOwner?: ChatGptOwner | null;
   /** False when the caller must not wait on Drive (a deletion only retires copies). */
@@ -33,7 +35,7 @@ export async function refreshAffaireBriefFromDocuments(input: {
   reuseBriefForConfirmation?: boolean;
 }) {
   const uploadedDocuments = input.documents.filter(
-    (document) => document.upload_status === "uploaded"
+    (document) => document.upload_status === "uploaded" && document.classification_status !== "awaiting_launch"
   );
 
   // Before the missing pieces: a Drive plan counts once its métré working copy exists.
@@ -86,7 +88,7 @@ export async function refreshAffaireBriefFromDocuments(input: {
     }
   }
 
-  const briefDraft = await generateAffaireBriefDraft({
+  const generationInput = {
     project: input.project,
     uploadId: input.uploadId,
     documents: uploadedDocuments.map((document) => ({
@@ -98,6 +100,21 @@ export async function refreshAffaireBriefFromDocuments(input: {
       extracted_metadata: document.extracted_metadata,
     })),
     missingPieces,
+  };
+  const launchInputHash = input.launchAttempt
+    ? createHash("sha256").update(JSON.stringify(generationInput)).digest("hex")
+    : undefined;
+  if (input.launchAttempt && input.launchAttempt > 1 && launchInputHash) {
+    const resumed = await resumeAffaireBriefDraft({
+      ...input, launchInputHash, documentIds: new Set(uploadedDocuments.map(doc => doc.id)),
+    });
+    if (resumed) {
+      await syncAffairePlanGap({ projectId: input.project.id, actorUserId: input.actorUserId });
+      return resumed;
+    }
+  }
+  const briefDraft = await generateAffaireBriefDraft({
+    ...generationInput,
     renewLease: input.renewLease,
     aiOwner: input.aiOwner,
   });
@@ -107,6 +124,7 @@ export async function refreshAffaireBriefFromDocuments(input: {
     project: input.project,
     uploadId: input.uploadId,
     draft: briefDraft,
+    launchInputHash,
     actorUserId: input.actorUserId,
   });
   await syncAffairePlanGap({ projectId: input.project.id, actorUserId: input.actorUserId });

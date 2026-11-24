@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   AffaireIntakeLeaseUnavailableError,
   AffaireIntakeProviderCallError,
+  claimAffaireIntakeAnalysisLaunch,
   releaseAffaireIntakeUploadAfterError,
   renewAffaireIntakeUploadLease,
   runAffaireIntakeLeasedProviderEffect,
@@ -23,6 +24,15 @@ const CLAIM: AffaireIntakeClaim = {
 };
 
 describe("affaire intake durable lifecycle", () => {
+  it.each([[null, true], [TENANT_ID, false], [TENANT_ID, true]] as const)(
+    "recovers the stored payer %s and reading choice %s", async (payerId, readScans) => {
+      const client = { rpc: vi.fn().mockResolvedValue({ data: [{ upload_id: UPLOAD_ID, tenant_id: TENANT_ID,
+        project_id: PROJECT_ID, attempt_count: 2, payer_id: payerId, read_scans: readScans }], error: null }) };
+      expect(await claimAffaireIntakeAnalysisLaunch(client)).toMatchObject({ uploadId: UPLOAD_ID,
+        attemptCount: 2, launch: { payerId, readScans } });
+    },
+  );
+
   it("does not invoke an external effect after a failed active-tenant lease renewal", async () => {
     const client = {
       rpc: vi.fn().mockResolvedValue({ data: false, error: null }),

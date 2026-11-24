@@ -1,4 +1,5 @@
 import {
+  isAffaireIntakeDocumentAwaitingLaunch,
   isAffaireIntakeDocumentNeedingReview,
   isAffaireIntakeDocumentProcessing,
   resolveAffairePreliminaryStructureCapability,
@@ -253,6 +254,7 @@ export function buildPilotageSteps(input: {
 }) {
   const documentsCount = input.intakeWorkspace?.documents.length ?? 0;
   const reviewDocumentsCount = countDocumentsNeedingReview(input.intakeWorkspace);
+  const waitingCount = input.intakeWorkspace?.documents.filter(isAffaireIntakeDocumentAwaitingLaunch).length ?? 0;
   const processingDocumentsCount = countDocumentsProcessing(input.intakeWorkspace);
   const criticalMissingPiecesCount =
     input.intakeWorkspace?.missingPieces.filter((piece) => piece.severity === "critical")
@@ -269,6 +271,8 @@ export function buildPilotageSteps(input: {
   let dossierStatus: PilotageStepStatus = "waiting";
   if (documentsCount === 0) {
     dossierSummaryParts.push("Déposez les pièces du dossier pour lancer le cadrage.");
+  } else if (waitingCount > 0) {
+    dossierSummaryParts.push(`${waitingCount} pièce${waitingCount > 1 ? "s" : ""} en attente de lancement.`);
   } else if (processingDocumentsCount > 0) {
     dossierStatus = "in_progress";
     dossierSummaryParts.push(

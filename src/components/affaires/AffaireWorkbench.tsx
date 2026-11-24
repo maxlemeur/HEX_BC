@@ -220,6 +220,7 @@ export function AffaireDossierOverview({ workspace, clientName, registerSummary,
                           {Object.entries(AFFAIRE_INTAKE_DOCUMENT_KIND_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
                         </select> : <span>{document.isBeingDeleted ? "Suppression en cours" : AFFAIRE_INTAKE_DOCUMENT_KIND_LABELS[document.detectedCategory]}</span>}
                         {aiConfidence !== null ? <span className="affaire-file-confidence" title="Confiance de l’IA dans la catégorie proposée"><span className="sr-only">Confiance de l’IA : </span><span>{aiConfidence} %</span></span> : null}
+                        {dossierDocumentState(document) === "awaiting_launch" && <span>En attente de lancement</span>}
                         {validated ? <span className="affaire-file-validated"><Check size={13} aria-hidden="true" />Validé</span> : null}
                         {editable && !validated ? <Button
                           type="button" variant="outline" size="sm"

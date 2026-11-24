@@ -366,11 +366,37 @@ export async function fetchAffaireBriefForProject(input: {
   };
 }
 
+/** A retry can arrive after the brief row was written and before source links, register or lot closure. */
+export async function resumeAffaireBriefDraft(input: {
+  supabase: AffaireIntakeSupabaseClient;
+  project: AffaireAccessProject;
+  uploadId: string;
+  launchInputHash: string;
+  documentIds: ReadonlySet<string>;
+  actorUserId?: string | null;
+}) {
+  const existing = await fetchAffaireBriefForProject({ supabase: input.supabase, projectId: input.project.id });
+  if (!existing || existing.brief.upload_id !== input.uploadId ||
+      existing.brief.generation_metadata.launch_input_hash !== input.launchInputHash) return null;
+  const sources = affaireIntakeBriefDraftSchema.shape.sources.safeParse(existing.brief.generation_metadata.launch_sources);
+  if (!sources.success || sources.data.some(source => !input.documentIds.has(source.sourceDocumentId))) return null;
+
+  const draft = { ...existing.draft, sources: sources.data };
+  if (getComparableBriefPayload(existing.draft) !== getComparableBriefPayload(draft)) {
+    await replaceAffaireBriefSourceLinks({ supabase: input.supabase, briefId: existing.brief.id,
+      sources: draft.sources, actorUserId: input.actorUserId });
+  }
+  await syncAffaireRegisterFromBrief({ supabase: input.supabase as never, project: input.project,
+    assumptions: draft.assumptions, sources: draft.sources, actorUserId: input.actorUserId });
+  return draft;
+}
+
 export async function persistAffaireBriefDraft(input: {
   supabase: AffaireIntakeSupabaseClient;
   project: AffaireAccessProject;
   uploadId: string;
   draft: AffaireIntakeBriefDraft;
+  launchInputHash?: string;
   actorUserId?: string | null;
 }) {
   const existing = await fetchAffaireBriefForProject({
@@ -410,6 +436,7 @@ export async function persistAffaireBriefDraft(input: {
     generation_metadata: {
       prompt_version: AFFAIRE_BRIEF_PROMPT_VERSION,
       generated_from_upload_id: input.uploadId,
+      ...(input.launchInputHash ? { launch_input_hash: input.launchInputHash, launch_sources: input.draft.sources } : {}),
       regenerated_by: input.actorUserId ?? null,
     },
     last_generated_at: input.draft.lastGeneratedAt,

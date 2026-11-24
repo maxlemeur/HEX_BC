@@ -15,7 +15,6 @@ import {
   normalizeDocumentRow,
   addIssue,
   insertAffaireIntakeEvent,
-  updateUploadStatusFromStoredDocuments,
 } from "@/lib/affaires/intake-rows";
 import { syncAffaireIntakeDocumentPriorities } from "@/lib/affaires/intake-document-priorities";
 import { refreshAffaireIntakeFromActiveDocuments } from "@/lib/affaires/intake-derived-state-server";
@@ -105,7 +104,7 @@ export async function reclassifyAffaireDocument(input: {
       .eq("tenant_id", context.tenantId)
       .eq("project_id", project.id)
       .eq("upload_status", "uploaded")
-      .in("classification_status", ["classified", "ambiguous", "failed", "processing"])
+      .in("classification_status", ["awaiting_launch", "classified", "ambiguous", "failed", "processing"])
       .eq("updated_at", document.updated_at)
       .is("deleted_at", null).is("deletion_token", null)
       .select("id" as never).maybeSingle()
@@ -137,11 +136,6 @@ export async function reclassifyAffaireDocument(input: {
       classification_source: "manual",
       confidence: input.category === "a_classer" ? 0.4 : 1,
     },
-  });
-
-  await updateUploadStatusFromStoredDocuments({
-    supabase: context.supabase,
-    uploadId: document.upload_id,
   });
 
   await refreshAffaireIntakeFromActiveDocuments({

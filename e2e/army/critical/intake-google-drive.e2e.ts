@@ -128,12 +128,12 @@ armyTest("DRV02 fictional Drive links persist under real RLS without any stored 
   const first = await store.linkDriveFiles(access, { connectionId, files: [{ file, folder }] });
   expect(first.results.map(({ fileId, status }) => ({ fileId, status }))).toEqual([{ fileId: file.id, status: "linked" }]);
   const upload = await client.from("affaire_intake_uploads").select("status,last_error").eq("id", first.uploadId!).single();
-  expect(upload.data).toEqual({ status: "queued", last_error: null });
+  expect(upload.data).toEqual({ status: "deposited", last_error: null });
   const documents = async () => (await client.from("affaire_intake_documents")
-    .select("id,storage_path,upload_status,source_provider,drive_connection_id,drive_file_id,drive_folder_id,drive_folder_name,drive_revision,deleted_at")
+    .select("id,storage_path,upload_status,classification_status,analysis_launch_id,source_provider,drive_connection_id,drive_file_id,drive_folder_id,drive_folder_name,drive_revision,deleted_at")
     .eq("project_id", ids.projectId).order("created_at")).data!;
   const [linked] = await documents();
-  expect(linked).toMatchObject({ storage_path: null, upload_status: "uploaded", source_provider: "google_drive", drive_connection_id: connectionId,
+  expect(linked).toMatchObject({ storage_path: null, upload_status: "uploaded", classification_status: "awaiting_launch", analysis_launch_id: null, source_provider: "google_drive", drive_connection_id: connectionId,
     drive_file_id: file.id, drive_folder_id: folder.id, drive_folder_name: folder.name, drive_revision: "1", deleted_at: null });
   // Selecting the same file again links nothing more.
   const replay = await store.linkDriveFiles(access, { connectionId, files: [{ file, folder }] });
@@ -157,7 +157,6 @@ armyTest("DRV02 fictional Drive links persist under real RLS without any stored 
   // An uncertain Drive document can be opened from the review illustration before classification.
   expect((await client.from("affaire_intake_documents").update({ classification_status: "ambiguous", document_kind: "a_classer", confidence: 0.2 })
     .eq("project_id", ids.projectId)).error).toBeNull();
-  expect((await client.from("affaire_intake_uploads").update({ status: "ready" }).eq("project_id", ids.projectId)).error).toBeNull();
   await app.open(`/dashboard/affaires/${ids.projectId}?intakeDocument=${linked.id}#intake`);
   await expect(screen.getByRole("link", { name: `Ouvrir ${file.name} dans Google Drive`, exact: true }))
     .toHaveAttribute("href", `https://drive.google.com/file/d/${file.id}/view`);
@@ -168,7 +167,6 @@ armyTest("DRV02 fictional Drive links persist under real RLS without any stored 
   // No worker runs here: settle the link as the classifier would once it has read the file in Drive.
   expect((await client.from("affaire_intake_documents").update({ classification_status: "classified", document_kind: "plans", confidence: 0.9 })
     .eq("project_id", ids.projectId)).error).toBeNull();
-  expect((await client.from("affaire_intake_uploads").update({ status: "ready" }).eq("project_id", ids.projectId)).error).toBeNull();
   // A Drive plan keeps one métré working copy, which the plan sync makes after reading the file with the
   // linker's account. No Google here: the member writes that copy as the sync does, a reservation then
   // its bytes, under the real RLS and Storage guards.

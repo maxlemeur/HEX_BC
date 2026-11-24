@@ -17,6 +17,7 @@ import {
   AFFAIRE_INTAKE_BUCKET,
   AFFAIRE_INTAKE_MAX_FILE_SIZE_BYTES,
   deriveAffaireIntakeClassificationStatus,
+  deriveAffaireIntakeUploadStatusFromDocuments,
   inferAffaireIntakeMimeType,
   isAffaireIntakeAnalysisStale,
   isAffaireIntakeReanalysisPending,
@@ -44,7 +45,7 @@ async function processClaimedAffaireIntakeUpload(input: {
   claim: durableIntake.AffaireIntakeClaim;
 }) {
   const { supabase, lifecycleClient, claim } = input;
-  const aiOwner = isLocalChatGptEnabled() || getIntakeDecisionsCapability().status === "available"
+  const aiOwner = claim.launch || isLocalChatGptEnabled() || getIntakeDecisionsCapability().status === "available"
     ? await resolveChatGptIntakeOwner(supabase, claim) : undefined;
   const upload = {
     id: claim.uploadId,
@@ -59,16 +60,11 @@ async function processClaimedAffaireIntakeUpload(input: {
       now: new Date(),
     });
 
-  const { data: docsData, error: docsError } = await resolveSupabaseQuery<{
-    data: unknown[];
-    error: unknown;
-  }>(
-    supabase
-      .from("affaire_intake_documents")
-      .select(DOCUMENT_SELECT as never)
-      .eq("upload_id", upload.id)
-      .order("created_at", { ascending: true })
-  );
+  const batchKey = claim.launch ? "analysis_launch_id" : "upload_id";
+  const { data: docsData, error: docsError } = await readAllRows(() =>
+    supabase.from("affaire_intake_documents").select(DOCUMENT_SELECT as never, { count: "exact" })
+      .eq(batchKey, upload.id).eq("tenant_id", claim.tenantId).eq("project_id", claim.projectId)
+      .is("deleted_at", null).is("deletion_token", null).order("created_at"));
 
   if (docsError) {
     throw internalError(
@@ -108,7 +104,7 @@ async function processClaimedAffaireIntakeUpload(input: {
 
     if (
       document.classification_status !== "queued" &&
-      document.classification_status !== "failed"
+      (claim.launch || document.classification_status !== "failed")
     ) {
       continue;
     }
@@ -123,6 +119,7 @@ async function processClaimedAffaireIntakeUpload(input: {
         .update({
           classification_status: "processing",
         } as never)
+        .eq(batchKey, upload.id)
         .eq("id", document.id)
         .eq("classification_status", document.classification_status)
         .or("classification_source.is.null,classification_source.neq.manual")
@@ -151,7 +148,9 @@ async function processClaimedAffaireIntakeUpload(input: {
             classification_status: "failed",
             issues: ["Chemin storage manquant pour le document intake."],
           } as never)
-          .eq("id", document.id)
+          .eq(batchKey, upload.id)
+          .eq("id", document.id).eq("classification_status", "processing")
+          .is("deleted_at", null).is("deletion_token", null)
       );
 
       if (markFailedError) {
@@ -213,6 +212,7 @@ async function processClaimedAffaireIntakeUpload(input: {
               size_bytes: bytes.byteLength,
             } : {}),
           } as never)
+          .eq(batchKey, upload.id)
           .eq("id", document.id)
           .eq("classification_status", "processing")
           .is("deleted_at", null).is("deletion_token", null)
@@ -257,6 +257,7 @@ async function processClaimedAffaireIntakeUpload(input: {
               ? `Lecture Google Drive impossible : ${error.message}`
               : "Impossible d'analyser le document dans le workspace intake."],
           } as never)
+          .eq(batchKey, upload.id)
           .eq("id", document.id)
           .eq("classification_status", "processing")
           .is("deleted_at", null).is("deletion_token", null)
@@ -279,21 +280,27 @@ async function processClaimedAffaireIntakeUpload(input: {
     }
   }
 
-  // The text of an image or of a scanned PDF, read on the plan of the member who added the piece, once every piece of
-  // the lot is classified (a reading takes up to minutes). Every active piece of the lot is listed, whatever its
-  // classification: an attempt recovered after a stop during the readings finds the pieces already classified, and
-  // the content-based deduplication skips what was read. A failure is recorded on its own row and leaves the
-  // classification as it is; only the lease's loss stops the lot.
-  const toTranscribe = aiOwner && isLocalChatGptEnabled() ? documents.flatMap((document) => {
+  // On recovery, terminal classifications stay in place. Readings deduplicate by content.
+  const toTranscribe = aiOwner && (claim.launch?.readScans ?? true) && isLocalChatGptEnabled() ? documents.flatMap((document) => {
     const mimeType = document.mime_type ?? inferAffaireIntakeMimeType(document.file_name) ?? "";
     return document.upload_status === "uploaded" && !document.deletion_token && (document.storage_path || document.drive_file_id)
       && canTranscribeIntakeDocument(mimeType) ? [{ document, mimeType }] : [];
   }) : [];
   for (const { document, mimeType } of toTranscribe) {
-    try {
+    const checkReading = async () => {
       await renewLease();
+      if (!claim.launch) return;
+      const { data, error } = await supabase.from("affaire_intake_documents").select("id")
+        .eq("id", document.id).eq("analysis_launch_id", claim.uploadId)
+        .is("deleted_at", null).is("deletion_token", null).maybeSingle();
+      if (error || !data || !(await resolveChatGptIntakeOwner(supabase, claim))) {
+        throw new Error("La pièce ou le compte du lancement n’est plus disponible.");
+      }
+    };
+    try {
+      await checkReading();
       const { bytes } = await readDocumentBytes(document);
-      await transcribeIntakeDocument({ supabase, owner: aiOwner!, mimeType, bytes, renewLease,
+      await transcribeIntakeDocument({ supabase, owner: aiOwner!, mimeType, bytes, renewLease: checkReading,
         sourceSha256: createHash("sha256").update(Buffer.from(bytes)).digest("hex"),
         document: { id: document.id, tenantId: upload.tenant_id, fileName: document.file_name } });
     } catch (transcriptionError) {
@@ -306,11 +313,6 @@ async function processClaimedAffaireIntakeUpload(input: {
   await syncAffaireIntakeDocumentPriorities({
     supabase,
     projectId: upload.project_id,
-  });
-
-  const status = await updateUploadStatusFromStoredDocuments({
-    supabase,
-    uploadId: upload.id,
   });
 
   const [{ data: refreshedDocsData, error: refreshedDocsError }, { data: projectData, error: projectError }] =
@@ -331,10 +333,19 @@ async function processClaimedAffaireIntakeUpload(input: {
       ),
     ]);
 
+  const refreshedDocuments = (refreshedDocsData ?? [])
+    .map(normalizeDocumentRow)
+    .filter((row): row is AffaireIntakeDocumentRow => row !== null);
+  if (claim.launch && (refreshedDocsError || projectError)) {
+    throw internalError("Impossible de préparer le brief du lancement.", refreshedDocsError ?? projectError);
+  }
+  const status = claim.launch
+    ? deriveAffaireIntakeUploadStatusFromDocuments(refreshedDocuments.filter((doc) => doc.analysis_launch_id === upload.id)
+      .map((doc) => ({ uploadStatus: doc.upload_status, classificationStatus: doc.classification_status, documentKind: doc.document_kind })))
+    : await updateUploadStatusFromStoredDocuments({ supabase, uploadId: upload.id });
+  if (status === "processing") throw new Error("Des pièces du lancement restent à analyser.");
+
   if (!refreshedDocsError && !projectError) {
-    const refreshedDocuments = (refreshedDocsData ?? [])
-      .map(normalizeDocumentRow)
-      .filter((row): row is AffaireIntakeDocumentRow => row !== null);
     const project = projectData as AffaireAccessProject | null;
 
     if (project && !project.is_archived) {
@@ -343,10 +354,11 @@ async function processClaimedAffaireIntakeUpload(input: {
         project,
         uploadId: upload.id,
         documents: refreshedDocuments,
+        launchAttempt: claim.launch ? claim.attemptCount : undefined,
         renewLease,
         aiOwner,
       }).catch((error) => {
-        if (error instanceof durableIntake.AffaireIntakeLeaseUnavailableError) throw error;
+        if (claim.launch || error instanceof durableIntake.AffaireIntakeLeaseUnavailableError) throw error;
         console.error("Affaire brief refresh failed after intake processing", {
           uploadId: upload.id,
           projectId: upload.project_id,
@@ -394,7 +406,20 @@ export async function processAffaireIntakeUpload(uploadId: string) {
     return claimResult.status ?? "failed";
   }
 
-  const claim = claimResult.claim;
+  return runClaim(supabase, lifecycleClient, claimResult.claim);
+}
+
+export async function processAffaireIntakeAnalysisLaunch(uploadId: string) {
+  const supabase = createServiceRoleClient();
+  const client = supabase as unknown as durableIntake.DurableWorkflowRpcClient;
+  const claim = await durableIntake.claimAffaireIntakeAnalysisLaunch(client, uploadId);
+  if (!claim) return null;
+  await runClaim(supabase, client, claim);
+  return claim.uploadId;
+}
+
+async function runClaim(supabase: ReturnType<typeof createServiceRoleClient>,
+  lifecycleClient: durableIntake.DurableWorkflowRpcClient, claim: durableIntake.AffaireIntakeClaim) {
   try {
     return await processClaimedAffaireIntakeUpload({ supabase, lifecycleClient, claim });
   } catch (error) {
@@ -433,9 +458,9 @@ export async function retryAffaireDocumentAnalysis(input: { projectId: string; d
   }
   const { data: lot, error: lotError } = await context.supabase.from("affaire_intake_uploads")
     .select("id,status").eq("tenant_id", context.tenantId).eq("project_id", project.id)
-    .eq("id", document.upload_id).maybeSingle();
+    .eq("id", document.analysis_launch_id ?? document.upload_id).maybeSingle();
   if (lotError || !lot) throw internalError("Impossible de préparer la relance de l’analyse.", lotError);
-  if (!["ready", "partial_failure", "failed"].includes(lot.status)) {
+  if (!(lot.status === "deposited" && preserveManualClassification) && !["ready", "partial_failure", "failed"].includes(lot.status)) {
     throw conflict("Une analyse de ce lot est déjà en cours. Réessayez après sa fin.");
   }
   // A lease marker leaves the validated classification and plan generation unchanged.

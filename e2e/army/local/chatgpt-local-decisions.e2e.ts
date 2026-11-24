@@ -41,6 +41,7 @@ let localOrigin: string;
 let fixtureStore: string | undefined;
 let liveProbe: ChatGptLiveProbe | null = null;
 let transportLog: string;
+let recoverySecret: string;
 let decisionsControl: string;
 let fixtureEmail: string;
 let labOutputDir: string;
@@ -61,7 +62,7 @@ async function preparePlanFixture(unsetPreferences = false) {
 }
 
 beforeAll(async () => {
-  ({ origin: localOrigin, email: fixtureEmail, liveProbe, transportLog, decisionsControl, labOutputDir, workspace: serverWorkspace } = await server.start());
+  ({ origin: localOrigin, email: fixtureEmail, liveProbe, transportLog, recoverySecret, decisionsControl, labOutputDir, workspace: serverWorkspace } = await server.start());
 });
 // The tests here open the takeoff pages too (ASSIST02 launches a job and reads its review, the intake tests open the
 // affaire): the same waves as the takeoff file, one hook each, so that no first use waits for its compile.
@@ -964,6 +965,7 @@ if (!existsSync(liveProbePath)) test("ASSIST04 the assistant reads a dossier PDF
     await writeFile(pdfPath, await pdf.save());
     await ui.app.open(`/dashboard/affaires/${ids.projectId}`);
     await browser.locator('input[type="file"][aria-label="Ajouter des pièces à l\'affaire"]').first().setInputFiles(pdfPath);
+    await screen.getByRole("button", "Lancer l’analyse", { exact: true }).click();
     const documents = async () => {
       const result = await client.from("affaire_intake_documents").select("id,file_name,classification_status").eq("project_id", ids.projectId);
       if (result.error) throw new Error(`Owned intake read failed: ${result.error.code}`);
@@ -1062,6 +1064,7 @@ test("INTRETRY01 ChatGPT reanalysis keeps validated manual document classificati
     await ui.app.open(`/dashboard/affaires/${ids.projectId}`);
     const upload = browser.locator('input[type="file"][aria-label="Ajouter des pièces à l\'affaire"]').first();
     await upload.setInputFiles(path.resolve("e2e/fixtures/sample-plan.pdf"));
+    await screen.getByRole("button", "Lancer l’analyse", { exact: true }).click();
     await expect.poll(async () => (await documents()).filter(doc => doc.classification_status === "classified").length,
       { timeout: 60_000 }).toBe(1);
     const document = (await documents())[0];
@@ -1127,22 +1130,23 @@ test("INTRETRY01 ChatGPT reanalysis keeps validated manual document classificati
 });
 
 
-// An image and the scanned page of a PDF are read when they arrive, with Terra at a high effort on the ChatGPT plan of
-// the member who added them, and the text is shown under the piece as an unverified reading. The fixture's account
-// lists Terra for this journey only; the text page of the PDF is never sent.
-test("INTOCR01 an image and a scanned PDF page are transcribed at arrival and shown as unverified text", {
+// Only the second member has a fictional ChatGPT plan. Recovery has no browser session.
+test("INTOCR01 a recovered launch reads an image and a scanned PDF on the member who pressed and shows unverified text", {
   tags: ["critical", "local", "chatgpt", "intake"], session: "army", timeout: 300_000,
 }, async ({ app, screen, browser }) => {
   if (liveProbe) throw new Error("INTOCR01 uses only the fictional provider transport fixture.");
-  if (!await preparePlanFixture()) throw new Error("INTOCR01 requires its own temporary ChatGPT profile.");
-  await setDecisionsControl({ transcriptionModel: true });
+  const { client, userId: depositor } = await localClient();
+  const payer = await createLocalChatGptOwner();
+  await makeOwnedDirector(depositor, payer.userId);
+  await querySql(`update public.tenant_memberships set role='admin' where user_id='${payer.userId}' and is_default;`);
+  const payerStore = await writePlanFixture(payer.email, null, false);
+  await setDecisionsControl({ transcriptionModel: true, holdClassification: true });
   try {
     await signIn({ app, screen, browser }, localOrigin, fixtureEmail);
     const prefix = `ARMY-transcription-${Date.now()}`;
     const army = { runPrefix: prefix, projectName: prefix, ownedEstimates: [] };
     const ui = hydratedUi({ app, screen, browser }, localOrigin);
-    const ids = await createEstimateViaWizard(ui, { projectName: prefix, title: "Transcription à l’arrivée" }, army);
-    const { client } = await localClient();
+    const ids = await createEstimateViaWizard(ui, { projectName: prefix, title: "Lecture après reprise" }, army);
 
     // Fictional pieces: a 1×1 PNG « photo », and a two-page PDF whose first page has its text and whose second is a scan.
     const directory = path.resolve(".e2e/army/critical/artifacts/fixtures", prefix);
@@ -1166,6 +1170,60 @@ test("INTOCR01 an image and a scanned PDF page are transcribed at arrival and sh
     const before = (await readTransport()).length;
     await ui.app.open(`/dashboard/affaires/${ids.projectId}`);
     await browser.locator('input[type="file"][aria-label="Ajouter des pièces à l\'affaire"]').first().setInputFiles([imagePath, pdfPath]);
+    await expect(screen.getByText("2 pièces en attente de lancement", { exact: true }).first()).toBeVisible();
+    expect((await readTransport()).slice(before).filter(entry => entry.task === "transcription")).toEqual([]);
+    await signInAs({ app, screen, browser }, payer.email);
+    await ui.app.open(`/dashboard/affaires/${ids.projectId}?view=dossier`);
+    await screen.getByRole("button", "Lancer l’analyse", { exact: true }).click();
+    const batch = () => client.from("affaire_intake_uploads").select("id,created_by,status,attempt_count,launch_read_scans")
+      .eq("project_id", ids.projectId).not("launch_read_scans", "is", null).single();
+    await expect.poll(async () => (await batch()).data, DEV_SERVER_WORK).toMatchObject({
+      created_by: payer.userId, status: "launch_processing", attempt_count: 1, launch_read_scans: true,
+    });
+    const launchId = (await batch()).data!.id;
+    const late = await browser.evaluate(async ({ projectId, content }) => {
+      const form = new FormData();
+      form.set("files", new File([new Uint8Array(content)], "livraison-tardive.png", { type: "image/png" }));
+      const response = await fetch(`/api/affaires/${projectId}/intake/files`, { method: "POST", body: form });
+      if (!response.ok) throw new Error(`Second deposit failed: ${response.status}`);
+      return (await response.json()).data.files[0].documentId as string;
+    }, { projectId: ids.projectId, content: [...await readFile(imagePath), 0] });
+    const second = await client.rpc("launch_affaire_intake_analysis", { p_project_id: ids.projectId, p_read_scans: false });
+    expect(second.data).toEqual([{ outcome: "already_running", launch_id: launchId, piece_count: 0 }]);
+    // Lose the original worker while its provider is held. The sweep uses only the saved payer and reading choice.
+    await querySql(`update public.affaire_intake_uploads set processing_lease_expires_at=clock_timestamp()-interval '1 second'
+      where project_id='${ids.projectId}' and id='${launchId}' and status='launch_processing' and attempt_count=1;`);
+    // Interrupt the second worker only at its final write, after it has persisted the brief and source links.
+    await querySql(`create function public.army_hold_intake_close() returns trigger language plpgsql as $$
+      begin raise exception 'ARMY interrupted before closing its launch'; end; $$;
+      create trigger army_hold_intake_close before update on public.affaire_intake_uploads
+      for each row when (old.id='${launchId}' and old.attempt_count=2 and new.status in ('ready','partial_failure'))
+      execute function public.army_hold_intake_close();`);
+    await setDecisionsControl({ transcriptionModel: true });
+    const sweep = () => fetch(new URL("/api/internal/workflows/recover", localOrigin), {
+      headers: { authorization: `Bearer ${recoverySecret}` },
+    });
+    try {
+      expect((await sweep()).status).toBe(200);
+      expect((await batch()).data).toMatchObject({ status: "launch_queued", attempt_count: 2, created_by: payer.userId, launch_read_scans: true });
+    } finally {
+      await querySql("drop trigger army_hold_intake_close on public.affaire_intake_uploads; drop function public.army_hold_intake_close();");
+    }
+    const brief = async () => {
+      const result = await client.from("affaire_briefs").select("id,last_generated_at,summary").eq("project_id", ids.projectId).single();
+      if (result.error) throw new Error(`Owned brief read failed: ${result.error.code}`);
+      return result.data;
+    };
+    const persistedBrief = await brief();
+    const callsAfterBrief = (await readTransport()).length;
+    await querySql(`update public.affaire_intake_uploads set next_retry_at=clock_timestamp() where id='${launchId}' and status='launch_queued';`);
+    // The bounded scheduler can finish scanning its current page before it returns to this launch.
+    await expect.poll(async () => {
+      expect((await sweep()).status).toBe(200);
+      return (await batch()).data;
+    }, DEV_SERVER_WORK).toMatchObject({ status: expect.stringMatching(/^(ready|partial_failure)$/), attempt_count: 3 });
+    expect(await brief()).toEqual(persistedBrief);
+    expect((await readTransport()).length).toBe(callsAfterBrief);
 
     const documents = async () => {
       const result = await client.from("affaire_intake_documents").select("id,file_name").eq("project_id", ids.projectId);
@@ -1223,11 +1281,30 @@ test("INTOCR01 an image and a scanned PDF page are transcribed at arrival and sh
     await expect(pdfPanel.getByRole("region", "Page 2", { exact: true })).toContainText("vanne d'isolement DN20 | 4 u");
     await expect(pdfPanel.getByText(/page texte/)).toHaveCount(0);
 
+    const waiting = await client.from("affaire_intake_documents").select("analysis_launch_id,classification_status").eq("id", late).single();
+    expect(waiting.data).toEqual({ analysis_launch_id: null, classification_status: "awaiting_launch" });
+    // A launch committed before its worker ran. The depositor connects a plan after launching without readings.
+    const next = await client.rpc("launch_affaire_intake_analysis", { p_project_id: ids.projectId, p_read_scans: false });
+    expect(next.data).toEqual([{ outcome: "launched", piece_count: 1, launch_id: expect.any(String) }]);
+    const nextId = next.data![0].launch_id;
+    fixtureStore = await writePlanFixture(fixtureEmail, null, false);
+    const nextSweep = await fetch(new URL("/api/internal/workflows/recover", localOrigin), {
+      headers: { authorization: `Bearer ${recoverySecret}` },
+    });
+    expect(nextSweep.status).toBe(200);
+    const closed = await client.from("affaire_intake_uploads").select("status,launch_read_scans,created_by").eq("id", nextId).single();
+    expect(closed.data).toMatchObject({ status: expect.stringMatching(/^(ready|partial_failure)$/), launch_read_scans: false, created_by: depositor });
+    const lateReading = await client.from("affaire_intake_document_transcriptions").select("status").eq("document_id", late);
+    expect(lateReading.error).toBeNull();
+    expect(lateReading.data).toEqual([]);
+    expect((await readTransport()).slice(before).filter(entry => entry.task === "transcription")).toHaveLength(2);
+
     await recordEvidence(army, "intake-transcription", { ids, imageId: image.id, pdfId: pdf.id, transcribedPages: { image: [1], pdf: [2] },
       model: "gpt-6.1-terra", reasoningEffort: "high", providerRequests: sent.length, provider: "chatgpt-fixture", screenshot,
       boundary: "Owned ephemeral backend, fictional PNG and PDF, simulated ChatGPT transport; no client document or live inference." });
   } finally {
     await setDecisionsControl({});
+    await rm(payerStore, { force: true });
     if (fixtureStore) await rm(fixtureStore, { force: true });
     fixtureStore = undefined;
   }
@@ -1262,8 +1339,9 @@ test("INTOCR02 the analysis retry reads a stopped transcription again after its 
 
     await ui.app.open(`/dashboard/affaires/${ids.projectId}`);
     await browser.locator('input[type="file"][aria-label="Ajouter des pièces à l\'affaire"]').first().setInputFiles(imagePath);
+    await screen.getByRole("button", "Lancer l’analyse", { exact: true }).click();
     const piece = async () => {
-      const result = await client.from("affaire_intake_documents").select("id,upload_id,classification_status").eq("project_id", ids.projectId);
+      const result = await client.from("affaire_intake_documents").select("id,analysis_launch_id,classification_status").eq("project_id", ids.projectId);
       if (result.error) throw new Error(`Owned intake read failed: ${result.error.code}`);
       expect(result.data).toHaveLength(1);
       return result.data[0]!;
@@ -1275,11 +1353,11 @@ test("INTOCR02 the analysis retry reads a stopped transcription again after its 
       return result.data;
     };
     const lotStatus = async () => {
-      const result = await client.from("affaire_intake_uploads").select("status").eq("id", (await piece()).upload_id).single();
+      const result = await client.from("affaire_intake_uploads").select("status").eq("id", (await piece()).analysis_launch_id!).single();
       if (result.error) throw new Error(`Owned intake lot read failed: ${result.error.code}`);
       return result.data.status;
     };
-    // At arrival the plan does not list Terra: the reading stops, recorded on its row, and the lot ends.
+    // At launch the plan does not list Terra: the reading stops, recorded on its row, and the lot ends.
     await expect.poll(async () => (await transcription())?.status ?? null, { timeout: 120_000 }).toBe("failed");
     expect(await transcription()).toMatchObject({ status: "failed", pages: [], error_code: "MODEL_UNAVAILABLE", source_sha256: sha });
     await expect.poll(lotStatus, { timeout: 60_000 }).toMatch(/^(ready|partial_failure)$/);
@@ -1388,9 +1466,10 @@ test("INTWORD01 Word analysis reports per-file failures and preserves manual cho
     await ui.app.open(`/dashboard/affaires/${ids.projectId}`);
     await browser.locator('input[type="file"][aria-label="Ajouter des pièces à l\'affaire"]').first()
       .setInputFiles(files.map(file => path.join(directory, file.name)));
+    await screen.getByRole("button", "Lancer l’analyse", { exact: true }).click();
     await expect.poll(async () => {
       const rows = await documents();
-      return rows.length === 4 && rows.every(row => !["queued", "processing"].includes(row.classification_status));
+      return rows.length === 4 && rows.every(row => !["awaiting_launch", "queued", "processing"].includes(row.classification_status));
     }, { timeout: 60_000 }).toBe(true);
     for (const row of await documents()) {
       const category = row.file_name.endsWith(".pdf") ? "annexes" : "emails";
@@ -1467,6 +1546,7 @@ async function uploadDossierPlan(ui: ReturnType<typeof hydratedUi>, projectId: s
     await ui.screen.getByRole("dialog", "Ajouter des documents", { exact: true })
       .getByLabel("Ajouter des pièces à l'affaire", { exact: true }).setInputFiles(file);
   }
+  await ui.screen.getByRole("button", "Lancer l’analyse", { exact: true }).click();
   await expect.poll(async () => {
     const { data } = await client.from("affaire_intake_documents").select("file_name,classification_status,document_kind").eq("project_id", projectId);
     return (data ?? []).some((doc) => doc.file_name === name && (until === "classifying"
@@ -1710,7 +1790,7 @@ if (!existsSync(liveProbePath)) test("AUTO04 a confirmation from a dialog shown 
     expect(await readOwnedAffaireJobs(ids.projectId)).toEqual([]);
     expect(await planReads()).toBe(readsBefore);
     expect(await forbiddenRequests()).toBe(0);
-    await recordEvidence(army, "AUTO04-unnotified-confirmation", { ids, request: (await readOwnedLaunchRequests(ids.projectId))[0],
+    await recordEvidence(army, "AUTO04-unnotified-confirmation", { ids, requests: await readOwnedLaunchRequests(ids.projectId),
       jobs: 0, planReads: 0, boundary: "Fictional dossier and ChatGPT transport fixture on an owned local backend; no API key or other provider." });
   } finally {
     await browser.clearCookies({ domain: new URL(localOrigin).hostname });
@@ -1719,7 +1799,7 @@ if (!existsSync(liveProbePath)) test("AUTO04 a confirmation from a dialog shown 
   }
 });
 
-if (!existsSync(liveProbePath)) test("AUTO05 a dossier classified after its confirmation, its subscription reconnected meanwhile, waits for the payer's gesture", {
+if (!existsSync(liveProbePath)) test("AUTO05 a running dossier analysis refuses confirmation and requires a new gesture after reconnection", {
   tags: ["critical", "local", "chatgpt", "intake", "premetre"], session: "army", trace: "off", timeout: 300_000,
 }, async ({ app, screen, browser }) => {
   const owner = await createLocalChatGptOwner();
@@ -1742,19 +1822,18 @@ if (!existsSync(liveProbePath)) test("AUTO05 a dossier classified after its conf
     const dialog = screen.getByRole("alertdialog", "Confirmer ce brief ?", { exact: true });
     await expect(dialog).toContainText(PAYER_NOTICE);
     await dialog.getByRole("button", "Oui, confirmer", { exact: true }).click();
-    await expect.poll(async () => (await readOwnedLaunchRequests(ids.projectId)).map(request => [request.state, request.reason_code, request.payer_id]),
-      DEV_SERVER_WORK).toEqual([["not_eligible", "DOSSIER_PROCESSING", owner.userId]]);
-    // The payer disconnects and reconnects the subscription before the dossier is ready: a new connection.
+    await expect(screen.getByText("Attendez la fin de l’analyse du dossier avant de confirmer.", { exact: true }).first()).toBeVisible(DEV_SERVER_WORK);
+    expect(await readOwnedLaunchRequests(ids.projectId)).toEqual([]);
     await rm(store, { force: true });
     store = await writePlanFixture(owner.email, null, false);
     await setDecisionsControl({});
-    // The Mac's periodic loop evaluates the dossier once its last plan is classified: the mandate was withdrawn.
-    await expect.poll(async () => (await readOwnedLaunchRequests(ids.projectId)).map(request => [request.state, request.reason_code]),
-      { timeout: 120_000 }).toEqual([["blocked", "CHATGPT_ACCESS_REVOKED"]]);
+    await expect.poll(async () => (await owner.client.from("affaire_intake_uploads").select("id")
+      .eq("project_id", ids.projectId).in("status", ["launch_queued", "launch_processing"])).data, DEV_SERVER_WORK).toEqual([]);
+    expect(await readOwnedLaunchRequests(ids.projectId)).toEqual([]);
     expect(await readOwnedAffaireJobs(ids.projectId)).toEqual([]);
     expect(await planReads()).toBe(readsBefore);
     expect(await forbiddenRequests()).toBe(0);
-    await recordEvidence(army, "AUTO05-reconnected-before-ready", { ids, request: (await readOwnedLaunchRequests(ids.projectId))[0],
+    await recordEvidence(army, "AUTO05-reconnected-before-ready", { ids, requests: await readOwnedLaunchRequests(ids.projectId),
       jobs: 0, planReads: 0, boundary: "Fictional dossier and ChatGPT transport fixture on an owned local backend; no API key or other provider." });
   } finally {
     await setDecisionsControl({});

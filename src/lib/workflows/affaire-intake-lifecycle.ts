@@ -1,3 +1,4 @@
+import { z } from "zod";
 import {
   affaireIntakeUploadStatusSchema,
   type AffaireIntakeUploadStatus,
@@ -31,6 +32,7 @@ export type AffaireIntakeClaim = {
   tenantId: string;
   projectId: string;
   attemptCount: number;
+  launch?: { payerId: string | null; readScans: boolean };
 };
 
 export type AffaireIntakeClaimResult =
@@ -157,6 +159,23 @@ export async function claimAffaireIntakeUpload(input: {
       attemptCount: row.attempt_count,
     },
   };
+}
+
+const launchClaimSchema = z.object({
+  upload_id: z.string().uuid(), project_id: z.string().uuid(), tenant_id: z.string().uuid(),
+  payer_id: z.string().uuid().nullable(), read_scans: z.boolean(), attempt_count: z.number().int().positive(),
+});
+
+export async function claimAffaireIntakeAnalysisLaunch(client: DurableWorkflowRpcClient, uploadId?: string): Promise<AffaireIntakeClaim | null> {
+  const leaseToken = crypto.randomUUID();
+  const { data, error } = await client.rpc("claim_affaire_intake_analysis_launch", {
+    p_lease_token: leaseToken, ...(uploadId ? { p_upload_id: uploadId } : {}),
+  });
+  if (error) throw new Error("Impossible de réserver le lancement du dossier.", { cause: error });
+  const [row] = z.array(launchClaimSchema).max(1).parse(data);
+  if (!row) return null;
+  return { uploadId: row.upload_id, projectId: row.project_id, tenantId: row.tenant_id, attemptCount: row.attempt_count,
+    leaseToken, launch: { payerId: row.payer_id, readScans: row.read_scans } };
 }
 
 export async function renewAffaireIntakeUploadLease(input: {

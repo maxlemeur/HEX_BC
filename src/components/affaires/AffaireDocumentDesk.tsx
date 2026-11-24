@@ -53,6 +53,8 @@ import {
   COCKPIT_OPEN_SURFACE_EVENT,
   type CockpitOpenSurfaceEventDetail,
 } from "@/lib/cockpit/events";
+import { AFFAIRE_INTAKE_AWAITING_LAUNCH_LABEL } from "@/lib/affaires/intake";
+import { IntakeAnalysisLaunch } from "./IntakeAnalysisLaunch";
 import "./AffaireDocumentDesk.css";
 
 const categories = Object.entries(AFFAIRE_INTAKE_DOCUMENT_KIND_LABELS) as [
@@ -60,6 +62,7 @@ const categories = Object.entries(AFFAIRE_INTAKE_DOCUMENT_KIND_LABELS) as [
   string,
 ][];
 const stateLabels = {
+  awaiting_launch: AFFAIRE_INTAKE_AWAITING_LAUNCH_LABEL,
   review: "À vérifier",
   valid: "Validé",
   processing: "En cours",
@@ -121,6 +124,7 @@ export function AffaireDocumentDesk({
   const appliedFocus = useRef<string | null>(null);
   const documents = workspace.documents;
   const counts = {
+    awaiting_launch: 0,
     review: 0,
     valid: 0,
     processing: 0,
@@ -412,6 +416,7 @@ export function AffaireDocumentDesk({
           </button>
         </div>
       </header>
+      <IntakeAnalysisLaunch workspace={workspace} canManage={canManage} onReload={onReload} />
       {!canManage && (
         <p className="document-desk-readonly">
           Consultation du dossier. Le classement est réservé au responsable de
@@ -458,6 +463,7 @@ export function AffaireDocumentDesk({
               {[
                 ["review", "À vérifier"],
                 ["valid", "Validés"],
+                ...(counts.awaiting_launch ? [["awaiting_launch", AFFAIRE_INTAKE_AWAITING_LAUNCH_LABEL]] : []),
                 ...(counts.processing ? [["processing", "En cours"]] : []),
                 ["all", "Tous"],
               ].map(([value, label]) => (
