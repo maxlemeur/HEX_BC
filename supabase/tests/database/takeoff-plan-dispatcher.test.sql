@@ -889,6 +889,10 @@ begin
   perform set_config('storage.allow_delete_query','true',true);
   delete from storage.objects where bucket_id='plan-files' and name=(select file_path from public.plan_files where id=pg_temp.f(2081));
   delete from public.plan_files where id=pg_temp.f(2081);
+  if format_name='grouped' then
+    -- A historical copy can predate the location ledger. Its sealed piece identity survives.
+    delete from public.takeoff_plan_location_sources where plan_file_id=pg_temp.f(2081);
+  end if;
   update public.affaire_intake_documents set document_kind='plans',classified_at=clock_timestamp() where id=pg_temp.f(2071);
   perform pg_temp.copy_choice_piece(new_copy);
   insert into storage.objects(bucket_id,name,metadata,version) select 'plan-files',file_path,
@@ -905,10 +909,17 @@ begin
     format_name || ': no automatic request can be claimed for the duplicate reading');
 
   update public.affaire_briefs set status='a_confirmer',confirmed_by=null,confirmed_at=null where project_id=pg_temp.f(2060);
+  update storage.objects set metadata=metadata || jsonb_build_object('eTag',md5('new PDF')),version=gen_random_uuid()::text
+    where bucket_id='plan-files' and name=(select file_path from public.plan_files where id=new_copy);
+  return next is((select reading_state from public.takeoff_brief_plan_options(pg_temp.f(10),pg_temp.f(2060))
+    where plan_file_id=new_copy),'unverified',format_name || ': a changed working copy cannot inherit the original digest');
+  return next is((select attested.reading_state from public.takeoff_brief_plan_options(pg_temp.f(10),pg_temp.f(2060)) o
+    cross join lateral public.takeoff_brief_plan_options(pg_temp.f(10),pg_temp.f(2060),
+      jsonb_build_object(new_copy,jsonb_build_object('version',o.plan_version,'sha256',replacement))) attested
+    where o.plan_file_id=new_copy),'not_analysed',format_name || ': attesting the changed copy resolves its reading state');
   update public.affaire_intake_documents set content_sha256=replacement where id=pg_temp.f(2071);
   update storage.objects set metadata=metadata || jsonb_build_object('eTag',md5('new PDF')),version=gen_random_uuid()::text
-    where (bucket_id='affaire-intake' and name='fixture/choice-piece.pdf')
-      or (bucket_id='plan-files' and name=(select file_path from public.plan_files where id=new_copy));
+    where bucket_id='affaire-intake' and name='fixture/choice-piece.pdf';
   return next is((select to_jsonb(o)->>'reading_state' from public.takeoff_brief_plan_options(pg_temp.f(10),pg_temp.f(2060)) o
     where plan_file_id=new_copy),'not_analysed',format_name || ': replacement bytes of the same piece remain selectable');
   request := pg_temp.choose_copy(new_copy,replacement);

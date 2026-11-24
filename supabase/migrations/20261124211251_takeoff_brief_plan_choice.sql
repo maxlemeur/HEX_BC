@@ -29,9 +29,10 @@ $$;
 -- Same affaire-wide import set as selectProjectImportPlanSet. Ignore old version
 -- sets and ambiguous name-only fallbacks. Resolve intake generations with the
 -- same predicate as the plan viewer. The token never discloses a storage path.
-create function public.takeoff_brief_plan_options(p_tenant_id uuid,p_project_id uuid)
-returns table(plan_file_id uuid,plan_name text,plan_version text)
-language sql stable security definer set search_path = '' as $$
+create function private.takeoff_brief_plan_copies(p_tenant_id uuid,p_project_id uuid)
+returns table(plan_file_id uuid,plan_name text,plan_version text,source_kind text,source_id uuid,
+  file_size_bytes bigint,storage_etag text)
+language sql stable set search_path = '' as $$
   with candidates as (
     select s.id,s.updated_at,(s.metadata @> '{"default_import_plan_set":true}' and
       jsonb_typeof(s.metadata->'source')='string') is true as marked,
@@ -48,18 +49,69 @@ language sql stable security definer set search_path = '' as $$
       U&'\0009\000A\000B\000C\000D\0020\00A0\1680\2000\2001\2002\2003\2004\2005\2006\2007\2008\2009\200A\2028\2029\202F\205F\3000\FEFF'),255),'')
     end,f.file_name) as plan_name,
     encode(sha256(convert_to(jsonb_build_array(f.id,f.plan_set_id,o.id,o.name,o.version,
-      o.metadata->>'eTag',f.file_size_bytes)::text,'UTF8')),'hex') as plan_version
+      o.metadata->>'eTag',f.file_size_bytes)::text,'UTF8')),'hex') as plan_version,
+    src.source_kind,src.source_id,f.file_size_bytes::bigint,o.metadata->>'eTag'
   from chosen join public.plan_files f on f.plan_set_id=chosen.id
   join storage.objects o on o.bucket_id='plan-files' and o.name=f.file_path
-  where f.tenant_id=p_tenant_id and f.file_size_bytes>0
+  cross join lateral private.resolve_takeoff_plan_location_source(p_tenant_id,p_project_id,f.id) src
+  where src.current_copy and f.tenant_id=p_tenant_id and f.file_size_bytes>0
     and o.metadata->'size'=to_jsonb(f.file_size_bytes)
     and coalesce(nullif(o.version,''),nullif(o.metadata->>'eTag','')) is not null
     and (lower(f.file_type)='application/pdf' or lower(f.file_name) like '%.pdf')
-    and exists(select 1 from private.resolve_takeoff_plan_location_source(p_tenant_id,p_project_id,f.id) s where s.current_copy)
   order by plan_name,f.id
 $$;
-revoke all on function public.takeoff_brief_plan_options(uuid,uuid) from public,anon,authenticated;
-grant execute on function public.takeoff_brief_plan_options(uuid,uuid) to service_role;
+revoke all on function private.takeoff_brief_plan_copies(uuid,uuid) from public,anon,authenticated,service_role;
+
+-- With no attestations the dialog can identify an intake PDF without downloading it when the
+-- copy matches its original Storage object and the intake service recorded that original's SHA.
+-- For checked plans the trusted server supplies the SHA of the displayed physical generation.
+create function public.takeoff_brief_plan_options(p_tenant_id uuid,p_project_id uuid,p_plans jsonb default null)
+returns table(plan_file_id uuid,plan_name text,plan_version text,reading_state text)
+language sql stable security definer set search_path = '' as $$
+  with copies as (
+    select c.plan_file_id,c.plan_name,c.plan_version,c.source_kind,c.source_id,
+      case when p_plans is null then
+        case when original.metadata->>'eTag'=c.storage_etag and c.storage_etag<>'' and c.storage_etag !~* '^W/'
+          and original.metadata->'size'=to_jsonb(c.file_size_bytes) and d.size_bytes=c.file_size_bytes then d.content_sha256 end
+        else p_plans->c.plan_file_id::text->>'sha256'
+      end as digest
+    from private.takeoff_brief_plan_copies(p_tenant_id,p_project_id) c
+    left join public.affaire_intake_documents d on p_plans is null and c.source_kind='intake_document' and d.id=c.source_id
+      and d.tenant_id=p_tenant_id and d.project_id=p_project_id
+    left join storage.objects original on original.bucket_id='affaire-intake' and original.name=d.storage_path
+    where p_plans is null or (
+      p_plans->c.plan_file_id::text->>'version'=c.plan_version
+      and jsonb_typeof(p_plans->c.plan_file_id::text->'sha256')='string'
+      and p_plans->c.plan_file_id::text->>'sha256' ~ '^[0-9a-f]{64}$')
+  ), readings as (
+    -- Units and jobs keep their sealed copy keys. Across generations the stable key
+    -- is the dossier document (or the file itself for an independent upload).
+    select coalesce(recorded.source_kind,case when piece.id is null then 'plan_file' else 'intake_document' end) as source_kind,
+      coalesce(recorded.source_id,piece.id,ids.copy_id) as source_id,p->>'content_sha256' as digest,unit.state
+    from public.takeoff_launch_requests r
+    cross join lateral jsonb_array_elements(r.manifest->'plans') p
+    join public.takeoff_jobs j on j.launch_request_id=r.id and j.tenant_id=r.tenant_id and j.project_id=r.project_id
+      and j.launch_unit_key=case when r.manifest->'format_version'='1'::jsonb then 'grouped' else 'plan:' || lower(p->>'entry_key') end
+    cross join lateral (select private.takeoff_uuid_or_null(p->'plan_file_id') as copy_id) ids
+    cross join lateral (select coalesce(private.takeoff_uuid_or_null(p->'intake_document_id'),
+      nullif(private.takeoff_uuid_or_null(p->'logical_id'),ids.copy_id)) as id) piece
+    left join public.takeoff_plan_location_sources recorded on recorded.plan_file_id=ids.copy_id
+      and recorded.tenant_id=r.tenant_id and recorded.project_id=r.project_id
+    cross join lateral (select private.takeoff_unit_state(j.status::text,j.analysis_outcome,j.error_code,j.started_at) as state) unit
+    where r.tenant_id=p_tenant_id and r.project_id=p_project_id and r.admitted_at is not null
+      and (unit.state='succeeded' or (r.state='admitted' and unit.state in ('queued','running')))
+  )
+  select c.plan_file_id,c.plan_name,c.plan_version,
+    case when bool_or(h.state='succeeded' and h.digest=c.digest) then 'analysed'
+      when bool_or(h.state in ('queued','running') and h.digest=c.digest) then 'in_progress'
+      when c.digest is null and count(h.source_id)>0 then 'unverified'
+      else 'not_analysed' end
+  from copies c left join readings h using(source_kind,source_id)
+  group by c.plan_file_id,c.plan_name,c.plan_version,c.digest
+  order by c.plan_name,c.plan_file_id
+$$;
+revoke all on function public.takeoff_brief_plan_options(uuid,uuid,jsonb) from public,anon,authenticated;
+grant execute on function public.takeoff_brief_plan_options(uuid,uuid,jsonb) to service_role;
 
 -- Include changed or competing project-level sets in the existing dossier lock.
 -- Changes to the timestamp alone can change which of two marked sets wins.
@@ -99,7 +151,7 @@ begin
       for share of o nowait;
     select coalesce(jsonb_object_agg(o.plan_file_id,jsonb_build_object(
       'version',o.plan_version,'sha256',c.value->>'sha256')),'{}'::jsonb) into current_plans
-    from public.takeoff_brief_plan_options(p_tenant,p_project) o
+    from private.takeoff_brief_plan_copies(p_tenant,p_project) o
     join jsonb_each(p_plans) c on c.key=o.plan_file_id::text
     where jsonb_typeof(c.value->'sha256')='string' and c.value->>'sha256' ~ '^[0-9a-f]{64}$';
   exception when lock_not_available then
@@ -284,6 +336,7 @@ declare
   request public.takeoff_launch_requests%rowtype;
   receipt private.takeoff_brief_confirmations%rowtype;
   remaining jsonb;
+  matched_plans bigint;
   reserved_id uuid;
   event_upload uuid;
   at timestamptz := pg_catalog.clock_timestamp();
@@ -338,18 +391,19 @@ begin
         and private.takeoff_module_enabled(p_tenant_id,p_module_default)) then
       raise exception 'TAKEOFF_LAUNCH_INACTIVE' using errcode='55000';
     end if;
-    -- Both released manifest formats seal the SHA-256 of each copy. A grouped
-    -- job covers its manifest; each per-plan job covers only its own unit.
-    select coalesce(jsonb_object_agg(ch.key,ch.value),'{}'::jsonb) into remaining
-    from jsonb_each(p_plans) ch where not exists (
-      select 1 from public.takeoff_launch_requests r
-      cross join lateral jsonb_array_elements(r.manifest->'plans') p
-      join public.takeoff_jobs j on j.launch_request_id=r.id and j.tenant_id=r.tenant_id and j.project_id=r.project_id
-        and j.launch_unit_key=case when r.manifest->'format_version'='1'::jsonb then 'grouped' else 'plan:' || lower(p->>'entry_key') end
-      cross join lateral (select private.takeoff_unit_state(j.status::text,j.analysis_outcome,j.error_code,j.started_at) as state) unit
-      where r.tenant_id=p_tenant_id and r.project_id=p_project_id and r.admitted_at is not null
-        and lower(p->>'plan_file_id')=ch.key and p->>'content_sha256'=ch.value->>'sha256'
-        and (unit.state='succeeded' or (r.state='admitted' and unit.state in ('queued','running'))));
+    if p_plans='{}'::jsonb then
+      remaining := '{}'::jsonb;
+    else
+      -- Use the same decision shown for these attested bytes. The current copy,
+      -- generation and complete submitted map are still checked under the final lock.
+      select count(*),coalesce(jsonb_object_agg(o.plan_file_id,p_plans->o.plan_file_id::text)
+        filter (where o.reading_state not in ('analysed','in_progress')),'{}'::jsonb)
+      into matched_plans,remaining from public.takeoff_brief_plan_options(p_tenant_id,p_project_id,p_plans) o;
+      if matched_plans <> (select count(*) from jsonb_object_keys(p_plans)) then
+        raise exception 'TAKEOFF_BRIEF_PLAN_CHANGED' using errcode='22023',
+          hint='Un plan choisi a changé ou a été retiré. Rouvrez la liste des plans avant de confirmer.';
+      end if;
+    end if;
     if (select count(*) from jsonb_object_keys(remaining)) > 20 then
       raise exception 'TAKEOFF_BRIEF_PLAN_LIMIT' using errcode='22023', hint='Choisissez au maximum 20 plans par analyse.';
     end if;

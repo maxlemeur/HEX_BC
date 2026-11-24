@@ -82,8 +82,8 @@ select throws_ok($$select * from public.confirm_affaire_brief_plan_choice(pg_tem
   'a mismatched session cannot confirm even without a reading');
 select ok(not has_function_privilege('authenticated',
   'public.confirm_affaire_brief_plan_choice(uuid,uuid,uuid,timestamptz,jsonb,text,text,jsonb,text,boolean,jsonb)','EXECUTE')
-  and not has_function_privilege('anon','public.takeoff_brief_plan_options(uuid,uuid)','EXECUTE')
-  and not has_function_privilege('authenticated','public.takeoff_brief_plan_options(uuid,uuid)','EXECUTE'),
+  and not has_function_privilege('anon','public.takeoff_brief_plan_options(uuid,uuid,jsonb)','EXECUTE')
+  and not has_function_privilege('authenticated','public.takeoff_brief_plan_options(uuid,uuid,jsonb)','EXECUTE'),
   'browser roles cannot invoke server operations with arbitrary tenant or actor IDs');
 select is((select count(*) from public.takeoff_brief_plan_options(pg_temp.f(11),pg_temp.f(20))),0::bigint,
   'plan options require both tenant and affaire');
