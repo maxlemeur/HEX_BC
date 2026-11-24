@@ -182,7 +182,7 @@ function jobMessage(job: AffaireTakeoffZoneJob) {
     : "Analyse détaillée en cours sur le Mac connecté.";
 }
 
-function jobState(job: AffaireTakeoffZoneJob): Pick<AffaireTakeoffZoneModel, "tone" | "status"> {
+export function describeAffaireTakeoffJob(job: Pick<AffaireTakeoffZoneJob, "status">): Pick<AffaireTakeoffZoneModel, "tone" | "status"> {
   if (job.status === "queued") return { tone: "progress", status: "En attente du Mac" };
   if (isTakeoffVisibleJobInFlight(job.status)) return { tone: "progress", status: "En cours" };
   if (job.status === "action_required") return { tone: "danger", status: "Échoué" };
@@ -191,7 +191,13 @@ function jobState(job: AffaireTakeoffZoneJob): Pick<AffaireTakeoffZoneModel, "to
 
 type RequestState = Pick<AffaireTakeoffZoneModel, "tone" | "status" | "message" | "facts">;
 
-function describeRequest(request: AffaireTakeoffZoneRequest): RequestState {
+export function describeAffaireTakeoffPlanProgress(units: Pick<AffaireTakeoffZoneRequest["units"], "expected" | "succeeded">) {
+  return units.expected && units.expected > 1
+    ? `${plural(units.succeeded, "plan lu", "plans lus")} sur ${units.expected}` : null;
+}
+
+export function describeAffaireTakeoffRequest(request: Pick<AffaireTakeoffZoneRequest,
+  "state" | "reason" | "pieces" | "readingBounds" | "hasPayer" | "createdAt" | "admittedAt" | "closedAt" | "outcome" | "units" | "jobs">): RequestState {
   const facts: string[] = [];
   const reasonText = request.reason ? describeTakeoffLaunchReason(request.reason, request.pieces, request.readingBounds ?? null) : null;
   switch (request.state) {
@@ -211,9 +217,8 @@ function describeRequest(request: AffaireTakeoffZoneRequest): RequestState {
       return { tone: "neutral", status: "Remplacé", message: describeTakeoffLaunchReason("SUPERSEDED"), facts };
     case "admitted": {
       if (request.admittedAt) facts.push(`Démarrée le ${formatTakeoffCompletionDate(request.admittedAt)}`);
-      if ((request.units.expected ?? 0) > 1) {
-        facts.push(`${plural(request.units.succeeded, "plan lu", "plans lus")} sur ${request.units.expected}`);
-      }
+      const progress = describeAffaireTakeoffPlanProgress(request.units);
+      if (progress) facts.push(progress);
       const running = request.jobs.find((entry) => isTakeoffVisibleJobInFlight(entry.status));
       const queued = running?.status === "queued" && !request.jobs.some((entry) => entry.status === "processing");
       return queued
@@ -279,11 +284,11 @@ export function buildAffaireTakeoffZone(zoneInput: AffaireTakeoffZoneInput): Aff
   let pieces: TakeoffLaunchPiece[] = [];
   const links: AffaireTakeoffZoneLink[] = [];
   if (request) {
-    state = describeRequest(request);
+    state = describeAffaireTakeoffRequest(request);
     pieces = request.pieces;
     links.push(...reasonLinks(request.state === "superseded" ? null : request.reason, input.canOperate));
   } else if (latestJob) {
-    state = { ...jobState(latestJob), message: jobMessage(latestJob), facts: [] };
+    state = { ...describeAffaireTakeoffJob(latestJob), message: jobMessage(latestJob), facts: [] };
   } else if (data.active && data.confirmedBeforeActivation) {
     state = { tone: "warning", status: "Non démarré", facts: [], message: input.canOperate
       ? "Dossier confirmé avant l’activation — options disponibles"

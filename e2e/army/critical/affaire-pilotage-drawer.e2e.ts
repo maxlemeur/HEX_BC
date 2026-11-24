@@ -3,6 +3,7 @@ import { PDFDocument, StandardFonts } from "pdf-lib";
 
 import { nativeTest as test, expect, loginWithUi, localClient } from "../takeoff/native-ui";
 import { buildAffaireIntakeStoragePath } from "@/lib/affaires/intake";
+import { waitForHydration } from "./hydration-support";
 
 // Observable regression: an empty estimate exposes sending/purchasing and opening
 // its documents leaves the hub. The right drawer must preserve the URL, document
@@ -19,6 +20,7 @@ test("Parcours opens its real documents in a right drawer and preserves classifi
   const projectId = payload.data.project.id;
   // The workbench gives empty domains an explanation before any document exists.
   await page.goto(`/dashboard/affaires/${projectId}`);
+  await waitForHydration(page.browser);
   const navigation = page.getByRole("navigation", { name: "Navigation de l'affaire", exact: true });
   await navigation.getByRole("button", { name: "Points à traiter", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Points à traiter", exact: true })).toBeVisible();
@@ -53,6 +55,7 @@ test("Parcours opens its real documents in a right drawer and preserves classifi
 
   const href = `/dashboard/affaires/${projectId}?view=overview`;
   await page.goto(href);
+  await waitForHydration(page.browser);
   await expect(page.getByRole("heading", { name: "Pilotage de l'affaire", exact: true })).toBeVisible();
   await expect(page.getByText("Finish line", { exact: true })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Préparer l'envoi", exact: true })).toHaveCount(0);
@@ -85,6 +88,7 @@ test("Parcours opens its real documents in a right drawer and preserves classifi
   expect(stored.data).toEqual({ classification_status: "classified", document_kind: "plans" });
   await drawer.getByRole("button", { name: "Fermer", exact: true }).click();
   await page.reload();
+  await waitForHydration(page.browser);
   await page.getByRole("button", { name: "Ouvrir les documents", exact: true }).click();
   await page.getByRole("dialog", { name: "Documents du dossier", exact: true }).getByRole("button", { name: /Validés/ }).click();
   await expect(page.getByRole("dialog", { name: "Documents du dossier", exact: true }).getByRole("button", { name: fileName, exact: true })).toBeVisible();

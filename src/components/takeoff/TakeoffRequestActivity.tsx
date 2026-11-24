@@ -14,6 +14,7 @@ import type { TakeoffRequestUnitView } from "@/lib/takeoff/launch-request-covera
 import { describeTakeoffResume } from "@/lib/takeoff/operator-state";
 import {
   describeTakeoffRequestActivityCoverage,
+  describeTakeoffRequestOrigin,
   describeTakeoffRequestPages,
   describeTakeoffRequestUnitState,
 } from "@/lib/takeoff/request-activity";
@@ -38,12 +39,6 @@ const formatClock = (value: string) => clock.format(new Date(value));
 const STATE_TONE: Record<TakeoffRequestUnitView["state"], "neutral" | "info" | "success" | "danger" | "warning"> = {
   queued: "neutral", running: "info", succeeded: "success", failed: "danger", canceled: "warning", not_started: "warning",
 };
-
-/** Where the request comes from, as its heading says it. */
-function describeOrigin(request: Activity) {
-  if (request.origin === "automatic") return "Démarrage automatique à la confirmation du dossier";
-  return request.intent === "remeasure_items" ? "Nouvelle mesure de postes" : "Relance de l’analyse";
-}
 
 /** The request's own state, for a request that has no unit to show (not admitted) or once it is closed. */
 function describeRequestState(request: Activity) {
@@ -401,7 +396,7 @@ export function TakeoffRequestActivity({ projectId, viewerKey, live, linked, onS
         <div className="journey-panel-body space-y-3" data-testid="takeoff-request-current" data-request-state={current.state}>
           <div className="space-y-1">
             <p className="text-sm font-medium text-foreground">
-              {describeOrigin(current)} · {describeRequestState(current)}
+              {describeTakeoffRequestOrigin(current)} · {describeRequestState(current)}
             </p>
             <p className="text-xs text-muted-foreground">{describeDates(current)}</p>
             {/* Announced when it changes; an arrival never moves the focus or the selection. */}
@@ -426,7 +421,7 @@ export function TakeoffRequestActivity({ projectId, viewerKey, live, linked, onS
               <li key={request.id} className="py-2">
                 <details>
                   <summary className="cursor-pointer text-sm">
-                    <span className="font-medium text-foreground">{describeOrigin(request)} · {describeRequestState(request)}</span>
+                    <span className="font-medium text-foreground">{describeTakeoffRequestOrigin(request)} · {describeRequestState(request)}</span>
                     <span className="ml-2 text-xs text-muted-foreground">{describeDates(request)}</span>
                     {describeTakeoffRequestActivityCoverage(request) ? (
                       <span className="block text-xs text-muted-foreground">{describeTakeoffRequestActivityCoverage(request)}</span>

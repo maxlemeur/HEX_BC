@@ -363,6 +363,22 @@
       ]
     },
     {
+      "id": "affaire-analysis-progress",
+      "note": "Suivi des analyses du dossier et du métré depuis l’en-tête du tableau de bord.",
+      "paths": [
+        "src/app/api/affaires/analysis-progress/**",
+        "src/components/dashboard/AnalysisProgress*.tsx",
+        "src/lib/affaires/analysis-progress-*.ts",
+        "src/lib/takeoff/review-exceptions-server.ts",
+        "e2e/army/critical/analysis-progress.e2e.ts"
+      ],
+      "journeys": [
+        "e2e/army/critical/analysis-progress.e2e.ts",
+        "e2e/army/takeoff/affaire-pilotage-panel.e2e.ts",
+        "e2e/army/takeoff/takeoff-dpgf-review.e2e.ts"
+      ]
+    },
+    {
       "id": "affaires-list",
       "note": "Les parcours du métré s'y connectent (loginWithUi, e2e/army/takeoff/native-ui.ts).",
       "paths": [
