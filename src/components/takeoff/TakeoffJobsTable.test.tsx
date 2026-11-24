@@ -71,7 +71,7 @@ describe("TakeoffJobsTable", () => {
       { resume: { action: "none", reason: "read_only", available_at: null } }, "FORBIDDEN"));
     const { rerender } = renderTable(before);
 
-    fireEvent.click(screen.getAllByRole("button", { name: "Soumettre à nouveau" })[0]);
+    fireEvent.click(screen.getByRole("button", { name: "Relancer" }));
     await waitFor(() => expect(mutate).toHaveBeenCalled());
     const adopt = mutate.mock.calls.find(([, data]) => typeof data === "function");
     if (!adopt) throw new Error("The refusal's decision was not adopted.");
@@ -82,15 +82,16 @@ describe("TakeoffJobsTable", () => {
     const after = update(before);
     expect(after.jobs[0]).toMatchObject({ canResubmit: false, resume: { action: "none", reason: "read_only", availableAt: null } });
     rerender(<TakeoffJobsTable projectId="project-1" data={after} onPageChange={vi.fn()} onPageSizeChange={vi.fn()} pageSize={10} />);
-    expect(screen.queryByRole("button", { name: "Soumettre à nouveau" })).not.toBeInTheDocument();
-    expect(screen.getAllByText("Ce profil ne peut pas relancer l’analyse. Contactez un ingénieur ou un administrateur.").length).toBeGreaterThan(0);
+    expect(screen.queryByRole("button", { name: "Relancer" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByText("Détails"));
+    expect(screen.getByText("Ce profil ne peut pas relancer l’analyse. Contactez un ingénieur ou un administrateur.")).toBeVisible();
   });
 
   it("reads the list again after a refusal without a decision", async () => {
     resubmitTakeoffJob.mockRejectedValue(new TakeoffApiError("Refus.", 422, null, "AI_PROVIDER"));
     renderTable(response([job({ canResubmit: true, resume: { action: "retry_now", reason: "retry_available", availableAt: null } })]));
 
-    fireEvent.click(screen.getAllByRole("button", { name: "Soumettre à nouveau" })[0]);
+    fireEvent.click(screen.getByRole("button", { name: "Relancer" }));
     await waitFor(() => expect(mutate).toHaveBeenCalled());
     expect(mutate.mock.calls.some(([filter, data]) => typeof filter === "function" && data === undefined)).toBe(true);
   });
@@ -100,7 +101,7 @@ describe("TakeoffJobsTable", () => {
     resubmitTakeoffJob.mockResolvedValue({ dispatch: { status: "accepted", correlation_id: "c" } });
     renderTable(response([job({ canResubmit: true, resume: { action: "retry_now", reason: "retry_available", availableAt: null } })]));
 
-    fireEvent.click(screen.getAllByRole("button", { name: "Soumettre à nouveau" })[0]);
+    fireEvent.click(screen.getByRole("button", { name: "Relancer" }));
     await waitFor(() => expect(mutate).toHaveBeenCalled());
     const filters = mutate.mock.calls.map(([filter]) => filter).filter((filter): filter is (key: unknown) => boolean => typeof filter === "function");
     expect(filters.some((filter) => filter(["takeoff-request-activity", "tenant:member", "project-1", "current", "", 0]))).toBe(true);
@@ -111,8 +112,9 @@ describe("TakeoffJobsTable", () => {
   it("shows no batch progress or reconciliation beside a stopped analysis of the former provider", () => {
     renderTable(response([job({ processingStrategy: "batch", providerBatchState: "running", operatorState: "orphan_to_reconcile",
       errorCode: "AI_TIMEOUT", resume: { action: "new_analysis", reason: "legacy_provider", availableAt: null } })]));
+    fireEvent.click(screen.getByText("Détails"));
     expect(screen.queryByText("Reprise à vérifier")).not.toBeInTheDocument();
     expect(screen.queryByText("Analyse en cours")).not.toBeInTheDocument();
-    expect(screen.getAllByText(/^Ce fournisseur IA ne permet plus de relancer cette analyse\./).length).toBeGreaterThan(0);
+    expect(screen.getByText(/^Ce fournisseur IA ne permet plus de relancer cette analyse\./)).toBeVisible();
   });
 });

@@ -164,7 +164,7 @@ const NOT_STARTED_CODES = new Set(["TAKEOFF_WORKER_NOT_STARTED", "TAKEOFF_WORKER
  * recorded end decides first; a failure that never began is « not started »; a job still pending, or failed with its
  * technical retry still to decide or to run, waits in the queue. Never a success from the presence of a result row.
  */
-function unitStateOf(job: TakeoffRequestUnitJobRow): TakeoffUnitState {
+export function resolveTakeoffRequestUnitState(job: Pick<TakeoffRequestUnitJobRow, "analysis_outcome" | "status" | "started_at" | "error_code">): TakeoffUnitState {
   const outcome = job.analysis_outcome;
   if (outcome === "success" || (!outcome && (job.status === "completed" || job.status === "applied"))) return "succeeded";
   if (outcome === "canceled" || (!outcome && job.status === "canceled")) return "canceled";
@@ -194,7 +194,7 @@ export function deriveTakeoffRequestUnits(input: {
   const units: TakeoffRequestUnitView[] = manifest.units.flatMap((unit) => {
     const job = jobsByUnit.get(unit.key);
     if (!job) return [];
-    const state = unitStateOf(job);
+    const state = resolveTakeoffRequestUnitState(job);
     const plan = perPlan && unit.plans[0] ? manifest.plans.get(unit.plans[0]) : undefined;
     return [{
       key: unit.key, ordinal: unit.ordinal,

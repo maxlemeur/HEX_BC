@@ -59,9 +59,10 @@ armyTest("TKPA01 plan A is reviewed while plan B is read and C waits, without a 
   const projectId = randomUUID();
   const planSetId = randomUUID();
   const ids = { a: randomUUID(), b: randomUUID(), c: randomUUID() } as Record<Plan, string>;
-  const jobs = { a: randomUUID(), b: randomUUID(), c: randomUUID(), grouped: randomUUID() };
+  const jobs = { a: randomUUID(), b: randomUUID(), c: randomUUID(), grouped: randomUUID(), olderA: randomUUID() };
   const requestId = randomUUID();
   const olderId = randomUUID();
+  const earlierAttemptId = randomUUID();
   const host = await ownedWorkerHostId();
 
   expect((await setup.from("estimate_projects").insert({ id: projectId, tenant_id: tenantId, user_id: userId,
@@ -111,6 +112,7 @@ armyTest("TKPA01 plan A is reviewed while plan B is read and C waits, without a 
   const perPlan = { ...common, format_version: 2, dispatch: { order: "display_name", version: 1 }, plans: (["a", "b", "c"] as const).map(entry),
     units: (["a", "b", "c"] as const).map((plan, index) => ({ key: `plan:${ids[plan]}`, ordinal: index + 1, plans: [ids[plan]],
       pages: sources[plan].pages, page_count: pageCounts[plan], budget: { tokens: 133_334, cost_cents: 834 } })) };
+  const earlierAttempt = { ...perPlan, plans: [entry("a")], units: [perPlan.units[0]] };
   // Format 1, lot 2's admission: one grouped unit holding the three plans.
   const grouped = { ...common, format_version: 1, plans: (["a", "b", "c"] as const).map(entry),
     units: [{ key: "grouped", plans: (["a", "b", "c"] as const).map((plan) => ids[plan]) }] };
@@ -153,6 +155,8 @@ set local session_replication_role = replica;
 ${request(olderId, { origin: "manual", manifest: grouped, plans: ["a", "b", "c"], created: 600, closed: true })}
 ${job(jobs.grouped, "grouped", olderId, ["a", "b", "c"], "completed", 599)}
 ${items(jobs.grouped, "a", [2])}
+${request(earlierAttemptId, { origin: "manual", manifest: earlierAttempt, plans: ["a"], created: 500, closed: true })}
+${job(jobs.olderA, `plan:${ids.a}`, earlierAttemptId, ["a"], "completed", 499)}
 ${request(requestId, { origin: "automatic", manifest: perPlan, plans: ["a", "b", "c"], created: 10, closed: false })}
 ${job(jobs.a, `plan:${ids.a}`, requestId, ["a"], "completed", 9)}
 ${items(jobs.a, "a", [2, 7])}
@@ -189,6 +193,22 @@ commit;`);
   // The member who launched the analysis may stop a plan not read yet (the counterexample of the director's view, step 6).
   await expect(unitOf("b").getByRole("button", "Annuler", { exact: true })).toBeVisible();
   await expect(unitOf("c").getByRole("button", "Annuler", { exact: true })).toBeVisible();
+  const tracking = ui.screen.getByRole("table", "Analyses de plans", { exact: true });
+  const latestA = tracking.getByTestId(`takeoff-tracking-job-${jobs.a}`);
+  await expect(latestA).toContainText(`${NAMES.a} · pages 2, 7`);
+  await expect(latestA).toContainText("2 lignes de métré extraites");
+  await expect(tracking.getByTestId(`takeoff-tracking-job-${jobs.b}`)).toContainText("En lecture");
+  await expect(tracking.getByTestId(`takeoff-tracking-job-${jobs.c}`)).toContainText("En attente");
+  await expect(tracking.getByTestId(`takeoff-tracking-job-${jobs.grouped}`)).toContainText(NAMES.b);
+  await expect(tracking.getByTestId(`takeoff-tracking-job-${jobs.olderA}`)).toHaveCount(0);
+  await latestA.getByText("1 tentative précédente", { exact: true }).click();
+  const oldAttempt = latestA.getByRole("link", / · Lu$/);
+  await expect(oldAttempt).toHaveAttribute("href", `/dashboard/affaires/${projectId}/takeoff?job=${jobs.olderA}`);
+  await latestA.getByText("1 tentative précédente", { exact: true }).click();
+  await ui.browser.setViewport({ width: 390, height: 844 });
+  await expect(latestA).toContainText(`${NAMES.a} · pages 2, 7`);
+  expect(await ui.browser.evaluate(() => document.documentElement.scrollWidth)).toBe(390);
+  await ui.browser.setViewport({ width: 1280, height: 800 });
   const reviewA = takeoffReviewHref({ projectId, jobId: jobs.a });
   await expect(ui.screen.getByRole("link", `Revoir ${NAMES.a}`).first()).toHaveAttribute("href", reviewA);
   await expect(ui.screen.getByRole("heading", "Premiers plans prêts à revoir", { exact: true })).toBeVisible();

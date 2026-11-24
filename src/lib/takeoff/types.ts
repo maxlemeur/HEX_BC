@@ -521,7 +521,8 @@ export type {
 export type TakeoffActivityCenterConfidenceLabel =
   | "Élevée"
   | "Moyenne"
-  | "Faible";
+  | "Faible"
+  | "Inconnue";
 export type TakeoffActivityCenterLevelLabel =
   | "Rapide"
   | "Standard"
@@ -532,6 +533,8 @@ export type TakeoffActivityCenterCounters = {
   usableJobs: number;
   blockingExceptionsJobs: number;
 };
+
+export type TakeoffActivityPlan = { name: string; pages: number[] };
 
 export type TakeoffActivityCenterJobRow = {
   jobId: string;
@@ -587,6 +590,11 @@ export type TakeoffActivityCenterJobRow = {
   dispatchOutcome?: TakeoffDispatchOutcome | null;
   dispatchCorrelationId?: string | null;
   dispatchUpdatedAt?: string | null;
+  plans?: TakeoffActivityPlan[];
+  notStarted?: boolean;
+  model?: string | null;
+  reasoningEffort?: string | null;
+  previousAttempts?: Array<{ jobId: string; createdAt: string; statusLabel: string }>;
 };
 
 export type TakeoffActivityCenterResponse = {
@@ -595,6 +603,7 @@ export type TakeoffActivityCenterResponse = {
   /** The affaire's ends, under its read rule: one page, or the end of the job a link names. */
   analysisCompletions: Array<{
     eventId: string; outcome: TakeoffAnalysisOutcome; finishedAt: string; failureReason: string | null;
+    plans?: TakeoffActivityPlan[];
   }>;
   analysisCompletionsHasOlder: boolean;
   pagination: { limit: number; offset: number; total: number };
