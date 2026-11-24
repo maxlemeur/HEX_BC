@@ -63,7 +63,8 @@ select is((select outcome from public.start_affaire_intake_analysis(pg_temp.f(20
 reset role;
 
 insert into public.affaire_intake_documents(id,upload_id,file_name,upload_status,classification_status)
-  values(pg_temp.f(41),pg_temp.f(30),'B.png','uploaded','awaiting_launch'),(pg_temp.f(42),pg_temp.f(30),'C.png','uploaded','awaiting_launch');
+  values(pg_temp.f(41),pg_temp.f(30),'B.png','uploaded','awaiting_launch'),(pg_temp.f(42),pg_temp.f(30),'C.png','uploaded','awaiting_launch'),
+    (pg_temp.f(43),pg_temp.f(30),'D.png','uploaded','awaiting_launch');
 set local role authenticated;
 create temporary table pay as select * from public.start_affaire_intake_analysis(pg_temp.f(20),true);
 reset role;
@@ -73,6 +74,13 @@ set local role authenticated;
 select throws_ok($$update public.affaire_intake_documents set analysis_completed_at=now() where id=pg_temp.f(41)$$,'42501','INTAKE_LAUNCH_PROTECTED','a member cannot forge a completed reading');
 reset role;
 update public.affaire_intake_documents set classification_status='classified',analysis_completed_at=now() where id=pg_temp.f(41);
+-- The third piece was classified; its reading had not finished when a member began removing it.
+update public.affaire_intake_documents set classification_status='classified' where id=pg_temp.f(43);
+set local role authenticated;
+update public.affaire_intake_documents set deletion_token=pg_temp.f(65) where id=pg_temp.f(43);
+reset role;
+select is((select analysis_launch_id from public.affaire_intake_documents where id=pg_temp.f(43)),null::uuid,
+  'a deletion reservation leaves no unfinished reading attached to the former launch');
 select ok(public.intake_payer_can_write(pg_temp.f(2),pg_temp.f(10),pg_temp.f(20)),'the server accepts the current nonowner admin');
 update public.tenant_memberships set role='director' where user_id=pg_temp.f(2) and tenant_id=pg_temp.f(10);
 select ok(not public.intake_payer_can_write(pg_temp.f(2),pg_temp.f(10),pg_temp.f(20)),'the server requires current write access to the specific affaire');
@@ -80,6 +88,11 @@ select is(public.stop_affaire_intake_analysis((select launch_id from pay),pg_tem
 select is(public.stop_affaire_intake_analysis((select launch_id from pay),pg_temp.f(63)),'payer_access_lost','the current lease can interrupt the revoked payer');
 select results_eq($$select classification_status,analysis_launch_id is null from public.affaire_intake_documents where id in (pg_temp.f(41),pg_temp.f(42)) order by id$$,$$values ('classified'::text,false),('awaiting_launch',true)$$,'finished work is retained and the remaining piece can be launched again');
 
+set local role authenticated;
+update public.affaire_intake_documents set deletion_token=null where id=pg_temp.f(43);
+reset role;
+select results_eq($$select classification_status,analysis_launch_id from public.affaire_intake_documents where id=pg_temp.f(43)$$,
+  $$values ('awaiting_launch'::text,null::uuid)$$,'if the removal fails after interruption, the unread piece can be launched again');
 select set_config('request.jwt.claim.sub',pg_temp.f(1)::text,true);
 set local role authenticated;
 create temporary table stranded as select * from public.start_affaire_intake_analysis(pg_temp.f(20),true);

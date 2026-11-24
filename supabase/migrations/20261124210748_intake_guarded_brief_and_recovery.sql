@@ -23,6 +23,15 @@ revoke all on function private.guard_intake_piece_completion() from public,anon,
 create trigger guard_intake_piece_completion before insert or update of analysis_launch_id,analysis_completed_at
   on public.affaire_intake_documents for each row execute function private.guard_intake_piece_completion();
 
+-- Classification can finish before OCR. Detach an unfinished reading when deletion
+-- reserves the piece, while the row is still writable. Cancelling the deletion then
+-- exposes it for the next launch, even if its original launch closed in the meantime.
+create or replace trigger release_reserved_intake_piece before update of deletion_token on public.affaire_intake_documents
+  for each row when (old.deletion_token is null and new.deletion_token is not null and new.analysis_launch_id is not null
+    and (new.analysis_completed_at is null or new.classification_status in ('queued','processing'))
+    and new.deleted_at is null and new.manually_overridden_at is null and new.classification_source is distinct from 'manual')
+  execute function private.release_reserved_intake_piece();
+
 -- Same active membership selection as current_tenant_id(), for a worker without a session cookie.
 create function public.intake_payer_can_write(p_user_id uuid,p_tenant_id uuid,p_project_id uuid) returns boolean
 language sql stable security invoker set search_path='' as $$
