@@ -837,6 +837,40 @@ select throws_ok($$select * from public.launch_manual_takeoff_request(pg_temp.f(
     (select jobs from narrowed), pg_temp.f(2080), 1)$$, '22023', 'TAKEOFF_LAUNCH_SEAL_INVALID',
   'a first analysis whose snapshot leaves out a plan of the confirmed preparation is refused');
 select is((select count(*)::integer from public.takeoff_launch_requests where project_id = pg_temp.f(2060)), 0, 'nothing is admitted');
+update public.plan_sets set name='Plans import' where id=pg_temp.f(2080);
+insert into public.affaire_briefs(project_id,status,summary,project_object) values(pg_temp.f(2060),'a_confirmer','Résumé','Objet');
+insert into storage.objects(bucket_id,name,metadata,version)
+select 'plan-files',file_path,jsonb_build_object('size',file_size_bytes),gen_random_uuid()::text
+from public.plan_files where plan_set_id=pg_temp.f(2080);
+create function pg_temp.choose_history(replaced boolean) returns uuid language sql as $$
+  select c.request_id from public.confirm_affaire_brief_plan_choice(pg_temp.f(10),pg_temp.f(2060),pg_temp.f(1),
+    (select updated_at from public.affaire_briefs where project_id=pg_temp.f(2060)),
+    (select jsonb_object_agg(o.plan_file_id,jsonb_build_object('version',o.plan_version,'sha256',
+      case when replaced and o.plan_file_id=pg_temp.f(2081) then repeat('e',64) else pg_temp.digest(o.plan_file_id) end)) from public.takeoff_brief_plan_options(pg_temp.f(10),pg_temp.f(2060)) o),
+    null,null,null,'MANDATE_REQUIRED',true,jsonb_build_object('sub',pg_temp.f(1))) c
+$$;
+-- Before per-plan activation a single released job sealed both files and both content digests.
+savepoint grouped_history;
+delete from private.takeoff_plan_dispatch_activation;
+select results_eq($$select outcome from public.launch_manual_takeoff_request(pg_temp.f(10), pg_temp.f(2060), pg_temp.f(1),
+    pg_temp.f(2063), 'initial', null, pg_temp.host(), pg_temp.selection(),
+    pg_temp.manifest(2060) || jsonb_build_object('format_version',1,'units',jsonb_build_array(jsonb_build_object(
+      'key','grouped','plans',jsonb_build_array(pg_temp.f(2081),pg_temp.f(2082))))),
+    pg_temp.snapshot(2060),pg_temp.jobs(2060)->0, pg_temp.f(2080),1)$$,
+  $$values ('admitted'::text)$$,'the released grouped command admits both plans under one job');
+set local session_replication_role=replica;
+update public.takeoff_jobs set status='completed',analysis_outcome='success',started_at=now(),analysis_finished_at=now()
+where project_id=pg_temp.f(2060);
+set local session_replication_role=origin;
+insert into private.takeoff_plan_dispatch_activation(active_from) values(now());
+select is(pg_temp.choose_history(false),null::uuid,'identical bytes read by the grouped job need no new request');
+update public.affaire_briefs set status='a_confirmer',confirmed_by=null,confirmed_at=null where project_id=pg_temp.f(2060);
+update storage.objects set version=gen_random_uuid()::text where name=(select file_path from public.plan_files where id=pg_temp.f(2081));
+select pg_temp.choose_history(true);
+select results_eq($$select jsonb_object_keys(selected_plans) from public.takeoff_launch_requests
+  where project_id=pg_temp.f(2060) and origin='automatic'$$,$$values (pg_temp.f(2081)::text)$$,
+  'the grouped history subtracts only the still-identical PDF after a same-path replacement');
+rollback to grouped_history;
 select results_eq($$select outcome from public.launch_manual_takeoff_request(pg_temp.f(10), pg_temp.f(2060), pg_temp.f(1),
     pg_temp.f(2062), 'initial', null, pg_temp.host(), pg_temp.selection(), pg_temp.manifest(2060), pg_temp.snapshot(2060),
     pg_temp.jobs(2060), pg_temp.f(2080), 1)$$, $$values ('admitted'::text)$$, 'the first analysis of both plans is admitted');
@@ -861,11 +895,11 @@ select pg_temp.manifest(2300) manifest,pg_temp.snapshot(2300) snapshot,pg_temp.j
 select pg_temp.add_choice_plan(2);
 insert into storage.objects(bucket_id,name,metadata,version)
 select 'plan-files',file_path,jsonb_build_object('size',file_size_bytes),gen_random_uuid()::text
-from public.plan_files where plan_set_id in (pg_temp.f(2080),pg_temp.f(2320));
+from public.plan_files where plan_set_id=pg_temp.f(2320);
 create function pg_temp.choose_plans(variadic files int[]) returns uuid language sql as $$
   select c.request_id from public.confirm_affaire_brief_plan_choice(pg_temp.f(10),pg_temp.f(2300),pg_temp.f(1),
     (select updated_at from public.affaire_briefs where project_id=pg_temp.f(2300)),
-    (select jsonb_object_agg(o.plan_file_id,o.plan_version) from public.takeoff_brief_plan_options(pg_temp.f(10),pg_temp.f(2300)) o
+    (select jsonb_object_agg(o.plan_file_id,jsonb_build_object('version',o.plan_version,'sha256',pg_temp.digest(o.plan_file_id))) from public.takeoff_brief_plan_options(pg_temp.f(10),pg_temp.f(2300)) o
       where o.plan_file_id in (select pg_temp.f(i) from unnest(files) i)),
     public.takeoff_payer_notice(pg_temp.f(10),pg_temp.f(2300),pg_temp.f(1),pg_temp.selection(),true),
     pg_temp.host(),pg_temp.selection(),null,true,jsonb_build_object('sub',pg_temp.f(1))) c
@@ -919,19 +953,12 @@ select results_eq($$select jsonb_object_keys(selected_plans) from public.takeoff
 
 -- A released manual request holds a real seal for two plans. Fix the worker outcomes
 -- independently of the chooser: one successful read and one stopped before starting.
-update public.plan_sets set name='Plans import' where id=pg_temp.f(2080);
 set local session_replication_role=replica;
 update public.takeoff_jobs set status=case when launch_unit_key='plan:' || pg_temp.f(2081) then 'completed' else 'canceled' end::public.takeoff_job_status,
   analysis_outcome=case when launch_unit_key='plan:' || pg_temp.f(2081) then 'success' else 'canceled' end,
+  started_at=case when launch_unit_key='plan:' || pg_temp.f(2081) then now() end,
   analysis_finished_at=now() where project_id=pg_temp.f(2060);
 set local session_replication_role=origin;
-insert into public.affaire_briefs(project_id,status,summary,project_object) values(pg_temp.f(2060),'a_confirmer','Résumé','Objet');
-create function pg_temp.choose_history(replaced boolean) returns uuid language sql as $$
-  select c.request_id from public.confirm_affaire_brief_plan_choice(pg_temp.f(10),pg_temp.f(2060),pg_temp.f(1),
-    (select updated_at from public.affaire_briefs where project_id=pg_temp.f(2060)),
-    (select jsonb_object_agg(o.plan_file_id,o.plan_version) from public.takeoff_brief_plan_options(pg_temp.f(10),pg_temp.f(2060)) o),
-    null,null,null,'MANDATE_REQUIRED',true,jsonb_build_object('sub',pg_temp.f(1))) c
-$$;
 select pg_temp.choose_history(false);
 select results_eq($$select jsonb_object_keys(selected_plans) from public.takeoff_launch_requests
   where project_id=pg_temp.f(2060) and origin='automatic'$$,$$values (pg_temp.f(2082)::text)$$,

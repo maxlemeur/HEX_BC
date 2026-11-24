@@ -30,7 +30,7 @@ insert into private.takeoff_completion_activation(active_from) values(now());
 insert into private.takeoff_plan_dispatch_activation(active_from) values(now());
 
 create function pg_temp.scope(project int, variadic ids int[]) returns jsonb language sql as $$
-  select jsonb_object_agg(f.plan_file_id,f.plan_version) from public.takeoff_brief_plan_options(pg_temp.f(10),pg_temp.f(project)) f
+  select jsonb_object_agg(f.plan_file_id,jsonb_build_object('version',f.plan_version,'sha256',repeat('c',64))) from public.takeoff_brief_plan_options(pg_temp.f(10),pg_temp.f(project)) f
   where f.plan_file_id in (select pg_temp.f(n) from unnest(ids) n)
 $$;
 create function pg_temp.selection() returns jsonb language sql as $$
