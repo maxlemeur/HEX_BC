@@ -2,7 +2,7 @@
 // dépendances"). New advisories are published every day against dependencies a pull request
 // does not touch: blocking on them turned unrelated pull requests red. The audit therefore
 // blocks a pull request, or a push to main, only when it changes a file that decides what npm
-// installs or what the audit accepts; otherwise its findings become a warning, and the daily
+// installs, what the audit accepts or how it judges; otherwise its findings become a warning, and the daily
 // audit of main (scripts/dependency-audit-alert.ts) follows them in one issue.
 //
 // Every doubt blocks: a manual or local run, a first or forced push, a base that cannot be
@@ -12,12 +12,15 @@
 //   DEPENDENCY_AUDIT_FORCED  "true" for a push GitHub flags as forced.
 import { spawnSync } from "node:child_process";
 
-/** The files whose change makes the audit blocking: what npm installs, and the audit's exceptions. */
+/** The files whose change makes the audit blocking: what npm installs, the audit's exceptions and its own code. */
 export const DEPENDENCY_AUDIT_TRIGGER_FILES = [
   "package.json",
   "package-lock.json",
   ".npmrc",
   "config/dependency-audit-policy.json",
+  "src/test/dependency-audit.ts",
+  "src/test/dependency-audit-scope.ts",
+  "scripts/check-dependency-audit.ts",
 ] as const;
 
 const SHA1_PATTERN = /^[0-9a-f]{40}$/iu;
@@ -72,7 +75,10 @@ export function resolveDependencyAuditScope(options: {
       return blocking(`push qui réécrit l'historique (${base.slice(0, 8)} n'est pas un ancêtre) : l'audit bloque`);
     }
   } else {
-    // The pull request's own changes: what main changed since the branch started is not its doing.
+    // The pull request's own changes. In CI, HEAD is GitHub's merge commit (refs/pull/N/merge) and
+    // the base, pull_request.base.sha, its first parent: the merge base is the base itself, and the
+    // diff is what the pull request brings to main, whatever main changed meanwhile. Run on the
+    // branch head instead, the merge base still leaves out what main changed since the branch started.
     const mergeBase = git("merge-base", base, "HEAD");
     diffBase = mergeBase.stdout.trim();
     if (mergeBase.status !== 0 || !SHA1_PATTERN.test(diffBase)) {
@@ -86,7 +92,7 @@ export function resolveDependencyAuditScope(options: {
   const subject = event === "push" ? "le push" : "la pull request";
   return changedFiles.length
     ? { blocking: true, changedFiles, reason: `${subject} modifie ${changedFiles.join(", ")} : l'audit bloque` }
-    : { blocking: false, changedFiles, reason: `${subject} ne modifie aucun fichier de dépendances (${DEPENDENCY_AUDIT_TRIGGER_FILES.join(", ")})` };
+    : { blocking: false, changedFiles, reason: `${subject} ne modifie ni les dépendances ni l'audit (${DEPENDENCY_AUDIT_TRIGGER_FILES.join(", ")})` };
 }
 
 export interface DependencyAuditVerdict {

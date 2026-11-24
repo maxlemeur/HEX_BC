@@ -8,14 +8,18 @@
 // Red means what the Quality Gate would block on: an unexcepted moderate, high or critical
 // advisory, or an expired or unused exception. An audit that cannot run fails this run and
 // writes nothing. It only simulates unless ALERT_WRITE is "true" and the run is on main.
+//
+// Its job holds a token that writes issues, so no third-party package code may run there: the job
+// installs nothing (npm audit reads package-lock.json alone), and plain node runs this script,
+// whose imports are Node built-ins and repository files named with their .ts extension.
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { runDependencyAudit, type DependencyAuditFinding } from "../src/test/dependency-audit";
-import { alertIssues, type AlertPlan } from "./tester-army/nightly-alert";
+import { runDependencyAudit, type DependencyAuditFinding } from "../src/test/dependency-audit.ts";
+import { alertIssues, type AlertPlan } from "./tester-army/nightly-alert.ts";
 
 export const AUDIT_ALERT_TITLE = "Audit des dépendances rouge sur main";
 const POLICY_PATH = "config/dependency-audit-policy.json";
@@ -83,6 +87,16 @@ function gh(args: string[]): string {
   return result.stdout;
 }
 
+/**
+ * The open alert issues, oldest first. Listed by author, not with --search, whose index lags a
+ * fresh issue and would let a second one open. gh reads --author through the issues connection
+ * (filterBy.createdBy), which wants the bot's login: "app/github-actions" matches nothing there.
+ */
+export function listOpenAuditAlerts(repository: string, run: (args: string[]) => string = gh): number[] {
+  return alertIssues(JSON.parse(run(["issue", "list", "--repo", repository, "--state", "open", "--author", "github-actions[bot]",
+    "--json", "number,title,author", "--limit", "200"])), [AUDIT_ALERT_TITLE]);
+}
+
 function main() {
   const repository = process.env.GITHUB_REPOSITORY ?? "";
   const runId = process.env.GITHUB_RUN_ID ?? "";
@@ -93,8 +107,7 @@ function main() {
   const runUrl = `${process.env.GITHUB_SERVER_URL ?? "https://github.com"}/${repository}/actions/runs/${runId}`;
   const evaluation = runDependencyAudit();
   const simulated = alertSimulation(process.env);
-  const open = alertIssues(JSON.parse(gh(["issue", "list", "--repo", repository, "--state", "open", "--search", `in:title "${AUDIT_ALERT_TITLE}"`,
-    "--json", "number,title,author", "--limit", "50"])), [AUDIT_ALERT_TITLE]);
+  const open = listOpenAuditAlerts(repository);
   const plan = planDependencyAuditAlert({ runUrl, revision, date: new Date().toISOString(), findings: evaluation.unexceptedFindings,
     exceptionErrors: evaluation.exceptionErrors, openIssue: open[0] ?? null });
 

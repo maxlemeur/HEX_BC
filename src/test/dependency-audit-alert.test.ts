@@ -109,7 +109,8 @@ describe("the token that writes issues runs no third-party package code", () => 
       seen.add(file);
       const source = fs.readFileSync(file, "utf8");
       expect(source, path.relative(root, file)).not.toMatch(/\bimport\s*\(|\brequire\s*\(/u);
-      for (const [, specifier] of source.matchAll(/^\s*(?:import|export)\b[^"'`;]*?["']([^"']+)["']/gmu)) {
+      for (const [, from, bare] of source.matchAll(/^\s*(?:import|export)\b[^"'`;=]*?\bfrom\s*["']([^"']+)["']|^\s*import\s*["']([^"']+)["']/gmu)) {
+        const specifier = from ?? bare;
         if (specifier.startsWith("node:")) continue;
         expect(specifier, `${path.relative(root, file)} imports ${specifier}`).toMatch(/^\.\.?\/[^:]*\.ts$/u);
         queue.push(path.resolve(path.dirname(file), specifier));

@@ -284,8 +284,11 @@ L'étape « Audit dependencies » du job Statique de Quality Gate
 ne couvre, ainsi qu'une exception expirée ou inutilisée. Elle ne bloque que
 lorsque le diff touche aux dépendances :
 
-- une PR, quand elle modifie `package.json`, `package-lock.json`, `.npmrc` ou
-  le fichier des exceptions (diff depuis sa base commune avec `main`) ;
+- une PR, quand elle modifie `package.json`, `package-lock.json`, `.npmrc`, le
+  fichier des exceptions ou le code de l'audit (`src/test/dependency-audit.ts`,
+  `src/test/dependency-audit-scope.ts`, `scripts/check-dependency-audit.ts`) ;
+  en CI, le diff va de sa base au commit de fusion que GitHub construit, donc
+  ce que `main` a changé entre-temps ne compte pas ;
 - un push sur `main`, quand sa plage `before..after` modifie l'un d'eux ; un
   premier push ou un push forcé compte comme une modification ;
 - toujours, hors PR et push : déclenchement manuel, `npm run verify:pr` local.
@@ -305,7 +308,9 @@ audit propre, il est commenté puis fermé. Un audit qui ne peut pas s'exécuter
 laisse le run rouge et n'écrit rien. Le déclenchement manuel n'écrit que si
 l'option d'écriture est cochée et que la branche est `main`. La correction
 (mise à jour, `overrides` ou exception datée) passe par une PR, que l'audit
-bloque donc.
+bloque donc. Le job détient un jeton qui écrit des tickets : il n'installe aucun
+paquet (`npm audit` lit `package-lock.json` seul) et lance le script avec `node`
+sans chargeur, pour qu'aucun code tiers ne s'exécute à côté de ce jeton.
 
 ## Mise à jour du CLI Supabase
 
@@ -313,6 +318,9 @@ Dependabot n'ouvre pas de PR pour le paquet `supabase` (`ignore` dans
 [`.github/dependabot.yml`](../../.github/dependabot.yml)) : la sienne ne modifiait
 que `package.json`, et chaque job base de données ou Army la refusait
 (« Supabase CLI must be exactly … », 4 runs rouges du 16 au 23 novembre 2026).
+Cet `ignore` coupe aussi ses mises à jour de sécurité : un avis contre le CLI
+arrive par le ticket « Audit des dépendances rouge sur main » de
+[l'audit quotidien](#audit-des-dépendances).
 La mise à jour se fait à la main, comme pour 3.0.0
 ([PR #176](https://github.com/maxlemeur/HEX_BC/pull/176)), en une PR qui change
 ensemble :

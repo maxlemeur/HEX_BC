@@ -9,6 +9,11 @@ name: Dependency audit alert
 #
 # A dispatch audits the chosen branch; it only simulates unless write is chosen
 # and the branch is main.
+#
+# The job holds a token that writes issues, so it runs no third-party package
+# code: it installs nothing, since npm audit reads package-lock.json alone, and
+# plain node runs the script, whose imports are Node built-ins and repository
+# files (src/test/dependency-audit-alert.test.ts checks both).
 on:
   # 05:45 UTC: 06:45 in Paris in winter, 07:45 in summer.
   schedule:
@@ -46,10 +51,6 @@ jobs:
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .nvmrc
-          cache: "npm"
-
-      - name: Install dependencies
-        run: npm ci
 
       - name: Open, update or close the alert issue
         env:
@@ -58,4 +59,4 @@ jobs:
           ALERT_WRITE: ${{ github.event_name == 'schedule' || inputs.write }}
           # Optional repository variable: comma-separated logins assigned to a new alert.
           ALERT_ASSIGNEES: ${{ vars.CI_ALERT_ASSIGNEES }}
-        run: node --import tsx scripts/dependency-audit-alert.ts
+        run: node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/dependency-audit-alert.ts
