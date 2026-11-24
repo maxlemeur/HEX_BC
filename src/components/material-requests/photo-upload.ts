@@ -69,9 +69,7 @@ function rejectionMessage(
     const name = `« ${names.get(id) ?? (kind === "quote" ? "une pièce" : "une photo")} »`;
     if (reason === "size") return `${name} est arrivée incomplète`;
     if (reason === "type") {
-      return kind === "quote"
-        ? `${name} n’est ni un PDF ni une image JPEG, PNG ou WebP`
-        : `${name} n’est pas une image JPEG, PNG ou WebP`;
+      return `${name} n’est ni un PDF ni une image JPEG, PNG ou WebP`;
     }
     return `${name} n’est pas arrivée`;
   });

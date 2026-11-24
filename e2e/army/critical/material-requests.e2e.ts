@@ -510,7 +510,7 @@ armyTest(
       ? [keptLine.product_type.trim(), keptLine.dimension?.trim()].filter(Boolean).join(" ")
       : `« ${keptLine.original_text?.trim()} »`;
     expect([kept.status, kept.body.error?.code, kept.body.error?.message]).toEqual([
-      409, "MATERIAL_REQUEST_LINES_KEPT", `Le message n’est pas redécoupé : la ligne ${keptName} est validée. Corrigez les lignes dans le tableau.`,
+      409, "MATERIAL_REQUEST_LINES_KEPT", `Les lignes n’ont pas été remplacées : la ligne ${keptName} est validée. Corrigez les lignes dans le tableau.`,
     ]);
     expect((await read()).lines.map((line) => [line.id, line.status])).toEqual(
       second.lines.map((line, index) => [line.id, index === 0 ? "validated" : "draft"]),

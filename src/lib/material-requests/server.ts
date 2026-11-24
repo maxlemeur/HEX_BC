@@ -465,7 +465,7 @@ async function appendLines(
   throw conflict("Des lignes viennent d’être ajoutées à cette demande. Rechargez-la, puis réessayez.");
 }
 
-const LINES_CHANGED = "Les lignes de la demande ont changé entre-temps : rechargez-la, puis redécoupez le message.";
+const LINES_CHANGED = "Les lignes de la demande ont changé entre-temps : rechargez-la, puis recommencez.";
 
 /**
  * The lines among these that a quote asks for, priced or not. A quote line has no id of its own, so it is read in
@@ -494,7 +494,7 @@ function linesKeptRefusal(validated: readonly MaterialRequestLine[], quoted: rea
     quoted.length > 0 ? said(quoted, "est dans un devis", "sont dans un devis") : null,
   ].filter((reason): reason is string => reason !== null);
   return conflict(
-    `Le message n’est pas redécoupé : ${reasons.join(", ")}. Corrigez les lignes dans le tableau.`,
+    `Les lignes n’ont pas été remplacées : ${reasons.join(", ")}. Corrigez les lignes dans le tableau.`,
     { validated_ids: validated.map((line) => line.id), quoted_ids: quoted.map((line) => line.id) },
     MATERIAL_REQUEST_LINES_KEPT,
   );
@@ -547,7 +547,7 @@ export async function replaceMaterialRequestLines(
   if (error) {
     // An order holds a line (its foreign key restricts the deletion), or a quote was retained in between.
     if (error.code === "23503" || error.message === "MATERIAL_REQUEST_LINE_PRICED") {
-      throw conflict("Le message n’est pas redécoupé : une ligne est dans un devis ou un bon de commande. Rechargez la demande.",
+      throw conflict("Les lignes n’ont pas été remplacées : une ligne est dans un devis ou un bon de commande. Rechargez la demande.",
         undefined, MATERIAL_REQUEST_LINES_KEPT);
     }
     throw mapSupabaseError(error, "Impossible de remplacer les lignes.");

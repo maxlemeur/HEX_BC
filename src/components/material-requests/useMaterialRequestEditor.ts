@@ -711,7 +711,7 @@ export function useMaterialRequestEditor(projectId: string, requestId: string): 
         } catch (error) {
           // Refused: the screen shows the lines as the server holds them, whatever changed in between.
           void resync();
-          return { ok: false, message: materialRequestErrorMessage(error, "Le message n’a pas pu être redécoupé.") };
+          return { ok: false, message: materialRequestErrorMessage(error, "Les lignes n’ont pas pu être remplacées.") };
         }
       },
       removeLine: async (lineId: string) => {

@@ -298,7 +298,7 @@ export function NewMaterialRequestDialog({
                     addPhotos(selection);
                   }}
                 />
-                <p className="text-sm text-muted-foreground">Déposez ici les photos du papier (JPEG, PNG ou WebP).</p>
+                <p className="text-sm text-muted-foreground">Déposez ici les photos ou PDF de l’original (JPEG, PNG, WebP ou PDF).</p>
                 <Button
                   type="button"
                   variant="outline"

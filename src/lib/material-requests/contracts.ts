@@ -45,20 +45,25 @@ export const MATERIAL_REQUEST_LINE_CHANGED = "MATERIAL_REQUEST_LINE_CHANGED";
 export const MATERIAL_REQUEST_PRODUCT_MATCHES = ["reference", "alias", "ranked", "manual", "created"] as const;
 export type MaterialRequestProductMatch = (typeof MATERIAL_REQUEST_PRODUCT_MATCHES)[number];
 
-/** Originals are photographs of paper or screenshots of messages. */
-export const MATERIAL_REQUEST_FILE_MIME_TYPES = ["image/jpeg", "image/png", "image/webp"] as const;
-export const MATERIAL_REQUEST_FILE_EXTENSIONS = ["jpg", "jpeg", "png", "webp"] as const;
+/** Originals are photographs of paper, screenshots of messages, or PDFs. */
+export const MATERIAL_REQUEST_FILE_MIME_TYPES = ["image/jpeg", "image/png", "image/webp", "application/pdf"] as const;
+export const MATERIAL_REQUEST_FILE_EXTENSIONS = ["jpg", "jpeg", "png", "webp", "pdf"] as const;
 /**
- * What the photo pickers offer: the stored types, plus HEIC, which the screen converts to JPEG before
- * sending (the server and the bucket only ever receive the stored types).
+ * What the original pickers offer: the stored types (images and PDF), plus HEIC, which the screen converts to JPEG
+ * before sending (the server and the bucket only ever receive the stored types).
  */
 export const MATERIAL_REQUEST_PICKER_ACCEPT = [
   ...MATERIAL_REQUEST_FILE_MIME_TYPES,
+  ".pdf",
   "image/heic",
   "image/heif",
   ".heic",
   ".heif",
 ].join(",");
+
+export function isMaterialRequestPdf(file: Pick<MaterialRequestFile, "mime_type">): boolean {
+  return file.mime_type === "application/pdf";
+}
 export const MATERIAL_REQUEST_FILE_MAX_BYTES = 20 * 1024 * 1024;
 export const MATERIAL_REQUEST_MAX_FILES = 12;
 export const MATERIAL_REQUEST_MAX_LINES = 300;
@@ -98,7 +103,7 @@ export type MaterialRequestFile = {
   id: string;
   request_id: string;
   /**
-   * Null for an original of the request (an image); the quote it answers otherwise (TI-691, a PDF or an image,
+   * Null for an original of the request (image or PDF); the quote it answers otherwise (TI-691, a PDF or an image,
    * listed with the quote and never among the originals).
    */
   quote_id: string | null;
