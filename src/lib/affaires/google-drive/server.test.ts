@@ -24,7 +24,7 @@ const saveDriveConnection = async (
   });
 import { readLinkedDriveDocument, readLinkedDriveFile } from "./content";
 import type { DriveRequest } from "./contracts";
-import { driveState, executeDriveRequest } from "./server";
+import { driveState, executeDriveRequest, readOwnDriveFile } from "./server";
 import { driveConfiguration } from "./secrets";
 import { fakeDrive, memoryBackend } from "./memory.test-utils";
 import { rearmLotsFailedWithConnection } from "./store";
@@ -142,6 +142,28 @@ describe("Drive accounts kept on the server and pieces linked without copies (Go
       await expect(check()).rejects.toMatchObject({ status: 404 });
       expect(google.fetchMock).not.toHaveBeenCalled();
     });
+  });
+
+  it("reads an unlinked file through the member's own account without creating a dossier piece", async () => {
+    const signal = new AbortController().signal;
+    await expect(readOwnDriveFile("project_demo", connectionId, "plan_demo", signal)).resolves.toMatchObject({
+      fileName: "plan-fictif.txt",
+      mimeType: "text/plain; charset=utf-8",
+      bytes: expect.any(Uint8Array),
+    });
+    expect(auth).toHaveBeenCalledWith("project_demo", "write");
+    expect(downloads()).toBe(1);
+    expect(backend.rows("affaire_intake_documents").size).toBe(0);
+  });
+
+  it("rejects another member's account before making any request to Google", async () => {
+    auth.mockResolvedValueOnce({
+      ...backend.access,
+      context: { ...backend.access.context, userId: "another_member" },
+    } as never);
+    await expect(readOwnDriveFile("project_demo", connectionId, "plan_demo", new AbortController().signal))
+      .rejects.toMatchObject({ status: 404 });
+    expect(google.fetchMock).not.toHaveBeenCalled();
   });
 
   it("keeps an added account between visits without ever exposing its token", async () => {

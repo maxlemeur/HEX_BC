@@ -1646,6 +1646,147 @@
         }
       }
     },
+    "/api/affaires/{projectId}/intake/google-drive/files/{fileId}": {
+      "get": {
+        "tags": [
+          "Affaires"
+        ],
+        "summary": "Lire ou télécharger un fichier depuis le sélecteur Drive",
+        "description": "Vérifie le droit de gérer l’affaire et que le compte Drive appartient au membre du tenant actif. Lit le fichier actuel depuis ce compte. Les Google Docs, Sheets et Slides sont exportés en PDF (10 Mo maximum). Les fichiers d’origine compatibles avec le dossier sont limités à 50 Mo. Aucune pièce n’est créée dans l’affaire.",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "description": "Identifiant UUID de l'affaire.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/ReadAffaireGoogleDriveFileProjectIdParameter"
+            }
+          },
+          {
+            "name": "fileId",
+            "in": "path",
+            "description": "Identifiant du fichier Google Drive.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/ReadAffaireGoogleDriveFileFileIdParameter"
+            }
+          },
+          {
+            "name": "connectionId",
+            "in": "query",
+            "description": "Identifiant du compte Drive personnel.",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/ReadAffaireGoogleDriveFileConnectionIdParameter"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Fichier en téléchargement. Réponse privée sans cache.",
+            "content": {
+              "application/pdf": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "image/png": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "image/jpeg": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "image/webp": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "text/plain": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "application/octet-stream": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requete invalide ou payload non conforme.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentification requise.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Acces interdit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Ressource introuvable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflit metier ou de concurrence.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Erreur interne serveur.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/affaires/{projectId}/intake/reconcile-plans": {
       "post": {
         "tags": [
@@ -35811,6 +35952,20 @@
             "additionalProperties": false
           }
         ]
+      },
+      "ReadAffaireGoogleDriveFileProjectIdParameter": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      },
+      "ReadAffaireGoogleDriveFileFileIdParameter": {
+        "type": "string",
+        "pattern": "^[a-zA-Z0-9_-]{1,200}$"
+      },
+      "ReadAffaireGoogleDriveFileConnectionIdParameter": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
       },
       "ReconcileAffairePlanDossierProjectIdParameter": {
         "type": "string",

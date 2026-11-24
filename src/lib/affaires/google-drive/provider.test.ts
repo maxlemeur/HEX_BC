@@ -47,6 +47,32 @@ describe("Drive read-only provider boundaries", () => {
     vi.stubGlobal("fetch", google.fetchMock);
     await expect(reader().download(file)).rejects.toThrow("modifiée pendant");
   });
+  it.each(["document", "spreadsheet", "presentation"])(
+    "exports a native %s as a PDF without relying on Drive size metadata",
+    async (kind) => {
+      const native = { id: "native_demo", name: "Pièce", mimeType: `application/vnd.google-apps.${kind}`, version: "12" };
+      const fetchMock = vi.fn()
+        .mockResolvedValueOnce(new Response("%PDF-1.7", { headers: { "Content-Type": "application/pdf" } }))
+        .mockResolvedValueOnce(Response.json(native));
+      vi.stubGlobal("fetch", fetchMock);
+      await expect(reader().exportPdf(native)).resolves.toEqual(Buffer.from("%PDF-1.7"));
+      expect(String(fetchMock.mock.calls[0][0])).toBe("https://www.googleapis.com/drive/v3/files/native_demo/export?mimeType=application%2Fpdf");
+    },
+  );
+  it("rejects a native export when its Drive version changes during the read", async () => {
+    const native = { id: "native_demo", name: "Pièce", mimeType: "application/vnd.google-apps.document", version: "12" };
+    vi.stubGlobal("fetch", vi.fn()
+      .mockResolvedValueOnce(new Response("%PDF-1.7", { headers: { "Content-Type": "application/pdf" } }))
+      .mockResolvedValueOnce(Response.json({ ...native, version: "13" })));
+    await expect(reader().exportPdf(native)).rejects.toMatchObject({ code: "DRIVE_CHANGED" });
+  });
+  it("refuses a PDF export exceeding Google's 10 MB limit during the read", async () => {
+    const native = { id: "native_demo", name: "Pièce", mimeType: "application/vnd.google-apps.document", version: "12" };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(new Uint8Array(10 * 1024 * 1024 + 1), {
+      headers: { "Content-Type": "application/pdf" },
+    })));
+    await expect(reader().exportPdf(native)).rejects.toMatchObject({ code: "DRIVE_EXPORT_TOO_LARGE" });
+  });
   it("uses only Google GETs with the token in a header, never redirects", async () => {
     const google = fakeDrive(); vi.stubGlobal("fetch", google.fetchMock);
     await reader().download(file);

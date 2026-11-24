@@ -2,11 +2,11 @@ import "server-only";
 import { ApiError, badRequest, mapSupabaseError, notFound } from "@/lib/http/api-response";
 import { requireAffaireAccess, type AffaireAccess } from "@/lib/affaires/access-server";
 import { readLinkedDriveFile } from "./content";
-import { driveFileRejection, type DriveRequest, type DriveState, type DriveVersionStatus } from "./contracts";
+import { driveFilePreviewMime, driveFileReadRejection, driveFileRejection, isDrivePdfExport, type DriveRequest, type DriveState, type DriveVersionStatus } from "./contracts";
 import { disconnectDriveConnection, driveAccessToken, forgetDriveAccess, listDriveConnections, requireOwnDriveConnection } from "./connections";
 import { DriveError } from "./errors";
 import { GoogleDriveReader } from "./provider";
-import { driveConfiguration } from "./secrets";
+import { driveConfiguration, type DriveConfiguration } from "./secrets";
 import { DriveStoreError, linkDriveFiles, readDriveFolderLink, readDriveLinks, removeDriveFolderLink, resumeStaleDriveLots, saveDriveFolderLink } from "./store";
 
 export function toDriveApiError(error: unknown) {
@@ -58,13 +58,47 @@ async function checkDriveVersion(
   return { versionStatus: current > recorded ? "newer" : "unknown" };
 }
 
+function requireDriveConfiguration() {
+  const configuration = driveConfiguration();
+  if (!configuration.enabled) throw new ApiError({ status: 503, code: "DRIVE_DISABLED",
+    message: "Google Drive attend la validation et la configuration OAuth de ce POC." });
+  return configuration;
+}
+
+async function ownDriveReader(
+  context: AffaireAccess["context"],
+  configuration: Extract<DriveConfiguration, { enabled: true }>,
+  connectionId: string,
+  signal: AbortSignal,
+) {
+  const connection = await requireOwnDriveConnection(context, connectionId);
+  const token = await driveAccessToken(configuration, connection.id,
+    { tenantId: context.tenantId, userId: context.userId }, signal);
+  return new GoogleDriveReader(token, signal, () => forgetDriveAccess(connection.id));
+}
+
+export async function readOwnDriveFile(projectId: string, connectionId: string, fileId: string, signal: AbortSignal) {
+  const { context } = await requireAffaireAccess(projectId, "write");
+  const configuration = requireDriveConfiguration();
+  return guarded(async () => {
+    const reader = await ownDriveReader(context, configuration, connectionId, signal);
+    const file = await reader.file(fileId);
+    const rejection = driveFileReadRejection(file);
+    if (rejection) throw new DriveError(422, "DRIVE_UNSUPPORTED", rejection);
+    const exportPdf = isDrivePdfExport(file);
+    return {
+      bytes: exportPdf ? await reader.exportPdf(file) : await reader.download(file),
+      fileName: exportPdf && !/\.pdf$/i.test(file.name) ? `${file.name}.pdf` : file.name,
+      mimeType: driveFilePreviewMime(file) ?? "application/octet-stream",
+    };
+  });
+}
+
 export async function executeDriveRequest(projectId: string, request: DriveRequest, signal: AbortSignal) {
   // Membership, active tenant and affaire ownership are resolved again on every operation,
   // before any Google token is used. The browser never holds one.
   const access = await requireAffaireAccess(projectId, "write");
-  const configuration = driveConfiguration();
-  if (!configuration.enabled) throw new ApiError({ status: 503, code: "DRIVE_DISABLED",
-    message: "Google Drive attend la validation et la configuration OAuth de ce POC." });
+  const configuration = requireDriveConfiguration();
   return guarded(async () => {
     if (request.action === "check_version") return checkDriveVersion(access, request.documentId, signal);
     if (request.action === "unlink_folder") {
@@ -72,11 +106,9 @@ export async function executeDriveRequest(projectId: string, request: DriveReque
       return { folder: null };
     }
     if (request.action === "disconnect") return disconnectDriveConnection(member(access), request.connectionId,request.grantVersion);
-    const connection = await requireOwnDriveConnection(member(access), request.connectionId);
-    const reader = new GoogleDriveReader(await driveAccessToken(configuration, connection.id,
-      { tenantId: access.context.tenantId, userId: access.context.userId }, signal), signal, () => forgetDriveAccess(connection.id));
+    const reader = await ownDriveReader(access.context, configuration, request.connectionId, signal);
     if (request.action === "list") return { listing: await reader.list(request.location, request.pageToken) };
-    if (request.action === "link_folder") return { folder: await saveDriveFolderLink(access, connection.id, await reader.folder(request.folderId)) };
+    if (request.action === "link_folder") return { folder: await saveDriveFolderLink(access, request.connectionId, await reader.folder(request.folderId)) };
     if (new Set(request.files.map((file) => file.id)).size !== request.files.length) throw badRequest("Une pièce ne peut être sélectionnée qu'une fois.");
     // A folder that became unavailable fails only its own pieces; the others are still linked.
     const folders = new Map(await Promise.all([...new Set(request.files.flatMap((file) => file.folderId ? [file.folderId] : []))]
@@ -98,7 +130,7 @@ export async function executeDriveRequest(projectId: string, request: DriveReque
     }));
     signal.throwIfAborted();
     const files = lookups.flatMap((lookup) => lookup.ok ? [{ file: lookup.file, folder: lookup.folder }] : []);
-    const linked = files.length ? await linkDriveFiles(access, { connectionId: connection.id, files }) : { results: [], uploadId: null, resumed: [] };
+    const linked = files.length ? await linkDriveFiles(access, { connectionId: request.connectionId, files }) : { results: [], uploadId: null, resumed: [] };
     const rejected = lookups.flatMap((lookup) => !lookup.ok
       ? [{ fileId: lookup.id, name: lookup.name, status: "failed" as const, message: lookup.message }] : []);
     return { results: [...linked.results, ...rejected], uploads: [...(linked.uploadId ? [linked.uploadId] : []), ...linked.resumed] };

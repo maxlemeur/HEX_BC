@@ -8,7 +8,7 @@ import {
   itemTemplateSaveRequestSchema,
 } from "@/lib/takeoff/item-list-contracts";
 import { z, type ZodTypeAny } from "zod";
-import { driveRequestSchema,driveConnectionRequestSchema,driveConnectionStateSchema,drivePurposeSchema } from "@/lib/affaires/google-drive/contracts";
+import { driveIdSchema,driveRequestSchema,driveConnectionRequestSchema,driveConnectionStateSchema,drivePurposeSchema } from "@/lib/affaires/google-drive/contracts";
 import { purchaseOrderItemsResponseSchema } from "@/lib/purchase-orders/schemas";
 import { createSupplyTypeSchema } from "@/lib/catalogue/supply-types";
 
@@ -515,6 +515,17 @@ const administrationContracts: RouteContract[] = [
     description: "Drive désactivé par défaut. Autorisation tenant/affaire à chaque opération. Les opérations de sélection désignent un compte Google enregistré du membre, jamais un jeton. Lier un fichier n’en copie pas le contenu. check_version désigne la pièce active de l’affaire par son documentId et lit ses métadonnées avec le compte qui l’a liée. Le champ versionStatus vaut unchanged, newer ou unknown. Le contrôle ne modifie pas la pièce et ne déclenche aucune analyse. disconnect retire le compte puis révoque son accès chez Google, sauf s'il reste connecté ailleurs dans MergeOne ; la réponse indique revoked et stillUsed.",
     pathParameters: [projectIdParameter],
     body: { schema: driveRequestSchema, description: "Au plus 20 fichiers par lien, 50 Mo par fichier. Origine identique requise." },
+  },
+  {
+    id: "read-affaire-google-drive-file", method: "get", path: "/api/affaires/{projectId}/intake/google-drive/files/{fileId}",
+    summary: "Lire ou télécharger un fichier depuis le sélecteur Drive", tags: ["Affaires"],
+    description: "Vérifie le droit de gérer l’affaire et que le compte Drive appartient au membre du tenant actif. Lit le fichier actuel depuis ce compte. Les Google Docs, Sheets et Slides sont exportés en PDF (10 Mo maximum). Les fichiers d’origine compatibles avec le dossier sont limités à 50 Mo. Aucune pièce n’est créée dans l’affaire.",
+    pathParameters: [projectIdParameter, { name: "fileId", schema: driveIdSchema, description: "Identifiant du fichier Google Drive." }],
+    queryParameters: [{ name: "connectionId", schema: uuidSchema, description: "Identifiant du compte Drive personnel." }],
+    success: [{ status: "200", description: "Fichier en téléchargement. Réponse privée sans cache.", contents: [
+      { contentType: "application/pdf" }, { contentType: "image/png" }, { contentType: "image/jpeg" },
+      { contentType: "image/webp" }, { contentType: "text/plain" }, { contentType: "application/octet-stream" },
+    ] }],
   },
   {
     id: "start-google-drive-authorization", method: "get", path: "/api/google-drive/oauth/start",
