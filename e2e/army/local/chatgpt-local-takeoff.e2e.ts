@@ -78,9 +78,11 @@ test("LOCAL01 no ChatGPT connection never launches or offers Gemini", {
   await takeoffZone({ screen }).getByRole("button", "Options du métré", { exact: true }).click();
   const dialog = await fillTakeoffPreparation({ ...ui, army }, { sources: [file.file_name] });
   await expect(browser.locator('select option[value="gemini"]')).toHaveCount(0);
+  await dialog.getByRole("button", /Ce que je veux mesurer$/).click();
   await dialog.getByText("Assistance au cadrage", { exact: true }).click();
   await dialog.getByRole("button", "Proposer un cadrage", { exact: true }).click();
   await expect(dialog.getByText(/Aucune assistance rédactionnelle n.est configurée/).first()).toBeVisible();
+  await dialog.getByRole("button", /Vérifier et lancer$/).click();
   await dialog.getByRole("button", "Confirmer et lancer le métré", { exact: true }).click();
   await expect(dialog.getByText(/Connectez votre forfait ChatGPT/).first()).toBeVisible();
   expect(await jobs.list()).toEqual([]);
@@ -269,9 +271,11 @@ for (const [testId, failure] of [["LOCAL04", "disconnected"], ["LOCAL06", "expir
     await ui.app.open(`/dashboard/affaires/${estimate.projectId}?view=estimate`);
     await takeoffZone({ screen }).getByRole("button", "Options du métré", { exact: true }).click();
     const dialog = await fillTakeoffPreparation({ ...ui, army }, { sources: [file.file_name] });
+    await dialog.getByRole("button", /Ce que je veux mesurer$/).click();
     await dialog.getByText("Assistance au cadrage", { exact: true }).click();
     await dialog.getByRole("button", "Proposer un cadrage", { exact: true }).click();
     await expect(dialog.getByText(/Reconnectez.*ChatGPT/i).first()).toBeVisible();
+    await dialog.getByRole("button", /Vérifier et lancer$/).click();
     await dialog.getByRole("button", "Confirmer et lancer le métré", { exact: true }).click();
     await expect(dialog.getByText(/Reconnectez.*ChatGPT/i).first()).toBeVisible();
     expect(await ownedTakeoffJobs(browser, estimate).list()).toEqual([]);
@@ -636,6 +640,7 @@ if (existsSync(businessProbePath)) test("ChatGPT local: private business PDF res
     return row.data!;
   };
   const beforeAssistance = await readPreparation();
+  await dialog.getByRole("button", /Ce que je veux mesurer$/).click();
   await dialog.getByText("Assistance au cadrage", { exact: true }).click();
   const instruction = `${probe.inclusions} ${probe.exclusions}`;
   await dialog.getByLabel("Décrire le périmètre ou corriger le cadrage", { exact: true }).fill(instruction);
@@ -644,7 +649,6 @@ if (existsSync(businessProbePath)) test("ChatGPT local: private business PDF res
   const afterAssistance = await readPreparation();
   expect(afterAssistance).toEqual(beforeAssistance);
   expect(afterAssistance.confirmed_snapshot).toBeNull();
-  await expect(dialog.getByRole("button", "Confirmer et lancer le métré", { exact: true })).toBeDisabled();
   // The server fixture observes a cloned upstream stream; no RSC response body is read.
   await expect.poll(async () => (await readFile(transportLog, "utf8")).trim().split("\n")
     .map(line => JSON.parse(line)).some(entry => entry.entryType === "preparation-result")).toBe(true);
@@ -659,6 +663,8 @@ if (existsSync(businessProbePath)) test("ChatGPT local: private business PDF res
   expect(assistance).toMatchObject({ provider: "chatgpt-live", model: selectedProbe.model, reasoningEffort: selectedProbe.reasoningEffort });
   expect(assistance.usage.total_tokens).toBeGreaterThan(0);
   const assistanceScreenshot = await app.screenshot("private-business-preparation-proposals");
+  await dialog.getByRole("button", /Vérifier et lancer$/).click();
+  await expect(dialog.getByRole("button", "Confirmer et lancer le métré", { exact: true })).toBeDisabled();
   await recordEvidence(army, "chatgpt-private-assistance", { ids, planSetId: planSet.id, planFileId: planFile.id,
     assistance, evidenceBoundary: "Sanitized upstream response plus successful rendered UI; full server-action provenance is covered separately, not reconstructed here.",
     beforeAssistance, afterAssistance, acceptedProposalIds: [], screenshot: assistanceScreenshot });
