@@ -22,6 +22,7 @@ import { toTakeoffAnalysisOutcome } from "@/lib/takeoff/completion-outcome";
 import { resolveTakeoffOperatorState, toTakeoffOperatorStateInput } from "@/lib/takeoff/operator-state";
 import { readTakeoffExecution, toTakeoffResumeViewer } from "@/lib/takeoff/resume-viewer-server";
 import { resolveTakeoffVisibleJobStatus, takeoffCompletionFailureReason } from "@/lib/takeoff/visible-status";
+import { listJobsWithBlockingExceptions } from "@/lib/takeoff/review-exceptions-server";
 import { getBusinessLevelLabel, getConfidenceLabel } from "@/lib/takeoff/job-list-labels";
 
 const DEFAULT_LIMIT = 20;
@@ -348,31 +349,6 @@ function resolveJobSource(
         lotLabel: bestCandidate.lotLabel,
       }
     : null;
-}
-
-async function listJobsWithBlockingExceptions(
-  supabase: SupabaseClient,
-  tenantId: string,
-  jobIds: string[]
-): Promise<Set<string>> {
-  if (jobIds.length === 0) {
-    return new Set();
-  }
-
-  const jobsWithExceptions = new Set<string>();
-
-  const { data, error } = await readAllRowsInChunks(jobIds, (pageIds) => supabase
-    .from("takeoff_dpgf_review_decisions" as never)
-    .select("takeoff_job_id, id" as never, { count: "exact" })
-    .eq("tenant_id" as never, tenantId as never)
-    .in("takeoff_job_id" as never, pageIds as never));
-
-  if (error) return new Set();
-  for (const row of (data ?? []) as Array<{ takeoff_job_id: string }>) {
-    jobsWithExceptions.add(row.takeoff_job_id);
-  }
-
-  return jobsWithExceptions;
 }
 
 type EnrichmentResult = {

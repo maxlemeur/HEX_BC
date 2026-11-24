@@ -1,5 +1,6 @@
 "use client";
 
+import { AFFAIRE_INTAKE_PROCESSING_LABEL } from "@/lib/affaires/intake";
 import { NavigationLink as Link } from "@/components/navigation/NavigationFeedback";
 import { useEffect, useState, useSyncExternalStore, type ReactNode } from "react";
 import { ArrowRight, Check, ChevronDown } from "lucide-react";
@@ -87,7 +88,7 @@ export function AffairePilotagePanel(props: Props) {
   function stageContent(stage: JourneyStage) {
     if (stage === "cadrage" && !intakeWorkspace) return <><h3>Dossier indisponible</h3><p className="journey-description">Rechargez la page pour vérifier les documents et le brief de l&apos;affaire.</p><Button onClick={() => window.location.reload()}>Recharger</Button></>;
     if (stage === "cadrage") return <>
-      <h3>{documents.length === 0 ? "Documents de l'affaire" : journey.reviewCount ? "Vérifier les documents reçus" : journey.processingCount ? "Classement des documents en cours" : journey.briefConfirmed ? "Dossier confirmé" : "Confirmer le brief de l'affaire"}</h3>
+      <h3>{documents.length === 0 ? "Documents de l'affaire" : journey.reviewCount ? "Vérifier les documents reçus" : journey.processingCount ? AFFAIRE_INTAKE_PROCESSING_LABEL : journey.briefConfirmed ? "Dossier confirmé" : "Confirmer le brief de l'affaire"}</h3>
       <p className="journey-description">{journey.reviewCount ? `${journey.reviewCount} pièce${journey.reviewCount > 1 ? "s restent" : " reste"} à classer avant de confirmer le périmètre de l'étude.` : journey.processingCount ? "Le classement se poursuit. Vous pouvez consulter les pièces déjà reçues." : journey.briefConfirmed ? "Le périmètre de l'étude a été confirmé. Les documents restent consultables." : "Relisez les hypothèses, le périmètre et les pièces attendues avant de confirmer le brief."}</p>
       {onOpenDocuments ? <Button onClick={onOpenDocuments}>Ouvrir les documents<ArrowRight size={14} aria-hidden="true" /></Button> : null}
       {intakeWorkspace?.briefDraft && !journey.briefConfirmed && journey.reviewCount === 0 && journey.processingCount === 0 ? <div className="mt-3"><JourneyAction action={onOpenSurface ? { kind: "surface", surfaceId: "brief-confirm", label: "Ouvrir le brief" } : { kind: "href", href: "#brief", label: "Consulter le brief" }} onOpenSurface={onOpenSurface} /></div> : null}

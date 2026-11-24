@@ -570,6 +570,8 @@ export function buildAffaireIntakeStoragePath(input: {
   ].join("/");
 }
 
+export const AFFAIRE_INTAKE_PROCESSING_LABEL = "Classement des documents en cours";
+
 export const AFFAIRE_INTAKE_ANALYSIS_STALE_MS = 10 * 60_000;
 
 export const AFFAIRE_INTAKE_REANALYSIS_PENDING_ISSUE = "Analyse IA en cours.";

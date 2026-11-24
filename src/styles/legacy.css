@@ -1405,7 +1405,7 @@ body {
     padding-left: 8px;
   }
 
-  .dashboard-global-topbar__tool {
+  .dashboard-global-topbar__tool:not(.dashboard-global-topbar__activity) {
     display: none;
   }
 }

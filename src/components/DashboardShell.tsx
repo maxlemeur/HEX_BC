@@ -13,6 +13,7 @@ import {
 import { SignOutButton } from "@/components/SignOutButton";
 import { TimaxMark, TimaxWordmark } from "@/components/brand/timax-logo";
 import { useUserContext } from "@/lib/auth/user-context";
+import { AnalysisProgressIndicator } from "@/components/dashboard/AnalysisProgressIndicator";
 import { DashboardNavigationProvider } from "@/components/dashboard/DashboardNavigationContext";
 import { WorkspaceGlobalNavigation } from "@/components/dashboard/WorkspaceGlobalNavigation";
 import { KeyboardShortcutsModal } from "@/components/ui-legacy/KeyboardShortcutsModal";
@@ -100,7 +101,7 @@ export function DashboardShell({
   );
   const { status: takeoffStatus, enabled: isTakeoffEnabled } = useTakeoffEnabled();
   const { setMode, isExpert } = useUiMode();
-  const { profile } = useUserContext();
+  const { profile, tenantId } = useUserContext();
   const tenantRole = profile?.tenant_role ?? null;
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
@@ -267,6 +268,7 @@ export function DashboardShell({
         <WorkspaceGlobalNavigation />
 
         <div className="dashboard-global-topbar__tools">
+          {profile && tenantId ? <AnalysisProgressIndicator key={`${tenantId}:${profile.id}`} tenantId={tenantId} userId={profile.id} /> : null}
           <button
             type="button"
             className="dashboard-global-topbar__tool"

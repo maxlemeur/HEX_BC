@@ -7527,6 +7527,98 @@
         }
       }
     },
+    "/api/affaires/analysis-progress": {
+      "get": {
+        "tags": [
+          "Affaires"
+        ],
+        "summary": "Suivre les analyses des affaires accessibles",
+        "description": "Lecture privée sans cache des analyses du dossier et du métré dans le tenant actif. Inclut les analyses en attente ou en cours et celles terminées depuis le point de lecture. À la première consultation, l’historique couvre les dernières 24 heures.",
+        "parameters": [
+          {
+            "name": "since",
+            "in": "query",
+            "description": "Point de lecture des analyses terminées, issu du champ observedAt d’une réponse précédente.",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/ReadAffaireAnalysisProgressSinceParameter"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Suivi des analyses des affaires accessibles.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AffaireAnalysisProgressResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requete invalide ou payload non conforme.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentification requise.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Acces interdit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Ressource introuvable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflit metier ou de concurrence.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Erreur interne serveur.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/affaires/bulk-archive": {
       "post": {
         "tags": [
@@ -54261,6 +54353,130 @@
               "items",
               "eligible",
               "missing"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "ok",
+          "data"
+        ],
+        "additionalProperties": false
+      },
+      "ReadAffaireAnalysisProgressSinceParameter": {
+        "type": "string",
+        "format": "date-time",
+        "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+      },
+      "AffaireAnalysisProgressResponse": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "viewer": {
+                "type": "object",
+                "properties": {
+                  "tenantId": {
+                    "type": "string"
+                  },
+                  "userId": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "tenantId",
+                  "userId"
+                ],
+                "additionalProperties": false
+              },
+              "observedAt": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+              },
+              "affaires": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "lines": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "dossier",
+                              "takeoff"
+                            ]
+                          },
+                          "state": {
+                            "type": "string",
+                            "enum": [
+                              "reading",
+                              "waiting",
+                              "finished"
+                            ]
+                          },
+                          "status": {
+                            "type": "string"
+                          },
+                          "detail": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "href": {
+                            "type": "string"
+                          },
+                          "updatedAt": {
+                            "type": "string",
+                            "format": "date-time",
+                            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "kind",
+                          "state",
+                          "status",
+                          "detail",
+                          "href",
+                          "updatedAt"
+                        ],
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "name",
+                    "lines"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": [
+              "viewer",
+              "observedAt",
+              "affaires"
             ],
             "additionalProperties": false
           }
