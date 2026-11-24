@@ -32,6 +32,37 @@ create or replace trigger release_reserved_intake_piece before update of deletio
     and new.deleted_at is null and new.manually_overridden_at is null and new.classification_source is distinct from 'manual')
   execute function private.release_reserved_intake_piece();
 
+-- A failed explicit launch still owes the dossier a publication, even if every
+-- reading finished. Only a successful guarded generation acknowledges that work.
+alter table public.affaire_intake_uploads add column brief_published_at timestamptz;
+create index affaire_intake_unpublished_launches on public.affaire_intake_uploads(project_id)
+  where status='failed' and launch_read_scans is not null and brief_published_at is null;
+
+create function private.intake_brief_publication_due(p_project_id uuid) returns boolean
+language sql stable security invoker set search_path='' as $$
+  select exists (select 1 from public.affaire_intake_uploads
+    where project_id=p_project_id and status='failed' and launch_read_scans is not null and brief_published_at is null)
+$$;
+revoke all on function private.intake_brief_publication_due(uuid) from public,anon,authenticated,service_role;
+
+-- The existing AFTER confirmation guard has already checked scope, waiting pieces
+-- and active launches under the affaire lock. A failed generation is a fourth state.
+create function private.require_intake_brief_publication() returns trigger
+language plpgsql security definer set search_path='' as $$
+begin
+  if private.intake_brief_publication_due(new.project_id) then
+    raise exception 'INTAKE_ANALYSIS_REQUIRED' using hint='Lancez l’analyse pour actualiser le brief avant de confirmer.';
+  end if;
+  return null;
+end;
+$$;
+revoke all on function private.require_intake_brief_publication() from public,anon,authenticated,service_role;
+create trigger require_intake_publication_on_insert after insert on public.affaire_briefs
+  for each row when (new.status='confirme') execute function private.require_intake_brief_publication();
+create trigger require_intake_publication_on_update after update of status on public.affaire_briefs
+  for each row when (new.status='confirme' and old.status is distinct from new.status)
+  execute function private.require_intake_brief_publication();
+
 -- Same active membership selection as current_tenant_id(), for a worker without a session cookie.
 create function public.intake_payer_can_write(p_user_id uuid,p_tenant_id uuid,p_project_id uuid) returns boolean
 language sql stable security invoker set search_path='' as $$
@@ -57,15 +88,14 @@ begin
     insert into public.affaire_intake_uploads(project_id,tenant_id,created_by,status,launch_read_scans)
     select p.id,p.tenant_id,auth.uid(),'launch_queued',p_read_scans from public.estimate_projects p
     where p.id=p_project_id and public.intake_payer_can_write(auth.uid(),p.tenant_id,p.id)
-      and exists(select 1 from public.affaire_intake_documents d join public.affaire_intake_uploads u on u.id=d.upload_id
-        where d.project_id=p.id and u.status='deposited' and d.upload_status='uploaded'
-          and d.deleted_at is null and d.deletion_token is null and
-          (d.classification_source='manual' or d.manually_overridden_at is not null or d.analysis_completed_at is not null))
+      and (private.intake_brief_publication_due(p.id) or (
+        not exists(select 1 from public.affaire_briefs b where b.project_id=p.id)
+        and exists(select 1 from public.affaire_intake_documents d join public.affaire_intake_uploads u on u.id=d.upload_id
+          where d.project_id=p.id and u.status='deposited' and d.upload_status='uploaded'
+            and d.deleted_at is null and d.deletion_token is null and
+            (d.classification_source='manual' or d.manually_overridden_at is not null or d.analysis_completed_at is not null))))
       and not exists(select 1 from public.affaire_intake_documents d where d.project_id=p.id and d.deleted_at is null
         and d.upload_status='uploaded' and (d.deletion_token is not null or d.classification_status in ('queued','processing','awaiting_launch')))
-      and not exists(select 1 from public.affaire_briefs b where b.project_id=p.id
-        and not exists(select 1 from public.affaire_intake_uploads u where u.project_id=p.id and u.status='failed'
-          and u.last_error in ('payer_access_lost','connection_unavailable') and u.completed_at>b.last_generated_at))
     returning id into launch_id;
     if found then outcome:='brief_only'; piece_count:=0; return next; return; end if;
   end if;
@@ -111,10 +141,38 @@ begin
 end;
 $$;
 
+-- The worker reads this snapshot once and builds the model and fallback inputs from
+-- its project, ordered documents and missing categories. The digest is made by the
+-- same database that compares it; the worker never has to serialize a timestamp.
+create function public.read_affaire_intake_brief_inputs(p_project_id uuid) returns jsonb
+language sql stable security invoker set search_path='' set timezone='UTC' as $$
+  with documents as materialized (
+    select d.id,d.file_name,d.document_kind,d.confidence,d.issues,d.extracted_metadata,
+      d.classification_status,d.updated_at,d.created_at
+    from public.affaire_intake_documents d where d.project_id=p_project_id
+      and d.deleted_at is null and d.deletion_token is null and d.upload_status='uploaded'
+      and d.classification_status<>'awaiting_launch'
+  ), snapshot as (
+    select jsonb_build_object(
+      'project',jsonb_build_object('id',p.id,'name',p.name,'reference',p.reference,'client_name',p.client_name,'user_id',p.user_id),
+      'documents',coalesce((select jsonb_agg(to_jsonb(d) order by d.created_at,d.id) from documents d),'[]'),
+      'missing_piece_codes',coalesce((select jsonb_agg('missing_'||k.kind order by k.ordinal)
+        from unnest(array['dpgf','plans','cctp','bpu_dqe']) with ordinality k(kind,ordinal)
+        where not case when k.kind='plans' then public.affaire_has_stored_plan(p.id)
+          else exists(select 1 from documents d where d.classification_status='classified' and d.document_kind=k.kind) end),'[]')
+    ) as inputs
+    from public.estimate_projects p where p.id=p_project_id
+  )
+  select inputs || jsonb_build_object('revision',encode(sha256(convert_to(inputs::text,'UTF8')),'hex'),
+    'brief_updated_at',(select b.updated_at from public.affaire_briefs b where b.project_id=p_project_id)) from snapshot
+$$;
+revoke all on function public.read_affaire_intake_brief_inputs(uuid) from public,anon,authenticated,service_role;
+grant execute on function public.read_affaire_intake_brief_inputs(uuid) to service_role;
+
 -- Publish one model response and its sources in a single transaction. All generation
 -- paths (historical worker, explicit launch, authorised document edit) share this CAS.
 create function public.publish_affaire_intake_brief(
-  p_upload_id uuid,p_lease_token uuid,p_actor_id uuid,p_expected_documents jsonb,
+  p_upload_id uuid,p_lease_token uuid,p_actor_id uuid,p_expected_revision text,
   p_expected_brief_updated_at timestamptz,p_draft jsonb,p_sources jsonb
 ) returns uuid language plpgsql security invoker set search_path='' as $$
 declare
@@ -124,14 +182,40 @@ declare
   next_brief public.affaire_briefs%rowtype;
   keep_confirmation boolean;
   brief_id uuid;
+  snapshot jsonb;
 begin
-  -- FOR UPDATE on the project also excludes new document FK references. Lock *all*
-  -- its documents, including those a concurrent publication may make eligible.
-  select p.* into strict project from public.estimate_projects p join public.affaire_intake_uploads u on u.project_id=p.id
-    where u.id=p_upload_id for update of p;
-  select * into strict batch from public.affaire_intake_uploads where id=p_upload_id for share;
-  perform 1 from public.affaire_intake_documents d where d.project_id=project.id order by d.id for share;
-  select * into prior from public.affaire_briefs b where b.project_id=project.id for update;
+  -- Confirmation locks the brief before the project. For a first generation the
+  -- unique insert is that lock: another first publisher either rolls back or wins.
+  -- This initial row is visible only if the whole publication (including sources) commits.
+  select * into strict batch from public.affaire_intake_uploads where id=p_upload_id;
+  select * into prior from public.affaire_briefs b where b.project_id=batch.project_id for update;
+  if prior.updated_at is distinct from p_expected_brief_updated_at then
+    raise exception 'INTAKE_BRIEF_INPUT_CHANGED' using errcode='40001';
+  end if;
+  if prior.id is null and p_draft is not null then
+    insert into public.affaire_briefs(project_id,tenant_id,upload_id,status,summary,project_object,created_by)
+      values(batch.project_id,batch.tenant_id,batch.id,'a_confirmer',p_draft->>'summary',p_draft->>'project_object',p_actor_id)
+      on conflict (project_id) do nothing;
+    if not found then raise exception 'INTAKE_BRIEF_INPUT_CHANGED' using errcode='40001'; end if;
+  end if;
+
+  -- The parent locks fence new FK references. Storage writes for plan files also
+  -- lock their plan_file; lock existing intake objects for size changes and removal.
+  -- Writers that already own a piece or a plan may themselves be waiting for this
+  -- brief. Refuse this response for retry rather than completing a lock cycle.
+  begin
+    select * into strict project from public.estimate_projects where id=batch.project_id for update nowait;
+    select * into strict batch from public.affaire_intake_uploads where id=p_upload_id for no key update nowait;
+    perform 1 from public.affaire_intake_documents d where d.project_id=project.id order by d.id for share nowait;
+    perform 1 from public.plan_sets s where s.project_id=project.id order by s.id for update nowait;
+    perform 1 from public.plan_files f join public.plan_sets s on s.id=f.plan_set_id
+      where s.project_id=project.id order by f.id for no key update of f nowait;
+    perform 1 from storage.objects o join public.affaire_intake_documents d on o.name=d.storage_path
+      where o.bucket_id='affaire-intake' and d.project_id=project.id and d.document_kind='plans'
+        and d.classification_status='classified' and d.deleted_at is null and d.deletion_token is null order by o.id for share of o nowait;
+  exception when lock_not_available then
+    raise exception 'INTAKE_BRIEF_INPUT_CHANGED' using errcode='40001';
+  end;
   if project.is_archived then raise exception 'INTAKE_PUBLICATION_FORBIDDEN' using errcode='42501'; end if;
   if p_lease_token is null then
     if not public.intake_payer_can_write(p_actor_id,project.tenant_id,project.id) then
@@ -144,30 +228,36 @@ begin
     raise exception 'INTAKE_PUBLICATION_FORBIDDEN' using errcode='42501';
   end if;
 
-  if jsonb_typeof(p_expected_documents) is distinct from 'array' or jsonb_typeof(p_sources) is distinct from 'array' then
+  if jsonb_typeof(p_sources) is distinct from 'array' then
     raise exception 'INTAKE_BRIEF_INVALID' using errcode='22023';
   end if;
-  if prior.updated_at is distinct from p_expected_brief_updated_at or exists(
-    with actual as (
-      select d.id,d.updated_at,d.document_kind from public.affaire_intake_documents d where d.project_id=project.id
-        and d.deleted_at is null and d.deletion_token is null and d.upload_status='uploaded' and d.classification_status<>'awaiting_launch'
-    ), expected as (
-      select e.* from jsonb_to_recordset(p_expected_documents) e(id uuid,updated_at timestamptz,document_kind text)
-    )
-    (select * from actual except all select * from expected)
-    union all (select * from expected except all select * from actual)
-  ) then raise exception 'INTAKE_BRIEF_INPUT_CHANGED' using errcode='40001'; end if;
+  snapshot:=public.read_affaire_intake_brief_inputs(project.id);
+  if p_expected_revision is distinct from (snapshot->>'revision') then
+    raise exception 'INTAKE_BRIEF_INPUT_CHANGED' using errcode='40001';
+  end if;
   if exists(select 1 from jsonb_array_elements(p_sources) s where not exists (
-    select 1 from jsonb_array_elements(p_expected_documents) d where d->>'id'=s->>'sourceDocumentId'
+    select 1 from jsonb_array_elements(snapshot->'documents') d where d->>'id'=s->>'sourceDocumentId'
   )) then raise exception 'INTAKE_BRIEF_SOURCE_INVALID' using errcode='23514'; end if;
 
+  if p_lease_token is not null and batch.launch_read_scans is not null then
+    update public.affaire_intake_uploads u set brief_published_at=clock_timestamp()
+      where u.project_id=project.id and u.launch_read_scans is not null and u.brief_published_at is null
+        and (u.id=batch.id or u.status='failed');
+  end if;
   -- An edit that removed the final contributing piece can retire its generated brief.
   if p_draft is null then
-    if p_expected_documents<>'[]'::jsonb or p_sources<>'[]'::jsonb then raise exception 'INTAKE_BRIEF_INVALID' using errcode='22023'; end if;
+    if snapshot->'documents'<>'[]'::jsonb or p_sources<>'[]'::jsonb then raise exception 'INTAKE_BRIEF_INVALID' using errcode='22023'; end if;
     delete from public.affaire_briefs b where b.id=prior.id;
     return null;
   end if;
   select * into next_brief from jsonb_populate_record(null::public.affaire_briefs,p_draft);
+  -- The indexes belong to the member and refer to the ordered missing entries.
+  -- Keep them for the same list and discard them when that list changes.
+  next_brief.generation_metadata:=coalesce(next_brief.generation_metadata,'{}')-'resolved_plan_gap_indexes';
+  if prior.missing_elements=next_brief.missing_elements and prior.generation_metadata ? 'resolved_plan_gap_indexes' then
+    next_brief.generation_metadata:=next_brief.generation_metadata ||
+      jsonb_build_object('resolved_plan_gap_indexes',prior.generation_metadata->'resolved_plan_gap_indexes');
+  end if;
   -- A generator cannot confirm. A caller may keep an existing confirmation only on the
   -- same brief generation and with identical business content and provenance.
   keep_confirmation:=coalesce(prior.status='confirme' and next_brief.status='confirme' and prior.upload_id=batch.id
@@ -202,9 +292,9 @@ end;
 $$;
 
 revoke all on function public.intake_payer_can_write(uuid,uuid,uuid),public.stop_affaire_intake_analysis(uuid,uuid),
-  public.publish_affaire_intake_brief(uuid,uuid,uuid,jsonb,timestamptz,jsonb,jsonb),
+  public.publish_affaire_intake_brief(uuid,uuid,uuid,text,timestamptz,jsonb,jsonb),
   public.start_affaire_intake_analysis(uuid,boolean) from public,anon,authenticated,service_role;
 grant execute on function public.intake_payer_can_write(uuid,uuid,uuid),public.stop_affaire_intake_analysis(uuid,uuid),
-  public.publish_affaire_intake_brief(uuid,uuid,uuid,jsonb,timestamptz,jsonb,jsonb) to service_role;
+  public.publish_affaire_intake_brief(uuid,uuid,uuid,text,timestamptz,jsonb,jsonb) to service_role;
 grant execute on function public.start_affaire_intake_analysis(uuid,boolean) to authenticated;
 commit;

@@ -137,16 +137,6 @@ update public.affaire_intake_documents set classification_status='classified',cl
 select lives_ok('select pg_temp.confirm()','manual classification alone clears the waiting piece');
 select results_eq($$select outcome,piece_count from public.launch_affaire_intake_analysis(pg_temp.f(20),true)$$,
   $$values ('nothing_waiting'::text,0)$$,'a manual-only dossier does not spend a launch');
-select pg_temp.deposit(56,41);
-create temp table last_press as select * from public.launch_affaire_intake_analysis(pg_temp.f(20),true);
--- The account FK uses SET NULL on deletion. Even this launch keeps its mode; its depositor is still present.
-update public.affaire_intake_uploads set created_by=null where id=(select launch_id from last_press);
-select results_eq($$select payer_id, read_scans from public.claim_affaire_intake_analysis_launch(pg_temp.f(75))$$,
-  $$values (null::uuid,true)$$,'a missing payer stays absent rather than borrowing the depositor’s plan');
-update public.affaire_intake_uploads set attempt_count=3,processing_lease_expires_at=now()-interval '1 second' where id=(select launch_id from last_press);
-select is((select count(*)::int from public.claim_affaire_intake_analysis_launch(pg_temp.f(76))),0,'an exhausted lease is retired');
-select results_eq($$select u.status,d.classification_status from public.affaire_intake_documents d join public.affaire_intake_uploads u on d.analysis_launch_id=u.id
-  where d.id=pg_temp.f(56)$$,$$values ('failed'::text,'failed'::text)$$,'exhaustion releases the batch and makes the piece individually retryable');
 -- RLS must accept the brief row before either privileged confirmation check can run.
 select is((select count(*)::int from pg_trigger where tgrelid='public.affaire_briefs'::regclass
   and tgfoid='private.guard_intake_brief_confirmation()'::regprocedure and (tgtype & 2)=0),2,
@@ -173,6 +163,16 @@ select pg_temp.confirm();
 select is(pg_temp.move_result('update public.affaire_briefs set project_id=pg_temp.f(21) where id=pg_temp.f(30)'),
   'INTAKE_SCOPE_IMMUTABLE','a confirmed brief belongs to its original affaire');
 
+select pg_temp.deposit(56,41);
+create temp table last_press as select * from public.launch_affaire_intake_analysis(pg_temp.f(20),true);
+-- The account FK uses SET NULL on deletion. Even this launch keeps its mode; its depositor is still present.
+update public.affaire_intake_uploads set created_by=null where id=(select launch_id from last_press);
+select results_eq($$select payer_id, read_scans from public.claim_affaire_intake_analysis_launch(pg_temp.f(75))$$,
+  $$values (null::uuid,true)$$,'a missing payer stays absent rather than borrowing the depositor’s plan');
+update public.affaire_intake_uploads set attempt_count=3,processing_lease_expires_at=now()-interval '1 second' where id=(select launch_id from last_press);
+select is((select count(*)::int from public.claim_affaire_intake_analysis_launch(pg_temp.f(76))),0,'an exhausted lease is retired');
+select results_eq($$select u.status,d.classification_status from public.affaire_intake_documents d join public.affaire_intake_uploads u on d.analysis_launch_id=u.id
+  where d.id=pg_temp.f(56)$$,$$values ('failed'::text,'failed'::text)$$,'exhaustion releases the batch and makes the piece individually retryable');
 -- Two outstanding classifications are reserved for deletion. The first deletion fails
 -- after the launch stops; the second finishes normally.
 select pg_temp.deposit(58,41),pg_temp.deposit(59,42);

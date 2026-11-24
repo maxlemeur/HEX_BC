@@ -26,34 +26,44 @@ select is((select outcome from public.start_affaire_intake_analysis(pg_temp.f(20
 reset role;
 select is((select analysis_launch_id from public.affaire_intake_documents where id=pg_temp.f(40)),null::uuid,'the manual plan is never assigned for reading');
 select is((select payer_id from public.claim_affaire_intake_analysis_launch(pg_temp.f(60),(select launch_id from launched))),pg_temp.f(2),'brief-only recovery keeps the presser');
-create function pg_temp.inputs() returns jsonb language sql as $$
-  select coalesce(jsonb_agg(jsonb_build_object('id',id,'updated_at',updated_at,'document_kind',document_kind) order by id),'[]')
-  from public.affaire_intake_documents where project_id=pg_temp.f(20) and deleted_at is null and deletion_token is null
-    and upload_status='uploaded' and classification_status <> 'awaiting_launch'
+create function pg_temp.inputs() returns text language sql as $$
+  select public.read_affaire_intake_brief_inputs(pg_temp.f(20))->>'revision'
 $$;
-create function pg_temp.publish(batch uuid, token uuid, docs jsonb, stamp timestamptz, label text, source_id uuid)
+create function pg_temp.publish(batch uuid, token uuid, revision text, stamp timestamptz, label text, source_id uuid)
 returns uuid language sql as $$
-  select public.publish_affaire_intake_brief(batch,token,null,docs,stamp,
+  select public.publish_affaire_intake_brief(batch,token,null,revision,stamp,
     jsonb_build_object('summary',label,'project_object','Fixture','last_generated_at',now()),
     case when source_id is null then '[]'::jsonb else jsonb_build_array(jsonb_build_object(
       'blockKey','summary','entryIndex',0,'sourceDocumentId',source_id,'sourceFileName','A.pdf')) end)
 $$;
-create temporary table saved as select pg_temp.inputs() docs,(select launch_id from launched) batch;
-select isnt(pg_temp.publish(batch,pg_temp.f(60),docs,null,'Premier',pg_temp.f(40)),null::uuid,'the draft and its source publish together') from saved;
+create temporary table saved as select pg_temp.inputs() revision,(select launch_id from launched) batch;
+select isnt(pg_temp.publish(batch,pg_temp.f(60),revision,null,'Premier',pg_temp.f(40)),null::uuid,'the draft and its source publish together') from saved;
 select is((select count(*) from public.affaire_brief_source_links where project_id=pg_temp.f(20)),1::bigint,'one source committed');
 alter table saved add column stamp timestamptz;
 update saved set stamp=(select updated_at from public.affaire_briefs where project_id=pg_temp.f(20));
+-- The model already holds this snapshot. Change only project or plan inputs.
+update public.estimate_projects set client_name='Nouveau client' where id=pg_temp.f(20);
+select throws_ok($$select pg_temp.publish(batch,pg_temp.f(60),revision,stamp,'Ancien client',pg_temp.f(40)) from saved$$,
+  '40001','INTAKE_BRIEF_INPUT_CHANGED','renaming only the client invalidates the model response');
+update public.estimate_projects set client_name=null where id=pg_temp.f(20);
+insert into public.plan_sets(id,tenant_id,project_id,name) values(pg_temp.f(70),pg_temp.f(10),pg_temp.f(20),'Plans');
+insert into public.plan_files(id,tenant_id,plan_set_id,file_path,file_name,file_type,file_size_bytes)
+  values(pg_temp.f(71),pg_temp.f(10),pg_temp.f(70),pg_temp.f(10)::text||'/'||pg_temp.f(70)::text||'/'||pg_temp.f(71)::text||'/plan.pdf','plan.pdf','application/pdf',8);
+insert into storage.objects(bucket_id,name,metadata) values('plan-files',pg_temp.f(10)::text||'/'||pg_temp.f(70)::text||'/'||pg_temp.f(71)::text||'/plan.pdf','{"size":8}');
+select ok(public.affaire_has_stored_plan(pg_temp.f(20)),'the standalone file changes the missing-plan observation');
+select throws_ok($$select pg_temp.publish(batch,pg_temp.f(60),revision,stamp,'Plans manquants',pg_temp.f(40)) from saved$$,
+  '40001','INTAKE_BRIEF_INPUT_CHANGED','adding only a stored standalone plan invalidates the model response');
 update public.affaire_intake_documents set document_kind='cctp' where id=pg_temp.f(40);
-select throws_ok($$select pg_temp.publish(batch,pg_temp.f(60),docs,stamp,'Périmé',pg_temp.f(40)) from saved$$,'40001','INTAKE_BRIEF_INPUT_CHANGED','a category correction during generation invalidates the result');
-update saved set docs=pg_temp.inputs();
-select throws_ok($$select pg_temp.publish(batch,pg_temp.f(60),docs,stamp,'Périmé',pg_temp.f(99)) from saved$$,'23514','INTAKE_BRIEF_SOURCE_INVALID','a foreign or missing source rolls back the whole publication');
-select throws_ok($$select public.publish_affaire_intake_brief(batch,pg_temp.f(60),null,docs,stamp,
+select throws_ok($$select pg_temp.publish(batch,pg_temp.f(60),revision,stamp,'Périmé',pg_temp.f(40)) from saved$$,'40001','INTAKE_BRIEF_INPUT_CHANGED','a category correction during generation invalidates the result');
+update saved set revision=pg_temp.inputs();
+select throws_ok($$select pg_temp.publish(batch,pg_temp.f(60),revision,stamp,'Périmé',pg_temp.f(99)) from saved$$,'23514','INTAKE_BRIEF_SOURCE_INVALID','a foreign or missing source rolls back the whole publication');
+select throws_ok($$select public.publish_affaire_intake_brief(batch,pg_temp.f(60),null,revision,stamp,
   '{"summary":"Non publié","project_object":"Fixture"}',
   jsonb_build_array(jsonb_build_object('blockKey','inconnu','entryIndex',0,'sourceDocumentId',pg_temp.f(40),'sourceFileName','A.pdf')))
   from saved$$,'23514',null,'a failing source insert rolls back the preceding draft update and link replacement');
 select results_eq($$select b.summary,l.source_document_id from public.affaire_briefs b join public.affaire_brief_source_links l on l.brief_id=b.id where b.project_id=pg_temp.f(20)$$,$$values ('Premier'::text,pg_temp.f(40))$$,'a failed publication preserves both previous values');
 update public.affaire_intake_documents set deletion_token=pg_temp.f(61) where id=pg_temp.f(40);
-select throws_ok($$select pg_temp.publish(batch,pg_temp.f(60),docs,stamp,'Supprimé',pg_temp.f(40)) from saved$$,'40001','INTAKE_BRIEF_INPUT_CHANGED','a deletion during generation cannot put the document back');
+select throws_ok($$select pg_temp.publish(batch,pg_temp.f(60),revision,stamp,'Supprimé',pg_temp.f(40)) from saved$$,'40001','INTAKE_BRIEF_INPUT_CHANGED','a deletion during generation cannot put the document back');
 update public.affaire_intake_documents set deletion_token=null where id=pg_temp.f(40);
 update public.affaire_intake_uploads set processing_lease_token=pg_temp.f(62),processing_lease_expires_at=now()+interval '10 minutes' where id=pg_temp.f(31);
 select throws_ok($$select pg_temp.publish(pg_temp.f(31),pg_temp.f(62),pg_temp.inputs(),null,'Historique',pg_temp.f(40))$$,'40001','INTAKE_BRIEF_INPUT_CHANGED','the historical worker loses its compare-and-set against a concurrently published launch brief');
@@ -100,7 +110,85 @@ reset role;
 update public.affaire_intake_uploads set created_at=now()-interval '31 minutes' where id=(select launch_id from stranded);
 select is(public.stop_affaire_intake_analysis((select launch_id from stranded),null),'connection_unavailable','a launch no Mac can take ends after the 30-minute recovery window');
 select results_eq($$select classification_status,analysis_launch_id,cardinality(issues)>0 from public.affaire_intake_documents where id=pg_temp.f(42)$$,$$values ('awaiting_launch'::text,null::uuid,true)$$,'the unread piece shows a reason and is eligible for another press');
-select ok(not has_function_privilege('authenticated','public.publish_affaire_intake_brief(uuid,uuid,uuid,jsonb,timestamptz,jsonb,jsonb)','execute')
+select ok(not has_function_privilege('authenticated','public.publish_affaire_intake_brief(uuid,uuid,uuid,text,timestamptz,jsonb,jsonb)','execute')
   and not has_function_privilege('anon','public.stop_affaire_intake_analysis(uuid,uuid)','execute'),'the worker mutations are private to the service role');
+
+-- Each fixture has an older brief, one last completed reading, and no publication for the new deposit.
+insert into public.estimate_projects(id,tenant_id,user_id,name)
+  select pg_temp.f(n),pg_temp.f(10),pg_temp.f(1),'Dossier fictif' from generate_series(80,82) n;
+insert into public.affaire_intake_uploads(id,project_id,created_by,status)
+  select pg_temp.f(n+3),pg_temp.f(n),pg_temp.f(1),'deposited' from generate_series(80,82) n;
+insert into public.affaire_briefs(project_id,upload_id,status,summary,project_object,missing_elements)
+  select pg_temp.f(n),pg_temp.f(n+3),'a_confirmer','Ancien brief','Fixture','["Plans manquants"]' from generate_series(80,82) n;
+insert into public.affaire_intake_documents(id,upload_id,file_name,upload_status,classification_status)
+  select pg_temp.f(n+6),pg_temp.f(n+3),'Depot.pdf','uploaded','awaiting_launch' from generate_series(80,81) n;
+update public.tenant_memberships set role='admin' where user_id=pg_temp.f(2) and tenant_id=pg_temp.f(10);
+select set_config('request.jwt.claim.sub',pg_temp.f(2)::text,true);
+set local role authenticated;
+create temp table stopped as select n, r.launch_id from generate_series(80,81) n
+  cross join lateral public.start_affaire_intake_analysis(pg_temp.f(n),false) r;
+reset role;
+select count(*) from stopped s cross join lateral public.claim_affaire_intake_analysis_launch(pg_temp.f(90),s.launch_id);
+update public.affaire_intake_documents set classification_status='classified',analysis_completed_at=clock_timestamp()
+  where id in (pg_temp.f(86),pg_temp.f(87));
+update public.tenant_memberships set role='director' where user_id=pg_temp.f(2) and tenant_id=pg_temp.f(10);
+select is(public.stop_affaire_intake_analysis((select launch_id from stopped where n=80),pg_temp.f(90)),'payer_access_lost',
+  'lose the payer after the last reading and before publication');
+update public.affaire_intake_uploads set attempt_count=3,processing_lease_expires_at=now()-interval '1 second'
+  where id=(select launch_id from stopped where n=81);
+select is((select count(*) from public.claim_affaire_intake_analysis_launch(pg_temp.f(91),(select launch_id from stopped where n=81))),
+  0::bigint,'the fourth claim closes the exhausted launch');
+create function pg_temp.confirm(n integer) returns text language sql as $$
+  select outcome from public.confirm_affaire_brief_takeoff(pg_temp.f(10),pg_temp.f(n),pg_temp.f(1),
+    (select updated_at from public.affaire_briefs where project_id=pg_temp.f(n)),null,p_blocked_reason=>'CHATGPT_NOT_CONNECTED',
+    p_actor_claims=>jsonb_build_object('sub',pg_temp.f(1),'role','authenticated'))
+$$;
+insert into private.takeoff_launch_activation(active_from) values (now()-interval '1 minute');
+insert into private.takeoff_completion_activation(active_from) values (now()-interval '1 minute');
+update public.feature_flags set enabled=true where tenant_id=pg_temp.f(10) and flag_key='TAKEOFF_MODULE_ENABLED';
+select throws_ok('select pg_temp.confirm(80)','P0001','INTAKE_ANALYSIS_REQUIRED','loss of payer does not make the earlier brief confirmable');
+select throws_ok('select pg_temp.confirm(81)','P0001','INTAKE_ANALYSIS_REQUIRED','exhaustion does not make the earlier brief confirmable');
+select is((select count(*) from public.takeoff_launch_requests where project_id in (pg_temp.f(80),pg_temp.f(81))),0::bigint,
+  'neither refused confirmation reserves a takeoff');
+select set_config('request.jwt.claim.sub',pg_temp.f(1)::text,true);
+set local role authenticated;
+create temp table again as select n,r.* from generate_series(80,81) n
+  cross join lateral public.start_affaire_intake_analysis(pg_temp.f(n),false) r;
+reset role;
+select results_eq($$select outcome,piece_count from again order by n$$,$$values ('brief_only'::text,0),('brief_only',0)$$,
+  'either failure can be repaired by a brief-only press without rereading the completed piece');
+
+select count(*) from again a cross join lateral public.claim_affaire_intake_analysis_launch(pg_temp.f(92),a.launch_id);
+select pg_temp.publish(a.launch_id,pg_temp.f(92),snapshot->>'revision',(snapshot->>'brief_updated_at')::timestamptz,
+  'Nouveau dépôt inclus',pg_temp.f(a.n+6))
+from again a cross join lateral public.read_affaire_intake_brief_inputs(pg_temp.f(a.n)) snapshot;
+select bool_and(public.finish_affaire_intake_upload_attempt(launch_id,pg_temp.f(92),'ready',now())) from again;
+select results_eq($$select b.summary,l.source_document_id from public.affaire_briefs b join public.affaire_brief_source_links l
+  on l.brief_id=b.id where b.project_id in (pg_temp.f(80),pg_temp.f(81)) order by b.project_id$$,
+  $$values ('Nouveau dépôt inclus'::text,pg_temp.f(86)),('Nouveau dépôt inclus',pg_temp.f(87))$$,
+  'the new generation includes the completed piece in both dossiers');
+select results_eq($$select pg_temp.confirm(n) from generate_series(80,81) n$$,$$values ('confirmed'::text),('confirmed')$$,
+  'publishing the new brief makes both confirmations available');
+select is((select count(*) from public.takeoff_launch_requests where project_id in (pg_temp.f(80),pg_temp.f(81))),2::bigint,
+  'only the confirmed new publications reserve their takeoffs');
+
+-- A member accepted this particular missing-plan entry. A republication omits human metadata.
+update public.affaire_briefs set status='confirme',confirmed_by=pg_temp.f(1),confirmed_at=now(),
+  generation_metadata='{"resolved_plan_gap_indexes":[0]}' where project_id=pg_temp.f(82);
+select public.publish_affaire_intake_brief(pg_temp.f(85),null,pg_temp.f(1),
+  public.read_affaire_intake_brief_inputs(pg_temp.f(82))->>'revision',
+  (select updated_at from public.affaire_briefs where project_id=pg_temp.f(82)),
+  '{"status":"confirme","summary":"Ancien brief","project_object":"Fixture","scope":[],"lots":[],"received_pieces":[],"assumptions":[],"vigilance_points":[],"missing_elements":["Plans manquants"],"generation_metadata":{}}','[]');
+select results_eq($$select status,generation_metadata->'resolved_plan_gap_indexes',confirmed_by from public.affaire_briefs where project_id=pg_temp.f(82)$$,
+  $$values ('confirme'::text,'[0]'::jsonb,pg_temp.f(1))$$,'republication keeps both the human resolution and its confirmation');
+select public.publish_affaire_intake_brief(pg_temp.f(85),null,pg_temp.f(1),
+  public.read_affaire_intake_brief_inputs(pg_temp.f(82))->>'revision',
+  (select updated_at from public.affaire_briefs where project_id=pg_temp.f(82)),
+  '{"status":"confirme","summary":"Ancien brief","project_object":"Fixture","scope":[],"lots":[],"received_pieces":[],"assumptions":[],"vigilance_points":[],"missing_elements":["CCTP manquant"],"generation_metadata":{"resolved_plan_gap_indexes":[0]}}','[]');
+select results_eq($$select status,generation_metadata ? 'resolved_plan_gap_indexes',confirmed_at from public.affaire_briefs where project_id=pg_temp.f(82)$$,
+  $$values ('a_confirmer'::text,false,null::timestamptz)$$,'an index cannot resolve a different gap after republication');
+select ok(not has_function_privilege('authenticated','public.read_affaire_intake_brief_inputs(uuid)','execute')
+  and not has_function_privilege('anon','public.read_affaire_intake_brief_inputs(uuid)','execute')
+  and has_function_privilege('service_role','public.read_affaire_intake_brief_inputs(uuid)','execute'),'only the service can obtain a dossier input snapshot');
 select * from finish();
 rollback;
