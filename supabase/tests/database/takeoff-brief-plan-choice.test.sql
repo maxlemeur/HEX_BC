@@ -60,6 +60,21 @@ update storage.objects set metadata='{"size":80}' where name in (select file_pat
 select results_eq($$select plan_name from public.takeoff_brief_plan_options(pg_temp.f(10),pg_temp.f(20)) order by plan_file_id$$,
   $$values ('Plan R+1.pdf'::text),('Plan R-1.pdf')$$,'display labels distinguish the two floors with the same storage basename');
 select is((select plan_name from public.takeoff_brief_plan_options(pg_temp.f(10),pg_temp.f(21))),'Plan-R-1.pdf','legacy name fallback');
+-- Older completed objects may carry only a Storage ETag.
+savepoint etag_only;
+update storage.objects set version=null,metadata=metadata || '{"eTag":"etag-a"}'
+where name=(select file_path from public.plan_files where id=pg_temp.f(40));
+create temporary table original_etag as select plan_version from public.takeoff_brief_plan_options(pg_temp.f(10),pg_temp.f(20))
+where plan_file_id=pg_temp.f(40);
+update storage.objects set metadata=metadata || '{"eTag":"etag-b"}' where name=(select file_path from public.plan_files where id=pg_temp.f(40));
+select ok((select plan_version from original_etag) <> (select plan_version from public.takeoff_brief_plan_options(pg_temp.f(10),pg_temp.f(20))
+  where plan_file_id=pg_temp.f(40)),'an older object without a generation still detects content replacement by ETag');
+update storage.objects set metadata=metadata-'eTag' where name=(select file_path from public.plan_files where id=pg_temp.f(40));
+select is((select count(*) from public.takeoff_brief_plan_options(pg_temp.f(10),pg_temp.f(20)) where plan_file_id=pg_temp.f(40)),
+  0::bigint,'an object without any verifiable Storage identity is not offered');
+rollback to etag_only;
+select throws_ok($$select * from pg_temp.confirm(jsonb_set(pg_temp.scope(20,40),array[pg_temp.f(40)::text,'sha256'],'"unattested"'))$$,
+  '22023','TAKEOFF_BRIEF_PLAN_CHANGED','a nonempty consent requires a SHA-256 from the service');
 select throws_ok($$select * from pg_temp.confirm(pg_temp.scope(21,42))$$,'22023','TAKEOFF_BRIEF_PLAN_CHANGED',
   'a valid plan from another affaire cannot be chosen');
 select throws_ok($$select * from public.confirm_affaire_brief_plan_choice(pg_temp.f(10),pg_temp.f(20),pg_temp.f(1),
