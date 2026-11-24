@@ -821,9 +821,23 @@ insert into private.takeoff_plan_dispatch_activation (active_from) values (now()
 insert into public.estimate_projects (id, tenant_id, user_id, name)
 values (pg_temp.f(2060), pg_temp.f(10), pg_temp.f(1), 'Affaire au dossier réduit (fictive)');
 insert into public.plan_sets (id, tenant_id, project_id, name) values (pg_temp.f(2080), pg_temp.f(10), pg_temp.f(2060), 'Plans du dossier');
-insert into public.plan_files (id, tenant_id, plan_set_id, file_name, file_path, file_type, file_size_bytes, page_count)
-values (pg_temp.f(2081), pg_temp.f(10), pg_temp.f(2080), 'plan-1.pdf',
-  concat_ws('/', pg_temp.f(10), pg_temp.f(2080), pg_temp.f(2081), 'plan-1.pdf'), 'application/pdf', 8, 9);
+insert into public.affaire_intake_uploads(id,project_id,created_by,status)
+values(pg_temp.f(2070),pg_temp.f(2060),pg_temp.f(1),'ready');
+insert into public.affaire_intake_documents(id,upload_id,file_name,storage_path,upload_status,classification_status,
+  document_kind,size_bytes,mime_type,classified_at,content_sha256)
+values(pg_temp.f(2071),pg_temp.f(2070),'plan-1.pdf','fixture/choice-piece.pdf','uploaded','classified',
+  'plans',8,'application/pdf',now(),pg_temp.digest(pg_temp.f(2081)));
+insert into storage.objects(bucket_id,name,metadata,version) values('affaire-intake','fixture/choice-piece.pdf',
+  jsonb_build_object('size',8,'eTag',md5('first PDF')),gen_random_uuid()::text);
+
+create function pg_temp.copy_choice_piece(copy_id uuid) returns void language sql as $$
+  insert into public.plan_files(id,tenant_id,plan_set_id,file_name,file_path,file_type,file_size_bytes,page_count,metadata)
+  select copy_id,d.tenant_id,pg_temp.f(2080),d.file_name,concat_ws('/',d.tenant_id,pg_temp.f(2080),copy_id,d.file_name),
+    d.mime_type,d.size_bytes,9,jsonb_build_object('source','affaire-intake','intake_document_id',d.id,
+      'intake_storage_path',d.storage_path,'intake_classified_at',d.classified_at,'intake_generation',d.plan_copy_generation)
+  from public.affaire_intake_documents d where d.id=pg_temp.f(2071)
+$$;
+select pg_temp.copy_choice_piece(pg_temp.f(2081));
 -- The command of its one first plan, computed while the set holds it alone.
 create temp table narrowed as select pg_temp.manifest(2060) as manifest, pg_temp.snapshot(2060) as snapshot, pg_temp.jobs(2060) as jobs;
 insert into public.plan_files (id, tenant_id, plan_set_id, file_name, file_path, file_type, file_size_bytes, page_count)
@@ -849,12 +863,69 @@ create function pg_temp.choose_history(replaced boolean) returns uuid language s
       case when replaced and o.plan_file_id=pg_temp.f(2081) then repeat('e',64) else pg_temp.digest(o.plan_file_id) end)) from public.takeoff_brief_plan_options(pg_temp.f(10),pg_temp.f(2060)) o),
     null,null,null,'MANDATE_REQUIRED',true,jsonb_build_object('sub',pg_temp.f(1))) c
 $$;
+-- Both released manifest formats seal the piece alongside the physical copy.
+create function pg_temp.piece_manifest() returns jsonb language sql as $$
+  select jsonb_set(m,'{plans,0}',m#>'{plans,0}' || jsonb_build_object('logical_id',pg_temp.f(2071),'intake_document_id',pg_temp.f(2071)))
+  from pg_temp.manifest(2060) m
+$$;
+create function pg_temp.choose_copy(copy_id uuid, digest text) returns uuid language sql as $$
+  select c.request_id from public.takeoff_brief_plan_options(pg_temp.f(10),pg_temp.f(2060)) o
+  cross join lateral public.confirm_affaire_brief_plan_choice(pg_temp.f(10),pg_temp.f(2060),pg_temp.f(1),
+    (select updated_at from public.affaire_briefs where project_id=pg_temp.f(2060)),
+    jsonb_build_object(o.plan_file_id,jsonb_build_object('version',o.plan_version,'sha256',digest)),
+    public.takeoff_payer_notice(pg_temp.f(10),pg_temp.f(2060),pg_temp.f(1),pg_temp.selection(),true),
+    pg_temp.host(),pg_temp.selection(),null,true,jsonb_build_object('sub',pg_temp.f(1))) c
+  where o.plan_file_id=copy_id
+$$;
+create function pg_temp.reclassified_choice_checks(format_name text) returns setof text language plpgsql as $$
+declare
+  old_generation uuid := (select plan_copy_generation from public.affaire_intake_documents where id=pg_temp.f(2071));
+  new_copy uuid := pg_temp.f(2083);
+  replacement text := repeat('e',64);
+  request uuid;
+begin
+  update public.affaire_intake_documents set document_kind='annexes' where id=pg_temp.f(2071);
+  update public.plan_files set metadata=metadata || '{"intake_cleanup_pending":true}' where id=pg_temp.f(2081);
+  perform set_config('storage.allow_delete_query','true',true);
+  delete from storage.objects where bucket_id='plan-files' and name=(select file_path from public.plan_files where id=pg_temp.f(2081));
+  delete from public.plan_files where id=pg_temp.f(2081);
+  update public.affaire_intake_documents set document_kind='plans',classified_at=clock_timestamp() where id=pg_temp.f(2071);
+  perform pg_temp.copy_choice_piece(new_copy);
+  insert into storage.objects(bucket_id,name,metadata,version) select 'plan-files',file_path,
+    jsonb_build_object('size',8,'eTag',md5('first PDF')),gen_random_uuid()::text from public.plan_files where id=new_copy;
+
+  return next ok((select plan_copy_generation<>old_generation from public.affaire_intake_documents where id=pg_temp.f(2071))
+    and exists(select 1 from public.takeoff_brief_plan_options(pg_temp.f(10),pg_temp.f(2060)) where plan_file_id=new_copy),
+    format_name || ': reclassification has produced a current copy with a different identity');
+  return next is((select to_jsonb(o)->>'reading_state' from public.takeoff_brief_plan_options(pg_temp.f(10),pg_temp.f(2060)) o
+    where plan_file_id=new_copy),'analysed',format_name || ': the renewed copy of the same piece and bytes is shown as analysed');
+  return next is(pg_temp.choose_copy(new_copy,pg_temp.digest(pg_temp.f(2081))),null::uuid,
+    format_name || ': ticking that renewed copy with a valid payer notice starts nothing');
+  return next is((select count(*) from public.takeoff_launch_requests where project_id=pg_temp.f(2060) and origin='automatic'),0::bigint,
+    format_name || ': no automatic request can be claimed for the duplicate reading');
+
+  update public.affaire_briefs set status='a_confirmer',confirmed_by=null,confirmed_at=null where project_id=pg_temp.f(2060);
+  update public.affaire_intake_documents set content_sha256=replacement where id=pg_temp.f(2071);
+  update storage.objects set metadata=metadata || jsonb_build_object('eTag',md5('new PDF')),version=gen_random_uuid()::text
+    where (bucket_id='affaire-intake' and name='fixture/choice-piece.pdf')
+      or (bucket_id='plan-files' and name=(select file_path from public.plan_files where id=new_copy));
+  return next is((select to_jsonb(o)->>'reading_state' from public.takeoff_brief_plan_options(pg_temp.f(10),pg_temp.f(2060)) o
+    where plan_file_id=new_copy),'not_analysed',format_name || ': replacement bytes of the same piece remain selectable');
+  request := pg_temp.choose_copy(new_copy,replacement);
+  return next ok((select payer_id=pg_temp.f(1) and selected_plans->new_copy::text->>'sha256'=replacement
+    from public.takeoff_launch_requests where id=request),format_name || ': only the verified replacement is mandated');
+  update public.affaire_briefs set status='a_confirmer',confirmed_by=null,confirmed_at=null where project_id=pg_temp.f(2060);
+  request := pg_temp.choose_copy(pg_temp.f(2082),pg_temp.digest(pg_temp.f(2081)));
+  return next ok((select selected_plans ? pg_temp.f(2082)::text from public.takeoff_launch_requests where id=request),
+    format_name || ': an independent plan with the same bytes keeps its own reading');
+end;
+$$;
 -- Before per-plan activation a single released job sealed both files and both content digests.
 savepoint grouped_history;
 delete from private.takeoff_plan_dispatch_activation;
 select results_eq($$select outcome from public.launch_manual_takeoff_request(pg_temp.f(10), pg_temp.f(2060), pg_temp.f(1),
     pg_temp.f(2063), 'initial', null, pg_temp.host(), pg_temp.selection(),
-    pg_temp.manifest(2060) || jsonb_build_object('format_version',1,'units',jsonb_build_array(jsonb_build_object(
+    pg_temp.piece_manifest() || jsonb_build_object('format_version',1,'units',jsonb_build_array(jsonb_build_object(
       'key','grouped','plans',jsonb_build_array(pg_temp.f(2081),pg_temp.f(2082))))),
     pg_temp.snapshot(2060),pg_temp.jobs(2060)->0, pg_temp.f(2080),1)$$,
   $$values ('admitted'::text)$$,'the released grouped command admits both plans under one job');
@@ -863,6 +934,9 @@ update public.takeoff_jobs set status='completed',analysis_outcome='success',sta
 where project_id=pg_temp.f(2060);
 set local session_replication_role=origin;
 insert into private.takeoff_plan_dispatch_activation(active_from) values(now());
+savepoint grouped_reclassification;
+select * from pg_temp.reclassified_choice_checks('grouped');
+rollback to grouped_reclassification;
 select is(pg_temp.choose_history(false),null::uuid,'identical bytes read by the grouped job need no new request');
 update public.affaire_briefs set status='a_confirmer',confirmed_by=null,confirmed_at=null where project_id=pg_temp.f(2060);
 update storage.objects set version=gen_random_uuid()::text where name=(select file_path from public.plan_files where id=pg_temp.f(2081));
@@ -872,7 +946,7 @@ select results_eq($$select jsonb_object_keys(selected_plans) from public.takeoff
   'the grouped history subtracts only the still-identical PDF after a same-path replacement');
 rollback to grouped_history;
 select results_eq($$select outcome from public.launch_manual_takeoff_request(pg_temp.f(10), pg_temp.f(2060), pg_temp.f(1),
-    pg_temp.f(2062), 'initial', null, pg_temp.host(), pg_temp.selection(), pg_temp.manifest(2060), pg_temp.snapshot(2060),
+    pg_temp.f(2062), 'initial', null, pg_temp.host(), pg_temp.selection(), pg_temp.piece_manifest(), pg_temp.snapshot(2060),
     pg_temp.jobs(2060), pg_temp.f(2080), 1)$$, $$values ('admitted'::text)$$, 'the first analysis of both plans is admitted');
 
 
@@ -959,6 +1033,9 @@ update public.takeoff_jobs set status=case when launch_unit_key='plan:' || pg_te
   started_at=case when launch_unit_key='plan:' || pg_temp.f(2081) then now() end,
   analysis_finished_at=now() where project_id=pg_temp.f(2060);
 set local session_replication_role=origin;
+savepoint per_plan_reclassification;
+select * from pg_temp.reclassified_choice_checks('per-plan');
+rollback to per_plan_reclassification;
 select pg_temp.choose_history(false);
 select results_eq($$select jsonb_object_keys(selected_plans) from public.takeoff_launch_requests
   where project_id=pg_temp.f(2060) and origin='automatic'$$,$$values (pg_temp.f(2082)::text)$$,
