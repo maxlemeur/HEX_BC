@@ -16,7 +16,7 @@ import {
   AI_ANALYSIS_USAGES, DEFAULT_AI_ANALYSIS_PREFERENCES,
   type AiAnalysisPreferences, type AiAnalysisUsage, type AiBillingSource, type ApiKeyAccessState,
 } from "@/lib/ai/access/contracts";
-import { chatGptDefaultPreferences, type ChatGptAvailableModel, type ChatGptPreferences } from "@/lib/ai/chatgpt-model-preferences";
+import { chatGptDefaultPreferences, RETIRED_OPENAI_MODEL, type ChatGptAvailableModel, type ChatGptPreferences } from "@/lib/ai/chatgpt-model-preferences";
 
 function applyModel(model: ChatGptAvailableModel, previous: ChatGptPreferences | null): ChatGptPreferences {
   const effort = previous?.reasoningEffort;
@@ -46,7 +46,8 @@ export function AiAnalysisPreferencesCard({ keyState, chatgpt, onKeyStateChange,
     reasoningEffort: settings.apiReasoningEffort === undefined ? keyDefault.defaultReasoningEffort : settings.apiReasoningEffort,
   } : null;
   const models = source === "chatgpt_plan" ? chatgpt?.models ?? [] : keyModels;
-  const preferences = source === "chatgpt_plan" ? chatgpt?.preferences ?? null : apiPreferences;
+  const saved = source === "chatgpt_plan" ? chatgpt?.preferences ?? null : apiPreferences;
+  const preferences = saved?.model === RETIRED_OPENAI_MODEL ? null : saved;
   const selectedModel = models.find((model) => model.id === preferences?.model);
   const originalPlan = source === "chatgpt_plan" ? chatGptDefaultPreferences(models) : null;
   const canRestore = originalPlan && (originalPlan.model !== preferences?.model || originalPlan.reasoningEffort !== preferences?.reasoningEffort);
@@ -145,8 +146,9 @@ export function AiAnalysisPreferencesCard({ keyState, chatgpt, onKeyStateChange,
         ) : null}
         {!selectedModel ? (
           <p className="mt-3 text-sm text-muted-foreground">
-            {source === "chatgpt_plan" ? "Connectez votre abonnement ChatGPT pour choisir ses modèles."
-              : "Ajoutez ou actualisez la clé API pour choisir un modèle disponible."}
+            {models.length > 0 ? "Choisissez un modèle disponible."
+              : source === "chatgpt_plan" ? "Connectez votre abonnement ChatGPT pour choisir ses modèles."
+                : "Ajoutez ou actualisez la clé API pour choisir un modèle disponible."}
           </p>
         ) : null}
       </PageSection>
@@ -155,7 +157,8 @@ export function AiAnalysisPreferencesCard({ keyState, chatgpt, onKeyStateChange,
         <div className="space-y-3">
           {(Object.keys(AI_ANALYSIS_USAGES) as AiAnalysisUsage[]).map((usage) => {
             const label = AI_ANALYSIS_USAGES[usage];
-            const override = settings.overrides?.[usage]?.[source];
+            const savedOverride = settings.overrides?.[usage]?.[source];
+            const override = savedOverride?.model === RETIRED_OPENAI_MODEL ? undefined : savedOverride;
             const model = models.find((entry) => entry.id === override?.model);
             return (
               <div key={usage} className="grid gap-3 sm:grid-cols-2">

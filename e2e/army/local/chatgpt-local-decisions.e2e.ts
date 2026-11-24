@@ -67,6 +67,8 @@ beforeAll(async () => {
 // The tests here open the takeoff pages too (ASSIST02 launches a job and reads its review, the intake tests open the
 // affaire): the same waves as the takeoff file, one hook each, so that no first use waits for its compile.
 for (const wave of TAKEOFF_JOURNEY_WAVES) beforeAll(() => server.compileTakeoffRoutes(wave));
+// The intake tests' own routes: in the body of the first of them, their compiles held its reclassification (INTRETRY01).
+beforeAll(() => server.compileIntakeRoutes());
 
 afterAll(() => server.stop(fixtureStore));
 
@@ -1071,18 +1073,23 @@ test("INTRETRY01 ChatGPT reanalysis keeps validated manual document classificati
     await ui.app.open(`/dashboard/affaires/${ids.projectId}?intakeDocument=${document.id}#intake`);
     await screen.getByRole("button", "Détails de sample-plan.pdf", { exact: true }).click();
     const details = screen.getByRole("dialog", "Document et détails", { exact: true });
-    await details.getByRole("button", "Reclasser", { exact: true }).click();
-    await details.getByLabel("Nouvelle catégorie", { exact: true }).selectOption({ value: "annexes" });
-    await details.getByRole("button", "Valider", { exact: true }).click();
-    await expect.poll(async () => (await documents())[0]).toMatchObject({ document_kind: "annexes", classification_source: "manual" });
-    await details.getByRole("button", "Reclasser", { exact: true }).click();
-    await details.getByLabel("Nouvelle catégorie", { exact: true }).selectOption({ value: "plans" });
-    await details.getByRole("button", "Valider", { exact: true }).click();
-    await expect.poll(async () => (await documents())[0]).toMatchObject({ document_kind: "plans", classification_source: "manual" });
-    // The document desk keeps the dialog busy while its server answers the reclassification (the form stays open
-    // until then) and refreshes the page. Wait for that work first, with its budget; the button comes back with it.
+    // The form stays open (« Validation… ») until the server has answered the reclassification, and « Reclasser »
+    // comes back with that answer: wait for it, with the development server's budget, then read the row it wrote.
+    // A first answer used to wait for the compiles the page started meanwhile: the row was still unwritten after 15 s
+    // in runs 45079686226, 45440210924, 45449886012, 45477586566 and 45480694457 (the intake wave now compiles them).
+    // The card then shows the category of the dossier's next read, which « Reclasser » starts from.
+    const reclassify = async (category: "annexes" | "plans", label: string) => {
+      await details.getByRole("button", "Reclasser", { exact: true }).click(DEV_SERVER_WORK);
+      await details.getByLabel("Nouvelle catégorie", { exact: true }).selectOption({ value: category });
+      await details.getByRole("button", "Valider", { exact: true }).click();
+      await expect(details.getByRole("button", "Reclasser", { exact: true })).toBeVisible(DEV_SERVER_WORK);
+      expect((await documents())[0]).toMatchObject({ document_kind: category, classification_source: "manual" });
+      await expect(details.getByText(label, { exact: true })).toBeVisible(DEV_SERVER_WORK);
+    };
+    await reclassify("annexes", "Annexes");
+    await reclassify("plans", "Plans");
+    // The document desk keeps the dialog busy until the page's refresh after the answer.
     await expect(details).toHaveAttribute("aria-busy", "false", DEV_SERVER_WORK);
-    await expect(details.getByRole("button", "Reclasser", { exact: true })).toBeVisible();
     const before = (await documents())[0];
     const sets = await readPlanSets(browser, ids.projectId);
     expect(sets).toHaveLength(1);

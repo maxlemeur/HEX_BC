@@ -518,6 +518,7 @@ test("LAB05 an OpenAI key saved in « Mon profil » runs a level-C extraction wi
     await expect(keyEntry.getByText("Jamais", { exact: true })).toBeVisible();
     const testModel = keyEntry.getByRole("combobox", "Modèle à tester", { exact: true });
     await expect(testModel).toHaveValue("gpt-6.1-terra");
+    await expect(testModel.getByRole("option", "GPT-6.1 Sol", { exact: true })).toHaveCount(0);
     await expect(testModel.getByRole("option", "GPT-6.2 Astra", { exact: true })).toHaveCount(0);
     await control("catalog-updated");
     await keyEntry.getByRole("button", "Actualiser les modèles", { exact: true }).click();

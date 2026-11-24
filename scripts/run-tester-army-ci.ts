@@ -33,7 +33,13 @@ import {
 import {
   grepAlternativeProblems, listArmySelection, localJourneyCoverageProblems, selectionPreflightProblems,
 } from "./tester-army/journey-preflight.mjs";
-import { buildSourceEvidence, redactOutput, sqlInventory, untrackedJourneyInputs } from "./tester-army/local-recipe-common.mjs";
+import { buildSourceEvidence, prepareArmyTypeScriptConfig, redactOutput, sqlInventory, untrackedJourneyInputs } from "./tester-army/local-recipe-common.mjs";
+import { ARMY_DEFAULT_APP_PORT, armyApplicationEnvironment } from "./tester-army/application-environment";
+import { buildOutputEvidence } from "./tester-army/build-local.mjs";
+import {
+  decidePrebuiltReuse, installPrebuiltOutput, prebuiltRefusalWarning, readPrebuiltCandidate, removeInstalledOutput,
+  verifyInstalledOutput, type PrebuiltDecision,
+} from "./tester-army/prebuilt-build";
 import { assertLocalAppPortAvailable, describeArmyRunFailure, outputTail, reserveAppPort } from "./tester-army/app-port";
 import { runLocalDevelopmentSession } from "./tester-army/local-development";
 import { EvidenceRetentionError, failedPhase, keepRunError } from "./tester-army/phase-failure";
@@ -57,7 +63,7 @@ let calcV3Phases: CalcV3Phase[] | undefined;
 let fullPhase: "development" | undefined;
 // This run's place among the parallel jobs of one selection (docs/testing/tester-army-ci.md), recorded only.
 let shard: { index: number; total: number } | undefined;
-let appPort = 3107;
+let appPort = ARMY_DEFAULT_APP_PORT;
 let ttlMinutes = DEFAULT_DEV_LOOP_TTL_MINUTES;
 // Lot 2, sub-lot 2.10b (docs/testing/estimate-engine-v3-2.10.md, D-i and D-l): since M8 a tenant without a
 // policy row creates engine 3, and the campaign journeys are v1/v2 journeys (pilot A). The provisioned campaign
@@ -250,21 +256,66 @@ async function runNode(args: string[], environment: NodeJS.ProcessEnv, name: str
 
 /** The app, build and journey environment of a backend, without the ARMY account. */
 function applicationEnvironment(backend: URL, anonKey: string, serviceRoleKey: string): NodeJS.ProcessEnv {
-  fs.mkdirSync(path.join(root, ".e2e/army/coverage"), { recursive: true });
-  return {
-    ...createLocalCiEnvironment(process.env),
-    CI: "1", E2E_TELEMETRY_DISABLED: "1", NEXT_TELEMETRY_DISABLED: "1", DO_NOT_TRACK: "1",
-    NEXT_PUBLIC_SUPABASE_URL: backend.origin,
-    NEXT_PUBLIC_SUPABASE_ANON_KEY: anonKey,
-    SUPABASE_SERVICE_ROLE_KEY: serviceRoleKey,
-    E2E_ALLOWED_SUPABASE_HOST: backend.hostname,
-    E2E_ARMY_BASE_URL: `http://localhost:${appPort}`, E2E_ARMY_SERVER_MODE: "production",
-    E2E_COVERAGE_BACKEND_ORIGIN: backend.origin,
-    E2E_COVERAGE_NETWORK_LOG: path.join(root, ".e2e/army/coverage/ci-server-network.jsonl"),
-    TAKEOFF_MODULE_ENABLED_BY_DEFAULT: "1",
-    E2E_ARMY_LOCAL_RECOVERY_SECRET: localCronSecret,
-    RESEND_API_KEY: "", EMAIL_FROM: "", GEMINI_API_KEY: "", GOOGLE_GENERATIVE_AI_API_KEY: "",
-  };
+  return armyApplicationEnvironment({ root, backend, anonKey, serviceRoleKey, appPort, recoverySecret: localCronSecret });
+}
+
+// The production build the army-build job of this workflow run made once (scripts/tester-army/army-build.ts), downloaded
+// to ARMY_PREBUILT_BUILD_DIR. Read before the stack exists, so that the stack can take the API port it was built for; served
+// only when the reuse rule (scripts/tester-army/prebuilt-build.ts) proves it is this checkout's build for this stack's origin
+// and anon key. Anything else, an absent download included, builds here as before, and the manifest says why.
+const prebuiltOffer = suite === "critical" || suite === "full" || suite === "calc-v3"
+  ? readPrebuiltCandidate(process.env.ARMY_PREBUILT_BUILD_DIR) : undefined;
+const preferredApiPort = (() => {
+  if (!prebuiltOffer || !("candidate" in prebuiltOffer)) return undefined;
+  try {
+    const origin = new URL(prebuiltOffer.candidate.prebuilt.backend);
+    return origin.protocol === "http:" && origin.hostname === "127.0.0.1" && /^[0-9]+$/.test(origin.port) ? Number(origin.port) : undefined;
+  } catch { return undefined; }
+})();
+
+async function reusePrebuiltBuild(backend: URL, anonKey: string): Promise<PrebuiltDecision> {
+  if (!prebuiltOffer) return { reuse: false, reason: "this suite builds for itself" };
+  if ("reason" in prebuiltOffer) return { reuse: false, reason: prebuiltOffer.reason };
+  const { candidate } = prebuiltOffer;
+  let decision: PrebuiltDecision;
+  try {
+    decision = decidePrebuiltReuse({ candidate, source: await buildSourceEvidence(), backendOrigin: backend.origin, anonKey,
+      runtime: { node: process.version, platform: process.platform, arch: process.arch } });
+    if (decision.reuse) {
+      await installPrebuiltOutput(candidate, root);
+      await prepareArmyTypeScriptConfig(root);
+      decision = verifyInstalledOutput(candidate, await buildOutputEvidence());
+    }
+  } catch (error) {
+    decision = { reuse: false, reason: `the prebuilt build could not be checked or installed (${redact(error instanceof Error ? error.message : String(error)).split("\n")[0]})` };
+  }
+  if (!decision.reuse) removeInstalledOutput(root, candidate.buildDirectoryName);
+  return decision;
+}
+
+/**
+ * The production build of this run: the army-build job's when the reuse rule accepts it, otherwise
+ * scripts/tester-army/build-local.mjs here, as before. The manifest records which, and why.
+ */
+async function productionBuild(environment: NodeJS.ProcessEnv, backend: URL, anonKey: string) {
+  const decision = await reusePrebuiltBuild(backend, anonKey);
+  const offered = prebuiltOffer && "candidate" in prebuiltOffer ? prebuiltOffer.candidate : undefined;
+  if (decision.reuse && offered) {
+    manifest.build = {
+      source: "prebuilt", artifact: offered.prebuilt.artifact, buildId: offered.build.buildId,
+      buildManifest: `builds/${offered.buildDirectoryName}/manifest.json`, buildManifestSha256: offered.buildManifestSha256,
+      compiledOutputDigest: offered.prebuilt.compiledOutputDigest,
+    };
+    console.log(`TesterArmy CI: build reused from artifact ${offered.prebuilt.artifact.name} (run ${offered.prebuilt.artifact.runId}, attempt ${offered.prebuilt.artifact.runAttempt})`);
+    return;
+  }
+  if (prebuiltOffer) {
+    manifest.build = { source: "local", prebuiltRefused: decision.reuse ? "unknown" : decision.reason, ...(offered ? { artifact: offered.prebuilt.artifact } : {}) };
+    console.log(`TesterArmy CI: building here, the prebuilt build is not reused: ${decision.reuse ? "unknown" : decision.reason}`);
+    const warning = prebuiltRefusalWarning(process.env.ARMY_PREBUILT_BUILD_DIR, decision);
+    if (warning) console.log(warning);
+  }
+  await runNode(["scripts/tester-army/build-local.mjs", "--execute"], environment, "build");
 }
 
 // The production build of critical, full and calc-v3 needs only the stack's
@@ -284,8 +335,7 @@ function startEarlyBuild(status: Readonly<LocalSupabaseStatus>) {
   const backend = new URL(status.url);
   assertLoopbackSupabaseUrl(backend.href);
   knownSecrets.push(status.anonKey, status.serviceRoleKey);
-  const done = runNode(["scripts/tester-army/build-local.mjs", "--execute"],
-    applicationEnvironment(backend, status.anonKey, status.serviceRoleKey), "build");
+  const done = productionBuild(applicationEnvironment(backend, status.anonKey, status.serviceRoleKey), backend, status.anonKey);
   // Awaited by runApplication, or in main's finally when the database checks fail first.
   done.catch(() => {});
   earlyBuild = { origin: backend.origin, anonKey: status.anonKey, done };
@@ -487,7 +537,7 @@ async function runOwnedApplication(local: SupabaseEnvironment) {
       phases: calcV3Phases, grep, retries, remember: (secret) => { knownSecrets.push(secret); }, redact,
       onQuarantined: (phase, journeys) => recordQuarantined(manifest, phase, journeys),
       build: () => earlyBuild ? awaitEarlyBuild(earlyBuild, backend, local.NEXT_PUBLIC_SUPABASE_ANON_KEY!)
-        : runNode(["scripts/tester-army/build-local.mjs", "--execute"], environment, "build"),
+        : productionBuild(environment, backend, local.NEXT_PUBLIC_SUPABASE_ANON_KEY!),
     });
     manifest.calcV3 = "calc-v3.json";
     return;
@@ -552,12 +602,15 @@ async function runOwnedApplication(local: SupabaseEnvironment) {
   if (earlyBuild) {
     await awaitEarlyBuild(earlyBuild, backend, local.NEXT_PUBLIC_SUPABASE_ANON_KEY!);
   } else if (!(suite === "full" && fullPhases.every((phase) => phase === "development"))) {
-    await runNode(["scripts/tester-army/build-local.mjs", "--execute"], environment, "build");
+    await productionBuild(environment, backend, local.NEXT_PUBLIC_SUPABASE_ANON_KEY!);
   }
   // Before the phases: an install failure is the run's error, not a phase's.
   if (browserInstallDirectory) await awaitBrowserInstall({ directory: browserInstallDirectory, evidence, manifest, redact });
   if (suite === "explore") {
-    manifest.exploration = await runExplorationCampaign({ root, evidence, environment: journeyEnvironment, run: runNode, redact });
+    manifest.exploration = await runExplorationCampaign({
+      root, evidence, environment: journeyEnvironment, run: runNode, redact,
+      model: process.env.E2E_ARMY_MODEL,
+    });
     const after = await runSourceEvidence();
     if (JSON.stringify(after) !== JSON.stringify(manifest.source)) throw new Error("Sources changed during exploration.");
     return;
@@ -858,6 +911,7 @@ async function main() {
       runApplication,
       ...(delegatedDatabaseChecks ? { delegatedDatabaseChecks } : {}),
       ...(buildsEarly ? { onStackStarted: startEarlyBuild } : {}),
+      ...(preferredApiPort === undefined ? {} : { preferredApiPort }),
       // Only the dev loop keeps a state file: it needs this exact stack to
       // destroy it after an abnormal supervisor exit.
       onProjectPrepared: (project) => {

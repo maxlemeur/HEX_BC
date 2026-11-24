@@ -792,7 +792,7 @@ describe("TesterArmy critical workflow wiring", () => {
     // An empty or missing selector output must run the journeys: only an
     // explicit none skips the shards (an empty matrix then fails, never passes).
     const shard = jobs["army-critical-shard"];
-    expect(shard).toMatch(/^ {4}if: needs\.army-select\.outputs\.mode != 'none'$/mu);
+    expect(shard).toMatch(/^ {4}if: \$\{\{ !cancelled\(\) && needs\.army-select\.result == 'success' && needs\.army-select\.outputs\.mode != 'none' \}\}$/mu);
     expect(shard).not.toMatch(/mode == /u);
     expect(shard).toContain("\n        include: ${{ fromJSON(needs.army-select.outputs.critical_shards) }}\n");
     const journeys = steps(shard).find((step) => step.trimStart().startsWith("Run native database and TesterArmy critical journeys"));
@@ -807,26 +807,26 @@ describe("TesterArmy critical workflow wiring", () => {
       expect(count, file).toBe(file === "e2e-army-critical.yml" ? 1 : 0);
     }
 
-    // Only shard 1 of a push to main saves: the caches are the same in every shard.
+    // Only a push to main saves the Next build cache, from army-build, which builds once for every shard.
     const saves = steps(workflow).filter((step) => /uses: actions\/cache\/save@/u.test(step));
-    expect(saves.length).toBeGreaterThan(0);
-    for (const save of saves) {
-      expect(save).toMatch(/if: .*github\.event_name == 'push' && github\.ref == 'refs\/heads\/main' && matrix\.shard == 1\b/u);
-      expect(shard).toContain(save);
-    }
+    expect(saves.map((save) => save.trimStart().split("\n")[0])).toEqual(["Save the Army Next build cache"]);
+    expect(saves[0]).toMatch(/if: .*github\.event_name == 'push' && github\.ref == 'refs\/heads\/main' && steps\.need\.outputs\.build == 'true'/u);
+    // army-build's last step: its text runs on into the next job's header.
+    expect(steps(jobs["army-build"]).filter((step) => step.trimStart().startsWith("Save the Army Next build cache"))).toHaveLength(1);
+    expect(shard).not.toContain("Save the Army Next build cache");
     expect(workflow).not.toMatch(/uses: actions\/cache@/u);
   });
 
   it("runs the takeoff journeys a change reaches in parallel shard jobs, at one worker, skipping only an explicit none", () => {
     const workflow = read(".github/workflows/e2e-army-critical.yml");
     const jobs = jobBlocks(workflow);
-    expect(Object.keys(jobs)).toEqual(["army-select", "army-critical-shard", "army-takeoff-shard", "army-critical", "army-takeoff"]);
+    expect(Object.keys(jobs)).toEqual(["army-select", "army-build", "army-critical-shard", "army-takeoff-shard", "army-critical", "army-takeoff"]);
     const shard = jobs["army-takeoff-shard"];
-    // Same decision as the critical shards: army-select's, read once, never recomputed.
-    expect(shard).toMatch(/^ {4}needs: army-select$/mu);
+    // Same decision as the critical shards: army-select's, read once, never recomputed; army-build's result never skips it.
+    expect(shard).toMatch(/^ {4}needs: \[army-select, army-build\]$/mu);
     expect(shard).not.toMatch(/scripts\/tester-army\/select-journeys\.ts/u);
     // An empty or missing output runs the journeys (an empty matrix then fails, never passes).
-    expect(shard).toMatch(/^ {4}if: needs\.army-select\.outputs\.full_only_mode != 'none'$/mu);
+    expect(shard).toMatch(/^ {4}if: \$\{\{ !cancelled\(\) && needs\.army-select\.result == 'success' && needs\.army-select\.outputs\.full_only_mode != 'none' \}\}$/mu);
     expect(shard).not.toMatch(/full_only_mode == /u);
     expect(shard).toContain("\n        include: ${{ fromJSON(needs.army-select.outputs.takeoff_shards) }}\n");
     expect(shard).not.toMatch(/uses: actions\/cache\/save@/u);

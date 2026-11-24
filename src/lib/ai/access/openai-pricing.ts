@@ -1,7 +1,8 @@
 import type { AiReasoningEffort, ApiKeyOfferedModel } from "@/lib/ai/access/contracts";
 import type { ApiKeyCallUsage } from "@/lib/ai/access/api-key-errors";
+import { RETIRED_OPENAI_MODEL } from "@/lib/ai/chatgpt-model-preferences";
 
-// Models this code qualifies for a personal OpenAI API key, with their price.
+// OpenAI API prices for new requests and recorded usage.
 // Verified on 22 November 2026 against the OpenAI model pages and pricing page.
 // This table covers Standard processing.
 //   Cache writes are billed instead of ordinary input at 1,25× input (30-minute
@@ -45,7 +46,7 @@ export const OPENAI_PRICE_TABLE = {
       cacheWrite12hNanoPerToken: 2_500, outputNanoPerToken: 5_000,
       reasoningEfforts: ["none", "low", "medium", "high", "xhigh", "max"], defaultReasoningEffort: "medium",
     },
-    "gpt-6.1-sol": {
+    [RETIRED_OPENAI_MODEL]: {
       name: "GPT-6.1 Sol", inputNanoPerToken: 2_000, cachedInputNanoPerToken: 100, cacheWrite30mNanoPerToken: 2_500,
       cacheWrite12hNanoPerToken: 5_000, outputNanoPerToken: 10_000,
       reasoningEfforts: ["low", "medium", "high", "xhigh", "max"], defaultReasoningEffort: "medium",
@@ -81,13 +82,17 @@ export function labMaxOutputTokens(effort: AiReasoningEffort | null) {
   return effort === "xhigh" || effort === "max" ? 64_000 : 32_000;
 }
 
-export function openAiQualifiedModel(id: string): OpenAiModelPrice | null {
+function openAiModelPrice(id: string): OpenAiModelPrice | null {
   return Object.hasOwn(OPENAI_PRICE_TABLE.models, id) ? OPENAI_PRICE_TABLE.models[id as keyof typeof OPENAI_PRICE_TABLE.models] : null;
+}
+
+export function openAiQualifiedModel(id: string): OpenAiModelPrice | null {
+  return id === RETIRED_OPENAI_MODEL ? null : openAiModelPrice(id);
 }
 
 /** The qualified models, in order of preference (Terra first). */
 export function openAiQualifiedModelIds(): string[] {
-  return Object.keys(OPENAI_PRICE_TABLE.models);
+  return Object.keys(OPENAI_PRICE_TABLE.models).filter((id) => id !== RETIRED_OPENAI_MODEL);
 }
 
 /** The offer for a key: qualified models the key lists, or all qualified ones, marked unverified, when it may not list. */
@@ -145,7 +150,7 @@ export function maxOutputWithin(input: { model: string; inputTokens: number; all
  * to the cache, the output count the reasoning tokens: each is billed once, at its own rate.
  */
 export function costOfOpenAiUsage(model: string, usage: ApiKeyCallUsage, serviceTier: string | null): number | null {
-  const price = openAiQualifiedModel(model) ?? openAiQualifiedModel(snapshotBase(model));
+  const price = openAiModelPrice(model) ?? openAiModelPrice(snapshotBase(model));
   if (!price || serviceTier !== OPENAI_PRICE_TABLE.serviceTier) return null;
   const total = Math.max(0, usage.input);
   const cached = Math.min(Math.max(0, usage.cachedInput), total);

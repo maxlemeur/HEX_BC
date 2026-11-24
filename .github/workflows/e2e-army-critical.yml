@@ -32,6 +32,10 @@ name: TesterArmy Critical
 # included), none on a push to main. They are split as the critical journeys
 # are (army-shards.json suite "takeoff", one worker each), and the army-takeoff
 # job is their check, aggregated the same way.
+#
+# The army-build job builds the production application once, beside
+# army-select; both kinds of shard reuse it when it is provably theirs
+# (scripts/tester-army/prebuilt-build.ts) and build it themselves otherwise.
 on:
   workflow_dispatch:
   pull_request:
@@ -226,12 +230,167 @@ jobs:
           # A rerun replaces the artifact of the attempt before it: the name stays unique.
           overwrite: true
 
+  # The production build of this run, made once in parallel with army-select
+  # (docs/testing/tester-army-ci.md, "Pile, confidentialité et diagnostic"):
+  # the critical and takeoff shards download it and serve it only when the
+  # runner proves it is the build of their checkout for their stack. When this
+  # job fails or builds nothing, they build as before; it never fails a shard.
+  army-build:
+    name: army-build
+    runs-on: ubuntu-24.04
+    # The checkout, an install, a bare native stack and one production build, with room to spare.
+    timeout-minutes: 25
+    # A failed build only makes the shards build their application (the step below
+    # says so): it never turns the run red, which ci-night-alert reads on main.
+    continue-on-error: true
+    env:
+      CI: "1"
+      DO_NOT_TRACK: "1"
+      NEXT_TELEMETRY_DISABLED: "1"
+      E2E_TELEMETRY_DISABLED: "1"
+      SUPABASE_TELEMETRY_DISABLED: "1"
+    outputs:
+      built: ${{ steps.published.outputs.built }}
+    steps:
+      - name: Refuse any Supabase target other than loopback or the distinct staging host
+        id: target_guard
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54321
+        run: |
+          set -euo pipefail
+          normalize() {
+            local value="$1"
+            value="${value#"${value%%[![:space:]]*}"}"
+            value="${value%"${value##*[![:space:]]}"}"
+            printf '%s' "${value,,}"
+          }
+          refuse() {
+            echo "::error::$1"
+            exit 1
+          }
+
+          url="$(normalize "${NEXT_PUBLIC_SUPABASE_URL:-}")"
+          url="${url%/}"
+          staging="$(normalize "${E2E_STAGING_SUPABASE_HOST:-}")"
+          production="$(normalize "${PRODUCTION_SUPABASE_HOST:-}")"
+
+          loopback_pattern='^http://(localhost|127\.0\.0\.1|\[::1\])(:[0-9]{1,5})?$'
+          if [[ "$url" =~ $loopback_pattern ]]; then
+            echo "Cible Supabase : boucle locale du runner."
+            exit 0
+          fi
+
+          label='[a-z0-9]([a-z0-9-]*[a-z0-9])?'
+          host_pattern="^${label}(\.${label})+$"
+          remote_pattern="^https://(${label}(\.${label})+)$"
+          [[ "$url" =~ $remote_pattern ]] \
+            || refuse "NEXT_PUBLIC_SUPABASE_URL doit être une origine https nue (sans identifiants, port, chemin ni paramètre) ou une adresse de boucle locale."
+          host="${BASH_REMATCH[1]}"
+
+          [[ -n "$staging" ]] \
+            || refuse "Variable E2E_STAGING_SUPABASE_HOST absente : aucun projet de recette distinct de la production n'est déclaré."
+          [[ -n "$production" ]] \
+            || refuse "Variable PRODUCTION_SUPABASE_HOST absente : impossible de prouver que la cible n'est pas la production."
+          # Hotes nus seulement : sous forme d'URL, avec port, point final ou
+          # joker, la comparaison avec la production serait toujours vraie et
+          # la garde laisserait passer la production.
+          [[ "$staging" =~ $host_pattern ]] \
+            || refuse "E2E_STAGING_SUPABASE_HOST doit être un nom d'hôte nu (sans schéma, port, chemin ni point final), par exemple <ref>.supabase.co."
+          [[ "$production" =~ $host_pattern ]] \
+            || refuse "PRODUCTION_SUPABASE_HOST doit être un nom d'hôte nu (sans schéma, port, chemin ni point final), par exemple <ref>.supabase.co."
+          [[ "$staging" != "$production" ]] \
+            || refuse "E2E_STAGING_SUPABASE_HOST désigne le projet de production."
+          [[ "$host" != "$production" ]] \
+            || refuse "NEXT_PUBLIC_SUPABASE_URL désigne le projet de production."
+          [[ "$host" == "$staging" ]] \
+            || refuse "NEXT_PUBLIC_SUPABASE_URL ne désigne pas l'hôte de recette E2E_STAGING_SUPABASE_HOST."
+          echo "Cible Supabase : hôte de recette distinct de la production."
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          # The pull request merge commit and its two parents, for the selection below.
+          fetch-depth: 2
+      - name: Setup Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      # army-select's selection by impact, without the decision model: a pull
+      # request that reaches no critical nor takeoff journey builds nothing. Any
+      # other event, the label army-full, a checkout that is not the merge commit
+      # and a selector error build.
+      - name: Decide whether this run needs the production build
+        id: need
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          ARMY_FULL_LABEL: ${{ contains(github.event.pull_request.labels.*.name, 'army-full') }}
+        run: |
+          set -euo pipefail
+          outputs="$RUNNER_TEMP/army-build-selection"
+          if [[ "$EVENT_NAME" == "pull_request" && "$ARMY_FULL_LABEL" != "true" && "$(git rev-parse --verify --quiet 'HEAD^2' || true)" == "$PR_HEAD_SHA" ]] \
+            && GITHUB_OUTPUT="$outputs" GITHUB_STEP_SUMMARY=/dev/null node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/tester-army/select-journeys.ts \
+              --event pull_request --report "$RUNNER_TEMP/army-build-selection.json" --base "$(git rev-parse 'HEAD^1')" --head "$(git rev-parse HEAD)" > /dev/null \
+            && grep -qx 'mode=none' "$outputs" && grep -qx 'full_only_mode=none' "$outputs"; then
+            echo "build=false" >> "$GITHUB_OUTPUT"
+            echo "::notice title=TesterArmy build::Aucun parcours critical ni du métré concerné : pas de build partagé."
+          else
+            echo "build=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Install dependencies
+        if: steps.need.outputs.build == 'true'
+        run: npm ci
+      # Next's webpack cache of the Army build (.build/tester-army/next/cache, outside
+      # the build fingerprint of build-local.mjs): the latest one main saved.
+      - name: Restore the Army Next build cache
+        if: steps.need.outputs.build == 'true'
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .build/tester-army/next/cache
+          key: army-next-${{ runner.os }}-${{ hashFiles('package-lock.json', 'next.config.ts') }}-${{ github.sha }}
+          restore-keys: |
+            army-next-${{ runner.os }}-${{ hashFiles('package-lock.json', 'next.config.ts') }}-
+      - name: Build the production application once for this run
+        id: build
+        if: steps.need.outputs.build == 'true'
+        # Well under the job's limit: a hung build fails here and the warning below still runs.
+        timeout-minutes: 15
+        run: node --import tsx scripts/tester-army/army-build.ts --out "$RUNNER_TEMP/army-prebuilt"
+      # One day: the jobs of this run, and a rerun of its failed jobs, read it.
+      - name: Publish the production build to this run's jobs
+        if: steps.build.outcome == 'success'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: army-prebuilt-build
+          include-hidden-files: true
+          path: ${{ runner.temp }}/army-prebuilt
+          if-no-files-found: error
+          retention-days: 1
+          # A rerun replaces the artifact of the attempt before it: the name stays unique.
+          overwrite: true
+      - name: Offer the build to this run's jobs
+        id: published
+        if: steps.build.outcome == 'success'
+        run: echo "built=true" >> "$GITHUB_OUTPUT"
+      # Only a push to main saves the cache, from the one job that builds.
+      - name: Save the Army Next build cache
+        if: ${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.need.outputs.build == 'true' }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .build/tester-army/next/cache
+          key: army-next-${{ runner.os }}-${{ hashFiles('package-lock.json', 'next.config.ts') }}-${{ github.sha }}
+      - name: Warn that the shards build the application themselves
+        if: failure()
+        run: echo "::warning title=Army build failed::No production build was published for this run; each shard builds its application itself (slower, not red)."
+
   # One owned stack per shard; a red shard never cancels the others.
   army-critical-shard:
     name: army-critical shard ${{ matrix.shard }}/${{ matrix.total }}
-    needs: army-select
+    needs: [army-select, army-build]
     # Only an explicit "none" starts no shard; an empty output fails the matrix.
-    if: needs.army-select.outputs.mode != 'none'
+    # A failed or empty army-build only makes the shard build its application.
+    if: ${{ !cancelled() && needs.army-select.result == 'success' && needs.army-select.outputs.mode != 'none' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     strategy:
@@ -322,9 +481,22 @@ jobs:
           directory="$RUNNER_TEMP/army-browser-install"
           mkdir -p "$directory"
           nohup bash -c 'npx @e2e-dev/web install chromium > "$1/install.log" 2>&1; echo $? > "$1/exit-code.tmp"; mv "$1/exit-code.tmp" "$1/exit-code"' install "$directory" > /dev/null 2>&1 &
+      # The production build of this run, from army-build: the runner serves it only
+      # when it is the build of this checkout for this job's stack (origin, anon
+      # key, sources, runtime and output digests; scripts/tester-army/prebuilt-build.ts)
+      # and builds as before otherwise, saying why. A missing artifact is no error.
+      - name: Download the production build of this run
+        id: prebuilt
+        if: needs.army-build.outputs.built == 'true'
+        continue-on-error: true
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: army-prebuilt-build
+          path: ${{ runner.temp }}/army-prebuilt
       # Next's webpack cache of the Army build (.build/tester-army/next/cache, outside
-      # the build fingerprint of build-local.mjs). Every shard restores the
-      # latest one main saved; only shard 1 of a push to main saves its own.
+      # the build fingerprint of build-local.mjs): the latest one main saved,
+      # restored even beside a downloaded build, so that a shard whose runner
+      # refuses it builds warm. army-build saves it on a push to main.
       - name: Restore the Army Next build cache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -345,13 +517,8 @@ jobs:
           ARMY_FILES: ${{ matrix.files }}
           ARMY_SHARD: ${{ matrix.shard }}/${{ matrix.total }}
           ARMY_BROWSER_INSTALL_DIR: ${{ runner.temp }}/army-browser-install
+          ARMY_PREBUILT_BUILD_DIR: ${{ runner.temp }}/army-prebuilt
         run: node --import tsx scripts/run-tester-army-ci.ts critical --shard "$ARMY_SHARD" ${ARMY_FILES:+--files "$ARMY_FILES"}
-      - name: Save the Army Next build cache
-        if: ${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/main' && matrix.shard == 1 }}
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: .build/tester-army/next/cache
-          key: army-next-${{ runner.os }}-${{ hashFiles('package-lock.json', 'next.config.ts') }}-${{ github.sha }}
       - name: Retain sanitized business evidence
         if: always() && steps.journeys.outputs.evidence != ''
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -374,8 +541,8 @@ jobs:
   # army-takeoff job is the check.
   army-takeoff-shard:
     name: army-takeoff shard ${{ matrix.shard }}/${{ matrix.total }}
-    needs: army-select
-    if: needs.army-select.outputs.full_only_mode != 'none'
+    needs: [army-select, army-build]
+    if: ${{ !cancelled() && needs.army-select.result == 'success' && needs.army-select.outputs.full_only_mode != 'none' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     strategy:
@@ -460,7 +627,20 @@ jobs:
           directory="$RUNNER_TEMP/army-browser-install"
           mkdir -p "$directory"
           nohup bash -c 'npx @e2e-dev/web install chromium > "$1/install.log" 2>&1; echo $? > "$1/exit-code.tmp"; mv "$1/exit-code.tmp" "$1/exit-code"' install "$directory" > /dev/null 2>&1 &
-      # Restore only: shard 1 of army-critical saves it on a push to main.
+      # The production build of this run, from army-build: the runner serves it only
+      # when it is the build of this checkout for this job's stack (origin, anon
+      # key, sources, runtime and output digests; scripts/tester-army/prebuilt-build.ts)
+      # and builds as before otherwise, saying why. A missing artifact is no error.
+      - name: Download the production build of this run
+        id: prebuilt
+        if: needs.army-build.outputs.built == 'true'
+        continue-on-error: true
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: army-prebuilt-build
+          path: ${{ runner.temp }}/army-prebuilt
+      # Restore only, even beside a downloaded build (a refused one builds warm):
+      # army-build saves it on a push to main.
       - name: Restore the Army Next build cache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -478,6 +658,7 @@ jobs:
           ARMY_FILES: ${{ matrix.files }}
           ARMY_SHARD: ${{ matrix.shard }}/${{ matrix.total }}
           ARMY_BROWSER_INSTALL_DIR: ${{ runner.temp }}/army-browser-install
+          ARMY_PREBUILT_BUILD_DIR: ${{ runner.temp }}/army-prebuilt
         run: node --import tsx scripts/run-tester-army-ci.ts full --shard "$ARMY_SHARD" ${ARMY_FILES:+--files "$ARMY_FILES"}
       - name: Retain sanitized business evidence
         if: always() && steps.journeys.outputs.evidence != ''
