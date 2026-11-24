@@ -842,6 +842,48 @@ select results_eq($$select outcome from public.launch_manual_takeoff_request(pg_
     pg_temp.jobs(2060), pg_temp.f(2080), 1)$$, $$values ('admitted'::text)$$, 'the first analysis of both plans is admitted');
 
 
+-- Explicit brief choice at the admission boundary. Prepare plan 1's legitimate
+-- single-unit payload first, then add plan 2 before opening the dialog.
+insert into public.estimate_projects(id,tenant_id,user_id,name)
+values(pg_temp.f(2300),pg_temp.f(10),pg_temp.f(1),'Choix du dossier fictif');
+insert into public.affaire_briefs(project_id,status,summary,project_object)
+values(pg_temp.f(2300),'a_confirmer','Résumé fictif','Objet fictif');
+insert into public.plan_sets(id,tenant_id,project_id,name)
+values(pg_temp.f(2320),pg_temp.f(10),pg_temp.f(2300),'Plans import');
+create function pg_temp.add_choice_plan(n int) returns void language sql as $$
+  insert into public.plan_files(id,tenant_id,plan_set_id,file_name,file_path,file_type,file_size_bytes,page_count)
+  values(pg_temp.f(2320+n),pg_temp.f(10),pg_temp.f(2320),'plan-' || n || '.pdf',
+    concat_ws('/',pg_temp.f(10),pg_temp.f(2320),pg_temp.f(2320+n),'plan-' || n || '.pdf'),'application/pdf',8,9)
+$$;
+select pg_temp.add_choice_plan(1);
+create temporary table first_plan as
+select pg_temp.manifest(2300) manifest,pg_temp.snapshot(2300) snapshot,pg_temp.jobs(2300) jobs;
+select pg_temp.add_choice_plan(2);
+create function pg_temp.choose_plans(variadic files int[]) returns uuid language sql as $$
+  select c.request_id from public.confirm_affaire_brief_plan_choice(pg_temp.f(10),pg_temp.f(2300),pg_temp.f(1),
+    (select updated_at from public.affaire_briefs where project_id=pg_temp.f(2300)),
+    (select jsonb_object_agg(o.plan_file_id,o.plan_version) from public.takeoff_brief_plan_options(pg_temp.f(10),pg_temp.f(2300)) o
+      where o.plan_file_id in (select pg_temp.f(i) from unnest(files) i)),
+    public.takeoff_payer_notice(pg_temp.f(10),pg_temp.f(2300),pg_temp.f(1),pg_temp.selection(),true),
+    pg_temp.host(),pg_temp.selection(),null,true,jsonb_build_object('sub',pg_temp.f(1))) c
+$$;
+select pg_temp.choose_plans(2321);
+create temporary table choice_claim as select * from public.claim_takeoff_launch_evaluations(pg_temp.host(),pg_temp.f(2399),20,true)
+where project_id=pg_temp.f(2300);
+select throws_ok($$select * from public.admit_takeoff_launch_request((select request_id from choice_claim),pg_temp.f(2399),
+  (select mark from choice_claim),pg_temp.manifest(2300),pg_temp.snapshot(2300),pg_temp.jobs(2300),true)$$,
+  '22023','TAKEOFF_BRIEF_PLAN_SCOPE_MISMATCH','a legacy evaluator cannot expand the selected plan to both plans');
+select results_eq($$select outcome from public.admit_takeoff_launch_request((select request_id from choice_claim),pg_temp.f(2399),
+  (select mark from choice_claim),(select manifest from first_plan),(select snapshot from first_plan),(select jobs from first_plan),true)$$,
+  $$values ('admitted'::text)$$,'the exact selected plan is admitted');
+select results_eq($$select launch_unit_key,created_by from public.takeoff_jobs where project_id=pg_temp.f(2300)$$,
+  $$values ('plan:' || pg_temp.f(2321),pg_temp.f(1))$$,'only the checked plan has a job, paid by the confirmer');
+update public.affaire_briefs set status='a_confirmer',confirmed_by=null,confirmed_at=null where project_id=pg_temp.f(2300);
+select pg_temp.choose_plans(2321,2322);
+select results_eq($$select jsonb_object_keys(selected_plans) from public.takeoff_launch_requests
+  where project_id=pg_temp.f(2300) and state='evaluating'$$,$$values (pg_temp.f(2322)::text)$$,
+  'a later confirmation only requests the newly checked plan, even while the first reading runs');
+
 -- 16. The measuring order of #447 (20261121230719_takeoff_item_lists.sql) with both formats of manifest: the free
 -- extraction, or a list of items of the request's own affaire named by its latest revision. Written before migration A's
 -- seal was rebuilt on #447's (red then: A's own seal refused every list and answered a stale one as invalid).
