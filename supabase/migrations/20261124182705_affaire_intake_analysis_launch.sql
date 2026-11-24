@@ -61,6 +61,41 @@ $$;
 create trigger guard_intake_launch_assignment before insert or update of analysis_launch_id,upload_id,id
   on public.affaire_intake_documents for each row execute function private.guard_intake_launch_assignment();
 
+-- Storage paths and the launch receipt refer to the original deposit. Scope assignment
+-- triggers have already derived the final tenant and project when these checks run.
+create function private.reject_intake_scope_move() returns trigger
+language plpgsql set search_path = '' as $$
+begin
+  raise exception 'INTAKE_SCOPE_IMMUTABLE' using errcode = '23514';
+end;
+$$;
+create trigger guard_intake_upload_scope_move after update on public.affaire_intake_uploads
+  for each row when ((new.tenant_id, new.project_id) is distinct from (old.tenant_id, old.project_id))
+  execute function private.reject_intake_scope_move();
+create trigger guard_intake_document_scope_move after update on public.affaire_intake_documents
+  for each row when ((new.tenant_id, new.project_id, new.upload_id) is distinct from (old.tenant_id, old.project_id, old.upload_id))
+  execute function private.reject_intake_scope_move();
+create trigger guard_intake_brief_scope_move after update on public.affaire_briefs
+  for each row when ((new.tenant_id, new.project_id) is distinct from (old.tenant_id, old.project_id))
+  execute function private.reject_intake_scope_move();
+
+-- Return unfinished work at the moment its deletion is reserved. An eventual tombstone
+-- removes it; releasing the reservation exposes it to the next launch, even when the old
+-- worker exhausted its retries or finished during the Storage request.
+create function private.release_reserved_intake_piece() returns trigger
+language plpgsql set search_path = '' as $$
+begin
+  new.analysis_launch_id := null;
+  new.classification_status := 'awaiting_launch';
+  return new;
+end;
+$$;
+create trigger release_reserved_intake_piece before update of deletion_token on public.affaire_intake_documents
+  for each row when (old.deletion_token is null and new.deletion_token is not null
+    and new.analysis_launch_id is not null and new.classification_status in ('queued','processing')
+    and new.deleted_at is null and new.manually_overridden_at is null and new.classification_source is distinct from 'manual')
+  execute function private.release_reserved_intake_piece();
+
 create function private.lock_affaire_intake_analysis(p_project_id uuid) returns void language sql set search_path = '' as $$
   select pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('intake-analysis:' || p_project_id::text,0))
 $$;
@@ -104,9 +139,10 @@ begin
   return new;
 end;
 $$;
-create trigger guard_insert_intake_confirmation before insert on public.affaire_briefs
+-- WITH CHECK and scope assignment must finish before the privileged business check.
+create trigger guard_insert_intake_confirmation after insert on public.affaire_briefs
   for each row when (new.status='confirme') execute function private.guard_intake_brief_confirmation();
-create trigger guard_update_intake_confirmation before update of status on public.affaire_briefs
+create trigger guard_update_intake_confirmation after update of status on public.affaire_briefs
   for each row when (new.status='confirme' and old.status is distinct from new.status) execute function private.guard_intake_brief_confirmation();
 
 create function public.launch_affaire_intake_analysis(p_project_id uuid,p_read_scans boolean)
@@ -125,6 +161,18 @@ begin
     raise exception 'INTAKE_LAUNCH_FORBIDDEN' using errcode='42501';
   end if;
   perform private.lock_affaire_intake_analysis(p_project_id);
+  -- Rights may have changed during the wait. Hold the rows defining this grant until
+  -- the reservation commits, including against a concurrent active-tenant switch.
+  perform 1
+  from public.tenant_memberships m
+  join public.tenants t on t.id = m.tenant_id
+  join public.estimate_projects p on p.tenant_id = t.id
+  where p.id = p_project_id and t.id = tenant and t.is_active and not p.is_archived
+    and m.user_id = actor and (p.user_id = actor or m.role = 'admin')
+  for share of m, t, p;
+  if not found or tenant is distinct from public.current_tenant_id() then
+    raise exception 'INTAKE_LAUNCH_FORBIDDEN' using errcode = '42501';
+  end if;
   select u.id into batch from public.affaire_intake_uploads u where u.project_id=p_project_id
     and u.status in ('launch_queued','launch_processing');
   if found then return query select 'already_running'::text,batch,0; return; end if;
@@ -176,7 +224,8 @@ begin
 end;
 $$;
 
-revoke all on function private.guard_intake_launch_upload(),private.guard_intake_launch_assignment(),
+revoke all on function private.reject_intake_scope_move(),private.release_reserved_intake_piece(),
+  private.guard_intake_launch_upload(),private.guard_intake_launch_assignment(),
   private.lock_affaire_intake_analysis(uuid),private.intake_piece_waits(public.affaire_intake_documents),
   private.publish_waiting_intake_piece(),private.guard_intake_brief_confirmation()
   from public,anon,authenticated,service_role;

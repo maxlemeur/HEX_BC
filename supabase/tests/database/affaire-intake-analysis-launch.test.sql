@@ -11,7 +11,7 @@ create function pg_temp.member(n integer) returns void language sql as $$
     set_config('request.jwt.claims', jsonb_build_object('role','authenticated','sub',pg_temp.f(n))::text, true)
 $$;
 insert into auth.users (id, email, raw_user_meta_data, email_confirmed_at)
-select pg_temp.f(n), 'intake-launch-' || n || '@example.test', '{}', now() from generate_series(1,3) n;
+select pg_temp.f(n), 'intake-launch-' || n || '@example.test', '{}', now() from generate_series(1,4) n;
 update public.tenant_memberships set is_default = false where user_id in (pg_temp.f(1),pg_temp.f(2),pg_temp.f(3));
 insert into public.tenants(id,name,slug) values (pg_temp.f(10),'Dossier fictif','intake-launch-tests');
 insert into public.tenant_memberships(tenant_id,user_id,role,is_default) values
@@ -26,6 +26,37 @@ create function pg_temp.deposit(n integer, batch integer) returns void language 
   insert into public.affaire_intake_documents(id,upload_id,file_name,storage_path,upload_status,classification_status)
   values(pg_temp.f(n),pg_temp.f(batch),'scan.pdf','fixture/'||n,'uploaded','awaiting_launch')
 $$;
+-- A fixture policy denies confirmation inserts on the member's own, readable dossier.
+-- All three states must reach the same policy denial before any domain callback.
+create policy test_deny_brief_insert on public.affaire_briefs as restrictive
+  for insert to authenticated with check (false);
+create function pg_temp.denied_confirmation() returns text language plpgsql as $$
+begin
+  insert into public.affaire_briefs(project_id,status,summary,project_object,confirmed_at,confirmed_by)
+    values(pg_temp.f(20),'confirme','Essai fictif','Objet fictif',now(),auth.uid());
+  return 'insert accepted';
+exception when others then return sqlstate || ' ' || sqlerrm;
+end;
+$$;
+-- The fourth fixture user belongs only to a different tenant. Compare the normal
+-- scope refusal with that of a missing affaire, without exposing dossier errors.
+create function pg_temp.outside_scope_refused() returns boolean language plpgsql as $$
+begin
+  if exists (select 1 from pg_trigger where tgrelid='public.affaire_briefs'::regclass and tgname='guard_insert_intake_confirmation' and (tgtype & 2)<>0) then
+    return false;
+  end if;
+  return not exists (select 1 from public.estimate_projects where id=pg_temp.f(20))
+    and pg_temp.denied_confirmation()='P0001 AFFAIRE_BRIEF_PROJECT_NOT_FOUND';
+end;
+$$;
+select pg_temp.member(1);
+set local role authenticated;
+create temp table insert_denial as select pg_temp.denied_confirmation() as reason;
+select matches((select reason from insert_denial),'^42501 ','row policy refuses insertion on an empty dossier');
+select pg_temp.member(4);
+select ok(pg_temp.outside_scope_refused(),'outside tenant receives the same scope refusal (empty dossier)');
+select pg_temp.member(1);
+reset role;
 select pg_temp.deposit(51,41), pg_temp.deposit(52,42), pg_temp.deposit(53,41);
 update public.affaire_intake_documents set classification_status='classified',classification_source='manual',document_kind='annexes'
 where id=pg_temp.f(53);
@@ -45,12 +76,22 @@ select pg_temp.member(1);
 update public.tenants set is_active=false where id=pg_temp.f(10);
 select throws_ok($$select * from public.launch_affaire_intake_analysis(pg_temp.f(20),true)$$,'42501','INTAKE_LAUNCH_FORBIDDEN','suspending the tenant prevents its owner from launching');
 update public.tenants set is_active=true where id=pg_temp.f(10);
+set local role authenticated;
+select is(pg_temp.denied_confirmation(),(select reason from insert_denial),'waiting pieces cannot change a policy refusal');
+select pg_temp.member(4);
+select ok(pg_temp.outside_scope_refused(),'outside tenant receives the same scope refusal (waiting dossier)');
+select pg_temp.member(1);
+reset role;
 select pg_temp.member(3);
 set local role authenticated;
 select throws_ok($$select * from public.launch_affaire_intake_analysis(pg_temp.f(20),true)$$,'42501','INTAKE_LAUNCH_FORBIDDEN','a director cannot launch another member’s dossier');
 select pg_temp.member(2);
 create temp table first_press as select * from public.launch_affaire_intake_analysis(pg_temp.f(20),true);
 select results_eq('select outcome, piece_count from first_press',$$values ('launched'::text,2)$$,'one press takes two deposits and excludes a manual piece');
+select pg_temp.member(1);
+select is(pg_temp.denied_confirmation(),(select reason from insert_denial),'an active launch cannot change a policy refusal');
+select pg_temp.member(4);
+select ok(pg_temp.outside_scope_refused(),'outside tenant receives the same scope refusal (running dossier)');
 select pg_temp.member(1);
 select results_eq($$select outcome, launch_id from public.launch_affaire_intake_analysis(pg_temp.f(20),false)$$,
   $$select 'already_running'::text, launch_id from first_press$$,'a second writer cannot replace the first mandate');
@@ -106,5 +147,60 @@ update public.affaire_intake_uploads set attempt_count=3,processing_lease_expire
 select is((select count(*)::int from public.claim_affaire_intake_analysis_launch(pg_temp.f(76))),0,'an exhausted lease is retired');
 select results_eq($$select u.status,d.classification_status from public.affaire_intake_documents d join public.affaire_intake_uploads u on d.analysis_launch_id=u.id
   where d.id=pg_temp.f(56)$$,$$values ('failed'::text,'failed'::text)$$,'exhaustion releases the batch and makes the piece individually retryable');
+-- RLS must accept the brief row before either privileged confirmation check can run.
+select is((select count(*)::int from pg_trigger where tgrelid='public.affaire_briefs'::regclass
+  and tgfoid='private.guard_intake_brief_confirmation()'::regprocedure and (tgtype & 2)=0),2,
+  'both business checks run after row policy enforcement');
+insert into public.estimate_projects(id,tenant_id,user_id,name)
+values (pg_temp.f(21),pg_temp.f(10),pg_temp.f(1),'Second dossier fictif');
+insert into public.affaire_intake_uploads(id,project_id,created_by,status)
+values (pg_temp.f(44),pg_temp.f(21),pg_temp.f(1),'deposited');
+-- Keep the fixture intact even if a move unexpectedly succeeds.
+create function pg_temp.move_result(statement text) returns text language plpgsql as $$
+begin
+  execute statement;
+  raise exception 'move accepted';
+exception when others then return sqlerrm;
+end;
+$$;
+select pg_temp.deposit(57,41);
+select is(pg_temp.move_result('update public.affaire_intake_documents set upload_id=pg_temp.f(44) where id=pg_temp.f(57)'),
+  'INTAKE_SCOPE_IMMUTABLE','a document keeps its original deposit');
+select is(pg_temp.move_result('update public.affaire_intake_uploads set project_id=pg_temp.f(21) where id=pg_temp.f(41)'),
+  'INTAKE_SCOPE_IMMUTABLE','a deposit and its captured documents keep their affaire');
+update public.affaire_intake_documents set classification_status='classified',classification_source='manual' where id=pg_temp.f(57);
+select pg_temp.confirm();
+select is(pg_temp.move_result('update public.affaire_briefs set project_id=pg_temp.f(21) where id=pg_temp.f(30)'),
+  'INTAKE_SCOPE_IMMUTABLE','a confirmed brief belongs to its original affaire');
+
+-- Two outstanding classifications are reserved for deletion. The first deletion fails
+-- after the launch stops; the second finishes normally.
+select pg_temp.deposit(58,41),pg_temp.deposit(59,42);
+create temp table deletion_launch as select launch_id from public.launch_affaire_intake_analysis(pg_temp.f(20),true);
+select count(*) from public.claim_affaire_intake_analysis_launch(pg_temp.f(77),(select launch_id from deletion_launch));
+update public.affaire_intake_documents set classification_status='processing' where id=pg_temp.f(58);
+set local role authenticated;
+update public.affaire_intake_documents set deletion_token=pg_temp.f(89),deletion_started_at=now() where id in (pg_temp.f(58),pg_temp.f(59));
+reset role;
+select ok(public.finish_affaire_intake_upload_attempt((select launch_id from deletion_launch),pg_temp.f(77),'failed',now()),'failed launch closes during deletion');
+set local role authenticated;
+update public.affaire_intake_documents set deletion_token=null,deletion_started_at=null where id=pg_temp.f(58);
+update public.affaire_intake_documents set deletion_token=null,deletion_started_at=null,deleted_at=now(),storage_path=null,
+  upload_status='rejected',classification_status='failed',document_priority='secondary' where id=pg_temp.f(59);
+reset role;
+select results_eq($$select classification_status,analysis_launch_id from public.affaire_intake_documents where id=pg_temp.f(58)$$,
+  $$values ('awaiting_launch'::text,null::uuid)$$,'cancelled removal returns a visible piece to the next press');
+select throws_ok('select pg_temp.confirm()','P0001','INTAKE_ANALYSIS_REQUIRED','a returned piece must be analysed before confirmation');
+select results_eq($$select outcome,piece_count from public.launch_affaire_intake_analysis(pg_temp.f(20),false)$$,
+  $$values ('launched'::text,1)$$,'only the surviving piece is taken by the next press');
+select ok((select deleted_at is not null from public.affaire_intake_documents where id=pg_temp.f(59)),'the successful deletion stays final');
+-- Matching release after lease exhaustion, also before a fresh worker is started.
+update public.affaire_intake_documents set deletion_token=pg_temp.f(90),deletion_started_at=now() where id=pg_temp.f(58);
+update public.affaire_intake_uploads set attempt_count=3 where status='launch_queued' and project_id=pg_temp.f(20);
+select count(*) from public.claim_affaire_intake_analysis_launch(pg_temp.f(78));
+update public.affaire_intake_documents set deletion_token=null,deletion_started_at=null where id=pg_temp.f(58);
+select results_eq($$select classification_status,analysis_launch_id from public.affaire_intake_documents where id=pg_temp.f(58)$$,
+  $$values ('awaiting_launch'::text,null::uuid)$$,'exhausted recovery also preserves a cancelled removal');
+
 select * from finish();
 rollback;
