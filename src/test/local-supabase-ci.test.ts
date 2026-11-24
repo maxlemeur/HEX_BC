@@ -14,6 +14,7 @@ import {
   describeSafeFailure,
   parseLocalSupabaseStatus,
   runLocalSupabaseCi,
+  withBareLocalStack,
   SafeDiagnosticError,
   validatePgTapReport,
   validateRlsMatrixReport,
@@ -268,6 +269,38 @@ describe("local Supabase CI", () => {
     }));
     expect(dependencies.runRls.mock.calls[0][0]).not.toHaveProperty("E2E_ARMY_LOCAL_DB_URL");
     expect(logs).not.toContain("postgresql://");
+  });
+
+  // The Army build job builds against a stack it starts only to read its URL and keys (scripts/tester-army/army-build.ts).
+  it("serves a bare stack for one use and destroys it, after a failure too", async () => {
+    const { dependencies, calls, release } = createDependencies();
+    const status = await withBareLocalStack(async (value) => value, dependencies);
+    expect(status.url).toBe("http://127.0.0.1:54321");
+    expect(dependencies.prepareProject).toHaveBeenCalledWith(expect.anything(), expect.anything(), { bare: true });
+    expect(calls.some((command) => command.startsWith("migration") || command.startsWith("db ") || command.startsWith("test db"))).toBe(false);
+    expect(calls.slice(-2)).toEqual([
+      "stop --workdir C:/temp/miaouffrage-supabase-ci-test",
+      "stack destroy --yes --workdir C:/temp/miaouffrage-supabase-ci-test",
+    ]);
+    expect(dependencies.removeProject).toHaveBeenCalledOnce();
+    expect(release).toHaveBeenCalledOnce();
+
+    const failed = createDependencies();
+    await expect(withBareLocalStack(async () => { throw new Error("build failed"); }, failed.dependencies)).rejects.toThrow("build failed");
+    expect(failed.calls.slice(-2)).toEqual([
+      "stop --workdir C:/temp/miaouffrage-supabase-ci-test",
+      "stack destroy --yes --workdir C:/temp/miaouffrage-supabase-ci-test",
+    ]);
+    expect(failed.release).toHaveBeenCalledOnce();
+  });
+
+  it("asks for the API port of a prebuilt build only when one is offered", async () => {
+    const plain = createDependencies();
+    await runLocalSupabaseCi({ ...plain.dependencies, runApplication: vi.fn() });
+    expect(plain.dependencies.prepareProject.mock.calls[0]).toHaveLength(2);
+    const offered = createDependencies();
+    await runLocalSupabaseCi({ ...offered.dependencies, runApplication: vi.fn(), preferredApiPort: 64000 });
+    expect((offered.dependencies.prepareProject.mock.calls[0] as unknown[])[2]).toEqual({ preferredApiPort: 64000 });
   });
 
   // Lot 3.1: a single-run wall-clock ceiling measured beside the Army production build failed correct code (the copy

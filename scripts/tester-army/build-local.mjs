@@ -9,11 +9,14 @@ import { isDeepStrictEqual } from "node:util";
 import { withNextBuildHeap } from "../next-build-env.mjs";
 import { assertRecipeHost, buildCommands, buildSourceEvidence, loopbackOrigin, newEvidenceDirectory, prepareArmyTypeScriptConfig, redactOutput, relativePath, repositoryRoot as root, requireValue, sha256 } from "./local-recipe-common.mjs";
 
+/** Entries of the dist directory that are not runtime inputs: the output closure and a prebuilt artifact leave them out. */
+export const IGNORED_OUTPUT_ENTRIES = Object.freeze(["cache", "dev", "diagnostics", "types", "trace", "trace-build"]);
+
 /** Immutable production output; dev, cache and compiler diagnostics are not runtime inputs. */
 export async function buildOutputEvidence() {
   const directory = path.join(root, ".build/tester-army/next");
   requireValue(path.relative(directory, await realpath(directory)) === "", "Production build directory must not be redirected.");
-  const ignored = new Set(["cache", "dev", "diagnostics", "types", "trace", "trace-build"]);
+  const ignored = new Set(IGNORED_OUTPUT_ENTRIES);
   const inputs = [];
   async function visit(folder) {
     for (const entry of await readdir(folder, { withFileTypes: true })) {

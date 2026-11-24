@@ -164,11 +164,151 @@ jobs:
           # A rerun replaces the artifact of the attempt before it: the name stays unique.
           overwrite: true
 
+  # The production build of this run, made once in parallel with the plan
+  # (docs/testing/tester-army-ci.md, "Pile, confidentialité et diagnostic"),
+  # only when a selected phase runs under next start: each group downloads it
+  # and serves it only when the runner proves it is the build of its checkout
+  # for its stack. When this job fails or builds nothing, the groups build as
+  # before; it never fails a group. Restore only: e2e-army-critical.yml saves
+  # the Next build cache on a push to main.
+  army-calc-v3-build:
+    name: army-calc-v3-build
+    runs-on: ubuntu-24.04
+    # The checkout, an install, a bare native stack and one production build, with room to spare.
+    timeout-minutes: 25
+    env:
+      CI: "1"
+      DO_NOT_TRACK: "1"
+      NEXT_TELEMETRY_DISABLED: "1"
+      E2E_TELEMETRY_DISABLED: "1"
+      SUPABASE_TELEMETRY_DISABLED: "1"
+    outputs:
+      built: ${{ steps.published.outputs.built }}
+    steps:
+      - name: Refuse any Supabase target other than loopback or the distinct staging host
+        id: target_guard
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54321
+        run: |
+          set -euo pipefail
+          normalize() {
+            local value="$1"
+            value="${value#"${value%%[![:space:]]*}"}"
+            value="${value%"${value##*[![:space:]]}"}"
+            printf '%s' "${value,,}"
+          }
+          refuse() {
+            echo "::error::$1"
+            exit 1
+          }
+
+          url="$(normalize "${NEXT_PUBLIC_SUPABASE_URL:-}")"
+          url="${url%/}"
+          staging="$(normalize "${E2E_STAGING_SUPABASE_HOST:-}")"
+          production="$(normalize "${PRODUCTION_SUPABASE_HOST:-}")"
+
+          loopback_pattern='^http://(localhost|127\.0\.0\.1|\[::1\])(:[0-9]{1,5})?$'
+          if [[ "$url" =~ $loopback_pattern ]]; then
+            echo "Cible Supabase : boucle locale du runner."
+            exit 0
+          fi
+
+          label='[a-z0-9]([a-z0-9-]*[a-z0-9])?'
+          host_pattern="^${label}(\.${label})+$"
+          remote_pattern="^https://(${label}(\.${label})+)$"
+          [[ "$url" =~ $remote_pattern ]] \
+            || refuse "NEXT_PUBLIC_SUPABASE_URL doit être une origine https nue (sans identifiants, port, chemin ni paramètre) ou une adresse de boucle locale."
+          host="${BASH_REMATCH[1]}"
+
+          [[ -n "$staging" ]] \
+            || refuse "Variable E2E_STAGING_SUPABASE_HOST absente : aucun projet de recette distinct de la production n'est déclaré."
+          [[ -n "$production" ]] \
+            || refuse "Variable PRODUCTION_SUPABASE_HOST absente : impossible de prouver que la cible n'est pas la production."
+          # Hotes nus seulement : sous forme d'URL, avec port, point final ou
+          # joker, la comparaison avec la production serait toujours vraie et
+          # la garde laisserait passer la production.
+          [[ "$staging" =~ $host_pattern ]] \
+            || refuse "E2E_STAGING_SUPABASE_HOST doit être un nom d'hôte nu (sans schéma, port, chemin ni point final), par exemple <ref>.supabase.co."
+          [[ "$production" =~ $host_pattern ]] \
+            || refuse "PRODUCTION_SUPABASE_HOST doit être un nom d'hôte nu (sans schéma, port, chemin ni point final), par exemple <ref>.supabase.co."
+          [[ "$staging" != "$production" ]] \
+            || refuse "E2E_STAGING_SUPABASE_HOST désigne le projet de production."
+          [[ "$host" != "$production" ]] \
+            || refuse "NEXT_PUBLIC_SUPABASE_URL désigne le projet de production."
+          [[ "$host" == "$staging" ]] \
+            || refuse "NEXT_PUBLIC_SUPABASE_URL ne désigne pas l'hôte de recette E2E_STAGING_SUPABASE_HOST."
+          echo "Cible Supabase : hôte de recette distinct de la production."
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          # The pull request merge commit and its two parents, for the selection below.
+          fetch-depth: 2
+      - name: Setup Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      # army-calc-v3-plan's selection, made again here: a run whose phases all
+      # run under next dev, or that selects none, builds nothing. A selector
+      # error builds.
+      - name: Decide whether a selected phase needs the production build
+        id: need
+        env:
+          CALC_V3_SELECTION: ${{ github.event_name == 'workflow_dispatch' && inputs.phase || 'nightly' }}
+          EVENT_NAME: ${{ github.event_name }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          ARMY_FULL_LABEL: ${{ contains(github.event.pull_request.labels.*.name, 'army-full') }}
+        run: |
+          set -euo pipefail
+          outputs="$RUNNER_TEMP/army-build-plan"
+          if GITHUB_OUTPUT="$outputs" node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/tester-army/select-calc-v3.ts > /dev/null \
+            && build="$(node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/tester-army/prebuilt-build.ts needs-production "$(sed -n 's/^phases=//p' "$outputs")")"; then
+            echo "$build" >> "$GITHUB_OUTPUT"
+            if [[ "$build" == "build=false" ]]; then echo "::notice title=TesterArmy build::Aucune phase calc-v3 sous next start : pas de build partagé."; fi
+          else
+            echo "build=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Install dependencies
+        if: steps.need.outputs.build == 'true'
+        run: npm ci
+      # Next's webpack cache of the Army build (.build/tester-army/next/cache, outside
+      # the build fingerprint of build-local.mjs): the latest one main saved.
+      - name: Restore the Army Next build cache
+        if: steps.need.outputs.build == 'true'
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .build/tester-army/next/cache
+          key: army-next-${{ runner.os }}-${{ hashFiles('package-lock.json', 'next.config.ts') }}-${{ github.sha }}
+          restore-keys: |
+            army-next-${{ runner.os }}-${{ hashFiles('package-lock.json', 'next.config.ts') }}-
+      - name: Build the production application once for this run
+        id: build
+        if: steps.need.outputs.build == 'true'
+        run: node --import tsx scripts/tester-army/army-build.ts --out "$RUNNER_TEMP/army-prebuilt"
+      # One day: the jobs of this run, and a rerun of its failed jobs, read it.
+      - name: Publish the production build to this run's jobs
+        if: steps.build.outcome == 'success'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: army-prebuilt-build
+          include-hidden-files: true
+          path: ${{ runner.temp }}/army-prebuilt
+          if-no-files-found: error
+          retention-days: 1
+          # A rerun replaces the artifact of the attempt before it: the name stays unique.
+          overwrite: true
+      - name: Offer the build to this run's jobs
+        id: published
+        if: steps.build.outcome == 'success'
+        run: echo "built=true" >> "$GITHUB_OUTPUT"
+
   # One owned stack per group of phases; a red group never cancels the others.
   army-calc-v3-group:
     name: army-calc-v3 group ${{ matrix.group }}/${{ matrix.total }}
-    needs: army-calc-v3-plan
-    if: needs.army-calc-v3-plan.outputs.groups != '[]'
+    needs: [army-calc-v3-plan, army-calc-v3-build]
+    # A failed or empty army-calc-v3-build only makes the group build its application.
+    if: ${{ !cancelled() && needs.army-calc-v3-plan.result == 'success' && needs.army-calc-v3-plan.outputs.groups != '[]' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 80
     strategy:
@@ -250,8 +390,21 @@ jobs:
         run: npm ci
       - name: Install TesterArmy Chromium
         run: npx @e2e-dev/web install chromium
-      # Restore only: e2e-army-critical.yml saves this cache on a push to main.
+      # The production build of this run, from army-build: the runner serves it only
+      # when it is the build of this checkout for this job's stack (origin, anon
+      # key, sources, runtime and output digests; scripts/tester-army/prebuilt-build.ts)
+      # and builds as before otherwise, saying why. A missing artifact is no error.
+      - name: Download the production build of this run
+        id: prebuilt
+        if: needs.army-calc-v3-build.outputs.built == 'true'
+        continue-on-error: true
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: army-prebuilt-build
+          path: ${{ runner.temp }}/army-prebuilt
+      # Restore only, for a group that builds: e2e-army-critical.yml saves this cache on a push to main.
       - name: Restore the Army Next build cache
+        if: steps.prebuilt.outcome != 'success'
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .build/tester-army/next/cache
@@ -269,6 +422,7 @@ jobs:
           ARMY_DATABASE_CHECKS_DELEGATED_TO: ${{ github.event_name == 'pull_request' && 'rls-matrix' || '' }}
           # The group's phases, comma-separated; "all": the explicit complete campaign.
           CALC_V3_PHASES: ${{ matrix.phases }}
+          ARMY_PREBUILT_BUILD_DIR: ${{ runner.temp }}/army-prebuilt
         run: |
           set -uo pipefail
           if [[ "$CALC_V3_PHASES" == "all" ]]; then
