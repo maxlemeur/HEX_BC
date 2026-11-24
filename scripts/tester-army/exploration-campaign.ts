@@ -6,13 +6,16 @@ export async function runExplorationCampaign(input: {
   root: string; evidence: string; environment: NodeJS.ProcessEnv;
   run: (args: string[], environment: NodeJS.ProcessEnv, name: string) => Promise<void>;
   redact: (value: string) => string;
+  model?: string;
 }) {
   const output = path.join(input.root, ".e2e/army/exploration", path.basename(input.evidence));
   const retained = path.join(input.evidence, "exploration");
   const business = path.join(input.root, ".e2e/army/critical/artifacts/business");
   const before = new Set(fs.existsSync(business) ? fs.readdirSync(business) : []);
   const env = { ...input.environment, E2E_ARMY_SUITE: "critical", E2E_ARMY_EXPLORATION_OWNED: "1",
-    E2E_ARMY_EXPLORATION_OUTPUT: output, E2E_ARMY_ARTIFACT_ROOT: path.join(output, "results") };
+    E2E_ARMY_EXPLORATION_OUTPUT: output, E2E_ARMY_ARTIFACT_ROOT: path.join(output, "results"),
+    ...(input.model !== undefined ? { E2E_ARMY_MODEL: input.model } : {}),
+  };
   try {
     await input.run([path.join(input.root, "node_modules/e2e/dist/cli/bin.js"), "run", "--config", "e2e.exploration.config.ts",
       "--target", "chromium-desktop", "--workers", "1", "--retries", "0", "--no-cache", "--trace", "off"], env, "exploration");
@@ -21,7 +24,7 @@ export async function runExplorationCampaign(input: {
     if (results.length !== 4 || results.some((result: { status: string }) => result.status !== "passed")) {
       throw new Error("Exploration requires its setup and all three persona outcomes; blocked and skipped are not passes.");
     }
-    return { status: "passed", scope: "three bounded read-only agent goals with exact destination assertions", report: "exploration/report.json" };
+    return { status: "passed", scope: "three read-only personas with exact destination assertions, including the reviewer's measured item", report: "exploration/report.json" };
   } finally {
     const scrub = scrubber(input.redact);
     for (const name of ["report.json", "results", "logs", "summary.md"]) copyScrubbed(path.join(output, name), path.join(retained, name), scrub);

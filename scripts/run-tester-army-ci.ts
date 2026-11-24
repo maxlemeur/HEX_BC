@@ -557,7 +557,10 @@ async function runOwnedApplication(local: SupabaseEnvironment) {
   // Before the phases: an install failure is the run's error, not a phase's.
   if (browserInstallDirectory) await awaitBrowserInstall({ directory: browserInstallDirectory, evidence, manifest, redact });
   if (suite === "explore") {
-    manifest.exploration = await runExplorationCampaign({ root, evidence, environment: journeyEnvironment, run: runNode, redact });
+    manifest.exploration = await runExplorationCampaign({
+      root, evidence, environment: journeyEnvironment, run: runNode, redact,
+      model: process.env.E2E_ARMY_MODEL,
+    });
     const after = await runSourceEvidence();
     if (JSON.stringify(after) !== JSON.stringify(manifest.source)) throw new Error("Sources changed during exploration.");
     return;
