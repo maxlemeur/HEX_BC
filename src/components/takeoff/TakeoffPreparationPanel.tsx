@@ -125,7 +125,10 @@ function TakeoffPreparationPanelContent({ projectId, planSetId, estimateVersionI
     </div>
     {(error || launchError) && <Alert variant="danger"><AlertDescription>{error ?? launchError}<button type="button" className="mt-2 block text-sm underline" onClick={() => { setLaunchError(null); void reload(); }}>Reprendre la dernière préparation</button><span className="mt-1 block text-xs">La reprise remplace les réponses affichées par la dernière révision enregistrée.</span></AlertDescription></Alert>}
     {record && record.changedSourceIds.length > 0 && <Alert variant="warning"><AlertDescription>Des documents ont changé depuis la dernière préparation. Vérifiez les sources concernées et les confirmations rouvertes ; les analyses précédentes sont conservées.</AlertDescription></Alert>}
-    {showOptions && <TakeoffPreparationAssistance projectId={projectId} draft={draft} onChange={updateDraft} save={saveOptions} disabled={locked} onStepChange={setStep} onOrderQuestions={setOrderedQuestionIds} />}
+    {/* Keep the proposal and its question ordering active while navigating the steps. */}
+    {showOptions && <div hidden={step !== 1}>
+      <TakeoffPreparationAssistance projectId={projectId} draft={draft} onChange={updateDraft} save={saveOptions} disabled={locked} onStepChange={setStep} onOrderQuestions={setOrderedQuestionIds} />
+    </div>}
     <fieldset disabled={locked} className="space-y-4 disabled:opacity-70">
       <legend className="sr-only">{STEPS[step]}</legend>
       {(step === 0 || !showOptions) && documentControls}

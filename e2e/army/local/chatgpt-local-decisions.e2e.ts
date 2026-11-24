@@ -181,12 +181,18 @@ if (!existsSync(liveProbePath)) test("DEC01 Decisions classifications are visibl
     return result.data!;
   };
   const before = await read();
+  const scopeStep = dialog.getByRole("button", /Ce que je veux mesurer$/);
+  await scopeStep.click();
   await dialog.getByText("Assistance au cadrage", { exact: true }).click();
   await dialog.getByRole("button", "Proposer un cadrage", { exact: true }).click();
   await expect(dialog.getByText(/Decisions : Classement proposé à confirmer/)).toBeVisible();
   const classifications = dialog.getByRole("list", "Propositions de classement des pièces", { exact: true });
   await expect(classifications).toBeVisible();
   await expect(classifications.getByText(file.file_name, { exact: true })).toBeVisible();
+  await expect(classifications.getByText("Plans · À confirmer", { exact: true })).toBeVisible();
+  await dialog.getByRole("button", /Points à préciser$/).click();
+  await expect(classifications).toBeHidden();
+  await scopeStep.click();
   await expect(classifications.getByText("Plans · À confirmer", { exact: true })).toBeVisible();
   expect(await read()).toEqual(before);
   expect(before.confirmed_snapshot).toBeNull();
@@ -217,7 +223,7 @@ if (!existsSync(liveProbePath)) test("DEC01 Decisions classifications are visibl
     await expect(classifications).toHaveCount(0);
     await expect(dialog.getByRole("button", "Voir la prochaine étape proposée", { exact: true })).toHaveCount(0);
     await recordEvidence(army, "decisions-classification", { estimate, planSetId: planSet.id, file,
-      displayed: "Plans · À confirmer", unchangedPreparation: true, timeoutRecoveryVisible: true, staleResultRemovedAfterSourceChange: true, externalApiCalled: false,
+      displayed: "Plans · À confirmer", resultVisibleOnReturnToScope: true, unchangedPreparation: true, timeoutRecoveryVisible: true, staleResultRemovedAfterSourceChange: true, externalApiCalled: false,
       screenshot: await app.screenshot("decisions-classification") });
   } finally {
     await setDecisionsControl({});
