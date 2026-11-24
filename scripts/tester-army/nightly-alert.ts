@@ -6,7 +6,8 @@
 // One issue per watched workflow, found by its exact title among the open issues this alert
 // opened: a red campaign opens it, or adds a comment when it is already open; the first green
 // campaign closes it. A campaign that did not conclude (cancelled, skipped) changes nothing, nor
-// does one that finishes after another gave its verdict on a later revision of main.
+// does one that finishes after another gave its verdict on a later revision of main. A cancelled
+// rls-matrix push run is red: the database checks its Army jobs delegated to it never ran.
 // The issue names the run, its failed jobs and every journey that did not pass, read from the
 // manifest of the aggregate evidence (rls-matrix runs no journey: its failed job is the whole report). It only simulates unless ALERT_WRITE is "true" and the
 // run is a campaign of main: a pull request's or a filtered run's result never reaches the issue.
@@ -34,6 +35,8 @@ export const ALERT_EVENTS = ["schedule", "push"];
 
 export type AlertInput = {
   workflow: string;
+  /** The event that started the run (schedule, push…). */
+  event?: string;
   /** The run's conclusion, as the GitHub API gives it. */
   conclusion: string;
   runUrl: string;
@@ -56,6 +59,19 @@ export type AlertPlan =
 
 const RED = new Set(["failure", "timed_out", "startup_failure"]);
 const LISTED = 100;
+/** The workflow that runs pgTAP and the RLS matrix the Army jobs of a push to main delegate (scripts/tester-army/database-checks.ts). */
+const DELEGATED_CHECKS = "E2E RLS Matrix";
+const delegationCancelled = (workflow: string, event: string, conclusion: string) =>
+  workflow === DELEGATED_CHECKS && event === "push" && conclusion === "cancelled";
+
+/**
+ * What a run of main says about its workflow: green, red, or nothing (it did not conclude). A cancelled rls-matrix
+ * push run is red: the Army jobs of that push delegated their database checks to it, so none ran for that revision.
+ */
+export function alertVerdict(workflow: string, event: string, conclusion: string): "green" | "red" | null {
+  if (conclusion === "success") return "green";
+  return RED.has(conclusion) || delegationCancelled(workflow, event, conclusion) ? "red" : null;
+}
 
 export const alertTitle = (workflow: string) => `CI rouge sur main : ${workflow}`;
 /**
@@ -67,15 +83,20 @@ export const alertTitles = (workflow: string) => [alertTitle(workflow), `CI noct
 
 export function planAlert(input: AlertInput): AlertPlan {
   const revision = `\`${input.revision.slice(0, 8)}\``;
-  const day = input.date.slice(0, 10);
-  if (input.conclusion === "success") {
+  // A workflow that runs no journey runs no campaign either: its issue names the run.
+  const [run, runs, green] = input.journeys === false ? ["run", "run rouge", "au premier run vert"] : ["campagne", "campagne rouge", "à la première campagne verte"];
+  const day = `${run} du ${input.date.slice(0, 10)}`;
+  const verdict = alertVerdict(input.workflow, input.event ?? "", input.conclusion);
+  if (verdict === "green") {
     return input.openIssue === null ? { action: "none" } : { action: "close", issue: input.openIssue,
-      body: `**${input.workflow}** est de nouveau vert sur ${revision} (campagne du ${day}).\n\nRun : ${input.runUrl}\n` };
+      body: `**${input.workflow}** est de nouveau vert sur ${revision} (${day}).\n\nRun : ${input.runUrl}\n` };
   }
-  if (!RED.has(input.conclusion)) return { action: "none" };
-  const lines = [`**${input.workflow}** est rouge sur ${revision} (campagne du ${day}).`, "", `Run : ${input.runUrl}`, "",
+  if (verdict !== "red") return { action: "none" };
+  const cancelled = delegationCancelled(input.workflow, input.event ?? "", input.conclusion);
+  const lines = [`**${input.workflow}** est rouge sur ${revision} (${day}).`, "", `Run : ${input.runUrl}`, "",
+    ...(cancelled ? ["Ce run de push a été annulé : pgTAP, les plafonds de requêtes et la matrice RLS de cette révision n'ont pas tous été exécutés, alors que les jobs Army de ce push les lui ont délégués. Relancer le run, ou attendre le run d'un push plus récent.", ""] : []),
     input.failedJobs.length
-      ? `Jobs en échec : ${input.failedJobs.map((job) => `\`${job.replaceAll("`", "'")}\``).join(", ")}`
+      ? `Jobs ${cancelled ? "annulés ou en échec" : "en échec"} : ${input.failedJobs.map((job) => `\`${job.replaceAll("`", "'")}\``).join(", ")}`
       : "Aucun job en échec n'a pu être listé : voir le run."];
   if (input.journeys === false) {
     lines.push("", "Ce workflow ne lance aucun parcours : il exécute pgTAP, les plafonds de requêtes et la matrice RLS de cette révision. L'étape en échec et son rapport sont dans le journal du run.");
@@ -89,7 +110,7 @@ export function planAlert(input: AlertInput): AlertPlan {
       ...input.notPassed.slice(0, LISTED).map((journey) => `- \`${journey.replaceAll("`", "'").replace(/\s+/gu, " ").slice(0, 300)}\``));
     if (input.notPassed.length > LISTED) lines.push("", `… et ${input.notPassed.length - LISTED} autres, dans le résumé du run.`);
   }
-  lines.push("", "Ce ticket reçoit un commentaire à chaque campagne rouge de main (planifiée ou après un push) et se ferme seul à la première campagne verte.", "");
+  lines.push("", `Ce ticket reçoit un commentaire à chaque ${runs} de main (${input.journeys === false ? "planifié" : "planifiée"} ou après un push) et se ferme seul ${green}.`, "");
   const body = lines.join("\n");
   return input.openIssue === null ? { action: "create", title: alertTitle(input.workflow), body } : { action: "comment", issue: input.openIssue, body };
 }
@@ -162,41 +183,48 @@ function main() {
   };
   const watched = ALERT_WORKFLOWS[run.name];
   if (!watched) throw new Error(`Run ${runId} belongs to « ${run.name} », which this alert does not watch.`);
-  if (ALERT_EVENTS.includes(run.event) && (run.conclusion === "success" || RED.has(run.conclusion ?? ""))) {
-    // The latest campaigns of main that concluded, newest first; a revision is compared once.
+  const conclusion = run.conclusion ?? "";
+  const verdict = alertVerdict(run.name, run.event, conclusion);
+  /**
+   * Reports and returns true when a run of main on a later revision already gave its verdict. Asked once before the
+   * work and again right before writing: the alerts of E2E RLS Matrix run in parallel, so a newer verdict may arrive
+   * while this one runs, and an older green must then not close the issue that newer red has just written to.
+   */
+  const superseded = () => {
+    if (!ALERT_EVENTS.includes(run.event) || verdict === null) return false;
+    // The latest runs of main that gave a verdict, newest first; a revision is compared once.
     const concluded = (JSON.parse(gh(["api", `repos/${repository}/actions/workflows/${path.basename(watched.file)}/runs?branch=${encodeURIComponent(run.head_branch)}&status=completed&per_page=30`])) as
       { workflow_runs: (Campaign & { event: string; conclusion: string | null })[] }).workflow_runs
-      .filter((other) => ALERT_EVENTS.includes(other.event) && (other.conclusion === "success" || RED.has(other.conclusion ?? "")));
+      .filter((other) => ALERT_EVENTS.includes(other.event) && alertVerdict(run.name, other.event, other.conclusion ?? "") !== null);
     const newer = supersededBy(run, concluded, (base, head) =>
       gh(["api", `repos/${repository}/compare/${base}...${head}`, "--jq", ".status"]).trim() === "ahead");
-    if (newer) {
-      const report = [`### Alerte ${run.name}`, "", `Run ${run.html_url} : résultat dépassé, rien n'est écrit. La campagne ${newer.html_url} a déjà rendu son verdict sur une révision plus récente (\`${newer.head_sha.slice(0, 8)}\`).`, ""].join("\n");
-      if (process.env.GITHUB_STEP_SUMMARY) fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${report}\n`);
-      console.log(report);
-      return;
-    }
-  }
+    if (!newer) return false;
+    const report = [`### Alerte ${run.name}`, "", `Run ${run.html_url} : résultat dépassé, rien n'est écrit. Le run ${newer.html_url} a déjà rendu son verdict sur une révision plus récente (\`${newer.head_sha.slice(0, 8)}\`).`, ""].join("\n");
+    if (process.env.GITHUB_STEP_SUMMARY) fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${report}\n`);
+    console.log(report);
+    return true;
+  };
+  if (superseded()) return;
   // Only a campaign of main speaks for main: a pull request's or a dispatched (maybe filtered) run is simulated.
   const simulated = process.env.ALERT_WRITE !== "true" ? "simulation, rien n'est écrit"
     : !ALERT_EVENTS.includes(run.event) ? `simulation : run « ${run.event} », seule une campagne de main (planifiée ou après un push) écrit` : null;
-  const conclusion = run.conclusion ?? "";
   // A job stopped by its time limit concludes "cancelled": in a red run it is named too.
-  const failedJobs = RED.has(conclusion)
+  const failedJobs = verdict === "red"
     ? gh(["api", "--paginate", `repos/${repository}/actions/runs/${runId}/jobs?per_page=100`, "--jq",
       '.jobs[] | select(.conclusion == "failure" or .conclusion == "timed_out" or .conclusion == "cancelled") | .name']).split("\n").filter(Boolean)
     : [];
   // One search on the workflow's name, which every title of its alert ends with; the exact titles decide.
   const open = alertIssues(JSON.parse(gh(["issue", "list", "--repo", repository, "--state", "open", "--search", `in:title "${run.name}"`,
     "--json", "number,title,author", "--limit", "50"])), alertTitles(run.name));
-  const plan = planAlert({ workflow: run.name, conclusion, runUrl: run.html_url, revision: run.head_sha, date: run.run_started_at,
-    failedJobs, notPassed: RED.has(conclusion) && watched.artifact !== null ? readNotPassed(repository, runId, watched.artifact) : [],
+  const plan = planAlert({ workflow: run.name, event: run.event, conclusion, runUrl: run.html_url, revision: run.head_sha, date: run.run_started_at,
+    failedJobs, notPassed: verdict === "red" && watched.artifact !== null ? readNotPassed(repository, runId, watched.artifact) : [],
     journeys: watched.artifact !== null, openIssue: open[0] ?? null });
 
   const report = [`### Alerte ${run.name}`, "", `Run ${run.html_url} : ${conclusion || "sans conclusion"}. Décision : ${plan.action}${simulated ? ` (${simulated})` : ""}.`, "",
     ...("body" in plan ? ["title" in plan ? `Titre : ${plan.title}` : `Ticket : #${plan.issue}`, "", plan.body] : [])].join("\n");
   if (process.env.GITHUB_STEP_SUMMARY) fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${report}\n`);
   console.log(report);
-  if (simulated || plan.action === "none") return;
+  if (simulated || plan.action === "none" || superseded()) return;
   const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "army-alert-body-")), "body.md");
   fs.writeFileSync(file, plan.body);
   if (plan.action === "create") {

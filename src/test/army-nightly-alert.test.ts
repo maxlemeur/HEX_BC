@@ -260,7 +260,7 @@ process.stdout.write(outs[Math.min(seen, outs.length - 1)]);
       const result = spawnSync(process.execPath, ["--disable-warning=MODULE_TYPELESS_PACKAGE_JSON", path.join(root, "scripts/tester-army/nightly-alert.ts")], {
         encoding: "utf8", env: {
           PATH: [directory, path.dirname(process.execPath), "/usr/bin", "/bin"].join(path.delimiter), FAKE_GH_FIXTURE: path.join(directory, "fixture.json"),
-          ALERT_REPOSITORY: REPOSITORY, ALERT_RUN_ID: String(run.id), ALERT_WRITE: String(write), TMPDIR: directory,
+          ALERT_REPOSITORY: REPOSITORY, ALERT_RUN_ID: String(run.id), ALERT_WRITE: String(write), TMPDIR: directory, NODE_ENV: "test",
         },
       });
       expect(result.status, result.stderr).toBe(0);
