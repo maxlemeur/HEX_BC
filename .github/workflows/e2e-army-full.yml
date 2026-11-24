@@ -174,6 +174,9 @@ jobs:
     runs-on: ubuntu-24.04
     # The checkout, an install, a bare native stack and one production build, with room to spare.
     timeout-minutes: 25
+    # A failed build only makes the shards build their application (the step below
+    # says so): it never turns the run red, which ci-night-alert reads on main.
+    continue-on-error: true
     env:
       CI: "1"
       DO_NOT_TRACK: "1"
@@ -258,6 +261,8 @@ jobs:
             army-next-${{ runner.os }}-${{ hashFiles('package-lock.json', 'next.config.ts') }}-
       - name: Build the production application once for this run
         id: build
+        # Well under the job's limit: a hung build fails here and the warning below still runs.
+        timeout-minutes: 15
         run: node --import tsx scripts/tester-army/army-build.ts --out "$RUNNER_TEMP/army-prebuilt"
       # One day: the jobs of this run, and a rerun of its failed jobs, read it.
       - name: Publish the production build to this run's jobs
@@ -275,6 +280,9 @@ jobs:
         id: published
         if: steps.build.outcome == 'success'
         run: echo "built=true" >> "$GITHUB_OUTPUT"
+      - name: Warn that the shards build the application themselves
+        if: failure()
+        run: echo "::warning title=Army build failed::No production build was published for this run; each shard builds its application itself (slower, not red)."
 
   army-full-shard:
     name: army-full shard ${{ matrix.shard }}/${{ matrix.total }}
@@ -375,9 +383,9 @@ jobs:
         with:
           name: army-prebuilt-build
           path: ${{ runner.temp }}/army-prebuilt
-      # Restore only, for a shard that builds: e2e-army-critical.yml saves this cache on a push to main.
+      # Restore only, even beside a downloaded build (a refused one builds warm):
+      # e2e-army-critical.yml saves this cache on a push to main.
       - name: Restore the Army Next build cache
-        if: steps.prebuilt.outcome != 'success'
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .build/tester-army/next/cache

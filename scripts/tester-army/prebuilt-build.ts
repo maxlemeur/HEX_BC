@@ -116,6 +116,23 @@ export function decidePrebuiltReuse(input: {
   return { reuse: true };
 }
 
+/**
+ * The run annotation of a shard that was given a downloaded build and builds anyway: if every shard refuses (a CLI bump
+ * that changes the anon key or the ports, say), the run costs more than before without turning red, and only this says
+ * so. No download (the build job skipped, failed or published nothing) is visible in that job: it stays a log line.
+ */
+export function prebuiltRefusalWarning(directory: string | undefined, decision: PrebuiltDecision): string | undefined {
+  if (decision.reuse || !directory) return undefined;
+  try {
+    if (fs.readdirSync(directory).length === 0) return undefined;
+  } catch {
+    return undefined;
+  }
+  // Workflow command data: %, CR and LF are escaped so the reason stays one annotation.
+  const reason = decision.reason.replace(/%/gu, "%25").replace(/\r/gu, "%0D").replace(/\n/gu, "%0A");
+  return `::warning title=Army build not reused::${reason}`;
+}
+
 /** After installation: the files served are exactly the recorded output (buildOutputEvidence of the dist directory). */
 export function verifyInstalledOutput(candidate: Pick<PrebuiltCandidate, "build">, output: unknown): PrebuiltDecision {
   return isDeepStrictEqual(output, candidate.build.compiledOutput) ? { reuse: true }
@@ -129,12 +146,28 @@ function clearDistDirectory(root: string) {
   for (const entry of fs.readdirSync(dist)) if (entry !== "cache") fs.rmSync(path.join(dist, entry), { recursive: true, force: true });
 }
 
-/** Puts the downloaded output where `next start` serves it, and its build manifest and log where evidence retention finds them. */
-export async function installPrebuiltOutput(candidate: Pick<PrebuiltCandidate, "directory" | "buildDirectoryName">, root: string) {
+/**
+ * Puts the downloaded output where `next start` serves it, and its build manifest and log where evidence retention finds
+ * them. Only the files the build manifest lists are copied: nothing else in the download lands beside them or over the
+ * restored Next build cache. A listed path outside the dist directory, or missing from the download, throws.
+ */
+export async function installPrebuiltOutput(candidate: Pick<PrebuiltCandidate, "directory" | "buildDirectoryName" | "build">, root: string) {
   clearDistDirectory(root);
   const dist = path.join(root, DIST_DIRECTORY);
   fs.mkdirSync(dist, { recursive: true });
-  fs.cpSync(path.join(candidate.directory, "next"), dist, { recursive: true, verbatimSymlinks: true });
+  const inputs = candidate.build.compiledOutput?.inputs;
+  if (!Array.isArray(inputs)) throw new Error("The build manifest lists no output files.");
+  for (const input of inputs as Array<{ path?: unknown }>) {
+    const listed = typeof input?.path === "string" ? input.path : "";
+    const relative = listed.startsWith(`${DIST_DIRECTORY}/`) ? listed.slice(DIST_DIRECTORY.length + 1) : "";
+    const segments = relative.split("/");
+    if (!relative || segments.some((segment) => !segment || segment === "." || segment === "..")) {
+      throw new Error(`The build manifest lists a file outside ${DIST_DIRECTORY}.`);
+    }
+    const target = path.join(dist, ...segments);
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    fs.copyFileSync(path.join(candidate.directory, "next", ...segments), target);
+  }
   const builds = path.join(root, BUILDS_DIRECTORY, candidate.buildDirectoryName);
   fs.mkdirSync(builds, { recursive: true });
   for (const name of ["manifest.json", "build.log"]) {

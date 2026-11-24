@@ -9,8 +9,8 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
-  calcV3NeedsProductionBuild, decidePrebuiltReuse, installPrebuiltOutput, PREBUILT_SCHEMA, readPrebuiltCandidate,
-  removeInstalledOutput, verifyInstalledOutput, type PrebuiltCandidate,
+  calcV3NeedsProductionBuild, decidePrebuiltReuse, installPrebuiltOutput, PREBUILT_SCHEMA, prebuiltRefusalWarning,
+  readPrebuiltCandidate, removeInstalledOutput, verifyInstalledOutput, type PrebuiltCandidate,
 } from "../../scripts/tester-army/prebuilt-build";
 import { buildCommands } from "../../scripts/tester-army/local-recipe-common.mjs";
 
@@ -18,7 +18,9 @@ import { buildCommands } from "../../scripts/tester-army/local-recipe-common.mjs
 // is provably the build of its own checkout for its own backend (docs/testing/tester-army-ci.md, "Pile, confidentialité et
 // diagnostic"). Failure modes: a shard serves a build of other sources, of another backend origin or anon key, of another
 // runtime, a build that failed or changed during the build, or files that are not the recorded output; a missing or broken
-// download fails the shard instead of letting it build as before.
+// download fails the shard instead of letting it build as before; a downloaded build that every shard refuses costs a local
+// build each without any annotation; a failed build job turns the run red or skips the shards; a shard that falls back
+// builds without the Next build cache.
 
 const sha256 = (value: string) => createHash("sha256").update(value).digest("hex");
 const ANON_KEY = "eyJhbGciOiJIUzI1NiJ9.eyJyb2xlIjoiYW5vbiJ9.local-signature";
@@ -154,10 +156,16 @@ describe("prebuilt build download", () => {
     fs.mkdirSync(path.join(download, "build"), { recursive: true });
     fs.writeFileSync(path.join(download, "build/manifest.json"), "{}");
     fs.writeFileSync(path.join(download, "build/build.log"), "log");
+    // Files the build manifest does not list are never installed: not over the restored cache, not beside the output.
+    fs.mkdirSync(path.join(download, "next/cache/webpack"), { recursive: true });
+    fs.writeFileSync(path.join(download, "next/cache/webpack/pack"), "foreign cache");
+    fs.writeFileSync(path.join(download, "next/server/extra.js"), "extra");
 
-    await installPrebuiltOutput({ directory: download, buildDirectoryName: "2026-11-24-build" }, root);
+    await installPrebuiltOutput({ directory: download, buildDirectoryName: "2026-11-24-build", build: { compiledOutput: OUTPUT } }, root);
     expect(fs.readFileSync(path.join(dist, "BUILD_ID"), "utf8")).toBe("build-1");
+    expect(fs.readFileSync(path.join(dist, "server/app/page.js"), "utf8")).toBe("page");
     expect(fs.existsSync(path.join(dist, "server/stale.js"))).toBe(false);
+    expect(fs.existsSync(path.join(dist, "server/extra.js"))).toBe(false);
     expect(fs.readFileSync(path.join(dist, "cache/webpack/pack"), "utf8")).toBe("cache");
     // The retained evidence keeps the manifest and log of the build it served.
     expect(fs.readFileSync(path.join(root, ".e2e/army/recipes/builds/2026-11-24-build/manifest.json"), "utf8")).toBe("{}");
@@ -166,6 +174,69 @@ describe("prebuilt build download", () => {
     removeInstalledOutput(root, "2026-11-24-build");
     expect(fs.readdirSync(dist)).toEqual(["cache"]);
     expect(fs.existsSync(path.join(root, ".e2e/army/recipes/builds/2026-11-24-build"))).toBe(false);
+  });
+});
+
+// A shard that was given a downloaded build and builds anyway says so as a run annotation: if every shard refuses (a CLI
+// bump that changes the anon key or the ports), the run costs more than before without a red. A build job that published
+// nothing is already visible in its own job: its absence stays a log line.
+describe("prebuilt build refusal warning", () => {
+  const directories: string[] = [];
+  afterEach(() => { for (const directory of directories.splice(0)) fs.rmSync(directory, { recursive: true, force: true }); });
+  const downloaded = () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), "army-prebuilt-warning-"));
+    directories.push(directory);
+    fs.writeFileSync(path.join(directory, "prebuilt.json"), "{}");
+    return directory;
+  };
+
+  it("warns when a downloaded build is refused, with the reason", () => {
+    const warning = prebuiltRefusalWarning(downloaded(), { reuse: false, reason: "the build's anon key differs from this stack's" });
+    expect(warning).toBe("::warning title=Army build not reused::the build's anon key differs from this stack's");
+  });
+
+  it("keeps the annotation on one line", () => {
+    expect(prebuiltRefusalWarning(downloaded(), { reuse: false, reason: "first\nsecond 100%" }))
+      .toBe("::warning title=Army build not reused::first%0Asecond 100%25");
+  });
+
+  it("says nothing when the build is reused", () => {
+    expect(prebuiltRefusalWarning(downloaded(), { reuse: true })).toBeUndefined();
+  });
+
+  it("says nothing when no build was downloaded", () => {
+    const refused = { reuse: false, reason: "the prebuilt build was not downloaded" } as const;
+    expect(prebuiltRefusalWarning(undefined, refused)).toBeUndefined();
+    expect(prebuiltRefusalWarning("", refused)).toBeUndefined();
+    const empty = fs.mkdtempSync(path.join(os.tmpdir(), "army-prebuilt-warning-"));
+    directories.push(empty);
+    expect(prebuiltRefusalWarning(path.join(empty, "absent"), refused)).toBeUndefined();
+    expect(prebuiltRefusalWarning(empty, refused)).toBeUndefined();
+  });
+});
+
+describe("prebuilt build installation", () => {
+  const directories: string[] = [];
+  afterEach(() => { for (const directory of directories.splice(0)) fs.rmSync(directory, { recursive: true, force: true }); });
+  const temporary = () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), "army-prebuilt-install-"));
+    directories.push(directory);
+    return directory;
+  };
+
+  it.each([
+    ["a path outside the dist directory", ".build/tester-army/other/BUILD_ID"],
+    ["a path that climbs out", ".build/tester-army/next/../../../escape.js"],
+    ["a listed file the download lacks", ".build/tester-army/next/server/missing.js"],
+  ])("refuses %s", async (_, listed) => {
+    const root = temporary();
+    const download = temporary();
+    fs.mkdirSync(path.join(download, "next"), { recursive: true });
+    fs.writeFileSync(path.join(download, "next/BUILD_ID"), "build-1");
+    const inputs = [{ path: ".build/tester-army/next/BUILD_ID" }, { path: listed }];
+    await expect(installPrebuiltOutput({ directory: download, buildDirectoryName: "b", build: { compiledOutput: { inputs } } }, root))
+      .rejects.toThrow();
+    expect(fs.existsSync(path.join(root, "escape.js"))).toBe(false);
   });
 });
 
@@ -236,6 +307,22 @@ describe("prebuilt build workflow wiring", () => {
     expect(steps_.indexOf("Offer the build to this run's jobs")).toBe(steps_.indexOf("Publish the production build to this run's jobs") + 1);
   });
 
+  it.each(workflows)("keeps the run green when $build fails, and says so", ({ file, build }) => {
+    const job = jobBlocks(read(file))[build];
+    // A failed build job only makes the shards build: the run's conclusion stays theirs (ci-night-alert reads it).
+    expect(job).toMatch(/^ {4}continue-on-error: true$/mu);
+    // A hung build fails its step before the job's own timeout, so the warning below still runs.
+    const jobTimeout = Number(/^ {4}timeout-minutes: (\d+)$/mu.exec(job)?.[1]);
+    const buildTimeout = Number(/^ {8}timeout-minutes: (\d+)$/mu.exec(step(job, "Build the production application once for this run"))?.[1]);
+    expect(buildTimeout).toBeGreaterThan(0);
+    expect(buildTimeout).toBeLessThan(jobTimeout);
+    const all = steps(job);
+    const warn = all[all.length - 1];
+    expect(warn.trimStart()).toMatch(/^Warn that the shards build the application themselves\n/u);
+    expect(warn).toMatch(/^ {8}if: failure\(\)$/mu);
+    expect(warn).toContain("::warning title=Army build failed::");
+  });
+
   it.each(workflows)("makes the jobs of $file wait for the build, tolerate its absence and hand it to the runner", ({ file, build, plan, units }) => {
     const jobs = jobBlocks(read(file));
     for (const name of units) {
@@ -252,8 +339,8 @@ describe("prebuilt build workflow wiring", () => {
       expect(download).toMatch(/^\s+continue-on-error: true$/mu);
       expect(download).toContain("uses: actions/download-artifact@");
       expect(download).toContain("\n          name: army-prebuilt-build\n          path: ${{ runner.temp }}/army-prebuilt\n");
-      // A job that builds after all still restores the Next build cache.
-      expect(step(unit, "Restore the Army Next build cache")).toContain("if: steps.prebuilt.outcome != 'success'");
+      // A job that builds after all, the download refused or missing, builds warm: the cache is always restored.
+      expect(step(unit, "Restore the Army Next build cache")).not.toMatch(/^\s+if:/mu);
       const order = steps(unit).map((value) => value.trimStart().split("\n")[0]);
       expect(order.indexOf("Download the production build of this run")).toBeLessThan(order.indexOf("Restore the Army Next build cache"));
       const journeys = step(unit, "Run native database and TesterArmy");

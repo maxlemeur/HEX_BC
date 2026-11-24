@@ -456,7 +456,16 @@ describe("CI and local quality guardrails", () => {
       // No step that runs a stack or a journey may fail unseen. The three steps of the decision filter may:
       // their failure keeps the selection by impact, which runs more journeys, never fewer. So may the download
       // of the run's prebuilt application (one per sharded job): without it the job builds its own, as before.
-      const tolerated = workflowSteps(workflow).filter((step) => step.includes("continue-on-error"));
+      const tolerated = workflowSteps(workflow).filter((step) => /^ {8}continue-on-error:/mu.test(step));
+      // One job may fail without failing the run: the one that builds the application once. Its shards then build
+      // their own, as before, and its last step says so as a warning (src/test/army-prebuilt-build.test.ts).
+      const tolerantJobs = workflow.split(/^ {2}(?=[A-Za-z0-9_-]+:\s*$)/mu)
+        .filter((job) => /^ {4}continue-on-error:/mu.test(job)).map((job) => job.split(":")[0]);
+      expect(tolerantJobs, file).toEqual([{
+        ".github/workflows/e2e-army-critical.yml": "army-build",
+        ".github/workflows/e2e-army-calc-v3.yml": "army-calc-v3-build",
+        ".github/workflows/e2e-army-full.yml": "army-full-build",
+      }[file]]);
       expect(tolerated.map((step) => /^\s+id: (\w+)$/mu.exec(step)?.[1]), file)
         .toEqual(file === ".github/workflows/e2e-army-critical.yml" ? ["decision_install", "decision", "narrow", "prebuilt", "prebuilt"] : ["prebuilt"]);
       for (const step of tolerated.filter((value) => /^\s+id: prebuilt$/mu.test(value))) {

@@ -545,20 +545,30 @@ sélectionnée tourne sous `next start`, et Full pour ses shards, pas pour la
 phase développement (`next dev`).
 
 Chaque shard ou groupe télécharge l'artefact, sans échouer s'il manque, et
-demande pour sa pile le port API du build quand il est libre. Le runner applique
-ensuite la règle de [`prebuilt-build.ts`](../../scripts/tester-army/prebuilt-build.ts) :
+demande pour sa pile le port API du build quand il est libre. Il restaure
+toujours le cache Next, même à côté d'un build téléchargé : un build refusé se
+reconstruit à chaud. Le runner applique ensuite la règle de [`prebuilt-build.ts`](../../scripts/tester-army/prebuilt-build.ts) :
 - mêmes révision, empreinte du diff et entrées que le checkout (`buildSourceEvidence`) ;
 - build réussi avec les commandes enregistrées, sources stables pendant le build ;
 - mêmes origine et clé anon que la pile du shard (la clé par son empreinte) ;
 - mêmes Node, plateforme et architecture ;
-- une fois les fichiers posés, empreinte de sortie (`buildOutputEvidence`) égale à celle du manifeste.
+- une fois posés les seuls fichiers que liste le manifeste, empreinte de sortie (`buildOutputEvidence`) égale à la sienne.
 
 Au premier écart, il retire les fichiers posés et construit localement comme
 avant, en disant pourquoi dans le journal (`TesterArmy CI: building here, …`)
 et dans le manifeste. Le manifeste du shard indique `build.source` : `prebuilt`,
 avec l'artefact, le run, le manifeste du build et son empreinte (conservés sous
-`builds/`), ou `local`, avec la raison `prebuiltRefused`. Un job de build en
-échec ou absent ne fait jamais échouer un shard : celui-ci construit lui-même.
+`builds/`), ou `local`, avec la raison `prebuiltRefused`. Un build téléchargé
+puis refusé ajoute aussi l'annotation `Army build not reused` au run, avec la
+raison : si tous les shards refusent (une montée de la CLI Supabase qui change
+la clé anon ou les ports, par exemple), le run coûte plus qu'avant sans devenir
+rouge, et seule cette annotation le signale. Un artefact absent reste une ligne
+du journal. Un job de build en échec ou absent ne fait jamais échouer un shard :
+celui-ci construit lui-même. Le job de build est en `continue-on-error` : son
+échec laisse le run vert (`ci-night-alert` lit la conclusion du run) et sa
+dernière étape l'annonce par l'annotation `Army build failed`. Son étape de
+build a sa propre limite de 15 minutes, sous les 25 du job, pour qu'un build
+bloqué échoue avant le job et que l'annotation sorte.
 La vérification d'un build lancé tôt (même origine et même clé que la pile du
 shard) reste inchangée.
 

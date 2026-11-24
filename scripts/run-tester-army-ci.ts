@@ -37,7 +37,8 @@ import { buildSourceEvidence, prepareArmyTypeScriptConfig, redactOutput, sqlInve
 import { ARMY_DEFAULT_APP_PORT, armyApplicationEnvironment } from "./tester-army/application-environment";
 import { buildOutputEvidence } from "./tester-army/build-local.mjs";
 import {
-  decidePrebuiltReuse, installPrebuiltOutput, readPrebuiltCandidate, removeInstalledOutput, verifyInstalledOutput, type PrebuiltDecision,
+  decidePrebuiltReuse, installPrebuiltOutput, prebuiltRefusalWarning, readPrebuiltCandidate, removeInstalledOutput,
+  verifyInstalledOutput, type PrebuiltDecision,
 } from "./tester-army/prebuilt-build";
 import { assertLocalAppPortAvailable, describeArmyRunFailure, outputTail, reserveAppPort } from "./tester-army/app-port";
 import { runLocalDevelopmentSession } from "./tester-army/local-development";
@@ -311,6 +312,8 @@ async function productionBuild(environment: NodeJS.ProcessEnv, backend: URL, ano
   if (prebuiltOffer) {
     manifest.build = { source: "local", prebuiltRefused: decision.reuse ? "unknown" : decision.reason, ...(offered ? { artifact: offered.prebuilt.artifact } : {}) };
     console.log(`TesterArmy CI: building here, the prebuilt build is not reused: ${decision.reuse ? "unknown" : decision.reason}`);
+    const warning = prebuiltRefusalWarning(process.env.ARMY_PREBUILT_BUILD_DIR, decision);
+    if (warning) console.log(warning);
   }
   await runNode(["scripts/tester-army/build-local.mjs", "--execute"], environment, "build");
 }
