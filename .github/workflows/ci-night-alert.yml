@@ -3,8 +3,9 @@ name: CI night alert
 # A TesterArmy campaign of main (scheduled, or following a push) that goes red
 # reaches nobody by itself: no pull request shows it. Nor does a red E2E RLS
 # Matrix run of main, which carries the pgTAP and RLS checks the Army jobs of a
-# push delegate to it, or a cancelled push run of it, which ran none of them. After each one, this workflow opens an issue naming the
-# run, its failed jobs and every journey that did not pass, adds a comment to it
+# push delegate to it, or a cancelled push run of it, which ran none of them.
+# After each one, this workflow opens an issue naming the run, its failed jobs
+# and every journey that did not pass, adds a comment to it
 # while the workflow stays red, and closes it on the first green run
 # (scripts/tester-army/nightly-alert.ts, docs/testing/tester-army-ci.md,
 # "Alerte des campagnes de main").
