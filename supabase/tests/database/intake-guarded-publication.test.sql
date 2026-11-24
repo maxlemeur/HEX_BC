@@ -67,6 +67,7 @@ select throws_ok($$select pg_temp.publish(batch,pg_temp.f(60),revision,stamp,'Su
 update public.affaire_intake_documents set deletion_token=null where id=pg_temp.f(40);
 update public.affaire_intake_uploads set processing_lease_token=pg_temp.f(62),processing_lease_expires_at=now()+interval '10 minutes' where id=pg_temp.f(31);
 select throws_ok($$select pg_temp.publish(pg_temp.f(31),pg_temp.f(62),pg_temp.inputs(),null,'Historique',pg_temp.f(40))$$,'40001','INTAKE_BRIEF_INPUT_CHANGED','the historical worker loses its compare-and-set against a concurrently published launch brief');
+select pg_temp.publish(batch,pg_temp.f(60),pg_temp.inputs(),stamp,'Inventaire corrigé',pg_temp.f(40)) from saved;
 select ok(public.finish_affaire_intake_upload_attempt((select batch from saved),pg_temp.f(60),'ready',now()),'close the initial brief-only launch');
 set local role authenticated;
 select is((select outcome from public.start_affaire_intake_analysis(pg_temp.f(20),true)),'nothing_waiting','a repeated press does not regenerate the existing brief');
@@ -187,8 +188,8 @@ select public.publish_affaire_intake_brief(pg_temp.f(85),null,pg_temp.f(1),
   '{"status":"confirme","summary":"Ancien brief","project_object":"Fixture","scope":[],"lots":[],"received_pieces":[],"assumptions":[],"vigilance_points":[],"missing_elements":["CCTP manquant"],"generation_metadata":{"resolved_plan_gap_indexes":[0]}}','[]');
 select results_eq($$select status,generation_metadata ? 'resolved_plan_gap_indexes',confirmed_at from public.affaire_briefs where project_id=pg_temp.f(82)$$,
   $$values ('a_confirmer'::text,false,null::timestamptz)$$,'an index cannot resolve a different gap after republication');
-select ok(not has_function_privilege('authenticated','public.read_affaire_intake_brief_inputs(uuid)','execute')
-  and not has_function_privilege('anon','public.read_affaire_intake_brief_inputs(uuid)','execute')
-  and has_function_privilege('service_role','public.read_affaire_intake_brief_inputs(uuid)','execute'),'only the service can obtain a dossier input snapshot');
+select ok(not has_function_privilege('authenticated','public.read_affaire_intake_brief_inputs(uuid,boolean)','execute')
+  and not has_function_privilege('anon','public.read_affaire_intake_brief_inputs(uuid,boolean)','execute')
+  and has_function_privilege('service_role','public.read_affaire_intake_brief_inputs(uuid,boolean)','execute'),'only the service can obtain a dossier input snapshot');
 select * from finish();
 rollback;

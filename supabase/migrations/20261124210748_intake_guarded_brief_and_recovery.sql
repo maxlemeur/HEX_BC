@@ -34,14 +34,14 @@ create or replace trigger release_reserved_intake_piece before update of deletio
 
 -- A failed explicit launch still owes the dossier a publication, even if every
 -- reading finished. Only a successful guarded generation acknowledges that work.
-alter table public.affaire_intake_uploads add column brief_published_at timestamptz;
+alter table public.affaire_intake_uploads add column brief_published_revision text;
 create index affaire_intake_unpublished_launches on public.affaire_intake_uploads(project_id)
-  where status='failed' and launch_read_scans is not null and brief_published_at is null;
+  where status='failed' and launch_read_scans is not null and brief_published_revision is null;
 
 create function private.intake_brief_publication_due(p_project_id uuid) returns boolean
 language sql stable security invoker set search_path='' as $$
   select exists (select 1 from public.affaire_intake_uploads
-    where project_id=p_project_id and status='failed' and launch_read_scans is not null and brief_published_at is null)
+    where project_id=p_project_id and status='failed' and launch_read_scans is not null and brief_published_revision is null)
 $$;
 revoke all on function private.intake_brief_publication_due(uuid) from public,anon,authenticated,service_role;
 
@@ -144,9 +144,23 @@ $$;
 -- The worker reads this snapshot once and builds the model and fallback inputs from
 -- its project, ordered documents and missing categories. The digest is made by the
 -- same database that compares it; the worker never has to serialize a timestamp.
-create function public.read_affaire_intake_brief_inputs(p_project_id uuid) returns jsonb
-language sql stable security invoker set search_path='' set timezone='UTC' as $$
-  with documents as materialized (
+create function public.read_affaire_intake_brief_inputs(p_project_id uuid,p_lock_inputs boolean default false) returns jsonb
+language plpgsql security invoker set search_path='' set timezone='UTC' as $$
+begin
+  -- Publication and closure fence the same inputs through commit. Parent locks
+  -- fence new FK references; Storage writes for plan files also lock their file.
+  -- NOWAIT avoids a cycle with a writer already waiting for the brief or lot.
+  if p_lock_inputs then
+    perform 1 from public.estimate_projects where id=p_project_id for update nowait;
+    perform 1 from public.affaire_intake_documents d where d.project_id=p_project_id order by d.id for share nowait;
+    perform 1 from public.plan_sets s where s.project_id=p_project_id order by s.id for update nowait;
+    perform 1 from public.plan_files f join public.plan_sets s on s.id=f.plan_set_id
+      where s.project_id=p_project_id order by f.id for no key update of f nowait;
+    perform 1 from storage.objects o join public.affaire_intake_documents d on o.name=d.storage_path
+      where o.bucket_id='affaire-intake' and d.project_id=p_project_id and d.document_kind='plans'
+        and d.classification_status='classified' and d.deleted_at is null and d.deletion_token is null order by o.id for share of o nowait;
+  end if;
+  return (with documents as materialized (
     select d.id,d.file_name,d.document_kind,d.confidence,d.issues,d.extracted_metadata,
       d.classification_status,d.updated_at,d.created_at
     from public.affaire_intake_documents d where d.project_id=p_project_id
@@ -164,10 +178,40 @@ language sql stable security invoker set search_path='' set timezone='UTC' as $$
     from public.estimate_projects p where p.id=p_project_id
   )
   select inputs || jsonb_build_object('revision',encode(sha256(convert_to(inputs::text,'UTF8')),'hex'),
-    'brief_updated_at',(select b.updated_at from public.affaire_briefs b where b.project_id=p_project_id)) from snapshot
+    'brief_updated_at',(select b.updated_at from public.affaire_briefs b where b.project_id=p_project_id)) from snapshot);
+exception when lock_not_available then
+  raise exception 'INTAKE_BRIEF_INPUT_CHANGED' using errcode='40001';
+end;
 $$;
-revoke all on function public.read_affaire_intake_brief_inputs(uuid) from public,anon,authenticated,service_role;
-grant execute on function public.read_affaire_intake_brief_inputs(uuid) to service_role;
+revoke all on function public.read_affaire_intake_brief_inputs(uuid,boolean) from public,anon,authenticated,service_role;
+grant execute on function public.read_affaire_intake_brief_inputs(uuid,boolean) to service_role;
+
+-- This transition is shared by normal finish, stop and an exhausted claim.
+-- A successful finish can retry under its lease. A failed launch must close,
+-- leaving the missing publication available to a new member.
+create function private.check_intake_publication_on_close() returns trigger
+language plpgsql set search_path='' as $$
+begin
+  if new.brief_published_revision is not null then
+    if new.brief_published_revision = (public.read_affaire_intake_brief_inputs(new.project_id,true)->>'revision')
+      and (new.status<>'failed' or not exists (
+        -- finish(..., 'failed') marks these contributing pieces failed after updating the lot.
+        select 1 from public.affaire_intake_documents d where d.analysis_launch_id=new.id and d.upload_status='uploaded'
+          and d.classification_status in ('queued','processing') and d.deleted_at is null and d.deletion_token is null
+          and d.classification_source is distinct from 'manual' and d.manually_overridden_at is null
+      )) then return new; end if;
+  end if;
+  if new.status<>'failed' then
+    raise exception 'INTAKE_BRIEF_INPUT_CHANGED' using errcode='40001';
+  end if;
+  new.brief_published_revision:=null;
+  return new;
+end;
+$$;
+revoke all on function private.check_intake_publication_on_close() from public,anon,authenticated,service_role;
+create trigger verify_intake_publication_on_close before update of status on public.affaire_intake_uploads
+  for each row when (new.launch_read_scans is not null and old.status in ('launch_queued','launch_processing')
+    and new.status in ('ready','partial_failure','failed')) execute function private.check_intake_publication_on_close();
 
 -- Publish one model response and its sources in a single transaction. All generation
 -- paths (historical worker, explicit launch, authorised document edit) share this CAS.
@@ -199,20 +243,10 @@ begin
     if not found then raise exception 'INTAKE_BRIEF_INPUT_CHANGED' using errcode='40001'; end if;
   end if;
 
-  -- The parent locks fence new FK references. Storage writes for plan files also
-  -- lock their plan_file; lock existing intake objects for size changes and removal.
-  -- Writers that already own a piece or a plan may themselves be waiting for this
-  -- brief. Refuse this response for retry rather than completing a lock cycle.
+  snapshot:=public.read_affaire_intake_brief_inputs(batch.project_id,true);
+  select * into strict project from public.estimate_projects where id=batch.project_id;
   begin
-    select * into strict project from public.estimate_projects where id=batch.project_id for update nowait;
     select * into strict batch from public.affaire_intake_uploads where id=p_upload_id for no key update nowait;
-    perform 1 from public.affaire_intake_documents d where d.project_id=project.id order by d.id for share nowait;
-    perform 1 from public.plan_sets s where s.project_id=project.id order by s.id for update nowait;
-    perform 1 from public.plan_files f join public.plan_sets s on s.id=f.plan_set_id
-      where s.project_id=project.id order by f.id for no key update of f nowait;
-    perform 1 from storage.objects o join public.affaire_intake_documents d on o.name=d.storage_path
-      where o.bucket_id='affaire-intake' and d.project_id=project.id and d.document_kind='plans'
-        and d.classification_status='classified' and d.deleted_at is null and d.deletion_token is null order by o.id for share of o nowait;
   exception when lock_not_available then
     raise exception 'INTAKE_BRIEF_INPUT_CHANGED' using errcode='40001';
   end;
@@ -231,7 +265,6 @@ begin
   if jsonb_typeof(p_sources) is distinct from 'array' then
     raise exception 'INTAKE_BRIEF_INVALID' using errcode='22023';
   end if;
-  snapshot:=public.read_affaire_intake_brief_inputs(project.id);
   if p_expected_revision is distinct from (snapshot->>'revision') then
     raise exception 'INTAKE_BRIEF_INPUT_CHANGED' using errcode='40001';
   end if;
@@ -240,9 +273,9 @@ begin
   )) then raise exception 'INTAKE_BRIEF_SOURCE_INVALID' using errcode='23514'; end if;
 
   if p_lease_token is not null and batch.launch_read_scans is not null then
-    update public.affaire_intake_uploads u set brief_published_at=clock_timestamp()
-      where u.project_id=project.id and u.launch_read_scans is not null and u.brief_published_at is null
-        and (u.id=batch.id or u.status='failed');
+    update public.affaire_intake_uploads u set brief_published_revision=p_expected_revision
+      where u.project_id=project.id and u.launch_read_scans is not null
+        and (u.id=batch.id or (u.status='failed' and u.brief_published_revision is null));
   end if;
   -- An edit that removed the final contributing piece can retire its generated brief.
   if p_draft is null then

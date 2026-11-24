@@ -113,6 +113,14 @@ select is(public.renew_affaire_intake_upload_lease((select launch_id from first_
 update public.affaire_intake_documents set classification_status='classified' where analysis_launch_id=(select launch_id from first_press);
 select throws_ok('select pg_temp.confirm()', 'P0001','INTAKE_ANALYSIS_RUNNING','even after classification, the batch stays open until its brief is done');
 select pg_temp.deposit(54,42);
+create function pg_temp.publish(batch uuid,token uuid) returns uuid language sql as $$
+  select public.publish_affaire_intake_brief(batch,token,null,s->>'revision',(s->>'brief_updated_at')::timestamptz,
+    '{"summary":"Résumé du lot","project_object":"Objet fictif"}','[]')
+  from public.read_affaire_intake_brief_inputs(pg_temp.f(20)) s
+$$;
+select throws_ok($$select public.finish_affaire_intake_upload_attempt((select launch_id from first_press),pg_temp.f(72),'ready',now())$$,
+  '40001','INTAKE_BRIEF_INPUT_CHANGED','an explicit success requires its first publication');
+select pg_temp.publish((select launch_id from first_press),pg_temp.f(72));
 select is(public.finish_affaire_intake_upload_attempt((select launch_id from first_press),pg_temp.f(72),'ready',now()),true,'worker closes its batch after refresh');
 select throws_ok('select pg_temp.confirm()', 'P0001','INTAKE_ANALYSIS_REQUIRED','piece deposited during the launch still waits');
 select pg_temp.member(1);
@@ -130,6 +138,7 @@ select is((select status from public.affaire_intake_uploads where id=(select ana
 select results_eq($$select payer_id,read_scans from public.claim_affaire_intake_analysis_launch(pg_temp.f(74))$$,
   $$values (pg_temp.f(1),false)$$,'explicit backoff retains the same payer and reading choice');
 update public.affaire_intake_documents set classification_status='classified' where id=pg_temp.f(54);
+select pg_temp.publish((select analysis_launch_id from public.affaire_intake_documents where id=pg_temp.f(54)),pg_temp.f(74));
 select is(public.finish_affaire_intake_upload_attempt((select analysis_launch_id from public.affaire_intake_documents where id=pg_temp.f(54)),pg_temp.f(74),'ready',now()),true,'next launch finishes');
 select lives_ok('select pg_temp.confirm()','a separate confirmation succeeds');
 select pg_temp.deposit(55,41);
