@@ -165,7 +165,7 @@ export function TakeoffPreparationFields({ draft, onChange, step, projectId, ava
           <p>{source.document_id.startsWith("upload:") ? "Fichier téléversé indisponible dans le dossier." : "Cette pièce n’est plus dans le dossier."}</p>
           <button type="button" className="font-medium text-primary underline" aria-label={`Retirer ${source.document_name} de la préparation`} onClick={() => removeSource(source.document_id)}>Retirer de la préparation</button>
         </div>
-        : <TakeoffPreparationSourcePreview projectId={projectId} documentId={source.document_id} name={source.document_name} page={source.pages[0]} />}
+        : <TakeoffPreparationSourcePreview projectId={projectId} documentId={source.document_id} name={source.document_name} page={source.pages[0]} kind={source.kind} />}
     </div>)}
     {draft.sources.length === 0 && <p className="text-sm text-muted-foreground">Aucune pièce disponible. Ajoutez vos documents avant de poursuivre.</p>}
     <Link href={`/dashboard/affaires/${projectId}/plans`} className="text-sm text-primary underline">Consulter les plans du dossier</Link>
