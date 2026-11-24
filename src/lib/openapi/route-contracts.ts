@@ -436,7 +436,7 @@ const administrationContracts: RouteContract[] = [
   {
     id: "read-affaire-analysis-progress", method: "get", path: AFFAIRE_ANALYSIS_PROGRESS_PATH,
     summary: "Suivre les analyses des affaires accessibles", tags: ["Affaires"],
-    description: "Lecture privée sans cache des analyses du dossier et du métré dans le tenant actif. Page bornée des analyses en cours ou en attente et des fins des dernières 24 heures. Le navigateur acquitte les seules fins effectivement affichées, par leurs identifiants opaques.",
+    description: "Lecture privée sans cache des analyses du dossier et du métré dans le tenant actif. Page bornée des analyses en cours ou en attente et des fins des dernières 24 heures. Le suivi global découvre les jobs de métré autonomes pendant sept jours à partir de leur dernière mise à jour ou de la fin de leur dernière tentative quand une reprise est planifiée. Le navigateur acquitte les seules fins effectivement affichées, par leurs identifiants opaques.",
     queryParameters: [{ name: "cursor", schema: analysisProgressCursorSchema, description: "Curseur opaque nextCursor d’une réponse précédente du suivi." }],
     success: [{ status: "200", description: "Suivi des analyses des affaires accessibles.", schema: {
       schemaName: "AffaireAnalysisProgressResponse", io: "output", schema: analysisProgressResponseSchema,

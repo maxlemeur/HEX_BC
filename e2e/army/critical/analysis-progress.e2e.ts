@@ -220,27 +220,15 @@ armyTest("Analysis progress round 2 bounds the poll on a large tenant and offers
     returned: firstLines.length, samples });
   expect(first.status).toBe(200);
   expect(firstLines.length).toBe(17);
-  expect(samples.every(({ calls }) => calls > 0 && calls <= 9)).toBe(true);
+  expect(samples.every(({ calls }) => calls > 0 && calls <= 12)).toBe(true);
   expect(firstLines.some(({ state }) => state === "reading")).toBe(true);
   expect(typeof first.body.data.nextCursor).toBe("string");
   const next = await apiRequest<Page>(browser, "GET", `${path}?cursor=${encodeURIComponent(first.body.data.nextCursor!)}`);
   expect(next.status).toBe(200);
   const prior = new Set(firstLines.map(({ id }) => id));
-  expect(next.body.data.affaires.flatMap(({ lines }) => lines).some(({ id }) => !prior.has(id))).toBe(true);
-
-  const plan = await querySql(`
-    BEGIN;
-    SET LOCAL ROLE authenticated;
-    SET LOCAL request.jwt.claims = '{"sub":"${member.userId}","role":"authenticated"}';
-    EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)
-    SELECT j.id, j.created_at FROM public.takeoff_jobs j
-    WHERE j.tenant_id = '${member.tenantId}' AND j.launch_request_id IS NULL
-      AND j.status NOT IN ('pending', 'processing')
-      AND (j.status <> 'failed' OR j.execution_provider <> 'chatgpt_local' OR j.next_retry_at IS NULL)
-      AND coalesce(j.analysis_finished_at, j.completed_at, j.updated_at) > now() - interval '24 hours'
-    ORDER BY j.id DESC LIMIT 17;
-    ROLLBACK;`);
-  await recordEvidence(army, "analysis-progress-terminal-plan", { plan: JSON.parse(plan.join("\n")) });
+  const nextLines = next.body.data.affaires.flatMap(({ lines }) => lines);
+  expect(nextLines).toHaveLength(16);
+  expect(nextLines.every(({ id }) => !prior.has(id))).toBe(true);
 
   await browser.setViewport({ width: 390, height: 650 });
   await app.open("/dashboard");
@@ -334,4 +322,78 @@ armyTest("Analysis progress round 2 keeps the same completion after a priority e
   expect(after.updatedAt).toBe(before.updatedAt);
   expect(after.completionKeys?.length).toBe(1);
   expect(after.completionKeys).toEqual(before.completionKeys);
+});
+
+armyTest("Analysis progress excludes archived jobs before paging", {
+  session: "army", tags: ["critical", "affaires"],
+}, async ({ app, browser, army }) => {
+  const member = await signUpDedicatedOwner(browser, app.baseUrl!, army.runPrefix, { tag: "PROGARCH" });
+  const open = randomUUID(), archived = randomUUID(), openVersion = randomUUID(), archivedVersion = randomUUID();
+  await app.open("/analysis-progress-probe");
+  await querySql(`BEGIN;
+    UPDATE public.feature_flags SET enabled = true WHERE tenant_id = '${member.tenantId}' AND flag_key = 'TAKEOFF_MODULE_ENABLED';
+    INSERT INTO public.estimate_projects (id, tenant_id, user_id, name) VALUES
+      ('${open}', '${member.tenantId}', '${member.userId}', 'Affaire fictive lisible'),
+      ('${archived}', '${member.tenantId}', '${member.userId}', 'Affaire fictive archivée');
+    INSERT INTO public.estimate_versions (id, project_id, version_number, calc_engine_version) VALUES
+      ('${openVersion}', '${open}', 1, 2), ('${archivedVersion}', '${archived}', 1, 2);
+    SET LOCAL session_replication_role = replica;
+    INSERT INTO public.takeoff_jobs (id, tenant_id, project_id, estimate_version_id, created_by, level, status,
+      created_at, completed_at, updated_at)
+    SELECT ('10000000' || substr(gen_random_uuid()::text, 9))::uuid, '${member.tenantId}', '${open}', '${openVersion}',
+      '${member.userId}', 'B', 'completed', now() - interval '2 hours', now() - interval '1 hour', now()
+    FROM generate_series(1, 18);
+    INSERT INTO public.takeoff_jobs (id, tenant_id, project_id, estimate_version_id, created_by, level, status,
+      created_at, completed_at, updated_at)
+    SELECT ('f0000000' || substr(gen_random_uuid()::text, 9))::uuid, '${member.tenantId}', '${archived}', '${archivedVersion}',
+      '${member.userId}', 'B', 'completed', now() - interval '1 hour', now() - interval '30 minutes', now()
+    FROM generate_series(1, 34);
+    UPDATE public.estimate_projects SET is_archived = true WHERE id = '${archived}';
+    COMMIT;`);
+
+  type Page = { data: { affaires: Array<{ id: string; lines: Array<{ id: string }> }>; nextCursor: string | null } };
+  const path = "/api/affaires/analysis-progress";
+  const first = await apiRequest<Page>(browser, "GET", path);
+  expect(first.status).toBe(200);
+  expect(first.body.data.affaires.map(({ id }) => id)).toEqual([open]);
+  const firstIds = first.body.data.affaires.flatMap(({ lines }) => lines.map(({ id }) => id));
+  expect(firstIds).toHaveLength(16);
+  const cursor = first.body.data.nextCursor;
+  if (!cursor) throw new Error("Expected a second page");
+  const positions: Record<string, { id: string } | null> = JSON.parse(Buffer.from(cursor, "base64url").toString());
+  expect(Object.values(positions).flatMap((value) => value ? [value.id] : [])).toEqual([firstIds.at(-1)]);
+
+  const second = await apiRequest<Page>(browser, "GET", `${path}?cursor=${encodeURIComponent(cursor)}`);
+  expect(second.status).toBe(200);
+  expect(second.body.data.affaires.map(({ id }) => id)).toEqual([open]);
+  const secondIds = second.body.data.affaires.flatMap(({ lines }) => lines.map(({ id }) => id));
+  expect(secondIds).toHaveLength(2);
+  expect(new Set([...firstIds, ...secondIds]).size).toBe(18);
+  expect(second.body.data.nextCursor).toBeNull();
+});
+
+armyTest("Analysis progress bounds undated job history and keeps recently restarted work", {
+  session: "army", tags: ["critical", "affaires"],
+}, async ({ app, browser, army }) => {
+  const member = await signUpDedicatedOwner(browser, app.baseUrl!, army.runPrefix, { tag: "PROGOLD" });
+  const project = randomUUID(), version = randomUUID();
+  const restarted = randomUUID(), dormant = randomUUID(), recentEnd = randomUUID(), oldEnd = randomUUID();
+  await app.open("/analysis-progress-probe");
+  await querySql(`BEGIN;
+    UPDATE public.feature_flags SET enabled = true WHERE tenant_id = '${member.tenantId}' AND flag_key = 'TAKEOFF_MODULE_ENABLED';
+    INSERT INTO public.estimate_projects (id, tenant_id, user_id, name)
+      VALUES ('${project}', '${member.tenantId}', '${member.userId}', 'Affaire fictive historique');
+    INSERT INTO public.estimate_versions (id, project_id, version_number, calc_engine_version) VALUES ('${version}', '${project}', 1, 2);
+    SET LOCAL session_replication_role = replica;
+    INSERT INTO public.takeoff_jobs (id, tenant_id, project_id, estimate_version_id, created_by, level, status, created_at, updated_at)
+    SELECT id::uuid, '${member.tenantId}', '${project}', '${version}', '${member.userId}', 'B', status::public.takeoff_job_status,
+      now() - interval '2 years', now() - age::interval
+    FROM (VALUES ('${restarted}', 'pending', '1 hour'), ('${dormant}', 'pending', '8 days'),
+      ('${recentEnd}', 'completed', '1 hour'), ('${oldEnd}', 'completed', '2 years')) jobs(id, status, age);
+    COMMIT;`);
+  const result = await apiRequest<{ data: { affaires: Array<{ lines: Array<{ id: string; state: string }> }> } }>(
+    browser, "GET", "/api/affaires/analysis-progress");
+  expect(result.status).toBe(200);
+  const states = Object.fromEntries(result.body.data.affaires.flatMap(({ lines }) => lines.map(({ id, state }) => [id, state])));
+  expect(states).toEqual({ [restarted]: "waiting", [recentEnd]: "finished" });
 });

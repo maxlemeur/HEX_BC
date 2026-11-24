@@ -32,6 +32,12 @@ import { describeTakeoffJobFailure, resolveTakeoffVisibleJobStatus } from "@/lib
 import type { Database } from "@/types/database";
 
 const HISTORY_WINDOW_MS = 24 * 60 * 60_000;
+// Standalone work is discoverable after a recent update, including a retry of an
+// old job. A dormant standalone job remains available in its affaire.
+const STANDALONE_ACTIVITY_WINDOW_MS = 7 * HISTORY_WINDOW_MS;
+const PROJECT_PREFILTER_LIMIT = 32;
+const RETRY_FILTER = "status.eq.failed,execution_provider.eq.chatgpt_local,next_retry_at.not.is.null";
+const ENDED_FILTER = "status.neq.failed,execution_provider.neq.chatgpt_local,next_retry_at.is.null";
 const JOB_COLUMNS = "id, status, estimate_version_id, processing_strategy, provider_batch_state, error_code, created_at, completed_at, analysis_finished_at, analysis_completion_event_id, execution_provider, next_retry_at, plan_set_id, launch_unit_key, exceptions:takeoff_dpgf_review_decisions!takeoff_dpgf_review_decisions_takeoff_job_id_fkey(id)";
 type Job = Pick<Database["public"]["Tables"]["takeoff_jobs"]["Row"],
   "id" | "status" | "estimate_version_id" | "processing_strategy" | "provider_batch_state" | "error_code" |
@@ -112,6 +118,7 @@ export async function readAffaireAnalysisProgress(cursor: string | undefined): P
   const owner = affaireOwnerFilter({ userId, tenantRole }, "read");
   const now = observedAt.getTime();
   const cutoff = new Date(now - HISTORY_WINDOW_MS).toISOString();
+  const activityCutoff = new Date(now - STANDALONE_ACTIVITY_WINDOW_MS).toISOString();
   const staleBefore = new Date(now - AFFAIRE_INTAKE_ANALYSIS_STALE_MS).toISOString();
   const staleNoticeSince = new Date(now - HISTORY_WINDOW_MS - AFFAIRE_INTAKE_ANALYSIS_STALE_MS).toISOString();
   const reanalysisMarker = `{"${AFFAIRE_INTAKE_REANALYSIS_PENDING_ISSUE}"}`;
@@ -140,27 +147,43 @@ export async function readAffaireAnalysisProgress(cursor: string | undefined): P
     return owner ? query.eq("project.user_id", owner) : query;
   };
 
-  const readJobs = (phase: "live" | "retry" | "ended") => {
-    // An optional embed filters the affaire under its own authority without
-    // making it the driving relation of the job scan. Only resolved affaires
-    // are projected into the response.
+  async function readJobProjectPrefilter() {
+    if (!owner) return null;
+    const { data, error } = await supabase.from("estimate_projects").select("id")
+      .eq("tenant_id", tenantId).eq("user_id", owner).is("is_archived", false).limit(PROJECT_PREFILTER_LIMIT + 1);
+    if (error) throw mapSupabaseError(error, "Impossible de lire les affaires du suivi.");
+    return data.length <= PROJECT_PREFILTER_LIMIT ? data.map(({ id }) => id) : null;
+  }
+
+  const readJobs = (projectIds: string[] | null) => {
     const query = supabase.from("takeoff_jobs").select(
-      `${JOB_COLUMNS}, created_by, analysis_requested_by, updated_at, project:estimate_projects!takeoff_jobs_project_tenant_fkey(id,name)`,
-    ).eq("tenant_id", tenantId).eq("project.tenant_id", tenantId).eq("project.is_archived", false)
+      `${JOB_COLUMNS}, created_by, analysis_requested_by, updated_at, project:estimate_projects!takeoff_jobs_project_tenant_fkey!inner(id,name)`,
+    ).eq("tenant_id", tenantId).eq("project.tenant_id", tenantId).is("project.is_archived", false)
       .is("launch_request_id", null).limit(1, { referencedTable: "exceptions" });
-    if (phase === "ended") {
-      query.not("status", "in", "(pending,processing)")
-        .or("status.neq.failed,execution_provider.neq.chatgpt_local,next_retry_at.is.null")
-        .or(`analysis_finished_at.gt.${cutoff},and(analysis_finished_at.is.null,completed_at.gt.${cutoff}),and(analysis_finished_at.is.null,completed_at.is.null,updated_at.gt.${cutoff})`);
-    } else if (phase === "retry") {
-      query.eq("status", "failed").eq("execution_provider", "chatgpt_local").not("next_retry_at", "is", null);
-    } else {
-      // Creation, claim and manual retry leave completed_at unset. The null test
-      // excludes finished rows before RLS evaluates their takeoff scope.
-      query.is("completed_at", null).in("status", ["pending", "processing"]);
-    }
+    if (projectIds) query.in("project_id", projectIds);
     return owner ? query.eq("project.user_id", owner) : query;
   };
+
+  async function readStandaloneJobs() {
+    const projectIds = await readJobProjectPrefilter();
+    if (projectIds?.length === 0) return { live: [], ended: [] };
+    const ended = () => readJobs(projectIds).not("status", "in", "(pending,processing)").or(ENDED_FILTER);
+    const [live, retry, analysisEnd, completedEnd, legacyEnd] = await Promise.all([
+      // The indexed updated_at range keeps old undated ends out of the live scan.
+      pages.read("jobLive", () => readJobs(projectIds).is("analysis_finished_at", null).is("completed_at", null)
+        .gt("updated_at", activityCutoff).or(`status.in.(pending,processing),and(${RETRY_FILTER})`), "updated_at"),
+      pages.read("jobRetry", () => readJobs(projectIds).is("analysis_finished_at", null).not("completed_at", "is", null)
+        .gt("completed_at", activityCutoff).eq("status", "failed").eq("execution_provider", "chatgpt_local")
+        .not("next_retry_at", "is", null), "completed_at"),
+      pages.read("jobAnalysisEnd", () => ended().not("analysis_finished_at", "is", null)
+        .gt("analysis_finished_at", cutoff), "analysis_finished_at"),
+      pages.read("jobCompletedEnd", () => ended().is("analysis_finished_at", null).not("completed_at", "is", null)
+        .gt("completed_at", cutoff), "completed_at"),
+      pages.read("jobLegacyEnd", () => ended().is("analysis_finished_at", null).is("completed_at", null)
+        .gt("updated_at", cutoff), "updated_at"),
+    ]);
+    return { live: latestRows(live, retry), ended: [...analysisEnd, ...completedEnd, ...legacyEnd] };
+  }
 
   const enabled = takeoffModuleDefault() || readFeatureEnabled(tenantId, TAKEOFF_MODULE_ENABLED_FLAG_KEY, { supabase }).then((flag) => {
     if (flag.failed) throw internalError("Impossible de lire le suivi des analyses.");
@@ -172,12 +195,10 @@ export async function readAffaireAnalysisProgress(cursor: string | undefined): P
     Promise.resolve(enabled).then((takeoffEnabled) => takeoffEnabled ? Promise.all([
       pages.read("requestLive", () => readRequests(true)),
       pages.read("requestEnd", () => readRequests(false)),
-      pages.read("jobLive", () => readJobs("live")),
-      pages.read("jobRetry", () => readJobs("retry")),
-      pages.read("jobEnd", () => readJobs("ended")),
+      readStandaloneJobs(),
     ]) : null),
   ]);
-  const [liveRequests, endedRequests, liveJobs, retryJobs, endedJobs] = takeoff ?? [[], [], [], [], []];
+  const [liveRequests, endedRequests, standaloneJobs] = takeoff ?? [[], [], { live: [], ended: [] }];
   const requests = latestRows(liveRequests, endedRequests);
   const manualSingleUnit = requests.filter((row) => row.origin === "manual" && row.units_expected === 1);
   const groupedJobs = manualSingleUnit.flatMap(({ jobs }) => jobs[0]?.launch_unit_key === "grouped" ? [jobs[0].id] : []);
@@ -298,10 +319,9 @@ export async function readAffaireAnalysisProgress(cursor: string | undefined): P
     }, row.confirmed_by === userId || row.payer_id === userId);
   }
 
-  const jobsByState = latestRows(latestRows(liveJobs, retryJobs), endedJobs);
+  const jobsByState = latestRows(standaloneJobs.live, standaloneJobs.ended);
   for (const row of jobsByState) {
     const project = row.project;
-    if (!project) continue;
     const job = zoneJob(project.id, row);
     const state = jobState(job);
     const updatedAt = new Date(job.finishedAt ?? row.updated_at).toISOString();
