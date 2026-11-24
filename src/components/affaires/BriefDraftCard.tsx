@@ -656,13 +656,28 @@ export function BriefDraftCard({
 
       <AffaireConfirmDialog open={showConfirmDialog && Boolean(briefDraft) && !isReadOnly && !isEditing}
         title="Confirmer ce brief ?"
-        message={`Il deviendra la référence de travail pour la suite du chiffrage. Hypothèses ouvertes : ${briefDraft?.assumptions.length ?? 0}. Éléments manquants : ${unresolvedMissingCount}. Points de vigilance : ${briefDraft?.vigilancePoints.length ?? 0}. Confirmer ne transforme pas une inférence en preuve et ne résout pas les manques.${payerNotice.state === "ready" && payerNotice.notice ? ` ${payerNotice.notice.message}` : ""}`}
+        message="Il deviendra la référence de travail pour la suite du chiffrage."
         confirmLabel="Oui, confirmer" confirmDisabled={isPending || payerNotice.state === "pending"} cancelDisabled={isPending}
         onConfirm={() => {
           const digest = payerNotice.state === "ready" ? payerNotice.notice?.digest ?? null : null;
           closeConfirmDialog();
           handleConfirm(digest);
         }} onCancel={closeConfirmDialog}>
+        <div className="space-y-3 text-sm text-foreground-secondary">
+          <ul className="divide-y divide-border rounded-lg border border-border">
+            {[
+              ["Hypothèses ouvertes", briefDraft?.assumptions.length ?? 0],
+              ["Éléments manquants", unresolvedMissingCount],
+              ["Points de vigilance", briefDraft?.vigilancePoints.length ?? 0],
+            ].map(([label, count]) => (
+              <li key={label} className="flex items-center justify-between gap-4 px-3 py-2">
+                <span>{label}</span><strong className="tabular-nums text-foreground">{count}</strong>
+              </li>
+            ))}
+          </ul>
+          <p>Confirmer ne transforme pas une inférence en preuve et ne résout pas les manques.</p>
+          {payerNotice.state === "ready" && payerNotice.notice ? <p>{payerNotice.notice.message}</p> : null}
+        </div>
         {payerNotice.state === "pending" ? (
           <Alert variant="info" role="status"><AlertDescription>Vérification du forfait ChatGPT que le métré utilisera…</AlertDescription></Alert>
         ) : payerNotice.state === "failed" ? (
