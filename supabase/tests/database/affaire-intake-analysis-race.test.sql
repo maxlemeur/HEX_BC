@@ -50,8 +50,6 @@ $$;
 select throws_ok('select * from pg_temp.competing_press()','55P03',null,'depositor pressing concurrently waits for the admin');
 select dblink_exec('launcher','commit');
 select results_eq('select * from pg_temp.competing_press()', $$select id,'already_running'::text from winner$$,'depositor gets the first launch after commit');
-select results_eq($$select created_by,launch_read_scans from public.affaire_intake_uploads where id=(select id from winner)$$,
-  $$values ('ae200000-0000-4000-8000-000000000002'::uuid,true)$$,'the first payer and reading choice survive both presses');
 -- A second, empty dossier lets us check only the permission decision while a press waits.
 select dblink_exec('depositor',$setup$
   reset role;
@@ -61,7 +59,7 @@ $setup$);
 select dblink_exec('launcher',$setup$
   reset lock_timeout;
   set statement_timeout='10s';
-  create function pg_temp.press_empty() returns text language plpgsql as $$
+  create function pg_temp.press_test_dossier() returns text language plpgsql as $$
   begin
     return (select outcome from public.launch_affaire_intake_analysis('ae200000-0000-4000-8000-000000000021',false));
   exception when insufficient_privilege then return 'forbidden';
@@ -69,8 +67,8 @@ select dblink_exec('launcher',$setup$
   $$;
 $setup$);
 create temp table race_pid as select name, pid from sessions cross join lateral dblink(name,'select pg_backend_pid()') remote(pid int);
-select dblink_send_query('launcher','select pg_temp.press_empty()');
-create function pg_temp.wait_for_dossier_lock() returns boolean language plpgsql as $$
+select dblink_send_query('launcher','select pg_temp.press_test_dossier()');
+create function pg_temp.wait_for_launcher() returns boolean language plpgsql as $$
 declare
   waiting int := (select pid from race_pid where name='launcher');
   holder int := (select pid from race_pid where name='depositor');
@@ -82,13 +80,63 @@ begin
   return false;
 end;
 $$;
-select ok(pg_temp.wait_for_dossier_lock(),'the press is waiting in SQL before the role changes');
+select ok(pg_temp.wait_for_launcher(),'the press is waiting in SQL before the role changes');
 select dblink_exec('depositor',$change$
   update public.tenant_memberships set role='director' where tenant_id=pg_temp.f(10) and user_id=pg_temp.f(2);
   commit;
 $change$);
 select is((select reply from dblink_get_result('launcher') x(reply text)),'forbidden','write permission is checked after the lock wait');
 select count(*) from dblink_get_result('launcher') x(reply text);
+
+-- The admin's personal tenant is the default. Its suspension leaves the dossier's
+-- tenant as the fallback. Fence the synthetic launch against any write during the
+-- negative case, so even a failed assertion cannot commit a reservation.
+select dblink_exec('depositor',$setup$
+  begin;
+  update public.tenant_memberships set role='admin',is_default=false where user_id=pg_temp.f(2) and tenant_id=pg_temp.f(10);
+  update public.tenant_memberships set is_default=true where user_id=pg_temp.f(2) and tenant_id<>pg_temp.f(10);
+  update public.tenants set is_active=false where created_by=pg_temp.f(2);
+  insert into public.affaire_intake_uploads(id,project_id,created_by,status)
+    values(pg_temp.f(42),pg_temp.f(21),pg_temp.f(1),'deposited');
+  insert into public.affaire_intake_documents(id,upload_id,file_name,storage_path,upload_status,classification_status)
+    values(pg_temp.f(52),pg_temp.f(42),'scan.pdf','fixture/52','uploaded','awaiting_launch');
+  alter table public.affaire_intake_uploads add constraint test_no_fixture_reservation
+    check (project_id <> 'ae200000-0000-4000-8000-000000000021' or launch_read_scans is null);
+  commit;
+  begin;
+  do $$begin perform 1 from public.affaire_intake_documents where id=pg_temp.f(52) for update; end$$;
+$setup$);
+select is((select id from dblink('launcher','select public.current_tenant_id()') x(id uuid)),
+  'ae200000-0000-4000-8000-000000000010'::uuid,'the dossier is in the active fallback tenant at the press');
+select dblink_send_query('launcher','select pg_temp.press_test_dossier()');
+select ok(pg_temp.wait_for_launcher(),'the launch waits for the eligible piece');
+select dblink_exec('depositor',$change$
+  update public.tenants set is_active=true where created_by=pg_temp.f(2);
+  commit;
+$change$);
+select is((select reply from dblink_get_result('launcher',false) x(reply text)),'forbidden',
+  'the restored default tenant is authoritative at reservation');
+select count(*) from dblink_get_result('launcher',false) x(reply text);
+select dblink_exec('depositor',$control$
+  begin;
+  alter table public.affaire_intake_uploads drop constraint test_no_fixture_reservation;
+  update public.tenants set is_active=false where created_by=pg_temp.f(2);
+  commit;
+$control$);
+select results_eq($$select classification_status,analysis_launch_id,
+    (select count(*) from public.affaire_intake_uploads where project_id=d.project_id and launch_read_scans is not null)
+    from public.affaire_intake_documents d where id='ae200000-0000-4000-8000-000000000052'$$,
+  $$values ('awaiting_launch'::text,null::uuid,0::bigint)$$,'refusal leaves no launch and the piece still waits');
+
+select dblink_exec('launcher','begin');
+select is((select reply from dblink('launcher','select pg_temp.press_test_dossier()') x(reply text)),'launched',
+  'the same fallback member can reserve the same piece while the default stays suspended');
+select throws_ok($$select * from dblink('depositor',
+    'select id from public.tenants where created_by=pg_temp.f(2) for no key update nowait') x(id uuid)$$,
+  '55P03',null,'the default tenant stays locked through the reservation commit');
+select dblink_exec('launcher','commit');
+select results_eq($$select created_by,launch_read_scans from public.affaire_intake_uploads where id=(select id from winner)$$,
+  $$values ('ae200000-0000-4000-8000-000000000002'::uuid,true)$$,'the first payer and reading choice survive both presses');
 
 select dblink_exec('depositor',$remote$
   reset role;

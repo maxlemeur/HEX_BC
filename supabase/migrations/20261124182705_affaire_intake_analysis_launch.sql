@@ -151,39 +151,51 @@ language plpgsql security definer set search_path = '' as $$
 declare
   actor uuid := auth.uid();
   tenant uuid := public.current_tenant_id();
+  active_batch uuid;
   batch uuid;
   pieces uuid[];
 begin
   if p_read_scans is null then raise exception 'INTAKE_READING_CHOICE_REQUIRED' using errcode='22023'; end if;
-  if not exists(select 1 from public.estimate_projects p join public.tenant_memberships m on m.tenant_id=p.tenant_id
-      where p.id=p_project_id and p.tenant_id=tenant and not p.is_archived and m.user_id=actor
-        and (p.user_id=actor or m.role='admin')) then
+  -- Take the project's share lock first, as the server's brief confirmation does.
+  perform 1 from public.estimate_projects p join public.tenant_memberships m on m.tenant_id=p.tenant_id
+    where p.id=p_project_id and p.tenant_id=tenant and not p.is_archived and m.user_id=actor
+      and (p.user_id=actor or m.role='admin') for share of p;
+  if not found then
     raise exception 'INTAKE_LAUNCH_FORBIDDEN' using errcode='42501';
   end if;
   perform private.lock_affaire_intake_analysis(p_project_id);
-  -- Rights may have changed during the wait. Hold the rows defining this grant until
-  -- the reservation commits, including against a concurrent active-tenant switch.
-  perform 1
-  from public.tenant_memberships m
-  join public.tenants t on t.id = m.tenant_id
-  join public.estimate_projects p on p.tenant_id = t.id
-  where p.id = p_project_id and t.id = tenant and t.is_active and not p.is_archived
-    and m.user_id = actor and (p.user_id = actor or m.role = 'admin')
-  for share of m, t, p;
-  if not found or tenant is distinct from public.current_tenant_id() then
+  select u.id into active_batch from public.affaire_intake_uploads u where u.project_id=p_project_id
+    and u.status in ('launch_queued','launch_processing');
+  if active_batch is null then
+    select array_agg(eligible.id) into pieces from (
+      select d.id from public.affaire_intake_documents d
+      where d.project_id=p_project_id and d.tenant_id=tenant and private.intake_piece_waits(d) and d.deletion_token is null
+      order by d.id for update
+    ) eligible;
+  end if;
+
+  -- A piece may have kept this press waiting while a default tenant was reactivated.
+  -- Hold every membership and its tenant (including suspended ones) through commit.
+  perform 1 from public.tenant_memberships m join public.tenants t on t.id=m.tenant_id
+    where m.user_id=actor for share of m,t;
+  -- Decide every outcome on fresh permissions. Gate the insert in this same statement
+  -- so it also sees any newly added membership visible at the point of reservation.
+  with allowed as (
+    select m.user_id from public.estimate_projects p join public.tenant_memberships m on m.tenant_id=p.tenant_id
+    where p.id=p_project_id and p.tenant_id=tenant and p.tenant_id=public.current_tenant_id()
+      and not p.is_archived and m.user_id=actor and (p.user_id=actor or m.role='admin')
+  ), reserved as (
+    insert into public.affaire_intake_uploads(project_id,tenant_id,created_by,status,launch_read_scans)
+      select p_project_id,tenant,allowed.user_id,'launch_queued',p_read_scans from allowed
+      where active_batch is null and pieces is not null
+      returning id
+  )
+  select reserved.id into batch from allowed left join reserved on true;
+  if not found then
     raise exception 'INTAKE_LAUNCH_FORBIDDEN' using errcode = '42501';
   end if;
-  select u.id into batch from public.affaire_intake_uploads u where u.project_id=p_project_id
-    and u.status in ('launch_queued','launch_processing');
-  if found then return query select 'already_running'::text,batch,0; return; end if;
-  select array_agg(eligible.id) into pieces from (
-    select d.id from public.affaire_intake_documents d
-    where d.project_id=p_project_id and d.tenant_id=tenant and private.intake_piece_waits(d) and d.deletion_token is null
-    order by d.id for update
-  ) eligible;
+  if active_batch is not null then return query select 'already_running'::text,active_batch,0; return; end if;
   if pieces is null then return query select 'nothing_waiting'::text,null::uuid,0; return; end if;
-  insert into public.affaire_intake_uploads(project_id,tenant_id,created_by,status,launch_read_scans)
-    values(p_project_id,tenant,actor,'launch_queued',p_read_scans) returning id into batch;
   update public.affaire_intake_documents set analysis_launch_id=batch,classification_status='queued' where id=any(pieces);
   return query select 'launched'::text,batch,cardinality(pieces);
 end;
