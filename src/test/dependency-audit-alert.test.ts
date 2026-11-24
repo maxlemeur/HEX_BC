@@ -121,7 +121,7 @@ describe("the token that writes issues runs no third-party package code", () => 
     ]);
     // The workflow's command, without any loader: it reaches its own input check, before npm or gh.
     const run = spawnSync(process.execPath, ["--disable-warning=MODULE_TYPELESS_PACKAGE_JSON", script], {
-      cwd: root, encoding: "utf8", env: { PATH: process.env.PATH, HOME: process.env.HOME },
+      cwd: root, encoding: "utf8", env: { NODE_ENV: "test", PATH: process.env.PATH, HOME: process.env.HOME },
     });
     expect(run.status, run.stderr).toBe(1);
     expect(run.stderr).toContain("GITHUB_REPOSITORY (owner/name)");
