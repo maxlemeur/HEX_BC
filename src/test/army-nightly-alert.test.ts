@@ -122,14 +122,30 @@ describe("alert of a red TesterArmy campaign of main", () => {
     ], titles)).toEqual([7, 11]);
   });
 
-  it("watches exactly the campaigns of main its workflow is triggered by, each with its aggregate evidence", () => {
+  // pgTAP and the RLS matrix of a push to main run only in `rls-matrix` (the Army jobs delegate them), and its
+  // schedule is the only run that measures the CI statement ceilings on main: a red one reaches the issue too.
+  it("raises a red rls-matrix run of main, which names no journey, without claiming its evidence was lost", () => {
+    expect(ALERT_WORKFLOWS["E2E RLS Matrix"]).toEqual({ file: ".github/workflows/e2e-rls-matrix.yml", artifact: null });
+    const plan = planAlert(red({ workflow: "E2E RLS Matrix", failedJobs: ["rls-matrix"], notPassed: null, journeys: false }));
+    expect(plan).toMatchObject({ action: "create", title: "CI rouge sur main : E2E RLS Matrix" });
+    if (plan.action !== "create") throw new Error("unreachable");
+    expect(plan.body).toContain("`rls-matrix`");
+    expect(plan.body).toContain("pgTAP");
+    expect(plan.body).not.toContain("n'ont pas pu être lus");
+    expect(plan.body).not.toContain("Parcours non passés");
+    expect(planAlert(red({ workflow: "E2E RLS Matrix", conclusion: "success", openIssue: 301, failedJobs: [], notPassed: [], journeys: false })))
+      .toMatchObject({ action: "close", issue: 301 });
+  });
+
+  it("watches exactly the runs of main its workflow is triggered by, each with its aggregate evidence when it runs journeys", () => {
     const workflow = fs.readFileSync(path.join(root, ".github/workflows/ci-night-alert.yml"), "utf8");
     const watched = /^ {4}workflows: \[(.+)\]$/mu.exec(workflow)?.[1].split(",").map((name) => name.trim().replace(/^"|"$/gu, ""));
     expect(watched?.sort()).toEqual(Object.keys(ALERT_WORKFLOWS).sort());
+    expect(watched).toContain("E2E RLS Matrix");
     for (const [name, { file, artifact }] of Object.entries(ALERT_WORKFLOWS)) {
       const watchedWorkflow = fs.readFileSync(path.join(root, file), "utf8");
       expect(watchedWorkflow, file).toMatch(new RegExp(`^name: ${name}$`, "mu"));
-      expect(watchedWorkflow, file).toContain(artifact);
+      if (artifact !== null) expect(watchedWorkflow, file).toContain(artifact);
       // Each event that writes is one the watched workflow runs its whole campaign for, and a push only on main.
       for (const event of ALERT_EVENTS) expect(watchedWorkflow, `${file} ${event}`).toMatch(new RegExp(`^ {2}${event}:$`, "mu"));
       expect(watchedWorkflow, file).toMatch(/^ {2}push:\n {4}branches: \[main\]\n/mu);

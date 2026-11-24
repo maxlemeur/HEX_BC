@@ -11,10 +11,10 @@ Pour exécuter un parcours, commencer par [le guide des tests](../../e2e/README.
 | [Quality Gate](../../.github/workflows/quality-gate.yml) | PR vers `main`, push `main`, manuel ; contrôles statiques, tests retenus et build de production, puis agrégation `quality-gate` |
 | [Smoke anonyme](../../.github/workflows/e2e-army-smoke.yml) | PR, push `main`, manuel ; configuration publique synthétique, aucun backend partagé ni modèle |
 | [Critical](../../.github/workflows/e2e-army-critical.yml) | PR vers `main`, push `main`, manuel ; sélection métier et métré, piles natives indépendantes, checks `army-critical` et `army-takeoff` |
-| [E2E RLS Matrix](../../.github/workflows/e2e-rls-matrix.yml) | Chaque PR vers `main`, push `main` qui touche `supabase/` ou la matrice, quotidien à 05:15 UTC et manuel ; toujours complet ; sur une PR il porte seul pgTAP et la matrice RLS, que les jobs Army lui délèguent |
+| [E2E RLS Matrix](../../.github/workflows/e2e-rls-matrix.yml) | Chaque PR vers `main`, chaque push `main` qui ne touche pas que la documentation, quotidien à 05:15 UTC et manuel ; toujours complet ; sur une PR et sur un push `main` il porte seul pgTAP et la matrice RLS, que les jobs Army lui délèguent |
 | [Full](../../.github/workflows/e2e-army-full.yml) | Manuel, quotidien à 03:15 UTC et [après un push `main`](#campagnes-de-main-après-un-push) ; parcours de production et phase développement |
 | [Calc-v3](../../.github/workflows/e2e-army-calc-v3.yml) | Manuel, quotidien à 04:45 UTC, PR vers `main` (phases atteintes) et [après un push `main`](#campagnes-de-main-après-un-push) ; phases du [guide calc-v3](tester-army-calc-v3.md), réparties en [groupes](#jobs-parallèles), check `army-calc-v3` |
-| [CI night alert](../../.github/workflows/ci-night-alert.yml) | Après chaque campagne Full ou Calc-v3 de `main` (planifiée ou après un push), et manuel ; [ticket d'alerte](#alerte-des-campagnes-de-main) ouvert, commenté ou fermé |
+| [CI night alert](../../.github/workflows/ci-night-alert.yml) | Après chaque campagne Full ou Calc-v3 et chaque run E2E RLS Matrix de `main` (planifié ou après un push), et manuel ; [ticket d'alerte](#alerte-des-campagnes-de-main) ouvert, commenté ou fermé |
 
 Le job **Build** exécute `npm run verify:production` sur les PR, sur `main` et
 sur demande. Il compile avec Webpack, vérifie les types Next.js, les budgets et
@@ -191,6 +191,12 @@ fois et une journée chargée compte plus de vingt push.
   push.
 - Un push de documentation seule (`docs/**`, `**/*.md`, les chemins `docs` de la
   carte d'impact) ne démarre aucune campagne et n'en remplace aucune.
+- pgTAP et la matrice RLS d'un push tournent une seule fois, dans le run
+  `rls-matrix` de ce push, comme sur une pull request : les jobs Critical,
+  Full et Calc-v3 du push les lui délèguent
+  ([détail](#pile-confidentialité-et-diagnostic)). `rls-matrix` suit les mêmes
+  push (même `paths-ignore`) ; chaque run de push a son propre groupe de
+  concurrence, si bien qu'aucun push plus récent ne l'annule ni ne le remplace.
 
 Le run Critical d'un push suit la même file depuis le 11/11/2026, à sa largeur
 habituelle (ses shards tournent ensemble) : un run tourne, le plus récent attend
@@ -208,8 +214,8 @@ contient : environ 45 minutes après le push (première campagne mesurée, le
 davantage derrière une campagne déjà en cours. Depuis, les phases calc-v3
 tournent en cinq groupes, deux à la fois : une trentaine de minutes d'après les
 durées de `army-shards.json`, estimation que la première campagne groupée
-remplacera par sa mesure. Une campagne rouge ouvre le
-[ticket d'alerte](#alerte-des-campagnes-de-main).
+remplacera par sa mesure. Une campagne rouge, ou un run `rls-matrix` rouge,
+ouvre le [ticket d'alerte](#alerte-des-campagnes-de-main).
 
 ## Avant un push direct sur main
 
@@ -248,13 +254,19 @@ d'une PR, puis affiche la commande locale de chaque suite :
 Une campagne rouge sur `main` n'apparaît sur aucune PR.
 [`ci-night-alert.yml`](../../.github/workflows/ci-night-alert.yml) s'exécute
 après chaque campagne « TesterArmy Full » et « TesterArmy calc-v3 » de `main`,
-planifiée ou lancée après un push, et tient un ticket GitHub par workflow, titré
-« CI rouge sur main : <workflow> » :
+et après chaque run « E2E RLS Matrix » de `main`, planifié ou lancé après un
+push, et tient un ticket GitHub par workflow, titré
+« CI rouge sur main : <workflow> ». Ce dernier porte pgTAP et la matrice RLS que
+les jobs Army d'un push lui délèguent, et son run planifié est le seul qui
+mesure les plafonds de requêtes sur `main` : un pgTAP rouge sur `main` arrive
+donc au ticket « CI rouge sur main : E2E RLS Matrix ».
 
 - campagne rouge : le ticket est ouvert, ou reçoit un commentaire s'il l'est
   déjà. Il cite le run, ses jobs en échec et les parcours non passés que nomme
   `notPassed` dans le manifeste agrégé (rapports des shards et des phases
-  calc-v3 de chaque groupe) ; un échec antérieur aux parcours n'en nomme aucun ;
+  calc-v3 de chaque groupe) ; un échec antérieur aux parcours n'en nomme aucun.
+  E2E RLS Matrix ne lance aucun parcours : son ticket cite le run et le job en
+  échec, dont le journal donne l'étape (pgTAP, plafonds ou matrice RLS) ;
 - première campagne verte : le ticket est commenté puis fermé ;
 - campagne annulée ou sans conclusion : rien n'est écrit ;
 - résultat dépassé : une campagne planifiée et une campagne lancée après un push
@@ -422,28 +434,57 @@ et cibles DB/Supabase héritées, crée une pile native loopback et applique les
 migrations du checkout. Les contrôles pgTAP/RLS précèdent les parcours ; le
 build de production peut démarrer en parallèle des contrôles DB, sur la même
 identité de backend. Le plafond SQL de copie n'est alors pas mesuré dans ce
-job ; la matrice RLS l'exécute seule, sur chaque PR et chaque nuit sur
-`main`. Voir les [budgets SQL](large-estimate-statement-budget.md).
+job ; la matrice RLS l'exécute seule, sur chaque PR, chaque push `main` et
+chaque nuit. Voir les [budgets SQL](large-estimate-statement-budget.md).
+
+Chaque pile migre par `db reset`. Jusqu'au 24/11/2026, les shards Critical et
+takeoff restauraient une base pré-migrée (pg_dump puis pg_restore, mise en
+cache par `main`) au lieu de `db reset`, pour gagner 6 à 8 s par job (environ
+3 s de restauration contre 8 à 13 s de reset). Une base restaurée ne se
+comportait pas comme une base issue de `db reset` : du 21/11 au 23/11, 22 runs
+Critical de `main` sont tombés sur pgTAP seul, sur une base restaurée
+(`takeoff-plan-locations` 20 fois, nettoyage bloqué par la clé étrangère
+`audit_logs_tenant_id_fkey`, corrigé par #502 ; puis
+`copied-takeoff-draft-delete.sql` 2 fois, `ESTIMATE_ENGINE_COLUMN_NOT_SUPPORTED`),
+alors que les mêmes tests passaient sur les mêmes révisions après `db reset`
+(Full, calc-v3 et `rls-matrix` des PR). Cause probable : pg_restore renumérote
+les OID, donc les noms `RI_ConstraintTrigger_a_<oid>`, et avec eux l'ordre
+dans lequel les cascades se déclenchent. Le gain ne valait pas une base qui
+diffère de celle que vérifient les autres checks : l'instantané a été retiré,
+sans interrupteur.
 
 pgTAP et la matrice RLS prouvent la base migrée, pas les parcours : le même
-résultat dans chacune des piles d'une PR. Sur une pull request, ils tournent
-donc une seule fois, dans le check requis `rls-matrix`, seuls sur leur pile et
-plafonds compris. Ce check tourne en entier sur toute PR, de documentation
-aussi : le label `army-full` ou un diff vide lancent des jobs Army sur une
-telle PR. Les jobs Army de la même PR les lui délèguent
-(`ARMY_DATABASE_CHECKS_DELEGATED_TO`, lu par
+résultat dans chacune des piles d'une PR ou d'un push `main`. Sur une pull
+request et sur un push `main`, ils tournent donc une seule fois, dans
+`rls-matrix`, seuls sur leur pile et plafonds compris : environ 2,7 min de
+moins par job Army, soit, sur un push `main`, pour chacun des cinq shards
+Critical, des six shards Full, du job développement et des groupes calc-v3. Ce check, requis sur
+les PR, tourne en entier sur toute PR, de documentation aussi : le label
+`army-full` ou un diff vide lancent des jobs Army sur une telle PR. Sur `main`,
+il suit chaque push pour lequel les workflows Army tournent (même
+`paths-ignore`) et aucun run de push n'est annulé. Les jobs Army de la même PR
+ou du même push les lui délèguent (`ARMY_DATABASE_CHECKS_DELEGATED_TO`, lu par
 [`database-checks.ts`](../../scripts/tester-army/database-checks.ts)) : leur
 pile vérifie encore ses migrations et ses types générés, puis lance les
 parcours. Le manifeste l'indique (`database.checks` : `delegated`, absent
-quand le job exécute ses propres contrôles) et `army-critical` vert ne dit
-donc plus que le SQL est vérifié :
-c'est `rls-matrix` qui le dit. Hors pull request (push sur `main`, campagnes,
-run local), rien n'est délégué : la délégation y est refusée, faute de check
-qui réponde pour la révision.
+quand le job exécute ses propres contrôles) et `army-critical` ou `army-full`
+vert ne dit donc plus que le SQL est vérifié : c'est `rls-matrix` qui le dit,
+et un `rls-matrix` rouge sur `main` ouvre son
+[ticket d'alerte](#alerte-des-campagnes-de-main). Ailleurs (campagne
+planifiée ou manuelle, push sur une autre branche, run local), rien n'est
+délégué : la délégation y est refusée, faute de check qui réponde pour la
+révision, et chaque job exécute ses propres contrôles.
 
 Le compte/tenant ARMY et les secrets sont temporaires. Les sorties partageables
 sont expurgées ; les journaux SQL privés et l'environnement natif ne sont pas
-à publier. Le runner détruit sa pile en sortie, y compris après échec normal.
+à publier. Avant tout envoi, le lanceur refuse une preuve qui contient un
+secret de la pile, un JWT ou un jeton `Bearer`. Le mot de passe de la base
+locale, `postgres` (valeur par défaut de la CLI Supabase), en fait partie ; or
+les manifestes du run et du build listent chaque chemin source du build. Aucun
+chemin sous `src/`, `scripts/` ou les autres racines du build ne doit donc
+contenir `postgres`, ce que vérifie `army-evidence-source-paths.test.ts`. Le
+24/11/2026, `src/test/native-postgres-tools.ts` a fait échouer ce contrôle sur
+tous les jobs calc-v3 et Critical de la PR #530, après des parcours verts. Le runner détruit sa pile en sortie, y compris après échec normal.
 La [reprise locale](tester-army-local-development.md#arrêt-et-reprise) traite
 les interruptions brutales et ressources orphelines.
 

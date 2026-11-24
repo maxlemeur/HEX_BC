@@ -269,9 +269,10 @@ function applicationEnvironment(backend: URL, anonKey: string, serviceRoleKey: s
 
 // The production build of critical, full and calc-v3 needs only the stack's
 // origin and keys (it never receives the ARMY account or the SQL transport): it
-// starts as soon as the stack runs, while the snapshot, pgTAP and the RLS matrix
-// check the database (the snapshot alone when a pull request delegates the other
-// two). runApplication, which runs only after they pass, awaits it.
+// starts as soon as the stack runs, while db reset, pgTAP and the RLS matrix
+// prepare and check the database (db reset alone when a pull request or a push to
+// main delegates the other two). runApplication, which runs only after they pass,
+// awaits it.
 // Some SQL maintenance probes require NOWAIT table locks. An explicit serial campaign keeps the build's reads
 // away from that qualification window; every database, build and browser check still runs unchanged.
 const buildsEarly = process.env.E2E_ARMY_SERIAL_BUILD !== "1" && (suite === "critical" ||
@@ -845,7 +846,7 @@ async function main() {
       if (problems.length) throw new Error(`The filtered ${suite} run is refused before any stack: ${problems.join(" ")}`);
     }
     loopState?.update({ stackInputsSha256: await stackInputsDigest(root) });
-    // On a pull request the required check rls-matrix runs pgTAP and the RLS matrix once for every Army job.
+    // On a pull request and on a push to main, rls-matrix runs pgTAP and the RLS matrix once for every Army job.
     const delegatedDatabaseChecks = resolveDelegatedDatabaseChecks(process.env);
     if (delegatedDatabaseChecks && interactive) throw new Error("An interactive session runs its own database checks: it cannot delegate them.");
     // Recorded only when delegated: this run then proves nothing about pgTAP and the RLS matrix by itself.
@@ -861,11 +862,6 @@ async function main() {
       // destroy it after an abnormal supervisor exit.
       onProjectPrepared: (project) => {
         loopState?.update({ stack: { projectId: project.projectId, rootDirectory: project.rootDirectory, ports: [...(project.ports ?? [])] } });
-      },
-      // db reset or a verified pre-migrated snapshot (ARMY_DB_SNAPSHOT_DIR),
-      // reported before pgTAP and the journeys: a failed run records it too.
-      onDatabaseProvenance: (provenance) => {
-        manifest.database = { ...(manifest.database as Record<string, unknown>), provenance };
       },
       log: (message) => {
         const line = redact(suite === "dev" && message === "Application validation passed."
