@@ -1,10 +1,13 @@
 // @vitest-environment node
 
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 
-import { AUDIT_ALERT_TITLE, alertSimulation, planDependencyAuditAlert, type AuditAlertInput } from "../../scripts/dependency-audit-alert";
+import {
+  AUDIT_ALERT_TITLE, alertSimulation, listOpenAuditAlerts, planDependencyAuditAlert, type AuditAlertInput,
+} from "../../scripts/dependency-audit-alert";
 
 const root = process.cwd();
 const RUN = "https://github.com/example/repository/actions/runs/77";
@@ -75,12 +78,72 @@ describe("daily alert of the dependency audit of main", () => {
     expect(workflow).toMatch(/^ {4}permissions:\n {6}contents: read\n {6}issues: write\n {4}\S/mu);
     // A dispatch only simulates unless asked to write, and the script refuses to write outside main.
     expect(workflow).toContain("ALERT_WRITE: ${{ github.event_name == 'schedule' || inputs.write }}");
-    expect(workflow).toContain("run: node --import tsx scripts/dependency-audit-alert.ts");
+    expect(workflow).toContain("run: node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/dependency-audit-alert.ts");
     expect(alertSimulation({ ALERT_WRITE: "true", GITHUB_REF: "refs/heads/main" })).toBeNull();
     expect(alertSimulation({ ALERT_WRITE: "false", GITHUB_REF: "refs/heads/main" })).toContain("simulation");
     expect(alertSimulation({ GITHUB_REF: "refs/heads/main" })).toContain("simulation");
     expect(alertSimulation({ ALERT_WRITE: "true", GITHUB_REF: "refs/heads/ci/branch" })).toContain("refs/heads/ci/branch");
     expect(alertSimulation({ ALERT_WRITE: "true" })).toContain("simulation");
+  });
+});
+
+describe("the token that writes issues runs no third-party package code", () => {
+  const script = path.join(root, "scripts/dependency-audit-alert.ts");
+
+  it("installs nothing in the job: npm audit reads package-lock.json alone", () => {
+    const workflow = fs.readFileSync(path.join(root, ".github/workflows/dependency-audit-alert.yml"), "utf8");
+    const code = workflow.split("\n").filter((line) => !/^\s*#/u.test(line)).join("\n");
+    // No install (whose packages' scripts would run), no package runner, no loader from node_modules.
+    expect(code).not.toMatch(/\bnpm\s+(ci|install|i|exec|run|rebuild)\b|\bnpx\b|\btsx\b|\byarn\b|\bpnpm\b|--import|--require|NODE_OPTIONS/u);
+    // Nor a dependency cache restored into the job.
+    expect(code).not.toMatch(/^\s+cache:/mu);
+    expect([...code.matchAll(/^\s+(?:- )?uses: ([^@\s]+)@/gmu)].map((match) => match[1])).toEqual(["actions/checkout", "actions/setup-node"]);
+  });
+
+  it("imports only Node built-ins and repository files, so plain node runs it", () => {
+    const seen = new Set<string>();
+    const queue = [script];
+    while (queue.length) {
+      const file = queue.pop() as string;
+      if (seen.has(file)) continue;
+      seen.add(file);
+      const source = fs.readFileSync(file, "utf8");
+      expect(source, path.relative(root, file)).not.toMatch(/\bimport\s*\(|\brequire\s*\(/u);
+      for (const [, specifier] of source.matchAll(/^\s*(?:import|export)\b[^"'`;]*?["']([^"']+)["']/gmu)) {
+        if (specifier.startsWith("node:")) continue;
+        expect(specifier, `${path.relative(root, file)} imports ${specifier}`).toMatch(/^\.\.?\/[^:]*\.ts$/u);
+        queue.push(path.resolve(path.dirname(file), specifier));
+      }
+    }
+    expect([...seen].map((file) => path.relative(root, file)).sort()).toEqual([
+      "scripts/dependency-audit-alert.ts", "scripts/tester-army/nightly-alert.ts", "src/test/dependency-audit.ts",
+    ]);
+    // The workflow's command, without any loader: it reaches its own input check, before npm or gh.
+    const run = spawnSync(process.execPath, ["--disable-warning=MODULE_TYPELESS_PACKAGE_JSON", script], {
+      cwd: root, encoding: "utf8", env: { PATH: process.env.PATH, HOME: process.env.HOME },
+    });
+    expect(run.status, run.stderr).toBe(1);
+    expect(run.stderr).toContain("GITHUB_REPOSITORY (owner/name)");
+  });
+
+  it("finds the open alert by its author and exact title, without the lagging search index", () => {
+    const calls: string[][] = [];
+    const bot = { login: "app/github-actions", is_bot: true };
+    const open = listOpenAuditAlerts("owner/repository", (args) => {
+      calls.push(args);
+      return JSON.stringify([
+        { number: 41, title: AUDIT_ALERT_TITLE, author: bot },
+        { number: 40, title: `${AUDIT_ALERT_TITLE} (copie)`, author: bot },
+        { number: 39, title: AUDIT_ALERT_TITLE, author: { login: "someone", is_bot: false } },
+        { number: 12, title: AUDIT_ALERT_TITLE, author: bot },
+      ]);
+    });
+    expect(open).toEqual([12, 41]);
+    // gh reads --author through the issues connection (filterBy.createdBy), which wants the bot's
+    // login: "app/github-actions" there matches nothing.
+    expect(calls).toEqual([["issue", "list", "--repo", "owner/repository", "--state", "open", "--author", "github-actions[bot]",
+      "--json", "number,title,author", "--limit", "200"]]);
+    expect(calls[0]).not.toContain("--search");
   });
 });
 
@@ -91,6 +154,10 @@ describe("Dependabot and the pinned Supabase CLI", () => {
     expect(npm).toMatch(/^ {4}ignore:\n {6}- dependency-name: "supabase"\n/mu);
     // Ignored outright, not only kept out of a group whose own pull request would still be red.
     expect(npm.match(/"supabase"/gu)).toHaveLength(1);
-    expect(fs.readFileSync(path.join(root, "docs/testing/tester-army-ci.md"), "utf8")).toContain("## Mise à jour du CLI Supabase");
+    const guide = fs.readFileSync(path.join(root, "docs/testing/tester-army-ci.md"), "utf8");
+    const section = /^## Mise à jour du CLI Supabase\n([\s\S]*?)(?=^## )/mu.exec(guide)?.[1] ?? "";
+    // The ignore also silences Dependabot's security updates: the daily audit alert is what reports the CLI.
+    expect(section).toContain("mises à jour de sécurité");
+    expect(section).toContain("Audit des dépendances rouge sur main");
   });
 });

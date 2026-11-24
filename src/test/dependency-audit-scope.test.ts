@@ -35,10 +35,17 @@ function commit(directory: string, files: Record<string, string>, message: strin
 /**
  * A repository shaped like the Quality Gate's checkout:
  *   base ── source (src only) ── lock (package-lock.json) ── npmrc (.npmrc) ── policy (audit exceptions)
- *     └── mainDeps (package.json on main after the branch started)
+ *     ├── mainDeps (package.json on main after the branch started) ── mainSource (src only)
+ *     └── one commit per file of the audit's own code (auditCode)
+ * and, like the `refs/pull/N/merge` commit a pull_request run checks out, merge commits whose
+ * first parent is the pull request's base:
+ *   mergeSource = merge(mainDeps, source)    main changed package.json, the pull request only source
+ *   mergeLock   = merge(mainSource, lock)     main changed only source, the pull request package-lock.json
  */
 let repository: string;
 const sha: Record<string, string> = {};
+const AUDIT_CODE = ["src/test/dependency-audit.ts", "src/test/dependency-audit-scope.ts", "scripts/check-dependency-audit.ts"];
+const auditCode: Record<string, string> = {};
 
 beforeAll(() => {
   repository = fs.mkdtempSync(path.join(os.tmpdir(), "dependency-audit-scope-"));
@@ -59,6 +66,18 @@ beforeAll(() => {
   sha.lock = commit(repository, { "package-lock.json": '{"lockfileVersion":3,"packages":{}}\n' }, "lockfile");
   sha.npmrc = commit(repository, { ".npmrc": "audit=true\nfund=false\n" }, "npmrc");
   sha.policy = commit(repository, { "config/dependency-audit-policy.json": '{"version":1,"exceptions":[{}]}\n' }, "policy");
+  for (const file of AUDIT_CODE) {
+    git(repository, "checkout", "-q", "--detach", sha.base);
+    auditCode[file] = commit(repository, { [file]: `// ${file}\n` }, `audit code ${file}`);
+  }
+
+  git(repository, "checkout", "-q", "--detach", sha.mainDeps);
+  git(repository, "merge", "-q", "--no-ff", "--no-edit", sha.source);
+  sha.mergeSource = git(repository, "rev-parse", "HEAD");
+  git(repository, "checkout", "-q", "--detach", sha.mainDeps);
+  sha.mainSource = commit(repository, { "src/b.ts": "export const b = 1;\n" }, "main changes source");
+  git(repository, "merge", "-q", "--no-ff", "--no-edit", sha.lock);
+  sha.mergeLock = git(repository, "rev-parse", "HEAD");
 });
 
 afterAll(() => {
@@ -77,13 +96,34 @@ describe("which runs of the dependency audit block", () => {
     expect(pullRequest(sha.lock)).toMatchObject({ blocking: true, changedFiles: ["package-lock.json"] });
     expect(pullRequest(sha.npmrc)).toMatchObject({ blocking: true, changedFiles: [".npmrc", "package-lock.json"] });
     expect(pullRequest(sha.policy).changedFiles).toContain("config/dependency-audit-policy.json");
-    expect(DEPENDENCY_AUDIT_TRIGGER_FILES).toEqual(["package.json", "package-lock.json", ".npmrc", "config/dependency-audit-policy.json"]);
+    expect(DEPENDENCY_AUDIT_TRIGGER_FILES).toEqual([
+      "package.json", "package-lock.json", ".npmrc", "config/dependency-audit-policy.json", ...AUDIT_CODE,
+    ]);
+  });
+
+  it("blocks a pull request or a push that changes the audit's own code", () => {
+    for (const file of AUDIT_CODE) {
+      expect(scopeAt(auditCode[file], { DEPENDENCY_AUDIT_EVENT: "pull_request", DEPENDENCY_AUDIT_BASE: sha.base }), file)
+        .toMatchObject({ blocking: true, changedFiles: [file] });
+      expect(scopeAt(auditCode[file], { DEPENDENCY_AUDIT_EVENT: "push", DEPENDENCY_AUDIT_BASE: sha.base, DEPENDENCY_AUDIT_FORCED: "false" }), file)
+        .toMatchObject({ blocking: true, changedFiles: [file] });
+    }
   });
 
   it("judges a pull request by its own changes, not by what main changed since it started", () => {
     // The base main has moved to a package.json change; the pull request itself changed only source.
     expect(scopeAt(sha.source, { DEPENDENCY_AUDIT_EVENT: "pull_request", DEPENDENCY_AUDIT_BASE: sha.mainDeps }))
       .toMatchObject({ blocking: false, changedFiles: [] });
+  });
+
+  // What CI runs: HEAD is GitHub's merge commit, the base (pull_request.base.sha) its first parent.
+  it("judges GitHub's merge commit by what the pull request brings to its base", () => {
+    expect(git(repository, "rev-parse", `${sha.mergeSource}^1`)).toBe(sha.mainDeps);
+    expect(scopeAt(sha.mergeSource, { DEPENDENCY_AUDIT_EVENT: "pull_request", DEPENDENCY_AUDIT_BASE: sha.mainDeps }))
+      .toMatchObject({ blocking: false, changedFiles: [] });
+    expect(git(repository, "rev-parse", `${sha.mergeLock}^1`)).toBe(sha.mainSource);
+    expect(scopeAt(sha.mergeLock, { DEPENDENCY_AUDIT_EVENT: "pull_request", DEPENDENCY_AUDIT_BASE: sha.mainSource }))
+      .toMatchObject({ blocking: true, changedFiles: ["package-lock.json"] });
   });
 
   it("blocks a push to main only when its before..after range changes a dependency file", () => {
