@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { expect } from "e2e";
 
+import type { AnalysisProgress } from "@/lib/affaires/analysis-progress-contract";
+
 import { querySql } from "../local/calculation-gate-support";
 import { signUpDedicatedOwner } from "../local/dedicated-owner";
 import { apiRequest, armyTest, recordEvidence } from "./fixtures";
@@ -292,6 +294,62 @@ armyTest("Analysis progress round 2 names the plan of a one-plan relaunch", {
       detail: expect.stringContaining("Relance de l’analyse — plan-nord.pdf"),
     }),
   ]));
+});
+
+armyTest("Analysis progress discovers new work while an older result is unread", {
+  session: "army", tags: ["critical", "affaires"], timeout: 120_000,
+}, async ({ app, browser, screen, army }) => {
+  const member = await signUpDedicatedOwner(browser, app.baseUrl!, army.runPrefix, { tag: "PROGDISC" });
+  const history = randomUUID(), active = randomUUID();
+  const path = "/api/affaires/analysis-progress";
+  const button = screen.getByRole("button", "Suivi des analyses", { exact: true });
+  const panel = screen.getByRole("dialog", "Suivi des analyses", { exact: true });
+  await app.open("/analysis-progress-probe");
+  await querySql(`BEGIN;
+    INSERT INTO public.estimate_projects (id, tenant_id, user_id, name) VALUES
+      ('${history}', '${member.tenantId}', '${member.userId}', 'Affaire aux résultats anciens'),
+      ('${active}', '${member.tenantId}', '${member.userId}', 'Affaire avec une nouvelle lecture');
+    INSERT INTO public.affaire_intake_uploads (project_id, created_by, status) VALUES
+      ('${history}', '${member.userId}', 'ready'), ('${active}', '${member.userId}', 'processing');
+    INSERT INTO public.affaire_intake_documents (upload_id, created_by, file_name, size_bytes, storage_path,
+      upload_status, classification_status, classified_at, created_at)
+      SELECT u.id, u.created_by, 'pièce-fictive-' || n || '.txt', 14, u.project_id || '/pièce-' || n || '.txt',
+        'uploaded', 'classified', now() - n * interval '1 minute', now() - n * interval '1 minute'
+      FROM public.affaire_intake_uploads u CROSS JOIN generate_series(1, 17) n WHERE u.project_id = '${history}';
+    COMMIT;`);
+  const first = await apiRequest<{ data: AnalysisProgress }>(browser, "GET", path);
+  expect(first.status).toBe(200);
+  const seen = first.body.data.affaires.flatMap(({ lines }) => lines.flatMap(({ completionKeys }) => completionKeys));
+  expect(seen).toHaveLength(16);
+  await browser.evaluate(({ key, seen }) => {
+    localStorage.setItem(key, JSON.stringify(seen.map(completion => [completion, Date.now() + 3_600_000])));
+    return null;
+  }, { key: `mergeone:analysis-progress:completions:${member.tenantId}:${member.userId}`, seen });
+
+  const [older] = await Promise.all([
+    browser.waitForResponse(new RegExp(`${path}\\?cursor=`), { timeout: 45_000 }),
+    app.open("/dashboard"),
+  ]);
+  const { data: olderPage } = await older.json<{ data: AnalysisProgress }>();
+  expect(olderPage.affaires.map(({ id }) => id)).toEqual([history]);
+  const olderKeys = olderPage.affaires.flatMap(({ lines }) => lines.flatMap(({ completionKeys }) => completionKeys));
+  expect(olderKeys).toHaveLength(1);
+  expect(seen).not.toContain(olderKeys[0]);
+  await expect(button).toBeVisible();
+  await expect(panel).toBeHidden();
+
+  await querySql(`INSERT INTO public.affaire_intake_documents
+    (upload_id, created_by, file_name, size_bytes, storage_path, upload_status, classification_status)
+    SELECT id, created_by, 'nouvelle-pièce-fictive.txt', 14, project_id || '/nouvelle-pièce.txt', 'uploaded', 'processing'
+    FROM public.affaire_intake_uploads WHERE project_id = '${active}';`);
+
+  const next = await browser.waitForResponse(new RegExp(path), { timeout: 40_000 });
+  const { data: discovered } = await next.json<{ data: AnalysisProgress }>();
+  expect(discovered.affaires.find(({ id }) => id === active)?.lines.map(({ state }) => state)).toEqual(["reading"]);
+  await expect(panel).toBeHidden();
+  await button.tap();
+  await expect(panel.getByText("Affaire avec une nouvelle lecture", { exact: true })).toBeVisible();
+  await expect(panel.getByText("1 pièce en cours", { exact: true })).toBeVisible();
 });
 
 armyTest("Analysis progress round 2 keeps the same completion after a priority edit", {

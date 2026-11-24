@@ -46,10 +46,21 @@ export function AnalysisProgressIndicator({ tenantId, userId }: { tenantId: stri
   const openRef = useRef(false);
 
   useEffect(() => {
-    let cursor = selection.cursor;
+    let historyCursor = selection.cursor;
+    let history: Page | null = null;
+    let refreshHistoryAt = 0;
     let timer: ReturnType<typeof setTimeout> | undefined;
     let active: AbortController | null = null;
     let disposed = false;
+
+    async function readPage(cursor: string | null, signal: AbortSignal): Promise<Page> {
+      const search = cursor ? `?cursor=${encodeURIComponent(cursor)}` : "";
+      const response = await fetch(PROGRESS_PATH + search, { cache: "no-store", signal });
+      if (!response.ok) throw new Error("Analysis progress unavailable");
+      const { data } = await response.json() as { data: AnalysisProgress };
+      if (data.viewer.tenantId !== tenantId || data.viewer.userId !== userId) throw new Error("Analysis progress scope changed");
+      return { cursor, data };
+    }
 
     async function poll() {
       if (disposed || active || document.visibilityState !== "visible") return;
@@ -57,20 +68,32 @@ export function AnalysisProgressIndicator({ tenantId, userId }: { tenantId: stri
       active = controller;
       let interval = WAITING_INTERVAL_MS;
       try {
-        const search = cursor ? `?cursor=${encodeURIComponent(cursor)}` : "";
-        const response = await fetch(PROGRESS_PATH + search, { cache: "no-store", signal: controller.signal });
-        if (!response.ok) throw new Error("Analysis progress unavailable");
-        const { data } = await response.json() as { data: AnalysisProgress };
-        if (data.viewer.tenantId !== tenantId || data.viewer.userId !== userId) throw new Error("Analysis progress scope changed");
-        if (disposed) return;
-        setProgress({ cursor, data });
-        if (data.affaires.some(({ lines }) => lines.some((line) => line.state === "reading"))) {
+        const head = await readPage(null, controller.signal);
+        if (disposed || document.visibilityState !== "visible") return;
+        if (head.data.affaires.some(({ lines }) => lines.some((line) => line.state === "reading"))) {
           interval = READING_INTERVAL_MS;
         }
-        // An already-seen first page must not hide unseen work behind it.
-        // Look at one more page on the next tick, only while the panel is closed.
-        if (!openRef.current && unreadAffaires(data, seenRef.current).length === 0) {
-          cursor = data.nextCursor;
+
+        // Only look behind the head automatically when it has nothing to show.
+        if (!openRef.current) {
+          historyCursor = unreadAffaires(head.data, seenRef.current).length > 0
+            ? null
+            : historyCursor ?? head.data.nextCursor;
+        }
+        if (!historyCursor) {
+          setProgress(head);
+          return;
+        }
+
+        // An older page can stay selected without taking over discovery or its cadence.
+        if (history?.cursor !== historyCursor || Date.now() >= refreshHistoryAt) {
+          history = await readPage(historyCursor, controller.signal);
+          refreshHistoryAt = Date.now() + WAITING_INTERVAL_MS;
+        }
+        if (disposed) return;
+        setProgress(history);
+        if (!openRef.current && unreadAffaires(history.data, seenRef.current).length === 0) {
+          historyCursor = history.data.nextCursor;
         }
       } catch {
         if (!disposed) setProgress(null);
