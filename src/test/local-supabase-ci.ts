@@ -13,7 +13,7 @@ import {
   type NativeStackSlot,
   nativeStackWaitMs,
 } from "@/test/native-stack-guard";
-import { resolveNativePostgresTools } from "@/test/native-postgres-tools";
+import { resolveNativePostgresTools } from "@/test/native-database-tools";
 import {
   assertNoRemoteSupabaseEnvironment,
   createLocalCiEnvironment,

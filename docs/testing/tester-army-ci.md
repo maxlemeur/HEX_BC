@@ -477,7 +477,14 @@ révision, et chaque job exécute ses propres contrôles.
 
 Le compte/tenant ARMY et les secrets sont temporaires. Les sorties partageables
 sont expurgées ; les journaux SQL privés et l'environnement natif ne sont pas
-à publier. Le runner détruit sa pile en sortie, y compris après échec normal.
+à publier. Avant tout envoi, le lanceur refuse une preuve qui contient un
+secret de la pile, un JWT ou un jeton `Bearer`. Le mot de passe de la base
+locale, `postgres` (valeur par défaut de la CLI Supabase), en fait partie ; or
+les manifestes du run et du build listent chaque chemin source du build. Aucun
+chemin sous `src/`, `scripts/` ou les autres racines du build ne doit donc
+contenir `postgres`, ce que vérifie `army-evidence-source-paths.test.ts`. Le
+24/11/2026, `src/test/native-postgres-tools.ts` a fait échouer ce contrôle sur
+tous les jobs calc-v3 et Critical de la PR #530, après des parcours verts. Le runner détruit sa pile en sortie, y compris après échec normal.
 La [reprise locale](tester-army-local-development.md#arrêt-et-reprise) traite
 les interruptions brutales et ressources orphelines.
 

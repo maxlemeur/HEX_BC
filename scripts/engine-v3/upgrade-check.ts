@@ -21,7 +21,7 @@
 // Secrets never reach the console or the evidence; the evidence directory is
 // .e2e/engine-v3/upgrade-check/<timestamp>-<label>/ (report.json, psql.log).
 
-import { resolveNativePostgresTools } from "../../src/test/native-postgres-tools";
+import { resolveNativePostgresTools } from "../../src/test/native-database-tools";
 import { spawnSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import fs from "node:fs";

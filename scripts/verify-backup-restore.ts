@@ -4,7 +4,7 @@ import { createHash, randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 
-import { resolveNativePostgresTools } from "../src/test/native-postgres-tools";
+import { resolveNativePostgresTools } from "../src/test/native-database-tools";
 import { parseLocalSupabaseCiArguments, runLocalSupabaseCi } from "../src/test/local-supabase-ci";
 import { createLocalCiEnvironment, type SupabaseEnvironment } from "../src/test/supabase-cli";
 
