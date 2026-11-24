@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { readFile } from "node:fs/promises";
 import { expect } from "e2e";
 
 import type { AnalysisProgress } from "@/lib/affaires/analysis-progress-contract";
@@ -194,40 +195,36 @@ armyTest("Analysis progress round 2 bounds the poll on a large tenant and offers
     ANALYZE public.takeoff_jobs;
     ANALYZE public.estimate_projects;`);
   type Page = { data: { affaires: Array<{ lines: Array<{ id: string; state: string; completionKeys: string[] }> }>; nextCursor: string | null } };
-  const request = `${path}?since=2026-01-01T00%3A00%3A00Z`;
-  const stats = async () => JSON.parse((await querySql(`
-    SELECT coalesce(json_object_agg(queryid, json_build_array(calls,total_exec_time,rows)), '{}')
-    FROM extensions.pg_stat_statements
-    WHERE userid = 'authenticated'::regrole AND toplevel AND query LIKE 'WITH pgrst_source%';
-  `)).at(-1) ?? "{}") as Record<string, [number, number, number]>;
-  const samples = [];
-  let first: Awaited<ReturnType<typeof apiRequest<Page>>> | undefined;
-  for (let sample = 0; sample < 7; sample++) {
-    const before = await stats();
-    const started = performance.now();
-    const response = await apiRequest<Page>(browser, "GET", request);
-    const httpMs = performance.now() - started;
-    const after = await stats();
-    const statements = Object.entries(after).flatMap(([queryId, [calls, ms, rows]]) => {
-      const old = before[queryId] ?? [0, 0, 0];
-      return calls > old[0] ? [{ queryId, calls: calls - old[0], ms: ms - old[1], rows: rows - old[2] }] : [];
-    });
-    samples.push({ httpMs, calls: statements.reduce((sum, statement) => sum + statement.calls, 0),
-      sqlMs: statements.reduce((sum, statement) => sum + statement.ms, 0), statements });
-    first ??= response;
-  }
-  if (!first) throw new Error("Missing poll sample");
+  const networkLog = process.env.E2E_COVERAGE_NETWORK_LOG;
+  if (!networkLog) throw new Error("The owned server network log is required for the poll budget");
+  const measure = async () => {
+    const poll = randomUUID();
+    const start = performance.now();
+    const response = await apiRequest<Page>(browser, "GET", path, undefined, { "x-army-analysis-progress-poll": poll });
+    return { poll, httpMs: performance.now() - start, response };
+  };
+  // The first pair exercises the attribution with two identical concurrent polls.
+  const samples = await Promise.all([measure(), measure()]);
+  while (samples.length < 7) samples.push(await measure());
+  const reads = (await readFile(networkLog, "utf8")).trim().split("\n")
+    .map((line) => JSON.parse(line) as { kind: string; poll?: string; pathname: string; allowed: boolean })
+    .filter(({ kind, poll, allowed }) => kind === "fetch" && poll && allowed);
+  const measured = samples.map(({ poll, httpMs }) => {
+    // Each traced PostgREST read executes one top-level data statement.
+    const statements = reads.filter((read) => read.poll === poll).map(({ pathname }) => pathname);
+    return { httpMs, calls: statements.length, statements };
+  });
+  const first = samples[0].response;
   const firstLines = first.body.data.affaires.flatMap(({ lines }) => lines);
-  // pg_stat_statements also counts the other CI worker's queries. Use the
-  // median of the seven identical polls per the statement-budget guide.
-  const statementCounts = samples.map(({ calls }) => calls).sort((first, second) => first - second);
+  const statementCounts = measured.map(({ calls }) => calls).sort((first, second) => first - second);
   const medianStatements = statementCounts[Math.floor(statementCounts.length / 2)];
   await recordEvidence(army, "analysis-progress-budget", { projects: 240, jobs: 2400, olderThanWindow: 240,
-    returned: firstLines.length, medianStatements, samples });
-  expect(first.status).toBe(200);
+    returned: firstLines.length, medianStatements, samples: measured });
+  for (const { response } of samples) expect(response.status).toBe(200);
   expect(firstLines.length).toBe(17);
   expect(statementCounts[0]).toBeGreaterThan(0);
   expect(medianStatements).toBeLessThanOrEqual(12);
+  expect(statementCounts.at(-1)).toBeLessThanOrEqual(12);
   expect(firstLines.some(({ state }) => state === "reading")).toBe(true);
   expect(typeof first.body.data.nextCursor).toBe("string");
   const next = await apiRequest<Page>(browser, "GET", `${path}?cursor=${encodeURIComponent(first.body.data.nextCursor!)}`);

@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import http from "node:http";
 import https from "node:https";
+import { AsyncLocalStorage } from "node:async_hooks";
 const origins = [process.env.E2E_COVERAGE_BACKEND_ORIGIN, process.env.E2E_ARMY_BASE_URL];
 for (const origin of origins) {
   const url = new URL(origin);
@@ -21,6 +22,21 @@ if (mailCollector) {
 }
 const log = path.resolve(process.env.E2E_COVERAGE_NETWORK_LOG ?? "");
 if (!log.startsWith(path.resolve(".e2e/army/coverage") + path.sep)) throw new Error("Coverage network evidence must stay in its owned directory.");
+// Attribute just the test's analysis-progress reads, even when two Army workers
+// use PostgreSQL's shared statistics and the same Next server at once.
+const progressPolls = new AsyncLocalStorage();
+const emit = http.Server.prototype.emit;
+http.Server.prototype.emit = function(event, ...args) {
+  if (event === "request") {
+    const [request] = args;
+    const poll = request.headers["x-army-analysis-progress-poll"];
+    if (request.method === "GET" && request.url?.split("?", 1)[0] === "/api/affaires/analysis-progress" &&
+        typeof poll === "string" && /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/.test(poll)) {
+      return progressPolls.run(poll, () => emit.call(this, event, ...args));
+    }
+  }
+  return emit.call(this, event, ...args);
+};
 function inspect(kind, input, method) {
   let url;
   try {
@@ -33,7 +49,8 @@ function inspect(kind, input, method) {
   const worker = process.env.E2E_ARMY_BLOCK_WORKERS === "1" && url.pathname.startsWith("/functions/v1/");
   const allowed = (origins.includes(url.origin) && !worker) ||
     (kind === "fetch" && method === "POST" && url.origin === mailCollector && url.pathname === "/emails" && !url.search);
-  fs.appendFileSync(log, JSON.stringify({ time: new Date().toISOString(), kind, origin: url.origin, pathname: url.pathname, allowed }) + "\n");
+  const poll = url.origin === origins[0] && url.pathname.startsWith("/rest/v1/") ? progressPolls.getStore() : undefined;
+  fs.appendFileSync(log, JSON.stringify({ time: new Date().toISOString(), kind, origin: url.origin, pathname: url.pathname, allowed, poll }) + "\n");
   if (!allowed) throw new Error("Coverage campaign blocked outbound server request.");
   return url;
 }

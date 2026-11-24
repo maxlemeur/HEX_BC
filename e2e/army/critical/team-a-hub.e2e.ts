@@ -338,6 +338,7 @@ nativeTest("optional dossier documents allow a blank or sparse manual estimate",
 
   // The main flow must also offer manual work before a line or brief exists.
   await page.app.open(`/dashboard/affaires/${projectId}?view=overview`);
+  await waitForHydration(page.browser);
   await page.getByRole("button", { name: /Étude.*Structure, métrés et prix/ }).click();
   await page.getByText("Choisir la base du devis et les métrés", { exact: true }).click();
   await expect(page.getByRole("link", { name: "Démarrer sur une page blanche", exact: true })).toBeVisible();
