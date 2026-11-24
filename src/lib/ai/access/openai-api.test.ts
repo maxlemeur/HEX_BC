@@ -744,4 +744,45 @@ describe("the key never leaves the adapter", () => {
     for (const text of seen) expect(text).not.toContain(key);
     expect(seen.join("\n")).not.toContain(key.slice(8, 30));
   });
+
+  it("aborts an in-flight execute call immediately when the caller's signal aborts", async () => {
+    const controller = new AbortController();
+    let seenSignal: AbortSignal | null | undefined;
+    const openai = fakeOpenAi((_key, pathname) => {
+      if (pathname === "/v1/models") return listed();
+      if (pathname === "/v1/responses/input_tokens") return counted(1_000);
+      return answered(JSON.stringify({ connexion: "ok" }));
+    });
+    const abortableFetch: OpenAiApiKeyDeps["fetch"] = async (input, init) => {
+      if (new URL(input).pathname === "/v1/responses") {
+        seenSignal = init.signal;
+        return new Promise<Response>((_resolve, reject) => {
+          init.signal?.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")));
+          controller.abort();
+        });
+      }
+      return openai.fetch(input, init);
+    };
+    const { service, keychain } = access(abortableFetch);
+    await service.save(OWNER, { key: fictionalKey() });
+    const prepared = await service.prepare(OWNER, {
+      expectedVersion: 1, model: "gpt-6.1-terra", reasoningEffort: null, prompt: "p",
+      schema: z.object({ connexion: z.string() }), files: [], allotmentNanoUsd: 1_000_000_000, outputCap: 32_000, minOutputTokens: 1_000,
+      signal: controller.signal,
+    });
+    await expect(service.execute(OWNER, prepared, { timeoutMs: 30_000, signal: controller.signal }))
+      .rejects.toMatchObject({ name: "AbortError" });
+    expect(seenSignal?.aborted).toBe(true);
+    expect((await service.state(OWNER))).toMatchObject({ status: "saved", connection: { lastUsedAt: expect.any(String) } });
+
+    const preAborted = new AbortController();
+    preAborted.abort();
+    const readSpy = vi.spyOn(keychain.store, "read");
+    await expect(service.prepare(OWNER, {
+      expectedVersion: 1, model: "gpt-6.1-terra", reasoningEffort: null, prompt: "p",
+      schema: z.object({ connexion: z.string() }), files: [], allotmentNanoUsd: 1_000_000_000, outputCap: 32_000, minOutputTokens: 1_000,
+      signal: preAborted.signal,
+    })).rejects.toMatchObject({ name: "AbortError" });
+    expect(readSpy).not.toHaveBeenCalled();
+  });
 });

@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { PDFDocument } from "pdf-lib";
 
 vi.mock("@/lib/supabase/server", () => ({
   createSupabaseServerClient: vi.fn(),
@@ -61,10 +62,15 @@ const PENDING_PHOTO = "80000000-0000-4000-8000-000000000002";
 const WITHDRAWN_PHOTO = "80000000-0000-4000-8000-000000000003";
 const QUOTE_FILE = "80000000-0000-4000-8000-000000000004";
 const HEAVY_PHOTO = "80000000-0000-4000-8000-000000000005";
+const PDF_ORIGINAL = "80000000-0000-4000-8000-000000000006";
+const CORRUPT_PDF = "80000000-0000-4000-8000-000000000007";
+const HEAVY_PDF = "80000000-0000-4000-8000-000000000008";
 const OTHER_PHOTO = "80000000-0000-4000-8000-000000000009";
 
 const JPEG = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, 0x01, 0x01, 0x00]);
 const OTHER_BYTES = new Uint8Array([0xff, 0xd8, 0xff, 0xe1, 0x09, 0x09, 0x09, 0x09]);
+const BROKEN_PDF = new TextEncoder().encode("%PDF-1.4\nnot-a-valid-pdf");
+let VALID_PDF: Uint8Array = new Uint8Array();
 
 type Role = "admin" | "engineer" | "viewer" | "director";
 
@@ -90,6 +96,9 @@ function seed(actor: string, role: Role) {
       [pathOf(WITHDRAWN_PHOTO)]: OTHER_BYTES,
       [pathOf(QUOTE_FILE)]: OTHER_BYTES,
       [pathOf(HEAVY_PHOTO)]: OTHER_BYTES,
+      [pathOf(PDF_ORIGINAL)]: VALID_PDF,
+      [pathOf(CORRUPT_PDF)]: BROKEN_PDF,
+      [pathOf(HEAVY_PDF)]: VALID_PDF,
       [pathOf(OTHER_PHOTO, OTHER_PROJECT, OTHER_REQUEST)]: OTHER_BYTES,
     },
     tables: {
@@ -112,6 +121,9 @@ function seed(actor: string, role: Role) {
         file(WITHDRAWN_PHOTO, { removed_at: "2026-11-11T10:00:00.000Z" }),
         file(QUOTE_FILE, { quote_id: QUOTE }),
         file(HEAVY_PHOTO, { byte_size: MATERIAL_REQUEST_PHOTO_ANALYSIS_MAX_BYTES + 1 }),
+        file(PDF_ORIGINAL, { file_name: "demande.pdf", mime_type: "application/pdf", byte_size: VALID_PDF.byteLength, rotation: 90 }),
+        file(CORRUPT_PDF, { file_name: "casse.pdf", mime_type: "application/pdf", byte_size: BROKEN_PDF.byteLength }),
+        file(HEAVY_PDF, { file_name: "lourd.pdf", mime_type: "application/pdf", byte_size: MATERIAL_REQUEST_PHOTO_ANALYSIS_MAX_BYTES + 1 }),
         file(OTHER_PHOTO, { project_id: OTHER_PROJECT, request_id: OTHER_REQUEST, storage_path: pathOf(OTHER_PHOTO, OTHER_PROJECT, OTHER_REQUEST) }),
       ],
     },
@@ -147,8 +159,14 @@ function answerWith(data: unknown) {
   } as never);
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   vi.clearAllMocks();
+  if (VALID_PDF.byteLength === 0) {
+    const doc = await PDFDocument.create();
+    doc.addPage().drawText("12 coudes cuivre DN 22");
+    doc.addPage().drawText("7 vannes");
+    VALID_PDF = await doc.save();
+  }
   vi.mocked(isLocalChatGptEnabled).mockReturnValue(true);
   vi.mocked(getStructuredAiAvailability).mockResolvedValue({ available: true, message: "Connexion ChatGPT configurée." });
   answerWith(ANSWER);
@@ -301,6 +319,63 @@ describe("POST material request photo analysis", () => {
     const { status, data } = await analyze(PHOTO);
     expect(status).toBe(200);
     expect(data).toMatchObject({ lines: [] });
+  });
+
+  it("reads a multi-page PDF original, omits image detail and rotation rules, and returns drafts", async () => {
+    const fake = seed(OWNER, "engineer");
+    const { status, data } = await analyze(PDF_ORIGINAL);
+
+    expect(status).toBe(200);
+    expect(data).toMatchObject({ file_id: PDF_ORIGINAL, model: "modele-fictif" });
+    expect(fake.writes).toEqual([]);
+    const [options] = vi.mocked(callStructuredAi).mock.calls[0];
+    expect(options.files).toEqual([{ mimeType: "application/pdf", data: Buffer.from(VALID_PDF).toString("base64") }]);
+    expect(options.prompt).toMatch(/document PDF/);
+    expect(options.prompt).toMatch(/2 pages/);
+    expect(options.prompt).not.toMatch(/tourne/i);
+  });
+
+  it("refuses a damaged or locked PDF original with 422 before calling the model", async () => {
+    seed(OWNER, "engineer");
+    const { status, error } = await analyze(CORRUPT_PDF);
+    expect(status).toBe(422);
+    expect(error?.code).toBe("MATERIAL_REQUEST_PHOTO_UNREADABLE");
+    expect(callStructuredAi).not.toHaveBeenCalled();
+  });
+
+  it("refuses a PDF original above 15 MiB without downloading it", async () => {
+    const fake = seed(OWNER, "engineer");
+    const { status, error } = await analyze(HEAVY_PDF);
+    expect(status).toBe(413);
+    expect(error?.code).toBe("MATERIAL_REQUEST_PHOTO_TOO_LARGE");
+    expect(error?.message).toMatch(/Ce PDF dépasse 15 Mo/);
+    expect(fake.storageCalls).toEqual([]);
+    expect(callStructuredAi).not.toHaveBeenCalled();
+  });
+
+  it("forwards request.signal to the provider call and stops cleanly without error logs when aborted", async () => {
+    seed(OWNER, "engineer");
+    const controller = new AbortController();
+    const request = new Request("http://localhost/api/test", { method: "POST", signal: controller.signal });
+    let seenSignal: AbortSignal | undefined;
+    let abortedBefore = true;
+    vi.mocked(callStructuredAi).mockImplementation(async (options) => {
+      seenSignal = options.signal;
+      abortedBefore = Boolean(options.signal?.aborted);
+      controller.abort();
+      throw new DOMException("Aborted", "AbortError");
+    });
+
+    const response = await analysisRoute.POST(
+      request,
+      { params: Promise.resolve({ projectId: PROJECT, requestId: REQUEST, fileId: PHOTO }) },
+    );
+
+    expect(seenSignal).toBe(request.signal);
+    expect(abortedBefore).toBe(false);
+    expect(seenSignal?.aborted).toBe(true);
+    expect(response.status).toBe(499);
+    expect(console.error).not.toHaveBeenCalled();
   });
 });
 

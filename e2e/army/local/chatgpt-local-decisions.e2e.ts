@@ -648,10 +648,29 @@ if (!existsSync(liveProbePath)) test("MRIA01 the photo of a material request is 
     }, { timeout: 120_000 }).toBe(true);
     expect((await read()).lines.map(columns)).toEqual(READ);
     expect(await readings()).toEqual([astra, { ...reading, model: "gpt-6.2-sol", reasoningEffort: "high" }]);
+
+    // Adding a PDF original beside the photo: rendered without rotation buttons and read alongside the photo.
+    const pdfOriginal = path.join(directory, "liste-materiel.pdf");
+    const pdfDoc = await PDFDocument.create();
+    pdfDoc.addPage().drawText("4 brides inox DN 50 - Local technique");
+    await writeFile(pdfOriginal, await pdfDoc.save());
+    await browser.locator('input[type="file"][aria-label="Photos à ajouter"]').first().setInputFiles([pdfOriginal]);
+    await expect.poll(async () => (await read()).files.length, DEV_SERVER_WORK).toBe(2);
+    await expect(original.getByText("Original 2 sur 2", { exact: true })).toBeVisible();
+    await expect(original.getByRole("button", "Tourner à droite", { exact: true })).toHaveCount(0);
+    await expect(original.getByRole("link", "Télécharger", { exact: true })).toBeVisible();
+    await original.getByRole("button", "Analyser les originaux avec l’IA", { exact: true }).click();
+    await original.getByRole("button", "Remplacer les 2 lignes", { exact: true }).click();
+    await expect.poll(async () => (await read()).lines.length, { timeout: 120_000 }).toBe(3);
+    const WITH_PDF = [
+      ...READ,
+      [3, "4 brides inox DN 50", 4, false, "u", "DN 50", "bride", "inox", null, "Local technique", "draft"],
+    ];
+    expect((await read()).lines.map(columns)).toEqual(WITH_PDF);
     expect((await readTransport()).filter((entry) => entry.provider === "forbidden")).toEqual([]);
 
     await recordEvidence(army, "material-request-photo-analysis", {
-      projectId: ids.projectId, requestId, lines: READ, readings: await readings(), screenshot, provider: "fixture",
+      projectId: ids.projectId, requestId, lines: WITH_PDF, readings: await readings(), screenshot, provider: "fixture",
     });
   } finally {
     await setDecisionsControl({});

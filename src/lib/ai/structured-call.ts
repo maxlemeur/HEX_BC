@@ -24,6 +24,8 @@ export type StructuredCallOptions<T> = {
   schema: z.ZodType<T>;
   files?: StructuredCallFile[];
   timeoutMs?: number;
+  /** Caller cancellation signal, combined with `timeoutMs` on provider requests. */
+  signal?: AbortSignal;
   context?: StructuredCallContext;
 };
 
