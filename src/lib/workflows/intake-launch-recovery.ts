@@ -1,26 +1,13 @@
 import "server-only";
 
-import type { ChatGptOwner } from "@/lib/ai/chatgpt-local-store";
-import { getLocalChatGptCredential, isLocalChatGptEnabled } from "@/lib/ai/chatgpt-local-auth";
-import { hasLocalChatGptStore } from "@/lib/ai/chatgpt-local-store";
+import { isLocalChatGptEnabled } from "@/lib/ai/chatgpt-local-auth";
+import { hostCanReadIntakeScans } from "@/lib/affaires/intake-payer-server";
 import { createOptionalServiceRoleClient } from "@/lib/supabase/service-role";
 
 // A Mac may share the database with other Macs. Advance through bounded pages even
 // when every due launch on the current page belongs to a different member's machine.
 const cursors: Record<"paid" | "other", string | null> = { paid: null, other: null };
 const PAGE_SIZE = 20;
-
-export async function hostCanReadIntakeScans(owner: ChatGptOwner) {
-  if (!isLocalChatGptEnabled()) return false;
-  try {
-    if (!await hasLocalChatGptStore(owner)) return false;
-    const credential = await getLocalChatGptCredential(owner);
-    return Boolean(credential?.authorizationId && credential.model);
-  } catch {
-    // Withdrawn, expired without a usable refresh token, or unreadable on this host.
-    return false;
-  }
-}
 
 async function recoverDueLaunch(paid: boolean) {
   const service = createOptionalServiceRoleClient();

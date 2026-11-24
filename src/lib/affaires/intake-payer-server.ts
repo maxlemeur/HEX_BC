@@ -1,6 +1,7 @@
 import "server-only";
 
-import type { ChatGptOwner } from "@/lib/ai/chatgpt-local-store";
+import { hasLocalChatGptStore, type ChatGptOwner } from "@/lib/ai/chatgpt-local-store";
+import { getLocalChatGptCredential, isLocalChatGptEnabled } from "@/lib/ai/chatgpt-local-auth";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 
 export class IntakePayerAccessLost extends Error {
@@ -18,4 +19,16 @@ export async function requireIntakePayerRight(owner: ChatGptOwner | null, projec
   });
   if (error) throw new Error("Impossible de vérifier le droit sur le dossier.", { cause: error });
   if (data !== true) throw new IntakePayerAccessLost();
+}
+
+export async function hostCanReadIntakeScans(owner: ChatGptOwner) {
+  if (!isLocalChatGptEnabled()) return false;
+  try {
+    if (!await hasLocalChatGptStore(owner)) return false;
+    const credential = await getLocalChatGptCredential(owner);
+    return Boolean(credential?.authorizationId && credential.model);
+  } catch {
+    // Withdrawn, expired without a usable refresh token, or unreadable on this host.
+    return false;
+  }
 }

@@ -5,7 +5,8 @@ import { hasLocalChatGptStore } from "@/lib/ai/chatgpt-local-store";
 import { getLocalChatGptCredential, isLocalChatGptEnabled } from "@/lib/ai/chatgpt-local-auth";
 import { processAffaireIntakeAnalysisLaunch } from "@/lib/affaires/intake-analysis-server";
 import { createOptionalServiceRoleClient } from "@/lib/supabase/service-role";
-import { hostCanReadIntakeScans, recoverIntakeAnalysisLaunch } from "./intake-launch-recovery";
+import { hostCanReadIntakeScans } from "@/lib/affaires/intake-payer-server";
+import { recoverIntakeAnalysisLaunch } from "./intake-launch-recovery";
 
 vi.mock("@/lib/ai/chatgpt-local-auth", () => ({ isLocalChatGptEnabled: vi.fn(), getLocalChatGptCredential: vi.fn() }));
 vi.mock("@/lib/ai/chatgpt-local-store", () => ({ hasLocalChatGptStore: vi.fn() }));

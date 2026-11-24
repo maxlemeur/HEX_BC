@@ -1,6 +1,5 @@
 import type { IntakeAnalysisFailure } from "@/lib/affaires/intake-analysis-feedback";
-import { hostCanReadIntakeScans } from "@/lib/workflows/intake-launch-recovery";
-import { IntakePayerAccessLost, requireIntakePayerRight } from "@/lib/affaires/intake-payer-server";
+import { hostCanReadIntakeScans, IntakePayerAccessLost, requireIntakePayerRight } from "@/lib/affaires/intake-payer-server";
 import type { ChatGptOwner } from "@/lib/ai/chatgpt-local-store";
 import { readAllRows } from "@/lib/supabase/read-all";
 import { buildAffaireIntakeReanalysisUpdate } from "@/lib/affaires/intake-reanalysis";

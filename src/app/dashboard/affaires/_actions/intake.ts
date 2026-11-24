@@ -1,7 +1,7 @@
 "use server";
 
 import { after } from "next/server";
-import { hostCanReadIntakeScans } from "@/lib/workflows/intake-launch-recovery";
+import { hostCanReadIntakeScans } from "@/lib/affaires/intake-payer-server";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { deleteIntakeDocumentCopy } from "@/lib/affaires/intake-document-store";
