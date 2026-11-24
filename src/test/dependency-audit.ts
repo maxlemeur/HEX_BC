@@ -73,6 +73,8 @@ export interface DependencyAuditFinding {
 
 export interface DependencyAuditEvaluation {
   errors: string[];
+  /** The errors about the exceptions themselves (expired, unused), also in `errors`. */
+  exceptionErrors: string[];
   exceptedFindings: DependencyAuditFinding[];
   findings: DependencyAuditFinding[];
   unexceptedFindings: DependencyAuditFinding[];
@@ -420,6 +422,7 @@ export function evaluateDependencyAudit(
     }
   }
 
+  const exceptionErrors = [...errors];
   const exceptedFindings = findings.filter((finding) =>
     activeExceptions.has(findingKey(finding.package, finding.source))
   );
@@ -432,7 +435,7 @@ export function evaluateDependencyAudit(
     );
   }
 
-  return { errors, exceptedFindings, findings, unexceptedFindings };
+  return { errors, exceptedFindings, exceptionErrors, findings, unexceptedFindings };
 }
 
 export function assertDependencyAudit(
@@ -440,7 +443,10 @@ export function assertDependencyAudit(
   policy: DependencyAuditPolicy,
   now = new Date()
 ) {
-  const evaluation = evaluateDependencyAudit(report, policy, now);
+  return failOnErrors(evaluateDependencyAudit(report, policy, now));
+}
+
+function failOnErrors(evaluation: DependencyAuditEvaluation) {
   if (evaluation.errors.length > 0) {
     throw new Error(
       `Dependency audit gate failed:\n- ${evaluation.errors.join("\n- ")}`
@@ -490,9 +496,13 @@ function npmAuditInvocation() {
   };
 }
 
-export function runDependencyAuditGate(
+/**
+ * Runs npm audit and evaluates it against the policy. Throws only when the audit cannot be run
+ * or read; its findings and exception errors are in the evaluation.
+ */
+export function runDependencyAudit(
   dependencies: DependencyAuditGateDependencies = {}
-) {
+): DependencyAuditEvaluation {
   const rootDirectory = dependencies.rootDirectory ?? process.cwd();
   const executeCommand = dependencies.executeCommand ?? executeNpmAudit;
   const invocation = npmAuditInvocation();
@@ -522,5 +532,11 @@ export function runDependencyAuditGate(
     throw new Error(`dependency audit policy could not be read at ${AUDIT_POLICY_PATH}`);
   }
   const policy = parseDependencyAuditPolicy(policyText);
-  return assertDependencyAudit(report, policy, dependencies.now);
+  return evaluateDependencyAudit(report, policy, dependencies.now);
+}
+
+export function runDependencyAuditGate(
+  dependencies: DependencyAuditGateDependencies = {}
+) {
+  return failOnErrors(runDependencyAudit(dependencies));
 }
