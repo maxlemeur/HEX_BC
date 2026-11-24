@@ -455,6 +455,11 @@ export function describeTakeoffRequestUnitState(unit: Pick<TakeoffRequestUnitVie
   }
 }
 
+export function describeTakeoffRequestOrigin(request: Pick<TakeoffRequestRow, "origin" | "intent">) {
+  if (request.origin === "automatic") return "Démarrage automatique à la confirmation du dossier";
+  return request.intent === "remeasure_items" ? "Nouvelle mesure de postes" : "Relance de l’analyse";
+}
+
 /** The original pages a plan was read on. */
 export function describeTakeoffRequestPages(pages: readonly number[]): string {
   if (pages.length === 0) return "toutes les pages";

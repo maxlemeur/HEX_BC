@@ -7533,15 +7533,15 @@
           "Affaires"
         ],
         "summary": "Suivre les analyses des affaires accessibles",
-        "description": "Lecture privée sans cache des analyses du dossier et du métré dans le tenant actif. Inclut les analyses en attente ou en cours et celles terminées depuis le point de lecture. À la première consultation, l’historique couvre les dernières 24 heures.",
+        "description": "Lecture privée sans cache des analyses du dossier et du métré dans le tenant actif. Page bornée des analyses en cours ou en attente et des fins des dernières 24 heures. Le navigateur acquitte les seules fins effectivement affichées, par leurs identifiants opaques.",
         "parameters": [
           {
-            "name": "since",
+            "name": "cursor",
             "in": "query",
-            "description": "Point de lecture des analyses terminées, issu du champ observedAt d’une réponse précédente.",
+            "description": "Curseur opaque nextCursor d’une réponse précédente du suivi.",
             "required": false,
             "schema": {
-              "$ref": "#/components/schemas/ReadAffaireAnalysisProgressSinceParameter"
+              "$ref": "#/components/schemas/ReadAffaireAnalysisProgressCursorParameter"
             }
           }
         ],
@@ -54363,10 +54363,11 @@
         ],
         "additionalProperties": false
       },
-      "ReadAffaireAnalysisProgressSinceParameter": {
+      "ReadAffaireAnalysisProgressCursorParameter": {
         "type": "string",
-        "format": "date-time",
-        "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+        "minLength": 1,
+        "maxLength": 2048,
+        "pattern": "^[A-Za-z0-9_-]+$"
       },
       "AffaireAnalysisProgressResponse": {
         "type": "object",
@@ -54398,6 +54399,19 @@
                 "type": "string",
                 "format": "date-time",
                 "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+              },
+              "nextCursor": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 2048,
+                    "pattern": "^[A-Za-z0-9_-]+$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
               },
               "affaires": {
                 "type": "array",
@@ -54449,6 +54463,12 @@
                             "type": "string",
                             "format": "date-time",
                             "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                          },
+                          "completionKeys": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
                           }
                         },
                         "required": [
@@ -54458,7 +54478,8 @@
                           "status",
                           "detail",
                           "href",
-                          "updatedAt"
+                          "updatedAt",
+                          "completionKeys"
                         ],
                         "additionalProperties": false
                       }
@@ -54476,6 +54497,7 @@
             "required": [
               "viewer",
               "observedAt",
+              "nextCursor",
               "affaires"
             ],
             "additionalProperties": false

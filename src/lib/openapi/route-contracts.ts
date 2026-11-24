@@ -1,4 +1,4 @@
-import { AFFAIRE_ANALYSIS_PROGRESS_PATH, analysisProgressResponseSchema, analysisProgressSinceSchema } from "@/lib/affaires/analysis-progress-contract";
+import { AFFAIRE_ANALYSIS_PROGRESS_PATH, analysisProgressCursorSchema, analysisProgressResponseSchema } from "@/lib/affaires/analysis-progress-contract";
 import { affaireLinkedDpgfSourceResponseSchema } from "@/lib/estimates/linked-dpgf-contracts";
 import {
   itemListAcceptRequestSchema,
@@ -436,8 +436,8 @@ const administrationContracts: RouteContract[] = [
   {
     id: "read-affaire-analysis-progress", method: "get", path: AFFAIRE_ANALYSIS_PROGRESS_PATH,
     summary: "Suivre les analyses des affaires accessibles", tags: ["Affaires"],
-    description: "Lecture privée sans cache des analyses du dossier et du métré dans le tenant actif. Inclut les analyses en attente ou en cours et celles terminées depuis le point de lecture. À la première consultation, l’historique couvre les dernières 24 heures.",
-    queryParameters: [{ name: "since", schema: analysisProgressSinceSchema, description: "Point de lecture des analyses terminées, issu du champ observedAt d’une réponse précédente." }],
+    description: "Lecture privée sans cache des analyses du dossier et du métré dans le tenant actif. Page bornée des analyses en cours ou en attente et des fins des dernières 24 heures. Le navigateur acquitte les seules fins effectivement affichées, par leurs identifiants opaques.",
+    queryParameters: [{ name: "cursor", schema: analysisProgressCursorSchema, description: "Curseur opaque nextCursor d’une réponse précédente du suivi." }],
     success: [{ status: "200", description: "Suivi des analyses des affaires accessibles.", schema: {
       schemaName: "AffaireAnalysisProgressResponse", io: "output", schema: analysisProgressResponseSchema,
     } }],
