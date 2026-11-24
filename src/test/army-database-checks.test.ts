@@ -20,7 +20,7 @@ const read = (file: string) => fs.readFileSync(path.join(root, file), "utf8");
  * read here only uses comparisons, `&&`, `||`, literals and the `github` context, which JavaScript evaluates
  * the same way (as src/test/army-main-campaign.test.ts does for the concurrency groups).
  */
-function evaluate(value: string, github: { event_name: string; ref: string }): string {
+function evaluate(value: string, github: { event_name: string; ref: string; run_id?: number }): string {
   const text = value.trim().replace(/^(["'])(.*)\1$/u, "$2");
   return text.replace(/\$\{\{(.+?)\}\}/gu, (_, expression: string) => String(new Function("github", `return (${expression});`)(github)));
 }
@@ -123,8 +123,7 @@ describe("the check the Army jobs of a pull request delegate to", () => {
     expect(concurrency).not.toBeNull();
     const push42 = { event_name: "push", ref: "refs/heads/main", run_id: 42 };
     const push43 = { ...push42, run_id: 43 };
-    const groupOf = (github: typeof push42) => String(new Function("github", `return (${concurrency![1].replace(/^\$\{\{|\}\}$/gu, "")});`)(github));
-    expect(groupOf(push42)).not.toBe(groupOf(push43));
+    expect(evaluate(concurrency![1], push42)).not.toBe(evaluate(concurrency![1], push43));
     expect(evaluate(concurrency![2], push42)).toBe("false");
     // The scheduled run is kept, and so is the dispatch.
     expect(workflow).toMatch(/\n {2}schedule:\n/u);
