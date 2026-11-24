@@ -226,9 +226,9 @@ raise SystemExit(result.returncode)
 
 Promise.resolve()
   .then(() => runLocalSupabaseCi({ ...parseLocalSupabaseCiArguments(process.argv.slice(2)), runApplication: verify }))
-  .then(({ database }) => {
+  .then(() => {
     assert.deepEqual(sourceEvidence(), source, "Source inputs changed during restore verification");
-    Object.assign(receipt, { status: "passed", finishedAt: new Date().toISOString(), database, cleanup: "completed" });
+    Object.assign(receipt, { status: "passed", finishedAt: new Date().toISOString(), cleanup: "completed" });
     writeReceipt();
   })
   .catch((error: unknown) => {
