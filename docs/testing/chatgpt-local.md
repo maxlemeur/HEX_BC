@@ -241,7 +241,7 @@ mandat ChatGPT et son budget de lancement.
   qualifiés et tarifés dans `src/lib/ai/access/openai-pricing.ts`. Barème
   Standard relevé le 22 novembre 2026. Prix par million de jetons d’entrée,
   d’entrée en cache et de sortie en $ US : GPT-6.1 Terra 1 / 0,05 / 5,
-  GPT-6.1 Sol et GPT-6.2 Sol 2 / 0,10 / 10, GPT-6.2 Astra 8 / 0,40 / 40.
+  GPT-6.2 Sol 2 / 0,10 / 10, GPT-6.2 Astra 8 / 0,40 / 40.
   Une écriture en cache
   coûte 1,25 × l’entrée (30 min) ou 2,5 × (12 h) ; au-delà de 272 000 jetons
   d’entrée, toute la requête est facturée 2 × en entrée et 1,5 × en sortie. Un

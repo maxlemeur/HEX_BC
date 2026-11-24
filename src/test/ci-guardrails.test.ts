@@ -454,10 +454,24 @@ describe("CI and local quality guardrails", () => {
       expect(workflow, file).toContain("steps.journeys.outputs.evidence");
       expect(workflow, file).toContain("if-no-files-found: error");
       // No step that runs a stack or a journey may fail unseen. The three steps of the decision filter may:
-      // their failure keeps the selection by impact, which runs more journeys, never fewer.
-      const tolerated = workflowSteps(workflow).filter((step) => step.includes("continue-on-error"));
+      // their failure keeps the selection by impact, which runs more journeys, never fewer. So may the download
+      // of the run's prebuilt application (one per sharded job): without it the job builds its own, as before.
+      const tolerated = workflowSteps(workflow).filter((step) => /^ {8}continue-on-error:/mu.test(step));
+      // One job may fail without failing the run: the one that builds the application once. Its shards then build
+      // their own, as before, and its last step says so as a warning (src/test/army-prebuilt-build.test.ts).
+      const tolerantJobs = workflow.split(/^ {2}(?=[A-Za-z0-9_-]+:\s*$)/mu)
+        .filter((job) => /^ {4}continue-on-error:/mu.test(job)).map((job) => job.split(":")[0]);
+      expect(tolerantJobs, file).toEqual([{
+        ".github/workflows/e2e-army-critical.yml": "army-build",
+        ".github/workflows/e2e-army-calc-v3.yml": "army-calc-v3-build",
+        ".github/workflows/e2e-army-full.yml": "army-full-build",
+      }[file]]);
       expect(tolerated.map((step) => /^\s+id: (\w+)$/mu.exec(step)?.[1]), file)
-        .toEqual(file === ".github/workflows/e2e-army-critical.yml" ? ["decision_install", "decision", "narrow"] : []);
+        .toEqual(file === ".github/workflows/e2e-army-critical.yml" ? ["decision_install", "decision", "narrow", "prebuilt", "prebuilt"] : ["prebuilt"]);
+      for (const step of tolerated.filter((value) => /^\s+id: prebuilt$/mu.test(value))) {
+        expect(step, file).toContain("uses: actions/download-artifact@");
+        expect(step, file).toContain("\n          name: army-prebuilt-build\n");
+      }
       expectInstallStepsToHaveNoSecrets(workflow);
     }
     expect(guards.size).toBe(1);
@@ -540,20 +554,28 @@ describe("CI and local quality guardrails", () => {
       { suite: "calc-v3", file: ".github/workflows/e2e-army-calc-v3.yml", output: "groups", aggregate: "army-calc-v3", name: "army-calc-v3",
         unit: "army-calc-v3-group-${{ matrix.group }}-evidence", pattern: "army-calc-v3-group-*-evidence", artifact: "army-calc-v3-evidence" },
     ] as const;
+    // The job that builds the production application once per run (scripts/tester-army/army-build.ts).
+    const builds: Record<string, string> = {
+      ".github/workflows/e2e-army-critical.yml": "army-build",
+      ".github/workflows/e2e-army-full.yml": "army-full-build",
+      ".github/workflows/e2e-army-calc-v3.yml": "army-calc-v3-build",
+    };
     for (const { suite, file, output, aggregate, name, unit, pattern, artifact } of suites) {
       const workflow = read(file);
       const jobs = workflowJobs(workflow);
       const { plan, units, development } = AGGREGATE_JOBS[suite];
       const needed = [plan, units, ...(development ? [development] : [])];
-      // A workflow holds exactly the jobs of the suites it aggregates (critical and takeoff share one).
+      // A workflow holds exactly the jobs of the suites it aggregates (critical and takeoff share one), and its build.
       const fileJobs = suites.filter((other) => other.file === file).flatMap((other) => {
         const jobsOf = AGGREGATE_JOBS[other.suite];
         return [jobsOf.plan, jobsOf.units, ...(jobsOf.development ? [jobsOf.development] : []), other.aggregate];
       });
-      expect(Object.keys(jobs).sort(), file).toEqual([...new Set(fileJobs)].sort());
+      expect(Object.keys(jobs).sort(), file).toEqual([...new Set([...fileJobs, builds[file]])].sort());
 
-      // The matrix is the plan job's output, and a red shard never cancels the others.
-      expect(jobs[units], file).toMatch(new RegExp(`^ {4}needs: ${plan}$`, "mu"));
+      // The matrix is the plan job's output, and a red shard never cancels the others. A unit also waits for the
+      // run's build, whose failure never skips it: only the plan's result and output decide whether it runs.
+      expect(jobs[units], file).toMatch(new RegExp(`^ {4}needs: \\[${plan}, ${builds[file]}\\]$`, "mu"));
+      expect(jobs[units], file).toMatch(new RegExp(`^ {4}if: \\$\\{\\{ !cancelled\\(\\) && needs\\.${plan}\\.result == 'success'( && [^\\n]*)? \\}\\}$`, "mu"));
       expect(jobs[units], file).toMatch(/^ {6}fail-fast: false$/mu);
       expect(jobs[units], file).toContain(`: \${{ fromJSON(needs.${plan}.outputs.${output}) }}\n`);
       expect(jobs[units], file).toContain(`\n          name: ${unit}\n`);
@@ -601,7 +623,7 @@ describe("CI and local quality guardrails", () => {
     expect(jobs["army-calc-v3-plan"]).toContain("\n      phases: ${{ steps.plan.outputs.phases }}\n      groups: ${{ steps.plan.outputs.groups }}\n");
     const group = jobs["army-calc-v3-group"];
     expect(group).toContain("\n    name: army-calc-v3 group ${{ matrix.group }}/${{ matrix.total }}\n");
-    expect(group).toContain("\n    if: needs.army-calc-v3-plan.outputs.groups != '[]'\n");
+    expect(group).toContain("\n    if: ${{ !cancelled() && needs.army-calc-v3-plan.result == 'success' && needs.army-calc-v3-plan.outputs.groups != '[]' }}\n");
     expect(group).toContain("\n        include: ${{ fromJSON(needs.army-calc-v3-plan.outputs.groups) }}\n");
     const step = stepNamed(group, "Run native database and TesterArmy calc-v3 phases");
     expect(step).toContain("\n          CALC_V3_PHASES: ${{ matrix.phases }}\n");

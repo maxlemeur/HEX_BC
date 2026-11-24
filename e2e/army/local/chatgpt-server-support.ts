@@ -153,9 +153,10 @@ export async function prepareChatGptServerWorkspace() {
  * The compile waves of a ChatGPT development server. "profile" and "journeys" are the readiness of a server: the real
  * protected pages and the callback's missing-state rejection, before UI assertions. The "takeoff" waves are every
  * other page and API route the takeoff tests of both journey files use (chatgpt-local-takeoff.e2e.ts and
- * chatgpt-local-decisions.e2e.ts), so that no test waits for a compile.
+ * chatgpt-local-decisions.e2e.ts), so that no test waits for a compile. "intake" is the affaire's intake desk of the
+ * decisions file (INTRETRY01, INTOCR01/02, INTWORD01, AUTO01 to AUTO07).
  */
-export type ChatGptCompileWave = "profile" | "journeys" | (typeof TAKEOFF_JOURNEY_WAVES)[number];
+export type ChatGptCompileWave = "profile" | "journeys" | "intake" | (typeof TAKEOFF_JOURNEY_WAVES)[number];
 
 /**
  * In the order Next compiles them when they are asked together (run 43073132489): the pages with the estimate
@@ -166,7 +167,7 @@ export const TAKEOFF_JOURNEY_WAVES = ["takeoff-editor", "takeoff-jobs", "takeoff
 
 type CompileRequest = { path: string; method?: "OPTIONS"; anonymous?: boolean; expected: number[] };
 
-function compileRequests(wave: ChatGptCompileWave): CompileRequest[] {
+export function chatGptCompileRequests(wave: ChatGptCompileWave): CompileRequest[] {
   const absent = "00000000-0000-4000-8000-000000000001";
   // GETs refuse through absent IDs and missing OAuth state. Next may start streaming a page before its missing
   // project, version or job calls notFound(): 200 or 404.
@@ -203,6 +204,14 @@ function compileRequests(wave: ChatGptCompileWave): CompileRequest[] {
         ...["draft-versions", "outliers", "gating", "lock", "items", "batch"].map(name => `/api/estimates/${absent}/${name}`),
       ].map(route),
     ];
+  }
+  if (wave === "intake") {
+    // The routes a cold intake desk compiled in INTRETRY01's body, one after the other (local Next trace): the upload,
+    // the dossier read, the plan reconciliation, then the preview and the transcription of the opened document. While
+    // Next compiles, every request waits for it: in CI the first reclassification's server action had not reached the
+    // database 15 s after its click (runs 45477586566 and 45480694457, among others).
+    return ["", "/files", "/reconcile-plans", `/files/${absent}/preview`, `/files/${absent}/transcription`]
+      .map(name => route(`/api/affaires/${absent}/intake${name}`));
   }
   if (wave === "takeoff-review") {
     // The review page of a job. Cold, it compiled in ASSIST02's body for 26.7 s (next.js 23.3 s), then the page's
@@ -277,7 +286,7 @@ export async function compileChatGptRoutes(origin: string, email: string, wave: 
     };
     // Submit the wave's entries together: Next coalesces pending entries and serializes its Webpack compiler.
     // Barriers inside a wave create extra cold builds.
-    for (const result of await Promise.allSettled(compileRequests(wave).map(compile))) {
+    for (const result of await Promise.allSettled(chatGptCompileRequests(wave).map(compile))) {
       if (result.status === "rejected") throw result.reason;
     }
   } finally {

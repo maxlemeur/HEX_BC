@@ -10,7 +10,7 @@ import { getLocalChatGptCredential } from "@/lib/ai/chatgpt-local-auth";
 import { readChatGptStore, saveChatGptStore, withChatGptLock, type ChatGptOwner } from "@/lib/ai/chatgpt-local-store";
 import type { StructuredCallOptions, StructuredCallResult } from "@/lib/ai/structured-call";
 import {
-  chatGptDefaultPreferences, chatGptModelReasoningCapabilities, chatGptPreferencesSchema,
+  chatGptDefaultPreferences, chatGptModelReasoningCapabilities, chatGptPreferencesSchema, RETIRED_OPENAI_MODEL,
   type ChatGptAvailableModel, type ChatGptPreferences, type ChatGptReasoningEffort,
 } from "@/lib/ai/chatgpt-model-preferences";
 
@@ -36,7 +36,7 @@ function combineAbortSignal(timeoutMs: number, signal?: AbortSignal): AbortSigna
 }
 
 /** The account's listed models, with a credential already read: read-only, it never writes the store. */
-export async function fetchLocalChatGptModels(
+async function fetchLocalChatGptModels(
   credential: { accessToken: string },
   signal?: AbortSignal,
 ): Promise<ChatGptAvailableModel[]> {
@@ -57,11 +57,16 @@ export async function fetchLocalChatGptModels(
     .map((model) => ({ id: model.slug, name: model.display_name, ...chatGptModelReasoningCapabilities(model) }));
 }
 
+/** The choices shown to a member. The raw catalogue can still validate a pinned internal model. */
+export async function fetchSelectableLocalChatGptModels(credential: { accessToken: string }) {
+  return (await fetchLocalChatGptModels(credential)).filter(({ id }) => id !== RETIRED_OPENAI_MODEL);
+}
+
 /** The account catalog and starting settings for a single analysis. User preferences are not saved here. */
 export async function readLocalChatGptModelOptions(owner: ChatGptOwner) {
   const credential = await getLocalChatGptCredential(owner);
   if (!credential) throw new Error("Connectez d’abord votre compte ChatGPT.");
-  const models = await fetchLocalChatGptModels(credential);
+  const models = await fetchSelectableLocalChatGptModels(credential);
   const saved = models.find((model) => model.id === credential.model);
   const reasoningEffort = credential.reasoningEffort;
   const preferences = saved ? {
@@ -74,7 +79,7 @@ export async function readLocalChatGptModelOptions(owner: ChatGptOwner) {
 export async function listLocalChatGptModels(owner: ChatGptOwner): Promise<ChatGptAvailableModel[]> {
   const credential = await getLocalChatGptCredential(owner);
   if (!credential) throw new Error("Connectez d’abord votre compte ChatGPT.");
-  const models = await fetchLocalChatGptModels(credential);
+  const models = await fetchSelectableLocalChatGptModels(credential);
   const defaults = credential.model ? null : chatGptDefaultPreferences(models);
   if (defaults) {
     await withChatGptLock(owner, async () => {

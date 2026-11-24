@@ -25,6 +25,7 @@ globalThis.fetch = async (input, init) => {
     return Response.json({ models: [
       { slug: "gpt-6.1-terra", display_name: "GPT-6.1 Terra", visibility: "list", supported_reasoning_levels: knownEfforts, default_reasoning_level: "medium" },
       { slug: "gpt-6.1-sol", display_name: "GPT-6.1 Sol", visibility: "list", supported_reasoning_levels: knownEfforts, default_reasoning_level: "medium" },
+      { slug: "gpt-6.2-sol", display_name: "GPT-6.2 Sol", visibility: "list", supported_reasoning_levels: knownEfforts, default_reasoning_level: "medium" },
       { slug: "army-basic-model", display_name: "ARMY sans effort explicite", visibility: "list", supported_reasoning_levels: [] },
     ] });
   }

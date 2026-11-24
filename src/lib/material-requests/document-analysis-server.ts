@@ -9,6 +9,7 @@ import { openAiApiKeyAccess, type ApiKeyStructuredFile } from "@/lib/ai/access/o
 import { formatUsdCeiling } from "@/lib/ai/access/openai-pricing";
 import { assertLocalChatGptHost, isLocalChatGptEnabled } from "@/lib/ai/chatgpt-local-auth";
 import { readLocalChatGptModelOptions } from "@/lib/ai/chatgpt-local-inference";
+import { RETIRED_OPENAI_MODEL } from "@/lib/ai/chatgpt-model-preferences";
 import { callStructuredAi, getStructuredAiAvailability } from "@/lib/ai/structured-ai";
 import { StructuredAiError } from "@/lib/ai/structured-ai-diagnostic";
 import { conflict } from "@/lib/http/api-response";
@@ -88,6 +89,9 @@ export async function prepareMaterialRequestDocumentAnalysis(
   settings: MaterialRequestPhotoAnalysisInput,
 ) {
   const { preferences, billingSource, connectionId } = settings;
+  if (preferences?.model === RETIRED_OPENAI_MODEL) {
+    throw materialRequestAnalysisSettingsUnavailable("Ce modèle n’est plus proposé. Rechargez la demande pour reprendre.");
+  }
   const source = billingSource ?? "chatgpt_plan";
   const availability = await getMaterialRequestPhotoAnalysisAvailability(context, preferences !== undefined, source);
   if (availability.status !== "available") throw materialRequestAnalysisUnavailable(availability.message, availability.status);

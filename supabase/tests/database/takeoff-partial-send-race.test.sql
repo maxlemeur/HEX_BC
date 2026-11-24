@@ -291,14 +291,19 @@ create temp table race_pids(label text primary key, pid integer);
 insert into race_pids
 select session.name, (select backend.pid from extensions.dblink(session.name, 'select pg_backend_pid()') as backend(pid integer))
 from (values ('race_a'), ('race_b'), ('race_c')) as session(name);
--- Waits until one session is blocked by another (a condition, bounded), and says whether it is.
-create function pg_temp.waits_for(p_waiting text, p_holding text) returns boolean language plpgsql as $$
+-- Wait for the holder to block this session directly or, when named, through the other queued session.
+create function pg_temp.waits_for(p_waiting text, p_holding text, p_via text default null) returns boolean language plpgsql as $$
 declare
   waiting integer := (select pid from race_pids where label = p_waiting);
   holding integer := (select pid from race_pids where label = p_holding);
+  via integer := (select pid from race_pids where label = p_via);
+  blockers integer[];
 begin
   for attempt in 1..400 loop
-    if holding = any(pg_catalog.pg_blocking_pids(waiting)) then return true; end if;
+    blockers := pg_catalog.pg_blocking_pids(waiting);
+    if holding = any(blockers) or (via = any(blockers) and holding = any(pg_catalog.pg_blocking_pids(via))) then
+      return true;
+    end if;
     perform pg_catalog.pg_sleep(0.025);
   end loop;
   return false;
@@ -364,8 +369,8 @@ select is(extensions.dblink_send_query('race_b', pg_temp.send_sql((select body f
   'A''s first draft is confirmed');
 select is(extensions.dblink_send_query('race_c', pg_temp.send_sql((select body from commands where name = '21B'))), 1,
   'B''s first draft is confirmed');
-select ok(pg_temp.waits_for('race_b', 'race_a'), 'A''s send waits for the import, on the affaire');
-select ok(pg_temp.waits_for('race_c', 'race_a') or pg_temp.waits_for('race_c', 'race_b'), 'and so does B''s');
+select ok(pg_temp.waits_for('race_b', 'race_a', 'race_c'), 'A''s send waits for the import, directly or behind B');
+select ok(pg_temp.waits_for('race_c', 'race_a', 'race_b'), 'B''s send waits for the import, directly or behind A');
 select is(extensions.dblink_exec('race_a', 'commit'), 'COMMIT', 'the import commits');
 select is((select count(*)::integer from extensions.dblink_get_result('race_b', false) as x(replayed text)), 0, 'A writes nothing');
 select ok(extensions.dblink_error_message('race_b') like '%TAKEOFF_SEND_PREVIEW_STALE%destination_changed%',

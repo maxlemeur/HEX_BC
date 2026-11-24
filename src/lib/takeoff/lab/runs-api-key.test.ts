@@ -74,7 +74,7 @@ vi.mock("@/lib/ai/access/openai-api", async (importOriginal) => {
       provider.sent.push({ path: url.pathname, authorization: new Headers(init?.headers).get("authorization"),
         body: typeof init?.body === "string" ? JSON.parse(init.body) as Record<string, unknown> : null });
       const reply = url.pathname === "/v1/models"
-        ? Response.json({ object: "list", data: [{ id: "gpt-6.1-terra" }, { id: "gpt-6.1-sol" }, { id: "gpt-4o-mini" }] })
+        ? Response.json({ object: "list", data: [{ id: "gpt-6.1-terra" }, { id: "gpt-6.2-sol" }, { id: "gpt-4o-mini" }] })
         : url.pathname === "/v1/responses/input_tokens" ? (provider.countFails() ? new Response("{}", { status: 500 })
           : Response.json({ object: "response.input_tokens", input_tokens: provider.counted }))
         : provider.reply(url.pathname);
@@ -133,7 +133,7 @@ function essai(configs: LabConfigInput[], access = ACCESS) {
     prompt: task.defaultPrompt, configs, image: null });
 }
 type Effort = "medium" | "high" | "max";
-const keyed = (model: "gpt-6.1-terra" | "gpt-6.1-sol", effort: Effort = "medium", connectionId?: string): LabConfigInput =>
+const keyed = (model: "gpt-6.1-terra" | "gpt-6.2-sol", effort: Effort = "medium", connectionId?: string): LabConfigInput =>
   ({ provider: "api_key", apiProvider: "openai", model, reasoningEffort: effort, connectionId: connectionId ?? shown });
 const terra = (effort: Effort = "medium") => keyed("gpt-6.1-terra", effort);
 
@@ -181,14 +181,14 @@ describe("lab extraction on the member's API key", () => {
   it("refuses the essai before any generation when the counted input leaves too little of the ceiling", async () => {
     // 300 000 counted tokens on Sol: the input alone costs 1,50 $.
     provider.counted = 300_000;
-    await expect(essai([keyed("gpt-6.1-sol", "max")])).rejects.toMatchObject({ status: 409, code: "AI_KEY_CEILING",
+    await expect(essai([keyed("gpt-6.2-sol", "max")])).rejects.toMatchObject({ status: 409, code: "AI_KEY_CEILING",
       message: expect.stringMatching(/^Cette analyse pourrait dépasser votre plafond de 1,00 \$ US \(borne prudente : \d+,\d\d \$ US\)/) });
     expect(generations()).toEqual([]);
     expect(await storedRunTexts()).toEqual([]);
   });
 
   it("splits the ceiling between key configurations: their bounds together never pass it", async () => {
-    const run = await essai([keyed("gpt-6.1-sol", "max"), terra("max")]);
+    const run = await essai([keyed("gpt-6.2-sol", "max"), terra("max")]);
     const bounds = run.configs.map((config) => config.billing!.bound_nano_usd ?? Number.POSITIVE_INFINITY);
     expect(run.configs.map((config) => config.billing!.allotment_nano_usd)).toEqual([500_000_000, 500_000_000]);
     expect(bounds.reduce((sum, bound) => sum + bound, 0)).toBeLessThanOrEqual(1_000_000_000);
@@ -218,7 +218,7 @@ describe("lab extraction on the member's API key", () => {
       output_tokens_details: { reasoning_tokens: 0 }, total_tokens: 144_000 };
     provider.reply = () => answer(JSON.stringify(ITEMS), { usage: overShare });
     // B (Sol, Maximum) reserves its whole 0,50 $ share: 0,70 $ + 0,50 $ would pass 1,00 $.
-    const run = await essai([terra(), keyed("gpt-6.1-sol", "max")]);
+    const run = await essai([terra(), keyed("gpt-6.2-sol", "max")]);
     expect(generations()).toHaveLength(1);
     expect(run.status).toBe("stopped");
     expect(run.stop?.reason).toBe("api_key_ceiling_exceeded");
@@ -239,7 +239,7 @@ describe("lab extraction on the member's API key", () => {
     let counts = 0;
     const failSecondCount = vi.fn(() => (counts += 1) === 2);
     provider.countFails = failSecondCount;
-    await expect(essai([terra(), keyed("gpt-6.1-sol")])).rejects.toMatchObject({ code: "AI_KEY_COUNT_UNAVAILABLE" });
+    await expect(essai([terra(), keyed("gpt-6.2-sol")])).rejects.toMatchObject({ code: "AI_KEY_COUNT_UNAVAILABLE" });
     expect(generations()).toEqual([]);
     expect(failSecondCount).toHaveBeenCalledTimes(2);
   });

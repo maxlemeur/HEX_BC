@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+export const RETIRED_OPENAI_MODEL = "gpt-6.1-sol";
+
 export const DEFAULT_CHATGPT_MODEL = "gpt-6.2-sol";
 export const DEFAULT_CHATGPT_MODEL_NAME = "GPT-6.2 Sol";
 export const DEFAULT_CHATGPT_REASONING_EFFORT = "high";

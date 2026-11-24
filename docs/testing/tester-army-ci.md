@@ -360,8 +360,9 @@ ensemble :
 
 [`army-shards.json`](../../scripts/tester-army/army-shards.json) fixe le nombre
 de shards, leurs workers et les durées utilisées pour répartir les fichiers.
-Chaque shard possède sa base, son compte et son build ; un fichier n'est pas
-coupé entre plusieurs jobs. Les shards critical utilisent 2 workers ; full et
+Chaque shard possède sa base et son compte, et sert le
+[build unique du run](#pile-confidentialité-et-diagnostic) quand il est le sien ; un fichier
+n'est pas coupé entre plusieurs jobs. Les shards critical utilisent 2 workers ; full et
 métré restent à 1. Une sélection trop petite ou impossible à répartir conserve
 un seul job. Les durées ne choisissent pas la couverture.
 
@@ -386,8 +387,8 @@ seul job, repli d'une sélection impossible, ne les sépare pas non plus.
 Les phases calc-v3 sélectionnées tournent en groupes : autant de jobs que leurs
 secondes de parcours mesurées en remplissent à `calcV3.secondsPerGroup`
 (480 s), jamais plus que de phases ni que `calcV3.maxGroups` (cinq). Trois
-phases courtes partagent ainsi un job. Chaque job `army-calc-v3 group N/T` prépare une seule pile et un
-seul build, puis exécute ses phases l'une après l'autre
+phases courtes partagent ainsi un job. Chaque job `army-calc-v3 group N/T` prépare une seule pile et sert
+un seul build, puis exécute ses phases l'une après l'autre
 (`run-tester-army-ci.ts calc-v3 --phase A,B`), chacune avec ses fixtures et son
 invocation TesterArmy ; une phase rouge n'arrête pas les suivantes du groupe.
 [`select-calc-v3.ts`](../../scripts/tester-army/select-calc-v3.ts) répartit les
@@ -522,6 +523,54 @@ les OID, donc les noms `RI_ConstraintTrigger_a_<oid>`, et avec eux l'ordre
 dans lequel les cascades se déclenchent. Le gain ne valait pas une base qui
 diffère de celle que vérifient les autres checks : l'instantané a été retiré,
 sans interrupteur.
+
+Build unique par run : dans chaque workflow Army, un job de build (`army-build` en Critical,
+`army-calc-v3-build`, `army-full-build`) construit l'application de production
+une seule fois, en parallèle du job de sélection ou de plan, avec
+[`army-build.ts`](../../scripts/tester-army/army-build.ts). Le build fige
+l'origine du backend et la clé anon (`NEXT_PUBLIC_SUPABASE_URL`,
+`NEXT_PUBLIC_SUPABASE_ANON_KEY`). Avec la CLI épinglée et
+`supabase/config.toml`, la clé anon d'une pile native ne change pas d'une pile
+à l'autre (deux piles de ports différents le 24 novembre 2026), mais son port
+API est tiré au hasard. Le job démarre donc une pile nue, sans migration, donnée
+ni compte, pour lire son origine et sa clé, et la garde pendant le build comme
+un shard. Il publie la sortie (`.build/tester-army/next` sans `cache`, `dev`,
+`diagnostics`, `types`, `trace` ni `trace-build`), le manifeste et le journal
+du build et `prebuilt.json` dans l'artefact `army-prebuilt-build`, gardé un
+jour ; une sortie qui contiendrait la clé de service ou le secret de reprise
+n'est pas publiée. Ce job restaure le cache Next ; celui de Critical le
+sauvegarde sur un push de `main`. Critical ne construit rien pour une PR dont la
+sélection par impact n'atteint aucun parcours, calc-v3 seulement si une phase
+sélectionnée tourne sous `next start`, et Full pour ses shards, pas pour la
+phase développement (`next dev`).
+
+Chaque shard ou groupe télécharge l'artefact, sans échouer s'il manque, et
+demande pour sa pile le port API du build quand il est libre. Il restaure
+toujours le cache Next, même à côté d'un build téléchargé : un build refusé se
+reconstruit à chaud. Le runner applique ensuite la règle de [`prebuilt-build.ts`](../../scripts/tester-army/prebuilt-build.ts) :
+- mêmes révision, empreinte du diff et entrées que le checkout (`buildSourceEvidence`) ;
+- build réussi avec les commandes enregistrées, sources stables pendant le build ;
+- mêmes origine et clé anon que la pile du shard (la clé par son empreinte) ;
+- mêmes Node, plateforme et architecture ;
+- une fois posés les seuls fichiers que liste le manifeste, empreinte de sortie (`buildOutputEvidence`) égale à la sienne.
+
+Au premier écart, il retire les fichiers posés et construit localement comme
+avant, en disant pourquoi dans le journal (`TesterArmy CI: building here, …`)
+et dans le manifeste. Le manifeste du shard indique `build.source` : `prebuilt`,
+avec l'artefact, le run, le manifeste du build et son empreinte (conservés sous
+`builds/`), ou `local`, avec la raison `prebuiltRefused`. Un build téléchargé
+puis refusé ajoute aussi l'annotation `Army build not reused` au run, avec la
+raison : si tous les shards refusent (une montée de la CLI Supabase qui change
+la clé anon ou les ports, par exemple), le run coûte plus qu'avant sans devenir
+rouge, et seule cette annotation le signale. Un artefact absent reste une ligne
+du journal. Un job de build en échec ou absent ne fait jamais échouer un shard :
+celui-ci construit lui-même. Le job de build est en `continue-on-error` : son
+échec laisse le run vert (`ci-night-alert` lit la conclusion du run) et sa
+dernière étape l'annonce par l'annotation `Army build failed`. Son étape de
+build a sa propre limite de 15 minutes, sous les 25 du job, pour qu'un build
+bloqué échoue avant le job et que l'annotation sorte.
+La vérification d'un build lancé tôt (même origine et même clé que la pile du
+shard) reste inchangée.
 
 pgTAP et la matrice RLS prouvent la base migrée, pas les parcours : le même
 résultat dans chacune des piles d'une PR ou d'un push `main`. Sur une pull
