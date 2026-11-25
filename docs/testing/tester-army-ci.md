@@ -368,7 +368,8 @@ shards Critical utilisent 2 workers, ceux de Full et du métré en utilisent 1.
 Une sélection trop petite ou impossible à répartir conserve un seul job. Les
 durées ne choisissent pas la couverture.
 
-Pour un shard qui fournit sa liste de fichiers, le lanceur crée
+Pour un shard qui fournit sa liste de fichiers et cible uniquement
+`chromium-desktop`, implicitement ou avec `--target`, le lanceur crée
 `.e2e/army/critical/shard-timings.json` avant `e2e run --timings ...`. Il convertit
 `seconds` en millisecondes par fichier pour la cible `chromium-desktop`. Un
 fichier sans mesure reçoit `defaultSeconds`, car le runner donnerait autrement

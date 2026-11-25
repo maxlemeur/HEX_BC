@@ -44,14 +44,17 @@ const reportPath = path.join(output, "report.json");
 
 const extraArgs = process.argv.slice(3).filter((arg) => arg !== "--");
 const journeyFiles = [];
+const targets = [];
 for (let index = 0; index < extraArgs.length; index += 1) {
   const arg = extraArgs[index];
   if (arg === "--target" || arg.startsWith("--target=")) {
     const value = arg === "--target" ? extraArgs[++index] : arg.slice("--target=".length);
-    if (!value || value.split(",").some((target) => !["chromium-desktop", "chromium-mobile"].includes(target))) {
+    const names = value?.split(",") ?? [];
+    if (!value || names.some((target) => !["chromium-desktop", "chromium-mobile"].includes(target))) {
       throw new Error("Choose chromium-desktop or chromium-mobile with --target.");
     }
     if ((navigation || affaire || coverage) && value !== "chromium-desktop") throw new Error("This journey requires chromium-desktop.");
+    targets.push(...names);
   } else if (authenticated && !coverage && (arg === "--grep" || arg.startsWith("--grep="))) {
     const value = arg === "--grep" ? extraArgs[++index] : arg.slice("--grep=".length);
     if (!value) throw new Error("--grep requires a test-title pattern.");
@@ -75,7 +78,7 @@ if (critical && !discoveryOnly) {
   const problems = localJourneyCoverageProblems(root);
   if (problems.length) throw new Error(problems.join(" "));
 }
-const hasTarget = extraArgs.some((arg) => arg === "--target" || arg.startsWith("--target="));
+const hasTarget = targets.length > 0;
 const args = [
   path.join(root, "node_modules", "e2e", "dist", "cli", "bin.js"),
   discoveryOnly ? "list" : "run",
@@ -306,7 +309,7 @@ try {
   manifest.environment = live ? "existing loopback development server; attached without process ownership" : performance || coverage ? "owned isolated production server" : "owned loopback server";
   await prepareArmyTypeScriptConfig(root);
   const shardDurationsPath = path.join(root, "scripts", "tester-army", "army-shards.json");
-  if (journeyFiles.length && !hasTarget) {
+  if (journeyFiles.length && targets.every((target) => target === "chromium-desktop")) {
     const durations = await readFile(shardDurationsPath, "utf8").then(JSON.parse).catch(() => null);
     const timings = shardTimingHistory(journeyFiles, durations);
     if (timings) {

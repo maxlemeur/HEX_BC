@@ -35,6 +35,7 @@ const path = require("node:path");
   if (process.argv[2] === "list") { process.stdout.write(JSON.stringify({pairs:[]})); return; }
   const manifest = JSON.parse(await fs.readFile(path.join(output,"manifest.json"),"utf8"));
   const scenario = process.env.HARNESS_SCENARIO;
+  if (scenario === "critical-shard-timings") await fs.writeFile(path.join(output, "fixture-cli-argv.json"), JSON.stringify(process.argv.slice(2)));
   if (process.env.HARNESS_CORPUS_CHANGE) await fs.appendFile(path.join(process.cwd(),process.env.HARNESS_CORPUS_CHANGE),"\\n");
   if (scenario === "collision") {
     const archive = path.join(output,"runs",manifest.startedAt.replace(/[:.]/g,"-")+"-setup-failed");
@@ -154,8 +155,8 @@ async function fixture(name) {
   await mkdir(outside); await writeFile(path.join(outside, "app.log"), "outside-owner-bytes\n");
   return { cwd, output, outside, gitCommands };
 }
-async function execute(f, scenario, extras = {}, mode = "coverage") {
-  const result = command(f.cwd, process.execPath, ["scripts/run-tester-army.mjs", mode], { ...environment, E2E_LOGIN_EMAIL: "harness@example.invalid", E2E_LOGIN_PASSWORD: secret, NEXT_PUBLIC_SUPABASE_ANON_KEY: "synthetic-anon-key", NEXT_PUBLIC_SUPABASE_URL: "http://127.0.0.1:45585", E2E_ALLOWED_SUPABASE_HOST: "127.0.0.1", HARNESS_SCENARIO: scenario, HARNESS_OUTSIDE: f.outside, ...extras });
+async function execute(f, scenario, extras = {}, mode = "coverage", args = []) {
+  const result = command(f.cwd, process.execPath, ["scripts/run-tester-army.mjs", mode, ...args], { ...environment, E2E_LOGIN_EMAIL: "harness@example.invalid", E2E_LOGIN_PASSWORD: secret, NEXT_PUBLIC_SUPABASE_ANON_KEY: "synthetic-anon-key", NEXT_PUBLIC_SUPABASE_URL: "http://127.0.0.1:45585", E2E_ALLOWED_SUPABASE_HOST: "127.0.0.1", HARNESS_SCENARIO: scenario, HARNESS_OUTSIDE: f.outside, ...extras });
   const invocation = `${scenario}-${randomUUID()}`;
   await writeFile(path.join(f.cwd, `${invocation}-stdout.log`), result.stdout);
   await writeFile(path.join(f.cwd, `${invocation}-stderr.log`), result.stderr);
@@ -289,6 +290,29 @@ await test("critical-results-layout-and-scrub", async f => {
   for (const entry of archived.artifacts) assert.equal(entry.sha256, digest(await readFile(path.join(f.cwd, entry.path))), "archived evidence must match its fingerprint");
   await assert.rejects(readFile(path.join(output, "artifacts/chromium-desktop/old/trace/trace.zip")), { code: "ENOENT" });
   const missing = await execute(f, "critical-no-trace", {}, "critical"); assert.equal(missing.exitCode, 3); assert.equal(missing.manifest.result.status, "evidence_unavailable"); assert.match(missing.manifest.result.error, /did not retain their traces/);
+});
+if (!baseline) await test("critical-shard-forwards-sdk-timings", async f => {
+  const measured = "e2e/army/critical/estimate-integrity.e2e.ts";
+  const unmeasured = "e2e/army/critical/access-boundaries.e2e.ts";
+  await writeFile(path.join(f.cwd, "scripts/tester-army/army-shards.json"), JSON.stringify({
+    schemaVersion: 1, defaultSeconds: 20, seconds: { [measured]: 99.125 },
+  }));
+  const run = await execute(f, "critical-shard-timings", { E2E_ARMY_WORKERS: "2" }, "critical", [
+    "--target", "chromium-desktop", unmeasured, measured,
+  ]);
+  assert.equal(run.exitCode, 0, run.stderr);
+  const argv = JSON.parse(await readFile(path.join(f.cwd, ".e2e/army/critical/fixture-cli-argv.json"), "utf8"));
+  const timingFlag = argv.indexOf("--timings");
+  assert.notEqual(timingFlag, -1, "the SDK child must receive --timings");
+  const timings = argv[timingFlag + 1];
+  assert.equal(timings, ".e2e/army/critical/shard-timings.json");
+
+  // Exercise the installed SDK's reader with no report available as a fallback.
+  const { loadTimings } = await import("../../node_modules/e2e/dist/run/timings.js");
+  assert.deepEqual(await loadTimings(path.join(f.cwd, timings), path.join(f.cwd, "missing-report.json")), new Map([
+    [`chromium-desktop::${unmeasured}`, 20_000],
+    [`chromium-desktop::${measured}`, 99_125],
+  ]));
 });
 await test("coverage-browser-scrub", async f => {
   const clean = (text, label) => { for (const leak of browserLeaks) assert.ok(!text.includes(leak), `${label} must not retain ${leak.slice(0, 12)}`); };
