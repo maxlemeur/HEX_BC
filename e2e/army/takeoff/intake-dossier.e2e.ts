@@ -4,7 +4,8 @@ import path from "node:path";
 
 import { expect } from "e2e";
 
-import { armyTest, createEstimateViaWizard, readEstimate, recordEvidence } from "../critical/fixtures";
+import type { AffaireIntakeWorkspace } from "@/lib/affaires/intake-workspace-server";
+import { apiRequest, armyTest, createEstimateViaWizard, readEstimate, recordEvidence } from "../critical/fixtures";
 import { readPlanFiles, readPlanSets } from "../critical/plans-support";
 import { localClient } from "./native-ui";
 
@@ -65,6 +66,14 @@ armyTest("INT01 real dossier upload survives unavailable AI and manual classific
     expect(createHash("sha256").update(Buffer.from(await stored.data!.arrayBuffer())).digest("hex"))
       .toBe(createHash("sha256").update(fixture.bytes).digest("hex"));
   }
+  // The heuristic brief can be published while its launch is still running.
+  // Let that launch close before editing the documents it used to prepare the brief.
+  await expect.poll(async () => {
+    const response = await apiRequest<{ data?: { workspace: Pick<AffaireIntakeWorkspace, "briefDraft" | "launchRunning"> } }>(
+      browser, "GET", `/api/affaires/${ids.projectId}/intake`);
+    const workspace = response.body?.data?.workspace;
+    return { status: response.status, brief: workspace?.briefDraft?.status, launchRunning: workspace?.launchRunning };
+  }, { timeout: 60_000 }).toEqual({ status: 200, brief: "a_confirmer", launchRunning: false });
   const ambiguous = uploaded.find((doc) => doc.file_name.endsWith("-piece-a-classer.txt"))!;
   expect(ambiguous.document_kind).toBe("a_classer");
   // The deep link highlights the piece's row in the dossier table; its actions live in the row's details dialog.
