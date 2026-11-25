@@ -68,10 +68,17 @@ describe.each(boundaries)("$name same-origin boundary", ({ check, allow, deny })
     await checkRequest(request({ host, origin: `http://${host}`, "sec-fetch-site": "same-origin" }), "allow");
   });
 
-  it("accepts the public authority and scheme forwarded by Vercel", async () => {
-    vi.stubEnv("VERCEL", "1");
-    vi.stubEnv("VERCEL_ENV", "production");
-    await checkRequest(request(forwarded, "http://internal.example.test:8080/api/write"), "allow");
+  it.each([false, true])("accepts the public HTTPS origin with Vercel variables exposed: %s", async (exposed) => {
+    if (exposed) {
+      vi.stubEnv("VERCEL", "1");
+      vi.stubEnv("VERCEL_ENV", "production");
+    }
+    await checkRequest(request(forwarded, `https://${publicHost}/api/write`), "allow");
+    await checkRequest(request(forwarded, "https://localhost:3000/api/write"), "allow");
+  });
+
+  it("accepts an HTTPS request without forwarding headers", async () => {
+    await checkRequest(request({ host: publicHost, origin: `https://${publicHost}` }, `https://${publicHost}/api/write`), "allow");
   });
 
   it.each<HeaderCase>([
@@ -89,19 +96,21 @@ describe.each(boundaries)("$name same-origin boundary", ({ check, allow, deny })
     await checkRequest(request(headers), "deny");
   });
 
-  it("ignores direct forwarded values even when Next used them in the URL", async () => {
-    const url = `https://${loopback}/api/write`;
-    const headers = { ...direct, "x-forwarded-host": foreignHost, "x-forwarded-proto": "https" };
+  it.each([loopback, localhost, "127.0.0.1:443"])("keeps HTTP for %s even when Next used a forwarded scheme", async (host) => {
+    const url = "https://localhost:3000/api/write";
+    const headers = { host, origin: `http://${host}`, "x-forwarded-host": host, "x-forwarded-proto": "https" };
     await checkRequest(request(headers, url), "allow");
-    await checkRequest(request({ ...headers, origin: `https://${loopback}` }, url), "deny");
+    await checkRequest(request({ ...headers, origin: new URL(`https://${host}`).origin }, url), "deny");
   });
 
   it.each<HeaderCase>([
-    { name: "unmatched forwarded host", headers: { ...forwarded, "x-forwarded-host": foreignHost, origin: `https://${foreignHost}` } },
+    { name: "unmatched forwarded host even when the Origin matches Host", headers: { ...forwarded, "x-forwarded-host": foreignHost } },
     { name: "unmatched scheme", headers: { ...forwarded, origin: `http://${publicHost}` } },
     { name: "HTTP forwarded as the public scheme", headers: { ...forwarded, "x-forwarded-proto": "http", origin: `http://${publicHost}` } },
+    { name: "contradictory forwarded scheme", headers: { ...forwarded, "x-forwarded-proto": "http" } },
     { name: "forwarded scheme list", headers: { ...forwarded, "x-forwarded-proto": "https, http" } },
     { name: "cross-site even with matching host and origin", headers: { ...forwarded, "sec-fetch-site": "cross-site" } },
+    { name: "same-site even with matching host and origin", headers: { ...forwarded, "sec-fetch-site": "same-site" } },
   ])("refuses $name on Vercel", async ({ headers }) => {
     vi.stubEnv("VERCEL", "1");
     vi.stubEnv("VERCEL_ENV", "production");
