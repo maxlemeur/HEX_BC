@@ -7,6 +7,7 @@ import { Loader2Icon, XIcon } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { NativeSelect } from "@/components/ui/native-select";
 import {
   Dialog,
   DialogBody,
@@ -253,9 +254,9 @@ function StatusReasonEntry({
       </div>
       {onSave ? (
         <div className="mt-2 grid gap-2">
-          <select
+          <NativeSelect
             id={`${id}-code`}
-            className="estimate-input h-8 w-full text-xs"
+            size="sm"
             aria-label={`Motif interne pour ${line.title}`}
             value={code}
             disabled={disabled || isSaving}
@@ -265,7 +266,7 @@ function StatusReasonEntry({
             {ESTIMATE_STATUS_REASON_CODE_VALUES.map((value) => (
               <option key={value} value={value}>{ESTIMATE_STATUS_REASON_CODES[value]}</option>
             ))}
-          </select>
+          </NativeSelect>
           <textarea
             className="estimate-input min-h-14 w-full text-xs"
             aria-label={`Précision du motif pour ${line.title}`}

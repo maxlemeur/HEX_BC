@@ -7,6 +7,7 @@ import type {
   StructurePreviewData,
 } from "./types";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { NativeSelect } from "@/components/ui/native-select";
 import { workbookRowLabel, worksheetRow } from "@/lib/imports/row-location";
 
 /** A candidate's row, worded as the item list words it (« Ligne 5 de la feuille (ligne du tableau 3) »). */
@@ -183,9 +184,10 @@ export function StructureReview({
 
                 <label className="text-xs font-medium text-muted-foreground">
                   Type
-                  <select
+                  <NativeSelect
+                    size="sm"
+                    wrapperClassName="mt-1"
                     aria-label={`Type de ${candidate.title}`}
-                    className="input mt-1 h-9 w-full py-1 text-sm"
                     value={decision.kind}
                     onChange={(event) => {
                       const kind = event.target.value;
@@ -208,14 +210,16 @@ export function StructureReview({
                     <option value="section">Section</option>
                     <option value="line">Ligne</option>
                     <option value="ignore">Ignorer</option>
-                  </select>
+                  </NativeSelect>
                 </label>
 
                 <label className="text-xs font-medium text-muted-foreground">
                   Niveau
-                  <select
+                  <NativeSelect
+                    size="sm"
+                    wrapperClassName="mt-1"
                     aria-label={`Niveau de ${candidate.title}`}
-                    className="input mt-1 h-9 w-full py-1 text-sm disabled:cursor-not-allowed disabled:opacity-50"
+                    className="disabled:cursor-not-allowed disabled:opacity-50"
                     disabled={decision.kind !== "section"}
                     value={decision.kind === "section" ? decision.level : ""}
                     onChange={(event) => {
@@ -231,7 +235,7 @@ export function StructureReview({
                     {decision.kind !== "section" && <option value="">—</option>}
                     <option value="1">Niveau 1</option>
                     <option value="2">Niveau 2</option>
-                  </select>
+                  </NativeSelect>
                 </label>
               </div>
             );

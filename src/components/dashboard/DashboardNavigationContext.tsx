@@ -7,6 +7,8 @@ import {
   type RefObject,
 } from "react";
 
+import { buttonVariants } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import type { NavGroup } from "@/lib/navigation/build-nav-groups";
 import { MenuIcon } from "lucide-react";
 
@@ -54,7 +56,7 @@ export function WorkspaceNavigationButton({
     <button
       ref={navigation.menuButtonRef}
       type="button"
-      className={`btn btn-secondary btn-sm shrink-0 gap-2 ${className}`}
+      className={cn(buttonVariants({ variant: "outline", size: "md" }), "shrink-0 gap-2", className)}
       onClick={navigation.openDrawer}
       aria-label="Ouvrir le menu principal"
       aria-expanded={navigation.drawerOpen}

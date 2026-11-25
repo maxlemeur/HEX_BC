@@ -3,6 +3,7 @@
 import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
+import { NativeSelect } from "@/components/ui/native-select";
 import {
   Dialog,
   DialogBody,
@@ -120,8 +121,8 @@ function OfferReserveForm({
           </fieldset>
           <label className="grid gap-1 text-sm">
             <span className="font-medium">Motif</span>
-            <select
-              className="estimate-input h-9 w-full"
+            <NativeSelect
+              size="sm"
               value={code}
               disabled={disabled}
               onChange={(event) => setCode(event.target.value as EstimateOfferReserveCode | "")}
@@ -130,7 +131,7 @@ function OfferReserveForm({
               {ESTIMATE_OFFER_RESERVE_CODE_VALUES.map((value) => (
                 <option key={value} value={value}>{ESTIMATE_OFFER_RESERVE_CODES[value]}</option>
               ))}
-            </select>
+            </NativeSelect>
           </label>
           <label className="grid gap-1 text-sm">
             <span className="font-medium">

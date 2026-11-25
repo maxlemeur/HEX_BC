@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { PurchaseOrderDraftLinesTable } from "@/components/affaires/PurchaseOrderDraftLinesTable";
 import { Badge } from "@/components/ui/badge";
+import { NativeSelect } from "@/components/ui/native-select";
 import { useToast } from "@/components/feedback/toast-provider";
 import {
   createEstimatePurchaseOrderDrafts,
@@ -1033,8 +1034,8 @@ export function AffaireOrderDraftsPanel({
                 <div className="mt-4 grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
                   <label className="flex flex-col gap-2 text-sm text-foreground-secondary">
                     <span className="font-medium">Chantier de livraison</span>
-                    <select
-                      className="rounded-xl border border-border-strong bg-surface px-3 py-2"
+                    <NativeSelect
+                      className="rounded-xl"
                       value={deliverySiteId}
                       onChange={(event) => {
                         setDeliverySiteId(event.target.value);
@@ -1049,7 +1050,7 @@ export function AffaireOrderDraftsPanel({
                           {formatSiteLabel(site)}
                         </option>
                       ))}
-                    </select>
+                    </NativeSelect>
                   </label>
 
                   <div className="flex flex-col gap-2 text-sm text-foreground-secondary">

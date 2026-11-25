@@ -25,7 +25,8 @@ import {
 import { CircleAlertIcon, CircleIcon, HardDriveIcon, Trash2Icon } from "lucide-react";
 import { AlertDialog, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import type { DriveProvenance } from "@/lib/affaires/google-drive/contracts";
-import { buttonVariants } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
+import { NativeSelect } from "@/components/ui/native-select";
 import { cn } from "@/lib/utils";
 
 export type IntakeDocumentData = {
@@ -300,19 +301,20 @@ export function IntakeDocumentCard({
           <label htmlFor={`reclassify-${doc.documentId}`} className="sr-only">
             Nouvelle catégorie
           </label>
-          <select
+          <NativeSelect
             id={`reclassify-${doc.documentId}`}
+            size="sm"
+            wrapperClassName="flex-1"
             value={selectedCategory}
             onChange={(e) => setSelectedCategory(e.target.value as AffaireIntakeDocumentKind)}
             disabled={isPending}
-            className="flex-1 rounded-lg border border-border-strong bg-surface px-2 py-1.5 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
           >
             {CATEGORY_OPTIONS.map((cat) => (
               <option key={cat} value={cat}>
                 {CATEGORY_LABELS[cat]}
               </option>
             ))}
-          </select>
+          </NativeSelect>
           <button
             type="button"
             onClick={handleReclassify}
@@ -348,9 +350,9 @@ export function IntakeDocumentCard({
           ) : (
             <>
               <p className="mt-2 text-xs">Votre classement « {CATEGORY_LABELS[doc.detectedCategory]} » reste inchangé sans validation.</p>
-              {canManage && canClassify && <button type="button" className="btn btn-primary btn-sm mt-2" disabled={isPending} onClick={applyProposal}>
+              {canManage && canClassify && <Button type="button" variant="primary" size="md" className="mt-2" disabled={isPending} onClick={applyProposal}>
                 Appliquer la catégorie proposée
-              </button>}
+              </Button>}
             </>
           )}
         </section>
@@ -403,7 +405,7 @@ export function IntakeDocumentCard({
             ? <>Le lien vers « {doc.fileName} » sera retiré du dossier de l’affaire{doc.detectedCategory === "plans" ? ", avec la copie de travail du plan pour le métré" : ""}. Le fichier reste dans Google Drive. Les lignes de chiffrage et les références historiques existantes restent conservées.</>
             : <>Le fichier « {doc.fileName} » et ses copies dans les plans seront retirés du stockage de l’affaire. Les lignes de chiffrage et les références historiques existantes restent conservées.</>}</AlertDialogDescription>
           {error && <p role="alert" className="text-sm text-danger">{error}</p>}
-          <AlertDialogFooter><button type="button" className="btn btn-secondary" disabled={isPending} onClick={() => setConfirmDelete(false)}>Annuler</button><button type="button" className="btn btn-primary" disabled={isPending} onClick={() => { setError(null); startTransition(async () => { try { await deleteAffaireIntakeDocument({ projectId, documentId: doc.documentId }); setConfirmDelete(false); onReclassified(); } catch (err) { setError(err instanceof Error ? err.message : "Suppression interrompue. Réessayez."); } }); }}>{isPending ? (doc.driveSource ? "Retrait…" : "Suppression…") : doc.driveSource ? "Confirmer le retrait" : "Confirmer la suppression"}</button></AlertDialogFooter>
+          <AlertDialogFooter><Button type="button" variant="outline" size="lg" disabled={isPending} onClick={() => setConfirmDelete(false)}>Annuler</Button><Button type="button" variant="primary" size="lg" disabled={isPending} onClick={() => { setError(null); startTransition(async () => { try { await deleteAffaireIntakeDocument({ projectId, documentId: doc.documentId }); setConfirmDelete(false); onReclassified(); } catch (err) { setError(err instanceof Error ? err.message : "Suppression interrompue. Réessayez."); } }); }}>{isPending ? (doc.driveSource ? "Retrait…" : "Suppression…") : doc.driveSource ? "Confirmer le retrait" : "Confirmer la suppression"}</Button></AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
     </div>

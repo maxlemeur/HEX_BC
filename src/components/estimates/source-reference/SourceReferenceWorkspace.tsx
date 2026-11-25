@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 
 import { Alert } from "@/components/ui/alert";
 import { Button, buttonVariants } from "@/components/ui/button";
+import { NativeSelect } from "@/components/ui/native-select";
 import { Textarea } from "@/components/ui/textarea";
 import type { SourceReferenceCopy, SourceReferenceReview } from "@/lib/estimates/source-reference-contracts";
 
@@ -109,13 +110,13 @@ export function SourceReferenceWorkspace({ scope, initialReview, documents, canR
         {documents.items.length ? <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-end">
           <div className="w-full min-w-0 flex-1">
             <label htmlFor="source-reference-document" className="mb-2 block text-sm font-medium">Document CCTP</label>
-            <select id="source-reference-document" value={documentId} disabled={busy || Boolean(pendingConfirmation) || interruptedPreparation}
-              onChange={(event) => setDocumentId(event.target.value)} className="w-full rounded-lg border border-input bg-surface px-3 py-2 text-sm">
+            <NativeSelect id="source-reference-document" size="sm" value={documentId} disabled={busy || Boolean(pendingConfirmation) || interruptedPreparation}
+              onChange={(event) => setDocumentId(event.target.value)}>
               <option value="">Choisir un document</option>
               {documents.items.map((document) => <option key={document.id} value={document.id} data-testid={`source-reference-document-${document.id}`}>
                 {document.fileName} · {sourceReferenceDate(document.createdAt)} · {document.byteSize.toLocaleString("fr-FR")} octets
               </option>)}
-            </select>
+            </NativeSelect>
           </div>
           <Button loading={controller.busy === "prepare"} disabled={busy || !documentId || Boolean(pendingConfirmation) || interruptedPreparation || Boolean(controller.storageError)}
             onClick={() => void controller.prepare(documentId)}>Préparer une copie</Button>

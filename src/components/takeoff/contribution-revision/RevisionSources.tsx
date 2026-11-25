@@ -3,6 +3,8 @@ import { useId, useState } from "react";
 import { normalizeMeasurementUnit } from "@/lib/units/normalize";
 import { compareQuantityPairs } from "@/lib/takeoff/quantity-policy";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { NativeSelect } from "@/components/ui/native-select";
 import {
   QUANTITY_ENTRY_CATEGORIES,
   quantityEntryError,
@@ -116,8 +118,8 @@ export function RevisionSources({
             <div className="flex flex-wrap gap-2">
               <label>
                 Quantité du plan
-                <input
-                  className="form-input"
+                <Input
+                  size="sm"
                   inputMode="decimal"
                   value={amount}
                   onChange={(e) => setAmount(e.target.value)}
@@ -125,8 +127,8 @@ export function RevisionSources({
               </label>
               <label>
                 Unité
-                <input
-                  className="form-input"
+                <Input
+                  size="sm"
                   value={unit}
                   maxLength={16}
                   onChange={(e) => setUnit(e.target.value)}
@@ -134,8 +136,8 @@ export function RevisionSources({
               </label>
               <label>
                 Origine
-                <select
-                  className="form-input"
+                <NativeSelect
+                  size="sm"
                   value={category}
                   onChange={(e) => setCategory(e.target.value as QuantityEntryCategory)}
                 >
@@ -145,11 +147,11 @@ export function RevisionSources({
                       {value}
                     </option>
                   ))}
-                </select>
+                </NativeSelect>
               </label>
               <label>
                 {category === "hypothesis" ? "Justification obligatoire" : "Justification (facultative)"}
-                <input className="form-input" value={note} required={category === "hypothesis"}
+                <Input size="sm" value={note} required={category === "hypothesis"}
                   aria-invalid={!!error} aria-describedby={error ? justificationError : undefined}
                   onChange={(e) => setNote(e.target.value)} />
               </label>
@@ -171,18 +173,18 @@ export function RevisionSources({
           <summary>Retirer cet apport du devis</summary>
           <label>
             Motif du retrait
-            <select value={reason} onChange={(e) => setReason(e.target.value as typeof reason)}>
+            <NativeSelect size="sm" value={reason} onChange={(e) => setReason(e.target.value as typeof reason)}>
               <option value="">Choisir un motif</option>
               <option value="out_of_scope">Hors périmètre</option>
               <option value="duplicate">Doublon</option>
               <option value="reading_error">Erreur de lecture</option>
               <option value="other">Autre motif</option>
-            </select>
+            </NativeSelect>
           </label>
           {reason === "other" && (
             <label>
               Précision
-              <input value={withdrawNote} maxLength={500} onChange={(e) => setWithdrawNote(e.target.value)} />
+              <Input size="sm" value={withdrawNote} maxLength={500} onChange={(e) => setWithdrawNote(e.target.value)} />
             </label>
           )}
           <Button

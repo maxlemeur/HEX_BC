@@ -22,6 +22,7 @@ import {
 } from "@/components/takeoff/item-detail/ItemDetailPlanPane";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { NativeSelect } from "@/components/ui/native-select";
 import { Spinner } from "@/components/ui/spinner";
 import { cn } from "@/lib/utils";
 import { itemDetailHref, itemTablePageOffset, itemTableReturnHref, type ItemDetailAddress } from "@/lib/takeoff/item-detail-address";
@@ -537,10 +538,10 @@ function ItemDetailView({ projectId, viewerKey, address, reader, tableQuery, onB
                   onOpenCurrent={() => setCurrentCopy({ original: originalKey, plan: view.plan.key, revision: (current?.revision ?? 0) + 1 })}
                   onRefused={measureRefused} onRefresh={() => { rereadItem(itemId); go({ planKey: view.plan.key, jobId: null, answerId: null, observationId: null, source: null }); }} />
               ) : null}
-              {sentJob && versions && versions.length>1 && <label className="px-3">Devis à consulter ou corriger
-                <select value={destination?.version_id??""} onChange={e=>go({versionId:e.target.value || null})}>
+              {sentJob && versions && versions.length>1 && <label className="flex flex-wrap items-center gap-2 px-3 text-sm">Devis à consulter ou corriger
+                <NativeSelect size="sm" wrapperClassName="w-auto" value={destination?.version_id??""} onChange={e=>go({versionId:e.target.value || null})}>
                   <option value="">Choisir un devis</option>{versions.map(v=><option key={v.version_id} value={v.version_id}>V{v.version_number} · {v.status==="draft"?"brouillon":"lecture seule"}</option>)}
-                </select></label>}
+                </NativeSelect></label>}
               {sentJob && revisionRead.error && <p role="alert">Impossible de lire les apports du devis. <button onClick={()=>void refreshRevision()}>Réessayer</button></p>}
               {sentJob && versions?.length===0 && <p>La lecture a déjà été envoyée. Son historique ne permet pas d’isoler un apport à corriger.</p>}
               {sentJob && destination && revisionItem && <RevisionPanel key={`${viewer}/${sentJob}/${destination.version_id}/${itemId}`}
