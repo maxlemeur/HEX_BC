@@ -2,11 +2,12 @@ import "server-only";
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import { DriveError } from "./errors";
-import { DRIVE_FOLDER_MIME, DRIVE_MAX_FILE_BYTES, driveFileRejection, driveFileSchema, type DriveFile, type DriveListing, type DriveLocation } from "./contracts";
+import { DRIVE_FOLDER_MIME, DRIVE_MAX_FILE_BYTES, driveFileReadRejection, driveFileRejection, driveFileSchema, isDrivePdfExport, type DriveFile, type DriveListing, type DriveLocation } from "./contracts";
 
 const FIELDS = "id,name,mimeType,version,size,modifiedTime,parents,driveId,trashed,capabilities(canDownload),md5Checksum,shortcutDetails(targetId,targetMimeType)";
 // Shared drives are part of the read-only scope; every files call opts in explicitly.
 const ALL_DRIVES = { supportsAllDrives: "true" };
+const MAX_PDF_EXPORT_BYTES = 10 * 1024 * 1024;
 export class GoogleDriveReader {
   private readonly signal: AbortSignal;
   /** onUnauthorized lets the caller drop an access token that Google no longer accepts. */
@@ -68,38 +69,65 @@ export class GoogleDriveReader {
     const listing = z.object({ files: z.array(driveFileSchema), nextPageToken: z.string().optional() }).parse(await response.json());
     return { location, folder, ...listing };
   }
-  /** Reads a linked file's current content, bounded, and checks it did not change meanwhile. */
-  async download(file: DriveFile) {
-    const rejection = driveFileRejection(file);
-    if (rejection) throw new DriveError(422, "DRIVE_UNSUPPORTED", rejection);
-    const response = await this.get(`files/${encodeURIComponent(file.id)}`, { alt: "media", ...ALL_DRIVES });
+  private async readBytes(response: Response, maxBytes: number, overflow: DriveError) {
     if (!response.body) throw new DriveError(422, "DRIVE_EMPTY", "La pièce Drive est vide.");
     const reader = response.body.getReader();
     const chunks: Uint8Array[] = [];
     let size = 0;
     try {
       while (true) {
-        // A stream cut or timed out mid-body is a Drive interruption, like a failed request.
         const { done, value } = await reader.read().catch(() => {
           throw new DriveError(422, "DRIVE_NETWORK", "Connexion Drive interrompue. Réessayez dans un instant.");
         });
         if (done) break;
         size += value.byteLength;
-        if (size > DRIVE_MAX_FILE_BYTES || size > Number(file.size)) {
-          throw new DriveError(422, "DRIVE_CHANGED", "Taille réelle refusée ou pièce modifiée pendant la lecture.");
-        }
+        if (size > maxBytes) throw overflow;
         chunks.push(value);
       }
     } finally {
       await reader.cancel().catch(() => undefined);
     }
-    const bytes = Buffer.concat(chunks);
-    if (size !== Number(file.size) || !size) throw new DriveError(422, "DRIVE_INCOMPLETE", "Lecture Drive incomplète. Relancez l'analyse.");
+    return Buffer.concat(chunks, size);
+  }
+
+  private async verifyRead(file: DriveFile, bytes: Buffer) {
     const current = await this.file(file.id);
     if (current.version !== file.version || current.trashed ||
+      current.capabilities?.canDownload === false ||
       (file.md5Checksum && createHash("md5").update(bytes).digest("hex") !== file.md5Checksum)) {
-      throw new DriveError(422, "DRIVE_CHANGED", "Pièce modifiée pendant la lecture. Relancez l'analyse.");
+      throw new DriveError(422, "DRIVE_CHANGED", "Pièce modifiée pendant la lecture. Réessayez.");
     }
+  }
+
+  async exportPdf(file: DriveFile) {
+    const rejection = driveFileReadRejection(file);
+    if (!isDrivePdfExport(file) || rejection)
+      throw new DriveError(422, "DRIVE_UNSUPPORTED", rejection ?? "L’export en PDF est indisponible pour ce fichier.");
+    // files.export applies to Workspace documents, whose Drive metadata has no media size.
+    const response = await this.get(`files/${encodeURIComponent(file.id)}/export`, { mimeType: "application/pdf" });
+    if (response.headers.get("content-type")?.split(";")[0].trim() !== "application/pdf") {
+      await response.body?.cancel();
+      throw new DriveError(422, "DRIVE_EXPORT_INVALID", "Drive n’a pas retourné le PDF demandé.");
+    }
+    const bytes = await this.readBytes(response, MAX_PDF_EXPORT_BYTES,
+      new DriveError(422, "DRIVE_EXPORT_TOO_LARGE", "L’export PDF dépasse 10 Mo. Ouvrez le document dans Drive."));
+    if (!bytes.subarray(0, 5).equals(Buffer.from("%PDF-")))
+      throw new DriveError(422, "DRIVE_EXPORT_INVALID", "Drive n’a pas retourné le PDF demandé.");
+    await this.verifyRead(file, bytes);
+    return bytes;
+  }
+
+  /** Reads a stored file, bounded, and checks it did not change meanwhile. */
+  async download(file: DriveFile) {
+    const rejection = driveFileRejection(file);
+    if (rejection) throw new DriveError(422, "DRIVE_UNSUPPORTED", rejection);
+    const expectedSize = Number(file.size);
+    const response = await this.get(`files/${encodeURIComponent(file.id)}`, { alt: "media", ...ALL_DRIVES });
+    const bytes = await this.readBytes(response, Math.min(expectedSize, DRIVE_MAX_FILE_BYTES),
+      new DriveError(422, "DRIVE_CHANGED", "Taille réelle refusée ou pièce modifiée pendant la lecture."));
+    if (bytes.byteLength !== expectedSize)
+      throw new DriveError(422, "DRIVE_INCOMPLETE", "Lecture Drive incomplète. Réessayez.");
+    await this.verifyRead(file, bytes);
     return bytes;
   }
 }

@@ -5,8 +5,11 @@ import { useEffect, useRef, useState } from "react";
 import { ArrowLeftIcon, ArrowRightIcon, CircleCheckIcon, ExternalLinkIcon, FileTextIcon, FolderIcon, FolderOpenIcon, HardDriveIcon, Link2Icon, RefreshCwIcon, SearchIcon, ShieldCheckIcon, TriangleAlertIcon, UsersIcon } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
-import { DRIVE_FOLDER_MIME, DRIVE_MAX_FILES, DRIVE_OAUTH_OUTCOMES, DRIVE_OAUTH_START_PATH, driveFileRejection,
+import { DRIVE_FOLDER_MIME, DRIVE_MAX_FILES, DRIVE_OAUTH_OUTCOMES, DRIVE_OAUTH_START_PATH, driveFilePreviewMime, driveFileReadRejection, driveFileRejection, isDrivePdfExport,
   driveGrantReleaseSchema, driveRemovalNotice, type DriveFile, type DriveLinkResult, type DriveListing, type DriveLocation, type DriveOAuthOutcome, type DriveState } from "@/lib/affaires/google-drive/contracts";
+
+import { downloadBlob } from "@/lib/browser-download";
+import { fetchGoogleDriveFile, GoogleDriveFilePreview } from "./GoogleDriveFilePreview";
 
 type Choice = { file: DriveFile; folder?: { id: string; name: string } };
 async function responseData<T>(response: Response): Promise<T> {
@@ -47,6 +50,7 @@ export function GoogleDriveImport({ projectId, onUploadComplete, onRefresh, show
 }) {
   const endpoint = `/api/affaires/${projectId}/intake/google-drive`;
   const [open, setOpen] = useState(false);
+  const [preview, setPreview] = useState<{ file: DriveFile; endpoint: string }>();
   const opener = useRef<HTMLElement | null>(null);
   function openDialog() { opener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null; setOpen(true); }
   useEffect(() => {
@@ -148,7 +152,7 @@ export function GoogleDriveImport({ projectId, onUploadComplete, onRefresh, show
     if (busy) return;
     generation.current++;
     controller.current?.abort();
-    setOpen(false); setListing(undefined); setSelected([]); setFolderSelections({}); setManualIds([]); setResults([]); setTrail([]); setMessage(""); setNotice("");
+    setOpen(false); setPreview(undefined); setListing(undefined); setSelected([]); setFolderSelections({}); setManualIds([]); setResults([]); setTrail([]); setMessage(""); setNotice("");
     const uploadId = [...completedUploads.current].at(-1);
     completedUploads.current.clear();
     if (uploadId) onUploadComplete(uploadId);
@@ -160,6 +164,19 @@ export function GoogleDriveImport({ projectId, onUploadComplete, onRefresh, show
     try { await action(); }
     catch (error) { if (mounted.current && current === runs.current) setMessage(error instanceof Error ? error.message : "Action interrompue."); }
     finally { if (mounted.current && current === runs.current) setBusy(false); }
+  }
+  function openFile(file: DriveFile) {
+    if (!connectionId) return;
+    const fileEndpoint = `${endpoint}/files/${encodeURIComponent(file.id)}?connectionId=${encodeURIComponent(connectionId)}`;
+    if (driveFilePreviewMime(file)) {
+      setPreview({ file, endpoint: fileEndpoint });
+      return;
+    }
+    void run(async () => {
+      const signal = controller.current?.signal;
+      const { blob, name } = await fetchGoogleDriveFile(fileEndpoint, signal);
+      if (mounted.current && !signal?.aborted) downloadBlob(blob, name);
+    });
   }
   async function post<T>(body: Record<string, unknown>) {
     return responseData<T>(await fetch(endpoint, { method: "POST", headers: { "Content-Type": "application/json" },
@@ -283,7 +300,7 @@ export function GoogleDriveImport({ projectId, onUploadComplete, onRefresh, show
     {showTrigger && <button type="button" className="btn btn-primary mt-3 gap-2" onClick={openDialog}><HardDriveIcon size={16} aria-hidden="true" />Ajouter depuis Google Drive</button>}
     <Dialog open={open} onOpenChange={(value) => { if (!value) close(); }}>
       <DialogContent size="xl" showCloseButton={!busy} className="gap-0 overflow-hidden p-0 sm:p-0" finalFocus={() => opener.current?.isConnected ? opener.current : fallbackFocus?.current ?? true}>
-        <DialogHeader className="p-5 sm:p-6"><DialogTitle className="flex items-center gap-3"><HardDriveIcon className="text-primary" aria-hidden="true" />Ajouter depuis Google Drive</DialogTitle><DialogDescription>Liez vos fichiers Drive à l’affaire : MergeOne garde le lien, le fichier reste dans Drive.</DialogDescription></DialogHeader>
+        <DialogHeader className="p-5 sm:p-6"><DialogTitle className="flex items-center gap-3"><HardDriveIcon className="text-primary" aria-hidden="true" />Ajouter depuis Google Drive</DialogTitle><DialogDescription>Consultez vos fichiers ou liez-les à l’affaire.</DialogDescription></DialogHeader>
         <div className="min-h-0 overflow-y-auto">
           {state && <p className="border-b border-border bg-surface-subtle px-5 py-3 text-xs text-muted-foreground">Destination : <strong className="text-foreground">{state.projectName}</strong></p>}
           {!state && !message && <p className="p-6">Chargement…</p>}
@@ -315,9 +332,34 @@ export function GoogleDriveImport({ projectId, onUploadComplete, onRefresh, show
                     const partial = Boolean(group && !group.complete && group.ids.some((id) => selected.some((choice) => choice.file.id === id)));
                     return <li key={file.id} className="flex items-center border-b border-border-subtle"><input type="checkbox" className="ml-3" aria-label={`Sélectionner le dossier ${file.name}`} aria-checked={partial ? "mixed" : Boolean(group?.complete)} ref={(input) => { if (input) input.indeterminate = partial; }} checked={Boolean(group?.complete)} disabled={busy} onChange={() => void run(() => selectFolder(target, file.name))} /><button type="button" className="flex min-w-0 flex-1 items-center gap-3 p-3 text-left text-sm text-primary hover:bg-muted" disabled={busy} onClick={() => void run(() => loadLocation({ kind: "folder", folderId: target }))}><FolderIcon size={19} aria-hidden="true" />Ouvrir le dossier {file.name}<ArrowRightIcon className="ml-auto" size={14} aria-hidden="true" /></button></li>;
                   }
-                  const rejection = driveFileRejection(file); const chosen = selected.some((item) => item.file.id === file.id);
+                  const rejection = driveFileRejection(file);
+                  const chosen = selected.some((item) => item.file.id === file.id);
                   const linked = linkedIds.has(file.id);
-                  return <li key={file.id} className={`border-b border-border-subtle p-3 ${chosen ? "bg-primary/5" : ""}`}><label className="flex items-center gap-3"><input type="checkbox" aria-label={`Sélectionner ${file.name}`} checked={chosen} disabled={busy || linked || Boolean(rejection)} onChange={() => toggle(file)} /><FileTextIcon size={19} className="shrink-0 text-muted-foreground" aria-hidden="true" /><span className="min-w-0 flex-1"><span className="block break-all text-xs font-medium">{file.name}</span><span className="text-micro text-muted-foreground">{fileSize(file)}</span></span>{linked && <Badge variant="neutral">Déjà lié</Badge>}</label>{rejection && !linked && <p className="mt-1 pl-7 text-xs text-warning">{rejection}</p>}{orphanIds.has(file.id) && !rejection && <p className="mt-1 pl-7 text-xs text-muted-foreground">Déjà lié, sans compte Google : sélectionnez-le pour le rattacher à ce compte.</p>}</li>;
+                  const readRejection = driveFileReadRejection(file);
+                  const canRead = !readRejection;
+                  const canPreview = Boolean(driveFilePreviewMime(file));
+                  const native = isDrivePdfExport(file);
+                  return (
+                    <li key={file.id} className={`border-b border-border-subtle p-3 ${chosen ? "bg-primary/5" : ""}`}>
+                      <div className="flex items-center gap-3">
+                        <label className="flex min-w-0 flex-1 items-center gap-3">
+                          <input type="checkbox" aria-label={`Sélectionner ${file.name}`} checked={chosen} disabled={busy || linked || Boolean(rejection)} onChange={() => toggle(file)} />
+                          <FileTextIcon size={19} className="shrink-0 text-muted-foreground" aria-hidden="true" />
+                          <span className="min-w-0 flex-1">
+                            <span className="block break-all text-xs font-medium">{file.name}</span>
+                            <span className="text-micro text-muted-foreground">{native ? "Document Google" : fileSize(file)}</span>
+                          </span>
+                        </label>
+                        {linked && <Badge variant="neutral">Déjà lié</Badge>}
+                        {canRead && <button type="button" className="text-xs font-medium text-primary underline" disabled={busy}
+                          aria-label={`${canPreview ? "Lire" : "Télécharger"} ${file.name}`} onClick={() => openFile(file)}>
+                          {canPreview ? "Lire" : "Télécharger"}
+                        </button>}
+                      </div>
+                      {rejection && !linked && <p className="mt-1 pl-7 text-xs text-warning">{native && canRead ? "Consultable en PDF. Liaison à l’affaire indisponible." : readRejection ?? rejection}</p>}
+                      {orphanIds.has(file.id) && !rejection && <p className="mt-1 pl-7 text-xs text-muted-foreground">Déjà lié, sans compte Google : sélectionnez-le pour le rattacher à ce compte.</p>}
+                    </li>
+                  );
                 })}</ul>{listing.files.length === 0 && <p className="py-8 text-center text-muted-foreground">Ce dossier est vide.</p>}{listing.nextPageToken && <button type="button" className="btn btn-secondary mt-3" disabled={busy} onClick={() => void run(() => loadLocation(listing.location, true))}>Afficher la suite</button>}
               </div>
             </div><div className="flex flex-wrap justify-between gap-2 border-t border-border bg-surface-subtle px-5 py-3 text-xs"><p><strong>{selected.length} fichier(s) sélectionné(s)</strong><span className="mt-1 block text-micro text-muted-foreground">La sélection est conservée entre les dossiers.</span></p><button type="button" disabled={busy} className="text-primary underline" onClick={() => { setSelected([]); setFolderSelections({}); setManualIds([]); }}>Annuler la sélection</button></div>
@@ -329,7 +371,8 @@ export function GoogleDriveImport({ projectId, onUploadComplete, onRefresh, show
           {busy && !loadingFolder && <p role="status" className="px-5 py-3 text-sm text-primary">Opération en cours…</p>}
           {open && state && state.links.length > 0 && <details className="mx-5 mb-4 rounded-lg border border-border p-3 text-xs"><summary className="cursor-pointer font-medium">Fichiers Drive liés à l’affaire</summary><ul className="mt-3 space-y-3">{state.links.map(({ documentId, source }) => <li key={documentId}><a href={source.sourceUrl} target="_blank" rel="noreferrer" className="text-primary underline">{source.sourceName}</a>{source.revision && <> · révision {source.revision}</>}<p className="mt-1 text-muted-foreground">Lié le {new Date(source.linkedAt).toLocaleString("fr-FR")}{source.folderName && <> · dossier {source.folderName}</>}</p></li>)}</ul></details>}
         </div>
-        <div className="border-t border-border px-5 py-3"><p className="mb-3 flex gap-2 text-micro text-muted-foreground"><ShieldCheckIcon size={14} className="shrink-0" aria-hidden="true" />PDF, PNG/JPEG/WebP, TXT, CSV, EML, XLS/XLSX, DOC/DOCX, DWG/DXF/RVT/IFC/FCStd · 50 Mo / fichier · 20 fichiers par lien. Le fichier reste dans Drive ; une copie de travail peut être conservée pour le métré ou l’import DPGF. Google Docs/Sheets/Slides exclus.</p>{selected.length > DRIVE_MAX_FILES && <p role="alert" className="mb-2 text-xs text-warning">Réduisez la sélection à 20 fichiers avant de la lier.</p>}<div className="flex flex-wrap justify-end gap-2"><button type="button" className="btn btn-secondary" disabled={busy} onClick={close}>{results.length ? "Voir les documents de l’affaire" : "Fermer"}</button>{listing && results.length === 0 && <button type="button" className="btn btn-primary" disabled={busy || !selectionValid} onClick={() => void run(() => linkSelection())}>Lier à l’affaire<ArrowRightIcon size={14} aria-hidden="true" /></button>}</div></div>
+        <div className="border-t border-border px-5 py-3"><p className="mb-3 flex gap-2 text-micro text-muted-foreground"><ShieldCheckIcon size={14} className="shrink-0" aria-hidden="true" />PDF, PNG/JPEG/WebP, TXT, CSV, EML, XLS/XLSX, DOC/DOCX, DWG/DXF/RVT/IFC/FCStd · 50 Mo / fichier · 20 fichiers par lien. Le fichier reste dans Drive ; une copie de travail peut être conservée pour le métré ou l’import DPGF. Google Docs, Sheets et Slides consultables en PDF.</p>{selected.length > DRIVE_MAX_FILES && <p role="alert" className="mb-2 text-xs text-warning">Réduisez la sélection à 20 fichiers avant de la lier.</p>}<div className="flex flex-wrap justify-end gap-2"><button type="button" className="btn btn-secondary" disabled={busy} onClick={close}>{results.length ? "Voir les documents de l’affaire" : "Fermer"}</button>{listing && results.length === 0 && <button type="button" className="btn btn-primary" disabled={busy || !selectionValid} onClick={() => void run(() => linkSelection())}>Lier à l’affaire<ArrowRightIcon size={14} aria-hidden="true" /></button>}</div></div>
+        {preview && <GoogleDriveFilePreview file={preview.file} endpoint={preview.endpoint} close={() => setPreview(undefined)} />}
       </DialogContent>
     </Dialog>
   </>;
