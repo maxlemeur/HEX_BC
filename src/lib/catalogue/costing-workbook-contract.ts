@@ -83,6 +83,7 @@ export const costingWorkbookSupplierReferenceDecision = z.enum([
   "supplier_not_found",
   "ambiguous_supplier",
   "invalid_supplier_sku",
+  "price_source_reference",
   "article_locked",
   "different_existing_reference",
   "withdrawn_reference",

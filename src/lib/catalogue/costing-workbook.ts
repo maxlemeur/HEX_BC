@@ -33,6 +33,8 @@ export type CostingWorkbookSupplierReference = {
   product_url: string | null;
 };
 
+export type CostingWorkbookPriceSourceKind = "quote" | "document" | "order" | "regression";
+
 export type CostingWorkbookSupplierOccurrence = {
   row: number;
   slot: number;
@@ -42,6 +44,7 @@ export type CostingWorkbookSupplierOccurrence = {
   article_reference_valid: boolean;
   supplier_name_valid: boolean;
   supplier_sku_valid: boolean;
+  price_source_kind: CostingWorkbookPriceSourceKind | null;
 };
 
 export type CostingWorkbookArticle = {
@@ -150,6 +153,51 @@ function sizeText(value: Cell): string {
 /** How a reference is compared: case and spaces aside, and without the « DB_<sheet>__ » prefix of an earlier import. */
 export function workbookReferenceKey(reference: string): string {
   return reference.trim().replace(/^db_.*?__/i, "").toLocaleLowerCase("fr-FR");
+}
+
+export function workbookSupplierNameKey(name: string): string {
+  return foldText(name).trim().replace(/\s+/g, " ");
+}
+
+function workbookPriceSource(value: string): CostingWorkbookPriceSourceKind | null {
+  const normalized = foldText(value);
+  if (/^(?:estimation\s+par\s+)?regression(?:\s|$)/.test(normalized)) return "regression";
+  // The explicit number marker distinguishes a document from product references such as DOC-0042.
+  const document = /^(devis|doc(?:ument)?|commande)\s+n\s*[°º]/.exec(normalized)?.[1];
+  if (document === "devis") return "quote";
+  if (document === "commande") return "order";
+  return document ? "document" : null;
+}
+
+type WorkbookSupplierValue = Pick<CostingWorkbookSupplierOccurrence, "supplier_sku" | "price_source_kind"> & {
+  locations: Array<Pick<CostingWorkbookSupplierOccurrence, "row" | "slot">>;
+};
+
+/** Keeps the workbook comparison available even when the article or supplier is absent from the catalogue. */
+export function compareCostingWorkbookSupplierValues(occurrences: readonly CostingWorkbookSupplierOccurrence[]) {
+  const pairs = new Map<string, {
+    articleReference: string;
+    supplierName: string;
+    values: Map<string, WorkbookSupplierValue>;
+  }>();
+  for (const entry of occurrences) {
+    if (!entry.article_reference_valid || !entry.supplier_name_valid || !entry.supplier_sku_valid) continue;
+    const key = JSON.stringify([workbookReferenceKey(entry.article_reference), workbookSupplierNameKey(entry.supplier_name)]);
+    let pair = pairs.get(key);
+    if (!pair) {
+      pair = { articleReference: entry.article_reference, supplierName: entry.supplier_name, values: new Map() };
+      pairs.set(key, pair);
+    }
+    let value = pair.values.get(entry.supplier_sku);
+    if (!value) {
+      value = { supplier_sku: entry.supplier_sku, price_source_kind: entry.price_source_kind, locations: [] };
+      pair.values.set(entry.supplier_sku, value);
+    }
+    value.locations.push({ row: entry.row, slot: entry.slot });
+  }
+  return [...pairs.entries()]
+    .filter(([, pair]) => pair.values.size > 1)
+    .map(([key, pair]) => ({ ...pair, key, values: [...pair.values.values()] }));
 }
 
 function findHeader(rows: readonly Cell[][]): { index: number; columns: Map<Column, number> } {
@@ -322,6 +370,7 @@ export function readCostingWorkbookRows(rows: readonly Cell[][]): CostingWorkboo
         article_reference_valid: reference.length > 0 && reference.length <= MAX_REFERENCE_LENGTH && !isErrorToken(reference),
         supplier_name_valid: Boolean(name) && !/^\d+$/.test(name) && !isErrorToken(name),
         supplier_sku_valid: sku.length <= 255 && !isErrorToken(sku),
+        price_source_kind: workbookPriceSource(sku),
       });
     }
     if (!reference) {

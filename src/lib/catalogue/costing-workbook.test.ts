@@ -184,6 +184,25 @@ describe("readCostingWorkbookRows", () => {
     ]);
   });
 
+  it("distinguishes price sources from product references without changing their original values", () => {
+    const entries = [
+      ["Devis n° 70102 (20×30)", "quote"],
+      ["Document nº 50210", "document"],
+      ["Commande n° 40610", "order"],
+      ["Estimation par régression linéaire", "regression"],
+      ["Régression Ø et épaisseur", "regression"],
+      ["004205", null],
+      ["DOC-0042", null],
+      ["DEVIS-DN40", null],
+      ["REGRESSION-01", null],
+    ] as const;
+    const { supplierReferenceOccurrences } = read(...entries.map(([value]) => article({
+      "ID": "TEST.1", "Caractéristique": "Tube", "F1_nom": "Fournisseur fictif", "F1_ref": value,
+    })));
+
+    expect(supplierReferenceOccurrences.map((entry) => [entry.supplier_sku, entry.price_source_kind])).toEqual(entries);
+  });
+
   it("keeps the grade of a stainless material (10)", () => {
     const result = read(
       article({ "ID": "A.1", "Caractéristique": "Té", "Matériau": "Inox 316L serti" }),
