@@ -269,7 +269,6 @@ export function MaterialRequestLines({
         .map((line) => line.id),
     [alertsByLine, drafts, lineChanges],
   );
-  const validatedCount = lines.length - drafts.length;
   const heldLines = drafts.filter((line) => (alertsByLine.get(line.id) ?? []).some((alert) => alert.blocking));
   const attentionLine = heldLines[0] ?? (clearIds.length === 0
     ? drafts.find((line) => (alertsByLine.get(line.id) ?? []).length > 0)
@@ -444,38 +443,24 @@ export function MaterialRequestLines({
     <section ref={section} aria-labelledby={headingId} className="min-w-0" data-material-request-lines="">
       <div className="mr-workbench min-w-0 pb-3">
       <div className="min-w-0 space-y-3">
-      {/*
-        One line says where the lines stand, and its last words lead to the first value to fix: what there is to fix
-        is said by the tint of its cell, not by a banner above the sheet.
-      */}
       <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
         <div className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1">
           <h2 id={headingId} className="sr-only">Lignes</h2>
-          {lines.length > 0 ? (
-            <p className="text-sm text-muted-foreground">
-              <span className="font-medium text-foreground">{validatedCount === lines.length
-                ? plural(validatedCount, "ligne validée", "lignes validées")
-                : `${plural(lines.length, "ligne", "lignes")} · ${plural(validatedCount, "validée", "validées")}`}</span>
-              {canWrite && attentionLine && attentionAlert ? (
-                <>
-                  {" · "}
-                  <button
-                    type="button"
-                    disabled={busy}
-                    className="rounded-sm font-semibold text-warning underline underline-offset-4 hover:no-underline focus-visible:outline-2 focus-visible:outline-ring"
-                    title={attentionAlert.message}
-                    onClick={() => {
-                      if (attentionAlert.code === "material_unconfirmed") onReviewPresumedMaterial();
-                      else focusLineAlert(attentionLine, attentionAlert);
-                    }}
-                  >
-                    {heldLines.length > 0 ? `${heldLines.length} à compléter` : plural(remarkCount, "remarque à vérifier", "remarques à vérifier")}
-                  </button>
-                </>
-              ) : canWrite && drafts.length > 0 && clearIds.length === 0 ? (
-                <span title="Enregistrez les corrections pour pouvoir valider."> · corrections en cours</span>
-              ) : null}
-            </p>
+          {canWrite && attentionLine && attentionAlert ? (
+            <button
+              type="button"
+              disabled={busy}
+              className="rounded-sm text-sm font-semibold text-warning underline underline-offset-4 hover:no-underline focus-visible:outline-2 focus-visible:outline-ring"
+              title={attentionAlert.message}
+              onClick={() => {
+                if (attentionAlert.code === "material_unconfirmed") onReviewPresumedMaterial();
+                else focusLineAlert(attentionLine, attentionAlert);
+              }}
+            >
+              {heldLines.length > 0 ? `${heldLines.length} à compléter` : plural(remarkCount, "remarque à vérifier", "remarques à vérifier")}
+            </button>
+          ) : canWrite && drafts.length > 0 && clearIds.length === 0 ? (
+            <span className="text-sm text-muted-foreground" title="Enregistrez les corrections pour pouvoir valider.">Corrections en cours</span>
           ) : null}
         </div>
         <div className="flex flex-wrap items-center gap-2">

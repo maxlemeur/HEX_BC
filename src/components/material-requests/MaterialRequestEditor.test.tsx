@@ -1764,7 +1764,9 @@ describe("the steps of a request", () => {
     // The address keeps the step: a reload opens the same one.
     expect(window.location.search).toBe("?etape=lignes");
 
-    await user.click(screen.getByRole("button", { name: "Aller à l’étape Devis" }));
+    expect(screen.getAllByText("1 ligne validée", { exact: true })).toHaveLength(1);
+    expect(screen.queryByRole("button", { name: "Aller à l’étape Devis" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Consulter les devis" }));
     expect(tab(2)).toHaveAttribute("aria-selected", "true");
     expect(window.location.search).toBe("?etape=devis");
     await waitFor(() => expect(screen.getByRole("tabpanel")).toHaveFocus());
@@ -1797,7 +1799,8 @@ describe("the steps of a request", () => {
 
     // Not « Rattachez un article… »: the actions are not a reader's.
     const lines = screen.getByRole("region", { name: "Lignes" });
-    expect(within(lines).getByText("1 ligne · 0 validée", { exact: true })).toBeVisible();
+    expect(within(tab(1)).getByText("0 validée sur 1", { exact: true })).toBeVisible();
+    expect(within(lines).queryByText("1 ligne · 0 validée", { exact: true })).not.toBeInTheDocument();
     expect(screen.queryByRole("region", { name: "À corriger d’abord" })).not.toBeInTheDocument();
     expect(tab(1)).toHaveAttribute("aria-selected", "true");
     expect(screen.queryByText(/^Rattachez/)).not.toBeInTheDocument();

@@ -22,7 +22,7 @@ import { createIntakePlanActions, DEV_SERVER_WORK } from "./chatgpt-local-intake
 // Dossier documents, their classification and transcription, and the assistant that reads them.
 const server = chatGptLocalServer();
 let serverState: ChatGptLocalServer;
-const { signInAs } = createIntakePlanActions(() => serverState);
+const { signInAs, waitForDossierAnalysis } = createIntakePlanActions(() => serverState);
 let localOrigin: string;
 let fixtureStore: string | undefined;
 let liveProbe: ChatGptLiveProbe | null = null;
@@ -441,10 +441,25 @@ for (const active of [false, true]) test(`INTFRESH${active ? "02" : "01"} a hand
       await expect.poll(async () => (await client.from("affaire_intake_documents").select("classification_source")
         .eq("id", manualId).single()).data?.classification_source, DEV_SERVER_WORK).toBe("manual");
       await ui.app.open(url);
-      await press.click();
-      await finished();
-      await expect.poll(async () => (await brief())?.received_pieces, DEV_SERVER_WORK).toContain("Annexes · historique-manuel.txt");
-      expect((await confirm()).ok).toBe(true);
+      await setDecisionsControl({ holdIntakeLaunchClosure: projectId });
+      let closureHeld = false;
+      try {
+        await press.click();
+        // The click can return before admission. First observe the publication for this launch.
+        await expect.poll(async () => (await brief())?.received_pieces, DEV_SERVER_WORK).toContain("Annexes · historique-manuel.txt");
+        await waitForDossierAnalysis(ui, projectId, { onRead: async (workspace) => {
+          if (closureHeld || !workspace.launchRunning) return;
+          const entries = (await readFile(transportLog, "utf8")).split("\n").filter(Boolean).map(line => JSON.parse(line));
+          if (!entries.some(entry => entry.kind === "launch-closure-held" && entry.projectId === projectId
+            && workspace.pendingUploadIds?.includes(entry.uploadId))) return;
+          await setDecisionsControl({});
+          closureHeld = true;
+        } });
+        expect(closureHeld).toBe(true);
+      } finally {
+        await setDecisionsControl({});
+      }
+      expect(await confirm()).toMatchObject({ status: 200, digest: null, ok: true });
       expect(await sends()).toEqual(before);
       expect(await (await client.storage.from("affaire-intake").download(manualPath)).data?.text()).toBe(original);
     }
