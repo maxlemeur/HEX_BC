@@ -1,5 +1,8 @@
-import { spawn } from "node:child_process";
-import { extname } from "node:path";
+import { execFileSync, spawn } from "node:child_process";
+import { createHash } from "node:crypto";
+import { lstatSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { createRequire } from "node:module";
+import { extname, join } from "node:path";
 import { createInterface } from "node:readline";
 import { stripVTControlCharacters } from "node:util";
 
@@ -9,6 +12,53 @@ const fastRenderThreshold = 8;
 const slowWindowMs = 165_000;
 const slowRenderThreshold = 6;
 const compileToRenderMs = 45_000;
+const cacheStampName = ".mergeone-chatgpt-state.json";
+
+function cacheStampMatches(path, expected) {
+  try {
+    return lstatSync(path).isFile() && readFileSync(path, "utf8") === expected;
+  } catch {
+    return false;
+  }
+}
+
+async function prepareTurbopackCache() {
+  const commit = execFileSync("git", ["rev-parse", "--verify", "HEAD"], { encoding: "utf8" }).trim();
+  const lockfile = createHash("sha256").update(readFileSync("package-lock.json")).digest("hex");
+  const expected = `${JSON.stringify({ version: 1, commit, lockfile })}\n`;
+  const devDir = join(".next", "dev");
+  const cacheParent = join(devDir, "cache");
+  const cacheDir = join(cacheParent, "turbopack");
+  const stampPath = join(cacheDir, cacheStampName);
+  for (const path of [".next", devDir, cacheParent, cacheDir]) {
+    const entry = lstatSync(path, { throwIfNoEntry: false });
+    if (entry && !entry.isDirectory()) throw new Error(`Expected a local cache directory at ${path}.`);
+  }
+  if (cacheStampMatches(stampPath, expected)) return;
+
+  // Take the same lock as Next before removing anything a live server may be using.
+  mkdirSync(devDir, { recursive: true });
+  const require = createRequire(import.meta.url);
+  const { loadBindings } = require("next/dist/build/swc/index.js");
+  if ((await loadBindings()).isWasm) return;
+  const { Lockfile } = require("next/dist/build/lockfile.js");
+  const lock = Lockfile.tryAcquire(join(devDir, "lock"), false);
+  if (!lock) throw new Error("Next is already running in this checkout.");
+  try {
+    if (cacheStampMatches(stampPath, expected)) return;
+    if (lstatSync(cacheDir, { throwIfNoEntry: false })) {
+      const hasCachedData = readdirSync(cacheDir).some((entry) => entry !== cacheStampName);
+      rmSync(cacheDir, { recursive: true, force: true });
+      if (hasCachedData) {
+        console.log("Discarding the Turbopack dev cache because its checkout or lockfile changed, or its state could not be verified.");
+      }
+    }
+    mkdirSync(cacheDir, { recursive: true });
+    writeFileSync(stampPath, expected);
+  } finally {
+    lock.unlockSync();
+  }
+}
 
 function renderedPage(text) {
   // Next reports application-code timing for renders and some route handlers.
@@ -77,10 +127,21 @@ export function createReloadLoopMonitor() {
   };
 }
 
-function startDevServer() {
+async function startDevServer() {
   // Bind to loopback unless the caller passes --hostname or -H. That opt-out is
   // explicit. A production build never enables the personal integration.
   const forwarded = process.argv.slice(2);
+  const usesDefaultDevCache = process.env.E2E_ARMY !== "1" &&
+    !forwarded.some((arg) => ["--webpack", "--help", "-h", "--version", "-v"].includes(arg));
+  if (usesDefaultDevCache && lstatSync("package-lock.json", { throwIfNoEntry: false })?.isFile()) {
+    try {
+      await prepareTurbopackCache();
+    } catch (error) {
+      console.error(`Could not prepare the Turbopack dev cache. ${error.message}`);
+      process.exitCode = 1;
+      return;
+    }
+  }
   const explicitHostname = forwarded.some((arg) =>
     arg === "--hostname" || arg.startsWith("--hostname=") || arg === "-H" || (arg.startsWith("-H") && arg.length > 2));
   const child = spawn(process.execPath, [
@@ -122,4 +183,4 @@ function startDevServer() {
   child.on("error", () => { process.exitCode = 1; });
 }
 
-if (import.meta.main) startDevServer();
+if (import.meta.main) await startDevServer();

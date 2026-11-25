@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -124,5 +124,97 @@ describe("dev:chatgpt reload-loop guard", () => {
       expect(tooSparse(request("/dashboard"), i * 35_000 + 10)).toBeUndefined();
       expect(missingCompile(request("/dashboard"), i * 30_000 + 10)).toBeUndefined();
     }
+  });
+});
+
+const cacheRelativePath = ".next/dev/cache/turbopack";
+const stampName = ".mergeone-chatgpt-state.json";
+
+async function withCacheFixture(run: (fixture: {
+  cwd: string;
+  cacheDir: string;
+  start: () => Promise<{ stdout: string; stderr: string }>;
+  commit: () => Promise<unknown>;
+}) => Promise<void>) {
+  const cwd = await mkdtemp(join(tmpdir(), "mergeone-dev-cache-"));
+  const git = (args: string[]) => launch("git", args, { cwd });
+  const commit = () => git(["-c", "user.name=Fixture", "-c", "user.email=fixture@example.test",
+    "-c", "commit.gpgSign=false", "commit", "--allow-empty", "-qm", "Fixture commit"]);
+  const cacheDir = join(cwd, cacheRelativePath);
+  try {
+    await git(["init", "-q"]);
+    await commit();
+    await writeFile(join(cwd, "package-lock.json"), "{}\n");
+    const nextDir = join(cwd, "node_modules/next/dist/bin");
+    await mkdir(nextDir, { recursive: true });
+    await writeFile(join(nextDir, "next"), `
+      const fs = require("node:fs");
+      const cache = ${JSON.stringify(cacheRelativePath)};
+      const entry = cache + "/fixture-entry";
+      console.log(fs.existsSync(entry) ? "warm cache" : "cold cache");
+      fs.mkdirSync(cache, { recursive: true });
+      fs.writeFileSync(entry, "fixture cache");
+    `);
+    const start = () => launch(process.execPath, [launcher], { cwd, timeout: 3500 });
+    await run({ cwd, cacheDir, start, commit });
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
+}
+
+describe("dev:chatgpt Turbopack cache reuse", () => {
+  it("records the state on first start without announcing a discard", async () => {
+    await withCacheFixture(async ({ cacheDir, start }) => {
+      const first = await start();
+      expect(first.stdout).toContain("cold cache");
+      expect(first.stderr + first.stdout).not.toContain("Discarding");
+      await expect(readFile(join(cacheDir, stampName), "utf8")).resolves.toBeTruthy();
+    });
+  });
+
+  it("keeps a matching cache on restart and after an ordinary source edit", async () => {
+    await withCacheFixture(async ({ cwd, start }) => {
+      await start();
+      expect((await start()).stdout).toContain("warm cache");
+      await writeFile(join(cwd, "example.ts"), "export const value = 2;\n");
+      expect((await start()).stdout).toContain("warm cache");
+    });
+  });
+
+  it("discards only the dev Turbopack cache when Git HEAD changes", async () => {
+    await withCacheFixture(async ({ cwd, start, commit }) => {
+      await start();
+      const outside = [".next/dev/static", ".next/cache/turbopack"];
+      for (const path of outside) {
+        await mkdir(join(cwd, path), { recursive: true });
+        await writeFile(join(cwd, path, "keep"), "untouched");
+      }
+      await commit();
+      const after = await start();
+      expect(after.stdout).toContain("cold cache");
+      expect(after.stderr + after.stdout).toContain("Discarding");
+      for (const path of outside) {
+        await expect(readFile(join(cwd, path, "keep"), "utf8")).resolves.toBe("untouched");
+      }
+      expect((await start()).stdout).toContain("warm cache");
+    });
+  });
+
+  it("discards the cache when only the lockfile changes", async () => {
+    await withCacheFixture(async ({ cwd, start }) => {
+      await start();
+      await writeFile(join(cwd, "package-lock.json"), '{"lockfileVersion":3}\n');
+      expect((await start()).stdout).toContain("cold cache");
+    });
+  });
+
+  it.each(["missing", "unreadable"])("discards an existing cache with a %s stamp", async (stamp) => {
+    await withCacheFixture(async ({ cacheDir, start }) => {
+      await start();
+      const path = join(cacheDir, stampName);
+      if (stamp === "missing") await rm(path, { force: true });
+      else await writeFile(path, "truncated");
+      expect((await start()).stdout).toContain("cold cache");
+    });
   });
 });
