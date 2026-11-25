@@ -173,16 +173,27 @@ select results_eq($$select pg_temp.confirm(n) from generate_series(80,81) n$$,$$
 select is((select count(*) from public.takeoff_launch_requests where project_id in (pg_temp.f(80),pg_temp.f(81))),2::bigint,
   'only the confirmed new publications reserve their takeoffs');
 
+-- The previous fixture synthesized a confirmed draft before its first launch.
+-- Establish a current publication before exercising the same human resolution.
+insert into public.affaire_intake_documents(upload_id,file_name,upload_status,classification_status,classification_source,document_kind)
+  values(pg_temp.f(85),'Annexe.pdf','uploaded','classified','manual','annexes');
+select set_config('request.jwt.claim.sub',pg_temp.f(1)::text,true);
+create temp table resolution_launch as select launch_id from public.start_affaire_intake_analysis(pg_temp.f(82),false);
+select count(*) from public.claim_affaire_intake_analysis_launch(pg_temp.f(99),(select launch_id from resolution_launch));
+select public.publish_affaire_intake_brief((select launch_id from resolution_launch),pg_temp.f(99),null,s->>'revision',
+  (s->>'brief_updated_at')::timestamptz,'{"summary":"Ancien brief","project_object":"Fixture","missing_elements":["Plans manquants"]}','[]')
+  from public.read_affaire_intake_brief_inputs(pg_temp.f(82)) s;
+select public.finish_affaire_intake_upload_attempt((select launch_id from resolution_launch),pg_temp.f(99),'ready',now());
 -- A member accepted this particular missing-plan entry. A republication omits human metadata.
 update public.affaire_briefs set status='confirme',confirmed_by=pg_temp.f(1),confirmed_at=now(),
   generation_metadata='{"resolved_plan_gap_indexes":[0]}' where project_id=pg_temp.f(82);
-select public.publish_affaire_intake_brief(pg_temp.f(85),null,pg_temp.f(1),
+select public.publish_affaire_intake_brief((select launch_id from resolution_launch),null,pg_temp.f(1),
   public.read_affaire_intake_brief_inputs(pg_temp.f(82))->>'revision',
   (select updated_at from public.affaire_briefs where project_id=pg_temp.f(82)),
   '{"status":"confirme","summary":"Ancien brief","project_object":"Fixture","scope":[],"lots":[],"received_pieces":[],"assumptions":[],"vigilance_points":[],"missing_elements":["Plans manquants"],"generation_metadata":{}}','[]');
 select results_eq($$select status,generation_metadata->'resolved_plan_gap_indexes',confirmed_by from public.affaire_briefs where project_id=pg_temp.f(82)$$,
   $$values ('confirme'::text,'[0]'::jsonb,pg_temp.f(1))$$,'republication keeps both the human resolution and its confirmation');
-select public.publish_affaire_intake_brief(pg_temp.f(85),null,pg_temp.f(1),
+select public.publish_affaire_intake_brief((select launch_id from resolution_launch),null,pg_temp.f(1),
   public.read_affaire_intake_brief_inputs(pg_temp.f(82))->>'revision',
   (select updated_at from public.affaire_briefs where project_id=pg_temp.f(82)),
   '{"status":"confirme","summary":"Ancien brief","project_object":"Fixture","scope":[],"lots":[],"received_pieces":[],"assumptions":[],"vigilance_points":[],"missing_elements":["CCTP manquant"],"generation_metadata":{"resolved_plan_gap_indexes":[0]}}','[]');

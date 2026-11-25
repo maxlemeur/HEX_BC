@@ -61,7 +61,7 @@ select dblink_exec('launcher',$setup$
   set statement_timeout='10s';
   create function pg_temp.press_test_dossier() returns text language plpgsql as $$
   begin
-    return (select outcome from public.launch_affaire_intake_analysis('ae200000-0000-4000-8000-000000000021',false));
+    return (select outcome from public.start_affaire_intake_analysis('ae200000-0000-4000-8000-000000000021',true,'profile-A','authorization-A'));
   exception when insufficient_privilege then return 'forbidden';
   end;
   $$;

@@ -143,7 +143,19 @@ select is(public.finish_affaire_intake_upload_attempt((select analysis_launch_id
 select lives_ok('select pg_temp.confirm()','a separate confirmation succeeds');
 select pg_temp.deposit(55,41);
 update public.affaire_intake_documents set classification_status='classified',classification_source='manual',document_kind='plans' where id=pg_temp.f(55);
-select lives_ok('select pg_temp.confirm()','manual classification alone clears the waiting piece');
+select throws_ok('select pg_temp.confirm()','P0001','INTAKE_ANALYSIS_REQUIRED','manual classification clears the waiting piece but the earlier brief needs republication');
+create function pg_temp.publish_manual_change() returns void language plpgsql as $$
+declare press record;
+begin
+  select * into strict press from public.start_affaire_intake_analysis(pg_temp.f(20),false);
+  if press.outcome<>'brief_only' or press.piece_count<>0 then raise exception 'expected a brief-only launch'; end if;
+  perform public.claim_affaire_intake_analysis_launch(pg_temp.f(79),press.launch_id);
+  perform pg_temp.publish(press.launch_id,pg_temp.f(79));
+  perform public.finish_affaire_intake_upload_attempt(press.launch_id,pg_temp.f(79),'ready',now());
+end;
+$$;
+select pg_temp.publish_manual_change();
+select lives_ok('select pg_temp.confirm()','the separate confirmation accepts the current publication');
 select results_eq($$select outcome,piece_count from public.launch_affaire_intake_analysis(pg_temp.f(20),true)$$,
   $$values ('nothing_waiting'::text,0)$$,'a manual-only dossier does not spend a launch');
 -- RLS must accept the brief row before either privileged confirmation check can run.
@@ -168,6 +180,7 @@ select is(pg_temp.move_result('update public.affaire_intake_documents set upload
 select is(pg_temp.move_result('update public.affaire_intake_uploads set project_id=pg_temp.f(21) where id=pg_temp.f(41)'),
   'INTAKE_SCOPE_IMMUTABLE','a deposit and its captured documents keep their affaire');
 update public.affaire_intake_documents set classification_status='classified',classification_source='manual' where id=pg_temp.f(57);
+select pg_temp.publish_manual_change();
 select pg_temp.confirm();
 select is(pg_temp.move_result('update public.affaire_briefs set project_id=pg_temp.f(21) where id=pg_temp.f(30)'),
   'INTAKE_SCOPE_IMMUTABLE','a confirmed brief belongs to its original affaire');

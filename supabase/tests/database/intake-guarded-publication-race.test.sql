@@ -113,9 +113,66 @@ select is((select result from dblink_get_result('publisher') as t(result text)),
 select results_eq($$select b.summary,l.source_file_name from public.affaire_briefs b join public.affaire_brief_source_links l on l.brief_id=b.id
   where b.project_id='ae570000-0000-4000-8000-000000000020'$$,$$values ('Premier'::text,'Exemple.pdf'::text)$$,
   'only the winning first brief and its source are visible');
+select * from dblink_get_result('publisher') as t(result text);
+-- Enter the contract and publish this same dossier through the real launch RPC.
+select dblink_exec('editor',$prepare$
+  begin;
+  set local request.jwt.claim.sub='ae570000-0000-4000-8000-000000000001';
+  insert into public.affaire_intake_uploads(id,project_id,created_by,status) values(pg_temp.f(31),pg_temp.f(20),pg_temp.f(1),'deposited');
+  insert into public.affaire_intake_documents(upload_id,file_name,upload_status,classification_status)
+    values(pg_temp.f(31),'Autre.pdf','uploaded','awaiting_launch');
+  do $$declare batch uuid; s jsonb;
+  begin
+    select launch_id into strict batch from public.start_affaire_intake_analysis(pg_temp.f(20),false) where outcome='launched';
+    perform public.claim_affaire_intake_analysis_launch(pg_temp.f(61),batch);
+    update public.affaire_intake_documents set classification_status='classified',document_kind='annexes',analysis_completed_at=now() where analysis_launch_id=batch;
+    s:=public.read_affaire_intake_brief_inputs(pg_temp.f(20));
+    perform public.publish_affaire_intake_brief(batch,pg_temp.f(61),null,s->>'revision',(s->>'brief_updated_at')::timestamptz,
+      '{"summary":"Courant","project_object":"Fixture"}','[]');
+    perform public.finish_affaire_intake_upload_attempt(batch,pg_temp.f(61),'ready',now());
+  end$$;
+  commit;
+$prepare$);
+select dblink_exec('publisher',$edit$
+  begin;
+  update public.affaire_intake_documents set document_kind='plans' where id='ae570000-0000-4000-8000-000000000040';
+$edit$);
+select is((select result from dblink('editor','select pg_temp.confirm()') as t(result text)),
+  '40001 INTAKE_BRIEF_INPUT_CHANGED','confirmation under a concurrent category edit reports a revision conflict without waiting for a deadlock');
+select dblink_exec('publisher','commit');
+select is((select result from dblink('editor','select pg_temp.confirm()') as t(result text)),
+  'P0001 INTAKE_ANALYSIS_REQUIRED','after the editor commits, confirmation sees the changed input');
+-- No Storage object existed at the time of publication. A row lock on existing
+-- objects alone cannot fence the arrival of this first original.
+select dblink_exec('editor',$prepare$
+  begin;
+  set local request.jwt.claim.sub='ae570000-0000-4000-8000-000000000001';
+  update public.affaire_intake_documents set storage_path='fictional/race/plan.pdf',size_bytes=8 where id=pg_temp.f(40);
+  do $$declare batch uuid; s jsonb;
+  begin
+    select launch_id into strict batch from public.start_affaire_intake_analysis(pg_temp.f(20),false) where outcome='brief_only';
+    perform public.claim_affaire_intake_analysis_launch(pg_temp.f(62),batch);
+    s:=public.read_affaire_intake_brief_inputs(pg_temp.f(20));
+    perform public.publish_affaire_intake_brief(batch,pg_temp.f(62),null,s->>'revision',(s->>'brief_updated_at')::timestamptz,
+      '{"summary":"Sans original","project_object":"Fixture"}','[]');
+    perform public.finish_affaire_intake_upload_attempt(batch,pg_temp.f(62),'ready',now());
+  end$$;
+  commit;
+$prepare$);
+select dblink_exec('publisher',$edit$
+  begin;
+  insert into storage.objects(bucket_id,name,metadata) values('affaire-intake','fictional/race/plan.pdf','{"size":8}');
+$edit$);
+select is((select result from dblink('editor','select pg_temp.confirm()') as t(result text)),
+  '40001 INTAKE_BRIEF_INPUT_CHANGED','the uncommitted arrival of the first plan original serializes with confirmation');
+select dblink_exec('publisher','commit');
+select is((select result from dblink('editor','select pg_temp.confirm()') as t(result text)),
+  'P0001 INTAKE_ANALYSIS_REQUIRED','the newly available plan requires a publication');
 select dblink_disconnect('publisher');
 select dblink_exec('editor',$cleanup$
   begin;
+  set local storage.allow_delete_query='true';
+  delete from storage.objects where bucket_id='affaire-intake' and name='fictional/race/plan.pdf';
   create temp table own_tenant as select tenant_id from public.tenant_memberships where user_id=pg_temp.f(1);
   set local request.jwt.claim.sub='ae570000-0000-4000-8000-000000000001';
   set local role authenticated;
