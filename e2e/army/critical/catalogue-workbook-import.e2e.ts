@@ -319,6 +319,13 @@ armyTest(
 
     const dialog = await open();
     await expect(dialog.getByText("1 référence à importer", { exact: true })).toBeVisible({ timeout: 30_000 });
+    const articlesMode = dialog.getByRole("radio", "Brouillons d’articles", { exact: true });
+    const referencesMode = dialog.getByRole("radio", "Références fournisseur", { exact: true });
+    await articlesMode.tap();
+    await expect(dialog.getByText("1 nouvel article en brouillon", { exact: true })).toBeVisible({ timeout: 30_000 });
+    await expect(dialog.getByText("Fichier : references-fournisseur.xlsx", { exact: true })).toBeVisible();
+    await referencesMode.tap();
+    await expect(dialog.getByText("1 référence à importer", { exact: true })).toBeVisible();
     await expect(dialog.getByText("2 sources de prix écartées", { exact: true })).toBeVisible();
     const values = dialog.getByRole("list", "Valeurs multiples dans le classeur", { exact: true });
     const mixed = values.getByRole("listitem", { name: productRef + " · " + supplierName, exact: true });
@@ -345,6 +352,10 @@ armyTest(
 
     await dialog.getByRole("button", "Importer 1 référence", { exact: true }).tap();
     await expect(dialog.getByText("1 référence importée, à vérifier.", { exact: true })).toBeVisible({ timeout: 30_000 });
+    await articlesMode.tap();
+    await expect(dialog.getByText("1 nouvel article en brouillon", { exact: true })).toBeVisible({ timeout: 30_000 });
+    await referencesMode.tap();
+    await expect(dialog.getByText("1 référence importée, à vérifier.", { exact: true })).toBeVisible();
     await expect(rejected.getByRole("listitem")).toHaveCount(3);
     const imported = await readItems();
     expect(imported).toHaveLength(2);
@@ -374,7 +385,7 @@ armyTest(
     await recordEvidence(army, "catalogue-workbook-supplier-references", {
       source: { sha256: createHash("sha256").update(bytes).digest("hex"), rows: sheetRows.length },
       productId, supplierId, existingSupplierId, previewWrites: 0, imported: 1, forDecision: 3,
-      comparisonGroups: 3, priceSources: 2, retryWrites: 0,
+      comparisonGroups: 3, priceSources: 2, retryWrites: 0, keptWorkbookOnModeChange: true,
     });
   },
 );

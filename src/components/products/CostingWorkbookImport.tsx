@@ -157,8 +157,8 @@ function CostingWorkbookImportSteps({
   const [fileName, setFileName] = useState<string | null>(null);
   const [rows, setRows] = useState<CostingWorkbookRows | null>(null);
   const [phase, setPhase] = useState<Phase>("idle");
-  const [preview, setPreview] = useState<Report | null>(null);
-  const [result, setResult] = useState<Report | null>(null);
+  const [previews, setPreviews] = useState<Partial<Record<Mode, Report>>>({});
+  const [results, setResults] = useState<Partial<Record<Mode, Report>>>({});
   const [error, setError] = useState<string | null>(null);
   const [canRetry, setCanRetry] = useState(false);
   const aliveRef = useRef(true);
@@ -176,10 +176,13 @@ function CostingWorkbookImportSteps({
   }, [onImportingChange]);
 
   const isBusy = phase !== "idle";
+  const preview = previews[mode];
+  const result = results[mode];
 
   const supplierMode = mode === "supplier-references";
 
-  async function send(currentRows: CostingWorkbookRows, confirm: boolean, previewToken?: string): Promise<Outcome> {
+  async function send(targetMode: Mode, currentRows: CostingWorkbookRows, confirm: boolean, previewToken?: string): Promise<Outcome> {
+    const supplierMode = targetMode === "supplier-references";
     let body: string;
     try {
       body = costingWorkbookImportBody(currentRows, confirm, previewToken);
@@ -223,33 +226,37 @@ function CostingWorkbookImportSteps({
     }
   }
 
-  async function runPreview(currentRows: CostingWorkbookRows) {
+  async function runPreview(targetMode: Mode, currentRows: CostingWorkbookRows) {
     setPhase("previewing");
     setError(null);
     setCanRetry(false);
-    const outcome = await send(currentRows, false);
+    const outcome = await send(targetMode, currentRows, false);
     if (!aliveRef.current || (!outcome.ok && outcome.aborted)) return;
     setPhase("idle");
     if (outcome.ok) {
-      setPreview(outcome.report);
+      setPreviews((previous) => ({ ...previous, [targetMode]: outcome.report }));
     } else {
       setError(outcome.message);
       setCanRetry(outcome.retry);
     }
   }
 
-  function resetFile() {
-    setRows(null);
-    setPreview(null);
-    setResult(null);
+  function changeMode(choice: Mode) {
+    if (choice === mode || isBusy) return;
+    setMode(choice);
+    if (!rows) return;
     setError(null);
     setCanRetry(false);
-    setFileName(null);
+    if (!previews[choice] && !results[choice]) void runPreview(choice, rows);
   }
 
   async function chooseFile(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0] ?? null;
-    resetFile();
+    setRows(null);
+    setPreviews({});
+    setResults({});
+    setError(null);
+    setCanRetry(false);
     setFileName(file?.name ?? null);
     if (!file) return;
     if (!/\.xls[xm]$/i.test(file.name)) {
@@ -273,7 +280,7 @@ function CostingWorkbookImportSteps({
     }
     if (!aliveRef.current) return;
     setRows(nextRows);
-    await runPreview(nextRows);
+    await runPreview(mode, nextRows);
   }
 
   const supplierReport = result && "for_decision" in result
@@ -289,21 +296,23 @@ function CostingWorkbookImportSteps({
     setPhase("importing");
     setError(null);
     setCanRetry(false);
-    const outcome = await send(rows, true, supplierReport?.preview_token ?? undefined);
+    // A write can change the catalogue that the other mode's preview was based on.
+    setPreviews({ [mode]: preview });
+    const outcome = await send(mode, rows, true, supplierReport?.preview_token ?? undefined);
     importingRef.current = false;
     onImportingChange(false);
     if (!aliveRef.current || (!outcome.ok && outcome.aborted)) return;
     setPhase("idle");
     if (outcome.ok) {
-      setPreview(null);
-      setResult(outcome.report);
+      setPreviews({});
+      setResults((previous) => ({ ...previous, [mode]: outcome.report }));
       if (!supplierMode) await refreshCatalogue();
       return;
     }
     setError(outcome.message);
     if (outcome.stale || (supplierMode && outcome.retry)) {
       // The catalogue may have changed, or the response may have been lost after a successful write.
-      setPreview(null);
+      setPreviews({});
       setCanRetry(true);
       if (!supplierMode) await refreshCatalogue();
     }
@@ -332,10 +341,7 @@ function CostingWorkbookImportSteps({
                 type="radio"
                 name="costing-workbook-mode"
                 checked={mode === choice}
-                onChange={() => {
-                  resetFile();
-                  setMode(choice);
-                }}
+                onChange={() => changeMode(choice)}
               />
               {choice === "articles" ? "Brouillons d’articles" : "Références fournisseur"}
             </label>
@@ -349,7 +355,6 @@ function CostingWorkbookImportSteps({
             Fichier .xlsm ou .xlsx. Rien n’est enregistré avant votre confirmation.
           </p>
           <input
-            key={mode}
             id={FILE_INPUT_ID}
             type="file"
             accept=".xlsm,.xlsx,application/vnd.ms-excel.sheet.macroEnabled.12,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -383,7 +388,7 @@ function CostingWorkbookImportSteps({
 
         {canRetry && rows && !preview && phase === "idle" ? (
           <div>
-            <Button variant="secondary" size="md" onClick={() => void runPreview(rows)}>
+            <Button variant="secondary" size="md" onClick={() => void runPreview(mode, rows)}>
               Réessayer
             </Button>
           </div>
