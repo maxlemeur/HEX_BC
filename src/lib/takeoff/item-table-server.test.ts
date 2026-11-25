@@ -305,6 +305,19 @@ describe("uncertain readings", () => {
     }
   });
 
+  it.each([
+    ["QUALIFIER_UNREADABLE", "Le diamètre du tronçon B en page 2 reste illisible."],
+    ["SCALE_UNKNOWN", "Le tronçon B en page 2 n’a ni cote ni échelle."],
+  ])("does not route %s to the page of a separate figure", async (code, text) => {
+    const reading = await readUncertain({ candidate_quantity: 3, candidate_unit: "ml",
+      observations: [observation(1, "Cote de 3 ml du tronçon A.", 3)],
+      reasons: [{ code, by: "model", text, chunk_id: "f1-b1" }] });
+
+    expect(reading.uncertainty?.reasons).toEqual([{ code, by: "model", text, page: null }]);
+    expect(describeItemUncertainty(reading, "ml", true)).toMatchObject({ obstacle: text, action: "check",
+      candidate: "Quantité provisoire · 3 ml", page: null, label: "Vérifier le plan" });
+  });
+
   it("offers consultation on the page of the missing scale", async () => {
     const text = "Aucune cote sur le tronçon.";
     const reading = await readUncertain({ observations: [observation(2, text)],

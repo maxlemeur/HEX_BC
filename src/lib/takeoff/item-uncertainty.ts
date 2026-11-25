@@ -23,9 +23,8 @@ export function describeItemUncertainty(answer: ItemAnswerView, expectedUnit: st
   const partial = answer.uncertainty?.partial || has("PARTIAL_QUANTITY") || answer.unreadablePages.length > 0;
   const candidate = answer.candidate ? `Quantité provisoire${partial ? " partielle" : ""} · ${formatItemQuantity(answer.candidate.quantity,
     answer.candidate.unit)}` : null;
-  // An explicit null in the DTO records an ambiguous or unknown location for this reason.
-  const legacyPages = new Set([...answer.unreadablePages, ...answer.observations.flatMap(({ page }) => page === null ? [] : [page])]);
-  const page = answer.uncertainty ? primary?.page ?? null : legacyPages.size === 1 ? [...legacyPages][0] : null;
+  const page = answer.uncertainty ? primary?.page ?? null
+    : primary?.code === "PAGES_UNREADABLE" && answer.unreadablePages.length === 1 ? answer.unreadablePages[0] : null;
   const { unitCode } = normalizeMeasurementUnit(answer.candidate?.unit ?? expectedUnit);
   const count = MEASUREMENT_UNITS.some((unit) => unit.code === unitCode && unit.dimension === "count")
     && (answer.observations.some(({ method }) => method === "symbol_count") || has("NON_INTEGER_COUNT"));

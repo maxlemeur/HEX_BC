@@ -131,9 +131,10 @@ function uncertaintyOf(answer: TakeoffItemAnswer, planReadable: boolean): ItemAn
   if (!planReadable) return { partial: false, reasons: [], planUnavailable: true };
   const evidenceKey = (text: string) => text.normalize("NFC").toLowerCase().trim().replace(/[.!?]+$/u, "");
   const reasons = answer.reasons.map(({ code, by, text, chunkId }) => {
-    const observations = answer.observations.filter((entry) => chunkId !== null && entry.chunkId === chunkId);
-    const keyed = text === null ? [] : observations.filter(({ evidence }) => evidenceKey(evidence) === evidenceKey(text));
-    const evidence = keyed.length ? keyed : observations;
+    // Page numbers in model prose refer to the attached fragment. Matched observations carry original-plan pages.
+    const key = text === null ? null : evidenceKey(text);
+    const evidence = answer.observations.filter((entry) => chunkId !== null && entry.chunkId === chunkId && (key
+      ? evidenceKey(entry.evidence) === key : text === null && by === "worker" && entry.quantity === null));
     const pages = code === "PAGES_UNREADABLE" ? answer.unreadablePages : [...new Set(evidence.map(({ page }) => page))];
     const excerpt = code !== "FIGURE_UNUSABLE" && evidence.length === 1 && evidence[0].quantity === null ? evidence[0].evidence : null;
     return { code, by, text: text ?? excerpt, page: pages.length === 1 ? pages[0] : null };
