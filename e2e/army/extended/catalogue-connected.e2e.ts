@@ -57,7 +57,8 @@ async function editOffer(ui: ConnectedUi, owned: Offer[], id: string, item: Reco
   return (await connectedApi<{ item: Offer }>(ui, "POST", "/api/prices", { action: "update-offer", id, item })).item;
 }
 
-armyTest("CAT-C01 UI references persist and concurrent automatic allocations stay unique", options, async ui => {
+armyTest("CAT-C01 UI references persist and concurrent automatic allocations stay unique", options, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   await ui.app.open("/dashboard/products");
   await ui.screen.getByRole("button", "Ajouter", { exact: true }).click();
   const dialog = ui.screen.getByRole("dialog", "Ajouter un produit");
@@ -93,7 +94,8 @@ armyTest("CAT-C01 UI references persist and concurrent automatic allocations sta
   await recordEvidence(ui.army, "references-concurrent", { automatic, manual, allocated, expectedDistinctAutomatic: 3 });
 });
 
-armyTest("CAT-C02 targeted offer edit persists without changing another offer or product reference price", options, async ui => {
+armyTest("CAT-C02 targeted offer edit persists without changing another offer or product reference price", options, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   const { product, suppliers, offers } = await createOffers(ui);
   // The historical connected tenant already had a full catalogue page. Create
   // only owned rows so the same wheel-scroll oracle is valid on a fresh CI tenant.
@@ -158,7 +160,8 @@ async function retained(ui: ConnectedUi, versionId: string, lineId: string, offe
   return { updated_at: snapshot.version.updated_at, ht: snapshot.version.total_ht_cents, line: snapshot.items.find(item => item.id === lineId) };
 }
 
-armyTest("CAT-C03 selected supplier survives navigation and later catalogue changes stay explicit", options, async ui => {
+armyTest("CAT-C03 selected supplier survives navigation and later catalogue changes stay explicit", options, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   const { product, suppliers, offers } = await createOffers(ui);
   const created = await connectedEstimate(ui, "Devis offres", { tax_rate_bp: 2000 });
   const versionId = created.version.id;

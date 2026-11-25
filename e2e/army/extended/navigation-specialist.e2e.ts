@@ -30,7 +30,8 @@ async function navigation(ui: Ui) {
   return { state, fixturePath };
 }
 
-armyTest("NAV-S01 one click saves and reaches the requested destination", options, async (ui) => {
+armyTest("NAV-S01 one click saves and reaches the requested destination", options, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   const { state } = await navigation(ui);
   await ui.screen.getByLabel("Désignation").fill("Tube cuivre 18 mm");
   await ui.screen.getByRole("link", "Quitter le chiffrage").click();
@@ -40,7 +41,8 @@ armyTest("NAV-S01 one click saves and reaches the requested destination", option
   await recordEvidence(ui.army, "navigation-click", { writes: state.writes, saved: state.saved });
 });
 
-armyTest("NAV-S02 slow save keeps input then resumes without a second click", options, async (ui) => {
+armyTest("NAV-S02 slow save keeps input then resumes without a second click", options, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   const { state } = await navigation(ui);
   let release!: () => void;
   state.pending = new Promise<void>((resolve) => { release = resolve; });
@@ -58,7 +60,8 @@ armyTest("NAV-S02 slow save keeps input then resumes without a second click", op
   } finally { release(); }
 });
 
-armyTest("NAV-S03 failed save preserves input and explicit retry resumes navigation", options, async (ui) => {
+armyTest("NAV-S03 failed save preserves input and explicit retry resumes navigation", options, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   const { state } = await navigation(ui);
   state.reject = true;
   await ui.screen.getByLabel("Désignation").fill("Flexible sanitaire");
@@ -74,7 +77,8 @@ armyTest("NAV-S03 failed save preserves input and explicit retry resumes navigat
   await recordEvidence(ui.army, "navigation-retry", { writes: state.writes, saved: state.saved });
 });
 
-armyTest("NAV-S04 Back and Forward save before resuming without extra history entries", options, async (ui) => {
+armyTest("NAV-S04 Back and Forward save before resuming without extra history entries", options, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   const { state, fixturePath } = await navigation(ui);
   await ui.screen.getByRole("button", "Ouvrir le chiffrage suivant").click();
   await expect(ui.browser).toHaveURL(/\/editor\?visit=1$/);

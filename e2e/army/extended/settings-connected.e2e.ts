@@ -10,7 +10,8 @@ const money = (snapshot: ArmyEstimate) => ({
   lines: snapshot.items.filter(item => item.item_type === "line").map(item => ({ id: item.id, quantity: item.quantity, price: item.unit_price_ht_cents, ht: item.line_total_ht_cents })),
 });
 
-armyTest("SET-C01 tenant tiers persist at exact threshold and labor inputs preserve revision protection", options, async ui => {
+armyTest("SET-C01 tenant tiers persist at exact threshold and labor inputs preserve revision protection", options, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   const created = await connectedEstimate(ui, "Barème pilote", { margin_mode: "tiered" });
   const versionId = created.version.id;
   await connectedOpen(ui, versionId);
@@ -117,7 +118,8 @@ armyTest("SET-C01 tenant tiers persist at exact threshold and labor inputs prese
   await recordEvidence(ui.army, "tiers-boundary-and-labor", { tiers, postCount: requests.length, threshold, expectedTotal, atBoundary: money(atBoundary), lower: money(lower), splitEnabled, laborCost, splitFields, expectedFirst, expectedSecond, reloaded: money(reloaded), staleStatus: stale.status, limitation: "Six labor values use ordinary HTTP with the editor lease; no feature activation or split-column interaction." });
 });
 
-armyTest("SET-C02 changing title preserves historical cascade discounts and exact financial values", options, async ui => {
+armyTest("SET-C02 changing title preserves historical cascade discounts and exact financial values", options, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   const created = await connectedEstimate(ui, "Remises historiques", { discount_mode: "cascade", discount_steps: [500, 1000], global_coefficient: 1.02 });
   const versionId = created.version.id;
   await connectedOpen(ui, versionId);
@@ -140,7 +142,8 @@ armyTest("SET-C02 changing title preserves historical cascade discounts and exac
   await recordEvidence(ui.army, "historical-discounts-preserved", { expected: financials(before), actual: financials(after) });
 });
 
-armyTest("SET-C03 tiered AID supports replace clear and menu navigation without changing money", options, async ui => {
+armyTest("SET-C03 tiered AID supports replace clear and menu navigation without changing money", options, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   const created = await connectedEstimate(ui, "AID tiered", { margin_mode: "tiered" });
   const versionId = created.version.id;
   await connectedOpen(ui, versionId);

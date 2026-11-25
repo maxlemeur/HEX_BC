@@ -153,7 +153,8 @@ async function linesOf(versionId: string) {
 }
 
 armyTest("TKAW03 plan A then plan B feed one priced line of engine 3, and a re-read of B's page is decided and confirmed as shown", options,
-  async (ui) => {
+  async ({ app, screen, browser, army }) => {
+    const ui = { app, screen, browser, army };
     const seed = await affaire(ui, "AWB", "A puis B");
     await setTenantCalcPolicy(seed.owner, { engine: 3, fo: "1.30", mo: "1.20", reason: "ARMY-TKAW03 plan A then plan B on engine 3" });
     // Two different documents (another file of the same bytes would be the same plan, its page already in the estimate).
@@ -220,7 +221,8 @@ armyTest("TKAW03 plan A then plan B feed one priced line of engine 3, and a re-r
   });
 
 armyTest("TKAW04 a copied draft compares a takeoff with the takeoff carried over to it, before its administrator confirms", options,
-  async (ui) => {
+  async ({ app, screen, browser, army }) => {
+    const ui = { app, screen, browser, army };
     const seed = await affaire(ui, "AWC", "copie et doublon");
     const z1 = await plan(ui, seed, "Plans Z1", ZONE_PLANS.zones.Z1.fileName, Buffer.from(await buildZonePlanPdf("Z1")));
     const z2 = await plan(ui, seed, "Plans Z2", ZONE_PLANS.zones.Z2.fileName, Buffer.from(await buildZonePlanPdf("Z2")));
@@ -289,7 +291,8 @@ async function setRole(seed: Affaire, role: "admin" | "engineer") {
 }
 
 armyTest("TKAW05 a PE gas line accepted on its own is blocked again by the overlap its destination reveals, and only an administrator forces it",
-  options, async (ui) => {
+  options, async ({ app, screen, browser, army }) => {
+    const ui = { app, screen, browser, army };
     const seed = await affaire(ui, "AWG", "PE gaz forcé");
     const gas = (zone: "Z1" | "Z2") => buildZonePlanPdf(zone, undefined, { network: "GAZ" });
     const z1 = await plan(ui, seed, "Plans gaz Z1", ZONE_PLANS.zones.Z1.fileName, Buffer.from(await gas("Z1")));

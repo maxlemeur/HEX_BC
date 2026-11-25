@@ -179,7 +179,8 @@ async function reuse(ui: Ui, p: PreparedComponents, versionId: string, projectId
   await componentExports(ui, p, expected, { versionId, label: "exports-reuse", retainedIndices: indices });
 }
 
-armyTest("GC01 excluded components survive restoration reload application exports and library reuse", options, async (ui) => {
+armyTest("GC01 excluded components survive restoration reload application exports and library reuse", options, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   const p = await prepareComponents(ui, "GC01");
   try {
     await openComponents(ui, p); await expect(componentSection(ui, p.s)).toContainText(/DS\s*240[,.]00/);
@@ -394,7 +395,8 @@ armyTest("GC01 excluded components survive restoration reload application export
 });
 
 if (selection === "full") {
-  armyTest("GC02 retained zero-cost labor preserves one hour identity provenance and library reuse", options, async (ui) => {
+  armyTest("GC02 retained zero-cost labor preserves one hour identity provenance and library reuse", options, async ({ app, screen, browser, army }) => {
+    const ui = { app, screen, browser, army };
     const p = await prepareComponents(ui, "GC02");
     try {
       await openComponents(ui, p); await componentDecision(ui, p, 0, "Écarter"); await componentDecision(ui, p, 3, "Écarter");
@@ -408,7 +410,8 @@ if (selection === "full") {
       await reuse(ui, p, fresh.versionId, fresh.projectId, [8000, 1600, 9600]);
     } finally { await p.close(); }
   });
-  armyTest("GC03 all excluded components refuse human validation and application", options, async (ui) => {
+  armyTest("GC03 all excluded components refuse human validation and application", options, async ({ app, screen, browser, army }) => {
+    const ui = { app, screen, browser, army };
     const p = await prepareComponents(ui, "GC03");
     try {
       await openComponents(ui, p); for (let i = 0; i < 4; i++) await componentDecision(ui, p, i, "Écarter");
@@ -433,7 +436,8 @@ if (selection === "full") {
       for (const key of ["applications", "snapshots", "assemblies", "libraryComponents"]) expect(state.objects[key]).toHaveLength(0);
     } finally { await p.close(); }
   });
-  armyTest("GC04 an older application intention refuses a changed component selection", options, async (ui) => {
+  armyTest("GC04 an older application intention refuses a changed component selection", options, async ({ app, screen, browser, army }) => {
+    const ui = { app, screen, browser, army };
     const p = await prepareComponents(ui, "GC04");
     try {
       await openComponents(ui, p); const original = await saveComponents(ui, p); reviewed(original);

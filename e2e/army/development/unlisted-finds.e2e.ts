@@ -10,7 +10,8 @@ import { activateOwnedItemListOrder, deactivateOwnedItemListOrder, publishOwnedI
 import { ownedWorkerHostId, signUpWorkerOwner } from "../takeoff/worker-support";
 
 armyTest("TKFIND01 les ouvrages hors liste sont décidés, mesurés sur le forfait du membre et reconnus à la relecture",
-  { session: "army", trace: "off", tags: ["critical","development","takeoff-worker","local"], timeout: 300000 }, async ui => {
+  { session: "army", trace: "off", tags: ["critical","development","takeoff-worker","local"], timeout: 300000 }, async ({ app, screen, browser, army }) => {
+    const ui = { app, screen, browser, army };
     await ui.app.open("/dashboard/affaires");
     const owner = await signUpWorkerOwner(ui,"TF1");
     await activateOwnedPlanDispatch();
@@ -183,7 +184,8 @@ armyTest("TKFIND01 les ouvrages hors liste sont décidés, mesurés sur le forfa
   });
 
 armyTest("TKFIND02 relire une seule page conserve les ouvrages des autres pages et ne conclut pas sur le plan entier",
-  { session: "army", trace: "off", tags: ["critical", "development", "takeoff-worker", "local"], timeout: 300000 }, async ui => {
+  { session: "army", trace: "off", tags: ["critical", "development", "takeoff-worker", "local"], timeout: 300000 }, async ({ app, screen, browser, army }) => {
+    const ui = { app, screen, browser, army };
     await ui.app.open("/dashboard/affaires");
     const owner = await signUpWorkerOwner(ui, "TFP");
     await activateOwnedPlanDispatch();

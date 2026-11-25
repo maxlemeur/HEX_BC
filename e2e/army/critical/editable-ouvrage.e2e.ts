@@ -7,8 +7,8 @@ type Envelope<T> = { ok: boolean; data: T };
 // At quantity 3: 6 units × 10 EUR + 3 hours = 180 EUR. The ordinary anchor is 10 EUR.
 armyTest("TI718 ouvrage insertion from line menu preserves editable quantity and expandable detail", {
   session: "army", trace: "on", tags: ["critical", "estimates", "ouvrages"], timeout: 180000,
-}, async (ui) => {
-  const { browser, screen, app, army } = ui;
+}, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   await browser.setViewport({ width: 1122, height: 983 });
   const target = await createEstimateViaWizard(ui, { projectName: army.projectName, title: `${army.runPrefix} TI718` }, army);
   const role = await basisLaborRole(browser, target.versionId);

@@ -34,7 +34,8 @@ async function apply(ui: Ui, p: Prepared) {
 }
 
 for (const [code, fault] of [["GO01", "lost"], ["GO02", "malformed"]] as const) {
-  armyTest(`${code} generated application ${fault} committed response survives reload and exact explicit recovery`, options, async (ui) => {
+  armyTest(`${code} generated application ${fault} committed response survives reload and exact explicit recovery`, options, async ({ app, screen, browser, army }) => {
+    const ui = { app, screen, browser, army };
     const p = await prepare(ui, fault), c = p.s.candidates[0];
     const dialogs: string[] = [];
     // Unknown durable intention may trigger the existing leave-page warning.
@@ -137,7 +138,8 @@ for (const [code, fault] of [["GO01", "lost"], ["GO02", "malformed"]] as const) 
   });
 }
 
-armyTest("GO03 stale human review refuses application and stale save before explicit reload of the current reviewed content", options, async (ui) => {
+armyTest("GO03 stale human review refuses application and stale save before explicit reload of the current reviewed content", options, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   const p = await prepare(ui, "stale"), c = p.s.candidates[0];
   try {
     await installProbe(ui, p, "none"); await resumeDialog(ui, p.s); await review(ui, c); await selectOnly(ui, p.s, c);
@@ -194,7 +196,8 @@ armyTest("GO03 stale human review refuses application and stale save before expl
   } finally { await p.close(); }
 });
 
-armyTest("GO05 a lost real refusal can be durably abandoned after review changes without enabling the old intent", options, async (ui) => {
+armyTest("GO05 a lost real refusal can be durably abandoned after review changes without enabling the old intent", options, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   const p = await prepare(ui, "abandon"), c = p.s.candidates[0];
   const dialogs: string[] = []; let allowUnknownReload = true;
   const dispose = await ui.browser.onDialog(async (dialog) => {
@@ -279,7 +282,8 @@ armyTest("GO05 a lost real refusal can be durably abandoned after review changes
   } finally { await dispose(); await p.close(); }
 });
 
-armyTest("GO04 edited reviewed cost blocks insertion until revalidation and partial selection survives reload", options, async (ui) => {
+armyTest("GO04 edited reviewed cost blocks insertion until revalidation and partial selection survives reload", options, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   const p = await prepare(ui, "partial"), [first, second] = p.s.candidates;
   const appliedFirst = { ...first, unitCostHtCents: 1500 };
   try {
@@ -334,7 +338,8 @@ armyTest("GO04 edited reviewed cost blocks insertion until revalidation and part
   } finally { await p.close(); }
 });
 
-armyTest("GO06 two real local fallback generations discard the previous pending draft only after replacement and resume the current draft", options, async (ui) => {
+armyTest("GO06 two real local fallback generations discard the previous pending draft only after replacement and resume the current draft", options, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   const file = process.env.E2E_GENERATED_RECOVERY_FIXTURE_PATH;
   if (!file) throw new Error("Explicit generated recovery fixture required.");
   const f = JSON.parse(await readFile(file, "utf8"));

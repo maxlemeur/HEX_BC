@@ -25,7 +25,8 @@ function exactInvalidations(state: Awaited<ReturnType<typeof workspace>>, ids: R
   expect(state.requirements.find((entry) => entry.id === ids.E2)?.treatment).toBe("unresolved");
 }
 
-armyTest("SC01-03 eight explicit requirements use real applied work and register without changing 71000/14200/85200 cents or eight hours", options, async (ui) => {
+armyTest("SC01-03 eight explicit requirements use real applied work and register without changing 71000/14200/85200 cents or eight hours", options, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   const c = await context(ui, "nominal");
   await openCoverage(c);
   const prepared = await establishS1(c);
@@ -59,7 +60,8 @@ armyTest("SC01-03 eight explicit requirements use real applied work and register
   await recordEvidence(c.army, "nominal-complete", { ids: prepared.ids, component: e1.targets[0], e3, e4, counts: (await workspace(c)).counts, finalCoverageSeeded: false, modelCalls: 0 });
 });
 
-armyTest("SC04 activating B invalidates seven decisions and only a newly verified B citation revalidates E4", options, async (ui) => {
+armyTest("SC04 activating B invalidates seven decisions and only a newly verified B citation revalidates E4", options, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   const c = await context(ui, "reference"); const prepared = await establishS1(c);
   const oldE4 = (await workspace(c, prepared.ids.E4)).selectedRequirement!;
   await retainReference(c, "B"); await openCoverage(c);
@@ -102,7 +104,8 @@ armyTest("SC04 activating B invalidates seven decisions and only a newly verifie
   await recordEvidence(c.army, "reference-b-complete", final);
 });
 
-armyTest("SC05 register validation and reopening invalidate only linked provisional decisions", options, async (ui) => {
+armyTest("SC05 register validation and reopening invalidate only linked provisional decisions", options, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   const c = await context(ui, "register"); const prepared = await establishS1(c);
   const transition = async (text: string, action: "validate" | "reopen") => {
     await c.app.open(`/dashboard/affaires/${c.scenario.projectId}?versionId=${c.scenario.versionId}#register`);
@@ -133,7 +136,8 @@ for (const mutation of [
   { name: "l4_quantity", line: "L4", label: "Quantité", value: "7", totals: [73000, 14600, 87600], stale: [] },
   { name: "l2_price", line: "L2", label: "Prix d’achat unitaire HT", value: "12", totals: [71800, 14360, 86160], stale: [] },
 ] as const) {
-  armyTest(`SC06 ${mutation.name} preserves unrelated decisions and exact stored amounts`, options, async (ui) => {
+  armyTest(`SC06 ${mutation.name} preserves unrelated decisions and exact stored amounts`, options, async ({ app, screen, browser, army }) => {
+    const ui = { app, screen, browser, army };
     const c = await context(ui, mutation.name); const prepared = await establishS1(c);
     await c.app.open(`/dashboard/estimates/${c.scenario.versionId}/edit`);
     const line = prepared.lines[mutation.line];
@@ -155,7 +159,8 @@ for (const mutation of [
   });
 }
 
-armyTest("SC08 committed decision response lost then reload replays the same event without an automatic POST", options, async (ui) => {
+armyTest("SC08 committed decision response lost then reload replays the same event without an automatic POST", options, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   const c = await context(ui, "recovery"); const prepared = await establishS1(c);
   const id = prepared.ids.E5;
   const posts: Array<{ pathname: string; body: unknown }> = [];
@@ -203,7 +208,8 @@ armyTest("SC08 committed decision response lost then reload replays the same eve
   await financial(c, "recovery-finances"); await recordEvidence(c.army, "recovery-complete", { before, after, posts, postsBeforeReload: count, postsAfterReload: afterReloadPosts, sameEvent: true, noAutomaticPosts: true });
 });
 
-armyTest("SC09 unavailable workspace never becomes an empty or current coverage decision", options, async (ui) => {
+armyTest("SC09 unavailable workspace never becomes an empty or current coverage decision", options, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   const c = await context(ui, "read_failure"); const prepared = await establishS1(c);
   let mode: "503" | "malformed" | "real" = "real"; let intercepted = 0; let posts = 0;
   await c.browser.route(`**${base(c.scenario)}**`, async (route) => {
@@ -240,7 +246,8 @@ armyTest("SC09 unavailable workspace never becomes an empty or current coverage 
   await financial(c, "unavailable-recovered-finances");
 });
 
-armyTest("SC02 technical edits require a new human completeness declaration before another decision", options, async (ui) => {
+armyTest("SC02 technical edits require a new human completeness declaration before another decision", options, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   const c = await context(ui, "form_change"); const prepared = await establishS1(c);
   const id = prepared.ids.E3;
   const before = (await workspace(c, id)).selectedRequirement!;
@@ -260,7 +267,8 @@ armyTest("SC02 technical edits require a new human completeness declaration befo
   await financial(c, "form-change-finances"); await recordEvidence(c.army, "form-change-partial", { before, changed });
 });
 
-armyTest("SC07 rejects a stale decision without changing its current history", options, async (ui) => {
+armyTest("SC07 rejects a stale decision without changing its current history", options, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   const c = await context(ui, "stale"); const prepared = await establishS1(c);
   const id = prepared.ids.E3;
   const preview = await apiRequest<{ ok: boolean; data: CoveragePreview }>(c.browser, "GET", `${base(c.scenario)}/${id}/preview`);

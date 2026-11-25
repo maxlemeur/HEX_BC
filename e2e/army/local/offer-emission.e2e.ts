@@ -428,7 +428,8 @@ async function openAnonymous(ui: OfferUi, army: ArmyState, caseId: string, resul
   return observed;
 }
 
-offerTest("OF00 actual confirmation emits the same frozen PDF", options, async (ui) => {
+offerTest("OF00 actual confirmation emits the same frozen PDF", options, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   const p = await prepare(ui, "OF00");
   await send(ui, "OF00", p.ids.versionId);
 });
@@ -439,7 +440,8 @@ offerTest("OF00 actual confirmation emits the same frozen PDF", options, async (
 // - the client receives the offer, or the test mailbox receives nothing, or a message that does not name the client;
 // - the send answers, and the estimate page shows, a send to the client;
 // - the test mailbox reaches the browser.
-offerTest("RD01 while e-mails are redirected, the offer reaches the test mailbox only and the estimate says it was a test", options, async (ui) => {
+offerTest("RD01 while e-mails are redirected, the offer reaches the test mailbox only and the estimate says it was a test", options, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   const p = await prepare(ui, "RD01");
   const result = await send(ui, "RD01", p.ids.versionId);
   const written = "army-rd01@offer.invalid";
@@ -482,7 +484,8 @@ type EmailConfirmationProbeWindow = Window & {
   };
 };
 
-offerTest("EC01 corrupt confirmation retains its request and replays one actual email", options, async (ui) => {
+offerTest("EC01 corrupt confirmation retains its request and replays one actual email", options, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   const p = await prepare(ui, "EC01");
   const endpoint = new URL(`/api/estimates/${p.ids.versionId}/send`, ui.app.baseUrl!).href;
   const receiptsBefore = await receiptNames();
@@ -632,7 +635,8 @@ offerTest("EC01 corrupt confirmation retains its request and replays one actual 
   }
 });
 
-offerTest("OF04 manual issue and lifecycle preserve its final PDF without email", options, async (ui) => {
+offerTest("OF04 manual issue and lifecycle preserve its final PDF without email", options, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   const p = await prepare(ui, "OF04");
   const pdfBefore = await apiRequest<{ ok: boolean; data: { status: string; sha256_hash?: string; file_size_bytes?: number } }>(
     ui.browser, "GET", `/api/estimates/${p.ids.versionId}/pdf?format=json`,
@@ -797,7 +801,8 @@ offerTest("OF04 manual issue and lifecycle preserve its final PDF without email"
   }
 });
 
-offerTest("OF0L another page lease prevents confirmation without takeover", options, async (ui) => {
+offerTest("OF0L another page lease prevents confirmation without takeover", options, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   const p = await prepare(ui, "OF0L");
   const foreignSession = randomUUID();
   const leaseHeaders = { "x-estimate-draft-lock-session-id": foreignSession };
@@ -833,7 +838,8 @@ offerTest("OF0L another page lease prevents confirmation without takeover", opti
   }
 });
 
-offerTest("OF01 actual email CTA opens anonymously on its offer", options, async (ui) => {
+offerTest("OF01 actual email CTA opens anonymously on its offer", options, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   const p = await prepare(ui, "OF01");
   const result = await send(ui, "OF01", p.ids.versionId);
   const observed = await openAnonymous(ui, ui.army, "OF01", result, p.originalName);
@@ -843,7 +849,8 @@ offerTest("OF01 actual email CTA opens anonymously on its offer", options, async
   await expect(ui.browser).toHaveURL(/\/portal\//);
 });
 
-offerTest("OF03 public HTML and RSC preserve sales presentation without private calculation data", options, async (ui) => {
+offerTest("OF03 public HTML and RSC preserve sales presentation without private calculation data", options, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   const p = await prepare(ui, "OF03");
   const result = await send(ui, "OF03", p.ids.versionId);
   const observed = await openAnonymous(ui, ui.army, "OF03", result, p.originalName);
@@ -934,7 +941,8 @@ offerTest("OF03 public HTML and RSC preserve sales presentation without private 
   await expect(ui.screen.getByRole("region", "Document du devis", { exact: true })).toContainText(p.originalTerms.title);
 });
 
-offerTest("OF02 resend retains the original commercial identity and PDF", options, async (ui) => {
+offerTest("OF02 resend retains the original commercial identity and PDF", options, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   const p = await prepare(ui, "OF02");
   const first = await send(ui, "OF02", p.ids.versionId);
   await openPage(ui, `/dashboard/affaires/${p.ids.projectId}`);
@@ -988,7 +996,8 @@ async function waitForPdfReady(ui: OfferUi, versionId: string) {
   }, versionId), { timeout: 120000 }).toBe(true);
 }
 
-offerTest("PDFL1 Affaire prepares PDF using its own page lease", options, async (ui) => {
+offerTest("PDFL1 Affaire prepares PDF using its own page lease", options, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   const p = await prepare(ui, "PDFL1");
   const witness = await observePdfLease(ui, p.ids.versionId);
   try {
@@ -1014,7 +1023,8 @@ offerTest("PDFL1 Affaire prepares PDF using its own page lease", options, async 
   } finally { await witness.close(); }
 });
 
-offerTest("PDFL2 another page identity blocks PDF without forced takeover", options, async (ui) => {
+offerTest("PDFL2 another page identity blocks PDF without forced takeover", options, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   const p = await prepare(ui, "PDFL2");
   const headers = { "x-estimate-draft-lock-session-id": randomUUID() };
   const lease = await apiRequest(ui.browser, "POST", `/api/estimates/${p.ids.versionId}/lock`, {}, headers);
@@ -1042,7 +1052,8 @@ offerTest("PDFL2 another page identity blocks PDF without forced takeover", opti
   }
 });
 
-offerTest("PDFL3 PDF lease renews while an actual status read is held", options, async (ui) => {
+offerTest("PDFL3 PDF lease renews while an actual status read is held", options, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   const p = await prepare(ui, "PDFL3");
   const witness = await observePdfLease(ui, p.ids.versionId);
   const statusUrl = new URL(`/api/estimates/${p.ids.versionId}/pdf?format=json`, ui.app.baseUrl!).href;
@@ -1080,7 +1091,8 @@ offerTest("PDFL3 PDF lease renews while an actual status read is held", options,
   } finally { release(); await ui.browser.unroute(statusUrl); await witness.close(); }
 });
 
-offerTest("PDFL4 read-only print layout never acquires a draft lease", options, async (ui) => {
+offerTest("PDFL4 read-only print layout never acquires a draft lease", options, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   const p = await prepare(ui, "PDFL4");
   const headers = { "x-estimate-draft-lock-session-id": randomUUID() };
   const lease = await apiRequest(ui.browser, "POST", `/api/estimates/${p.ids.versionId}/lock`, {}, headers);
@@ -1108,7 +1120,8 @@ offerTest("PDFL4 read-only print layout never acquires a draft lease", options, 
   }
 });
 
-offerTest("PDFL5 closing PDF preserves the parent editor lease", options, async (ui) => {
+offerTest("PDFL5 closing PDF preserves the parent editor lease", options, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   const p = await prepare(ui, "PDFL5");
   await openPage(ui, `/dashboard/estimates/${p.ids.versionId}/edit`);
   await expect(ui.screen.getByRole("heading", "Éditer le chiffrage", { exact: true })).toBeVisible();
@@ -1135,7 +1148,8 @@ offerTest("PDFL5 closing PDF preserves the parent editor lease", options, async 
   } finally { await witness.close(); }
 });
 
-offerTest("PDFL6 PDF freeze reconciles editor tokens and real line snapshots before the next save", options, async (ui) => {
+offerTest("PDFL6 PDF freeze reconciles editor tokens and real line snapshots before the next save", options, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   const p = await prepare(ui, "PDFL6");
   await openPage(ui, `/dashboard/estimates/${p.ids.versionId}/edit`);
   await expect(ui.screen.getByRole("heading", "Éditer le chiffrage", { exact: true })).toBeVisible();
@@ -1198,7 +1212,8 @@ offerTest("PDFL6 PDF freeze reconciles editor tokens and real line snapshots bef
     final: { quantity: 2, totals: totals(reloaded.version), titlePreserved: true }, savedStatus: saved.status,
     noReloadBeforeNextSave: true });
 });
-offerTest("PDFL7 interrupted post-freeze read blocks stale writes and recovers pending edits without a new PDF POST", options, async (ui) => {
+offerTest("PDFL7 interrupted post-freeze read blocks stale writes and recovers pending edits without a new PDF POST", options, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   const p = await prepare(ui, "PDFL7");
   await openPage(ui, `/dashboard/estimates/${p.ids.versionId}/edit`);
   await expect(ui.screen.getByRole("heading", "Éditer le chiffrage", { exact: true })).toBeVisible();
@@ -1340,7 +1355,8 @@ offerTest("PDFL7 interrupted post-freeze read blocks stale writes and recovers p
   }
 });
 
-offerTest("PDFL8 interrupted PDF read blocks catalogue edits of a newly created ARMY labor role", options, async (ui) => {
+offerTest("PDFL8 interrupted PDF read blocks catalogue edits of a newly created ARMY labor role", options, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   const p = await prepare(ui, "PDFL8");
   await openPage(ui, `/dashboard/estimates/${p.ids.versionId}/edit`);
   await expect(ui.screen.getByRole("heading", "Éditer le chiffrage", { exact: true })).toBeVisible();
@@ -1629,13 +1645,16 @@ async function efExerciseFirstSend(ui: OfferUi, caseId: EfCase) {
   }
 }
 
-offerTest("EF01 first normal send carries exact original CAS and own page session", options, async (ui) => {
+offerTest("EF01 first normal send carries exact original CAS and own page session", options, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   await efExerciseFirstSend(ui, "EF01");
 });
-offerTest("EF02 older one microsecond with same JS millisecond rejects before intent", options, async (ui) => {
+offerTest("EF02 older one microsecond with same JS millisecond rejects before intent", options, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   await efExerciseFirstSend(ui, "EF02");
 });
-offerTest("EF03 exact original CAS without own page-session header rejects before intent", options, async (ui) => {
+offerTest("EF03 exact original CAS without own page-session header rejects before intent", options, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   await efExerciseFirstSend(ui, "EF03");
 });
 
@@ -1715,7 +1734,8 @@ async function ef04ReadAndRestoreProbe(browser: Browser) {
   });
 }
 
-offerTest("EF04 another draft request key rejects before freezing its source", options, async (ui) => {
+offerTest("EF04 another draft request key rejects before freezing its source", options, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   const first = await prepare(ui, "EF04-A");
   const firstBefore = await readEstimate(ui.browser, first.ids.versionId);
   const firstEndpoint = new URL(`/api/estimates/${first.ids.versionId}/send`, ui.app.baseUrl!).href;
@@ -1960,7 +1980,8 @@ async function ef05ReadAndRestoreProbe(browser: Browser) {
   });
 }
 
-offerTest("EF05 valid foreign page session rejects before intent", options, async (ui) => {
+offerTest("EF05 valid foreign page session rejects before intent", options, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   const prepared = await prepare(ui, "EF05");
   const before = await readEstimate(ui.browser, prepared.ids.versionId);
   const originalToken = before.version.updated_at;
@@ -2057,7 +2078,8 @@ offerTest("EF05 valid foreign page session rejects before intent", options, asyn
 });
 
 // NF02 failures and oracles are defined before product changes in the root precode plan.
-offerTest("NF02 first offer prepares PDF in email before human confirmation", options, async (ui) => {
+offerTest("NF02 first offer prepares PDF in email before human confirmation", options, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   const p = await prepare(ui, "PDFL-NF02");
   const before = await readEstimate(ui.browser, p.ids.versionId);
   const beforeReceipts = await receiptNames();
@@ -2240,7 +2262,8 @@ offerTest("NF02 first offer prepares PDF in email before human confirmation", op
 });
 
 // NF04 observes the enabled PDF action during a real held send; never clicks it.
-offerTest("NF04 PDF preparation is disabled while the real email is submitting", options, async (ui) => {
+offerTest("NF04 PDF preparation is disabled while the real email is submitting", options, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   const p = await prepare(ui, "NF04");
   const before = await readEstimate(ui.browser, p.ids.versionId);
   const beforeReceipts = await receiptNames();
@@ -2403,7 +2426,8 @@ async function nf03Gating(ui: OfferUi, versionId: string) {
   }, versionId);
 }
 
-offerTest("NF03 first Affaire opening after editor PDF sends its original projection without reload", options, async (ui) => {
+offerTest("NF03 first Affaire opening after editor PDF sends its original projection without reload", options, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   const originalName = `${ui.army.runPrefix}-NF03-ORIGINAL`;
   const ids = await createEstimateViaWizard(ui, { projectName: originalName, title: "NF03 première ouverture Affaire" }, ui.army);
   const base = new URL(ui.app.baseUrl!).origin;

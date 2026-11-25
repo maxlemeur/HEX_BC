@@ -71,7 +71,8 @@ async function readPages(ui: WorkerUi, jobId: string, versionId: string) {
 }
 
 armyTest("TKD01 a page another takeoff already brought into the estimate is named in both reviews and decided in the wizard, kept both with its reason", options,
-  async (ui) => {
+  async ({ app, screen, browser, army }) => {
+    const ui = { app, screen, browser, army };
     const upload = await launchWorkerVectorUpload(ui);
     const { ids, jobId: first, fileName, client, owner } = upload;
     const network = VECTOR_PLAN.networks[0];
@@ -211,7 +212,8 @@ armyTest("TKD01 a page another takeoff already brought into the estimate is name
   });
 
 armyTest("TKD02 re-measuring a page replaces its earlier measure line by line, keeping the estimator's titles and prices, and is refused without a decision", options,
-  async (ui) => {
+  async ({ app, screen, browser, army }) => {
+    const ui = { app, screen, browser, army };
     const upload = await launchWorkerVectorUpload(ui);
     const { ids, jobId: first, client } = upload;
     const network = VECTOR_PLAN.networks[0];

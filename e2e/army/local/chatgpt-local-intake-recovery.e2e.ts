@@ -376,11 +376,11 @@ async function relaunchAfterProviderTimeout({ app, screen, browser }: Parameters
 
 if (!existsSync(liveProbePath)) test("RELANCE01 a failed and an unstarted plan are both checked and read on the clicker's subscription", {
   tags: ["critical", "local", "chatgpt", "intake", "premetre"], session: "army", trace: "off", timeout: 360_000,
-}, (ui) => relaunchAfterProviderTimeout(ui, false));
+}, ({ app, screen, browser }) => relaunchAfterProviderTimeout({ app, screen, browser }, false));
 
 if (!existsSync(liveProbePath)) test("RELANCE02 a plan row checks just its own plan and the affaire relaunch reads only what remains checked", {
   tags: ["critical", "local", "chatgpt", "intake", "premetre"], session: "army", trace: "off", timeout: 360_000,
-}, (ui) => relaunchAfterProviderTimeout(ui, true));
+}, ({ app, screen, browser }) => relaunchAfterProviderTimeout({ app, screen, browser }, true));
 
 if (!existsSync(liveProbePath)) test("RELANCE03 stopping a request offers its interrupted and unstarted plans and reads the checked plan", {
   tags: ["critical", "local", "chatgpt", "intake", "premetre"], session: "army", trace: "off", timeout: 360_000,

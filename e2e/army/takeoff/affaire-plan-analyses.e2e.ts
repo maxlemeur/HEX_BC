@@ -51,7 +51,8 @@ async function buildPlanPdf(label: string, pages: number) {
 
 armyTest("TKPA01 plan A is reviewed while plan B is read and C waits, without a reload: one light poll, no read per plan, readers without actions", {
   session: "army", trace: "off", tags: ["critical", "takeoff-worker", "local"], timeout: 300_000,
-}, async (ui) => {
+}, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   await ui.app.open("/dashboard/affaires");
   const owner = await signUpWorkerOwner(ui, "APA");
   const { tenantId, userId } = owner;

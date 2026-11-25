@@ -65,7 +65,8 @@ async function receiptContext(jobId: string) {
 }
 
 armyTest("TKPS01 a plan is sent while the others are read: nothing before the confirmation, one first draft, then B adds its part to A's line",
-  { session: "army", trace: "off", tags: ["critical", "takeoff-worker", "local"], timeout: 300_000 }, async (ui) => {
+  { session: "army", trace: "off", tags: ["critical", "takeoff-worker", "local"], timeout: 300_000 }, async ({ app, screen, browser, army }) => {
+    const ui = { app, screen, browser, army };
     await ui.app.open("/dashboard/affaires");
     const owner = await signUpWorkerOwner(ui, "TKPS1");
     await activateOwnedPlanDispatch();

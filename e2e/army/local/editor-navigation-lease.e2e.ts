@@ -76,7 +76,8 @@ async function waitForPopupReload(ui: LeaseUi, p: LeasePrepared, previousTimeOri
   }
 }
 
-armyTest("NAV01 real reload then immediate requirements departure and return keeps ordinary editor usable", options, async (ui) => {
+armyTest("NAV01 real reload then immediate requirements departure and return keeps ordinary editor usable", options, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   const p = await prepareLeaseCase(ui, "NAV01");
   const observer = await observeLeaseRequests(ui, p);
   await withLeaseEvidence(ui, p, observer, "NAV01", async () => {
@@ -167,7 +168,8 @@ armyTest("NAV01 real reload then immediate requirements departure and return kee
 // TI-665: NAV01 failed in CI when the departure page took long enough for the
 // reloaded document to send its lease request before leaving; the server kept a
 // lease that nothing released. NAV01b forces that order on any machine.
-armyTest("NAV01b real reload then departure answered after the reloaded document's lease request keeps the return usable", options, async (ui) => {
+armyTest("NAV01b real reload then departure answered after the reloaded document's lease request keeps the return usable", options, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   const p = await prepareLeaseCase(ui, "NAV01b");
   const observer = await observeLeaseRequests(ui, p);
   await withLeaseEvidence(ui, p, observer, "NAV01b", async () => {
@@ -239,7 +241,8 @@ armyTest("NAV01b real reload then departure answered after the reloaded document
 // NAV01c: the leaving page's release is lost, so its lease outlives it. The
 // next document of the tab must release that dead page's lease under its
 // identity, then hold the lease under its own, without a forced takeover.
-armyTest("NAV01c full departure whose lease release is lost then return releases the dead page's lease", options, async (ui) => {
+armyTest("NAV01c full departure whose lease release is lost then return releases the dead page's lease", options, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   const p = await prepareLeaseCase(ui, "NAV01c");
   const observer = await observeLeaseRequests(ui, p);
   await withLeaseEvidence(ui, p, observer, "NAV01c", async () => {
@@ -289,7 +292,8 @@ armyTest("NAV01c full departure whose lease release is lost then return releases
 // obtained its lease while leaving releases it on pagehide and retires its
 // identity: the next reload holds the lease under a new identity, which a late
 // release of the old one cannot reach (NAV04b).
-armyTest("NAV01d reload during the reloaded editor's lease request keeps the next reload usable under a new identity", options, async (ui) => {
+armyTest("NAV01d reload during the reloaded editor's lease request keeps the next reload usable under a new identity", options, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   const p = await prepareLeaseCase(ui, "NAV01d");
   const observer = await observeLeaseRequests(ui, p);
   await withLeaseEvidence(ui, p, observer, "NAV01d", async () => {
@@ -338,7 +342,8 @@ armyTest("NAV01d reload during the reloaded editor's lease request keeps the nex
   });
 });
 
-armyTest("NAV05 actual cloned sessionStorage popup remains read-only while the first document saves", options, async (ui) => {
+armyTest("NAV05 actual cloned sessionStorage popup remains read-only while the first document saves", options, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   const p = await prepareLeaseCase(ui, "NAV05");
   const observer = await observeLeaseRequests(ui, p);
   await withLeaseEvidence(ui, p, observer, "NAV05", async () => {

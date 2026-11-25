@@ -38,7 +38,8 @@ async function setup(ui: Ui, caseId: string) {
   return { estimate, planSet, file, dialog, client, read, jobs: ownedTakeoffJobs(ui.browser, estimate) };
 }
 
-armyTest("HUB01 retained PDF counting preparation persists exclusions and blocks without a local plan", options, async (ui) => {
+armyTest("HUB01 retained PDF counting preparation persists exclusions and blocks without a local plan", options, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   const { estimate, planSet, file, read, jobs } = await setup(ui, "HUB01");
   try {
     let dialog = await fillTakeoffPreparation(ui, { sources: [file.file_name] });
@@ -80,7 +81,8 @@ armyTest("HUB01 retained PDF counting preparation persists exclusions and blocks
   }
 });
 
-armyTest("PRE06 long inclusions and exclusions remain readable and survive a reload", options, async (ui) => {
+armyTest("PRE06 long inclusions and exclusions remain readable and survive a reload", options, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   const { estimate, file, read, jobs } = await setup(ui, "PRE06");
   const inclusions = "Compter les appareils WC du schéma TYPE H\nSanitaire R+1 Femme sur la page 1";
   const exclusions = "Ne pas compter l'implantation centrale\nExclure les autres schémas et les accessoires";
@@ -106,7 +108,8 @@ armyTest("PRE06 long inclusions and exclusions remain readable and survive a rel
     boundary: "Fictional long scope, persisted without launching or applying an estimate." });
 });
 
-armyTest("PRE05 dossier defaults stay visible on reopening without creating an analysis", options, async (ui) => {
+armyTest("PRE05 dossier defaults stay visible on reopening without creating an analysis", options, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   const { estimate, file, read, jobs, dialog } = await setup(ui, "PRE05");
   const optionsButton = dialog.getByRole("button", "Options du métré", { exact: true });
   await optionsButton.click();
@@ -134,7 +137,8 @@ armyTest("PRE05 dossier defaults stay visible on reopening without creating an a
   await recordEvidence(ui.army, "PRE05-dossier-defaults", { estimate, saved, screenshot: await ui.app.screenshot("PRE05-dossier-defaults") });
 });
 
-armyTest("PRE07 visiting the steps sends nothing the save or the assistance would wait for", options, async (ui) => {
+armyTest("PRE07 visiting the steps sends nothing the save or the assistance would wait for", options, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   const { estimate, file, read, jobs } = await setup(ui, "PRE07");
   const serverActions = /\/dashboard\/affaires\//;
   const held: string[] = [];
@@ -190,7 +194,8 @@ armyTest("PRE07 visiting the steps sends nothing the save or the assistance woul
   }
 });
 
-armyTest("PRE01 geometry requires a usable measurement basis and DPGF is required only for comparison", options, async (ui) => {
+armyTest("PRE01 geometry requires a usable measurement basis and DPGF is required only for comparison", options, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   const { estimate, file, jobs } = await setup(ui, "PRE01");
   const dialog = await fillTakeoffPreparation(ui, { sources: [file.file_name], objective: "measure_length", unit: "m" });
   const launch = dialog.getByRole("button", "Confirmer et lancer le métré", { exact: true });
@@ -214,7 +219,8 @@ armyTest("PRE01 geometry requires a usable measurement basis and DPGF is require
   await recordEvidence(ui.army, "PRE01-conditional-prerequisites", { estimate, noJobCreated: true, geometricWithoutCalibrationBlocked: true, dimensionedGeometryReady: true, comparisonWithoutDpgfBlocked: true });
 });
 
-armyTest("PRE02 purchase preparation retains unknown losses across reload and accepts an explicit zero", options, async (ui) => {
+armyTest("PRE02 purchase preparation retains unknown losses across reload and accepts an explicit zero", options, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   const { estimate, file, read, jobs } = await setup(ui, "PRE02");
   let dialog = await fillTakeoffPreparation(ui, { sources: [file.file_name], objective: "prepare_purchase", unit: "m" });
   await dialog.getByRole("button", /Points à préciser$/).click();
@@ -244,7 +250,8 @@ armyTest("PRE02 purchase preparation retains unknown losses across reload and ac
   await recordEvidence(ui.army, "PRE02-unknown-and-zero", { estimate, persisted, unknownLossesSurviveReload: true, explicitZeroReady: true });
 });
 
-armyTest("PRE03 a source changed after preparation blocks launch and retains the recorded scope", options, async (ui) => {
+armyTest("PRE03 a source changed after preparation blocks launch and retains the recorded scope", options, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   const { estimate, file, read, jobs, client } = await setup(ui, "PRE03");
   const dialog = await fillTakeoffPreparation(ui, { sources: [file.file_name] });
   await saveTakeoffPreparation(ui);
@@ -265,7 +272,8 @@ armyTest("PRE03 a source changed after preparation blocks launch and retains the
     boundary: "Owned plan metadata identity changed after saving. Launch must reject stale source selection before creating any job; the original Storage bytes are unchanged." });
 });
 
-armyTest("PRE04 unavailable writing AI and Decisions preserve the manually prepared answers", options, async (ui) => {
+armyTest("PRE04 unavailable writing AI and Decisions preserve the manually prepared answers", options, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   const { estimate, file, read, jobs } = await setup(ui, "PRE04");
   const dialog = await fillTakeoffPreparation(ui, { sources: [file.file_name] });
   await saveTakeoffPreparation(ui);

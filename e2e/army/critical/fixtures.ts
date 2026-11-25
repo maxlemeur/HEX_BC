@@ -65,6 +65,7 @@ export type ArmyEstimate = {
   items: ArmyItem[];
 };
 type Ui = { app: App; screen: Screen; browser: Browser };
+export type ArmyUi = Ui & { army: ArmyState };
 type ApiEnvelope<T> = { ok: boolean; data: T; error?: { code: string; message: string } };
 
 /**
