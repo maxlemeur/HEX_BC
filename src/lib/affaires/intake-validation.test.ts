@@ -12,6 +12,7 @@ vi.mock("@/lib/affaires/register-sync-server", () => ({
   syncAffairePlanGap: vi.fn(), syncAffaireRegisterFromBrief: vi.fn(), syncAffaireRegisterMissingPieces: vi.fn(),
 }));
 
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
 import { callStructuredAi } from "@/lib/ai/structured-ai";
 import { reclassifyAffaireDocument } from "@/lib/affaires/intake-document-edits-server";
@@ -48,6 +49,7 @@ function harness(options: { conflict?: boolean; document?: Row; brief?: Row | nu
   };
   const tables: Record<string, Row[]> = {
     estimate_projects: [{ id: projectId, tenant_id: tenantId, user_id: options.owner ?? userId, name: "Affaire fictive", reference: null, client_name: null, is_archived: false }],
+    affaire_intake_uploads: [{ id: uploadId, project_id: projectId, status: options.document?.classification_status === "awaiting_launch" ? "deposited" : "ready" }],
     affaire_intake_documents: [document], affaire_briefs: options.brief === null ? [] : [brief], affaire_intake_events: [], affaire_brief_source_links: [],
   };
   const supabase = { from: (table: string) => {
@@ -70,7 +72,8 @@ function harness(options: { conflict?: boolean; document?: Row; brief?: Row | nu
       return Promise.resolve({ data: single ? matching[0] ?? null : matching, error: null });
     };
     const query = {
-      select: () => query, order: () => query,
+      select: () => query, order: () => query, limit: () => query,
+      neq: (key: string, value: unknown) => { filters.push(row => row[key] !== value); return query; },
       eq: (key: string, value: unknown) => { filters.push((row) => row[key] === value); return query; },
       is: (key: string, value: unknown) => { filters.push((row) => (row[key] ?? null) === value); return query; },
       in: (key: string, list: unknown[]) => { filters.push((row) => list.includes(row[key])); return query; },
@@ -82,6 +85,15 @@ function harness(options: { conflict?: boolean; document?: Row; brief?: Row | nu
     };
     return query;
   } };
+  vi.mocked(createServiceRoleClient).mockReturnValue({ rpc: async (name: string, args: Row) => {
+    if (name === "intake_payer_can_write") return { data: true, error: null };
+    if (name === "read_affaire_intake_brief_inputs") return { data: { project: tables.estimate_projects[0],
+      documents: [document], missing_piece_codes: [], revision: "fictional", brief_updated_at: tables.affaire_briefs[0]?.updated_at ?? null }, error: null };
+    if (name !== "publish_affaire_intake_brief") throw new Error("Unexpected service call");
+    Object.assign(brief, args.p_draft, { status: "a_confirmer" });
+    tables.affaire_briefs = [brief];
+    return { data: briefId, error: null };
+  } } as never);
   vi.mocked(getAuthenticatedContext).mockResolvedValue({ userId, tenantId, tenantRole: options.role ?? "admin", supabase } as never);
   return { document, brief, tables };
 }
@@ -91,6 +103,21 @@ describe("human classification confirmation", () => {
     vi.clearAllMocks();
     vi.mocked(callStructuredAi).mockResolvedValue({ data: null } as never);
     vi.mocked(syncTakeoffPlanSetFromAffaireIntake).mockResolvedValue({ syncedDocumentCount: 0, removedDocumentCount: 0 });
+  });
+
+  it("a first human classification takes a Drive plan out of waiting without reading or summarising the deposit", async () => {
+    const { document, tables } = harness({ brief: null, document: { classification_status: "awaiting_launch",
+      document_kind: "a_classer", classification_source: null, manually_overridden_at: null, classified_at: null,
+      storage_path: null, source_provider: "google_drive", drive_file_id: "fictional-plan" } });
+    await reclassifyAffaireDocument({ projectId, documentId, category: "plans" });
+    expect(document).toMatchObject({ classification_status: "classified", classification_source: "manual", document_kind: "plans" });
+    expect(callStructuredAi).not.toHaveBeenCalled();
+    expect(syncTakeoffPlanSetFromAffaireIntake).not.toHaveBeenCalled();
+    expect(tables.affaire_briefs).toEqual([]);
+    await reclassifyAffaireDocument({ projectId, documentId, category: "cctp" });
+    expect(document.document_kind).toBe("cctp");
+    expect(callStructuredAi).not.toHaveBeenCalled();
+    expect(syncTakeoffPlanSetFromAffaireIntake).not.toHaveBeenCalled();
   });
 
   it("confirms an unchanged plan without regenerating the brief or invalidating its working copy", async () => {

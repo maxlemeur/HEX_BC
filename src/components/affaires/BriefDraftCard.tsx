@@ -466,6 +466,11 @@ export function BriefDraftCard({
       try {
         const result = await confirmAffaireBrief({ projectId, expectedUpdatedAt: briefDraft.updatedAt!, payerNotice: payerNoticeDigest });
         // What the confirmation did with the affaire's takeoff: why it waits, and the gesture it now offers this member.
+        if (result?.ok === false) {
+          setError(result.message);
+          toast.error({ title: "Confirmation en attente", description: result.message });
+          return;
+        }
         const takeoff = result?.takeoff;
         const takeoffNotice = takeoff?.message
           ? [takeoff.message, takeoff.actionLabel ? `Action possible dans les options du métré : « ${takeoff.actionLabel} ».` : null]

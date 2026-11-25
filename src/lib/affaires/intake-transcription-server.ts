@@ -1,3 +1,4 @@
+import { IntakePayerAccessLost, requireIntakePayerRight } from "@/lib/affaires/intake-payer-server";
 import "server-only";
 
 import { after } from "next/server";
@@ -113,7 +114,7 @@ function failureCode(error: unknown) {
 type ServiceClient = ReturnType<typeof createServiceRoleClient>;
 
 /**
- * Reads the piece at arrival, on the plan of the member who added it, with
+ * Reads on the plan selected by the launch or the individual retry, with
  * Terra at a high effort, and records what was read. A reading already done
  * for the same content is not redone. A failure is recorded on the piece and
  * never fails its analysis; only the lease's own error goes up (renewLease).
@@ -165,6 +166,7 @@ export async function transcribeIntakeDocument(input: {
     }
     try {
       const answer = await callLocalChatGptStructured(input.owner, {
+        beforeSend: input.renewLease,
         prompt: buildIntakeTranscriptionPrompt({ fileName: input.document.fileName, page: page.page, pageCount: plan.pageCount }),
         schema: intakeTranscriptionAnswerSchema, files: [file], timeoutMs: INTAKE_TRANSCRIPTION_PAGE_TIMEOUT_MS,
         context: { promptVersion: INTAKE_TRANSCRIPTION_PROMPT_VERSION },
@@ -172,6 +174,7 @@ export async function transcribeIntakeDocument(input: {
       read.push({ page: page.page, text: answer.data.texte.trim() });
     } catch (error) {
       // The next pages would meet the same refusal (quota, access, model): the reading stops here.
+      if (error instanceof IntakePayerAccessLost) throw error;
       errorCode = failureCode(error);
       console.error("Affaire intake transcription failed", { documentId: input.document.id, page: page.page, error_code: errorCode });
       break;
@@ -237,6 +240,7 @@ export const isIntakeRetryReadingRunning = (documentId: string) => retryReadings
  */
 export async function scheduleIntakeTranscriptionAfterRetry(input: {
   /** The member's own client (their rights read the stored reading) and identity (their plan reads the piece). */
+  projectId: string;
   context: { supabase: ServiceClient; userId: string; tenantId: string };
   document: { id: string; fileName: string }; mimeType: string; bytes: ArrayBuffer; sourceSha256: string;
 }) {
@@ -260,9 +264,10 @@ export async function scheduleIntakeTranscriptionAfterRetry(input: {
     const stillActive = async () => {
       if (!retryReadings.isCurrent(document.id, token)) throw new Error("A newer retry supersedes this reading.");
       const { data, error: readError } = await supabase.from("affaire_intake_documents").select("id")
-        .eq("tenant_id", owner.tenantId).eq("id", document.id).eq("upload_status", "uploaded")
+        .eq("tenant_id", owner.tenantId).eq("project_id", input.projectId).eq("id", document.id).eq("upload_status", "uploaded")
         .is("deleted_at", null).is("deletion_token", null).maybeSingle();
       if (readError || !data) throw new Error("The piece left the dossier during its reading.");
+      await requireIntakePayerRight(owner, input.projectId, supabase);
     };
     try {
       await stillActive();

@@ -3,6 +3,8 @@ import { describe, expect, it, vi } from "vitest";
 import {
   AffaireIntakeLeaseUnavailableError,
   AffaireIntakeProviderCallError,
+  claimAffaireIntakeAnalysisLaunch,
+  finishAffaireIntakeUploadAttempt,
   releaseAffaireIntakeUploadAfterError,
   renewAffaireIntakeUploadLease,
   runAffaireIntakeLeasedProviderEffect,
@@ -23,6 +25,23 @@ const CLAIM: AffaireIntakeClaim = {
 };
 
 describe("affaire intake durable lifecycle", () => {
+  it.each([[null, true], [TENANT_ID, false], [TENANT_ID, true]] as const)(
+    "recovers the stored payer %s and reading choice %s", async (payerId, readScans) => {
+      const client = { rpc: vi.fn().mockResolvedValue({ data: [{ upload_id: UPLOAD_ID, tenant_id: TENANT_ID,
+        project_id: PROJECT_ID, attempt_count: 2, payer_id: payerId, read_scans: readScans }], error: null }) };
+      expect(await claimAffaireIntakeAnalysisLaunch(client)).toMatchObject({ uploadId: UPLOAD_ID,
+        attemptCount: 2, launch: { payerId, readScans } });
+    },
+  );
+
+  it("keeps the publication conflict when inputs change between the receipt and lot closure", async () => {
+    const client = { rpc: vi.fn().mockResolvedValue({ data: null, error: {
+      code: "40001", message: "INTAKE_BRIEF_INPUT_CHANGED",
+    } }) };
+    await expect(finishAffaireIntakeUploadAttempt({ client, claim: CLAIM, status: "ready", now: NOW }))
+      .rejects.toThrow("Le dossier a changé depuis la publication de son brief.");
+  });
+
   it("does not invoke an external effect after a failed active-tenant lease renewal", async () => {
     const client = {
       rpc: vi.fn().mockResolvedValue({ data: false, error: null }),

@@ -1,4 +1,6 @@
 import type { IntakeAnalysisFailure } from "@/lib/affaires/intake-analysis-feedback";
+import { hostCanReadIntakeScans, IntakePayerAccessLost, requireIntakePayerRight } from "@/lib/affaires/intake-payer-server";
+import type { ChatGptOwner } from "@/lib/ai/chatgpt-local-store";
 import { readAllRows } from "@/lib/supabase/read-all";
 import { buildAffaireIntakeReanalysisUpdate } from "@/lib/affaires/intake-reanalysis";
 import { createHash } from "node:crypto";
@@ -17,6 +19,7 @@ import {
   AFFAIRE_INTAKE_BUCKET,
   AFFAIRE_INTAKE_MAX_FILE_SIZE_BYTES,
   deriveAffaireIntakeClassificationStatus,
+  deriveAffaireIntakeUploadStatusFromDocuments,
   inferAffaireIntakeMimeType,
   isAffaireIntakeAnalysisStale,
   isAffaireIntakeReanalysisPending,
@@ -38,13 +41,15 @@ import { syncAffaireIntakeDocumentPriorities } from "@/lib/affaires/intake-docum
 import { classifyAffaireIntakeDocument } from "@/lib/affaires/intake-classification";
 import { refreshAffaireBriefFromDocuments } from "@/lib/affaires/intake-derived-state-server";
 
+class IntakeConnectionUnavailable extends Error {}
+
 async function processClaimedAffaireIntakeUpload(input: {
   supabase: ReturnType<typeof createServiceRoleClient>;
   lifecycleClient: durableIntake.DurableWorkflowRpcClient;
   claim: durableIntake.AffaireIntakeClaim;
 }) {
   const { supabase, lifecycleClient, claim } = input;
-  const aiOwner = isLocalChatGptEnabled() || getIntakeDecisionsCapability().status === "available"
+  const aiOwner = claim.launch || isLocalChatGptEnabled() || getIntakeDecisionsCapability().status === "available"
     ? await resolveChatGptIntakeOwner(supabase, claim) : undefined;
   const upload = {
     id: claim.uploadId,
@@ -59,16 +64,25 @@ async function processClaimedAffaireIntakeUpload(input: {
       now: new Date(),
     });
 
-  const { data: docsData, error: docsError } = await resolveSupabaseQuery<{
-    data: unknown[];
-    error: unknown;
-  }>(
-    supabase
-      .from("affaire_intake_documents")
-      .select(DOCUMENT_SELECT as never)
-      .eq("upload_id", upload.id)
-      .order("created_at", { ascending: true })
-  );
+  const checkPayer = async () => {
+    try {
+      await renewLease();
+    } catch (error) {
+      // Suspension also prevents renewal. A revoked payer can still stop this launch under its token.
+      if (claim.launch) await requireIntakePayerRight(aiOwner ?? null, claim.projectId, supabase);
+      throw error;
+    }
+    const connectionLost = Boolean(claim.launch?.readScans && aiOwner && !await hostCanReadIntakeScans(aiOwner));
+    if (claim.launch || aiOwner) await requireIntakePayerRight(aiOwner ?? null, claim.projectId, supabase);
+    if (connectionLost) throw new IntakeConnectionUnavailable();
+  };
+  await checkPayer();
+
+  const batchKey = claim.launch ? "analysis_launch_id" : "upload_id";
+  const { data: docsData, error: docsError } = await readAllRows(() =>
+    supabase.from("affaire_intake_documents").select(DOCUMENT_SELECT as never, { count: "exact" })
+      .eq(batchKey, upload.id).eq("tenant_id", claim.tenantId).eq("project_id", claim.projectId)
+      .is("deleted_at", null).is("deletion_token", null).order("created_at"));
 
   if (docsError) {
     throw internalError(
@@ -95,6 +109,31 @@ async function processClaimedAffaireIntakeUpload(input: {
 
     return { linked, bytes: await blob.arrayBuffer() };
   };
+  // Only the source download is recoverable per piece. Losing the payer, the lease
+  // or the write of the failure still interrupts the launch.
+  const readLaunchSource = async (document: AffaireIntakeDocumentRow) => {
+    try {
+      return await readDocumentBytes(document);
+    } catch (cause) {
+      await checkPayer();
+      const reason = cause instanceof DriveError ? `Lecture de la source Google Drive impossible : ${cause.message}`
+        : "La source de cette pièce est illisible. Vérifiez son accès puis relancez l’analyse de la pièce.";
+      const completedAt = new Date().toISOString();
+      const { data, error } = await supabase.from("affaire_intake_documents")
+        .update({ classification_status: "failed", issues: [reason], analysis_completed_at: completedAt })
+        .eq("id", document.id).eq("analysis_launch_id", claim.uploadId).is("analysis_completed_at", null)
+        .is("deleted_at", null).is("deletion_token", null).is("manually_overridden_at", null)
+        .or("classification_source.is.null,classification_source.neq.manual")
+        .select("id").maybeSingle();
+      if (error) throw internalError("Impossible d’enregistrer l’échec de lecture de la pièce.", error);
+      if (data) {
+        document.analysis_completed_at = completedAt;
+        await insertAffaireIntakeEvent({ supabase, uploadId: claim.uploadId, documentId: document.id,
+          eventType: "document.classification_failed", reason });
+      }
+      return null;
+    }
+  };
   for (const document of documents) {
     if (document.upload_status !== "uploaded") {
       continue;
@@ -108,7 +147,7 @@ async function processClaimedAffaireIntakeUpload(input: {
 
     if (
       document.classification_status !== "queued" &&
-      document.classification_status !== "failed"
+      (claim.launch || document.classification_status !== "failed")
     ) {
       continue;
     }
@@ -123,6 +162,7 @@ async function processClaimedAffaireIntakeUpload(input: {
         .update({
           classification_status: "processing",
         } as never)
+        .eq(batchKey, upload.id)
         .eq("id", document.id)
         .eq("classification_status", document.classification_status)
         .or("classification_source.is.null,classification_source.neq.manual")
@@ -151,7 +191,9 @@ async function processClaimedAffaireIntakeUpload(input: {
             classification_status: "failed",
             issues: ["Chemin storage manquant pour le document intake."],
           } as never)
-          .eq("id", document.id)
+          .eq(batchKey, upload.id)
+          .eq("id", document.id).eq("classification_status", "processing")
+          .is("deleted_at", null).is("deletion_token", null)
       );
 
       if (markFailedError) {
@@ -171,8 +213,10 @@ async function processClaimedAffaireIntakeUpload(input: {
       continue;
     }
 
+    const launchSource = claim.launch ? await readLaunchSource(document) : null;
+    if (claim.launch && !launchSource) continue;
     try {
-      const { linked, bytes } = await readDocumentBytes(document);
+      const { linked, bytes } = launchSource ?? await readDocumentBytes(document);
       const mimeType =
         document.mime_type ??
         inferAffaireIntakeMimeType(document.file_name) ??
@@ -181,14 +225,15 @@ async function processClaimedAffaireIntakeUpload(input: {
         fileName: document.file_name,
         mimeType,
         bytes,
-        beforeProviderCall: renewLease,
+        beforeProviderCall: checkPayer,
+        readScans: claim.launch?.readScans,
         aiOwner,
         existingMetadata: document.extracted_metadata,
         ...(aiOwner ? { decisionsContext: { owner: aiOwner,
           projectId: document.project_id, documentId: document.id,
           sourceVersion: createHash("sha256").update(Buffer.from(bytes)).digest("hex") } } : {}),
       });
-      await renewLease();
+      await checkPayer();
       const classificationStatus = deriveAffaireIntakeClassificationStatus({
         documentKind: classification.result.documentKind,
         confidence: classification.result.confidence,
@@ -207,12 +252,15 @@ async function processClaimedAffaireIntakeUpload(input: {
             extracted_metadata: classification.result.extractedMetadata,
             classification_source: classification.source,
             classified_at: nowIso,
+            ...(claim.launch && (!claim.launch.readScans || !canTranscribeIntakeDocument(mimeType))
+              ? { analysis_completed_at: nowIso } : {}),
             ...(linked ? {
               drive_revision: linked.file.version ?? null,
               drive_modified_time: linked.file.modifiedTime ?? null,
               size_bytes: bytes.byteLength,
             } : {}),
           } as never)
+          .eq(batchKey, upload.id)
           .eq("id", document.id)
           .eq("classification_status", "processing")
           .is("deleted_at", null).is("deletion_token", null)
@@ -235,7 +283,7 @@ async function processClaimedAffaireIntakeUpload(input: {
         },
       });
     } catch (error) {
-      if (error instanceof durableIntake.AffaireIntakeLeaseUnavailableError) {
+      if (error instanceof durableIntake.AffaireIntakeLeaseUnavailableError || error instanceof IntakePayerAccessLost || error instanceof IntakeConnectionUnavailable) {
         throw error;
       }
       await renewLease();
@@ -257,6 +305,7 @@ async function processClaimedAffaireIntakeUpload(input: {
               ? `Lecture Google Drive impossible : ${error.message}`
               : "Impossible d'analyser le document dans le workspace intake."],
           } as never)
+          .eq(batchKey, upload.id)
           .eq("id", document.id)
           .eq("classification_status", "processing")
           .is("deleted_at", null).is("deletion_token", null)
@@ -279,25 +328,48 @@ async function processClaimedAffaireIntakeUpload(input: {
     }
   }
 
-  // The text of an image or of a scanned PDF, read on the plan of the member who added the piece, once every piece of
-  // the lot is classified (a reading takes up to minutes). Every active piece of the lot is listed, whatever its
-  // classification: an attempt recovered after a stop during the readings finds the pieces already classified, and
-  // the content-based deduplication skips what was read. A failure is recorded on its own row and leaves the
-  // classification as it is; only the lease's loss stops the lot.
-  const toTranscribe = aiOwner && isLocalChatGptEnabled() ? documents.flatMap((document) => {
+  // On recovery, terminal classifications stay in place. Readings deduplicate by content.
+  const toTranscribe = aiOwner && (claim.launch?.readScans ?? true) && isLocalChatGptEnabled() ? documents.flatMap((document) => {
     const mimeType = document.mime_type ?? inferAffaireIntakeMimeType(document.file_name) ?? "";
-    return document.upload_status === "uploaded" && !document.deletion_token && (document.storage_path || document.drive_file_id)
+    return document.upload_status === "uploaded" && !document.analysis_completed_at && !document.deletion_token && (document.storage_path || document.drive_file_id)
       && canTranscribeIntakeDocument(mimeType) ? [{ document, mimeType }] : [];
   }) : [];
+  const markComplete = async (ids: string[]) => {
+    if (!claim.launch || !ids.length) return;
+    await checkPayer();
+    const { error } = await supabase.from("affaire_intake_documents").update({ analysis_completed_at: new Date().toISOString() })
+      .eq("analysis_launch_id", claim.uploadId).in("id", ids).is("analysis_completed_at", null)
+      .is("deleted_at", null).is("deletion_token", null).in("classification_status", ["classified", "ambiguous", "failed"]);
+    if (error) throw internalError("Impossible d’enregistrer la fin de la lecture.", error);
+  };
+  const readingIds = new Set(toTranscribe.map(({ document }) => document.id));
+  const remaining = documents.filter(doc => !doc.analysis_completed_at && !readingIds.has(doc.id));
+  // PostgREST encodes the ID filter in the URL. Bound each write even on a large dossier.
+  for (let offset = 0; offset < remaining.length; offset += 100) {
+    await markComplete(remaining.slice(offset, offset + 100).map(doc => doc.id));
+  }
   for (const { document, mimeType } of toTranscribe) {
+    const checkReading = async () => {
+      if (!claim.launch) return checkPayer();
+      const { data, error } = await supabase.from("affaire_intake_documents").select("id")
+        .eq("id", document.id).eq("analysis_launch_id", claim.uploadId)
+        .is("deleted_at", null).is("deletion_token", null).maybeSingle();
+      if (error || !data) {
+        throw new Error("La pièce du lancement n’est plus disponible.");
+      }
+      await checkPayer();
+    };
     try {
-      await renewLease();
-      const { bytes } = await readDocumentBytes(document);
-      await transcribeIntakeDocument({ supabase, owner: aiOwner!, mimeType, bytes, renewLease,
+      await checkReading();
+      const source = claim.launch ? await readLaunchSource(document) : await readDocumentBytes(document);
+      if (!source) continue;
+      const { bytes } = source;
+      await transcribeIntakeDocument({ supabase, owner: aiOwner!, mimeType, bytes, renewLease: checkReading,
         sourceSha256: createHash("sha256").update(Buffer.from(bytes)).digest("hex"),
         document: { id: document.id, tenantId: upload.tenant_id, fileName: document.file_name } });
+      await markComplete([document.id]);
     } catch (transcriptionError) {
-      if (transcriptionError instanceof durableIntake.AffaireIntakeLeaseUnavailableError) throw transcriptionError;
+      if (claim.launch || transcriptionError instanceof durableIntake.AffaireIntakeLeaseUnavailableError) throw transcriptionError;
       console.error("Affaire intake transcription could not be recorded", { documentId: document.id });
     }
   }
@@ -306,11 +378,6 @@ async function processClaimedAffaireIntakeUpload(input: {
   await syncAffaireIntakeDocumentPriorities({
     supabase,
     projectId: upload.project_id,
-  });
-
-  const status = await updateUploadStatusFromStoredDocuments({
-    supabase,
-    uploadId: upload.id,
   });
 
   const [{ data: refreshedDocsData, error: refreshedDocsError }, { data: projectData, error: projectError }] =
@@ -331,38 +398,26 @@ async function processClaimedAffaireIntakeUpload(input: {
       ),
     ]);
 
-  if (!refreshedDocsError && !projectError) {
-    const refreshedDocuments = (refreshedDocsData ?? [])
-      .map(normalizeDocumentRow)
-      .filter((row): row is AffaireIntakeDocumentRow => row !== null);
-    const project = projectData as AffaireAccessProject | null;
-
-    if (project && !project.is_archived) {
-      await refreshAffaireBriefFromDocuments({
-        supabase,
-        project,
-        uploadId: upload.id,
-        documents: refreshedDocuments,
-        renewLease,
-        aiOwner,
-      }).catch((error) => {
-        if (error instanceof durableIntake.AffaireIntakeLeaseUnavailableError) throw error;
-        console.error("Affaire brief refresh failed after intake processing", {
-          uploadId: upload.id,
-          projectId: upload.project_id,
-          error,
-        });
-      });
-    }
-  } else {
-    console.error("Failed to load data for affaire brief refresh", {
-      uploadId: upload.id,
-      projectId: upload.project_id,
-      refreshedDocsError,
-      projectError,
-    });
+  const refreshedDocuments = (refreshedDocsData ?? [])
+    .map(normalizeDocumentRow)
+    .filter((row): row is AffaireIntakeDocumentRow => row !== null);
+  if (refreshedDocsError || projectError) {
+    throw internalError("Impossible de préparer le brief du lancement.", refreshedDocsError ?? projectError);
   }
+  const launchDocuments = refreshedDocuments.filter(doc => doc.analysis_launch_id === upload.id);
+  const status = claim.launch && !launchDocuments.length ? "ready" : claim.launch
+    ? deriveAffaireIntakeUploadStatusFromDocuments(launchDocuments
+      .map((doc) => ({ uploadStatus: doc.upload_status, classificationStatus: doc.classification_status, documentKind: doc.document_kind })))
+    : await updateUploadStatusFromStoredDocuments({ supabase, uploadId: upload.id });
+  if (status === "processing") throw new Error("Des pièces du lancement restent à analyser.");
 
+  const project = projectData as AffaireAccessProject | null;
+  if (!project || project.is_archived) throw new Error("Cette affaire n’est plus disponible.");
+  await refreshAffaireBriefFromDocuments({
+    supabase, project, uploadId: upload.id, documents: refreshedDocuments,
+    claim, renewLease: checkPayer, aiOwner, briefOnly: Boolean(claim.launch) && !documents.length,
+  });
+  await checkPayer();
   await durableIntake.finishAffaireIntakeUploadAttempt({
     client: lifecycleClient,
     claim,
@@ -394,10 +449,33 @@ export async function processAffaireIntakeUpload(uploadId: string) {
     return claimResult.status ?? "failed";
   }
 
-  const claim = claimResult.claim;
+  return runClaim(supabase, lifecycleClient, claimResult.claim);
+}
+
+export async function processAffaireIntakeAnalysisLaunch(uploadId: string, readingOwner: ChatGptOwner | null) {
+  // A sign-out can fall between the press (or scheduler read) and the claim.
+  if (readingOwner && !await hostCanReadIntakeScans(readingOwner)) return null;
+  const supabase = createServiceRoleClient();
+  const client = supabase as unknown as durableIntake.DurableWorkflowRpcClient;
+  const claim = await durableIntake.claimAffaireIntakeAnalysisLaunch(client, uploadId);
+  if (!claim) return null;
+  await runClaim(supabase, client, claim);
+  return claim.uploadId;
+}
+
+async function runClaim(supabase: ReturnType<typeof createServiceRoleClient>,
+  lifecycleClient: durableIntake.DurableWorkflowRpcClient, claim: durableIntake.AffaireIntakeClaim) {
   try {
     return await processClaimedAffaireIntakeUpload({ supabase, lifecycleClient, claim });
   } catch (error) {
+    // Leave the lease to expire. A capable host can resume; otherwise the
+    // due-time sweep stops it without consuming another reading attempt.
+    if (error instanceof IntakeConnectionUnavailable) return null;
+    if (claim.launch && error instanceof IntakePayerAccessLost) {
+      const stopped = await supabase.rpc("stop_affaire_intake_analysis", { p_upload_id: claim.uploadId, p_lease_token: claim.leaseToken });
+      if (stopped.error) throw new Error("Impossible de terminer le lancement interrompu.", { cause: stopped.error });
+      if (stopped.data) return "failed" as const;
+    }
     await durableIntake.releaseAffaireIntakeUploadAfterError({
       client: lifecycleClient,
       claim,
@@ -433,9 +511,9 @@ export async function retryAffaireDocumentAnalysis(input: { projectId: string; d
   }
   const { data: lot, error: lotError } = await context.supabase.from("affaire_intake_uploads")
     .select("id,status").eq("tenant_id", context.tenantId).eq("project_id", project.id)
-    .eq("id", document.upload_id).maybeSingle();
+    .eq("id", document.analysis_launch_id ?? document.upload_id).maybeSingle();
   if (lotError || !lot) throw internalError("Impossible de préparer la relance de l’analyse.", lotError);
-  if (!["ready", "partial_failure", "failed"].includes(lot.status)) {
+  if (!(lot.status === "deposited" && preserveManualClassification) && !["ready", "partial_failure", "failed"].includes(lot.status)) {
     throw conflict("Une analyse de ce lot est déjà en cours. Réessayez après sa fin.");
   }
   // A lease marker leaves the validated classification and plan generation unchanged.
@@ -477,6 +555,7 @@ export async function retryAffaireDocumentAnalysis(input: { projectId: string; d
           .eq("tenant_id", context.tenantId).eq("project_id", project.id).eq("updated_at", reserved.updated_at)
           .eq("classification_status", document.classification_status).is("deleted_at", null).is("deletion_token", null).maybeSingle();
         if (currentError || !current) throw conflict("La pièce a changé avant l’analyse. Actualisez le dossier.");
+        await requireIntakePayerRight(context, project.id);
       },
       decisionsContext: { owner: context, projectId: project.id, documentId: document.id, sourceVersion: sourceSha256 },
     });
@@ -495,7 +574,7 @@ export async function retryAffaireDocumentAnalysis(input: { projectId: string; d
     if (!updated) throw conflict("La pièce a changé pendant l’analyse. Le nouveau résultat n’a pas remplacé son classement.");
     proposalSaved = true;
     // Read after the response (minutes per page), only once the proposal is saved: a refused retry spends nothing.
-    await scheduleIntakeTranscriptionAfterRetry({ context, document: { id: document.id, fileName: document.file_name }, mimeType, bytes, sourceSha256 });
+    await scheduleIntakeTranscriptionAfterRetry({ context, projectId: project.id, document: { id: document.id, fileName: document.file_name }, mimeType, bytes, sourceSha256 });
     await insertAffaireIntakeEvent({ supabase: context.supabase, uploadId: lot.id, documentId: document.id,
       actorUserId: context.userId, eventType: "document.classified", reason: "Analyse relancée manuellement.",
       beforePayload: { document_kind: document.document_kind, classification_status: document.classification_status },

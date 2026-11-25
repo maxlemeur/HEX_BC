@@ -1,3 +1,4 @@
+import { recoverIntakeAnalysisLaunch } from "@/lib/workflows/intake-launch-recovery";
 import { processAffaireIntakeUpload } from "@/lib/affaires/intake-analysis-server";
 import {
   drainEstimateEmailOutbox,
@@ -60,6 +61,7 @@ type DurableRecoveryDependencies = {
   now?: () => Date;
   limit?: number;
   maxIntakePerRun?: number;
+  processLaunch?: typeof recoverIntakeAnalysisLaunch;
   processIntake?: typeof processAffaireIntakeUpload;
   drainStorageCleanup?: typeof drainProcurementStorageCleanupOutbox;
   storageCleanupLimit?: number;
@@ -334,6 +336,22 @@ export async function recoverDurableWorkflows(
   let deadCount = 0;
   let intakeCount = 0;
 
+  // Give explicit launches a turn even when legacy uploads are queued.
+  let launchCount = 0;
+  const processLaunch = dependencies.processLaunch ?? (serviceRoleClient ? recoverIntakeAnalysisLaunch : null);
+  if (processLaunch && maxIntakePerRun > 0) {
+    try {
+      if (await processLaunch()) {
+        launchCount++;
+        intakeCount++;
+        dispatchedCount++;
+      }
+    } catch (error) {
+      launchCount++;
+      failures.push({ workId: "affaire_intake_launch", message: errorMessage(error, "Reprise de l’analyse interrompue.") });
+    }
+  }
+
   for (const workflow of due) {
     // A historic or malformed response must never requeue a legacy takeoff job.
     if (workflow.workflowKind === "takeoff") {
@@ -392,7 +410,7 @@ export async function recoverDurableWorkflows(
   return {
     recoveredUnknownTakeoffJobs: countRows(recoveredData),
     takeoffCompletionEmail,
-    dueCount: due.length,
+    dueCount: due.length + launchCount,
     dispatchedCount,
     failedCount: failures.length,
     skippedCount,

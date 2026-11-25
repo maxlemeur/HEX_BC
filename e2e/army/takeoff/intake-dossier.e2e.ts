@@ -37,10 +37,23 @@ armyTest("INT01 real dossier upload survives unavailable AI and manual classific
   await upload.setInputFiles(empty);
   await expect(screen.getByText('"vide.csv" est vide.', { exact: true })).toBeVisible();
   expect(await documents()).toEqual([]);
-  await upload.setInputFiles(fixtures.map((file) => path.join(directory, file.name)));
+  await upload.setInputFiles(fixtures.slice(0, 2).map((file) => path.join(directory, file.name)));
+  await expect.poll(async () => (await documents()).map(doc => doc.classification_status)).toEqual(["awaiting_launch", "awaiting_launch"]);
+  await app.open(`/dashboard/affaires/${ids.projectId}?view=dossier`);
+  await screen.getByRole("button", "Ajouter des pièces", { exact: true }).click();
+  await screen.getByRole("dialog", "Ajouter des documents", { exact: true })
+    .getByLabel("Ajouter des pièces à l'affaire", { exact: true }).setInputFiles(fixtures.slice(2).map((file) => path.join(directory, file.name)));
+  await expect.poll(async () => (await documents()).filter(doc => doc.classification_status === "awaiting_launch").length).toBe(4);
+  const before = await client.from("affaire_briefs").select("id").eq("project_id", ids.projectId);
+  expect(before.error).toBe(null);
+  expect(before.data).toEqual([]);
+  await expect(screen.getByText("4 pièces en attente de lancement", { exact: true }).first()).toBeVisible();
+  const waitingScreenshot = await app.screenshot("intake-awaiting-launch");
+  await screen.getByRole("button", "Lancer l’analyse", { exact: true }).first().click();
+  await expect(screen.getByText(/Votre compte ChatGPT n’est pas connecté ou disponible/)).toBeVisible();
   await expect.poll(async () => {
     const found = await documents();
-    return found.length === fixtures.length && found.every((doc) => !["queued", "processing"].includes(doc.classification_status));
+    return found.length === fixtures.length && found.every((doc) => !["awaiting_launch", "queued", "processing"].includes(doc.classification_status));
   }, { timeout: 60_000 }).toBe(true);
   const uploaded = await documents();
   expect(uploaded.map((doc) => doc.file_name).sort()).toEqual(fixtures.map((file) => file.name).sort());
@@ -137,7 +150,7 @@ armyTest("INT01 real dossier upload survives unavailable AI and manual classific
   expect((await documents()).find((doc) => doc.id === ambiguous.id)).toMatchObject({ upload_status: "rejected", document_priority: "secondary", storage_path: null });
   const primaryCctp = (await documents()).filter((doc) => doc.document_kind === "cctp" && doc.document_priority === "primary").map((doc) => doc.id);
   expect(primaryCctp).toEqual([remainingCctp.id]);
-  await recordEvidence(army, "INT01-dossier-complete", { ids, documents: await documents(), planSetId: sets[0].id, plans, brief: persisted.data,
+  await recordEvidence(army, "INT01-dossier-complete", { ids, waitingScreenshot, documents: await documents(), planSetId: sets[0].id, plans, brief: persisted.data,
     afterPlanDeletion: { deletedDocumentId: plan.id, plansGap: await plansGap(), brief: reopened },
     afterPrimaryCctpDeletion: { deletedDocumentId: ambiguous.id, primaryCctp },
     uploadedBytesVerified: true, emptyFileRejected: true, boundary: "Real upload, Storage, heuristic fallback, manual classification/primary, brief confirmation, last-plan and principal-CCTP deletion. External AI disabled by owned campaign." });

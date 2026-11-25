@@ -362,6 +362,9 @@ describe("affaire intake helpers", () => {
 });
 
 describe("getAffaireDossierState", () => {
+  it("keeps a deposited piece waiting even when an older brief was confirmed", () => {
+    expect(getAffaireDossierState({ documents: [{ uploadStatus: "uploaded", classificationStatus: "awaiting_launch" }], briefStatus: "confirme" })).toBe("awaiting_launch");
+  });
   const classified = { classificationStatus: "classified" as const, documentKind: "plans" as const, confidence: 0.9 };
   it.each([
     ["no piece", [], "confirme", "empty"],

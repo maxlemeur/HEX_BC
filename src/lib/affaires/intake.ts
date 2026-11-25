@@ -92,6 +92,9 @@ export const affaireIntakeDocumentKindSchema = z.enum([
 ]);
 
 export const affaireIntakeUploadStatusSchema = z.enum([
+  "deposited",
+  "launch_queued",
+  "launch_processing",
   "queued",
   "processing",
   "ready",
@@ -106,6 +109,7 @@ export const affaireIntakeDocumentUploadStatusSchema = z.enum([
 ]);
 
 export const affaireIntakeClassificationStatusSchema = z.enum([
+  "awaiting_launch",
   "queued",
   "processing",
   "classified",
@@ -694,9 +698,16 @@ export function deriveAffaireIntakeClassificationStatus(input: {
   return "classified" satisfies AffaireIntakeClassificationStatus;
 }
 
+export const AFFAIRE_INTAKE_AWAITING_LAUNCH_LABEL = "En attente de lancement";
+
+export function isAffaireIntakeDocumentAwaitingLaunch(document: AffaireIntakeReviewableDocument) {
+  return document.uploadStatus === "uploaded" && document.classificationStatus === "awaiting_launch";
+}
+
 export function isAffaireIntakeDocumentProcessing(
   document: AffaireIntakeReviewableDocument
 ) {
+  if (document.classificationStatus === "awaiting_launch") return false;
   if (
     isAffaireIntakeReanalysisPending(document) ||
     document.classificationStatus === "queued" ||
@@ -738,13 +749,14 @@ export function isAffaireIntakeDocumentNeedingReview(
  * « Dossier confirmé ». The presence of plans is not part of it. The automatic start of the takeoff decides by it on the
  * server; the affaire's journey panel still keeps its own copy (AffaireJourneyPanel.model.ts).
  */
-export type AffaireDossierState = "empty" | "to_review" | "processing" | "brief_to_confirm" | "confirmed";
+export type AffaireDossierState = "awaiting_launch" | "empty" | "to_review" | "processing" | "brief_to_confirm" | "confirmed";
 
 export function getAffaireDossierState(input: {
   documents: ReadonlyArray<AffaireIntakeReviewableDocument>;
   briefStatus: string | null | undefined;
 }): AffaireDossierState {
   if (input.documents.length === 0) return "empty";
+  if (input.documents.some(isAffaireIntakeDocumentAwaitingLaunch)) return "awaiting_launch";
   if (input.documents.some(isAffaireIntakeDocumentNeedingReview)) return "to_review";
   if (input.documents.some(isAffaireIntakeDocumentProcessing)) return "processing";
   return input.briefStatus === "confirme" ? "confirmed" : "brief_to_confirm";

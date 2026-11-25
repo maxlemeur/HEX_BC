@@ -64,6 +64,7 @@
 .document-desk-row-actions { display: flex; align-items: center; justify-content: flex-end; gap: 5px; }
 .document-desk-row-actions > .document-desk-button { font-size: 11px; padding: 7px 9px; }
 .document-desk-status { display: inline-flex; align-items: center; gap: 4px; border-radius: 4px; padding: 4px 6px; font-size: 10px; white-space: nowrap; }
+.document-desk-status-awaiting_launch { max-width: 100%; white-space: normal; background: var(--muted); color: var(--muted-foreground); }
 .document-desk-status-review { background: #fff4df; color: #815321; }
 .document-desk-status-valid { background: #edf7f1; color: #236043; }
 .document-desk-status-ai { background: #eef3fb; color: #36557d; font-variant-numeric: tabular-nums; }

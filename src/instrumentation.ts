@@ -10,6 +10,8 @@ export async function register() {
     installProcessErrorHooks();
 
     if (process.env.NODE_ENV === "development") {
+      const { startLocalIntakeRecovery } = await import("@/lib/workflows/intake-launch-recovery");
+      startLocalIntakeRecovery();
       const { startLocalTakeoffRetryRecovery } = await import("@/lib/takeoff/local-retry-recovery");
       startLocalTakeoffRetryRecovery();
       const { startLocalTakeoffLaunchConsumer } = await import("@/lib/takeoff/launch-request-consumer");

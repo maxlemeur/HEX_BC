@@ -1,7 +1,7 @@
 import "server-only";
 
 import { createHash, randomUUID } from "node:crypto";
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { setTimeout } from "node:timers/promises";
 import { z } from "zod";
@@ -87,6 +87,16 @@ export async function readChatGptHostId(): Promise<string | null> {
     return z.string().startsWith("urn:uuid:").parse(JSON.parse(await readFile(file, "utf8")));
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+    throw error;
+  }
+}
+
+/** A disconnected profile still has a store on the Mac that received the launch. */
+export async function hasLocalChatGptStore(owner: ChatGptOwner) {
+  try {
+    return (await stat(path.join(root(), `${ownerKey(owner)}.json`))).isFile();
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
     throw error;
   }
 }

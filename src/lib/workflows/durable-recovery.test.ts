@@ -54,6 +54,15 @@ function createRetryStore() {
 }
 
 describe("durable workflow recovery", () => {
+  it("uses the next sweep for the other due launch after a claim retires an exhausted one", async () => {
+    const processLaunch = vi.fn().mockResolvedValueOnce(null).mockResolvedValueOnce(INTAKE_ID);
+    const dependencies = { client: createClient([]), processLaunch, drainStorageCleanup: async () => STORAGE_CLEANUP_RESULT,
+      drainEmailOutbox: async () => EMAIL_OUTBOX_RESULT };
+    expect((await recoverDurableWorkflows(dependencies)).dispatchedCount).toBe(0);
+    expect((await recoverDurableWorkflows(dependencies)).dispatchedCount).toBe(1);
+    expect(processLaunch).toHaveBeenCalledTimes(2);
+  });
+
   it("skips historic takeoff work and caps expensive intake work per run", async () => {
     const client = createClient([
       {

@@ -63,7 +63,7 @@ export type TakeoffLaunchDecision =
   | { state: "ready" };
 
 const DOSSIER_STATE_REASON: Record<Exclude<AffaireDossierState, "confirmed">, TakeoffLaunchDossierReason> = {
-  empty: "DOSSIER_EMPTY", processing: "DOSSIER_PROCESSING", to_review: "DOSSIER_TO_REVIEW", brief_to_confirm: "BRIEF_NOT_CONFIRMED",
+  awaiting_launch: "BRIEF_NOT_CONFIRMED", empty: "DOSSIER_EMPTY", processing: "DOSSIER_PROCESSING", to_review: "DOSSIER_TO_REVIEW", brief_to_confirm: "BRIEF_NOT_CONFIRMED",
 };
 
 /**

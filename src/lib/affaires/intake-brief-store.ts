@@ -1,4 +1,7 @@
-import { internalError } from "@/lib/http/api-response";
+import type { createServiceRoleClient } from "@/lib/supabase/service-role";
+import { AffaireIntakeLeaseUnavailableError } from "@/lib/workflows/affaire-intake-lifecycle";
+import { IntakePayerAccessLost } from "@/lib/affaires/intake-payer-server";
+import { conflict, internalError } from "@/lib/http/api-response";
 import {
   affaireIntakeBriefBlockKeySchema,
   affaireIntakeBriefDraftSchema,
@@ -9,7 +12,6 @@ import {
   type AffaireIntakeBriefStatus,
 } from "@/lib/affaires/intake";
 import type { AffaireAccessProject } from "@/lib/affaires/access-server";
-import { syncAffaireRegisterFromBrief } from "@/lib/affaires/register-sync-server";
 import { isRecord, toStringOrNull } from "@/lib/value-guards";
 import {
   type AffaireIntakeSupabaseClient,
@@ -368,132 +370,41 @@ export async function fetchAffaireBriefForProject(input: {
 
 export async function persistAffaireBriefDraft(input: {
   supabase: AffaireIntakeSupabaseClient;
+  service: ReturnType<typeof createServiceRoleClient>;
   project: AffaireAccessProject;
   uploadId: string;
-  draft: AffaireIntakeBriefDraft;
+  draft: AffaireIntakeBriefDraft | null;
+  expectedRevision: string;
+  expectedBriefUpdatedAt: string | null;
+  leaseToken: string | null;
+  existing: Awaited<ReturnType<typeof fetchAffaireBriefForProject>>;
   actorUserId?: string | null;
 }) {
-  const existing = await fetchAffaireBriefForProject({
-    supabase: input.supabase,
-    projectId: input.project.id,
+  const { draft, existing } = input;
+  const payload = draft ? {
+    status: existing?.brief.status ?? "a_confirmer",
+    summary: draft.summary, project_object: draft.projectObject, scope: draft.scope, lots: draft.lots,
+    received_pieces: draft.receivedPieces, assumptions: draft.assumptions,
+    vigilance_points: draft.vigilancePoints, missing_elements: draft.missingElements,
+    generation_metadata: { prompt_version: AFFAIRE_BRIEF_PROMPT_VERSION, generated_from_upload_id: input.uploadId,
+      input_revision: input.expectedRevision, regenerated_by: input.actorUserId ?? null },
+    last_generated_at: draft.lastGeneratedAt,
+  } : null;
+  const { error } = await input.service.rpc("publish_affaire_intake_brief", {
+    p_upload_id: input.uploadId, p_lease_token: input.leaseToken, p_actor_id: input.actorUserId ?? null,
+    p_expected_revision: input.expectedRevision, p_expected_brief_updated_at: input.expectedBriefUpdatedAt,
+    p_draft: payload, p_sources: draft?.sources ?? [],
   });
-
-  const currentDraft = existing?.draft ?? null;
-  const contentChanged =
-    !currentDraft ||
-    getComparableBriefPayload(currentDraft) !== getComparableBriefPayload(input.draft) ||
-    currentDraft.uploadId !== input.draft.uploadId;
-
-  const nextStatus: AffaireIntakeBriefStatus =
-    contentChanged || !currentDraft
-      ? "a_confirmer"
-      : currentDraft.status;
-  const nextConfirmedAt =
-    nextStatus === "confirme" ? currentDraft?.confirmedAt ?? null : null;
-
-  const payload = {
-    project_id: input.project.id,
-    upload_id: input.uploadId,
-    created_by: existing?.brief.created_by ?? input.actorUserId ?? null,
-    updated_by: input.actorUserId ?? null,
-    confirmed_by:
-      nextStatus === "confirme" ? existing?.brief.confirmed_by ?? null : null,
-    status: nextStatus,
-    summary: input.draft.summary,
-    project_object: input.draft.projectObject,
-    scope: input.draft.scope,
-    lots: input.draft.lots,
-    received_pieces: input.draft.receivedPieces,
-    assumptions: input.draft.assumptions,
-    vigilance_points: input.draft.vigilancePoints,
-    missing_elements: input.draft.missingElements,
-    generation_metadata: {
-      prompt_version: AFFAIRE_BRIEF_PROMPT_VERSION,
-      generated_from_upload_id: input.uploadId,
-      regenerated_by: input.actorUserId ?? null,
-    },
-    last_generated_at: input.draft.lastGeneratedAt,
-    confirmed_at: nextConfirmedAt,
-  } as const;
-
-  const briefMutationTable = input.supabase.from("affaire_briefs") as {
-    update: (values: unknown) => {
-      eq: (column: string, value: string) => {
-        select: (columns: string) => {
-          single: () => PromiseLike<unknown>;
-        };
-      };
-    };
-    insert: (values: unknown) => {
-      select: (columns: string) => {
-        single: () => PromiseLike<unknown>;
-      };
-    };
-  };
-  const query = existing
-    ? (briefMutationTable
-        .update(payload as never)
-        .eq("id", existing.brief.id)
-        .select(BRIEF_SELECT)
-        .single() as PromiseLike<{ data: unknown; error: unknown }>)
-    : (briefMutationTable
-        .insert(payload as never)
-        .select(BRIEF_SELECT)
-        .single() as PromiseLike<{ data: unknown; error: unknown }>);
-
-  const { data, error } = await resolveSupabaseQuery<{
-    data: unknown;
-    error: unknown;
-  }>(query);
-
   if (error) {
-    throw internalError("Impossible de persister le brief affaire.", error);
+    if (error.message === "INTAKE_LEASE_LOST") throw new AffaireIntakeLeaseUnavailableError(input.uploadId);
+    if (error.message === "INTAKE_PUBLICATION_FORBIDDEN") throw new IntakePayerAccessLost();
+    if (error.message === "INTAKE_BRIEF_INPUT_CHANGED") throw conflict("Les pièces ou le brief ont changé pendant la préparation. Actualisez le dossier.");
+    throw internalError("Impossible de publier le brief et ses sources.", error);
   }
-
-  const brief = normalizeAffaireBriefRow(data);
-  if (!brief) {
-    throw internalError("Le brief affaire retourne une réponse invalide.");
+  if (draft && (!existing || existing.brief.upload_id !== input.uploadId || getComparableBriefPayload(existing.draft) !== getComparableBriefPayload(draft))) {
+    await insertAffaireIntakeEvent({ supabase: input.supabase, uploadId: input.uploadId, actorUserId: input.actorUserId,
+      eventType: "brief.generated", beforePayload: existing ? { status: existing.brief.status, summary: existing.brief.summary } : null,
+      afterPayload: { summary: draft.summary, scope_count: draft.scope.length, assumption_count: draft.assumptions.length } });
   }
-
-  await replaceAffaireBriefSourceLinks({
-    supabase: input.supabase,
-    briefId: brief.id,
-    sources: input.draft.sources,
-    actorUserId: input.actorUserId ?? null,
-  });
-
-  if (contentChanged) {
-    await insertAffaireIntakeEvent({
-      supabase: input.supabase,
-      uploadId: input.uploadId,
-      actorUserId: input.actorUserId ?? null,
-      eventType: "brief.generated",
-      beforePayload: currentDraft
-        ? {
-            status: currentDraft.status,
-            summary: currentDraft.summary,
-          }
-        : null,
-      afterPayload: {
-        status: nextStatus,
-        summary: input.draft.summary,
-        scope_count: input.draft.scope.length,
-        assumption_count: input.draft.assumptions.length,
-      },
-    });
-  }
-
-  await syncAffaireRegisterFromBrief({
-    supabase: input.supabase as never,
-    project: input.project,
-    assumptions: input.draft.assumptions,
-    sources: input.draft.sources,
-    actorUserId: input.actorUserId ?? null,
-  });
-
-  return affaireIntakeBriefDraftSchema.parse({
-    ...input.draft,
-    status: nextStatus,
-    confirmedAt: nextConfirmedAt,
-  });
+  return draft;
 }

@@ -41,6 +41,7 @@ let localOrigin: string;
 let fixtureStore: string | undefined;
 let liveProbe: ChatGptLiveProbe | null = null;
 let transportLog: string;
+let recoverySecret: string;
 let decisionsControl: string;
 let fixtureEmail: string;
 let labOutputDir: string;
@@ -61,7 +62,7 @@ async function preparePlanFixture(unsetPreferences = false) {
 }
 
 beforeAll(async () => {
-  ({ origin: localOrigin, email: fixtureEmail, liveProbe, transportLog, decisionsControl, labOutputDir, workspace: serverWorkspace } = await server.start());
+  ({ origin: localOrigin, email: fixtureEmail, liveProbe, transportLog, recoverySecret, decisionsControl, labOutputDir, workspace: serverWorkspace } = await server.start());
 });
 // The tests here open the takeoff pages too (ASSIST02 launches a job and reads its review, the intake tests open the
 // affaire): the same waves as the takeoff file, one hook each, so that no first use waits for its compile.
@@ -966,6 +967,7 @@ if (!existsSync(liveProbePath)) test("ASSIST04 the assistant reads a dossier PDF
     await writeFile(pdfPath, await pdf.save());
     await ui.app.open(`/dashboard/affaires/${ids.projectId}`);
     await browser.locator('input[type="file"][aria-label="Ajouter des pièces à l\'affaire"]').first().setInputFiles(pdfPath);
+    await screen.getByRole("button", "Lancer l’analyse", { exact: true }).click();
     const documents = async () => {
       const result = await client.from("affaire_intake_documents").select("id,file_name,classification_status").eq("project_id", ids.projectId);
       if (result.error) throw new Error(`Owned intake read failed: ${result.error.code}`);
@@ -1064,6 +1066,7 @@ test("INTRETRY01 ChatGPT reanalysis keeps validated manual document classificati
     await ui.app.open(`/dashboard/affaires/${ids.projectId}`);
     const upload = browser.locator('input[type="file"][aria-label="Ajouter des pièces à l\'affaire"]').first();
     await upload.setInputFiles(path.resolve("e2e/fixtures/sample-plan.pdf"));
+    await screen.getByRole("button", "Lancer l’analyse", { exact: true }).click();
     await expect.poll(async () => (await documents()).filter(doc => doc.classification_status === "classified").length,
       { timeout: 60_000 }).toBe(1);
     const document = (await documents())[0];
@@ -1134,22 +1137,297 @@ test("INTRETRY01 ChatGPT reanalysis keeps validated manual document classificati
 });
 
 
-// An image and the scanned page of a PDF are read when they arrive, with Terra at a high effort on the ChatGPT plan of
-// the member who added them, and the text is shown under the piece as an unverified reading. The fixture's account
-// lists Terra for this journey only; the text page of the PDF is never sent.
-test("INTOCR01 an image and a scanned PDF page are transcribed at arrival and shown as unverified text", {
+// A human category is metadata. The first paid response belongs to the separate press for a brief.
+test("INTMAN01 manual classification leaves the first dossier without paid sends until its brief-only launch", {
+  tags: ["critical", "local", "chatgpt", "intake"], session: "army", timeout: 180_000,
+}, async ({ app, screen, browser }) => {
+  if (liveProbe || !await preparePlanFixture()) throw new Error("Isolated fictional plan required.");
+  try {
+    await signIn({ app, screen, browser }, localOrigin, fixtureEmail);
+    const prefix = `ARMY-manual-first-${Date.now()}`;
+    const army = { runPrefix: prefix, projectName: prefix, ownedEstimates: [] };
+    const ui = hydratedUi({ app, screen, browser }, localOrigin);
+    const ids = await createEstimateViaWizard(ui, { projectName: prefix, title: "Premier brief manuel" }, army);
+    const { client } = await localClient();
+    const sends = async () => (await readFile(transportLog, "utf8")).trim().split("\n").filter(Boolean)
+      .map(line => JSON.parse(line)).filter(row => row.provider === "chatgpt-fixture" || row.provider === "decisions-fixture");
+    const before = (await sends()).length;
+    await ui.app.open(`/dashboard/affaires/${ids.projectId}`);
+    await browser.locator('input[type="file"][aria-label="Ajouter des pièces à l\'affaire"]').first()
+      .setInputFiles(path.resolve("e2e/fixtures/sample-plan.pdf"));
+    const doc = () => client.from("affaire_intake_documents").select("id,classification_status,classification_source")
+      .eq("project_id",ids.projectId).single();
+    await expect.poll(async () => (await doc()).data?.classification_status).toBe("awaiting_launch");
+    await ui.app.open(`/dashboard/affaires/${ids.projectId}?view=dossier`);
+    const table = screen.getByRole("table", "Documents reçus", { exact: true });
+    await table.getByRole("combobox", "Catégorie de sample-plan.pdf", { exact: true }).selectOption({ value: "plans" });
+    await table.getByRole("button", "Valider la classification de sample-plan.pdf", { exact: true }).click();
+    await expect.poll(async () => (await doc()).data, DEV_SERVER_WORK)
+      .toMatchObject({ classification_status: "classified", classification_source: "manual" });
+    const briefs = () => client.from("affaire_briefs").select("id").eq("project_id",ids.projectId);
+    expect((await sends()).slice(before)).toEqual([]);
+    expect((await briefs()).data).toEqual([]);
+    await ui.app.open(`/dashboard/affaires/${ids.projectId}?view=dossier`);
+    await screen.getByRole("button", "Lancer l’analyse", { exact: true }).first().click();
+    await expect.poll(async () => (await briefs()).data?.length, DEV_SERVER_WORK).toBe(1);
+    expect((await sends()).slice(before).map(row => row.inputKind)).toEqual(["intake-brief"]);
+    expect((await doc()).data?.classification_source).toBe("manual");
+  } finally {
+    if (fixtureStore) await rm(fixtureStore, { force: true });
+    fixtureStore = undefined;
+  }
+});
+
+test("INTBRIEF01 a held brief cannot restore a removed plan or overwrite a corrected category", {
+  tags: ["critical", "local", "chatgpt", "intake"], session: "army", timeout: 240_000,
+}, async ({ app, screen, browser }) => {
+  if (liveProbe || !await preparePlanFixture()) throw new Error("A fictional ChatGPT account is required.");
+  try {
+    await setDecisionsControl({ holdIntakeBrief: true });
+    await signIn({ app, screen, browser }, localOrigin, fixtureEmail);
+    const prefix = `ARMY-brief-race-${Date.now()}`;
+    const ui = hydratedUi({ app, screen, browser }, localOrigin);
+    const ids = await createEstimateViaWizard(ui, { projectName: prefix, title: "Pièces pendant la génération" },
+      { runPrefix: prefix, projectName: prefix, ownedEstimates: [] });
+    const { client } = await localClient();
+    const directory = path.resolve(".e2e/army/critical/artifacts/fixtures", prefix);
+    await mkdir(directory, { recursive: true });
+    const files = [];
+    for (const name of ["Retirer.pdf", "Conserver.pdf"]) {
+      const pdf = await PDFDocument.create();
+      pdf.addPage().drawText(name + " - Document ARMY fictif de plomberie pour les essais de pression et la verification des vannes.");
+      const file = path.join(directory, name);
+      await writeFile(file, await pdf.save());
+      files.push(file);
+    }
+    const sentBriefs = async () => (await readFile(transportLog, "utf8")).split("\n").filter(Boolean)
+      .map(line => JSON.parse(line)).filter(entry => entry.inputKind === "intake-brief").length;
+    const before = await sentBriefs();
+    await ui.app.open(`/dashboard/affaires/${ids.projectId}?view=dossier`);
+    await browser.locator('input[type="file"][aria-label="Ajouter des pièces à l\'affaire"]').first().setInputFiles(files);
+    await expect(screen.getByText("2 pièces en attente de lancement", { exact: true }).first()).toBeVisible();
+    await screen.getByRole("button", "Lancer l’analyse", { exact: true }).click();
+    await expect.poll(sentBriefs, DEV_SERVER_WORK).toBe(before + 1);
+    const rows = await client.from("affaire_intake_documents").select("id,file_name,analysis_launch_id")
+      .eq("project_id", ids.projectId).order("file_name");
+    expect(rows.error).toBeNull();
+    const [keep, remove] = rows.data!;
+    expect([keep.file_name, remove.file_name]).toEqual(["Conserver.pdf", "Retirer.pdf"]);
+    const change = await callServerAction(browser, await serverActionId("reclassifyAffaireDocument", actionManifest()),
+      { projectId: ids.projectId, documentId: keep.id, category: "cctp" });
+    expect(change).toMatchObject({ status: 200, digest: null });
+    const deletion = await callServerAction(browser, await serverActionId("deleteAffaireIntakeDocument", actionManifest()),
+      { projectId: ids.projectId, documentId: remove.id });
+    expect(deletion).toMatchObject({ status: 200, digest: null });
+    const brief = async () => {
+      const row = await client.from("affaire_briefs").select("received_pieces,affaire_brief_source_links(source_document_id)")
+        .eq("project_id", ids.projectId).single();
+      if (row.error) throw new Error("Missing brief on the owned backend.");
+      return { pieces: row.data.received_pieces, sources: [...new Set(row.data.affaire_brief_source_links.map(link => link.source_document_id))] };
+    };
+    const expected = { pieces: ["CCTP · Conserver.pdf"], sources: [keep.id] };
+    expect(await brief()).toEqual(expected);
+    await setDecisionsControl({});
+    await expect.poll(async () => {
+      const lot = await client.from("affaire_intake_uploads").select("status").eq("id", keep.analysis_launch_id!).single();
+      // Observe the publication of the held response before any recovery can repair it.
+      if (lot.data?.status !== "launch_processing") expect(await brief()).toEqual(expected);
+      if (lot.data?.status === "launch_queued") {
+        await querySql(`update public.affaire_intake_uploads set next_retry_at=clock_timestamp() where id='${keep.analysis_launch_id}' and status='launch_queued';`);
+        await fetch(new URL("/api/internal/workflows/recover", localOrigin), { headers: { authorization: `Bearer ${recoverySecret}` } });
+      }
+      return lot.data?.status;
+    }, DEV_SERVER_WORK).toMatch(/^(ready|partial_failure)$/);
+    expect(await brief()).toEqual(expected);
+  } finally {
+    await setDecisionsControl({});
+    if (fixtureStore) await rm(fixtureStore, { force: true });
+    fixtureStore = undefined;
+  }
+});
+
+test("INTRIGHT01 a payer demoted during a classification loses the launch and its two unread pieces wait again", {
+  tags: ["critical", "local", "chatgpt", "intake"], session: "army", timeout: 180_000,
+}, async ({ app, screen, browser }) => {
+  if (liveProbe) throw new Error("This journey requires the fictional transport.");
+  const { client, userId: owner } = await localClient();
+  const payer = await createLocalChatGptOwner();
+  await makeOwnedDirector(owner, payer.userId);
+  await querySql(`update public.tenant_memberships set role='admin' where user_id='${payer.userId}' and is_default`);
+  const store = await writePlanFixture(payer.email, null, false);
+  try {
+    await setDecisionsControl({ holdClassification: true });
+    await signIn({ app, screen, browser }, localOrigin, fixtureEmail);
+    const name = `ARMY-intake-right-${Date.now()}`;
+    const ui = hydratedUi({ app, screen, browser }, localOrigin);
+    const { projectId } = await createEstimateViaWizard(ui, { projectName: name, title: name },
+      { runPrefix: name, projectName: name, ownedEstimates: [] });
+    await ui.app.open(`/dashboard/affaires/${projectId}?view=dossier`);
+    const pdf = await readFile(path.resolve("e2e/fixtures/sample-plan.pdf"));
+    const directory = path.resolve(".e2e/army/critical/artifacts/fixtures", name);
+    await mkdir(directory, { recursive: true });
+    const files = ["Plan A.pdf", "Plan B.pdf"].map(file => path.join(directory, file));
+    await Promise.all(files.map(file => writeFile(file, Buffer.concat([pdf, Buffer.from(`\n% ${path.basename(file)}\n`)]))));
+    await browser.locator('input[type="file"][aria-label="Ajouter des pièces à l\'affaire"]').first().setInputFiles(files);
+    await expect(screen.getByText("2 pièces en attente de lancement", { exact: true }).first()).toBeVisible();
+    await signInAs({ app, screen, browser }, payer.email);
+    await ui.app.open(`/dashboard/affaires/${projectId}?view=dossier`);
+    const sends = async () => (await readFile(transportLog, "utf8")).split("\n").filter(Boolean)
+      .map(line => JSON.parse(line)).filter(entry => entry.provider === "chatgpt-fixture");
+    const before = (await sends()).length;
+    await screen.getByRole("button", "Lancer l’analyse", { exact: true }).click();
+    await expect.poll(async () => (await sends()).slice(before).map(entry => entry.inputKind), DEV_SERVER_WORK)
+      .toEqual(["intake-classification"]);
+    await querySql(`update public.tenant_memberships set role='director' where user_id='${payer.userId}' and is_default`);
+    await setDecisionsControl({});
+    await expect.poll(async () => (await client.from("affaire_intake_uploads").select("status,last_error")
+      .eq("project_id", projectId).eq("created_by", payer.userId).single()).data, DEV_SERVER_WORK)
+      .toEqual({ status: "failed", last_error: "payer_access_lost" });
+    const docs = await client.from("affaire_intake_documents").select("analysis_launch_id,classification_status")
+      .eq("project_id", projectId);
+    expect(docs.data).toEqual(Array(2).fill({ analysis_launch_id: null, classification_status: "awaiting_launch" }));
+    expect((await sends()).slice(before).map(entry => entry.inputKind)).toEqual(["intake-classification"]);
+  } finally {
+    await setDecisionsControl({});
+    await rm(store, { force: true });
+  }
+});
+
+test("INTBRIEF02 a historical lot finishing after an explicit launch keeps the newer brief and both sources", {
+  tags: ["critical", "local", "chatgpt", "intake"], session: "army", timeout: 180_000,
+}, async ({ app, screen, browser }) => {
+  if (liveProbe || !await preparePlanFixture()) throw new Error("A fictional plan is required.");
+  const sweep = () => fetch(new URL("/api/internal/workflows/recover", localOrigin), { headers: { authorization: `Bearer ${recoverySecret}` } });
+  let oldWorker: Promise<Response> | undefined;
+  try {
+    await signIn({ app, screen, browser }, localOrigin, fixtureEmail);
+    const name = `ARMY-brief-race-history-${Date.now()}`;
+    const ui = hydratedUi({ app, screen, browser }, localOrigin);
+    const { projectId } = await createEstimateViaWizard(ui, { projectName: name, title: name },
+      { runPrefix: name, projectName: name, ownedEstimates: [] });
+    const { client, userId } = await localClient();
+    const uploadId = crypto.randomUUID(), docId = crypto.randomUUID();
+    await querySql(`insert into public.affaire_intake_uploads(id, project_id, tenant_id, created_by, status)
+      select '${uploadId}',id,tenant_id,'${userId}','queued' from public.estimate_projects where id='${projectId}';
+      insert into public.affaire_intake_documents(id,upload_id,project_id,tenant_id,created_by,file_name,mime_type,
+        upload_status,classification_status,document_kind,classification_source)
+      select '${docId}','${uploadId}',id,tenant_id,'${userId}','Notice historique.txt','text/plain',
+        'uploaded','classified','cctp','manual' from public.estimate_projects where id='${projectId}';`);
+    const sent = async () => (await readFile(transportLog, "utf8")).split("\n").filter(Boolean)
+      .map(line => JSON.parse(line)).filter(row => row.inputKind === "intake-brief").length;
+    const before = await sent();
+    await setDecisionsControl({ holdIntakeBrief: true });
+    oldWorker = sweep();
+    await expect.poll(sent, DEV_SERVER_WORK).toBe(before + 1);
+    await ui.app.open(`/dashboard/affaires/${projectId}?view=dossier`);
+    await ui.screen.getByRole("button", "Ajouter des pièces", { exact: true }).click();
+    await ui.screen.getByRole("dialog", "Ajouter des documents", { exact: true })
+      .getByLabel("Ajouter des pièces à l'affaire", { exact: true }).setInputFiles(path.resolve("e2e/fixtures/sample-plan.pdf"));
+    await screen.getByRole("button", "Lancer l’analyse", { exact: true }).click();
+    const brief = async () => (await client.from("affaire_briefs").select("id,upload_id,summary,received_pieces,updated_at,affaire_brief_source_links(source_document_id)")
+      .eq("project_id", projectId).single()).data;
+    await expect.poll(async () => (await brief())?.received_pieces, DEV_SERVER_WORK)
+      .toEqual(["CCTP · Notice historique.txt", "Plans · sample-plan.pdf"]);
+    const published = await brief();
+    expect(published?.upload_id).not.toBe(uploadId);
+    expect(new Set(published?.affaire_brief_source_links.map(row => row.source_document_id)).size).toBe(2);
+    await setDecisionsControl({});
+    await oldWorker;
+    await expect.poll(async () => {
+      await querySql(`update public.affaire_intake_uploads set next_retry_at=clock_timestamp() where id='${uploadId}' and status='queued'`);
+      await sweep();
+      return (await client.from("affaire_intake_uploads").select("status").eq("id",uploadId).single()).data?.status;
+    }, DEV_SERVER_WORK).toBe("ready");
+    expect(await brief()).toEqual(published);
+    expect(await sent()).toBe(before + 2);
+  } finally {
+    await setDecisionsControl({});
+    await oldWorker;
+    if (fixtureStore) await rm(fixtureStore, { force: true });
+    fixtureStore = undefined;
+  }
+});
+
+test("INTHOST01 a signed-out host leaves a launch for its authorised host, and an orphan can be launched again", {
+  tags: ["critical", "local", "chatgpt", "intake"], session: "army", timeout: 180_000,
+}, async ({ app, screen, browser }) => {
+  if (liveProbe || !await preparePlanFixture()) throw new Error("A fictional plan is required.");
+  const store = fixtureStore!;
+  const selected = await readFile(store, "utf8");
+  const signedOut = JSON.stringify({ selectedId: null, profiles: [] });
+  const sweep = () => fetch(new URL("/api/internal/workflows/recover", localOrigin), { headers: { authorization: `Bearer ${recoverySecret}` } });
+  try {
+    await signIn({ app, screen, browser }, localOrigin, fixtureEmail);
+    const name = `ARMY-host-recovery-${Date.now()}`;
+    const ui = hydratedUi({ app, screen, browser }, localOrigin);
+    const { projectId } = await createEstimateViaWizard(ui, { projectName: name, title: name },
+      { runPrefix: name, projectName: name, ownedEstimates: [] });
+    const { client } = await localClient();
+    await ui.app.open(`/dashboard/affaires/${projectId}?view=dossier`);
+    const depositAndReserve = async (firstDeposit: boolean) => {
+      if (firstDeposit) {
+        await browser.locator('input[type="file"][aria-label="Ajouter des pièces à l\'affaire"]').first()
+          .setInputFiles(path.resolve("e2e/fixtures/sample-plan.pdf"));
+      } else {
+        const directory = path.resolve(".e2e/army/critical/artifacts/fixtures", name);
+        await mkdir(directory, { recursive: true });
+        const file = path.join(directory, "Plan annexe.pdf");
+        const bytes = await readFile(path.resolve("e2e/fixtures/sample-plan.pdf"));
+        await writeFile(file, Buffer.concat([bytes, Buffer.from("\n% Plan annexe\n")]));
+        await screen.getByRole("button", "Ajouter des pièces", { exact: true }).click();
+        await screen.getByRole("dialog", "Ajouter des documents", { exact: true })
+          .getByLabel("Ajouter des pièces à l'affaire", { exact: true }).setInputFiles(file);
+      }
+      await expect(screen.getByText("1 pièce en attente de lancement", { exact: true }).first()).toBeVisible();
+      // Interrupt immediately after reservation, before Next's after() takes the lot.
+      const result = await client.rpc("start_affaire_intake_analysis", { p_project_id: projectId, p_read_scans: true });
+      expect(result.data?.[0].outcome).toBe("launched");
+      return result.data![0].launch_id;
+    };
+    const batch = async (id: string) => (await client.from("affaire_intake_uploads").select("status,attempt_count,last_error").eq("id", id).single()).data;
+    const first = await depositAndReserve(true);
+    // Both filesystem snapshots belong to this same user/tenant on two Macs.
+    await writeFile(store, signedOut, { mode: 0o600 });
+    await sweep();
+    expect(await batch(first)).toMatchObject({ status: "launch_queued", attempt_count: 0 });
+    await writeFile(store, selected, { mode: 0o600 });
+    await expect.poll(async () => { await sweep(); return (await batch(first))?.status; }, DEV_SERVER_WORK).toBe("ready");
+    await ui.app.open(`/dashboard/affaires/${projectId}?view=dossier`);
+    const orphan = await depositAndReserve(false);
+    await writeFile(store, signedOut, { mode: 0o600 });
+    await querySql(`update public.affaire_intake_uploads set next_retry_at=clock_timestamp()-interval '31 minutes' where id='${orphan}'`);
+    await expect.poll(async () => { await sweep(); return batch(orphan); }, DEV_SERVER_WORK)
+      .toMatchObject({ status: "failed", attempt_count: 0, last_error: "connection_unavailable" });
+    const waiting = await client.from("affaire_intake_documents").select("analysis_launch_id,issues")
+      .eq("project_id", projectId).eq("classification_status", "awaiting_launch").single();
+    expect(waiting.data).toMatchObject({ analysis_launch_id: null, issues: expect.arrayContaining([expect.stringContaining("aucune connexion ChatGPT")]) });
+    await ui.app.open(`/dashboard/affaires/${projectId}?view=dossier`);
+    await screen.getByRole("button", "Lancer l’analyse", { exact: true }).click();
+    await expect.poll(async () => (await client.from("affaire_intake_uploads").select("status").eq("project_id", projectId)
+      .eq("launch_read_scans", false).single()).data?.status, DEV_SERVER_WORK).toMatch(/^(ready|partial_failure)$/);
+  } finally {
+    await rm(store, { force: true });
+    fixtureStore = undefined;
+  }
+});
+
+// Only the second member has a fictional ChatGPT plan. Recovery has no browser session.
+test("INTOCR01 a recovered launch reads an image and a scanned PDF on the member who pressed and shows unverified text", {
   tags: ["critical", "local", "chatgpt", "intake"], session: "army", timeout: 300_000,
 }, async ({ app, screen, browser }) => {
   if (liveProbe) throw new Error("INTOCR01 uses only the fictional provider transport fixture.");
-  if (!await preparePlanFixture()) throw new Error("INTOCR01 requires its own temporary ChatGPT profile.");
-  await setDecisionsControl({ transcriptionModel: true });
+  const { client, userId: depositor } = await localClient();
+  const payer = await createLocalChatGptOwner();
+  await makeOwnedDirector(depositor, payer.userId);
+  await querySql(`update public.tenant_memberships set role='admin' where user_id='${payer.userId}' and is_default;`);
+  const payerStore = await writePlanFixture(payer.email, null, false);
+  await setDecisionsControl({ transcriptionModel: true, holdClassification: true });
   try {
     await signIn({ app, screen, browser }, localOrigin, fixtureEmail);
     const prefix = `ARMY-transcription-${Date.now()}`;
     const army = { runPrefix: prefix, projectName: prefix, ownedEstimates: [] };
     const ui = hydratedUi({ app, screen, browser }, localOrigin);
-    const ids = await createEstimateViaWizard(ui, { projectName: prefix, title: "Transcription à l’arrivée" }, army);
-    const { client } = await localClient();
+    const ids = await createEstimateViaWizard(ui, { projectName: prefix, title: "Lecture après reprise" }, army);
 
     // Fictional pieces: a 1×1 PNG « photo », and a two-page PDF whose first page has its text and whose second is a scan.
     const directory = path.resolve(".e2e/army/critical/artifacts/fixtures", prefix);
@@ -1173,6 +1451,63 @@ test("INTOCR01 an image and a scanned PDF page are transcribed at arrival and sh
     const before = (await readTransport()).length;
     await ui.app.open(`/dashboard/affaires/${ids.projectId}`);
     await browser.locator('input[type="file"][aria-label="Ajouter des pièces à l\'affaire"]').first().setInputFiles([imagePath, pdfPath]);
+    await expect(screen.getByText("2 pièces en attente de lancement", { exact: true }).first()).toBeVisible();
+    expect((await readTransport()).slice(before).filter(entry => entry.task === "transcription")).toEqual([]);
+    await signInAs({ app, screen, browser }, payer.email);
+    await ui.app.open(`/dashboard/affaires/${ids.projectId}?view=dossier`);
+    await screen.getByRole("button", "Lancer l’analyse", { exact: true }).click();
+    const batch = () => client.from("affaire_intake_uploads").select("id,created_by,status,attempt_count,launch_read_scans")
+      .eq("project_id", ids.projectId).not("launch_read_scans", "is", null).single();
+    await expect.poll(async () => (await batch()).data, DEV_SERVER_WORK).toMatchObject({
+      created_by: payer.userId, status: "launch_processing", attempt_count: 1, launch_read_scans: true,
+    });
+    const launchId = (await batch()).data!.id;
+    const late = await browser.evaluate(async ({ projectId, content }) => {
+      const form = new FormData();
+      form.set("files", new File([new Uint8Array(content)], "livraison-tardive.png", { type: "image/png" }));
+      const response = await fetch(`/api/affaires/${projectId}/intake/files`, { method: "POST", body: form });
+      if (!response.ok) throw new Error(`Second deposit failed: ${response.status}`);
+      return (await response.json()).data.files[0].documentId as string;
+    }, { projectId: ids.projectId, content: [...await readFile(imagePath), 0] });
+    const second = await client.rpc("start_affaire_intake_analysis", { p_project_id: ids.projectId, p_read_scans: false });
+    expect(second.data).toEqual([{ outcome: "already_running", launch_id: launchId, piece_count: 0 }]);
+    await expect.poll(async () => (await readTransport()).slice(before)
+      .filter(entry => entry.inputKind === "intake-classification").map(entry => entry.sourceFormat),
+      DEV_SERVER_WORK).toEqual(["image"]);
+    // Lose the original worker while its provider is held. The sweep uses only the saved payer and reading choice.
+    await querySql(`update public.affaire_intake_uploads set processing_lease_expires_at=clock_timestamp()-interval '1 second'
+      where project_id='${ids.projectId}' and id='${launchId}' and status='launch_processing' and attempt_count=1;`);
+    // Interrupt the second worker only at its final write, after it has persisted the brief and source links.
+    await querySql(`create function public.army_hold_intake_close() returns trigger language plpgsql as $$
+      begin raise exception 'ARMY interrupted before closing its launch'; end; $$;
+      create trigger army_hold_intake_close before update on public.affaire_intake_uploads
+      for each row when (old.id='${launchId}' and old.attempt_count=2 and new.status in ('ready','partial_failure'))
+      execute function public.army_hold_intake_close();`);
+    await setDecisionsControl({ transcriptionModel: true });
+    const sweep = () => fetch(new URL("/api/internal/workflows/recover", localOrigin), {
+      headers: { authorization: `Bearer ${recoverySecret}` },
+    });
+    try {
+      expect((await sweep()).status).toBe(200);
+      expect((await batch()).data).toMatchObject({ status: "launch_queued", attempt_count: 2, created_by: payer.userId, launch_read_scans: true });
+    } finally {
+      await querySql("drop trigger army_hold_intake_close on public.affaire_intake_uploads; drop function public.army_hold_intake_close();");
+    }
+    const brief = async () => {
+      const result = await client.from("affaire_briefs").select("id,last_generated_at,summary").eq("project_id", ids.projectId).single();
+      if (result.error) throw new Error(`Owned brief read failed: ${result.error.code}`);
+      return result.data;
+    };
+    const persistedBrief = await brief();
+    const callsAfterBrief = (await readTransport()).length;
+    await querySql(`update public.affaire_intake_uploads set next_retry_at=clock_timestamp() where id='${launchId}' and status='launch_queued';`);
+    // The bounded scheduler can finish scanning its current page before it returns to this launch.
+    await expect.poll(async () => {
+      expect((await sweep()).status).toBe(200);
+      return (await batch()).data;
+    }, DEV_SERVER_WORK).toMatchObject({ status: expect.stringMatching(/^(ready|partial_failure)$/), attempt_count: 3 });
+    expect(await brief()).toEqual(persistedBrief);
+    expect((await readTransport()).length).toBe(callsAfterBrief);
 
     const documents = async () => {
       const result = await client.from("affaire_intake_documents").select("id,file_name").eq("project_id", ids.projectId);
@@ -1204,7 +1539,11 @@ test("INTOCR01 an image and a scanned PDF page are transcribed at arrival and sh
       error_code: null, source_sha256: sha(await readFile(pdfPath)) });
 
     // Two readings reached the plan: the image whole at a high detail, and the scanned page 2 alone; never page 1.
-    const sent = (await readTransport()).slice(before).filter((entry) => entry.task === "transcription");
+    const launchCalls = (await readTransport()).slice(before);
+    // Open recovery follow-up: a call sent before its receipt is persisted can be billed twice.
+    expect(launchCalls.filter(entry => entry.inputKind === "intake-classification")
+      .map(entry => entry.sourceFormat)).toEqual(["image", "image", "pdf"]);
+    const sent = launchCalls.filter(entry => entry.task === "transcription");
     expect(sent.map(({ inputKind, detail, page, model, reasoningEffort }) => ({ inputKind, detail, page, model, reasoningEffort }))
       .sort((left, right) => String(left.inputKind).localeCompare(String(right.inputKind)))).toEqual([
       { inputKind: "image", detail: "high", page: null, model: "gpt-6.1-terra", reasoningEffort: "high" },
@@ -1230,15 +1569,147 @@ test("INTOCR01 an image and a scanned PDF page are transcribed at arrival and sh
     await expect(pdfPanel.getByRole("region", "Page 2", { exact: true })).toContainText("vanne d'isolement DN20 | 4 u");
     await expect(pdfPanel.getByText(/page texte/)).toHaveCount(0);
 
+    const waiting = await client.from("affaire_intake_documents").select("analysis_launch_id,classification_status").eq("id", late).single();
+    expect(waiting.data).toEqual({ analysis_launch_id: null, classification_status: "awaiting_launch" });
+    // A launch committed before its worker ran. The depositor connects a plan after launching without readings.
+    const next = await client.rpc("start_affaire_intake_analysis", { p_project_id: ids.projectId, p_read_scans: false });
+    expect(next.data).toEqual([{ outcome: "launched", piece_count: 1, launch_id: expect.any(String) }]);
+    const nextId = next.data![0].launch_id;
+    const beforeReconnection = (await readTransport()).length;
+    fixtureStore = await writePlanFixture(fixtureEmail, null, false);
+    const nextSweep = await fetch(new URL("/api/internal/workflows/recover", localOrigin), {
+      headers: { authorization: `Bearer ${recoverySecret}` },
+    });
+    expect(nextSweep.status).toBe(200);
+    const closed = await client.from("affaire_intake_uploads").select("status,launch_read_scans,created_by").eq("id", nextId).single();
+    expect(closed.data).toMatchObject({ status: expect.stringMatching(/^(ready|partial_failure)$/), launch_read_scans: false, created_by: depositor });
+    const lateReading = await client.from("affaire_intake_document_transcriptions").select("status").eq("document_id", late);
+    expect(lateReading.error).toBeNull();
+    expect(lateReading.data).toEqual([]);
+    expect((await readTransport()).slice(beforeReconnection)
+      .filter(entry => entry.inputKind === "intake-classification" || entry.task === "transcription")).toEqual([]);
+    expect((await readTransport()).slice(before).filter(entry => entry.task === "transcription")).toHaveLength(2);
+
     await recordEvidence(army, "intake-transcription", { ids, imageId: image.id, pdfId: pdf.id, transcribedPages: { image: [1], pdf: [2] },
       model: "gpt-6.1-terra", reasoningEffort: "high", providerRequests: sent.length, provider: "chatgpt-fixture", screenshot,
       boundary: "Owned ephemeral backend, fictional PNG and PDF, simulated ChatGPT transport; no client document or live inference." });
   } finally {
     await setDecisionsControl({});
+    await rm(payerStore, { force: true });
     if (fixtureStore) await rm(fixtureStore, { force: true });
     fixtureStore = undefined;
   }
 });
+
+for (const unavailableAt of ["classification", "transcription", "lease expiry"] as const) {
+  const scenario = unavailableAt === "lease expiry" ? "an expired lease stops before the next source or publication"
+    : `an unreadable second image at ${unavailableAt} leaves the third reading and brief available`;
+  test(`INTSOURCE01 ${scenario}`, {
+    tags: ["critical", "local", "chatgpt", "intake"], session: "army", timeout: 180_000,
+  }, async ({ app, screen, browser }) => {
+    if (liveProbe || !await preparePlanFixture()) throw new Error("Fictional source failure requires the local transport.");
+    try {
+      await signIn({ app, screen, browser }, localOrigin, fixtureEmail);
+      const prefix = `ARMY-brief-race-source-${unavailableAt}-${Date.now()}`;
+      const ui = hydratedUi({ app, screen, browser }, localOrigin);
+      const { projectId } = await createEstimateViaWizard(ui, { projectName: prefix, title: "Trois images" },
+        { runPrefix: prefix, projectName: prefix, ownedEstimates: [] });
+      const { client } = await localClient();
+      const directory = path.resolve(".e2e/army/critical/artifacts/fixtures", prefix);
+      await mkdir(directory, { recursive: true });
+      const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgYGD4DwABBAEAW9JTswAAAABJRU5ErkJggg==", "base64");
+      const files = [1, 2, 3].map(n => path.join(directory, `Photo ${n}.png`));
+      await Promise.all(files.map((file, index) => writeFile(file, Buffer.concat([png, Buffer.from([index])]))));
+      await ui.app.open(`/dashboard/affaires/${projectId}`);
+      await browser.locator('input[type="file"][aria-label="Ajouter des pièces à l\'affaire"]').first().setInputFiles(files);
+      await expect(screen.getByText("3 pièces en attente de lancement", { exact: true }).first()).toBeVisible();
+      const documents = async () => {
+        const { data, error } = await client.from("affaire_intake_documents")
+          .select("id,file_name,storage_path,classification_status,analysis_completed_at,issues")
+          .eq("project_id", projectId).order("created_at").order("id");
+        if (error) throw error;
+        return data;
+      };
+      const [first, second, third] = await documents();
+      const removeOriginal = async () => {
+        const { data, error } = await client.storage.from("affaire-intake").remove([second.storage_path!]);
+        expect(error).toBeNull();
+        expect(data).toHaveLength(1);
+      };
+      const reads = async () => (await readFile(transportLog, "utf8")).split("\n").filter(Boolean)
+        .map(line => JSON.parse(line)).filter(row => row.task === "transcription").length;
+      const before = await reads();
+      if (unavailableAt === "classification") await removeOriginal();
+      await setDecisionsControl({ transcriptionModel: true, holdTranscription: unavailableAt !== "classification" });
+      if (unavailableAt === "lease expiry") {
+        // Await the actual worker's return before checking the absence of later sends and writes.
+        const { data: launch } = await client.rpc("start_affaire_intake_analysis", { p_project_id: projectId, p_read_scans: true });
+        expect(launch?.[0]).toMatchObject({ outcome: "launched", piece_count: 3 });
+        const launchId = launch![0].launch_id;
+        const worker = expect.poll(async () => {
+          const response = await fetch(new URL("/api/internal/workflows/recover", localOrigin),
+            { headers: { authorization: `Bearer ${recoverySecret}` } });
+          expect(response.status).toBe(200);
+          return (await client.from("affaire_intake_uploads").select("attempt_count").eq("id", launchId).single()).data?.attempt_count;
+        }, DEV_SERVER_WORK).toBe(1);
+        try {
+          await expect.poll(reads, DEV_SERVER_WORK).toBe(before + 1);
+          await removeOriginal();
+          await querySql(`update public.affaire_intake_uploads set processing_lease_expires_at=clock_timestamp()-interval '1 second'
+            where id='${launchId}' and attempt_count=1 and status='launch_processing';`);
+        } finally {
+          await setDecisionsControl({ transcriptionModel: true });
+          await worker;
+        }
+        expect(await reads()).toBe(before + 1);
+        expect((await client.from("affaire_briefs").select("id").eq("project_id", projectId)).data).toEqual([]);
+        expect((await documents()).map(doc => doc.analysis_completed_at)).toEqual([null, null, null]);
+        expect((await client.from("affaire_intake_uploads").select("status,attempt_count,brief_published_revision")
+          .eq("id", launchId).single()).data).toEqual({ status: "launch_processing", attempt_count: 1, brief_published_revision: null });
+        // Retire this deliberately abandoned fixture before another journey runs its recovery sweep.
+        await querySql(`update public.affaire_intake_uploads set processing_lease_expires_at=clock_timestamp()-interval '31 minutes'
+          where id='${launchId}'; select public.stop_affaire_intake_analysis('${launchId}',null);`);
+        return;
+      }
+      await screen.getByRole("button", "Lancer l’analyse", { exact: true }).click();
+      if (unavailableAt === "transcription") {
+        await expect.poll(reads, DEV_SERVER_WORK).toBe(before + 1);
+        await removeOriginal();
+        await setDecisionsControl({ transcriptionModel: true });
+      }
+      const batch = async () => (await client.from("affaire_intake_uploads")
+        .select("status,attempt_count,brief_published_revision").eq("project_id", projectId).eq("launch_read_scans", true).single()).data;
+      await expect.poll(async () => {
+        const row = await batch();
+        return row?.attempt_count === 1 && row.status !== "launch_processing" ? row.status : null;
+      }, DEV_SERVER_WORK).toBe("partial_failure");
+      expect((await batch())?.brief_published_revision).toBeTruthy();
+      const brief = await client.from("affaire_briefs").select("received_pieces").eq("project_id", projectId).single();
+      expect(brief.data?.received_pieces).toEqual(expect.arrayContaining([
+        expect.stringContaining(first.file_name), expect.stringContaining(third.file_name),
+      ]));
+      const readings = await client.from("affaire_intake_document_transcriptions").select("document_id,status")
+        .in("document_id", [first.id, second.id, third.id]);
+      expect(readings.data).toHaveLength(2);
+      expect(readings.data).toEqual(expect.arrayContaining([first, third].map(doc => ({ document_id: doc.id, status: "completed" }))));
+      expect(await reads()).toBe(before + 2);
+      expect((await documents())[1]).toMatchObject({ classification_status: "failed", analysis_completed_at: expect.any(String),
+        issues: expect.arrayContaining([expect.stringMatching(/source/i)]) });
+      const restored = await client.storage.from("affaire-intake").upload(second.storage_path!,
+        await readFile(path.join(directory, second.file_name)), { contentType: "image/png" });
+      expect(restored.error).toBeNull();
+      const retry = await callServerAction(browser, await serverActionId("retryAffaireDocumentAnalysis", actionManifest()),
+        { projectId, documentId: second.id });
+      expect(retry).toMatchObject({ status: 200, digest: null });
+      await expect.poll(async () => (await client.from("affaire_intake_document_transcriptions").select("status")
+        .eq("document_id", second.id).maybeSingle()).data?.status, DEV_SERVER_WORK).toBe("completed");
+    } finally {
+      await setDecisionsControl({});
+      if (fixtureStore) await rm(fixtureStore, { force: true });
+      fixtureStore = undefined;
+    }
+  });
+}
 
 // A reading stopped by a failure is read again by « Relancer l’analyse », after its response; a reading already done is
 // kept. The assistant then gets the text with the image it reads, labelled as unverified, and cites the piece's page.
@@ -1269,8 +1740,9 @@ test("INTOCR02 the analysis retry reads a stopped transcription again after its 
 
     await ui.app.open(`/dashboard/affaires/${ids.projectId}`);
     await browser.locator('input[type="file"][aria-label="Ajouter des pièces à l\'affaire"]').first().setInputFiles(imagePath);
+    await screen.getByRole("button", "Lancer l’analyse", { exact: true }).click();
     const piece = async () => {
-      const result = await client.from("affaire_intake_documents").select("id,upload_id,classification_status").eq("project_id", ids.projectId);
+      const result = await client.from("affaire_intake_documents").select("id,analysis_launch_id,classification_status").eq("project_id", ids.projectId);
       if (result.error) throw new Error(`Owned intake read failed: ${result.error.code}`);
       expect(result.data).toHaveLength(1);
       return result.data[0]!;
@@ -1282,11 +1754,11 @@ test("INTOCR02 the analysis retry reads a stopped transcription again after its 
       return result.data;
     };
     const lotStatus = async () => {
-      const result = await client.from("affaire_intake_uploads").select("status").eq("id", (await piece()).upload_id).single();
+      const result = await client.from("affaire_intake_uploads").select("status").eq("id", (await piece()).analysis_launch_id!).single();
       if (result.error) throw new Error(`Owned intake lot read failed: ${result.error.code}`);
       return result.data.status;
     };
-    // At arrival the plan does not list Terra: the reading stops, recorded on its row, and the lot ends.
+    // At launch the plan does not list Terra: the reading stops, recorded on its row, and the lot ends.
     await expect.poll(async () => (await transcription())?.status ?? null, { timeout: 120_000 }).toBe("failed");
     expect(await transcription()).toMatchObject({ status: "failed", pages: [], error_code: "MODEL_UNAVAILABLE", source_sha256: sha });
     await expect.poll(lotStatus, { timeout: 60_000 }).toMatch(/^(ready|partial_failure)$/);
@@ -1395,9 +1867,10 @@ test("INTWORD01 Word analysis reports per-file failures and preserves manual cho
     await ui.app.open(`/dashboard/affaires/${ids.projectId}`);
     await browser.locator('input[type="file"][aria-label="Ajouter des pièces à l\'affaire"]').first()
       .setInputFiles(files.map(file => path.join(directory, file.name)));
+    await screen.getByRole("button", "Lancer l’analyse", { exact: true }).click();
     await expect.poll(async () => {
       const rows = await documents();
-      return rows.length === 4 && rows.every(row => !["queued", "processing"].includes(row.classification_status));
+      return rows.length === 4 && rows.every(row => !["awaiting_launch", "queued", "processing"].includes(row.classification_status));
     }, { timeout: 60_000 }).toBe(true);
     for (const row of await documents()) {
       const category = row.file_name.endsWith(".pdf") ? "annexes" : "emails";
@@ -1474,6 +1947,7 @@ async function uploadDossierPlan(ui: ReturnType<typeof hydratedUi>, projectId: s
     await ui.screen.getByRole("dialog", "Ajouter des documents", { exact: true })
       .getByLabel("Ajouter des pièces à l'affaire", { exact: true }).setInputFiles(file);
   }
+  await ui.screen.getByRole("button", "Lancer l’analyse", { exact: true }).click();
   await expect.poll(async () => {
     const { data } = await client.from("affaire_intake_documents").select("file_name,classification_status,document_kind").eq("project_id", projectId);
     return (data ?? []).some((doc) => doc.file_name === name && (until === "classifying"
@@ -1717,7 +2191,7 @@ if (!existsSync(liveProbePath)) test("AUTO04 a confirmation from a dialog shown 
     expect(await readOwnedAffaireJobs(ids.projectId)).toEqual([]);
     expect(await planReads()).toBe(readsBefore);
     expect(await forbiddenRequests()).toBe(0);
-    await recordEvidence(army, "AUTO04-unnotified-confirmation", { ids, request: (await readOwnedLaunchRequests(ids.projectId))[0],
+    await recordEvidence(army, "AUTO04-unnotified-confirmation", { ids, requests: await readOwnedLaunchRequests(ids.projectId),
       jobs: 0, planReads: 0, boundary: "Fictional dossier and ChatGPT transport fixture on an owned local backend; no API key or other provider." });
   } finally {
     await browser.clearCookies({ domain: new URL(localOrigin).hostname });
@@ -1726,7 +2200,7 @@ if (!existsSync(liveProbePath)) test("AUTO04 a confirmation from a dialog shown 
   }
 });
 
-if (!existsSync(liveProbePath)) test("AUTO05 a dossier classified after its confirmation, its subscription reconnected meanwhile, waits for the payer's gesture", {
+if (!existsSync(liveProbePath)) test("AUTO05 a running dossier analysis refuses confirmation and requires a new gesture after reconnection", {
   tags: ["critical", "local", "chatgpt", "intake", "premetre"], session: "army", trace: "off", timeout: 300_000,
 }, async ({ app, screen, browser }) => {
   const owner = await createLocalChatGptOwner();
@@ -1749,19 +2223,18 @@ if (!existsSync(liveProbePath)) test("AUTO05 a dossier classified after its conf
     const dialog = screen.getByRole("alertdialog", "Confirmer ce brief ?", { exact: true });
     await expect(dialog).toContainText(PAYER_NOTICE);
     await dialog.getByRole("button", "Oui, confirmer", { exact: true }).click();
-    await expect.poll(async () => (await readOwnedLaunchRequests(ids.projectId)).map(request => [request.state, request.reason_code, request.payer_id]),
-      DEV_SERVER_WORK).toEqual([["not_eligible", "DOSSIER_PROCESSING", owner.userId]]);
-    // The payer disconnects and reconnects the subscription before the dossier is ready: a new connection.
+    await expect(screen.getByText("Attendez la fin de l’analyse du dossier avant de confirmer.", { exact: true }).first()).toBeVisible(DEV_SERVER_WORK);
+    expect(await readOwnedLaunchRequests(ids.projectId)).toEqual([]);
     await rm(store, { force: true });
     store = await writePlanFixture(owner.email, null, false);
     await setDecisionsControl({});
-    // The Mac's periodic loop evaluates the dossier once its last plan is classified: the mandate was withdrawn.
-    await expect.poll(async () => (await readOwnedLaunchRequests(ids.projectId)).map(request => [request.state, request.reason_code]),
-      { timeout: 120_000 }).toEqual([["blocked", "CHATGPT_ACCESS_REVOKED"]]);
+    await expect.poll(async () => (await owner.client.from("affaire_intake_uploads").select("id")
+      .eq("project_id", ids.projectId).in("status", ["launch_queued", "launch_processing"])).data, DEV_SERVER_WORK).toEqual([]);
+    expect(await readOwnedLaunchRequests(ids.projectId)).toEqual([]);
     expect(await readOwnedAffaireJobs(ids.projectId)).toEqual([]);
     expect(await planReads()).toBe(readsBefore);
     expect(await forbiddenRequests()).toBe(0);
-    await recordEvidence(army, "AUTO05-reconnected-before-ready", { ids, request: (await readOwnedLaunchRequests(ids.projectId))[0],
+    await recordEvidence(army, "AUTO05-reconnected-before-ready", { ids, requests: await readOwnedLaunchRequests(ids.projectId),
       jobs: 0, planReads: 0, boundary: "Fictional dossier and ChatGPT transport fixture on an owned local backend; no API key or other provider." });
   } finally {
     await setDecisionsControl({});

@@ -49,6 +49,8 @@ export type AffaireIntakeWorkspace = {
    * brief, then records its batch's end (intake-analysis-server.ts): the page keeps reading while one is pending.
    */
   pendingUploadIds?: string[];
+  launchRunning?: boolean;
+  briefPreparationDue?: boolean;
   canManageDocuments?: boolean;
   documents: Array<{
     documentId: string;
@@ -79,7 +81,7 @@ export const fetchAffaireIntakeWorkspace = cache(async (
   const { context, project } = await requireAffaireAccess(projectId, "read");
   // The batches still analysed are read before the brief: a run writes the brief, then records its batch's end, so a
   // batch this read sees finished always comes with the brief written before its end.
-  const pendingUploadsPromise = startConcurrentRead(readPendingUploadIds(context.supabase, project.id));
+  const pendingUploadsPromise = startConcurrentRead(readPendingUploads(context.supabase, project.id));
   // The brief is independent of the latest upload and its documents. Keep the
   // original error order by awaiting it later, with early rejections observed.
   const briefPromise = startConcurrentRead(pendingUploadsPromise.catch(() => undefined).then(() => fetchAffaireBriefForProject({
@@ -116,7 +118,7 @@ export const fetchAffaireIntakeWorkspace = cache(async (
     return {
       projectId: project.id,
       uploadId: null,
-      pendingUploadIds: await pendingUploadsPromise,
+      pendingUploadIds: (await pendingUploadsPromise).ids,
       documents: [],
       missingPieces: [],
       readiness: buildAffaireIntakeReadinessSnapshot({
@@ -181,16 +183,25 @@ export const fetchAffaireIntakeWorkspace = cache(async (
       ...(document.rejection_reason ? [document.rejection_reason] : []),
     ],
   }));
-  const [missingPieces, analysisAvailability, pendingUploads] = await Promise.all([
+  const [missingPieces, analysisAvailability, pendingUploads, publicationDebt] = await Promise.all([
     missingPiecesPromise,
     analysisAvailabilityPromise,
     pendingUploadsPromise,
+    context.supabase.from("affaire_intake_uploads").select("id").eq("project_id", project.id).eq("status", "failed")
+      .not("launch_read_scans", "is", null).is("brief_published_revision", null).limit(1),
   ]);
+  if (publicationDebt.error) throw internalError("Impossible de vérifier si le brief doit être actualisé.", publicationDebt.error);
 
   return {
     projectId: project.id,
     uploadId: upload.id,
-    pendingUploadIds: pendingUploads,
+    pendingUploadIds: pendingUploads.ids,
+    launchRunning: pendingUploads.launchRunning,
+    briefPreparationDue: pendingUploads.ids.length === 0 &&
+      !documents.some(doc => doc.upload_status === "uploaded" && (doc.deletion_token ||
+        ["queued", "processing", "awaiting_launch"].includes(doc.classification_status))) &&
+      (publicationDebt.data.length > 0 || (!brief && upload.status === "deposited" && documents.some(doc => doc.upload_status === "uploaded" &&
+        (doc.analysis_completed_at || doc.classification_source === "manual" || doc.manually_overridden_at)))),
     analysisAvailability,
     canManageDocuments,
     documents: workspaceDocuments,
@@ -200,20 +211,21 @@ export const fetchAffaireIntakeWorkspace = cache(async (
   };
 });
 
-async function readPendingUploadIds(supabase: Awaited<ReturnType<typeof requireAffaireAccess>>["context"]["supabase"],
-  projectId: string): Promise<string[]> {
+async function readPendingUploads(supabase: Awaited<ReturnType<typeof requireAffaireAccess>>["context"]["supabase"],
+  projectId: string) {
   const { data, error } = await resolveSupabaseQuery<{ data: unknown[] | null; error: unknown }>(
     supabase
       .from("affaire_intake_uploads")
       .select("id, status" as never)
       .eq("project_id", projectId)
-      .in("status", ["queued", "processing"])
+      .in("status", ["queued", "processing", "launch_queued", "launch_processing"])
       .order("created_at", { ascending: true })
       .order("id", { ascending: true })
   );
   if (error) throw internalError("Impossible de lire l’analyse en cours du dossier.", error);
-  return (data ?? []).flatMap((row) =>
-    row && typeof row === "object" && typeof (row as { id?: unknown }).id === "string" ? [(row as { id: string }).id] : []);
+  const ids = (data ?? []).flatMap((row) =>
+    isRecord(row) && typeof row.id === "string" ? [row.id] : []);
+  return { ids, launchRunning: (data ?? []).some(row => isRecord(row) && (row.status === "launch_queued" || row.status === "launch_processing")) };
 }
 
 /** Readiness of a dossier from its stored documents; a document whose deletion is reserved no longer counts. */

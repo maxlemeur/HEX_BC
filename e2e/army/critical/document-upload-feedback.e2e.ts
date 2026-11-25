@@ -216,15 +216,15 @@ test("Document upload accepts mixed selections above 100 MiB with 50 MiB files a
     const drawer = page.getByRole("dialog", { name: "Documents du dossier", exact: true });
     await expect(drawer.getByText(`"${oversized}" depasse 50 Mo.`, { exact: true })).toBeVisible();
     const documents = async () => {
-      const result = await client.from("affaire_intake_documents").select("id,file_name,size_bytes,upload_status,upload_id,storage_path")
+      const result = await client.from("affaire_intake_documents").select("id,file_name,size_bytes,upload_status,classification_status,upload_id,storage_path")
         .eq("project_id", projectId).neq("file_name", fileName);
       if (result.error) throw new Error(result.error.code);
       return result.data;
     };
-    // Assert persisted originals before asynchronous classification finishes.
+    // Each accepted original is visible and waits for the separate analysis press.
     await expect.poll(async () => {
       const found = await documents();
-      return found.length === expectedNames.length && found.every(doc => doc.upload_status === "uploaded" && doc.storage_path);
+      return found.length === expectedNames.length && found.every(doc => doc.upload_status === "uploaded" && doc.classification_status === "awaiting_launch" && doc.storage_path);
     }, { timeout: 120_000 }).toBe(true);
     const all = await client.from("affaire_intake_documents").select("id,file_name,size_bytes,upload_status,upload_id,storage_path").eq("project_id", projectId);
     expect(all.error).toBeNull();

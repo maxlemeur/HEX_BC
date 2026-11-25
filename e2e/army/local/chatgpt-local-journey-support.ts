@@ -34,6 +34,7 @@ export const isAbsorbedClientAbort = (entry: Record<string, unknown>) => entry.p
 
 export type ChatGptLocalServer = {
   origin: string;
+  recoverySecret: string;
   /** The owner account created for this server; its tenant belongs to this journey file alone. */
   email: string;
   liveProbe: ChatGptLiveProbe | null;
@@ -56,7 +57,7 @@ export async function localChatGptClient(email: string) {
 
 /** The fixture can list extra models for intake transcription (INTOCR01) or material request photos (MRIA01). */
 export async function writeDecisionsControl(decisionsControl: string,
-  input: { hold?: boolean; timeoutWriting?: boolean; transcriptionModel?: boolean; holdTranscription?: boolean; holdClassification?: boolean; materialPhotoModels?: boolean }) {
+  input: { hold?: boolean; timeoutWriting?: boolean; transcriptionModel?: boolean; holdTranscription?: boolean; holdClassification?: boolean; holdIntakeBrief?: boolean; materialPhotoModels?: boolean }) {
   const temporary = `${decisionsControl}.tmp`;
   await writeFile(temporary, JSON.stringify({ hold: false, timeoutWriting: false, transcriptionModel: false, holdTranscription: false,
     holdClassification: false, ...input }));
@@ -121,6 +122,7 @@ export function chatGptLocalServer() {
     const port = address.port;
     await new Promise<void>((resolve) => reservation.close(() => resolve()));
     const origin = localOrigin = `http://127.0.0.1:${port}`;
+    const recoverySecret = randomUUID();
     const email = ownerEmail = (await createLocalChatGptOwner()).email;
     const workspace = serverWorkspace = await prepareChatGptServerWorkspace();
     const artifacts = path.resolve(".e2e/army/critical/artifacts", workspace.id);
@@ -144,7 +146,7 @@ export function chatGptLocalServer() {
     const child = localServer = spawn(process.execPath, ["node_modules/next/dist/bin/next", "dev", "--hostname", "127.0.0.1", "--port", String(port), "--webpack"], {
       cwd: process.cwd(), env: { ...process.env, CI: "", VERCEL: "", MERGEONE_CHATGPT_LOCAL: "", NODE_ENV: "development", E2E_ARMY_SERVER_MODE: "development", ...workspace.environment,
         NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ""} --import=${pathToFileURL(path.resolve("e2e/army/local/chatgpt-provider-fixture.mjs")).href}`,
-        ARMY_CHATGPT_TRANSPORT_LOG: log, GEMINI_API_KEY: "army-disabled-provider-fixture", TAKEOFF_WORKER_SECRET: "army-worker-fixture",
+        CRON_SECRET: recoverySecret, ARMY_CHATGPT_TRANSPORT_LOG: log, GEMINI_API_KEY: "army-disabled-provider-fixture", TAKEOFF_WORKER_SECRET: "army-worker-fixture",
         TAKEOFF_LAB_DATASET_DIR: labDatasetDir, TAKEOFF_LAB_OUTPUT_DIR: labOutputDir,
         // The assistant (ASSIST01) exists only where it is switched on, beside the linked ChatGPT plan.
         MERGEONE_ASSISTANT: "1",
@@ -162,7 +164,7 @@ export function chatGptLocalServer() {
     }, { timeout: 90_000 }).toBe(true);
     await workspace.assertReady();
     await compileChatGptRoutes(origin, email, "journeys");
-    return { origin, email, liveProbe, transportLog: log, decisionsControl, labOutputDir, workspace, diagnostics };
+    return { origin, recoverySecret, email, liveProbe, transportLog: log, decisionsControl, labOutputDir, workspace, diagnostics };
   }
 
   /** Compiles one wave of the pages and API routes the takeoff journeys use, on the started server. */

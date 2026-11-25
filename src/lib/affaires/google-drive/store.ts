@@ -101,7 +101,7 @@ export async function rearmLotsFailedWithConnection(member: { supabase: unknown;
   // Across every affaire of the account: paged past the API's row cap.
   const { data, error } = await readAllRows(() => db.from("affaire_intake_documents").select("id,upload_id", { count: "exact" })
     .eq("tenant_id", member.tenantId).eq("drive_connection_id", connectionId)
-    .eq("classification_status", "failed").is("deleted_at", null));
+    .eq("classification_status", "failed").is("analysis_launch_id", null).is("deleted_at", null));
   if (error) return [];
   const rearmed: string[] = [];
   for (const uploadId of new Set(((data ?? []) as Array<{ upload_id: string }>).map((row) => row.upload_id))) {
@@ -146,18 +146,17 @@ export async function linkDriveFiles(access: Access, input: { connectionId: stri
   const resumed = [...new Set([...rearmed, ...await resumeStaleDriveLots(access)])];
   if (!candidates.length) return { results, uploadId: null, resumed };
   const uploadId = randomUUID();
-  // Not queued yet: a recovery worker must not classify a lot that is still being recorded.
   const upload = await database(access).from("affaire_intake_uploads").insert({ id: uploadId, project_id: project.id,
-    created_by: context.userId, status: "failed", last_error: RECORDING });
+    created_by: context.userId, status: "deposited" });
   if (upload.error) throw internalError("Impossible de préparer les liens Drive.");
   await database(access).from("affaire_intake_events").insert({ upload_id: uploadId, actor_user_id: context.userId,
-    event_type: "upload.created", after_payload: { status: "queued", file_count: candidates.length, drive: { provider: "google_drive" } } });
+    event_type: "upload.created", after_payload: { status: "deposited", file_count: candidates.length, drive: { provider: "google_drive" } } });
   let linked = 0;
   for (const { file, folder } of candidates) {
     const documentId = randomUUID();
     const inserted = await database(access).from("affaire_intake_documents").insert({
       id: documentId, upload_id: uploadId, created_by: context.userId, storage_path: null, file_name: file.name,
-      mime_type: file.mimeType, size_bytes: Number(file.size), upload_status: "uploaded", classification_status: "queued",
+      mime_type: file.mimeType, size_bytes: Number(file.size), upload_status: "uploaded", classification_status: "awaiting_launch",
       document_kind: "a_classer", issues: [], extracted_metadata: createEmptyAffaireIntakeExtractedMetadata(),
       source_provider: "google_drive", drive_connection_id: input.connectionId, drive_file_id: file.id,
       drive_folder_id: folder?.id ?? null, drive_folder_name: folder?.name ?? null,
@@ -174,19 +173,11 @@ export async function linkDriveFiles(access: Access, input: { connectionId: stri
     await database(access).from("affaire_intake_events").insert({ upload_id: uploadId, document_id: documentId, actor_user_id: context.userId,
       event_type: "document.uploaded", after_payload: { drive: { provider: "google_drive", fileId: file.id, revision: file.version ?? null,
         folderId: folder?.id ?? null } } });
-    results.push({ fileId: file.id, name: file.name, status: "linked", message: "Lien enregistré. Analyse en cours.", documentId });
+    results.push({ fileId: file.id, name: file.name, status: "linked", message: "Lien enregistré. En attente de lancement.", documentId });
   }
   if (!linked) {
     await database(access).from("affaire_intake_uploads").delete().eq("tenant_id", context.tenantId).eq("project_id", project.id).eq("id", uploadId);
     return { results, uploadId: null, resumed };
-  }
-  const queued = await database(access).from("affaire_intake_uploads").update({ status: "queued", last_error: null })
-    .eq("tenant_id", context.tenantId).eq("project_id", project.id).eq("id", uploadId);
-  if (queued.error) {
-    // The lot stays "being recorded": opening the Drive panel again later arms it.
-    const message = "Lien enregistré, analyse non lancée. Rouvrez Google Drive dans quelques minutes pour la relancer.";
-    const fresh = new Set(candidates.map(({ file }) => file.id));
-    return { results: results.map((result) => result.status === "linked" && fresh.has(result.fileId) ? { ...result, message } : result), uploadId: null, resumed };
   }
   return { results, uploadId, resumed };
 }
