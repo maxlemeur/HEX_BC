@@ -17,6 +17,17 @@ const root = process.cwd();
 const absent = "00000000-0000-4000-8000-000000000001";
 
 describe("ChatGPT local compile waves", () => {
+  it("warms the activity-center reads before the decisions journeys open the takeoff dialog", () => {
+    expect(chatGptCompileRequests("takeoff-activity")).toEqual([
+      { path: "/api/takeoff/activity-center/requests", method: "OPTIONS", expected: [204] },
+      { path: `/api/affaires/${absent}/takeoff/items`, method: "OPTIONS", expected: [204] },
+    ]);
+    const source = fs.readFileSync(path.join(root, "e2e/army/local/chatgpt-local-decisions.e2e.ts"), "utf8");
+    const hook = source.indexOf('beforeAll(() => compileChatGptRoutes(localOrigin, fixtureEmail, "takeoff-activity"));');
+    expect(hook).toBeGreaterThan(source.indexOf("await server.start()"));
+    expect(hook).toBeLessThan(source.search(/^(?:if \([^\n]*\) )?test\(/m));
+  });
+
   it("compiles every intake route a cold affaire intake desk asks for, without running a handler", () => {
     const routes = ["", "/files", "/reconcile-plans", "/files/[documentId]/preview", "/files/[documentId]/transcription"];
     expect(chatGptCompileRequests("intake")).toEqual(routes.map((route) => ({
