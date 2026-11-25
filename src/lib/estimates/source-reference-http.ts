@@ -7,6 +7,7 @@ import { sourceReferenceErrorCodeSchema } from "@/lib/estimates/source-reference
 import { SourceReferencePdfError } from "@/lib/estimates/source-reference-pdf";
 import { SourceReferenceStorageError } from "@/lib/estimates/source-reference-storage";
 import { isJsonContentType } from "@/lib/http/request";
+import { isSameOriginRequest } from "@/lib/http/same-origin";
 
 type ErrorCode = z.infer<typeof sourceReferenceErrorCodeSchema>;
 const ERRORS: Record<ErrorCode, [ApiError["status"], string]> = {
@@ -92,9 +93,7 @@ export function createSourceReferenceDeadline(request: Request, milliseconds: nu
 export type SourceReferenceDeadline = ReturnType<typeof createSourceReferenceDeadline>;
 
 export async function readSourceReferenceJson<T extends z.ZodType>(request: Request, schema: T, budget: SourceReferenceDeadline): Promise<z.output<T>> {
-  const origin = request.headers.get("origin");
-  const sameOrigin = origin === new URL(request.url).origin;
-  if (!sameOrigin) throw sourceReferenceError("SOURCE_REVIEW_WRITE_FORBIDDEN");
+  if (!isSameOriginRequest(request)) throw sourceReferenceError("SOURCE_REVIEW_WRITE_FORBIDDEN");
   assertSourceReferenceQueryEmpty(request);
   if (!isJsonContentType(request) || !request.body) throw sourceReferenceError("SOURCE_REVIEW_INVALID_INPUT");
   const reader = request.body.getReader();

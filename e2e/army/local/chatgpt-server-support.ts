@@ -154,9 +154,10 @@ export async function prepareChatGptServerWorkspace() {
  * protected pages and the callback's missing-state rejection, before UI assertions. The "takeoff" waves are every
  * other page and API route the ChatGPT local journeys use, so that no test waits for a compile.
  * "intake" warms the affaire's intake desk in each of the three chatgpt-local-intake-* journey files.
+ * "intake-dpgf" is only needed by the dossier spreadsheet import journey.
  * "takeoff-activity" warms the browser reads that start when the decisions journeys open the activity center.
  */
-export type ChatGptCompileWave = "profile" | "journeys" | "intake" | "takeoff-activity" | (typeof TAKEOFF_JOURNEY_WAVES)[number];
+export type ChatGptCompileWave = "profile" | "journeys" | "intake" | "intake-dpgf" | "takeoff-activity" | (typeof TAKEOFF_JOURNEY_WAVES)[number];
 
 /**
  * In the order Next compiles them when they are asked together (run 43073132489): the pages with the estimate
@@ -212,6 +213,11 @@ export function chatGptCompileRequests(wave: ChatGptCompileWave): CompileRequest
     // database 15 s after its click (runs 45477586566 and 45480694457, among others).
     return ["", "/files", "/reconcile-plans", `/files/${absent}/preview`, `/files/${absent}/transcription`]
       .map(name => route(`/api/affaires/${absent}/intake${name}`));
+  }
+  if (wave === "intake-dpgf") {
+    // Opening the import wizard fetches both routes before it can offer the launch button.
+    // On a cold dev server their compiles hold the dossier download past the assertion budget.
+    return [route("/api/imports"), route(`/api/affaires/${absent}/intake/files/${absent}`)];
   }
   if (wave === "takeoff-review") {
     // The review page of a job. Cold, it compiled in ASSIST02's body for 26.7 s (next.js 23.3 s), then the page's

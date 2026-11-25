@@ -11,6 +11,7 @@ import { writeDriveFile } from "@/lib/affaires/google-drive/writing";
 import { DriveError } from "@/lib/affaires/google-drive/errors";
 import { toDriveApiError } from "@/lib/affaires/google-drive/server";
 import { ok, badRequest, toErrorResponse } from "@/lib/http/api-response";
+import { isSameOriginRequest } from "@/lib/http/same-origin";
 
 export const runtime = "nodejs";
 function privateResponse(response: Response) {
@@ -34,7 +35,7 @@ export async function GET() {
 }
 export async function POST(request: Request) {
   try {
-    if (request.headers.get("origin") !== new URL(request.url).origin)
+    if (!isSameOriginRequest(request))
       throw badRequest("Origine de requête refusée.");
     if (!request.headers.get("content-type")?.startsWith("application/json"))
       throw badRequest("Payload JSON requis.");

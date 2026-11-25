@@ -22,7 +22,7 @@ const documentId = "22222222-2222-4222-8222-222222222222";
 const context = { params: Promise.resolve({ projectId, documentId }) };
 const url = `http://localhost:3000/api/affaires/${projectId}/intake/files/${documentId}`;
 const request = (body: unknown, origin = "http://localhost:3000") => new Request(url, {
-  method: "POST", headers: { "Content-Type": "application/json", origin }, body: JSON.stringify(body),
+  method: "POST", headers: { "Content-Type": "application/json", host: "localhost:3000", origin }, body: JSON.stringify(body),
 });
 
 afterEach(() => vi.resetAllMocks());

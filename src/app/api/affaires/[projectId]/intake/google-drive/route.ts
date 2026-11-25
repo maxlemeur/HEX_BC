@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { badRequest, ok, toErrorResponse } from "@/lib/http/api-response";
+import { isSameOriginRequest } from "@/lib/http/same-origin";
 import { withPrivateNoStore } from "@/lib/http/response";
 import { driveRequestSchema } from "@/lib/affaires/google-drive/contracts";
 import { driveState, executeDriveRequest } from "@/lib/affaires/google-drive/server";
@@ -15,7 +16,7 @@ export async function GET(_request: Request, context: Context) {
 export async function POST(request: Request, context: Context) {
   try {
     // Same-origin only. Google tokens stay on the server; requests carry a connection id.
-    if (request.headers.get("origin") !== new URL(request.url).origin) throw badRequest("Origine de requête refusée.");
+    if (!isSameOriginRequest(request)) throw badRequest("Origine de requête refusée.");
     if (!request.headers.get("content-type")?.startsWith("application/json")) throw badRequest("Payload JSON requis.");
     const reader = request.body?.getReader();
     if (!reader) throw badRequest("Payload manquant.");

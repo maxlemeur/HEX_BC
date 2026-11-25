@@ -7,6 +7,7 @@ import { ApiError, type SupabaseErrorLike } from "@/lib/http/api-response";
 import { coverageErrorCodeSchema } from "@/lib/estimates/source-coverage-contracts";
 import { type SourceReferenceDeadline } from "@/lib/estimates/source-reference-http";
 import { isJsonContentType } from "@/lib/http/request";
+import { isSameOriginRequest } from "@/lib/http/same-origin";
 
 export const SOURCE_COVERAGE_HEADERS = { "Cache-Control": "private, no-store" };
 type Code = z.infer<typeof coverageErrorCodeSchema>;
@@ -87,7 +88,7 @@ export function readCoverageQuery<T extends z.ZodType>(request: Request, schema:
 }
 
 export async function readCoverageJson<T extends z.ZodType>(request: Request, schema: T, budget: SourceReferenceDeadline): Promise<z.output<T>> {
-  if (request.headers.get("origin") !== new URL(request.url).origin) throw coverageError("SOURCE_COVERAGE_WRITE_FORBIDDEN");
+  if (!isSameOriginRequest(request)) throw coverageError("SOURCE_COVERAGE_WRITE_FORBIDDEN");
   if (new URL(request.url).searchParams.size || !isJsonContentType(request) || !request.body) {
     throw coverageError("SOURCE_COVERAGE_INVALID_INPUT");
   }

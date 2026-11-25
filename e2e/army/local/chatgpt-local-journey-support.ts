@@ -91,8 +91,8 @@ export async function writePlanFixture(email: string, liveProbe: ChatGptLiveProb
  * One journey file's development server: `start` in its beforeAll, `stop` in its afterAll. Call it once per journey
  * module: the state lives in the returned object, so a module the runner imports again starts from nothing.
  * `compileTakeoffRoutes` takes one more beforeAll per wave of TAKEOFF_JOURNEY_WAVES, after `start`: every hook has
- * its own time limit, and one hook cannot hold them all (compileChatGptRoutes). `compileIntakeRoutes` is the hook of the
- * "intake" wave, for each file whose tests use the affaire's intake desk.
+ * its own time limit, and one hook cannot hold them all (compileChatGptRoutes). `compileIntakeRoutes` warms the
+ * affaire's intake desk, with a separate wave for the dossier spreadsheet import.
  */
 export function chatGptLocalServer() {
   let localServer: ChildProcess | undefined;
@@ -171,10 +171,10 @@ export function chatGptLocalServer() {
     await compileChatGptRoutes(localOrigin, ownerEmail, wave);
   }
 
-  /** Compiles the API routes of the affaire's intake desk, on the started server. */
-  async function compileIntakeRoutes() {
+  /** Compiles one wave of the affaire's intake API routes, on the started server. */
+  async function compileIntakeRoutes(wave: "intake" | "intake-dpgf" = "intake") {
     if (!localOrigin || !ownerEmail) throw new Error("Start the ChatGPT local server before compiling its routes.");
-    await compileChatGptRoutes(localOrigin, ownerEmail, "intake");
+    await compileChatGptRoutes(localOrigin, ownerEmail, wave);
   }
 
   /** Stops the server, then removes the temporary ChatGPT profile a test left, if any, and keeps the server's timings. */

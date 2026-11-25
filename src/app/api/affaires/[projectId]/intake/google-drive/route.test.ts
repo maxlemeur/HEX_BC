@@ -8,7 +8,7 @@ const url = "http://localhost:3000/api/affaires/11111111-1111-4111-8111-11111111
 const context = { params: Promise.resolve({ projectId: "11111111-1111-4111-8111-111111111111" }) };
 const body = { action: "list", connectionId: "22222222-2222-4222-8222-222222222222", location: { kind: "folder", folderId: "folder_demo" } };
 const request = (data: unknown = body, origin = "http://localhost:3000") => new Request(url, {
-  method: "POST", headers: { "Content-Type": "application/json", origin }, body: JSON.stringify(data),
+  method: "POST", headers: { "Content-Type": "application/json", host: "localhost:3000", origin }, body: JSON.stringify(data),
 });
 afterEach(() => vi.clearAllMocks());
 describe("Google Drive HTTP boundary", () => {
