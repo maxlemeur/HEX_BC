@@ -23,4 +23,11 @@ describe("failure texts", () => {
     expect(takeoffCompletionFailureReason("AI_SAFETY")).toBe("Document bloqué pendant l'analyse.");
     expect(getTakeoffFailureReasonLabel({ errorCode: "AI_TIMEOUT" })).toBe("Délai dépassé.");
   });
+
+  it("shows only the fixed message for a plan whose provider answer was rejected", () => {
+    const message = "La réponse de l’analyse n’est pas exploitable pour ce plan et le métré peut être relancé.";
+    expect(getTakeoffFailureReasonLabel({ errorCode: "TAKEOFF_LEVEL_C_INVALID_SCHEMA", fallbackMessage: message })).toBe(message);
+    expect(getTakeoffFailureReasonLabel({ errorCode: "TAKEOFF_LEVEL_C_INVALID_SCHEMA", fallbackMessage: "FICTIONAL_PLAN_MARKER" }))
+      .toBe("Extraction incomplète sur ce document.");
+  });
 });

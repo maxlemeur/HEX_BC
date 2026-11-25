@@ -203,6 +203,7 @@ export async function runOwnedPlanDispatch(ui: WorkerUi, owner: WorkerOwner, pro
       findsTruncated?: boolean;
       unreadablePages?: number[];
       truncate?: boolean;
+      invalidQuantity?: boolean;
     }> } = {}) {
   if (!UUID.test(projectId) || !ui.army.ownedTakeoffAffaires?.includes(projectId)) throw new Error("An owned affaire is required.");
   const { stdout, stderr } = await run(process.execPath, ["--conditions=react-server", "--import", "tsx",

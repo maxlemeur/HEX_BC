@@ -53,7 +53,7 @@ const REQUEST_COLUMNS = "id, origin, intent, state, reason_code, reason_details,
 const POLICY_COLUMNS = "status, processing_strategy, provider_batch_id, provider_batch_state, provider_reconcile_due_at, "
   + "provider_reconcile_lease_expires_at, error_code, retry_count, execution_provider, execution_host_id, analysis_outcome, "
   + "next_retry_at, completed_at, created_by";
-const MEMBER_JOB_COLUMNS = `id, launch_request_id, plan_set_id, estimate_version_id, created_at, started_at, analysis_finished_at, ${POLICY_COLUMNS}`;
+const MEMBER_JOB_COLUMNS = `id, launch_request_id, plan_set_id, estimate_version_id, created_at, started_at, analysis_finished_at, error_message, ${POLICY_COLUMNS}`;
 /** An analysis without a request just put in its queue is followed as a reading: its Mac takes it within seconds. */
 const JUST_QUEUED_MS = 60_000;
 const UNIT_JOB_COLUMNS = "id, launch_request_id, launch_unit_key, status, started_at, next_retry_at, analysis_outcome, error_code, updated_at";

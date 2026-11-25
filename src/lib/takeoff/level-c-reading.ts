@@ -28,6 +28,7 @@ import {
   type LevelCChunkMetric,
   type LevelCProcessingError,
 } from "@/lib/takeoff/level-c-chunk-metrics";
+import { rejectedTakeoffAnswerMetrics } from "@/lib/takeoff/rejected-provider-answer";
 import { isPdfMimeType } from "@/lib/takeoff/pdf-reading-guards";
 import { inspectTakeoffPdfBytes } from "@/lib/takeoff/pdf-validation";
 import { persistDetectedPlanFilePageCounts } from "@/lib/takeoff/plan-file-page-counts";
@@ -315,6 +316,7 @@ export async function processLevelCChunks(input: {
           token_count: 0,
           cost_cents: 0,
           duration_ms: 0,
+          ...rejectedTakeoffAnswerMetrics(normalized.details),
           model: input.model,
           timed_out: normalized.code === TakeoffErrorCode.TAKEOFF_LEVEL_C_TIMEOUT,
           budget_exceeded:

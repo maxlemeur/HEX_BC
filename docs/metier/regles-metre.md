@@ -171,6 +171,12 @@ Chaque poste reçoit une réponse par plan :
 - **Non trouvé** : toutes les pages cherchées sans indice ; la quantité reste vide
   (« — »), jamais 0.
 
+Si la réponse du service ne peut être décodée ou ne respecte pas le schéma attendu,
+le plan s’arrête sans publier de réponse. L’activité du métré indique « La réponse
+de l’analyse n’est pas exploitable pour ce plan et le métré peut être relancé. »
+Le diagnostic conserve l’étape, les règles en échec ou la position connue dans
+le JSON, ainsi que la consommation communiquée par le service.
+
 Une réponse manquante, un poste qui n’était pas demandé, deux réponses pour un même
 poste, une page hors du fragment joint ou une page ni cherchée ni déclarée illisible
 arrêtent l’analyse du plan (« Extraction incomplète sur ce document. ») : rien n’est

@@ -14,6 +14,7 @@ import {
 } from "@/lib/takeoff/job-lifecycle";
 import type { buildLevelCRunMetricRows } from "@/lib/takeoff/level-c-chunk-metrics";
 import type { ProcessableTakeoffLevel, Supabase } from "@/lib/takeoff/processing-context";
+import { rejectedTakeoffAnswerMetrics } from "@/lib/takeoff/rejected-provider-answer";
 
 const TAKEOFF_PROCESSING_LEASE_TTL_MS = TAKEOFF_PROCESSING_LEASE_TTL_SECONDS * 1000;
 const ATOMIC_PERSISTENCE_ROLLBACK_MARKER = "atomic_persistence_rollback_applied";
@@ -326,7 +327,7 @@ export function buildFailureDiagnostic(input: {
       error_code: input.error.code,
     },
     raw_response: rawResponse ?? null,
-    token_count: 0,
+    token_count: rejectedTakeoffAnswerMetrics(input.error.details)?.token_count ?? 0,
     cost_cents: 0,
     duration_ms: input.durationMs,
   };

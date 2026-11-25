@@ -24,6 +24,7 @@ import type {
   TakeoffRequestActivityJob,
   TakeoffRequestActivityResponse,
 } from "@/lib/takeoff/request-activity-contracts";
+import { rejectedProviderAnswerMessage } from "@/lib/takeoff/visible-status";
 
 /**
  * What the affaire's activity shows of its launch requests (migration 20261121170448_takeoff_launch_requests.sql): each
@@ -54,6 +55,7 @@ export type TakeoffRequestJobRow = TakeoffOperatorStateRow & {
   launch_request_id: string | null;
   plan_set_id: string | null;
   estimate_version_id: string | null;
+  error_message?: string | null;
   created_at?: string | null;
   started_at?: string | null;
   analysis_finished_at?: string | null;
@@ -265,6 +267,7 @@ function toPieces(details: unknown): TakeoffLaunchPiece[] {
 function toActivityJob(job: TakeoffRequestJobRow, viewer: TakeoffResumeViewer, now: Date, sendsItems: boolean): TakeoffRequestActivityJob {
   const decision = resolveTakeoffOperatorState(toTakeoffOperatorStateInput(job, viewer, now));
   const transition = latestOf([job.created_at, job.analysis_queued_at, job.started_at, job.completed_at, job.analysis_finished_at]);
+  const failureMessage = rejectedProviderAnswerMessage(job.error_code, job.error_message);
   return {
     jobId: job.id,
     planSetId: job.plan_set_id,
@@ -273,6 +276,7 @@ function toActivityJob(job: TakeoffRequestJobRow, viewer: TakeoffResumeViewer, n
     itemCount: job.item_count,
     applied: job.status === "applied",
     errorCode: toPublicFailureCode(job.error_code),
+    ...(failureMessage && { failureMessage }),
     retryCount: job.retry_count ?? 0,
     resume: decision.resume.reason === "not_stopped" ? null : decision.resume,
     canCancel: decision.canCancel,

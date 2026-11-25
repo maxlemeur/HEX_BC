@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 
 import { expect } from "e2e";
+import type { TakeoffJobDetailResponse } from "@/lib/takeoff/types";
 
 import { apiRequest, armyTest, recordEvidence } from "../critical/fixtures";
 import { waitForHydration } from "../critical/hydration-support";
@@ -136,14 +137,15 @@ armyTest("TKPR02 B failed, an answer omitted, a reading cut short: B publishes n
   await activateOwnedItemListOrder();
   try {
     const templated = { done: false };
-    for (const failure of ["terminal", "omitted", "truncated"] as const) {
+    for (const failure of ["terminal", "omitted", "truncated", "nested"] as const) {
       const { dossier, jobA, jobB } = await admittedRequest(ui, owner, templated);
       const plans = { [dossier.plans[0].id]: "A", [dossier.plans[1].id]: "B" };
-      await runOwnedPlanDispatch(ui, owner, dossier.projectId, {
+      const dispatch = await runOwnedPlanDispatch(ui, owner, dossier.projectId, {
         modes: failure === "terminal" ? { [jobB.id]: "terminal" } : {},
         itemAnswers: { [jobA.id]: { items: { [LAVABO]: { quantity: 3, unit: "u", page: 2 } } },
           ...(failure === "omitted" ? { [jobB.id]: { items: { [WC]: "omit" } } } : {}),
-          ...(failure === "truncated" ? { [jobB.id]: { truncate: true } } : {}) },
+          ...(failure === "truncated" ? { [jobB.id]: { truncate: true } } : {}),
+          ...(failure === "nested" ? { [jobB.id]: { items: { [LAVABO]: { quantity: 2, unit: "u", page: 1 } }, invalidQuantity: true } } : {}) },
       });
       const [doneA, doneB] = await readOwnedPlanJobs(dossier.projectId);
       expect([doneA.status, doneA.analysis_outcome]).toEqual(["completed", "success"]);
@@ -151,6 +153,32 @@ armyTest("TKPR02 B failed, an answer omitted, a reading cut short: B publishes n
       expect({ failure, status: doneB.status, code: doneB.error_code, publishedB: await publications(jobB.id),
         publishedA: await publications(jobA.id), rowsB: await readOwnedPlanItems(jobB.id) }).toEqual({ failure, status: "failed",
         code: failure === "terminal" ? "AI_PROVIDER" : "TAKEOFF_LEVEL_C_INVALID_SCHEMA", publishedB: 0, publishedA: 1, rowsB: [] });
+      if (failure === "truncated" || failure === "nested") {
+        const diagnosis = failure === "truncated" ? { stage: "answer_json", exception: "SyntaxError" }
+          : { stage: "answer_schema", exception: "ZodError", issues: [{ path: "$.responses[0].observations[0].quantity", code: "invalid_type" }], issue_count: 1 };
+        const details = { provider: "chatgpt", retryable: false, diagnosis, usage: { input: 900, reasoning: 25, output: 75, total: 1000 } };
+        const message = "La réponse de l’analyse n’est pas exploitable pour ce plan et le métré peut être relancé.";
+        const detail = await apiRequest<{ data: TakeoffJobDetailResponse }>(browser, "GET", `/api/takeoff/jobs/${jobB.id}`);
+        expect(detail.status).toBe(200);
+        expect(detail.body.data.job).toMatchObject({ error_message: message, next_retry_at: null });
+        const [stored] = await querySql(`select json_build_object('result', r.raw_response, 'resultTotal', r.token_count,
+          'chunk', json_build_object('details', m.metadata->'error_details', 'message', m.metadata->'error_message',
+            'duration', m.duration_ms, 'total', m.total_tokens, 'input', m.input_tokens,
+            'reasoning', m.reasoning_tokens, 'output', m.output_tokens))
+          from public.takeoff_results r join public.takeoff_run_metrics m on m.result_id = r.id
+          where r.job_id = '${jobB.id}';`);
+        const receipt = JSON.parse(stored);
+        expect(receipt).toMatchObject({ result: details, resultTotal: 1000, chunk: { details, message,
+          duration: expect.any(Number), total: 1000, input: 900, reasoning: 25, output: 75 } });
+        expect(receipt.chunk.duration).toBeGreaterThan(0);
+        expect(stored).not.toContain("FICTIONAL_PLAN_MARKER");
+        expect(dispatch.calls.map((call) => call.jobId)).toEqual([jobA.id, jobB.id]);
+        await app.open(`/dashboard/affaires/${dossier.projectId}/takeoff?request=${jobB.launch_request_id}`);
+        const plan = screen.getByRole("list", "Plans de l’analyse", { exact: true }).getByRole("listitem")
+          .filter({ hasText: "plan-b.pdf" });
+        await expect(plan.getByText(message, { exact: true })).toBeVisible();
+        await recordEvidence(army, `takeoff-poste-rejected-${failure}`, receipt);
+      }
       // A's measure stays a partial quantity, and an item A did not find is never « not found » while B gave no answer.
       const ended = { expected: 2, answered: 1, inFlight: 0, ended: 1 };
       expect({ failure, items: summary(await readOwnedItemReadings(owner, dossier.projectId), plans) }).toEqual({ failure, items: [

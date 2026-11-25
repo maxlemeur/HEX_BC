@@ -3,6 +3,11 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { z } from "zod";
 
 vi.mock("@/lib/ai/chatgpt-local-store", () => ({ readChatGptStore: vi.fn(), getChatGptHostId: vi.fn().mockResolvedValue("urn:uuid:host") }));
+vi.mock("@/lib/ai/chatgpt-local-auth", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/lib/ai/chatgpt-local-auth")>(),
+  getLocalChatGptCredential: vi.fn().mockResolvedValue({ accessToken: "fictional-credential", profileId: "profile",
+    model: "chosen-model", reasoningEffort: null, authorizationId: "connexion" }),
+}));
 vi.mock("@/lib/ai/chatgpt-local-inference", () => ({ callLocalChatGptStructured: vi.fn(), LocalChatGptConnectionWithdrawnError: class extends Error {} }));
 vi.mock("@/lib/supabase/service-role", () => ({ createServiceRoleClient: vi.fn() }));
 import { readChatGptStore, getChatGptHostId } from "@/lib/ai/chatgpt-local-store";
@@ -35,7 +40,7 @@ beforeEach(() => {
   vi.mocked(readChatGptStore).mockResolvedValue({ selectedId: "profile", profiles: [{ id: "profile", accessToken: "fixture-access", refreshToken: "fixture-refresh", scopes: ["chatgpt.tokens.use.direct"], authorizationId: "connexion", model: "chosen-model" }] } as never);
   vi.mocked(callLocalChatGptStructured).mockResolvedValue({ data: { quantity: 12 } } as never);
 });
-afterEach(() => vi.unstubAllEnvs());
+afterEach(() => { vi.unstubAllEnvs(); vi.unstubAllGlobals(); });
 
 it("binds the plan to the persisted creator and active job tenant, rechecking access per call", async () => {
   const provider = await resolveLocalTakeoffProvider(client as never, job);
@@ -124,6 +129,60 @@ it("stops on a selected plan failure without raw provider details or automatic r
   vi.mocked(callLocalChatGptStructured).mockRejectedValue(new Error("Bearer private-provider-payload"));
   await expect(provider!.call(options)).rejects.toMatchObject({ code: "AI_PROVIDER", retryable: false, details: { provider: "chatgpt" } });
   await expect(provider!.call(options)).rejects.not.toThrow("private-provider-payload");
+});
+
+const rejectedReadingMessage = "La réponse de l’analyse n’est pas exploitable pour ce plan et le métré peut être relancé.";
+const answerSchema = z.object({ responses: z.array(z.object({ observations: z.array(z.object({ quantity: z.number() }).strict()) })) });
+const providerUsage = { input_tokens: 900, output_tokens: 100, total_tokens: 1000, output_tokens_details: { reasoning_tokens: 25 } };
+const completed = (text: unknown) => ({ type: "response.completed", response: { status: "completed", usage: providerUsage,
+  output: [{ type: "message", content: [{ type: "output_text", text }] }] } });
+const sse = (event: unknown) => `data: ${JSON.stringify(event)}\n\n`;
+
+it.each([
+  ["answer JSON", sse(completed('{"annotation":"FICTIONAL_PLAN_MARKER",}')), { stage: "answer_json", exception: "SyntaxError", position: 38 }],
+  ["text after JSON", sse(completed("{} FICTIONAL_PLAN_MARKER")), { stage: "answer_json", exception: "SyntaxError", position: 3 }],
+  ["answer schema", sse(completed(JSON.stringify({ responses: [{ observations: [{ quantity: "FICTIONAL_PLAN_MARKER",
+    FICTIONAL_PLAN_MARKER: "fictional@example.invalid" }] }] }))), { stage: "answer_schema", exception: "ZodError", issues: [
+    { path: "$.responses[0].observations[0].quantity", code: "invalid_type" },
+    { path: "$.responses[0].observations[0]", code: "unrecognized_keys" },
+  ], issue_count: 2 }],
+  ["final output", sse(completed("FICTIONAL_PLAN_MARKER".split("_"))), { stage: "response_envelope", exception: "ZodError", issues: [
+    { path: "$.output[0].content[0].text", code: "invalid_type" },
+  ], issue_count: 1 }],
+  ["stream event JSON", sse({ type: "response.in_progress", response: { usage: providerUsage } })
+    + 'data: {"annotation":"FICTIONAL_PLAN_MARKER",}\n\n', { stage: "stream_event_json", exception: "SyntaxError", position: 38 }],
+  ["stream event JSON after empty usage", sse({ type: "response.in_progress", response: { usage: providerUsage } })
+    + sse({ type: "response.in_progress", response: { usage: {} } })
+    + 'data: {"annotation":"FICTIONAL_PLAN_MARKER",}\n\n', { stage: "stream_event_json", exception: "SyntaxError", position: 38 }, 0],
+  ["answer JSON after total-only usage", sse({ type: "response.in_progress", response: { usage: providerUsage } })
+    + sse({ type: "response.completed", response: { ...completed("{} FICTIONAL_PLAN_MARKER").response, usage: { total_tokens: 1000 } } }),
+    { stage: "answer_json", exception: "SyntaxError", position: 3 }],
+] as const)("records the %s rejection and known usage without provider content", async (_case, stream, diagnosis, ledgerTotal: number = 1000) => {
+  const { callLocalChatGptStructured: infer } = await vi.importActual<typeof import("@/lib/ai/chatgpt-local-inference")>("@/lib/ai/chatgpt-local-inference");
+  vi.mocked(callLocalChatGptStructured).mockImplementationOnce(infer);
+  const fetch = vi.fn(async () => new Response(stream));
+  vi.stubGlobal("fetch", fetch);
+  const ledger = { beforePaidCall: vi.fn(async () => ({ key: "pdf:1", reserved: true })), recordPaidUsage: vi.fn(async () => undefined),
+    recordUnknownUsage: vi.fn(async () => undefined) };
+  const provider = await resolveLocalTakeoffProvider(client as never, job, { ledger });
+  const failure = await provider.call({ prompt: "FICTIONAL_PLAN_MARKER", schema: answerSchema }).catch((error: unknown) => error);
+  expect(failure).toMatchObject({ code: "AI_SCHEMA", retryable: false, message: rejectedReadingMessage, details: { diagnosis,
+    duration_ms: expect.any(Number), usage: { input: 900, reasoning: 25, output: 75, total: 1000 } } });
+  expect(JSON.stringify(failure)).not.toMatch(/FICTIONAL_PLAN_MARKER|fictional@example\.invalid|fictional-credential/);
+  expect(fetch).toHaveBeenCalledTimes(1);
+  expect(ledger.recordPaidUsage).toHaveBeenCalledExactlyOnceWith({ key: "pdf:1", reserved: true },
+    { totalTokens: ledgerTotal, costCents: 0, trusted: ledgerTotal > 0 });
+  expect(ledger.recordUnknownUsage).not.toHaveBeenCalled();
+});
+
+it("returns a valid answer with its usual usage", async () => {
+  const { callLocalChatGptStructured: infer } = await vi.importActual<typeof import("@/lib/ai/chatgpt-local-inference")>("@/lib/ai/chatgpt-local-inference");
+  vi.mocked(callLocalChatGptStructured).mockImplementationOnce(infer);
+  const data = { responses: [{ observations: [{ quantity: 12 }] }] };
+  vi.stubGlobal("fetch", vi.fn(async () => new Response(sse(completed(JSON.stringify(data))))));
+  const provider = await resolveLocalTakeoffProvider(client as never, job);
+  await expect(provider.call({ prompt: "Extract", schema: answerSchema })).resolves.toMatchObject({ data, tokenCount: 1000,
+    tokenUsage: { inputTokens: 900, reasoningTokens: 25, outputTokens: 75, totalTokens: 1000 } });
 });
 it("requires a chosen model without switching billing paths", async () => {
   vi.mocked(readChatGptStore).mockResolvedValue({ selectedId: "profile", profiles: [{ id: "profile", accessToken: "fixture-access", refreshToken: "fixture-refresh", scopes: ["chatgpt.tokens.use.direct"], authorizationId: "connexion", model: null }] } as never);

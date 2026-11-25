@@ -100176,6 +100176,10 @@
                                 "null"
                               ]
                             },
+                            "failureMessage": {
+                              "description": "Motif public fixe lorsque la réponse du fournisseur est inexploitable.",
+                              "type": "string"
+                            },
                             "retryCount": {
                               "type": "integer",
                               "minimum": 0,
@@ -100857,6 +100861,10 @@
                               "string",
                               "null"
                             ]
+                          },
+                          "failureMessage": {
+                            "description": "Motif public fixe lorsque la réponse du fournisseur est inexploitable.",
+                            "type": "string"
                           },
                           "retryCount": {
                             "type": "integer",

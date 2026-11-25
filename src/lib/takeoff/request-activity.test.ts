@@ -420,6 +420,17 @@ describe("buildTakeoffRequestActivity: names only for the sources the member may
 
 // Fix round 1, point 9: every code the answer carries is one with a public reason, or the generic one.
 describe("buildTakeoffRequestActivity: public codes only", () => {
+  it("carries the rejected-answer message for plans the member reads without forwarding stored free text", () => {
+    const message = "La réponse de l’analyse n’est pas exploitable pour ce plan et le métré peut être relancé.";
+    const failure = { status: "failed" as const, error_code: "TAKEOFF_LEVEL_C_INVALID_SCHEMA" };
+    const view = activity([unit("a", 1, { state: "failed" }), unit("b", 2, { state: "failed" })], [
+      memberJob("a", { ...failure, error_message: message }),
+      memberJob("b", { ...failure, error_message: "FICTIONAL_PLAN_MARKER" }),
+    ]);
+    expect(view.jobs[0]).toMatchObject({ errorCode: failure.error_code, failureMessage: message });
+    expect(view.jobs[1]).not.toHaveProperty("failureMessage");
+    expect(JSON.stringify(view)).not.toContain("FICTIONAL_PLAN_MARKER");
+  });
   it("replaces a code without a public reason by the generic one", () => {
     const view = activity([unit("a", 1, { state: "failed" })], [memberJob("a", { status: "failed", analysis_outcome: "failure",
       error_code: "PROVIDER said: secret detail" })]);
