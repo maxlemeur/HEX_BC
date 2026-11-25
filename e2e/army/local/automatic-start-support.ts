@@ -13,7 +13,7 @@ async function readJson<T>(sql: string): Promise<T> {
 export type OwnedLaunchRequest = {
   id: string; origin: string; state: string; reason_code: string | null; confirmed_by: string | null; payer_id: string | null;
   mandate_kind: string | null; execution_host_id: string | null; outcome: string | null;
-  units_expected: number | null; manifest_plans: string[] | null;
+  units_expected: number | null; units_failed: number; units_not_started: number; manifest_plans: string[] | null;
 };
 
 /** Displayed copy identities on this fictional dossier, for a second tab replaying its gesture. */
@@ -30,6 +30,7 @@ export async function readOwnedLaunchRequests(projectId: string) {
   return readJson<OwnedLaunchRequest[]>(`select coalesce(json_agg(json_build_object('id', r.id, 'origin', r.origin, 'state', r.state,
     'reason_code', r.reason_code, 'confirmed_by', r.confirmed_by, 'payer_id', r.payer_id,
     'mandate_kind', r.mandate_kind, 'execution_host_id', r.execution_host_id, 'outcome', r.outcome, 'units_expected', r.units_expected,
+    'units_failed', r.units_failed, 'units_not_started', r.units_not_started,
     'manifest_plans', (select json_agg(plan ->> 'plan_file_id') from jsonb_array_elements(r.manifest -> 'plans') plan))
     order by r.created_at), '[]'::json) from public.takeoff_launch_requests r where r.project_id = '${projectId}';`);
 }

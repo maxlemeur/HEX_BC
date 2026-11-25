@@ -34,7 +34,7 @@ await import("./coverage-network-guard.mjs");
 assert(!process.env.OPENAI_DECISIONS_API_KEY, "The owned worker holds no Decisions key.");
 process.env.SENTRY_DSN = "";
 const modes = JSON.parse(process.env.ARMY_TAKEOFF_PLAN_MODES ?? "{}");
-assert(Object.values(modes).every((mode) => ["success", "terminal", "hold", "release"].includes(mode)));
+assert(Object.values(modes).every((mode) => ["success", "terminal", "timeout", "hold", "release"].includes(mode)));
 const releaseFile = process.env.ARMY_TAKEOFF_HOLD_RELEASE_FILE ?? "";
 assert(!Object.values(modes).includes("release") || releaseFile.length > 0, "A released hold names its release file.");
 const planItems = JSON.parse(process.env.ARMY_TAKEOFF_PLAN_ITEMS ?? "{}");
@@ -103,6 +103,11 @@ const resolveProvider = async (_supabase, job, hooks) => {
     }
     inFlight -= 1;
     calls.push({ jobId: job.id, startedAt, endedAt: Date.now(), files, mode });
+    if (mode === "timeout") {
+      await hooks.ledger.recordUnknownUsage(paid);
+      throw new TakeoffError({ code: TakeoffErrorCode.AI_PROVIDER, message: "ARMY controlled provider timeout", retryable: false,
+        jobId: job.id, level: "C" });
+    }
     await hooks.ledger.recordPaidUsage(paid, { totalTokens: 1_000, costCents: 0 });
     if (mode === "terminal") {
       throw new TakeoffError({ code: TakeoffErrorCode.AI_PROVIDER, message: "ARMY controlled terminal provider failure", retryable: false,

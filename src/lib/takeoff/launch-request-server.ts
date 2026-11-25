@@ -1019,11 +1019,12 @@ async function launchTakeoffPlanCommand(service: Service, input: RelaunchInput,
     if (scope.includes(plan.id) || reading.has(logicalPlanKey(plan)) || !held(plan) || omitted.has(plan.id)) continue;
     omitted.set(plan.id, { ...plan, reason: "not_requested" });
   }
-  // At the first partial launch, every other retained copy already belongs to this dossier.
-  // Keep its name in coverage so only a genuinely new copy can appear as an addition.
-  if (named && !input.predecessorJobId) {
+  // Keep recognised plans outside a named selection visible. A relaunch's preparation marks the active
+  // plans the member left unticked; earlier successful readings keep their own coverage above.
+  if (named && (!input.predecessorJobId || input.planFileIds?.length)) {
     for (const source of confirmed.preparation.sources) {
       if (source.kind === "plan" && source.plan_set_id === input.planSetId && !scope.includes(source.document_id)
+        && (!input.predecessorJobId || source.selected_in_plan_set === true)
         && !omitted.has(source.document_id)) {
         omitted.set(source.document_id, { id: source.document_id, name: source.document_name, reason: "not_selected" });
       }

@@ -19,6 +19,7 @@ import {
   stopTakeoffLaunchRequest,
 } from "@/lib/takeoff/launch-request-server";
 import { readAffaireTakeoffZone } from "@/lib/takeoff/affaire-takeoff-zone-server";
+import { readRelaunchPlanChoice } from "@/lib/takeoff/relaunch-plan-choice-server";
 
 // Identifiers are compared as text by the replay of a launch (its copy receipt is JSON): one spelling, lower case.
 const uuidSchema = z.string().uuid().transform((value) => value.toLowerCase());
@@ -186,6 +187,14 @@ const relaunchTakeoffSchema = z.object({
   planFileIds: z.array(uuidSchema).min(1).max(20).nullish(),
 });
 const stopTakeoffSchema = z.object({ projectId: uuidSchema, requestId: uuidSchema });
+const relaunchPlanChoiceSchema = z.object({ projectId: uuidSchema, predecessorJobId: uuidSchema, singlePlan: z.boolean() });
+
+export async function readRelaunchPlanChoiceAction(input: z.input<typeof relaunchPlanChoiceSchema>) {
+  return runSafeTakeoffAction(async () => {
+    const { projectId, predecessorJobId, singlePlan } = relaunchPlanChoiceSchema.parse(input);
+    return readRelaunchPlanChoice(await getAuthenticatedContext(), projectId, predecessorJobId, singlePlan);
+  }, "Impossible de lire les plans à relancer.");
+}
 
 export async function readTakeoffLaunchStateAction(input: z.input<typeof takeoffLaunchStateSchema>) {
   return runSafeTakeoffAction(async () => {

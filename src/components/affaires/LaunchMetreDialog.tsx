@@ -12,6 +12,7 @@ import useSWR from "swr";
 import {
   launchPreparedTakeoffFromPlanSetAction,
   launchPreparedTakeoffFromSourceVersionPlanSetAction,
+  readRelaunchPlanChoiceAction,
   relaunchTakeoffAction,
 } from "@/app/dashboard/affaires/_actions/takeoff";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -67,7 +68,7 @@ function toLaunchPlanSetOption(planSet: PlanSetListItem): LaunchMetrePlanSetOpti
  */
 export type LaunchMetreDialogMode =
   | { kind: "version" }
-  | { kind: "request"; predecessorJobId: string | null; planDispatch?: boolean }
+  | { kind: "request"; predecessorJobId: string | null; planDispatch?: boolean; singlePlan?: boolean }
   | { kind: "save_only"; reason: string };
 
 type LaunchMetreDialogProps = {
@@ -201,6 +202,14 @@ function LaunchMetreDialogContent({
   // The member of the page: a request launch whose answer is unknown (a timeout, a network failure, a server error) is kept
   // for them and the affaire, across reloads and tabs. A different named selection requires a new confirmation.
   const user = useOptionalUserContext();
+  const predecessorJobId = launchMode.kind === "request" && launchMode.planDispatch ? launchMode.predecessorJobId : null;
+  const singlePlan = launchMode.kind === "request" && launchMode.singlePlan === true;
+  const { data: relaunchPlans, error: relaunchPlansError, isValidating: readingRelaunchPlans, mutate: reloadRelaunchPlans } = useSWR(
+    predecessorJobId ? ["takeoff-relaunch-plans", user?.tenantId, user?.profile?.id, projectId, predecessorJobId, singlePlan] : null,
+    async () => unwrapTakeoffActionResult(await readRelaunchPlanChoiceAction({ projectId, predecessorJobId: predecessorJobId!, singlePlan })),
+    { revalidateOnMount: true, revalidateOnFocus: false, shouldRetryOnError: false },
+  );
+  const linkedPlanSetId = initialPlanSetId ?? relaunchPlans?.planSetId ?? null;
   const [isSubmitting, setIsSubmitting] = useState(false);
   const savePreparationRef = useRef<(() => Promise<number | null>) | null>(null);
   const registerPreparationSave = useCallback((save: () => Promise<number | null>) => { savePreparationRef.current = save; }, []);
@@ -300,14 +309,14 @@ function LaunchMetreDialogContent({
 
   useEffect(() => {
     const memberChoice = memberPlanSetChoiceRef.current;
-    const memberChoiceId = memberChoice?.linkPlanSetId === initialPlanSetId ? memberChoice.planSetId : null;
+    const memberChoiceId = memberChoice?.linkPlanSetId === linkedPlanSetId ? memberChoice.planSetId : null;
     setSelectedPlanSetId((currentId) => {
       const byId = new Map(planSetOptions.map((option) => [option.id, option]));
       const isUsable = (id: string | null | undefined) =>
         Boolean(id && (byId.get(id)?.fileCount ?? 0) > 0);
 
       if (memberChoiceId !== null && currentId === memberChoiceId && isUsable(currentId)) return currentId;
-      if (isUsable(initialPlanSetId)) return initialPlanSetId;
+      if (isUsable(linkedPlanSetId)) return linkedPlanSetId;
       if (isUsable(currentId)) return currentId;
       if (isUsable(plansContext?.defaultPlanSetId)) {
         return plansContext?.defaultPlanSetId ?? null;
@@ -315,11 +324,11 @@ function LaunchMetreDialogContent({
 
       const firstUsable = planSetOptions.find((option) => option.fileCount > 0);
       if (firstUsable) return firstUsable.id;
-      if (initialPlanSetId && byId.has(initialPlanSetId)) return initialPlanSetId;
+      if (linkedPlanSetId && byId.has(linkedPlanSetId)) return linkedPlanSetId;
       if (currentId && byId.has(currentId)) return currentId;
       return planSetOptions[0]?.id ?? null;
     });
-  }, [initialPlanSetId, planSetOptions, plansContext?.defaultPlanSetId]);
+  }, [linkedPlanSetId, planSetOptions, plansContext?.defaultPlanSetId]);
 
 
   useEffect(() => {
@@ -398,6 +407,7 @@ function LaunchMetreDialogContent({
 
   const handleRequestLaunch = useCallback(async (preparationRevision: number, planFileCount: number, planFileIds?: string[]) => {
     if (!selectedPlanSet || !hasPlanFiles || launchMode.kind !== "request") return;
+    if (launchMode.planDispatch && launchMode.predecessorJobId && !planFileIds?.length) return;
     const content = { predecessorJobId: launchMode.predecessorJobId, planSetId: selectedPlanSet.id, preparationRevision,
       ...(planFileIds?.length ? { planFileIds } : {}) };
     // A command still unanswered is settled first, with its own content (its analysis may have finished since, and the
@@ -570,8 +580,16 @@ function LaunchMetreDialogContent({
             </div>
           ) : (
             <div className="space-y-4">
-              {isLoadingPlanSets && !hasUsablePlanSet ? <p role="status" className="text-sm text-muted-foreground">Chargement des jeux de plans…</p> : selectedPlanSet && hasPlanFiles ? (
+              {predecessorJobId && relaunchPlansError ? (
+                <Alert variant="warning"><AlertDescription>
+                  Impossible de lire les plans à relancer. <button type="button" className="underline"
+                    onClick={() => void reloadRelaunchPlans()}>Réessayer</button>
+                </AlertDescription></Alert>
+              ) : predecessorJobId && (!relaunchPlans || readingRelaunchPlans) ? (
+                <p role="status" className="text-sm text-muted-foreground">Chargement des plans à relancer…</p>
+              ) : isLoadingPlanSets && !hasUsablePlanSet ? <p role="status" className="text-sm text-muted-foreground">Chargement des jeux de plans…</p> : selectedPlanSet && hasPlanFiles ? (
                 <LazyTakeoffPreparationPanel
+                  key={predecessorJobId ? `${predecessorJobId}:${singlePlan}:${selectedPlanSet.id}` : undefined}
                   projectId={projectId}
                   planSetId={selectedPlanSet.id}
                   estimateVersionId={versionMode ? selectedVersionOption?.id ?? null : null}
@@ -579,8 +597,8 @@ function LaunchMetreDialogContent({
                   disabled={isSubmitting}
                   launchDisabled={!hasTargetVersion || launchMode.kind === "save_only"}
                   launchNotice={launchMode.kind === "save_only" ? launchMode.reason : null}
-                  planChoice={launchMode.kind === "request" && launchMode.planDispatch
-                    ? (launchMode.predecessorJobId ? "optional" : "required") : undefined}
+                  planChoice={launchMode.kind === "request" && launchMode.planDispatch ? "required" : undefined}
+                  relaunchPlans={predecessorJobId ? relaunchPlans : undefined}
                   onLaunch={handleLaunch}
                   onBusyChange={setIsSubmitting}
                   onRegisterSave={registerPreparationSave}
@@ -588,7 +606,7 @@ function LaunchMetreDialogContent({
                     <label className="block text-sm font-medium" htmlFor="launch-metre-plan-set">Jeu de plans à analyser</label>
                     <NativeSelect id="launch-metre-plan-set" value={selectedPlanSet.id} onChange={(event) => {
                       const next = event.target.value;
-                      const linkPlanSetId = initialPlanSetId;
+                      const linkPlanSetId = linkedPlanSetId;
                       setErrorMessage(null);
                       void Promise.resolve(savePreparationRef.current?.()).then(() => {
                         memberPlanSetChoiceRef.current = { linkPlanSetId, planSetId: next };

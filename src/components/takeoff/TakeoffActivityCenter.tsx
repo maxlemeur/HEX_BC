@@ -61,6 +61,7 @@ type Props = {
     fileCount?: number;
   }>;
   launchContext?: TakeoffLaunchContext | null;
+  planDispatch?: boolean;
   /** The server's view of the latest analysis (review version, failure reason), as on the hub. */
   latestJobContext?: TakeoffLatestJobContext | null;
   /** The affaire already has an analysis: the tracking panel is laid out before the list loads. */
@@ -156,6 +157,7 @@ function TakeoffActivityCenterView({
   versions,
   planSets,
   launchContext = null,
+  planDispatch = false,
   latestJobContext = null,
   initialHasAnalyses = false,
   header,
@@ -192,6 +194,7 @@ function TakeoffActivityCenterView({
   const [isLaunchDialogOpen, setIsLaunchDialogOpen] = useState(
     searchParams.get("launch") === "1",
   );
+  const [relaunchJobId, setRelaunchJobId] = useState<string | null>(null);
   // Filters stay folded unless the page opens with some already applied.
   const [filtersExpanded, setFiltersExpanded] = useState(() =>
     FILTER_KEYS.some((key) => (searchParams.get(key) ?? "all") !== "all"),
@@ -750,6 +753,7 @@ function TakeoffActivityCenterView({
                     <TakeoffJobsTable
                       projectId={projectId}
                       data={listData}
+                      onRelaunchPlan={planDispatch ? setRelaunchJobId : undefined}
                       onPageChange={() => undefined}
                       onPageSizeChange={(size) => setPageSize(size)}
                       pageSize={pageSize}
@@ -799,6 +803,7 @@ function TakeoffActivityCenterView({
                   <TakeoffJobsTable
                     projectId={projectId}
                     data={listData}
+                    onRelaunchPlan={planDispatch ? setRelaunchJobId : undefined}
                     onPageChange={(offset) =>
                       updateParams({ offset: offset > 0 ? String(offset) : null })
                     }
@@ -878,15 +883,16 @@ function TakeoffActivityCenterView({
         </section>
       ) : null}
 
-      {launchContext ? (
+      {launchContext || (relaunchJobId && !refused) ? (
         <LaunchMetreDialog
-          open={isLaunchDialogOpen}
-          onOpenChange={handleLaunchDialogOpenChange}
+          open={relaunchJobId !== null || isLaunchDialogOpen}
+          onOpenChange={relaunchJobId ? (open) => { if (!open) setRelaunchJobId(null); } : handleLaunchDialogOpenChange}
           onLaunched={refreshEverything}
           projectId={projectId}
-          currentVersion={launchContext.currentVersion}
-          plansContext={launchContext.plansContext}
-          availableVersions={launchContext.availableVersions}
+          launchMode={relaunchJobId ? { kind: "request", predecessorJobId: relaunchJobId, planDispatch: true, singlePlan: true } : undefined}
+          currentVersion={launchContext?.currentVersion ?? null}
+          plansContext={launchContext?.plansContext ?? null}
+          availableVersions={launchContext?.availableVersions}
           availablePlanSets={planSets.map((planSet) => ({
             id: planSet.id,
             name: planSet.name,
