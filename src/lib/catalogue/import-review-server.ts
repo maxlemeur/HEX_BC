@@ -261,7 +261,7 @@ const LISTED_BATCHES = 10;
 export async function listCatalogueImportBatches(): Promise<{ items: CatalogueImportBatch[] }> {
   const { supabase, tenantId, tenantRole, userId } = await getAuthenticatedTenantContext();
   const batches = await supabase.from("catalogue_import_batches")
-    .select("id, kind, source_name, created_at, created_by, undone_at")
+    .select("id, kind, source_name, created_at, created_by, undo_started_at, undone_at")
     .eq("tenant_id", tenantId).order("created_at", { ascending: false }).limit(LISTED_BATCHES);
   if (batches.error) throw mapSupabaseError(batches.error, "Impossible de lire les imports du catalogue.");
 
@@ -280,7 +280,8 @@ export async function listCatalogueImportBatches(): Promise<{ items: CatalogueIm
       ? await Promise.all([articles(batch.id).then(counted), articles(batch.id).eq("catalogue_status", "draft").then(counted)])
       : await Promise.all([references(batch.id).then(counted), references(batch.id).eq("reference_needs_review", true).then(counted)]);
     return {
-      id: batch.id, kind, source_name: batch.source_name, created_at: batch.created_at, undone_at: batch.undone_at, total, open,
+      id: batch.id, kind, source_name: batch.source_name, created_at: batch.created_at,
+      undo_started_at: batch.undo_started_at, undone_at: batch.undone_at, total, open,
       can_undo: !batch.undone_at && canAddToCatalogue(tenantRole) && (tenantRole === "admin" || batch.created_by === userId),
     };
   }));
@@ -288,7 +289,7 @@ export async function listCatalogueImportBatches(): Promise<{ items: CatalogueIm
 }
 
 const undoAnswerSchema = z.object({
-  deleted: z.number().int().nonnegative(), kept: z.number().int().nonnegative(), next_after: z.string().nullable(),
+  deleted: z.number().int().nonnegative(), kept: z.number().int().nonnegative(), done: z.boolean(),
 });
 
 /** Rows one call of the database function examines, and calls one request makes: 20 000 rows, well within its time. */
@@ -302,17 +303,15 @@ const UNDO_MAX_CALLS = 40;
 export async function undoCatalogueImportBatch(batchId: string): Promise<UndoImportResult> {
   const { supabase } = await editorContext();
   const result = { deleted: 0, kept: 0 };
-  let after: string | null = null;
   for (let call = 0; call < UNDO_MAX_CALLS; call += 1) {
-    const { data, error } = await supabase.rpc("undo_catalogue_import_batch", { p_batch_id: batchId, p_after: after, p_limit: UNDO_PAGE });
+    const { data, error } = await supabase.rpc("undo_catalogue_import_batch", { p_batch_id: batchId, p_limit: UNDO_PAGE });
     if (error?.code === "P0002") throw notFound("Cet import est introuvable.");
     if (error?.code === "42501") throw forbidden("Seul un administrateur ou l’auteur de l’import peut l’annuler.");
     if (error) throw mapSupabaseError(error, "Impossible d’annuler cet import.");
     const answer = undoAnswerSchema.parse(data);
     result.deleted += answer.deleted;
     result.kept += answer.kept;
-    if (answer.next_after === null) return result;
-    after = answer.next_after;
+    if (answer.done) return result;
   }
   throw conflict(`L’annulation est en cours : ${result.deleted.toLocaleString("fr-FR")} éléments retirés. Relancez-la pour la terminer.`);
 }

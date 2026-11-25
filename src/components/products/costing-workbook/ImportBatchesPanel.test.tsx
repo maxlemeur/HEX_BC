@@ -22,7 +22,7 @@ import { ImportBatchesPanel } from "./ImportBatchesPanel";
 
 const batch = (extra: Partial<CatalogueImportBatch>): CatalogueImportBatch => ({
   id: "b0000000-0000-4000-8000-000000000001", kind: "workbook_articles", source_name: "bible-chiffrage.xlsm",
-  created_at: "2026-11-25T10:00:00.000Z", undone_at: null, total: 12, open: 10, can_undo: true, ...extra,
+  created_at: "2026-11-25T10:00:00.000Z", undo_started_at: null, undone_at: null, total: 12, open: 10, can_undo: true, ...extra,
 });
 const REFERENCES = "b0000000-0000-4000-8000-000000000002";
 
@@ -94,7 +94,20 @@ describe("ImportBatchesPanel", () => {
 
     await user.click(within(articles).getByRole("button", { name: "Annuler l’import" }));
     await waitFor(() => expect(posts().map((call) => call.url)).toEqual([`/api/catalogue/import-batches/${batch({}).id}/undo`]));
-    expect(await screen.findByText("Import annulé : 9 brouillons supprimés. 1 conservé : déjà validés ou utilisés.")).toBeVisible();
+    expect(await screen.findByText("Import annulé : 9 brouillons supprimés. 1 conservé.")).toBeVisible();
+  });
+
+  it("offers to finish an interrupted undo even when no open rows remain", async () => {
+    batches = [batch({ undo_started_at: "2026-11-25T11:00:00.000Z", open: 0 })];
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const user = userEvent.setup();
+    renderPanel();
+
+    expect(await screen.findByText("Annulation en cours")).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Annuler l’import" }));
+
+    expect(confirm).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(posts().map((call) => call.url)).toEqual([`/api/catalogue/import-batches/${batch({}).id}/undo`]));
   });
 
   it("offers an engineer neither the validation nor an undo that is not theirs (1, 2)", async () => {

@@ -59,6 +59,8 @@ const REFERENCE_ADDED_MEANWHILE =
 type PlannedDraft = { article: CostingWorkbookArticle; supplyTypeId: string | null };
 
 const IMPORT_NOT_STARTED = "L’import n’a pas pu être ouvert. Réessayez dans un instant.";
+const IMPORT_TENANT_REFUSAL = "Vérifiez l’entreprise sélectionnée et vos droits, puis relancez l’import du classeur.";
+const IMPORT_UNDO_STARTED = "L’import s’est arrêté car son annulation est en cours ou terminée. Terminez toute annulation en cours avant de relancer l’import du classeur.";
 
 type CatalogueArticle = { id: string; unit_price_cents: number; unit: string | null; is_active: boolean };
 type SupplyType = { id: string; code: string; name: string };
@@ -173,8 +175,9 @@ function reportOf(plan: Plan, confirmed: boolean, drafts: readonly PlannedDraft[
   };
 }
 
-function productRow({ article, supplyTypeId }: PlannedDraft, batchId: string): ProductInsert {
+function productRow({ article, supplyTypeId }: PlannedDraft, tenantId: string, batchId: string): ProductInsert {
   return {
+    tenant_id: tenantId,
     import_batch_id: batchId,
     reference: article.reference,
     designation: article.designation,
@@ -201,17 +204,27 @@ function productRow({ article, supplyTypeId }: PlannedDraft, batchId: string): P
  * Every draft carries the import it comes from (TI-711): the office validates the drafts of an import together,
  * or undoes the import while its drafts are untouched.
  */
-async function writeDrafts({ supabase }: AuthenticatedTenantContext, plan: Plan, sourceName: string | undefined): Promise<Report> {
+async function writeDrafts({ supabase, tenantId }: AuthenticatedTenantContext, plan: Plan, sourceName: string | undefined): Promise<Report> {
   const created: PlannedDraft[] = [];
   if (plan.drafts.length === 0) return reportOf(plan, true, created);
 
-  const batch = await supabase.rpc("start_workbook_article_import", { p_source_name: sourceName ?? null });
-  if (batch.error?.code === "42501") throw forbidden(PRODUCT_WRITE_REFUSAL);
+  const batch = await supabase.rpc("start_workbook_article_import", { p_tenant_id: tenantId, p_source_name: sourceName ?? null });
+  if (batch.error?.code === "42501") {
+    throw forbidden(`L’import n’a pas pu être ouvert dans l’entreprise prévue. ${IMPORT_TENANT_REFUSAL}`);
+  }
   if (batch.error || !batch.data) throw mapSupabaseError(batch.error ?? { code: "XX000", message: IMPORT_NOT_STARTED }, IMPORT_NOT_STARTED);
   const batchId = batch.data;
 
   const stopped = (error: SupabaseErrorLike) => {
-    const mapped = error.code === "42501"
+    let batchFailure: string | null = null;
+    if (error.code === "23514" && error.message === "PRODUCT_IMPORT_BATCH_INVALID") {
+      batchFailure = IMPORT_UNDO_STARTED;
+    } else if (error.code === "23503" && error.message.includes('"products_import_batch_fkey"')) {
+      batchFailure = `L’import s’est arrêté car le lot et les articles ne sont pas rattachés à la même entreprise. ${IMPORT_TENANT_REFUSAL}`;
+    } else if (error.code === "42501" && error.message === "Tenant access denied.") {
+      batchFailure = `L’import s’est arrêté car l’entreprise prévue n’est plus accessible. ${IMPORT_TENANT_REFUSAL}`;
+    }
+    const mapped = batchFailure ? conflict(batchFailure) : error.code === "42501"
       ? forbidden(PRODUCT_WRITE_REFUSAL)
       // A reference of the chunk was added between the read and the write: the whole statement failed.
       : error.code === "23505" ? conflict(REFERENCE_ADDED_MEANWHILE) : mapSupabaseError(error, "Impossible de créer les articles du classeur.");
@@ -221,15 +234,15 @@ async function writeDrafts({ supabase }: AuthenticatedTenantContext, plan: Plan,
     return new ApiError({
       status: mapped.status,
       code: COSTING_WORKBOOK_IMPORT_INCOMPLETE,
-      message: `L’import s’est arrêté : ${count(created.length)} brouillons créés sur ${count(plan.drafts.length)}. `
-        + "Relancez l’import du même classeur : il ne crée que les articles qui manquent encore au catalogue.",
+      message: batchFailure ?? (`L’import s’est arrêté : ${count(created.length)} brouillons créés sur ${count(plan.drafts.length)}. `
+        + "Relancez l’import du même classeur : il ne crée que les articles qui manquent encore au catalogue."),
       details,
     });
   };
 
   for (let start = 0; start < plan.drafts.length; start += WRITE_CHUNK) {
     const chunk = plan.drafts.slice(start, start + WRITE_CHUNK);
-    const { error } = await supabase.from("products").insert(chunk.map((draft) => productRow(draft, batchId)));
+    const { error } = await supabase.from("products").insert(chunk.map((draft) => productRow(draft, tenantId, batchId)));
     if (error) throw stopped(error);
     created.push(...chunk);
   }

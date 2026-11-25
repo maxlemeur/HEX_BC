@@ -100,7 +100,7 @@ export function ImportBatchesPanel({ refreshKey, draftsHref, onChanged }: Readon
     await run(batch, async () => {
       const { deleted, kept } = await undoCatalogueImport(batch.id);
       const noun = articles ? ["brouillon supprimé", "brouillons supprimés"] : ["référence supprimée", "références supprimées"];
-      const left = kept > 0 ? ` ${formatCount(kept)} ${plural(kept, "conservé", "conservés")} : déjà ${articles ? "validés ou utilisés" : "vérifiés"}.` : "";
+      const left = kept > 0 ? ` ${formatCount(kept)} ${plural(kept, "conservé", "conservés")}.` : "";
       return `Import annulé : ${formatCount(deleted)} ${plural(deleted, noun[0], noun[1])}.${left}`;
     }, "Cet import n’a pas pu être annulé.");
   }
@@ -116,6 +116,7 @@ export function ImportBatchesPanel({ refreshKey, draftsHref, onChanged }: Readon
         {batches.map((batch) => {
           const articles = batch.kind === "workbook_articles";
           const busy = working !== null;
+          const undoInProgress = Boolean(batch.undo_started_at && !batch.undone_at);
           return (
             <li key={batch.id} className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 py-3">
               <div className="min-w-0 space-y-0.5">
@@ -123,6 +124,7 @@ export function ImportBatchesPanel({ refreshKey, draftsHref, onChanged }: Readon
                   <span>{articles ? "Articles en brouillon" : "Références fournisseur"}</span>
                   <span className="font-normal text-muted-foreground">{MOMENT.format(new Date(batch.created_at))}</span>
                   {batch.undone_at ? <Badge variant="neutral" size="sm">annulé</Badge> : null}
+                  {undoInProgress ? <Badge variant="neutral" size="sm">Annulation en cours</Badge> : null}
                 </p>
                 <p className="text-xs text-muted-foreground wrap-anywhere">
                   {batch.source_name ? `${batch.source_name} · ` : ""}
@@ -151,7 +153,7 @@ export function ImportBatchesPanel({ refreshKey, draftsHref, onChanged }: Readon
                       Vérifier les références
                     </Link>
                   ) : null}
-                  {batch.can_undo && batch.open > 0 ? (
+                  {batch.can_undo && (batch.open > 0 || undoInProgress) ? (
                     <Button variant="danger" size="sm" disabled={busy} onClick={() => void undo(batch)}>Annuler l’import</Button>
                   ) : null}
                 </div>

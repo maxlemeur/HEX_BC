@@ -109,6 +109,7 @@ export type CatalogueImportBatch = {
   kind: CatalogueImportBatchKind;
   source_name: string | null;
   created_at: string;
+  undo_started_at: string | null;
   undone_at: string | null;
   /** Articles or references the import created that still exist. */
   total: number;

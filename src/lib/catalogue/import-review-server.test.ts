@@ -8,6 +8,7 @@ import {
   bulkUpdateProducts,
   createSupplierAlias,
   deleteSupplierAlias,
+  listCatalogueImportBatches,
   reviewSupplierReferences,
   undoCatalogueImportBatch,
 } from "@/lib/catalogue/import-review-server";
@@ -218,27 +219,49 @@ describe("undoCatalogueImportBatch", () => {
 
   it("walks the import page after page until the database says it is done (5)", async () => {
     const pages = [
-      { deleted: 500, kept: 0, next_after: uuid("9", 500) },
-      { deleted: 120, kept: 3, next_after: uuid("9", 900) },
-      { deleted: 0, kept: 0, next_after: null },
+      { deleted: 500, kept: 0, done: false },
+      { deleted: 120, kept: 3, done: true },
     ];
     const fake = seed("admin", { rpc: { undo_catalogue_import_batch: () => ({ data: pages.shift() }) } });
     expect(await undoCatalogueImportBatch(BATCH)).toEqual({ deleted: 620, kept: 3 });
-    expect(fake.rpcArgs.map(({ args }) => args.p_after)).toEqual([null, uuid("9", 500), uuid("9", 900)]);
-    expect(fake.rpcArgs[0].args).toEqual({ p_batch_id: BATCH, p_after: null, p_limit: 500 });
+    expect(fake.rpcArgs.map(({ args }) => args)).toEqual([
+      { p_batch_id: BATCH, p_limit: 500 },
+      { p_batch_id: BATCH, p_limit: 500 },
+    ]);
   });
 
   it("stops with what it removed when the database never finishes, and words its refusals (1, 5)", async () => {
-    const endless = seed("admin", { rpc: { undo_catalogue_import_batch: () => ({ data: { deleted: 1, kept: 0, next_after: uuid("9", 1) } }) } });
-    await expect(undoCatalogueImportBatch(BATCH)).rejects.toMatchObject({ status: 409 });
+    const endless = seed("admin", { rpc: { undo_catalogue_import_batch: () => ({ data: { deleted: 1, kept: 0, done: false } }) } });
+    await expect(undoCatalogueImportBatch(BATCH)).rejects.toMatchObject({
+      status: 409, message: "L’annulation est en cours : 40 éléments retirés. Relancez-la pour la terminer.",
+    });
     expect(endless.rpcCalls).toHaveLength(40);
 
     seed("admin", { rpc: { undo_catalogue_import_batch: () => ({ data: null, error: { code: "P0002", message: "CATALOGUE_IMPORT_BATCH_NOT_FOUND" } }) } });
     await expect(undoCatalogueImportBatch(BATCH)).rejects.toMatchObject({ status: 404 });
     seed("admin", { rpc: { undo_catalogue_import_batch: () => ({ data: null, error: { code: "42501", message: "CATALOGUE_IMPORT_UNDO_FORBIDDEN" } }) } });
     await expect(undoCatalogueImportBatch(BATCH)).rejects.toMatchObject({ status: 403 });
-    const viewer = seed("viewer", { rpc: { undo_catalogue_import_batch: () => ({ data: { deleted: 0, kept: 0, next_after: null } }) } });
+    const viewer = seed("viewer", { rpc: { undo_catalogue_import_batch: () => ({ data: { deleted: 0, kept: 0, done: true } }) } });
     await expect(undoCatalogueImportBatch(BATCH)).rejects.toMatchObject({ status: 403 });
     expect(viewer.rpcCalls).toEqual([]);
+  });
+
+  it("lists a started undo as resumable until the batch is marked undone", async () => {
+    const fake = seed("admin");
+    const createdAt = "2026-11-25T10:00:00.000Z";
+    const startedAt = "2026-11-25T11:00:00.000Z";
+    fake.tables.catalogue_import_batches = [
+      { id: BATCH, tenant_id: TENANT, kind: "workbook_articles", source_name: null, created_at: createdAt,
+        created_by: ADMIN, undo_started_at: startedAt, undone_at: null },
+      { id: OTHER_BATCH, tenant_id: TENANT, kind: "workbook_articles", source_name: null, created_at: createdAt,
+        created_by: ADMIN, undo_started_at: startedAt, undone_at: startedAt },
+    ];
+
+    const { items } = await listCatalogueImportBatches();
+
+    expect(items).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: BATCH, undo_started_at: startedAt, undone_at: null, can_undo: true }),
+      expect.objectContaining({ id: OTHER_BATCH, undo_started_at: startedAt, undone_at: startedAt, can_undo: false }),
+    ]));
   });
 });

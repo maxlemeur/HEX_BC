@@ -9994,7 +9994,7 @@
             }
           },
           "403": {
-            "description": "Administrateur ou ingénieur requis, ou lot refusé par les droits du catalogue (COSTING_WORKBOOK_IMPORT_INCOMPLETE et details.report quand des lots précédents ont créé des brouillons).",
+            "description": "Administrateur ou ingénieur requis, entreprise active différente de celle de l’import, ou bloc refusé par les droits du catalogue (COSTING_WORKBOOK_IMPORT_INCOMPLETE et details.report quand des blocs précédents ont créé des brouillons).",
             "content": {
               "application/json": {
                 "schema": {
@@ -10014,7 +10014,7 @@
             }
           },
           "409": {
-            "description": "Un article du classeur a été ajouté au catalogue entre-temps, ou un calcul de devis est en cours (COSTING_WORKBOOK_IMPORT_INCOMPLETE et details.report quand des lots précédents ont créé des brouillons).",
+            "description": "Un article du classeur a été ajouté entre-temps, l’annulation de cet import a commencé, l’entreprise prévue a changé ou ne correspond pas au lot d’import, ou un calcul de devis est en cours (COSTING_WORKBOOK_IMPORT_INCOMPLETE et details.report quand des blocs précédents ont créé des brouillons).",
             "content": {
               "application/json": {
                 "schema": {

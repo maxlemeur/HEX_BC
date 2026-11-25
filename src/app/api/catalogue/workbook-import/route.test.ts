@@ -146,7 +146,7 @@ function seed(
   role: Role,
   overrides: {
     supplyTypes?: FakeRow[];
-    refuseInsert?: (table: string, values: unknown) => string | false;
+    refuseInsert?: Parameters<typeof createFakeSupabase>[0]["refuseInsert"];
     startImport?: FakeRpcHandler;
   } = {},
 ) {
@@ -287,7 +287,10 @@ describe("POST /api/catalogue/workbook-import", () => {
     expect(fake.rpcCalls).toEqual([]);
 
     await send({ rows: SHEET, confirm: true, source_name: "bible-chiffrage.xlsm" });
-    expect(fake.rpcArgs).toEqual([{ name: "start_workbook_article_import", args: { p_source_name: "bible-chiffrage.xlsm" } }]);
+    expect(fake.rpcArgs).toEqual([{
+      name: "start_workbook_article_import",
+      args: { p_tenant_id: TENANT, p_source_name: "bible-chiffrage.xlsm" },
+    }]);
     // The same workbook again creates nothing: no import to open, none answered.
     const again = await importSheet(SHEET, true);
     expect(again.data).toMatchObject({ new_articles: 0, import_batch_id: null });
@@ -298,7 +301,8 @@ describe("POST /api/catalogue/workbook-import", () => {
     });
     const answer = await importSheet(SHEET, true);
     expect(answer.status).toBe(403);
-    expect(answer.error?.message).toBe(PRODUCT_WRITE_REFUSAL);
+    expect(answer.error?.message).toContain("Vérifiez l’entreprise sélectionnée et vos droits");
+    expect(refused.rpcArgs[0].args).toMatchObject({ p_tenant_id: TENANT });
     expect(refused.writes).toEqual([]);
   });
 
@@ -484,12 +488,21 @@ describe("POST /api/catalogue/workbook-import", () => {
   });
 
   it("writes 1,001 drafts in chunks of 500, one statement each (11)", async () => {
-    const fake = seed(ADMIN, "admin");
+    const plannedTenants = new Set<unknown>();
+    const fake = seed(ADMIN, "admin", {
+      refuseInsert: (table, values) => {
+        if (table === "products" && Array.isArray(values)) {
+          values.forEach((row: FakeRow) => plannedTenants.add(row.tenant_id));
+        }
+        return false;
+      },
+    });
 
     const answer = await importSheet(generatedSheet(1001), true);
 
     expect(answer.data).toMatchObject({ confirmed: true, articles: 1001, new_articles: 1001, supplier_references_not_imported: 1001 });
     expect(productInsertsOf(fake).map((write) => write.ids.length)).toEqual([500, 500, 1]);
+    expect(plannedTenants).toEqual(new Set([TENANT]));
     // One import for the three statements: its drafts are validated or undone together.
     expect(fake.events).toEqual(["rpc start_workbook_article_import", "insert products", "insert products", "insert products"]);
     expect(new Set(fake.tables.products.filter((entry) => !SEEDED_IDS.has(String(entry.id))).map((entry) => entry.import_batch_id))).toEqual(new Set([BATCH]));
@@ -524,6 +537,45 @@ describe("POST /api/catalogue/workbook-import", () => {
 
     expect(rerun.data).toMatchObject({ new_articles: 501, already_in_catalogue: 500 });
     expect(draftsOf(fake).size).toBe(1001);
+  });
+
+  it.each([1, 2])("explains the undo that refuses chunk %i and stops further writes", async (refusedChunk) => {
+    let chunks = 0;
+    const fake = seed(ADMIN, "admin", {
+      refuseInsert: (table) => table === "products" && ++chunks === refusedChunk
+        ? { code: "23514", message: "PRODUCT_IMPORT_BATCH_INVALID" }
+        : false,
+    });
+
+    const stopped = await importSheet(generatedSheet(1001), true);
+
+    expect(stopped.status).toBe(409);
+    expect(stopped.error?.message).toContain("Terminez toute annulation en cours avant de relancer l’import du classeur.");
+    expect(chunks).toBe(refusedChunk);
+    expect(draftsOf(fake).size).toBe((refusedChunk - 1) * 500);
+    if (refusedChunk === 2) {
+      expect(stopped.error?.code).toBe(COSTING_WORKBOOK_IMPORT_INCOMPLETE);
+      expect((stopped.error?.details as CostingWorkbookImportIncompleteDetails).report.new_articles).toBe(500);
+    }
+  });
+
+  it.each([
+    {
+      code: "23503",
+      message: 'insert or update on table "products" violates foreign key constraint "products_import_batch_fkey"',
+      expected: "le lot et les articles ne sont pas rattachés à la même entreprise",
+    },
+    { code: "42501", message: "Tenant access denied.", expected: "l’entreprise prévue n’est plus accessible" },
+  ])("explains the tenant refusal $code and leaves no drafts", async ({ code, message, expected }) => {
+    const fake = seed(ADMIN, "admin", {
+      refuseInsert: (table) => table === "products" ? { code, message } : false,
+    });
+
+    const stopped = await importSheet(SHEET, true);
+
+    expect(stopped.status).toBe(409);
+    expect(stopped.error?.message).toContain(expected);
+    expect(draftsOf(fake).size).toBe(0);
   });
 
   it("says so when an article of the workbook was added meanwhile, and a re-run skips it (10)", async () => {
