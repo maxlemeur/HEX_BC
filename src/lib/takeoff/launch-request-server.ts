@@ -1,5 +1,6 @@
 import "server-only";
 
+import { readAdmittedPlanRequests } from "./admitted-plan-readings-server";
 import { attestBriefPlanChoice } from "./brief-plan-choice-server";
 import { BRIEF_PLAN_CHANGED, sealedBriefPlansSchema, type BriefPlanSelection, type SealedBriefPlans } from "./brief-plan-choice";
 import { randomUUID } from "node:crypto";
@@ -55,8 +56,7 @@ import { getTakeoffPromptVersion } from "@/lib/takeoff/prompts";
 import { selectProjectImportPlanSet } from "@/lib/takeoff/default-import-plan-set";
 import { persistTakeoffDispatchOutcome } from "@/lib/takeoff/dispatch-state";
 import {
-  deriveTakeoffRequestUnits, isTakeoffSourceVisible, maskTakeoffDossierChange, maskTakeoffPieces, parseTakeoffRequestManifest,
-  type TakeoffRequestUnitJobRow,
+  isTakeoffSourceVisible, maskTakeoffDossierChange, maskTakeoffPieces,
 } from "@/lib/takeoff/request-activity";
 import {
   currentPlanCopies, recordedCopySources, recordedPlanPieces, relaunchIdentities, type CurrentPlanCopies,
@@ -172,13 +172,13 @@ export async function confirmAffaireBriefWithTakeoff(input: {
 }) {
   const { context } = input;
   const service = createServiceRoleClient();
-  const choice = await attestBriefPlanChoice(context, input.projectId, input.plans);
-  if ("message" in choice) return { outcome: "choice_refused" as const, takeoff: null, message: choice.message };
   const [subscription, session] = await Promise.all([
     input.plans.length ? readPayerSubscription(service, context, input.projectId, input.host) : null,
     // The member's verified session claims: the database evaluates the released brief policy under them (none refuses).
     context.supabase.auth.getClaims().then(({ data, error }) => (error ? null : data?.claims ?? null), () => null),
   ]);
+  const choice = await attestBriefPlanChoice(context, input.projectId, input.plans);
+  if ("message" in choice) return { outcome: "choice_refused" as const, takeoff: null, ...choice };
   const { data, error } = await service.rpc("confirm_affaire_brief_plan_choice", {
     p_tenant_id: context.tenantId, p_project_id: input.projectId, p_actor: context.userId,
     // No notice: the brief is confirmed and engages nobody.
@@ -187,7 +187,7 @@ export async function confirmAffaireBriefWithTakeoff(input: {
     p_actor_claims: session as unknown as Json,
   });
   if (error?.message === "TAKEOFF_BRIEF_PLAN_CHANGED" || error?.message === "TAKEOFF_LAUNCH_INACTIVE") {
-    return { outcome: "choice_refused" as const, takeoff: null, message: error.message === "TAKEOFF_BRIEF_PLAN_CHANGED"
+    return { outcome: "choice_refused" as const, takeoff: null, code: error.message, message: error.message === "TAKEOFF_BRIEF_PLAN_CHANGED"
       ? BRIEF_PLAN_CHANGED : "Le lancement par plan est indisponible. Vous pouvez confirmer sans analyser." };
   }
   if (error?.message === "INTAKE_ANALYSIS_REQUIRED" || error?.message === "INTAKE_ANALYSIS_RUNNING") {
@@ -497,9 +497,6 @@ export function logicalPlanKey(plan: { id: string; intake_document_id: string | 
 
 type PlanReadBefore = { id: string; name: string; intake_document_id: string | null; generation: string | null };
 
-/** The columns of a unit's job its state is derived from (request-activity.ts, TakeoffRequestUnitJobRow). */
-const UNIT_JOB_COLUMNS = "id, launch_request_id, launch_unit_key, status, started_at, next_retry_at, analysis_outcome, error_code, updated_at";
-
 /**
  * The last successful reading of each plan the affaire's analyses read, whichever request read it: the plans whose unit
  * a request actually read (every plan of a grouped analysis whose one unit was read), and those a request set aside in
@@ -512,20 +509,10 @@ const UNIT_JOB_COLUMNS = "id, launch_request_id, launch_unit_key, status, starte
  * by unit-state-parity.test.ts). A command that does not name them leaves them to the analysis that read them.
  */
 export async function readPlansAnalysedBefore(service: Service, tenantId: string, projectId: string): Promise<PlanReadBefore[]> {
-  const read = await readAllRows(() => service.from("takeoff_launch_requests")
-    .select(`id, created_at, manifest, takeoff_jobs!takeoff_jobs_launch_request_fkey(${UNIT_JOB_COLUMNS})` as never, { count: "exact" })
-    .eq("tenant_id", tenantId).eq("project_id", projectId).in("state", ["admitted", "closed"]), { pageSize: 1000 });
-  if (read.error) databaseError(read.error, "Impossible de lire les analyses de l’affaire.");
-  const requests = ((read.data ?? []) as unknown as Array<{ id: string; created_at: string; manifest: unknown;
-    takeoff_jobs: TakeoffRequestUnitJobRow[] | null }>)
-    .sort((left, right) => right.created_at.localeCompare(left.created_at) || right.id.localeCompare(left.id));
+  const requests = await readAdmittedPlanRequests(service, tenantId, projectId);
   const readings: PlanReadBefore[] = [];
   const keep = (plan: PlanReadBefore) => { readings.push(plan); };
-  for (const request of requests) {
-    const manifest = request.manifest as AnyTakeoffLaunchManifest | null | undefined;
-    if (!manifest || !Array.isArray(manifest.plans)) continue;
-    const units = deriveTakeoffRequestUnits({ requestId: request.id, manifest: parseTakeoffRequestManifest(manifest),
-      jobs: request.takeoff_jobs ?? [] });
+  for (const { manifest, units } of requests) {
     const succeeded = (units?.units ?? []).filter((unit) => unit.state === "succeeded");
     const wasRead = (planFileId: string) => (units?.format === "per_plan"
       ? succeeded.some((unit) => unit.planFileId === planFileId.toLowerCase()) : succeeded.length > 0);

@@ -18,7 +18,7 @@ import {
   chatGptLocalServer, isAbsorbedClientAbort, liveProbePath, localChatGptClient, writeDecisionsControl, writePlanFixture, type ChatGptLiveProbe,
 } from "./chatgpt-local-journey-support";
 import { createLocalChatGptOwner, TAKEOFF_JOURNEY_WAVES } from "./chatgpt-server-support";
-import { querySql } from "./calculation-gate-support";
+import { openOwnedSqlSession, querySql } from "./calculation-gate-support";
 import { callServerAction, serverActionId } from "./engine-v3-creators-support";
 import {
   ownedPlanChoices, makeOwnedDirector, readOwnedAffaireJobs, readOwnedAffaireNotices,
@@ -1406,59 +1406,193 @@ if (!existsSync(liveProbePath)) test("AUTO04 a confirmation from a dialog shown 
   }
 });
 
-for (const scenario of ["AUTO08 unchecked 201-page PDF", "AUTO09 two identical checked plans"] as const) {
-  if (!existsSync(liveProbePath)) test(scenario, {
+if (!existsSync(liveProbePath)) test("AUTO08 unchecked 201-page PDF", {
+  tags: ["critical", "local", "chatgpt", "intake", "premetre"], session: "army", trace: "off", timeout: 240_000,
+}, async ({ app, screen, browser }) => {
+  const owner = await createLocalChatGptOwner();
+  const store = await writePlanFixture(owner.email, null, false);
+  await activateOwnedPlanDispatch();
+  try {
+    await signInAs({ app, screen, browser }, owner.email);
+    const prefix = `ARMY-AUTO08-${Date.now()}`;
+    const army = { runPrefix: prefix, projectName: prefix, ownedEstimates: [] };
+    const ui = hydratedUi({ app, screen, browser }, localOrigin);
+    const ids = await createEstimateViaWizard(ui, { projectName: prefix, title: "Périmètre du métré" }, army);
+    const name = `${prefix}-plan.pdf`;
+    await uploadDossierPlan(ui, ids.projectId, name, owner.email);
+    await expect.poll(async () => (await ownedPlanChoices(ids.projectId)).length, DEV_SERVER_WORK).toBe(1);
+    const [set] = await readPlanSets(browser, ids.projectId);
+    const [first] = await readPlanFiles(browser, set.id);
+    const extra = "Plan-long.pdf";
+    const id = randomUUID();
+    const filePath = `${set.tenant_id}/${set.id}/${id}/${extra}`;
+    const pages = await PDFDocument.create();
+    for (let i = 0; i < 201; i++) pages.addPage();
+    const bytes = await pages.save();
+    expect((await owner.client.from("plan_files").insert({ id, tenant_id: set.tenant_id, plan_set_id: set.id,
+      file_name: extra, file_path: filePath, file_type: "application/pdf", file_size_bytes: bytes.length, page_count: null })).error).toBeNull();
+    expect((await owner.client.storage.from("plan-files").upload(filePath, bytes, { contentType: "application/pdf" })).error).toBeNull();
+    await (await openBriefConfirmation(ui, ids.projectId, owner.userId, true)).click();
+    const dialog = screen.getByRole("alertdialog", "Confirmer ce brief ?", { exact: true });
+    await expect(dialog.getByRole("checkbox")).toHaveCount(2);
+    const before = await planReads();
+    await dialog.getByRole("button", "Confirmer sans analyser", { exact: true }).click();
+    await expect.poll(async () => (await readOwnedBrief(ids.projectId))?.status, DEV_SERVER_WORK).toBe("confirme");
+    await ui.app.open(`/dashboard/affaires/${ids.projectId}?view=overview`);
+    await takeoffZone({ screen }).getByRole("button", "Options du métré", { exact: true }).click();
+    const options = screen.getByRole("dialog", "Préparer le métré", { exact: true });
+    await expect(options.getByRole("checkbox", /Plan-long/)).not.toBeChecked();
+    await options.getByRole("checkbox", /-plan\.pdf/).check();
+    await options.getByRole("button", "Confirmer et lancer le métré", { exact: true }).click();
+    await expect.poll(async () => (await readOwnedLaunchRequests(ids.projectId))[0]?.state, DEV_SERVER_WORK).toBe("closed");
+    const [request] = await readOwnedLaunchRequests(ids.projectId);
+    expect(request).toMatchObject({ outcome: "success", units_expected: 1, payer_id: owner.userId });
+    expect(request.manifest_plans).toHaveLength(1);
+    expect(request.manifest_plans).toEqual([first.id]);
+    expect(await planReads() - before).toBe(1);
+  } finally {
+    await browser.clearCookies({ domain: new URL(localOrigin).hostname });
+    await deactivateOwnedPlanDispatch();
+    await rm(store, { force: true });
+  }
+});
+
+const copyScenarios = [
+  "AUTO09 two checked copies with identical bytes refuse confirmation",
+  "AUTO10 a twin of a successful reading cannot be charged again",
+  "AUTO11 replacing either checked copy while confirmation waits rolls back the gesture",
+  "AUTO12 current brief activation refuses an obsolete publication",
+] as const;
+
+for (const scenario of copyScenarios) {
+  // The current-brief flag is global. Exercise its activated state on a dedicated local campaign.
+  if (existsSync(liveProbePath) || (scenario.startsWith("AUTO12") && Number(process.env.E2E_ARMY_WORKERS || 1) > 1)) continue;
+  test(scenario, {
     tags: ["critical", "local", "chatgpt", "intake", "premetre"], session: "army", trace: "off", timeout: 240_000,
-  }, async ({ app, screen, browser }) => {
-    const manual = scenario.startsWith("AUTO08");
+  }, async ({ app, browser, screen }) => {
     const owner = await createLocalChatGptOwner();
     const store = await writePlanFixture(owner.email, null, false);
     await activateOwnedPlanDispatch();
     try {
+      expect(await querySql("select public.intake_current_brief_active();")).toContain("f");
       await signInAs({ app, screen, browser }, owner.email);
       const prefix = `ARMY-${scenario.slice(0, 6)}-${Date.now()}`;
       const army = { runPrefix: prefix, projectName: prefix, ownedEstimates: [] };
       const ui = hydratedUi({ app, screen, browser }, localOrigin);
-      const ids = await createEstimateViaWizard(ui, { projectName: prefix, title: "Périmètre du métré" }, army);
-      const name = `${prefix}-plan.pdf`;
-      await uploadDossierPlan(ui, ids.projectId, name, owner.email);
-      await expect.poll(async () => (await ownedPlanChoices(ids.projectId)).length, DEV_SERVER_WORK).toBe(1);
-      const [set] = await readPlanSets(browser, ids.projectId);
-      const [first] = await readPlanFiles(browser, set.id);
-      const extra = manual ? "Plan-long.pdf" : "Copie.pdf";
+      const { projectId } = await createEstimateViaWizard(ui, { projectName: prefix, title: "Copies du dossier" }, army);
+      const name = "Plan-original.pdf";
+      const copy = "Plan-copie.pdf";
+      await uploadDossierPlan(ui, projectId, name, owner.email);
+      await expect.poll(async () => (await ownedPlanChoices(projectId)).length, DEV_SERVER_WORK).toBe(1);
+      const [set] = await readPlanSets(browser, projectId);
       const id = randomUUID();
-      const filePath = `${set.tenant_id}/${set.id}/${id}/${extra}`;
-      const pages = await PDFDocument.create();
-      if (manual) for (let i = 0; i < 201; i++) pages.addPage();
-      const bytes = manual ? await pages.save() : await readFile(path.resolve(".e2e/army/critical/artifacts/fixtures", ids.projectId, name));
+      const filePath = `${set.tenant_id}/${set.id}/${id}/${copy}`;
+      const original = await readFile(path.resolve(".e2e/army/critical/artifacts/fixtures", projectId, name));
+      const changed = Buffer.from(original);
+      // Only the trailing PDF comment changes, preserving both the length and the validity of the PDF.
+      changed[changed.length - 2] = 88;
+      const bytes = scenario.startsWith("AUTO11") ? changed : original;
       expect((await owner.client.from("plan_files").insert({ id, tenant_id: set.tenant_id, plan_set_id: set.id,
-        file_name: extra, file_path: filePath, file_type: "application/pdf", file_size_bytes: bytes.length, page_count: null })).error).toBeNull();
-      expect((await owner.client.storage.from("plan-files").upload(filePath, bytes, { contentType: "application/pdf" })).error).toBeNull();
-      await (await openBriefConfirmation(ui, ids.projectId, owner.userId, true)).click();
+        file_name: copy, file_path: filePath, file_type: "application/pdf", file_size_bytes: bytes.length })).error).toBeNull();
+      const bucket = owner.client.storage.from("plan-files");
+      expect((await bucket.upload(filePath, bytes, { contentType: "application/pdf" })).error).toBeNull();
+      await (await openBriefConfirmation(ui, projectId, owner.userId, true)).click();
       const dialog = screen.getByRole("alertdialog", "Confirmer ce brief ?", { exact: true });
-      await expect(dialog.getByRole("checkbox")).toHaveCount(2);
+      const first = dialog.getByRole("checkbox", /Plan-original\.pdf/);
+      const twin = dialog.getByRole("checkbox", /Plan-copie\.pdf/);
+      await expect(twin).toBeEnabled(DEV_SERVER_WORK);
       const before = await planReads();
-      if (manual) {
-        await dialog.getByRole("button", "Confirmer sans analyser", { exact: true }).click();
-        await expect.poll(async () => (await readOwnedBrief(ids.projectId))?.status, DEV_SERVER_WORK).toBe("confirme");
-        await ui.app.open(`/dashboard/affaires/${ids.projectId}?view=overview`);
-        await takeoffZone({ screen }).getByRole("button", "Options du métré", { exact: true }).click();
-        const options = screen.getByRole("dialog", "Préparer le métré", { exact: true });
-        await expect(options.getByRole("checkbox", /Plan-long/)).not.toBeChecked();
-        await options.getByRole("checkbox", /-plan\.pdf/).check();
-        await options.getByRole("button", "Confirmer et lancer le métré", { exact: true }).click();
-      } else {
-        await dialog.getByRole("checkbox", /-plan\.pdf/).check();
-        await dialog.getByRole("checkbox", /Copie\.pdf/).check();
-        await expect(dialog).toContainText("Deux copies au contenu identique donnent lieu à une seule lecture sur votre forfait.");
+      const action = await serverActionId("confirmAffaireBrief", actionManifest());
+
+      if (scenario.startsWith("AUTO09")) {
+        await first.check();
+        await twin.check();
         await dialog.getByRole("button", "Confirmer et analyser 2 plans", { exact: true }).click();
+        await expect(dialog).toContainText(/gardez-en un seul/i);
+        const refusal = dialog.getByText(/gardez-en un seul/i);
+        await expect(refusal).toContainText(name);
+        await expect(refusal).toContainText(copy);
+        await expect(first).toBeChecked();
+        await expect(twin).toBeChecked();
+        await twin.uncheck();
+        await expect(dialog.getByRole("button", "Confirmer et analyser 1 plan", { exact: true })).toBeEnabled();
+      } else if (scenario.startsWith("AUTO10")) {
+        const route = `**/dashboard/affaires/${projectId}*`;
+        let payerNotice: string | null = null;
+        await browser.route(route, async intercepted => {
+          if (intercepted.request.headers["next-action"] === action) {
+            payerNotice = JSON.parse(intercepted.request.postData!)[0].payerNotice;
+          }
+          await intercepted.fallback();
+        });
+        try {
+          await first.check();
+          await dialog.getByRole("button", "Confirmer et analyser 1 plan", { exact: true }).click();
+          await expect.poll(async () => (await readOwnedLaunchRequests(projectId))[0]?.outcome, DEV_SERVER_WORK).toBe("success");
+        } finally { await browser.unroute(route); }
+        expect(payerNotice).toMatch(/^[a-f0-9]{64}$/);
+        expect(await planReads() - before).toBe(1);
+        await ui.app.open(`/dashboard/affaires/${projectId}#brief`);
+        await browser.reload();
+        await waitForHydration(browser);
+        await screen.getByRole("button", "Modifier le brief", { exact: true }).click();
+        await browser.locator(".brief-edit-body textarea").first().fill("Périmètre du dossier mis à jour.");
+        await screen.getByRole("button", "Enregistrer", { exact: true }).click();
+        await (await openBriefConfirmation(ui, projectId, owner.userId, true)).click();
+        const selection = (await ownedPlanChoices(projectId)).filter(plan => plan.id === id);
+        expect(selection).toHaveLength(1);
+        // An already-open client can still submit B, with the genuine notice for this payer.
+        const answer = await callServerAction(browser, action, { projectId, plans: selection, payerNotice,
+          expectedUpdatedAt: (await readOwnedBrief(projectId))!.updated_at });
+        expect(answer).toMatchObject({ ok: false, errorMessage: `Ce fichier a déjà été analysé sous le nom « ${name} ».` });
+        await expect(twin).toBeDisabled();
+        await expect(dialog.getByRole("checkbox", /Plan-copie\.pdf.*Déjà analysé/)).toBeDisabled();
+        expect((await readOwnedBrief(projectId))?.status).toBe("a_confirmer");
+        expect(await readOwnedLaunchRequests(projectId)).toHaveLength(1);
+        expect(await readOwnedAffaireJobs(projectId)).toHaveLength(1);
+        expect(await planReads() - before).toBe(1);
+        expect((await bucket.update(filePath, changed, { contentType: "application/pdf" })).error).toBeNull();
+        await (await openBriefConfirmation(ui, projectId, owner.userId, true)).click();
+        await expect(twin).toBeEnabled();
+        return;
+      } else if (scenario.startsWith("AUTO11")) {
+        await first.check();
+        await twin.check();
+        const plans = await ownedPlanChoices(projectId);
+        expect(plans).toHaveLength(2);
+        const expectedUpdatedAt = (await readOwnedBrief(projectId))!.updated_at;
+        // Hold the brief row until the real confirmation RPC reaches it, after both files were hashed.
+        const tag = `army_brief_${id}`;
+        const holder = openOwnedSqlSession(90_000);
+        holder.write(`set application_name='${tag}'; begin; select id from public.affaire_briefs where project_id='${projectId}' for update;\n`);
+        const pending = async () => (await querySql(`select count(*) from pg_stat_activity b where b.application_name='${tag}'
+          and exists(select 1 from pg_stat_activity w where b.pid=any(pg_blocking_pids(w.pid))
+          and w.query ilike '%confirm_affaire_brief_plan_choice%');`))[0];
+        let answer: ReturnType<typeof callServerAction> | undefined;
+        try {
+          await expect.poll(async () => (await querySql(`select count(*) from pg_stat_activity where application_name='${tag}' and state='idle in transaction';`))[0]).toBe("1");
+          answer = callServerAction(browser, action, { projectId, expectedUpdatedAt, plans, payerNotice: null });
+          await expect.poll(pending, DEV_SERVER_WORK).toBe("1");
+          expect((await bucket.update(filePath, original, { contentType: "application/pdf" })).error).toBeNull();
+        } finally {
+          holder.end("rollback;\n");
+          expect((await holder.done).code).toBe(0);
+        }
+        expect(await answer).toMatchObject({ ok: false, errorCode: "TAKEOFF_BRIEF_PLAN_CHANGED",
+          errorMessage: "Un plan choisi a changé ou a été retiré. Rouvrez la liste des plans avant de confirmer." });
+      } else {
+        // The second working copy arrived after the published dossier brief.
+        await querySql("insert into private.intake_current_brief_activation(active_from) values(clock_timestamp());");
+        try {
+          expect(await querySql("select public.intake_current_brief_active();")).toContain("t");
+          await dialog.getByRole("button", "Confirmer sans analyser", { exact: true }).click();
+          await expect(dialog).toContainText("Lancez l’analyse pour actualiser le brief avant de confirmer.");
+        } finally { await querySql("delete from private.intake_current_brief_activation;"); }
       }
-      await expect.poll(async () => (await readOwnedLaunchRequests(ids.projectId))[0]?.state, DEV_SERVER_WORK).toBe("closed");
-      const [request] = await readOwnedLaunchRequests(ids.projectId);
-      expect(request).toMatchObject({ outcome: "success", units_expected: 1, payer_id: owner.userId });
-      expect(request.manifest_plans).toHaveLength(1);
-      expect(manual ? [first.id] : [first.id, id]).toContain(request.manifest_plans![0]);
-      expect(await planReads() - before).toBe(1);
+      expect((await readOwnedBrief(projectId))?.status).toBe("a_confirmer");
+      expect(await readOwnedLaunchRequests(projectId)).toEqual([]);
+      expect(await readOwnedAffaireJobs(projectId)).toEqual([]);
+      expect(await planReads()).toBe(before);
     } finally {
       await browser.clearCookies({ domain: new URL(localOrigin).hostname });
       await deactivateOwnedPlanDispatch();

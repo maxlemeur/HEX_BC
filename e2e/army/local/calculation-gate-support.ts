@@ -14,7 +14,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const literal = (value: unknown) => `'${JSON.stringify(value).replaceAll("'", "''")}'::jsonb`;
 type SqlOutcome = { code: number | null; stdout: string[]; state: string; timedOut: boolean };
 
-function openSql(timeoutMs: number) {
+export function openOwnedSqlSession(timeoutMs: number) {
   const transport = localSqlTransport();
   const child = spawn(transport.executable, transport.args, { env: transport.environment, stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
   let stdout = "", stderr = "", timedOut = false;
@@ -35,7 +35,7 @@ function openSql(timeoutMs: number) {
 
 /** One statement batch as the native owner (postgres) of the owned stack; stdout lines. */
 export async function querySql(sql: string) {
-  const session = openSql(30_000);
+  const session = openOwnedSqlSession(30_000);
   session.end(sql);
   const outcome = await session.done;
   if (outcome.code !== 0 || outcome.timedOut) {
@@ -65,7 +65,7 @@ export async function holdSharedCalculationGate(tenantId: string, label: string)
   const tag = `army_gate_${label}_${randomUUID().slice(0, 8)}`;
   if (!UUID.test(tenantId) || !/^army_gate_[a-z0-9_]{1,60}$/.test(tag)) throw new Error("Invalid calculation gate fixture identity.");
   // idle_in_transaction_session_timeout (30 s, transport) ends an abandoned holder.
-  const session = openSql(120_000);
+  const session = openOwnedSqlSession(120_000);
   session.write(`SET application_name = '${tag}';
 BEGIN;
 SELECT pg_catalog.pg_advisory_xact_lock_shared(${gateKey(tenantId)});

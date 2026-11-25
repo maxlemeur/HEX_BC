@@ -242,7 +242,8 @@ export async function confirmAffaireBrief(input: { projectId: string; expectedUp
   ]);
   const confirmed = await confirmAffaireBriefWithTakeoff({ context, projectId: project.id, expectedUpdatedAt: input.expectedUpdatedAt,
     plans: input.plans, notice: input.payerNotice ?? null, host: (await headers()).get("host") });
-  if (confirmed.outcome === "analysis_pending" || confirmed.outcome === "choice_refused") return { ok: false, message: confirmed.message, takeoff: null } as const;
+  if (confirmed.outcome === "choice_refused") return { ok: false, code: confirmed.code, message: confirmed.message, takeoff: null } as const;
+  if (confirmed.outcome === "analysis_pending") return { ok: false, message: confirmed.message, takeoff: null } as const;
   if (confirmed.outcome === "not_found") {
     throw notFound("Brief affaire introuvable.");
   }
