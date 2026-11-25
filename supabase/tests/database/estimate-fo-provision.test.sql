@@ -605,6 +605,11 @@ select is(pg_temp.fp_probe(array[$s$select set_config('miaouffrage.estimate_v3_w
 select is(pg_temp.fp_probe(array[$s$select set_config('miaouffrage.estimate_v3_writer','53400000-0000-4000-8000-000000000110',true)$s$,$s$update public.estimate_items set k_fo=null,k_fo_manual=false,supply_type_id='53400000-0000-4000-8000-000000000041',unit_price_ht_cents=900,fo_price_origin='{"selection_id":"54100000-0000-4000-8000-000000000001","kind":"site","source_id":"54100000-0000-4000-8000-000000000001","transport_mode":null,"site":{"supplier":"Negoce Fictif","offer_reference":"OF-2611-07","offer_date":"2026-11-03","document":null}}'::jsonb where id='53400000-0000-4000-8001-000000000111'$s$,$s$update public.estimate_items set line_nature='pose_only' where id='53400000-0000-4000-8001-000000000111'$s$,$s$update public.estimate_items set line_nature='supply_only' where id='53400000-0000-4000-8001-000000000111'$s$],$a$select concat_ws('|',fo_price_origin->>'kind',trim_scale(k_fo),trim_scale(fo_provision),line_nature) from public.estimate_items where id='53400000-0000-4000-8001-000000000111'$a$),'ok:site|1.13|1|supply_only','leaving POSE SEULE restores the automatic family K FO');
 
 
+-- Count the formatter only across this creation. Two items need at most one traversal
+-- (one array and two elements), including the explicit site origin below.
+set local track_functions = 'all';
+select coalesce(pg_stat_get_xact_function_calls('public.estimate_fo_price_origin_write_input(jsonb)'::regprocedure),0) as prior_format_calls
+\gset
 -- Canonical creation (model adapter): neither the explicit printed nature nor a manual neutral coefficient may drop.
 select is(pg_temp.fp_create(pg_temp.fp_version('53400000-0000-4000-8000-000000000130',3,350,70),
  jsonb_build_array(
@@ -614,6 +619,40 @@ select is(pg_temp.fp_create(pg_temp.fp_version('53400000-0000-4000-8000-00000000
  'ok','canonical creation preserves a manual neutral POSE SEULE with a site small supply');
 select is((select concat_ws('|',line_nature,trim_scale(k_fo),k_fo_manual,fo_price_origin->>'kind',pu_ht_cents) from public.estimate_items
  where id='53400000-0000-4000-8001-000000000131'),'pose_only|1|t|site|350','canonical stored line keeps the explicit nature, manual mode, origin and amount');
+
+select cmp_ok(pg_stat_get_xact_function_calls('public.estimate_fo_price_origin_write_input(jsonb)'::regprocedure)
+  - :prior_format_calls, '<=', 3::bigint, 'canonical creation formats price origins at most once per payload');
+
+-- Same supplier selection: omission derives the legacy origin, explicit null clears it.
+with fixture as (
+  select '53400000-0000-4000-8000-000000000160'::uuid as v,
+    '{"selected_supplier_price_id":"53400000-0000-4000-8000-000000000053"}'::jsonb as supplier
+)
+select is(pg_temp.fp_create(pg_temp.fp_version(v,3,0,0), jsonb_build_array(
+  jsonb_build_object('id',pg_temp.fp_item(v,0),'item_type','section','position',1,'title','Lot'),
+  pg_temp.fp_line(pg_temp.fp_item(v,1),pg_temp.fp_item(v,0),1,'Omitted origin',1,0,0,supplier),
+  pg_temp.fp_line(pg_temp.fp_item(v,2),pg_temp.fp_item(v,0),2,'Cleared origin',1,0,0,
+    supplier || '{"fo_price_origin":null}'::jsonb))), 'ok', 'canonical creation accepts both supplier origins') from fixture;
+select results_eq($$select fo_price_origin->>'kind', fo_price_origin is null from public.estimate_items
+  where version_id='53400000-0000-4000-8000-000000000160' and item_type='line' order by position$$,
+  $$values ('supplier'::text,false),(null::text,true)$$, 'only an omitted origin derives the supplier snapshot');
+
+-- Each referenced ID must name exactly one earlier section. A duplicate unused
+-- section also violates the contract, even though no child asks for it.
+with ids as (
+  select pg_temp.fp_item('53400000-0000-4000-8000-000000000150', n) as id, n from generate_series(0, 2) n
+), nodes as (
+  select jsonb_build_object('id',id,'item_type','section') as section, id, n from ids
+), cases(label, items) as (
+  select 'duplicate root', jsonb_build_array(a.section,a.section) from nodes a where a.n=0
+  union all select 'absent parent', jsonb_build_array(a.section || jsonb_build_object('parent_id', b.id))
+    from nodes a, nodes b where a.n=0 and b.n=1
+  union all select 'line as parent', jsonb_build_array(a.section,
+    b.section || jsonb_build_object('item_type','line','parent_id',a.id),
+    c.section || jsonb_build_object('parent_id',b.id)) from nodes a, nodes b, nodes c where a.n=0 and b.n=1 and c.n=2
+)
+select is(pg_temp.fp_create(pg_temp.fp_version('53400000-0000-4000-8000-000000000150',3,0,0),items),
+  '22023 ESTIMATE_ITEMS_HIERARCHY_INVALID', 'canonical hierarchy refuses ' || label) from cases;
 
 select * from finish();
 rollback;
