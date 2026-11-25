@@ -28,7 +28,7 @@ export async function readAdmittedPlanRequests(service: Service, tenantId: strin
       if (!manifest || !Array.isArray(manifest.plans)) return [];
       const units = deriveTakeoffRequestUnits({ requestId: request.id, manifest: parseTakeoffRequestManifest(manifest),
         jobs: request.takeoff_jobs ?? [] });
-      return [{ manifest, units, state: request.state }];
+      return [{ manifest, units, state: request.state, jobs: request.takeoff_jobs ?? [] }];
     });
 }
 

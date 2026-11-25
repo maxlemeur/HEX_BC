@@ -523,6 +523,10 @@ globalThis.fetch = async (input, init) => {
     if (marker instanceof PDFName) entry.planChoice = marker.decodeText();
   }
   await appendFile(process.env.ARMY_CHATGPT_TRANSPORT_LOG, JSON.stringify(entry) + "\n");
+  // Let the browser read the request's admitted count before the fixture completes its first plan.
+  while (!liveProbe && pdf && JSON.parse(readFileSync(process.env.ARMY_DECISIONS_CONTROL, "utf8")).holdPlanReading && !init?.signal?.aborted) {
+    await new Promise(resolve => setTimeout(resolve, 100));
+  }
   return new Response([
     { type: "response.output_text.delta", output_index: 0, content_index: 0, delta: output },
     { type: "response.completed", response: { status: "completed", output: [], usage: { input_tokens: 24, output_tokens: 18, total_tokens: 42 } } },

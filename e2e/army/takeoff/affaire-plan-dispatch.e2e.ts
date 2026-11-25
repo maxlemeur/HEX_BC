@@ -210,3 +210,36 @@ armyTest("TKPD03 a plan whose bytes changed after its admission fails at once, a
     await deactivateOwnedPlanDispatch();
   }
 });
+
+armyTest("TKPD04 an old relaunch command without plan IDs rereads only its predecessor's plan after a provider timeout", {
+  session: "army", trace: "off", tags: ["critical", "takeoff-worker", "local"], timeout: 300_000,
+}, async (ui) => {
+  await ui.app.open("/dashboard/affaires");
+  const owner = await signUpWorkerOwner(ui, "TKPD4");
+  await activateOwnedPlanDispatch();
+  try {
+    const dossier = await seedPlanDossier(ui, owner, [{ name: "N01.pdf", pages: 1 }, { name: "N02.pdf", pages: 1 }]);
+    const command = await runOwnedTakeoffCommand(owner, ["launch", dossier.projectId, dossier.planSetId, randomUUID(), "1",
+      dossier.plans.map((plan) => plan.id).join(",")]);
+    expect(command).toMatchObject({ result: { outcome: "admitted" } });
+    const requestId = command.result!.requestId!;
+    const [first, second] = await readOwnedPlanJobs(dossier.projectId);
+    const stopped = await runOwnedPlanDispatch(ui, owner, dossier.projectId, { modes: { [first.id]: "timeout" } });
+    expect(stopped.calls.map((call) => call.jobId)).toEqual([first.id]);
+    expect(stopped.pass.closed).toContain(second.id);
+    expect((await readOwnedPlanJobs(dossier.projectId)).map((job) => job.error_code)).toEqual(["AI_PROVIDER", "TAKEOFF_USAGE_UNRECORDED"]);
+    expect((await readOwnedPlanRequests(dossier.projectId))[0]).toMatchObject({
+      id: requestId, state: "closed", units_failed: 1, units_not_started: 1,
+    });
+
+    const oldCommand = await runOwnedTakeoffCommand(owner, ["launch", dossier.projectId, dossier.planSetId, randomUUID(), "1", "-", first.id]);
+    expect(oldCommand).toMatchObject({ result: { outcome: "admitted" } });
+    const requests = await readOwnedPlanRequests(dossier.projectId);
+    expect(requests[1].units?.map((unit) => unit.plans)).toEqual([[dossier.plans[0].id]]);
+    const rerun = await runOwnedPlanDispatch(ui, owner, dossier.projectId);
+    expect(rerun.calls.map((call) => call.jobId)).toEqual([oldCommand.result!.jobId]);
+    await recordEvidence(ui.army, "TKPD04-relaunch-without-plan-ids", { requests, first, second, stopped, oldCommand: oldCommand.result, rerun });
+  } finally {
+    await deactivateOwnedPlanDispatch();
+  }
+});

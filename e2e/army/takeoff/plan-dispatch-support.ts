@@ -175,7 +175,7 @@ export type OwnedPlanLine = { designation: string; quantity: number; unit: strin
  * « release » holds a job's call until `releaseFile` exists; `items` per job, the lines its reading returns).
  */
 export async function runOwnedPlanDispatch(ui: WorkerUi, owner: WorkerOwner, projectId: string,
-  options: { modes?: Record<string, "success" | "terminal" | "hold" | "release">; delayMs?: number; mailCollector?: string;
+  options: { modes?: Record<string, "success" | "terminal" | "timeout" | "hold" | "release">; delayMs?: number; mailCollector?: string;
     items?: Record<string, OwnedPlanLine[]>; releaseFile?: string;
     /** A job reading against its list: by item label, a measure (page local to the copied PDF) or « omit »; `truncate`. */
     itemAnswers?: Record<string, { items?: Record<string, { quantity: number; unit: string; page: number } | "omit">; truncate?: boolean }> } = {}) {

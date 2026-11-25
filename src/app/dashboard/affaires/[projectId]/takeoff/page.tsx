@@ -24,6 +24,7 @@ import { isTakeoffEnabled } from "@/lib/takeoff/feature-flags";
 import { itemTableReturnHref } from "@/lib/takeoff/item-detail-address";
 import { buildTakeoffLaunchContext } from "@/lib/takeoff/launch-context";
 import { isTakeoffLaunchActive } from "@/lib/takeoff/launch-request-server";
+import { isTakeoffPlanDispatchActive } from "@/lib/takeoff/local-dispatcher";
 import { fetchPlanSetsForProject } from "@/lib/takeoff/plans";
 import { TAKEOFF_ITEM_DETAIL_PARAMS } from "@/lib/takeoff/review-href";
 import { resolveTakeoffReviewLink } from "@/lib/takeoff/review-link";
@@ -48,8 +49,7 @@ export default async function AffaireTakeoffPage({ params, searchParams }: Props
     notFound();
   }
 
-  // Once the automatic start is on, an analysis is launched only from the options of the affaire's takeoff zone, as a
-  // launch request: this page's launch links (`launch=1`, old bookmarks) lead there and it launches nothing itself.
+  // Once the automatic start is on, this page's former launch links (`launch=1`, old bookmarks) lead to the affaire's options.
   // A failed read of the activation is taken as « on »: the zone decides from its own read.
   const query = (await searchParams) ?? {};
   const launchRequestsActive = await isTakeoffLaunchActive().catch(() => true);
@@ -109,6 +109,7 @@ export default async function AffaireTakeoffPage({ params, searchParams }: Props
     planSetsResult,
     hubSummaryResult,
     plansSummaryResult,
+    planDispatchResult,
   ] = await Promise.allSettled([
     fetchAffaireProjectBasic(projectId),
     fetchProjectVersionList(projectId),
@@ -116,6 +117,7 @@ export default async function AffaireTakeoffPage({ params, searchParams }: Props
     // Lot 3.2 : le métré n'affiche pas la marge, il ne recalcule pas un brouillon v3 pour elle.
     fetchAffaireHubSummary(projectId, { liveV3Margin: false }),
     fetchAffaireHubPlansSummary(projectId),
+    launchRequestsActive && isTakeoffPlanDispatchActive(),
   ]);
 
   if (projectResult.status === "rejected") {
@@ -132,6 +134,7 @@ export default async function AffaireTakeoffPage({ params, searchParams }: Props
   }
 
   const project = projectResult.value;
+  const planDispatch = planDispatchResult.status === "fulfilled" && planDispatchResult.value;
   const versions =
     versionsResult.status === "fulfilled" ? versionsResult.value : [];
   const planSets =
@@ -155,6 +158,7 @@ export default async function AffaireTakeoffPage({ params, searchParams }: Props
   return (
     <TakeoffActivityCenter
       projectId={projectId}
+      planDispatch={planDispatch}
       viewerKey={`${tenantId}:${profile?.id ?? ""}`}
       header={
         <>
@@ -177,7 +181,7 @@ export default async function AffaireTakeoffPage({ params, searchParams }: Props
           </Suspense>
           {launchRequestsActive ? (
             <p className="mb-4 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
-              Le métré de l’affaire se lance et se relance depuis son état, sur la page de l’affaire.
+              Les options du métré sont disponibles sur la page de l’affaire.
               <Link href={`${takeoffZoneHref}#metre`} className={buttonVariants({ variant: "outline", size: "sm" })}>État du métré</Link>
             </p>
           ) : null}

@@ -114,7 +114,7 @@ export type CurrentPlanCopies = { scope: string[]; withoutCopy: Array<{ id: stri
  * piece left the dossier (or only its copy is missing for now).
  */
 export async function currentPlanCopies(service: Service, context: Context, projectId: string, planSetId: string,
-  plans: string[]): Promise<CurrentPlanCopies> {
+  plans: readonly string[], match: "replace" | "exact" = "replace"): Promise<CurrentPlanCopies> {
   const sourceOf = async (planFileId: string) => {
     const { data, error } = await context.supabase.rpc("read_takeoff_plan_location_source",
       { p_project_id: projectId, p_plan_file_id: planFileId });
@@ -124,7 +124,8 @@ export async function currentPlanCopies(service: Service, context: Context, proj
       : null;
   };
   const sealed = await Promise.all(plans.map(async (id) => ({ id, source: await sourceOf(id) })));
-  const pieces = new Set(sealed.flatMap(({ source }) => (source && !source.current && source.piece ? [source.piece] : [])));
+  const pieces = new Set(match === "replace"
+    ? sealed.flatMap(({ source }) => (source && !source.current && source.piece ? [source.piece] : [])) : []);
   const currentOf = new Map<string, string[]>();
   if (pieces.size) {
     // Only a copy the plan set holds can be current (at most its twenty files): its copies, then their recorded pieces.

@@ -1,13 +1,25 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { StrictMode } from "react";
+import { SWRConfig } from "swr";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { LaunchMetreDialog } from "@/components/affaires/LaunchMetreDialog";
 import { UserProvider, useUserContext } from "@/lib/auth/user-context";
 import type { UserProfile } from "@/lib/auth/user-context";
 import { TakeoffPreparationPanel } from "@/components/takeoff/TakeoffPreparationPanel";
 import { createEmptyTakeoffPreparation, evaluateTakeoffPreparation, takeoffPreparationSourceSchema, type TakeoffPreparation } from "@/lib/takeoff/preparation";
 import { buildDeducedTakeoffPreparation, resolveDeducedPlanVersions } from "@/lib/takeoff/preparation-from-dossier";
+import type { RelaunchPlanChoice } from "@/lib/takeoff/relaunch-plan-choice-server";
+
+const readRelaunchPlans = vi.hoisted(() => vi.fn());
+vi.mock("@/app/dashboard/affaires/_actions/takeoff", () => ({
+  readRelaunchPlanChoiceAction: readRelaunchPlans,
+  launchPreparedTakeoffFromPlanSetAction: vi.fn(),
+  launchPreparedTakeoffFromSourceVersionPlanSetAction: vi.fn(),
+  relaunchTakeoffAction: vi.fn(),
+}));
+vi.mock("@/components/feedback/toast-provider", () => ({ useToast: () => ({}) }));
 
 // Each part of the panel's one read has its own mock, as each part fails on its own on the server.
 const actions = vi.hoisted(() => ({ load: vi.fn(), save: vi.fn(), confirm: vi.fn(), assist: vi.fn(), profiles: vi.fn(), saveProfile: vi.fn(), preview: vi.fn(), triageAvailability: vi.fn(), chatGpt: vi.fn(), triage: vi.fn() }));
@@ -35,6 +47,13 @@ const PROJECT_ID = "11111111-1111-4111-8111-111111111111";
 const VERSION_ID = "22222222-2222-4222-8222-222222222222";
 const PLAN_SET_ID = "33333333-3333-4333-8333-333333333333";
 const SOURCE = takeoffPreparationSourceSchema.parse({ document_id: "plan-1", document_name: "Plan plomberie R+1.pdf", kind: "plan", revision: "A", source_version: "version-a", pages: [1], active: true, confirmed: true, plan_set_id: PLAN_SET_ID, page_count: 1 });
+const SECOND_PLAN = { ...SOURCE, document_id: "plan-2", document_name: "Plan plomberie R+2.pdf" };
+const relaunchPlans: RelaunchPlanChoice = {
+  planSetId: PLAN_SET_ID, checkedPlanSetId: PLAN_SET_ID, eligiblePlanSetIds: [PLAN_SET_ID],
+  currentIds: [SOURCE.document_id, SECOND_PLAN.document_id], defaultIds: [SOURCE.document_id, SECOND_PLAN.document_id],
+  states: { [SOURCE.document_id]: "failed", [SECOND_PLAN.document_id]: "not_analysed" },
+  stops: {}, unavailable: {}, withoutCopy: [],
+};
 
 function completePreparation(): TakeoffPreparation {
   const draft = createEmptyTakeoffPreparation({ estimateVersionId: VERSION_ID });
@@ -87,6 +106,56 @@ async function openOptions() {
 }
 
 describe("TakeoffPreparationPanel", () => {
+  it("keeps the member's unticked plan and launch count during and after reconnecting", async () => {
+    stored.sources = [SOURCE, SECOND_PLAN];
+    availableSources = stored.sources;
+    let completeRefresh!: (result: ReturnType<typeof success<RelaunchPlanChoice>>) => void;
+    readRelaunchPlans.mockReset().mockResolvedValueOnce(success(relaunchPlans))
+      .mockImplementationOnce(() => new Promise((resolve) => { completeRefresh = resolve; }));
+    render(<SWRConfig value={{ provider: () => new Map(), dedupingInterval: 0 }}>
+      <LaunchMetreDialog open onOpenChange={vi.fn()} projectId={PROJECT_ID} currentVersion={null}
+        plansContext={{ defaultPlanSetId: PLAN_SET_ID }}
+        availablePlanSets={[{ id: PLAN_SET_ID, name: "Plans plomberie", fileCount: 2 }]}
+        launchMode={{ kind: "request", predecessorJobId: VERSION_ID, planDispatch: true }} />
+    </SWRConfig>);
+    const plan = () => screen.getByRole("checkbox", { name: /Plan plomberie R\+2\.pdf\s*Non lu/ });
+    await screen.findByRole("button", { name: "Relancer 2 plans avec mon forfait" });
+    await userEvent.setup().click(plan());
+    expect(plan()).not.toBeChecked();
+    expect(screen.getByRole("button", { name: "Relancer 1 plan avec mon forfait" })).toBeEnabled();
+
+    fireEvent(window, new Event("online"));
+    await waitFor(() => expect(readRelaunchPlans).toHaveBeenCalledTimes(2));
+    expect(plan()).not.toBeChecked();
+    expect(screen.getByRole("button", { name: "Relancer 1 plan avec mon forfait" })).toBeEnabled();
+
+    await act(async () => { completeRefresh(success({ ...relaunchPlans, states: { ...relaunchPlans.states, [SOURCE.document_id]: "not_analysed" } })); });
+    expect(screen.getByRole("checkbox", { name: /Plan plomberie R\+1\.pdf\s*Non lu/ })).toBeChecked();
+    expect(plan()).not.toBeChecked();
+    expect(screen.getByRole("button", { name: "Relancer 1 plan avec mon forfait" })).toBeEnabled();
+  });
+
+  it("keeps unsaved options when an updated selection asks for a new click", async () => {
+    stored.sources = [SOURCE, SECOND_PLAN];
+    availableSources = stored.sources;
+    const refresh = vi.fn().mockResolvedValue({ ...relaunchPlans, defaultIds: [SECOND_PLAN.document_id],
+      states: { ...relaunchPlans.states, [SOURCE.document_id]: "analysed" } });
+    const onLaunch = vi.fn();
+    render(<TakeoffPreparationPanel {...props} planChoice="required" relaunchPlans={relaunchPlans}
+      onRefreshRelaunchPlans={refresh} onLaunch={onLaunch} />);
+    await openOptions();
+    fireEvent.click(screen.getByRole("button", { name: /Ce que je veux mesurer/ }));
+    fireEvent.change(screen.getByLabelText("Exclusions"), { target: { value: "RDC, Zone 3" } });
+    fireEvent.click(screen.getByLabelText("Je confirme ce périmètre"));
+    fireEvent.click(screen.getByRole("button", { name: /Vérifier et lancer/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Relancer 2 plans avec mon forfait" }));
+    await screen.findByText(/La sélection a été actualisée/);
+    expect(actions.confirm).not.toHaveBeenCalled();
+    expect(onLaunch).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: /Ce que je veux mesurer/ }));
+    expect(screen.getByLabelText("Exclusions")).toHaveValue("RDC, Zone 3");
+  });
+
   // TI-682 lot D, PR 1: at the launch, the plan pages the target version already holds from an earlier takeoff are
   // named; the launch stays possible. Written before the notice existed.
   it("names the pages of the chosen plans the target version already holds, and keeps the launch open", async () => {

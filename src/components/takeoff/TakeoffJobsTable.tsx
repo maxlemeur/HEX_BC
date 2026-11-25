@@ -34,7 +34,7 @@ import {
   formatActivityPlan,
   isCoverageLow,
 } from "@/components/takeoff/takeoff-job-list-shared";
-import { buttonVariants } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { NativeSelect } from "@/components/ui/native-select";
 
 type RowProps = {
@@ -42,12 +42,13 @@ type RowProps = {
   projectId: string;
   pendingAction?: ActionKind;
   onAction: (jobId: string, action: ActionKind) => Promise<void>;
+  onRelaunchPlan?: (jobId: string) => void;
 };
 
 const rowCell = "min-w-0 align-top wrap-anywhere max-md:block max-md:!border-0 max-md:!px-0 max-md:!py-0";
 const disclosure = "w-fit cursor-pointer rounded text-xs font-medium text-primary hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary";
 
-function TakeoffTrackingRow({ job, projectId, pendingAction, onAction }: RowProps) {
+function TakeoffTrackingRow({ job, projectId, pendingAction, onAction, onRelaunchPlan }: RowProps) {
   const plans = job.plans ?? [];
   const previous = job.previousAttempts ?? [];
   const automaticStart = takeoffExpectsAutomaticStart(job) && (job.dispatchStatus === "queued" || job.dispatchStatus === "trigger_failed");
@@ -139,6 +140,9 @@ function TakeoffTrackingRow({ job, projectId, pendingAction, onAction }: RowProp
       </td>
       <td role="cell" className={`${rowCell} max-md:justify-self-end max-md:empty:hidden`}>
         <TakeoffJobActions job={job} projectId={projectId} pendingAction={pendingAction} onAction={onAction} />
+        {onRelaunchPlan && job.launchRequestId && plans.length === 1 && job.resume?.action === "new_analysis" ? (
+          <Button type="button" variant="outline" size="sm" onClick={() => onRelaunchPlan(job.jobId)}>Relancer ce plan</Button>
+        ) : null}
       </td>
     </tr>
   );
@@ -147,6 +151,7 @@ function TakeoffTrackingRow({ job, projectId, pendingAction, onAction }: RowProp
 type Props = {
   projectId: string;
   data: TakeoffActivityCenterResponse;
+  onRelaunchPlan?: (jobId: string) => void;
   onPageChange: (offset: number) => void;
   onPageSizeChange: (size: number) => void;
   pageSize: number;
@@ -155,6 +160,7 @@ type Props = {
 export default function TakeoffJobsTable({
   projectId,
   data,
+  onRelaunchPlan,
   onPageChange,
   onPageSizeChange,
   pageSize,
@@ -278,6 +284,7 @@ export default function TakeoffJobsTable({
               {jobs.map((job) => (
                 <TakeoffTrackingRow
                   key={job.jobId} job={job} projectId={projectId} pendingAction={pendingActions[job.jobId]} onAction={handleAction}
+                  onRelaunchPlan={onRelaunchPlan}
                 />
               ))}
             </tbody>

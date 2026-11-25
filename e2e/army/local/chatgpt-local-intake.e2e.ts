@@ -1,5 +1,5 @@
 import type { AnalysisProgress } from "@/lib/affaires/analysis-progress-contract";
-import { activateOwnedPlanDispatch, deactivateOwnedPlanDispatch } from "../takeoff/plan-dispatch-support";
+import { activateOwnedPlanDispatch, deactivateOwnedPlanDispatch, readOwnedPlanJobs } from "../takeoff/plan-dispatch-support";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { createHash, randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
@@ -1484,7 +1484,7 @@ if (!existsSync(liveProbePath)) test("AUTO01 choosing one of two plans reads it 
 
     await ui.app.open(`/dashboard/affaires/${ids.projectId}?view=overview`);
     const zone = takeoffZone({ screen });
-    await expect(zone).toContainText(`${prefix}-plan-toiture.pdf (non analysé dans cette demande)`, DEV_SERVER_WORK);
+    await expect(zone).toContainText(`${prefix}-plan-toiture.pdf (non lu dans cette demande)`, DEV_SERVER_WORK);
     await expect(zone).not.toContainText("Dossier modifié depuis l’analyse");
 
     // The member's identical submission of the revision they confirmed (a second tab, or an answer lost on the way)
@@ -1710,7 +1710,7 @@ if (!existsSync(liveProbePath)) test("AUTO04 a confirmation from a dialog shown 
       .filter(row => row.provider === "chatgpt-fixture" && row.inputKind === "pdf").slice(readsBefore);
     expect(sends.map(row => row.planChoice)).toEqual(["B"]);
     await ui.app.open(`/dashboard/affaires/${ids.projectId}?view=overview`);
-    await expect(zone).toContainText(`${prefix}-plan.pdf (non analysé dans cette demande)`, DEV_SERVER_WORK);
+    await expect(zone).toContainText(`${prefix}-plan.pdf (non lu dans cette demande)`, DEV_SERVER_WORK);
     await expect(zone).not.toContainText("Dossier modifié depuis l’analyse");
     await uploadDossierPlan(ui, ids.projectId, `${prefix}-extension.pdf`, owner.email, "opened");
     await ui.app.open(`/dashboard/affaires/${ids.projectId}?view=overview`);
@@ -2031,9 +2031,14 @@ if (!existsSync(liveProbePath)) test("AUTO06 the affaire's zone: a reader sees w
     // Its options relaunch it as a request on the clicker's subscription, without any version: no draft before the send.
     await zone.getByRole("button", "Options du métré", { exact: true }).click();
     const dialog = screen.getByRole("dialog", "Préparer le métré", { exact: true });
-    await expect(dialog.getByRole("button", "Confirmer et lancer le métré", { exact: true })).toBeEnabled(DEV_SERVER_WORK);
+    const readAgain = dialog.getByRole("checkbox", new RegExp(prefix));
+    await expect(readAgain).toBeVisible(DEV_SERVER_WORK);
+    await expect(readAgain).not.toBeChecked();
+    await readAgain.check();
+    const relaunch = dialog.getByRole("button", "Relancer 1 plan avec mon forfait", { exact: true });
+    await expect(relaunch).toBeEnabled(DEV_SERVER_WORK);
     await expect(dialog.getByRole("combobox", "Version cible", { exact: true })).toHaveCount(0);
-    await dialog.getByRole("button", "Confirmer et lancer le métré", { exact: true }).click();
+    await relaunch.click();
     await expect(dialog.getByText("Analyse transmise au traitement", { exact: true })).toBeVisible(DEV_SERVER_WORK);
     await expect.poll(async () => (await readOwnedLaunchRequests(ids.projectId)).map(request => [request.origin, request.state, request.outcome]),
       { timeout: 180_000 }).toEqual([["automatic", "closed", "success"], ["manual", "closed", "success"]]);
@@ -2110,6 +2115,277 @@ if (!existsSync(liveProbePath)) test("AUTO07 a member who stays on the affaire w
     await recordEvidence(army, "AUTO07-confirmed-on-open-page", { ids, request, jobs, planReads: 1,
       boundary: "Fictional dossier and ChatGPT transport fixture on an owned local backend; no API key or other provider." });
   } finally {
+    await browser.clearCookies({ domain: new URL(localOrigin).hostname });
+    await deactivateOwnedPlanDispatch();
+    await rm(store, { force: true });
+  }
+});
+
+async function startTwoPlanRequest({ app, screen, browser }: Parameters<typeof hydratedUi>[0],
+  owner: Awaited<ReturnType<typeof createLocalChatGptOwner>>, control: Parameters<typeof setDecisionsControl>[0]) {
+  await signInAs({ app, screen, browser }, owner.email);
+  const prefix = `ARMY-relaunch-${Date.now()}`;
+  const army = { runPrefix: prefix, projectName: prefix, ownedEstimates: [] };
+  const ui = hydratedUi({ app, screen, browser }, localOrigin);
+  const { projectId } = await createEstimateViaWizard(ui, { projectName: prefix, title: "Relance de plans fictifs" }, army);
+  const markedPlan = async (marker: string) => {
+    const pdf = await PDFDocument.load(await readFile("e2e/fixtures/sample-plan.pdf"));
+    pdf.getPage(0).node.set(PDFName.of("ArmyPlanChoice"), PDFName.of(marker));
+    return pdf.save();
+  };
+  await uploadDossierPlan(ui, projectId, "N01.pdf", owner.email, "empty", "classified", undefined, await markedPlan("N01"));
+  await uploadDossierPlan(ui, projectId, "N02.pdf", owner.email, "opened", "classified", undefined, await markedPlan("N02"));
+  await expect.poll(async () => (await readOwnedBrief(projectId))?.status, DEV_SERVER_WORK).toBe("a_confirmer");
+  await expect.poll(async () => (await ownedPlanChoices(projectId)).length, DEV_SERVER_WORK).toBe(2);
+  const [first, second] = await ownedPlanChoices(projectId);
+  expect(first && second).toBeTruthy();
+  await (await openBriefConfirmation(ui, projectId, owner.userId, true)).click();
+  const brief = screen.getByRole("alertdialog", "Confirmer ce brief ?", { exact: true });
+  await brief.getByRole("checkbox", /N01\.pdf/).check();
+  await brief.getByRole("checkbox", /N02\.pdf/).check();
+  const readsBefore = await planReads();
+  await setDecisionsControl(control);
+  await brief.getByRole("button", "Confirmer et analyser 2 plans", { exact: true }).click();
+  return { ui, army, projectId, first, second, readsBefore };
+}
+
+async function relaunchAfterProviderTimeout({ app, screen, browser }: Parameters<typeof hydratedUi>[0], untickSecond: boolean) {
+  const owner = await createLocalChatGptOwner();
+  const store = await writePlanFixture(owner.email, null, false);
+  await activateOwnedPlanDispatch();
+  try {
+    const { ui, army, projectId, first, second } = await startTwoPlanRequest({ app, screen, browser }, owner, { timeoutWriting: true });
+    await expect.poll(async () => (await readOwnedLaunchRequests(projectId))[0], { timeout: 180_000 }).toMatchObject({
+      state: "closed", units_expected: 2, units_failed: 1, units_not_started: 1, manifest_plans: [first.id, second.id],
+    });
+    const failedJobs = await readOwnedPlanJobs(projectId);
+    expect(failedJobs.map((job) => [job.plans, job.error_code])).toEqual([
+      [[first.id], "AI_PROVIDER"], [[second.id], "TAKEOFF_USAGE_UNRECORDED"],
+    ]);
+
+    const dialog = screen.getByRole("dialog", "Préparer le métré", { exact: true });
+    const n01 = dialog.getByRole("checkbox", "N01.pdf Échec", { exact: true });
+    const n02 = dialog.getByRole("checkbox", "N02.pdf Non lu", { exact: true });
+    const launchLabel = (count: number) => `Relancer ${count} plan${count > 1 ? "s" : ""} avec mon forfait`;
+    const launchButton = (count: number) => dialog.getByRole("button", launchLabel(count), { exact: true });
+    if (untickSecond) {
+      await ui.app.open(`/dashboard/affaires/${projectId}/takeoff`);
+      const row = screen.getByTestId(`takeoff-tracking-job-${failedJobs[1].id}`);
+      await expect(row).toContainText("N02.pdf", DEV_SERVER_WORK);
+      await row.getByRole("button", "Relancer ce plan", { exact: true }).click();
+      await expect(n02).toBeChecked(DEV_SERVER_WORK);
+      await expect(n01).not.toBeChecked();
+      await expect(launchButton(1)).toBeEnabled();
+      await browser.keyboard.press("Escape");
+      await expect(dialog).toBeHidden(DEV_SERVER_WORK);
+      expect(await readOwnedLaunchRequests(projectId)).toHaveLength(1);
+    }
+
+    await ui.app.open(`/dashboard/affaires/${projectId}?view=overview`);
+    await takeoffZone({ screen }).getByRole("button", "Options du métré", { exact: true }).click();
+    await expect(n01).toBeChecked(DEV_SERVER_WORK);
+    await expect(n02).toBeChecked();
+    await expect(launchButton(2)).toBeEnabled();
+    const screenshots: string[] = [];
+    if (untickSecond) {
+      await n02.uncheck();
+      await n01.uncheck();
+      await expect(launchButton(0)).toBeDisabled();
+      await expect(dialog.getByText("Cochez au moins un plan à relancer.", { exact: true })).toBeVisible();
+      await n01.check();
+      await expect(dialog.getByText(/^N01\.pdf · indice/)).toBeVisible();
+      await expect(dialog.getByText(/^N02\.pdf · indice/)).toHaveCount(0);
+    } else {
+      for (const width of [1440, 390]) {
+        await browser.setViewport({ width, height: 844 });
+        expect(await browser.evaluate(() => {
+          const frame = document.querySelector("[role=dialog]");
+          if (!frame) return false;
+          const bounds = frame.getBoundingClientRect();
+          return bounds.left >= 0 && bounds.right <= window.innerWidth && frame.scrollWidth <= frame.clientWidth;
+        })).toBe(true);
+        screenshots.push(await app.screenshot(`relance-plans-${width}`));
+      }
+    }
+
+    const selected = untickSecond ? [first.id] : [first.id, second.id];
+    const readsBefore = await planReads();
+    await setDecisionsControl({ holdPlanReading: true });
+    await launchButton(selected.length).click();
+    await expect(dialog.getByText("Analyse transmise au traitement", { exact: true })).toBeVisible(DEV_SERVER_WORK);
+    await ui.app.open(`/dashboard/affaires/${projectId}/takeoff`);
+    const coverage = screen.getByTestId("takeoff-request-coverage");
+    await expect(coverage).toContainText(untickSecond ? "N01.pdf · En lecture" : "0 plan lu sur 2", DEV_SERVER_WORK);
+    if (untickSecond) {
+      await expect(screen.getByTestId("takeoff-request-current")).toContainText("« N02.pdf » (non lu dans cette demande)");
+    }
+    await setDecisionsControl({});
+    await expect.poll(async () => (await readOwnedLaunchRequests(projectId))[1], { timeout: 180_000 }).toMatchObject({
+      state: "closed", outcome: "success", payer_id: owner.userId, units_expected: selected.length, manifest_plans: selected,
+    });
+    await expect(coverage).toContainText(untickSecond ? "N01.pdf · Lu" : "2 plans lus sur 2", DEV_SERVER_WORK);
+    const requests = await readOwnedLaunchRequests(projectId);
+    const jobs = (await readOwnedPlanJobs(projectId)).filter((job) => job.launch_request_id === requests[1].id);
+    expect(jobs.map((job) => [job.plans, job.status])).toEqual(selected.map((id) => [[id], "completed"]));
+    expect(await planReads() - readsBefore).toBe(selected.length);
+    expect(await forbiddenRequests()).toBe(0);
+    await recordEvidence(army, untickSecond ? "RELANCE02-selection-reduite" : "RELANCE01-deux-plans", {
+      projectId, requests, failedJobs, jobs, screenshots, reads: selected.length,
+      boundary: "Fictional PDFs, owned backend and simulated ChatGPT transport.",
+    });
+  } finally {
+    await setDecisionsControl({});
+    await browser.clearCookies({ domain: new URL(localOrigin).hostname });
+    await deactivateOwnedPlanDispatch();
+    await rm(store, { force: true });
+  }
+}
+
+if (!existsSync(liveProbePath)) test("RELANCE01 a failed and an unstarted plan are both checked and read on the clicker's subscription", {
+  tags: ["critical", "local", "chatgpt", "intake", "premetre"], session: "army", trace: "off", timeout: 360_000,
+}, (ui) => relaunchAfterProviderTimeout(ui, false));
+
+if (!existsSync(liveProbePath)) test("RELANCE02 a plan row checks just its own plan and the affaire relaunch reads only what remains checked", {
+  tags: ["critical", "local", "chatgpt", "intake", "premetre"], session: "army", trace: "off", timeout: 360_000,
+}, (ui) => relaunchAfterProviderTimeout(ui, true));
+
+if (!existsSync(liveProbePath)) test("RELANCE03 stopping a request offers its interrupted and unstarted plans and reads the checked plan", {
+  tags: ["critical", "local", "chatgpt", "intake", "premetre"], session: "army", trace: "off", timeout: 360_000,
+}, async ({ app, screen, browser }) => {
+  const owner = await createLocalChatGptOwner();
+  const store = await writePlanFixture(owner.email, null, false);
+  await activateOwnedPlanDispatch();
+  try {
+    const { ui, projectId, first, second, readsBefore } = await startTwoPlanRequest({ app, screen, browser }, owner, { holdPlanReading: true });
+    await expect.poll(async () => (await readOwnedPlanJobs(projectId)).map((job) => [job.plans, job.status]), DEV_SERVER_WORK)
+      .toEqual([[[first.id], "processing"], [[second.id], "pending"]]);
+    await expect.poll(planReads, DEV_SERVER_WORK).toBe(readsBefore + 1);
+    const [request] = await readOwnedLaunchRequests(projectId);
+    expect(await querySql(`select outcome from public.stop_takeoff_launch_request(
+      (select tenant_id from public.estimate_projects where id = '${projectId}'),
+      '${projectId}', '${owner.userId}', '${request.id}');`)).toContain("stopped");
+    await setDecisionsControl({});
+    await expect.poll(async () => (await readOwnedPlanJobs(projectId)).map((job) => job.status), DEV_SERVER_WORK)
+      .toEqual(["canceled", "canceled"]);
+
+    await ui.app.open(`/dashboard/affaires/${projectId}?view=overview`);
+    await takeoffZone({ screen }).getByRole("button", "Options du métré", { exact: true }).click();
+    const dialog = screen.getByRole("dialog", "Préparer le métré", { exact: true });
+    const interrupted = dialog.getByRole("checkbox", /N01\.pdf.*Échec/);
+    const unstarted = dialog.getByRole("checkbox", /N02\.pdf.*Non lu/);
+    await expect(unstarted).toBeChecked(DEV_SERVER_WORK);
+    await expect(interrupted).toBeChecked();
+    await expect(dialog).toContainText("Arrêté avant le démarrage");
+    await expect(dialog).toContainText("Lecture arrêtée");
+    await interrupted.uncheck();
+    await dialog.getByRole("button", "Relancer 1 plan avec mon forfait", { exact: true }).click();
+    await expect.poll(async () => (await readOwnedLaunchRequests(projectId))[1], DEV_SERVER_WORK)
+      .toMatchObject({ state: "closed", outcome: "success", manifest_plans: [second.id] });
+    expect(await planReads() - readsBefore).toBe(2);
+  } finally {
+    await setDecisionsControl({});
+    await browser.clearCookies({ domain: new URL(localOrigin).hostname });
+    await deactivateOwnedPlanDispatch();
+    await rm(store, { force: true });
+  }
+});
+
+if (!existsSync(liveProbePath)) test("RELANCE04 a stale default is cleared before paying again and a deliberate reread can proceed", {
+  tags: ["critical", "local", "chatgpt", "intake", "premetre"], session: "army", trace: "off", timeout: 360_000,
+}, async ({ app, screen, browser }) => {
+  const owner = await createLocalChatGptOwner();
+  const store = await writePlanFixture(owner.email, null, false);
+  await activateOwnedPlanDispatch();
+  try {
+    const { ui, projectId, first } = await startTwoPlanRequest({ app, screen, browser }, owner, { timeoutWriting: true });
+    await expect.poll(async () => (await readOwnedLaunchRequests(projectId))[0], DEV_SERVER_WORK)
+      .toMatchObject({ state: "closed", units_failed: 1, units_not_started: 1 });
+    await setDecisionsControl({});
+    const readsBefore = await planReads();
+    const openRelaunch = async () => {
+      await ui.app.open(`/dashboard/affaires/${projectId}?view=overview`);
+      await takeoffZone({ screen }).getByRole("button", "Options du métré", { exact: true }).click();
+      await expect(screen.getByRole("dialog", "Préparer le métré", { exact: true }).getByRole("checkbox", "N01.pdf Échec", { exact: true }))
+        .toBeChecked(DEV_SERVER_WORK);
+      await screen.getByRole("dialog", "Préparer le métré", { exact: true }).getByRole("checkbox", "N02.pdf Non lu", { exact: true }).uncheck();
+    };
+    const dialog = screen.getByRole("dialog", "Préparer le métré", { exact: true });
+    const launch = dialog.getByRole("button", "Relancer 1 plan avec mon forfait", { exact: true });
+    await openRelaunch();
+    const firstTab = browser.tabs().find((tab) => tab.isActive())!;
+    const other = await browser.newTab();
+    try {
+      await other.activate();
+      await openRelaunch();
+      await launch.click();
+      await expect.poll(async () => (await readOwnedLaunchRequests(projectId))[1], DEV_SERVER_WORK)
+        .toMatchObject({ state: "closed", outcome: "success", manifest_plans: [first.id] });
+      await firstTab.activate();
+      await expect(dialog.getByRole("checkbox", "N01.pdf Échec", { exact: true })).toBeChecked();
+      await launch.click();
+      const read = dialog.getByRole("checkbox", "N01.pdf Lu", { exact: true });
+      await expect(read).toBeVisible(DEV_SERVER_WORK);
+      await expect(read).not.toBeChecked();
+      await expect(dialog).toContainText("La sélection a été actualisée");
+      expect(await readOwnedLaunchRequests(projectId)).toHaveLength(2);
+      expect(await planReads() - readsBefore).toBe(1);
+
+      await read.check();
+      await launch.click();
+      await expect.poll(async () => (await readOwnedLaunchRequests(projectId))[2], DEV_SERVER_WORK)
+        .toMatchObject({ state: "closed", outcome: "success", manifest_plans: [first.id] });
+      expect(await planReads() - readsBefore).toBe(2);
+    } finally {
+      await other.close();
+    }
+  } finally {
+    await setDecisionsControl({});
+    await browser.clearCookies({ domain: new URL(localOrigin).hostname });
+    await deactivateOwnedPlanDispatch();
+    await rm(store, { force: true });
+  }
+});
+
+if (!existsSync(liveProbePath)) test("RELANCE05 a new document generation disables the old copy before another reading", {
+  tags: ["critical", "local", "chatgpt", "intake", "premetre"], session: "army", trace: "off", timeout: 360_000,
+}, async ({ app, screen, browser }) => {
+  const owner = await createLocalChatGptOwner();
+  const store = await writePlanFixture(owner.email, null, false);
+  await activateOwnedPlanDispatch();
+  try {
+    const { ui, projectId, first, second } = await startTwoPlanRequest({ app, screen, browser }, owner, { timeoutWriting: true });
+    await expect.poll(async () => (await readOwnedLaunchRequests(projectId))[0], DEV_SERVER_WORK)
+      .toMatchObject({ state: "closed", units_failed: 1, units_not_started: 1 });
+    await setDecisionsControl({});
+    const readsBefore = await planReads();
+    await ui.app.open(`/dashboard/affaires/${projectId}?view=overview`);
+    await takeoffZone({ screen }).getByRole("button", "Options du métré", { exact: true }).click();
+    const dialog = screen.getByRole("dialog", "Préparer le métré", { exact: true });
+    const oldPlan = dialog.getByRole("checkbox", /N01\.pdf/);
+    await expect(oldPlan).toBeChecked(DEV_SERVER_WORK);
+
+    // Simulate the interval before synchronization has replaced the old plan file and its bytes.
+    const changed = await querySql(`update public.affaire_intake_documents
+      set classified_at = clock_timestamp()
+      where project_id = '${projectId}' and id = (
+        select (metadata ->> 'intake_document_id')::uuid from public.plan_files where id = '${first.id}'
+      ) returning case when plan_copy_generation::text is distinct from (
+        select metadata ->> 'intake_generation' from public.plan_files where id = '${first.id}'
+      ) then 'generation changed' else 'generation unchanged' end;`);
+    expect(changed).toContain("generation changed");
+    await dialog.getByRole("button", "Relancer 2 plans avec mon forfait", { exact: true }).click();
+    const stalePlan = dialog.getByRole("checkbox", /N01\.pdf.*Copie de travail manquante/);
+    await expect(stalePlan).toBeDisabled(DEV_SERVER_WORK);
+    await expect(stalePlan).not.toBeChecked();
+    expect(await readOwnedLaunchRequests(projectId)).toHaveLength(1);
+    expect(await planReads()).toBe(readsBefore);
+
+    await dialog.getByRole("button", "Relancer 1 plan avec mon forfait", { exact: true }).click();
+    await expect.poll(async () => (await readOwnedLaunchRequests(projectId))[1], DEV_SERVER_WORK)
+      .toMatchObject({ state: "closed", outcome: "success", manifest_plans: [second.id] });
+    expect(await planReads() - readsBefore).toBe(1);
+  } finally {
+    await setDecisionsControl({});
     await browser.clearCookies({ domain: new URL(localOrigin).hostname });
     await deactivateOwnedPlanDispatch();
     await rm(store, { force: true });
