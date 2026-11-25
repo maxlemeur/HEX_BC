@@ -20,6 +20,8 @@ export function MaterialRequestSteps({ model, active, idBase, onGoTo }: Readonly
   onGoTo: (step: RequestStepKey) => void;
 }>) {
   const { next, steps } = model;
+  // Lignes and Bons de commande link to Devis in their footer. The Devis footer links to both other steps.
+  const nextInFooter = active === "devis" || next.step === "devis";
   return (
     <section aria-label="Avancement de la demande" className="mb-4 flex flex-wrap items-end gap-x-3 border-b border-border">
       <Tabs.List aria-label="Étapes de la demande" className="grid w-full grid-cols-3 gap-1.5 sm:gap-3 lg:w-auto lg:flex-1 lg:grid-cols-[repeat(3,minmax(0,15rem))]">
@@ -41,12 +43,14 @@ export function MaterialRequestSteps({ model, active, idBase, onGoTo }: Readonly
               <span className="sr-only">{`Étape ${index + 1} : `}</span>
               <span className="block text-sm leading-5 font-semibold text-foreground group-data-active/step:text-brand-orange">{step.label}</span>
               <span className="sr-only">{step.state === "done" ? ", terminée. " : ". "}</span>
-              <span className="sr-only block text-xs leading-snug text-muted-foreground sm:not-sr-only">{step.status}</span>
+              <span className={cn("block text-xs leading-snug text-muted-foreground", (step.key !== "lignes" || active !== "lignes") && "sr-only sm:not-sr-only")}>
+                {step.status}
+              </span>
             </span>
           </Tabs.Tab>
         ))}
       </Tabs.List>
-      {!next.done && next.step !== active ? (
+      {!next.done && next.step !== active && !nextInFooter ? (
         <Button type="button" size="sm" variant="link" className="ml-auto shrink-0" onClick={() => onGoTo(next.step)}>
           {`Aller à l’étape ${steps[REQUEST_STEP_KEYS.indexOf(next.step)].label}`}<ArrowRight aria-hidden="true" />
         </Button>

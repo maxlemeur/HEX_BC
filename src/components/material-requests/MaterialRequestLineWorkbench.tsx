@@ -109,7 +109,10 @@ export function MaterialRequestLineSummary(props: WorkbenchProps) {
           )}
         </div>
       </div>
-      <div className={cn("flex items-center justify-end gap-1", AT.state.at, CELL, CELL_LINE, "sheet:px-1.5")}>
+      <div className={cn(
+        "flex items-center justify-end gap-1 sheet:px-1.5", AT.state.at, CELL, CELL_LINE,
+        validated && "grid grid-cols-[1.75rem_1.75rem] sheet:grid",
+      )}>
         <Badge variant={validated ? "success" : "neutral"} title={validated ? "Validée" : "Brouillon"}
           className={cn(validated && "size-7 shrink-0 justify-center rounded-control px-0")}>
           {validated ? <Check aria-hidden="true" className="size-3.5" /> : null}
