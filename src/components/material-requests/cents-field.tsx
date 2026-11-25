@@ -117,6 +117,7 @@ export function CentsField({
         onChange={(event) => field.setDraft(event.currentTarget.value)}
         onBlur={onCommit}
         onKeyDown={(event) => {
+          if (event.nativeEvent.isComposing || event.keyCode === 229) return;
           if (event.key === "Enter") {
             event.preventDefault();
             onCommit();

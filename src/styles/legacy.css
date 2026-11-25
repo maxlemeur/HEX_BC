@@ -1622,10 +1622,13 @@ body {
     flex-wrap: wrap;
     overflow-x: visible;
     padding-bottom: 14px;
+    scrollbar-width: none;
   }
 
-  .table-filter-bar__filters::-webkit-scrollbar {
-    display: none;
+  @supports not (scrollbar-width: none) {
+    .table-filter-bar__filters::-webkit-scrollbar {
+      display: none;
+    }
   }
 
   .filter-pill-container {

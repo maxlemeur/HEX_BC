@@ -757,6 +757,19 @@ describe("TakeoffItemDetailScreen, check of #483", () => {
     expect(screen.getByText("Ce lien ne désigne pas une lecture de ce poste.")).toBeTruthy();
     expect(labelledEarlier).toBe(false);
   });
+  it("ignores Enter while IME composition is active in the quantity dialog", async () => {
+    open(ITEMS.notFound, PLAN_RDC, JOB_RDC);
+    await settle();
+    fireEvent.click(evidence().getByRole("button", { name: "Saisir une quantité" }));
+    const quantityInput = dialog().getByLabelText("Quantité");
+    fireEvent.change(quantityInput, { target: { value: "2,5" } });
+    fireEvent.keyDown(quantityInput, { key: "Enter", isComposing: true });
+    fireEvent.keyDown(quantityInput, { key: "Enter", keyCode: 229 });
+    expect(dialog().getByRole("button", { name: "Continuer" })).toBeInTheDocument();
+    fireEvent.keyDown(quantityInput, { key: "Enter" });
+    expect(dialog().getByLabelText("Ce qui fonde ces quantités")).toBeInTheDocument();
+  });
+
   it("draws the sealed PDF for an old dossier bookmark naming a measured piece",async()=>{
     const {COPY_RDC}=await import("@/lib/takeoff/item-detail.test-fixtures");
     act(()=>window.history.replaceState(null,"",takeoffItemDetailHref({projectId:DETAIL_PROJECT,itemId:ITEMS.basin,source:{documentId:PLAN_RDC,generation:"2"}})));

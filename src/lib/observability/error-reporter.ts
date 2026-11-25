@@ -129,24 +129,18 @@ async function deliverErrorEvent(dsn: string, event: ReportedErrorEvent) {
     },
     tags: event.digest ? { digest: event.digest } : undefined,
   } : event;
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), ERROR_REPORT_TIMEOUT_MS);
   let response: Response | undefined;
   try {
     response = await fetch(sentry?.storeUrl ?? dsn, {
-      method: "POST", headers, body: JSON.stringify(body), signal: controller.signal,
+      method: "POST", headers, body: JSON.stringify(body), signal: AbortSignal.timeout(ERROR_REPORT_TIMEOUT_MS),
     });
     if (!response.ok) {
       throw new Error(`${sentry ? "Sentry store" : "Error reporting endpoint"} rejected the event (${response.status}).`);
     }
   } finally {
-    try {
-      // The collector response is unused. Releasing its body also closes an
-      // endless stream; the same deadline remains active through cancellation.
-      await response?.body?.cancel();
-    } finally {
-      clearTimeout(timer);
-    }
+    // The collector response is unused. Releasing its body also closes an
+    // endless stream; the same deadline remains active through cancellation.
+    await response?.body?.cancel();
   }
 }
 

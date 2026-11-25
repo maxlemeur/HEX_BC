@@ -823,6 +823,7 @@ function LineDecision({ line, level, guidance, acceptance, busy, readOnly, showS
               onChange={(event) => onDraft(event.target.value)}
               onBlur={(event) => onLeaveEntry(event.currentTarget.value)}
               onKeyDown={(event) => {
+                if (event.nativeEvent.isComposing || event.keyCode === 229) return;
                 if (event.key === "Enter") { event.preventDefault(); onCommit(); }
                 if (event.key === "Escape") { event.preventDefault(); onCancelEntry(); }
               }} />

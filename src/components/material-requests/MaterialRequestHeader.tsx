@@ -91,6 +91,7 @@ function DateField({
         onChange={(event) => setDraft(event.currentTarget.value)}
         onBlur={() => void commit()}
         onKeyDown={(event) => {
+          if (event.nativeEvent.isComposing || event.keyCode === 229) return;
           if (event.key === "Enter") void commit();
           if (event.key === "Escape") {
             setDraft(null);
