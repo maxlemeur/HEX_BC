@@ -563,11 +563,14 @@ export function MaterialRequestLines({
       {lines.length > 0 ? (
         <>
           {/* A sheet of cells on the whole width from 1080 px, cards below it: see `MaterialRequestLineRow`. */}
-          <div className="sheet:rounded-lg sheet:border sheet:border-border sheet:bg-surface">
+          <div className={cn(
+            "sheet:rounded-lg sheet:border sheet:border-border sheet:bg-surface",
+            selectAll && "sheet:[--mr-selection-width:2.25rem]",
+          )}>
             {/*
               The column titles only repeat, for the eye, the name each field already carries: they stay hidden from
-              assistive technologies. « Tout sélectionner » sits in the corner cell, over the lines' own checkboxes, as
-              in a spreadsheet; below the sheet's width the header is that one row, as it reads in a card list.
+              assistive technologies. « Tout sélectionner » sits over the lines' own checkboxes, after the chevrons.
+              Below the sheet's width the header is that one row, as it reads in a card list.
             */}
             <div
               className={cn(
@@ -581,10 +584,10 @@ export function MaterialRequestLines({
                 LINE_GRID,
               )}
             >
+              <div aria-hidden="true" className={cn("hidden sheet:block", LINE_COLUMNS.toggle.at)} />
               {selectAll ? (
                 <>
-                  {/* In the sheet the box sits over the lines' boxes. */}
-                  <div className="flex items-center gap-2 sheet:justify-center sheet:border-r sheet:border-border">
+                  <div className={cn("flex items-center gap-2 sheet:justify-center sheet:border-l sheet:border-border", LINE_COLUMNS.select.at)}>
                     {/* The label is the checkbox's whole name: what follows it describes it. */}
                     <label className="flex w-fit items-center gap-2 text-sm font-medium text-foreground-secondary" title="Tout sélectionner">
                       <input
@@ -600,14 +603,10 @@ export function MaterialRequestLines({
                   </div>
                   <span className="text-sm text-muted-foreground sheet:hidden">{plural(drafts.length, "brouillon", "brouillons")}</span>
                 </>
-              ) : (
-                // Once no line is left to select, the corner stays, empty, over the lines' first column.
-                <div aria-hidden="true" className="hidden sheet:block sheet:border-r sheet:border-border" />
-              )}
-              {(Object.keys(LINE_COLUMNS) as LineColumn[]).map((column, index) => {
-                    // The corner cell, over the lines' boxes, is drawn above.
-                    if (column === "select") return null;
-                    const { title, short } = LINE_COLUMNS[column];
+              ) : null}
+              {(Object.keys(LINE_COLUMNS) as LineColumn[]).map((column) => {
+                    if (column === "toggle" || column === "select") return null;
+                    const { title, short, at } = LINE_COLUMNS[column];
                     // What settles a whole column at once sits in its header: every sure article, every proposed supplier.
                     const all =
                       column === "article" && sureLinks.length > 0
@@ -619,8 +618,8 @@ export function MaterialRequestLines({
                       <div
                         key={column}
                         className={cn(
-                          "min-w-0 items-center gap-1.5 max-sheet:contents sheet:flex sheet:px-2 sheet:py-1.5 xl:px-2.5",
-                          index > 1 && "sheet:border-l sheet:border-border",
+                          "min-w-0 items-center gap-1.5 max-sheet:contents sheet:flex sheet:border-l sheet:border-border sheet:px-2 sheet:py-1.5 xl:px-2.5",
+                          at,
                           column === "quantity" && "sheet:justify-end",
                         )}
                       >

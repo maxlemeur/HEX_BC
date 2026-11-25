@@ -10,7 +10,7 @@ import { effectiveLineMaterial } from "@/lib/material-requests/alerts";
 import { MATERIAL_REQUEST_IMPUTATION_LABELS } from "@/lib/material-requests/contracts";
 import { cn } from "@/lib/utils";
 
-import { AlertSummary, FoldArrow, SELECTED_ROW } from "./cells";
+import { AlertSummary, SELECTED_ROW } from "./cells";
 import { formatQuantity, orderedLineMark, purchaseOrderHref } from "./format";
 import { IncompleteArticle, MATCH_LABELS, MaterialRequestArticleCell } from "./MaterialRequestArticleCell";
 import {
@@ -20,6 +20,7 @@ import {
   LINE_BAND,
   LINE_COLUMNS,
   LINE_GRID,
+  MaterialRequestLineToggle,
   supplierFromRequest,
   supplierName,
   type LineRowProps,
@@ -61,6 +62,8 @@ export function MaterialRequestLineSummary(props: WorkbenchProps) {
   const supplier = supplierName(props.supplierOptions, line.supplier_id);
   const inherited = supplierFromRequest(request, props.supplierOptions);
   const mark = ordered ? orderedLineMark(ordered.status, ordered.purchase_order_reference) : null;
+  const detailsId = `material-request-line-${line.id}-details`;
+  const toggleId = `${detailsId}-toggle`;
   const validated = line.status === "validated";
   const noSize = (!line.dimension || line.dimension === "-") && (!material.material || material.material === "-") && !line.no_dimension;
   // In a card the article is not said twice when the line's type already is its designation.
@@ -68,27 +71,32 @@ export function MaterialRequestLineSummary(props: WorkbenchProps) {
   const linked = line.product_id !== null;
   return (
     // Below the sheet's width: a card of two rows, what the line asks beside its state, then its article and supplier.
-    <li aria-label={`Ligne ${line.position}`} className={cn(
-      "relative grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1 rounded-lg border border-border px-3 py-2.5 text-sm sm:px-4",
+    <li aria-label={`Ligne ${line.position}`} data-inspected={inspected || undefined} className={cn(
+      "relative grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1 rounded-lg border border-border px-3 py-2.5 text-sm sm:px-4",
       "sheet:items-start sheet:gap-0 sheet:rounded-none sheet:border-0 sheet:border-b sheet:p-0 sheet:last:rounded-b-lg sheet:last:border-b-0",
       LINE_GRID,
       inspected ? cn(SELECTED_ROW, "sheet:border-border-strong") : "bg-surface sheet:hover:bg-surface-subtle/60",
     )}>
-      {/* Under the boxes of the lines still edited: a validated line is not selected. */}
-      <div aria-hidden="true" className={cn("hidden sheet:block sheet:self-stretch sheet:border-r sheet:border-border", AT.select.at)} />
+      <MaterialRequestLineToggle
+        id={toggleId}
+        label={`Afficher les détails de la ligne ${line.position}`}
+        open={inspected}
+        controls={opened ? detailsId : undefined}
+        onToggle={onInspect}
+      />
       <div className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-0.5 sheet:contents">
-        <button type="button" aria-label={`Afficher les détails de la ligne ${line.position}`} aria-pressed={inspected} onClick={onInspect}
-          className={cn("block max-w-full break-words text-left font-semibold text-foreground hover:text-primary focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-ring sheet:font-normal", CELL, CELL_LINE, AT.type.at)}>
+        <label htmlFor={toggleId}
+          className={cn("block max-w-full cursor-pointer break-words text-left font-semibold text-foreground hover:text-primary sheet:font-normal", CELL, CELL_LINE, AT.type.at)}>
           <span className="sheet:truncate">{line.product_type || article?.designation || "Article à préciser"}</span>
-        </button>
+        </label>
         <p className="tabular-nums sheet:contents">
           <span className="sr-only">Quantité : </span>
-          <span className={cn("sheet:justify-end", CELL, AT.quantity.at)}>{line.quantity === null ? "—" : formatQuantity(line.quantity)}</span>{" "}
+          <span className={cn("sheet:justify-end", CELL, CELL_LINE, AT.quantity.at)}>{line.quantity === null ? "—" : formatQuantity(line.quantity)}</span>{" "}
           <span className={cn(CELL, CELL_LINE, AT.unit.at)}>{line.unit}</span>
         </p>
         <div className="flex min-w-0 flex-wrap gap-x-3 break-words sheet:contents">
           {noSize ? (
-            <p className={cn("italic text-muted-foreground sheet:[grid-column:5/7] sheet:row-start-1", CELL, CELL_LINE)}>Non renseignées</p>
+            <p className={cn("italic text-muted-foreground sheet:[grid-column:6/8] sheet:row-start-1", CELL, CELL_LINE)}>Non renseignées</p>
           ) : (
             <>
               <p className={cn(CELL, CELL_LINE, AT.dimension.at)}>
@@ -122,17 +130,6 @@ export function MaterialRequestLineSummary(props: WorkbenchProps) {
             <span className="sr-only">Modifier</span>
           </Button>
         ) : null}
-        {/* The arrow of the draft lines, for the eye and the mouse: the line's title is the control that is named. */}
-        <button
-          type="button"
-          tabIndex={-1}
-          aria-hidden="true"
-          title={inspected ? "Replier la ligne" : "Déplier la ligne"}
-          className="inline-flex size-7 shrink-0 items-center justify-center rounded-md text-foreground-secondary hover:bg-muted"
-          onClick={onInspect}
-        >
-          <FoldArrow open={inspected} className="size-3.5" />
-        </button>
       </div>
       {/* What the line is bought as, and from whom: under what it asks in a card, in their columns in the sheet. */}
       <div className="col-span-full flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-0.5 text-muted-foreground sheet:contents sheet:text-foreground">
@@ -153,15 +150,15 @@ export function MaterialRequestLineSummary(props: WorkbenchProps) {
       </div>
       {/* A line says its purchase order once it has one: « not yet » is every line's case until then. */}
       {ordered && mark ? (
-        <div className={cn("col-span-full min-w-0 text-xs sheet:[grid-column:2/-1] sheet:row-start-2 sheet:pb-2", CELL_PAD)}>
+        <div className={cn("col-span-full min-w-0 text-xs sheet:[grid-column:3/-1] sheet:row-start-2 sheet:pb-2", CELL_PAD)}>
           {ordered.can_open ? (
             <Link href={purchaseOrderHref(ordered.purchase_order_id)} className="inline-flex items-start gap-1 text-primary hover:underline focus-visible:outline-2 focus-visible:outline-ring"><ShoppingCart aria-hidden="true" className="size-4 shrink-0" />{mark}</Link>
           ) : <span className="text-muted-foreground">{mark}</span>}
         </div>
       ) : null}
-      {error ? <p role="alert" className={cn("col-span-full text-sm text-danger sheet:[grid-column:2/-1] sheet:row-start-3 sheet:pb-2", CELL_PAD)}>{error}</p> : null}
+      {error ? <p role="alert" className={cn("col-span-full text-sm text-danger sheet:[grid-column:3/-1] sheet:row-start-3 sheet:pb-2", CELL_PAD)}>{error}</p> : null}
       {opened ? (
-        <div hidden={!inspected} className={cn("col-span-full mt-1.5 min-w-0 border-t border-border pt-3 sheet:mt-0 sheet:row-start-4", LINE_BAND)}>
+        <div id={detailsId} hidden={!inspected} className={cn("col-span-full mt-1.5 min-w-0 border-t border-border pt-3 sheet:mt-0 sheet:row-start-4", LINE_BAND)}>
           <MaterialRequestLineInspector {...props} />
         </div>
       ) : null}

@@ -72,7 +72,7 @@
 :root:not(.dark) .material-request-editor .text-brand-orange { color: #a44806; }
 :root:not(.dark) .material-request-editor [role="tab"][data-active] { border-bottom-color: #c25a00; }
 :root:not(.dark) .material-request-editor .mr-supplier-workspace nav > button[aria-pressed="true"],
-:root:not(.dark) .material-request-editor .mr-workbench li:has(> div > button[aria-pressed="true"]) { background-color: #e9f0fc; }
+:root:not(.dark) .material-request-editor .mr-workbench li[data-inspected="true"] { background-color: #e9f0fc; }
 @media (min-width: 1280px) {
   .material-request-page { margin-top: -0.75rem; }
   .material-request-editor .mr-quote-card { padding: 1.25rem 1.5rem; }

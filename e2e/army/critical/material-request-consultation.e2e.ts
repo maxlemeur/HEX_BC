@@ -439,10 +439,28 @@ armyTest(
 
     // Validated at the lines step, the quote may be retained back at the quotes: it kept what was typed there.
     await openStep(1);
+    const originalViewport = await browser.evaluate(() => ({ width: window.innerWidth, height: window.innerHeight }));
+    await browser.setViewport({ width: 1280, height: 800 });
+    const firstLineLayout = () => browser.evaluate(() => {
+      const row = document.querySelector('[aria-label="Lignes de la demande"] > li');
+      const toggle = row?.querySelector(":scope > button[aria-expanded]");
+      if (!row || !toggle) return null;
+      const offset = toggle.getBoundingClientRect().left - row.getBoundingClientRect().left;
+      return {
+        toggleOnLeft: offset >= 0 && offset < 24,
+        selectionWidth: parseFloat(getComputedStyle(row).gridTemplateColumns.split(" ")[1]),
+      };
+    });
+    await expect(screen.getByRole("checkbox", "Tout sélectionner", { exact: true })).toBeVisible();
+    await expect.poll(firstLineLayout).toEqual({ toggleOnLeft: true, selectionWidth: 36 });
+    const draftLinesScreenshot = await app.screenshot("material-request-draft-lines-chevron");
     await screen.getByRole("button", "Valider les lignes sans alerte (2)", { exact: true }).tap();
     await expect.poll(async () => (await read()).lines.map((line) => line.status), { timeout: 30_000 }).toEqual([
       "validated", "validated",
     ]);
+    await expect(screen.getByRole("checkbox", "Tout sélectionner", { exact: true })).toHaveCount(0);
+    await expect.poll(firstLineLayout).toEqual({ toggleOnLeft: true, selectionWidth: 0 });
+    const validatedLinesScreenshot = await app.screenshot("material-request-validated-lines-chevron");
     await openStep(2);
     await expect(retain).toBeEnabled({ timeout: 30_000 });
     await retain.tap();
@@ -466,11 +484,18 @@ armyTest(
     const firstDetails = screen.getByRole("complementary", "Détails de la ligne 1", { exact: true });
     await expect(firstDetails.getByText("Prix unitaire HT (devis retenu)", { exact: true })).toBeVisible();
     await expect(firstDetails.getByText(/^11,50\s€$/)).toBeVisible({ timeout: 15_000 });
-    await screen.getByRole("button", "Afficher les détails de la ligne 2", { exact: true }).tap();
+    const secondToggle = screen.getByRole("button", "Afficher les détails de la ligne 2", { exact: true });
+    await secondToggle.tap();
     const secondDetails = screen.getByRole("complementary", "Détails de la ligne 2", { exact: true });
     await expect(secondDetails.getByText("Prix unitaire HT (devis retenu)", { exact: true })).toBeVisible();
     await expect(secondDetails.getByText(/^3,80\s€ les 100$/)).toBeVisible();
     await expect(screen.getByLabel("Fournisseur, ligne 1", { exact: true })).toHaveCount(0);
+    await browser.setViewport({ width: 390, height: 844 });
+    await expect.poll(async () => (await firstLineLayout())?.toggleOnLeft).toBe(true);
+    await secondToggle.tap();
+    await expect(secondDetails).toHaveCount(0);
+    const mobileLinesScreenshot = await app.screenshot("material-request-mobile-lines-chevron");
+    await browser.setViewport(originalViewport);
     await openStep(2);
     await screen.getByRole("button", new RegExp(`^Consulter le devis ${alphaName} du`)).tap();
     const alphaCard = screen.getByRole("article", `Devis ${alphaName}`, { exact: true });
@@ -510,6 +535,7 @@ armyTest(
       quotes: final.map((quote) => ({ id: quote.id, supplier_id: quote.supplier_id, status: quote.status, with_references: quote.with_references })),
       pdf: { id: storedPdf.id, byte_size: storedPdf.byte_size, sha256: storedSha[1] },
       copies: copyOutcomes,
+      lineScreenshots: [draftLinesScreenshot, validatedLinesScreenshot, mobileLinesScreenshot],
       lines: priced.map((line) => ({
         id: line.id, supplier_id: line.supplier_id, unit_price_ht_cents: line.unit_price_ht_cents, price_per: line.price_per,
       })),
