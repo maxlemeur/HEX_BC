@@ -589,7 +589,7 @@ describe("TesterArmy shard plans", () => {
     }
     // A small selection stays one job: no shard costs a stack and a build for seconds of journeys.
     const small = selectFromRepository(root, { event: "pull_request", paths: ["e2e/army/critical/dpgf-import.e2e.ts"], repositoryFiles: files });
-    expect(small.shards.shards).toEqual([{ shard: 1, total: 1, files: small.files, seconds: expect.any(Number) }]);
+    expect(small.shards.shards).toMatchObject([{ shard: 1, total: 1, files: small.files, seconds: expect.any(Number) }]);
 
     // Nothing to run: no shard, so the matrix job is skipped and the aggregate claims nothing.
     const none = selectFromRepository(root, { event: "pull_request", paths: ["docs/testing/tester-army-ci.md"], repositoryFiles: files });
@@ -606,7 +606,7 @@ describe("TesterArmy shard plans", () => {
     expect(full.takeoffShards.workers).toBe(1);
     expectPartition(full.takeoffShards, full.fullOnly.files, "every takeoff journey");
     const contracts = selectFromRepository(root, { event: "pull_request", paths: ["e2e/army/takeoff/contracts.e2e.ts"], repositoryFiles: files });
-    expect(contracts.takeoffShards.shards).toEqual([{ shard: 1, total: 1, files: contracts.fullOnly.files, seconds: expect.any(Number) }]);
+    expect(contracts.takeoffShards.shards).toMatchObject([{ shard: 1, total: 1, files: contracts.fullOnly.files, seconds: expect.any(Number) }]);
     expect(none.fullOnly.mode).toBe("none");
     expect(none.takeoffShards).toMatchObject({ files: [], shards: [] });
     // Every critical, takeoff and full plan in-process: timed out at 5,06 s on a loaded runner (PR #71, run 39178555436).
@@ -635,6 +635,24 @@ describe("TesterArmy shard plans", () => {
     });
     expect(unmapped.mode).toBe("full");
     expect(unmapped.shards).toMatchObject(whole);
+  });
+
+  it("uses the serial-file floor when buying shards and the projected cost when packing them", () => {
+    const setup = map.suite.setup;
+    const files = ["A", "B", "C", "D", "E"];
+    const seconds = { A: 500, B: 300, C: 250, D: 180, E: 110 };
+    const plan = (files: string[], workers: number) => planShards({
+      suite: "critical", files: [setup, ...files], setup, anonymous: [], wholeSuite: false, accepts: /./,
+      durations: { ...durations, seconds, neverTogether: [],
+        suites: { ...durations.suites, critical: { workers, secondsPerShard: 600, maxShards: 5 } } },
+    });
+    // A second runner cannot improve on A's 500 s for this selection.
+    expect(plan(["A", "B"], 2).shards).toMatchObject([{ seconds: 800, costSeconds: 500 }]);
+    // E goes beside B, C and D: its projected cost there is 420, below A's 500.
+    expect(plan(files, 2).shards).toMatchObject([
+      { seconds: 500, costSeconds: 500 }, { seconds: 840, costSeconds: 420 },
+    ]);
+    expect(plan(files, 1).shards).toHaveLength(3);
   });
 
   it("never plans two journeys that each start a development server in one shard", () => {

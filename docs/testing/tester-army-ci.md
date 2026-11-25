@@ -368,11 +368,43 @@ shards Critical utilisent 2 workers, ceux de Full et du métré en utilisent 1.
 Une sélection trop petite ou impossible à répartir conserve un seul job. Les
 durées ne choisissent pas la couverture.
 
-`secondsPerShard` est la charge de parcours mesurée qu'un job porte avant
-qu'un autre vaille sa pile et son build (environ trois minutes de runner par
-job). Le seuil Critical est de 715 s à 2 workers. Une sélection partielle
-applique ce même seuil, au lieu d'ouvrir un shard tous les 300 s. Pour le métré, le plan
-ouvre un deuxième job quand la charge estimée à 1 worker dépasse 400 s.
+Le coût estimé d'un shard en secondes est `max(durée du plus long fichier,
+somme des durées / workers)`, hors préparation et login. Le plan essaie les
+nombres de jobs admissibles en ordre croissant. Pour chaque nombre, il place
+les fichiers authentifiés puis anonymes, par durée décroissante, sur le shard
+autorisé de coût projeté le plus bas (à égalité, le moins chargé). Il retient
+le premier plan dont le coût maximal tient dans `secondsPerShard / workers`,
+ou dans la durée du plus long fichier si elle dépasse ce budget. À défaut, il
+utilise le nombre maximal admissible. La sélection et le résumé donnent les
+secondes cumulées et le coût estimé. Le coût est une borne basse de la durée
+des tests, car un worker ne peut commencer le fichier suivant avant d'avoir
+terminé le précédent.
+
+Au-delà de **400 s** par fichier, la sélection signale la mesure enregistrée,
+même pour un changement documentaire. L'agrégation signale aussi les mesures
+du run qui franchissent ce seuil. Le test de la configuration bloque au-delà
+de **600 s** (dix minutes de tests exécutés en série). Cette marge laisse
+passer les variations usuelles du takeoff mesuré autour de 450 s. La liste
+d'exceptions dans [file-durations.ts](../../scripts/tester-army/file-durations.ts)
+accorde **1 000 s** uniquement à `e2e/army/local/chatgpt-local-intake.e2e.ts`,
+mesuré jusqu'à environ 950 s avant sa découpe. Retirer cette exception quand
+une mesure après découpe confirme une durée sous 600 s.
+
+Chaque lundi à 08:35 UTC, [le workflow de mise à jour](../../.github/workflows/army-duration-refresh.yml)
+cherche pour Critical et Full leur dernière campagne verte de main (push ou
+planification) avec agrégat encore disponible. Le script vérifie le SHA du
+run et des rapports, somme les tests sélectionnés réussis en une tentative
+et arrondit chaque fichier à la seconde supérieure. Il ignore le login répété,
+les fichiers incomplets et ceux modifiés depuis la mesure. Critical a priorité
+pour les fichiers communs. Un fichier nouveau, un passage de seuil dans un
+sens ou dans l'autre, ou un écart d'au moins **10 s et 20 %** met à jour la
+durée et son entrée `measured`. La branche `automation/army-duration-refresh`
+porte une seule PR pour ces écarts. Le résumé et l'artefact
+`army-duration-proposal` restent disponibles sept jours si la création de PR
+échoue. Le jeton intégré demande `contents: write` et `pull-requests: write` ;
+activer **Allow GitHub Actions to create and approve pull requests** dans
+Settings → Actions → General si le dépôt refuse cette création. Approuver les
+workflows de la PR si GitHub en demande l'autorisation.
 
 `neverTogether` liste les fichiers qui ne partagent jamais un shard, quelles que
 soient leurs durées : les cinq fichiers des
