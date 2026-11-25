@@ -28,7 +28,7 @@ import { describeTakeoffLaunchAction, viewerLaunchAction, type TakeoffLaunchActi
 import { deriveDeterministicJobId } from "@/lib/takeoff/job-creation-input";
 import { resolvePlanSetSourceFile } from "@/lib/takeoff/job-creation-repository";
 import {
-  buildTakeoffLaunchManifest, decideTakeoffLaunch, describePlansWithoutCopy, describeTakeoffLaunchReason, isTakeoffLaunchReason, splitTakeoffLaunchManifest,
+  buildTakeoffLaunchManifest, decideTakeoffLaunch, describeTakeoffLaunchReason, isTakeoffLaunchReason, splitTakeoffLaunchManifest,
   TAKEOFF_AUTOMATIC_PAYER_NOTICE, TAKEOFF_GROUPED_UNIT_KEY,
   type AnyTakeoffLaunchManifest, type TakeoffLaunchManifest, type TakeoffLaunchOrder, type TakeoffLaunchPiece, type TakeoffLaunchReason,
   type TakeoffRelaunchChoice, describeTakeoffRelaunchWithoutPlans,
@@ -59,7 +59,7 @@ import {
   isTakeoffSourceVisible, maskTakeoffDossierChange, maskTakeoffPieces,
 } from "@/lib/takeoff/request-activity";
 import {
-  currentPlanCopies, recordedCopySources, recordedPlanPieces, relaunchIdentities, type CurrentPlanCopies,
+  checkCurrentCommandCopies, currentPlanCopies, recordedCopySources, recordedPlanPieces, relaunchIdentities, type CurrentPlanCopies,
 } from "@/lib/takeoff/relaunch-plan-copies-server";
 import { readTakeoffVisibleSources } from "@/lib/takeoff/source-visibility-server";
 import type { Database, Json } from "@/types/database";
@@ -91,6 +91,8 @@ export function launchError(error: { code?: string; message: string }, fallback:
       throw refusal(404, TakeoffErrorCode.NOT_FOUND, "Aucun métré n’attend sa prise en charge sur cette affaire.");
     case "TAKEOFF_LAUNCH_INTENT_CONFLICT":
       throw refusal(409, TakeoffErrorCode.CONFLICT, "Cette commande a déjà été envoyée pour une autre analyse. Rechargez les options du métré.");
+    case "TAKEOFF_LAUNCH_PLAN_COPY_STALE":
+      throw refusal(422, TakeoffErrorCode.VALIDATION_ERROR, "Un plan a changé pendant le lancement. Actualisez les plans à lire.");
     case "TAKEOFF_LAUNCH_PREDECESSOR_REQUIRED":
     case "TAKEOFF_LAUNCH_PREDECESSOR_INVALID":
       throw refusal(422, TakeoffErrorCode.VALIDATION_ERROR, "L’analyse à relancer n’appartient pas à cette affaire.");
@@ -840,6 +842,9 @@ export async function launchTakeoffRelaunch(input: {
     p_job: launchJobPayload(jobId, input.planSetId, sourceFile, owner.execution_host_id),
     p_module_default: takeoffModuleDefault(),
   });
+  if (error?.message === "TAKEOFF_LAUNCH_PLAN_COPY_STALE") {
+    await checkCurrentCommandCopies(service, input, plans.map((plan) => plan.document_id), snapshot);
+  }
   if (error) launchError(error, "Impossible de relancer le métré.");
   const row = data?.[0];
   if (!row) throw new TakeoffError({ status: 500, code: TakeoffErrorCode.INTERNAL_ERROR, retryable: false, message: "Impossible de relancer le métré." });
@@ -1037,26 +1042,18 @@ async function launchTakeoffPlanCommand(service: Service, input: RelaunchInput,
     hostId: owner.execution_host_id, manifest: split });
   const admission = { ...command, p_host: owner.execution_host_id, p_selection: snapshot.execution_selection as unknown as Json,
     p_manifest: units.manifest as unknown as Json, p_snapshot: snapshot as unknown as Json, p_module_default: takeoffModuleDefault() };
+  const checkCopies = () => checkCurrentCommandCopies(service, input, scope, confirmed);
   // A new named relaunch can only spend on the exact copies the member selected.
   // Replay was resolved first and an older unnamed command can still resolve its replacement copies.
   if (input.predecessorJobId && input.planFileIds?.length) {
-    const checked = await currentPlanCopies(service, context, input.projectId, input.planSetId, scope, "exact");
-    if (checked.withoutCopy.length > 0) {
-      const visible = await readTakeoffVisibleSources({ supabase: context.supabase, tenantId: context.tenantId,
-        projectId: input.projectId, ids: checked.withoutCopy.flatMap(({ id, piece }) => [id, piece]) });
-      const byId = new Map(confirmed.preparation.sources.map((source) => [source.document_id, source.document_name]));
-      throw new TakeoffError({ status: 422, code: TakeoffErrorCode.VALIDATION_ERROR, retryable: false,
-        message: `${describePlansWithoutCopy(checked.withoutCopy.map(({ id, piece, removed }, index) => ({
-          name: isTakeoffSourceVisible(visible, id, piece) ? byId.get(id) ?? `Plan ${index + 1}` : `Plan ${index + 1}`,
-          reason: removed ? "removed" : "copy_missing",
-        })))}. Actualisez les plans à relancer.` });
-    }
+    await checkCopies();
   }
   // A first analysis that names no plan keeps M4's identity (every plan of the preparation), its units as its jobs; a
   // command naming plans, its own.
   const { data, error } = named
     ? await service.rpc("launch_manual_takeoff_plan_request", { ...admission, p_plan_file_ids: named, p_jobs: units.jobs as unknown as Json } as never)
     : await service.rpc("launch_manual_takeoff_request", { ...admission, p_job: units.jobs as unknown as Json } as never);
+  if (error?.message === "TAKEOFF_LAUNCH_PLAN_COPY_STALE") await checkCopies();
   if (error) launchError(error, "Impossible de relancer le métré.");
   const row = (data as Array<{ outcome: string; request_id: string; job_id: string | null }> | null)?.[0];
   if (!row) throw new TakeoffError({ status: 500, code: TakeoffErrorCode.INTERNAL_ERROR, retryable: false, message: "Impossible de relancer le métré." });

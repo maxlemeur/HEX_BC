@@ -244,12 +244,13 @@ describe("readSealedItemListItems", () => {
 
 describe("buildTakeoffItemAnswersPublication", () => {
   async function publication(vectors = vectorOutcomes(), options: { call?: typeof script; items?: Poste[];
-    snapshot?: TakeoffJobProcessingRow["preparation_snapshot"];
+    snapshot?: TakeoffJobProcessingRow["preparation_snapshot"]; chunked?: boolean;
     plan?: (plan: ReturnType<typeof finishPlanReading>) => ReturnType<typeof finishPlanReading> } = {}) {
     const file = await sourceFile();
     const items = options.items ?? ITEMS;
     const reading = await readPlanAgainstItemList({ call: options.call ?? script, job: job(), items, listRevision: 3, model: "controlled",
-      config: { thresholdPages: 15, chunkSizePages: 10, overlapPages: 2, timeoutMs: 300_000, maxTotalTokens: 400_000, maxCostCents: 2_500 },
+      config: { ...(options.chunked ? { thresholdPages: 2, chunkSizePages: 2, overlapPages: 0 }
+        : { thresholdPages: 15, chunkSizePages: 10, overlapPages: 2 }), timeoutMs: 300_000, maxTotalTokens: 400_000, maxCostCents: 2_500 },
       pdf: { fileName: file.fileName, bytes: file.bytes, originalPageNumbers: file.sourcePageNumbersByPage } });
     const read = finishPlanReading(reading, items, posteVectorReadings(vectors, PLAN), JOB);
     const plan = options.plan ? options.plan(read) : read;
@@ -375,7 +376,37 @@ describe("buildTakeoffItemAnswersPublication", () => {
   it("gives the command the job, its lease, the exchange's versions and the unit's original pages", async () => {
     expect(await publication()).toMatchObject({ p_job_id: JOB, p_lease_token: LEASE, p_completed_at: "2026-11-22T09:00:00.000Z",
       p_model: "controlled", p_prompt_version: POSTE_EXCHANGE_PROMPT_VERSION,
-      p_exchange: { schema_version: "v2", prompt_version: POSTE_EXCHANGE_PROMPT_VERSION }, p_unit_pages: [3, 4, 5, 6] });
+      p_exchange: { schema_version: "v3", prompt_version: POSTE_EXCHANGE_PROMPT_VERSION }, p_unit_pages: [3, 4, 5, 6] });
+  });
+
+  it.each(["quantity only", "unit only", "missing partial figure"])("publishes the other measures after an unusable indication (%s)", async (defect) => {
+    const call = controlledPosteCall((entry) => {
+      if (entry.label === LAVABO.label && entry.chunkId === "f1-b1") return posteMeasured(entry, [{ page: 1, quantity: 3 }]);
+      if (entry.label !== VANNE.label || entry.chunkId !== "f2-b1") return posteNotFound(entry);
+      const indication = { page: 2, quantity: defect === "quantity only" ? 2 : null, unit: defect === "unit only" ? "u" : null,
+        method: "annotation" as const, evidence: "Repère sur le plan", measurement_basis: null, basis_as_requested: false,
+        counts_as: "distinct" as const, confidence: 0.5 };
+      return { ...posteNotFound(entry), outcome: "uncertain", reason_code: "PARTIAL_QUANTITY", reason_text: "Repère sur le plan",
+        observations: defect === "missing partial figure" ? [] : [indication] };
+    });
+    const built = await publication([], { call, chunked: true, items: [LAVABO, VANNE] });
+    const [measure, obstacle] = built.p_answers;
+    expect(built.p_items).toEqual([expect.objectContaining({ designation: "Lavabo", quantity: 3, unit: "u", source_page: 3 })]);
+    expect(measure).toMatchObject({ outcome: "measured", quantity: { value: 3, unit: "u" } });
+    expect(obstacle).toMatchObject({ outcome: "uncertain", candidate: null, searched_pages: [3, 4, 5, 6], reasons: expect.arrayContaining([
+      expect.objectContaining({ code: "FIGURE_UNUSABLE", by: "worker", chunk_id: "f2-b1" }),
+    ]), observations: defect === "missing partial figure" ? [] : [expect.objectContaining({ page: 6, quantity: null, unit: null })] });
+    expect(call.received.map(({ chunkId }) => chunkId)).toEqual(["f1-b1", "f2-b1"]);
+  });
+
+  it("publishes partial coverage when another basis is excluded inside the same fragment", async () => {
+    const call = controlledPosteCall((entry) => ({ ...posteNotFound(entry), outcome: "uncertain", reason_code: "UNIT_OR_BASIS_UNCLEAR",
+      reason_text: "Le second tronçon est mesuré au nu.", observations: ["axe", "nu"].map((basis, index) => ({ page: index + 1,
+        quantity: index === 0 ? 3 : 8, unit: "ml", method: "scaled_measure", evidence: `Tronçon ${basis}`, measurement_basis: basis,
+        basis_as_requested: index === 0, counts_as: "distinct", confidence: 0.5 })) }));
+    const built = await publication([], { call, items: [{ ...EF, measurementBasis: "axe" }] });
+    expect(built.p_answers[0]).toMatchObject({ outcome: "uncertain", quantity: null, candidate: { value: 3, unit: "ml" },
+      reasons: expect.arrayContaining([expect.objectContaining({ code: "CANDIDATE_PARTIAL", by: "worker" })]) });
   });
 
   it("gives exactly one answer per item, in the list's order, each in the addendum's shape", async () => {
@@ -394,6 +425,20 @@ describe("buildTakeoffItemAnswersPublication", () => {
       reasons: [{ code: "NO_INDICATION", by: "model", chunk_id: "f1-b1" }] });
   });
 
+  it("publishes a rejected candidate's obstacle and location without making a quantity or a contribution", async () => {
+    const call = controlledPosteCall((entry) => entry.label === VANNE.label ? {
+      ...posteNotFound(entry), outcome: "uncertain", reason_code: "SCALE_UNKNOWN", reason_text: "Vérifier la cote du tronçon.",
+      observations: [{ page: 2, quantity: 8, unit: "ml", method: "scaled_measure", evidence: "Tronçon sous le cartouche",
+        measurement_basis: null, basis_as_requested: false, counts_as: "distinct", confidence: 0.5 }],
+    } : posteNotFound(entry));
+    const built = await publication([], { call });
+
+    expect(built.p_items).toEqual([]);
+    expect(built.p_answers.find(({ item_id }) => item_id === VANNE.id)).toMatchObject({ outcome: "uncertain", quantity: null,
+      candidate: null, reasons: [expect.objectContaining({ code: "SCALE_UNKNOWN" }), expect.objectContaining({ code: "BASIS_UNSTATED" })],
+      observations: [expect.objectContaining({ page: 4, quantity: 8, role: "candidate", takeoff_item_id: null })] });
+  });
+
   it("makes a positive row of each contribution only, linked to it; candidates and alternatives make none", async () => {
     const built = await publication();
     const observations = built.p_answers.flatMap((answer) => answer.observations.map((entry) => ({ ...entry, item: answer.item_id })));
@@ -402,7 +447,7 @@ describe("buildTakeoffItemAnswersPublication", () => {
     expect(built.p_items.map((row) => row.id)).toEqual(contributions.map((entry) => entry.takeoff_item_id));
     expect(built.p_items[0]).toMatchObject({ designation: "Lavabo", quantity: 3, unit: "u", source_page: 4, source_file_name: "Plan RDC.pdf",
       is_excluded: false, exclusion_reason: null, metadata: { source_document: { kind: "plan_file", plan_file_id: PLAN },
-        poste: { item_id: LAVABO.id, list_revision_id: REVISION, exchange: "v2", chunk_id: "f1-b1", method: "symbol_count" } } });
+        poste: { item_id: LAVABO.id, list_revision_id: REVISION, exchange: "v3", chunk_id: "f1-b1", method: "symbol_count" } } });
     expect(observations.filter((entry) => entry.role !== "contribution").every((entry) => entry.takeoff_item_id === null)).toBe(true);
     // No row carries a reference quantity of the DPGF.
     expect(JSON.stringify(built)).not.toContain("9876");
@@ -424,7 +469,7 @@ describe("buildTakeoffItemAnswersPublication", () => {
     expect(built.p_result.warnings).toContainEqual({ code: "POSTE_HORS_LISTE", severity: "info",
       message: "Page 3 : Siphon de sol — symbole SdS" });
     expect(built.p_result).toMatchObject({ tables: [], confidence: null, token_count: 1_000, cost_cents: 0,
-      extracted_json: { format: "item_list", schema_version: "v2", prompt_version: POSTE_EXCHANGE_PROMPT_VERSION,
+      extracted_json: { format: "item_list", schema_version: "v3", prompt_version: POSTE_EXCHANGE_PROMPT_VERSION,
         list: { revision_id: REVISION, revision: 3, item_count: 4 }, plan_pages: [3, 4, 5, 6] } });
   });
 });

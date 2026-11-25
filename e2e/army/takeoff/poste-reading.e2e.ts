@@ -177,6 +177,62 @@ armyTest("TKPR02 B failed, an answer omitted, a reading cut short: B publishes n
   }
 });
 
+armyTest("TKPR04 les indices provisoires restent hors des totaux et le motif ouvre la page à vérifier", options, async (ui) => {
+  await ui.app.open("/dashboard/affaires");
+  const owner = await signUpWorkerOwner(ui, "TKPR4");
+  await activateOwnedPlanDispatch();
+  await activateOwnedItemListOrder();
+  try {
+    const { dossier, jobA, jobB } = await admittedRequest(ui, owner, { done: false });
+    const provisional = (quantity: number, page: number) => ({ uncertain: "PARTIAL_QUANTITY" as const,
+      text: "Symboles lisibles dans une seule zone.", page, figure: { quantity, unit: "u" } });
+    const dispatch = await runOwnedPlanDispatch(ui, owner, dossier.projectId, { itemAnswers: {
+      [jobA.id]: { items: { [LAVABO]: { quantity: 2, unit: "u", page: 1 }, [WC]: provisional(3, 2),
+        [ROBINET]: { uncertain: "QUALIFIER_UNREADABLE", text: "Diamètre illisible sous la légende R2.", page: 2 } } },
+      [jobB.id]: { items: { [LAVABO]: provisional(4, 1), [WC]: provisional(6, 1) } },
+    } });
+    expect(dispatch.calls.map(({ jobId }) => jobId)).toEqual([jobA.id, jobB.id]);
+    const readings = await readOwnedItemReadings(owner, dossier.projectId);
+    const planA = readings.find(({ label }) => label === ROBINET)!.readings[0].plan.logicalId;
+    expect(readings.find(({ label }) => label === ROBINET)!.readings[0].answer).toMatchObject({ outcome: "uncertain",
+      quantity: null, candidate: null, observations: [expect.objectContaining({ page: 2, quantity: null, unit: null })] });
+    expect(await readOwnedPlanItems(jobA.id)).toEqual([{ designation: LAVABO, source_page: 1 }]);
+    expect(await readOwnedPlanItems(jobB.id)).toEqual([]);
+
+    const ids = await itemIdsByLabel(dossier.projectId);
+    const href = `/dashboard/affaires/${dossier.projectId}/takeoff`;
+    const row = (label: string) => ui.screen.getByTestId(`poste-${ids[label]}`);
+    await ui.browser.setViewport({ width: 1440, height: 900 });
+    await ui.app.open(href);
+    await waitForHydration(ui.browser);
+    await row(WC).getByText("2 plans incertains", { exact: true }).click();
+    await expect(row(WC).getByText("Quantité provisoire partielle · 3 u", { exact: true })).toBeVisible();
+    await expect(row(WC).getByText("Quantité provisoire partielle · 6 u", { exact: true })).toBeVisible();
+    await expect(row(WC).getByText("9 u", { exact: true })).toHaveCount(0);
+    const totals = await ui.browser.evaluate((itemIds) => {
+      const table = document.querySelector<HTMLTableElement>('table[aria-label="Postes du métré"]')!;
+      const columns = Array.from(table.tHead!.rows[0].cells).map((cell) => cell.textContent?.trim());
+      return itemIds.map((id) => {
+        const line = document.querySelector<HTMLTableRowElement>(`[data-testid="poste-${id}"]`)!;
+        return ["Observé", "Retenu"].map((column) => line.cells[columns.indexOf(column)].textContent?.trim());
+      });
+    }, [ids[LAVABO], ids[WC]]);
+    expect(totals).toEqual([["2 u", ""], ["", ""]]);
+
+    await ui.browser.setViewport({ width: 390, height: 844 });
+    await ui.app.open(`${href}?postePlan=${planA}`);
+    await waitForHydration(ui.browser);
+    await expect(row(WC).getByText("Quantité provisoire partielle · 3 u", { exact: true })).toBeVisible();
+    await expect(row(ROBINET)).toContainText("Diamètre illisible sous la légende R2.");
+    await row(ROBINET).getByRole("link", "Vérifier le plan · page 2", { exact: true }).click();
+    await expect(ui.screen.getByRole("img", "plan-a.pdf, page 2", { exact: true })).toBeVisible({ timeout: 30_000 });
+    await recordEvidence(ui.army, "poste-uncertain-v3", { calls: 2, viewportWidths: [1440, 390], totals, verifiedPage: 2 });
+  } finally {
+    await deactivateOwnedItemListOrder();
+    await deactivateOwnedPlanDispatch();
+  }
+});
+
 /** The id of each item of the affaire's list, by its label. */
 async function itemIdsByLabel(projectId: string) {
   const rows = JSON.parse((await querySql(`select coalesce(json_object_agg(e.label, e.item_id), '{}'::json)

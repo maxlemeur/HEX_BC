@@ -170,6 +170,13 @@ export type DispatchAnswer = { event: "result"; pass: { ran: string[]; closed: s
 
 export type OwnedPlanLine = { designation: string; quantity: number; unit: string; source_page: number };
 
+type OwnedItemAnswer = { quantity: number; unit: string; page: number } | "omit" | {
+  uncertain: "PARTIAL_QUANTITY" | "QUALIFIER_UNREADABLE";
+  text: string;
+  page: number;
+  figure?: { quantity: number; unit: string };
+};
+
 /**
  * A pass of the Mac's dispatcher, its units answered by the controlled provider (`modes` per job, success by default;
  * « release » holds a job's call until `releaseFile` exists; `items` per job, the lines its reading returns).
@@ -177,8 +184,13 @@ export type OwnedPlanLine = { designation: string; quantity: number; unit: strin
 export async function runOwnedPlanDispatch(ui: WorkerUi, owner: WorkerOwner, projectId: string,
   options: { modes?: Record<string, "success" | "terminal" | "timeout" | "hold" | "release">; delayMs?: number; mailCollector?: string;
     items?: Record<string, OwnedPlanLine[]>; releaseFile?: string;
-    /** A job reading against its list: by item label, a measure (page local to the copied PDF) or « omit »; `truncate`. */
-    itemAnswers?: Record<string, { items?: Record<string, { quantity: number; unit: string; page: number } | "omit">; finds?: Array<{ designation: string; page: number; evidence: string }>; findsTruncated?: boolean; truncate?: boolean }> } = {}) {
+    /** Scripted item answers and out-of-list findings. Their pages are local to the copied PDF. */
+    itemAnswers?: Record<string, {
+      items?: Record<string, OwnedItemAnswer>;
+      finds?: Array<{ designation: string; page: number; evidence: string }>;
+      findsTruncated?: boolean;
+      truncate?: boolean;
+    }> } = {}) {
   if (!UUID.test(projectId) || !ui.army.ownedTakeoffAffaires?.includes(projectId)) throw new Error("An owned affaire is required.");
   const { stdout, stderr } = await run(process.execPath, ["--conditions=react-server", "--import", "tsx",
     "scripts/tester-army/takeoff-plan-dispatch.mjs", projectId, ui.army.runPrefix], { timeout: 120_000, env: childEnv(owner, {

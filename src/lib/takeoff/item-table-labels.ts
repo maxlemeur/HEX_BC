@@ -1,7 +1,7 @@
 import { ITEM_AGGREGATE_STATES, type ItemAggregateState } from "./item-answer-aggregation";
 import type { ItemAnswerAnomaly, ItemIneligibility, ItemLineDecision, ItemSetAsideReason } from "./item-table";
 import type { TakeoffUnitState } from "./launch-request-coverage";
-import { describePosteStatus } from "./poste-aggregation";
+import { describePosteStatus, describeStoredPosteReason } from "./poste-aggregation";
 
 /** The words of the table of items, in French: every code its contract carries has its label here, never on screen as is. */
 
@@ -68,7 +68,7 @@ export function itemReasonLabel(reason: string): string {
   if (reason.startsWith("anomaly:")) {
     return ITEM_ANOMALY_LABELS[reason.slice("anomaly:".length) as ItemAnswerAnomaly] ?? "À vérifier";
   }
-  if (reason.startsWith("answer_reason:")) return "Motif de la lecture";
+  if (reason.startsWith("answer_reason:")) return describeStoredPosteReason(reason.slice("answer_reason:".length)) ?? "Motif de la lecture";
   switch (reason) {
     case "dpgf_gap": return "Écart à la DPGF à vérifier";
     case "unit_conflict": return "Unités différentes selon les plans";

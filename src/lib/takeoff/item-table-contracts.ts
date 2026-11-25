@@ -83,6 +83,12 @@ const answerSchema = z.object({
   observations: z.array(observationSchema),
   candidate: z.object({ quantity: positiveQuantity, unit }).strict().nullable()
     .describe("Valeur candidate d’une réponse incertaine : jamais une quantité mesurée."),
+  uncertainty: z.object({
+    partial: z.boolean(),
+    planUnavailable: z.literal(true).optional(),
+    reasons: z.array(z.object({ code: z.string().max(64), by: z.enum(["model", "worker"]), text: z.string().nullable(),
+      page: page.nullable() }).strict()),
+  }).strict().optional().describe("Couverture du candidat et motifs de l’incertitude, avec leur page quand elle est connue."),
   anomalies: z.array(z.enum(ITEM_ANSWER_ANOMALIES)),
   readAt: timestamp,
 }).strict();

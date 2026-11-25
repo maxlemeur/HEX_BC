@@ -1378,6 +1378,7 @@ describe("launchTakeoffRelaunch", () => {
     receipt?: (planFileIds: string[] | null) => { data: unknown; error: { code: string; message: string } | null };
     /** Copies in the plan set that are not their piece's current copy (an older generation the sync has not reserved yet). */
     stale?: string[];
+    rotateAtAdmission?: string;
     /** Dossier pieces removed from the dossier; every other piece is a classified plan of the dossier. */
     removedPieces?: string[];
     /** Every read of the plan set's copies, of their recorded sources or of a copy's current state fails. */
@@ -1475,6 +1476,10 @@ describe("launchTakeoffRelaunch", () => {
         },
         launch_manual_takeoff_plan_request: (args) => {
           launched.push(args as Record<string, unknown>);
+          if (input.rotateAtAdmission) {
+            input.stale = [input.rotateAtAdmission];
+            return { data: null, error: { code: "40001", message: "TAKEOFF_LAUNCH_PLAN_COPY_STALE" } };
+          }
           return { data: [{ outcome: "admitted", request_id: REQUEST, job_id: (args as { p_jobs: Array<{ id: string }> }).p_jobs[0].id }],
             error: null };
         },
@@ -1523,6 +1528,16 @@ describe("launchTakeoffRelaunch", () => {
       status: 422, message: expect.stringContaining("plan-a.pdf"),
     });
     expect(history.launched).toEqual([]);
+  });
+
+  it("names the visible copy that rotated after the server check", async () => {
+    const history = affaireHistory({ copies: [A_BEFORE, B_COPY], confirmed: [A_BEFORE.id, B_COPY.id],
+      rotateAtAdmission: A_BEFORE.id, requests: [{ id: FIRST_REQUEST, plans: [A_BEFORE, B_COPY] }],
+      predecessor: { id: JOB_OF_A, requestId: FIRST_REQUEST, unitKey: `plan:${A_BEFORE.id}` } });
+    await expect(history.run([A_BEFORE.id, B_COPY.id])).rejects.toMatchObject({
+      status: 422, message: expect.stringContaining("plan-a.pdf"),
+    });
+    expect(history.launched).toHaveLength(1);
   });
 
   // The dossier replaced plan A after its analysis: its piece has a new working copy (a new generation, a new identifier) and
