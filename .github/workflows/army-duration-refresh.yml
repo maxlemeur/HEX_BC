@@ -69,7 +69,6 @@ jobs:
     if: needs.measure.outputs.changed == 'true'
     runs-on: ubuntu-24.04
     permissions:
-      actions: read
       contents: write
       pull-requests: write
     env:
