@@ -203,7 +203,8 @@ export function getTakeoffPrompt(
 const ITEM_READING_RULES = [
   "Rendre exactement une réponse par post_id de requested_posts, ni plus ni moins, en recopiant post_id tel quel.",
   "outcome=measured : au moins une observation avec page, quantity > 0, unit, evidence, method et confidence ; reason_code et reason_text valent null.",
-  "outcome=uncertain : indice ambigu, quantité partielle, preuves contradictoires, échelle ou cote manquante, unité ou base imprécise, diamètre ou matière illisible, estimation. reason_code obligatoire ; observations facultatives : une page candidate avec son indice, quantity et unit à null si aucune valeur n'est lisible.",
+  "outcome=uncertain : reason_code et reason_text obligatoires. Si un indice est chiffrable, cite sa page, sa preuve, sa méthode, sa quantité et son unité. PARTIAL_QUANTITY exige un tel indice.",
+  "Sans chiffre, décris l’obstacle concret et ce qui permettrait de le lever (page, cote, légende ou objet si connus). Localise l’obstacle dans observations si sa page est connue, avec quantity et unit à null. N’invente pas de chiffre. Chaque observation donne les deux champs ensemble ou les laisse tous deux à null.",
   "outcome=not_found : le poste a été cherché sur toutes les pages de owned_pages sans aucun indice ni candidat ; reason_code NO_INDICATION et observations vide. Ne jamais représenter une absence par une quantité 0.",
   "searched_pages : les pages de owned_pages examinées pour ce poste. Chaque page de owned_pages figure dans searched_pages, ou dans unreadable_pages si elle est illisible.",
   "unreadable_pages : les pages illisibles du fragment (scan flou, page vide, page tronquée) ; une page illisible n'est jamais une preuve d'absence.",

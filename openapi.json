@@ -49101,6 +49101,68 @@
                                         ],
                                         "description": "Valeur candidate d’une réponse incertaine : jamais une quantité mesurée."
                                       },
+                                      "uncertainty": {
+                                        "description": "Couverture du candidat et motifs de l’incertitude, avec leur page quand elle est connue.",
+                                        "type": "object",
+                                        "properties": {
+                                          "partial": {
+                                            "type": "boolean"
+                                          },
+                                          "planUnavailable": {
+                                            "type": "boolean",
+                                            "const": true
+                                          },
+                                          "reasons": {
+                                            "type": "array",
+                                            "items": {
+                                              "type": "object",
+                                              "properties": {
+                                                "code": {
+                                                  "type": "string",
+                                                  "maxLength": 64
+                                                },
+                                                "by": {
+                                                  "type": "string",
+                                                  "enum": [
+                                                    "model",
+                                                    "worker"
+                                                  ]
+                                                },
+                                                "text": {
+                                                  "type": [
+                                                    "string",
+                                                    "null"
+                                                  ]
+                                                },
+                                                "page": {
+                                                  "anyOf": [
+                                                    {
+                                                      "type": "integer",
+                                                      "exclusiveMinimum": 0,
+                                                      "maximum": 9007199254740991
+                                                    },
+                                                    {
+                                                      "type": "null"
+                                                    }
+                                                  ]
+                                                }
+                                              },
+                                              "required": [
+                                                "code",
+                                                "by",
+                                                "text",
+                                                "page"
+                                              ],
+                                              "additionalProperties": false
+                                            }
+                                          }
+                                        },
+                                        "required": [
+                                          "partial",
+                                          "reasons"
+                                        ],
+                                        "additionalProperties": false
+                                      },
                                       "anomalies": {
                                         "type": "array",
                                         "items": {
@@ -50668,6 +50730,68 @@
                                     }
                                   ],
                                   "description": "Valeur candidate d’une réponse incertaine : jamais une quantité mesurée."
+                                },
+                                "uncertainty": {
+                                  "description": "Couverture du candidat et motifs de l’incertitude, avec leur page quand elle est connue.",
+                                  "type": "object",
+                                  "properties": {
+                                    "partial": {
+                                      "type": "boolean"
+                                    },
+                                    "planUnavailable": {
+                                      "type": "boolean",
+                                      "const": true
+                                    },
+                                    "reasons": {
+                                      "type": "array",
+                                      "items": {
+                                        "type": "object",
+                                        "properties": {
+                                          "code": {
+                                            "type": "string",
+                                            "maxLength": 64
+                                          },
+                                          "by": {
+                                            "type": "string",
+                                            "enum": [
+                                              "model",
+                                              "worker"
+                                            ]
+                                          },
+                                          "text": {
+                                            "type": [
+                                              "string",
+                                              "null"
+                                            ]
+                                          },
+                                          "page": {
+                                            "anyOf": [
+                                              {
+                                                "type": "integer",
+                                                "exclusiveMinimum": 0,
+                                                "maximum": 9007199254740991
+                                              },
+                                              {
+                                                "type": "null"
+                                              }
+                                            ]
+                                          }
+                                        },
+                                        "required": [
+                                          "code",
+                                          "by",
+                                          "text",
+                                          "page"
+                                        ],
+                                        "additionalProperties": false
+                                      }
+                                    }
+                                  },
+                                  "required": [
+                                    "partial",
+                                    "reasons"
+                                  ],
+                                  "additionalProperties": false
                                 },
                                 "anomalies": {
                                   "type": "array",
