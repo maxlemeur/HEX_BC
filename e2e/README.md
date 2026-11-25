@@ -72,7 +72,7 @@ leur compte local éphémère.
 
 ## Vérifier l’accès au chiffrage en production
 
-Dans GitHub Actions, ouvrir [TesterArmy production QA](https://github.com/maxlemeur/HEX_BC/actions/workflows/e2e-production-qa.yml), puis choisir **Run workflow** sur `main`. La commande équivalente est `gh workflow run e2e-production-qa.yml --repo maxlemeur/HEX_BC --ref main`. Ouvrir l’exécution depuis cette page pour lire son résultat.
+Dans GitHub Actions, ouvrir [TesterArmy production QA](https://github.com/thannous/HEX_BC/actions/workflows/e2e-production-qa.yml), puis choisir **Run workflow** sur `main`. La commande équivalente est `gh workflow run e2e-production-qa.yml --repo thannous/HEX_BC --ref main`. Ouvrir l’exécution depuis cette page pour lire son résultat.
 
 `QA_OK` confirme que le compte dédié s’est connecté au site déployé, que son organisation active porte [l’identifiant public du tenant QA](../docs/testing/shared-supabase-test-data-purge-2026-10-25.json), que son rôle courant est `admin` et que le formulaire « Nouveau chiffrage » s’affiche avec ses contrôles actifs. Le formulaire reste vide. Le navigateur ouvre uniquement des lectures sur le site et autorise une seule requête de connexion vers son service d’authentification.
 
