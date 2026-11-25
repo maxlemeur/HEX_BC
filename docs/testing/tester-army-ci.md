@@ -370,9 +370,25 @@ durées ne choisissent pas la couverture.
 
 Le coût estimé d'un shard en secondes est `max(durée du plus long fichier,
 somme des durées / workers)`, hors préparation et login. Le plan essaie les
-nombres de jobs admissibles en ordre croissant. Pour chaque nombre, il place
-les fichiers authentifiés puis anonymes, par durée décroissante, sur le shard
-autorisé de coût projeté le plus bas (à égalité, le moins chargé). Il retient
+nombres de jobs admissibles en ordre croissant. Il répartit d'abord les
+fichiers de `coldServers`, qui lancent leur propre Next de développement,
+avec un shard par serveur dans la limite du nombre de jobs autorisé. Si deux
+serveurs doivent partager un shard, il privilégie les shards qui en ont le
+moins, puis celui dont le plus long fichier à serveur est le plus court. Le
+coût projeté, puis la charge cumulée départagent les ex æquo. La sélection
+et le résumé nomment chaque paire ou groupe qui partage un shard.
+
+Dans le [run Critical 45612899126, tentative 1](https://github.com/thannous/HEX_BC/actions/runs/45612899126/attempts/1),
+le shard 2 a fait tourner `takeoff-lab` pendant INTFRESH02 de
+`chatgpt-local-intake-documents`. Pendant la compilation, la mémoire disponible
+est descendue à 947 Mio et le swap utilisé a atteint 512 Mio. La confirmation
+du dossier a reçu un HTTP 500. Elle est passée en deuxième tentative après
+la fin des parcours de l'autre worker.
+
+Le plan place ensuite les autres fichiers sur le shard autorisé de coût
+projeté le plus bas, à égalité sur le moins chargé. Dans chaque passe, il
+traite les parcours authentifiés avant les anonymes, par durée décroissante,
+et attribue un parcours authentifié à chaque shard. Il retient
 le premier plan dont le coût maximal tient dans `secondsPerShard / workers`,
 ou dans la durée du plus long fichier si elle dépasse ce budget. À défaut, il
 utilise le nombre maximal admissible. La sélection et le résumé donnent les

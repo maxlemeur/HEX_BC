@@ -655,7 +655,53 @@ describe("TesterArmy shard plans", () => {
     expect(plan(files, 1).shards).toHaveLength(3);
   });
 
-  it("never plans two journeys that each start a development server in one shard", () => {
+  it("registers each sharded journey that launches Next dev directly or through a helper", () => {
+    const launchCommand = /["'`](?:scripts\/dev-chatgpt-local\.mjs|(?:node_modules\/)?next\/dist\/bin\/next)["'`]|["'`]next["'`]\s*,\s*\[?\s*["'`]dev["'`]|["'`]next dev\b/u;
+    const owners = new Set(files.filter((file) => {
+      if (!file.startsWith("e2e/army/") || !/\.[cm]?[jt]s$/u.test(file)) return false;
+      const source = fs.readFileSync(path.join(root, file), "utf8");
+      return /\b(?:spawn|execFile|exec)(?:Sync)?\s*\(/u.test(source) && launchCommand.test(source);
+    }));
+    for (const owner of owners) {
+      for (const importer of graph.importers.get(owner) ?? []) if (importer.startsWith("e2e/army/")) owners.add(importer);
+    }
+    const cold = [...new Set([...criticalSuite, ...fullSelection])].filter((file) => owners.has(file));
+    expect(cold).toContain(CHATGPT_TAKEOFF);
+    expect([...(durations.coldServers ?? [])].sort()).toEqual(cold.sort());
+  });
+
+  it("spreads cold servers first and gives unavoidable companions to the lightest existing cold servers", () => {
+    const seconds = { heavy: 100, medium: 80, light: 20, extra: 15, last: 10, warm: 500 };
+    const setup = map.suite.setup;
+    const coldServers = ["heavy", "medium", "light", "extra", "last"];
+    const plan = (maxShards: number, neverTogether = [["heavy", "medium", "light"]]) => planShards({
+      suite: "critical", setup, files: [setup, ...Object.keys(seconds)], anonymous: [], accepts: /./, wholeSuite: false,
+      durations: { ...durations, seconds, coldServers, neverTogether,
+        suites: { ...durations.suites, critical: { maxShards, secondsPerShard: 2000, workers: 2 } } },
+    });
+    const packed = plan(3);
+    expect(packed.shards.map((shard) => shard.files.filter((file) => coldServers.includes(file)))).toEqual([
+      ["heavy"], ["last", "medium"], ["extra", "light"],
+    ]);
+    expect(packed.warnings).toHaveLength(2);
+    expect(packed.warnings?.join("\n")).toContain("extra, light");
+    const excluded = plan(3, [["extra", "light"]]);
+    expect(excluded.shards.find((shard) => shard.files.includes("extra"))?.files).toContain("medium");
+    expect(excluded.shards.find((shard) => shard.files.includes("last"))?.files).toContain("light");
+    const apart = plan(5);
+    expect(apart.shards.map((shard) => shard.files.filter((file) => coldServers.includes(file)).length)).toEqual([1, 1, 1, 1, 1]);
+    expect(apart.warnings ?? []).toEqual([]);
+  });
+
+  it("rejects duplicate, malformed or unselected cold-server paths in the registry", () => {
+    const journeys = [...criticalSuite, ...fullSelection];
+    for (const coldServers of ["all", [CHATGPT_TAKEOFF, CHATGPT_TAKEOFF], [7], ["e2e/army/local/zz-absent.e2e.ts"]]) {
+      const problems = validateShardDurations({ ...durations, coldServers } as ShardDurations, journeys);
+      expect(problems.some((problem) => problem.includes("coldServers"))).toBe(true);
+    }
+  });
+
+  it("never places two members of the same hard exclusion group in one shard", () => {
     expect(durations.neverTogether).toEqual([CHATGPT_JOURNEYS]);
     const shardsOf = (plan: ShardPlan, file: string) => plan.shards.filter((shard) => shard.files.includes(file)).map((shard) => shard.shard);
     const expectApart = (plan: ShardPlan, label: string, journeys = CHATGPT_JOURNEYS) => {
@@ -677,7 +723,7 @@ describe("TesterArmy shard plans", () => {
     const setup = map.suite.setup;
     const base = { suite: "critical" as const, setup, anonymous: map.suite.anonymous, accepts: CRITICAL_JOURNEY_FILE, wholeSuite: false };
     const measured = (seconds: Record<string, number>, secondsPerShard: number, maxShards: number, neverTogether = durations.neverTogether): ShardDurations =>
-      ({ ...durations, neverTogether, suites: { ...durations.suites, critical: { maxShards, secondsPerShard, workers: 2 } }, seconds });
+      ({ ...durations, neverTogether, coldServers: [], suites: { ...durations.suites, critical: { maxShards, secondsPerShard, workers: 2 } }, seconds });
 
     // A heavier third journey: longest first onto the least loaded shard would put both servers in the second shard.
     const heavier = "e2e/army/local/legacy-editor-parity.e2e.ts";
@@ -744,10 +790,17 @@ describe("TesterArmy shard plans", () => {
     try {
       const readOutputs = (args: string[]) => {
         const output = path.join(directory, `${args.join("-").replace(/[^a-z]+/gu, "-")}.txt`);
+        const summary = `${output}.md`;
         const result = spawnSync(process.execPath, [SELECTOR, ...args], {
-          cwd: root, encoding: "utf8", env: { ...environment, GITHUB_OUTPUT: output }, windowsHide: true,
+          cwd: root, encoding: "utf8", env: { ...environment, GITHUB_OUTPUT: output, GITHUB_STEP_SUMMARY: summary }, windowsHide: true,
         });
         expect(result.status, result.stderr).toBe(0);
+        const selection = JSON.parse(result.stdout);
+        const plans: ShardPlan[] = selection.schemaVersion === "army-shard-plan-1" ? [selection] : [selection.shards, selection.takeoffShards];
+        for (const warning of plans.flatMap((plan) => plan.warnings ?? [])) {
+          expect(result.stderr).toContain(warning);
+          expect(fs.readFileSync(summary, "utf8")).toContain(warning);
+        }
         return Object.fromEntries(fs.readFileSync(output, "utf8").trim().split("\n").map((line) => {
           const index = line.indexOf("=");
           return [line.slice(0, index), line.slice(index + 1)];

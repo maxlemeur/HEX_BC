@@ -95,6 +95,8 @@ export type ShardDurations = {
    * development server, and the workers of one shard would compile two of them at once on one runner.
    */
   neverTogether?: string[][];
+  /** Journey files that compile a private Next dev server; spread them within the suite's shard limit. */
+  coldServers?: string[];
   suites: Record<ShardSuite, { maxShards: number; secondsPerShard: number; workers: number }>;
   seconds: Record<string, number>;
 };
@@ -109,6 +111,7 @@ export type ShardPlan = {
   workers: number | null;
   durationsSha256: string | null;
   shards: PlannedShard[];
+  warnings?: string[];
   /** Full suite only: its development phase in its own job, on the single shard's stack, or not at all (--grep). */
   development?: "separate" | "in-shard" | "none";
 };
@@ -578,6 +581,12 @@ export function validateShardDurations(durations: ShardDurations, journeys?: rea
     }
   }
   const known = journeys ? new Set(journeys) : undefined;
+  const cold = durations.coldServers ?? [];
+  if (!Array.isArray(cold) || cold.some((file) => typeof file !== "string" || !FULL_JOURNEY_FILE.test(file)) || new Set(cold).size !== cold.length) {
+    problems.push("army-shards.json coldServers must be a list of distinct journey paths.");
+  } else if (known) {
+    for (const file of cold) if (!known.has(file)) problems.push(`army-shards.json coldServers lists ${file}, which no suite runs.`);
+  }
   for (const [file, seconds] of Object.entries(durations.seconds ?? {})) {
     if (!positive(seconds)) problems.push(`army-shards.json times ${file} with ${seconds}, not a positive number of seconds.`);
     if (known && !known.has(file)) problems.push(`army-shards.json times ${file}, which no suite runs.`);
@@ -630,17 +639,13 @@ function usableShardDurations(root: string): { durations: ShardDurations | null;
 }
 
 /**
- * Splits a selection into disjoint shards, each with the login setup, longest
- * measured file first onto the least loaded shard: authenticated journeys
- * first, so that every shard holds one (the runner refuses a run of anonymous
- * journeys only), anonymous ones after. A file is never cut, so an SDK serial
- * group, which lives in one file, stays whole. The files of a neverTogether
+ * Splits a selection into disjoint shards, each with login and an authenticated
+ * journey. Cold servers are spread first, then other files by projected cost.
+ * A file is never cut, so an SDK serial group stays whole. The files of a neverTogether
  * group go to different shards: there are at least as many shards as the
  * selection holds files of one group, and a file skips the shards that hold
- * another file of its group. One shard when the measured journeys fit it and
- * no group forbids it; one shard of the runner's own whole suite (files
- * empty) when the list is the whole suite or cannot be used as runner
- * --files. Without usable durations there is no group either: one shard.
+ * another file of its group. A one-shard plan for the whole suite or an unusable
+ * file list delegates the selection to the runner. Unusable durations also give one shard.
  */
 export function planShards(input: {
   suite: ShardSuite;
@@ -684,24 +689,42 @@ export function planShards(input: {
     const group = groups.get(file);
     if (group !== undefined) groupSizes.set(group, (groupSizes.get(group) ?? 0) + 1);
   }
-  const apart = Math.max(1, ...groupSizes.values());
-  const longestFirst = (list: string[]) => list.sort((a, b) => weight(b) - weight(a) || (a < b ? -1 : a > b ? 1 : 0));
-  const ordered = [...longestFirst(authenticated), ...longestFirst(business.filter((file) => anonymous.has(file)))];
+  const coldServers = new Set(input.durations.coldServers);
+  const coldCount = business.filter((file) => coldServers.has(file)).length;
+  const apart = Math.max(1, coldCount, ...groupSizes.values());
+  const ordered = business.toSorted((a, b) =>
+    Number(coldServers.has(b)) - Number(coldServers.has(a)) ||
+    Number(anonymous.has(a)) - Number(anonymous.has(b)) ||
+    weight(b) - weight(a));
   const cost = (sum: number, largest: number) => Math.max(largest, sum / settings.workers);
   const largest = Math.max(0, ...business.map(weight));
   // secondsPerShard is expressed in worker-seconds. Extra runners cannot shorten the largest serial file.
   const target = Math.max(largest, settings.secondsPerShard / settings.workers);
   const limit = Math.min(settings.maxShards, Math.max(1, authenticated.length));
   for (let count = Math.min(apart, limit); count <= limit; count++) {
-    const bins = Array.from({ length: count }, () => ({ load: 0, largest: 0, files: [input.setup], groups: new Set<number>() }));
+    const bins = Array.from({ length: count }, () => ({
+      load: 0, largest: 0, files: [input.setup], groups: new Set<number>(),
+      cold: [] as string[], largestCold: 0, authenticated: false,
+    }));
     for (const file of ordered) {
       const group = groups.get(file);
       const duration = weight(file);
       const projected = (bin: typeof bins[number]) => cost(bin.load + duration, Math.max(bin.largest, duration));
       const free = bins.filter((bin) => group === undefined || !bin.groups.has(group));
       if (!free.length) throw new Error(`No shard can separate ${file} from its neverTogether group.`);
-      const bin = free.reduce((best, next) => projected(next) < projected(best) ||
-        (projected(next) === projected(best) && next.load < best.load) ? next : best);
+      const cold = coldServers.has(file);
+      const auth = !anonymous.has(file);
+      // A second server goes beside the lightest existing one. Keep an authenticated
+      // journey in each bin even when an anonymous cold server was placed there first.
+      const [bin] = free.sort((a, b) =>
+        (cold ? a.cold.length - b.cold.length || a.largestCold - b.largestCold : 0) ||
+        (auth ? Number(a.authenticated) - Number(b.authenticated) : 0) ||
+        projected(a) - projected(b) || a.load - b.load);
+      if (cold) {
+        bin.cold.push(file);
+        bin.largestCold = Math.max(bin.largestCold, duration);
+      }
+      if (auth) bin.authenticated = true;
       bin.files.push(file);
       bin.load += duration;
       bin.largest = Math.max(bin.largest, duration);
@@ -711,7 +734,12 @@ export function planShards(input: {
     const peak = Math.max(...costs);
     if (peak > target && count < limit) continue;
     const reason = `${count} shard(s), peak cost ${peak} s = max(largest file, total / workers) per shard, target ${target} s, ${total} worker-seconds`;
-    return plan(reason, count === 1 && input.wholeSuite ? [[]] : bins.map((bin) => bin.files), bins.map((bin) => bin.load), costs);
+    const result = plan(reason, count === 1 && input.wholeSuite ? [[]] : bins.map((bin) => bin.files), bins.map((bin) => bin.load), costs);
+    const warnings = bins.flatMap((bin, index) => bin.cold.length < 2 ? [] : [
+      `⚠ ${input.suite} shard ${index + 1}/${count} shares ${bin.cold.length} cold Next dev servers: ${bin.cold.toSorted().join(", ")}.`,
+    ]);
+    if (warnings.length) result.warnings = warnings;
+    return result;
   }
   throw new Error("No usable shard count.");
 }
@@ -1101,9 +1129,11 @@ function option(args: string[], name: string): string | undefined {
 }
 
 /** Writes the JSON report, the GitHub outputs and the job summary; a path that could split or inject an output is refused. */
-function publish(args: string[], result: unknown, files: string[], outputs: string, markdown: string) {
+function publish(args: string[], result: Selection | ShardPlan, files: string[], outputs: string, markdown: string) {
   if (files.some((file) => /[\r\n,]/u.test(file))) throw new Error("A selected journey path contains a comma or a line break.");
   const warnings = durationWarnings(usableShardDurations(process.cwd()).durations?.seconds ?? {});
+  const plans = result.schemaVersion === "army-shard-plan-1" ? [result] : [result.shards, result.takeoffShards];
+  for (const plan of plans) warnings.push(...plan.warnings ?? []);
   for (const warning of warnings) console.error(warning);
   if (warnings.length) markdown += `\n${warnings.join("\n\n")}\n`;
   const json = `${JSON.stringify(result, null, 2)}\n`;
