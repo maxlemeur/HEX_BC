@@ -103,7 +103,7 @@ function ReadyEditor({
     openStep(next);
     setFocusStep(next);
   };
-  // After « Aller à l’étape … », the focus follows to the step's panel, which is only shown once rendered.
+  // After a navigation button is clicked, the focus follows to the step's panel once rendered.
   useEffect(() => {
     if (!focusStep) return;
     setFocusStep(null);
