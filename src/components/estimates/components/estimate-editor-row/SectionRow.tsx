@@ -5,6 +5,7 @@ import { ouvrageMetadata, ouvrageQuantity } from "@/lib/estimates/ouvrage-quanti
 import { isKitSection } from "@/lib/estimates/kit-presentation";
 
 import {
+  useRef,
   type CSSProperties,
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
@@ -158,6 +159,7 @@ export function SectionRow({
   setNodeRef,
   treeConnectorMeta,
 }: SectionRowProps) {
+  const togglePressBounds = useRef<DOMRect | null>(null);
   const isOuvrage = isKitSection(item);
   const defaultSectionTitle = getDefaultSectionTitleForLevel(sectionLevel ?? 1);
   const shouldSelectTitleOnInteraction = item.title === defaultSectionTitle;
@@ -220,6 +222,25 @@ export function SectionRow({
               <button
                 type="button"
                 className="estimate-section-collapse-btn"
+                onPointerDown={(event) => {
+                  // A background alert can move the row while the member is pressing the toggle.
+                  if (event.pointerType === "mouse" && event.button === 0) {
+                    const button = event.currentTarget;
+                    togglePressBounds.current = button.getBoundingClientRect();
+                    button.setPointerCapture(event.pointerId);
+                  }
+                }}
+                onPointerMove={(event) => {
+                  const button = event.currentTarget;
+                  if (event.pointerType !== "mouse" || !button.hasPointerCapture(event.pointerId)) return;
+                  const bounds = togglePressBounds.current;
+                  const { clientX, clientY } = event;
+                  if (bounds && clientX >= bounds.left && clientX <= bounds.right &&
+                      clientY >= bounds.top && clientY <= bounds.bottom) return;
+                  const hit = button.ownerDocument.elementFromPoint(clientX, clientY);
+                  if (!button.contains(hit)) button.releasePointerCapture(event.pointerId);
+                }}
+                onLostPointerCapture={() => { togglePressBounds.current = null; }}
                 onClick={() => onToggleSectionCollapsed(item.id)}
                 aria-label={
                   isOuvrage ? `${isSectionCollapsed ? "Déplier" : "Replier"} le détail de ${item.title}` : isSectionCollapsed ? "Deplier la section" : "Replier la section"
