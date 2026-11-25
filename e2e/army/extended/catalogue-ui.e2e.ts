@@ -1,6 +1,6 @@
 import { expect } from "e2e";
 
-import { armyTest, recordEvidence } from "../critical/fixtures";
+import { armyTest, recordEvidence, type ArmyUi } from "../critical/fixtures";
 
 const productId = "33333333-3333-4333-8333-333333333333";
 const supplierId = "22222222-2222-4222-8222-222222222222";
@@ -19,9 +19,8 @@ const offer = {
   _productName: product.designation, _freshnessLevel: "fresh", _ageDays: 0,
 };
 const options = { session: "army", tags: ["critical", "extended", "catalogue-ui"], trace: "off" as const, timeout: 120_000 };
-type Ui = Parameters<Parameters<typeof armyTest>[2]>[0];
 
-async function catalogue(ui: Ui) {
+async function catalogue(ui: ArmyUi) {
   const writes: Array<{ action?: string; id?: string; item: Record<string, unknown> }> = [];
   const lookups: string[] = [];
   await ui.browser.route("**/api/**", async (route) => {

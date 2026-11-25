@@ -16,7 +16,7 @@ import {
 import type { TakeoffPageDecision, TakeoffPageReplacementResponse } from "@/lib/takeoff/page-replacement-contracts";
 
 import {
-  apiRequest, armyTest, createEstimateViaWizard, createLineViaApi, ownEstimate, readEstimate, recordEvidence, type ArmyState,
+  apiRequest, armyTest, createEstimateViaWizard, createLineViaApi, ownEstimate, readEstimate, recordEvidence, type ArmyState, type ArmyUi,
 } from "../critical/fixtures";
 import {
   TAKEOFF_SEND, TAKEOFF_SEND_CONFIRM, applyOwnedTakeoff, expectLandedOnTakeoffLine, localTakeoffFixture, openTakeoffSend,
@@ -83,7 +83,7 @@ type Situation = {
   wizard?: (input: WizardInput) => Promise<{ applied: boolean } & Record<string, unknown>>;
 };
 type WizardInput = {
-  ui: Parameters<Parameters<typeof armyTest>[2]>[0];
+  ui: ArmyUi;
   ids: { projectId: string; versionId: string; sectionId: string; jobId: string };
   problem: (problem: string, detail: unknown) => void;
 };

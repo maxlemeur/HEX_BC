@@ -1,7 +1,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { expect } from "e2e";
 
-import { apiRequest, armyTest, createLineViaApi, ownEstimate, readEstimate, recordEvidence, saveLineEditsWithShortcut, waitForAutoSave } from "./fixtures";
+import { apiRequest, armyTest, createLineViaApi, ownEstimate, readEstimate, recordEvidence, saveLineEditsWithShortcut, waitForAutoSave, type ArmyUi } from "./fixtures";
 import { waitForHydration } from "./hydration-support";
 import { nativeTest, loginWithUi, localClient } from "../takeoff/native-ui";
 
@@ -155,13 +155,11 @@ armyTest("HUB11 the affaire hub hydrates its streamed panel once when the reveal
 // - the action offered to lift it does not lift it, or the page still names it once the PDF exists.
 // The critical campaign forbids status changes (fixtures.ts): the blockers are named as the draft's page opens, and
 // « Marquer envoyé » itself stays covered by the emission journeys (OF04).
-type HubUi = Parameters<Parameters<typeof armyTest>[2]>[0];
-
 /**
  * The owner's case, arranged through the API: an affaire whose V1 is a priced draft (one line), its lease released, and
  * whose only send blocker is its missing PDF. `blockingKeys` reads the gating again.
  */
-async function pricedDraftWithoutPdf({ app, browser, army }: HubUi, label: string) {
+async function pricedDraftWithoutPdf({ app, browser, army }: ArmyUi, label: string) {
   await app.open("/dashboard/affaires");
   const projectName = `${army.runPrefix}-${label}`;
   // The run day in Paris: the send refuses an offer whose validity has passed.
@@ -185,14 +183,14 @@ async function pricedDraftWithoutPdf({ app, browser, army }: HubUi, label: strin
 }
 
 /** The blockers a send-blocked list names: title, then description, for each. */
-const namedBlockers = (browser: HubUi["browser"]) => browser.evaluate(() => Array.from(
+const namedBlockers = (browser: ArmyUi["browser"]) => browser.evaluate(() => Array.from(
   document.querySelectorAll("[aria-label='Anomalies bloquant l’envoi'] > li"),
   (item) => Array.from(item.querySelectorAll("p"), (line) => line.textContent?.trim() ?? ""),
 ));
 const MISSING_PDF = ["PDF absent", "Aucun document PDF n'est généré pour cette version. Lancez une génération avant l'envoi."];
 
 /** Confirms the PDF layout dialog the blocker's « Générer le PDF » opens. */
-async function generatePdfFromDialog(screen: HubUi["screen"]) {
+async function generatePdfFromDialog(screen: ArmyUi["screen"]) {
   await expect(screen.getByRole("heading", "Préparer le devis PDF", { exact: true })).toBeVisible();
   const confirm = screen.getByRole("button", "Générer et télécharger", { exact: true });
   await expect(confirm).toBeEnabled({ timeout: 30_000 });

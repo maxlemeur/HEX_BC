@@ -3,16 +3,15 @@ import { readFile } from "node:fs/promises";
 
 import { expect } from "e2e";
 
-import { apiRequest, armyTest, createLineViaApi, ownEstimate, recordEvidence, resolveDownload } from "../critical/fixtures";
+import { apiRequest, armyTest, createLineViaApi, ownEstimate, recordEvidence, resolveDownload, type ArmyUi } from "../critical/fixtures";
 import { ownedEstimateContext, querySql } from "./calculation-gate-support";
 import { assertOwnedLocalBackend } from "./legacy-v1-draft-support";
 
-type Ui = Parameters<Parameters<typeof armyTest>[2]>[0];
 type Entry = { id: string; text: string; kind: string; severity: string; status: string; metadata: object; updated_at: string };
 const options = { session: "army", tags: ["critical", "local", "affaire-register"], trace: "off" as const, timeout: 180_000 };
 const texts = ["DPGF manquant", "Plan des niveaux à compléter", "CCTP à recevoir", "Diamètres à confirmer", "Cheminement à valider"];
 
-async function fixture(ui: Ui) {
+async function fixture(ui: ArmyUi) {
   assertOwnedLocalBackend();
   await ui.app.open("/dashboard/affaires");
   const response = await apiRequest<{ ok: boolean; data: { project: { id: string }; version: { id: string } } }>(
