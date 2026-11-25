@@ -15,7 +15,7 @@ export function IntakeAnalysisLaunch({ workspace, canManage, onReload }: {
   const [message, setMessage] = useState("");
   const waiting = workspace.documents.filter(doc => dossierDocumentState(doc) === "awaiting_launch").length;
   const canLaunch = waiting > 0 || workspace.briefPreparationDue;
-  if (!canLaunch && !workspace.launchRunning && !message) return null;
+  if (!canLaunch && !workspace.briefOutdated && !workspace.launchConnectionUnavailable && !workspace.launchRunning && !message) return null;
 
   function launch() {
     startTransition(async () => {
@@ -30,6 +30,8 @@ export function IntakeAnalysisLaunch({ workspace, canManage, onReload }: {
   }
 
   return <section aria-label="Analyse du dossier" className="my-4 space-y-2 rounded-xl border border-border p-4">
+    {workspace.launchConnectionUnavailable && <p>Analyse interrompue. La connexion ChatGPT choisie au lancement n’est plus disponible.</p>}
+    {workspace.briefOutdated && <p>Le brief ne tient pas compte des dernières modifications du dossier.</p>}
     {waiting > 0 && <p className="font-medium">{waiting} pièce{waiting > 1 ? "s" : ""} en attente de lancement</p>}
     {workspace.launchRunning ? <p>Analyse en cours. Attendez sa fin avant de confirmer le dossier.</p> :
       workspace.briefPreparationDue && !waiting ? <p>Lancez l’analyse pour actualiser le brief avant de confirmer.</p> :

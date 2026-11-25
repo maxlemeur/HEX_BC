@@ -58,6 +58,7 @@ function fixture(options: {
       const table = url.pathname.split("/").at(-1)!;
       requests.push(table);
       const method = init?.method ?? (input instanceof Request ? input.method : "GET");
+      if (table === "intake_current_brief_active") return Response.json(false);
       expect(method).toBe("GET");
       let data: unknown;
       let status = 200;

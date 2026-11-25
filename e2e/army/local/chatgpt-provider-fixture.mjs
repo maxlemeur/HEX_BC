@@ -318,7 +318,10 @@ globalThis.fetch = async (input, init) => {
     }
     return response;
   }
-  assert.equal(new Headers(init?.headers).get("authorization"), "Bearer army-chatgpt-fixture");
+  const bearer = new Headers(init?.headers).get("authorization");
+  const secondIntakeProfile = bearer === "Bearer army-chatgpt-fixture-second";
+  assert(secondIntakeProfile || bearer === "Bearer army-chatgpt-fixture", "Expected a fictional ChatGPT credential.");
+  const profileEvidence = secondIntakeProfile ? { fixtureProfile: "second" } : {};
   // Two efforts let the takeoff lab (TI-661) compare one model at low and high.
   // The transcription at arrival (INTOCR01) asks for Terra at a high effort: the account lists it only for that journey,
   // so that every other journey keeps one listed model.
@@ -444,8 +447,8 @@ globalThis.fetch = async (input, init) => {
   const briefPrompt = Array.isArray(userParts) && userParts.find(part =>
     part.type === "input_text" && part.text.includes("Tu produis un brief affaire BTP"))?.text;
   // Observe only these fictional dossiers. Record the send before returning the held answer.
-  if (briefPrompt && /ARMY-(manual-first|brief-race)-/.test(briefPrompt)) {
-    await appendFile(process.env.ARMY_CHATGPT_TRANSPORT_LOG, JSON.stringify({ provider: "chatgpt-fixture", inputKind: "intake-brief" }) + "\n");
+  if (briefPrompt && /ARMY-(manual-first|brief-race|current-brief|pinned)-/.test(briefPrompt)) {
+    await appendFile(process.env.ARMY_CHATGPT_TRANSPORT_LOG, JSON.stringify({ provider: "chatgpt-fixture", ...profileEvidence, inputKind: "intake-brief" }) + "\n");
     assert(userParts.every(part => part.type === "input_text"), "The brief uses its inventory, without file contents.");
     const inventory = JSON.parse(briefPrompt.split("\nINVENTAIRE_DOCUMENTS\n")[1].split("\n\nPIECES_MANQUANTES")[0]);
     const pieces = inventory.map(doc => ({ text: doc.fileName + " (" + doc.detectedCategory + ")", sourceDocumentIds: [doc.documentId] }));
@@ -476,7 +479,7 @@ globalThis.fetch = async (input, init) => {
       projectName: "ARMY réanalyse", clientName: "Client réanalyse fictif", deadlineAt: null,
       detectedLots: ["Plomberie"], detectedVariants: [], documentNature: word ? "Notice technique" : "Vue isométrique",
     } };
-    await appendFile(process.env.ARMY_CHATGPT_TRANSPORT_LOG, JSON.stringify({ ...transportEntry("chatgpt-fixture"), inputKind: "intake-classification", sourceFormat: word ? "word-text" : image ? "image" : "pdf" }) + "\n");
+    await appendFile(process.env.ARMY_CHATGPT_TRANSPORT_LOG, JSON.stringify({ ...transportEntry("chatgpt-fixture"), ...profileEvidence, inputKind: "intake-classification", sourceFormat: word ? "word-text" : image ? "image" : "pdf" }) + "\n");
     // `holdClassification` (AUTO05) keeps a dossier piece being classified, so that the brief is confirmed before the
     // dossier is ready; the journey releases it within its own waits.
     const classificationDeadline = Date.now() + 240_000;

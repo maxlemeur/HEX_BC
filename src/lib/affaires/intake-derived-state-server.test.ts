@@ -106,6 +106,10 @@ function createDocumentRow(input: {
 
 function createSupabaseMock(documents: unknown[], onlyDeposits = false) {
   return {
+    rpc: async (name: string) => {
+      expect(name).toBe("intake_current_brief_active");
+      return { data: false, error: null };
+    },
     from: vi.fn((table: string) => {
       if (table === "estimate_projects") {
         const builder = {
@@ -273,7 +277,7 @@ describe("refreshAffaireIntakeFromActiveDocuments", () => {
   it("reads plans linked from Google Drive, except for a deletion that must not wait on Drive", async () => {
     vi.mocked(createServiceRoleClient).mockReturnValue({ rpc: async (name: string) => ({ error: null,
       data: name === "read_affaire_intake_brief_inputs" ? { project: createProjectRow(), documents: [],
-        missing_piece_codes: ["missing_plans"], revision: "empty", brief_updated_at: null } : true }) } as never);
+        missing_piece_codes: ["missing_plans"], revision: "empty", brief_updated_at: null } : name !== "intake_current_brief_active" }) } as never);
     const input = { supabase: createSupabaseMock([]) as never, project: createProjectRow(), uploadId: FIRST_UPLOAD_ID, actorUserId: USER_ID };
     await refreshAffaireIntakeFromActiveDocuments(input);
     expect(syncTakeoffPlanSetFromAffaireIntake).toHaveBeenLastCalledWith(expect.objectContaining({ readDriveDocument: readLinkedDriveDocument }));

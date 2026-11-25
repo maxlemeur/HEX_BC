@@ -1,3 +1,4 @@
+import { LocalChatGptConnectionWithdrawnError } from "@/lib/ai/chatgpt-sign-in-errors";
 import { IntakePayerAccessLost, requireIntakePayerRight } from "@/lib/affaires/intake-payer-server";
 import "server-only";
 
@@ -154,6 +155,7 @@ export async function transcribeIntakeDocument(input: {
     override = await assertLocalChatGptOverride(input.owner, credential,
       { model: INTAKE_TRANSCRIPTION_MODEL, reasoningEffort: INTAKE_TRANSCRIPTION_REASONING_EFFORT });
   } catch (error) {
+    if (input.owner.connection && error instanceof LocalChatGptConnectionWithdrawnError) throw error;
     errorCode = error instanceof LocalChatGptOverrideUnavailableError || error instanceof StructuredAiError ? failureCode(error) : "AI_AUTH_REQUIRED";
   }
   for (const page of override ? plan.pages : []) {
@@ -174,7 +176,7 @@ export async function transcribeIntakeDocument(input: {
       read.push({ page: page.page, text: answer.data.texte.trim() });
     } catch (error) {
       // The next pages would meet the same refusal (quota, access, model): the reading stops here.
-      if (error instanceof IntakePayerAccessLost) throw error;
+      if (error instanceof IntakePayerAccessLost || (input.owner.connection && error instanceof LocalChatGptConnectionWithdrawnError)) throw error;
       errorCode = failureCode(error);
       console.error("Affaire intake transcription failed", { documentId: input.document.id, page: page.page, error_code: errorCode });
       break;

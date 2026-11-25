@@ -7,7 +7,8 @@ import { setTimeout } from "node:timers/promises";
 import { z } from "zod";
 import { chatGptReasoningEffortSchema } from "@/lib/ai/chatgpt-model-preferences";
 
-export type ChatGptOwner = { userId: string; tenantId: string };
+export type ChatGptConnection = { profileId: string; authorizationId: string };
+export type ChatGptOwner = { userId: string; tenantId: string; connection?: ChatGptConnection };
 
 const profileSchema = z.object({
   id: z.string(),

@@ -1,7 +1,8 @@
 "use server";
 
 import { after } from "next/server";
-import { hostCanReadIntakeScans } from "@/lib/affaires/intake-payer-server";
+import { intakeCurrentBriefActive } from "@/lib/affaires/intake-current-brief-server";
+import { selectedIntakeConnection } from "@/lib/affaires/intake-payer-server";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { deleteIntakeDocumentCopy } from "@/lib/affaires/intake-document-store";
@@ -81,9 +82,11 @@ const launchOutcome = z.discriminatedUnion("outcome", [
 
 export async function launchAffaireIntakeAnalysis(projectId: string) {
   const { context, project } = await requireAffaireAccess(z.string().uuid().parse(projectId), "write");
-  const available = await hostCanReadIntakeScans(context);
+  const [active, connection] = await Promise.all([intakeCurrentBriefActive(context.supabase), selectedIntakeConnection(context)]);
+  const available = Boolean(connection);
   const { data, error } = await context.supabase.rpc("start_affaire_intake_analysis", {
     p_project_id: project.id, p_read_scans: available,
+    ...(active ? { p_profile_id: connection?.profileId ?? null, p_authorization_id: connection?.authorizationId ?? null } : {}),
   });
   if (error) throw new Error("Impossible de réserver les pièces pour l’analyse.", { cause: error });
   const result = launchOutcome.parse(data?.[0]);

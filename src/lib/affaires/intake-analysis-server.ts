@@ -1,6 +1,8 @@
+import { LocalChatGptConnectionWithdrawnError } from "@/lib/ai/chatgpt-sign-in-errors";
 import type { IntakeAnalysisFailure } from "@/lib/affaires/intake-analysis-feedback";
-import { hostCanReadIntakeScans, IntakePayerAccessLost, requireIntakePayerRight } from "@/lib/affaires/intake-payer-server";
-import type { ChatGptOwner } from "@/lib/ai/chatgpt-local-store";
+import { hostCanReadIntakeScans, readLaunchConnection, IntakePayerAccessLost, requireIntakePayerRight } from "@/lib/affaires/intake-payer-server";
+import { intakeCurrentBriefActive } from "@/lib/affaires/intake-current-brief-server";
+import type { ChatGptConnection, ChatGptOwner } from "@/lib/ai/chatgpt-local-store";
 import { readAllRows } from "@/lib/supabase/read-all";
 import { buildAffaireIntakeReanalysisUpdate } from "@/lib/affaires/intake-reanalysis";
 import { createHash } from "node:crypto";
@@ -47,10 +49,14 @@ async function processClaimedAffaireIntakeUpload(input: {
   supabase: ReturnType<typeof createServiceRoleClient>;
   lifecycleClient: durableIntake.DurableWorkflowRpcClient;
   claim: durableIntake.AffaireIntakeClaim;
+  connection?: ChatGptConnection | null;
 }) {
   const { supabase, lifecycleClient, claim } = input;
-  const aiOwner = claim.launch || isLocalChatGptEnabled() || getIntakeDecisionsCapability().status === "available"
+  const payer = claim.launch || isLocalChatGptEnabled() || getIntakeDecisionsCapability().status === "available"
     ? await resolveChatGptIntakeOwner(supabase, claim) : undefined;
+  // Null is the explicit choice at an active press without a plan. Keep the
+  // payer for Decisions and rights, while ChatGPT never acquires a later grant.
+  const aiOwner = input.connection === null ? null : payer && input.connection ? { ...payer, connection: input.connection } : payer;
   const upload = {
     id: claim.uploadId,
     tenant_id: claim.tenantId,
@@ -69,12 +75,15 @@ async function processClaimedAffaireIntakeUpload(input: {
       await renewLease();
     } catch (error) {
       // Suspension also prevents renewal. A revoked payer can still stop this launch under its token.
-      if (claim.launch) await requireIntakePayerRight(aiOwner ?? null, claim.projectId, supabase);
+      if (claim.launch) await requireIntakePayerRight(payer ?? null, claim.projectId, supabase);
       throw error;
     }
-    const connectionLost = Boolean(claim.launch?.readScans && aiOwner && !await hostCanReadIntakeScans(aiOwner));
-    if (claim.launch || aiOwner) await requireIntakePayerRight(aiOwner ?? null, claim.projectId, supabase);
-    if (connectionLost) throw new IntakeConnectionUnavailable();
+    const connectionLost = claim.launch?.readScans && (input.connection === null || (aiOwner && !await hostCanReadIntakeScans(aiOwner)));
+    if (claim.launch || aiOwner) await requireIntakePayerRight(payer ?? null, claim.projectId, supabase);
+    if (connectionLost) {
+      if (input.connection) throw new LocalChatGptConnectionWithdrawnError();
+      throw new IntakeConnectionUnavailable();
+    }
   };
   await checkPayer();
 
@@ -229,7 +238,7 @@ async function processClaimedAffaireIntakeUpload(input: {
         readScans: claim.launch?.readScans,
         aiOwner,
         existingMetadata: document.extracted_metadata,
-        ...(aiOwner ? { decisionsContext: { owner: aiOwner,
+        ...(payer ? { decisionsContext: { owner: payer,
           projectId: document.project_id, documentId: document.id,
           sourceVersion: createHash("sha256").update(Buffer.from(bytes)).digest("hex") } } : {}),
       });
@@ -283,7 +292,8 @@ async function processClaimedAffaireIntakeUpload(input: {
         },
       });
     } catch (error) {
-      if (error instanceof durableIntake.AffaireIntakeLeaseUnavailableError || error instanceof IntakePayerAccessLost || error instanceof IntakeConnectionUnavailable) {
+      if (error instanceof durableIntake.AffaireIntakeLeaseUnavailableError || error instanceof IntakePayerAccessLost || error instanceof IntakeConnectionUnavailable ||
+          (input.connection && error instanceof LocalChatGptConnectionWithdrawnError)) {
         throw error;
       }
       await renewLease();
@@ -453,24 +463,33 @@ export async function processAffaireIntakeUpload(uploadId: string) {
 }
 
 export async function processAffaireIntakeAnalysisLaunch(uploadId: string, readingOwner: ChatGptOwner | null) {
-  // A sign-out can fall between the press (or scheduler read) and the claim.
-  if (readingOwner && !await hostCanReadIntakeScans(readingOwner)) return null;
   const supabase = createServiceRoleClient();
+  const active = await intakeCurrentBriefActive(supabase);
+  const connection = active ? (readingOwner ? await readLaunchConnection(uploadId, supabase) : null) : undefined;
+  if (readingOwner && (connection === null || !await hostCanReadIntakeScans({ ...readingOwner, connection }))) {
+    // Leave the launch available to another host with the authorized profile.
+    // SQL only stops it after the recovery window and never takes a live lease.
+    if (active) {
+      const { error } = await supabase.rpc("stop_affaire_intake_analysis", { p_upload_id: uploadId, p_lease_token: null });
+      if (error) throw internalError("Impossible de vérifier le délai de reprise du lancement.", error);
+    }
+    return null;
+  }
   const client = supabase as unknown as durableIntake.DurableWorkflowRpcClient;
   const claim = await durableIntake.claimAffaireIntakeAnalysisLaunch(client, uploadId);
   if (!claim) return null;
-  await runClaim(supabase, client, claim);
+  await runClaim(supabase, client, claim, connection);
   return claim.uploadId;
 }
 
 async function runClaim(supabase: ReturnType<typeof createServiceRoleClient>,
-  lifecycleClient: durableIntake.DurableWorkflowRpcClient, claim: durableIntake.AffaireIntakeClaim) {
+  lifecycleClient: durableIntake.DurableWorkflowRpcClient, claim: durableIntake.AffaireIntakeClaim, connection?: ChatGptConnection | null) {
   try {
-    return await processClaimedAffaireIntakeUpload({ supabase, lifecycleClient, claim });
+    return await processClaimedAffaireIntakeUpload({ supabase, lifecycleClient, claim, connection });
   } catch (error) {
     // Leave the lease to expire. A capable host can resume; otherwise the
     // due-time sweep stops it without consuming another reading attempt.
-    if (error instanceof IntakeConnectionUnavailable) return null;
+    if (error instanceof IntakeConnectionUnavailable || (connection && error instanceof LocalChatGptConnectionWithdrawnError)) return null;
     if (claim.launch && error instanceof IntakePayerAccessLost) {
       const stopped = await supabase.rpc("stop_affaire_intake_analysis", { p_upload_id: claim.uploadId, p_lease_token: claim.leaseToken });
       if (stopped.error) throw new Error("Impossible de terminer le lancement interrompu.", { cause: stopped.error });
@@ -497,12 +516,23 @@ export async function retryAffaireDocumentAnalysis(input: { projectId: string; d
   const availability = await getIntakeAnalysisAvailability(context);
   if (!availability.available) throw badRequest(availability.message);
   const table = () => context.supabase.from("affaire_intake_documents");
-  const { data, error } = await table().select(DOCUMENT_SELECT)
-    .eq("tenant_id", context.tenantId).eq("project_id", project.id).eq("id", input.documentId)
-    .is("deleted_at", null).is("deletion_token", null).maybeSingle();
-  if (error) throw internalError("Impossible de lire le document à réanalyser.", error);
-  const document = normalizeDocumentRow(data);
-  if (!document) throw notFound("Document introuvable.");
+  const readDocument = async () => {
+    const { data, error } = await table().select(DOCUMENT_SELECT)
+      .eq("tenant_id", context.tenantId).eq("project_id", project.id).eq("id", input.documentId)
+      .is("deleted_at", null).is("deletion_token", null).maybeSingle();
+    if (error) throw internalError("Impossible de lire le document à réanalyser.", error);
+    const document = normalizeDocumentRow(data);
+    if (!document) throw notFound("Document introuvable.");
+    return document;
+  };
+  let document = await readDocument();
+  if (!document.analysis_launch_id && ["queued", "processing"].includes(document.classification_status) && await intakeCurrentBriefActive(context.supabase)) {
+    const { data: prepared, error } = await context.supabase.rpc("prepare_historical_intake_document_retry", {
+      p_project_id: project.id, p_document_id: document.id,
+    });
+    if (error) throw internalError("Impossible de préparer la relance historique.", error);
+    if (prepared) document = await readDocument();
+  }
   const preserveManualClassification = document.classification_source === "manual" || Boolean(document.manually_overridden_at);
   const stale = isAffaireIntakeAnalysisStale({ classificationStatus: document.classification_status, classificationUpdatedAt: document.updated_at, issues: document.issues });
   if (isAffaireIntakeReanalysisPending(document) && !stale) throw conflict("Une analyse de cette pièce est déjà en cours.");

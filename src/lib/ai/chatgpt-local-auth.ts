@@ -292,6 +292,10 @@ export async function getLocalChatGptCredential(owner: ChatGptOwner) {
   return withChatGptLock(owner, async () => {
     const store = await readChatGptStore(owner);
     const profile = store.profiles.find((item) => item.id === store.selectedId);
+    // Compare the grant with the credential used by this very call, inside the store lock.
+    if (owner.connection && (profile?.id !== owner.connection.profileId || profile.authorizationId !== owner.connection.authorizationId)) {
+      throw new LocalChatGptConnectionWithdrawnError();
+    }
     if (!profile) return null;
     if (!hasLocalChatGptPlanAccess(profile)) throw new LocalChatGptConnectionWithdrawnError("Autorisez l’utilisation du forfait ChatGPT en reconnectant le compte.");
     if ((profile.expiresAt ?? 0) <= Date.now() + 60_000) {

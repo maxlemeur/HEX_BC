@@ -445,7 +445,7 @@ const administrationContracts: RouteContract[] = [
   {
     id: "read-affaire-intake-workspace", method: "get", path: "/api/affaires/{projectId}/intake",
     summary: "Lire le dossier de l'affaire", tags: ["Affaires"],
-    description: "Lecture privée sans cache des pièces, des manques et du brief. Les pièces en attente portent le statut awaiting_launch. launchRunning indique une analyse explicite en cours et briefPreparationDue permet de lancer la préparation du brief seul. La page la relit pendant l'ajout et l'analyse des pièces au lieu de rafraîchir son routeur. Avec plans=1, la réponse ajoute le résumé des plans et métrés quand le module est actif pour le tenant (null sinon) ; elle l'omet quand il n'a pas pu être lu.",
+    description: "Lecture privée sans cache des pièces, des manques et du brief. Les pièces en attente portent le statut awaiting_launch. launchRunning indique une analyse explicite en cours et briefPreparationDue permet de lancer la préparation du brief seul. Après activation, briefOutdated indique une publication périmée, launchConnectionUnavailable une interruption faute de connexion et historicalRetryAvailable sur une pièce indique une relance historique possible. La page la relit pendant l'ajout et l'analyse des pièces au lieu de rafraîchir son routeur. Avec plans=1, la réponse ajoute le résumé des plans et métrés quand le module est actif pour le tenant (null sinon) ; elle l'omet quand il n'a pas pu être lu.",
     pathParameters: [projectIdParameter],
     queryParameters: [{ name: "plans", schema: z.literal("1"), description: "Ajouter le résumé des plans et métrés de l'affaire." }],
     success: [{ status: "200", description: "Dossier de l'affaire, avec Cache-Control private/no-store." }],

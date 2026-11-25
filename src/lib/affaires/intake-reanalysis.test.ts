@@ -32,6 +32,10 @@ function database() {
   const project = { id: projectId, tenant_id: tenantId, user_id: userId, is_archived: false };
   const lot = { id: uploadId, tenant_id: tenantId, project_id: projectId, status: "ready" };
   return {
+    rpc: async (name: string) => {
+      expect(name).toBe("intake_current_brief_active");
+      return { data: false, error: null };
+    },
     storage: { from: () => ({ download: async () => ({ data: downloadFails ? null : new Blob(["%PDF-fixture"]), error: null }) }) },
     from(table: string) {
       let update: Row | undefined;

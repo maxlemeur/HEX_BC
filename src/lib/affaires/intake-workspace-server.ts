@@ -1,5 +1,6 @@
 import { readAllRows, readAllRowsInChunks } from "@/lib/supabase/read-all";
 import { startConcurrentRead } from "@/lib/supabase/concurrent-read";
+import { intakeCurrentBriefActive, readIntakeBriefState } from "@/lib/affaires/intake-current-brief-server";
 import { cache } from "react";
 import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
 import { internalError, mapSupabaseError } from "@/lib/http/api-response";
@@ -51,6 +52,8 @@ export type AffaireIntakeWorkspace = {
   pendingUploadIds?: string[];
   launchRunning?: boolean;
   briefPreparationDue?: boolean;
+  briefOutdated?: boolean;
+  launchConnectionUnavailable?: boolean;
   canManageDocuments?: boolean;
   documents: Array<{
     documentId: string;
@@ -58,6 +61,7 @@ export type AffaireIntakeWorkspace = {
     uploadStatus?: AffaireIntakeDocumentUploadStatus;
     mimeType?: string | null;
     isBeingDeleted?: boolean;
+    historicalRetryAvailable?: boolean;
     driveSource?: DriveProvenance;
     sizeBytes?: number;
     detectedCategory: AffaireIntakeDocumentKind;
@@ -162,12 +166,26 @@ export const fetchAffaireIntakeWorkspace = cache(async (
     supabase: context.supabase, project, documents,
   }));
   const brief = await briefPromise;
+  const active = await intakeCurrentBriefActive(context.supabase);
+  const retryCandidates = active ? documents.filter(doc => !doc.deletion_token && !doc.analysis_launch_id &&
+    doc.upload_status === "uploaded" && ["queued", "processing"].includes(doc.classification_status) &&
+    doc.classification_source !== "manual" && !doc.manually_overridden_at) : [];
+  const [closedLots, briefState] = await Promise.all([
+    readAllRowsInChunks(retryCandidates.map(doc => doc.upload_id), ids => context.supabase.from("affaire_intake_uploads")
+      .select("id", { count: "exact" }).eq("project_id", project.id).in("id", ids)
+      .eq("status", "failed").is("launch_read_scans", null).not("completed_at", "is", null)),
+    active ? readIntakeBriefState(project.id) : "legacy",
+  ]);
+  if (closedLots.error) throw internalError("Impossible de vérifier les relances du dossier.", closedLots.error);
+  const closedIds = new Set(closedLots.data?.map(lot => lot.id));
+  const retryableIds = new Set(retryCandidates.filter(doc => closedIds.has(doc.upload_id)).map(doc => doc.id));
   const workspaceDocuments = documents.map((document) => ({
     documentId: document.id,
     fileName: document.file_name,
     uploadStatus: document.upload_status,
     mimeType: document.mime_type,
     isBeingDeleted: Boolean(document.deletion_token),
+    ...(retryableIds.has(document.id) ? { historicalRetryAvailable: true } : {}),
     driveSource: document.drive_file_id ? driveProvenance({ ...document, drive_file_id: document.drive_file_id }) : undefined,
     sizeBytes: document.size_bytes,
     detectedCategory: document.document_kind,
@@ -197,10 +215,12 @@ export const fetchAffaireIntakeWorkspace = cache(async (
     uploadId: upload.id,
     pendingUploadIds: pendingUploads.ids,
     launchRunning: pendingUploads.launchRunning,
+    ...(active && upload.status === "failed" && upload.last_error === "connection_unavailable" ? { launchConnectionUnavailable: true } : {}),
+    ...(briefState === "required" && brief ? { briefOutdated: true } : {}),
     briefPreparationDue: pendingUploads.ids.length === 0 &&
       !documents.some(doc => doc.upload_status === "uploaded" && (doc.deletion_token ||
         ["queued", "processing", "awaiting_launch"].includes(doc.classification_status))) &&
-      (publicationDebt.data.length > 0 || (!brief && upload.status === "deposited" && documents.some(doc => doc.upload_status === "uploaded" &&
+      (briefState === "required" || publicationDebt.data.length > 0 || (!brief && upload.status === "deposited" && documents.some(doc => doc.upload_status === "uploaded" &&
         (doc.analysis_completed_at || doc.classification_source === "manual" || doc.manually_overridden_at)))),
     analysisAvailability,
     canManageDocuments,
