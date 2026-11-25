@@ -28,7 +28,7 @@ const briefId = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
 const classifiedAt = "2026-11-01T10:00:00.000Z";
 type Row = Record<string, unknown>;
 
-function harness(options: { conflict?: boolean; document?: Row; brief?: Row | null; role?: string; owner?: string } = {}) {
+function harness(options: { active?: boolean; enrolled?: () => boolean; conflict?: boolean; document?: Row; brief?: Row | null; role?: string; owner?: string } = {}) {
   const document: Row = {
     id: documentId, tenant_id: tenantId, project_id: projectId, upload_id: uploadId, created_by: userId,
     storage_path: `${tenantId}/${projectId}/plan.pdf`, file_name: "plan-fictif.pdf", mime_type: "application/pdf", size_bytes: 4000,
@@ -86,6 +86,8 @@ function harness(options: { conflict?: boolean; document?: Row; brief?: Row | nu
     return query;
   } };
   vi.mocked(createServiceRoleClient).mockReturnValue({ rpc: async (name: string, args: Row) => {
+    if (name === "intake_current_brief_active") return { data: options.active === true, error: null };
+    if (name === "read_affaire_intake_brief_state") return { data: options.enrolled?.() === false ? "legacy" : "required", error: null };
     if (name === "intake_payer_can_write") return { data: true, error: null };
     if (name === "read_affaire_intake_brief_inputs") return { data: { project: tables.estimate_projects[0],
       documents: [document], missing_piece_codes: [], revision: "fictional", brief_updated_at: tables.affaire_briefs[0]?.updated_at ?? null }, error: null };
@@ -163,6 +165,27 @@ describe("human classification confirmation", () => {
     expect(syncTakeoffPlanSetFromAffaireIntake).toHaveBeenCalledTimes(1);
     expect(callStructuredAi).toHaveBeenCalledTimes(1);
     expect(state.document.classified_at).not.toBe(classifiedAt);
+  });
+
+  it("keeps the existing brief and its source links after an enrolled dossier’s category change", async () => {
+    const state = harness({ active: true });
+    const prior = structuredClone(state.brief);
+    await reclassifyAffaireDocument({ projectId, documentId, category: "annexes" });
+    expect(state.document.document_kind).toBe("annexes");
+    expect(syncTakeoffPlanSetFromAffaireIntake).toHaveBeenCalledOnce();
+    expect(callStructuredAi).not.toHaveBeenCalled();
+    expect(state.tables.affaire_briefs).toEqual([prior]);
+    expect(state.tables.affaire_intake_events.map(event => event.event_type)).not.toContain("brief.generated");
+  });
+
+  it("a deposit entering the contract while a historical edit prepares the prompt defers publication to the press", async () => {
+    let stateReads = 0;
+    const state = harness({ active: true, enrolled: () => ++stateReads > 1 });
+    const prior = structuredClone(state.brief);
+    await reclassifyAffaireDocument({ projectId, documentId, category: "annexes" });
+    expect(state.document.document_kind).toBe("annexes");
+    expect(callStructuredAi).not.toHaveBeenCalled();
+    expect(state.brief).toEqual(prior);
   });
 
   it("does not confirm a document changed by a concurrent writer", async () => {

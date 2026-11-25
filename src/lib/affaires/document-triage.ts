@@ -15,6 +15,7 @@ export function dossierDocumentClassificationState(
 ): "awaiting_launch" | "review" | "valid" | "processing" | "unavailable" {
   if (document.isBeingDeleted || document.uploadStatus !== "uploaded")
     return "unavailable";
+  if (document.historicalRetryAvailable) return "review";
   if (isAffaireIntakeDocumentAwaitingLaunch(document)) return "awaiting_launch";
   if (isAffaireIntakeAnalysisStale(document)) return "review";
   if (isAffaireIntakeDocumentProcessing(document)) return "processing";
@@ -48,6 +49,7 @@ export function canClassifyDossierDocument(document: DossierDocument) {
   return state === "awaiting_launch" || state === "review" || state === "valid";
 }
 export function canRetryDossierDocument(document: DossierDocument) {
+  if (document.historicalRetryAvailable && !document.isBeingDeleted && document.uploadStatus === "uploaded") return true;
   if (isAffaireIntakeReanalysisPending(document) && !isAffaireIntakeAnalysisStale(document)) return false;
   return (
     !document.isBeingDeleted && document.uploadStatus === "uploaded" &&

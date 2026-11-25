@@ -103,6 +103,11 @@ function merge(...parts: ReturnType<typeof portfolio>[]) {
 
 function backend(tables: Record<string, Record<string, unknown>[]>, role: "engineer" | "admin" | "director" = "engineer") {
   const fake = createInMemoryRestApi(tables);
+  // This parity fixture covers dashboards served before the current-brief cut-over.
+  vi.spyOn(fake.client, "rpc").mockImplementation((name) => {
+    if (name !== "intake_current_brief_active") throw new Error(`Unexpected RPC: ${name}`);
+    return Promise.resolve({ data: false, error: null }) as never;
+  });
   const context = { userId: USER_ID, tenantId: TENANT_ID, tenantRole: role, supabase: fake.client };
   vi.mocked(getAuthenticatedContext).mockResolvedValue(context as never);
   return { ...fake, context: context as never };

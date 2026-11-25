@@ -1,3 +1,4 @@
+import { intakeCurrentBriefActive, readIntakeBriefState } from "@/lib/affaires/intake-current-brief-server";
 import { z } from "zod";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { IntakePayerAccessLost, requireIntakePayerRight } from "@/lib/affaires/intake-payer-server";
@@ -20,6 +21,9 @@ import {
 } from "@/lib/affaires/intake-rows";
 import { generateAffaireBriefDraft } from "@/lib/affaires/intake-brief-generation";
 import { fetchAffaireBriefForProject, persistAffaireBriefDraft } from "@/lib/affaires/intake-brief-store";
+// An effective deposit can enroll a historical affaire while its edit prepares a prompt.
+class IntakeBriefNeedsLaunch extends Error {}
+
 const briefInputsSchema = z.object({
   revision: z.string().min(1),
   brief_updated_at: z.string().nullable(),
@@ -82,6 +86,16 @@ export async function refreshAffaireBriefFromDocuments(input: {
   const project = { ...input.project, ...snapshot.project };
   const missingPieces = buildAffaireIntakeMissingPieces([]).filter(piece => snapshot.missing_piece_codes.includes(piece.code));
 
+  // Document edits and historical workers still reconcile the free plan copies
+  // and register. On an enrolled affaire only an explicit launch publishes.
+  const guardedEdit = !input.claim?.launch && await intakeCurrentBriefActive(service);
+  const needsLaunch = async () => guardedEdit && await readIntakeBriefState(project.id, service) !== "legacy";
+  const syncGaps = async () => {
+    await syncAffaireRegisterMissingPieces({ supabase: input.supabase as never, project, missingPieces, actorUserId: input.actorUserId });
+    await syncAffairePlanGap({ projectId: project.id, actorUserId: input.actorUserId });
+  };
+  if (await needsLaunch()) return syncGaps();
+
   if (input.reuseBriefForConfirmation && planSync?.syncedDocumentCount === 0 && planSync.removedDocumentCount === 0 &&
       !missingPieces.some((piece) => piece.code === "missing_plans")) {
     const existing = await fetchAffaireBriefForProject({ supabase: input.supabase, projectId: input.project.id });
@@ -92,8 +106,7 @@ export async function refreshAffaireBriefFromDocuments(input: {
         !isAffaireIntakeReanalysisPending(document) && Number.isFinite(classifiedAt) && classifiedAt <= generatedAt;
     });
     if (existing && current) {
-      await syncAffaireRegisterMissingPieces({ supabase: input.supabase as never, project, missingPieces, actorUserId: input.actorUserId });
-      await syncAffairePlanGap({ projectId: input.project.id, actorUserId: input.actorUserId });
+      await syncGaps();
       return existing.draft;
     }
   }
@@ -110,11 +123,22 @@ export async function refreshAffaireBriefFromDocuments(input: {
     resume = receipt.data.brief_published_revision === snapshot.revision;
   }
   if (!resume) {
-    const draft = snapshot.documents.length ? await generateAffaireBriefDraft({
-      project, uploadId: input.uploadId, documents: snapshot.documents, missingPieces,
-      renewLease: checkRight, aiOwner: input.claim ? input.aiOwner : actor,
-    }) : null;
-    await checkRight();
+    // Check at the transport boundary and again before saving a historical edit.
+    const mayGenerate = guardedEdit ? async () => {
+      await checkRight();
+      if (await needsLaunch()) throw new IntakeBriefNeedsLaunch();
+    } : checkRight;
+    let draft;
+    try {
+      draft = snapshot.documents.length ? await generateAffaireBriefDraft({
+        project, uploadId: input.uploadId, documents: snapshot.documents, missingPieces,
+        renewLease: mayGenerate, aiOwner: input.claim ? input.aiOwner : actor,
+      }) : null;
+      await mayGenerate();
+    } catch (error) {
+      if (error instanceof IntakeBriefNeedsLaunch) return syncGaps();
+      throw error;
+    }
     published = await persistAffaireBriefDraft({
       ...input, service, project, draft, existing, expectedRevision: snapshot.revision,
       expectedBriefUpdatedAt: snapshot.brief_updated_at, leaseToken: input.claim?.leaseToken ?? null,

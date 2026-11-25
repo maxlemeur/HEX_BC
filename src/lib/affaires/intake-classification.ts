@@ -1,3 +1,4 @@
+import { LocalChatGptConnectionWithdrawnError } from "@/lib/ai/chatgpt-sign-in-errors";
 import { IntakePayerAccessLost } from "@/lib/affaires/intake-payer-server";
 import { buildClassificationFilePayload } from "@/lib/affaires/intake-file-payload";
 import type { IntakeAnalysisFailure } from "@/lib/affaires/intake-analysis-feedback";
@@ -123,7 +124,7 @@ export async function classifyAffaireIntakeDocument(input: {
       analysisSucceeded: true,
     };
   } catch (error) {
-    if (error instanceof IntakePayerAccessLost) throw error;
+    if (error instanceof IntakePayerAccessLost || (input.aiOwner?.connection && error instanceof LocalChatGptConnectionWithdrawnError)) throw error;
     console.error("Affaire intake AI classification failed", {
       error_code: getSafeProviderErrorCode(error),
       ...(error instanceof StructuredAiError && error.providerStatus ? { provider_status: error.providerStatus } : {}),
