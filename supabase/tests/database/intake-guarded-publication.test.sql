@@ -1,4 +1,5 @@
 begin;
+insert into private.intake_current_brief_activation(active_from) values(now());
 create extension if not exists pgtap with schema extensions;
 set local search_path=extensions, public, pg_catalog;
 select no_plan();

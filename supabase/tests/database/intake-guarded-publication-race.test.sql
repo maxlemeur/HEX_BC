@@ -115,7 +115,7 @@ select results_eq($$select b.summary,l.source_file_name from public.affaire_brie
   'only the winning first brief and its source are visible');
 select * from dblink_get_result('publisher') as t(result text);
 -- A first deposit may add its upload and the waiting piece in one transaction.
--- Let the competing confirmation actually block before the depositor adds the piece.
+-- Only the kept piece enters the contract. Confirmation can race its transaction.
 select dblink_exec('publisher',$prepare$
   create function pg_temp.confirm_legacy() returns text language plpgsql as $$
   declare b public.affaire_briefs%rowtype; actor uuid:='ae570000-0000-4000-8000-000000000001';
@@ -126,12 +126,20 @@ select dblink_exec('publisher',$prepare$
   exception when others then return sqlstate||' '||sqlerrm;
   end; $$;
 $prepare$);
+select dblink_exec('editor','insert into private.intake_current_brief_activation(active_from) values(now())');
 select dblink_exec('editor',$first$
   begin;
   set local deadlock_timeout='100ms';
   set local statement_timeout='5s';
   insert into public.affaire_intake_uploads(id,project_id,created_by,status) values(pg_temp.f(31),pg_temp.f(20),pg_temp.f(1),'deposited');
 $first$);
+select dblink_exec('publisher','set statement_timeout=''5s''');
+select is((select result from dblink('publisher','select pg_temp.confirm_legacy()') as t(result text)),'confirmed',
+  'while the placeholder is open the historical dossier can still confirm');
+select dblink_exec('editor',$piece$
+  insert into public.affaire_intake_documents(upload_id,file_name,upload_status,classification_status)
+    values(pg_temp.f(31),'First.pdf','uploaded','awaiting_launch');
+$piece$);
 select dblink_send_query('publisher','select pg_temp.confirm_legacy()');
 select ok(pg_temp.publisher_blocked(),'the confirmer waits for the open first deposit');
 select lives_ok($sql$select dblink_exec('editor',$piece$
@@ -191,9 +199,39 @@ select is((select result from dblink('editor','select pg_temp.confirm()') as t(r
 select dblink_exec('publisher','commit');
 select is((select result from dblink('editor','select pg_temp.confirm()') as t(result text)),
   'P0001 INTAKE_ANALYSIS_REQUIRED','the newly available plan requires a publication');
+select dblink_exec('editor',$unrelated$
+  insert into public.affaire_intake_documents(id,upload_id,file_name,storage_path,upload_status,classification_status,document_kind,size_bytes)
+    values(pg_temp.f(45),pg_temp.f(30),'CCTP.pdf','fictional/race/cctp.pdf','uploaded','classified','cctp',8);
+  begin;
+  do $$begin perform 1 from public.affaire_intake_documents where id in (pg_temp.f(40),pg_temp.f(45)) for update; end$$;
+$unrelated$);
+select lives_ok($sql$select dblink_exec('publisher',$uploads$
+  begin;
+  set local lock_timeout='150ms';
+  insert into storage.objects(bucket_id,name,metadata) values
+    ('affaire-intake','fictional/race/cctp.pdf','{"size":8}'),
+    ('affaire-intake','fictional/race/unregistered.pdf','{}'),
+    ('dpgf-imports','fictional/race/plan.pdf','{"size":8}');
+  rollback;
+$uploads$)$sql$,'a locked plan and a locked CCTP cannot block unrelated Storage uploads');
+select dblink_exec('editor','rollback');
+-- The timestamp on the activation row can pass while the confirmation waits
+-- for its first lock. The reservation is decided after that wait.
+select dblink_exec('editor',$pause$
+  update private.intake_current_brief_activation set active_from='infinity';
+  begin;
+  do $$begin perform 1 from public.affaire_briefs where project_id=pg_temp.f(20) for update; end$$;
+$pause$);
+select dblink_send_query('publisher','select pg_temp.confirm_legacy()');
+select ok(pg_temp.publisher_blocked(),'the confirmation started while enforcement was off and is waiting on the brief');
+select dblink_exec('editor','update private.intake_current_brief_activation set active_from=clock_timestamp(); commit');
+select is((select result from dblink_get_result('publisher') as t(result text)),'P0001 INTAKE_ANALYSIS_REQUIRED',
+  'confirmation observes the cut-over that occurred after its statement began but before it acquired the brief');
+select * from dblink_get_result('publisher') as t(result text);
 select dblink_disconnect('publisher');
 select dblink_exec('editor',$cleanup$
   begin;
+  delete from private.intake_current_brief_activation;
   set local storage.allow_delete_query='true';
   delete from storage.objects where bucket_id='affaire-intake' and name='fictional/race/plan.pdf';
   create temp table own_tenant as select tenant_id from public.tenant_memberships where user_id=pg_temp.f(1);

@@ -222,6 +222,70 @@ select throws_ok($$insert into public.takeoff_jobs (id, tenant_id, project_id, p
     pg_temp.snapshot(), pg_temp.request(20), 'grouped')$$, '42501', 'TAKEOFF_JOB_REQUEST_ADMISSION_REQUIRED',
   'a job cannot attach itself to a request');
 
+-- Use the real grouped manifest, payer mandate, claim and job writer. Roll the
+-- scenario back so the later tests can exercise the original pending request too.
+create function pg_temp.publish_current() returns void language plpgsql as $$
+declare batch uuid; inputs jsonb;
+begin
+  select launch_id into strict batch from public.start_affaire_intake_analysis(pg_temp.f(20),false) where outcome='brief_only';
+  perform public.claim_affaire_intake_analysis_launch(pg_temp.f(96),batch);
+  inputs:=public.read_affaire_intake_brief_inputs(pg_temp.f(20));
+  perform public.publish_affaire_intake_brief(batch,pg_temp.f(96),null,inputs->>'revision',(inputs->>'brief_updated_at')::timestamptz,
+    '{"summary":"Current plans","project_object":"Fixture"}','[]');
+  perform public.finish_affaire_intake_upload_attempt(batch,pg_temp.f(96),'ready',now());
+end;
+$$;
+create function pg_temp.admission_after_plan(activate boolean) returns text[] language plpgsql as $$
+declare evidence text[]; evaluation record; decision record;
+begin
+  begin
+    perform pg_temp.sign_in(1);
+    if activate then
+      insert into private.intake_current_brief_activation(active_from) values(now()-interval '1 minute');
+    end if;
+    insert into storage.objects(bucket_id,name,metadata,version)
+      select 'plan-files',file_path,'{"size":8}',gen_random_uuid()::text from public.plan_files where id=pg_temp.f(50);
+    -- The existing confirmed legacy brief is removed to exercise the first
+    -- manual-only launch, which is available on both sides of the cut-off.
+    delete from public.affaire_briefs where id=pg_temp.f(35);
+    insert into public.affaire_intake_uploads(id,project_id,created_by,status) values(pg_temp.f(351),pg_temp.f(20),pg_temp.f(1),'deposited');
+    insert into public.affaire_intake_documents(upload_id,file_name,upload_status,classification_status,classification_source,document_kind)
+      values(pg_temp.f(351),'Notice.pdf','uploaded','classified','manual','cctp');
+    perform pg_temp.publish_current();
+    perform pg_temp.confirm(20,1);
+    insert into public.plan_sets(id,tenant_id,project_id,name) values(pg_temp.f(352),pg_temp.f(10),pg_temp.f(20),'Other set');
+    insert into public.plan_files(id,tenant_id,plan_set_id,file_name,file_path,file_type,file_size_bytes,page_count)
+      values(pg_temp.f(353),pg_temp.f(10),pg_temp.f(352),'Second.pdf',concat_ws('/',pg_temp.f(10),pg_temp.f(352),pg_temp.f(353),'Second.pdf'),'application/pdf',8,1);
+    insert into storage.objects(bucket_id,name,metadata,version)
+      select 'plan-files',file_path,'{"size":8}',gen_random_uuid()::text from public.plan_files where id=pg_temp.f(353);
+    select * into strict evaluation from public.claim_takeoff_launch_evaluations(pg_temp.host(),pg_temp.f(97)) where project_id=pg_temp.f(20);
+    select * into strict decision from public.admit_takeoff_launch_request(evaluation.request_id,pg_temp.f(97),evaluation.mark,
+      pg_temp.manifest(),pg_temp.snapshot(),pg_temp.job(60));
+    evidence:=array[decision.outcome,decision.reason_code,(select count(*)::text from public.takeoff_jobs where project_id=pg_temp.f(20))];
+    if decision.outcome='blocked' then
+      perform set_config('mergeone.takeoff_launch_marked','',true);
+      perform pg_temp.publish_current();
+      select * into strict evaluation from public.claim_takeoff_launch_evaluations(pg_temp.host(),pg_temp.f(97)) where project_id=pg_temp.f(20);
+      select * into strict decision from public.admit_takeoff_launch_request(evaluation.request_id,pg_temp.f(97),evaluation.mark,
+        pg_temp.manifest(),pg_temp.snapshot(),pg_temp.job(60));
+      evidence:=evidence||array[decision.reason_code,(select count(*)::text from public.takeoff_jobs where project_id=pg_temp.f(20))];
+      perform set_config('mergeone.takeoff_launch_marked','',true);
+      perform pg_temp.confirm(20,1);
+      select * into strict evaluation from public.claim_takeoff_launch_evaluations(pg_temp.host(),pg_temp.f(97)) where project_id=pg_temp.f(20);
+      select * into strict decision from public.admit_takeoff_launch_request(evaluation.request_id,pg_temp.f(97),evaluation.mark,
+        pg_temp.manifest(),pg_temp.snapshot(),pg_temp.job(60));
+      evidence:=evidence||array[decision.outcome,(select count(*)::text from public.takeoff_jobs where project_id=pg_temp.f(20))];
+    end if;
+    raise sqlstate 'ZX001';
+  exception when sqlstate 'ZX001' then return evidence;
+  end;
+end;
+$$;
+select is(pg_temp.admission_after_plan(false),array['admitted',null,'1'],
+  'without activation a new evaluator still admits the mandate after a second standalone plan arrives');
+select is(pg_temp.admission_after_plan(true),array['blocked','BRIEF_NOT_CONFIRMED','0','BRIEF_NOT_CONFIRMED','0','admitted','1'],
+  'after activation no job is admitted until a new publication and a separate confirmation');
+
 -- 5. The admission: the request sealed, its job and both creation records in one commit.
 delete from claimed;
 insert into claimed select * from public.claim_takeoff_launch_evaluations(pg_temp.host(), pg_temp.f(92));
