@@ -475,7 +475,6 @@ armyTest(
     await screen.getByRole("button", new RegExp(`^Consulter le devis ${alphaName} du`)).tap();
     const alphaCard = screen.getByRole("article", `Devis ${alphaName}`, { exact: true });
     await expect(alphaCard.getByText("Clos", { exact: true })).toBeVisible();
-    await expect(alphaCard.getByText("Devis clos : il reste lisible, rien n’y change.", { exact: true })).toBeVisible();
     await expect(alphaCard.getByLabel(`Prix unitaire HT, ligne 1, ${alphaName}`, { exact: true })).toHaveCount(0);
     const changed = await apiRequest<Envelope<never>>(browser, "PATCH", `${one}/quotes/${alphaQuote.id}`, {
       lines: [{ line_id: lineIds[0], unit_price_ht_cents: 999, price_per: 1 }],

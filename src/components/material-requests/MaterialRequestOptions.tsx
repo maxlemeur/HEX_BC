@@ -50,7 +50,7 @@ export function MaterialRequestOptions({
   const trigger = useRef<HTMLButtonElement>(null);
 
   return (
-    <div className="mr-request-actions border-t border-border py-3">
+    <div className="mr-request-actions shrink-0">
       <DropdownMenu>
         <DropdownMenuTrigger
           ref={trigger}

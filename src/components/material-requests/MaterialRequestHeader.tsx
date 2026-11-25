@@ -287,7 +287,46 @@ export function requestFieldsOpenAtStart(request: MaterialRequest, canWrite: boo
   return canWrite && (materialPending || supplierPending);
 }
 
-/** The request's summary; its fields open from the request's options menu, and fold back from here. */
+export function MaterialRequestSummary({ editor, technicianName }: Readonly<{
+  editor: MaterialRequestEditorApi;
+  technicianName: string | null;
+}>) {
+  const { request, supplierOptions } = editor.data;
+  const supplier = request.presumed_supplier_id
+    ? supplierOptions.find((option) => option.id === request.presumed_supplier_id)?.label ?? "Fournisseur retiré de la liste"
+    : null;
+  const entries = [
+    { name: "Technicien", value: request.technician_id ? technicianName ?? "Technicien retiré de la liste" : "Non renseigné" },
+    { name: "Demandée le", value: formatDateOnly(request.requested_on) },
+    { name: "Réception", value: request.delivery_place ? MATERIAL_REQUEST_DELIVERY_PLACE_LABELS[request.delivery_place] : "Non précisée" },
+    request.needed_on || request.is_urgent
+      ? { name: "Besoin", value: [request.needed_on && formatDateOnly(request.needed_on), request.is_urgent && "Urgent"].filter(Boolean).join(" · "), pending: request.is_urgent }
+      : null,
+    request.presumed_material ? {
+      name: request.material_confirmed ? "Matière de la demande" : "Matière proposée",
+      value: request.material_confirmed ? request.presumed_material : `${request.presumed_material} (à confirmer)`,
+      pending: !request.material_confirmed,
+    } : null,
+    supplier ? {
+      name: "Fournisseur proposé",
+      value: request.supplier_confirmed ? supplier : `${supplier} (à confirmer)`,
+      pending: !request.supplier_confirmed,
+    } : null,
+    request.note ? { name: "Note", value: request.note } : null,
+  ];
+  return (
+    <dl aria-label="Informations de la demande" className="flex min-w-0 flex-wrap items-start gap-x-5 gap-y-2 sm:gap-x-8">
+      {entries.map((entry) => entry ? (
+        <div key={entry.name} className="min-w-0">
+          <dt className="text-xs text-muted-foreground">{entry.name}</dt>
+          <dd className={cn("break-words text-sm font-medium text-foreground", entry.pending && "text-warning")}>{entry.value}</dd>
+        </div>
+      ) : null)}
+    </dl>
+  );
+}
+
+/** The request's fields open from its options or from a line that needs a confirmation. */
 export function MaterialRequestHeader({
   editor,
   technicians,
@@ -296,7 +335,6 @@ export function MaterialRequestHeader({
   open,
   onOpenChange,
   materialFocusRequest,
-  compact = false,
 }: Readonly<{
   editor: MaterialRequestEditorApi;
   technicians: readonly MaterialRequestTechnician[];
@@ -306,7 +344,6 @@ export function MaterialRequestHeader({
   onOpenChange: (open: boolean) => void;
   /** Counts the requests to review the presumed material: each one takes the focus to its confirmation. */
   materialFocusRequest: number;
-  compact?: boolean;
 }>) {
   const ids = useId();
   const [urgentError, setUrgentError] = useState<string | null>(null);
@@ -332,8 +369,6 @@ export function MaterialRequestHeader({
   const technicianOptions = technicians
     .filter((technician) => technician.is_active || technician.id === request.technician_id)
     .map((technician) => ({ value: technician.id, label: technician.name }));
-  const materialPending = Boolean(request.presumed_material) && !request.material_confirmed;
-  const supplierPending = Boolean(request.presumed_supplier_id) && !request.supplier_confirmed;
   // Asked from the lines (« à compléter » on a material still presumed): the fields are opened by who asks, and the
   // focus goes to the confirmation, or to the material itself when it cannot be confirmed yet.
   const materialConfirmation = useRef<HTMLButtonElement>(null);
@@ -345,62 +380,16 @@ export function MaterialRequestHeader({
       : document.getElementById(`${ids}-material`);
     target?.focus();
   }, [ids, materialFocusRequest]);
-  const technicianName =
-    technicians.find((technician) => technician.id === request.technician_id)?.name ?? data.technician?.name ?? null;
-  const supplierLabel = request.presumed_supplier_id
-    ? (data.supplierOptions.find((option) => option.id === request.presumed_supplier_id)?.label ?? "Fournisseur retiré de la liste")
-    : null;
-  type SummaryEntry = { name: string; value: string; pending?: boolean };
-  const entries: Array<SummaryEntry | null> = [
-    { name: "Technicien", value: request.technician_id ? (technicianName ?? "Technicien retiré de la liste") : "non renseigné" },
-    { name: "Demandée le", value: formatDateOnly(request.requested_on) },
-    request.needed_on ? { name: "Besoin le", value: `${formatDateOnly(request.needed_on)}${request.is_urgent ? " · urgent" : ""}` } : null,
-    !request.needed_on && request.is_urgent ? { name: "Délai", value: "urgent" } : null,
-    {
-      name: "Réception",
-      value: request.delivery_place ? MATERIAL_REQUEST_DELIVERY_PLACE_LABELS[request.delivery_place] : "lieu non précisé",
-    },
-    request.presumed_material
-      ? {
-          name: "Matière présumée",
-          value: `${request.presumed_material} (${request.material_confirmed ? "confirmée" : "à confirmer"})`,
-          pending: materialPending,
-        }
-      : null,
-    supplierLabel
-      ? {
-          name: "Fournisseur présumé",
-          value: `${supplierLabel} (${request.supplier_confirmed ? "confirmé" : "à confirmer"})`,
-          pending: supplierPending,
-        }
-      : null,
-    request.note ? { name: "Note", value: request.note } : null,
-  ];
-  const summary = entries.filter((entry): entry is SummaryEntry => entry !== null);
-
   return (
-    <section aria-labelledby={`${ids}-heading`} className={cn(compact ? "mb-0 border-b border-border py-5" : "rounded-lg border border-border bg-surface p-4")}>
-      <div className={cn("flex items-start justify-between gap-3", compact && "float-right ml-4")} >
-        <h2 id={`${ids}-heading`} className={compact ? "sr-only" : "typo-h3 text-foreground"}>
-          Demande
-        </h2>
-        {open ? (
-          <Button type="button" variant="outline" size="sm" aria-expanded aria-controls={fieldsId} onClick={() => onOpenChange(false)}>
-            <ChevronUp aria-hidden="true" />
-            Replier
-          </Button>
-        ) : null}
+    <section hidden={!open} aria-labelledby={`${ids}-heading`} className="mb-3 rounded-lg border border-border bg-surface p-3 sm:p-4">
+      <div className="flex items-center justify-between gap-3">
+        <h2 id={`${ids}-heading`} className="text-sm font-semibold text-foreground">Informations de la demande</h2>
+        <Button type="button" variant="ghost" size="sm" aria-expanded={open} aria-controls={fieldsId} onClick={() => onOpenChange(false)}>
+          <ChevronUp aria-hidden="true" />
+          Replier
+        </Button>
       </div>
-      {/* What the technician said at the top of the request, read at a glance; the fields are opened to change it. */}
-      <dl className={cn("text-sm", compact ? "flex min-h-9 flex-wrap items-center gap-x-6 gap-y-2" : "mt-2 space-y-1")}>
-        {summary.map((entry) => (
-          <div key={entry.name} className="flex min-w-0 flex-wrap gap-x-1.5">
-            <dt className="text-muted-foreground">{entry.name} :</dt>
-            <dd className={cn("min-w-0 break-words text-foreground", entry.pending && "font-medium text-warning")}>{entry.value}</dd>
-          </div>
-        ))}
-      </dl>
-      <div id={fieldsId} tabIndex={-1} hidden={!open} className={cn("mt-4 clear-both grid grid-cols-2 gap-x-3 gap-y-3 border-t border-border pt-4", compact && "rounded-lg bg-surface p-4 md:grid-cols-4")}>
+      <div id={fieldsId} tabIndex={-1} className="mt-2 grid grid-cols-2 gap-3 md:grid-cols-4">
         <div className="col-span-2">
           <label htmlFor={`${ids}-technician`} className={LABEL}>
             Technicien

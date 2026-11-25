@@ -1741,7 +1741,7 @@ describe("the steps of a request", () => {
     await open([line()]);
 
     expect(tab(1)).toHaveAttribute("aria-selected", "true");
-    expect(screen.getByText("Rattachez un article à la ligne qui n’en a pas", { exact: true })).toBeVisible();
+    expect(screen.queryByText("Rattachez un article à la ligne qui n’en a pas", { exact: true })).not.toBeInTheDocument();
     expect(tab(1)).toHaveTextContent("0 validée sur 1");
     expect(screen.getByRole("heading", { name: "Lignes" })).toBeVisible();
     // The other steps are there, not shown: their headings are not offered.
@@ -1755,7 +1755,7 @@ describe("the steps of a request", () => {
     const user = await open([ready()]);
 
     expect(tab(2)).toHaveAttribute("aria-selected", "true");
-    expect(await screen.findByText("Consultez les fournisseurs", { exact: true })).toBeVisible();
+    expect(screen.getByText("Demandée le", { exact: true })).toBeVisible();
     expect(tab(1)).toHaveTextContent("terminée");
     expect(screen.queryByRole("heading", { name: "Lignes" })).not.toBeInTheDocument();
 
@@ -1788,9 +1788,8 @@ describe("the steps of a request", () => {
       orders: [],
     });
 
-    expect(await screen.findByText(/Toutes les lignes ont un bon ·/)).toBeVisible();
+    await waitFor(() => expect(tab(3)).toHaveTextContent("Toutes les lignes ont leur bon"));
     expect(tab(3)).toHaveAttribute("aria-selected", "true");
-    expect(tab(3)).toHaveTextContent("Toutes les lignes ont leur bon");
   });
 
   it("tells a reader where the request stands, never what to do", async () => {
