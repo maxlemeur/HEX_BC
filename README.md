@@ -63,4 +63,4 @@ Les commandes complètes restent dans [package.json](package.json).
 - [CHANGELOG.md](CHANGELOG.md) : versions gérées par Release Please.
 
 Le push ne déploie pas l'application : [vercel.json](vercel.json) désactive les
-déploiements Git. Migration partagée et déploiement demandent chacun leur autorisation.
+déploiements Git. Après fusion, appliquer les migrations relues selon le guide de la base partagée. Le déploiement demande l’accord du propriétaire.
