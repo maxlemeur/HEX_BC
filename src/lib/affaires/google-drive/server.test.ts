@@ -511,6 +511,29 @@ describe("Drive accounts kept on the server and pieces linked without copies (Go
       ),
     ).toEqual([]);
   });
+  it.each(["reserved", "enrolled"] as const)("keeps a %s piece out of historical reconnection", async reason => {
+    const first = await link();
+    const [document] = [...backend.rows("affaire_intake_documents").values()];
+    const lot = backend.rows("affaire_intake_uploads").get(first.uploads[0])!;
+    lot.status = "failed";
+    Object.assign(document, { classification_status: "failed", issues: reason === "reserved" ? ["Analyse IA en cours."] : [] });
+    Object.assign(backend.intake, { active: true, state: reason === "enrolled" ? "required" : "legacy" });
+    expect(await rearmLotsFailedWithConnection(backend.access.context, connectionId)).toEqual([]);
+    expect(lot.status).toBe("failed");
+  });
+  it("reattaches an enrolled link and closes an interrupted recording without scheduling a paid worker", async () => {
+    const first = await link();
+    const [document] = [...backend.rows("affaire_intake_documents").values()];
+    const lot = backend.rows("affaire_intake_uploads").get(first.uploads[0])!;
+    Object.assign(document, { classification_status: "failed", drive_connection_id: null });
+    Object.assign(lot, { status: "failed", last_error: "Liens Drive en cours d'enregistrement.",
+      created_at: new Date(Date.now() - 180_000).toISOString() });
+    Object.assign(backend.intake, { active: true, state: "required" });
+    const again = await link();
+    expect(again.uploads).toEqual([]);
+    expect(document.drive_connection_id).toBe(connectionId);
+    expect(lot).toMatchObject({ status: "failed", completed_at: expect.any(String) });
+  });
   it("analyses again after a reconnection a lot whose failed pieces come past the first 1 000", async () => {
     const lot = (id: string) => ({
       id,

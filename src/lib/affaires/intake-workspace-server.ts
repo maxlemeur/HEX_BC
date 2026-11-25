@@ -1,3 +1,4 @@
+import { readLaunchConnection } from "@/lib/affaires/intake-payer-server";
 import { readAllRows, readAllRowsInChunks } from "@/lib/supabase/read-all";
 import { startConcurrentRead } from "@/lib/supabase/concurrent-read";
 import { intakeCurrentBriefActive, readIntakeBriefState } from "@/lib/affaires/intake-current-brief-server";
@@ -205,17 +206,22 @@ export const fetchAffaireIntakeWorkspace = cache(async (
     missingPiecesPromise,
     analysisAvailabilityPromise,
     pendingUploadsPromise,
-    context.supabase.from("affaire_intake_uploads").select("id").eq("project_id", project.id).eq("status", "failed")
-      .not("launch_read_scans", "is", null).is("brief_published_revision", null).limit(1),
+    context.supabase.from("affaire_intake_uploads").select("id,last_error").eq("project_id", project.id).eq("status", "failed")
+      .not("launch_read_scans", "is", null).is("brief_published_revision", null)
+      .order("completed_at", { ascending: false, nullsFirst: false }).order("id", { ascending: false }).limit(1),
   ]);
   if (publicationDebt.error) throw internalError("Impossible de vérifier si le brief doit être actualisé.", publicationDebt.error);
+
+  const stopped = publicationDebt.data[0];
+  const connectionUnavailable = stopped?.last_error === "connection_unavailable" &&
+    (active || Boolean(await readLaunchConnection(stopped.id)));
 
   return {
     projectId: project.id,
     uploadId: upload.id,
     pendingUploadIds: pendingUploads.ids,
     launchRunning: pendingUploads.launchRunning,
-    ...(active && upload.status === "failed" && upload.last_error === "connection_unavailable" ? { launchConnectionUnavailable: true } : {}),
+    ...(connectionUnavailable ? { launchConnectionUnavailable: true } : {}),
     ...(briefState === "required" && brief ? { briefOutdated: true } : {}),
     briefPreparationDue: pendingUploads.ids.length === 0 &&
       !documents.some(doc => doc.upload_status === "uploaded" && (doc.deletion_token ||

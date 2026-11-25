@@ -45,7 +45,6 @@ export function dossierDocumentAiConfidence(document: DossierDocument): number |
   return Math.round(document.confidence * 100);
 }
 export function canClassifyDossierDocument(document: DossierDocument) {
-  if (document.historicalRetryAvailable && !isAffaireIntakeAnalysisStale(document)) return false;
   const state = dossierDocumentState(document);
   return state === "awaiting_launch" || state === "review" || state === "valid";
 }

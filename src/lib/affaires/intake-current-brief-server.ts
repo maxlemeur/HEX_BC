@@ -1,7 +1,7 @@
 import "server-only";
 import { z } from "zod";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
-import { internalError } from "@/lib/http/api-response";
+import { internalError } from "@/lib/http/api-error";
 
 export async function intakeCurrentBriefActive(client = createServiceRoleClient()) {
   const { data, error } = await client.rpc("intake_current_brief_active");

@@ -311,9 +311,9 @@ for (const active of [false, true]) test(`INTFRESH${active ? "02" : "01"} a hand
       .eq("project_id", projectId).maybeSingle()).data;
     const sends = async () => (await readFile(transportLog, "utf8")).split("\n").filter(Boolean)
       .map(line => JSON.parse(line)).filter(row => row.provider === "chatgpt-fixture" || row.provider === "decisions-fixture").map(row => row.inputKind);
-    const action = async (key: string, args: Record<string,string>) =>
+    const action = async (key: string, args: Parameters<typeof callServerAction>[2]) =>
       callServerAction(browser, await serverActionId(key, actionManifest()), { projectId, ...args });
-    const confirm = async () => action("confirmAffaireBrief", { expectedUpdatedAt: (await brief())!.updated_at });
+    const confirm = async () => action("confirmAffaireBrief", { expectedUpdatedAt: (await brief())!.updated_at, plans: [], payerNotice: null });
     const finished = () => expect.poll(async () => (await client.from("affaire_intake_uploads").select("id")
       .eq("project_id",projectId).in("status",["launch_processing","launch_queued"])).data?.length, DEV_SERVER_WORK).toBe(0);
     await ui.app.open(url);
@@ -378,13 +378,61 @@ for (const active of [false, true]) test(`INTFRESH${active ? "02" : "01"} a hand
     const oldPiece = async () => (await client.from("affaire_intake_documents").select("classification_status,classified_at")
       .eq("id",documentId).single()).data;
     expect((await oldPiece())?.classification_status).toBe("queued");
-    if (active) {
-      await retry.click();
-      await expect.poll(async () => (await oldPiece())?.classified_at, DEV_SERVER_WORK).toBeTruthy();
-    } else {
+    if (!active) {
       await expect(retry).toHaveCount(0);
       expect((await action("retryAffaireDocumentAnalysis", { documentId })).digest).toBeTruthy();
       expect((await oldPiece())?.classification_status).toBe("queued");
+      // A genuine terminal failure was already retryable before cut-over.
+      await querySql(`update public.affaire_intake_documents set classification_status='failed' where id='${documentId}'`);
+      await ui.app.open(url);
+      await screen.getByRole("button", "historique.pdf", { exact: true }).click();
+    }
+
+    // A Drive callback could already have rearmed the parent for another failed piece.
+    // Hold the individual provider send across the real historical worker's claim and close.
+    const beforeRetry = (await sends()).length;
+    await setDecisionsControl({ holdClassification: true });
+    let worker: Promise<Response> | undefined;
+    try {
+      await retry.click();
+      await expect.poll(async () => (await sends()).slice(beforeRetry), DEV_SERVER_WORK).toEqual(["intake-classification"]);
+      const reserved = () => client.from("affaire_intake_documents").select("updated_at,issues").eq("id", documentId).single();
+      const version = (await reserved()).data!;
+      expect(version.issues).toContain("Analyse IA en cours.");
+      await querySql(`update public.affaire_intake_uploads set status='queued',last_error=null,attempt_count=0,next_retry_at=null where id='${uploadId}'`);
+      worker = fetch(new URL("/api/internal/workflows/recover", localOrigin), { headers: { authorization: `Bearer ${recoverySecret}` } });
+      await expect.poll(async () => (await client.from("affaire_intake_uploads").select("status,attempt_count")
+        .eq("id", uploadId).single()).data, DEV_SERVER_WORK).toMatchObject({ status: "failed", attempt_count: 1 });
+      expect((await reserved()).data).toEqual(version);
+      expect((await sends()).slice(beforeRetry).filter(kind => kind === "intake-classification")).toHaveLength(1);
+    } finally {
+      await setDecisionsControl({});
+      await worker;
+    }
+    await expect.poll(async () => (await oldPiece())?.classified_at, DEV_SERVER_WORK).toBeTruthy();
+    if (active) {
+      await rm(fixtureStore!, { force: true });
+      const manualId = crypto.randomUUID();
+      const manualPath = `${tenant}/${projectId}/${uploadId}/${manualId}/historique-manuel.txt`;
+      const original = "Original historique fictif à conserver.";
+      await querySql(`insert into public.affaire_intake_documents(id,upload_id,project_id,tenant_id,created_by,file_name,mime_type,storage_path,upload_status,classification_status)
+        values ('${manualId}','${uploadId}','${projectId}','${tenant}','${userId}','historique-manuel.txt','text/plain','${manualPath}','uploaded','queued');`);
+      expect((await client.storage.from("affaire-intake").upload(manualPath, new Blob([original], { type: "text/plain" }))).error).toBeNull();
+      const before = await sends();
+      await ui.app.open(url);
+      expect((await confirm()).ok).toBe(false);
+      const table = screen.getByRole("table", "Documents reçus", { exact: true });
+      await table.getByRole("combobox", "Catégorie de historique-manuel.txt", { exact: true }).selectOption({ value: "annexes" });
+      await table.getByRole("button", "Valider la classification de historique-manuel.txt", { exact: true }).click();
+      await expect.poll(async () => (await client.from("affaire_intake_documents").select("classification_source")
+        .eq("id", manualId).single()).data?.classification_source, DEV_SERVER_WORK).toBe("manual");
+      await ui.app.open(url);
+      await press.click();
+      await finished();
+      await expect.poll(async () => (await brief())?.received_pieces, DEV_SERVER_WORK).toContain("Annexes · historique-manuel.txt");
+      expect((await confirm()).ok).toBe(true);
+      expect(await sends()).toEqual(before);
+      expect(await (await client.storage.from("affaire-intake").download(manualPath)).data?.text()).toBe(original);
     }
   } finally {
     if (active) await querySql("delete from private.intake_current_brief_activation where singleton");
@@ -665,15 +713,36 @@ test("INTPROFILE01 a second usable profile cannot take or pay for the first prof
     await sweep();
     expect(await batch()).toMatchObject({ attempt_count: 1, status: "launch_processing" });
     expect(await sends()).toBe(before + 1);
+    // Withdrawing the cut-over cannot change the payer's original mandate.
+    await querySql("delete from private.intake_current_brief_activation where singleton");
+    await sweep();
+    expect(await batch()).toMatchObject({ attempt_count: 1, status: "launch_processing" });
+    expect(await sends()).toBe(before + 1);
     await querySql(`update public.affaire_intake_uploads set processing_lease_expires_at=clock_timestamp()-interval '31 minutes' where id='${lot}'`);
     await expect.poll(async () => { await sweep(); return batch(); }, DEV_SERVER_WORK)
       .toMatchObject({ attempt_count: 1, status: "failed", last_error: "connection_unavailable" });
     expect(await sends()).toBe(before + 1);
     await ui.app.open(`/dashboard/affaires/${projectId}?view=dossier`);
     await expect(screen.getByText("Analyse interrompue. La connexion ChatGPT choisie au lancement n’est plus disponible.", { exact: true }).first()).toBeVisible();
+    await querySql("insert into private.intake_current_brief_activation(active_from) values(clock_timestamp())");
+    // A later deposit cannot erase the explanation for the outstanding launch.
+    const late = await browser.evaluate(async project => {
+      const form = new FormData();
+      form.set("files", new File(["Notice fictive"], "Notice.txt", { type: "text/plain" }));
+      const response = await fetch(`/api/affaires/${project}/intake/files`, { method: "POST", body: form });
+      if (!response.ok) throw new Error(`Deposit failed: ${response.status}`);
+      return (await response.json()).data.files[0].documentId as string;
+    }, projectId);
+    expect((await callServerAction(browser, await serverActionId("reclassifyAffaireDocument", actionManifest()), {
+      projectId, documentId: late, category: "annexes",
+    }))).toMatchObject({ status: 200, digest: null });
+    await ui.app.open(`/dashboard/affaires/${projectId}?view=dossier`);
+    await expect(screen.getByText("Analyse interrompue. La connexion ChatGPT choisie au lancement n’est plus disponible.", { exact: true }).first()).toBeVisible();
     await expect(screen.getByText("1 pièce en attente de lancement", { exact: true }).first()).toBeVisible();
     await screen.getByRole("button", "Lancer l’analyse", { exact: true }).first().click();
     await expect.poll(async () => (await client.from("affaire_briefs").select("id").eq("project_id",projectId)).data?.length, DEV_SERVER_WORK).toBe(1);
+    await ui.app.open(`/dashboard/affaires/${projectId}?view=dossier`);
+    await expect(screen.getByText("Analyse interrompue. La connexion ChatGPT choisie au lancement n’est plus disponible.", { exact: true })).toHaveCount(0);
     expect((await transport()).slice(before + 1).map(row => [row.inputKind, row.fixtureProfile])).toEqual([
       ["intake-classification", "second"], ["intake-brief", "second"],
     ]);

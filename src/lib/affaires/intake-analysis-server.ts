@@ -1,7 +1,8 @@
+import { readEditableIntakeDocument } from "@/lib/affaires/intake-editable-document-server";
 import { LocalChatGptConnectionWithdrawnError } from "@/lib/ai/chatgpt-sign-in-errors";
 import type { IntakeAnalysisFailure } from "@/lib/affaires/intake-analysis-feedback";
 import { hostCanReadIntakeScans, readLaunchConnection, IntakePayerAccessLost, requireIntakePayerRight } from "@/lib/affaires/intake-payer-server";
-import { intakeCurrentBriefActive } from "@/lib/affaires/intake-current-brief-server";
+import { intakeCurrentBriefActive, readIntakeBriefState } from "@/lib/affaires/intake-current-brief-server";
 import type { ChatGptConnection, ChatGptOwner } from "@/lib/ai/chatgpt-local-store";
 import { readAllRows } from "@/lib/supabase/read-all";
 import { buildAffaireIntakeReanalysisUpdate } from "@/lib/affaires/intake-reanalysis";
@@ -44,6 +45,7 @@ import { classifyAffaireIntakeDocument } from "@/lib/affaires/intake-classificat
 import { refreshAffaireBriefFromDocuments } from "@/lib/affaires/intake-derived-state-server";
 
 class IntakeConnectionUnavailable extends Error {}
+class HistoricalIntakeNeedsLaunch extends Error {}
 
 async function processClaimedAffaireIntakeUpload(input: {
   supabase: ReturnType<typeof createServiceRoleClient>;
@@ -70,6 +72,7 @@ async function processClaimedAffaireIntakeUpload(input: {
       now: new Date(),
     });
 
+  const historicalGuard = !claim.launch && await intakeCurrentBriefActive(supabase);
   const checkPayer = async () => {
     try {
       await renewLease();
@@ -77,6 +80,9 @@ async function processClaimedAffaireIntakeUpload(input: {
       // Suspension also prevents renewal. A revoked payer can still stop this launch under its token.
       if (claim.launch) await requireIntakePayerRight(payer ?? null, claim.projectId, supabase);
       throw error;
+    }
+    if (historicalGuard && await readIntakeBriefState(claim.projectId, supabase) !== "legacy") {
+      throw new HistoricalIntakeNeedsLaunch();
     }
     const connectionLost = claim.launch?.readScans && (input.connection === null || (aiOwner && !await hostCanReadIntakeScans(aiOwner)));
     if (claim.launch || aiOwner) await requireIntakePayerRight(payer ?? null, claim.projectId, supabase);
@@ -143,7 +149,14 @@ async function processClaimedAffaireIntakeUpload(input: {
       return null;
     }
   };
+  // A historical worker and an individual retry compete for the document version.
+  // The losing worker also skips OCR for that piece, including in a multi-piece lot.
+  const skipHistoricalReading = new Set<string>();
   for (const document of documents) {
+    if (!claim.launch && isAffaireIntakeReanalysisPending(document)) {
+      skipHistoricalReading.add(document.id);
+      continue;
+    }
     if (document.upload_status !== "uploaded") {
       continue;
     }
@@ -162,23 +175,15 @@ async function processClaimedAffaireIntakeUpload(input: {
     }
 
     await renewLease();
-    const { data: processingDocument, error: markProcessingError } = await resolveSupabaseQuery<{
-      data: { id: string } | null;
-      error: unknown;
-    }>(
-      supabase
-        .from("affaire_intake_documents")
-        .update({
-          classification_status: "processing",
-        } as never)
-        .eq(batchKey, upload.id)
-        .eq("id", document.id)
-        .eq("classification_status", document.classification_status)
-        .or("classification_source.is.null,classification_source.neq.manual")
-        .is("manually_overridden_at", null)
-        .is("deleted_at", null).is("deletion_token", null)
-        .select("id" as never).maybeSingle()
-    );
+    const processing = supabase.from("affaire_intake_documents").update({ classification_status: "processing" })
+      .eq(batchKey, upload.id).eq("id", document.id).eq("classification_status", document.classification_status)
+      .or("classification_source.is.null,classification_source.neq.manual").is("manually_overridden_at", null)
+      .is("deleted_at", null).is("deletion_token", null);
+    if (!claim.launch) {
+      processing.eq("updated_at", document.updated_at).not("issues", "cs", `{"${AFFAIRE_INTAKE_REANALYSIS_PENDING_ISSUE}"}`);
+    }
+    const { data: processingDocument, error: markProcessingError } = await processing.select("id").maybeSingle();
+    if (!claim.launch && !processingDocument) skipHistoricalReading.add(document.id);
 
     if (markProcessingError) {
       console.error("Failed to mark intake document as processing", {
@@ -292,7 +297,7 @@ async function processClaimedAffaireIntakeUpload(input: {
         },
       });
     } catch (error) {
-      if (error instanceof durableIntake.AffaireIntakeLeaseUnavailableError || error instanceof IntakePayerAccessLost || error instanceof IntakeConnectionUnavailable ||
+      if (error instanceof durableIntake.AffaireIntakeLeaseUnavailableError || error instanceof IntakePayerAccessLost || error instanceof IntakeConnectionUnavailable || error instanceof HistoricalIntakeNeedsLaunch ||
           (input.connection && error instanceof LocalChatGptConnectionWithdrawnError)) {
         throw error;
       }
@@ -341,7 +346,7 @@ async function processClaimedAffaireIntakeUpload(input: {
   // On recovery, terminal classifications stay in place. Readings deduplicate by content.
   const toTranscribe = aiOwner && (claim.launch?.readScans ?? true) && isLocalChatGptEnabled() ? documents.flatMap((document) => {
     const mimeType = document.mime_type ?? inferAffaireIntakeMimeType(document.file_name) ?? "";
-    return document.upload_status === "uploaded" && !document.analysis_completed_at && !document.deletion_token && (document.storage_path || document.drive_file_id)
+    return !skipHistoricalReading.has(document.id) && document.upload_status === "uploaded" && !document.analysis_completed_at && !document.deletion_token && (document.storage_path || document.drive_file_id)
       && canTranscribeIntakeDocument(mimeType) ? [{ document, mimeType }] : [];
   }) : [];
   const markComplete = async (ids: string[]) => {
@@ -360,7 +365,13 @@ async function processClaimedAffaireIntakeUpload(input: {
   }
   for (const { document, mimeType } of toTranscribe) {
     const checkReading = async () => {
-      if (!claim.launch) return checkPayer();
+      if (!claim.launch) {
+        const current = await supabase.from("affaire_intake_documents").select("issues")
+          .eq("id", document.id).eq("upload_id", claim.uploadId).is("deleted_at", null).is("deletion_token", null).maybeSingle();
+        if (current.error) throw current.error;
+        if (!current.data || isAffaireIntakeReanalysisPending(current.data)) throw new Error("Lecture réservée à la relance individuelle.");
+        return checkPayer();
+      }
       const { data, error } = await supabase.from("affaire_intake_documents").select("id")
         .eq("id", document.id).eq("analysis_launch_id", claim.uploadId)
         .is("deleted_at", null).is("deletion_token", null).maybeSingle();
@@ -379,7 +390,7 @@ async function processClaimedAffaireIntakeUpload(input: {
         document: { id: document.id, tenantId: upload.tenant_id, fileName: document.file_name } });
       await markComplete([document.id]);
     } catch (transcriptionError) {
-      if (claim.launch || transcriptionError instanceof durableIntake.AffaireIntakeLeaseUnavailableError) throw transcriptionError;
+      if (claim.launch || transcriptionError instanceof HistoricalIntakeNeedsLaunch || transcriptionError instanceof durableIntake.AffaireIntakeLeaseUnavailableError) throw transcriptionError;
       console.error("Affaire intake transcription could not be recorded", { documentId: document.id });
     }
   }
@@ -465,11 +476,12 @@ export async function processAffaireIntakeUpload(uploadId: string) {
 export async function processAffaireIntakeAnalysisLaunch(uploadId: string, readingOwner: ChatGptOwner | null) {
   const supabase = createServiceRoleClient();
   const active = await intakeCurrentBriefActive(supabase);
-  const connection = active ? (readingOwner ? await readLaunchConnection(uploadId, supabase) : null) : undefined;
+  const recorded = readingOwner ? await readLaunchConnection(uploadId, supabase) : null;
+  const connection = recorded ?? (active ? null : undefined);
   if (readingOwner && (connection === null || !await hostCanReadIntakeScans({ ...readingOwner, connection }))) {
     // Leave the launch available to another host with the authorized profile.
     // SQL only stops it after the recovery window and never takes a live lease.
-    if (active) {
+    if (active || recorded) {
       const { error } = await supabase.rpc("stop_affaire_intake_analysis", { p_upload_id: uploadId, p_lease_token: null });
       if (error) throw internalError("Impossible de vérifier le délai de reprise du lancement.", error);
     }
@@ -490,6 +502,11 @@ async function runClaim(supabase: ReturnType<typeof createServiceRoleClient>,
     // Leave the lease to expire. A capable host can resume; otherwise the
     // due-time sweep stops it without consuming another reading attempt.
     if (error instanceof IntakeConnectionUnavailable || (connection && error instanceof LocalChatGptConnectionWithdrawnError)) return null;
+    if (error instanceof HistoricalIntakeNeedsLaunch) {
+      await durableIntake.finishAffaireIntakeUploadAttempt({ client: lifecycleClient, claim, status: "failed",
+        lastError: "Cette affaire attend un lancement explicite. Classez ou relancez les pièces interrompues.", now: new Date() });
+      return "failed" as const;
+    }
     if (claim.launch && error instanceof IntakePayerAccessLost) {
       const stopped = await supabase.rpc("stop_affaire_intake_analysis", { p_upload_id: claim.uploadId, p_lease_token: claim.leaseToken });
       if (stopped.error) throw new Error("Impossible de terminer le lancement interrompu.", { cause: stopped.error });
@@ -516,23 +533,7 @@ export async function retryAffaireDocumentAnalysis(input: { projectId: string; d
   const availability = await getIntakeAnalysisAvailability(context);
   if (!availability.available) throw badRequest(availability.message);
   const table = () => context.supabase.from("affaire_intake_documents");
-  const readDocument = async () => {
-    const { data, error } = await table().select(DOCUMENT_SELECT)
-      .eq("tenant_id", context.tenantId).eq("project_id", project.id).eq("id", input.documentId)
-      .is("deleted_at", null).is("deletion_token", null).maybeSingle();
-    if (error) throw internalError("Impossible de lire le document à réanalyser.", error);
-    const document = normalizeDocumentRow(data);
-    if (!document) throw notFound("Document introuvable.");
-    return document;
-  };
-  let document = await readDocument();
-  if (!document.analysis_launch_id && ["queued", "processing"].includes(document.classification_status) && await intakeCurrentBriefActive(context.supabase)) {
-    const { data: prepared, error } = await context.supabase.rpc("prepare_historical_intake_document_retry", {
-      p_project_id: project.id, p_document_id: document.id,
-    });
-    if (error) throw internalError("Impossible de préparer la relance historique.", error);
-    if (prepared) document = await readDocument();
-  }
+  const document = await readEditableIntakeDocument(context, project.id, input.documentId);
   const preserveManualClassification = document.classification_source === "manual" || Boolean(document.manually_overridden_at);
   const stale = isAffaireIntakeAnalysisStale({ classificationStatus: document.classification_status, classificationUpdatedAt: document.updated_at, issues: document.issues });
   if (isAffaireIntakeReanalysisPending(document) && !stale) throw conflict("Une analyse de cette pièce est déjà en cours.");
