@@ -1,3 +1,4 @@
+import { redactOutput } from "../../../scripts/tester-army/local-recipe-common.mjs";
 import { querySql } from "./calculation-gate-support";
 
 // The automatic start of the takeoff (migration 20261121170448_takeoff_launch_requests.sql) on the owned stack of a
@@ -87,6 +88,16 @@ export async function readOwnedPayerNoticeBasis(projectId: string, memberId: str
       'active', private.takeoff_launch_active(), 'payer', private.takeoff_launch_payer_eligible(p.tenant_id, p.id, '${memberId}'))),
     '[]'::json) from public.estimate_projects p where p.id = '${projectId}';`);
   return basis ?? null;
+}
+
+/** Diagnostic only. The member's dossier API controls readiness. */
+export async function readOwnedIntakeLaunchDiagnostics(projectId: string) {
+  if (!UUID.test(projectId)) throw new Error("Invalid fixture affaire.");
+  const launches = await readJson<Array<{ id: string; status: string; attempts: number; published: boolean; lastError: string | null }>>(
+    `select coalesce(json_agg(json_build_object('id', id, 'status', status, 'attempts', attempt_count,
+      'published', brief_published_revision is not null, 'lastError', last_error) order by created_at, id), '[]'::json)
+      from public.affaire_intake_uploads where project_id = '${projectId}' and launch_read_scans is not null;`);
+  return launches.map(launch => ({ ...launch, lastError: launch.lastError ? redactOutput(launch.lastError).slice(0, 500) : null }));
 }
 
 /** The affaire's estimate versions: a launch from the takeoff's options creates none (the send chooses its draft). */
