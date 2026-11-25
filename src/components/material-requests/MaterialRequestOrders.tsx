@@ -2,7 +2,7 @@
 
 import { useState, type ReactNode } from "react";
 import Link from "next/link";
-import { ArrowLeft, ChevronRight, ExternalLink, ShoppingCart } from "lucide-react";
+import { ExternalLink, ShoppingCart } from "lucide-react";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -11,10 +11,8 @@ import type { MaterialRequestOrder } from "@/lib/material-requests/client";
 import type { MaterialRequestLine } from "@/lib/material-requests/contracts";
 import type { MaterialRequestOrderNotReadyReason } from "@/lib/material-requests/order-contracts";
 import { formatEUR } from "@/lib/money";
-import { cn } from "@/lib/utils";
-
-import { SELECTED_ROW } from "./cells";
 import { formatQuantity, formatQuotedPrice, lineNamesLabel, lineTitle, purchaseOrderHref, purchaseOrderStatusLabel } from "./format";
+import { MaterialRequestWorkspace, MaterialRequestWorkspaceChoice } from "./MaterialRequestWorkspace";
 import { REQUEST_STEP_KEYS, type RequestStepKey } from "./request-steps";
 import type { MaterialRequestEditorApi } from "./useMaterialRequestEditor";
 import type { MaterialRequestOrdersApi } from "./useMaterialRequestOrders";
@@ -103,14 +101,15 @@ const STATUS_VARIANT: Record<string, "neutral" | "info" | "success" | "warning" 
 
 function OrderItem({ order, selected, onSelect }: Readonly<{ order: MaterialRequestOrder; selected: boolean; onSelect: () => void }>) {
   return (
-    <li className="min-w-0 border-b border-border last:border-b-0">
-      <button type="button" aria-label={`Afficher le bon ${order.reference}`} aria-pressed={selected} onClick={onSelect}
-        // Selected as a line or a quote is: the application's blue, orange being kept for what there is to fix.
-        className={cn("block w-full min-w-0 px-3 py-2 text-left hover:bg-surface-subtle focus-visible:outline-2 focus-visible:outline-offset-[-3px] focus-visible:outline-ring", selected && SELECTED_ROW)}>
-        <span className="flex flex-wrap items-center justify-between gap-2"><span className="min-w-0 break-words font-semibold text-foreground">{order.reference} <span className="ml-1">{order.supplier_name}</span></span><ChevronRight aria-hidden="true" className="size-4 shrink-0 text-muted-foreground" /></span>
-        <span className="mt-1 flex flex-wrap items-center gap-2 text-sm"><span className="tabular-nums text-muted-foreground">{formatEUR(order.total_ht_cents)} HT</span><span aria-hidden="true">·</span><span className="text-muted-foreground">{plural(order.line_count, "ligne", "lignes")}</span><Badge variant={STATUS_VARIANT[order.status] ?? "neutral"}>{purchaseOrderStatusLabel(order.status)}</Badge></span>
-      </button>
-    </li>
+    <MaterialRequestWorkspaceChoice
+      label={`Afficher le bon ${order.reference}`}
+      title={<><span>{order.reference}</span>{" "}<span>{order.supplier_name}</span></>}
+      status={<Badge variant={STATUS_VARIANT[order.status] ?? "neutral"}>{purchaseOrderStatusLabel(order.status)}</Badge>}
+      scope={plural(order.line_count, "ligne", "lignes")}
+      amount={`${formatEUR(order.total_ht_cents)} HT`}
+      selected={selected}
+      onSelect={onSelect}
+    />
   );
 }
 
@@ -178,8 +177,7 @@ export function MaterialRequestOrders({
       <MaterialRequestToOrderReminder editor={editor} orders={orders}>{reminded ? stepLinks : null}</MaterialRequestToOrderReminder>
       {summary === null ? status === "error" ? <div className="flex flex-wrap items-center gap-2 text-sm"><p>Les bons de commande n’ont pas pu être chargés.</p><Button type="button" variant="outline" size="sm" aria-label="Recharger les bons de commande" onClick={orders.retry}>Réessayer</Button></div> : <p role="status" className="text-sm text-muted-foreground">Chargement des bons de commande…</p> : (
         <>
-          {drafts.length > 0 ? <div className="mr-order-workspace grid min-w-0 overflow-hidden rounded-lg border border-border bg-surface xl:grid-cols-[20rem_minmax(0,1fr)]">
-            <div className="min-w-0 border-b border-border xl:border-r xl:border-b-0"><ul aria-label="Bons de commande de la demande">{drafts.map((order) => <OrderItem key={order.id} order={order} selected={selectedOrder?.id === order.id} onSelect={() => setSelectedOrderId(order.id)} />)}</ul></div>
+          {drafts.length > 0 ? <MaterialRequestWorkspace label="Bons de commande de la demande" choices={drafts.map((order) => <OrderItem key={order.id} order={order} selected={selectedOrder?.id === order.id} onSelect={() => setSelectedOrderId(order.id)} />)}>
             {selectedOrder ? <div role="region" aria-label={`Détail du bon ${selectedOrder.reference}`} className="min-w-0 p-3 sm:p-4">
               <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-1">
                 <div>
@@ -218,13 +216,12 @@ export function MaterialRequestOrders({
               ) : <p className="mt-3 text-sm text-muted-foreground">{plural(selectedOrder.line_count, "ligne", "lignes")}</p>}
               {selectedOrder.can_open ? <Link href={purchaseOrderHref(selectedOrder.id)} aria-label={`Ouvrir le bon ${selectedOrder.reference}`} className="mt-3 inline-flex min-h-9 items-center gap-2 rounded-lg bg-primary px-4 py-1.5 text-sm font-semibold text-primary-foreground hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"><ExternalLink aria-hidden="true" className="size-4" />Ouvrir le bon<span className="sr-only"> {selectedOrder.reference}</span></Link> : <p className="mt-4 text-sm text-muted-foreground">Vous pouvez consulter son résumé ici ; l’ouverture du bon est réservée à son auteur et aux administrateurs.</p>}
             </div> : null}
-          </div> : <p className="rounded-lg border border-dashed border-border p-4 text-sm text-muted-foreground">Aucun bon de commande pour le moment.</p>}
+          </MaterialRequestWorkspace> : <p className="rounded-lg border border-dashed border-border p-4 text-sm text-muted-foreground">Aucun bon de commande pour le moment.</p>}
           {orders.createError ? <p role="alert" className="text-sm font-medium text-danger">{orders.createError}</p> : null}
           {status === "error" ? <div className="flex flex-wrap items-center gap-2 text-sm"><p>Les bons de commande n’ont pas pu être relus.</p><Button type="button" variant="outline" size="sm" aria-label="Recharger les bons de commande" onClick={orders.retry}>Réessayer</Button></div> : null}
           {notReady.length > 0 && !reminded ? <div className="space-y-2 rounded-lg border border-dashed border-border p-4"><p className="text-sm font-medium">Pas encore à commander :</p><ul aria-label="Lignes pas encore à commander" className="list-disc space-y-1 pl-5 text-sm">{notReady.map((entry) => { const line = linesById.get(entry.line_id); return <li key={entry.line_id}>{line ? `${lineTitle(line)} : ${NOT_READY_REASONS[entry.reason] ?? entry.reason}` : "Une ligne qui n’est plus affichée : rechargez la page."}</li>; })}</ul>{stepLinks}</div> : null}
         </>
       )}
-      {onGoToStep ? <Button type="button" variant="link" className="px-0" onClick={() => onGoToStep("devis")}><ArrowLeft aria-hidden="true" />Retour aux devis</Button> : null}
     </section>
   );
 }

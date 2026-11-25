@@ -312,7 +312,6 @@ export function MaterialRequestSummary({ editor, technicianName }: Readonly<{
       value: request.supplier_confirmed ? supplier : `${supplier} (à confirmer)`,
       pending: !request.supplier_confirmed,
     } : null,
-    request.note ? { name: "Note", value: request.note } : null,
   ];
   return (
     <dl aria-label="Informations de la demande" className="flex min-w-0 flex-wrap items-start gap-x-5 gap-y-2 sm:gap-x-8">

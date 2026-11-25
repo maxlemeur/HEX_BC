@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useId, useRef, useState } from "react";
-import { ArrowLeft, ArrowRight, Check, CheckCheck, FileText, Paperclip, TriangleAlert, X } from "lucide-react";
+import { Check, CheckCheck, FileText, Paperclip, TriangleAlert, X } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -23,7 +23,8 @@ import { plural } from "@/lib/text/plural";
 import { cn } from "@/lib/utils";
 
 import { CentsField, CentsInput, useCentsDraft } from "./cents-field";
-import { ConfirmButton, SELECTED_ROW, TextCell } from "./cells";
+import { ConfirmButton, TextCell } from "./cells";
+import { MaterialRequestWorkspace, MaterialRequestWorkspaceChoice } from "./MaterialRequestWorkspace";
 import {
   ConsultationMessageBlock,
   ConsultationRecipients,
@@ -913,7 +914,7 @@ function QuoteCard({
  * The « Devis » step of a request: the lines grouped by their supplier, the message to copy for each, the
  * competition, then the quotes. A reader sees the groups and the quotes, and nothing that writes.
  */
-export function MaterialRequestConsultation({ editor, quotes, affaireName, headingId, canCreateSupplier = false, visible = true, onGoToLines, onGoToOrders }: Readonly<{
+export function MaterialRequestConsultation({ editor, quotes, affaireName, headingId, canCreateSupplier = false, visible = true, onGoToLines }: Readonly<{
   editor: MaterialRequestEditorApi;
   quotes: MaterialRequestQuotesApi;
   affaireName: string;
@@ -925,7 +926,6 @@ export function MaterialRequestConsultation({ editor, quotes, affaireName, headi
   canCreateSupplier?: boolean;
   visible?: boolean;
   onGoToLines?: () => void;
-  onGoToOrders?: () => void;
 }>) {
   const { data, canWrite } = editor;
   const template = useConsultationTemplate(canWrite);
@@ -966,44 +966,51 @@ export function MaterialRequestConsultation({ editor, quotes, affaireName, headi
           {data.lines.length === 0 ? "Aucune ligne à faire chiffrer." : "Aucune consultation envoyée."}
         </p>
       ) : null}
-      {choices.length > 0 ? <div className="mr-supplier-workspace grid min-w-0 overflow-hidden rounded-lg border border-border bg-surface xl:grid-cols-[20rem_minmax(0,1fr)]">
-        <nav aria-label="Dossiers fournisseurs" className="min-w-0 border-b border-border xl:border-r xl:border-b-0">
-          {ordered.map((quote) => {
-            const total = totalOf(quote);
-            const gap = total !== null && quote.amount_ht_cents !== null ? quote.amount_ht_cents - total : null;
-            const scope = quote.lines.map((entry) => editor.linesById.get(entry.line_id)?.product_type || "Ligne retirée").join(", ");
-            return <button key={quote.id} type="button" aria-pressed={active === `quote:${quote.id}`} aria-label={`Consulter le devis ${quote.supplier_name} du ${formatDay(quote.requested_at)} (${MATERIAL_REQUEST_QUOTE_STATUS_LABELS[quote.status]})`} onClick={() => setSelected(`quote:${quote.id}`)}
-              className={cn("block w-full min-w-0 border-b border-border px-3 py-2 text-left last:border-b-0 hover:bg-surface-subtle focus-visible:outline-2 focus-visible:outline-offset-[-3px] focus-visible:outline-ring", active === `quote:${quote.id}` && SELECTED_ROW)}>
-              <span className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1"><span className="min-w-0 break-words text-sm font-semibold">{quote.supplier_name}</span><Badge variant={STATUS_VARIANT[quote.status]}>{MATERIAL_REQUEST_QUOTE_STATUS_LABELS[quote.status]}</Badge></span>
-              <span className="mt-1 flex flex-wrap items-baseline justify-between gap-x-2 text-xs">
-                <span className="min-w-0 flex-1 truncate text-muted-foreground" title={scope || undefined}>
-                  {plural(quote.lines.length, "ligne", "lignes")}{scope && ` · ${scope}`}
-                </span>
-                {total === null && quote.status === "closed" ? null : <span className="font-medium tabular-nums">{total === null ? "Prix à renseigner" : `${formatEUR(total)} HT`}</span>}
-              </span>
-              {gap !== null && gap !== 0 ? <span className="mt-1 flex items-center gap-1 text-xs font-medium text-warning"><TriangleAlert aria-hidden="true" className="size-3.5" />Écart {gap > 0 ? "+" : ""}{formatEUR(gap)}</span> : null}
-            </button>;
-          })}
-          {freshGroups.map((group) => <button key={group.supplierId} type="button" aria-label={canWrite ? `Préparer une consultation pour ${group.supplierName}` : `Consulter les lignes de ${group.supplierName}`} aria-pressed={active === `supplier:${group.supplierId}`} onClick={() => setSelected(`supplier:${group.supplierId}`)} className={cn("block w-full border-b border-border px-3 py-2 text-left last:border-b-0 hover:bg-surface-subtle focus-visible:outline-2 focus-visible:outline-ring", active === `supplier:${group.supplierId}` && SELECTED_ROW)}><span className="block break-words text-sm font-semibold">{group.supplierName}</span><span className="mt-1 block text-xs text-muted-foreground">{canWrite ? "À consulter" : "Lignes sans devis"} · {plural(group.lines.filter((line) => !line.price_quote_id).length, "ligne", "lignes")}</span></button>)}
-        </nav>
-        <div className="min-w-0">
-          {pendingGroups.map((group) => <div key={group.supplierId} hidden={activeSupplierId !== group.supplierId} className="border-b border-border p-4"><SupplierGroupCard editor={editor} quotes={workspaceQuotes} group={group} affaireName={affaireName} template={template} canCreateSupplier={canWrite && canCreateSupplier} /></div>)}
-          {ordered.map((quote) => {
-            const selected = activeQuote?.id === quote.id;
-            return (
-              <div key={quote.id} hidden={!selected}>
-                <QuoteCard editor={editor} quotes={workspaceQuotes} quote={quote} visible={visible && selected} />
-              </div>
-            );
-          })}
-          {groups.filter((group) => group.lines.length > 0 && group.lines.every((line) => line.price_quote_id)).map((group) => <div key={`priced:${group.supplierId}`} hidden={activeSupplierId !== group.supplierId} role="group" aria-label={group.supplierName} className="border-t border-border px-6 py-3 text-sm text-muted-foreground">Toutes ses lignes ont leur prix retenu.</div>)}
-        </div>
-      </div> : null}
+      {choices.length > 0 ? <MaterialRequestWorkspace label="Dossiers fournisseurs" choices={<>
+        {ordered.map((quote) => {
+          const key = `quote:${quote.id}`;
+          const total = totalOf(quote);
+          const status = MATERIAL_REQUEST_QUOTE_STATUS_LABELS[quote.status];
+          const gap = total !== null && quote.amount_ht_cents !== null ? quote.amount_ht_cents - total : null;
+          const scope = quote.lines.map((entry) => editor.linesById.get(entry.line_id)?.product_type || "Ligne retirée").join(", ");
+          const amount = total === null ? (quote.status === "closed" ? undefined : "Prix à renseigner") : `${formatEUR(total)} HT`;
+          return <MaterialRequestWorkspaceChoice key={key}
+            label={`Consulter le devis ${quote.supplier_name} du ${formatDay(quote.requested_at)} (${status})`}
+            title={quote.supplier_name}
+            status={<Badge variant={STATUS_VARIANT[quote.status]}>{status}</Badge>}
+            scope={scope ? `${plural(quote.lines.length, "ligne", "lignes")} · ${scope}` : plural(quote.lines.length, "ligne", "lignes")}
+            scopeTitle={scope || undefined}
+            amount={amount}
+            warning={gap ? `Écart ${gap > 0 ? "+" : ""}${formatEUR(gap)}` : undefined}
+            selected={active === key}
+            onSelect={() => setSelected(key)}
+          />;
+        })}
+        {freshGroups.map((group) => {
+          const key = `supplier:${group.supplierId}`;
+          const count = group.lines.filter((line) => !line.price_quote_id).length;
+          return <MaterialRequestWorkspaceChoice key={key}
+            label={canWrite ? `Préparer une consultation pour ${group.supplierName}` : `Consulter les lignes de ${group.supplierName}`}
+            title={group.supplierName}
+            status={<Badge variant="neutral">{canWrite ? "À consulter" : "Sans devis"}</Badge>}
+            scope={plural(count, "ligne", "lignes")}
+            selected={active === key}
+            onSelect={() => setSelected(key)}
+          />;
+        })}
+      </>}>
+        {pendingGroups.map((group) => <div key={group.supplierId} hidden={activeSupplierId !== group.supplierId} className="border-b border-border p-4"><SupplierGroupCard editor={editor} quotes={workspaceQuotes} group={group} affaireName={affaireName} template={template} canCreateSupplier={canWrite && canCreateSupplier} /></div>)}
+        {ordered.map((quote) => {
+          const selected = activeQuote?.id === quote.id;
+          return (
+            <div key={quote.id} hidden={!selected}>
+              <QuoteCard editor={editor} quotes={workspaceQuotes} quote={quote} visible={visible && selected} />
+            </div>
+          );
+        })}
+        {groups.filter((group) => group.lines.length > 0 && group.lines.every((line) => line.price_quote_id)).map((group) => <div key={`priced:${group.supplierId}`} hidden={activeSupplierId !== group.supplierId} role="group" aria-label={group.supplierName} className="border-t border-border px-6 py-3 text-sm text-muted-foreground">Toutes ses lignes ont leur prix retenu.</div>)}
+      </MaterialRequestWorkspace> : null}
       {without.length > 0 ? <div className="rounded-lg border border-dashed border-border p-4"><p className="text-sm font-medium">{canWrite ? "Sans fournisseur : choisissez-le sur la ligne, à l’étape Lignes." : "Sans fournisseur :"}</p><ul className="mt-2 list-disc pl-5 text-sm">{without.map((line) => <li key={line.id}>{lineTitle(line)}</li>)}</ul>{canWrite && onGoToLines ? <Button type="button" variant="link" size="sm" onClick={onGoToLines}>Choisir les fournisseurs, à l’étape Lignes</Button> : null}</div> : null}
-      <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border py-3">
-        {onGoToLines ? <Button type="button" size="sm" variant="ghost" onClick={onGoToLines}><ArrowLeft aria-hidden="true" />Retour aux lignes</Button> : null}
-        {onGoToOrders ? <Button type="button" size="sm" variant="outline" className="ml-auto" onClick={onGoToOrders}>Voir les bons de commande<ArrowRight aria-hidden="true" /></Button> : null}
-      </div>
     </section>
   );
 }

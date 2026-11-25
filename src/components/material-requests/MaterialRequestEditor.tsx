@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useId, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useState, type ComponentProps, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { Tabs } from "@base-ui/react/tabs";
-import { ArrowRight, MessageSquareText } from "lucide-react";
+import { MessageSquareText } from "lucide-react";
 
 import { LoadingState } from "@/components/layout/loading-state";
+import { PageHeader } from "@/components/layout/page-header";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import {
@@ -33,6 +34,11 @@ import { useMaterialRequestQuotes } from "./useMaterialRequestQuotes";
 import "./material-request-workbench.css";
 
 const STEP_PARAM = "etape";
+type RequestPageHeader = Pick<ComponentProps<typeof PageHeader>, "breadcrumbs" | "back">;
+
+function requestHeader(pageHeader: RequestPageHeader, actions?: ReactNode) {
+  return <PageHeader {...pageHeader} actions={actions} title="Demande de matériel" className="mb-2 sm:mb-2" />;
+}
 
 /** The step named in the address, when it names one: a reload or a shared link opens the same step. */
 function stepFromAddress(): RequestStepKey | null {
@@ -46,11 +52,13 @@ function ReadyEditor({
   affaireName,
   canEditCatalogue,
   canCreateSupplyType,
+  pageHeader,
 }: Readonly<{
   editor: MaterialRequestEditorApi;
   affaireName: string;
   canEditCatalogue: boolean;
   canCreateSupplyType: boolean;
+  pageHeader?: RequestPageHeader;
 }>) {
   const router = useRouter();
   const ids = useId();
@@ -147,6 +155,27 @@ function ReadyEditor({
     // What a step holds (a price being typed, a creation under way) stays while another step is shown.
     className: "min-w-0 rounded-lg focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-ring",
   });
+  const headerActions = (
+    <div className="flex w-full min-w-0 items-start justify-between gap-3 md:max-w-[min(49vw,45rem)] md:items-center md:gap-6">
+      <MaterialRequestSummary editor={editor} technicianName={technician?.name ?? null} />
+      <MaterialRequestOptions
+        canWrite={canWrite}
+        technicianName={technician?.name ?? null}
+        hasOrderedLines={(orders.summary?.ordered.length ?? 0) > 0}
+        onEdit={editRequest}
+        onHistory={() => setHistoryOpen(true)}
+        onDelete={async () => {
+          try {
+            await deleteMaterialRequest(projectId, requestId);
+            router.push(materialRequestsHref(projectId));
+            return null;
+          } catch (error) {
+            return materialRequestErrorMessage(error, "La demande n’a pas pu être supprimée.");
+          }
+        }}
+      />
+    </div>
+  );
 
   return (
     <Tabs.Root
@@ -154,31 +183,19 @@ function ReadyEditor({
       onValueChange={(value) => openStep(value as RequestStepKey)}
       className="material-request-editor space-y-0"
     >
+      {pageHeader ? requestHeader(pageHeader, headerActions) : <div className="mb-3">{headerActions}</div>}
+      {data.request.note ? (
+        <dl className="mb-2 flex min-w-0 items-baseline gap-3">
+          <dt className="text-xs text-muted-foreground">Note</dt>
+          <dd className="min-w-0 break-words text-sm font-medium text-foreground">{data.request.note}</dd>
+        </dl>
+      ) : null}
       {canWrite ? null : (
         <Alert variant="info">
           <AlertDescription>Vous consultez cette demande en lecture seule.</AlertDescription>
         </Alert>
       )}
-      <div className="mb-3 flex items-start justify-between gap-3">
-        <MaterialRequestSummary editor={editor} technicianName={technician?.name ?? null} />
-        <MaterialRequestOptions
-          canWrite={canWrite}
-          technicianName={technician?.name ?? null}
-          hasOrderedLines={(orders.summary?.ordered.length ?? 0) > 0}
-          onEdit={editRequest}
-          onHistory={() => setHistoryOpen(true)}
-          onDelete={async () => {
-            try {
-              await deleteMaterialRequest(projectId, requestId);
-              router.push(materialRequestsHref(projectId));
-              return null;
-            } catch (error) {
-              return materialRequestErrorMessage(error, "La demande n’a pas pu être supprimée.");
-            }
-          }}
-        />
-      </div>
-      <MaterialRequestSteps model={model} active={step} idBase={ids} onGoTo={goToStep} />
+      <MaterialRequestSteps steps={model.steps} active={step} idBase={ids} />
       {/* Each step has the whole width of the page: the lines are a table, as in the estimate editor. */}
       <div className="min-w-0">
         <div className="min-w-0">
@@ -210,7 +227,6 @@ function ReadyEditor({
               }}
               canEditCatalogue={canEditCatalogue}
               canCreateSupplyType={canCreateSupplyType}
-              nextAction={<Button type="button" variant="outline" onClick={() => goToStep("devis")}><ArrowRight aria-hidden="true" />Consulter les devis</Button>}
               toolbar={
                 // The technician's previous requests are among the options of the request, behind its gear.
                 <>
@@ -232,7 +248,6 @@ function ReadyEditor({
               canCreateSupplier={canEditCatalogue}
               visible={step === "devis"}
               onGoToLines={() => goToStep("lignes")}
-              onGoToOrders={() => goToStep("commande")}
             />
           </Tabs.Panel>
           <Tabs.Panel {...panel("commande")}>
@@ -276,6 +291,7 @@ export function MaterialRequestEditor({
   affaireName = "",
   canEditCatalogue = false,
   canCreateSupplyType = false,
+  pageHeader,
 }: Readonly<{
   projectId: string;
   requestId: string;
@@ -285,21 +301,32 @@ export function MaterialRequestEditor({
   canEditCatalogue?: boolean;
   /** May add a supply type from the article a line names (admins only). */
   canCreateSupplyType?: boolean;
+  pageHeader?: RequestPageHeader;
 }>) {
   const state = useMaterialRequestEditor(projectId, requestId);
 
-  if (state.status === "loading") return <LoadingState label="Chargement de la demande…" />;
+  if (state.status === "loading") {
+    return (
+      <>
+        {pageHeader ? requestHeader(pageHeader) : null}
+        <LoadingState label="Chargement de la demande…" />
+      </>
+    );
+  }
   if (state.status === "error") {
     return (
-      <Alert variant="danger">
-        <AlertTitle>La demande n’a pas pu être affichée.</AlertTitle>
-        <AlertDescription>
-          <p>{state.message}</p>
-          <Button type="button" variant="outline" size="sm" className="mt-3" onClick={state.retry}>
-            Réessayer
-          </Button>
-        </AlertDescription>
-      </Alert>
+      <>
+        {pageHeader ? requestHeader(pageHeader) : null}
+        <Alert variant="danger">
+          <AlertTitle>La demande n’a pas pu être affichée.</AlertTitle>
+          <AlertDescription>
+            <p>{state.message}</p>
+            <Button type="button" variant="outline" size="sm" className="mt-3" onClick={state.retry}>
+              Réessayer
+            </Button>
+          </AlertDescription>
+        </Alert>
+      </>
     );
   }
   return (
@@ -308,6 +335,7 @@ export function MaterialRequestEditor({
       affaireName={affaireName}
       canEditCatalogue={canEditCatalogue}
       canCreateSupplyType={canCreateSupplyType}
+      pageHeader={pageHeader}
     />
   );
 }

@@ -560,9 +560,9 @@ describe("MaterialRequestEditor", () => {
       .getAllByRole("button")
       .filter((button) => !(button as HTMLButtonElement).disabled)
       .map((button) => button.getAttribute("aria-label") || button.textContent?.trim());
-    // Exact whitelist: the new line selectors and next-step button only navigate; no write control is enabled.
+    // Exact whitelist: no write control is enabled.
     expect(enabledButtons.sort()).toEqual([
-      "Afficher les détails de la ligne 1", "Afficher les détails de la ligne 2", "Consulter les devis",
+      "Afficher les détails de la ligne 1", "Afficher les détails de la ligne 2",
       "Message au technicien", "Options de la demande", "Voir l’original",
     ].sort());
     // The request's details and the technician's history moved into the options menu: a reader still reads both, and
@@ -1751,7 +1751,7 @@ describe("the steps of a request", () => {
     expect(screen.queryByRole("button", { name: /^Aller à l’étape/ })).not.toBeInTheDocument();
   });
 
-  it("opens validated lines on the quotes, and leads back there from another step with the focus", async () => {
+  it("opens validated lines on the quotes and keeps step navigation on the tabs", async () => {
     const user = await open([ready()]);
 
     expect(tab(2)).toHaveAttribute("aria-selected", "true");
@@ -1766,10 +1766,11 @@ describe("the steps of a request", () => {
 
     expect(screen.getAllByText("1 ligne validée", { exact: true })).toHaveLength(1);
     expect(screen.queryByRole("button", { name: "Aller à l’étape Devis" })).not.toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Consulter les devis" }));
+    expect(screen.queryByRole("button", { name: "Consulter les devis" })).not.toBeInTheDocument();
+    await user.click(tab(2));
     expect(tab(2)).toHaveAttribute("aria-selected", "true");
     expect(window.location.search).toBe("?etape=devis");
-    await waitFor(() => expect(screen.getByRole("tabpanel")).toHaveFocus());
+    expect(tab(2)).toHaveFocus();
     expect(screen.getByRole("tabpanel")).toContainElement(screen.getByRole("heading", { name: "Dossier fournisseur" }));
   });
 
@@ -1779,8 +1780,8 @@ describe("the steps of a request", () => {
 
     expect(tab(3)).toHaveAttribute("aria-selected", "true");
     expect(screen.getByRole("heading", { name: "Bons de commande" })).toBeVisible();
-    // The head still says where the work is, and leads there.
-    expect(screen.getByRole("button", { name: "Aller à l’étape Lignes" })).toBeVisible();
+    expect(tab(1)).toHaveTextContent("0 validée sur 1");
+    expect(screen.queryByRole("button", { name: "Retour aux devis" })).not.toBeInTheDocument();
   });
 
   it("says a request whose lines are all in a purchase order is done", async () => {
