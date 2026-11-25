@@ -122,6 +122,7 @@ function TakeoffPreparationPanelContent({ projectId, planSetId, estimateVersionI
           setPlanChoices((current) => ({ ...current, ...Object.fromEntries([...removed, ...addedByRefresh].map((id) => [id, false])) }));
         }
         if (removed.length) {
+          await reload("if-saved");
           setSelectionNotice(readSince.length
             ? "La sélection a été actualisée. Les plans lus ou en cours de lecture depuis l’ouverture ont été décochés. Vérifiez les plans avant de relancer."
             : "La sélection a été actualisée. Les plans devenus indisponibles ont été décochés. Vérifiez les plans avant de relancer.");

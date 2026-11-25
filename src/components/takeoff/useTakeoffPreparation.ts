@@ -49,7 +49,11 @@ export function useTakeoffPreparation(projectId: string, planSetId?: string | nu
   const mounted = useRef(true);
   const loadSequence = useRef(0);
 
-  const reload = useCallback(async () => {
+  const reload = useCallback(async (mode: "replace" | "if-saved" = "replace") => {
+    if (mode === "if-saved") {
+      await queue.current.catch(() => undefined);
+      if (!mounted.current || JSON.stringify(currentDraft.current) !== savedJson.current) return;
+    }
     const sequence = ++loadSequence.current;
     const draftAtStart = currentDraft.current;
     setSaveState("loading");

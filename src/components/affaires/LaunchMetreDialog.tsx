@@ -210,7 +210,7 @@ function LaunchMetreDialogContent({
   const readRelaunchPlans = async () => unwrapTakeoffActionResult(await readRelaunchPlanChoiceAction({
     projectId, predecessorJobId: predecessorJobId!, singlePlan, planSetId: selectedPlanSetId ?? undefined,
   }));
-  const { data: relaunchPlans, error: relaunchPlansError, isValidating: readingRelaunchPlans, mutate: reloadRelaunchPlans } = useSWR(
+  const { data: relaunchPlans, error: relaunchPlansError, mutate: reloadRelaunchPlans } = useSWR(
     predecessorJobId ? ["takeoff-relaunch-plans", user?.tenantId, user?.profile?.id, projectId, predecessorJobId, singlePlan, selectedPlanSetId] : null,
     readRelaunchPlans,
     { revalidateOnMount: true, revalidateOnFocus: false, shouldRetryOnError: false },
@@ -290,6 +290,7 @@ function LaunchMetreDialogContent({
       null,
     [planSetOptions, selectedPlanSetId],
   );
+  const hasRelaunchPlans = relaunchPlans && (!selectedPlanSet || relaunchPlans.checkedPlanSetId === selectedPlanSet.id);
   const versionOptions = useMemo(
     () => buildVersionOptions({ currentVersion, availableVersions }),
     [availableVersions, currentVersion],
@@ -585,13 +586,12 @@ function LaunchMetreDialogContent({
             </div>
           ) : (
             <div className="space-y-4">
-              {predecessorJobId && relaunchPlansError ? (
+              {predecessorJobId && !hasRelaunchPlans && relaunchPlansError ? (
                 <Alert variant="warning"><AlertDescription>
                   Impossible de lire les plans à relancer. <button type="button" className="underline"
                     onClick={() => void reloadRelaunchPlans()}>Réessayer</button>
                 </AlertDescription></Alert>
-              ) : predecessorJobId && (!relaunchPlans || readingRelaunchPlans
-                || (selectedPlanSet && relaunchPlans.checkedPlanSetId !== selectedPlanSet.id)) ? (
+              ) : predecessorJobId && !hasRelaunchPlans ? (
                 <p role="status" className="text-sm text-muted-foreground">Chargement des plans à relancer…</p>
               ) : isLoadingPlanSets && !hasUsablePlanSet ? <p role="status" className="text-sm text-muted-foreground">Chargement des jeux de plans…</p> : selectedPlanSet && hasPlanFiles ? (
                 <LazyTakeoffPreparationPanel

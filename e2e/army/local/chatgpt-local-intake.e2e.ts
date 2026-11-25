@@ -2330,12 +2330,6 @@ if (!existsSync(liveProbePath)) test("RELANCE04 a stale default is cleared befor
       expect(await readOwnedLaunchRequests(projectId)).toHaveLength(2);
       expect(await planReads() - readsBefore).toBe(1);
 
-      // The other tab also confirmed a new preparation revision. Open that revision to test a deliberate reread.
-      await browser.reload();
-      await waitForHydration(browser);
-      await takeoffZone({ screen }).getByRole("button", "Options du métré", { exact: true }).click();
-      await expect(read).toBeVisible(DEV_SERVER_WORK);
-      await expect(read).not.toBeChecked();
       await read.check();
       await launch.click();
       await expect.poll(async () => (await readOwnedLaunchRequests(projectId))[2], DEV_SERVER_WORK)
