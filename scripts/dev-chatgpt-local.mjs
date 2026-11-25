@@ -1,6 +1,6 @@
 import { execFileSync, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { lstatSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { extname, join } from "node:path";
 import { createInterface } from "node:readline";
@@ -22,8 +22,49 @@ function cacheStampMatches(path, expected) {
   }
 }
 
+function replaceTurbopackCache(cacheParent, cacheDir, expected) {
+  const hasCache = Boolean(lstatSync(cacheDir, { throwIfNoEntry: false }));
+  const hasCachedData = hasCache && readdirSync(cacheDir).some((entry) => entry !== cacheStampName);
+  mkdirSync(cacheParent, { recursive: true });
+  const staging = mkdtempSync(join(cacheParent, ".mergeone-cache-"));
+  const replacement = join(staging, "replacement");
+  const previousCache = join(staging, "previous");
+  let preservePrevious = false;
+  try {
+    // Prepare the stamp before moving the old cache out of the way.
+    mkdirSync(replacement);
+    writeFileSync(join(replacement, cacheStampName), expected);
+    if (hasCache) renameSync(cacheDir, previousCache);
+    try {
+      renameSync(replacement, cacheDir);
+    } catch (error) {
+      if (hasCache) {
+        try {
+          renameSync(previousCache, cacheDir);
+        } catch (restoreError) {
+          preservePrevious = true;
+          throw new Error(`The previous cache could not be restored and is saved at ${previousCache}.`, { cause: restoreError });
+        }
+      }
+      throw error;
+    }
+  } finally {
+    if (!preservePrevious) rmSync(staging, { recursive: true, force: true });
+  }
+  if (hasCachedData) {
+    console.log("Discarding the Turbopack dev cache because its checkout or lockfile changed, or its state could not be verified.");
+  }
+}
+
 async function prepareTurbopackCache() {
-  const commit = execFileSync("git", ["rev-parse", "--verify", "HEAD"], { encoding: "utf8" }).trim();
+  let commit;
+  try {
+    commit = execFileSync("git", ["rev-parse", "--verify", "HEAD"], {
+      encoding: "utf8", stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+  } catch (error) {
+    throw new Error("Git could not identify this checkout.", { cause: error });
+  }
   const lockfile = createHash("sha256").update(readFileSync("package-lock.json")).digest("hex");
   const expected = `${JSON.stringify({ version: 1, commit, lockfile })}\n`;
   const devDir = join(".next", "dev");
@@ -34,30 +75,32 @@ async function prepareTurbopackCache() {
     const entry = lstatSync(path, { throwIfNoEntry: false });
     if (entry && !entry.isDirectory()) throw new Error(`Expected a local cache directory at ${path}.`);
   }
-  if (cacheStampMatches(stampPath, expected)) return;
+  if (cacheStampMatches(stampPath, expected)) return true;
 
   // Take the same lock as Next before removing anything a live server may be using.
-  mkdirSync(devDir, { recursive: true });
   const require = createRequire(import.meta.url);
-  const { loadBindings } = require("next/dist/build/swc/index.js");
-  if ((await loadBindings()).isWasm) return;
-  const { Lockfile } = require("next/dist/build/lockfile.js");
-  const lock = Lockfile.tryAcquire(join(devDir, "lock"), false);
-  if (!lock) throw new Error("Next is already running in this checkout.");
+  let Lockfile;
   try {
-    if (cacheStampMatches(stampPath, expected)) return;
-    if (lstatSync(cacheDir, { throwIfNoEntry: false })) {
-      const hasCachedData = readdirSync(cacheDir).some((entry) => entry !== cacheStampName);
-      rmSync(cacheDir, { recursive: true, force: true });
-      if (hasCachedData) {
-        console.log("Discarding the Turbopack dev cache because its checkout or lockfile changed, or its state could not be verified.");
-      }
+    const { loadBindings } = require("next/dist/build/swc/index.js");
+    ({ Lockfile } = require("next/dist/build/lockfile.js"));
+    if ((await loadBindings()).isWasm || typeof Lockfile?.tryAcquire !== "function") {
+      throw new Error("Next does not provide a native lock.");
     }
-    mkdirSync(cacheDir, { recursive: true });
-    writeFileSync(stampPath, expected);
+  } catch (error) {
+    throw new Error("Next's development lock is unavailable.", { cause: error });
+  }
+  mkdirSync(devDir, { recursive: true });
+  const lock = Lockfile.tryAcquire(join(devDir, "lock"), false);
+  if (lock === undefined) return false;
+  if (typeof lock?.unlockSync !== "function") throw new Error("Next's development lock is unavailable.");
+  try {
+    if (!cacheStampMatches(stampPath, expected)) {
+      replaceTurbopackCache(cacheParent, cacheDir, expected);
+    }
   } finally {
     lock.unlockSync();
   }
+  return true;
 }
 
 function renderedPage(text) {
@@ -133,13 +176,18 @@ async function startDevServer() {
   const forwarded = process.argv.slice(2);
   const usesDefaultDevCache = process.env.E2E_ARMY !== "1" &&
     !forwarded.some((arg) => ["--webpack", "--help", "-h", "--version", "-v"].includes(arg));
-  if (usesDefaultDevCache && lstatSync("package-lock.json", { throwIfNoEntry: false })?.isFile()) {
+  if (usesDefaultDevCache) {
     try {
-      await prepareTurbopackCache();
+      const lockfile = lstatSync("package-lock.json", { throwIfNoEntry: false });
+      if (lockfile && !lockfile.isFile()) throw new Error("Could not read package-lock.json.");
+      if (lockfile && !(await prepareTurbopackCache())) {
+        console.error("Could not prepare the Turbopack dev cache. Next is already running in this checkout.");
+        process.exitCode = 1;
+        return;
+      }
     } catch (error) {
-      console.error(`Could not prepare the Turbopack dev cache. ${error.message}`);
-      process.exitCode = 1;
-      return;
+      const reason = (error instanceof Error ? error.message : String(error)).split(/\r?\n/, 1)[0].replace(/\.+$/, "");
+      console.warn(`Could not prepare the Turbopack dev cache. ${reason}. Starting Next.`);
     }
   }
   const explicitHostname = forwarded.some((arg) =>

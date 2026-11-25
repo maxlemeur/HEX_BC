@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -130,10 +131,14 @@ describe("dev:chatgpt reload-loop guard", () => {
 const cacheRelativePath = ".next/dev/cache/turbopack";
 const stampName = ".mergeone-chatgpt-state.json";
 
+function cacheNotices(stderr: string) {
+  return stderr.trim().split("\n").filter((line) => !line.startsWith("Local Next process exited at "));
+}
+
 async function withCacheFixture(run: (fixture: {
   cwd: string;
   cacheDir: string;
-  start: () => Promise<{ stdout: string; stderr: string }>;
+  start: (preload?: string) => Promise<{ stdout: string; stderr: string }>;
   commit: () => Promise<unknown>;
 }) => Promise<void>) {
   const cwd = await mkdtemp(join(tmpdir(), "mergeone-dev-cache-"));
@@ -155,7 +160,9 @@ async function withCacheFixture(run: (fixture: {
       fs.mkdirSync(cache, { recursive: true });
       fs.writeFileSync(entry, "fixture cache");
     `);
-    const start = () => launch(process.execPath, [launcher], { cwd, timeout: 3500 });
+    const start = (preload?: string) => launch(process.execPath, [
+      ...(preload ? ["--require", preload] : []), launcher,
+    ], { cwd, timeout: 3500 });
     await run({ cwd, cacheDir, start, commit });
   } finally {
     await rm(cwd, { recursive: true, force: true });
@@ -215,6 +222,91 @@ describe("dev:chatgpt Turbopack cache reuse", () => {
       if (stamp === "missing") await rm(path, { force: true });
       else await writeFile(path, "truncated");
       expect((await start()).stdout).toContain("cold cache");
+    });
+  });
+
+  it("blocks startup when another process holds Next's development lock", async () => {
+    await withCacheFixture(async ({ cwd, cacheDir, start, commit }) => {
+      await start();
+      await commit();
+      const require = createRequire(import.meta.url);
+      const { loadBindings } = require("next/dist/build/swc/index.js");
+      const { Lockfile } = require("next/dist/build/lockfile.js");
+      await loadBindings();
+      const lock = Lockfile.tryAcquire(join(cwd, ".next/dev/lock"), false);
+      expect(lock).toBeDefined();
+      try {
+        await expect(start()).rejects.toMatchObject({
+          code: 1,
+          stdout: "",
+          stderr: expect.stringContaining("Next is already running in this checkout."),
+        });
+        await expect(readFile(join(cacheDir, "fixture-entry"), "utf8")).resolves.toBe("fixture cache");
+      } finally {
+        lock?.unlockSync();
+      }
+    });
+  });
+
+  it("starts with the existing cache when Git cannot identify the checkout", async () => {
+    await withCacheFixture(async ({ cwd, start }) => {
+      await start();
+      await rm(join(cwd, ".git"), { recursive: true });
+      const result = await start();
+      expect(result.stdout).toContain("warm cache");
+      expect(cacheNotices(result.stderr)).toEqual(["Could not prepare the Turbopack dev cache. Git could not identify this checkout. Starting Next."]);
+    });
+  });
+
+  it.each(["swc/index.js", "lockfile.js"])("starts without discarding when Next's %s is unavailable", async (file) => {
+    await withCacheFixture(async ({ cwd, start, commit }) => {
+      await start();
+      await commit();
+      const preload = join(cwd, "missing-next-internal.cjs");
+      await writeFile(preload, `
+        require("node:module").registerHooks({
+          resolve(specifier, context, nextResolve) {
+            if (specifier === ${JSON.stringify("next/dist/build/" + file)}) {
+              throw new Error("Fixture missing Next internal");
+            }
+            return nextResolve(specifier, context);
+          }
+        });
+      `);
+      const result = await start(preload);
+      expect(result.stdout).toContain("warm cache");
+      expect(cacheNotices(result.stderr)).toEqual(["Could not prepare the Turbopack dev cache. Next's development lock is unavailable. Starting Next."]);
+    });
+  });
+
+  it.each([
+    ["reading the lockfile", "readFileSync", "String(path) === 'package-lock.json'"],
+    ["writing the stamp", "writeFileSync", "String(path).endsWith(" + JSON.stringify(stampName) + ")"],
+    ["installing the replacement", "renameSync", "String(args[0]) === " + JSON.stringify(cacheRelativePath)],
+  ])("starts with the old cache intact when %s fails", async (_, method, matches) => {
+    await withCacheFixture(async ({ cwd, cacheDir, start, commit }) => {
+      await start();
+      await commit();
+      const stamp = join(cacheDir, stampName);
+      const previousStamp = await readFile(stamp, "utf8");
+      const preload = join(cwd, "cache-io-error.cjs");
+      await writeFile(preload, `
+        const fs = require("node:fs");
+        const original = fs.${method};
+        let injected = false;
+        fs.${method} = (path, ...args) => {
+          if (!injected && (${matches})) {
+            injected = true;
+            throw new Error("Fixture cache I/O failure");
+          }
+          return original(path, ...args);
+        };
+        require("node:module").syncBuiltinESMExports();
+      `);
+      const result = await start(preload);
+      expect(result.stdout).toContain("warm cache");
+      expect(cacheNotices(result.stderr)).toEqual(["Could not prepare the Turbopack dev cache. Fixture cache I/O failure. Starting Next."]);
+      await expect(readFile(stamp, "utf8")).resolves.toBe(previousStamp);
     });
   });
 });
