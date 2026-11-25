@@ -213,9 +213,8 @@ Le résultat d'un commit se lit donc sur la première campagne terminée qui le
 contient : environ 45 minutes après le push (première campagne mesurée, le
 10/11/2026 : Full 40 minutes, Calc-v3 46 minutes avec un job par phase),
 davantage derrière une campagne déjà en cours. Depuis, les phases calc-v3
-tournent en cinq groupes, deux à la fois : une trentaine de minutes d'après les
-durées de `army-shards.json`, estimation que la première campagne groupée
-remplacera par sa mesure. Une campagne rouge, ou un run `rls-matrix` rouge,
+tournent en six groupes au plus. Sur un push de `main`, deux groupes peuvent
+s’exécuter en même temps. Une campagne rouge, ou un run `rls-matrix` rouge,
 ouvre le [ticket d'alerte](#alerte-des-campagnes-de-main).
 
 ## Avant un push direct sur main
@@ -387,7 +386,7 @@ seul job, repli d'une sélection impossible, ne les sépare pas non plus.
 
 Les phases calc-v3 sélectionnées tournent en groupes : autant de jobs que leurs
 secondes de parcours mesurées en remplissent à `calcV3.secondsPerGroup`
-(480 s), jamais plus que de phases ni que `calcV3.maxGroups` (cinq). Trois
+(320 s), jamais plus que de phases ni que `calcV3.maxGroups` (six). Trois
 phases courtes partagent ainsi un job. Chaque job `army-calc-v3 group N/T` prépare une seule pile et sert
 un seul build, puis exécute ses phases l'une après l'autre
 (`run-tester-army-ci.ts calc-v3 --phase A,B`), chacune avec ses fixtures et son
@@ -396,9 +395,14 @@ invocation TesterArmy ; une phase rouge n'arrête pas les suivantes du groupe.
 phases de la plus longue à la plus courte sur le groupe le moins chargé,
 d'après les secondes de parcours mesurées par phase (`calcV3.seconds`, hors
 préparation de la pile) ; une phase n'est pas coupée et aucun groupe n'est
-vide. La même sélection donne toujours la même répartition. Les 19 phases
-(environ 1 800 s de parcours) tournent en quatre jobs d'environ 7 min 30 de
-parcours chacun, plus la préparation. Le déclenchement manuel `all`
+vide. Les 22 phases totalisent 1 892 s de parcours au barème et remplissent
+six groupes. Sur les PR mesurées, le groupe le plus lent est passé de 9 min 33 s
+à 7 min 07 s. Du démarrage du plan à la fin du dernier groupe, le délai est passé
+de 14 min 51 s à 11 min 08 s, pour 4 min de temps runner cumulé supplémentaire.
+[Quatre groupes](https://github.com/thannous/HEX_BC/actions/runs/45606531705) ·
+[Six groupes](https://github.com/thannous/HEX_BC/actions/runs/45616799613)
+
+Le déclenchement manuel `all`
 garde la campagne complète dans un seul job, et une phase explicite le sien.
 
 [`aggregate-shards.ts`](../../scripts/tester-army/aggregate-shards.ts) vérifie

@@ -125,18 +125,17 @@ describe("calc-v3 groups", () => {
     for (const [durations, named] of invalid) expect(validateCalcV3GroupDurations(durations).join(" "), named).toContain(named);
   });
 
-  it("runs the whole campaign in four balanced groups, every phase in exactly one", () => {
+  it("runs the whole campaign in six balanced groups, every phase in exactly one", () => {
     const { groups, grouping } = planCalcV3Groups(CALC_V3_PHASES, measured);
-    // As many jobs as the measured journeys fill at secondsPerGroup, below the limit: each job pays its own
-    // setup, stack and build, so a fifth job for the same journeys is three minutes of runner for nothing.
+    // As many jobs as the measured journeys fill at secondsPerGroup, with one setup, stack and build per group.
     const total = CALC_V3_PHASES.reduce((sum, phase) => sum + measured!.seconds[phase], 0);
-    expect(Math.ceil(total / measured!.secondsPerGroup)).toBe(4);
-    expect(measured!.maxGroups).toBeGreaterThanOrEqual(4);
-    expect(groups).toHaveLength(4);
-    expect(grouping).toContain("4 groups");
+    expect(Math.ceil(total / measured!.secondsPerGroup)).toBe(6);
+    expect(measured!.maxGroups).toBe(6);
+    expect(groups).toHaveLength(6);
+    expect(grouping).toContain("6 groups");
     partitioned(CALC_V3_PHASES, groups);
     groups.forEach((group, index) => {
-      expect(group).toMatchObject({ group: index + 1, total: 4 });
+      expect(group).toMatchObject({ group: index + 1, total: 6 });
       expect(group.phases.length).toBeGreaterThan(0);
       expect(group.seconds).toBe(group.phases.reduce((sum, phase) => sum + measured!.seconds[phase], 0));
       // Within a group, the order of the campaign's phase table.
@@ -211,7 +210,7 @@ describe("calc-v3 groups", () => {
     }));
     expect(outputs.phases).toEqual(CALC_V3_PHASES);
     const matrix = outputs.groups as { group: number; total: number; phases: string }[];
-    expect(matrix).toHaveLength(4);
+    expect(matrix).toHaveLength(6);
     expect(matrix.flatMap((group) => parseCalcV3Phases(group.phases)).sort()).toEqual([...CALC_V3_PHASES].sort());
     // Documentation only: no group job; an explicit phase: its own job.
     expect(planOutputs({ phases: [], ...planCalcV3Groups([], measured) })).toBe("phases=[]\ngroups=[]\n");

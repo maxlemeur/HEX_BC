@@ -72,7 +72,7 @@ uniquement les scénarios sélectionnés. Les autres variantes d'émission (`PDF
 ## CI et preuve
 
 Le [workflow calc-v3](../../.github/workflows/e2e-army-calc-v3.yml) répartit
-les phases sélectionnées en cinq [groupes](tester-army-ci.md#jobs-parallèles)
+les phases sélectionnées en six [groupes](tester-army-ci.md#jobs-parallèles)
 au plus, un job et une pile par groupe ; le lancement manuel permet `nightly`,
 `all` (campagne complète dans un job) ou une phase. Le check `army-calc-v3`
 n'est vert que si les groupes ont ensemble exécuté chaque phase sélectionnée,

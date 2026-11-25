@@ -5,7 +5,7 @@ name: TesterArmy calc-v3
 # main, every phase runs.
 #
 # Groups (docs/testing/tester-army-ci.md, "Jobs parallèles"): the plan job
-# splits the selected phases into at most five groups, balanced by the measured
+# splits the selected phases into at most six groups, balanced by the measured
 # seconds of scripts/tester-army/army-shards.json (calcV3). Each group is one
 # job: it prepares one owned stack and one build, then runs its phases one
 # after another, each with its own fixtures and its own TesterArmy run; a red
