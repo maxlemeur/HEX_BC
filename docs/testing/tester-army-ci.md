@@ -368,6 +368,22 @@ shards Critical utilisent 2 workers, ceux de Full et du métré en utilisent 1.
 Une sélection trop petite ou impossible à répartir conserve un seul job. Les
 durées ne choisissent pas la couverture.
 
+Pour un shard qui fournit sa liste de fichiers, le lanceur crée
+`.e2e/army/critical/shard-timings.json` avant `e2e run --timings ...`. Il convertit
+`seconds` en millisecondes par fichier pour la cible `chromium-desktop`. Un
+fichier sans mesure reçoit `defaultSeconds`, car le runner donnerait autrement
+la priorité aux fichiers absents de son historique. La liste du shard reste
+celle du plan. Le lanceur recrée cet historique à chaque exécution à partir
+du checkout.
+
+Avec deux workers, le runner exécute le setup de connexion, puis distribue les
+fichiers par durée estimée décroissante. Chaque fichier garde ses tests et ses
+hooks sur le même worker. Les lignes `TesterArmy file started` du log retenu
+`journeys-critical.log` datent le premier test annoncé de chaque fichier. Pour
+les fichiers ChatGPT local, cette annonce précède le démarrage de leur serveur
+dans `beforeAll`. Les shards full et métré passent par le même lanceur. Avec
+leur worker unique, le runner conserve son ordre de collecte.
+
 `secondsPerShard` est la charge de parcours mesurée qu'un job porte avant
 qu'un autre vaille sa pile et son build (environ trois minutes de runner par
 job). Le seuil Critical est de 715 s à 2 workers. Une sélection partielle

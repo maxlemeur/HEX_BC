@@ -55,6 +55,7 @@ if (workersSetting !== "" && !/^[1-4]$/.test(workersSetting)) {
   throw new Error(`E2E_ARMY_WORKERS must be an integer from 1 to 4 (default 1); received "${workersSetting}".`);
 }
 const workers = workersSetting === "" ? 1 : Number(workersSetting);
+const startedFiles = new Set<string>();
 const dogfoodPerformance = performance && process.env.E2E_DOGFOOD_OWNED_STACK === "1";
 
 // One retry, asked only by the CI launcher of the critical and full campaigns
@@ -155,6 +156,16 @@ export default {
   // Called only by a run that passes --changed-since (scripts/tester-army/impact-filter.ts): the impact selection of
   // the CI, then, for the army-select job of a pull request alone, the decision model that narrows it.
   ...(critical ? { filters: [armyImpactFilter, ...(process.env.E2E_ARMY_DECISION_FILTER === "1" ? [armyDecisionFilter()] : [])] } : {}),
+  ...(critical && process.env.E2E_ARMY_LOG_FILE_STARTS === "1" ? {
+    reporters: ["list", {
+      name: "army-file-starts",
+      onEvent(event) {
+        if (event.type !== "test-started" || startedFiles.has(event.file)) return;
+        startedFiles.add(event.file);
+        console.log(`TesterArmy file started ${event.at} ${event.file}`);
+      },
+    }],
+  } : {}),
   workers,
   retries,
   // This lot normally takes a few minutes; a hung campaign must stay a failure.

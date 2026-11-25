@@ -8,6 +8,7 @@ import { loadCoverageProfile } from "./tester-army/coverage-profile.mjs";
 import { sanitizeCoverageEvidence } from "./tester-army/coverage-evidence.mjs";
 import { archiveSetupFailure, assertSetupPath, readSetupLogBaseline, readSetupLogDelta, redactSetupError } from "./tester-army/setup-failure-archive.mjs";
 import { CRITICAL_JOURNEY_FILE, FULL_JOURNEY_FILE } from "./tester-army/journey-files.mjs";
+import { shardTimingHistory } from "./tester-army/shard-timings.mjs";
 import { localJourneyCoverageProblems } from "./tester-army/journey-preflight.mjs";
 import { prepareArmyTypeScriptConfig } from "./tester-army/local-recipe-common.mjs";
 import { SHARED_WRITE_ACKNOWLEDGEMENT, assertSharedWriteAcknowledged } from "./tester-army/shared-write-guard.mjs";
@@ -42,6 +43,7 @@ const output = path.join(root, ".e2e", "army", ...(coverage ? ["coverage"] : cri
 const reportPath = path.join(output, "report.json");
 
 const extraArgs = process.argv.slice(3).filter((arg) => arg !== "--");
+const journeyFiles = [];
 for (let index = 0; index < extraArgs.length; index += 1) {
   const arg = extraArgs[index];
   if (arg === "--target" || arg.startsWith("--target=")) {
@@ -55,8 +57,10 @@ for (let index = 0; index < extraArgs.length; index += 1) {
     if (!value) throw new Error("--grep requires a test-title pattern.");
   } else if (requestedMode === "critical" && CRITICAL_JOURNEY_FILE.test(arg)) {
     // Impact selection and its shards: the e2e CLI narrows the config tests glob to these files.
+    journeyFiles.push(arg);
   } else if (requestedMode === "full" && FULL_JOURNEY_FILE.test(arg)) {
     // Full-only (takeoff) journeys a pull request reaches, or a shard of the full suite, with their login setup.
+    journeyFiles.push(arg);
   } else if (!discoveryOnly && (arg === "--max-duration" || arg.startsWith("--max-duration="))) {
     const value = arg === "--max-duration" ? extraArgs[++index] : arg.slice("--max-duration=".length);
     if (!value || !/^[1-9]\d*$/.test(value) || Number(value) > 2_147_483_647) {
@@ -245,6 +249,7 @@ let runnerOutput;
 let appLogBefore;
 let setupAppLog = { reason: "runner-not-started" };
 let reportBeforeSha256;
+let seededShardTimings = false;
 const appLog = path.join(output, "logs", "app.log");
 try {
   manifest.toolchain = assertInstalledDependencies(root);
@@ -300,11 +305,26 @@ try {
   manifest.fixtures.appOrigin = normalizedOrigin.origin;
   manifest.environment = live ? "existing loopback development server; attached without process ownership" : performance || coverage ? "owned isolated production server" : "owned loopback server";
   await prepareArmyTypeScriptConfig(root);
+  const shardDurationsPath = path.join(root, "scripts", "tester-army", "army-shards.json");
+  if (journeyFiles.length && !hasTarget) {
+    const durations = await readFile(shardDurationsPath, "utf8").then(JSON.parse).catch(() => null);
+    const timings = shardTimingHistory(journeyFiles, durations);
+    if (timings) {
+      // The runner rewrites its input at the end. Seed it afresh on every invocation
+      // and keep its default history available for runs without an explicit file list.
+      const timingsPath = path.join(output, "shard-timings.json");
+      await assertSetupPath(root, timingsPath, { allowMissing: true });
+      await writeFile(timingsPath, `${JSON.stringify(timings, null, 2)}\n`);
+      args.push("--timings", relative(timingsPath));
+      seededShardTimings = true;
+    }
+  }
   inputs = [
     path.join(root, "e2e.config.ts"),
     path.join(root, "scripts", "run-tester-army.mjs"),
     // The journey lists; a coverage run fingerprints all of scripts/tester-army below.
     ...(coverage ? [] : [path.join(root, "scripts", "tester-army", "installed-dependencies.mjs"), path.join(root, "scripts", "tester-army", "journey-selections.mjs")]),
+    ...(seededShardTimings ? [shardDurationsPath, path.join(root, "scripts", "tester-army", "shard-timings.mjs")] : []),
     path.join(root, "package-lock.json"),
     path.join(root, "package.json"),
     path.join(root, "next.config.ts"),
@@ -377,6 +397,7 @@ try {
         E2E_TELEMETRY_DISABLED: "1",
         DO_NOT_TRACK: "1",
         NEXT_TELEMETRY_DISABLED: "1",
+        E2E_ARMY_LOG_FILE_STARTS: seededShardTimings ? "1" : "0",
         E2E_ARMY_SUITE: coverage ? "coverage" : critical ? "critical" : performance ? "performance" : mode === "agent" ? "agent" : "anonymous",
         // Journeys search this root for SDK downloads only (attempt-relative
         // paths); e2e >= 0.20 files them under results/, cleared at test start.

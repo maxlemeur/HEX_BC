@@ -109,6 +109,7 @@ async function fixture(name) {
   await cp(path.join(root, "scripts/tester-army/coverage-evidence.mjs"), path.join(cwd, "scripts/tester-army/coverage-evidence.mjs"));
   await cp(path.join(root, "scripts/tester-army/installed-dependencies.mjs"), path.join(cwd, "scripts/tester-army/installed-dependencies.mjs"));
   await cp(path.join(root, "scripts/tester-army/local-recipe-common.mjs"), path.join(cwd, "scripts/tester-army/local-recipe-common.mjs"));
+  await cp(path.join(root, "scripts/tester-army/shard-timings.mjs"), path.join(cwd, "scripts/tester-army/shard-timings.mjs"));
   await cp(path.join(root, "scripts/tester-army/shared-write-guard.mjs"), path.join(cwd, "scripts/tester-army/shared-write-guard.mjs"));
   await writeFile(path.join(cwd, "scripts/tester-army/coverage-profile.mjs"), 'export async function loadCoverageProfile(){if(process.env.E2E_ARMY_BASE_URL?.startsWith("invalid-"))throw new Error("profile setup failed for password "+process.env.E2E_LOGIN_PASSWORD);return {env:{},metadata:{scenarioSet:"harness-only",fixture:{scope:"no business/auth"}},evidence:[]};}\n');
   await mkdir(path.join(cwd, "node_modules/@next/env"), { recursive: true });
