@@ -1,6 +1,7 @@
 import { nativeTest as test, describe, expect, getTenantIdForVersion, buildEstimateName, loginWithUi, localClient, ensureEstimatePdfReady, type NativeUi as Page } from "./native-ui";
 import type { Locator } from "e2e";
 import { randomUUID } from "node:crypto";
+import { waitForHydration } from "../critical/hydration-support";
 import { localTakeoffWorkerClient, seedOwnedSupplyType } from "./fixtures";
 
 
@@ -611,16 +612,21 @@ async function openAffaireHub(page: Page, projectId: string) {
       await page.goto(hubUrl, { waitUntil: "domcontentloaded" });
     }
 
+    let section: Locator;
     try {
       await page.waitForURL(new RegExp(`/dashboard/affaires/${projectId}(?:$|[?#])`), {
         timeout: 15_000,
       });
-      return await expectPilotageSection(page);
+      section = await expectPilotageSection(page);
     } catch (error) {
       if (attempt === 3) {
         throw error;
       }
+      continue;
     }
+    // The streamed overview is visible before the pilotage buttons handle clicks.
+    await waitForHydration(page.browser);
+    return section;
   }
 
   throw new Error("Affaire hub did not load.");

@@ -1,5 +1,6 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { NavigationLink as Link } from "@/components/navigation/NavigationFeedback";
 import { usePathname } from "next/navigation";
 import {
@@ -25,6 +26,12 @@ import { isDashboardNavItemActive } from "@/lib/navigation/dashboard-nav-active"
 import { isProductionWorkspaceRoute, isToolWorkspaceRoute } from "@/lib/navigation/dashboard-navigation-mode";
 import { KeyboardIcon, XIcon } from "lucide-react";
 
+const AnalysisProgressIndicator = dynamic(
+  () => import("@/components/dashboard/AnalysisProgressIndicator").then((module) => module.AnalysisProgressIndicator),
+  { ssr: false },
+);
+const ANALYSIS_PROGRESS_START_DELAY_MS = 500;
+
 const DRAWER_FOCUSABLE_SELECTOR = [
   "a[href]",
   "button:not([disabled])",
@@ -33,6 +40,25 @@ const DRAWER_FOCUSABLE_SELECTOR = [
   "textarea:not([disabled])",
   "[tabindex]:not([tabindex='-1'])",
 ].join(",");
+
+function DeferredAnalysisProgress({ tenantId, userId }: { tenantId: string; userId: string }) {
+  const [ready, setReady] = useState(false);
+
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    // Let the initial page, including streamed controls, hydrate before
+    // starting the background poll and loading its result UI.
+    const defer = () => { timer = setTimeout(() => setReady(true), ANALYSIS_PROGRESS_START_DELAY_MS); };
+    if (document.readyState === "complete") defer();
+    else window.addEventListener("load", defer, { once: true });
+    return () => {
+      window.removeEventListener("load", defer);
+      clearTimeout(timer);
+    };
+  }, []);
+
+  return ready ? <AnalysisProgressIndicator tenantId={tenantId} userId={userId} /> : null;
+}
 
 function buildInitials(value: string) {
   const trimmed = value.trim();
@@ -100,7 +126,7 @@ export function DashboardShell({
   );
   const { status: takeoffStatus, enabled: isTakeoffEnabled } = useTakeoffEnabled();
   const { setMode, isExpert } = useUiMode();
-  const { profile } = useUserContext();
+  const { profile, tenantId } = useUserContext();
   const tenantRole = profile?.tenant_role ?? null;
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
@@ -267,6 +293,7 @@ export function DashboardShell({
         <WorkspaceGlobalNavigation />
 
         <div className="dashboard-global-topbar__tools">
+          {profile && tenantId ? <DeferredAnalysisProgress key={`${tenantId}:${profile.id}`} tenantId={tenantId} userId={profile.id} /> : null}
           <button
             type="button"
             className="dashboard-global-topbar__tool"

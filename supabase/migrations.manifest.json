@@ -390,6 +390,14 @@
     "20261123050517_takeoff_verified_count_source.sql": "c08d5e605e8b33e38aee37845f992723450250f6d9f1ae9870fbdfc1965dbb0e",
     "20261123061045_takeoff_count_mark_reading.sql": "f250b13c1e906813b16f03c328e7151efab51cfd18601b0edcb9f7f9f6fc5697",
     "20261123062008_takeoff_contribution_revision.sql": "2f7d23647ae669b0d2d3a46f80abe145c7c6a79b39f5bb3f0b95f91fcd542e56",
-    "20261123185755_takeoff_revision_added_part_marks_revision.sql": "2ff4dba4bfbbb88ee21cd05c7429a3b8d9f93aae915595ed1c297ea4106cc9b8"
+    "20261123185755_takeoff_revision_added_part_marks_revision.sql": "2ff4dba4bfbbb88ee21cd05c7429a3b8d9f93aae915595ed1c297ea4106cc9b8",
+    "20261124174040_material_request_original_pdfs.sql": "ca1f4f384d56799abd1e21a44d5a40737778c1bd24f3fe633a69f60bfa416302",
+    "20261124182705_affaire_intake_analysis_launch.sql": "814d993104a68bdaa884790657d037a52edd22f31e696be3103e12a9de987f45",
+    "20261124202259_takeoff_progress_poll_indexes.sql": "63578c186d234355dec8f2ec3c1f6528cd9ae54dba7e63fe77902ad218a3650d",
+    "20261124210748_intake_guarded_brief_and_recovery.sql": "2d560880fdf310add6ca38484f6c6196a0fdca204b791a9cda2be9b138c8dc63",
+    "20261124211251_takeoff_brief_plan_choice.sql": "83b5a179d198941a978e2d63b103828b3d4a6aaae12394f3aee43605f0b77a0d",
+    "20261125004459_intake_current_brief_contract.sql": "9e79bbe4e7867a87a3ebbcb67479850e0a8689166c9a8e4f51ea03e1740dd476",
+    "20261125101310_takeoff_unlisted_find_decisions.sql": "45909a39719146ddbbfbb298f82ca79f44984da70172ed782bebb6e0291af123",
+    "20261125110250_takeoff_command_current_plan_copies.sql": "f0b790b77312dac106d2e6bff72aae68a64c9856074fc62c61f42fc97ebe5288"
   }
 }

@@ -229,6 +229,24 @@ describe("local ChatGPT authorization", () => {
     expect(await getLocalChatGptCredential({ ...owner, tenantId: "tenant-b" })).toBeNull();
   });
 
+  it("only releases a credential for the profile and authorization saved at the press", async () => {
+    const first = await authorize();
+    await finishLocalChatGptSignIn(owner, first.callback, first.start.state);
+    const store = await readChatGptStore(owner);
+    const profile = store.profiles[0];
+    const pinned = { ...owner, connection: { profileId: profile.id, authorizationId: profile.authorizationId! } };
+    expect(await getLocalChatGptCredential(pinned)).toMatchObject(pinned.connection);
+    store.profiles.push({ ...profile, id: "second", authorizationId: "second-grant" });
+    store.selectedId = "second";
+    await saveChatGptStore(owner, store);
+    expect(await getLocalChatGptCredential(owner)).toMatchObject({ profileId: "second" });
+    await expect(getLocalChatGptCredential(pinned)).rejects.toThrow();
+    store.selectedId = profile.id;
+    profile.authorizationId = "new-grant";
+    await saveChatGptStore(owner, store);
+    await expect(getLocalChatGptCredential(pinned)).rejects.toThrow();
+  });
+
   it("clears local credentials and reports unconfirmed remote revocation while retaining the registration", async () => {
     const { start, callback } = await authorize(); await finishLocalChatGptSignIn(owner, callback, start.state);
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("offline")));

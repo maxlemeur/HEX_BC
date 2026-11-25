@@ -49,7 +49,11 @@ export function useTakeoffPreparation(projectId: string, planSetId?: string | nu
   const mounted = useRef(true);
   const loadSequence = useRef(0);
 
-  const reload = useCallback(async () => {
+  const reload = useCallback(async (mode: "replace" | "if-saved" = "replace") => {
+    if (mode === "if-saved") {
+      await queue.current.catch(() => undefined);
+      if (!mounted.current || JSON.stringify(currentDraft.current) !== savedJson.current) return;
+    }
     const sequence = ++loadSequence.current;
     const draftAtStart = currentDraft.current;
     setSaveState("loading");
@@ -158,11 +162,12 @@ export function useTakeoffPreparation(projectId: string, planSetId?: string | nu
     }
   }, [save]);
 
-  const confirm = useCallback(async () => {
+  const confirm = useCallback(async (planFileIds?: string[]) => {
     const savedRevision = await saveOptions();
     if (savedRevision === null) throw new Error("Enregistrez la préparation avant de confirmer.");
     const result = await confirmTakeoffPreparationAction({
       projectId, expectedRevision: savedRevision, expectedExecutionFingerprint: support?.chatGpt?.fingerprint,
+      ...(planFileIds ? { planFileIds } : {}),
     });
     if (!result.ok && result.error.code === "TAKEOFF_CHATGPT_SELECTION_CHANGED") {
       const latest = await loadTakeoffExecutionPreviewAction().catch(() => null);
@@ -180,7 +185,7 @@ export function useTakeoffPreparation(projectId: string, planSetId?: string | nu
     if (!confirmed.confirmedAt || confirmed.revision === null) return null;
     return {
       revision: confirmed.revision,
-      planFileCount: confirmed.draft.sources.filter((source) => source.active && source.kind === "plan").length,
+      planFileCount: confirmed.retainedPlanFileIds.length, planFileIds: confirmed.retainedPlanFileIds,
     };
   }, [projectId, saveOptions, support?.chatGpt?.fingerprint]);
 

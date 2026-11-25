@@ -4,6 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import * as XLSX from "xlsx";
 import { ownEstimate, recordEvidence } from "../critical/fixtures";
+import { waitForHydration } from "../critical/hydration-support";
 import { localTakeoffWorkerClient } from "./fixtures";
 
 async function getAuthenticatedSupabaseClient() { return (await localClient()).client; }
@@ -221,6 +222,7 @@ describe("VNEXT US-6.1 - import flow carry-over", { session: "army", tags: ["cri
     // the validated DPGF's preview.
     // The journey then uploads the same workbook locally; DOG01 covers the dossier-copy hand-off.
     await page.goto(`/dashboard/affaires/${projectId}?view=overview`);
+    await waitForHydration(page.browser);
     await page.getByRole("button", { name: "Ouvrir les documents", exact: true }).click();
     const documents = page.getByRole("dialog", { name: "Documents du dossier", exact: true });
     await documents.getByRole("button", { name: /^Validés/ }).click();

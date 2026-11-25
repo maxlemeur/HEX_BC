@@ -148,7 +148,7 @@ export async function readTakeoffRequestActivity(input: ReadTakeoffRequestActivi
   const limit = Math.min(Math.max(Math.trunc(input.limit ?? TAKEOFF_REQUEST_HISTORY_DEFAULT_LIMIT), 1), TAKEOFF_REQUEST_HISTORY_MAX_LIMIT);
   const offset = view === "history" ? Math.min(Math.max(Math.trunc(input.offset ?? 0), 0), 100_000) : 0;
   const requests = () => supabase.from("takeoff_launch_requests").select(REQUEST_COLUMNS as never)
-    .eq("tenant_id", tenantId).eq("project_id", input.projectId);
+    .eq("tenant_id", tenantId).eq("project_id", input.projectId).or("reason_code.is.null,reason_code.neq.ANALYSIS_NOT_REQUESTED");
   const rowsOf = ({ data, error }: { data: unknown; error: DatabaseError | null }) => {
     if (error) readError(error, "Impossible de lire le métré de l’affaire.");
     return (Array.isArray(data) ? data : data ? [data] : []) as TakeoffRequestRow[];

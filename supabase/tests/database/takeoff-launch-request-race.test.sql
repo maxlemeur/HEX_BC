@@ -214,6 +214,28 @@ create function pg_temp.admit_sql(p_token uuid, p_job integer) returns text lang
     (select page_count from public.plan_files where id = pg_temp.fx(50)), pg_temp.selection())
 $$;
 create temp table admit_sql as select pg_temp.admit_sql(pg_temp.fx(91), 60) as body;
+-- Admission owns its request before it checks the intake snapshot. A confirmer
+-- already holding the brief must not have to give it up to unblock that check.
+select extensions.dblink_exec('race_setup',format($setup$
+  begin;
+  insert into private.intake_current_brief_activation(active_from) values(now());
+  insert into private.affaire_intake_contracts(project_id,published_brief_id,published_upload_id)
+    select project_id,id,upload_id from public.affaire_briefs where project_id=%1$L;
+  update private.affaire_intake_contracts set published_revision=public.read_affaire_intake_brief_inputs(%1$L)->>'revision' where project_id=%1$L;
+  commit;$setup$,pg_temp.fx(10)));
+select extensions.dblink_exec('race_writer',format('begin; do $$begin perform 1 from public.affaire_briefs where project_id=%L for update; end$$',pg_temp.fx(10)));
+select extensions.dblink_exec('race_a',$session$begin; set local lock_timeout='750ms'$session$);
+select is((select answer from extensions.dblink('race_a',(select body from admit_sql)) x(answer text)),'stale:',
+  'a concurrent confirmation owns the brief: admission under its final lock returns stale without waiting');
+select is((select n from extensions.dblink('race_a',format('select count(*) from public.takeoff_jobs where project_id=%L',pg_temp.fx(10))) x(n bigint)),0::bigint,
+  'the losing admission rolled its job back');
+select extensions.dblink_exec('race_a','rollback');
+select is((select outcome from extensions.dblink('race_writer',pg_temp.mandate_sql()) x(outcome text,id text,state text,reason text)),
+  'replayed','the concurrent confirmer can finish the original gesture');
+select extensions.dblink_exec('race_writer','commit');
+select extensions.dblink_exec('race_setup',format('begin; delete from private.intake_current_brief_activation;
+  delete from private.affaire_intake_contracts where project_id=%L; commit',pg_temp.fx(10)));
+
 select is(extensions.dblink_exec('race_writer', 'begin'), 'BEGIN', 'a member changes a plan of the dossier');
 select is(extensions.dblink_exec('race_writer', format('update public.plan_files set page_count = 2 where id = %L', pg_temp.fx(50))),
   'UPDATE 1', 'the change is written, not yet committed');
@@ -574,6 +596,78 @@ select ok((select message from relaunch_beside_change_error) ~ 'TAKEOFF_LAUNCH_A
 select is((pg_temp.automatic(190)).state, 'not_eligible', 'the start is not set aside, for its Mac to evaluate the change');
 select is((select count(*)::integer from public.takeoff_jobs where project_id = pg_temp.fx(190) and launch_request_id is not null), 0,
   'and nothing is paid');
+
+-- A promotion of the *other* set is outstanding as the service confirms the previous list.
+select extensions.dblink_exec('race_setup',format($setup$
+  begin;
+  update public.affaire_briefs set status='a_confirmer',confirmed_by=null,confirmed_at=null where project_id=%1$L;
+  update public.plan_sets set name='Plans import' where id=%2$L;
+  insert into public.plan_sets(id,project_id,tenant_id,name) values(%3$L,%1$L,%4$L,'Archives');
+  insert into private.takeoff_plan_dispatch_activation(active_from) values(now()-interval '1 hour');
+  insert into storage.objects(bucket_id,name,metadata,version)
+    select 'plan-files',file_path,jsonb_build_object('size',file_size_bytes),gen_random_uuid()::text from public.plan_files where id=%5$L;
+  commit;
+$setup$,pg_temp.fx(190),pg_temp.fx(194),pg_temp.fx(9800),pg_temp.tenant(),pg_temp.fx(195)));
+create temporary table racing_choice as select format($call$
+  select outcome from public.confirm_affaire_brief_plan_choice(%1$L,%2$L,%3$L,%4$L,%5$L::jsonb,null,null,null,
+    'MANDATE_REQUIRED',true,jsonb_build_object('sub',%3$L))
+$call$,pg_temp.tenant(),pg_temp.fx(190),pg_temp.fx(1),(select updated_at from public.affaire_briefs where project_id=pg_temp.fx(190)),
+  (select jsonb_object_agg(o.plan_file_id,jsonb_build_object('version',o.plan_version,'sha256',repeat('c',64))) from public.takeoff_brief_plan_options(pg_temp.tenant(),pg_temp.fx(190)) o)) as body;
+select extensions.dblink_exec('race_writer',format($promote$begin; update public.plan_sets set
+  metadata='{"default_import_plan_set":true,"source":"import-flow"}' where id=%L$promote$,pg_temp.fx(9800)));
+select extensions.dblink_send_query('race_b',(select body from racing_choice));
+select ok(pg_temp.waits_for('race_b','race_writer'),'a pending promotion on the other set serializes with the final choice check');
+select extensions.dblink_exec('race_writer','commit');
+select ok(pg_temp.answered('race_b'),'the confirmation finishes after promotion commits');
+select * from extensions.dblink_get_result('race_b',false) as answer(outcome text);
+select is(position('TAKEOFF_BRIEF_PLAN_CHANGED' in extensions.dblink_error_message('race_b'))>0,true,
+  'the obsolete choice is refused after acquiring the dossier lock');
+select * from extensions.dblink_get_result('race_b',false) as answer(outcome text);
+select is((select status from public.affaire_briefs where project_id=pg_temp.fx(190)),'a_confirmer',
+  'the obsolete confirmation never commits');
+-- Restore the original import set and confirm a paid selection. This time the
+-- competing set changes after evaluation, with a valid seal waiting to commit.
+select extensions.dblink_exec('race_setup',format('update public.plan_sets set metadata=''{}''::jsonb where id=%L',pg_temp.fx(9800)));
+select is((select x.outcome from extensions.dblink('race_a',format($choose$
+  select outcome from public.confirm_affaire_brief_plan_choice(%1$L,%2$L,%3$L,%4$L,%5$L::jsonb,
+    public.takeoff_payer_notice(%1$L,%2$L,%3$L,%6$L::jsonb,true),%7$L,%6$L::jsonb,null,true,jsonb_build_object('sub',%3$L))
+$choose$,pg_temp.tenant(),pg_temp.fx(190),pg_temp.fx(1),(select updated_at from public.affaire_briefs where project_id=pg_temp.fx(190)),
+    (select jsonb_object_agg(o.plan_file_id,jsonb_build_object('version',o.plan_version,'sha256',repeat('c',64)))
+      from public.takeoff_brief_plan_options(pg_temp.tenant(),pg_temp.fx(190)) o),pg_temp.selection(),pg_temp.host())) x(outcome text)),
+  'confirmed','the restored set can be selected with the payer notice');
+create temporary table scoped_claim as select x.request_id,x.mark from extensions.dblink('race_a',format(
+  'select request_id,mark from public.claim_takeoff_launch_evaluations(%L,%L,20,true) where project_id=%L',
+  pg_temp.host(),pg_temp.fx(9801),pg_temp.fx(190))) x(request_id uuid, mark bigint);
+create temporary table scoped_admit as select format($admit$
+  select outcome from public.admit_takeoff_launch_request(%1$L,%2$L,%3$s,%4$L::jsonb,%5$L::jsonb,%6$L::jsonb,true)
+$admit$,c.request_id,pg_temp.fx(9801),c.mark,
+  s.manifest || jsonb_build_object('format_version',2,'dispatch',jsonb_build_object('order','display_name'),
+    'plans',jsonb_build_array(s.manifest#>'{plans,0}' || jsonb_build_object('name',f.file_name,'content_sha256',repeat('c',64),'page_count',f.page_count)),
+    'units',jsonb_build_array(jsonb_build_object('ordinal',1,'key','plan:' || f.id,'plans',jsonb_build_array(f.id),'pages','[]'::jsonb,
+      'page_count',f.page_count,'vector_pages',0,'budget',s.manifest->'budget'))),
+  jsonb_set(s.snapshot,'{preparation,sources,0}',s.snapshot#>'{preparation,sources,0}' || jsonb_build_object(
+    'document_name',f.file_name,'content_hash',repeat('c',64),'pages','[]'::jsonb)),
+  jsonb_build_array(s.job || jsonb_build_object('launch_unit_key','plan:' || f.id))) body
+from scoped_claim c, pg_temp.seal(pg_temp.fx(195),pg_temp.fx(194),pg_temp.fx(9802),1) s, public.plan_files f where f.id=pg_temp.fx(195);
+select extensions.dblink_exec('race_writer',format($promote$begin; update public.plan_sets set
+  metadata='{"default_import_plan_set":true,"source":"import-flow"}' where id=%L$promote$,pg_temp.fx(9800)));
+select extensions.dblink_send_query('race_b',(select body from scoped_admit));
+select ok(pg_temp.waits_for('race_b','race_writer'),'admission waits for the competing set writer at its final dossier boundary');
+select extensions.dblink_exec('race_writer','commit');
+select ok(pg_temp.answered('race_b'),'the scoped admission returns after the promotion');
+select * from extensions.dblink_get_result('race_b',false) x(outcome text);
+select matches(extensions.dblink_error_message('race_b'),'TAKEOFF_BRIEF_PLAN_CHANGED','the final admission refuses the now-obsolete import set');
+select * from extensions.dblink_get_result('race_b',false) x(outcome text);
+select is((select count(*) from public.takeoff_jobs where launch_request_id=(select request_id from scoped_claim)),0::bigint,
+  'the losing admission commits no job');
+select extensions.dblink_exec('race_setup',format('update public.plan_sets set metadata=''{}''::jsonb where id=%L',pg_temp.fx(9800)));
+select is((select outcome from extensions.dblink('race_b',(select body from scoped_admit)) x(outcome text)),'admitted',
+  'the same lease and payload admit the selected plan once its set is current again');
+select extensions.dblink_exec('race_setup',format($clean$begin;
+  set local storage.allow_delete_query='true';
+  delete from storage.objects where bucket_id='plan-files' and name=%L;
+  delete from private.takeoff_plan_dispatch_activation; commit;$clean$,
+  (select file_path from public.plan_files where id=pg_temp.fx(195))));
 
 -- Clean the committed synthetic fixtures and the cut-offs.
 select is(extensions.dblink_exec('race_setup', $cleanup$

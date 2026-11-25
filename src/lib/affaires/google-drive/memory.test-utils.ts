@@ -9,6 +9,7 @@ type Result = { data: unknown; error: { code: string } | null; count?: number };
 export function memoryBackend() {
   const tables = new Map<string, Map<string, Row>>();
   const generations = new Map<string, string>();
+  const intake = { active: false, state: "legacy" };
   const failures = new Map<string, string>();
   const queries: Array<{
     table: string;
@@ -63,6 +64,12 @@ export function memoryBackend() {
     }
     is(column: string, value: unknown) {
       this.filters.push([column, value]);
+      return this;
+    }
+    not(column: string, operator: "cs", value: string) {
+      if (operator !== "cs") throw new Error("Unexpected filter");
+      const element = JSON.parse(value.slice(1, -1));
+      this.predicates.push(row => !(row[column] as unknown[] | undefined)?.includes(element));
       return this;
     }
     in(column: string, values: unknown[]) {
@@ -129,6 +136,7 @@ export function memoryBackend() {
         table.set(id, {
           tenant_id: "tenant_demo",
           created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
           deleted_at: null,
           ...table.get(id),
           ...this.value,
@@ -180,7 +188,9 @@ export function memoryBackend() {
     }
   }
   // The two service-only RPCs of the migration: save for the member the callback verified, and the secret read.
-  const rpc = vi.fn(async (name: string, args: Record<string, string>) => {
+  const rpc = vi.fn(async (name: string, args: Record<string, string> = {}) => {
+    if (name === "intake_current_brief_active") return { data: intake.active, error: null };
+    if (name === "read_affaire_intake_brief_state") return { data: intake.state, error: null };
     const memberKey = `${args.p_tenant_id}:${args.p_user_id}`;
     if (name === "begin_google_drive_authorization") {
       if (!generations.has(memberKey)) generations.set(memberKey, randomUUID());
@@ -303,7 +313,7 @@ export function memoryBackend() {
       is_archived: false,
     },
   };
-  return { tables, rows, failures, queries, access, supabase, rpc };
+  return { tables, rows, failures, queries, access, supabase, rpc, intake };
 }
 
 export function fakeDrive() {

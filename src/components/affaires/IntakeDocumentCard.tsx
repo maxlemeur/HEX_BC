@@ -4,12 +4,17 @@ import { useCallback, useEffect, useState, useTransition } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import type {
+  AffaireIntakeClassificationStatus,
+  AffaireIntakeDocumentUploadStatus,
   AffaireIntakeDocumentKind,
   AffaireIntakeDocumentPriority,
   AffaireIntakeExtractedMetadata,
 } from "@/lib/affaires/intake";
 import {
   AFFAIRE_INTAKE_DOCUMENT_PRIORITY_LABELS,
+  AFFAIRE_INTAKE_AWAITING_LAUNCH_LABEL,
+  isAffaireIntakeDocumentAwaitingLaunch,
+  isAffaireIntakeDocumentProcessing,
   isAffaireIntakePrimaryEligibleKind,
 } from "@/lib/affaires/intake";
 import {
@@ -27,6 +32,8 @@ export type IntakeDocumentData = {
   documentId: string;
   fileName: string;
   driveSource?: DriveProvenance;
+  classificationStatus?: AffaireIntakeClassificationStatus;
+  uploadStatus?: AffaireIntakeDocumentUploadStatus;
   sizeBytes?: number;
   detectedCategory: AffaireIntakeDocumentKind;
   documentPriority?: AffaireIntakeDocumentPriority | null;
@@ -126,8 +133,9 @@ export function IntakeDocumentCard({
     return () => onPendingChange?.(false);
   }, [isPending, onPendingChange]);
 
-  const isAmbiguous = doc.detectedCategory === "a_classer" || doc.confidence < 0.65;
-  const isProcessing = doc.confidence === 0 && doc.detectedCategory === "a_classer" && doc.issues.length === 0;
+  const waiting = isAffaireIntakeDocumentAwaitingLaunch(doc);
+  const isAmbiguous = !waiting && (doc.detectedCategory === "a_classer" || doc.confidence < 0.65);
+  const isProcessing = isAffaireIntakeDocumentProcessing(doc);
   const confidenceDisplay = getConfidenceDisplay(doc.confidence);
   const fileType = getFileTypeIcon(doc.fileName);
   const isPriorityEligible = isAffaireIntakePrimaryEligibleKind(doc.detectedCategory);
@@ -205,7 +213,7 @@ export function IntakeDocumentCard({
           {doc.fileName}
         </p>
         <Badge variant={getCategoryBadgeVariant(doc.detectedCategory)}>
-          {CATEGORY_LABELS[doc.detectedCategory]}
+          {waiting ? AFFAIRE_INTAKE_AWAITING_LAUNCH_LABEL : CATEGORY_LABELS[doc.detectedCategory]}
         </Badge>
         {isPriorityEligible ? (
           <Badge variant={documentPriority === "primary" ? "success" : "neutral"}>
@@ -238,7 +246,7 @@ export function IntakeDocumentCard({
             </p>
 
             <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-              {isProcessing ? (
+              {waiting ? <Badge variant="neutral">{AFFAIRE_INTAKE_AWAITING_LAUNCH_LABEL}</Badge> : isProcessing ? (
                 <Badge variant="neutral">
                   <CircleIcon className="mr-1 h-3 w-3 animate-spin" aria-hidden="true" />
                   Classification en cours…

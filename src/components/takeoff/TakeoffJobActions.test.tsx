@@ -1,12 +1,13 @@
 import { act, cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { describeTakeoffTrackingStatus } from "@/lib/takeoff/job-list-labels";
 import type { TakeoffActivityCenterJobRow } from "@/lib/takeoff/types";
 
 const fetchTakeoffJob = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/takeoff/client", () => ({ fetchTakeoffJob }));
 
-import { TakeoffJobActions, useTakeoffResumeRefresh } from "./TakeoffJobActions";
+import { TakeoffJobActions, TakeoffJobResumeDetails, useTakeoffResumeRefresh } from "./TakeoffJobActions";
 
 function row(patch: Partial<TakeoffActivityCenterJobRow>): TakeoffActivityCenterJobRow {
   return {
@@ -22,7 +23,11 @@ function row(patch: Partial<TakeoffActivityCenterJobRow>): TakeoffActivityCenter
 
 function renderRow(job: TakeoffActivityCenterJobRow) {
   const onAction = vi.fn(async () => undefined);
-  render(<TakeoffJobActions job={job} projectId="project-1" onAction={onAction} />);
+  render(<>
+    <p>{describeTakeoffTrackingStatus({ status: job.technicalStatusRaw, fallback: job.statusLabel, errorCode: job.errorCode })}</p>
+    <TakeoffJobResumeDetails job={job} />
+    <TakeoffJobActions job={job} projectId="project-1" onAction={onAction} />
+  </>);
   return { onAction };
 }
 
@@ -43,10 +48,10 @@ describe("TakeoffJobActions", () => {
   it("shows the list's decision, its French reason and the retry it allows, without reading the job's detail", () => {
     const { onAction } = renderRow(row({ canResubmit: true, resume: { action: "retry_now", reason: "retry_available", availableAt: null } }));
 
-    expect(screen.getByText("Le service d’analyse n’a pas pu terminer le métré.")).toBeVisible();
+    expect(screen.getByText("Échec : Le service d’analyse n’a pas pu terminer le métré.")).toBeVisible();
     expect(screen.getByText("Relances utilisées : 1 sur 3")).toBeVisible();
     expect(screen.getByText(/^Vous pouvez soumettre cette analyse à nouveau/)).toBeVisible();
-    screen.getByRole("button", { name: "Soumettre à nouveau" }).click();
+    screen.getByRole("button", { name: "Relancer" }).click();
     expect(onAction).toHaveBeenCalledWith("11111111-1111-4111-8111-111111111111", "resubmit");
     expect(fetchTakeoffJob).not.toHaveBeenCalled();
   });
@@ -62,25 +67,23 @@ describe("TakeoffJobActions", () => {
     renderRow(row({ resume: { ...decision, availableAt: null } }));
 
     expect(screen.getByText(text)).toBeVisible();
-    expect(screen.queryByRole("button", { name: "Soumettre à nouveau" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Relancer" })).not.toBeInTheDocument();
   });
 
   it("never shows a diagnostic code", () => {
-    const { container } = render(<div>
-      <TakeoffJobActions job={row({ jobId: "a", errorCode: "SOME_FUTURE_CODE" })} projectId="p" onAction={vi.fn()} />
-      <TakeoffJobActions job={row({ jobId: "b", errorCode: null })} projectId="p" onAction={vi.fn()} />
-    </div>);
+    renderRow(row({ errorCode: "SOME_FUTURE_CODE" }));
+    renderRow(row({ errorCode: null }));
 
-    expect(screen.getByText("L’analyse a été interrompue pour une raison non répertoriée.")).toBeVisible();
-    expect(screen.getByText("Échec sans code disponible.")).toBeVisible();
-    expect(container.textContent).not.toMatch(/SOME_FUTURE_CODE|AI_PROVIDER|read_only|\(code /);
+    expect(screen.getByText(/L’analyse a été interrompue pour une raison non répertoriée/)).toBeVisible();
+    expect(screen.getByText(/Échec sans code disponible/)).toBeVisible();
+    expect(document.body.textContent).not.toMatch(/SOME_FUTURE_CODE|AI_PROVIDER|read_only|\(code /);
   });
 
   it("says how long a delay lasts and offers no retry meanwhile", () => {
     renderRow(row({ resume: { action: "wait_retry", reason: "retry_delay", availableAt: "2026-11-21T10:00:05.000Z" } }));
 
     expect(screen.getByText(/^Vous pourrez soumettre cette analyse à nouveau à partir du/)).toBeVisible();
-    expect(screen.queryByRole("button", { name: "Soumettre à nouveau" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Relancer" })).not.toBeInTheDocument();
   });
 
   it("reads the list again once, when the first wait it announced is over", () => {
@@ -129,7 +132,7 @@ describe("TakeoffJobActions", () => {
   it("does not tell to relaunch an analysis whose automatic retry is awaited", () => {
     renderRow(row({ errorCode: "AI_TIMEOUT", resume: { action: "wait_retry", reason: "retry_scheduled", availableAt: "2026-11-21T10:00:15.000Z" } }));
 
-    expect(screen.getByText("Délai dépassé.")).toBeVisible();
+    expect(screen.getByText("Échec : Délai dépassé.")).toBeVisible();
     expect(document.body.textContent).not.toMatch(/Relancez|restreignez/i);
     expect(screen.getByText(/^Une reprise automatique est programmée/)).toBeVisible();
   });

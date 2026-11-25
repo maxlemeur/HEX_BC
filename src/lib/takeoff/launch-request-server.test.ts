@@ -18,11 +18,12 @@ import { assertLocalChatGptHost, isLocalChatGptEnabled } from "@/lib/ai/chatgpt-
 import { getConfirmedTakeoffExecutionOwner } from "@/lib/ai/chatgpt-takeoff";
 import { resolvePlanSetSourceFile } from "@/lib/takeoff/job-creation-repository";
 import {
-  assumeTakeoffLaunchRequest, confirmAffaireBriefWithTakeoff, describeDossierChangeSinceAnalysis, evaluateTakeoffLaunchRequests,
+  assumeTakeoffLaunchRequest, confirmAffaireBriefWithTakeoff, describeDossierChangeSinceAnalysis, dispatchLaunchRequestJobs, evaluateTakeoffLaunchRequests,
   launchTakeoffRelaunch, readAutomaticTakeoffPayerNotice, readBriefConfirmationPayerNotice, readDossierChangeSinceAnalysis,
 } from "@/lib/takeoff/launch-request-server";
 import { launchTakeoffItemRemeasure, planTakeoffItemRemeasure } from "@/lib/takeoff/item-remeasure-server";
 import { orderSensitivePosteList } from "@/lib/takeoff/poste-reading.test-fixtures";
+import { persistTakeoffDispatchOutcome } from "@/lib/takeoff/dispatch-state";
 import { runLocalTakeoffAttempts } from "@/lib/takeoff/local-dispatch";
 import type { AnyTakeoffLaunchManifest } from "@/lib/takeoff/launch-request";
 import { createSupabaseFake, filterValue, servedRows, type FakeQuery } from "@/lib/takeoff/metre-m3.test-utils";
@@ -36,6 +37,9 @@ import { sealedMeasuringOrder } from "@/lib/takeoff/item-list-seal-server";
 
 // The automatic start on the authorised Mac: the loop that evaluates and admits a request has no member's session (a
 // request would fail here: next/headers throws), reads the payer's subscription on this Mac, and names what stops it.
+vi.mock("@/lib/takeoff/brief-plan-choice-server", () => ({ attestBriefPlanChoice: vi.fn(async (_context, _project, plans) => ({
+  plans: Object.fromEntries(plans.map((plan: { id: string; version: string }) => [plan.id, { version: plan.version, sha256: "b".repeat(64) }])),
+})) }));
 vi.mock("next/headers", () => ({ headers: () => { throw new Error("The Mac's loop has no HTTP request."); } }));
 vi.mock("@/lib/supabase/service-role", () => ({ createServiceRoleClient: vi.fn() }));
 vi.mock("@/lib/ai/chatgpt-local-auth", () => ({
@@ -136,7 +140,7 @@ function dossier(input: { classification?: string; copy?: "same" | "older" | "le
     tables: {
       takeoff_launch_requests: (query: FakeQuery) => filterValue(query, "state") === "admitted"
         ? { data: input.running ? [{ id: "aaaaaaaa-0000-4000-8000-000000000031" }] : [], error: null }
-        : { data: [], error: null },
+        : { data: filterValue(query, "evaluation_lease_token") ? { selected_plans: null } : [], error: null },
       affaire_briefs: () => ({ data: { status: "confirme" }, error: null }),
       affaire_intake_documents: () => ({ data: [document, ...referenceDocuments], error: null, count: 1 + referenceDocuments.length }),
       plan_sets: () => ({ data: [{ id: PLAN_SET, estimate_version_id: null, name: "Plans import", metadata: AFFAIRE_INTAKE_PLAN_SET_METADATA,
@@ -211,6 +215,30 @@ beforeEach(() => {
   vi.mocked(assertLocalChatGptHost).mockImplementation((host) => host ?? "");
   vi.mocked(readChatGptStore).mockResolvedValue({ selectedId: "profil-fictif",
     profiles: [{ id: "profil-fictif", model: "modele-fictif", reasoningEffort: null, authorizationId: "autorisation-1" }] } as never);
+});
+
+describe("dispatchLaunchRequestJobs", () => {
+  it.each([1, 2])("starts the dispatcher after the receipt writes for %i plan jobs settle", async (planCount) => {
+    const jobIds = ["first-job", "second-job"].slice(0, planCount);
+    const committedReceipts: string[] = [];
+    const receiptsAtDispatch: string[][] = [];
+    for (const jobId of jobIds) {
+      vi.mocked(persistTakeoffDispatchOutcome).mockImplementationOnce(async () => {
+        // The real receipt RPC updates the job row in another transaction.
+        await Promise.resolve();
+        committedReceipts.push(jobId);
+        return true;
+      });
+    }
+    vi.mocked(runLocalTakeoffAttempts).mockImplementationOnce(async () => {
+      receiptsAtDispatch.push([...committedReceipts]);
+    });
+
+    await dispatchLaunchRequestJobs({ jobIds });
+
+    expect(vi.mocked(persistTakeoffDispatchOutcome).mock.calls.map(([input]) => input.jobId)).toEqual(jobIds);
+    expect(receiptsAtDispatch).toEqual([jobIds]);
+  });
 });
 
 describe("evaluateTakeoffLaunchRequests", () => {
@@ -727,7 +755,7 @@ function gesture(input: { launchActive?: boolean; reply?: Record<string, unknown
     // The one payer rule (the database's): the member of `member()` may pay unless a reader.
     takeoff_payer_may_launch: (args) => ({ data: (args as { p_user_id: string }).p_user_id === PAYER && input.mayPay !== false, error: null }),
     takeoff_launch_request_action: () => ({ data: input.action ?? "none", error: null }),
-    confirm_affaire_brief_takeoff: record("confirm", [{ outcome: input.outcome ?? "confirmed", ...row }]),
+    confirm_affaire_brief_plan_choice: record("confirm", [{ outcome: input.outcome ?? "confirmed", ...row }]),
     take_on_takeoff_launch_request: record("take_on", [{ outcome: input.outcome ?? "mandated", mandate_revision: 2, ...row }]),
     takeoff_payer_notice: record("notice", NOTICE),
     replay_manual_takeoff_request: record("replay", input.replayed ? [input.replayed] : []),
@@ -748,7 +776,7 @@ const CLAIMS = { sub: PAYER, role: "authenticated", aud: "authenticated", app_me
 const getClaims = vi.fn();
 const member = (tenantRole: string) => ({ userId: PAYER, tenantId: TENANT, tenantRole, supabase: { auth: { getClaims } } }) as never;
 const confirm = (tenantRole: string, notice: string | null = NOTICE) =>
-  confirmAffaireBriefWithTakeoff({ context: member(tenantRole), projectId: PROJECT, expectedUpdatedAt: "2026-11-21T08:00:00Z", notice, host: "127.0.0.1:3000" });
+  confirmAffaireBriefWithTakeoff({ context: member(tenantRole), projectId: PROJECT, expectedUpdatedAt: "2026-11-21T08:00:00Z", notice, plans: [{ id: PLAN_FILE, version: NOTICE }], host: "127.0.0.1:3000" });
 
 describe("confirmAffaireBriefWithTakeoff", () => {
   beforeEach(() => getClaims.mockResolvedValue({ data: { claims: CLAIMS }, error: null }));
@@ -1019,6 +1047,11 @@ describe("launchTakeoffRelaunch", () => {
       rpc: {
         replay_manual_takeoff_plan_request: () => ({ data: [], error: null }),
         takeoff_plan_dispatch_is_active: () => ({ data: true, error: null }),
+        read_takeoff_plan_location_source: (args) => {
+          const id = (args as { p_plan_file_id: string }).p_plan_file_id;
+          return { data: rows.some((row) => row.id === id)
+            ? [{ source_kind: "plan_file", source_id: id, plan_file_id: id, current_copy: true }] : [], error: null };
+        },
         // Lot 4: the second measuring order is not activated: the free extraction.
         takeoff_item_list_order_is_active: () => ({ data: false, error: null }),
         launch_manual_takeoff_plan_request: (args) => {
@@ -1068,6 +1101,16 @@ describe("launchTakeoffRelaunch", () => {
     expect(manifest.plans.map((plan) => plan.plan_file_id).sort()).toEqual([PLAN_FILE, PLAN_B, PLAN_C].sort());
     expect((launchedAll[0].p_job as Array<{ launch_unit_key: string }>).map((job) => job.launch_unit_key))
       .toEqual(manifest.units.map((unit) => unit.key));
+  });
+
+  it("records an unticked plan in a first manual request and recognises only later additions", async () => {
+    const { run, launched, rows } = planCommand({ a: 1, b: 201 }, null, undefined, null);
+    await run([PLAN_FILE]);
+    const manifest = launched[0].p_manifest as AnyTakeoffLaunchManifest;
+    expect(manifest.coverage.plans_omitted).toContainEqual(expect.objectContaining({ id: PLAN_B, reason: "not_selected" }));
+    expect(describeDossierChangeSinceAnalysis(manifest, rows, [])).toBeNull();
+    const added = { ...rows[0], id: "aaaaaaaa-0000-4000-8000-000000000099", file_name: "extension.pdf" };
+    expect(describeDossierChangeSinceAnalysis(manifest, [...rows, added], [])?.added).toEqual([{ id: added.id, name: added.file_name }]);
   });
 
   // The database decides the order of its refusals (20261121193413): an automatic start that can still begin comes before
@@ -1360,6 +1403,7 @@ describe("launchTakeoffRelaunch", () => {
     receipt?: (planFileIds: string[] | null) => { data: unknown; error: { code: string; message: string } | null };
     /** Copies in the plan set that are not their piece's current copy (an older generation the sync has not reserved yet). */
     stale?: string[];
+    rotateAtAdmission?: string;
     /** Dossier pieces removed from the dossier; every other piece is a classified plan of the dossier. */
     removedPieces?: string[];
     /** Every read of the plan set's copies, of their recorded sources or of a copy's current state fails. */
@@ -1457,6 +1501,10 @@ describe("launchTakeoffRelaunch", () => {
         },
         launch_manual_takeoff_plan_request: (args) => {
           launched.push(args as Record<string, unknown>);
+          if (input.rotateAtAdmission) {
+            input.stale = [input.rotateAtAdmission];
+            return { data: null, error: { code: "40001", message: "TAKEOFF_LAUNCH_PLAN_COPY_STALE" } };
+          }
           return { data: [{ outcome: "admitted", request_id: REQUEST, job_id: (args as { p_jobs: Array<{ id: string }> }).p_jobs[0].id }],
             error: null };
         },
@@ -1495,6 +1543,27 @@ describe("launchTakeoffRelaunch", () => {
   const FIRST_REQUEST = "aaaaaaaa-0000-4000-8000-0000000000e1";
   const SECOND_REQUEST = "aaaaaaaa-0000-4000-8000-0000000000e2";
   const JOB_OF_A = "aaaaaaaa-0000-4000-8000-0000000000b1";
+
+  it("refuses an explicitly selected obsolete copy even when a replacement exists", async () => {
+    const history = affaireHistory({ copies: [A_BEFORE, A_AFTER, B_COPY], confirmed: [A_BEFORE.id, B_COPY.id], stale: [A_BEFORE.id],
+      requests: [{ id: FIRST_REQUEST, plans: [A_BEFORE, B_COPY] }],
+      predecessor: { id: JOB_OF_A, requestId: FIRST_REQUEST, unitKey: `plan:${A_BEFORE.id}` } });
+
+    await expect(history.run([A_BEFORE.id, B_COPY.id])).rejects.toMatchObject({
+      status: 422, message: expect.stringContaining("plan-a.pdf"),
+    });
+    expect(history.launched).toEqual([]);
+  });
+
+  it("names the visible copy that rotated after the server check", async () => {
+    const history = affaireHistory({ copies: [A_BEFORE, B_COPY], confirmed: [A_BEFORE.id, B_COPY.id],
+      rotateAtAdmission: A_BEFORE.id, requests: [{ id: FIRST_REQUEST, plans: [A_BEFORE, B_COPY] }],
+      predecessor: { id: JOB_OF_A, requestId: FIRST_REQUEST, unitKey: `plan:${A_BEFORE.id}` } });
+    await expect(history.run([A_BEFORE.id, B_COPY.id])).rejects.toMatchObject({
+      status: 422, message: expect.stringContaining("plan-a.pdf"),
+    });
+    expect(history.launched).toHaveLength(1);
+  });
 
   // The dossier replaced plan A after its analysis: its piece has a new working copy (a new generation, a new identifier) and
   // the member confirmed the options with it. The dialogue's relaunch of A's analysis reads A at its current copy.
@@ -1986,7 +2055,7 @@ describe("the page limit of a request read plan by plan", () => {
   }
 
   /** The dossier of an automatic start with one plan copy per entry of `pages`, each counted on its stored row. */
-  async function plansDossier(pages: number[], input: { perPlan: boolean }) {
+  async function plansDossier(pages: number[], input: { perPlan: boolean; checkedIndex?: number; changed?: boolean }) {
     const bytes = await Promise.all(pages.map((count, index) => planPdf(count, index)));
     const documents = pages.map((_, index) => ({
       id: documentId(index), tenant_id: TENANT, project_id: PROJECT, upload_id: UPLOAD, created_by: PAYER,
@@ -2004,7 +2073,10 @@ describe("the page limit of a request read plan by plan", () => {
     const recorded: unknown[] = [];
     const fake = createSupabaseFake({
       tables: {
-        takeoff_launch_requests: () => ({ data: [], error: null }),
+        takeoff_launch_requests: (query: FakeQuery) => filterValue(query, "evaluation_lease_token")
+          ? { data: { selected_plans: input.checkedIndex == null ? null : { [planId(input.checkedIndex)]: {
+            version: "b".repeat(64), sha256: input.changed ? "c".repeat(64) : createHash("sha256").update(bytes[input.checkedIndex]).digest("hex"),
+          } } }, error: null } : { data: [], error: null },
         affaire_briefs: () => ({ data: { status: "confirme" }, error: null }),
         affaire_intake_documents: () => ({ data: documents, error: null, count: documents.length }),
         plan_sets: () => ({ data: [{ id: PLAN_SET, estimate_version_id: null, name: "Plans import", metadata: AFFAIRE_INTAKE_PLAN_SET_METADATA,
@@ -2044,8 +2116,23 @@ describe("the page limit of a request read plan by plan", () => {
       mime_type: "application/pdf" }));
     vi.mocked(loadPreparation).mockResolvedValue({ draft: buildDeducedTakeoffPreparation({ sources, planSetId: PLAN_SET }), revision: null,
       availableSources: sources } as never);
-    return { admitted, recorded, pieces: copies.map((copy, index) => ({ id: copy.id, name: planName(index) })) };
+    return { admitted, recorded, storageCalls: fake.storageCalls, pieces: copies.map((copy, index) => ({ id: copy.id, name: planName(index) })) };
   }
+
+  it("admits only the checked copy even when an unchecked PDF exceeds the reading limit", async () => {
+    const { admitted, storageCalls } = await plansDossier([1, 201], { perPlan: true, checkedIndex: 0 });
+    expect(await evaluateTakeoffLaunchRequests()).toMatchObject([{ outcome: "admitted" }]);
+    expect(storageCalls.some((call) => call.paths.some((path) => path.includes(planId(1))))).toBe(false);
+    expect(admitted).toMatchObject([{ p_job: [{ launch_unit_key: `plan:${planId(0)}` }], p_manifest: {
+      plans: [{ plan_file_id: planId(0) }], coverage: { plans_omitted: [{ id: planId(1), reason: "not_selected" }] },
+    } }]);
+  });
+
+  it("refuses a different PDF at the same checked copy before admission", async () => {
+    const { admitted } = await plansDossier([1], { perPlan: true, checkedIndex: 0, changed: true });
+    expect(await evaluateTakeoffLaunchRequests()).toMatchObject([{ outcome: "blocked" }]);
+    expect(admitted).toEqual([]);
+  });
 
   /** A member's command naming every plan of a confirmed preparation of one plan copy per entry of `pages`. */
   function plansCommand(pages: number[]) {

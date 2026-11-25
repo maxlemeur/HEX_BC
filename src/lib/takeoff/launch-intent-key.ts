@@ -1,9 +1,8 @@
 /**
  * A member's manual launch command on an affaire (`launchTakeoffRelaunch`) whose answer is unknown: a lost answer, a
  * server error. The browser keeps it, one per member and affaire, until an answer arrives, across a reload and for every
- * tab: the member's next click on that affaire sends that command again (its key and its own content) before anything
- * new, so its replay finds its receipt instead of paying a second analysis, even after its analysis finished and the
- * affaire offers to relaunch it. An answer, a success or a refusal the server named, ends it for every tab: a settled key
+ * tab. Repeating a command with the same selection reuses its key and receipt. A different named selection asks
+ * the member to set the outstanding command aside before confirming the plans they want. An answer, a success or a refusal the server named, ends it for every tab: a settled key
  * is never sent again. The entry's name is a digest of the tenant, the member and the affaire.
  */
 export type TakeoffLaunchScope = { tenantId: string | null; userId: string | null; projectId: string };

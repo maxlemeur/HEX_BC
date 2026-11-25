@@ -97,6 +97,7 @@ function as(userId: string, element: React.ReactElement) {
 describe("LaunchMetreDialog", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    relaunchTakeoffMock.mockReset();
     window.localStorage.clear();
   });
 
@@ -220,19 +221,24 @@ describe("LaunchMetreDialog", () => {
       expect(await screen.findByText(/Un lancement envoyé depuis un autre onglet attend encore sa réponse/)).toBeInTheDocument();
       expect(relaunchTakeoffMock).toHaveBeenCalledTimes(1);
       await user.click(screen.getByRole("button", { name: "Le mettre de côté" }));
+      expect(relaunchTakeoffMock).toHaveBeenCalledTimes(1);
+      await user.click(screen.getByRole("checkbox", { name: "plan-b.pdf" }));
+      expect(screen.getByRole("button", { name: "Relancer les plans choisis" })).toBeDisabled();
+      await user.click(screen.getByRole("checkbox", { name: "plan-c.pdf" }));
+      await user.click(screen.getByRole("button", { name: "Relancer les plans choisis" }));
       expect(await screen.findByText("Analyse transmise au traitement")).toBeInTheDocument();
-      expect(sentAt(1)).toMatchObject({ planFileIds: [PLAN_B] });
+      expect(sentAt(1)).toMatchObject({ planFileIds: [PLAN_C] });
       expect(sentAt(1).intentKey).not.toBe(other.intentKey);
     });
 
-    it("sends another tab's unanswered command again, with its own content, only when the member asks", async () => {
+    it("discards an unanswered launch after every plan was unticked without sending anything", async () => {
       const { user, otherTab } = await choose();
-      const other = otherTab([PLAN_C]);
+      otherTab([PLAN_C]);
       await user.click(screen.getByRole("button", { name: "Relancer les plans choisis" }));
-      await user.click(await screen.findByRole("button", { name: "Renvoyer ce lancement" }));
-      expect(await screen.findByText("Analyse transmise au traitement")).toBeInTheDocument();
-      expect(sentAt(1)).toMatchObject({ planFileIds: [PLAN_C], intentKey: other.intentKey });
-      expect(relaunchTakeoffMock).toHaveBeenCalledTimes(2);
+      await user.click(screen.getByRole("checkbox", { name: "plan-b.pdf" }));
+      await user.click(screen.getByRole("button", { name: "Le mettre de côté" }));
+      expect(relaunchTakeoffMock).toHaveBeenCalledTimes(1);
+      expect(screen.getByRole("button", { name: "Relancer les plans choisis" })).toBeDisabled();
     });
 
     // Counterexample: the unanswered command is the very choice the member makes (its answer was lost): it is replayed

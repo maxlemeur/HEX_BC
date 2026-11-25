@@ -73,7 +73,7 @@ describe("Détail du poste", () => {
       await option(LABELS[1]).click();
       await expect(evidence.getByRole("heading", LABELS[1], { exact: true })).toBeVisible();
       await expect(evidence).toContainText("Incertain");
-      await expect(evidence).toContainText("Valeur candidate (non mesurée) : 1 u");
+      await expect(evidence).toContainText("Quantité provisoire partielle · 1 u");
       await expect(evidence).toContainText("Pages illisibles : 7");
       shots.uncertain = await app.screenshot("poste-detail-uncertain");
       await option(LABELS[2]).click();

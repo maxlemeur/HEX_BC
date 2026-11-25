@@ -1,3 +1,4 @@
+import { findReceiptSchema, findsViewSchema, type FindCommand } from "./unlisted-finds";
 import type { z } from "zod";
 
 import { TakeoffApiError, TAKEOFF_READ_REQUEST_TIMEOUT_MS, TAKEOFF_WRITE_REQUEST_TIMEOUT_MS } from "@/lib/takeoff/client-http";
@@ -81,9 +82,9 @@ export function sendItemReviewCommand(projectId: string, command: ItemReviewComm
 }
 
 /** The preview of a new measure of the selection, with what the member saw of it (the list revision, each line's readings). */
-export function previewItemRemeasure(projectId: string, scope: ItemTableScope, itemIds: string[], seen: ItemRemeasureSeen, detail?: import("./item-table-contracts").ItemMeasureScope) {
+export function previewItemRemeasure(projectId: string, scope: ItemTableScope, itemIds: string[], seen: ItemRemeasureSeen, detail?: import("./item-table-contracts").ItemMeasureScope, fromFinds?: true) {
   return call(`${base(projectId)}/remeasure/preview`, { method: "POST", body: JSON.stringify({
-    command_version: ITEM_REVIEW_COMMAND_VERSION, scope, item_ids: itemIds, seen, detail,
+    command_version: ITEM_REVIEW_COMMAND_VERSION, scope, item_ids: itemIds, seen, detail, from_finds: fromFinds,
   }) }, itemRemeasurePreviewSchema, "Impossible de préparer la nouvelle mesure.", TAKEOFF_READ_REQUEST_TIMEOUT_MS);
 }
 
@@ -102,4 +103,11 @@ export function itemReviewStaleLines(error: unknown) {
 export function fetchItemMeasureReadings(projectId: string, item: string, plan: string, receipt?: { jobId: string; requestId: string }) {
   return call(`${base(projectId)}/remeasure?${new URLSearchParams({ item, plan, ...receipt })}`, { method: "GET", cache: "no-store" },
     itemMeasureReadingsSchema, "Impossible de lire la dernière mesure de ce poste.", TAKEOFF_READ_REQUEST_TIMEOUT_MS);
+}
+
+export function fetchUnlistedFinds(projectId: string) {
+  return call(`${base(projectId)}/finds`, { method: "GET", cache: "no-store" }, findsViewSchema, READ_FAILURE, TAKEOFF_READ_REQUEST_TIMEOUT_MS);
+}
+export function sendFindDecision(projectId: string, command: FindCommand) {
+  return call(`${base(projectId)}/finds`, { method: "POST", body: JSON.stringify(command) }, findReceiptSchema, WRITE_FAILURE, TAKEOFF_WRITE_REQUEST_TIMEOUT_MS);
 }

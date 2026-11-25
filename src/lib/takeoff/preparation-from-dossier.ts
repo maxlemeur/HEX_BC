@@ -8,8 +8,19 @@ export function isDossierDefaultSource(source: TakeoffPreparationSource, planSet
   return source.kind === "cctp" || source.kind === "dpgf" || (source.kind === "plan" && source.plan_set_id === planSetId);
 }
 
+/** Restore the dossier options when opening a preparation that was sealed for one named selection. */
+export function restorePlanSetOptions(draft: TakeoffPreparation) {
+  for (const source of draft.sources) {
+    if (source.kind === "plan" && source.plan_set_id === draft.provenance?.plan_set_id && source.selected_in_plan_set !== undefined) {
+      source.active = source.selected_in_plan_set;
+      delete source.selected_in_plan_set;
+    }
+  }
+  return draft;
+}
+
 export function getDeducedPlanCandidates(sources: readonly TakeoffPreparationSource[]) {
-  const plans = sources.filter((source) => source.kind === "plan");
+  const plans = sources.filter((source) => source.kind === "plan" && source.selected_in_plan_set === undefined);
   const included = new Set(plans.filter((source) => source.active).map((source) => source.document_id));
   let previousSize = -1;
   while (previousSize !== included.size) {

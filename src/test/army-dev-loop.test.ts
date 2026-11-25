@@ -422,11 +422,13 @@ describe("TesterArmy dev loop", () => {
         write(loop.checkout, "e2e/army/local/new.e2e.ts", "export {};\n");
         const [journeyOnly] = await loop.results("HUB03");
         expect(journeyOnly).toMatchObject({ status: "passed", rebuilt: false });
-        const manifest = JSON.parse(fs.readFileSync(path.join(loop.checkout, String(journeyOnly.evidence)), "utf8")) as { source: unknown };
+        const manifest = JSON.parse(fs.readFileSync(path.join(loop.checkout, String(journeyOnly.evidence)), "utf8")) as { source: unknown; database: object };
         expect(manifest.source).toMatchObject({
           revision: git(loop.checkout, "rev-parse", "HEAD"),
           untrackedJourneyInputs: [expect.objectContaining({ path: "e2e/army/local/new.e2e.ts" })],
         });
+        // The checks the iteration relies on, run once at loop start; no database snapshot is restored, so none is named.
+        expect(Object.keys(manifest.database).sort()).toEqual(["checks", "stackInputsSha256"]);
         expect(loop.journeys).toEqual(["HUB03"]);
       } finally {
         loop.controller.abort("SIGTERM");

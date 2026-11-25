@@ -54,7 +54,7 @@ function fakeOpenAi(routes: (key: string, path: string, body: Record<string, unk
   return { fetch, sent };
 }
 
-const listed = (ids = ["gpt-6.1-terra", "gpt-6.1-sol", "gpt-4o-mini"]) =>
+const listed = (ids = ["gpt-6.1-terra", "gpt-6.1-sol", "gpt-6.2-sol", "gpt-4o-mini"]) =>
   Response.json({ object: "list", data: ids.map((id) => ({ id, object: "model", created: 1, owned_by: "openai" })) }, { headers: { "x-request-id": "req_list" } });
 const counted = (inputTokens: number) => Response.json({ object: "response.input_tokens", input_tokens: inputTokens });
 const providerError = (status: number, error: { type?: string; code?: string | null; message?: string }, headers: Record<string, string> = {}) =>
@@ -140,7 +140,7 @@ describe("add and verify a key", () => {
       provider: "openai", place: "local", placeLabel: "Sur ce Mac", suffix: key.slice(-4), verification: "models_listed", version: 1,
       savedAt: NOW.toISOString(), lastTest: null, lastUsedAt: null } } });
     // The offer: qualified and listed; a listed model this code does not price is never offered.
-    expect(result.outcome === "saved" && result.models.map((model) => [model.id, model.verified])).toEqual([["gpt-6.1-terra", true], ["gpt-6.1-sol", true]]);
+    expect(result.outcome === "saved" && result.models.map((model) => [model.id, model.verified])).toEqual([["gpt-6.1-terra", true], ["gpt-6.2-sol", true]]);
     expect(keysIn(keychain)).toEqual([[itemName(1), key]]);
     expect(await metadata()).toMatchObject({ next_version: 2, pending: [], retired: [] });
   });
@@ -152,7 +152,7 @@ describe("add and verify a key", () => {
     const reads = keychain.state.reads;
     const sent = openai.sent.length;
     const state = await service.state(OWNER);
-    expect(state.status === "saved" && state.connection.offeredModels.map((model) => model.id)).toEqual(["gpt-6.1-terra", "gpt-6.1-sol"]);
+    expect(state.status === "saved" && state.connection.offeredModels.map((model) => model.id)).toEqual(["gpt-6.1-terra", "gpt-6.2-sol"]);
     expect([keychain.state.reads, openai.sent.length]).toEqual([reads, sent]);
   });
 
@@ -207,12 +207,12 @@ describe("add and verify a key", () => {
       const { service, keychain } = access(openai.fetch);
       const first = await service.save(OWNER, { key });
       expect(first).toEqual({ outcome: "needs_model_test", models: [
-        ...["gpt-6.1-terra", "gpt-6.1-sol", "gpt-6.2-astra", "gpt-6.2-sol"].map((id) => expect.objectContaining({ id, verified: false }))] });
+        ...["gpt-6.1-terra", "gpt-6.2-astra", "gpt-6.2-sol"].map((id) => expect.objectContaining({ id, verified: false }))] });
       expect(keychain.items.size).toBe(0);
       expect(openai.sent).toHaveLength(1);
-      const second = await service.save(OWNER, { key, testModel: "gpt-6.1-sol" });
+      const second = await service.save(OWNER, { key, testModel: "gpt-6.2-sol" });
       expect(second).toMatchObject({ outcome: "saved", state: { status: "saved", connection: {
-        verification: "model_tested", lastTest: { at: NOW.toISOString(), model: "gpt-6.1-sol" } } } });
+        verification: "model_tested", lastTest: { at: NOW.toISOString(), model: "gpt-6.2-sol" } } } });
       expect(keychain.items.size).toBe(1);
       await rm(directory, { recursive: true, force: true });
     }
@@ -263,9 +263,10 @@ describe("test a model", () => {
     const openai = fakeOpenAi((_key, pathname, body) => pathname === "/v1/models" ? listed() : answered(JSON.stringify({ connexion: "ok" }), { model: String(body?.model) }));
     const { service } = access(openai.fetch);
     await service.save(OWNER, { key: fictionalKey() });
-    await service.test(OWNER, "gpt-6.1-sol");
+    await service.test(OWNER, "gpt-6.2-sol");
     expect(openai.sent.at(-1)!.body).toMatchObject({ reasoning: { effort: "low" } });
     const sent = openai.sent.length;
+    expect((await failure(service.test(OWNER, "gpt-6.1-sol"))).code).toBe("AI_KEY_PRICE_UNKNOWN");
     expect((await failure(service.test(OWNER, "gpt-4o-mini"))).code).toBe("AI_KEY_PRICE_UNKNOWN");
     expect(openai.sent).toHaveLength(sent);
   });
@@ -568,7 +569,7 @@ describe("a structured call for the lab", () => {
     const huge = fakeOpenAi((_key, pathname) => pathname === "/v1/models" ? listed() : pathname === "/v1/responses/input_tokens" ? counted(300_000) : answered("{}"));
     const { service } = access(huge.fetch);
     await service.save(OWNER, { key: fictionalKey() });
-    const refused = await failure(prepareCall(service, { model: "gpt-6.1-sol", reasoningEffort: "max", outputCap: 64_000 }));
+    const refused = await failure(prepareCall(service, { model: "gpt-6.2-sol", reasoningEffort: "max", outputCap: 64_000 }));
     expect(refused.code).toBe("AI_KEY_CEILING");
     expect(refused.message).toMatch(/^Cette analyse pourrait dépasser votre plafond de 1,00 \$ US \(borne prudente : \d+,\d\d \$ US\)\./);
     expect(huge.sent.filter((request) => request.url.endsWith("/v1/responses"))).toEqual([]);
@@ -579,7 +580,7 @@ describe("a structured call for the lab", () => {
     await rm(directory, { recursive: true, force: true });
     await second.service.save(OWNER, { key: fictionalKey() });
     // Sol, 40 000 counted tokens, half the ceiling: 0,20 $ of input (12-hour write rate) leaves 0,30 $, 30 000 output tokens.
-    expect(await prepareCall(second.service, { model: "gpt-6.1-sol", reasoningEffort: "max", outputCap: 64_000, allotmentNanoUsd: 500_000_000 }))
+    expect(await prepareCall(second.service, { model: "gpt-6.2-sol", reasoningEffort: "max", outputCap: 64_000, allotmentNanoUsd: 500_000_000 }))
       .toMatchObject({ maxOutputTokens: 30_000, boundNanoUsd: 500_000_000 });
   });
 
@@ -743,5 +744,46 @@ describe("the key never leaves the adapter", () => {
     ];
     for (const text of seen) expect(text).not.toContain(key);
     expect(seen.join("\n")).not.toContain(key.slice(8, 30));
+  });
+
+  it("aborts an in-flight execute call immediately when the caller's signal aborts", async () => {
+    const controller = new AbortController();
+    let seenSignal: AbortSignal | null | undefined;
+    const openai = fakeOpenAi((_key, pathname) => {
+      if (pathname === "/v1/models") return listed();
+      if (pathname === "/v1/responses/input_tokens") return counted(1_000);
+      return answered(JSON.stringify({ connexion: "ok" }));
+    });
+    const abortableFetch: OpenAiApiKeyDeps["fetch"] = async (input, init) => {
+      if (new URL(input).pathname === "/v1/responses") {
+        seenSignal = init.signal;
+        return new Promise<Response>((_resolve, reject) => {
+          init.signal?.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")));
+          controller.abort();
+        });
+      }
+      return openai.fetch(input, init);
+    };
+    const { service, keychain } = access(abortableFetch);
+    await service.save(OWNER, { key: fictionalKey() });
+    const prepared = await service.prepare(OWNER, {
+      expectedVersion: 1, model: "gpt-6.1-terra", reasoningEffort: null, prompt: "p",
+      schema: z.object({ connexion: z.string() }), files: [], allotmentNanoUsd: 1_000_000_000, outputCap: 32_000, minOutputTokens: 1_000,
+      signal: controller.signal,
+    });
+    await expect(service.execute(OWNER, prepared, { timeoutMs: 30_000, signal: controller.signal }))
+      .rejects.toMatchObject({ name: "AbortError" });
+    expect(seenSignal?.aborted).toBe(true);
+    expect((await service.state(OWNER))).toMatchObject({ status: "saved", connection: { lastUsedAt: expect.any(String) } });
+
+    const preAborted = new AbortController();
+    preAborted.abort();
+    const readSpy = vi.spyOn(keychain.store, "read");
+    await expect(service.prepare(OWNER, {
+      expectedVersion: 1, model: "gpt-6.1-terra", reasoningEffort: null, prompt: "p",
+      schema: z.object({ connexion: z.string() }), files: [], allotmentNanoUsd: 1_000_000_000, outputCap: 32_000, minOutputTokens: 1_000,
+      signal: preAborted.signal,
+    })).rejects.toMatchObject({ name: "AbortError" });
+    expect(readSpy).not.toHaveBeenCalled();
   });
 });

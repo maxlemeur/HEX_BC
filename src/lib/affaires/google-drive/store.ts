@@ -2,7 +2,8 @@ import "server-only";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import type { AffaireAccess } from "@/lib/affaires/access-server";
-import { createEmptyAffaireIntakeExtractedMetadata } from "@/lib/affaires/intake";
+import { intakeCurrentBriefActive, readIntakeBriefState } from "@/lib/affaires/intake-current-brief-server";
+import { AFFAIRE_INTAKE_REANALYSIS_PENDING_ISSUE, createEmptyAffaireIntakeExtractedMetadata, isAffaireIntakeAnalysisStale, isAffaireIntakeReanalysisPending } from "@/lib/affaires/intake";
 import { readAllRows } from "@/lib/supabase/read-all";
 import { driveFileUrl, driveFolderUrl, type DriveFile, type DriveFolderLink, type DriveLinkResult,
   type DriveLinkedFile, type DriveProvenance } from "./contracts";
@@ -76,10 +77,23 @@ export async function removeDriveFolderLink(access: Access) {
  * once they are clearly stale. Opening the Drive panel or linking files runs it.
  */
 export async function resumeStaleDriveLots(access: Access) {
-  const { data } = await database(access).from("affaire_intake_uploads").update({ status: "queued", last_error: null })
-    .eq("tenant_id", access.context.tenantId).eq("project_id", access.project.id).eq("status", "failed")
-    .eq("last_error", RECORDING).lt("created_at", new Date(Date.now() - 120_000).toISOString()).select("id");
-  return ((data ?? []) as Array<{ id: string }>).map((row) => row.id);
+  const cutoff = new Date(Date.now() - 120_000).toISOString();
+  const stale = (update?: { status: string; last_error: string | null; completed_at?: string }) => {
+    const table = access.context.supabase.from("affaire_intake_uploads");
+    const query = update ? table.update(update).select("id") : table.select("id");
+    return query.eq("tenant_id", access.context.tenantId).eq("project_id", access.project.id)
+      .eq("status", "failed").eq("last_error", RECORDING).is("completed_at", null).lt("created_at", cutoff);
+  };
+  const candidate = await stale().limit(1);
+  if (candidate.error) throw internalError("Impossible de vérifier les enregistrements Drive interrompus.");
+  if (!candidate.data.length) return [];
+  const enrolled = await intakeCurrentBriefActive(access.context.supabase) && await readIntakeBriefState(access.project.id) !== "legacy";
+  const values = enrolled
+    ? { status: "failed", last_error: "Enregistrement Drive interrompu. Classez ou relancez les pièces conservées.", completed_at: new Date().toISOString() }
+    : { status: "queued", last_error: null };
+  const { data, error } = await stale(values);
+  if (error) throw internalError("Impossible de reprendre l’enregistrement Drive interrompu.");
+  return enrolled ? [] : data.map(row => row.id);
 }
 
 // A finished lot runs again, with a fresh retry budget: its failed pieces are analysed anew.
@@ -92,6 +106,15 @@ async function rearmFinishedLot(db: Database, tenantId: string, uploadId: string
   return !error && Boolean((data as unknown[] | null)?.length);
 }
 
+type RetryRow = { issues: string[]; updated_at: string };
+
+/** Null means an individual retry still owns the piece. Remove only an expired marker. */
+function driveAttachmentValues(row: RetryRow) {
+  if (!isAffaireIntakeReanalysisPending(row)) return {};
+  if (!isAffaireIntakeAnalysisStale({ issues: row.issues, classificationUpdatedAt: row.updated_at })) return null;
+  return { issues: row.issues.filter(issue => issue !== AFFAIRE_INTAKE_REANALYSIS_PENDING_ISSUE) };
+}
+
 /**
  * Once a member reconnects a Google account, the lots holding pieces linked with it whose
  * analysis failed run again: that failure may be the expired access. Read under the member's RLS.
@@ -99,12 +122,30 @@ async function rearmFinishedLot(db: Database, tenantId: string, uploadId: string
 export async function rearmLotsFailedWithConnection(member: { supabase: unknown; tenantId: string }, connectionId: string) {
   const db = member.supabase as Database;
   // Across every affaire of the account: paged past the API's row cap.
-  const { data, error } = await readAllRows(() => db.from("affaire_intake_documents").select("id,upload_id", { count: "exact" })
+  const { data, error } = await readAllRows(() => db.from("affaire_intake_documents").select("id,upload_id,project_id,issues,updated_at", { count: "exact" })
     .eq("tenant_id", member.tenantId).eq("drive_connection_id", connectionId)
-    .eq("classification_status", "failed").is("deleted_at", null));
-  if (error) return [];
+    .eq("classification_status", "failed").is("analysis_launch_id", null).is("deleted_at", null).is("deletion_token", null)
+    .order("id"));
+  if (error || !data?.length) return [];
+  const active = await intakeCurrentBriefActive(member.supabase as Access["context"]["supabase"]);
+  const lots = new Map<string, string>();
+  for (const piece of data as Array<RetryRow & { id: string; upload_id: string; project_id: string }>) {
+    const values = driveAttachmentValues(piece);
+    if (!values) continue;
+    if (values.issues) {
+      const cleared = await db.from("affaire_intake_documents").update(values)
+        .eq("tenant_id", member.tenantId).eq("project_id", piece.project_id).eq("id", piece.id)
+        .eq("drive_connection_id", connectionId).eq("updated_at", piece.updated_at).eq("classification_status", "failed")
+        .is("analysis_launch_id", null).is("deleted_at", null).is("deletion_token", null).select("id");
+      if (cleared.error || !cleared.data?.length) continue;
+    }
+    lots.set(piece.upload_id, piece.project_id);
+  }
+  const legacy = new Map<string, boolean>();
   const rearmed: string[] = [];
-  for (const uploadId of new Set(((data ?? []) as Array<{ upload_id: string }>).map((row) => row.upload_id))) {
+  for (const [uploadId, projectId] of lots) {
+    if (active && !legacy.has(projectId)) legacy.set(projectId, await readIntakeBriefState(projectId) === "legacy");
+    if (active && !legacy.get(projectId)) continue;
     if (await rearmFinishedLot(db, member.tenantId, uploadId)) rearmed.push(uploadId);
   }
   return rearmed;
@@ -129,16 +170,24 @@ export async function linkDriveFiles(access: Access, input: { connectionId: stri
       continue;
     }
     // Its Google account was removed: the link is attached to the account chosen now.
-    const attached = await database(access).from("affaire_intake_documents").update({ drive_connection_id: input.connectionId })
-      .eq("tenant_id", context.tenantId).eq("project_id", project.id).eq("id", link.documentId)
-      .is("drive_connection_id", null).is("deleted_at", null).select("id,classification_status");
-    const row = attached.error ? undefined : (attached.data as Array<{ classification_status: string }> | null)?.[0];
+    const documents = () => database(access).from("affaire_intake_documents");
+    const current = await documents().select("issues,updated_at").eq("tenant_id", context.tenantId)
+      .eq("project_id", project.id).eq("id", link.documentId).is("drive_connection_id", null)
+      .is("deleted_at", null).is("deletion_token", null).maybeSingle();
+    if (current.error) throw internalError("Impossible de vérifier la disponibilité de ce lien Drive.");
+    const values = current.data && driveAttachmentValues(current.data);
+    const attached = values && await documents().update({ ...values, drive_connection_id: input.connectionId })
+      .eq("tenant_id", context.tenantId).eq("project_id", project.id).eq("id", link.documentId).eq("updated_at", current.data.updated_at)
+      .is("drive_connection_id", null).is("deleted_at", null).is("deletion_token", null).select("id,classification_status,analysis_launch_id");
+    const row = attached?.data?.[0] as { classification_status: string; analysis_launch_id: string | null } | undefined;
     if (!row) {
       results.push({ fileId: file.id, name: file.name, status: "failed", message: "Lien non rattaché à ce compte. Réessayez." });
       continue;
     }
     // Its analysis may have failed for want of that account: it runs again with this one.
-    const retried = row.classification_status === "failed" && (rearmed.has(link.uploadId) || await rearmFinishedLot(database(access), context.tenantId, link.uploadId));
+    const retried = row.classification_status === "failed" && !row.analysis_launch_id &&
+      (!await intakeCurrentBriefActive(context.supabase) || await readIntakeBriefState(project.id) === "legacy") &&
+      (rearmed.has(link.uploadId) || await rearmFinishedLot(database(access), context.tenantId, link.uploadId));
     if (retried) rearmed.add(link.uploadId);
     results.push({ fileId: file.id, name: file.name, status: "linked", documentId: link.documentId,
       message: retried ? "Lien rattaché à ce compte Google. Analyse relancée." : "Lien rattaché à ce compte Google." });
@@ -146,18 +195,17 @@ export async function linkDriveFiles(access: Access, input: { connectionId: stri
   const resumed = [...new Set([...rearmed, ...await resumeStaleDriveLots(access)])];
   if (!candidates.length) return { results, uploadId: null, resumed };
   const uploadId = randomUUID();
-  // Not queued yet: a recovery worker must not classify a lot that is still being recorded.
   const upload = await database(access).from("affaire_intake_uploads").insert({ id: uploadId, project_id: project.id,
-    created_by: context.userId, status: "failed", last_error: RECORDING });
+    created_by: context.userId, status: "deposited" });
   if (upload.error) throw internalError("Impossible de préparer les liens Drive.");
   await database(access).from("affaire_intake_events").insert({ upload_id: uploadId, actor_user_id: context.userId,
-    event_type: "upload.created", after_payload: { status: "queued", file_count: candidates.length, drive: { provider: "google_drive" } } });
+    event_type: "upload.created", after_payload: { status: "deposited", file_count: candidates.length, drive: { provider: "google_drive" } } });
   let linked = 0;
   for (const { file, folder } of candidates) {
     const documentId = randomUUID();
     const inserted = await database(access).from("affaire_intake_documents").insert({
       id: documentId, upload_id: uploadId, created_by: context.userId, storage_path: null, file_name: file.name,
-      mime_type: file.mimeType, size_bytes: Number(file.size), upload_status: "uploaded", classification_status: "queued",
+      mime_type: file.mimeType, size_bytes: Number(file.size), upload_status: "uploaded", classification_status: "awaiting_launch",
       document_kind: "a_classer", issues: [], extracted_metadata: createEmptyAffaireIntakeExtractedMetadata(),
       source_provider: "google_drive", drive_connection_id: input.connectionId, drive_file_id: file.id,
       drive_folder_id: folder?.id ?? null, drive_folder_name: folder?.name ?? null,
@@ -174,19 +222,11 @@ export async function linkDriveFiles(access: Access, input: { connectionId: stri
     await database(access).from("affaire_intake_events").insert({ upload_id: uploadId, document_id: documentId, actor_user_id: context.userId,
       event_type: "document.uploaded", after_payload: { drive: { provider: "google_drive", fileId: file.id, revision: file.version ?? null,
         folderId: folder?.id ?? null } } });
-    results.push({ fileId: file.id, name: file.name, status: "linked", message: "Lien enregistré. Analyse en cours.", documentId });
+    results.push({ fileId: file.id, name: file.name, status: "linked", message: "Lien enregistré. En attente de lancement.", documentId });
   }
   if (!linked) {
     await database(access).from("affaire_intake_uploads").delete().eq("tenant_id", context.tenantId).eq("project_id", project.id).eq("id", uploadId);
     return { results, uploadId: null, resumed };
-  }
-  const queued = await database(access).from("affaire_intake_uploads").update({ status: "queued", last_error: null })
-    .eq("tenant_id", context.tenantId).eq("project_id", project.id).eq("id", uploadId);
-  if (queued.error) {
-    // The lot stays "being recorded": opening the Drive panel again later arms it.
-    const message = "Lien enregistré, analyse non lancée. Rouvrez Google Drive dans quelques minutes pour la relancer.";
-    const fresh = new Set(candidates.map(({ file }) => file.id));
-    return { results: results.map((result) => result.status === "linked" && fresh.has(result.fileId) ? { ...result, message } : result), uploadId: null, resumed };
   }
   return { results, uploadId, resumed };
 }

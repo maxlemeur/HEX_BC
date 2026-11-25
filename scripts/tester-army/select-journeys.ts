@@ -43,6 +43,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { CRITICAL_JOURNEY_FILE, FULL_JOURNEY_FILE, FULL_ONLY_JOURNEY_FILE } from "./journey-files.mjs";
+import { durationWarnings } from "./file-durations.ts";
 import { FULL_SELECTION, LOCAL_BUSINESS_SUITE, LOGIN_SETUP, TAKEOFF_JOURNEYS } from "./journey-selections.mjs";
 
 export type ImpactRule = { id: string; note?: string; paths: string[]; journeys: string[] };
@@ -94,10 +95,12 @@ export type ShardDurations = {
    * development server, and the workers of one shard would compile two of them at once on one runner.
    */
   neverTogether?: string[][];
+  /** Journey files that compile a private Next dev server; report any that share a shard. */
+  coldServers?: string[];
   suites: Record<ShardSuite, { maxShards: number; secondsPerShard: number; workers: number }>;
   seconds: Record<string, number>;
 };
-export type PlannedShard = { shard: number; total: number; files: string[]; seconds: number };
+export type PlannedShard = { shard: number; total: number; files: string[]; seconds: number; costSeconds?: number };
 export type ShardPlan = {
   schemaVersion: "army-shard-plan-1";
   suite: ShardSuite;
@@ -108,6 +111,7 @@ export type ShardPlan = {
   workers: number | null;
   durationsSha256: string | null;
   shards: PlannedShard[];
+  warnings?: string[];
   /** Full suite only: its development phase in its own job, on the single shard's stack, or not at all (--grep). */
   development?: "separate" | "in-shard" | "none";
 };
@@ -577,6 +581,12 @@ export function validateShardDurations(durations: ShardDurations, journeys?: rea
     }
   }
   const known = journeys ? new Set(journeys) : undefined;
+  const cold = durations.coldServers ?? [];
+  if (!Array.isArray(cold) || cold.some((file) => typeof file !== "string" || !FULL_JOURNEY_FILE.test(file)) || new Set(cold).size !== cold.length) {
+    problems.push("army-shards.json coldServers must be a list of distinct journey paths.");
+  } else if (known) {
+    for (const file of cold) if (!known.has(file)) problems.push(`army-shards.json coldServers lists ${file}, which no suite runs.`);
+  }
   for (const [file, seconds] of Object.entries(durations.seconds ?? {})) {
     if (!positive(seconds)) problems.push(`army-shards.json times ${file} with ${seconds}, not a positive number of seconds.`);
     if (known && !known.has(file)) problems.push(`army-shards.json times ${file}, which no suite runs.`);
@@ -629,17 +639,14 @@ function usableShardDurations(root: string): { durations: ShardDurations | null;
 }
 
 /**
- * Splits a selection into disjoint shards, each with the login setup, longest
- * measured file first onto the least loaded shard: authenticated journeys
- * first, so that every shard holds one (the runner refuses a run of anonymous
- * journeys only), anonymous ones after. A file is never cut, so an SDK serial
- * group, which lives in one file, stays whole. The files of a neverTogether
+ * Splits a selection into disjoint shards, each with login and an authenticated
+ * journey. Place the longest files first on the least-loaded eligible shard,
+ * authenticated journeys before anonymous ones.
+ * A file is never cut, so an SDK serial group stays whole. The files of a neverTogether
  * group go to different shards: there are at least as many shards as the
  * selection holds files of one group, and a file skips the shards that hold
- * another file of its group. One shard when the measured journeys fit it and
- * no group forbids it; one shard of the runner's own whole suite (files
- * empty) when the list is the whole suite or cannot be used as runner
- * --files. Without usable durations there is no group either: one shard.
+ * another file of its group. A one-shard plan for the whole suite or an unusable
+ * file list delegates the selection to the runner. Unusable durations also give one shard.
  */
 export function planShards(input: {
   suite: ShardSuite;
@@ -655,10 +662,11 @@ export function planShards(input: {
   durationsSha256?: string | null;
 }): ShardPlan {
   const settings = input.durations?.suites?.[input.suite];
-  const plan = (reason: string, shards: string[][], seconds: number[]): ShardPlan => ({
+  const plan = (reason: string, shards: string[][], seconds: number[], costs?: number[]): ShardPlan => ({
     schemaVersion: "army-shard-plan-1", suite: input.suite, reason, files: [...new Set(shards.flat())].sort(),
     workers: settings?.workers ?? null, durationsSha256: input.durationsSha256 ?? null,
-    shards: shards.map((files, index) => ({ shard: index + 1, total: shards.length, files: [...files].sort(), seconds: seconds[index] })),
+    shards: shards.map((files, index) => ({ shard: index + 1, total: shards.length, files: [...files].sort(), seconds: seconds[index],
+      ...(costs && { costSeconds: costs[index] }) })),
   });
   const whole = (why: string) => plan(`one shard, the runner's own whole suite: ${why}`, [[]], [0]);
   const files = [...new Set(input.files)].sort();
@@ -685,25 +693,32 @@ export function planShards(input: {
   const apart = Math.max(1, ...groupSizes.values());
   const measuredCount = Math.max(1, Math.ceil(total / settings.secondsPerShard));
   const count = Math.min(settings.maxShards, Math.max(1, authenticated.length), Math.max(measuredCount, apart));
-  if (count === 1) {
-    const why = `${total} s of measured journeys fit one shard of ${settings.secondsPerShard} s`;
-    return input.wholeSuite ? whole(why) : plan(`one shard: ${why}`, [files], [total]);
-  }
   const longestFirst = (list: string[]) => [...list].sort((a, b) => weight(b) - weight(a) || (a < b ? -1 : a > b ? 1 : 0));
   const bins = Array.from({ length: count }, () => ({ load: 0, files: [input.setup], groups: new Set<number>() }));
   for (const file of [...longestFirst(authenticated), ...longestFirst(business.filter((entry) => anonymous.has(entry)))]) {
     const group = groups.get(file);
-    // The least loaded shard without a file of this file's group; any shard when every one holds one (validateShardDurations).
     const free = bins.filter((bin) => group === undefined || !bin.groups.has(group));
-    let target = (free.length ? free : bins)[0];
-    for (const bin of free.length ? free : bins) if (bin.load < target.load) target = bin;
+    if (!free.length) throw new Error(`No shard can separate ${file} from its neverTogether group.`);
+    let target = free[0];
+    for (const bin of free) if (bin.load < target.load) target = bin;
     target.load += weight(file);
     target.files.push(file);
     if (group !== undefined) target.groups.add(group);
   }
-  return plan(`${count} shards: ${total} s of measured journeys, ${settings.secondsPerShard} s per shard, at most ${settings.maxShards}` +
-    (count > measuredCount ? `, ${apart} journeys that never share a shard` : ""),
-    bins.map((bin) => bin.files), bins.map((bin) => bin.load));
+
+  // Describe the finished layout. Worker count and private servers do not drive placement.
+  const costs = bins.map((bin) => Math.max(bin.load / settings.workers, ...bin.files.filter((file) => file !== input.setup).map(weight)));
+  const reason = `${count} shard(s), ${total} worker-seconds, ${settings.secondsPerShard} s per shard, at most ${settings.maxShards}` +
+    (count > measuredCount ? `, ${apart} journeys that never share a shard` : "") +
+    `, peak cost ${Math.max(...costs)} s = max(largest file, total / workers) per shard`;
+  const result = plan(reason, count === 1 && input.wholeSuite ? [[]] : bins.map((bin) => bin.files), bins.map((bin) => bin.load), costs);
+  const coldServers = new Set(input.durations.coldServers);
+  const warnings = bins.flatMap((bin, index) => {
+    const cold = bin.files.filter((file) => coldServers.has(file)).sort();
+    return cold.length < 2 ? [] : [`⚠ ${input.suite} shard ${index + 1}/${count} shares ${cold.length} cold Next dev servers: ${cold.join(", ")}.`];
+  });
+  if (warnings.length) result.warnings = warnings;
+  return result;
 }
 
 /** One GitHub matrix entry per shard; the files comma-joined (the selector refuses a path with a comma). */
@@ -1080,7 +1095,7 @@ function summary(selection: Selection): string {
 function shardLines(plan: ShardPlan): string[] {
   const lines = [`${plan.shards.length} job(s) à ${plan.workers ?? "?"} worker(s). Motif : ${plan.reason}.`, ""];
   for (const shard of plan.shards) {
-    lines.push(`- shard ${shard.shard}/${shard.total} : ${shard.files.length ? `${shard.files.length} fichiers, ${shard.seconds} s mesurées` : "suite entière du runner"}`);
+    lines.push(`- shard ${shard.shard}/${shard.total} : ${shard.files.length ? `${shard.files.length} fichiers, ${shard.seconds} s cumulées` : "suite entière du runner"}${shard.costSeconds === undefined ? "" : `, coût estimé ${shard.costSeconds} s`}`);
   }
   return [...lines, ""];
 }
@@ -1091,8 +1106,13 @@ function option(args: string[], name: string): string | undefined {
 }
 
 /** Writes the JSON report, the GitHub outputs and the job summary; a path that could split or inject an output is refused. */
-function publish(args: string[], result: unknown, files: string[], outputs: string, markdown: string) {
+function publish(args: string[], result: Selection | ShardPlan, files: string[], outputs: string, markdown: string) {
   if (files.some((file) => /[\r\n,]/u.test(file))) throw new Error("A selected journey path contains a comma or a line break.");
+  const warnings = durationWarnings(usableShardDurations(process.cwd()).durations?.seconds ?? {});
+  const plans = result.schemaVersion === "army-shard-plan-1" ? [result] : [result.shards, result.takeoffShards];
+  for (const plan of plans) warnings.push(...plan.warnings ?? []);
+  for (const warning of warnings) console.error(warning);
+  if (warnings.length) markdown += `\n${warnings.join("\n\n")}\n`;
   const json = `${JSON.stringify(result, null, 2)}\n`;
   const report = option(args, "--report");
   if (report) {

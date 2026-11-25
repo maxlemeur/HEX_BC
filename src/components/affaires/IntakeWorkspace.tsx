@@ -12,6 +12,7 @@ import {
   AFFAIRE_INTAKE_BRIEF_BLOCK_LABELS,
   AFFAIRE_INTAKE_DOCUMENT_KIND_LABELS,
   isAffaireIntakeDocumentNeedingReview,
+  isAffaireIntakeDocumentAwaitingLaunch,
   isAffaireIntakeDocumentProcessing,
 } from "@/lib/affaires/intake";
 import { Badge } from "@/components/ui/badge";
@@ -271,12 +272,13 @@ export function IntakeWorkspace({
 
   const documents = useMemo(() => workspace?.documents ?? [], [workspace?.documents]);
   const needsReviewCount = documents.filter(isAffaireIntakeDocumentNeedingReview).length;
+  const waitingCount = documents.filter(isAffaireIntakeDocumentAwaitingLaunch).length;
   const processingCount = documents.filter(isAffaireIntakeDocumentProcessing).length;
   const hasDocuments = documents.length > 0;
 
   const reviewDocs = useMemo(() => documents.filter(isAffaireIntakeDocumentNeedingReview), [documents]);
   const classifiedDocs = useMemo(
-    () => documents.filter((d) => !isAffaireIntakeDocumentProcessing(d) && !isAffaireIntakeDocumentNeedingReview(d)),
+    () => documents.filter((d) => !isAffaireIntakeDocumentAwaitingLaunch(d) && !isAffaireIntakeDocumentProcessing(d) && !isAffaireIntakeDocumentNeedingReview(d)),
     [documents]
   );
   const classifiedCount = classifiedDocs.length;
@@ -314,7 +316,7 @@ export function IntakeWorkspace({
     };
   }, [documents.length, classifiedCount, needsReviewCount, processingCount]);
 
-  const triageComplete = hasDocuments && processingCount === 0 && needsReviewCount === 0 && !hasCriticalMissing;
+  const triageComplete = hasDocuments && waitingCount === 0 && processingCount === 0 && needsReviewCount === 0 && !hasCriticalMissing;
 
   const toggleFilter = useCallback(() => {
     const params = new URLSearchParams(searchParams.toString());
@@ -337,9 +339,10 @@ export function IntakeWorkspace({
     const parts: string[] = [];
     if (classifiedCount > 0) parts.push(`${classifiedCount} valide${classifiedCount > 1 ? "s" : ""}`);
     if (needsReviewCount > 0) parts.push(`${needsReviewCount} à confirmer`);
+    if (waitingCount > 0) parts.push(`${waitingCount} en attente de lancement`);
     if (processingCount > 0) parts.push(`${processingCount} en cours`);
     return parts.join(", ");
-  }, [classifiedCount, needsReviewCount, processingCount]);
+  }, [classifiedCount, needsReviewCount, processingCount, waitingCount]);
 
   const shouldRenderEntryShell = entryMode && !hasDocuments;
   // Same condition as the flow panel's empty upload card, which then offers Google Drive itself.

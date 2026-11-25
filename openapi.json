@@ -690,7 +690,7 @@
           "Affaires"
         ],
         "summary": "Lire le dossier de l'affaire",
-        "description": "Lecture privée sans cache du dossier de l'affaire accessible (pièces, pièces manquantes, brief), telle que la page de l'affaire la rend. La page la relit pendant l'ajout et l'analyse des pièces au lieu de rafraîchir son routeur. Avec plans=1, la réponse ajoute le résumé des plans et métrés quand le module est actif pour le tenant (null sinon) ; elle l'omet quand il n'a pas pu être lu.",
+        "description": "Lecture privée sans cache des pièces, des manques et du brief. Les pièces en attente portent le statut awaiting_launch. launchRunning indique une analyse explicite en cours et briefPreparationDue permet de lancer la préparation du brief seul. Après activation, briefOutdated indique une publication périmée, launchConnectionUnavailable une interruption faute de connexion et historicalRetryAvailable sur une pièce indique une relance historique possible. La page la relit pendant l'ajout et l'analyse des pièces au lieu de rafraîchir son routeur. Avec plans=1, la réponse ajoute le résumé des plans et métrés quand le module est actif pour le tenant (null sinon) ; elle l'omet quand il n'a pas pu être lu.",
         "parameters": [
           {
             "name": "projectId",
@@ -791,7 +791,7 @@
           "Affaires"
         ],
         "summary": "Deposer les fichiers d'intake d'une affaire",
-        "description": "Accepte un lot multipart et conserve les originaux, y compris DWG/DXF/RVT/IFC/FCStd (50 Mo par fichier). Les originaux CAO/BIM nécessitent un export pour l’aperçu et le métré ; les autres pièces sont traitées de façon asynchrone.",
+        "description": "Accepte un lot multipart et conserve les originaux, y compris DWG/DXF/RVT/IFC/FCStd (50 Mo par fichier). Les pièces déposées attendent qu’un membre de l’affaire appuie sur « Lancer l’analyse ». Les originaux CAO/BIM nécessitent un export pour l’aperçu et le métré.",
         "parameters": [
           {
             "name": "projectId",
@@ -2489,7 +2489,7 @@
           "Demandes de matériel"
         ],
         "summary": "Préparer le dépôt d'originaux",
-        "description": "Les photos ne passent pas par l'application : le navigateur les envoie au stockage. Cet appel vérifie ce qui est annoncé (de 1 à 12 images JPEG, PNG ou WebP de 20 Mo au plus, nom et type concordants, 12 originaux conservés par demande), enregistre une ligne invisible par photo et signe un envoi par photo avec la session de l'appelant, sans écrasement possible. Le navigateur envoie ensuite chaque fichier avec uploadToSignedUrl(path, token, fichier) sur le bucket material-requests, puis appelle files/complete. Un seul fichier refusé refuse le lot. Avec quote_id (TI-691), le lot répond à un devis de cette demande encore demandé ou reçu : PDF ou images, 10 fichiers conservés par devis, à part des originaux, listés avec le devis et jamais parmi les originaux ; même chemin de stockage (tenant/affaire/demande/fichier/nom).",
+        "description": "Les originaux ne passent pas par l'application : le navigateur les envoie au stockage. Cet appel vérifie ce qui est annoncé (de 1 à 12 fichiers PDF ou images JPEG, PNG ou WebP de 20 Mo au plus, nom et type concordants, 12 originaux conservés par demande), enregistre une ligne invisible par fichier et signe un envoi par fichier avec la session de l'appelant, sans écrasement possible. Le navigateur envoie ensuite chaque fichier avec uploadToSignedUrl(path, token, fichier) sur le bucket material-requests, puis appelle files/complete. Un seul fichier refusé refuse le lot. Avec quote_id (TI-691), le lot répond à un devis de cette demande encore demandé ou reçu : PDF ou images, 10 fichiers conservés par devis, à part des originaux, listés avec le devis et jamais parmi les originaux ; même chemin de stockage (tenant/affaire/demande/fichier/nom).",
         "parameters": [
           {
             "name": "projectId",
@@ -2621,7 +2621,7 @@
           "Demandes de matériel"
         ],
         "summary": "Lire un original ou le fichier d'un devis",
-        "description": "Octets de l'image, ou du PDF d'un devis, servis par l'application à qui peut lire l'affaire : aucune URL signée. Réponse privée, non stockable, sans détection de type, avec le type vérifié au dépôt. Une image est servie inline ; le PDF d'un devis, document d'un fournisseur, l'est en pièce jointe (Content-Disposition: attachment), jamais affiché dans l'origine de l'application. Un fichier dont les octets ne sont pas conservés répond 404.",
+        "description": "Octets d'un original (image ou PDF) ou d'un fichier de devis, servis par l'application à qui peut lire l'affaire : aucune URL signée. Réponse privée, non stockable, sans détection de type, avec le type vérifié au dépôt. Une image est servie inline ; un PDF l'est en pièce jointe (Content-Disposition: attachment), jamais affiché directement dans l'origine de l'application. Un fichier dont les octets ne sont pas conservés répond 404.",
         "parameters": [
           {
             "name": "projectId",
@@ -2748,7 +2748,7 @@
           "Demandes de matériel"
         ],
         "summary": "Tourner un original",
-        "description": "Rotation d'affichage par quarts de tour ; les octets conservés ne changent pas. Le fichier d'un devis retenu ou clos ne tourne plus.",
+        "description": "Rotation d'affichage par quarts de tour pour une image ; les octets conservés ne changent pas. Un PDF ne se tourne pas (400). Le fichier d'un devis retenu ou clos ne tourne plus.",
         "parameters": [
           {
             "name": "projectId",
@@ -2801,11 +2801,11 @@
             }
           },
           "400": {
-            "description": "Requete invalide ou payload non conforme.",
+            "description": "BAD_REQUEST : un PDF ne se tourne pas.",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ApiFailureResponse"
+                  "$ref": "#/components/schemas/ApiMaterialRequestError"
                 }
               }
             }
@@ -2977,7 +2977,7 @@
           "Demandes de matériel"
         ],
         "summary": "Lire un original avec l'IA",
-        "description": "Fait lire une photo de la demande par un modèle de vision, avec le forfait ChatGPT ou la clé API OpenAI personnelle choisie dans le profil de l'appelant, et répond des lignes en brouillon dans l'ordre de lecture : les mots du technicien (original_text) à côté de ce qui a été lu (quantité, unité, dimension, type, matière, précision, référence, zone). Rien n'est écrit : l'écran ajoute ces lignes par POST lines ou lines/replace, et le bureau relit chaque ligne face à la photo. Un champ qui n'est pas écrit sur la photo reste absent ; une quantité raturée ou arrondie est marquée quantity_doubtful. Une photo par appel, de 15 Mo au plus ; la rotation d'affichage de la photo est indiquée au modèle, ses octets partent tels quels. Seuls les originaux de la demande se lisent : le fichier d'un devis, une photo dont le dépôt n'a pas abouti ou en cours de suppression répondent 404. Une photo sans article répond lines vide.",
+        "description": "Fait lire un original de la demande (photo ou PDF) par un modèle de vision, avec le forfait ChatGPT ou la clé API OpenAI personnelle choisie dans le profil de l'appelant, et répond des lignes en brouillon dans l'ordre de lecture : les mots du technicien (original_text) à côté de ce qui a été lu (quantité, unité, dimension, type, matière, précision, référence, zone). Rien n'est écrit : l'écran ajoute ces lignes par POST lines ou lines/replace, et le bureau relit chaque ligne face à l'original. Un champ qui n'est pas écrit reste absent ; une quantité raturée ou arrondie est marquée quantity_doubtful. Un original par appel, de 15 Mo au plus ; la rotation d'affichage d'une photo est indiquée au modèle, ses octets partent tels quels. L'annulation de la requête HTTP interrompt l'appel fournisseur. Seuls les originaux de la demande se lisent : le fichier d'un devis, un original dont le dépôt n'a pas abouti ou en cours de suppression répondent 404. Un original sans article répond lines vide.",
         "parameters": [
           {
             "name": "projectId",
@@ -3080,7 +3080,17 @@
             }
           },
           "413": {
-            "description": "MATERIAL_REQUEST_PHOTO_TOO_LARGE : la photo est trop lourde pour être envoyée au modèle.",
+            "description": "MATERIAL_REQUEST_PHOTO_TOO_LARGE : l'original est trop lourd pour être envoyé au modèle.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiMaterialRequestError"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "MATERIAL_REQUEST_PHOTO_UNREADABLE : le PDF ne peut pas être ouvert (verrouillé, endommagé ou vide).",
             "content": {
               "application/json": {
                 "schema": {
@@ -4279,8 +4289,8 @@
         "tags": [
           "Demandes de matériel"
         ],
-        "summary": "Redécouper le message : remplacer les lignes en brouillon",
-        "description": "Remplace toutes les lignes de la demande, que l'écran nomme dans replaced_ids, par les lignes lues à nouveau dans le message, en brouillon à partir de la position 1 ; la réponse donne toutes les lignes de la demande ensuite. Refusé sans rien écrire si les lignes ne sont plus celles nommées (une autre session en a ajouté ou supprimé), ou si l'une est validée, chiffrée par un devis retenu ou demandée dans un devis. Deux écritures : la suppression des brouillons, puis l'ajout ; si l'ajout échoue, la demande reste sans ligne avec son message, qui se redécoupe. 300 lignes au plus de part et d'autre.",
+        "summary": "Remplacer les lignes en brouillon",
+        "description": "Remplace toutes les lignes de la demande, que l'écran nomme dans replaced_ids, par les lignes issues d'un nouveau découpage du message ou d'une lecture IA des originaux, en brouillon à partir de la position 1 ; la réponse donne toutes les lignes de la demande ensuite. Refusé sans rien écrire si les lignes ne sont plus celles nommées (une autre session en a ajouté ou supprimé), ou si l'une est validée, chiffrée par un devis retenu ou demandée dans un devis. Deux écritures : la suppression des brouillons, puis l'ajout ; si l'ajout échoue, la demande reste sans ligne avec ses originaux et son message. 300 lignes au plus de part et d'autre.",
         "parameters": [
           {
             "name": "projectId",
@@ -7110,6 +7120,199 @@
         }
       }
     },
+    "/api/affaires/{projectId}/takeoff/items/finds": {
+      "get": {
+        "tags": [
+          "Takeoff"
+        ],
+        "summary": "Consulter les ouvrages vus hors liste",
+        "description": "Sources lisibles par le membre, décisions et faits de la lecture.",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "description": "Identifiant UUID de l'affaire.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/GetTakeoffUnlistedFindsProjectIdParameter"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Ouvrages et décisions visibles.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TakeoffUnlistedFinds"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requete invalide ou payload non conforme.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentification requise.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Acces interdit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Ressource introuvable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflit metier ou de concurrence.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Erreur interne serveur.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Takeoff"
+        ],
+        "summary": "Ajouter ou écarter des ouvrages hors liste, ou annuler une mise à l’écart",
+        "description": "Le membre et l’entreprise viennent de la session. Écriture réservée aux éditeurs de la liste.",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "description": "Identifiant UUID de l'affaire.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/DecideTakeoffUnlistedFindsProjectIdParameter"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "Ouvrage publié et décision du membre.",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DecideTakeoffUnlistedFindsRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Décision enregistrée.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TakeoffFindReceipt"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requete invalide ou payload non conforme.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentification requise.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Acces interdit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Ressource introuvable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflit metier ou de concurrence.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Erreur interne serveur.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/affaires/{projectId}/takeoff/items/remeasure": {
       "get": {
         "tags": [
@@ -7601,6 +7804,98 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ApiTakeoffItemSelectionResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Requete invalide ou payload non conforme.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentification requise.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Acces interdit.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Ressource introuvable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflit metier ou de concurrence.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Erreur interne serveur.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailureResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/affaires/analysis-progress": {
+      "get": {
+        "tags": [
+          "Affaires"
+        ],
+        "summary": "Suivre les analyses des affaires accessibles",
+        "description": "Lecture privée sans cache des analyses du dossier et du métré dans le tenant actif. Page bornée des analyses en cours ou en attente et des fins des dernières 24 heures. Le suivi global découvre les jobs de métré autonomes pendant sept jours à partir de leur dernière mise à jour ou de la fin de leur dernière tentative quand une reprise est planifiée. Le navigateur acquitte les seules fins effectivement affichées, par leurs identifiants opaques.",
+        "parameters": [
+          {
+            "name": "cursor",
+            "in": "query",
+            "description": "Curseur opaque nextCursor d’une réponse précédente du suivi.",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/ReadAffaireAnalysisProgressCursorParameter"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Suivi des analyses des affaires accessibles.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AffaireAnalysisProgressResponse"
                 }
               }
             }
@@ -9113,7 +9408,7 @@
           "Catalogue"
         ],
         "summary": "Reprendre les références fournisseur du classeur de chiffrage",
-        "description": "Aperçu en lecture seule avec confirm=false. La confirmation exige l’empreinte de cet aperçu. La reprise rattache les références aux articles actifs modifiables et aux fournisseurs actifs identifiés sans ambiguïté dans l’entreprise sélectionnée. Le lot crée des liaisons inactives, à vérifier. Le rapport donne les lignes à examiner et leur motif. Les liaisons existantes et les prix sont conservés.",
+        "description": "Aperçu en lecture seule avec confirm=false. La confirmation exige l’empreinte de cet aperçu. La reprise rattache les références aux articles actifs modifiables et aux fournisseurs actifs identifiés sans ambiguïté dans l’entreprise sélectionnée. Le lot crée des liaisons inactives, à vérifier. L’aperçu donne une cellule source par référence proposée. Le rapport donne les lignes à examiner et leur motif, dont les sources de prix écartées des références à reprendre. Les liaisons existantes et les prix sont conservés.",
         "requestBody": {
           "description": "Lignes de l’onglet All_data et empreinte de l’aperçu à la confirmation.",
           "required": true,
@@ -27380,6 +27675,15 @@
             "required": false,
             "schema": {
               "$ref": "#/components/schemas/GetTakeoffActivityCenterJobIdParameter"
+            }
+          },
+          {
+            "name": "view",
+            "in": "query",
+            "description": "Ajoute les fichiers et pages visibles et replie les tentatives closes du même périmètre avant la pagination. Les compteurs et les fins gardent leur portée.",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/GetTakeoffActivityCenterViewParameter"
             }
           },
           {
@@ -49145,6 +49449,68 @@
                                         ],
                                         "description": "Valeur candidate d’une réponse incertaine : jamais une quantité mesurée."
                                       },
+                                      "uncertainty": {
+                                        "description": "Couverture du candidat et motifs de l’incertitude, avec leur page quand elle est connue.",
+                                        "type": "object",
+                                        "properties": {
+                                          "partial": {
+                                            "type": "boolean"
+                                          },
+                                          "planUnavailable": {
+                                            "type": "boolean",
+                                            "const": true
+                                          },
+                                          "reasons": {
+                                            "type": "array",
+                                            "items": {
+                                              "type": "object",
+                                              "properties": {
+                                                "code": {
+                                                  "type": "string",
+                                                  "maxLength": 64
+                                                },
+                                                "by": {
+                                                  "type": "string",
+                                                  "enum": [
+                                                    "model",
+                                                    "worker"
+                                                  ]
+                                                },
+                                                "text": {
+                                                  "type": [
+                                                    "string",
+                                                    "null"
+                                                  ]
+                                                },
+                                                "page": {
+                                                  "anyOf": [
+                                                    {
+                                                      "type": "integer",
+                                                      "exclusiveMinimum": 0,
+                                                      "maximum": 9007199254740991
+                                                    },
+                                                    {
+                                                      "type": "null"
+                                                    }
+                                                  ]
+                                                }
+                                              },
+                                              "required": [
+                                                "code",
+                                                "by",
+                                                "text",
+                                                "page"
+                                              ],
+                                              "additionalProperties": false
+                                            }
+                                          }
+                                        },
+                                        "required": [
+                                          "partial",
+                                          "reasons"
+                                        ],
+                                        "additionalProperties": false
+                                      },
                                       "anomalies": {
                                         "type": "array",
                                         "items": {
@@ -50713,6 +51079,68 @@
                                   ],
                                   "description": "Valeur candidate d’une réponse incertaine : jamais une quantité mesurée."
                                 },
+                                "uncertainty": {
+                                  "description": "Couverture du candidat et motifs de l’incertitude, avec leur page quand elle est connue.",
+                                  "type": "object",
+                                  "properties": {
+                                    "partial": {
+                                      "type": "boolean"
+                                    },
+                                    "planUnavailable": {
+                                      "type": "boolean",
+                                      "const": true
+                                    },
+                                    "reasons": {
+                                      "type": "array",
+                                      "items": {
+                                        "type": "object",
+                                        "properties": {
+                                          "code": {
+                                            "type": "string",
+                                            "maxLength": 64
+                                          },
+                                          "by": {
+                                            "type": "string",
+                                            "enum": [
+                                              "model",
+                                              "worker"
+                                            ]
+                                          },
+                                          "text": {
+                                            "type": [
+                                              "string",
+                                              "null"
+                                            ]
+                                          },
+                                          "page": {
+                                            "anyOf": [
+                                              {
+                                                "type": "integer",
+                                                "exclusiveMinimum": 0,
+                                                "maximum": 9007199254740991
+                                              },
+                                              {
+                                                "type": "null"
+                                              }
+                                            ]
+                                          }
+                                        },
+                                        "required": [
+                                          "code",
+                                          "by",
+                                          "text",
+                                          "page"
+                                        ],
+                                        "additionalProperties": false
+                                      }
+                                    }
+                                  },
+                                  "required": [
+                                    "partial",
+                                    "reasons"
+                                  ],
+                                  "additionalProperties": false
+                                },
                                 "anomalies": {
                                   "type": "array",
                                   "items": {
@@ -51716,6 +52144,532 @@
         ],
         "additionalProperties": false
       },
+      "GetTakeoffUnlistedFindsProjectIdParameter": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      },
+      "TakeoffUnlistedFinds": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "canWrite": {
+                "type": "boolean"
+              },
+              "revisionId": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "revision": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "originLine": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "sections": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "itemId": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "name": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "itemId",
+                    "name"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "finds": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "jobId": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "index": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "planKey": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "fileId": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "documentId": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "planName": {
+                      "type": "string"
+                    },
+                    "page": {
+                      "type": "integer",
+                      "exclusiveMinimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "designation": {
+                      "type": "string"
+                    },
+                    "evidence": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "jobId",
+                    "index",
+                    "planKey",
+                    "fileId",
+                    "documentId",
+                    "planName",
+                    "page",
+                    "designation",
+                    "evidence"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "decisions": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "jobId": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "index": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "planKey": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "fileId": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "documentId": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "planName": {
+                      "type": "string"
+                    },
+                    "page": {
+                      "type": "integer",
+                      "exclusiveMinimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "designation": {
+                      "type": "string"
+                    },
+                    "evidence": {
+                      "type": "string"
+                    },
+                    "id": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "itemId": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "author": {
+                      "type": "string"
+                    },
+                    "date": {
+                      "type": "string"
+                    },
+                    "reason": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "enum": [
+                            "outside_scope",
+                            "retained_existing",
+                            "already_counted",
+                            "other"
+                          ]
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "jobId",
+                    "index",
+                    "planKey",
+                    "fileId",
+                    "documentId",
+                    "planName",
+                    "page",
+                    "designation",
+                    "evidence",
+                    "id",
+                    "itemId",
+                    "author",
+                    "date",
+                    "reason",
+                    "detail"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "notices": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "planKey": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "planName": {
+                      "type": "string"
+                    },
+                    "total": {
+                      "type": "number"
+                    },
+                    "missing": {
+                      "type": "number"
+                    },
+                    "outside": {
+                      "type": "number"
+                    },
+                    "truncated": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "planKey",
+                    "planName",
+                    "total",
+                    "missing",
+                    "outside",
+                    "truncated"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": [
+              "canWrite",
+              "revisionId",
+              "revision",
+              "originLine",
+              "sections",
+              "finds",
+              "decisions",
+              "notices"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "ok",
+          "data"
+        ],
+        "additionalProperties": false
+      },
+      "DecideTakeoffUnlistedFindsProjectIdParameter": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      },
+      "DecideTakeoffUnlistedFindsRequest": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "add"
+              },
+              "intentKey": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "expectedRevision": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              },
+              "entries": {
+                "minItems": 1,
+                "maxItems": 10000,
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "jobId": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "index": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "label": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 4000
+                    },
+                    "unit": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 32
+                    },
+                    "section": {
+                      "oneOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "kind": {
+                              "type": "string",
+                              "const": "default"
+                            }
+                          },
+                          "required": [
+                            "kind"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "kind": {
+                              "type": "string",
+                              "const": "existing"
+                            },
+                            "itemId": {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                            }
+                          },
+                          "required": [
+                            "kind",
+                            "itemId"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "kind": {
+                              "type": "string",
+                              "const": "new"
+                            },
+                            "title": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 120
+                            }
+                          },
+                          "required": [
+                            "kind",
+                            "title"
+                          ],
+                          "additionalProperties": false
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "jobId",
+                    "index",
+                    "label",
+                    "unit",
+                    "section"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": [
+              "kind",
+              "intentKey",
+              "expectedRevision",
+              "entries"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "jobId": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "index": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "kind": {
+                "type": "string",
+                "const": "dismiss"
+              },
+              "intentKey": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "reason": {
+                "type": "string",
+                "enum": [
+                  "outside_scope",
+                  "retained_existing",
+                  "already_counted",
+                  "other"
+                ]
+              },
+              "detail": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 300
+              }
+            },
+            "required": [
+              "jobId",
+              "index",
+              "kind",
+              "intentKey",
+              "reason"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "undo"
+              },
+              "decisionId": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              }
+            },
+            "required": [
+              "kind",
+              "decisionId"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "TakeoffFindReceipt": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "itemIds": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                }
+              }
+            },
+            "required": [
+              "itemIds"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "ok",
+          "data"
+        ],
+        "additionalProperties": false
+      },
       "ReadAffaireTakeoffItemMeasureProjectIdParameter": {
         "type": "string",
         "format": "uuid",
@@ -52289,6 +53243,10 @@
             ],
             "additionalProperties": false
           },
+          "from_finds": {
+            "type": "boolean",
+            "const": true
+          },
           "mark_schedule": {
             "type": "object",
             "properties": {
@@ -52772,6 +53730,10 @@
               "page"
             ],
             "additionalProperties": false
+          },
+          "from_finds": {
+            "type": "boolean",
+            "const": true
           }
         },
         "required": [
@@ -54426,6 +55388,152 @@
         ],
         "additionalProperties": false
       },
+      "ReadAffaireAnalysisProgressCursorParameter": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 2048,
+        "pattern": "^[A-Za-z0-9_-]+$"
+      },
+      "AffaireAnalysisProgressResponse": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "viewer": {
+                "type": "object",
+                "properties": {
+                  "tenantId": {
+                    "type": "string"
+                  },
+                  "userId": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "tenantId",
+                  "userId"
+                ],
+                "additionalProperties": false
+              },
+              "observedAt": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+              },
+              "nextCursor": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 2048,
+                    "pattern": "^[A-Za-z0-9_-]+$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "affaires": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "lines": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "dossier",
+                              "takeoff"
+                            ]
+                          },
+                          "state": {
+                            "type": "string",
+                            "enum": [
+                              "reading",
+                              "waiting",
+                              "finished"
+                            ]
+                          },
+                          "status": {
+                            "type": "string"
+                          },
+                          "detail": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "href": {
+                            "type": "string"
+                          },
+                          "updatedAt": {
+                            "type": "string",
+                            "format": "date-time",
+                            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                          },
+                          "completionKeys": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "kind",
+                          "state",
+                          "status",
+                          "detail",
+                          "href",
+                          "updatedAt",
+                          "completionKeys"
+                        ],
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "name",
+                    "lines"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": [
+              "viewer",
+              "observedAt",
+              "nextCursor",
+              "affaires"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "ok",
+          "data"
+        ],
+        "additionalProperties": false
+      },
       "BulkArchiveAffairesRequest": {
         "type": "object",
         "properties": {
@@ -55898,6 +57006,27 @@
                 "minimum": 0,
                 "maximum": 9007199254740991
               },
+              "proposed_articles": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "row": {
+                      "type": "integer",
+                      "exclusiveMinimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "without_supply_type": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "row",
+                    "without_supply_type"
+                  ],
+                  "additionalProperties": false
+                }
+              },
               "already_in_catalogue": {
                 "type": "integer",
                 "minimum": 0,
@@ -56054,6 +57183,37 @@
                   "null"
                 ]
               },
+              "proposed": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "row": {
+                      "type": "integer",
+                      "exclusiveMinimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "slot": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 3
+                    },
+                    "article_reference": {
+                      "type": "string"
+                    },
+                    "supplier_name": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "row",
+                    "slot",
+                    "article_reference",
+                    "supplier_name"
+                  ],
+                  "additionalProperties": false
+                }
+              },
               "for_decision": {
                 "type": "array",
                 "items": {
@@ -56079,6 +57239,7 @@
                         "supplier_not_found",
                         "ambiguous_supplier",
                         "invalid_supplier_sku",
+                        "price_source_reference",
                         "article_locked",
                         "different_existing_reference",
                         "withdrawn_reference",
@@ -97931,6 +99092,10 @@
         "format": "uuid",
         "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
       },
+      "GetTakeoffActivityCenterViewParameter": {
+        "type": "string",
+        "const": "tracking"
+      },
       "GetTakeoffActivityCenterLimitParameter": {
         "type": "number",
         "exclusiveMinimum": 0
@@ -98242,7 +99407,8 @@
                         {
                           "type": "null"
                         }
-                      ]
+                      ],
+                      "description": "Part des lignes liées. Avec view=tracking, seules les lignes importées du DPGF servent au calcul, et null indique leur absence."
                     },
                     "exceptionCount": {
                       "type": "integer",
@@ -98317,6 +99483,71 @@
                         "string",
                         "null"
                       ]
+                    },
+                    "plans": {
+                      "description": "Fichiers et pages du périmètre lu avec view=tracking, selon la visibilité de leurs sources.",
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "name": {
+                            "type": "string"
+                          },
+                          "pages": {
+                            "type": "array",
+                            "items": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0,
+                              "maximum": 9007199254740991
+                            }
+                          }
+                        },
+                        "required": [
+                          "name",
+                          "pages"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "notStarted": {
+                      "type": "boolean"
+                    },
+                    "model": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "reasoningEffort": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "previousAttempts": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "jobId": {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                          },
+                          "createdAt": {
+                            "type": "string"
+                          },
+                          "statusLabel": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "jobId",
+                          "createdAt",
+                          "statusLabel"
+                        ],
+                        "additionalProperties": false
+                      }
                     }
                   },
                   "required": [
@@ -98368,15 +99599,49 @@
                     },
                     "finishedAt": {
                       "type": "string"
+                    },
+                    "failureReason": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "plans": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "name": {
+                            "type": "string"
+                          },
+                          "pages": {
+                            "type": "array",
+                            "items": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0,
+                              "maximum": 9007199254740991
+                            }
+                          }
+                        },
+                        "required": [
+                          "name",
+                          "pages"
+                        ],
+                        "additionalProperties": false
+                      }
                     }
                   },
                   "required": [
                     "eventId",
                     "outcome",
-                    "finishedAt"
+                    "finishedAt",
+                    "failureReason"
                   ],
                   "additionalProperties": false
                 }
+              },
+              "analysisCompletionsHasOlder": {
+                "type": "boolean"
               },
               "pagination": {
                 "type": "object",
@@ -98409,6 +99674,7 @@
               "counters",
               "jobs",
               "analysisCompletions",
+              "analysisCompletionsHasOlder",
               "pagination"
             ],
             "additionalProperties": false
@@ -98839,7 +100105,8 @@
                                 "alternate",
                                 "identical_copy",
                                 "unsupported_format",
-                                "not_requested"
+                                "not_requested",
+                                "not_selected"
                               ]
                             }
                           },
@@ -99520,7 +100787,8 @@
                               "alternate",
                               "identical_copy",
                               "unsupported_format",
-                              "not_requested"
+                              "not_requested",
+                              "not_selected"
                             ]
                           }
                         },

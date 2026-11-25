@@ -63,7 +63,7 @@ export type TakeoffLaunchDecision =
   | { state: "ready" };
 
 const DOSSIER_STATE_REASON: Record<Exclude<AffaireDossierState, "confirmed">, TakeoffLaunchDossierReason> = {
-  empty: "DOSSIER_EMPTY", processing: "DOSSIER_PROCESSING", to_review: "DOSSIER_TO_REVIEW", brief_to_confirm: "BRIEF_NOT_CONFIRMED",
+  awaiting_launch: "BRIEF_NOT_CONFIRMED", empty: "DOSSIER_EMPTY", processing: "DOSSIER_PROCESSING", to_review: "DOSSIER_TO_REVIEW", brief_to_confirm: "BRIEF_NOT_CONFIRMED",
 };
 
 /**
@@ -142,7 +142,7 @@ export type TakeoffLaunchManifest = {
      * a plan an earlier analysis of the affaire read that a member's command did not name (not_requested: that analysis
      * stays; the dossier piece and generation it sealed are kept, so that the dossier's change since is still told).
      */
-    plans_omitted: Array<{ id: string; name: string; reason: "alternate" | "identical_copy" | "unsupported_format" | "not_requested";
+    plans_omitted: Array<{ id: string; name: string; reason: "alternate" | "identical_copy" | "unsupported_format" | "not_requested" | "not_selected";
       intake_document_id?: string | null; generation?: string | null }>;
     /**
      * Retained in the dossier but not attached: no stored copy to read, a stored object that is not this piece's in this
@@ -352,7 +352,7 @@ export type TakeoffRelaunchChoice = {
 };
 
 /** Each plan of the analysis without a working copy, named, with why, in French. */
-function describePlansWithoutCopy(plans: TakeoffRelaunchChoice["withoutCopy"]) {
+export function describePlansWithoutCopy(plans: TakeoffRelaunchChoice["withoutCopy"]) {
   const removed = plans.filter(({ reason }) => reason === "removed").map(({ name }) => `« ${name} »`);
   const missing = plans.filter(({ reason }) => reason === "copy_missing").map(({ name }) => `« ${name} »`);
   return [
@@ -391,10 +391,10 @@ export function describeTakeoffLaunchReason(reason: TakeoffLaunchReason, pieces:
       + `la liste des postes. ${describePosteReadingBounds(readingBounds)}`;
   }
   switch (reason) {
-    case "DOSSIER_EMPTY": return "Ajoutez le dossier de consultation : le métré démarrera quand il sera confirmé.";
-    case "DOSSIER_PROCESSING": return "Classement des documents en cours : le métré démarrera quand le dossier sera confirmé.";
-    case "DOSSIER_TO_REVIEW": return "Des pièces du dossier sont à vérifier : le métré démarrera quand le dossier sera confirmé.";
-    case "BRIEF_NOT_CONFIRMED": return "Confirmez le brief de l’affaire : le métré démarrera quand le dossier sera confirmé.";
+    case "DOSSIER_EMPTY": return "Ajoutez le dossier de consultation pour pouvoir choisir les plans à analyser.";
+    case "DOSSIER_PROCESSING": return "Le classement des documents est en cours. Vous pourrez choisir les plans en confirmant le brief.";
+    case "DOSSIER_TO_REVIEW": return "Vérifiez les pièces du dossier avant de confirmer le brief et de choisir les plans.";
+    case "BRIEF_NOT_CONFIRMED": return "Confirmez le brief de l’affaire. Vous pourrez choisir les plans à analyser.";
     case "NO_EXPLOITABLE_PLAN": return "Dossier confirmé sans plan exploitable : ajoutez un plan PDF pour que le métré démarre.";
     case "PLAN_COPY_MISSING": return `Métré non démarré — copie de travail manquante ou illisible pour ${names || "un plan du dossier"}. Rendez la pièce accessible ou retirez-la du dossier.`;
     case "PREPARATION_NEEDS_REVIEW": return "Métré non démarré — choisissez dans les options du métré la version à retenir des plans concernés.";

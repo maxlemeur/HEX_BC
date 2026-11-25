@@ -9,6 +9,7 @@ import { openAiApiKeyAccess, type ApiKeyStructuredFile } from "@/lib/ai/access/o
 import { formatUsdCeiling } from "@/lib/ai/access/openai-pricing";
 import { assertLocalChatGptHost, isLocalChatGptEnabled } from "@/lib/ai/chatgpt-local-auth";
 import { readLocalChatGptModelOptions } from "@/lib/ai/chatgpt-local-inference";
+import { RETIRED_OPENAI_MODEL } from "@/lib/ai/chatgpt-model-preferences";
 import { callStructuredAi, getStructuredAiAvailability } from "@/lib/ai/structured-ai";
 import { StructuredAiError } from "@/lib/ai/structured-ai-diagnostic";
 import { conflict } from "@/lib/http/api-response";
@@ -88,6 +89,9 @@ export async function prepareMaterialRequestDocumentAnalysis(
   settings: MaterialRequestPhotoAnalysisInput,
 ) {
   const { preferences, billingSource, connectionId } = settings;
+  if (preferences?.model === RETIRED_OPENAI_MODEL) {
+    throw materialRequestAnalysisSettingsUnavailable("Ce modèle n’est plus proposé. Rechargez la demande pour reprendre.");
+  }
   const source = billingSource ?? "chatgpt_plan";
   const availability = await getMaterialRequestPhotoAnalysisAvailability(context, preferences !== undefined, source);
   if (availability.status !== "available") throw materialRequestAnalysisUnavailable(availability.message, availability.status);
@@ -107,20 +111,22 @@ export async function prepareMaterialRequestDocumentAnalysis(
   }
 
   return async <T>({
-    prompt, schema, file, promptVersion, ceiling,
+    prompt, schema, file, promptVersion, ceiling, signal,
   }: {
     prompt: string;
     schema: z.ZodType<T>;
     file: ApiKeyStructuredFile;
     promptVersion: string;
     ceiling: number;
+    signal?: AbortSignal;
   }): Promise<{ data: T; model: string }> => {
+    signal?.throwIfAborted();
     if (apiState?.status === "saved" && preferences) {
       const prepared = await api.prepare(context, {
         ...preferences, expectedVersion: apiState.connection.version, prompt, schema,
-        files: [file], allotmentNanoUsd: ceiling, outputCap: 32_000, minOutputTokens: 4_096,
+        files: [file], allotmentNanoUsd: ceiling, outputCap: 32_000, minOutputTokens: 4_096, signal,
       });
-      const answer = await api.execute<T>(context, prepared, { timeoutMs: MATERIAL_REQUEST_PHOTO_ANALYSIS_TIMEOUT_MS });
+      const answer = await api.execute<T>(context, prepared, { timeoutMs: MATERIAL_REQUEST_PHOTO_ANALYSIS_TIMEOUT_MS, signal });
       if (answer.costNanoUsd === null) throw new ApiKeyError("AI_KEY_COST_UNKNOWN");
       if (answer.costNanoUsd > ceiling) {
         throw new ApiKeyError("AI_KEY_CEILING_EXCEEDED", { detail: { ceiling: formatUsdCeiling(ceiling), cost: formatUsdCeiling(answer.costNanoUsd) } });
@@ -134,6 +140,7 @@ export async function prepareMaterialRequestDocumentAnalysis(
       schema,
       files: [{ ...file, ...(file.mimeType === "application/pdf" ? {} : { detail: "high" as const }) }],
       timeoutMs: MATERIAL_REQUEST_PHOTO_ANALYSIS_TIMEOUT_MS,
+      ...(signal ? { signal } : {}),
       context: { tenantId: context.tenantId, promptVersion },
     }, undefined, preferences);
   };

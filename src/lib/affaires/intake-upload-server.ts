@@ -13,7 +13,6 @@ import {
   buildAffaireIntakeStoragePath,
   createEmptyAffaireIntakeExtractedMetadata,
   inferAffaireIntakeMimeType,
-  type AffaireIntakeUploadStatus,
 } from "@/lib/affaires/intake";
 import { requireAffaireAccess } from "@/lib/affaires/access-server";
 import { isRecord } from "@/lib/value-guards";
@@ -31,7 +30,6 @@ type UploadCreateResponseFile = {
 export type CreateAffaireIntakeUploadResult = {
   uploadId: string;
   files: UploadCreateResponseFile[];
-  shouldProcessAsync: boolean;
 };
 
 function toSafeMimeType(file: File) {
@@ -88,7 +86,7 @@ export async function createAffaireIntakeUpload(
     .insert({
       project_id: project.id,
       created_by: context.userId,
-      status: "queued",
+      status: "deposited",
     } as never)
     .select(UPLOAD_SELECT as never)
     .single();
@@ -117,8 +115,6 @@ export async function createAffaireIntakeUpload(
     },
   });
 
-  let uploadedCount = 0;
-  let duplicateCount = 0;
   const responses: UploadCreateResponseFile[] = [];
 
   for (const file of files) {
@@ -142,7 +138,6 @@ export async function createAffaireIntakeUpload(
 
     const contentSha256 = validation.valid ? await hashIntakeContent(file) : null;
     const rejectDuplicate = (duplicate: { documentId: string; message: string }) => {
-      duplicateCount += 1;
       responses.push({ documentId: duplicate.documentId, fileName: file.name, mimeType, sizeBytes: file.size,
         status: "rejected", rejectionReason: duplicate.message });
     };
@@ -170,7 +165,7 @@ export async function createAffaireIntakeUpload(
           content_sha256: contentSha256,
           upload_status: validation.valid ? "pending" : "rejected",
           rejection_reason: validation.valid ? null : validation.error,
-          classification_status: validation.valid ? "queued" : "failed",
+          classification_status: validation.valid ? "awaiting_launch" : "failed",
           document_kind: "a_classer",
           issues: validation.valid ? [] : [validation.error],
           extracted_metadata: createEmptyAffaireIntakeExtractedMetadata(),
@@ -283,8 +278,6 @@ export async function createAffaireIntakeUpload(
       );
     }
 
-    uploadedCount += 1;
-
     await insertAffaireIntakeEvent({
       supabase: context.supabase,
       uploadId: upload.id,
@@ -308,34 +301,9 @@ export async function createAffaireIntakeUpload(
     });
   }
 
-  const onlyDuplicates = duplicateCount === files.length;
-  const finalUploadStatus: AffaireIntakeUploadStatus =
-    uploadedCount > 0 ? "queued" : onlyDuplicates ? "ready" : "failed";
-
-  const { error: finalizeError } = await resolveSupabaseQuery<{
-    error: unknown;
-  }>(
-    context.supabase
-      .from("affaire_intake_uploads")
-      .update({
-        status: finalUploadStatus,
-        completed_at: uploadedCount > 0 ? null : new Date().toISOString(),
-        last_error: uploadedCount > 0 || onlyDuplicates ? null : "Aucun fichier n'a pu être televerse.",
-      } as never)
-      .eq("id", upload.id)
-  );
-
-  if (finalizeError) {
-    throw internalError(
-      "Impossible de finaliser le statut de l'upload intake.",
-      finalizeError
-    );
-  }
-
   return {
     uploadId: upload.id,
     files: responses,
-    shouldProcessAsync: uploadedCount > 0,
   };
 }
 

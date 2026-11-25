@@ -54,7 +54,7 @@ function readings() {
     fixtureReading(2, RDC, fixtureAnswer("measured", 1, { anomalies: ["hypothesis"] })),
     fixtureReading(2, R1, fixtureAnswer("not_found", null)),
     fixtureReading(3, RDC, fixtureAnswer("not_found", null)), fixtureReading(3, R1, fixtureAnswer("not_found", null)),
-    fixtureReading(4, RDC, fixtureAnswer("uncertain", null, { reasonCode: "diameter_unreadable", reasonText: "Le diamètre n’est pas lisible." })),
+    fixtureReading(4, RDC, fixtureAnswer("uncertain", null, { reasonCode: "QUALIFIER_UNREADABLE", reasonText: "Le diamètre n’est pas lisible." })),
     fixtureReading(4, R1, fixtureAnswer("not_found", null)),
   ];
 }
@@ -536,7 +536,7 @@ describe("TakeoffItemTable", () => {
     expect(within(eu).getByText("+20 %")).toHaveClass("text-warning");
     expect(within(eu).getByText("Écart à la DPGF à vérifier")).toHaveClass("text-warning");
     expect(within(row("Évier")).getByText("Hypothèse")).toHaveClass("text-warning");
-    expect(within(row("Vanne DN32")).getByText("Motif de la lecture")).not.toHaveClass("text-warning");
+    expect(within(row("Vanne DN32")).getByText("Réseau, matière ou diamètre illisible.")).not.toHaveClass("text-warning");
   });
 
   it("asks for a new measure of one item: payer, setting, plans and items shown, then an explicit confirmation", async () => {

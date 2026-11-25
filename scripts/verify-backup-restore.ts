@@ -4,7 +4,7 @@ import { createHash, randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 
-import { resolveNativePostgresTools } from "../src/test/database-snapshot";
+import { resolveNativePostgresTools } from "../src/test/native-database-tools";
 import { parseLocalSupabaseCiArguments, runLocalSupabaseCi } from "../src/test/local-supabase-ci";
 import { createLocalCiEnvironment, type SupabaseEnvironment } from "../src/test/supabase-cli";
 
@@ -226,9 +226,9 @@ raise SystemExit(result.returncode)
 
 Promise.resolve()
   .then(() => runLocalSupabaseCi({ ...parseLocalSupabaseCiArguments(process.argv.slice(2)), runApplication: verify }))
-  .then(({ database }) => {
+  .then(() => {
     assert.deepEqual(sourceEvidence(), source, "Source inputs changed during restore verification");
-    Object.assign(receipt, { status: "passed", finishedAt: new Date().toISOString(), database, cleanup: "completed" });
+    Object.assign(receipt, { status: "passed", finishedAt: new Date().toISOString(), cleanup: "completed" });
     writeReceipt();
   })
   .catch((error: unknown) => {

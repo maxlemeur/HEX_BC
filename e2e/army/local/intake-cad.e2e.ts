@@ -32,6 +32,7 @@ armyTest("CAD01 accepts DWG DXF RVT originals without claiming extraction", {
   const upload = browser.locator('input[type="file"][aria-label="Ajouter des pièces à l\'affaire"]').first();
   await expect(upload).toHaveAttribute("accept", /\.dwg.*\.dxf.*\.rvt/);
   await upload.setInputFiles(files.map(file => path.join(directory, file.name)));
+  await screen.getByRole("button", "Lancer l’analyse", { exact: true }).click();
   const documents = async () => {
     const result = await client.from("affaire_intake_documents")
       .select("id,file_name,mime_type,storage_path,upload_status,classification_status,classification_source,document_kind,issues")
@@ -100,6 +101,7 @@ armyTest("CAD02 reads a DXF of the dossier: layers, quantities and a scaled PDF 
   await expect(screen.getByRole("button", "Annuler", { exact: true })).toBeVisible();
   await screen.getByRole("button", "Annuler", { exact: true }).click();
   await browser.locator('input[type="file"][aria-label="Ajouter des pièces à l\'affaire"]').first().setInputFiles(path.join(directory, fileName));
+  await screen.getByRole("button", "Lancer l’analyse", { exact: true }).click();
   const stored = async (name: string) => {
     const result = await client.from("affaire_intake_documents").select("id,mime_type,storage_path,upload_status")
       .eq("project_id", ids.projectId).eq("file_name", name);
@@ -179,6 +181,7 @@ armyTest("CAD03 converts a DWG of the dossier and reads it: layers, quantities a
   await screen.getByRole("button", "Annuler", { exact: true }).click();
   await browser.locator('input[type="file"][aria-label="Ajouter des pièces à l\'affaire"]').first()
     .setInputFiles([fileName, olderName, oldName].map(name => path.join(directory, name)));
+  await screen.getByRole("button", "Lancer l’analyse", { exact: true }).click();
   const stored = async (name: string) => {
     const result = await client.from("affaire_intake_documents").select("id,mime_type,storage_path,upload_status,issues")
       .eq("project_id", ids.projectId).eq("file_name", name);
@@ -312,6 +315,7 @@ armyTest("CAD04 reads a FreeCAD model of the dossier: objects with their dimensi
   const upload = browser.locator('input[type="file"][aria-label="Ajouter des pièces à l\'affaire"]').first();
   await expect(upload).toHaveAttribute("accept", /\.fcstd/);
   await upload.setInputFiles([fileName, plainName].map(name => path.join(directory, name)));
+  await screen.getByRole("button", "Lancer l’analyse", { exact: true }).click();
   const stored = async (name: string) => {
     const result = await client.from("affaire_intake_documents").select("id,mime_type,storage_path,upload_status,document_kind,issues")
       .eq("project_id", ids.projectId).eq("file_name", name);
@@ -419,6 +423,7 @@ armyTest("CAD05 reads an IFC model of the dossier: 3D view, quantities by class,
   const upload = browser.locator('input[type="file"][aria-label="Ajouter des pièces à l\'affaire"]').first();
   await expect(upload).toHaveAttribute("accept", /\.ifc/);
   await upload.setInputFiles([fileName, olderName].map(name => path.join(directory, name)));
+  await screen.getByRole("button", "Lancer l’analyse", { exact: true }).click();
   const stored = async (name: string) => {
     const result = await client.from("affaire_intake_documents").select("id,mime_type,storage_path,upload_status,document_kind,issues")
       .eq("project_id", ids.projectId).eq("file_name", name);

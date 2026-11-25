@@ -1,6 +1,10 @@
 "use server";
 
+import { after } from "next/server";
+import { intakeCurrentBriefActive } from "@/lib/affaires/intake-current-brief-server";
+import { selectedIntakeConnection } from "@/lib/affaires/intake-payer-server";
 import { revalidatePath } from "next/cache";
+import { briefPlanSelectionSchema } from "@/lib/takeoff/brief-plan-choice";
 import { z } from "zod";
 import { deleteIntakeDocumentCopy } from "@/lib/affaires/intake-document-store";
 import { requireAffaireAccess } from "@/lib/affaires/access-server";
@@ -13,7 +17,7 @@ import {
 } from "@/lib/affaires/intake";
 import {
   confirmAffaireBrief as confirmAffaireBriefServer,
-  readAffaireBriefPayerNotice as readAffaireBriefPayerNoticeServer,
+  readAffaireBriefChoices as readAffaireBriefChoicesServer,
   updateAffaireBrief as updateAffaireBriefServer,
   resolveAffaireBriefPlanGap as resolveAffaireBriefPlanGapServer,
 } from "@/lib/affaires/intake-brief-server";
@@ -22,6 +26,7 @@ import {
   setAffaireDocumentAsPrimary as setAffaireDocumentAsPrimaryServer,
 } from "@/lib/affaires/intake-document-edits-server";
 import {
+  processAffaireIntakeAnalysisLaunch,
   retryAffaireDocumentAnalysis as retryAffaireDocumentAnalysisServer,
 } from "@/lib/affaires/intake-analysis-server";
 
@@ -57,17 +62,47 @@ export type UpdateAffaireBriefInput = z.infer<
 const confirmAffaireBriefInputSchema = z.object({
   projectId: z.string().uuid("projectId invalide."),
   expectedUpdatedAt: z.string().datetime({ offset: true }),
+  plans: briefPlanSelectionSchema,
   /** The digest of the payer notice the confirmation dialog showed, if it showed one. */
-  payerNotice: z.string().regex(/^[0-9a-f]{64}$/, "Mention du forfait invalide.").nullable().optional(),
-});
+  payerNotice: z.string().regex(/^[0-9a-f]{64}$/, "Mention du forfait invalide.").nullable(),
+}).refine((input) => input.plans.length > 0 || input.payerNotice === null, "Aucun forfait pour une confirmation sans analyse.");
 
 export type ConfirmAffaireBriefInput = z.infer<
   typeof confirmAffaireBriefInputSchema
 >;
 
-const readAffaireBriefPayerNoticeInputSchema = z.object({
+const readAffaireBriefChoicesInputSchema = z.object({
   projectId: z.string().uuid("projectId invalide."),
 });
+
+const launchOutcome = z.discriminatedUnion("outcome", [
+  z.object({ outcome: z.literal("launched"), launch_id: z.string().uuid(), piece_count: z.number().int().positive() }),
+  z.object({ outcome: z.literal("brief_only"), launch_id: z.string().uuid(), piece_count: z.literal(0) }),
+  z.object({ outcome: z.literal("already_running"), launch_id: z.string().uuid() }),
+  z.object({ outcome: z.literal("nothing_waiting"), launch_id: z.null() }),
+]);
+
+export async function launchAffaireIntakeAnalysis(projectId: string) {
+  const { context, project } = await requireAffaireAccess(z.string().uuid().parse(projectId), "write");
+  const [active, connection] = await Promise.all([intakeCurrentBriefActive(context.supabase), selectedIntakeConnection(context)]);
+  const available = Boolean(connection);
+  const { data, error } = await context.supabase.rpc("start_affaire_intake_analysis", {
+    p_project_id: project.id, p_read_scans: available,
+    ...(active ? { p_profile_id: connection?.profileId ?? null, p_authorization_id: connection?.authorizationId ?? null } : {}),
+  });
+  if (error) throw new Error("Impossible de réserver les pièces pour l’analyse.", { cause: error });
+  const result = launchOutcome.parse(data?.[0]);
+  if (result.outcome === "nothing_waiting") return { message: "Aucune pièce n’attend son lancement." };
+  if (result.outcome === "already_running") return { message: "Une analyse du dossier est déjà en cours." };
+  after(async () => {
+    try { await processAffaireIntakeAnalysisLaunch(result.launch_id, available ? context : null); }
+    catch { console.error("La reprise du lancement intake est nécessaire.", { launchId: result.launch_id }); }
+  });
+  revalidatePath(`/dashboard/affaires/${project.id}`);
+  return { message: result.outcome === "brief_only" ? "Préparation du brief lancée. Les pièces déjà classées gardent leur classement."
+    : available ? "Analyse lancée. La transcription des images et des PDF scannés utilise votre forfait ChatGPT." :
+    "Votre compte ChatGPT n’est pas connecté ou disponible. Les images et les PDF scannés ne seront pas transcrits. Le classement des pièces et la préparation du brief continuent avec les moyens disponibles." };
+}
 
 export async function reclassifyAffaireDocument(
   input: ReclassifyAffaireDocumentInput
@@ -166,9 +201,9 @@ export async function updateAffaireBrief(input: UpdateAffaireBriefInput) {
 }
 
 /** The payer notice the brief's confirmation dialog shows, read when it opens; it changes nothing. */
-export async function readAffaireBriefPayerNotice(input: { projectId: string }) {
-  const parsed = readAffaireBriefPayerNoticeInputSchema.parse(input);
-  return readAffaireBriefPayerNoticeServer(parsed);
+export async function readAffaireBriefChoices(input: { projectId: string }) {
+  const parsed = readAffaireBriefChoicesInputSchema.parse(input);
+  return readAffaireBriefChoicesServer(parsed);
 }
 
 export async function confirmAffaireBrief(input: ConfirmAffaireBriefInput) {

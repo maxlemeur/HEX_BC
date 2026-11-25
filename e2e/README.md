@@ -72,7 +72,7 @@ leur compte local éphémère.
 
 ## Vérifier l’accès au chiffrage en production
 
-Dans GitHub Actions, ouvrir [TesterArmy production QA](https://github.com/maxlemeur/HEX_BC/actions/workflows/e2e-production-qa.yml), puis choisir **Run workflow** sur `main`. La commande équivalente est `gh workflow run e2e-production-qa.yml --repo maxlemeur/HEX_BC --ref main`. Ouvrir l’exécution depuis cette page pour lire son résultat.
+Dans GitHub Actions, ouvrir [TesterArmy production QA](https://github.com/thannous/HEX_BC/actions/workflows/e2e-production-qa.yml), puis choisir **Run workflow** sur `main`. La commande équivalente est `gh workflow run e2e-production-qa.yml --repo thannous/HEX_BC --ref main`. Ouvrir l’exécution depuis cette page pour lire son résultat.
 
 `QA_OK` confirme que le compte dédié s’est connecté au site déployé, que son organisation active porte [l’identifiant public du tenant QA](../docs/testing/shared-supabase-test-data-purge-2026-10-25.json), que son rôle courant est `admin` et que le formulaire « Nouveau chiffrage » s’affiche avec ses contrôles actifs. Le formulaire reste vide. Le navigateur ouvre uniquement des lectures sur le site et autorise une seule requête de connexion vers son service d’authentification.
 
@@ -120,10 +120,12 @@ Ces valeurs permettent le rendu anonyme ; elles ne donnent aucun accès backend.
 Le mobile est un viewport de navigateur. `npm run e2e:army:agent` est optionnel, utilise
 le login distinct `npx e2e login openai` et des objectifs bornés suivis
 d’assertions exactes. Le pilote et les personas d’exploration utilisent GPT-6.1
-Terra (`gpt-6.1-terra`) par défaut pour `agent.act`. Quand un test appelle
-`agent.assert`, le même modèle juge le résultat. Les vérifications exactes
-`expect` ne font aucun appel au modèle. `E2E_ARMY_MODEL` permet de choisir
-un autre modèle pour les actions et les jugements.
+Terra (`gpt-6.1-terra`) par défaut pour `agent.act`. `E2E_ARMY_MODEL`
+permet de changer ce modèle. L’exploration métier (`npm run e2e:army:explore`)
+utilise GPT-6.2 Sol pour `agent.assert`. Le reviewer retrouve une affaire
+fictive, ouvre un poste sur son plan et évalue la clarté de la preuve affichée.
+Les assertions `expect` vérifient exactement l’identité du poste, la mesure
+et la page du plan sans appel au modèle.
 
 ## Lire une preuve
 

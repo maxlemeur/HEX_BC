@@ -207,27 +207,28 @@ export type ItemListAddition = {
   sectionPath: readonly PosteSection[] | null;
 };
 
-const sameSections = (left: readonly PosteSection[], right: readonly PosteSection[]) =>
-  left.length === right.length && left.every((section, index) => section.id === right[index].id);
+/** Insert a whole gesture in one revision, preserving the positions of older entries relative to one another. */
+export function withAddedItems(current: PosteRevision, additions: readonly ItemListAddition[]): PosteRevision {
+  const sectionKey = (sections: readonly PosteSection[]) => JSON.stringify(sections.map(section => section.id));
+  const last = new Map(current.items.map((item, index) => [sectionKey(item.sections), index]));
+  const after = new Map<number, PosteDraft[]>();
+  for (const addition of additions) {
+    const sections = addition.sectionPath ?? [ITEM_LIST_ADDED_SECTION];
+    const position = last.get(sectionKey(sections)) ?? current.items.length;
+    const group = after.get(position) ?? [];
+    group.push(normalized({
+      label: addition.label, expectedUnit: addition.expectedUnit, measurementBasis: addition.measurementBasis,
+      qualifiers: addition.qualifiers, sections: [...sections], synonyms: [], referenceQuantity: null,
+      origin: { kind: "manual", intentId: addition.intentId, addedBy: addition.addedBy, addedAt: addition.addedAt,
+        addedInRevision: current.revision + 1 },
+    }));
+    after.set(position, group);
+  }
+  const drafts = current.items.flatMap((item, index) => [asDraft(item), ...(after.get(index) ?? [])]);
+  drafts.push(...after.get(current.items.length) ?? []);
+  return { ...createPosteRevision(current.scope, drafts, current), revision: current.revision + 1 };
+}
 
-/** The current list and one item added by hand, after the last item of its section (or at the end). */
 export function withAddedItem(current: PosteRevision, addition: ItemListAddition): PosteRevision {
-  const sections = addition.sectionPath ? addition.sectionPath.map(({ id, title, order }) => ({ id, title, order }))
-    : [ITEM_LIST_ADDED_SECTION];
-  const draft: PosteDraft = normalized({
-    label: addition.label,
-    expectedUnit: addition.expectedUnit,
-    measurementBasis: addition.measurementBasis,
-    qualifiers: addition.qualifiers,
-    sections,
-    synonyms: [],
-    referenceQuantity: null,
-    origin: { kind: "manual", intentId: addition.intentId, addedBy: addition.addedBy, addedAt: addition.addedAt,
-      addedInRevision: current.revision + 1 },
-  });
-  const drafts = current.items.map(asDraft);
-  const lastOfSection = current.items.findLastIndex((item) => sameSections(item.sections, sections));
-  drafts.splice(lastOfSection < 0 ? drafts.length : lastOfSection + 1, 0, draft);
-  const next = createPosteRevision(current.scope, drafts, current);
-  return { ...next, revision: current.revision + 1 };
+  return withAddedItems(current, [addition]);
 }

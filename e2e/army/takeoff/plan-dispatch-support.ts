@@ -58,7 +58,7 @@ export type SeededPlan = { id: string; name: string; bytes: Buffer; hash: string
  * preparation pinning the owned worker's ChatGPT selection.
  */
 export async function seedPlanDossier(ui: WorkerUi, owner: WorkerOwner, plans: Array<{ name: string; pages: number; retained?: number[];
-  inactive?: boolean }>, options: { objective?: "estimate" } = {}) {
+  inactive?: boolean; dossierPiece?: boolean }>, options: { objective?: "estimate" } = {}) {
   const backend = new URL(process.env.NEXT_PUBLIC_SUPABASE_URL!);
   const session = { auth: { persistSession: false, autoRefreshToken: false } };
   const setup: SupabaseClient = createClient(backend.origin, process.env.SUPABASE_SERVICE_ROLE_KEY!, session);
@@ -74,24 +74,36 @@ export async function seedPlanDossier(ui: WorkerUi, owner: WorkerOwner, plans: A
   }
   (ui.army.ownedPlanSets ??= []).push({ projectId, planSetId, tenantId });
   (ui.army.ownedTakeoffAffaires ??= []).push(projectId);
-  const seeded: Array<SeededPlan & { inactive: boolean }> = [];
+  if ((await setup.from("affaire_intake_uploads").insert({ id: uploadId, project_id: projectId, created_by: userId, status: "ready" })).error) {
+    throw new Error("upload");
+  }
+  const seeded: Array<SeededPlan & { inactive: boolean; piece: { id: string; path: string } | null }> = [];
   for (const plan of plans) {
     const id = randomUUID();
     const bytes = await fictionalPlanPdf(`${ui.army.runPrefix} ${plan.name}`, plan.pages);
     const filePath = `${tenantId}/${planSetId}/${id}/${plan.name}`;
+    let piece = null;
+    if (plan.dossierPiece) {
+      const documentId = randomUUID();
+      const path = buildAffaireIntakeStoragePath({ tenantId, projectId, uploadId, documentId, fileName: plan.name });
+      if ((await setup.storage.from(AFFAIRE_INTAKE_BUCKET).upload(path, bytes, { contentType: "application/pdf" })).error) throw new Error("piece bytes");
+      if ((await setup.from("affaire_intake_documents").insert({ id: documentId, upload_id: uploadId, file_name: plan.name,
+        upload_status: "uploaded", storage_path: path, classification_status: "classified", document_kind: "plans",
+        mime_type: "application/pdf", size_bytes: bytes.length })).error) throw new Error("piece row");
+      piece = { id: documentId, path };
+    }
     if ((await setup.storage.from("plan-files").upload(filePath, bytes, { contentType: "application/pdf" })).error) throw new Error("plan bytes");
     if ((await setup.from("plan_files").insert({ id, tenant_id: tenantId, plan_set_id: planSetId, file_name: plan.name, file_path: filePath,
-      file_type: "application/pdf", file_size_bytes: bytes.length, page_count: plan.pages })).error) throw new Error("plan row");
+      file_type: "application/pdf", file_size_bytes: bytes.length, page_count: plan.pages,
+      ...(piece ? { metadata: { source: "affaire-intake", intake_document_id: piece.id,
+        intake_upload_id: uploadId, intake_storage_path: piece.path } } : {}) })).error) throw new Error("plan row");
     seeded.push({ id, name: plan.name, bytes, hash: createHash("sha256").update(bytes).digest("hex"), pages: plan.retained ?? [],
-      inactive: plan.inactive === true });
+      inactive: plan.inactive === true, piece });
   }
   // A CCTP of the dossier: a common reference of every plan, never a unit.
   const cctp = await fictionalPlanPdf(`${ui.army.runPrefix} CCTP`, 1);
   // Stored where the dossier stores its pieces (tenant, affaire, upload, document, name): the worker reads no other key.
   const cctpPath = buildAffaireIntakeStoragePath({ tenantId, projectId, uploadId, documentId: cctpId, fileName: "cctp.pdf" });
-  if ((await setup.from("affaire_intake_uploads").insert({ id: uploadId, project_id: projectId, created_by: userId, status: "ready" })).error) {
-    throw new Error("upload");
-  }
   if ((await setup.storage.from(AFFAIRE_INTAKE_BUCKET).upload(cctpPath, cctp, { contentType: "application/pdf" })).error) throw new Error("cctp bytes");
   if ((await setup.from("affaire_intake_documents").insert({ id: cctpId, upload_id: uploadId, file_name: "cctp.pdf", upload_status: "uploaded",
     storage_path: cctpPath, classification_status: "classified", document_kind: "cctp", mime_type: "application/pdf",
@@ -170,15 +182,28 @@ export type DispatchAnswer = { event: "result"; pass: { ran: string[]; closed: s
 
 export type OwnedPlanLine = { designation: string; quantity: number; unit: string; source_page: number };
 
+type OwnedItemAnswer = { quantity: number; unit: string; page: number } | "omit" | {
+  uncertain: "PARTIAL_QUANTITY" | "QUALIFIER_UNREADABLE";
+  text: string;
+  page: number;
+  figure?: { quantity: number; unit: string };
+};
+
 /**
  * A pass of the Mac's dispatcher, its units answered by the controlled provider (`modes` per job, success by default;
  * « release » holds a job's call until `releaseFile` exists; `items` per job, the lines its reading returns).
  */
 export async function runOwnedPlanDispatch(ui: WorkerUi, owner: WorkerOwner, projectId: string,
-  options: { modes?: Record<string, "success" | "terminal" | "hold" | "release">; delayMs?: number; mailCollector?: string;
+  options: { modes?: Record<string, "success" | "terminal" | "timeout" | "hold" | "release">; delayMs?: number; mailCollector?: string;
     items?: Record<string, OwnedPlanLine[]>; releaseFile?: string;
-    /** A job reading against its list: by item label, a measure (page local to the copied PDF) or « omit »; `truncate`. */
-    itemAnswers?: Record<string, { items?: Record<string, { quantity: number; unit: string; page: number } | "omit">; truncate?: boolean }> } = {}) {
+    /** Scripted item answers and out-of-list findings. Their pages are local to the copied PDF. */
+    itemAnswers?: Record<string, {
+      items?: Record<string, OwnedItemAnswer>;
+      finds?: Array<{ designation: string; page: number; evidence: string }>;
+      findsTruncated?: boolean;
+      unreadablePages?: number[];
+      truncate?: boolean;
+    }> } = {}) {
   if (!UUID.test(projectId) || !ui.army.ownedTakeoffAffaires?.includes(projectId)) throw new Error("An owned affaire is required.");
   const { stdout, stderr } = await run(process.execPath, ["--conditions=react-server", "--import", "tsx",
     "scripts/tester-army/takeoff-plan-dispatch.mjs", projectId, ui.army.runPrefix], { timeout: 120_000, env: childEnv(owner, {

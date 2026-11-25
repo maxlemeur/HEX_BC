@@ -1,11 +1,8 @@
-import { after } from "next/server";
-
 import { AFFAIRE_INTAKE_MAX_MULTIPART_BODY_BYTES } from "@/lib/affaires/intake-limits";
 import { z } from "zod";
 
 import { ok, badRequest, toErrorResponse } from "@/lib/http/api-response";
 import { createAffaireIntakeUpload } from "@/lib/affaires/intake-upload-server";
-import { processAffaireIntakeUpload } from "@/lib/affaires/intake-analysis-server";
 
 export const runtime = "nodejs";
 
@@ -84,20 +81,6 @@ export async function POST(
     }
 
     const result = await createAffaireIntakeUpload(projectId, formData);
-
-    if (result.shouldProcessAsync) {
-      after(async () => {
-        try {
-          await processAffaireIntakeUpload(result.uploadId);
-        } catch (error) {
-          console.error("Affaire intake async processing failed", {
-            projectId,
-            uploadId: result.uploadId,
-            error,
-          });
-        }
-      });
-    }
 
     return ok(
       {

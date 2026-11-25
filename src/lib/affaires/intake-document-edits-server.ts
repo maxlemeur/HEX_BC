@@ -1,3 +1,4 @@
+import { readEditableIntakeDocument } from "@/lib/affaires/intake-editable-document-server";
 import { readAllRows } from "@/lib/supabase/read-all";
 import { badRequest, conflict, internalError, notFound } from "@/lib/http/api-response";
 import {
@@ -15,7 +16,6 @@ import {
   normalizeDocumentRow,
   addIssue,
   insertAffaireIntakeEvent,
-  updateUploadStatusFromStoredDocuments,
 } from "@/lib/affaires/intake-rows";
 import { syncAffaireIntakeDocumentPriorities } from "@/lib/affaires/intake-document-priorities";
 import { refreshAffaireIntakeFromActiveDocuments } from "@/lib/affaires/intake-derived-state-server";
@@ -27,32 +27,7 @@ export async function reclassifyAffaireDocument(input: {
 }) {
   const { context, project } = await requireAffaireAccess(input.projectId, "write");
 
-  const { data, error } = await resolveSupabaseQuery<{
-    data: unknown;
-    error: unknown;
-  }>(
-    context.supabase
-      .from("affaire_intake_documents")
-      .select(DOCUMENT_SELECT as never)
-      .eq("id", input.documentId)
-      .is("deleted_at", null).is("deletion_token", null)
-      .eq("project_id", project.id)
-      .maybeSingle()
-  );
-
-  if (error) {
-    throw internalError(
-      "Impossible de charger le document intake à reclasser.",
-      error
-    );
-  }
-
-  const document = normalizeDocumentRow(data);
-
-  if (!document) {
-    throw notFound("Document intake introuvable.");
-  }
-
+  const document = await readEditableIntakeDocument(context, project.id, input.documentId);
   const staleAnalysis = isAffaireIntakeAnalysisStale({ classificationStatus: document.classification_status, classificationUpdatedAt: document.updated_at });
   if (document.upload_status !== "uploaded" || document.classification_status === "queued" || (document.classification_status === "processing" && !staleAnalysis)) {
     throw conflict("Ce document n’est pas encore disponible pour le classement. Actualisez le dossier.");
@@ -105,7 +80,7 @@ export async function reclassifyAffaireDocument(input: {
       .eq("tenant_id", context.tenantId)
       .eq("project_id", project.id)
       .eq("upload_status", "uploaded")
-      .in("classification_status", ["classified", "ambiguous", "failed", "processing"])
+      .in("classification_status", ["awaiting_launch", "classified", "ambiguous", "failed", "processing"])
       .eq("updated_at", document.updated_at)
       .is("deleted_at", null).is("deletion_token", null)
       .select("id" as never).maybeSingle()
@@ -139,10 +114,9 @@ export async function reclassifyAffaireDocument(input: {
     },
   });
 
-  await updateUploadStatusFromStoredDocuments({
-    supabase: context.supabase,
-    uploadId: document.upload_id,
-  });
+  // A category entered before the launch is metadata. Refreshing the derived
+  // dossier would download linked plans and send its inventory to the model.
+  if (document.classification_status === "awaiting_launch") return { ok: true } as const;
 
   await refreshAffaireIntakeFromActiveDocuments({
     supabase: context.supabase,

@@ -33,15 +33,25 @@ export type CostingWorkbookSupplierReference = {
   product_url: string | null;
 };
 
+export type CostingWorkbookPriceSourceKind = "quote" | "document" | "order" | "regression";
+
 export type CostingWorkbookSupplierOccurrence = {
   row: number;
   slot: number;
+  /** Zero-based position of the reference column as it appears in Excel. */
+  column: number;
+  article_column?: number;
+  supplier_name_column?: number;
   article_reference: string;
+  article_wording: string;
+  article_material: string;
+  article_dimension: string;
   supplier_name: string;
   supplier_sku: string;
   article_reference_valid: boolean;
   supplier_name_valid: boolean;
   supplier_sku_valid: boolean;
+  price_source_kind: CostingWorkbookPriceSourceKind | null;
 };
 
 export type CostingWorkbookArticle = {
@@ -150,6 +160,51 @@ function sizeText(value: Cell): string {
 /** How a reference is compared: case and spaces aside, and without the « DB_<sheet>__ » prefix of an earlier import. */
 export function workbookReferenceKey(reference: string): string {
   return reference.trim().replace(/^db_.*?__/i, "").toLocaleLowerCase("fr-FR");
+}
+
+export function workbookSupplierNameKey(name: string): string {
+  return foldText(name).trim().replace(/\s+/g, " ");
+}
+
+function workbookPriceSource(value: string): CostingWorkbookPriceSourceKind | null {
+  const normalized = foldText(value);
+  if (/^(?:estimation\s+par\s+)?regression(?:\s|$)/.test(normalized)) return "regression";
+  // The explicit number marker distinguishes a document from product references such as DOC-0042.
+  const document = /^(devis|doc(?:ument)?|commande)\s+n\s*[°º]/.exec(normalized)?.[1];
+  if (document === "devis") return "quote";
+  if (document === "commande") return "order";
+  return document ? "document" : null;
+}
+
+type WorkbookSupplierValue = Pick<CostingWorkbookSupplierOccurrence, "supplier_sku" | "price_source_kind"> & {
+  locations: Array<Pick<CostingWorkbookSupplierOccurrence, "row" | "slot" | "column">>;
+};
+
+/** Keeps the workbook comparison available even when the article or supplier is absent from the catalogue. */
+export function compareCostingWorkbookSupplierValues(occurrences: readonly CostingWorkbookSupplierOccurrence[]) {
+  const pairs = new Map<string, {
+    articleReference: string;
+    supplierName: string;
+    values: Map<string, WorkbookSupplierValue>;
+  }>();
+  for (const entry of occurrences) {
+    if (!entry.article_reference_valid || !entry.supplier_name_valid || !entry.supplier_sku_valid) continue;
+    const key = JSON.stringify([workbookReferenceKey(entry.article_reference), workbookSupplierNameKey(entry.supplier_name)]);
+    let pair = pairs.get(key);
+    if (!pair) {
+      pair = { articleReference: entry.article_reference, supplierName: entry.supplier_name, values: new Map() };
+      pairs.set(key, pair);
+    }
+    let value = pair.values.get(entry.supplier_sku);
+    if (!value) {
+      value = { supplier_sku: entry.supplier_sku, price_source_kind: entry.price_source_kind, locations: [] };
+      pair.values.set(entry.supplier_sku, value);
+    }
+    value.locations.push({ row: entry.row, slot: entry.slot, column: entry.column });
+  }
+  return [...pairs.entries()]
+    .filter(([, pair]) => pair.values.size > 1)
+    .map(([key, pair]) => ({ ...pair, key, values: [...pair.values.values()] }));
 }
 
 function findHeader(rows: readonly Cell[][]): { index: number; columns: Map<Column, number> } {
@@ -307,21 +362,33 @@ export function readCostingWorkbookRows(rows: readonly Cell[][]): CostingWorkboo
       issues.push({ row: sheetRow, reference: reference || null, message: `Ligne de type « ${text(cell("Type_ligne")) || "vide"} » : ignorée.` });
       continue;
     }
+    const wording = text(cell("Caractéristique"));
+    const materialWording = text(cell("Matériau"));
+    const dimensionWording = sizeText(cell("Dimension"));
     // Supplier identity depends on the article ID, even when the draft reader skips a repeated ID
     // or cannot use its designation. Keep every source cell for the decision report.
     for (const slot of [1, 2, 3] as const) {
       const name = text(cell(`F${slot}_nom`));
-      const sku = text(cell(`F${slot}_ref`));
+      const column = columns.get(`F${slot}_ref`);
+      if (column === undefined) continue;
+      const sku = text(values[column]);
       if (!sku) continue;
       supplierReferenceOccurrences.push({
         row: sheetRow,
         slot,
+        column,
+        article_column: columns.get("ID"),
+        supplier_name_column: columns.get(`F${slot}_nom`),
         article_reference: reference,
+        article_wording: isErrorToken(wording) ? "" : wording,
+        article_material: isErrorToken(materialWording) ? "" : materialWording,
+        article_dimension: isErrorToken(dimensionWording) ? "" : dimensionWording,
         supplier_name: name,
         supplier_sku: sku,
         article_reference_valid: reference.length > 0 && reference.length <= MAX_REFERENCE_LENGTH && !isErrorToken(reference),
         supplier_name_valid: Boolean(name) && !/^\d+$/.test(name) && !isErrorToken(name),
         supplier_sku_valid: sku.length <= 255 && !isErrorToken(sku),
+        price_source_kind: workbookPriceSource(sku),
       });
     }
     if (!reference) {
@@ -336,7 +403,6 @@ export function readCostingWorkbookRows(rows: readonly Cell[][]): CostingWorkboo
       issues.push({ row: sheetRow, reference, message: `Référence de plus de ${MAX_REFERENCE_LENGTH} caractères : ignorée.` });
       continue;
     }
-    const wording = text(cell("Caractéristique"));
     if (!wording) {
       issues.push({ row: sheetRow, reference, message: "Ligne sans caractéristique : ignorée." });
       continue;

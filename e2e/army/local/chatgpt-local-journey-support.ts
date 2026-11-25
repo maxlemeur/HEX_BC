@@ -13,12 +13,10 @@ import {
 } from "./chatgpt-server-support";
 import { buildLabVectorPlanPdf } from "./lab-vector-plan-fixture";
 
-// The development server of the ChatGPT local journeys, shared by chatgpt-local-takeoff.e2e.ts and
-// chatgpt-local-decisions.e2e.ts. They were one file until its tests, run one after another on that server, made
-// their shard twice as long as the others (15 minutes, run 42913532135): each file now starts its own server, owner
-// account, port, Next workspace and artifacts directory, so the shard plan can run them in two jobs.
-// Two of these servers must not compile at once on one machine: scripts/tester-army/army-shards.json (neverTogether)
-// keeps the two files in different shards and refuses them together in a run of several workers.
+// The takeoff, Decisions and three intake files each own a server, account, ephemeral port, Next workspace
+// and artifacts directory.
+// The neverTogether group in scripts/tester-army/army-shards.json keeps them on separate runners, so their
+// development servers do not compile together.
 
 // Explicit opt-in for an owner-authorized live probe on the disposable backend.
 // The private file contains only a short-lived access token, never refresh/ID tokens.
@@ -34,6 +32,7 @@ export const isAbsorbedClientAbort = (entry: Record<string, unknown>) => entry.p
 
 export type ChatGptLocalServer = {
   origin: string;
+  recoverySecret: string;
   /** The owner account created for this server; its tenant belongs to this journey file alone. */
   email: string;
   liveProbe: ChatGptLiveProbe | null;
@@ -56,7 +55,7 @@ export async function localChatGptClient(email: string) {
 
 /** The fixture can list extra models for intake transcription (INTOCR01) or material request photos (MRIA01). */
 export async function writeDecisionsControl(decisionsControl: string,
-  input: { hold?: boolean; timeoutWriting?: boolean; transcriptionModel?: boolean; holdTranscription?: boolean; holdClassification?: boolean; materialPhotoModels?: boolean }) {
+  input: { hold?: boolean; timeoutWriting?: boolean; holdPlanReading?: boolean; transcriptionModel?: boolean; holdTranscription?: boolean; holdClassification?: boolean; holdIntakeBrief?: boolean; holdIntakeLaunchClosure?: string; materialPhotoModels?: boolean }) {
   const temporary = `${decisionsControl}.tmp`;
   await writeFile(temporary, JSON.stringify({ hold: false, timeoutWriting: false, transcriptionModel: false, holdTranscription: false,
     holdClassification: false, ...input }));
@@ -92,7 +91,8 @@ export async function writePlanFixture(email: string, liveProbe: ChatGptLiveProb
  * One journey file's development server: `start` in its beforeAll, `stop` in its afterAll. Call it once per journey
  * module: the state lives in the returned object, so a module the runner imports again starts from nothing.
  * `compileTakeoffRoutes` takes one more beforeAll per wave of TAKEOFF_JOURNEY_WAVES, after `start`: every hook has
- * its own time limit, and one hook cannot hold them all (compileChatGptRoutes).
+ * its own time limit, and one hook cannot hold them all (compileChatGptRoutes). `compileIntakeRoutes` is the hook of the
+ * "intake" wave, for each file whose tests use the affaire's intake desk.
  */
 export function chatGptLocalServer() {
   let localServer: ChildProcess | undefined;
@@ -120,6 +120,7 @@ export function chatGptLocalServer() {
     const port = address.port;
     await new Promise<void>((resolve) => reservation.close(() => resolve()));
     const origin = localOrigin = `http://127.0.0.1:${port}`;
+    const recoverySecret = randomUUID();
     const email = ownerEmail = (await createLocalChatGptOwner()).email;
     const workspace = serverWorkspace = await prepareChatGptServerWorkspace();
     const artifacts = path.resolve(".e2e/army/critical/artifacts", workspace.id);
@@ -143,7 +144,7 @@ export function chatGptLocalServer() {
     const child = localServer = spawn(process.execPath, ["node_modules/next/dist/bin/next", "dev", "--hostname", "127.0.0.1", "--port", String(port), "--webpack"], {
       cwd: process.cwd(), env: { ...process.env, CI: "", VERCEL: "", MERGEONE_CHATGPT_LOCAL: "", NODE_ENV: "development", E2E_ARMY_SERVER_MODE: "development", ...workspace.environment,
         NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ""} --import=${pathToFileURL(path.resolve("e2e/army/local/chatgpt-provider-fixture.mjs")).href}`,
-        ARMY_CHATGPT_TRANSPORT_LOG: log, GEMINI_API_KEY: "army-disabled-provider-fixture", TAKEOFF_WORKER_SECRET: "army-worker-fixture",
+        CRON_SECRET: recoverySecret, ARMY_CHATGPT_TRANSPORT_LOG: log, GEMINI_API_KEY: "army-disabled-provider-fixture", TAKEOFF_WORKER_SECRET: "army-worker-fixture",
         TAKEOFF_LAB_DATASET_DIR: labDatasetDir, TAKEOFF_LAB_OUTPUT_DIR: labOutputDir,
         // The assistant (ASSIST01) exists only where it is switched on, beside the linked ChatGPT plan.
         MERGEONE_ASSISTANT: "1",
@@ -161,13 +162,19 @@ export function chatGptLocalServer() {
     }, { timeout: 90_000 }).toBe(true);
     await workspace.assertReady();
     await compileChatGptRoutes(origin, email, "journeys");
-    return { origin, email, liveProbe, transportLog: log, decisionsControl, labOutputDir, workspace, diagnostics };
+    return { origin, recoverySecret, email, liveProbe, transportLog: log, decisionsControl, labOutputDir, workspace, diagnostics };
   }
 
   /** Compiles one wave of the pages and API routes the takeoff journeys use, on the started server. */
   async function compileTakeoffRoutes(wave: (typeof TAKEOFF_JOURNEY_WAVES)[number]) {
     if (!localOrigin || !ownerEmail) throw new Error("Start the ChatGPT local server before compiling its routes.");
     await compileChatGptRoutes(localOrigin, ownerEmail, wave);
+  }
+
+  /** Compiles the API routes of the affaire's intake desk, on the started server. */
+  async function compileIntakeRoutes() {
+    if (!localOrigin || !ownerEmail) throw new Error("Start the ChatGPT local server before compiling its routes.");
+    await compileChatGptRoutes(localOrigin, ownerEmail, "intake");
   }
 
   /** Stops the server, then removes the temporary ChatGPT profile a test left, if any, and keeps the server's timings. */
@@ -189,5 +196,5 @@ export function chatGptLocalServer() {
     await serverWorkspace?.cleanup();
   }
 
-  return { start, compileTakeoffRoutes, stop };
+  return { start, compileTakeoffRoutes, compileIntakeRoutes, stop };
 }

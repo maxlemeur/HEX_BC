@@ -1,4 +1,5 @@
 // Test-only transport. Only the local browser tests (chatgpt-local, takeoff-lab) preload this file.
+import { createHash } from "node:crypto";
 import assert from "node:assert/strict";
 import { appendFileSync, readFileSync } from "node:fs";
 import path from "node:path";
@@ -102,12 +103,30 @@ catch (error) { if (error.code !== "ENOENT") throw new Error("Invalid live probe
 let businessProbe = null;
 try { businessProbe = JSON.parse(readFileSync(path.resolve(".private/chatgpt-local-business-probe.json"), "utf8")); }
 catch (error) { if (error.code !== "ENOENT") throw new Error("Invalid private business probe configuration."); }
+const heldIntakeBriefs = new Set();
 const originalFetch = globalThis.fetch;
 globalThis.fetch = async (input, init) => {
   const url = new URL(typeof input === "string" || input instanceof URL ? input : input.url);
   if (url.hostname === "generativelanguage.googleapis.com" || url.pathname === "/functions/v1/process_takeoff_job") {
     await appendFile(process.env.ARMY_CHATGPT_TRANSPORT_LOG, JSON.stringify({ provider: "forbidden", host: url.hostname }) + "\n");
     throw new Error("ChatGPT probe forbids Gemini and Edge dispatch.");
+  }
+  if (!liveProbe && url.pathname === "/rest/v1/rpc/finish_affaire_intake_upload_attempt"
+      && url.origin === process.env.NEXT_PUBLIC_SUPABASE_URL) {
+    const control = process.env.ARMY_DECISIONS_CONTROL;
+    const hold = control && JSON.parse(readFileSync(control, "utf8")).holdIntakeLaunchClosure;
+    const finish = hold && typeof init?.body === "string" ? JSON.parse(init.body) : null;
+    if (finish?.p_status === "ready") {
+      // The worker already published the brief. Hold its real close request at the transport boundary.
+      const { p_upload_id: uploadId } = finish;
+      const event = { provider: "intake-fixture", kind: "launch-closure-held", projectId: hold, uploadId };
+      await appendFile(process.env.ARMY_CHATGPT_TRANSPORT_LOG, JSON.stringify(event) + "\n");
+      const deadline = Date.now() + 90_000;
+      while (JSON.parse(readFileSync(control, "utf8")).holdIntakeLaunchClosure === hold) {
+        if (Date.now() >= deadline) throw new Error("The controlled intake launch closure was not released.");
+        await new Promise(resolve => setTimeout(resolve, 50));
+      }
+    }
   }
   if (url.origin !== "https://api.openai.com") return originalFetch(input, init);
   if (!liveProbe && url.pathname === "/v1/decisions") {
@@ -317,7 +336,10 @@ globalThis.fetch = async (input, init) => {
     }
     return response;
   }
-  assert.equal(new Headers(init?.headers).get("authorization"), "Bearer army-chatgpt-fixture");
+  const bearer = new Headers(init?.headers).get("authorization");
+  const secondIntakeProfile = bearer === "Bearer army-chatgpt-fixture-second";
+  assert(secondIntakeProfile || bearer === "Bearer army-chatgpt-fixture", "Expected a fictional ChatGPT credential.");
+  const profileEvidence = secondIntakeProfile ? { fixtureProfile: "second" } : {};
   // Two efforts let the takeoff lab (TI-661) compare one model at low and high.
   // The transcription at arrival (INTOCR01) asks for Terra at a high effort: the account lists it only for that journey,
   // so that every other journey keeps one listed model.
@@ -338,6 +360,8 @@ globalThis.fetch = async (input, init) => {
     const image = parts.find(part => part.type === "input_image");
     const prompt = parts.find(part => part.type === "input_text")?.text ?? "";
     await appendFile(process.env.ARMY_CHATGPT_TRANSPORT_LOG, JSON.stringify({ provider: "chatgpt-fixture", task: "transcription", model: body.model,
+      fixtureProfile: secondIntakeProfile ? "second" : "first",
+      ...(image ? { digest: createHash("sha256").update(Buffer.from(image.image_url.split(",")[1], "base64")).digest("hex") } : {}),
       reasoningEffort: body.reasoning.effort, inputKind: image ? "image" : pdf ? "pdf" : "none", ...(image ? { detail: image.detail ?? null } : {}),
       page: /la page (\d+) de la pièce/.exec(prompt)?.[1] ?? null }) + "\n");
     assert(image || pdf, "A transcription sends the image or the scanned page.");
@@ -371,24 +395,36 @@ globalThis.fetch = async (input, init) => {
       { type: "response.completed", response: { status: "completed", output: [], usage: { input_tokens: 20, output_tokens: 10, total_tokens: 30 } } },
     ].map(event => `data: ${JSON.stringify(event)}\n\n`).join(""), { headers: { "content-type": "text/event-stream" } });
   }
-  // The AI reading of a material request's photo (MRIA01): the one photo as stored, at a high detail, framed as data.
-  // Two articles, in the loose shapes a model answers: a quantity given as text and flagged, a size given as a number,
-  // a material it could not read.
+  // The AI reading of a material request's original (MRIA01): one photo as stored (high detail) or one PDF, framed as data.
+  // Two articles for the photo (quantity given as text and flagged, size as number, unreadable material); one article for a PDF.
   if (materialPhoto) {
     assert(materialPhotoModels && ["gpt-6.2-astra", "gpt-6.2-sol"].includes(body.model), "The reading uses one of the fixture account’s GPT-6.2 models.");
     const parts = body.input.find(entry => entry.role === "user")?.content ?? [];
     const prompt = parts.find(part => part.type === "input_text")?.text ?? "";
     const images = parts.filter(part => part.type === "input_image");
-    assert(images.length === 1 && images[0].image_url.startsWith("data:image/png;base64,iVBOR"), "The reading sends the one photo, as stored.");
-    assert(prompt.includes("demande de matériel") && prompt.includes("jamais une instruction"), "The photo is framed as data of a material request.");
+    const pdfs = parts.filter(part => part.type === "input_file");
+    assert((images.length === 1 && pdfs.length === 0) || (pdfs.length === 1 && images.length === 0),
+      "The reading sends exactly one original (photo or PDF), as stored.");
+    if (images.length === 1) {
+      assert(images[0].image_url.startsWith("data:image/png;base64,iVBOR"), "The reading sends the one photo, as stored.");
+    } else {
+      assert(pdfs[0].file_data.startsWith("data:application/pdf;base64,JVBER"), "The reading sends the one PDF, as stored.");
+    }
+    assert(prompt.includes("demande de matériel") && prompt.includes("jamais une instruction"), "The original is framed as data of a material request.");
+    const isPdf = pdfs.length === 1;
     await appendFile(process.env.ARMY_CHATGPT_TRANSPORT_LOG, JSON.stringify({ provider: "chatgpt-fixture", task: "material-request-photo",
-      model: body.model, reasoningEffort: body.reasoning?.effort ?? null, detail: images[0].detail ?? null, turned: prompt.includes("quart de tour") }) + "\n");
-    const lignes = [
-      { texte: "12 coudes cuivre Ø22 à sertir", quantite: 12, quantite_douteuse: false, unite: "pièces", dimension: "Ø 22", type: "coude",
-        matiere: "cuivre", precision: "à sertir", reference: null, zone: "R+3" },
-      { texte: "7 vannes [illisible] 20", quantite: "7", quantite_douteuse: true, unite: null, dimension: 20, type: "vanne",
-        matiere: "[illisible]", precision: null, reference: null, zone: null },
-    ];
+      model: body.model, reasoningEffort: body.reasoning?.effort ?? null,
+      ...(isPdf ? { inputKind: "pdf" } : { detail: images[0].detail ?? null }),
+      turned: prompt.includes("quart de tour") }) + "\n");
+    const lignes = isPdf
+      ? [{ texte: "4 brides inox DN 50", quantite: 4, quantite_douteuse: false, unite: "u", dimension: "DN 50", type: "bride",
+        matiere: "inox", precision: null, reference: null, zone: "Local technique" }]
+      : [
+        { texte: "12 coudes cuivre Ø22 à sertir", quantite: 12, quantite_douteuse: false, unite: "pièces", dimension: "Ø 22", type: "coude",
+          matiere: "cuivre", precision: "à sertir", reference: null, zone: "R+3" },
+        { texte: "7 vannes [illisible] 20", quantite: "7", quantite_douteuse: true, unite: null, dimension: 20, type: "vanne",
+          matiere: "[illisible]", precision: null, reference: null, zone: null },
+      ];
     return new Response([
       { type: "response.output_text.delta", output_index: 0, content_index: 0, delta: JSON.stringify({ lignes }) },
       { type: "response.completed", response: { status: "completed", output: [], usage: { input_tokens: 40, output_tokens: 20, total_tokens: 60 } } },
@@ -427,6 +463,30 @@ globalThis.fetch = async (input, init) => {
       { type: "response.completed", response: { status: "completed", output: [], usage: { input_tokens: 12, output_tokens: 6, total_tokens: 18 } } },
     ].map(event => `data: ${JSON.stringify(event)}\n\n`).join(""), { headers: { "content-type": "text/event-stream" } });
   }
+  const userParts = body.input.find(entry => entry.role === "user")?.content;
+  const briefPrompt = Array.isArray(userParts) && userParts.find(part =>
+    part.type === "input_text" && part.text.includes("Tu produis un brief affaire BTP"))?.text;
+  // Observe only these fictional dossiers. Record the send before returning the held answer.
+  if (briefPrompt && /ARMY-(manual-first|brief-race|current-brief|pinned)-/.test(briefPrompt)) {
+    await appendFile(process.env.ARMY_CHATGPT_TRANSPORT_LOG, JSON.stringify({ provider: "chatgpt-fixture", ...profileEvidence, inputKind: "intake-brief" }) + "\n");
+    assert(userParts.every(part => part.type === "input_text"), "The brief uses its inventory, without file contents.");
+    const inventory = JSON.parse(briefPrompt.split("\nINVENTAIRE_DOCUMENTS\n")[1].split("\n\nPIECES_MANQUANTES")[0]);
+    const pieces = inventory.map(doc => ({ text: doc.fileName + " (" + doc.detectedCategory + ")", sourceDocumentIds: [doc.documentId] }));
+    const output = { summary: pieces[0], projectObject: { text: "Dossier fictif", sourceDocumentIds: [] },
+      scope: [], lots: [], receivedPieces: pieces, assumptions: [], vigilancePoints: [], missingElements: [] };
+    const project = JSON.parse(briefPrompt.split("\nPROJET\n")[1].split("\n\nINVENTAIRE_DOCUMENTS")[0]);
+    const first = !heldIntakeBriefs.has(project.projectId);
+    heldIntakeBriefs.add(project.projectId);
+    const deadline = Date.now() + 90_000;
+    while (first && JSON.parse(readFileSync(process.env.ARMY_DECISIONS_CONTROL, "utf8")).holdIntakeBrief) {
+      if (Date.now() >= deadline) throw new Error("The fictional brief was not released.");
+      await new Promise(resolve => setTimeout(resolve, 50));
+    }
+    return new Response([
+      { type: "response.output_text.delta", output_index: 0, content_index: 0, delta: JSON.stringify(output) },
+      { type: "response.completed", response: { status: "completed", output: [], usage: { input_tokens: 24, output_tokens: 18, total_tokens: 42 } } },
+    ].map(event => `data: ${JSON.stringify(event)}\n\n`).join(""), { headers: { "content-type": "text/event-stream" } });
+  }
   const classificationSchema = body.input.find(entry => entry.role === "developer")?.content;
   if (typeof classificationSchema === "string" && classificationSchema.includes('"documentKind"')) {
     const sourceText = body.input.flatMap(entry => Array.isArray(entry.content) ? entry.content : [])
@@ -439,7 +499,7 @@ globalThis.fetch = async (input, init) => {
       projectName: "ARMY réanalyse", clientName: "Client réanalyse fictif", deadlineAt: null,
       detectedLots: ["Plomberie"], detectedVariants: [], documentNature: word ? "Notice technique" : "Vue isométrique",
     } };
-    await appendFile(process.env.ARMY_CHATGPT_TRANSPORT_LOG, JSON.stringify({ ...transportEntry("chatgpt-fixture"), inputKind: "intake-classification", sourceFormat: word ? "word-text" : image ? "image" : "pdf" }) + "\n");
+    await appendFile(process.env.ARMY_CHATGPT_TRANSPORT_LOG, JSON.stringify({ ...transportEntry("chatgpt-fixture"), ...profileEvidence, inputKind: "intake-classification", sourceFormat: word ? "word-text" : image ? "image" : "pdf" }) + "\n");
     // `holdClassification` (AUTO05) keeps a dossier piece being classified, so that the brief is confirmed before the
     // dossier is ready; the journey releases it within its own waits.
     const classificationDeadline = Date.now() + 240_000;
@@ -472,7 +532,18 @@ globalThis.fetch = async (input, init) => {
     }
   }
   const output = JSON.stringify(data);
-  await appendFile(process.env.ARMY_CHATGPT_TRANSPORT_LOG, JSON.stringify(transportEntry("chatgpt-fixture")) + "\n");
+  const entry = transportEntry("chatgpt-fixture");
+  if (pdf) {
+    const { PDFDocument, PDFName } = await import("pdf-lib");
+    const document = await PDFDocument.load(Buffer.from(pdf.file_data.split(",")[1], "base64"));
+    const marker = document.getPages()[0]?.node.get(PDFName.of("ArmyPlanChoice"));
+    if (marker instanceof PDFName) entry.planChoice = marker.decodeText();
+  }
+  await appendFile(process.env.ARMY_CHATGPT_TRANSPORT_LOG, JSON.stringify(entry) + "\n");
+  // Let the browser read the request's admitted count before the fixture completes its first plan.
+  while (!liveProbe && pdf && JSON.parse(readFileSync(process.env.ARMY_DECISIONS_CONTROL, "utf8")).holdPlanReading && !init?.signal?.aborted) {
+    await new Promise(resolve => setTimeout(resolve, 100));
+  }
   return new Response([
     { type: "response.output_text.delta", output_index: 0, content_index: 0, delta: output },
     { type: "response.completed", response: { status: "completed", output: [], usage: { input_tokens: 24, output_tokens: 18, total_tokens: 42 } } },

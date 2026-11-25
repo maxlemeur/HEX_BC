@@ -44,7 +44,10 @@ import type {
   RetainLineSuppliersResult,
 } from "./supplier-contracts";
 import {
+  MATERIAL_REQUEST_PHOTO_ANALYSIS_FAILED,
   MATERIAL_REQUEST_PHOTO_ANALYSIS_UNAVAILABLE,
+  MATERIAL_REQUEST_PHOTO_TOO_LARGE,
+  MATERIAL_REQUEST_PHOTO_UNREADABLE,
   type MaterialRequestPhotoAnalysis,
   type MaterialRequestPhotoAnalysisAvailability,
   type MaterialRequestPhotoAnalysisInput,
@@ -317,9 +320,37 @@ export function analyzeMaterialRequestPhoto(
   );
 }
 
-/** The reading cannot run for this member here: the next photos would meet the same refusal. */
+/** The reading cannot run for this member here: the next originals would meet the same refusal. */
 export function isPhotoAnalysisUnavailable(error: unknown): boolean {
   return isEstimateApiError(error) && error.code === MATERIAL_REQUEST_PHOTO_ANALYSIS_UNAVAILABLE;
+}
+
+/** An original disappeared while the reading was in progress (withdrawn from this screen or another tab). */
+export function isPhotoAnalysisNotFound(error: unknown): boolean {
+  return isEstimateApiError(error) && (error.status === 404 || error.code === "NOT_FOUND");
+}
+
+const SKIPPABLE_FAILURE_REASONS = new Set([
+  "AI_REQUEST_REJECTED",
+  "INVALID_ANSWER",
+  "TIMEOUT",
+  "AI_KEY_CEILING",
+  "AI_KEY_REQUEST_REJECTED",
+  "AI_KEY_OUTPUT_LIMIT",
+]);
+
+/**
+ * A failure tied to this one original (too heavy, unreadable PDF, rejected or unusable by the model): the remaining
+ * originals of the request can still be read, and this one is reported as skipped.
+ */
+export function isPhotoAnalysisSkippable(error: unknown): boolean {
+  if (!isEstimateApiError(error)) return false;
+  if (error.code === MATERIAL_REQUEST_PHOTO_TOO_LARGE || error.code === MATERIAL_REQUEST_PHOTO_UNREADABLE) return true;
+  if (error.code !== MATERIAL_REQUEST_PHOTO_ANALYSIS_FAILED) return false;
+  const reason = error.details !== null && typeof error.details === "object" && "reason" in error.details
+    ? (error.details as { reason?: unknown }).reason
+    : undefined;
+  return typeof reason === "string" && SKIPPABLE_FAILURE_REASONS.has(reason);
 }
 
 export async function createMaterialRequestLines(
@@ -346,7 +377,7 @@ export async function replaceMaterialRequestLines(
     requestsPath(projectId, requestId, "lines", "replace"),
     "POST",
     input,
-    "Le message n’a pas pu être redécoupé.",
+    "Les lignes n’ont pas pu être remplacées.",
   );
   return lines;
 }

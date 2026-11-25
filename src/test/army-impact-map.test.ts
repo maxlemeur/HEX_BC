@@ -155,6 +155,12 @@ function mapGlobs(): Array<{ where: string; glob: string }> {
 // The former chatgpt-local.e2e.ts, split so that no single file sets the duration of the Critical check.
 const CHATGPT_TAKEOFF = "e2e/army/local/chatgpt-local-takeoff.e2e.ts";
 const CHATGPT_DECISIONS = "e2e/army/local/chatgpt-local-decisions.e2e.ts";
+const CHATGPT_INTAKE = [
+  "e2e/army/local/chatgpt-local-intake-confirmation.e2e.ts",
+  "e2e/army/local/chatgpt-local-intake-documents.e2e.ts",
+  "e2e/army/local/chatgpt-local-intake-recovery.e2e.ts",
+];
+const CHATGPT_JOURNEYS = [CHATGPT_DECISIONS, ...CHATGPT_INTAKE, CHATGPT_TAKEOFF];
 
 // Owner request of 18/10/2026: the takeoff (métré) journeys join the map.
 const TAKEOFF_GLOB = "e2e/army/takeoff/**/*.e2e.ts";
@@ -338,16 +344,19 @@ describe("TesterArmy critical impact map", () => {
     expect(verdicts.length).toBeGreaterThanOrEqual(5);
     for (const file of verdicts) expect(select([file]).files, file).toEqual(expect.arrayContaining([CHATGPT_DECISIONS, takeoffLab]));
     // Preloaded with NODE_OPTIONS --import (no import names them): their rule, not the nonRuntime journey folders, decides.
-    // Both development servers of the former chatgpt-local.e2e.ts preload the provider fixture.
-    expect(select(["e2e/army/local/chatgpt-provider-fixture.mjs"]).files).toEqual(expect.arrayContaining([CHATGPT_TAKEOFF, CHATGPT_DECISIONS, takeoffLab]));
+    expect(select(["e2e/army/local/chatgpt-provider-fixture.mjs"]).files).toEqual(expect.arrayContaining([...CHATGPT_JOURNEYS, takeoffLab]));
     expect(select(["e2e/army/local/profile-provider-fixture.mjs"]).files).toContain("e2e/army/local/profile-polish.e2e.ts");
     // TI-662: the owned takeoff worker's review viewer shows the vector reading.
     const workerLifecycle = "e2e/army/takeoff/worker-lifecycle.e2e.ts";
     expect(select(["src/components/takeoff/review/TakeoffVectorViewer.tsx"]).fullOnly.files).toContain(workerLifecycle);
     // The helpers of those folders stay non-runtime themselves: their importing journeys select them.
     expect(select(["e2e/army/local/takeoff-lab-support.ts"]).files).toEqual(expect.arrayContaining([CHATGPT_DECISIONS, takeoffLab]));
-    // The shared server lifecycle of the two files selects both, and so does everything the former single file was selected for.
-    expect(select(["e2e/army/local/chatgpt-local-journey-support.ts"]).files).toEqual(expect.arrayContaining([CHATGPT_TAKEOFF, CHATGPT_DECISIONS]));
+    // The shared server lifecycle selects all ChatGPT journeys.
+    expect(select(["e2e/army/local/chatgpt-local-journey-support.ts"]).files).toEqual(expect.arrayContaining(CHATGPT_JOURNEYS));
+    for (const intake of ["src/app/api/affaires/[projectId]/intake/route.ts",
+      "e2e/army/local/chatgpt-local-intake-support.ts", "e2e/fixtures/word/intake-word.docx"]) {
+      expect(select([intake]).files, intake).toEqual(expect.arrayContaining(CHATGPT_INTAKE));
+    }
     for (const shared of ["scripts/dev-chatgpt-local.mjs", "e2e/army/local/chatgpt-server-support.ts", "e2e/fixtures/sample-plan.pdf",
       "src/app/dashboard/estimates/new/page.tsx", "src/app/dashboard/affaires/page.tsx", "src/app/dashboard/affaires/[projectId]/page.tsx",
       "src/app/dashboard/affaires/[projectId]/plans/page.tsx", "src/components/takeoff/TakeoffPreparationPanel.tsx"]) {
@@ -580,7 +589,7 @@ describe("TesterArmy shard plans", () => {
     }
     // A small selection stays one job: no shard costs a stack and a build for seconds of journeys.
     const small = selectFromRepository(root, { event: "pull_request", paths: ["e2e/army/critical/dpgf-import.e2e.ts"], repositoryFiles: files });
-    expect(small.shards.shards).toEqual([{ shard: 1, total: 1, files: small.files, seconds: expect.any(Number) }]);
+    expect(small.shards.shards).toMatchObject([{ shard: 1, total: 1, files: small.files, seconds: expect.any(Number) }]);
 
     // Nothing to run: no shard, so the matrix job is skipped and the aggregate claims nothing.
     const none = selectFromRepository(root, { event: "pull_request", paths: ["docs/testing/tester-army-ci.md"], repositoryFiles: files });
@@ -597,7 +606,7 @@ describe("TesterArmy shard plans", () => {
     expect(full.takeoffShards.workers).toBe(1);
     expectPartition(full.takeoffShards, full.fullOnly.files, "every takeoff journey");
     const contracts = selectFromRepository(root, { event: "pull_request", paths: ["e2e/army/takeoff/contracts.e2e.ts"], repositoryFiles: files });
-    expect(contracts.takeoffShards.shards).toEqual([{ shard: 1, total: 1, files: contracts.fullOnly.files, seconds: expect.any(Number) }]);
+    expect(contracts.takeoffShards.shards).toMatchObject([{ shard: 1, total: 1, files: contracts.fullOnly.files, seconds: expect.any(Number) }]);
     expect(none.fullOnly.mode).toBe("none");
     expect(none.takeoffShards).toMatchObject({ files: [], shards: [] });
     // Every critical, takeoff and full plan in-process: timed out at 5,06 s on a loaded runner (PR #71, run 39178555436).
@@ -628,27 +637,107 @@ describe("TesterArmy shard plans", () => {
     expect(unmapped.shards).toMatchObject(whole);
   });
 
-  it("never plans two journeys that each start a development server in one shard", () => {
-    expect(durations.neverTogether).toEqual([[CHATGPT_DECISIONS, CHATGPT_TAKEOFF]]);
+  it("produces main's byte-identical Critical matrix on the repository's actual files and weights", () => {
+    // Replay the placement contract used by green main runs 45614367833 and 45617465771.
+    // Read today's weights so the weekly duration refresh can legitimately change the matrix.
+    const settings = durations.suites.critical;
+    const setup = map.suite.setup;
+    const weight = (file: string) => durations.seconds[file] ?? durations.defaultSeconds;
+    const anonymous = new Set(map.suite.anonymous);
+    const business = criticalSuite.filter((file) => file !== setup).sort();
+    const total = business.reduce((sum, file) => sum + weight(file), 0);
+    const groups = (durations.neverTogether ?? []).map((group) => group.filter((file) => business.includes(file)));
+    const count = Math.min(settings.maxShards, business.filter((file) => !anonymous.has(file)).length,
+      Math.max(1, Math.ceil(total / settings.secondsPerShard), ...groups.map((group) => group.length)));
+    const expected = Array.from({ length: count }, () => ({ files: [setup], seconds: 0 }));
+    for (const file of business.toSorted((a, b) => Number(anonymous.has(a)) - Number(anonymous.has(b)) || weight(b) - weight(a))) {
+      const group = groups.find((entries) => entries.includes(file));
+      const eligible = expected.filter((shard) => !group?.some((member) => shard.files.includes(member)));
+      const [lightest] = eligible.toSorted((a, b) => a.seconds - b.seconds);
+      lightest.files.push(file);
+      lightest.seconds += weight(file);
+    }
+    const matrix = expected.map((entry, index) => ({ shard: index + 1, total: count, files: count === 1 ? "" : entry.files.sort().join(",") }));
+    const actual = selectFromRepository(root, { event: "push", forceFull: "whole Critical suite", repositoryFiles: files }).shards;
+    expect(JSON.stringify(shardMatrix(actual))).toBe(JSON.stringify(matrix));
+  });
+
+  it("reports the longest serial file as a cost floor without affecting placement or shard count", () => {
+    const setup = map.suite.setup;
+    const seconds = { A: 500, B: 300, C: 250, D: 180, E: 110 };
+    const plan = (files: string[], workers: number) => planShards({
+      suite: "critical", files: [setup, ...files], setup, anonymous: [], wholeSuite: false, accepts: /./,
+      durations: { ...durations, seconds, neverTogether: [], coldServers: ["A", "B"],
+        suites: { ...durations.suites, critical: { workers, secondsPerShard: 600, maxShards: 5 } } },
+    });
+    const all = Object.keys(seconds);
+    const packed = plan(all, 2);
+    expect(shardMatrix(packed)).toEqual(shardMatrix(plan(all, 1)));
+    expect(packed.shards.map(({ seconds, costSeconds }) => [seconds, costSeconds])).toEqual([[500, 500], [410, 300], [430, 250]]);
+    const single = plan(["B", "C"], 2);
+    expect(single.shards).toMatchObject([{ seconds: 550, costSeconds: 300 }]);
+    expect(plan(["C", "D", "E"], 2).shards).toMatchObject([{ seconds: 540, costSeconds: 270 }]);
+  });
+
+  it("registers each sharded journey that launches Next dev directly or through a helper", () => {
+    const launchCommand = /["'`](?:scripts\/dev-chatgpt-local\.mjs|(?:node_modules\/)?next\/dist\/bin\/next)["'`]|["'`]next["'`]\s*,\s*\[?\s*["'`]dev["'`]|["'`]next dev\b/u;
+    const owners = new Set(files.filter((file) => {
+      if (!file.startsWith("e2e/army/") || !/\.[cm]?[jt]s$/u.test(file)) return false;
+      const source = fs.readFileSync(path.join(root, file), "utf8");
+      return /\b(?:spawn|execFile|exec)(?:Sync)?\s*\(/u.test(source) && launchCommand.test(source);
+    }));
+    for (const owner of owners) {
+      for (const importer of graph.importers.get(owner) ?? []) if (importer.startsWith("e2e/army/")) owners.add(importer);
+    }
+    const cold = [...new Set([...criticalSuite, ...fullSelection])].filter((file) => owners.has(file));
+    expect(cold).toContain(CHATGPT_TAKEOFF);
+    expect([...(durations.coldServers ?? [])].sort()).toEqual(cold.sort());
+  });
+
+  it("reports cold-server collisions without moving files even when another shard is available", () => {
+    const setup = map.suite.setup;
+    const files = [setup, "A", "B", "C"];
+    const durationsForTest = { ...durations, seconds: { A: 500, B: 250, C: 150 }, neverTogether: [],
+      suites: { ...durations.suites, critical: { maxShards: 3, secondsPerShard: 500, workers: 2 } } };
+    const plan = (coldServers: string[]) => planShards({ suite: "critical", files, setup,
+      anonymous: [], accepts: /./, wholeSuite: false, durations: { ...durationsForTest, coldServers } });
+    const observed = plan(["B", "C"]);
+    expect(shardMatrix(observed)).toEqual(shardMatrix(plan([])));
+    expect(observed.warnings).toEqual(["⚠ critical shard 2/2 shares 2 cold Next dev servers: B, C."]);
+    expect(plan(["A", "B"]).warnings ?? []).toEqual([]);
+  });
+
+  it("rejects duplicate, malformed or unselected cold-server paths in the registry", () => {
+    const journeys = [...criticalSuite, ...fullSelection];
+    for (const coldServers of ["all", [CHATGPT_TAKEOFF, CHATGPT_TAKEOFF], [7], ["e2e/army/local/zz-absent.e2e.ts"]]) {
+      const problems = validateShardDurations({ ...durations, coldServers } as ShardDurations, journeys);
+      expect(problems.some((problem) => problem.includes("coldServers"))).toBe(true);
+    }
+  });
+
+  it("never places two members of the same hard exclusion group in one shard", () => {
+    expect(durations.neverTogether).toEqual([CHATGPT_JOURNEYS]);
     const shardsOf = (plan: ShardPlan, file: string) => plan.shards.filter((shard) => shard.files.includes(file)).map((shard) => shard.shard);
-    const expectApart = (plan: ShardPlan, label: string) => {
-      const [takeoff, decisions] = [shardsOf(plan, CHATGPT_TAKEOFF), shardsOf(plan, CHATGPT_DECISIONS)];
-      expect([takeoff.length, decisions.length], label).toEqual([1, 1]);
-      expect(takeoff[0], label).not.toBe(decisions[0]);
+    const expectApart = (plan: ShardPlan, label: string, journeys = CHATGPT_JOURNEYS) => {
+      const shards = journeys.map((file) => shardsOf(plan, file));
+      expect(shards.map((matches) => matches.length), label).toEqual(journeys.map(() => 1));
+      expect(new Set(shards.flat()).size, label).toBe(journeys.length);
     };
 
-    // The plans of this tree: the whole critical suite, a selection that reaches both files, the nightly full suite.
+    // The plans of this tree: the whole critical suite, their shared fixture selection and the nightly full suite.
     const critical = selectFromRepository(root, { event: "pull_request", paths: ["scripts/run-tester-army-ci.ts"], repositoryFiles: files });
     expectApart(critical.shards, "full critical suite");
     const fixture = selectFromRepository(root, { event: "pull_request", paths: ["e2e/army/local/chatgpt-provider-fixture.mjs"], repositoryFiles: files });
     expect(fixture.mode).toBe("files");
     expectApart(fixture.shards, "provider fixture selection");
+    const intake = selectFromRepository(root, { event: "pull_request", paths: ["src/app/api/affaires/[projectId]/intake/route.ts"], repositoryFiles: files });
+    expectApart(intake.shards, "intake route selection", CHATGPT_INTAKE);
     expectApart(planFullSuite(root, { repositoryFiles: files }), "nightly full suite");
 
     const setup = map.suite.setup;
     const base = { suite: "critical" as const, setup, anonymous: map.suite.anonymous, accepts: CRITICAL_JOURNEY_FILE, wholeSuite: false };
     const measured = (seconds: Record<string, number>, secondsPerShard: number, maxShards: number, neverTogether = durations.neverTogether): ShardDurations =>
-      ({ ...durations, neverTogether, suites: { ...durations.suites, critical: { maxShards, secondsPerShard, workers: 2 } }, seconds });
+      ({ ...durations, neverTogether, coldServers: [], suites: { ...durations.suites, critical: { maxShards, secondsPerShard, workers: 2 } }, seconds });
 
     // A heavier third journey: longest first onto the least loaded shard would put both servers in the second shard.
     const heavier = "e2e/army/local/legacy-editor-parity.e2e.ts";
@@ -658,14 +747,14 @@ describe("TesterArmy shard plans", () => {
     expect(shardsOf(unruled, CHATGPT_TAKEOFF)).toEqual(shardsOf(unruled, CHATGPT_DECISIONS));
     const ruled = planShards({ ...base, files: three, durations: measured(weights, 700, 2) });
     expect(ruled.shards.map((shard) => shard.seconds)).toEqual([907, 450]);
-    expectApart(ruled, "heavier third journey");
+    expectApart(ruled, "heavier third journey", [CHATGPT_TAKEOFF, CHATGPT_DECISIONS]);
     expectPartition(ruled, three, "heavier third journey");
 
     // Seconds that fit one shard: two shards all the same, and one when only one of the two files is selected.
     const light = measured({ [CHATGPT_TAKEOFF]: 10, [CHATGPT_DECISIONS]: 10 }, 300, 5);
     const both = planShards({ ...base, files: [setup, CHATGPT_TAKEOFF, CHATGPT_DECISIONS], durations: light });
     expect(both.shards).toHaveLength(2);
-    expectApart(both, "seconds that fit one shard");
+    expectApart(both, "seconds that fit one shard", [CHATGPT_TAKEOFF, CHATGPT_DECISIONS]);
     expectPartition(both, [setup, CHATGPT_TAKEOFF, CHATGPT_DECISIONS], "seconds that fit one shard");
     expect(planShards({ ...base, files: [setup, CHATGPT_TAKEOFF], durations: light }).shards).toHaveLength(1);
     // The input order changes nothing.
@@ -715,10 +804,17 @@ describe("TesterArmy shard plans", () => {
     try {
       const readOutputs = (args: string[]) => {
         const output = path.join(directory, `${args.join("-").replace(/[^a-z]+/gu, "-")}.txt`);
+        const summary = `${output}.md`;
         const result = spawnSync(process.execPath, [SELECTOR, ...args], {
-          cwd: root, encoding: "utf8", env: { ...environment, GITHUB_OUTPUT: output }, windowsHide: true,
+          cwd: root, encoding: "utf8", env: { ...environment, GITHUB_OUTPUT: output, GITHUB_STEP_SUMMARY: summary }, windowsHide: true,
         });
         expect(result.status, result.stderr).toBe(0);
+        const selection = JSON.parse(result.stdout);
+        const plans: ShardPlan[] = selection.schemaVersion === "army-shard-plan-1" ? [selection] : [selection.shards, selection.takeoffShards];
+        for (const warning of plans.flatMap((plan) => plan.warnings ?? [])) {
+          expect(result.stderr).toContain(warning);
+          expect(fs.readFileSync(summary, "utf8")).toContain(warning);
+        }
         return Object.fromEntries(fs.readFileSync(output, "utf8").trim().split("\n").map((line) => {
           const index = line.indexOf("=");
           return [line.slice(0, index), line.slice(index + 1)];
@@ -792,7 +888,7 @@ describe("TesterArmy critical workflow wiring", () => {
     // An empty or missing selector output must run the journeys: only an
     // explicit none skips the shards (an empty matrix then fails, never passes).
     const shard = jobs["army-critical-shard"];
-    expect(shard).toMatch(/^ {4}if: needs\.army-select\.outputs\.mode != 'none'$/mu);
+    expect(shard).toMatch(/^ {4}if: \$\{\{ !cancelled\(\) && needs\.army-select\.result == 'success' && needs\.army-select\.outputs\.mode != 'none' && github\.event_name != 'pull_request' \}\}$/mu);
     expect(shard).not.toMatch(/mode == /u);
     expect(shard).toContain("\n        include: ${{ fromJSON(needs.army-select.outputs.critical_shards) }}\n");
     const journeys = steps(shard).find((step) => step.trimStart().startsWith("Run native database and TesterArmy critical journeys"));
@@ -807,26 +903,26 @@ describe("TesterArmy critical workflow wiring", () => {
       expect(count, file).toBe(file === "e2e-army-critical.yml" ? 1 : 0);
     }
 
-    // Only shard 1 of a push to main saves: the caches are the same in every shard.
+    // Only a push to main saves the Next build cache, from army-build, which builds once for every shard.
     const saves = steps(workflow).filter((step) => /uses: actions\/cache\/save@/u.test(step));
-    expect(saves.length).toBeGreaterThan(0);
-    for (const save of saves) {
-      expect(save).toMatch(/if: .*github\.event_name == 'push' && github\.ref == 'refs\/heads\/main' && matrix\.shard == 1\b/u);
-      expect(shard).toContain(save);
-    }
+    expect(saves.map((save) => save.trimStart().split("\n")[0])).toEqual(["Save the Army Next build cache"]);
+    expect(saves[0]).toMatch(/if: .*github\.event_name == 'push' && github\.ref == 'refs\/heads\/main' && steps\.need\.outputs\.build == 'true'/u);
+    // army-build's last step: its text runs on into the next job's header.
+    expect(steps(jobs["army-build"]).filter((step) => step.trimStart().startsWith("Save the Army Next build cache"))).toHaveLength(1);
+    expect(shard).not.toContain("Save the Army Next build cache");
     expect(workflow).not.toMatch(/uses: actions\/cache@/u);
   });
 
   it("runs the takeoff journeys a change reaches in parallel shard jobs, at one worker, skipping only an explicit none", () => {
     const workflow = read(".github/workflows/e2e-army-critical.yml");
     const jobs = jobBlocks(workflow);
-    expect(Object.keys(jobs)).toEqual(["army-select", "army-critical-shard", "army-takeoff-shard", "army-critical", "army-takeoff"]);
+    expect(Object.keys(jobs)).toEqual(["army-select", "army-build", "army-critical-shard", "army-critical-pr-shard", "army-takeoff-shard", "army-critical", "army-takeoff"]);
     const shard = jobs["army-takeoff-shard"];
-    // Same decision as the critical shards: army-select's, read once, never recomputed.
-    expect(shard).toMatch(/^ {4}needs: army-select$/mu);
+    // Same decision as the critical shards: army-select's, read once, never recomputed; army-build's result never skips it.
+    expect(shard).toMatch(/^ {4}needs: \[army-select, army-build\]$/mu);
     expect(shard).not.toMatch(/scripts\/tester-army\/select-journeys\.ts/u);
     // An empty or missing output runs the journeys (an empty matrix then fails, never passes).
-    expect(shard).toMatch(/^ {4}if: needs\.army-select\.outputs\.full_only_mode != 'none'$/mu);
+    expect(shard).toMatch(/^ {4}if: \$\{\{ !cancelled\(\) && needs\.army-select\.result == 'success' && needs\.army-select\.outputs\.full_only_mode != 'none' \}\}$/mu);
     expect(shard).not.toMatch(/full_only_mode == /u);
     expect(shard).toContain("\n        include: ${{ fromJSON(needs.army-select.outputs.takeoff_shards) }}\n");
     expect(shard).not.toMatch(/uses: actions\/cache\/save@/u);

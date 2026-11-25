@@ -40,6 +40,7 @@ const ACTION_CLASS = "min-h-11 max-sm:w-full sm:min-h-9";
 const OMITTED_PLAN: Record<string, string> = {
   alternate: "autre version retenue", identical_copy: "copie identique", unsupported_format: "format non lu",
   not_requested: "lu par une analyse précédente",
+  not_selected: "non lu dans cette demande",
 };
 const OMITTED_REFERENCE: Record<string, string> = { unreadable: "illisible", unsupported_format: "format non lu", limit: "limite atteinte" };
 
@@ -144,7 +145,7 @@ export function AffaireTakeoffZone(props: AffaireTakeoffZoneProps) {
   if (!model) return null;
   const options = model.options;
   const dialogMode: LaunchMetreDialogMode | null = !options ? null : options.mode === "version" ? { kind: "version" }
-    : options.mode === "request" ? { kind: "request", predecessorJobId: options.predecessorJobId }
+    : options.mode === "request" ? { kind: "request", predecessorJobId: options.predecessorJobId, planDispatch: shown?.planDispatch }
     : { kind: "save_only", reason: options.reason };
   const coverage = shown?.request?.coverage ?? null;
   const omitted = coverage ? [

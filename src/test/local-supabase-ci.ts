@@ -8,23 +8,12 @@ import path from "node:path";
 import { createClient } from "@supabase/supabase-js";
 
 import {
-  compareDatabaseFingerprints,
-  compareStackState,
-  createDatabaseSnapshotOperations,
-  type DatabaseFingerprint,
-  type DatabaseSnapshot,
-  type DatabaseSnapshotKey,
-  type DatabaseSnapshotOperations,
-  type NativePostgresTools,
-  resolveDatabaseSnapshotDirectory,
-  resolveNativePostgresTools,
-} from "@/test/database-snapshot";
-import {
   acquireNativeStackSlot,
   cleanUpOnTerminationSignals,
   type NativeStackSlot,
   nativeStackWaitMs,
 } from "@/test/native-stack-guard";
+import { resolveNativePostgresTools } from "@/test/native-database-tools";
 import {
   assertNoRemoteSupabaseEnvironment,
   createLocalCiEnvironment,
@@ -153,30 +142,25 @@ interface IsolatedSupabaseProject {
 interface LocalSupabaseCiDependencies {
   /** Reserves one of the user's native-run slots before the project exists. */
   acquireStackSlot: () => Promise<NativeStackSlot>;
-  /** Snapshot steps, used only when ARMY_DB_SNAPSHOT_DIR is set. */
-  databaseSnapshot?: DatabaseSnapshotOperations;
   ensureRuntime: () => void;
   environment: SupabaseEnvironment;
   reservedPorts: ReadonlySet<number>;
   log: (message: string) => void;
-  /**
-   * Called once the migrated database is ready, before pgTAP: a run that fails
-   * afterwards still knows whether its database was reset or restored.
-   */
-  onDatabaseProvenance?: (provenance: LocalDatabaseProvenance) => void;
   /**
    * Called with the isolated project before its stack starts: a supervisor
    * that dies afterwards leaves enough to stop and destroy that exact stack.
    */
   onProjectPrepared?: (project: Readonly<IsolatedSupabaseProject>) => void;
   /**
-   * Called with the started stack's status, before its database is reset or
-   * restored: work that needs only its URL and keys (the Army production
+   * Called with the started stack's status, before its database is reset: work that needs only its URL and keys (the Army production
    * build) can run while the database checks run. The application itself
    * still starts only after pgTAP and the RLS matrix pass.
    */
   onStackStarted?: (status: Readonly<LocalSupabaseStatus>) => void;
-  prepareProject: (reservedPorts: ReadonlySet<number>, environment: SupabaseEnvironment) => Promise<IsolatedSupabaseProject>;
+  prepareProject: (reservedPorts: ReadonlySet<number>, environment: SupabaseEnvironment,
+    options?: IsolatedProjectOptions) => Promise<IsolatedSupabaseProject>;
+  /** The API port to take when it is free: the origin of a prebuilt Army build (scripts/tester-army/prebuilt-build.ts). */
+  preferredApiPort?: number;
   provisionUsers: (
     status: LocalSupabaseStatus
   ) => Promise<ProvisionedUsers>;
@@ -267,7 +251,9 @@ function hostEphemeralPortRanges(): number[][] {
 
 export async function findAvailablePort(
   reserved: ReadonlySet<number>,
-  ephemeralRanges: ReadonlyArray<ReadonlyArray<number>>
+  ephemeralRanges: ReadonlyArray<ReadonlyArray<number>>,
+  /** Tried first when it is a candidate (the API port of a prebuilt Army build); otherwise the random search runs. */
+  preferred?: number
 ) {
   if (ephemeralRanges.length === 0 || ephemeralRanges.some((range) => range.length !== 2 ||
     range.some((port) => !Number.isInteger(port) || port < 1 || port > 65535) || range[0] > range[1])) {
@@ -280,8 +266,9 @@ export async function findAvailablePort(
       (port < 10000 || port > 32767) &&
       !ephemeralRanges.some(([first, last]) => port >= first && port <= last));
   const offset = candidates.length ? randomInt(candidates.length) : 0;
-  for (let index = 0; index < candidates.length; index += 1) {
-    const port = candidates[(offset + index) % candidates.length];
+  const order = preferred !== undefined && candidates.includes(preferred) ? [preferred] : [];
+  for (let index = 0; index < candidates.length; index += 1) order.push(candidates[(offset + index) % candidates.length]);
+  for (const port of order) {
     const available = await new Promise<boolean>((resolve, reject) => {
       const server = net.createServer();
       server.once("error", (error: NodeJS.ErrnoException) => {
@@ -297,7 +284,36 @@ export async function findAvailablePort(
   throw new Error("No non-ephemeral Supabase port is available");
 }
 
-async function prepareIsolatedProject(additionalReservedPorts: ReadonlySet<number>, environment: SupabaseEnvironment): Promise<IsolatedSupabaseProject> {
+/** The migrations, pgTAP tests and large-estimate fixture an application or database run needs. */
+function prepareProjectInputs(sourceDirectory: string, targetDirectory: string, rootDirectory: string, environment: SupabaseEnvironment) {
+  fs.cpSync(
+    path.join(sourceDirectory, "migrations"),
+    path.join(targetDirectory, "migrations"),
+    { recursive: true }
+  );
+  fs.cpSync(
+    path.join(sourceDirectory, "tests"),
+    path.join(targetDirectory, "tests"),
+    { recursive: true }
+  );
+  // Parsing application inputs is a one-shot preparation step. Keep its
+  // application imports out of the long-lived dev-loop supervisor's modules.
+  const workbook = spawnSync(process.execPath, ["--import", "tsx", "src/test/large-estimate-workbook.ts", rootDirectory], {
+    env: createLocalCiEnvironment(environment), encoding: "utf8", stdio: ["ignore", "pipe", "pipe"],
+  });
+  if (workbook.error) throw workbook.error;
+  if (workbook.status !== 0) throw new Error(`Large estimate fixture preparation failed: ${workbook.stderr.trim() || workbook.status}`);
+}
+
+interface IsolatedProjectOptions {
+  /** The API port to take when it is free (the origin a prebuilt Army build was made for). */
+  preferredApiPort?: number;
+  /** No migrations, tests nor fixtures: a stack whose URL and keys alone are read (scripts/tester-army/army-build.ts). */
+  bare?: boolean;
+}
+
+async function prepareIsolatedProject(additionalReservedPorts: ReadonlySet<number>, environment: SupabaseEnvironment,
+  options: IsolatedProjectOptions = {}): Promise<IsolatedSupabaseProject> {
   const rootDirectory = fs.mkdtempSync(
     path.join(os.tmpdir(), "miaouffrage-supabase-ci-")
   );
@@ -307,23 +323,8 @@ async function prepareIsolatedProject(additionalReservedPorts: ReadonlySet<numbe
     const sourceDirectory = path.join(process.cwd(), "supabase");
     const targetDirectory = path.join(rootDirectory, "supabase");
     fs.mkdirSync(targetDirectory, { recursive: true });
-    fs.cpSync(
-      path.join(sourceDirectory, "migrations"),
-      path.join(targetDirectory, "migrations"),
-      { recursive: true }
-    );
-    fs.cpSync(
-      path.join(sourceDirectory, "tests"),
-      path.join(targetDirectory, "tests"),
-      { recursive: true }
-    );
-    // Parsing application inputs is a one-shot preparation step. Keep its
-    // application imports out of the long-lived dev-loop supervisor's modules.
-    const workbook = spawnSync(process.execPath, ["--import", "tsx", "src/test/large-estimate-workbook.ts", rootDirectory], {
-      env: createLocalCiEnvironment(environment), encoding: "utf8", stdio: ["ignore", "pipe", "pipe"],
-    });
-    if (workbook.error) throw workbook.error;
-    if (workbook.status !== 0) throw new Error(`Large estimate fixture preparation failed: ${workbook.stderr.trim() || workbook.status}`);
+    if (options.bare) fs.mkdirSync(path.join(targetDirectory, "migrations"));
+    else prepareProjectInputs(sourceDirectory, targetDirectory, rootDirectory, environment);
 
     const configuredPorts = [
       54320,
@@ -340,7 +341,8 @@ async function prepareIsolatedProject(additionalReservedPorts: ReadonlySet<numbe
     const ephemeralRanges = hostEphemeralPortRanges();
     const portReplacements = new Map<number, number>();
     for (const configuredPort of configuredPorts) {
-      const isolatedPort = await findAvailablePort(reservedPorts, ephemeralRanges);
+      const isolatedPort = await findAvailablePort(reservedPorts, ephemeralRanges,
+        configuredPort === 54321 ? options.preferredApiPort : undefined);
       reservedPorts.add(isolatedPort);
       portReplacements.set(configuredPort, isolatedPort);
     }
@@ -795,40 +797,15 @@ const SAFE_DIAGNOSTIC_PHASES = new Set([
   "reserve native stack slot",
   "prepare isolated project",
   "start local stack",
-  "restore database snapshot",
   "reset local database",
   "verify migration inventory",
-  "verify database snapshot",
   "run statement budgets",
   "run pgTAP",
   "run behavioral RLS matrix",
 ]);
 
-/** How the run obtained its migrated database; recorded in the run log. */
-export interface LocalDatabaseProvenance {
-  source: "reset" | "snapshot";
-  snapshot: "disabled" | "recorded" | "not-recorded" | "restored" | "rejected";
-  key?: string;
-  reason?: string;
-}
-
-/**
- * The template every isolated config.toml derives from, before the project ID
- * and the ports are replaced: part of the database snapshot key.
- */
-export function readIsolatedConfigTemplate(rootDirectory = process.cwd()) {
-  return enableNativeStack(fs.readFileSync(path.join(rootDirectory, "supabase", "config.toml"), "utf8"));
-}
-
 function elapsedSeconds(startedAt: number) {
   return ((Date.now() - startedAt) / 1000).toFixed(1);
-}
-
-function appliedMigrationVersions(output: string) {
-  return parseSupabaseMigrationList(output)
-    .map((row) => row.remote)
-    .filter((version): version is string => Boolean(version))
-    .sort();
 }
 
 /**
@@ -899,9 +876,59 @@ function createPhaseError(phase: string, error: unknown) {
   return new Error(`Phase failed: ${phase}${detail}`, { cause });
 }
 
+/**
+ * A native stack with no migrations, kept up while `work` runs, then destroyed (after a failure too): the Army build job
+ * reads its URL and keys and builds the production application for them (scripts/tester-army/army-build.ts). It never
+ * holds data, users or the application.
+ */
+export async function withBareLocalStack<T>(
+  work: (status: Readonly<LocalSupabaseStatus>) => Promise<T>,
+  overrides: Partial<Pick<LocalSupabaseCiDependencies, "acquireStackSlot" | "ensureRuntime" | "environment" | "log" |
+    "prepareProject" | "removeProject" | "reservedPorts" | "supabase">> = {}
+): Promise<T> {
+  const dependencies = { ...defaultDependencies(), ...overrides };
+  assertNoRemoteSupabaseEnvironment(dependencies.environment);
+  dependencies.ensureRuntime();
+  const cliVersion = dependencies.supabase(["--version"], true).trim().split(/\r?\n/, 1)[0];
+  if (cliVersion !== PINNED_SUPABASE_CLI_VERSION) {
+    throw new Error(`Supabase CLI must be exactly ${PINNED_SUPABASE_CLI_VERSION}; received ${cliVersion}`);
+  }
+  const slot = await dependencies.acquireStackSlot();
+  let project: IsolatedSupabaseProject | undefined;
+  let started = false;
+  let cleaned = false;
+  const withWorkdir = (args: string[]) => [...args, "--workdir", project?.rootDirectory ?? ""];
+  const destroy = () => {
+    if (cleaned) return [];
+    cleaned = true;
+    const errors: Error[] = [];
+    if (started && project) {
+      for (const cleanupArgs of [["stop"], ["stack", "destroy", "--yes"]]) {
+        try { dependencies.supabase(withWorkdir(cleanupArgs), true); } catch (error) { errors.push(asError(error)); }
+      }
+    }
+    if (project) {
+      try { dependencies.removeProject(project); } catch (error) { errors.push(asError(error)); }
+    }
+    slot.release();
+    return errors;
+  };
+  const removeSignalHandlers = cleanUpOnTerminationSignals(() => { destroy(); });
+  try {
+    project = await dependencies.prepareProject(dependencies.reservedPorts, dependencies.environment, { bare: true });
+    slot.recordStack(project.rootDirectory);
+    started = true;
+    dependencies.supabase(withWorkdir(["start", "--runtime", "native"]), true);
+    return await work(parseLocalSupabaseStatus(dependencies.supabase(withWorkdir(["status", "--env"]), true)));
+  } finally {
+    removeSignalHandlers();
+    for (const error of destroy()) dependencies.log(`Cleanup of the bare local stack failed: ${error.message}`);
+  }
+}
+
 export async function runLocalSupabaseCi(
   overrides: Partial<LocalSupabaseCiDependencies> = {}
-): Promise<{ database: LocalDatabaseProvenance }> {
+): Promise<void> {
   const dependencies = { ...defaultDependencies(), ...overrides };
   assertNoRemoteSupabaseEnvironment(dependencies.environment);
   if (dependencies.skipRlsMatrix && dependencies.runApplication) {
@@ -916,8 +943,6 @@ export async function runLocalSupabaseCi(
   if (projectErrors.length > 0) {
     throw new Error(projectErrors.join("\n"));
   }
-  // Opt-in: without ARMY_DB_SNAPSHOT_DIR every run keeps `db reset`.
-  const snapshotDirectory = resolveDatabaseSnapshotDirectory(dependencies.environment);
   dependencies.ensureRuntime();
 
   // The captured CLI output appends stderr update notices after stdout.
@@ -944,7 +969,6 @@ export async function runLocalSupabaseCi(
     if (cancelRequested) throw new SafeDiagnosticError(`Interrupted by ${cancelRequested} before ${phase}`);
     activePhase = phase;
   };
-  const provenance: LocalDatabaseProvenance = { source: "reset", snapshot: "disabled" };
   const withWorkdir = (args: string[]) => [
     ...args,
     "--workdir",
@@ -973,7 +997,6 @@ export async function runLocalSupabaseCi(
       throw new Error(migrationErrors.join("\n"));
     }
     dependencies.log("Local migration inventory matches the repository.");
-    return appliedMigrationVersions(migrationOutput);
   };
 
   // Auth users and domain rows live only in this disposable stack. Deleting
@@ -1023,7 +1046,9 @@ export async function runLocalSupabaseCi(
     checkpoint("reserve native stack slot");
     slot = await dependencies.acquireStackSlot();
     checkpoint("prepare isolated project");
-    project = await dependencies.prepareProject(dependencies.reservedPorts, dependencies.environment);
+    project = dependencies.preferredApiPort === undefined
+      ? await dependencies.prepareProject(dependencies.reservedPorts, dependencies.environment)
+      : await dependencies.prepareProject(dependencies.reservedPorts, dependencies.environment, { preferredApiPort: dependencies.preferredApiPort });
     slot.recordStack(project.rootDirectory);
     dependencies.onProjectPrepared?.({ ...project });
     if (interrupted) throw new Error(`Interrupted by ${interrupted} before the stack started`);
@@ -1039,109 +1064,8 @@ export async function runLocalSupabaseCi(
       ) });
     }
 
-    let snapshotContext: {
-      databaseUrl: string;
-      directory: string;
-      key: DatabaseSnapshotKey;
-      operations: DatabaseSnapshotOperations;
-      tools: NativePostgresTools;
-    } | undefined;
-    let restored: DatabaseSnapshot | undefined;
-    let stackBeforeRestore: DatabaseFingerprint | undefined;
-    if (snapshotDirectory) {
-      checkpoint("restore database snapshot");
-      const operations = dependencies.databaseSnapshot ?? createDatabaseSnapshotOperations({
-        configTemplate: () => readIsolatedConfigTemplate(),
-        environment: dependencies.environment,
-        rootDirectory: process.cwd(),
-        supabaseCli: cliVersion,
-      });
-      const { databaseUrl } = parseLocalSupabaseStatus(
-        dependencies.supabase(withWorkdir(["status", "--env"]), true)
-      );
-      if (!databaseUrl) throw new Error("Local PostgreSQL status is missing for the database snapshot");
-      const tools = operations.resolveTools();
-      const key = operations.computeKey(tools.bundle);
-      snapshotContext = { databaseUrl, directory: snapshotDirectory, key, operations, tools };
-      provenance.key = key.key;
-      const lookup = operations.lookUp(snapshotDirectory, key.key);
-      if (lookup.hit) {
-        const startedAt = Date.now();
-        try {
-          // This stack's own state (stack-owned schemas, database settings),
-          // which the restore must carry over unchanged.
-          stackBeforeRestore = operations.fingerprint(tools, databaseUrl);
-          operations.restore({ databaseUrl, snapshot: lookup.snapshot, tools });
-          restored = lookup.snapshot;
-          dependencies.log(`Database snapshot ${key.key.slice(0, 12)} restored in ${elapsedSeconds(startedAt)} s instead of db reset.`);
-        } catch (error) {
-          provenance.snapshot = "rejected";
-          provenance.reason = `restore failed: ${asError(error).message}`;
-          dependencies.log(`Database snapshot ${key.key.slice(0, 12)} could not be restored (${asError(error).message}); falling back to db reset.`);
-        }
-      } else {
-        dependencies.log(`Database snapshot miss (${lookup.reason}); running db reset.`);
-      }
-    }
-
-    let appliedVersions: string[] = [];
-    if (restored && snapshotContext) {
-      // Cheap equivalence proof: the restored database must carry the very
-      // migrations and catalog fingerprint recorded right after a reset, and
-      // this stack's own state unchanged. Any doubt falls back to db reset.
-      const { databaseUrl, operations, tools } = snapshotContext;
-      let problems: string[];
-      try {
-        appliedVersions = verifyMigrationInventory();
-        activePhase = "verify database snapshot";
-        const fingerprint = operations.fingerprint(tools, databaseUrl);
-        problems = [
-          ...(JSON.stringify(appliedVersions) === JSON.stringify([...restored.manifest.migrations].sort())
-            ? []
-            : ["applied migrations differ from the snapshot"]),
-          ...compareDatabaseFingerprints(restored.manifest.fingerprint, fingerprint)
-            .map((component) => `fingerprint ${component} differs`),
-          ...(stackBeforeRestore && compareStackState(stackBeforeRestore, fingerprint)
-            ? []
-            : ["this stack's own state did not survive the restore"]),
-        ];
-      } catch (error) {
-        problems = [`verification failed: ${asError(error).message}`];
-      }
-      if (problems.length === 0) {
-        provenance.source = "snapshot";
-        provenance.snapshot = "restored";
-        dependencies.log("Database snapshot verified: applied migrations and catalog fingerprint match the recorded reset.");
-      } else {
-        provenance.snapshot = "rejected";
-        provenance.reason = problems.join("; ");
-        dependencies.log(`Database snapshot rejected after restore (${provenance.reason}); falling back to db reset.`);
-        restored = undefined;
-      }
-    }
-
-    if (!restored) {
-      resetDatabase();
-      appliedVersions = verifyMigrationInventory();
-      if (snapshotContext) {
-        // Recorded right after the reset and its inventory check, before
-        // pgTAP, Auth users or fixtures touch the database. A failed recording
-        // costs the next run its speed, never this run's evidence.
-        const { databaseUrl, directory, key, operations, tools } = snapshotContext;
-        activePhase = "record database snapshot";
-        const startedAt = Date.now();
-        try {
-          const fingerprint = operations.fingerprint(tools, databaseUrl);
-          const manifest = operations.record({ databaseUrl, directory, fingerprint, key, migrations: appliedVersions, tools });
-          if (provenance.snapshot === "disabled") provenance.snapshot = "recorded";
-          dependencies.log(`Database snapshot ${key.key.slice(0, 12)} recorded in ${elapsedSeconds(startedAt)} s (${manifest.dump.bytes} bytes).`);
-        } catch (error) {
-          if (provenance.snapshot === "disabled") provenance.snapshot = "not-recorded";
-          dependencies.log(`Database snapshot not recorded: ${asError(error).message}`);
-        }
-      }
-    }
-    dependencies.onDatabaseProvenance?.({ ...provenance });
+    resetDatabase();
+    verifyMigrationInventory();
 
     checkpoint("verify generated database types");
     dependencies.verifyDatabaseTypes(project.rootDirectory);
@@ -1252,5 +1176,4 @@ export async function runLocalSupabaseCi(
       primaryError?.message ?? "Local Supabase CI cleanup failed"
     );
   }
-  return { database: provenance };
 }

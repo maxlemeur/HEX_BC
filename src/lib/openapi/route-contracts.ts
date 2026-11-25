@@ -1,3 +1,5 @@
+import { findCommandSchema, findReceiptSchema, findsViewSchema } from "@/lib/takeoff/unlisted-finds";
+import { AFFAIRE_ANALYSIS_PROGRESS_PATH, analysisProgressCursorSchema, analysisProgressResponseSchema } from "@/lib/affaires/analysis-progress-contract";
 import { affaireLinkedDpgfSourceResponseSchema } from "@/lib/estimates/linked-dpgf-contracts";
 import {
   itemListAcceptRequestSchema,
@@ -433,9 +435,18 @@ const administrationContracts: RouteContract[] = [
     } }],
   },
   {
+    id: "read-affaire-analysis-progress", method: "get", path: AFFAIRE_ANALYSIS_PROGRESS_PATH,
+    summary: "Suivre les analyses des affaires accessibles", tags: ["Affaires"],
+    description: "Lecture privée sans cache des analyses du dossier et du métré dans le tenant actif. Page bornée des analyses en cours ou en attente et des fins des dernières 24 heures. Le suivi global découvre les jobs de métré autonomes pendant sept jours à partir de leur dernière mise à jour ou de la fin de leur dernière tentative quand une reprise est planifiée. Le navigateur acquitte les seules fins effectivement affichées, par leurs identifiants opaques.",
+    queryParameters: [{ name: "cursor", schema: analysisProgressCursorSchema, description: "Curseur opaque nextCursor d’une réponse précédente du suivi." }],
+    success: [{ status: "200", description: "Suivi des analyses des affaires accessibles.", schema: {
+      schemaName: "AffaireAnalysisProgressResponse", io: "output", schema: analysisProgressResponseSchema,
+    } }],
+  },
+  {
     id: "read-affaire-intake-workspace", method: "get", path: "/api/affaires/{projectId}/intake",
     summary: "Lire le dossier de l'affaire", tags: ["Affaires"],
-    description: "Lecture privée sans cache du dossier de l'affaire accessible (pièces, pièces manquantes, brief), telle que la page de l'affaire la rend. La page la relit pendant l'ajout et l'analyse des pièces au lieu de rafraîchir son routeur. Avec plans=1, la réponse ajoute le résumé des plans et métrés quand le module est actif pour le tenant (null sinon) ; elle l'omet quand il n'a pas pu être lu.",
+    description: "Lecture privée sans cache des pièces, des manques et du brief. Les pièces en attente portent le statut awaiting_launch. launchRunning indique une analyse explicite en cours et briefPreparationDue permet de lancer la préparation du brief seul. Après activation, briefOutdated indique une publication périmée, launchConnectionUnavailable une interruption faute de connexion et historicalRetryAvailable sur une pièce indique une relance historique possible. La page la relit pendant l'ajout et l'analyse des pièces au lieu de rafraîchir son routeur. Avec plans=1, la réponse ajoute le résumé des plans et métrés quand le module est actif pour le tenant (null sinon) ; elle l'omet quand il n'a pas pu être lu.",
     pathParameters: [projectIdParameter],
     queryParameters: [{ name: "plans", schema: z.literal("1"), description: "Ajouter le résumé des plans et métrés de l'affaire." }],
     success: [{ status: "200", description: "Dossier de l'affaire, avec Cache-Control private/no-store." }],
@@ -566,6 +577,22 @@ const administrationContracts: RouteContract[] = [
       schema: { schemaName: "AffaireLinkedDpgfSourceResponse", schema: z.object({ ok: z.literal(true), data: affaireLinkedDpgfSourceResponseSchema }), io: "output" } }],
   },
   {
+    id: "get-takeoff-unlisted-finds", method: "get", path: "/api/affaires/{projectId}/takeoff/items/finds",
+    summary: "Consulter les ouvrages vus hors liste", description: "Sources lisibles par le membre, décisions et faits de la lecture.",
+    tags: ["Takeoff"], pathParameters: [projectIdParameter],
+    success: [{ status: "200", description: "Ouvrages et décisions visibles.",
+      schema: { schemaName: "TakeoffUnlistedFinds", schema: z.object({ ok: z.literal(true), data: findsViewSchema }), io: "output" } }],
+  },
+  {
+    id: "decide-takeoff-unlisted-finds", method: "post", path: "/api/affaires/{projectId}/takeoff/items/finds",
+    summary: "Ajouter ou écarter des ouvrages hors liste, ou annuler une mise à l’écart",
+    description: "Le membre et l’entreprise viennent de la session. Écriture réservée aux éditeurs de la liste.",
+    tags: ["Takeoff"], pathParameters: [projectIdParameter],
+    body: { schema: findCommandSchema, description: "Ouvrage publié et décision du membre." },
+    success: [{ status: "200", description: "Décision enregistrée.",
+      schema: { schemaName: "TakeoffFindReceipt", schema: z.object({ ok: z.literal(true), data: findReceiptSchema }), io: "output" } }],
+  },
+  {
     id: "get-affaire-takeoff-item-list", method: "get", path: "/api/affaires/{projectId}/takeoff/item-list",
     summary: "Lire la liste des postes d'une affaire", tags: ["Takeoff"],
     description: "Lecteurs de l'affaire. La révision enregistrée de la liste (immuable), son historique, ses sources (l'import DPGF de l'affaire et les décisions de structure de sa confirmation, ou la version du gabarit) résolues par le serveur sous la règle de l'affaire, les continuités acceptées, et la révision que les sources proposent maintenant, jamais appliquée seule. Aucun prix n'est lu.",
@@ -622,7 +649,7 @@ const administrationContracts: RouteContract[] = [
     path: "/api/affaires/{projectId}/intake/files",
     summary: "Deposer les fichiers d'intake d'une affaire",
     description:
-      "Accepte un lot multipart et conserve les originaux, y compris DWG/DXF/RVT/IFC/FCStd (50 Mo par fichier). Les originaux CAO/BIM nécessitent un export pour l’aperçu et le métré ; les autres pièces sont traitées de façon asynchrone.",
+      "Accepte un lot multipart et conserve les originaux, y compris DWG/DXF/RVT/IFC/FCStd (50 Mo par fichier). Les pièces déposées attendent qu’un membre de l’affaire appuie sur « Lancer l’analyse ». Les originaux CAO/BIM nécessitent un export pour l’aperçu et le métré.",
     tags: ["Affaires"],
     pathParameters: [projectIdParameter],
     body: {

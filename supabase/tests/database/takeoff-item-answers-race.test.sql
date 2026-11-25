@@ -140,7 +140,7 @@ create function pg_temp.publish_sql(project integer, token integer, reason text 
 returns text language sql stable as $$
   select format($publish$select result_id::text || ':' || replayed::text from public.publish_takeoff_item_answers(%L, %L,
     '2026-11-22T09:00:00Z', 'modele-fictif', 'takeoff-c-postes-v1',
-    '{"schema_version": "v2", "prompt_version": "takeoff-c-postes-v1"}'::jsonb, array[2, 7], %L::jsonb, '[]'::jsonb, %L::jsonb,
+    '{"schema_version": "v2", "prompt_version": "takeoff-c-postes-v1"}'::jsonb, array[2, 7], %L::jsonb, '[{"page":2,"designation":"Bouche fictive","evidence":"Repère B","chunk_id":"c1"}]'::jsonb, %L::jsonb,
     %L::jsonb)$publish$,
     pg_temp.job(project), pg_temp.f(token),
     jsonb_build_array(
@@ -275,6 +275,24 @@ select is((select count(*)::integer from extensions.dblink_get_result('race_b', 
 select results_eq($$select j.status::text, r.outcome, (select count(*)::integer from public.takeoff_item_answers a where a.job_id = j.id)
   from public.takeoff_jobs j join public.takeoff_launch_requests r on r.id = j.launch_request_id where j.id = pg_temp.job(23)$$,
   $$values ('completed'::text, 'success'::text, 2)$$, 'the plan read stays read, with its answers');
+
+-- Two writers observing the same undecided find serialize on the list.
+create function pg_temp.dismiss_sql(intent integer) returns text language sql as $$
+  select format('select public.dismiss_takeoff_find(%L,%L,%L,%L,0,%L,%L)',
+    pg_temp.tenant(), pg_temp.f(20), pg_temp.f(1), pg_temp.job(20), pg_temp.f(intent), 'outside_scope')
+$$;
+select is(extensions.dblink_exec('race_a','begin'), 'BEGIN', 'first member opens a transaction');
+select is((select id from extensions.dblink('race_a',pg_temp.dismiss_sql(960)) as x(id uuid)),
+  pg_temp.f(960), 'first decision written');
+select is(extensions.dblink_send_query('race_b',pg_temp.dismiss_sql(961)),1,'second decision submitted');
+select ok(pg_temp.waits_for('race_b','race_a'),'second member waits for the list');
+select is(extensions.dblink_exec('race_a','commit'),'COMMIT','first decision committed');
+select ok(pg_temp.answered('race_b'),'second decision returns');
+select is((select count(*)::int from extensions.dblink_get_result('race_b', false) as x(id uuid)),0,'second write refused');
+select ok(extensions.dblink_error_message('race_b') like '%TAKEOFF_FIND_ALREADY_DECIDED%', 'second member sees the conflict');
+select is((select count(*)::int from extensions.dblink_get_result('race_b', false) as x(id uuid)),0,'second session drained');
+select results_eq($$select id from public.takeoff_find_decisions where job_id = pg_temp.job(20)$$,
+  $$values (pg_temp.f(960))$$,'one decision remains');
 
 select is(extensions.dblink_exec('race_setup', $cleanup$
 begin;

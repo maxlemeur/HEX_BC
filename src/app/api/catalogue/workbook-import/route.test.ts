@@ -196,7 +196,11 @@ describe("POST /api/catalogue/workbook-import", () => {
     const answer = await importSheet(SHEET, false);
 
     expect(answer.status).toBe(200);
-    expect(answer.data).toEqual({ confirmed: false, ...SHEET_REPORT });
+    expect(answer.data).toEqual({
+      confirmed: false,
+      ...SHEET_REPORT,
+      proposed_articles: [6, 7, 8, 9].map((row) => ({ row, without_supply_type: false })),
+    });
     expect(fake.writes).toEqual([]);
   });
 

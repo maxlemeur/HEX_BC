@@ -1,5 +1,6 @@
 import "server-only";
 
+import { selectInChunks } from "@/lib/supabase/in-chunks";
 import type { AuthenticatedTenantContext } from "@/lib/auth/tenant-context";
 import { mapSupabaseError } from "@/lib/http/api-response";
 import type { TakeoffVisibleSources } from "@/lib/takeoff/request-activity";
@@ -11,7 +12,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
  * member: the affaire's owner or an administrator reads every plan file of it (the plan files' rule,
  * public.can_access_takeoff_project); anyone else reads a plan file only where its row is readable to them (the evidence
  * an analysis they read attests) and a dossier piece where its row is. Reading an affaire alone never names its plans.
- * At most three statements, whatever the number of ids.
+ * Bound the PostgREST URL when an affaire has many plans.
  */
 export async function readTakeoffVisibleSources(input: {
   supabase: AuthenticatedTenantContext["supabase"];
@@ -26,8 +27,9 @@ export async function readTakeoffVisibleSources(input: {
   if (owner.error) throw mapSupabaseError(owner.error, "Impossible de vérifier l’accès aux plans de l’affaire.");
   if (owner.data === true) return "all";
   const [files, documents] = await Promise.all([
-    input.supabase.from("plan_files").select("id").eq("tenant_id", input.tenantId).in("id", ids),
-    input.supabase.from("affaire_intake_documents").select("id").eq("tenant_id", input.tenantId).eq("project_id", input.projectId).in("id", ids),
+    selectInChunks(ids, chunk => input.supabase.from("plan_files").select("id").eq("tenant_id", input.tenantId).in("id", chunk)),
+    selectInChunks(ids, chunk => input.supabase.from("affaire_intake_documents").select("id")
+      .eq("tenant_id", input.tenantId).eq("project_id", input.projectId).in("id", chunk)),
   ]);
   if (files.error) throw mapSupabaseError(files.error, "Impossible de vérifier l’accès aux plans de l’affaire.");
   if (documents.error) throw mapSupabaseError(documents.error, "Impossible de vérifier l’accès aux pièces de l’affaire.");

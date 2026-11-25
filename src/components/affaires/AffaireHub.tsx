@@ -86,6 +86,7 @@ import {
 import { XIcon } from "lucide-react";
 import { materialRequestsHref } from "@/components/material-requests/format";
 
+import { IntakeAnalysisLaunch } from "./IntakeAnalysisLaunch";
 import { AffaireDossierOverview, AffaireWorkbench, affaireSectionFromLocation, type AffaireWorkbenchSection } from "./AffaireWorkbench";
 import { buildAffaireJourney } from "./AffaireJourneyPanel.model";
 import { IntakeUploadFeedback, useIntakeUploadFeedback } from "./IntakeUploadFeedback";
@@ -1170,6 +1171,8 @@ export function AffaireHub({
           <p>{activeSection === "register" ? "Ajoutez les pièces et précisez le périmètre du dossier pour organiser les points à suivre." : "Le devis n’est pas encore chiffré. Préparez le dossier et ses lignes avant la validation et l’envoi."}</p>
           <Button className="mt-5" variant="outline" onClick={() => selectSection("dossier")}>Ouvrir le dossier</Button>
         </section> : null}
+        {!showImportFlow && !documentsOpen && intakeWorkspace && (activeSection === "dossier" || activeSection === "overview") &&
+          <IntakeAnalysisLaunch workspace={intakeWorkspace} canManage={Boolean(intakeWorkspace.canManageDocuments && !isReadOnlyReview)} onReload={dossier.reload} />}
         {!showImportFlow && !isFreshStartState ? <div hidden={activeSection !== "dossier" || detailsOpen}>
           <AffaireDossierOverview
             workspace={intakeWorkspace}
@@ -1314,6 +1317,7 @@ export function AffaireHub({
               {!isFreshStartState && intakeWorkspace !== undefined && (
                 <div id="brief" hidden={activeSection !== "dossier" || !detailsOpen} className="scroll-mt-24">
                   <BriefDraftCard
+                    key={summary.project.id}
                     projectId={summary.project.id}
                     briefDraft={intakeWorkspace?.briefDraft ?? null}
                     hasPlans={Boolean(intakeWorkspace && !intakeWorkspace.missingPieces.some((piece) => piece.code === "missing_plans"))}

@@ -56,12 +56,14 @@ describe("full and calc-v3 campaigns of main after a push", () => {
     { file: ".github/workflows/e2e-army-calc-v3.yml", job: /^ {2}army-calc-v3-group:$/mu, widest: shards.calcV3.maxGroups },
   ];
 
+  // rls-matrix carries the pgTAP and RLS checks the Army jobs of a push to main delegate to it: its red runs alert too.
   it("covers exactly the workflows whose red result on main raises the alert", () => {
-    expect(campaigns.map((campaign) => campaign.file).sort()).toEqual(Object.values(ALERT_WORKFLOWS).map((workflow) => workflow.file).sort());
+    expect([...campaigns.map((campaign) => campaign.file), ".github/workflows/e2e-rls-matrix.yml"].sort())
+      .toEqual(Object.values(ALERT_WORKFLOWS).map((workflow) => workflow.file).sort());
   });
 
-  // The Critical run of a push plays the whole critical suite: it queues as the campaigns do, at its own width.
-  for (const file of [...campaigns.map((campaign) => campaign.file), ".github/workflows/e2e-army-critical.yml"]) {
+  // rls-matrix follows the same pushes as the Army workflows whose database checks it runs (each push run on its own).
+  for (const file of [...campaigns.map((campaign) => campaign.file), ".github/workflows/e2e-army-critical.yml", ".github/workflows/e2e-rls-matrix.yml"]) {
     const workflow = read(file);
 
     it(`${file} follows a push to main unless it changes documentation only`, () => {
@@ -79,6 +81,11 @@ describe("full and calc-v3 campaigns of main after a push", () => {
         expect(matchesAny(sample, ignored), sample).toBe(matchesAny(sample, docs));
       }
     });
+  }
+
+  // The Critical run of a push plays the whole critical suite: it queues as the campaigns do, at its own width.
+  for (const file of [...campaigns.map((campaign) => campaign.file), ".github/workflows/e2e-army-critical.yml"]) {
+    const workflow = read(file);
 
     it(`${file} runs one push campaign at a time and never cancels a running one`, () => {
       const group = (github: Github) => evaluate(valueOf(workflow, /^concurrency:$/mu, "group"), github);

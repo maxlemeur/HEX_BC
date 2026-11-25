@@ -11,10 +11,11 @@ Pour exécuter un parcours, commencer par [le guide des tests](../../e2e/README.
 | [Quality Gate](../../.github/workflows/quality-gate.yml) | PR vers `main`, push `main`, manuel ; contrôles statiques, tests retenus et build de production, puis agrégation `quality-gate` |
 | [Smoke anonyme](../../.github/workflows/e2e-army-smoke.yml) | PR, push `main`, manuel ; configuration publique synthétique, aucun backend partagé ni modèle |
 | [Critical](../../.github/workflows/e2e-army-critical.yml) | PR vers `main`, push `main`, manuel ; sélection métier et métré, piles natives indépendantes, checks `army-critical` et `army-takeoff` |
-| [E2E RLS Matrix](../../.github/workflows/e2e-rls-matrix.yml) | Chaque PR vers `main`, push `main` qui touche `supabase/` ou la matrice, quotidien à 05:15 UTC et manuel ; toujours complet ; sur une PR il porte seul pgTAP et la matrice RLS, que les jobs Army lui délèguent |
+| [E2E RLS Matrix](../../.github/workflows/e2e-rls-matrix.yml) | Chaque PR vers `main`, chaque push `main` qui ne touche pas que la documentation, quotidien à 05:15 UTC et manuel ; toujours complet ; sur une PR et sur un push `main` il porte seul pgTAP et la matrice RLS, que les jobs Army lui délèguent |
 | [Full](../../.github/workflows/e2e-army-full.yml) | Manuel, quotidien à 03:15 UTC et [après un push `main`](#campagnes-de-main-après-un-push) ; parcours de production et phase développement |
 | [Calc-v3](../../.github/workflows/e2e-army-calc-v3.yml) | Manuel, quotidien à 04:45 UTC, PR vers `main` (phases atteintes) et [après un push `main`](#campagnes-de-main-après-un-push) ; phases du [guide calc-v3](tester-army-calc-v3.md), réparties en [groupes](#jobs-parallèles), check `army-calc-v3` |
-| [CI night alert](../../.github/workflows/ci-night-alert.yml) | Après chaque campagne Full ou Calc-v3 de `main` (planifiée ou après un push), et manuel ; [ticket d'alerte](#alerte-des-campagnes-de-main) ouvert, commenté ou fermé |
+| [CI night alert](../../.github/workflows/ci-night-alert.yml) | Après chaque campagne Full ou Calc-v3 et chaque run E2E RLS Matrix de `main` (planifié ou après un push), et manuel ; [ticket d'alerte](#alerte-des-campagnes-de-main) ouvert, commenté ou fermé |
+| [Dependency audit alert](../../.github/workflows/dependency-audit-alert.yml) | Quotidien à 05:45 UTC et manuel ; [audit npm de `main`](#audit-des-dépendances), ticket ouvert, commenté ou fermé |
 
 Le job **Build** exécute `npm run verify:production` sur les PR, sur `main` et
 sur demande. Il compile avec Webpack, vérifie les types Next.js, les budgets et
@@ -28,6 +29,90 @@ manuel, vérifier le succès de `quality-gate` sur le commit déployé.
 Les commandes locales ne modifient ni les règles de protection de `main` ni
 les vérifications obligatoires. Un check agrégé réussi avec sélection `none`
 indique qu'aucun parcours n'était requis ; ce n'est pas une exécution E2E.
+
+## Pull requests empilées
+
+Empiler les changements dépendants à écrire et à relire en parallèle. Donner
+aux changements indépendants leur propre PR vers `main`. Dans une pile GitHub
+liée, la première branche cible `main` et chaque branche suivante cible celle
+du dessous.
+
+1. Partir de `origin/main` à jour. Avec `gh stack init --base main <première>`,
+   créer ou adopter la première branche. Commiter le premier étage, puis faire
+   `gh stack add <suivante>` et commiter cet étage. Avec plusieurs auteurs,
+   désigner la personne qui publie et lui transmettre les commits par branche.
+2. Faire `gh stack rebase`, puis `gh stack submit`. Utiliser le modèle de PR
+   pour chaque étage et les ouvrir prêts pour la revue. En mode non interactif,
+   `gh stack submit --auto --open` génère les titres et ouvre les PR. Renseigner
+   ensuite leurs descriptions. Vérifier le chaînage avec `gh stack view`.
+3. Corriger sur la branche qui porte le diff (`gh stack checkout <branche>`).
+   Après une correction ou une avancée de `main`, faire `gh stack rebase`
+   puis `gh stack push`. Le rebase réapplique les commits des étages supérieurs
+   sur leurs bases mises à jour. Le push atomique avec bail de l'extension est
+   l'exception autorisée sur ces branches après coordination avec les auteurs.
+   En cas de conflit, résoudre et indexer les fichiers puis utiliser
+   `gh stack rebase --continue`, ou `gh stack rebase --abort` pour revenir en arrière.
+4. Pour retirer un étage avec l'accord des auteurs, conserver ses commits,
+   puis utiliser `gh stack modify` et `gh stack submit`. Vérifier la nouvelle
+   base et la PR de chaque étage supérieur, fermer la PR retirée si elle est
+   encore ouverte, puis refaire les vérifications et la revue des diffs
+   modifiés. Si le bas a déjà fusionné, GitHub rebase les étages qui restent et
+   `gh stack sync --prune` synchronise les branches locales.
+5. Relire chaque diff contre sa base immédiate et résoudre tous les fils de
+   revue. Une fois tous les étages relus et les six checks verts sur chacun,
+   lancer `gh stack merge --yes --squash` depuis la pile active. GitHub fusionne
+   tous les étages en une opération, avec un commit squash par PR.
+
+Pour conserver la fusion automatique pendant l'attente de la CI, demander
+l'auto-merge sur la PR du sommet avec le mode pile (`includeStack: true`,
+`mergeMethod: SQUASH`), après la revue de chaque étage et la résolution de ses
+fils. Le ruleset exige la résolution des fils et les checks, et la revue de
+chaque étage relève aussi de notre procédure. Désactiver la demande de fusion
+avant toute nouvelle modification de la pile, puis refaire la revue nécessaire.
+`gh stack merge` lance la fusion immédiatement sur ce dépôt. La commande
+`gh pr merge --auto --squash` reste celle des PR autonomes.
+[API GitHub pour l'auto-merge](https://docs.github.com/en/graphql/reference/pulls#enablepullrequestautomergeinput).
+
+```sh
+# top contient le numéro de la PR du sommet.
+read -r pr_id head_oid <<EOF
+$(gh pr view "$top" --json id,headRefOid --jq '[.id, .headRefOid] | @tsv')
+EOF
+gh api graphql -f id="$pr_id" -f head="$head_oid" -f query='
+  mutation($id: ID!, $head: GitObjectID!) {
+    enablePullRequestAutoMerge(input: {
+      pullRequestId: $id, expectedHeadOid: $head, includeStack: true, mergeMethod: SQUASH
+    }) { pullRequest { number } }
+  }'
+```
+
+Mettre chaque migration et ses tests SQL dans un étage propre, sous le code qui
+l'utilise. Après un mouvement de la base, vérifier l'ordre de tous les
+horodatages et restamper uniquement les migrations non appliquées selon le
+[runbook Supabase](../../supabase/README.md). Deux remplacements de la même
+fonction SQL se livrent successivement à partir de `main`.
+
+GitHub applique le filtre `pull_request.branches: [main]` et les exigences du
+ruleset de `main` à toute la pile liée. Après la création de la pile, vérifier
+que les workflows ont démarré sur chaque étage. Si un étage reste sans les
+workflows requis, un push après le chaînage déclenche la CI. S'il n'y a aucun
+correctif à pousser, créer un commit vide sur le premier étage concerné
+(`git commit --allow-empty -m "ci: trigger linked stack checks"`), puis faire
+`gh stack rebase` et `gh stack push`. [Incident GitHub à l'ouverture](https://github.com/github/gh-stack/issues/425).
+
+Sur chaque PR, Critical et calc-v3 comparent le commit de fusion à son
+premier parent. GitHub peut y placer le commit de fusion de l'étage du dessous,
+qui inclut la base sur laquelle cet étage a été testé. Le filtre par modèle réutilise cette base
+via `--changed-since`. La garde des migrations et l'audit des dépendances
+reçoivent la SHA de la base immédiate de l'événement. La concurrence est
+isolée par PR via `github.ref`. Retrouver la base SHA et les chemins dans
+l'artefact `army-critical-selection`, et les chemins des phases dans
+`army-calc-v3-selection`.
+[CI des piles sur GitHub](https://docs.github.com/en/pull-requests/how-tos/merge-and-close-pull-requests/optimizing-ci-for-stacked-pull-requests).
+
+Pour les aperçus locaux d'un étage, passer `origin/<branche-du-dessous>`
+aux exemples `--base` et `--changed-since` ci-dessous. Le Full, les alertes de
+nuit et Release Please gardent leur déclenchement habituel sur `main`.
 
 ## Sélection par impact des parcours critical
 
@@ -164,15 +249,15 @@ reprend que les jobs en échec. Chercher la cause avant de réagir :
 | --- | --- | --- |
 | Le changement de la pull request | Le parcours échoue avec le diff et passe sans lui | Corriger, puis pousser une fois |
 | Panne d'infrastructure ou parcours instable | Échec d'installation, de téléversement d'artefact ou de démarrage ; parcours vert sur le même commit ailleurs | Le noter dans la pull request avec la preuve, puis `gh run rerun <run-id> --failed`, sans nouveau commit |
-| Rouge hérité de `main` | Le même parcours est rouge sur `main` ([ticket d'alerte](#alerte-des-campagnes-de-main) ou dernier run Critical de `main`) | Le noter dans la pull request, attendre le correctif sur `main`, puis fusionner `origin/main` une seule fois |
+| Rouge hérité de `main` | Le même parcours est rouge sur `main` ([ticket d'alerte](#alerte-des-campagnes-de-main) ou dernier run Critical de `main`) | Le noter dans la pull request et attendre le correctif. Sur une PR autonome, fusionner `origin/main` une fois. Pour une pile, faire `gh stack rebase` puis `gh stack push` |
 
 Une relance rejoue le commit de fusion calculé au moment du push : elle ne
 voit pas un correctif arrivé ensuite sur `main`. C'est le seul cas où une
-fusion de `origin/main` répond à un rouge.
+fusion de `origin/main` répond à un rouge sur une PR autonome.
 
-`main` n'exige pas une branche à jour pour fusionner. Fusionner `origin/main`
-sans conflit signalé par GitHub, ou cliquer « Update branch », relance tous les
-checks sans rien qualifier de plus.
+Pour une PR autonome, `main` n'exige pas une branche à jour pour fusionner.
+Pour une pile, un rebase en cascade rétablit l'historique linéaire exigé par
+GitHub après un changement de la base.
 
 ## Campagnes de main après un push
 
@@ -191,6 +276,12 @@ fois et une journée chargée compte plus de vingt push.
   push.
 - Un push de documentation seule (`docs/**`, `**/*.md`, les chemins `docs` de la
   carte d'impact) ne démarre aucune campagne et n'en remplace aucune.
+- pgTAP et la matrice RLS d'un push tournent une seule fois, dans le run
+  `rls-matrix` de ce push, comme sur une pull request : les jobs Critical,
+  Full et Calc-v3 du push les lui délèguent
+  ([détail](#pile-confidentialité-et-diagnostic)). `rls-matrix` suit les mêmes
+  push (même `paths-ignore`) ; chaque run de push a son propre groupe de
+  concurrence, si bien qu'aucun push plus récent ne l'annule ni ne le remplace.
 
 Le run Critical d'un push suit la même file depuis le 11/11/2026, à sa largeur
 habituelle (ses shards tournent ensemble) : un run tourne, le plus récent attend
@@ -206,10 +297,9 @@ Le résultat d'un commit se lit donc sur la première campagne terminée qui le
 contient : environ 45 minutes après le push (première campagne mesurée, le
 10/11/2026 : Full 40 minutes, Calc-v3 46 minutes avec un job par phase),
 davantage derrière une campagne déjà en cours. Depuis, les phases calc-v3
-tournent en cinq groupes, deux à la fois : une trentaine de minutes d'après les
-durées de `army-shards.json`, estimation que la première campagne groupée
-remplacera par sa mesure. Une campagne rouge ouvre le
-[ticket d'alerte](#alerte-des-campagnes-de-main).
+tournent en six groupes au plus. Sur un push de `main`, deux groupes peuvent
+s’exécuter en même temps. Une campagne rouge, ou un run `rls-matrix` rouge,
+ouvre le [ticket d'alerte](#alerte-des-campagnes-de-main).
 
 ## Avant un push direct sur main
 
@@ -248,20 +338,39 @@ d'une PR, puis affiche la commande locale de chaque suite :
 Une campagne rouge sur `main` n'apparaît sur aucune PR.
 [`ci-night-alert.yml`](../../.github/workflows/ci-night-alert.yml) s'exécute
 après chaque campagne « TesterArmy Full » et « TesterArmy calc-v3 » de `main`,
-planifiée ou lancée après un push, et tient un ticket GitHub par workflow, titré
-« CI rouge sur main : <workflow> » :
+et après chaque run « E2E RLS Matrix » de `main`, planifié ou lancé après un
+push, et tient un ticket GitHub par workflow, titré
+« CI rouge sur main : <workflow> ». Ce dernier porte pgTAP et la matrice RLS que
+les jobs Army d'un push lui délèguent, et son run planifié est le seul qui
+mesure les plafonds de requêtes sur `main` : un pgTAP rouge sur `main` arrive
+donc au ticket « CI rouge sur main : E2E RLS Matrix ».
 
 - campagne rouge : le ticket est ouvert, ou reçoit un commentaire s'il l'est
   déjà. Il cite le run, ses jobs en échec et les parcours non passés que nomme
   `notPassed` dans le manifeste agrégé (rapports des shards et des phases
-  calc-v3 de chaque groupe) ; un échec antérieur aux parcours n'en nomme aucun ;
+  calc-v3 de chaque groupe) ; un échec antérieur aux parcours n'en nomme aucun.
+  E2E RLS Matrix ne lance aucun parcours : son ticket cite le run et le job en
+  échec, dont le journal donne l'étape (pgTAP, plafonds ou matrice RLS) ;
 - première campagne verte : le ticket est commenté puis fermé ;
-- campagne annulée ou sans conclusion : rien n'est écrit ;
+- campagne annulée ou sans conclusion : rien n'est écrit. Exception : un run
+  E2E RLS Matrix de push annulé compte comme rouge, car les jobs Army de ce
+  push lui ont délégué pgTAP et la matrice RLS, qui n'ont donc pas tourné pour
+  cette révision ; le ticket dit que ces contrôles ont été annulés ;
 - résultat dépassé : une campagne planifiée et une campagne lancée après un push
   se chevauchent. Quand une autre campagne du même workflow a déjà rendu son
   verdict sur une révision plus récente de `main`, le résultat qui arrive après
   elle n'écrit rien : il ne ferme pas le ticket d'un rouge plus récent et ne
   rouvre pas celui qu'un vert plus récent a fermé.
+
+Les alertes d'une campagne Army passent une à une, dans l'ordre où ses
+campagnes se terminent (un groupe de concurrence par workflow). E2E RLS Matrix
+se termine une fois par push, en parallèle ; or un groupe ne garde qu'un run en
+attente, et une alerte plus récente y annulerait la précédente, rouge
+comprise. Chacune de ses alertes a donc son propre groupe : celle d'un run
+dépassé n'écrit rien, et le résultat dépassé est vérifié une seconde fois juste
+avant d'écrire, pour qu'un vert plus ancien ne ferme pas le ticket qu'un rouge
+plus récent vient de commenter. Deux rouges simultanés peuvent ouvrir deux
+tickets : le suivant commente le plus ancien, et le premier vert les ferme tous.
 
 Seuls les tickets ouverts par le workflow lui-même sont reconnus : le dépôt est
 public et n'importe qui peut ouvrir un ticket du même titre. La variable de dépôt
@@ -274,28 +383,146 @@ l'option d'écriture est cochée et que ce run est une campagne de `main`
 (planifiée ou après un push) ; sinon la décision est seulement affichée dans le
 résumé du job.
 
+## Audit des dépendances
+
+L'étape « Audit dependencies » du job Statique de Quality Gate
+(`npm run audit:dependencies`) refuse tout avis `moderate`, `high` ou
+`critical` qu'aucune exception active de
+[`config/dependency-audit-policy.json`](../../config/dependency-audit-policy.json)
+ne couvre, ainsi qu'une exception expirée ou inutilisée. Elle ne bloque que
+lorsque le diff touche aux dépendances :
+
+- une PR, quand elle modifie `package.json`, `package-lock.json`, `.npmrc`, le
+  fichier des exceptions ou le code de l'audit (`src/test/dependency-audit.ts`,
+  `src/test/dependency-audit-scope.ts`, `scripts/check-dependency-audit.ts`) ;
+  en CI, le diff va de sa base au commit de fusion que GitHub construit, donc
+  ce que `main` a changé entre-temps ne compte pas ;
+- un push sur `main`, quand sa plage `before..after` modifie l'un d'eux ; un
+  premier push ou un push forcé compte comme une modification ;
+- toujours, hors PR et push : déclenchement manuel, `npm run verify:pr` local.
+
+Sinon l'audit tourne quand même : ses erreurs deviennent un avertissement du
+job et une ligne de son résumé, sans le faire échouer. L'étape « Verify
+dependency signatures » bloque toujours. Du 16 au 23 novembre 2026, des avis
+publiés contre des dépendances que la PR ne touchait pas ont mis 10 PR au
+rouge, chacune pour une relance d'environ 110 minutes de runner.
+
+[`dependency-audit-alert.yml`](../../.github/workflows/dependency-audit-alert.yml)
+audite `main` chaque jour à 05:45 UTC (06:45 à Paris l'hiver) et tient le ticket
+« Audit des dépendances rouge sur main », sur le modèle de
+[l'alerte des campagnes](#alerte-des-campagnes-de-main) : audit rouge, le ticket
+est ouvert ou commenté et liste les avis et les exceptions à revoir ; premier
+audit propre, il est commenté puis fermé. Un audit qui ne peut pas s'exécuter
+laisse le run rouge et n'écrit rien. Le déclenchement manuel n'écrit que si
+l'option d'écriture est cochée et que la branche est `main`. La correction
+(mise à jour, `overrides` ou exception datée) passe par une PR, que l'audit
+bloque donc. Le job détient un jeton qui écrit des tickets : il n'installe aucun
+paquet (`npm audit` lit `package-lock.json` seul) et lance le script avec `node`
+sans chargeur, pour qu'aucun code tiers ne s'exécute à côté de ce jeton.
+
+## Mise à jour du CLI Supabase
+
+Dependabot n'ouvre pas de PR pour le paquet `supabase` (`ignore` dans
+[`.github/dependabot.yml`](../../.github/dependabot.yml)) : la sienne ne modifiait
+que `package.json`, et chaque job base de données ou Army la refusait
+(« Supabase CLI must be exactly … », 4 runs rouges du 16 au 23 novembre 2026).
+Cet `ignore` coupe aussi ses mises à jour de sécurité : un avis contre le CLI
+arrive par le ticket « Audit des dépendances rouge sur main » de
+[l'audit quotidien](#audit-des-dépendances).
+La mise à jour se fait à la main, comme pour 3.0.0
+([PR #176](https://github.com/maxlemeur/HEX_BC/pull/176)), en une PR qui change
+ensemble :
+
+1. la version exacte de `supabase` dans `package.json` et `package-lock.json` ;
+2. `PINNED_SUPABASE_CLI_VERSION` et `PINNED_SUPABASE_POSTGRES_BUNDLE` dans
+   [`src/test/supabase-cli.ts`](../../src/test/supabase-cli.ts) ;
+3. les types générés (`npm run supabase:types`), qui notent la version du CLI ;
+   puis `npm run db:ci:local` et les parcours Army qui lisent la base.
+
 ## Jobs parallèles
 
 [`army-shards.json`](../../scripts/tester-army/army-shards.json) fixe le nombre
 de shards, leurs workers et les durées utilisées pour répartir les fichiers.
-Chaque shard possède sa base, son compte et son build ; un fichier n'est pas
-coupé entre plusieurs jobs. Les shards critical utilisent 2 workers ; full et
-métré restent à 1. Une sélection trop petite ou impossible à répartir conserve
-un seul job. Les durées ne choisissent pas la couverture.
+Chaque shard possède sa base et son compte. Sur une PR, les shards Critical
+construisent chacun leur application après la sélection. Les autres shards
+servent le [build partagé du run](#pile-confidentialité-et-diagnostic) quand il
+correspond à leur pile. Un fichier n'est pas coupé entre plusieurs jobs. Les
+shards Critical utilisent 2 workers, ceux de Full et du métré en utilisent 1.
+Une sélection trop petite ou impossible à répartir conserve un seul job. Les
+durées ne choisissent pas la couverture.
 
-`secondsPerShard` est la charge de parcours mesurée qu'un job porte avant
-qu'un autre vaille sa pile et son build (environ trois minutes de runner par
-job). Elle vaut ce qu'un shard porte quand la suite entière tourne (715 s en
-critical, à 2 workers) : une sélection partielle remplit donc ses shards comme
-la suite complète, au lieu d'en ouvrir un tous les 300 s. Pour le métré, le plan
-ouvre un deuxième job quand la charge estimée à 1 worker dépasse 400 s.
+Le sélecteur divise les secondes cumulées par `secondsPerShard` et arrondit
+au supérieur. Il réserve assez de shards pour les groupes `neverTogether`,
+dans la limite des jobs autorisés et du nombre de parcours authentifiés.
+Il place les fichiers authentifiés puis les anonymes, par durée décroissante,
+sur le shard admissible le moins chargé en secondes cumulées. En cas d'égalité,
+il choisit le premier shard. Une fois les fichiers répartis, le plan et le résumé
+indiquent le coût de chaque shard en secondes, `max(durée du plus long fichier,
+somme des durées / workers)`. Cette borne basse du temps de test exclut le
+login, le démarrage et la compilation.
+
+La liste `coldServers` recense les fichiers qui lancent leur propre serveur
+Next de développement. Si un shard en réunit plusieurs, la sélection et le
+résumé nomment chaque fichier concerné. Dans le
+[run Critical 45612899126](https://github.com/thannous/HEX_BC/actions/runs/45612899126/attempts/1),
+`takeoff-lab` compilait pendant INTFRESH02 sur le shard 2. La mémoire
+disponible est descendue à 947 Mio, le swap utilisé a atteint 512 Mio et la
+confirmation a reçu un HTTP 500. Un placement expérimental qui répartissait
+les serveurs en priorité a aussi donné un coût maximal de 445,5 s.
+RELANCE01 y a été intermittent et IO01 a échoué deux fois. Le placement
+par charge cumulée reste celui des campagnes vertes de main.
+[Campagne expérimentale](https://github.com/thannous/HEX_BC/actions/runs/45619096033) ·
+[Campagne de main](https://github.com/thannous/HEX_BC/actions/runs/45617465771).
+
+Au-delà de **400 s** par fichier, la sélection signale la mesure enregistrée,
+même pour un changement documentaire. L'agrégation signale aussi les mesures
+du run qui franchissent ce seuil. Le test de la configuration bloque au-delà
+de **600 s** (dix minutes de tests exécutés en série). Les 200 s de marge
+entre l'alerte et le plafond laissent le temps de découper un fichier qui
+s'allonge. La liste d'exceptions dans
+[file-durations.ts](../../scripts/tester-army/file-durations.ts) est vide.
+
+Chaque lundi à 08:35 UTC, [le workflow de mise à jour](../../.github/workflows/army-duration-refresh.yml)
+cherche pour Critical et Full leur dernière campagne verte de main (push ou
+planification) avec agrégat encore disponible. Le script vérifie le SHA du
+run et des rapports, somme les tests sélectionnés réussis en une tentative
+et arrondit chaque fichier à la seconde supérieure. Il ignore le login répété,
+les fichiers incomplets, ceux dont un test est en quarantaine et ceux modifiés
+depuis la mesure. Critical a priorité
+pour les fichiers communs. Un fichier nouveau, un passage de seuil dans un
+sens ou dans l'autre, ou un écart d'au moins **10 s et 20 %** met à jour la
+durée et son entrée `measured`. La branche `automation/army-duration-refresh`
+porte une seule PR pour ces écarts. Le résumé et l'artefact
+`army-duration-proposal` restent disponibles sept jours si la création de PR
+échoue. Le job de mesure utilise un jeton de lecture. Le job de publication
+démarre uniquement si une durée change. Il vérifie le schéma de l'artefact,
+les chemins et l'historique, puis refuse tout écart en dehors de `seconds`
+et `measured`. La campagne est réservée à la branche main de ce dépôt.
+
+Pour que les checks de la PR démarrent automatiquement, créer une GitHub App
+dans **Settings → Developer settings → GitHub Apps**, désactiver le webhook,
+accorder les permissions de dépôt **Contents** et **Pull requests** en
+lecture/écriture, puis installer l'App sur ce seul dépôt. Dans les réglages
+de l'App, copier le **Client ID** et générer une clé privée. Dans **Settings →
+Secrets and variables → Actions** du dépôt, enregistrer le Client ID dans la
+variable `ARMY_REFRESH_APP_CLIENT_ID` et le PEM entier dans le secret
+`ARMY_REFRESH_APP_PRIVATE_KEY`. Le job demande alors un jeton d'installation
+limité à ce dépôt et à ces deux permissions.
+
+Si un des deux réglages manque, le jeton intégré demande `contents: write` et `pull-requests: write` ;
+activer **Allow GitHub Actions to create and approve pull requests** dans
+Settings → Actions → General si le dépôt refuse cette création. À chaque ouverture ou mise à jour, un mainteneur sélectionne
+**Approve workflows to run** sur la PR. Si aucun run n'apparaît, fermer puis
+rouvrir la PR avec un compte ayant les droits d'écriture. Le résumé du job et
+le corps de la PR indiquent la procédure correspondant au jeton utilisé.
+[Déclenchement des workflows par GITHUB_TOKEN](https://docs.github.com/en/actions/concepts/security/github_token#when-github_token-triggers-workflow-runs).
 
 `neverTogether` liste les fichiers qui ne partagent jamais un shard, quelles que
-soient leurs durées : les deux fichiers des
+soient leurs durées : les cinq fichiers des
 [parcours ChatGPT local](chatgpt-local.md#vérification) démarrent chacun un
-serveur de développement, et les deux workers d'un shard compileraient les deux
-serveurs à froid en même temps sur un seul runner. Une sélection qui contient
-les deux fichiers compte donc au moins deux shards. Le lanceur applique la même
+serveur de développement. Deux de ces serveurs compileraient à froid en même
+temps sur un seul runner. Le plan réserve un shard à chacun des fichiers
+sélectionnés de ce groupe. Le lanceur applique la même
 règle à une exécution filtrée (`--files`, `--grep`) : avec plus d'un worker, il
 la refuse avant de créer la pile. Sans durées utilisables, le plan n'a qu'un
 shard et la règle ne s'applique pas ; l'exécution de la suite entière dans un
@@ -303,18 +530,23 @@ seul job, repli d'une sélection impossible, ne les sépare pas non plus.
 
 Les phases calc-v3 sélectionnées tournent en groupes : autant de jobs que leurs
 secondes de parcours mesurées en remplissent à `calcV3.secondsPerGroup`
-(480 s), jamais plus que de phases ni que `calcV3.maxGroups` (cinq). Trois
-phases courtes partagent ainsi un job. Chaque job `army-calc-v3 group N/T` prépare une seule pile et un
-seul build, puis exécute ses phases l'une après l'autre
+(320 s), jamais plus que de phases ni que `calcV3.maxGroups` (six). Trois
+phases courtes partagent ainsi un job. Chaque job `army-calc-v3 group N/T` prépare une seule pile et sert
+un seul build, puis exécute ses phases l'une après l'autre
 (`run-tester-army-ci.ts calc-v3 --phase A,B`), chacune avec ses fixtures et son
 invocation TesterArmy ; une phase rouge n'arrête pas les suivantes du groupe.
 [`select-calc-v3.ts`](../../scripts/tester-army/select-calc-v3.ts) répartit les
 phases de la plus longue à la plus courte sur le groupe le moins chargé,
 d'après les secondes de parcours mesurées par phase (`calcV3.seconds`, hors
 préparation de la pile) ; une phase n'est pas coupée et aucun groupe n'est
-vide. La même sélection donne toujours la même répartition. Les 19 phases
-(environ 1 800 s de parcours) tournent en quatre jobs d'environ 7 min 30 de
-parcours chacun, plus la préparation. Le déclenchement manuel `all`
+vide. Les 22 phases totalisent 1 892 s de parcours au barème et remplissent
+six groupes. Sur les PR mesurées, le groupe le plus lent est passé de 9 min 33 s
+à 7 min 07 s. Du démarrage du plan à la fin du dernier groupe, le délai est passé
+de 14 min 51 s à 11 min 08 s, pour 4 min de temps runner cumulé supplémentaire.
+[Quatre groupes](https://github.com/thannous/HEX_BC/actions/runs/45606531705) ·
+[Six groupes](https://github.com/thannous/HEX_BC/actions/runs/45616799613)
+
+Le déclenchement manuel `all`
 garde la campagne complète dans un seul job, et une phase explicite le sien.
 
 [`aggregate-shards.ts`](../../scripts/tester-army/aggregate-shards.ts) vérifie
@@ -422,28 +654,108 @@ et cibles DB/Supabase héritées, crée une pile native loopback et applique les
 migrations du checkout. Les contrôles pgTAP/RLS précèdent les parcours ; le
 build de production peut démarrer en parallèle des contrôles DB, sur la même
 identité de backend. Le plafond SQL de copie n'est alors pas mesuré dans ce
-job ; la matrice RLS l'exécute seule, sur chaque PR et chaque nuit sur
-`main`. Voir les [budgets SQL](large-estimate-statement-budget.md).
+job ; la matrice RLS l'exécute seule, sur chaque PR, chaque push `main` et
+chaque nuit. Voir les [budgets SQL](large-estimate-statement-budget.md).
+
+Chaque pile migre par `db reset`. Jusqu'au 24/11/2026, les shards Critical et
+takeoff restauraient une base pré-migrée (pg_dump puis pg_restore, mise en
+cache par `main`) au lieu de `db reset`, pour gagner 6 à 8 s par job (environ
+3 s de restauration contre 8 à 13 s de reset). Une base restaurée ne se
+comportait pas comme une base issue de `db reset` : du 21/11 au 23/11, 22 runs
+Critical de `main` sont tombés sur pgTAP seul, sur une base restaurée
+(`takeoff-plan-locations` 20 fois, nettoyage bloqué par la clé étrangère
+`audit_logs_tenant_id_fkey`, corrigé par #502 ; puis
+`copied-takeoff-draft-delete.sql` 2 fois, `ESTIMATE_ENGINE_COLUMN_NOT_SUPPORTED`),
+alors que les mêmes tests passaient sur les mêmes révisions après `db reset`
+(Full, calc-v3 et `rls-matrix` des PR). Cause probable : pg_restore renumérote
+les OID, donc les noms `RI_ConstraintTrigger_a_<oid>`, et avec eux l'ordre
+dans lequel les cascades se déclenchent. Le gain ne valait pas une base qui
+diffère de celle que vérifient les autres checks : l'instantané a été retiré,
+sans interrupteur.
+
+Dans chaque workflow Army, un job de build (`army-build` en Critical,
+`army-calc-v3-build`, `army-full-build`) construit l'application de production
+une seule fois, en parallèle du job de sélection ou de plan, avec
+[`army-build.ts`](../../scripts/tester-army/army-build.ts). Le build fige
+l'origine du backend et la clé anon (`NEXT_PUBLIC_SUPABASE_URL`,
+`NEXT_PUBLIC_SUPABASE_ANON_KEY`). Avec la CLI épinglée et
+`supabase/config.toml`, la clé anon d'une pile native ne change pas d'une pile
+à l'autre (deux piles de ports différents le 24 novembre 2026), mais son port
+API est tiré au hasard. Le job démarre donc une pile nue, sans migration, donnée
+ni compte, pour lire son origine et sa clé, et la garde pendant le build comme
+un shard. Il publie la sortie (`.build/tester-army/next` sans `cache`, `dev`,
+`diagnostics`, `types`, `trace` ni `trace-build`), le manifeste et le journal
+du build et `prebuilt.json` dans l'artefact `army-prebuilt-build`, gardé un
+jour ; une sortie qui contiendrait la clé de service ou le secret de reprise
+n'est pas publiée. Ce job restaure le cache Next ; celui de Critical le
+sauvegarde sur un push de `main`. Sur une PR, `army-build` construit pour le
+métré quand la sélection par impact atteint ses parcours. Les shards Critical
+démarrent dès que `army-select` termine. Chacun restaure le cache Next et
+compile pour sa propre pile dès que son URL et ses clés sont disponibles,
+pendant le `db reset` et la vérification du schéma. Calc-v3 construit seulement
+si une phase sélectionnée tourne sous `next start`. Dans Full, seuls les shards
+de production utilisent le build partagé.
+
+Chaque shard ou groupe qui utilise le build partagé télécharge l'artefact, sans
+échouer s'il manque, et demande pour sa pile le port API du build quand il est libre. Il restaure
+toujours le cache Next, même à côté d'un build téléchargé : un build refusé se
+reconstruit à chaud. Le runner applique ensuite la règle de [`prebuilt-build.ts`](../../scripts/tester-army/prebuilt-build.ts) :
+- mêmes révision, empreinte du diff et entrées que le checkout (`buildSourceEvidence`) ;
+- build réussi avec les commandes enregistrées, sources stables pendant le build ;
+- mêmes origine et clé anon que la pile du shard (la clé par son empreinte) ;
+- mêmes Node, plateforme et architecture ;
+- une fois posés les seuls fichiers que liste le manifeste, empreinte de sortie (`buildOutputEvidence`) égale à la sienne.
+
+Au premier écart, il retire les fichiers posés et construit localement comme
+avant, en disant pourquoi dans le journal (`TesterArmy CI: building here, …`)
+et dans le manifeste. Le manifeste du shard indique `build.source` : `prebuilt`,
+avec l'artefact, le run, le manifeste du build et son empreinte (conservés sous
+`builds/`), ou `local`, avec la raison `prebuiltRefused`. Un build téléchargé
+puis refusé ajoute aussi l'annotation `Army build not reused` au run, avec la
+raison : si tous les shards refusent (une montée de la CLI Supabase qui change
+la clé anon ou les ports, par exemple), le run coûte plus qu'avant sans devenir
+rouge, et seule cette annotation le signale. Un artefact absent reste une ligne
+du journal. Un job de build en échec ou absent ne fait jamais échouer un shard :
+celui-ci construit lui-même. Le job de build est en `continue-on-error` : son
+échec laisse le run vert (`ci-night-alert` lit la conclusion du run) et sa
+dernière étape l'annonce par l'annotation `Army build failed`. Son étape de
+build a sa propre limite de 15 minutes, sous les 25 du job, pour qu'un build
+bloqué échoue avant le job et que l'annotation sorte.
+La vérification d'un build lancé tôt (même origine et même clé que la pile du
+shard) reste inchangée.
 
 pgTAP et la matrice RLS prouvent la base migrée, pas les parcours : le même
-résultat dans chacune des piles d'une PR. Sur une pull request, ils tournent
-donc une seule fois, dans le check requis `rls-matrix`, seuls sur leur pile et
-plafonds compris. Ce check tourne en entier sur toute PR, de documentation
-aussi : le label `army-full` ou un diff vide lancent des jobs Army sur une
-telle PR. Les jobs Army de la même PR les lui délèguent
-(`ARMY_DATABASE_CHECKS_DELEGATED_TO`, lu par
+résultat dans chacune des piles d'une PR ou d'un push `main`. Sur une pull
+request et sur un push `main`, ils tournent donc une seule fois, dans
+`rls-matrix`, seuls sur leur pile et plafonds compris : environ 2,7 min de
+moins par job Army, soit, sur un push `main`, pour chacun des cinq shards
+Critical, des six shards Full, du job développement et des groupes calc-v3. Ce check, requis sur
+les PR, tourne en entier sur toute PR, de documentation aussi : le label
+`army-full` ou un diff vide lancent des jobs Army sur une telle PR. Sur `main`,
+il suit chaque push pour lequel les workflows Army tournent (même
+`paths-ignore`) et aucun run de push n'est annulé. Les jobs Army de la même PR
+ou du même push les lui délèguent (`ARMY_DATABASE_CHECKS_DELEGATED_TO`, lu par
 [`database-checks.ts`](../../scripts/tester-army/database-checks.ts)) : leur
 pile vérifie encore ses migrations et ses types générés, puis lance les
 parcours. Le manifeste l'indique (`database.checks` : `delegated`, absent
-quand le job exécute ses propres contrôles) et `army-critical` vert ne dit
-donc plus que le SQL est vérifié :
-c'est `rls-matrix` qui le dit. Hors pull request (push sur `main`, campagnes,
-run local), rien n'est délégué : la délégation y est refusée, faute de check
-qui réponde pour la révision.
+quand le job exécute ses propres contrôles) et `army-critical` ou `army-full`
+vert ne dit donc plus que le SQL est vérifié : c'est `rls-matrix` qui le dit,
+et un `rls-matrix` rouge sur `main` ouvre son
+[ticket d'alerte](#alerte-des-campagnes-de-main). Ailleurs (campagne
+planifiée ou manuelle, push sur une autre branche, run local), rien n'est
+délégué : la délégation y est refusée, faute de check qui réponde pour la
+révision, et chaque job exécute ses propres contrôles.
 
 Le compte/tenant ARMY et les secrets sont temporaires. Les sorties partageables
 sont expurgées ; les journaux SQL privés et l'environnement natif ne sont pas
-à publier. Le runner détruit sa pile en sortie, y compris après échec normal.
+à publier. Avant tout envoi, le lanceur refuse une preuve qui contient un
+secret de la pile, un JWT ou un jeton `Bearer`. Le mot de passe de la base
+locale, `postgres` (valeur par défaut de la CLI Supabase), en fait partie ; or
+les manifestes du run et du build listent chaque chemin source du build. Aucun
+chemin sous `src/`, `scripts/` ou les autres racines du build ne doit donc
+contenir `postgres`, ce que vérifie `army-evidence-source-paths.test.ts`. Le
+24/11/2026, `src/test/native-postgres-tools.ts` a fait échouer ce contrôle sur
+tous les jobs calc-v3 et Critical de la PR #530, après des parcours verts. Le runner détruit sa pile en sortie, y compris après échec normal.
 La [reprise locale](tester-army-local-development.md#arrêt-et-reprise) traite
 les interruptions brutales et ressources orphelines.
 

@@ -163,15 +163,25 @@ armyTest("PRE07 visiting the steps sends nothing the save or the assistance woul
     expect(saved.draft.scope.exclusions).toEqual(["RDC", "Zone 2"]);
     expect(saved.draft.processing).toEqual({ level: "C", provider: "chatgpt" });
     holding = true;
-    for (const step of [/Mes documents$/, /Ce que je veux mesurer$/, /Points à préciser$/, /Vérifier et lancer$/]) await dialog.getByRole("button", step).click();
+    const assistance = dialog.getByText("Assistance au cadrage", { exact: true });
+    await dialog.getByRole("button", /Mes documents$/).click();
+    await expect(assistance).toBeHidden();
+    await dialog.getByRole("button", /Ce que je veux mesurer$/).click();
+    await expect(assistance).toBeVisible();
+    await dialog.getByRole("button", /Points à préciser$/).click();
+    await expect(assistance).toBeHidden();
+    await dialog.getByRole("button", /Vérifier et lancer$/).click();
+    await expect(assistance).toBeHidden();
+    await dialog.getByRole("button", /Ce que je veux mesurer$/).click();
     holding = false;
-    await dialog.getByText("Assistance au cadrage", { exact: true }).click();
+    await assistance.click();
     await dialog.getByRole("button", "Proposer un cadrage", { exact: true }).click();
     await expect(dialog.getByText(/Aucune assistance rédactionnelle n.est configurée/).first()).toBeVisible();
     expect(held).toEqual([]);
     expect((await read()).draft).toEqual(saved.draft);
     expect(await jobs.list()).toEqual([]);
-    await recordEvidence(ui.army, "PRE07-steps-send-no-request", { estimate, savedRevision: saved.revision, heldStepRequests: held.length,
+    await recordEvidence(ui.army, "PRE07-steps-send-no-request", { estimate, savedRevision: saved.revision, heldStepRequests: held.length, assistanceVisibleOnStep: 2,
+      screenshot: await ui.app.screenshot("PRE07-scope-assistance"),
       boundary: "Server Actions sent while the steps were visited are held in the browser; the save and the assistance answer without them." });
   } finally {
     release();
@@ -260,13 +270,15 @@ armyTest("PRE04 unavailable writing AI and Decisions preserve the manually prepa
   const dialog = await fillTakeoffPreparation(ui, { sources: [file.file_name] });
   await saveTakeoffPreparation(ui);
   const before = await read();
+  await dialog.getByRole("button", /Ce que je veux mesurer$/).click();
   await dialog.getByText("Assistance au cadrage", { exact: true }).click();
   await dialog.getByLabel("Décrire le périmètre ou corriger le cadrage", { exact: true }).fill("Compter les vannes au R+1, zone 1, sans le RDC.");
   await dialog.getByRole("button", "Proposer un cadrage", { exact: true }).click();
   await expect(dialog.getByText(/Aucune assistance rédactionnelle n.est configurée/).first()).toBeVisible();
   await expect(dialog.getByText(/Decisions :.*Accès API distinct de la connexion ChatGPT/)).toBeVisible();
-  await expect(dialog.getByRole("button", "Confirmer et lancer le métré", { exact: true })).toBeEnabled();
   await expect(dialog.getByRole("button", /^Utiliser la proposition/)).toHaveCount(0);
+  await dialog.getByRole("button", /Vérifier et lancer$/).click();
+  await expect(dialog.getByRole("button", "Confirmer et lancer le métré", { exact: true })).toBeEnabled();
   const after = await read();
   expect(after.draft).toEqual(before.draft);
   expect(after.confirmed_snapshot).toBeNull();

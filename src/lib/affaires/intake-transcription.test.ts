@@ -136,23 +136,20 @@ describe("when a piece is read again", () => {
   });
 });
 
-// The readings a retry runs after its response, per piece: one per content at a time, and a newer content's reading
-// supersedes an older one, which then neither goes on nor writes its row.
-describe("the readings retries run", () => {
-  const sha = (letter: string) => letter.repeat(64);
-  it("runs one reading per piece and content: a second click on the same content starts none", () => {
+describe("deferred reading reservations on this host", () => {
+  it("registers a deferred reading once per document reservation", () => {
     const readings = new IntakeRetryReadings();
-    const first = readings.claim("doc-1", sha("a"));
+    const first = readings.claim("doc-1", "reservation-a");
     expect(first).not.toBeNull();
-    expect(readings.claim("doc-1", sha("a"))).toBeNull();
+    expect(readings.claim("doc-1", "reservation-a")).toBeNull();
     expect(readings.isRunning("doc-1")).toBe(true);
     expect(readings.isRunning("doc-2")).toBe(false);
   });
 
-  it("lets a newer content supersede an older reading, whose write is then refused", () => {
+  it("a newer reservation supersedes an older callback, even on the same document", () => {
     const readings = new IntakeRetryReadings();
-    const older = readings.claim("doc-1", sha("a"))!;
-    const newer = readings.claim("doc-1", sha("b"))!;
+    const older = readings.claim("doc-1", "reservation-a")!;
+    const newer = readings.claim("doc-1", "reservation-b")!;
     expect(readings.isCurrent("doc-1", older)).toBe(false);
     expect(readings.isCurrent("doc-1", newer)).toBe(true);
     // The older reading ends first: it does not release the newer one.
@@ -160,6 +157,6 @@ describe("the readings retries run", () => {
     expect(readings.isRunning("doc-1")).toBe(true);
     readings.release("doc-1", newer);
     expect(readings.isRunning("doc-1")).toBe(false);
-    expect(readings.claim("doc-1", sha("a"))).not.toBeNull();
+    expect(readings.claim("doc-1", "reservation-a")).not.toBeNull();
   });
 });

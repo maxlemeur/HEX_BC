@@ -12,6 +12,7 @@ import useSWR from "swr";
 import {
   launchPreparedTakeoffFromPlanSetAction,
   launchPreparedTakeoffFromSourceVersionPlanSetAction,
+  readRelaunchPlanChoiceAction,
   relaunchTakeoffAction,
 } from "@/app/dashboard/affaires/_actions/takeoff";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -67,7 +68,7 @@ function toLaunchPlanSetOption(planSet: PlanSetListItem): LaunchMetrePlanSetOpti
  */
 export type LaunchMetreDialogMode =
   | { kind: "version" }
-  | { kind: "request"; predecessorJobId: string | null }
+  | { kind: "request"; predecessorJobId: string | null; planDispatch?: boolean; singlePlan?: boolean }
   | { kind: "save_only"; reason: string };
 
 type LaunchMetreDialogProps = {
@@ -199,9 +200,23 @@ function LaunchMetreDialogContent({
   const toast = useToast();
   const versionMode = launchMode.kind === "version";
   // The member of the page: a request launch whose answer is unknown (a timeout, a network failure, a server error) is kept
-  // for them and the affaire, across a reload and for every tab; their next click sends it again before anything new, and
-  // after an answer a new click is a new command.
+  // for them and the affaire, across reloads and tabs. A different named selection requires a new confirmation.
   const user = useOptionalUserContext();
+  const predecessorJobId = launchMode.kind === "request" && launchMode.planDispatch ? launchMode.predecessorJobId : null;
+  const singlePlan = launchMode.kind === "request" && launchMode.singlePlan === true;
+  const [selectedPlanSetId, setSelectedPlanSetId] = useState<string | null>(
+    initialPlanSetId ?? plansContext?.defaultPlanSetId ?? null,
+  );
+  const readRelaunchPlans = async () => unwrapTakeoffActionResult(await readRelaunchPlanChoiceAction({
+    projectId, predecessorJobId: predecessorJobId!, singlePlan, planSetId: selectedPlanSetId ?? undefined,
+  }));
+  const { data: relaunchPlans, error: relaunchPlansError, mutate: reloadRelaunchPlans } = useSWR(
+    predecessorJobId ? ["takeoff-relaunch-plans", user?.tenantId, user?.profile?.id, projectId, predecessorJobId, singlePlan, selectedPlanSetId] : null,
+    readRelaunchPlans,
+    { revalidateOnMount: true, revalidateOnFocus: false, shouldRetryOnError: false },
+  );
+  const linkedPlanSetId = initialPlanSetId && (!relaunchPlans || relaunchPlans.eligiblePlanSetIds.includes(initialPlanSetId))
+    ? initialPlanSetId : relaunchPlans?.planSetId ?? null;
   const [isSubmitting, setIsSubmitting] = useState(false);
   const savePreparationRef = useRef<(() => Promise<number | null>) | null>(null);
   const registerPreparationSave = useCallback((save: () => Promise<number | null>) => { savePreparationRef.current = save; }, []);
@@ -219,9 +234,6 @@ function LaunchMetreDialogContent({
   // An unanswered command of this member on the affaire (another tab's) whose content is not the plans now ticked.
   const [otherTabCommand, setOtherTabCommand] = useState<TakeoffLaunchCommand | null>(null);
   const [selectedVersionId, setSelectedVersionId] = useState(initialVersionId);
-  const [selectedPlanSetId, setSelectedPlanSetId] = useState<string | null>(
-    initialPlanSetId ?? plansContext?.defaultPlanSetId ?? null,
-  );
   // The set and the version the link names are applied when the dialogue opens, and again when the link names another
   // one. Once the member picks in a select, that choice stands while the set still has files or the version is still
   // offered, however often the caller renders with new arrays. Each choice records the link it was made under and the
@@ -270,14 +282,15 @@ function LaunchMetreDialogContent({
       byId.set(fallbackPlanSet.id, fallbackPlanSet);
     }
 
-    return [...byId.values()];
-  }, [availablePlanSets, fallbackPlanSet, fetchedPlanSets]);
+    return [...byId.values()].filter((option) => !relaunchPlans || relaunchPlans.eligiblePlanSetIds.includes(option.id));
+  }, [availablePlanSets, fallbackPlanSet, fetchedPlanSets, relaunchPlans]);
   const selectedPlanSet = useMemo(
     () =>
       planSetOptions.find((option) => option.id === selectedPlanSetId) ??
       null,
     [planSetOptions, selectedPlanSetId],
   );
+  const hasRelaunchPlans = relaunchPlans && (!selectedPlanSet || relaunchPlans.checkedPlanSetId === selectedPlanSet.id);
   const versionOptions = useMemo(
     () => buildVersionOptions({ currentVersion, availableVersions }),
     [availableVersions, currentVersion],
@@ -300,15 +313,16 @@ function LaunchMetreDialogContent({
     : null;
 
   useEffect(() => {
+    if (predecessorJobId && !relaunchPlans) return;
     const memberChoice = memberPlanSetChoiceRef.current;
-    const memberChoiceId = memberChoice?.linkPlanSetId === initialPlanSetId ? memberChoice.planSetId : null;
+    const memberChoiceId = memberChoice?.linkPlanSetId === linkedPlanSetId ? memberChoice.planSetId : null;
     setSelectedPlanSetId((currentId) => {
       const byId = new Map(planSetOptions.map((option) => [option.id, option]));
       const isUsable = (id: string | null | undefined) =>
         Boolean(id && (byId.get(id)?.fileCount ?? 0) > 0);
 
       if (memberChoiceId !== null && currentId === memberChoiceId && isUsable(currentId)) return currentId;
-      if (isUsable(initialPlanSetId)) return initialPlanSetId;
+      if (isUsable(linkedPlanSetId)) return linkedPlanSetId;
       if (isUsable(currentId)) return currentId;
       if (isUsable(plansContext?.defaultPlanSetId)) {
         return plansContext?.defaultPlanSetId ?? null;
@@ -316,11 +330,11 @@ function LaunchMetreDialogContent({
 
       const firstUsable = planSetOptions.find((option) => option.fileCount > 0);
       if (firstUsable) return firstUsable.id;
-      if (initialPlanSetId && byId.has(initialPlanSetId)) return initialPlanSetId;
+      if (linkedPlanSetId && byId.has(linkedPlanSetId)) return linkedPlanSetId;
       if (currentId && byId.has(currentId)) return currentId;
       return planSetOptions[0]?.id ?? null;
     });
-  }, [initialPlanSetId, planSetOptions, plansContext?.defaultPlanSetId]);
+  }, [linkedPlanSetId, planSetOptions, plansContext?.defaultPlanSetId, predecessorJobId, relaunchPlans]);
 
 
   useEffect(() => {
@@ -399,23 +413,24 @@ function LaunchMetreDialogContent({
 
   const handleRequestLaunch = useCallback(async (preparationRevision: number, planFileCount: number, planFileIds?: string[]) => {
     if (!selectedPlanSet || !hasPlanFiles || launchMode.kind !== "request") return;
+    if (launchMode.planDispatch && launchMode.predecessorJobId && !planFileIds?.length) return;
     const content = { predecessorJobId: launchMode.predecessorJobId, planSetId: selectedPlanSet.id, preparationRevision,
       ...(planFileIds?.length ? { planFileIds } : {}) };
     // A command still unanswered is settled first, with its own content (its analysis may have finished since, and the
     // dialogue now names it): its replay answers with its receipt. Only an answered affaire offers a new command. The
     // plans the member ticks are sent as ticked: an unanswered command of other content (another tab's) is never sent in
-    // their place; the member sends it again or sets it aside first.
+    // their place. Setting it aside sends nothing. A new click confirms the selection then on screen.
     const outstanding = readOutstandingTakeoffLaunch(launchScope);
-    if (planFileIds?.length && outstanding && !isSameTakeoffLaunch(outstanding, content)) {
+    if (outstanding && (planFileIds?.length || outstanding.planFileIds) && !isSameTakeoffLaunch(outstanding, content)) {
       setOtherTabCommand(outstanding);
       return;
     }
     await sendRequestCommand(outstanding ?? beginTakeoffLaunch(launchScope, content), planFileCount);
   }, [hasPlanFiles, launchMode, launchScope, selectedPlanSet, sendRequestCommand]);
 
-  const handleLaunch = useCallback(async (preparationRevision: number, planFileCount: number) => {
+  const handleLaunch = useCallback(async (preparationRevision: number, planFileCount: number, planIds?: string[]) => {
     if (!selectedPlanSet || !hasPlanFiles) return;
-    if (launchMode.kind === "request") return handleRequestLaunch(preparationRevision, planFileCount);
+    if (launchMode.kind === "request") return handleRequestLaunch(preparationRevision, planFileCount, planIds);
     if (launchMode.kind !== "version") return;
 
     setIsSubmitting(true);
@@ -571,8 +586,16 @@ function LaunchMetreDialogContent({
             </div>
           ) : (
             <div className="space-y-4">
-              {isLoadingPlanSets && !hasUsablePlanSet ? <p role="status" className="text-sm text-muted-foreground">Chargement des jeux de plans…</p> : selectedPlanSet && hasPlanFiles ? (
+              {predecessorJobId && !hasRelaunchPlans && relaunchPlansError ? (
+                <Alert variant="warning"><AlertDescription>
+                  Impossible de lire les plans à relancer. <button type="button" className="underline"
+                    onClick={() => void reloadRelaunchPlans()}>Réessayer</button>
+                </AlertDescription></Alert>
+              ) : predecessorJobId && !hasRelaunchPlans ? (
+                <p role="status" className="text-sm text-muted-foreground">Chargement des plans à relancer…</p>
+              ) : isLoadingPlanSets && !hasUsablePlanSet ? <p role="status" className="text-sm text-muted-foreground">Chargement des jeux de plans…</p> : selectedPlanSet && hasPlanFiles ? (
                 <LazyTakeoffPreparationPanel
+                  key={predecessorJobId ? `${predecessorJobId}:${singlePlan}:${selectedPlanSet.id}` : undefined}
                   projectId={projectId}
                   planSetId={selectedPlanSet.id}
                   estimateVersionId={versionMode ? selectedVersionOption?.id ?? null : null}
@@ -580,6 +603,13 @@ function LaunchMetreDialogContent({
                   disabled={isSubmitting}
                   launchDisabled={!hasTargetVersion || launchMode.kind === "save_only"}
                   launchNotice={launchMode.kind === "save_only" ? launchMode.reason : null}
+                  planChoice={launchMode.kind === "request" && launchMode.planDispatch ? "required" : undefined}
+                  relaunchPlans={predecessorJobId ? relaunchPlans : undefined}
+                  onRefreshRelaunchPlans={predecessorJobId ? async () => {
+                    const latest = await readRelaunchPlans();
+                    await reloadRelaunchPlans(latest, { revalidate: false });
+                    return latest;
+                  } : undefined}
                   onLaunch={handleLaunch}
                   onBusyChange={setIsSubmitting}
                   onRegisterSave={registerPreparationSave}
@@ -587,7 +617,7 @@ function LaunchMetreDialogContent({
                     <label className="block text-sm font-medium" htmlFor="launch-metre-plan-set">Jeu de plans à analyser</label>
                     <NativeSelect id="launch-metre-plan-set" value={selectedPlanSet.id} onChange={(event) => {
                       const next = event.target.value;
-                      const linkPlanSetId = initialPlanSetId;
+                      const linkPlanSetId = linkedPlanSetId;
                       setErrorMessage(null);
                       void Promise.resolve(savePreparationRef.current?.()).then(() => {
                         memberPlanSetChoiceRef.current = { linkPlanSetId, planSetId: next };
@@ -631,32 +661,25 @@ function LaunchMetreDialogContent({
                       </label>
                     ))}
                   </fieldset>
-                  {otherTabCommand && (
-                    <Alert variant="warning">
-                      <AlertDescription>
-                        Un lancement envoyé depuis un autre onglet attend encore sa réponse : renvoyez-le d’abord, ou mettez-le
-                        de côté pour relancer les plans cochés.
-                        <span className="mt-2 flex flex-wrap gap-2">
-                          <Button type="button" variant="outline" size="sm" disabled={isSubmitting}
-                            onClick={() => void sendRequestCommand(otherTabCommand, otherTabCommand.planFileIds?.length ?? 1)}>
-                            Renvoyer ce lancement
-                          </Button>
-                          <Button type="button" variant="ghost" size="sm" disabled={isSubmitting} onClick={() => {
-                            settleTakeoffLaunch(launchScope, otherTabCommand.intentKey);
-                            setOtherTabCommand(null);
-                            void handleRequestLaunch(planChoice.preparationRevision, chosenPlans.size, [...chosenPlans].sort());
-                          }}>
-                            Le mettre de côté
-                          </Button>
-                        </span>
-                      </AlertDescription>
-                    </Alert>
-                  )}
                   <Button type="button" disabled={isSubmitting || chosenPlans.size === 0}
                     onClick={() => void handleRequestLaunch(planChoice.preparationRevision, chosenPlans.size, [...chosenPlans].sort())}>
                     Relancer les plans choisis
                   </Button>
                 </section>
+              )}
+              {otherTabCommand && (
+                <Alert variant="warning">
+                  <AlertDescription>
+                    Un lancement envoyé depuis un autre onglet attend encore sa réponse. Mettez-le de côté,
+                    puis confirmez les plans que vous souhaitez lancer.
+                    <Button type="button" variant="ghost" size="sm" disabled={isSubmitting} onClick={() => {
+                      settleTakeoffLaunch(launchScope, otherTabCommand.intentKey);
+                      setOtherTabCommand(null);
+                    }}>
+                      Le mettre de côté
+                    </Button>
+                  </AlertDescription>
+                </Alert>
               )}
               {errorMessage && <Alert variant="danger"><AlertDescription>{errorMessage}</AlertDescription></Alert>}
               {!hasTargetVersion && <Alert variant="warning"><AlertDescription>Créez d&apos;abord une première version pour lancer l&apos;analyse sur une cible de chiffrage.<div className="mt-3"><Link href={`/dashboard/estimates/new?projectId=${projectId}`} className={buttonVariants({ variant: "outline" })}>Créer une première version</Link></div></AlertDescription></Alert>}

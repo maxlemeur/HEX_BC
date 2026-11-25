@@ -28,6 +28,7 @@ import {
   JobsTableSkeleton,
   PAGE_SIZE_OPTIONS,
   PERIOD_FILTER_OPTIONS,
+  formatActivityPlan,
   formatCount,
   resolveErrorTitle,
 } from "@/components/takeoff/takeoff-job-list-shared";
@@ -60,6 +61,7 @@ type Props = {
     fileCount?: number;
   }>;
   launchContext?: TakeoffLaunchContext | null;
+  planDispatch?: boolean;
   /** The server's view of the latest analysis (review version, failure reason), as on the hub. */
   latestJobContext?: TakeoffLatestJobContext | null;
   /** The affaire already has an analysis: the tracking panel is laid out before the list loads. */
@@ -89,9 +91,14 @@ type AnalysisCompletion = TakeoffActivityCenterResponse["analysisCompletions"][n
 function AnalysisCompletionList({ label, completions }: { label: string; completions: AnalysisCompletion[] }) {
   return (
     <ul className="journey-panel-body divide-y" aria-label={label}>
-      {completions.map(({ eventId, outcome, finishedAt, failureReason }) => (
+      {completions.map(({ eventId, outcome, finishedAt, failureReason, plans }) => (
         <li key={eventId} className="flex flex-wrap justify-between gap-2 py-2">
-          <span>{TAKEOFF_COMPLETION_LABELS[outcome]}</span>
+          <div className="min-w-0 wrap-anywhere">
+            {plans && plans.length > 0 ? (
+              <p className="font-semibold">{plans.map(formatActivityPlan).join(" · ")}</p>
+            ) : null}
+            <p className="text-sm">{TAKEOFF_COMPLETION_LABELS[outcome]}</p>
+          </div>
           <time dateTime={finishedAt} className="text-sm text-muted-foreground">
             {formatTakeoffCompletionDate(finishedAt)}
           </time>
@@ -122,6 +129,7 @@ type ActivityKey = readonly [
 function fetchActivityPage([, , projectId, version, lot, planSet, status, level, period, job, offset, completionsOffset, limit]: ActivityKey) {
   const filter = (value: string) => (value !== "all" ? value : null);
   return fetchTakeoffActivityCenter(projectId, {
+    view: "tracking",
     versionId: filter(version),
     lot: filter(lot),
     planSetId: filter(planSet),
@@ -149,6 +157,7 @@ function TakeoffActivityCenterView({
   versions,
   planSets,
   launchContext = null,
+  planDispatch = false,
   latestJobContext = null,
   initialHasAnalyses = false,
   header,
@@ -185,6 +194,7 @@ function TakeoffActivityCenterView({
   const [isLaunchDialogOpen, setIsLaunchDialogOpen] = useState(
     searchParams.get("launch") === "1",
   );
+  const [relaunchJobId, setRelaunchJobId] = useState<string | null>(null);
   // Filters stay folded unless the page opens with some already applied.
   const [filtersExpanded, setFiltersExpanded] = useState(() =>
     FILTER_KEYS.some((key) => (searchParams.get(key) ?? "all") !== "all"),
@@ -743,6 +753,7 @@ function TakeoffActivityCenterView({
                     <TakeoffJobsTable
                       projectId={projectId}
                       data={listData}
+                      onRelaunchPlan={planDispatch ? setRelaunchJobId : undefined}
                       onPageChange={() => undefined}
                       onPageSizeChange={(size) => setPageSize(size)}
                       pageSize={pageSize}
@@ -792,6 +803,7 @@ function TakeoffActivityCenterView({
                   <TakeoffJobsTable
                     projectId={projectId}
                     data={listData}
+                    onRelaunchPlan={planDispatch ? setRelaunchJobId : undefined}
                     onPageChange={(offset) =>
                       updateParams({ offset: offset > 0 ? String(offset) : null })
                     }
@@ -871,15 +883,16 @@ function TakeoffActivityCenterView({
         </section>
       ) : null}
 
-      {launchContext ? (
+      {launchContext || (relaunchJobId && !refused) ? (
         <LaunchMetreDialog
-          open={isLaunchDialogOpen}
-          onOpenChange={handleLaunchDialogOpenChange}
+          open={relaunchJobId !== null || isLaunchDialogOpen}
+          onOpenChange={relaunchJobId ? (open) => { if (!open) setRelaunchJobId(null); } : handleLaunchDialogOpenChange}
           onLaunched={refreshEverything}
           projectId={projectId}
-          currentVersion={launchContext.currentVersion}
-          plansContext={launchContext.plansContext}
-          availableVersions={launchContext.availableVersions}
+          launchMode={relaunchJobId ? { kind: "request", predecessorJobId: relaunchJobId, planDispatch: true, singlePlan: true } : undefined}
+          currentVersion={launchContext?.currentVersion ?? null}
+          plansContext={launchContext?.plansContext ?? null}
+          availableVersions={launchContext?.availableVersions}
           availablePlanSets={planSets.map((planSet) => ({
             id: planSet.id,
             name: planSet.name,

@@ -1,3 +1,4 @@
+import { LocalChatGptConnectionWithdrawnError } from "@/lib/ai/chatgpt-sign-in-errors";
 import { z } from "zod";
 import { callStructuredAi } from "@/lib/ai/structured-ai";
 import type { ChatGptOwner } from "@/lib/ai/chatgpt-local-store";
@@ -536,6 +537,7 @@ export async function generateAffaireBriefDraft(input: {
             missingPieces: input.missingPieces,
           }),
           schema: affaireBriefGenerationSchema,
+          beforeSend: input.renewLease,
           context: { model: AFFAIRE_BRIEF_MODEL, promptVersion: AFFAIRE_BRIEF_PROMPT_VERSION },
         }, input.aiOwner),
       });
@@ -544,6 +546,7 @@ export async function generateAffaireBriefDraft(input: {
     }
   } catch (error) {
     if (!(error instanceof durableIntake.AffaireIntakeProviderCallError)) throw error;
+    if (input.aiOwner?.connection && error.cause instanceof LocalChatGptConnectionWithdrawnError) throw error.cause;
     console.error("Affaire brief AI generation failed", { projectId: input.project.id, uploadId: input.uploadId, error_code: getSafeProviderErrorCode(error.cause) });
   }
 

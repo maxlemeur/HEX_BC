@@ -82,10 +82,17 @@ select pg_temp.f(60 + n), pg_temp.f(20 + n), pg_temp.f(30 + n), 'confirme', 'Ré
 from generate_series(0, 2) as n;
 insert into public.plan_sets (id, tenant_id, project_id, name)
 select pg_temp.f(40 + n), pg_temp.f(10), pg_temp.f(20 + n), 'Plans du dossier' from generate_series(0, 2) as n;
+-- Affaire 22 uses a registered plan copy from its dossier.
+insert into public.affaire_intake_documents (id, upload_id, file_name, upload_status, storage_path, classification_status,
+  document_kind, size_bytes) values
+  (pg_temp.f(70), pg_temp.f(32), 'plan-1.pdf', 'uploaded', 'fixture/plan-22.pdf', 'classified', 'plans', 8);
+insert into storage.objects (bucket_id, name, metadata) values ('affaire-intake', 'fixture/plan-22.pdf', '{"size":8}');
 -- One plan per affaire (100 + n), read on its pages 2 and 7.
-insert into public.plan_files (id, tenant_id, plan_set_id, file_name, file_path, file_type, file_size_bytes, page_count)
+insert into public.plan_files (id, tenant_id, plan_set_id, file_name, file_path, file_type, file_size_bytes, page_count, metadata)
 select pg_temp.f(100 + n), pg_temp.f(10), pg_temp.f(40 + n), 'plan-1.pdf',
-  concat_ws('/', pg_temp.f(10), pg_temp.f(40 + n), pg_temp.f(100 + n), 'plan-1.pdf'), 'application/pdf', 8, 9
+  concat_ws('/', pg_temp.f(10), pg_temp.f(40 + n), pg_temp.f(100 + n), 'plan-1.pdf'), 'application/pdf', 8, 9,
+  case when n = 2 then jsonb_build_object('source', 'affaire-intake', 'intake_document_id', pg_temp.f(70),
+    'intake_storage_path', 'fixture/plan-22.pdf') else '{}'::jsonb end
 from generate_series(0, 2) as n;
 
 -- The lists: affaire 20 has three items (lavabo 300, vanne 301, baignoire 302) in its revision 310; affaire 22 one item
@@ -135,8 +142,8 @@ create function pg_temp.manifest(project integer, order_ jsonb) returns jsonb la
     'units', (select jsonb_agg(jsonb_build_object('key', 'plan:' || f.id, 'ordinal', 1, 'plans', jsonb_build_array(f.id),
       'pages', '[2, 7]'::jsonb, 'page_count', 9, 'vector_pages', 0, 'budget', jsonb_build_object('tokens', 400000, 'cost_cents', 2500)))
       from public.plan_files f where f.plan_set_id = pg_temp.f(project + 20)),
-    'plans', (select jsonb_agg(jsonb_build_object('entry_key', f.id, 'plan_file_id', f.id, 'name', f.file_name, 'logical_id', f.id,
-      'intake_document_id', null, 'generation', 'generation-fictive-1', 'content_sha256', pg_temp.digest(f.id),
+    'plans', (select jsonb_agg(jsonb_build_object('entry_key', f.id, 'plan_file_id', f.id, 'name', f.file_name,
+      'logical_id', coalesce(f.metadata ->> 'intake_document_id', f.id::text), 'intake_document_id', f.metadata ->> 'intake_document_id', 'generation', 'generation-fictive-1', 'content_sha256', pg_temp.digest(f.id),
       'pages', '[2, 7]'::jsonb, 'page_count', 9)) from public.plan_files f where f.plan_set_id = pg_temp.f(project + 20)),
     'coverage', jsonb_build_object('plans_retained', 1, 'plans_omitted', '[]'::jsonb), 'references', '[]'::jsonb,
     'budget', jsonb_build_object('tokens', 400000, 'cost_cents', 2500))
@@ -596,7 +603,8 @@ select results_eq($$select r.state, r.readings #>> '{0,unit_state}', r.readings 
   'while it is read, the item is being read again, its earlier answer still given');
 reset role;
 select results_eq($$select replayed, answer_count from pg_temp.publish(pg_temp.job(20, 2), 903, pg_temp.valid(2), pg_temp.rows_(2),
-  pg_temp.vector(2))$$,
+  pg_temp.vector(2), findings => jsonb_set(pg_temp.findings(), '{0,designation}', '"  CHAUFFE-EAU (fictif)"')
+    || '[{"page":7,"designation":"Chauffe-eau (fictif)","evidence":"Second repère CE fictif","chunk_id":"f1-b1"}]'::jsonb)$$,
   $$values (false, 3)$$, 'it is published');
 select results_eq($$select n.item_id, n.reading_revision, n.replaces_answer_id = o.id
   from public.takeoff_item_answers n join public.takeoff_item_answers o on o.item_id = n.item_id and o.job_id = pg_temp.job(20, 1)
@@ -632,6 +640,107 @@ select is((select count(*)::integer from public.read_takeoff_item_answers(pg_tem
   p_takeoff_item_id => pg_temp.f(871))), 0, 'a vector row is no contribution: it leads to no answer through this link');
 reset role;
 
+-- TI-734: two publications of the same plan and the member's decision about its finding.
+select is(public.takeoff_find_designation_key(U&'  R\00C9seau\0009  d''eau  '), 'reseau d''eau',
+  'accents, case and runs of whitespace compare equal');
+select isnt(public.takeoff_find_designation_key('CE-01'), public.takeoff_find_designation_key('CE 01'),
+  'punctuation and digits keep distinct designations distinct');
+select ok(not has_function_privilege('authenticated', 'public.takeoff_find_designation_key(text)', 'execute')
+  and has_function_privilege('service_role', 'public.takeoff_find_designation_key(text)', 'execute'),
+  'members read the stored key and only the service can call the normalizer among API roles');
+select table_privs_are('public', 'takeoff_find_decisions', 'authenticated', array['SELECT'],
+  'members only read decisions directly');
+select ok(has_function_privilege('service_role', signature, 'execute')
+  and not has_function_privilege('authenticated', signature, 'execute')
+  and not has_function_privilege('anon', signature, 'execute'), signature || ' is service-only')
+from (values ('public.dismiss_takeoff_find(uuid,uuid,uuid,uuid,integer,uuid,text,text)'),
+  ('public.undo_takeoff_find_dismissal(uuid,uuid,uuid,uuid)'),
+  ('public.add_takeoff_finds_to_list(uuid,uuid,uuid,integer,uuid,text,jsonb,jsonb)')) commands(signature);
+
+select throws_ok(format('select public.add_takeoff_finds_to_list(%L,%L,%L,1,%L,%L,%L,%L)',
+  pg_temp.f(10), pg_temp.f(20), pg_temp.f(actor), pg_temp.f(955), repeat('d',64), '[]', '[]'),
+  '42501','TAKEOFF_ITEM_LIST_FORBIDDEN','add refused for actor ' || actor)
+from (values (2),(5)) actors(actor);
+select throws_ok(format('select public.undo_takeoff_find_dismissal(%L,%L,%L,%L)',
+  pg_temp.f(10), pg_temp.f(20), pg_temp.f(actor), pg_temp.f(951)),
+  '42501','TAKEOFF_ITEM_LIST_FORBIDDEN','undo refused for actor ' || actor)
+from (values (2),(5)) actors(actor);
+
+create function pg_temp.dismiss(actor integer, job_round integer, reason text, decision integer) returns uuid
+language sql as $$
+  select public.dismiss_takeoff_find(pg_temp.f(10), pg_temp.f(20), pg_temp.f(actor), pg_temp.job(20, job_round),
+    0, pg_temp.f(decision), reason, null)
+$$;
+select throws_ok($$select pg_temp.dismiss(5, 1, 'outside_scope', 951)$$, '42501', 'TAKEOFF_ITEM_LIST_FORBIDDEN',
+  'a foreign tenant actor cannot dismiss');
+select throws_ok($$select pg_temp.dismiss(2, 1, 'outside_scope', 951)$$, '42501', 'TAKEOFF_ITEM_LIST_FORBIDDEN',
+  'a member who cannot edit the list cannot dismiss');
+select throws_ok($$select pg_temp.dismiss(1, 1, 'other', 951)$$, '22023', 'TAKEOFF_FIND_REASON_INVALID',
+  'Other requires the member’s explanation');
+select is(pg_temp.dismiss(1, 1, 'retained_existing', 951), pg_temp.f(951), 'the owner dismisses');
+select is(pg_temp.dismiss(1, 1, 'retained_existing', 951), pg_temp.f(951), 'the same click replays');
+set local role service_role;
+select throws_ok($$update public.takeoff_find_decisions set reason = 'outside_scope'$$, '42501',
+  'TAKEOFF_ITEM_LIST_WRITER_REQUIRED', 'the service role also needs the decision command');
+reset role;
+select throws_ok($$select pg_temp.dismiss(1, 2, 'outside_scope', 952)$$, '23505', 'TAKEOFF_FIND_ALREADY_DECIDED',
+  'a second publication of the same find cannot acquire another active decision');
+select pg_temp.sign_in(4);
+set local role authenticated;
+select results_eq($$select page, evidence, decided_by, reason from public.takeoff_find_decisions$$,
+  $$values (2, 'Symbole CE fictif'::text, pg_temp.f(1), 'retained_existing'::text)$$,
+  'another member with access reads the evidence and the decision');
+reset role;
+-- Restore the director who left earlier. The plan is readable only while a job attests its file.
+insert into public.tenant_memberships (tenant_id,user_id,role,is_default,created_at) values
+  (pg_temp.f(10),pg_temp.f(3),'director',true,'2020-01-01');
+select pg_temp.sign_in(3);
+set local role authenticated;
+select is((select count(*)::int from public.takeoff_find_decisions), 1, 'a read-only member sees the decision on the attested plan');
+reset role;
+select pg_temp.sign_in(5);
+set local role authenticated;
+select is((select count(*)::int from public.takeoff_find_decisions), 0, 'another tenant sees no decisions');
+reset role;
+select lives_ok($$select public.undo_takeoff_find_dismissal(pg_temp.f(10), pg_temp.f(20), pg_temp.f(4), pg_temp.f(951))$$,
+  'another list writer can undo that particular dismissal');
+
+-- Complete the existing publication fixture's registry as a production list revision would.
+insert into public.takeoff_list_item_sources(tenant_id, project_id, source_key, item_id, kind, accepted_in_revision, accepted_by)
+select tenant_id, project_id, source_key, item_id, 'origin', 1, pg_temp.f(1)
+from public.takeoff_list_revision_entries where revision_id = pg_temp.f(310);
+
+-- The revision and its find links form one transaction, using the ordinary manual origin.
+create function pg_temp.add_finds(refs jsonb, intent integer) returns table (revision integer, replayed boolean)
+language sql as $$
+  select r.revision, r.replayed from public.add_takeoff_finds_to_list(pg_temp.f(10), pg_temp.f(20), pg_temp.f(1),
+    1, pg_temp.f(intent), repeat('d', 64),
+    (select jsonb_agg(to_jsonb(e) - array['revision_id','tenant_id','project_id','position','origin_kind'] order by position)
+      from public.takeoff_list_revision_entries e where revision_id = pg_temp.f(310))
+      || jsonb_build_array(jsonb_build_object('item_id', pg_temp.f(950), 'source_key', 'manual:ce', 'label',
+        'Chauffe-eau (fictif)', 'expected_unit', 'u', 'origin', jsonb_build_object('kind','manual',
+        'addedBy',pg_temp.f(1),'addedInRevision',2)), jsonb_build_object('item_id', pg_temp.f(954),
+        'source_key','manual:ce-2','label','Chauffe-eau (fictif)','expected_unit','u','origin',
+        jsonb_build_object('kind','manual','addedBy',pg_temp.f(1),'addedInRevision',2))), refs) r
+$$;
+create function pg_temp.ref(finding integer) returns jsonb language sql as $$
+  select jsonb_build_array(jsonb_build_object('job_id',pg_temp.job(20, 2),'finding_index',0,'item_id',pg_temp.f(950)),
+    jsonb_build_object('job_id',pg_temp.job(20, 2),'finding_index',finding,'item_id',pg_temp.f(954)))
+$$;
+select throws_ok($$select * from pg_temp.add_finds(pg_temp.ref(2), 955)$$,'22023','TAKEOFF_FIND_INVALID',
+  'an index outside the actual publication cannot supply a finding');
+select is((select max(revision) from public.takeoff_list_revisions where project_id = pg_temp.f(20)), 1,
+  'the invalid source rolls back the list revision too');
+select results_eq($$select * from pg_temp.add_finds(pg_temp.ref(1), 955)$$,$$values (2,false)$$,
+  'two finds with the same designation on different pages of one reading enter one revision');
+select results_eq($$select * from pg_temp.add_finds(pg_temp.ref(1), 955)$$,$$values (2,true)$$,
+  'a repeated addition returns its revision');
+select results_eq($$select item_id, page from public.takeoff_find_decisions where undone_at is null order by page$$,
+  $$values (pg_temp.f(950),2), (pg_temp.f(954),7)$$, 'each new item keeps its own source');
+select throws_ok($$select pg_temp.dismiss(1, 1, 'outside_scope', 953)$$,'23505','TAKEOFF_FIND_ALREADY_DECIDED',
+  'an addition also consumes the same find in another reading');
+select is((select count(*)::int from public.takeoff_items where job_id = pg_temp.job(20, 2) and not is_excluded), 2,
+  'adding a find creates no quantity');
 -- 7. Deleting what the answers hang on: a job whose readings a later one replaced (its rows, its vector row and its
 -- observations go with it), then the whole affaire. Every foreign key is checked, as a commit checks them.
 create function pg_temp.delete_and_check(statement text) returns void language plpgsql as $$
@@ -645,10 +754,54 @@ select lives_ok($$select pg_temp.delete_and_check(format('delete from public.tak
   'a job with published answers is deleted with them');
 select results_eq($$select count(*)::integer, count(replaces_answer_id)::integer from public.takeoff_item_answers
   where project_id = pg_temp.f(20)$$, $$values (3, 0)$$, 'the later readings stay, without their link to the deleted ones');
+-- Remove the remaining attestation, observe the director's real RLS, then restore the publication
+-- for the existing project-deletion test.
+savepoint without_plan_jobs;
+delete from public.takeoff_jobs where id = pg_temp.job(20, 2);
+select pg_temp.sign_in(3);
+set local role authenticated;
+select exists(select 1 from public.takeoff_list_revisions where project_id = pg_temp.f(20)) as still_reads_affaire,
+  (select count(*)::int from public.plan_files where id = pg_temp.f(100)) as readable_files,
+  (select count(*)::int from public.takeoff_find_decisions) as readable_decisions \gset
+rollback to without_plan_jobs;
+select ok(:'still_reads_affaire'::boolean and :readable_files = 0 and :readable_decisions = 0,
+  'after the last attesting job disappears, the director still reads the affaire but no decision about the plan');
 select lives_ok($$select pg_temp.delete_and_check(format('delete from public.estimate_projects where id = %L', pg_temp.f(20)))$$,
   'an affaire with published answers is deleted with them');
 select is((select count(*)::integer from public.takeoff_item_answer_observations where project_id = pg_temp.f(20)), 0,
   'nothing of its answers is left');
 
+-- A dossier plan stays readable through its original piece after its only attesting job disappears.
+select results_eq($$select outcome from pg_temp.launch(22, 1)$$, $$values ('admitted'::text)$$, 'a dossier plan is admitted');
+select is((select job_id from public.dispatch_next_takeoff_host_job(pg_temp.host())), pg_temp.job(22, 1), 'its copy is dispatched');
+select is(pg_temp.claim(pg_temp.job(22, 1), 981), 1, 'its copy is claimed');
+select is((select answer_count from pg_temp.publish(pg_temp.job(22, 1), 981,
+  jsonb_build_array(jsonb_set(pg_temp.valid() -> 2, '{item_id}', to_jsonb(pg_temp.f(320)))), '[]', null)), 1,
+  'the publication records a finding on the dossier plan');
+set local role service_role;
+select is(public.dismiss_takeoff_find(pg_temp.f(10), pg_temp.f(22), pg_temp.f(1), pg_temp.job(22, 1), 0,
+  pg_temp.f(982), 'outside_scope'), pg_temp.f(982), 'the owner dismisses the dossier finding');
+reset role;
+select pg_temp.sign_in(3);
+set local role authenticated;
+select decided_at as original_decision_time from public.takeoff_find_decisions where id = pg_temp.f(982) \gset
+reset role;
+delete from public.takeoff_jobs where id = pg_temp.job(22, 1);
+set local role authenticated;
+select ok(exists(select 1 from public.affaire_intake_documents where project_id = pg_temp.f(22) and id = pg_temp.f(70))
+  and not exists(select 1 from public.plan_files where id = pg_temp.f(102)),
+  'the director still reads the original dossier piece after losing access to the copy');
+select results_eq($$select decided_by, decided_at, reason, evidence from public.takeoff_find_decisions
+  where id = pg_temp.f(982)$$, format('values (%L::uuid, %L::timestamptz, %L::text, %L::text)',
+    pg_temp.f(1), :'original_decision_time', 'outside_scope', 'Symbole CE fictif'),
+  'the director retains the original author, date, reason and evidence through the dossier piece');
+reset role;
+
+delete from public.affaire_intake_documents where id = pg_temp.f(70);
+set local role authenticated;
+select ok(exists(select 1 from public.takeoff_list_revisions where project_id = pg_temp.f(22))
+  and not exists(select 1 from public.takeoff_find_decisions where id = pg_temp.f(982)),
+  'the same director session loses the decision once the dossier piece is withdrawn');
+reset role;
 select * from finish();
 rollback;

@@ -352,7 +352,7 @@ export async function callServerAction(browser: Browser, id: string, argument: R
       headers: { "content-type": "text/plain;charset=UTF-8", "next-action": input.id }, body: JSON.stringify([input.argument]),
     });
     const text = await response.text();
-    const envelopes: Array<{ ok: boolean; error?: { status?: number; code?: string; message?: string } }> = [];
+    const envelopes: Array<{ ok: boolean; code?: string; message?: string; error?: { status?: number; code?: string; message?: string } }> = [];
     for (const line of text.split(/\r?\n/)) {
       const separator = line.indexOf(":");
       if (separator < 0) continue;
@@ -364,8 +364,8 @@ export async function callServerAction(browser: Browser, id: string, argument: R
     const envelope = envelopes.length === 1 ? envelopes[0] : null;
     return { status: response.status, digest: /"digest":"([^"]+)"/.exec(text)?.[1] ?? null,
       ok: envelope?.ok ?? null, errorStatus: envelope?.error?.status ?? null,
-      errorCode: envelope?.error?.code ?? (envelope ? null : "INVALID_ACTION_ENVELOPE"),
-      errorMessage: envelope?.error?.message ?? null };
+      errorCode: envelope?.error?.code ?? envelope?.code ?? (envelope ? null : "INVALID_ACTION_ENVELOPE"),
+      errorMessage: envelope?.error?.message ?? envelope?.message ?? null };
   }, { id, argument });
 }
 

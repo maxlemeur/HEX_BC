@@ -1,4 +1,5 @@
 import {
+  isAffaireIntakeDocumentAwaitingLaunch,
   isAffaireIntakeDocumentNeedingReview,
   isAffaireIntakeDocumentProcessing,
   isAffaireIntakeAnalysisStale,
@@ -11,9 +12,11 @@ export type DossierDocument = AffaireIntakeWorkspace["documents"][number];
 // Eligibility for document tools does not require a human validation.
 export function dossierDocumentClassificationState(
   document: DossierDocument,
-): "review" | "valid" | "processing" | "unavailable" {
+): "awaiting_launch" | "review" | "valid" | "processing" | "unavailable" {
   if (document.isBeingDeleted || document.uploadStatus !== "uploaded")
     return "unavailable";
+  if (document.historicalRetryAvailable) return "review";
+  if (isAffaireIntakeDocumentAwaitingLaunch(document)) return "awaiting_launch";
   if (isAffaireIntakeAnalysisStale(document)) return "review";
   if (isAffaireIntakeDocumentProcessing(document)) return "processing";
   if (
@@ -43,9 +46,10 @@ export function dossierDocumentAiConfidence(document: DossierDocument): number |
 }
 export function canClassifyDossierDocument(document: DossierDocument) {
   const state = dossierDocumentState(document);
-  return state === "review" || state === "valid";
+  return state === "awaiting_launch" || state === "review" || state === "valid";
 }
 export function canRetryDossierDocument(document: DossierDocument) {
+  if (document.historicalRetryAvailable && !document.isBeingDeleted && document.uploadStatus === "uploaded") return true;
   if (isAffaireIntakeReanalysisPending(document) && !isAffaireIntakeAnalysisStale(document)) return false;
   return (
     !document.isBeingDeleted && document.uploadStatus === "uploaded" &&

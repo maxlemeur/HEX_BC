@@ -868,7 +868,7 @@ describe("MaterialRequestEditor", () => {
 
       // While the first photo travels: the operator reads where it is, nothing is listed, nothing can be sent twice.
       expect(await screen.findByText("Envoi de la photo 1 sur 2 : photo-essai-1.jpg…")).toBeVisible();
-      expect(screen.getByRole("button", { name: "Ajouter des photos" })).toBeDisabled();
+      expect(screen.getByRole("button", { name: "Ajouter des photos ou PDF" })).toBeDisabled();
       expect(screen.getByLabelText("Photos à ajouter")).toBeDisabled();
       expect(screen.queryByRole("img")).not.toBeInTheDocument();
       expect(type).toBeEnabled();
@@ -894,7 +894,7 @@ describe("MaterialRequestEditor", () => {
       ]);
       expect(writes()[1].body).toEqual({ ids: [FILE_ID, FILE_2] });
       expect(screen.getByText("Photo 1 sur 2")).toBeVisible();
-      expect(screen.getByRole("button", { name: "Ajouter des photos" })).toBeEnabled();
+      expect(screen.getByRole("button", { name: "Ajouter des photos ou PDF" })).toBeEnabled();
     });
 
     it("shows the server's sentence and sends nothing to storage when the preparation is refused (15)", async () => {
@@ -944,7 +944,7 @@ describe("MaterialRequestEditor", () => {
       expect(events.slice(3).sort()).toEqual([`DELETE ${BASE}/files/${FILE_ID}`, `DELETE ${BASE}/files/${FILE_2}`].sort());
       expect(screen.queryByRole("img")).not.toBeInTheDocument();
       expect(screen.getByText("Pas de photo de l’original.")).toBeVisible();
-      expect(screen.getByRole("button", { name: "Ajouter des photos" })).toBeEnabled();
+      expect(screen.getByRole("button", { name: "Ajouter des photos ou PDF" })).toBeEnabled();
     });
 
     it("waits for the photo in flight, then drops what was prepared, when the operator leaves the request (15)", async () => {
@@ -1741,7 +1741,7 @@ describe("the steps of a request", () => {
     await open([line()]);
 
     expect(tab(1)).toHaveAttribute("aria-selected", "true");
-    expect(screen.getByText("Rattachez un article à la ligne qui n’en a pas", { exact: true })).toBeVisible();
+    expect(screen.queryByText("Rattachez un article à la ligne qui n’en a pas", { exact: true })).not.toBeInTheDocument();
     expect(tab(1)).toHaveTextContent("0 validée sur 1");
     expect(screen.getByRole("heading", { name: "Lignes" })).toBeVisible();
     // The other steps are there, not shown: their headings are not offered.
@@ -1755,7 +1755,7 @@ describe("the steps of a request", () => {
     const user = await open([ready()]);
 
     expect(tab(2)).toHaveAttribute("aria-selected", "true");
-    expect(await screen.findByText("Consultez les fournisseurs", { exact: true })).toBeVisible();
+    expect(screen.getByText("Demandée le", { exact: true })).toBeVisible();
     expect(tab(1)).toHaveTextContent("terminée");
     expect(screen.queryByRole("heading", { name: "Lignes" })).not.toBeInTheDocument();
 
@@ -1788,9 +1788,8 @@ describe("the steps of a request", () => {
       orders: [],
     });
 
-    expect(await screen.findByText(/Toutes les lignes ont un bon ·/)).toBeVisible();
+    await waitFor(() => expect(tab(3)).toHaveTextContent("Toutes les lignes ont leur bon"));
     expect(tab(3)).toHaveAttribute("aria-selected", "true");
-    expect(tab(3)).toHaveTextContent("Toutes les lignes ont leur bon");
   });
 
   it("tells a reader where the request stands, never what to do", async () => {

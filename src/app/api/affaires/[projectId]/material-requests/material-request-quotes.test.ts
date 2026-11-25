@@ -966,11 +966,14 @@ describe("the files of a quote", () => {
     expect((await complete([upload.file.id])).status).toBe(200);
   });
 
-  it("keeps an original an image: a PDF is refused without a quote", async () => {
+  it("accepts a PDF as an original of the request too, without a quote", async () => {
     const fake = seed(OWNER, "engineer");
-    const { status, error } = await prepare([{ name: "bon.pdf", mime_type: "application/pdf", byte_size: PDF.byteLength }], null);
-    expect([status, error?.message]).toEqual([400, "« bon.pdf » n’est pas une image JPEG, PNG ou WebP."]);
-    expect(fake.writes).toEqual([]);
+    const prepared = await prepare([{ name: "bon.pdf", mime_type: "application/pdf", byte_size: PDF.byteLength }], null);
+    expect(prepared.status).toBe(201);
+    const [upload] = (prepared.data as { uploads: Upload[] }).uploads;
+    expect(upload.file.mime_type).toBe("application/pdf");
+    fake.objects.set(upload.path, PDF);
+    expect((await complete([upload.file.id])).status).toBe(200);
   });
 
   it("refuses a file that is neither a PDF nor an image, for a quote", async () => {

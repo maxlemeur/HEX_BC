@@ -91,7 +91,8 @@ export type TakeoffRequestUnitJobRow = {
   updated_at: string;
 };
 
-type ManifestPlan = { planFileId: string | null; logicalId: string | null; documentId: string | null; name: string; pages: number[] };
+type ManifestPlan = { planFileId: string | null; logicalId: string | null; documentId: string | null; name: string;
+  pages: number[]; pageCount: number | null; contentSha256?: string };
 
 /** The part of a sealed manifest the activity reads: its units in order, the plans they name, the plans set aside. */
 export type TakeoffRequestManifest = {
@@ -104,7 +105,7 @@ export type TakeoffRequestManifest = {
 };
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const OMITTED_REASONS = new Set(["alternate", "identical_copy", "unsupported_format", "not_requested"]);
+const OMITTED_REASONS = new Set(["alternate", "identical_copy", "unsupported_format", "not_requested", "not_selected"]);
 const PUBLIC_CODES = new Set<string>(TAKEOFF_PUBLIC_FAILURE_CODES);
 const PLAN_PUBLIC_CODES = new Set<string>(TAKEOFF_PLAN_PUBLIC_FAILURE_CODES);
 
@@ -140,6 +141,9 @@ export function parseTakeoffRequestManifest(raw: unknown): TakeoffRequestManifes
       documentId: typeof plan.intake_document_id === "string" ? plan.intake_document_id : null,
       name: plan.name,
       pages: toPages(plan.pages),
+      pageCount: typeof plan.page_count === "number" && Number.isSafeInteger(plan.page_count) && plan.page_count > 0 ? plan.page_count : null,
+      ...(typeof plan.content_sha256 === "string" && /^[0-9a-f]{64}$/.test(plan.content_sha256)
+        ? { contentSha256: plan.content_sha256 } : {}),
     });
   }
   const coverage = isRecord(raw.coverage) ? raw.coverage : {};
@@ -164,7 +168,7 @@ const NOT_STARTED_CODES = new Set(["TAKEOFF_WORKER_NOT_STARTED", "TAKEOFF_WORKER
  * recorded end decides first; a failure that never began is « not started »; a job still pending, or failed with its
  * technical retry still to decide or to run, waits in the queue. Never a success from the presence of a result row.
  */
-function unitStateOf(job: TakeoffRequestUnitJobRow): TakeoffUnitState {
+export function resolveTakeoffRequestUnitState(job: Pick<TakeoffRequestUnitJobRow, "analysis_outcome" | "status" | "started_at" | "error_code">): TakeoffUnitState {
   const outcome = job.analysis_outcome;
   if (outcome === "success" || (!outcome && (job.status === "completed" || job.status === "applied"))) return "succeeded";
   if (outcome === "canceled" || (!outcome && job.status === "canceled")) return "canceled";
@@ -194,7 +198,7 @@ export function deriveTakeoffRequestUnits(input: {
   const units: TakeoffRequestUnitView[] = manifest.units.flatMap((unit) => {
     const job = jobsByUnit.get(unit.key);
     if (!job) return [];
-    const state = unitStateOf(job);
+    const state = resolveTakeoffRequestUnitState(job);
     const plan = perPlan && unit.plans[0] ? manifest.plans.get(unit.plans[0]) : undefined;
     return [{
       key: unit.key, ordinal: unit.ordinal,
@@ -436,6 +440,10 @@ export function describeTakeoffRequestActivityCoverage(request: Pick<TakeoffRequ
     const states = units.units.map((unit) => GROUPED_STATE[unit.state]);
     return `${count > 1 ? `Analyse groupée de ${count} plans` : "Analyse groupée"} · ${states.join(", ")}`;
   }
+  if (units.units.length === 1) {
+    const [plan] = units.units;
+    return `${plan.name} · ${describeTakeoffRequestUnitState(plan, null)}`;
+  }
   return describeTakeoffCoverage(units.coverage);
 }
 
@@ -453,6 +461,11 @@ export function describeTakeoffRequestUnitState(unit: Pick<TakeoffRequestUnitVie
     case "canceled": return "Arrêté";
     case "not_started": return "Non démarré";
   }
+}
+
+export function describeTakeoffRequestOrigin(request: Pick<TakeoffRequestRow, "origin" | "intent">) {
+  if (request.origin === "automatic") return "Démarrage automatique à la confirmation du dossier";
+  return request.intent === "remeasure_items" ? "Nouvelle mesure de postes" : "Relance de l’analyse";
 }
 
 /** The original pages a plan was read on. */

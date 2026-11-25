@@ -241,7 +241,7 @@ mandat ChatGPT et son budget de lancement.
   qualifiés et tarifés dans `src/lib/ai/access/openai-pricing.ts`. Barème
   Standard relevé le 22 novembre 2026. Prix par million de jetons d’entrée,
   d’entrée en cache et de sortie en $ US : GPT-6.1 Terra 1 / 0,05 / 5,
-  GPT-6.1 Sol et GPT-6.2 Sol 2 / 0,10 / 10, GPT-6.2 Astra 8 / 0,40 / 40.
+  GPT-6.2 Sol 2 / 0,10 / 10, GPT-6.2 Astra 8 / 0,40 / 40.
   Une écriture en cache
   coûte 1,25 × l’entrée (30 min) ou 2,5 × (12 h) ; au-delà de 272 000 jetons
   d’entrée, toute la requête est facturée 2 × en entrée et 1,5 × en sortie. Un
@@ -314,7 +314,7 @@ npm run verify:pr
 ```
 
 Les parcours TesterArmy démarrent un serveur local dédié contre la base éphémère
-de la campagne. Ils sont répartis en deux fichiers, chacun avec son serveur, son
+de la campagne. Ils sont répartis en cinq fichiers, chacun avec son serveur, son
 compte propriétaire, son port et son dossier d'artefacts
 ([`chatgpt-local-journey-support.ts`](../../e2e/army/local/chatgpt-local-journey-support.ts)) :
 
@@ -326,17 +326,21 @@ compte propriétaire, son port et son dossier d'artefacts
   assistance Decisions (DEC01, TRI01), écran Vecteurs du labo (VEC01), reprise
   des prix (PRX02), analyse IA de la photo d’une demande de matériel (MRIA01 :
   la photo lue devient des lignes en brouillon, ajoutées puis remplacées au
-  choix du bureau), réanalyse des pièces (INTRETRY01, INTWORD01) et démarrage
-  automatique du métré à la confirmation du dossier (AUTO01 à AUTO05) et sa zone
-  sur l’affaire (AUTO06 : motif lu par un directeur, prise en charge par un
-  opérateur, relance sans version ni brouillon, ancien lien de lancement), chacun
-  avec ses propres comptes et le démarrage automatique activé pour lui seul.
+  choix du bureau), comparaison d’un devis fournisseur et assistant de chiffrage
+  ou de revue du métré.
+- [`chatgpt-local-intake-documents.e2e.ts`](../../e2e/army/local/chatgpt-local-intake-documents.e2e.ts)
+  couvre la lecture des pièces par l’assistant (ASSIST04), leur classement et leur transcription,
+  ainsi que la mise à jour du brief.
+- [`chatgpt-local-intake-confirmation.e2e.ts`](../../e2e/army/local/chatgpt-local-intake-confirmation.e2e.ts)
+  couvre le choix des plans et le démarrage du métré après confirmation du brief (AUTO01 à AUTO11).
+  AUTO12 exerce l’activation du brief courant avec un seul worker.
+- [`chatgpt-local-intake-recovery.e2e.ts`](../../e2e/army/local/chatgpt-local-intake-recovery.e2e.ts)
+  couvre les interruptions liées aux droits, au poste ou au profil (INTRIGHT01, INTHOST01, INTPROFILE01)
+  et la relance des plans cochés (RELANCE01 à RELANCE05).
 
-Un seul fichier exécutait ces tests en série sur son serveur et fixait la durée
-du check Critical. Les deux serveurs ne compilent jamais en même temps sur une
-machine : les [jobs parallèles](tester-army-ci.md#jobs-parallèles) placent les
-deux fichiers dans deux shards, et une sélection filtrée qui les contient tous
-les deux est refusée avec plus d'un worker.
+Les [jobs parallèles](tester-army-ci.md#jobs-parallèles) placent ces fichiers dans
+des shards distincts. Une sélection filtrée qui contient plusieurs de ces fichiers
+est refusée avec plus d'un worker, pour éviter les compilations simultanées.
 
 Le premier parcours « ChatGPT local » vérifie le départ OAuth et injecte un refus de
 consentement. Le second téléverse un CSV fictif, lance le vrai worker local,

@@ -80,6 +80,17 @@ select ('d5200000-0000-4000-8000-000000000' || (100 + 10 * n + k))::uuid, s.tena
   'application/pdf', 8, 1
 from generate_series(0, 4) as n cross join generate_series(1, 3) as k
 join public.plan_sets s on s.id = ('d5200000-0000-4000-8000-0000000000' || (40 + n))::uuid;
+-- Attach the first file to a dossier piece before preparing it. Both generations
+-- below carry the same fictional content hash and name.
+insert into public.affaire_intake_documents (id,upload_id,file_name,mime_type,upload_status,classification_status,
+  document_kind,storage_path,size_bytes)
+values ('d5200000-0000-4000-8000-000000000071','d5200000-0000-4000-8000-000000000030','plan-1.pdf',
+  'application/pdf','uploaded','classified','plans','fixture/plan-race.pdf',8);
+insert into storage.objects(bucket_id,name,metadata) values ('affaire-intake','fixture/plan-race.pdf','{"size":8}');
+update public.plan_files f set metadata=jsonb_build_object('source','affaire-intake','intake_document_id',d.id,
+  'intake_generation',d.plan_copy_generation,'intake_storage_path',d.storage_path)
+  from public.affaire_intake_documents d where d.id='d5200000-0000-4000-8000-000000000071'
+  and f.id='d5200000-0000-4000-8000-000000000101';
 -- The activations last: the briefs, confirmed before them, reserved no automatic start (one that can still begin is taken
 -- on from the affaire's zone and refuses a command, 20261121193413).
 insert into private.takeoff_launch_activation (active_from) values (now() - interval '1 hour');
@@ -104,17 +115,18 @@ create function pg_temp.snapshot(project integer) returns jsonb language sql sta
       'processing', '{"level":"C","provider":"chatgpt"}'::jsonb,
       'sources', (select jsonb_agg(jsonb_build_object('document_id', p.id, 'document_name', p.file_name, 'kind', 'plan', 'active', true,
         'confirmed', true, 'plan_set_id', pg_temp.f(project + 20), 'file_path', p.file_path, 'page_count', p.page_count,
-        'source_updated_at', p.updated_at, 'pages', '[]'::jsonb, 'content_hash', encode(sha256(convert_to(p.id::text, 'UTF8')), 'hex'))
+        'source_updated_at', p.updated_at, 'pages', '[]'::jsonb, 'content_hash', encode(sha256(convert_to(p.file_name, 'UTF8')), 'hex'))
         order by p.id) from public.plan_files p where p.plan_set_id = pg_temp.f(project + 20))))
 $$;
 -- The command of a request of the affaire's three plans (units in name order, which here is identifier order).
-create function pg_temp.launch_sql(project integer) returns text language sql stable as $$
+create function pg_temp.launch_sql(project integer, named boolean default true) returns text language sql stable as $$
   with plans as (
     select f.id, f.file_name, f.file_path, f.page_count, f.updated_at, row_number() over (order by f.file_name, f.id) as ordinal
     from public.plan_files f where f.plan_set_id = pg_temp.f(project + 20)
   )
-  select format($launch$select outcome from public.launch_manual_takeoff_plan_request(%L, %L, %L, %L, 'initial', null, %L, %L::jsonb,
-    %L::jsonb, %L::jsonb, %L::jsonb, %L, 1, %L::uuid[])$launch$,
+  select format($launch$select outcome from public.%I(%L, %L, %L, %L, 'initial', null, %L, %L::jsonb,
+    %L::jsonb, %L::jsonb, %L::jsonb, %L, 1%s)$launch$,
+    case when named then 'launch_manual_takeoff_plan_request' else 'launch_manual_takeoff_request' end,
     pg_temp.tenant(), pg_temp.f(project), pg_temp.f(1), pg_temp.f(500 + project), pg_temp.host(), pg_temp.selection(),
     jsonb_build_object('format_version', 2, 'intent', 'initial',
       'order', jsonb_build_object('kind', 'free_extraction', 'version', 1, 'list', null),
@@ -123,14 +135,14 @@ create function pg_temp.launch_sql(project integer) returns text language sql st
         'pages', '[]'::jsonb, 'page_count', 1, 'vector_pages', 0, 'budget', jsonb_build_object('tokens', 133334, 'cost_cents', 834))
         order by p.ordinal) from plans p),
       'plans', (select jsonb_agg(jsonb_build_object('entry_key', p.id, 'plan_file_id', p.id, 'name', p.file_name, 'pages', '[]'::jsonb,
-        'page_count', 1, 'content_sha256', encode(sha256(convert_to(p.id::text, 'UTF8')), 'hex')) order by p.ordinal) from plans p),
+        'page_count', 1, 'content_sha256', encode(sha256(convert_to(p.file_name, 'UTF8')), 'hex')) order by p.ordinal) from plans p),
       'coverage', jsonb_build_object('plans_retained', 3, 'plans_omitted', '[]'::jsonb), 'references', '[]'::jsonb,
       'budget', jsonb_build_object('tokens', 400000, 'cost_cents', 2500)),
     pg_temp.snapshot(project),
     (select jsonb_agg(jsonb_build_object('id', pg_temp.unit(project, p.ordinal::integer), 'plan_set_id', pg_temp.f(project + 20),
       'launch_unit_key', 'plan:' || p.id, 'source_file_name', p.file_name, 'source_file_type', 'application/pdf',
       'source_file_size_bytes', 8, 'prompt_version', 'fixture', 'execution_host_id', pg_temp.host()) order by p.ordinal) from plans p),
-    pg_temp.f(project + 20), (select array_agg(p.id) from plans p))
+    pg_temp.f(project + 20), case when named then format(', %L::uuid[]', (select array_agg(p.id) from plans p)) else '' end)
 $$;
 create function pg_temp.request(project integer) returns uuid language sql stable as $$
   -- The command's request.
@@ -174,9 +186,6 @@ select is(extensions.dblink_exec('race_setup', (select format($prep$begin;
   commit;$prep$, string_agg(format('(%L, %L, 1, %L::jsonb, %L::jsonb, now(), %L, %L)', pg_temp.tenant(), pg_temp.f(project),
     pg_temp.snapshot(project) -> 'preparation', pg_temp.snapshot(project), pg_temp.f(1), pg_temp.f(1)), ', '))
   from (values (20), (21), (22), (23), (24)) as affaire(project))), 'COMMIT', 'each affaire''s preparation is confirmed');
-select is((select x.outcome from extensions.dblink('race_setup', pg_temp.launch_sql(project)) as x(outcome text)), 'admitted',
-  format('a request of three plans on affaire %s', project)) from (values (20), (21), (22), (23), (24)) as affaire(project);
-
 create temp table race_pids(label text primary key, pid integer);
 insert into race_pids
 select session.name, (select backend.pid from extensions.dblink(session.name, 'select pg_backend_pid()') as backend(pid integer))
@@ -202,6 +211,50 @@ begin
   return false;
 end;
 $$;
+
+-- A reclassification rotates the generation, leaving the file and the
+-- confirmed preparation untouched. The manual command waits for that writer.
+select is(extensions.dblink_exec('race_a','begin'), 'BEGIN', 'piece writer starts');
+select is(extensions.dblink_exec('race_a',format('update public.affaire_intake_documents set classified_at=now() where id=%L',
+  pg_temp.f(71))), 'UPDATE 1', 'writer reclassifies the same bytes');
+select is(extensions.dblink_send_query('race_b',pg_temp.launch_sql(20)),1,'a first named command starts');
+select ok(pg_temp.waits_for('race_b','race_a'),'admission waits for the change of generation');
+select is(extensions.dblink_exec('race_a','commit'),'COMMIT','writer commits');
+select throws_ok($$select * from extensions.dblink_get_result('race_b') as r(outcome text)$$,
+  '40001','TAKEOFF_LAUNCH_PLAN_COPY_STALE','the named command refuses the previous generation');
+select count(*) from extensions.dblink_get_result('race_b',false) as r(outcome text);
+select throws_ok(pg_temp.launch_sql(20, false), '40001', 'TAKEOFF_LAUNCH_PLAN_COPY_STALE',
+  'a command without named plans also refuses the stale copy in its preparation');
+select is((select count(*) from private.takeoff_launch_commands where project_id=pg_temp.f(20)),
+  0::bigint,'neither refusal consumes an intent key');
+select is(pg_temp.request(20),null::uuid,'no request survives the refusal');
+select is((select count(*) from public.takeoff_jobs where project_id=pg_temp.f(20)),0::bigint,'no jobs survive');
+
+-- Install the new generation under another identifier, then confirm the
+-- preparation containing that copy. Keep the content and page count.
+select is(extensions.dblink_exec('race_setup', format($new$
+  begin;
+  create temp table replacement as select f.*,d.plan_copy_generation from public.plan_files f
+    join public.affaire_intake_documents d on d.id=%L where f.id=%L;
+  do $rotate$ begin perform public.delete_stale_intake_plan_file(%L); end $rotate$;
+  delete from public.plan_files where id=%L;
+  insert into public.plan_files(id,tenant_id,plan_set_id,file_name,file_path,file_type,file_size_bytes,page_count,metadata)
+  select %L,tenant_id,plan_set_id,file_name,replace(file_path,id::text,%L),file_type,file_size_bytes,page_count,
+    metadata || jsonb_build_object('intake_generation',plan_copy_generation) from replacement;
+  commit;$new$, pg_temp.f(71),pg_temp.f(101),pg_temp.f(101),pg_temp.f(101),pg_temp.f(104),pg_temp.f(104))),
+  'COMMIT','install the current copy with identical bytes');
+select is(extensions.dblink_exec('race_setup',format($prep$begin;
+  set local session_replication_role=replica;
+  update public.takeoff_preparations set draft=%L,confirmed_snapshot=%L where project_id=%L;
+  commit;$prep$,pg_temp.snapshot(20)->'preparation',pg_temp.snapshot(20),pg_temp.f(20))),
+  'COMMIT','the member confirms the current copies');
+select is((select x.outcome from extensions.dblink('race_setup', pg_temp.launch_sql(project)) as x(outcome text)), 'admitted',
+  format('a request of three plans on affaire %s', project)) from (values (20), (21), (22), (23), (24)) as affaire(project);
+
+select is(extensions.dblink_exec('race_setup',format('update public.affaire_intake_documents set classified_at=clock_timestamp() where id=%L',
+  pg_temp.f(71))), 'UPDATE 1', 'rotate once more after admission');
+select is((select r.outcome from extensions.dblink('race_setup',pg_temp.launch_sql(20)) as r(outcome text)),
+  'replayed','a repeated command returns its receipt even after another rotation');
 
 -- 1. Two processes of the Mac claim two units at the same time.
 select is(extensions.dblink_exec('race_a', 'begin'), 'BEGIN', 'a first process starts its claim');
@@ -562,6 +615,7 @@ begin
   end loop;
 end
 $clean$;
+delete from storage.objects where bucket_id='affaire-intake' and name='fixture/plan-race.pdf';
 delete from private.takeoff_host_slots where host_id = 'urn:uuid:d5200000-0000-4000-8000-000000000099';
 delete from private.takeoff_local_job_work where host_id = 'urn:uuid:d5200000-0000-4000-8000-000000000099';
 delete from private.takeoff_plan_dispatch_activation;

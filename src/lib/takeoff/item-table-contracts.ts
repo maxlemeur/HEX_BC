@@ -83,6 +83,12 @@ const answerSchema = z.object({
   observations: z.array(observationSchema),
   candidate: z.object({ quantity: positiveQuantity, unit }).strict().nullable()
     .describe("Valeur candidate d’une réponse incertaine : jamais une quantité mesurée."),
+  uncertainty: z.object({
+    partial: z.boolean(),
+    planUnavailable: z.literal(true).optional(),
+    reasons: z.array(z.object({ code: z.string().max(64), by: z.enum(["model", "worker"]), text: z.string().nullable(),
+      page: page.nullable() }).strict()),
+  }).strict().optional().describe("Couverture du candidat et motifs de l’incertitude, avec leur page quand elle est connue."),
   anomalies: z.array(z.enum(ITEM_ANSWER_ANOMALIES)),
   readAt: timestamp,
 }).strict();
@@ -319,6 +325,7 @@ export const itemRemeasurePreviewRequestSchema = z.object({
   item_ids: z.array(uuid).min(1).max(ITEM_REVIEW_LIMITS.items),
   seen: itemRemeasureSeenSchema,
   detail: detailScope.optional(),
+  from_finds: z.literal(true).optional(),
 }).strict();
 
 export const itemRemeasurePreviewSchema = z.object({
@@ -353,6 +360,7 @@ export const itemRemeasureCommandSchema = z.object({
   item_ids: z.array(uuid).min(1).max(ITEM_REVIEW_LIMITS.items),
   plan_keys: z.array(planKey).min(1).max(200),
   detail: detailScope.optional(),
+  from_finds: z.literal(true).optional(),
   mark_schedule: countMarkScheduleSchema.optional(),
   host_proof: z.string().regex(/^[0-9a-f]{64}$/).optional(),
   setting: z.object({ model: z.string().trim().min(1).max(200).optional(), reasoning_effort: chatGptReasoningEffortSchema.nullable() }).strict().nullable()

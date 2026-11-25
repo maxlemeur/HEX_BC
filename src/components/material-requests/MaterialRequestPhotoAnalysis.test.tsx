@@ -3,7 +3,10 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { MaterialRequestFile, MaterialRequestLine, MaterialRequestLineInput } from "@/lib/material-requests/contracts";
-import type { MaterialRequestPhotoAnalysisAvailability } from "@/lib/material-requests/photo-analysis";
+import {
+  MATERIAL_REQUEST_PHOTO_ANALYSIS_MAX_BYTES,
+  type MaterialRequestPhotoAnalysisAvailability,
+} from "@/lib/material-requests/photo-analysis";
 
 /**
  * Failure modes, written before the screen. The office asks the AI to read the photos of a request; each of these
@@ -33,6 +36,22 @@ const FILE_2 = "ffffffff-ffff-4fff-8fff-ffffffffffff";
 const BASE = `/api/affaires/${PROJECT_ID}/material-requests/${REQUEST_ID}`;
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn(), replace: vi.fn(), refresh: vi.fn() }) }));
+vi.mock("@/components/material-requests/MaterialRequestPdfViewer", () => ({
+  MaterialRequestPdfViewer: ({ name, downloadUrl }: { name: string; downloadUrl: string }) => (
+    <div data-testid="pdf-viewer" data-download={downloadUrl}>
+      Aperçu PDF : {name}
+    </div>
+  ),
+}));
+vi.mock("@/lib/supabase/client", () => ({
+  createSupabaseBrowserClient: () => ({
+    storage: {
+      from: () => ({
+        uploadToSignedUrl: vi.fn().mockResolvedValue({ data: { path: "tenant/req/new.pdf" }, error: null }),
+      }),
+    },
+  }),
+}));
 vi.mock("@/app/dashboard/_actions/chatgpt", () => ({
   loadPhotoAnalysisModelOptions: vi.fn().mockResolvedValue({
     billingSource: "chatgpt_plan", connectionId: null,
@@ -461,5 +480,175 @@ describe("AI reading of the photos of a material request", () => {
     expect(await within(original).findByText("Aucun article lu sur la photo : saisissez les lignes à la main.")).toBeVisible();
     expect(within(original).queryByRole("alert")).not.toBeInTheDocument();
     expect(writes()).toHaveLength(1);
+  });
+
+  it("displays a PDF original in the PDF viewer without rotation controls and analyzes it into draft lines", async () => {
+    const pdf = file(FILE_1, { file_name: "demande.pdf", mime_type: "application/pdf" });
+    const { user, original } = await openOriginal({
+      [`GET ${BASE}`]: { data: detail({ files: [pdf] }) },
+      [analysisOf(FILE_1)]: read(FILE_1, SHEET_1),
+      [`POST ${BASE}/lines`]: { status: 201, data: { lines: [line({ id: LINE_A }), line({ id: LINE_B, position: 2 })] } },
+    });
+
+    expect(await within(original).findByTestId("pdf-viewer")).toHaveTextContent("Aperçu PDF : demande.pdf");
+    expect(within(original).queryByRole("button", { name: "Tourner à gauche" })).not.toBeInTheDocument();
+    expect(within(original).queryByRole("button", { name: "Tourner à droite" })).not.toBeInTheDocument();
+    expect(within(original).getByRole("link", { name: "Télécharger" })).toHaveAttribute("download", "demande.pdf");
+
+    await user.click(within(original).getByRole("button", { name: "Analyser le PDF avec l’IA" }));
+    expect(await within(original).findByText(/^2 lignes créées en brouillon\./)).toBeVisible();
+    expect(readings()).toEqual([`${BASE}/files/${FILE_1}/analysis`]);
+  });
+
+  it("continues reading the other originals when one exceeds 15 MiB and reports the skipped file", async () => {
+    const heavy = file(FILE_1, { file_name: "plan-lourd.pdf", mime_type: "application/pdf", byte_size: MATERIAL_REQUEST_PHOTO_ANALYSIS_MAX_BYTES + 1 });
+    const normal = file(FILE_2, { file_name: "feuille.jpg", mime_type: "image/jpeg" });
+    const { user, original } = await openOriginal({
+      [`GET ${BASE}`]: { data: detail({ files: [heavy, normal] }) },
+      [analysisOf(FILE_2)]: read(FILE_2, SHEET_2),
+      [`POST ${BASE}/lines`]: { status: 201, data: { lines: [line({ id: LINE_A, product_type: "tube" })] } },
+    });
+
+    await user.click(within(original).getByRole("button", { name: "Analyser les originaux avec l’IA" }));
+
+    const status = await within(original).findByText(/1 ligne créée en brouillon\./);
+    expect(status).toHaveTextContent(/Original ignoré : « plan-lourd\.pdf » \(dépasse 15 Mo\)\. À reprendre à la main\./);
+    expect(readings()).toEqual([`${BASE}/files/${FILE_2}/analysis`]);
+    expect(writes().at(-1)?.body).toEqual({ lines: SHEET_2 });
+  });
+
+  it("continues reading the other originals when one is unreadable or rejected by the model", async () => {
+    const { user, original } = await openOriginal({
+      [`GET ${BASE}`]: { data: detail({ files: [file(FILE_1, { file_name: "verrouille.pdf", mime_type: "application/pdf" }), file(FILE_2, { file_name: "ok.jpg" })] }) },
+      [analysisOf(FILE_1)]: {
+        status: 422,
+        error: { code: "MATERIAL_REQUEST_PHOTO_UNREADABLE", message: "Ce PDF ne peut pas être lu." },
+      },
+      [analysisOf(FILE_2)]: read(FILE_2, SHEET_2),
+      [`POST ${BASE}/lines`]: { status: 201, data: { lines: [line({ id: LINE_A, product_type: "tube" })] } },
+    });
+
+    await user.click(within(original).getByRole("button", { name: "Analyser les originaux avec l’IA" }));
+
+    const status = await within(original).findByText(/1 ligne créée en brouillon\./);
+    expect(status).toHaveTextContent(/Original ignoré : « verrouille\.pdf » \(Ce PDF ne peut pas être lu\)\. À reprendre à la main\./);
+    expect(readings()).toEqual([`${BASE}/files/${FILE_1}/analysis`, `${BASE}/files/${FILE_2}/analysis`]);
+  });
+
+  it("creates nothing and reports an alert when every original is skipped (> 15 MiB or unreadable)", async () => {
+    const heavy = file(FILE_1, { file_name: "trop-lourd.jpg", byte_size: MATERIAL_REQUEST_PHOTO_ANALYSIS_MAX_BYTES + 1 });
+    const { user, original } = await openOriginal({
+      [`GET ${BASE}`]: { data: detail({ files: [heavy] }) },
+    });
+
+    await user.click(within(original).getByRole("button", { name: "Analyser la photo avec l’IA" }));
+
+    const alert = await within(original).findByRole("alert");
+    expect(alert).toHaveTextContent(/Original ignoré : « trop-lourd\.jpg » \(dépasse 15 Mo\)/);
+    expect(alert).toHaveTextContent(/Aucune ligne n’a été créée\./);
+    expect(writes()).toEqual([]);
+  });
+
+  it("drops lines from an original removed during a reading and continues with the remaining original", async () => {
+    let releaseSecond: (reply: Reply) => void = () => undefined;
+    const heldSecond = new Promise<Reply>((resolve) => {
+      releaseSecond = resolve;
+    });
+    const { user, original } = await openOriginal({
+      [`GET ${BASE}`]: { data: detail({ files: [file(FILE_1, { file_name: "retiree.jpg" }), file(FILE_2, { file_name: "gardee.jpg" })] }) },
+      [analysisOf(FILE_1)]: read(FILE_1, SHEET_1),
+      [analysisOf(FILE_2)]: () => heldSecond,
+      [`DELETE ${BASE}/files/${FILE_1}`]: { data: { deleted: true } },
+      [`POST ${BASE}/lines`]: { status: 201, data: { lines: [line({ id: LINE_A, product_type: "tube" })] } },
+    });
+
+    await user.click(within(original).getByRole("button", { name: "Analyser les photos avec l’IA" }));
+    await within(original).findByText(/Lecture de la photo 2 sur 2/);
+    // Remove FILE_1 while FILE_2 is still being read.
+    await user.click(within(original).getByRole("button", { name: "Retirer la photo" }));
+    await user.click(within(original).getByRole("button", { name: "Confirmer le retrait de la photo" }));
+    await waitFor(() => expect(writes().some((call) => call.method === "DELETE")).toBe(true));
+
+    releaseSecond(read(FILE_2, SHEET_2));
+
+    const status = await within(original).findByText(/1 ligne créée en brouillon\./);
+    expect(status).toHaveTextContent(/« retiree\.jpg » a été retiré pendant la lecture et n’a pas été repris\./);
+    expect(writes().find((call) => call.path === `${BASE}/lines`)?.body).toEqual({ lines: SHEET_2 });
+  });
+
+  it("continues when an original returns 404 mid-read (withdrawn in another session)", async () => {
+    const { user, original } = await openOriginal({
+      [`GET ${BASE}`]: { data: detail({ files: [file(FILE_1, { file_name: "disparue.jpg" }), file(FILE_2, { file_name: "presente.jpg" })] }) },
+      [analysisOf(FILE_1)]: { status: 404, error: { code: "NOT_FOUND", message: "Original introuvable dans cette demande." } },
+      [analysisOf(FILE_2)]: read(FILE_2, SHEET_2),
+      [`POST ${BASE}/lines`]: { status: 201, data: { lines: [line({ id: LINE_A, product_type: "tube" })] } },
+    });
+
+    await user.click(within(original).getByRole("button", { name: "Analyser les photos avec l’IA" }));
+
+    const status = await within(original).findByText(/1 ligne créée en brouillon\./);
+    expect(status).toHaveTextContent(/« disparue\.jpg » a été retiré pendant la lecture et n’a pas été repris\./);
+    expect(writes().at(-1)?.body).toEqual({ lines: SHEET_2 });
+  });
+
+  it("reports an original added while a reading is in progress so the office knows it was not included", async () => {
+    let releaseFirst: (reply: Reply) => void = () => undefined;
+    const heldFirst = new Promise<Reply>((resolve) => {
+      releaseFirst = resolve;
+    });
+    const addedPdf = file(FILE_2, { file_name: "ajout.pdf", mime_type: "application/pdf" });
+    const { user, original } = await openOriginal({
+      [`GET ${BASE}`]: { data: detail({ files: [file(FILE_1, { file_name: "initiale.jpg" })] }) },
+      [analysisOf(FILE_1)]: () => heldFirst,
+      [`POST ${BASE}/files`]: {
+        status: 201,
+        data: { uploads: [{ file: { id: FILE_2, file_name: "ajout.pdf", mime_type: "application/pdf", byte_size: 10 }, path: "tenant/req/new.pdf", token: "tok" }] },
+      },
+      [`POST ${BASE}/files/complete`]: { data: { files: [addedPdf] } },
+      [`POST ${BASE}/lines`]: { status: 201, data: { lines: [line({ id: LINE_A }), line({ id: LINE_B, position: 2 })] } },
+    });
+
+    await user.click(within(original).getByRole("button", { name: "Analyser la photo avec l’IA" }));
+    await within(original).findByText(/Lecture de la photo/);
+
+    const pdfFile = new File(["%PDF-1.4\n%"], "ajout.pdf", { type: "application/pdf" });
+    await user.upload(within(original).getByLabelText("Photos à ajouter"), pdfFile);
+    await within(original).findByTestId("pdf-viewer");
+
+    releaseFirst(read(FILE_1, SHEET_1));
+
+    const status = await within(original).findByText(/2 lignes créées en brouillon\./);
+    expect(status).toHaveTextContent(/1 original ajouté pendant la lecture \(« ajout\.pdf »\) n’a pas été lu : relancez l’analyse pour l’inclure\./);
+    expect(readings()).toEqual([`${BASE}/files/${FILE_1}/analysis`]);
+  });
+
+  it("skips a file blocked by pre-call AI_KEY_CEILING but aborts the batch on post-call AI_KEY_CEILING_EXCEEDED", async () => {
+    const first = await openOriginal({
+      [`GET ${BASE}`]: { data: detail({ files: [file(FILE_1, { file_name: "trop-cher.pdf", mime_type: "application/pdf" }), file(FILE_2, { file_name: "ok.jpg" })] }) },
+      [analysisOf(FILE_1)]: {
+        status: 503,
+        error: { code: "MATERIAL_REQUEST_PHOTO_ANALYSIS_FAILED", message: "Le plafond serait dépassé avant l’envoi.", details: { reason: "AI_KEY_CEILING" } },
+      },
+      [analysisOf(FILE_2)]: read(FILE_2, SHEET_2),
+      [`POST ${BASE}/lines`]: { status: 201, data: { lines: [line({ id: LINE_A, product_type: "tube" })] } },
+    });
+    await first.user.click(within(first.original).getByRole("button", { name: "Analyser les originaux avec l’IA" }));
+    expect(await within(first.original).findByText(/1 ligne créée en brouillon\./)).toHaveTextContent(/Original ignoré : « trop-cher\.pdf »/);
+    expect(readings()).toEqual([`${BASE}/files/${FILE_1}/analysis`, `${BASE}/files/${FILE_2}/analysis`]);
+
+    cleanup();
+    const second = await openOriginal({
+      [`GET ${BASE}`]: { data: detail({ files: [file(FILE_1, { file_name: "depasse.pdf", mime_type: "application/pdf" }), file(FILE_2, { file_name: "suivant.jpg" })] }) },
+      [analysisOf(FILE_1)]: {
+        status: 503,
+        error: { code: "MATERIAL_REQUEST_PHOTO_ANALYSIS_FAILED", message: "Le coût réel a dépassé le plafond. Les configurations suivantes n’ont pas été lancées.", details: { reason: "AI_KEY_CEILING_EXCEEDED" } },
+      },
+      [analysisOf(FILE_2)]: read(FILE_2, SHEET_2),
+    });
+    await second.user.click(within(second.original).getByRole("button", { name: "Analyser les originaux avec l’IA" }));
+    expect(await within(second.original).findByRole("alert")).toHaveTextContent(/Le coût réel a dépassé le plafond/);
+    // Never sends FILE_2 after a billing ceiling breach.
+    expect(readings()).toEqual([`${BASE}/files/${FILE_1}/analysis`]);
+    expect(writes().some((call) => call.path === `${BASE}/lines`)).toBe(false);
   });
 });

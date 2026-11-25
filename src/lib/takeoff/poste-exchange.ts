@@ -14,8 +14,8 @@ import { promptLine } from "@/lib/takeoff/prompt-text";
  * anything else reads it (`validatePosteExchangeOutput`); a missing answer, a foreign key, a page outside the fragment or
  * a page left unsearched stops the plan's analysis with an explicit error, never a silent « not found ».
  */
-export const POSTE_EXCHANGE_SCHEMA_VERSION = "v2";
-export const POSTE_EXCHANGE_PROMPT_VERSION = "takeoff-c-postes-v1";
+export const POSTE_EXCHANGE_SCHEMA_VERSION = "v3";
+export const POSTE_EXCHANGE_PROMPT_VERSION = "takeoff-c-postes-v2";
 
 /**
  * The bounds of one call. A batch holds at most `itemsPerCall` items and `batchBytes` of their entries (an item longer than
@@ -116,11 +116,8 @@ const measuredObservation = z.object({
   page, evidence: text(L.evidenceChars), method: z.enum(POSTE_OBSERVATION_METHODS), confidence,
   quantity, unit: text(L.unitChars), measurement_basis: text(L.basisChars).nullable(), ...counting,
 }).strict();
-/** An indication of an uncertain answer: a page candidate, with a candidate value when the model has one. */
-const indication = z.object({
-  page, evidence: text(L.evidenceChars), method: z.enum(POSTE_OBSERVATION_METHODS), confidence,
-  quantity: quantity.nullable(), unit: text(L.unitChars).nullable(), measurement_basis: text(L.basisChars).nullable(), ...counting,
-}).strict();
+/** An indication locates an obstacle or a figure. The worker only keeps figures with both fields. */
+const indication = measuredObservation.extend({ quantity: quantity.nullable().default(null), unit: text(L.unitChars).nullable().default(null) });
 
 export const PosteExchangeAnswerSchema = z.discriminatedUnion("outcome", [
   z.object({

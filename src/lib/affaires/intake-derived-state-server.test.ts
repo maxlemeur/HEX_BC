@@ -104,8 +104,12 @@ function createDocumentRow(input: {
   };
 }
 
-function createSupabaseMock(documents: unknown[]) {
+function createSupabaseMock(documents: unknown[], onlyDeposits = false) {
   return {
+    rpc: async (name: string) => {
+      expect(name).toBe("intake_current_brief_active");
+      return { data: false, error: null };
+    },
     from: vi.fn((table: string) => {
       if (table === "estimate_projects") {
         const builder = {
@@ -128,7 +132,7 @@ function createSupabaseMock(documents: unknown[]) {
           select: vi.fn(),
           eq: vi.fn(),
           // The batches whose analysis has not ended: none here.
-          in: vi.fn(),
+          in: vi.fn(), is: vi.fn(), not: vi.fn(), neq: vi.fn(),
           order: vi.fn(),
           limit: vi.fn(),
           maybeSingle: vi.fn(async () => ({
@@ -142,6 +146,9 @@ function createSupabaseMock(documents: unknown[]) {
         builder.select.mockReturnValue(builder);
         builder.eq.mockReturnValue(builder);
         builder.in.mockReturnValue(builder);
+        builder.is.mockReturnValue(builder);
+        builder.not.mockReturnValue(builder);
+        builder.neq.mockReturnValue({ limit: () => Promise.resolve({ data: onlyDeposits ? [] : [createUploadRow()], error: null }) });
         builder.order.mockReturnValue(builder);
         builder.limit.mockReturnValue(builder);
 
@@ -237,6 +244,18 @@ describe("reconcileAffairePlanPresence", () => {
     } as unknown as Awaited<ReturnType<typeof getAuthenticatedContext>>);
   });
 
+  it("opens a hand-classified first deposit without reading a linked plan in the background", async () => {
+    vi.mocked(syncTakeoffPlanSetFromAffaireIntake).mockResolvedValue({ syncedDocumentCount: 1, removedDocumentCount: 0 });
+    const plan = { ...createDocumentRow({ id: "plan", uploadId: FIRST_UPLOAD_ID, fileName: "Plan.pdf",
+      documentKind: "plans", documentPriority: "primary" }), classification_source: "manual",
+      storage_path: null, source_provider: "google_drive", drive_file_id: "fictional-plan" };
+    vi.mocked(getAuthenticatedContext).mockResolvedValue({
+      userId: USER_ID, tenantId: TENANT_ID, tenantRole: "admin", supabase: createSupabaseMock([plan], true),
+    } as unknown as Awaited<ReturnType<typeof getAuthenticatedContext>>);
+    await reconcileAffairePlanPresence(PROJECT_ID);
+    expect(syncTakeoffPlanSetFromAffaireIntake).not.toHaveBeenCalled();
+  });
+
   it("reads plans linked from Google Drive to keep their métré working copy", async () => {
     vi.mocked(syncTakeoffPlanSetFromAffaireIntake).mockResolvedValue({ syncedDocumentCount: 0, removedDocumentCount: 0 });
     vi.mocked(syncAffairePlanGap).mockResolvedValue(false);
@@ -256,6 +275,9 @@ describe("refreshAffaireIntakeFromActiveDocuments", () => {
   beforeEach(() => vi.clearAllMocks());
 
   it("reads plans linked from Google Drive, except for a deletion that must not wait on Drive", async () => {
+    vi.mocked(createServiceRoleClient).mockReturnValue({ rpc: async (name: string) => ({ error: null,
+      data: name === "read_affaire_intake_brief_inputs" ? { project: createProjectRow(), documents: [],
+        missing_piece_codes: ["missing_plans"], revision: "empty", brief_updated_at: null } : name !== "intake_current_brief_active" }) } as never);
     const input = { supabase: createSupabaseMock([]) as never, project: createProjectRow(), uploadId: FIRST_UPLOAD_ID, actorUserId: USER_ID };
     await refreshAffaireIntakeFromActiveDocuments(input);
     expect(syncTakeoffPlanSetFromAffaireIntake).toHaveBeenLastCalledWith(expect.objectContaining({ readDriveDocument: readLinkedDriveDocument }));

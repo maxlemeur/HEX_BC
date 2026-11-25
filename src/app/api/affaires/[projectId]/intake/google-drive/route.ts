@@ -1,10 +1,8 @@
-import { after } from "next/server";
 import { z } from "zod";
 import { badRequest, ok, toErrorResponse } from "@/lib/http/api-response";
 import { withPrivateNoStore } from "@/lib/http/response";
 import { driveRequestSchema } from "@/lib/affaires/google-drive/contracts";
 import { driveState, executeDriveRequest } from "@/lib/affaires/google-drive/server";
-import { processAffaireIntakeUpload } from "@/lib/affaires/intake-analysis-server";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -37,12 +35,6 @@ export async function POST(request: Request, context: Context) {
     let payload: unknown;
     try { payload = JSON.parse(body); } catch { throw badRequest("Payload JSON invalide."); }
     const result = await executeDriveRequest(await projectId(context), driveRequestSchema.parse(payload), request.signal);
-    for (const uploadId of "uploads" in result ? result.uploads ?? [] : []) {
-      after(async () => {
-        try { await processAffaireIntakeUpload(uploadId); }
-        catch { console.error("Drive link processing incomplete", { uploadId }); }
-      });
-    }
     return withPrivateNoStore(ok(result));
   } catch (error) { return withPrivateNoStore(toErrorResponse(error)); }
 }

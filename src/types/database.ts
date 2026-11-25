@@ -99,6 +99,9 @@ type NullableArguments = NullableArgumentSpec<{
   get_chiffreur_analytics_kpis: "p_owner_user_id";
   list_chiffreur_analytics_trend: "p_owner_user_id";
   claim_portal_estimate_decision: "p_client_ip" | "p_reject_reason";
+  publish_affaire_intake_brief: "p_actor_id" | "p_lease_token" | "p_expected_brief_updated_at" | "p_draft";
+  start_affaire_intake_analysis: "p_profile_id" | "p_authorization_id";
+  stop_affaire_intake_analysis: "p_lease_token";
   finish_affaire_intake_upload_attempt: "p_next_retry_at" | "p_last_error";
   persist_takeoff_provider_batch_snapshot: "p_provider_batch_id" | "p_provider_batch_state" | "p_provider_batch_updated_at" | "p_provider_state_raw" | "p_message";
   persist_takeoff_provider_batch_snapshot_fenced: "p_provider_batch_id" | "p_provider_batch_state" | "p_provider_batch_updated_at" | "p_provider_state_raw" | "p_message" | "p_processing_lease_token" | "p_provider_reconcile_lease_token";

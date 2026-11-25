@@ -2,7 +2,7 @@
 
 import { useState, type ReactNode } from "react";
 import Link from "next/link";
-import { ArrowLeft, Check, ChevronRight, ExternalLink, Info, ShoppingCart } from "lucide-react";
+import { ArrowLeft, ChevronRight, ExternalLink, ShoppingCart } from "lucide-react";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -25,13 +25,11 @@ import { plural } from "@/lib/text/plural";
  * draft purchase order per supplier, overhead lines included in their supplier's draft. Nothing is sent.
  */
 
-/** Said after the line's name, with what to do: « Ligne 4 · Té égal DN 50 : pas validée, réglez ses alertes… ». */
 const NOT_READY_REASONS: Record<MaterialRequestOrderNotReadyReason, string> = {
-  not_validated: "pas validée : réglez ses alertes, puis validez-la (étape Lignes)",
-  not_priced: "sans devis retenu : consultez un fournisseur et retenez son devis (étape Devis)",
-  no_supplier: "sans fournisseur : choisissez-le sur la ligne (étape Lignes)",
-  waiting_quote:
-    "attend les autres lignes de son devis, qui porte une remise : validez-les (étape Lignes) pour commander l’ensemble avec la remise",
+  not_validated: "à valider",
+  not_priced: "sans devis retenu",
+  no_supplier: "sans fournisseur",
+  waiting_quote: "attend la validation des autres lignes du devis remisé",
 };
 
 /** The step where each reason is settled. */
@@ -40,30 +38,6 @@ const REASON_STEP: Record<MaterialRequestOrderNotReadyReason, RequestStepKey> = 
   not_priced: "devis",
   no_supplier: "lignes",
   waiting_quote: "lignes",
-};
-
-/** The same reasons for several lines at once, in the reminder at the top of the request. */
-const LEFT_BEHIND: Record<MaterialRequestOrderNotReadyReason | "ready", { one: string; several: string }> = {
-  ready: {
-    one: "prête, dans aucun bon : créez son brouillon de commande, ci-dessous",
-    several: "prêtes, dans aucun bon : créez leurs brouillons de commande, ci-dessous",
-  },
-  no_supplier: {
-    one: "sans fournisseur : choisissez-le sur la ligne, à l’étape Lignes",
-    several: "sans fournisseur : choisissez-le sur chaque ligne, à l’étape Lignes",
-  },
-  not_priced: {
-    one: "sans devis retenu : consultez un fournisseur et retenez son devis, à l’étape Devis",
-    several: "sans devis retenu : consultez un fournisseur et retenez son devis, à l’étape Devis",
-  },
-  not_validated: {
-    one: "pas validée : réglez ses alertes, puis validez-la, à l’étape Lignes",
-    several: "pas validées : réglez leurs alertes, puis validez-les, à l’étape Lignes",
-  },
-  waiting_quote: {
-    one: "attend les autres lignes de son devis remisé : validez-les, à l’étape Lignes, pour la commander avec la remise",
-    several: "attendent les autres lignes de leur devis remisé : validez-les, à l’étape Lignes, pour les commander avec la remise",
-  },
 };
 
 /**
@@ -95,11 +69,9 @@ export function MaterialRequestToOrderReminder({
   if (left === 0) return null;
   const order: Array<MaterialRequestOrderNotReadyReason | "ready"> = ["no_supplier", "not_priced", "not_validated", "waiting_quote", "ready"];
   return (
-    <Alert variant="warning">
+    <Alert variant="warning" className="px-3 py-2">
       <AlertTitle>
-        {left > 1
-          ? `${left} lignes de cette demande ne sont dans aucun bon de commande`
-          : "1 ligne de cette demande n’est dans aucun bon de commande"}
+        {plural(left, "ligne sans bon de commande", "lignes sans bon de commande")}
       </AlertTitle>
       <AlertDescription>
         <ul aria-label="Lignes à commander encore" className="mt-1 list-disc space-y-0.5 pl-5">
@@ -107,8 +79,12 @@ export function MaterialRequestToOrderReminder({
             // Named by what they ask, in the order of the request: no number shows on screen to point at.
             const lines = [...(groups.get(reason) ?? [])].sort((first, second) => first.position - second.position);
             if (lines.length === 0) return [];
-            const several = lines.length > 1;
-            return [<li key={reason}>{`${lineNamesLabel(lines.map((line) => lineTitle(line)))}, ${several ? LEFT_BEHIND[reason].several : LEFT_BEHIND[reason].one}.`}</li>];
+            const explanation = reason === "ready"
+              ? (lines.length > 1 ? "prêtes à commander" : "prête à commander")
+              : reason === "waiting_quote" && lines.length > 1
+                ? "attendent la validation des autres lignes de leur devis remisé"
+                : NOT_READY_REASONS[reason];
+            return [<li key={reason}>{`${lineNamesLabel(lines.map((line) => lineTitle(line)))}, ${explanation}.`}</li>];
           })}
         </ul>
         {children}
@@ -130,7 +106,7 @@ function OrderItem({ order, selected, onSelect }: Readonly<{ order: MaterialRequ
     <li className="min-w-0 border-b border-border last:border-b-0">
       <button type="button" aria-label={`Afficher le bon ${order.reference}`} aria-pressed={selected} onClick={onSelect}
         // Selected as a line or a quote is: the application's blue, orange being kept for what there is to fix.
-        className={cn("block w-full min-w-0 px-4 py-3 text-left hover:bg-surface-subtle focus-visible:outline-2 focus-visible:outline-offset-[-3px] focus-visible:outline-ring", selected && SELECTED_ROW)}>
+        className={cn("block w-full min-w-0 px-3 py-2 text-left hover:bg-surface-subtle focus-visible:outline-2 focus-visible:outline-offset-[-3px] focus-visible:outline-ring", selected && SELECTED_ROW)}>
         <span className="flex flex-wrap items-center justify-between gap-2"><span className="min-w-0 break-words font-semibold text-foreground">{order.reference} <span className="ml-1">{order.supplier_name}</span></span><ChevronRight aria-hidden="true" className="size-4 shrink-0 text-muted-foreground" /></span>
         <span className="mt-1 flex flex-wrap items-center gap-2 text-sm"><span className="tabular-nums text-muted-foreground">{formatEUR(order.total_ht_cents)} HT</span><span aria-hidden="true">·</span><span className="text-muted-foreground">{plural(order.line_count, "ligne", "lignes")}</span><Badge variant={STATUS_VARIANT[order.status] ?? "neutral"}>{purchaseOrderStatusLabel(order.status)}</Badge></span>
       </button>
@@ -154,7 +130,7 @@ export function MaterialRequestOrders({
   /** Opens the step where a line that is not ready is settled. */
   onGoToStep?: (step: RequestStepKey) => void;
 }>) {
-  const { data, canWrite } = editor;
+  const { canWrite } = editor;
   const { summary, status } = orders;
   // The server says who may create: a writer of the request who may also buy. Until it answers, the request's rights.
   const canCreate = canWrite && (summary ? summary.can_create : true);
@@ -172,8 +148,6 @@ export function MaterialRequestOrders({
     ?? drafts.find((order) => order.status === "draft" && order.can_open)
     ?? drafts.find((order) => order.status === "draft")
     ?? drafts[0];
-  const assignedIds = new Set(summary?.ordered.map((entry) => entry.line_id));
-  const allAssigned = data.lines.length > 0 && data.lines.every((line) => assignedIds.has(line.id));
   const selectedLines = summary?.ordered.filter((entry) => entry.purchase_order_id === selectedOrder?.id)
     .flatMap((entry) => { const line = linesById.get(entry.line_id); return line ? [line] : []; }) ?? [];
 
@@ -190,34 +164,37 @@ export function MaterialRequestOrders({
       ))}
     </div>
   ) : null;
-  const creation = (
-    <div className="space-y-3">
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-        <p className="text-sm font-medium">{ready === 0 ? "Aucune ligne prête à commander." : `${plural(ready, "ligne prête", "lignes prêtes")} à commander.`}</p>
-        {canCreate ? <Button type="button" className="h-auto min-h-9 max-w-full whitespace-normal py-1.5" loading={orders.creating} disabled={ready === 0 || orders.refreshing || status !== "ready"} onClick={() => void orders.createDrafts()}><ShoppingCart aria-hidden="true" />Créer les brouillons de commande ({ready})</Button> : null}
-      </div>
-      <p className="text-xs leading-5 text-muted-foreground">{canCreate ? "Un brouillon de bon de commande par fournisseur, au prix du devis retenu ; les lignes de frais généraux suivent dans le brouillon de leur fournisseur. Rien n’est envoyé au fournisseur." : "Les bons de commande faits depuis cette demande."}</p>
-    </div>
-  );
   return (
-    <section aria-labelledby={headingId} className="mr-orders min-w-0 space-y-5">
-      {/* The same head as the lines step: its title, and where the step stands beside it. */}
-      <div className="pt-5">
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-1"><h2 id={headingId} className="typo-h3 text-foreground">Bons de commande</h2>
-          {allAssigned ? <Badge variant="success"><Check aria-hidden="true" />Toutes les lignes ont un bon · {plural(drafts.filter((order) => order.status !== "canceled").length, "bon créé", "bons créés")}</Badge> : null}
+    <section aria-labelledby={headingId} className="mr-orders min-w-0 space-y-3">
+      <h2 id={headingId} className="sr-only">Bons de commande</h2>
+      {ready > 0 && canCreate ? (
+        <div className="flex justify-end">
+          <Button type="button" size="sm" className="h-auto min-h-9 max-w-full whitespace-normal py-1.5" loading={orders.creating} disabled={orders.refreshing || status !== "ready"} onClick={() => void orders.createDrafts()}>
+            <ShoppingCart aria-hidden="true" />
+            Créer les brouillons de commande ({ready})
+          </Button>
         </div>
-      </div>
+      ) : ready > 0 && canWrite ? <p className="text-sm text-muted-foreground">Faites créer les bons de commande</p> : null}
       <MaterialRequestToOrderReminder editor={editor} orders={orders}>{reminded ? stepLinks : null}</MaterialRequestToOrderReminder>
       {summary === null ? status === "error" ? <div className="flex flex-wrap items-center gap-2 text-sm"><p>Les bons de commande n’ont pas pu être chargés.</p><Button type="button" variant="outline" size="sm" aria-label="Recharger les bons de commande" onClick={orders.retry}>Réessayer</Button></div> : <p role="status" className="text-sm text-muted-foreground">Chargement des bons de commande…</p> : (
         <>
-          {drafts.length > 0 ? <div className="mr-order-workspace grid min-w-0 overflow-hidden rounded-lg border border-border bg-surface xl:grid-cols-[22rem_minmax(0,1fr)]">
-            <div className="min-w-0 border-b border-border xl:border-r xl:border-b-0"><h3 className="sr-only">Bons de cette demande</h3><ul aria-label="Bons de commande de la demande">{drafts.map((order) => <OrderItem key={order.id} order={order} selected={selectedOrder?.id === order.id} onSelect={() => setSelectedOrderId(order.id)} />)}</ul></div>
-            {selectedOrder ? <div role="region" aria-label={`Détail du bon ${selectedOrder.reference}`} className="min-w-0 p-4 sm:p-5">
-              <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2"><div><h3 className="font-display text-lg font-semibold">Bon {selectedOrder.reference}</h3><p className="mt-1 text-sm text-muted-foreground">Fournisseur : <span className="font-semibold text-foreground">{selectedOrder.supplier_name}</span> <Badge variant={STATUS_VARIANT[selectedOrder.status] ?? "neutral"}>{purchaseOrderStatusLabel(selectedOrder.status)}</Badge></p></div><div className="sm:text-right"><p className="font-display text-lg font-semibold tabular-nums">{formatEUR(selectedOrder.total_ht_cents)} HT</p><p className="mt-1 text-sm text-muted-foreground">{plural(selectedOrder.line_count, "ligne", "lignes")}</p></div></div>
+          {drafts.length > 0 ? <div className="mr-order-workspace grid min-w-0 overflow-hidden rounded-lg border border-border bg-surface xl:grid-cols-[20rem_minmax(0,1fr)]">
+            <div className="min-w-0 border-b border-border xl:border-r xl:border-b-0"><ul aria-label="Bons de commande de la demande">{drafts.map((order) => <OrderItem key={order.id} order={order} selected={selectedOrder?.id === order.id} onSelect={() => setSelectedOrderId(order.id)} />)}</ul></div>
+            {selectedOrder ? <div role="region" aria-label={`Détail du bon ${selectedOrder.reference}`} className="min-w-0 p-3 sm:p-4">
+              <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-1">
+                <div>
+                  <h3 className="font-display text-lg font-semibold">Bon {selectedOrder.reference}</h3>
+                  <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+                    <span className="break-words">{selectedOrder.supplier_name}</span>
+                    <Badge variant={STATUS_VARIANT[selectedOrder.status] ?? "neutral"}>{purchaseOrderStatusLabel(selectedOrder.status)}</Badge>
+                  </div>
+                </div>
+                <p className="text-sm font-semibold tabular-nums">{formatEUR(selectedOrder.total_ht_cents)} HT</p>
+              </div>
               {selectedLines.length > 0 ? (
                 // One row per line and grid lines between the columns, as in every table of the application
                 // (`sheet-table`); where the prices come from is said once, over them.
-                <div className="mt-4 overflow-hidden rounded-lg border border-border">
+                <div className="mt-3 overflow-hidden rounded-lg border border-border">
                   <table className="sheet-table w-full table-fixed border-collapse text-left text-sm">
                     <colgroup><col /><col className="w-18 sm:w-24" /><col className="w-28 sm:w-44" /></colgroup>
                     <thead className="border-b border-border text-xs">
@@ -238,13 +215,10 @@ export function MaterialRequestOrders({
                     </tbody>
                   </table>
                 </div>
-              ) : <p className="mt-4 text-sm text-muted-foreground">Consultez le bon pour le détail de ses lignes.</p>}
-              <p className="mt-4 flex items-start gap-2 text-sm text-muted-foreground"><Info aria-hidden="true" className="mt-0.5 size-4 shrink-0" />Pour la confirmation fournisseur et la réception, ouvrez le bon.</p>
+              ) : <p className="mt-3 text-sm text-muted-foreground">{plural(selectedOrder.line_count, "ligne", "lignes")}</p>}
               {selectedOrder.can_open ? <Link href={purchaseOrderHref(selectedOrder.id)} aria-label={`Ouvrir le bon ${selectedOrder.reference}`} className="mt-3 inline-flex min-h-9 items-center gap-2 rounded-lg bg-primary px-4 py-1.5 text-sm font-semibold text-primary-foreground hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"><ExternalLink aria-hidden="true" className="size-4" />Ouvrir le bon<span className="sr-only"> {selectedOrder.reference}</span></Link> : <p className="mt-4 text-sm text-muted-foreground">Vous pouvez consulter son résumé ici ; l’ouverture du bon est réservée à son auteur et aux administrateurs.</p>}
-              {/* With nothing ready the creation stays folded, one quiet line: what holds the other lines is said under the orders. */}
-              <details open={ready > 0} className={cn("mt-4 border-t border-border pt-3", ready > 0 && "rounded-lg border bg-surface-subtle p-4")}><summary role="button" className={cn("w-fit cursor-pointer rounded-sm text-sm focus-visible:outline-2 focus-visible:outline-ring", ready > 0 ? "font-semibold" : "font-medium text-muted-foreground")}>Création de brouillons · {plural(ready, "ligne éligible", "lignes éligibles")}</summary><div className="mt-4">{creation}</div></details>
             </div> : null}
-          </div> : <div className="space-y-5 rounded-xl border border-border bg-surface p-5"><p className="text-sm text-muted-foreground">Aucun bon de commande pour le moment.</p>{creation}</div>}
+          </div> : <p className="rounded-lg border border-dashed border-border p-4 text-sm text-muted-foreground">Aucun bon de commande pour le moment.</p>}
           {orders.createError ? <p role="alert" className="text-sm font-medium text-danger">{orders.createError}</p> : null}
           {status === "error" ? <div className="flex flex-wrap items-center gap-2 text-sm"><p>Les bons de commande n’ont pas pu être relus.</p><Button type="button" variant="outline" size="sm" aria-label="Recharger les bons de commande" onClick={orders.retry}>Réessayer</Button></div> : null}
           {notReady.length > 0 && !reminded ? <div className="space-y-2 rounded-lg border border-dashed border-border p-4"><p className="text-sm font-medium">Pas encore à commander :</p><ul aria-label="Lignes pas encore à commander" className="list-disc space-y-1 pl-5 text-sm">{notReady.map((entry) => { const line = linesById.get(entry.line_id); return <li key={entry.line_id}>{line ? `${lineTitle(line)} : ${NOT_READY_REASONS[entry.reason] ?? entry.reason}` : "Une ligne qui n’est plus affichée : rechargez la page."}</li>; })}</ul>{stepLinks}</div> : null}

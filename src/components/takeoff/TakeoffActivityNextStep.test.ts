@@ -106,7 +106,7 @@ describe("resolveTakeoffRequestStep", () => {
     const request = fixtureRequest([fixtureUnit("a", 1, { state: "succeeded", reviewable: true })], [],
       { state: "closed", outcome: "success", closedAt: "2026-11-21T09:10:00.000Z" });
     expect(requestStep(request)).toMatchObject({ title: "Plans lus", action: null });
-    expect(requestStep(request)?.description).toBe("1 plan lu sur 1. Leur revue n’est pas accessible avec votre profil.");
+    expect(requestStep(request)?.description).toBe("Plan A — niveau 1.pdf · Lu. La revue n’est pas accessible avec votre profil.");
   });
 
   // Fix round 1: A sent and B read but out of this member's reach: never « the plans read are in the estimate ».

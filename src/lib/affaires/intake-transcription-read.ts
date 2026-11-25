@@ -18,7 +18,7 @@ export async function readAffaireDocumentTranscription(projectId: string, docume
   transcription: IntakeTranscription | null; pending: boolean;
 }> {
   const { context, project } = await requireAffaireAccess(projectId, "read");
-  const { data: document, error: documentError } = await context.supabase.from("affaire_intake_documents").select("id,upload_id,file_name,mime_type")
+  const { data: document, error: documentError } = await context.supabase.from("affaire_intake_documents").select("id,upload_id,analysis_launch_id,file_name,mime_type")
     .eq("tenant_id", context.tenantId).eq("project_id", project.id).eq("id", documentId)
     .eq("upload_status", "uploaded").is("deleted_at", null).is("deletion_token", null).maybeSingle();
   if (documentError) throw internalError("Impossible de charger le document.", documentError);
@@ -32,8 +32,11 @@ export async function readAffaireDocumentTranscription(projectId: string, docume
   const mimeType = document.mime_type ?? inferAffaireIntakeMimeType(document.file_name) ?? "";
   if (!isLocalChatGptEnabled() || !canTranscribeIntakeDocument(mimeType)) return { transcription: null, pending: false };
   if (isIntakeRetryReadingRunning(document.id)) return { transcription: null, pending: true };
-  const { data: upload, error: uploadError } = await context.supabase.from("affaire_intake_uploads").select("status")
-    .eq("tenant_id", context.tenantId).eq("project_id", project.id).eq("id", document.upload_id).maybeSingle();
+  const { data: upload, error: uploadError } = await context.supabase.from("affaire_intake_uploads").select("status,launch_read_scans")
+    .eq("tenant_id", context.tenantId).eq("project_id", project.id).eq("id", document.analysis_launch_id ?? document.upload_id).maybeSingle();
   if (uploadError) throw internalError("Impossible de charger la transcription.", uploadError);
-  return { transcription: null, pending: upload?.status === "queued" || upload?.status === "processing" };
+  const pending = document.analysis_launch_id
+    ? upload?.launch_read_scans === true && (upload.status === "launch_queued" || upload.status === "launch_processing")
+    : upload?.status === "queued" || upload?.status === "processing";
+  return { transcription: null, pending };
 }

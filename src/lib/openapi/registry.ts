@@ -2998,6 +2998,7 @@ const costingWorkbookImportReportSchema: z.ZodType<CostingWorkbookImportReport> 
   confirmed: z.boolean(),
   articles: z.number().int().min(0),
   new_articles: z.number().int().min(0),
+  proposed_articles: z.array(z.object({ row: z.number().int().positive(), without_supply_type: z.boolean() })).optional(),
   already_in_catalogue: z.number().int().min(0),
   without_supply_type: z.number().int().min(0),
   supplier_references_not_imported: z.number().int().min(0),
@@ -3100,7 +3101,7 @@ export const openApiOperationsRegistry: OpenApiOperationDefinition[] = [
     method: "post",
     path: "/api/catalogue/workbook-import/supplier-references",
     summary: "Reprendre les références fournisseur du classeur de chiffrage",
-    description: "Aperçu en lecture seule avec confirm=false. La confirmation exige l’empreinte de cet aperçu. La reprise rattache les références aux articles actifs modifiables et aux fournisseurs actifs identifiés sans ambiguïté dans l’entreprise sélectionnée. Le lot crée des liaisons inactives, à vérifier. Le rapport donne les lignes à examiner et leur motif. Les liaisons existantes et les prix sont conservés.",
+    description: "Aperçu en lecture seule avec confirm=false. La confirmation exige l’empreinte de cet aperçu. La reprise rattache les références aux articles actifs modifiables et aux fournisseurs actifs identifiés sans ambiguïté dans l’entreprise sélectionnée. Le lot crée des liaisons inactives, à vérifier. L’aperçu donne une cellule source par référence proposée. Le rapport donne les lignes à examiner et leur motif, dont les sources de prix écartées des références à reprendre. Les liaisons existantes et les prix sont conservés.",
     tags: ["Catalogue"],
     requestBody: jsonBody({ name: "CostingWorkbookSupplierReferences", description: "Lignes de l’onglet All_data et empreinte de l’aperçu à la confirmation.", schema: costingWorkbookSupplierReferencesSchema }),
     responses: {

@@ -1,3 +1,5 @@
+import { LocalChatGptConnectionWithdrawnError } from "@/lib/ai/chatgpt-sign-in-errors";
+import { IntakePayerAccessLost } from "@/lib/affaires/intake-payer-server";
 import { buildClassificationFilePayload } from "@/lib/affaires/intake-file-payload";
 import type { IntakeAnalysisFailure } from "@/lib/affaires/intake-analysis-feedback";
 import { WordReadError, isWordFile } from "@/lib/affaires/intake-word-reader";
@@ -33,6 +35,7 @@ export async function classifyAffaireIntakeDocument(input: {
   fileName: string;
   mimeType: string;
   bytes: ArrayBuffer;
+  readScans?: boolean;
   beforeProviderCall?: () => Promise<void>;
   aiOwner?: ChatGptOwner | null;
   decisionsContext?: { owner: ChatGptOwner; projectId: string; documentId: string; sourceVersion: string };
@@ -101,6 +104,7 @@ export async function classifyAffaireIntakeDocument(input: {
       }),
       schema: affaireIntakeClassificationAiResultSchema,
       files: [filePayload],
+      beforeSend: input.beforeProviderCall,
       context: {
         model: AFFAIRE_INTAKE_CLASSIFICATION_MODEL,
         promptVersion: AFFAIRE_INTAKE_CLASSIFICATION_PROMPT_VERSION,
@@ -120,6 +124,7 @@ export async function classifyAffaireIntakeDocument(input: {
       analysisSucceeded: true,
     };
   } catch (error) {
+    if (error instanceof IntakePayerAccessLost || (input.aiOwner?.connection && error instanceof LocalChatGptConnectionWithdrawnError)) throw error;
     console.error("Affaire intake AI classification failed", {
       error_code: getSafeProviderErrorCode(error),
       ...(error instanceof StructuredAiError && error.providerStatus ? { provider_status: error.providerStatus } : {}),

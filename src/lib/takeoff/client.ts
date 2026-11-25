@@ -1148,6 +1148,7 @@ export async function fetchTakeoffActivityCenter(
     limit?: number;
     offset?: number;
     completionsOffset?: number;
+    view?: "tracking";
   }
 ): Promise<TakeoffActivityCenterResponse> {
   const params = new URLSearchParams();
@@ -1162,6 +1163,7 @@ export async function fetchTakeoffActivityCenter(
   if (filters.limit != null) params.set("limit", String(filters.limit));
   if (filters.offset != null) params.set("offset", String(filters.offset));
   if (filters.completionsOffset) params.set("completionsOffset", String(filters.completionsOffset));
+  if (filters.view) params.set("view", filters.view);
   return requestTakeoffJson<TakeoffActivityCenterResponse>(
     `/api/takeoff/activity-center?${params.toString()}`,
     { method: "GET" },

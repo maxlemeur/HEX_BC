@@ -7,6 +7,9 @@ vi.mock("@/lib/affaires/intake-decisions", async (original) => ({
   getIntakeAnalysisAvailability: vi.fn(async () => ({ available: true, provider: "chatgpt", message: "Ready" })),
 }));
 
+const { payerRight } = vi.hoisted(() => ({ payerRight: vi.fn() }));
+vi.mock("@/lib/supabase/service-role", () => ({ createServiceRoleClient: () => ({ rpc: payerRight }) }));
+
 import { getAuthenticatedContext } from "@/lib/auth/tenant-context";
 import { callStructuredAi } from "@/lib/ai/structured-ai";
 import { retryAffaireDocumentAnalysis } from "@/lib/affaires/intake-analysis-server";
@@ -29,6 +32,10 @@ function database() {
   const project = { id: projectId, tenant_id: tenantId, user_id: userId, is_archived: false };
   const lot = { id: uploadId, tenant_id: tenantId, project_id: projectId, status: "ready" };
   return {
+    rpc: async (name: string) => {
+      expect(name).toBe("intake_current_brief_active");
+      return { data: false, error: null };
+    },
     storage: { from: () => ({ download: async () => ({ data: downloadFails ? null : new Blob(["%PDF-fixture"]), error: null }) }) },
     from(table: string) {
       let update: Row | undefined;
@@ -58,6 +65,7 @@ function database() {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  payerRight.mockResolvedValue({ data: true, error: null });
   vi.stubEnv("MERGEONE_INTAKE_DECISIONS", "0");
   downloadFails = false; events = []; clock = Date.now();
   document = { id: documentId, tenant_id: tenantId, project_id: projectId, upload_id: uploadId,
@@ -80,6 +88,12 @@ describe("reanalysis preserves human classification", () => {
   it("offers retry for an uploaded manually validated document", () => {
     expect(canRetryDossierDocument({ fileName: "plan.pdf", uploadStatus: "uploaded", classificationStatus: "classified",
       detectedCategory: "annexes", classificationSource: "manual", manuallyOverriddenAt: manualDate } as DossierDocument)).toBe(true);
+  });
+  it("sends nothing when the caller loses the affaire after reserving the retry", async () => {
+    payerRight.mockResolvedValue({ data: false, error: null });
+    await expect(retry()).rejects.toThrow(/accès|modifier/);
+    expect(callStructuredAi).not.toHaveBeenCalled();
+    expect(manualFields().classification_source).toBe("manual");
   });
   it("calls AI and saves its extraction without changing any manual classification field", async () => {
     const before = manualFields();

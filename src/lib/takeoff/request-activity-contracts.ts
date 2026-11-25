@@ -85,7 +85,7 @@ export const takeoffRequestActivitySchema = z.object({
     unknownCalls: count.nullable().describe("Appels envoyés sans réponse (consommation indéterminée) ; null quand non évalué."),
   }).nullable().describe("Ses unités, une fois la demande admise sur un manifeste lisible."),
   groupedPlans: z.array(planSchema).describe("Les plans de l’analyse groupée d’un manifeste de format 1, avec leurs pages."),
-  plansOmitted: z.array(z.object({ name: z.string(), reason: z.enum(["alternate", "identical_copy", "unsupported_format", "not_requested"]) })),
+  plansOmitted: z.array(z.object({ name: z.string(), reason: z.enum(["alternate", "identical_copy", "unsupported_format", "not_requested", "not_selected"]) })),
   jobs: z.array(jobSchema),
   action: z.object({ kind: z.enum(TAKEOFF_LAUNCH_ACTIONS), label: z.string().nullable(), mandateRevision: count }).nullable()
     .describe("Demande affichée non admise : le geste que la base permet à ce membre (prendre en charge, reprendre)."),
