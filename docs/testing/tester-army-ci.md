@@ -378,9 +378,15 @@ celle du plan. Le lanceur recrée cet historique à chaque exécution à partir
 du checkout.
 
 Avec deux workers, le runner exécute le setup de connexion, puis distribue les
-fichiers par durée estimée décroissante. Chaque fichier garde ses tests et ses
-hooks sur le même worker. Les lignes `TesterArmy file started` du log retenu
-`journeys-critical.log` datent le premier test annoncé de chaque fichier. Pour
+fichiers par durée estimée décroissante. Quand le shard contient un seul fichier
+de `neverTogether`, ce fichier démarre en priorité et les autres gardent l'ordre
+de collecte. Leurs poids identiques de `0` évitent de faire avancer un second
+serveur de développement, comme celui du labo métré, dans la file du worker
+voisin. Une sélection de plusieurs fichiers de ces groupes garde l'historique
+natif. Le manifeste retient le contenu initial sous `shardTimingSeed`.
+Chaque fichier garde ses tests et ses hooks sur le même worker. Les lignes
+`TesterArmy file started` du log retenu `journeys-critical.log` datent le premier
+test annoncé de chaque fichier. Pour
 les fichiers ChatGPT local, cette annonce précède le démarrage de leur serveur
 dans `beforeAll`. Les shards full et métré passent par le même lanceur. Avec
 leur worker unique, le runner conserve son ordre de collecte.

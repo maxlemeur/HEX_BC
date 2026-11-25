@@ -306,6 +306,7 @@ if (!baseline) await test("critical-shard-forwards-sdk-timings", async f => {
   assert.notEqual(timingFlag, -1, "the SDK child must receive --timings");
   const timings = argv[timingFlag + 1];
   assert.equal(timings, ".e2e/army/critical/shard-timings.json");
+  assert.deepEqual(run.manifest.shardTimingSeed, JSON.parse(await readFile(path.join(f.cwd, timings), "utf8")));
 
   // Exercise the installed SDK's reader with no report available as a fallback.
   const { loadTimings } = await import("../../node_modules/e2e/dist/run/timings.js");

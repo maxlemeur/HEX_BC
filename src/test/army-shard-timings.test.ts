@@ -5,6 +5,8 @@ import { shardTimingHistory } from "../../scripts/tester-army/shard-timings.mjs"
 const intake = "e2e/army/local/chatgpt-local-intake.e2e.ts";
 const unmeasured = "e2e/army/critical/new-journey.e2e.ts";
 const takeoff = "e2e/army/takeoff/review.e2e.ts";
+const decisions = "e2e/army/local/chatgpt-local-decisions.e2e.ts";
+const lab = "e2e/army/local/takeoff-lab.e2e.ts";
 
 describe("TesterArmy shard timing history", () => {
   it("seeds each selected file with integer milliseconds under its desktop target key", () => {
@@ -32,6 +34,25 @@ describe("TesterArmy shard timing history", () => {
     const durations = { schemaVersion: 1, defaultSeconds: 20, seconds: { [intake]: Infinity } };
 
     expect(shardTimingHistory([intake], durations)?.files[`chromium-desktop::${intake}`]).toBe(20_000);
+  });
+
+  it("starts the isolated dev-server file first and leaves its companions tied in collection order", () => {
+    const durations = {
+      schemaVersion: 1, defaultSeconds: 20, neverTogether: [[intake, decisions]],
+      seconds: { [intake]: 494, [lab]: 53 },
+    };
+
+    expect(shardTimingHistory([lab, intake, unmeasured], durations)?.files).toEqual({
+      [`chromium-desktop::${unmeasured}`]: 0,
+      [`chromium-desktop::${intake}`]: 494_000,
+      [`chromium-desktop::${lab}`]: 0,
+    });
+  });
+
+  it("leaves the native queue in use if an explicit list contains multiple isolated dev-server files", () => {
+    const durations = { schemaVersion: 1, defaultSeconds: 20, neverTogether: [[intake, decisions]] };
+
+    expect(shardTimingHistory([decisions, intake], durations)).toBeNull();
   });
 
   it("leaves native runner history in use when the shard durations are unusable", () => {

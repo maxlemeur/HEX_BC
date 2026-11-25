@@ -319,6 +319,7 @@ try {
       await assertSetupPath(root, timingsPath, { allowMissing: true });
       await writeFile(timingsPath, `${JSON.stringify(timings, null, 2)}\n`);
       args.push("--timings", relative(timingsPath));
+      manifest.shardTimingSeed = timings;
       seededShardTimings = true;
     }
   }
