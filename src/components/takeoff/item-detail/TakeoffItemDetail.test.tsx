@@ -212,6 +212,21 @@ describe("TakeoffItemDetail, the states of an item", () => {
     expect(screen.getByText("Ce plan n’est pas accessible avec vos droits.")).toBeTruthy();
   });
 
+  it("withholds an uncertainty excerpt when the sealed plan is refused to the reader", async () => {
+    const views = planViews();
+    views[`${JOB_SCAN}:${PLAN_SCAN}`] = { ...views[`${JOB_SCAN}:${PLAN_SCAN}`]!, document: { kind: "unavailable", reason: "not_available_to_you" } };
+    const excerpt = "Repère fictif à accès restreint";
+    const readings = DETAIL_READINGS.map((reading) => reading.itemId === ITEMS.scan && reading.answer ? { ...reading,
+      answer: { ...reading.answer, uncertainty: { partial: false, reasons: [{ code: "QUALIFIER_UNREADABLE", by: "model" as const,
+        text: excerpt, page: 2 }] } } } : reading);
+    open(address({ itemId: ITEMS.scan }), { views, readings, canReview: false });
+    await settle();
+    expect(evidence().getByText("Le motif détaillé est réservé aux lecteurs de ce plan.")).toBeTruthy();
+    expect(evidence().queryByText(excerpt)).toBeNull();
+    expect(evidence().queryByRole("button", { name: /Vérifier le plan/ })).toBeNull();
+    expect(evidence().queryByRole("table", { name: "Observations" })).toBeNull();
+  });
+
   // Before the detail is opened to members (review of #465): a failed job records when it ended, never when it read.
   it("says « lu le » only of a reading that ran to its end", async () => {
     const views = planViews();

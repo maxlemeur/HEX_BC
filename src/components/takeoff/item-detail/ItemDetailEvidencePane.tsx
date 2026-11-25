@@ -3,14 +3,13 @@
 import { ItemQuantityChoiceButtons } from "@/components/takeoff/item-table/ItemQuantityChoice";
 import type { ItemQuantityChoice } from "@/lib/takeoff/item-table";
 import { forwardRef } from "react";
-import Link from "next/link";
 
 import type { ItemDetailDocumentState } from "@/components/takeoff/item-detail/ItemDetailPlanPane";
 import { ItemTableHistory } from "@/components/takeoff/item-table/ItemTableHistory";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import type { ItemDetailPlanView } from "@/lib/takeoff/item-detail-contracts";
-import { describeItemUncertainty, itemScalePreparationHref } from "@/lib/takeoff/item-uncertainty";
+import { describeItemUncertainty, UNAVAILABLE_ITEM_REASON } from "@/lib/takeoff/item-uncertainty";
 import type {
   ItemDetailEntry,
   ItemDetailGestureOffer,
@@ -165,7 +164,10 @@ export const ItemDetailEvidencePane = forwardRef<HTMLHeadingElement, Props>(func
   // An earlier reading (an old bookmark) shows nothing of the current one: its answer, decision and entry are not its own.
   const earlier = choice.kind === "reading" && !choice.current;
   const reading = !earlier && (choice.kind === "reading" || choice.kind === "dossier") ? choice.reading : null;
-  const answer = choice.kind === "reading" && choice.current ? reading?.answer ?? null : null;
+  const currentAnswer = choice.kind === "reading" && choice.current ? reading?.answer ?? null : null;
+  const unavailable = currentAnswer?.outcome === "uncertain" && (currentAnswer.uncertainty?.planUnavailable
+    || (plan?.document.kind === "unavailable" && plan.document.reason === "not_available_to_you"));
+  const answer = unavailable ? null : currentAnswer;
   const canEnter = decide.offer("enter_quantity");
   const uncertainty = answer?.outcome === "uncertain" ? describeItemUncertainty(answer, line.expectedUnit,
     !reading?.sent && reading?.decision?.kind !== "set_aside" && (canEnter.offered || canEnter.reason !== "reader")) : null;
@@ -207,6 +209,8 @@ export const ItemDetailEvidencePane = forwardRef<HTMLHeadingElement, Props>(func
           <p>À mesurer : aucune analyse n’a encore lu ce poste sur ce plan. Le plan affiché est celui du dossier.</p>
         ) : choice.kind === "none" || choice.kind === "mismatch" ? (
           <p>Aucun plan n’est associé à ce poste pour le moment.</p>
+        ) : unavailable ? (
+          <p>{UNAVAILABLE_ITEM_REASON}</p>
         ) : !answer ? (
           <p>{reading ? ITEM_UNIT_STATE_LABELS[reading.unit] : "Pas de lecture"} : aucune réponse de ce plan pour ce poste.</p>
         ) : answer.outcome === "not_found" ? (
@@ -221,9 +225,6 @@ export const ItemDetailEvidencePane = forwardRef<HTMLHeadingElement, Props>(func
                 <p>{uncertainty.reasons.length ? uncertainty.reasons.join(" · ") : uncertainty.obstacle}</p>
                 {uncertainty.action === "enter" && canEnter.offered ? (
                   <Button size="xs" variant="outline" onClick={() => decide.onGesture("enter_quantity")}>{uncertainty.label}</Button>
-                ) : uncertainty.action === "prepare" ? (
-                  <p><Link className="underline" prefetch={false} href={itemScalePreparationHref(projectId)}>{uncertainty.label}</Link>
-                    {" dans la préparation, puis relire le poste sur ce plan."}</p>
                 ) : uncertainty.page !== null ? (
                   <Button size="xs" variant="link" className="p-0" onClick={() => onPage(uncertainty.page!)}>
                     {uncertainty.action === "count" ? `Ouvrir la page ${uncertainty.page} pour compter les repères` : uncertainty.label}

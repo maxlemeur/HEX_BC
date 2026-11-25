@@ -12,6 +12,7 @@ import { ITEM_AGGREGATE_STATES, type ItemAggregateState } from "./item-answer-ag
 import { readCountMarkSummariesForAccess } from "./count-marks-server";
 import { parseTakeoffItemAnswer, type TakeoffItemAnswer } from "./item-answers";
 import { getTakeoffLowConfidenceThresholdForTenant } from "./feature-flags";
+import { readTakeoffVisibleSources } from "./source-visibility-server";
 import {
   buildItemLines,
   freezeItemSelection,
@@ -126,24 +127,30 @@ function entryOf(value: unknown): ItemEntryView | null {
   };
 }
 
-function uncertaintyOf(answer: TakeoffItemAnswer): ItemAnswerView["uncertainty"] {
+function uncertaintyOf(answer: TakeoffItemAnswer, planReadable: boolean): ItemAnswerView["uncertainty"] {
+  if (!planReadable) return { partial: false, reasons: [], planUnavailable: true };
+  const evidenceKey = (text: string) => text.normalize("NFC").toLowerCase().trim().replace(/[.!?]+$/u, "");
   const reasons = answer.reasons.map(({ code, by, text, chunkId }) => {
-    const observations = answer.observations.filter((entry) => chunkId === null || entry.chunkId === chunkId);
-    const located = observations.find((entry) => entry.quantity === null) ?? observations[0];
-    const page = code === "PAGES_UNREADABLE" ? answer.unreadablePages[0] : located?.page;
-    return { code, by, text: text ?? (located?.quantity === null ? located.evidence : null), page: page ?? null };
+    const observations = answer.observations.filter((entry) => chunkId !== null && entry.chunkId === chunkId);
+    const keyed = text === null ? [] : observations.filter(({ evidence }) => evidenceKey(evidence) === evidenceKey(text));
+    const evidence = keyed.length ? keyed : observations;
+    const pages = code === "PAGES_UNREADABLE" ? answer.unreadablePages : [...new Set(evidence.map(({ page }) => page))];
+    const excerpt = code !== "FIGURE_UNUSABLE" && evidence.length === 1 && evidence[0].quantity === null ? evidence[0].evidence : null;
+    return { code, by, text: text ?? excerpt, page: pages.length === 1 ? pages[0] : null };
   });
   const partial = answer.unreadablePages.length > 0 || answer.observations.some(({ quantity }) => quantity === null)
     || answer.reasons.some((reason) => reason.code === "PARTIAL_QUANTITY" || reason.code === "VECTOR_READINGS_UNATTACHED"
+      || reason.code === "CANDIDATE_PARTIAL"
       || (reason.by === "model" && !answer.observations.some(({ chunkId, quantity, role }) =>
         chunkId === reason.chunkId && quantity !== null && role !== "alternative")));
   return { partial, reasons };
 }
 
 function answerView(answer: TakeoffItemAnswer, rows: ReadonlyMap<string, ItemContributionRow>, context: {
-  expectedUnit: string | null; lowConfidenceThreshold: number;
+  expectedUnit: string | null; lowConfidenceThreshold: number; planReadable: boolean;
 }): ItemAnswerView {
-  const observations = answer.observations.flatMap((observation) => observation.quantity !== null && observation.unit ? [{
+  const evidenceReadable = answer.outcome !== "uncertain" || context.planReadable;
+  const observations = evidenceReadable ? answer.observations.flatMap((observation) => observation.quantity !== null && observation.unit ? [{
     observationId: observation.observationId,
     role: observation.role,
     quantity: observation.quantity,
@@ -158,7 +165,7 @@ function answerView(answer: TakeoffItemAnswer, rows: ReadonlyMap<string, ItemCon
       return reviewed ? { quantity: reviewed.quantity, unit: reviewed.unit, isVerified: reviewed.isVerified,
         isExcluded: reviewed.isExcluded } : null;
     })(),
-  }] : []);
+  }] : []) : [];
   const view: Omit<ItemAnswerView, "anomalies"> = {
     answerId: answer.answerId,
     revision: answer.revision,
@@ -166,12 +173,12 @@ function answerView(answer: TakeoffItemAnswer, rows: ReadonlyMap<string, ItemCon
     outcome: answer.outcome,
     quantity: answer.quantity ? { quantity: answer.quantity.value, unit: answer.quantity.unit } : null,
     reasonCode: answer.reasonCode,
-    reasonText: answer.reasonText,
-    searchedPages: answer.searchedPages,
-    unreadablePages: answer.unreadablePages,
+    reasonText: evidenceReadable ? answer.reasonText : null,
+    searchedPages: evidenceReadable ? answer.searchedPages : [],
+    unreadablePages: evidenceReadable ? answer.unreadablePages : [],
     observations,
     candidate: answer.candidate ? { quantity: answer.candidate.value, unit: answer.candidate.unit } : null,
-    ...(answer.outcome === "uncertain" ? { uncertainty: uncertaintyOf(answer) } : {}),
+    ...(answer.outcome === "uncertain" ? { uncertainty: uncertaintyOf(answer, context.planReadable) } : {}),
     readAt: answer.publishedAt,
   };
   return { ...view, anomalies: itemAnswerAnomalies({ ...view, observations }, rows, context) };
@@ -290,11 +297,14 @@ async function tableRows(access: AffaireAccess, rows: readonly TableRow[]): Prom
     const attempt = isTakeoffUnitState(reading.unit_state) ? laterAttempt(reading, answerJobId, reading.unit_state) : null;
     return attempt && (attempt.unit === "failed" || attempt.unit === "canceled") ? [attempt.jobId] : [];
   }));
-  const [contributions, lowConfidenceThreshold, marksRevisions, attemptReasons] = await Promise.all([
+  const uncertainPlanFiles = [...answers.values()].flatMap(({ outcome, plan }) => outcome === "uncertain" ? [plan.fileId] : []);
+  const [contributions, lowConfidenceThreshold, marksRevisions, attemptReasons, visible] = await Promise.all([
     contributionIds.length ? contributionRows(client, access.context.tenantId, contributionIds) : new Map<string, ItemContributionRow>(),
     answers.size ? getTakeoffLowConfidenceThresholdForTenant(access.context.tenantId) : Promise.resolve(0),
     answers.size ? countMarksRevisions(client, [...answers.keys()]) : new Map<string, number>(),
     endedAttempts.length ? endedAttemptReasons(client, access.context.tenantId, [...new Set(endedAttempts)]) : new Map<string, string>(),
+    readTakeoffVisibleSources({ supabase: access.context.supabase, tenantId: access.context.tenantId, projectId: access.project.id,
+      ids: uncertainPlanFiles }),
   ]);
   const sources = await markedQuantities(access, marksRevisions, answers);
   return rows.map((row): ItemTableRow => {
@@ -311,7 +321,8 @@ async function tableRows(access: AffaireAccess, rows: readonly TableRow[]): Prom
         location: text(reading.location_label),
         unit,
         reading: reading.reading === "answered" || reading.reading === "in_flight" ? reading.reading : "ended",
-        answer: answer ? answerView(answer, contributions, { expectedUnit: row.expected_unit, lowConfidenceThreshold }) : null,
+        answer: answer ? answerView(answer, contributions, { expectedUnit: row.expected_unit, lowConfidenceThreshold,
+          planReadable: visible === "all" || visible.planFiles.has(answer.plan.fileId.toLowerCase()) }) : null,
         decision: decisionOf(reading.decision),
         decisionRevision: asFiniteNumber(reading.decision_revision) ?? 0,
         marksRevision: answer ? sources.marks.get(answer.answerId)?.revision ?? marksRevisions.get(answer.answerId) ?? 0 : 0,

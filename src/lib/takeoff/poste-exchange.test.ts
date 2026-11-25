@@ -155,14 +155,19 @@ describe("PosteExchangeOutputSchema", () => {
     }
   });
 
-  it("refuses either half of a figure, an empty reason and a partial quantity without a figure", () => {
+  it("lets the worker recover an incomplete figure while still refusing an empty reason", () => {
     const obstacle = uncertain("P0002");
     for (const observation of [{ ...obstacle.observations[0], quantity: 3 }, { ...obstacle.observations[0], unit: "u" }]) {
-      expect(() => output(call, [{ ...obstacle, observations: [observation] }])).toThrow();
+      expect(output(call, [{ ...obstacle, observations: [observation] }]).responses[0].observations).toEqual([observation]);
     }
     expect(() => output(call, [{ ...obstacle, reason_code: "" } as never])).toThrow();
     expect(() => output(call, [{ ...obstacle, reason_text: " \n " }])).toThrow();
-    expect(() => output(call, [{ ...obstacle, reason_code: "PARTIAL_QUANTITY" }])).toThrow();
+    expect(output(call, [{ ...obstacle, reason_code: "PARTIAL_QUANTITY", observations: [] }]).responses[0].outcome).toBe("uncertain");
+    const quantityOnly = { ...obstacle.observations[0], quantity: 3 };
+    Reflect.deleteProperty(quantityOnly, "unit");
+    expect(output(call, [{ ...obstacle, observations: [quantityOnly] }]).responses[0].observations[0]).toMatchObject({
+      quantity: 3, unit: null,
+    });
   });
 
   it("refuses a measured answer without a positive quantity, a negative observation and a not found with an observation", () => {

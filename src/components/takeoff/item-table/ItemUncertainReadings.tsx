@@ -2,7 +2,7 @@ import Link from "next/link";
 
 import type { ItemTableResponseLine } from "@/lib/takeoff/item-table-contracts";
 import { formatItemCount } from "@/lib/takeoff/item-table-labels";
-import { describeItemUncertainty, itemScalePreparationHref } from "@/lib/takeoff/item-uncertainty";
+import { describeItemUncertainty } from "@/lib/takeoff/item-uncertainty";
 import { takeoffItemDetailHref } from "@/lib/takeoff/review-href";
 
 export function ItemUncertainReadings({ line, projectId, planKey, query, canReview }: {
@@ -19,7 +19,8 @@ export function ItemUncertainReadings({ line, projectId, planKey, query, canRevi
     const answer = reading.answer!;
     const canResolve = canReview && !reading.sent && reading.decision?.kind !== "set_aside";
     const next = describeItemUncertainty(answer, line.expectedUnit, canResolve);
-    const href = next.action === "prepare" ? itemScalePreparationHref(projectId) : takeoffItemDetailHref({ projectId,
+    if (next.action === "unavailable") return <p>{next.obstacle}</p>;
+    const href = takeoffItemDetailHref({ projectId,
       itemId: line.itemId, planKey: reading.planKey, jobId: answer.jobId, page: next.page, from: query });
     return (
       <div className="space-y-0.5">

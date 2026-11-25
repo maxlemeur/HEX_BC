@@ -244,12 +244,13 @@ describe("readSealedItemListItems", () => {
 
 describe("buildTakeoffItemAnswersPublication", () => {
   async function publication(vectors = vectorOutcomes(), options: { call?: typeof script; items?: Poste[];
-    snapshot?: TakeoffJobProcessingRow["preparation_snapshot"];
+    snapshot?: TakeoffJobProcessingRow["preparation_snapshot"]; chunked?: boolean;
     plan?: (plan: ReturnType<typeof finishPlanReading>) => ReturnType<typeof finishPlanReading> } = {}) {
     const file = await sourceFile();
     const items = options.items ?? ITEMS;
     const reading = await readPlanAgainstItemList({ call: options.call ?? script, job: job(), items, listRevision: 3, model: "controlled",
-      config: { thresholdPages: 15, chunkSizePages: 10, overlapPages: 2, timeoutMs: 300_000, maxTotalTokens: 400_000, maxCostCents: 2_500 },
+      config: { ...(options.chunked ? { thresholdPages: 2, chunkSizePages: 2, overlapPages: 0 }
+        : { thresholdPages: 15, chunkSizePages: 10, overlapPages: 2 }), timeoutMs: 300_000, maxTotalTokens: 400_000, maxCostCents: 2_500 },
       pdf: { fileName: file.fileName, bytes: file.bytes, originalPageNumbers: file.sourcePageNumbersByPage } });
     const read = finishPlanReading(reading, items, posteVectorReadings(vectors, PLAN), JOB);
     const plan = options.plan ? options.plan(read) : read;
@@ -376,6 +377,36 @@ describe("buildTakeoffItemAnswersPublication", () => {
     expect(await publication()).toMatchObject({ p_job_id: JOB, p_lease_token: LEASE, p_completed_at: "2026-11-22T09:00:00.000Z",
       p_model: "controlled", p_prompt_version: POSTE_EXCHANGE_PROMPT_VERSION,
       p_exchange: { schema_version: "v3", prompt_version: POSTE_EXCHANGE_PROMPT_VERSION }, p_unit_pages: [3, 4, 5, 6] });
+  });
+
+  it.each(["quantity only", "unit only", "missing partial figure"])("publishes the other measures after an unusable indication (%s)", async (defect) => {
+    const call = controlledPosteCall((entry) => {
+      if (entry.label === LAVABO.label && entry.chunkId === "f1-b1") return posteMeasured(entry, [{ page: 1, quantity: 3 }]);
+      if (entry.label !== VANNE.label || entry.chunkId !== "f2-b1") return posteNotFound(entry);
+      const indication = { page: 2, quantity: defect === "quantity only" ? 2 : null, unit: defect === "unit only" ? "u" : null,
+        method: "annotation" as const, evidence: "Repère sur le plan", measurement_basis: null, basis_as_requested: false,
+        counts_as: "distinct" as const, confidence: 0.5 };
+      return { ...posteNotFound(entry), outcome: "uncertain", reason_code: "PARTIAL_QUANTITY", reason_text: "Repère sur le plan",
+        observations: defect === "missing partial figure" ? [] : [indication] };
+    });
+    const built = await publication([], { call, chunked: true, items: [LAVABO, VANNE] });
+    const [measure, obstacle] = built.p_answers;
+    expect(built.p_items).toEqual([expect.objectContaining({ designation: "Lavabo", quantity: 3, unit: "u", source_page: 3 })]);
+    expect(measure).toMatchObject({ outcome: "measured", quantity: { value: 3, unit: "u" } });
+    expect(obstacle).toMatchObject({ outcome: "uncertain", candidate: null, searched_pages: [3, 4, 5, 6], reasons: expect.arrayContaining([
+      expect.objectContaining({ code: "FIGURE_UNUSABLE", by: "worker", chunk_id: "f2-b1" }),
+    ]), observations: defect === "missing partial figure" ? [] : [expect.objectContaining({ page: 6, quantity: null, unit: null })] });
+    expect(call.received.map(({ chunkId }) => chunkId)).toEqual(["f1-b1", "f2-b1"]);
+  });
+
+  it("publishes partial coverage when another basis is excluded inside the same fragment", async () => {
+    const call = controlledPosteCall((entry) => ({ ...posteNotFound(entry), outcome: "uncertain", reason_code: "UNIT_OR_BASIS_UNCLEAR",
+      reason_text: "Le second tronçon est mesuré au nu.", observations: ["axe", "nu"].map((basis, index) => ({ page: index + 1,
+        quantity: index === 0 ? 3 : 8, unit: "ml", method: "scaled_measure", evidence: `Tronçon ${basis}`, measurement_basis: basis,
+        basis_as_requested: index === 0, counts_as: "distinct", confidence: 0.5 })) }));
+    const built = await publication([], { call, items: [{ ...EF, measurementBasis: "axe" }] });
+    expect(built.p_answers[0]).toMatchObject({ outcome: "uncertain", quantity: null, candidate: { value: 3, unit: "ml" },
+      reasons: expect.arrayContaining([expect.objectContaining({ code: "CANDIDATE_PARTIAL", by: "worker" })]) });
   });
 
   it("gives exactly one answer per item, in the list's order, each in the addendum's shape", async () => {

@@ -11,6 +11,7 @@ import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { freezeAffaireItemSelection, readAffaireItemHistory, readAffaireItemLine, readAffaireItemTable } from "./item-table-server";
 import { readFirstMeasurePlans } from "./item-remeasure-server";
 import { ITEM_REVIEW_LIMITS } from "./item-table";
+import { describeItemUncertainty } from "./item-uncertainty";
 
 const PROJECT = "11111111-1111-4111-8111-111111111111";
 const TENANT = "77777777-7777-4777-8777-777777777777";
@@ -56,6 +57,7 @@ let tableRows: Array<Record<string, unknown>> = [];
 let takeoffRows: Array<Record<string, unknown>> = [];
 let events: Array<Record<string, unknown>> = [];
 let jobRows: Array<Record<string, unknown>> = [];
+let visiblePlanFiles: string[] | null = null;
 /** The answers' counted marks states (lot 5), as a member reads them. */
 let marksStates: Array<{ answer_id: string; revision: number }> = [];
 const ranges: Array<[number, number]> = [];
@@ -63,7 +65,9 @@ const ranges: Array<[number, number]> = [];
 function memberClient() {
   const from = (table: string) => {
     reads.push(table);
-    const data = table === "takeoff_items" ? takeoffRows
+    const data = table === "plan_files" ? (visiblePlanFiles ?? []).map((id) => ({ id }))
+      : table === "affaire_intake_documents" ? []
+      : table === "takeoff_items" ? takeoffRows
       : table === "takeoff_list_revisions" ? [{ id: "44444444-4444-4444-8444-444444444444", revision: 2, item_count: 2 }]
         : table === "takeoff_item_review_events" ? events
           : table === "takeoff_jobs" ? jobRows
@@ -103,6 +107,7 @@ function memberClient() {
   };
   const rpc = (name: string, args: Record<string, unknown>) => {
     calls.push({ name, args });
+    if (name === "can_access_takeoff_project") return Promise.resolve({ data: visiblePlanFiles === null, error: null });
     if (name === "read_takeoff_count_mark_summaries") return Promise.resolve({ data: [], error: null });
     if (name === "read_takeoff_item_table") {
       const offset = Number(args.p_offset ?? 0);
@@ -125,6 +130,7 @@ beforeEach(() => {
   ranges.length = 0;
   events = [];
   jobRows = [];
+  visiblePlanFiles = null;
   marksStates = [];
   tableRows = [tableRow(0), tableRow(1)];
   takeoffRows = [{ id: rowId(0), quantity: 3, unit: "u", is_verified: false, is_excluded: false, rules_stale: false, rule_results: [], confidence: 0.4, evidence: "Symboles",
@@ -274,5 +280,59 @@ describe("the history of a line", () => {
     expect(ranges).toEqual([[0, 20], [20, 40]]);
     expect(second).toMatchObject({ offset: 20, hasMore: false });
     expect(second.events.map(({ id }) => id)).toEqual([1]);
+  });
+});
+
+describe("uncertain readings", () => {
+  const observation = (page: number, evidence: string, quantity: number | null = null) => ({
+    ...answer(0, "measured").observations[0], observation_id: rowId(page), ordinal: page, role: "candidate", page,
+    evidence, quantity, unit: quantity === null ? null : "ml", chunk_id: "f1-b1", takeoff_item_id: null,
+  });
+
+  async function readUncertain(stored: Record<string, unknown>) {
+    const base = tableRow(0);
+    tableRows = [tableRow(0, { expected_unit: "ml", state: "uncertain", readings: [{ ...base.readings[0],
+      answer: { ...answer(0, "not_found"), outcome: "uncertain", searched_pages: [1, 2], ...stored } }] })];
+    return (await readAffaireItemTable(PROJECT, { ...query, filter: {} })).page.lines[0].readings[0].answer!;
+  }
+
+  it("locates the obstacle from its evidence and keeps an ambiguous reason unlocated", async () => {
+    const observations = [observation(1, "Repère de renvoi"), observation(2, "Diamètre illisible page 2.")];
+    for (const [text, page] of [["Diamètre illisible page 2.", 2], ["Vérifier le diamètre.", null]] as const) {
+      const reading = await readUncertain({ observations, reasons: [{ code: "QUALIFIER_UNREADABLE", by: "model", text, chunk_id: "f1-b1" }] });
+      expect(describeItemUncertainty(reading, "ml", false)).toMatchObject({ obstacle: text, page,
+        label: page === null ? "Vérifier le plan" : "Vérifier le plan · page 2" });
+    }
+  });
+
+  it("offers consultation on the page of the missing scale", async () => {
+    const text = "Aucune cote sur le tronçon.";
+    const reading = await readUncertain({ observations: [observation(2, text)],
+      reasons: [{ code: "SCALE_UNKNOWN", by: "model", text, chunk_id: "f1-b1" }] });
+    expect(describeItemUncertainty(reading, "ml", true)).toMatchObject({ action: "check", page: 2, label: "Vérifier le plan · page 2" });
+  });
+
+  it("labels a candidate partial when the worker excluded a distinct reading in the same fragment", async () => {
+    const reading = await readUncertain({ candidate_quantity: 3, candidate_unit: "ml", observations: [
+      observation(1, "Tronçon à l’axe", 3), observation(2, "Tronçon au nu", 8),
+    ], reasons: [{ code: "UNIT_OR_BASIS_UNCLEAR", by: "model", text: "Bases différentes.", chunk_id: "f1-b1" },
+      { code: "CANDIDATE_PARTIAL", by: "worker", text: null, chunk_id: null }] });
+    expect(describeItemUncertainty(reading, "ml", true).candidate).toBe("Quantité provisoire partielle · 3 ml");
+  });
+
+  it("withholds the excerpt, pages and gesture when this member cannot read the sealed copy", async () => {
+    visiblePlanFiles = [];
+    const hidden = "Repère fictif à accès restreint";
+    const stored = { reason_code: "BASIS_UNSTATED", observations: [observation(2, hidden)],
+      reasons: [{ code: "BASIS_UNSTATED", by: "worker", text: null, chunk_id: "f1-b1" }] };
+    const reading = await readUncertain(stored);
+    expect(JSON.stringify(reading)).not.toContain(hidden);
+    expect(describeItemUncertainty(reading, "ml", false)).toMatchObject({ action: "unavailable", page: null,
+      obstacle: "Le motif détaillé est réservé aux lecteurs de ce plan." });
+    expect(reading).toMatchObject({ searchedPages: [], unreadablePages: [], observations: [] });
+    expect(calls).toContainEqual({ name: "can_access_takeoff_project", args: { p_project_id: PROJECT, p_tenant_id: TENANT } });
+    visiblePlanFiles = [PLAN];
+    const visible = await readUncertain(stored);
+    expect(describeItemUncertainty(visible, "ml", false)).toMatchObject({ obstacle: hidden, page: 2 });
   });
 });

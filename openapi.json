@@ -49108,6 +49108,10 @@
                                           "partial": {
                                             "type": "boolean"
                                           },
+                                          "planUnavailable": {
+                                            "type": "boolean",
+                                            "const": true
+                                          },
                                           "reasons": {
                                             "type": "array",
                                             "items": {
@@ -50733,6 +50737,10 @@
                                   "properties": {
                                     "partial": {
                                       "type": "boolean"
+                                    },
+                                    "planUnavailable": {
+                                      "type": "boolean",
+                                      "const": true
                                     },
                                     "reasons": {
                                       "type": "array",

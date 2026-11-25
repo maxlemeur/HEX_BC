@@ -356,7 +356,7 @@ describe("mergePosteReadings", () => {
     const { answers } = mergePosteReadings({ items, planPages: PLAN_PAGES, fragments });
 
     expect(answerOf(answers, net)).toMatchObject({ outcome: "uncertain", quantity: null });
-    expect(answerOf(answers, net).reasons.map((reason) => reason.code)).toEqual(["BASIS_MISMATCH"]);
+    expect(answerOf(answers, net).reasons.map((reason) => reason.code)).toEqual(["BASIS_MISMATCH", "CANDIDATE_PARTIAL"]);
     expect(answerOf(answers, free).reasons.map((reason) => reason.code)).toEqual(["BASIS_UNSTATED"]);
     // A count does not depend on a basis.
     expect(answerOf(answers, pieces)).toMatchObject({ outcome: "measured", quantity: { value: 2, unit: "u" } });
@@ -429,7 +429,7 @@ describe("mergePosteReadings", () => {
 
     // Net 12 and gross 14, honestly declared: never 26 m², only the reading on the requested basis.
     expect(answerOf(answers, net)).toMatchObject({ outcome: "uncertain", quantity: null, candidate: { value: 12, unit: "m2" } });
-    expect(answerOf(answers, net).reasons.map((reason) => reason.code)).toEqual(["BASIS_MISMATCH"]);
+    expect(answerOf(answers, net).reasons.map((reason) => reason.code)).toEqual(["BASIS_MISMATCH", "CANDIDATE_PARTIAL"]);
     // An item that names no basis, read on two: no candidate at all.
     expect(answerOf(answers, free)).toMatchObject({ outcome: "uncertain", quantity: null, candidate: null });
     expect(answerOf(answers, free).reasons.map((reason) => reason.code)).toEqual(["BASIS_MISMATCH"]);

@@ -106,6 +106,7 @@ export type ItemAnswerView = {
   candidate: { quantity: number; unit: string } | null;
   uncertainty?: {
     partial: boolean;
+    planUnavailable?: true;
     reasons: Array<{ code: string; by: "model" | "worker"; text: string | null; page: number | null }>;
   };
   anomalies: ItemAnswerAnomaly[];

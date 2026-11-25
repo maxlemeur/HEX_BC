@@ -91,10 +91,10 @@ export function ItemTableLineDetail({ line, projectId, names, canReview, busy, o
                 ) : null}
                 {answer ? (
                   <div className="mt-1 space-y-1 text-sm">
-                    <p>
+                    {uncertainty?.action !== "unavailable" ? <p>
                       Pages cherchées : {pages(answer.searchedPages)}
                       {answer.unreadablePages.length ? ` · pages illisibles : ${pages(answer.unreadablePages)}` : ""}
-                    </p>
+                    </p> : null}
                     {uncertainty ? <p>{uncertainty.reasons.length ? uncertainty.reasons.join(" · ") : uncertainty.obstacle}</p>
                       : answer.reasonText ? <p>Motif de la lecture : {answer.reasonText}</p> : null}
                     {uncertainty?.candidate ? <p>{uncertainty.candidate}</p> : null}
@@ -132,11 +132,11 @@ export function ItemTableLineDetail({ line, projectId, names, canReview, busy, o
                       </p>
                     ) : null}
                     {reading.entry ? <EntryFacts entry={reading.entry} names={names} /> : null}
-                    <Link className="underline" prefetch={false}
+                    {uncertainty?.action !== "unavailable" ? <Link className="underline" prefetch={false}
                       href={takeoffReviewHref({ projectId, jobId: answer.jobId, targeted: true,
                         line: answer.observations.find(({ takeoffItemId }) => takeoffItemId)?.takeoffItemId ?? undefined })}>
                       Voir la preuve et corriger dans la revue ciblée
-                    </Link>
+                    </Link> : null}
                   </div>
                 ) : null}
               </li>

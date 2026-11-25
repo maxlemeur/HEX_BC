@@ -116,10 +116,8 @@ const measuredObservation = z.object({
   page, evidence: text(L.evidenceChars), method: z.enum(POSTE_OBSERVATION_METHODS), confidence,
   quantity, unit: text(L.unitChars), measurement_basis: text(L.basisChars).nullable(), ...counting,
 }).strict();
-/** An indication can locate an obstacle or carry a figure with its unit. */
-const indication = measuredObservation.extend({ quantity: quantity.nullable(), unit: text(L.unitChars).nullable() })
-  .refine(({ quantity, unit }) => (quantity === null) === (unit === null),
-    { path: ["unit"], message: "Une indication fournit la quantité et son unité ensemble." });
+/** An indication locates an obstacle or a figure. The worker only keeps figures with both fields. */
+const indication = measuredObservation.extend({ quantity: quantity.nullable().default(null), unit: text(L.unitChars).nullable().default(null) });
 
 export const PosteExchangeAnswerSchema = z.discriminatedUnion("outcome", [
   z.object({
@@ -131,8 +129,7 @@ export const PosteExchangeAnswerSchema = z.discriminatedUnion("outcome", [
     post_id: itemKey, outcome: z.literal("uncertain"), searched_pages: pages(),
     reason_code: z.enum(POSTE_UNCERTAIN_REASONS), reason_text: text(L.reasonChars),
     observations: z.array(indication).max(L.observationsPerAnswer),
-  }).strict().refine((answer) => answer.reason_code !== "PARTIAL_QUANTITY" || answer.observations.some(({ quantity }) => quantity !== null),
-    { path: ["observations"], message: "Une quantité partielle cite au moins un indice chiffré." }),
+  }).strict(),
   z.object({
     post_id: itemKey, outcome: z.literal("not_found"), searched_pages: pages(1),
     reason_code: z.enum(POSTE_NOT_FOUND_REASONS), reason_text: text(L.reasonChars),
