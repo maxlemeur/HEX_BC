@@ -323,7 +323,7 @@ describe("prebuilt build workflow wiring", () => {
     expect(warn).toContain("::warning title=Army build failed::");
   });
 
-  it.each(workflows)("makes the jobs of $file wait for the build, tolerate its absence and hand it to the runner", ({ file, build, plan, units }) => {
+  it.each(workflows)("makes the jobs using the shared build of $file tolerate its absence and hand it to the runner", ({ file, build, plan, units }) => {
     const jobs = jobBlocks(read(file));
     for (const name of units) {
       const unit = jobs[name];
@@ -335,7 +335,12 @@ describe("prebuilt build workflow wiring", () => {
       expect(condition, name).not.toContain(build);
       const download = step(unit, "Download the production build of this run");
       expect(download).toMatch(/^\s+id: prebuilt$/mu);
-      expect(download).toContain(`if: needs.${build}.outputs.built == 'true'`);
+      if (name === "army-critical-shard") {
+        expect(unit).toContain(`ARMY_SHARED_BUILD_AVAILABLE: \${{ needs.${build}.outputs.built }}`);
+        expect(download).toContain("if: env.ARMY_SHARED_BUILD_AVAILABLE == 'true'");
+      } else {
+        expect(download).toContain(`if: needs.${build}.outputs.built == 'true'`);
+      }
       expect(download).toMatch(/^\s+continue-on-error: true$/mu);
       expect(download).toContain("uses: actions/download-artifact@");
       expect(download).toContain("\n          name: army-prebuilt-build\n          path: ${{ runner.temp }}/army-prebuilt\n");
@@ -344,7 +349,9 @@ describe("prebuilt build workflow wiring", () => {
       const order = steps(unit).map((value) => value.trimStart().split("\n")[0]);
       expect(order.indexOf("Download the production build of this run")).toBeLessThan(order.indexOf("Restore the Army Next build cache"));
       const journeys = step(unit, "Run native database and TesterArmy");
-      expect(journeys).toContain("\n          ARMY_PREBUILT_BUILD_DIR: ${{ runner.temp }}/army-prebuilt\n");
+      expect(journeys).toContain(name === "army-critical-shard"
+        ? "\n          ARMY_PREBUILT_BUILD_DIR: ${{ github.event_name != 'pull_request' && format('{0}/army-prebuilt', runner.temp) || '' }}\n"
+        : "\n          ARMY_PREBUILT_BUILD_DIR: ${{ runner.temp }}/army-prebuilt\n");
       // The Next build cache is saved by the job that builds once, never by a shard.
       expect(unit).not.toContain("Save the Army Next build cache");
     }
@@ -371,7 +378,7 @@ describe("prebuilt build workflow wiring", () => {
     return fs.readFileSync(output, "utf8").trim();
   }
 
-  it.skipIf(process.platform === "win32")("builds for critical unless the pull request's own selection reaches no journey", () => {
+  it.skipIf(process.platform === "win32")("builds for a pull request only if takeoff might use the shared build", () => {
     const script = runScript(step(jobBlocks(read(".github/workflows/e2e-army-critical.yml"))["army-build"], "Decide whether this run needs the production build"));
     // HEAD^2 is the pull request head; the selector stub writes its outputs as select-journeys.ts does.
     const git = 'case "$*" in *"HEAD^2"*) echo head-sha ;; *) echo some-sha ;; esac';
@@ -379,13 +386,15 @@ describe("prebuilt build workflow wiring", () => {
       `printf 'mode=%s\\nfull_only_mode=%s\\n' ${critical} ${takeoff} >> "$GITHUB_OUTPUT"; exit ${exit}`;
     const pr = { EVENT_NAME: "pull_request", PR_HEAD_SHA: "head-sha", ARMY_FULL_LABEL: "false" };
     expect(runNeed(script, pr, { git, node: selector("none", "none") })).toBe("build=false");
-    expect(runNeed(script, pr, { git, node: selector("filtered", "none") })).toBe("build=true");
+    expect(runNeed(script, pr, { git, node: selector("filtered", "none") })).toBe("build=false");
     expect(runNeed(script, pr, { git, node: selector("none", "filtered") })).toBe("build=true");
     // A selector error, the label, a checkout that is not the merge commit and any other event build.
     expect(runNeed(script, pr, { git, node: selector("none", "none", 1) })).toBe("build=true");
     expect(runNeed(script, { ...pr, ARMY_FULL_LABEL: "true" }, { git, node: selector("none", "none") })).toBe("build=true");
     expect(runNeed(script, { ...pr, PR_HEAD_SHA: "other" }, { git, node: selector("none", "none") })).toBe("build=true");
-    expect(runNeed(script, { ...pr, EVENT_NAME: "push" }, { git, node: selector("none", "none") })).toBe("build=true");
+    for (const event of ["push", "schedule", "workflow_dispatch"]) {
+      expect(runNeed(script, { ...pr, EVENT_NAME: event }, { git, node: selector("none", "none") })).toBe("build=true");
+    }
   });
 
   it.skipIf(process.platform === "win32")("builds for calc-v3 only when a selected phase runs under next start", () => {

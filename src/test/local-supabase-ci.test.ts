@@ -1,6 +1,8 @@
+import { EventEmitter } from "node:events";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { PassThrough } from "node:stream";
 
 import { describe, expect, it, vi } from "vitest";
 
@@ -292,6 +294,73 @@ describe("local Supabase CI", () => {
     const offered = createDependencies();
     await runLocalSupabaseCi({ ...offered.dependencies, runApplication: vi.fn(), preferredApiPort: 64000 });
     expect((offered.dependencies.prepareProject.mock.calls[0] as unknown[])[2]).toEqual({ preferredApiPort: 64000 });
+  });
+
+  it("spawns the Critical PR build before database reset and retains its exit code even if the reset fails", async () => {
+    const { calls, dependencies } = createDependencies({ failReset: true });
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), "army-pr-build-order-"));
+    const argv = process.argv;
+    const environment = process.env;
+    const exitCode = process.exitCode;
+    const cwd = vi.spyOn(process, "cwd").mockReturnValue(directory);
+    const finished = Promise.withResolvers<void>();
+    const log = vi.spyOn(console, "log").mockImplementation((message: unknown) => {
+      if (typeof message === "string" && /^TesterArmy CI \w+; evidence:/u.test(message)) finished.resolve();
+    });
+    vi.doMock("./local-supabase-ci", async (original) => ({
+      ...await original<object>(),
+      runLocalSupabaseCi: (overrides: Parameters<typeof runLocalSupabaseCi>[0]) =>
+        runLocalSupabaseCi({ ...overrides, ...dependencies }),
+    }));
+    vi.doMock("../../scripts/tester-army/app-port", async (original) => ({
+      ...await original<object>(), reserveAppPort: vi.fn(), assertLocalAppPortAvailable: vi.fn(),
+    }));
+    vi.doMock("../../scripts/tester-army/installed-dependencies.mjs", () => ({ assertInstalledDependencies: vi.fn() }));
+    vi.doMock("../../scripts/tester-army/journey-preflight.mjs", () => ({ localJourneyCoverageProblems: () => [] }));
+    const build = "scripts/tester-army/build-local.mjs";
+    const spawn = vi.fn((_command: string, args: string[]) => {
+      calls.push(args[0]);
+      const child = Object.assign(new EventEmitter(), { stdout: new PassThrough(), stderr: new PassThrough() });
+      queueMicrotask(() => child.emit("close", 3, null));
+      return child;
+    });
+    vi.doMock("node:child_process", async (original) => ({ ...await original<object>(), spawn }));
+    try {
+      fs.mkdirSync(path.join(directory, "supabase/migrations"), { recursive: true });
+      fs.mkdirSync(path.join(directory, "supabase/tests/database"), { recursive: true });
+      process.argv = [process.execPath, "run-tester-army-ci.ts", "critical"];
+      // The launcher requires a clean environment on the Critical workflow.
+      // The unit-test job injects Supabase defaults and an Actions output file.
+      process.env = {
+        PATH: environment.PATH,
+        SystemRoot: environment.SystemRoot,
+        NODE_ENV: "test",
+        CI: "1",
+        GITHUB_ACTIONS: "true",
+        GITHUB_EVENT_NAME: "pull_request",
+      };
+      await import("../../scripts/run-tester-army-ci");
+      await finished.promise;
+      const evidence = path.join(directory, ".e2e/army/ci");
+      const manifest = JSON.parse(fs.readFileSync(path.join(evidence, fs.readdirSync(evidence)[0], "manifest.json"), "utf8"));
+      expect(spawn, manifest.error).toHaveBeenCalledExactlyOnceWith(process.execPath, [build, "--execute"], expect.any(Object));
+      expect(calls.slice(0, 5)).toEqual([
+        "--version", expect.stringMatching(/^start /u), expect.stringMatching(/^status /u), build,
+        expect.stringMatching(/^db reset --local /u),
+      ]);
+      expect(manifest).toMatchObject({ status: "failed", error: expect.stringContaining("reset local database"),
+        steps: [{ name: "build", exitCode: 3 }] });
+      expect(process.exitCode).toBe(1);
+    } finally {
+      for (const specifier of ["./local-supabase-ci", "../../scripts/tester-army/app-port", "../../scripts/tester-army/installed-dependencies.mjs",
+        "../../scripts/tester-army/journey-preflight.mjs", "node:child_process"]) vi.doUnmock(specifier);
+      process.argv = argv;
+      process.env = environment;
+      process.exitCode = exitCode;
+      cwd.mockRestore();
+      log.mockRestore();
+      fs.rmSync(directory, { recursive: true, force: true });
+    }
   });
 
   // Lot 3.1: a single-run wall-clock ceiling measured beside the Army production build failed correct code (the copy

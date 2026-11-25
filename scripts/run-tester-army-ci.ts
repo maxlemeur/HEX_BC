@@ -298,7 +298,13 @@ async function reusePrebuiltBuild(backend: URL, anonKey: string): Promise<Prebui
  * scripts/tester-army/build-local.mjs here, as before. The manifest records which, and why.
  */
 async function productionBuild(environment: NodeJS.ProcessEnv, backend: URL, anonKey: string) {
-  const decision = await reusePrebuiltBuild(backend, anonKey);
+  // PR Critical shards deliberately have no artifact. Reach runNode's spawn
+  // before yielding so the child runs during the synchronous database reset.
+  const buildsForPrStack = suite === "critical" && process.env.GITHUB_EVENT_NAME === "pull_request" &&
+    !process.env.ARMY_PREBUILT_BUILD_DIR;
+  const decision: PrebuiltDecision = buildsForPrStack
+    ? { reuse: false, reason: "Critical PR shards build for their own stack" }
+    : await reusePrebuiltBuild(backend, anonKey);
   const offered = prebuiltOffer && "candidate" in prebuiltOffer ? prebuiltOffer.candidate : undefined;
   if (decision.reuse && offered) {
     manifest.build = {

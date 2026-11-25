@@ -360,11 +360,13 @@ ensemble :
 
 [`army-shards.json`](../../scripts/tester-army/army-shards.json) fixe le nombre
 de shards, leurs workers et les durées utilisées pour répartir les fichiers.
-Chaque shard possède sa base et son compte, et sert le
-[build unique du run](#pile-confidentialité-et-diagnostic) quand il est le sien ; un fichier
-n'est pas coupé entre plusieurs jobs. Les shards critical utilisent 2 workers ; full et
-métré restent à 1. Une sélection trop petite ou impossible à répartir conserve
-un seul job. Les durées ne choisissent pas la couverture.
+Chaque shard possède sa base et son compte. Sur une PR, les shards Critical
+construisent chacun leur application après la sélection. Les autres shards
+servent le [build partagé du run](#pile-confidentialité-et-diagnostic) quand il
+correspond à leur pile. Un fichier n'est pas coupé entre plusieurs jobs. Les
+shards Critical utilisent 2 workers, ceux de Full et du métré en utilisent 1.
+Une sélection trop petite ou impossible à répartir conserve un seul job. Les
+durées ne choisissent pas la couverture.
 
 `secondsPerShard` est la charge de parcours mesurée qu'un job porte avant
 qu'un autre vaille sa pile et son build (environ trois minutes de runner par
@@ -523,7 +525,7 @@ dans lequel les cascades se déclenchent. Le gain ne valait pas une base qui
 diffère de celle que vérifient les autres checks : l'instantané a été retiré,
 sans interrupteur.
 
-Build unique par run : dans chaque workflow Army, un job de build (`army-build` en Critical,
+Dans chaque workflow Army, un job de build (`army-build` en Critical,
 `army-calc-v3-build`, `army-full-build`) construit l'application de production
 une seule fois, en parallèle du job de sélection ou de plan, avec
 [`army-build.ts`](../../scripts/tester-army/army-build.ts). Le build fige
@@ -538,13 +540,16 @@ un shard. Il publie la sortie (`.build/tester-army/next` sans `cache`, `dev`,
 du build et `prebuilt.json` dans l'artefact `army-prebuilt-build`, gardé un
 jour ; une sortie qui contiendrait la clé de service ou le secret de reprise
 n'est pas publiée. Ce job restaure le cache Next ; celui de Critical le
-sauvegarde sur un push de `main`. Critical ne construit rien pour une PR dont la
-sélection par impact n'atteint aucun parcours, calc-v3 seulement si une phase
-sélectionnée tourne sous `next start`, et Full pour ses shards, pas pour la
-phase développement (`next dev`).
+sauvegarde sur un push de `main`. Sur une PR, `army-build` construit pour le
+métré quand la sélection par impact atteint ses parcours. Les shards Critical
+démarrent dès que `army-select` termine. Chacun restaure le cache Next et
+compile pour sa propre pile dès que son URL et ses clés sont disponibles,
+pendant le `db reset` et la vérification du schéma. Calc-v3 construit seulement
+si une phase sélectionnée tourne sous `next start`. Dans Full, seuls les shards
+de production utilisent le build partagé.
 
-Chaque shard ou groupe télécharge l'artefact, sans échouer s'il manque, et
-demande pour sa pile le port API du build quand il est libre. Il restaure
+Chaque shard ou groupe qui utilise le build partagé télécharge l'artefact, sans
+échouer s'il manque, et demande pour sa pile le port API du build quand il est libre. Il restaure
 toujours le cache Next, même à côté d'un build téléchargé : un build refusé se
 reconstruit à chaud. Le runner applique ensuite la règle de [`prebuilt-build.ts`](../../scripts/tester-army/prebuilt-build.ts) :
 - mêmes révision, empreinte du diff et entrées que le checkout (`buildSourceEvidence`) ;
