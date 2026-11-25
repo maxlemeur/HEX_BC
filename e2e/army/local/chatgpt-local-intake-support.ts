@@ -3,13 +3,21 @@ import path from "node:path";
 
 import { expect } from "e2e";
 
+import type { AffaireIntakeWorkspace } from "@/lib/affaires/intake-workspace-server";
+import { apiRequest } from "../critical/fixtures";
 import { hydratedUi, signIn, waitForHydration } from "../critical/hydration-support";
-import { readOwnedPayerNoticeBasis } from "./automatic-start-support";
+import { readOwnedIntakeLaunchDiagnostics, readOwnedPayerNoticeBasis } from "./automatic-start-support";
 import { localChatGptClient, type ChatGptLocalServer } from "./chatgpt-local-journey-support";
 
 // These requests share the CI runner with the other worker and the built application.
 export const DEV_SERVER_WORK = { timeout: 60_000 };
 export const PAYER_NOTICE = "Une fois les plans prêts, le métré utilisera votre forfait ChatGPT et les réglages de Mon profil.";
+
+type IntakeReadiness = Pick<AffaireIntakeWorkspace, "launchRunning" | "briefDraft" | "pendingUploadIds">;
+type DossierAnalysisOptions = {
+  launchRunning?: boolean;
+  onRead?: (workspace: IntakeReadiness) => Promise<void>;
+};
 
 export function createIntakePlanActions(getServer: () => Pick<ChatGptLocalServer, "origin" | "transportLog">) {
   /** Signs `email` in on this file's server, after leaving any session this browser context holds there. */
@@ -47,6 +55,26 @@ export function createIntakePlanActions(getServer: () => Pick<ChatGptLocalServer
         : doc.classification_status === "classified" && doc.document_kind === "plans"));
     }, DEV_SERVER_WORK).toBe(true);
   }
+  /** Wait at the same dossier read the page uses. Publication can precede closure. */
+  async function waitForDossierAnalysis(ui: ReturnType<typeof hydratedUi>, projectId: string,
+    { launchRunning = false, onRead }: DossierAnalysisOptions = {}) {
+    let observed: { status: number; launchRunning: boolean | null; brief: string | null } | undefined;
+    try {
+      await expect.poll(async () => {
+        const response = await apiRequest<{ data?: { workspace: IntakeReadiness } }>(
+          ui.browser, "GET", `/api/affaires/${projectId}/intake`);
+        const workspace = response.body?.data?.workspace;
+        observed = { status: response.status, launchRunning: workspace?.launchRunning ?? null,
+          brief: workspace?.briefDraft?.status ?? null };
+        if (workspace) await onRead?.(workspace);
+        return observed;
+      }, DEV_SERVER_WORK).toEqual({ status: 200, launchRunning, brief: "a_confirmer" });
+    } catch (cause) {
+      const launches = await readOwnedIntakeLaunchDiagnostics(projectId).catch(() => "unavailable");
+      throw new Error(`Dossier ${projectId} did not reach brief confirmation readiness (launchRunning=${launchRunning}). ` +
+        `Last dossier API state: ${JSON.stringify(observed ?? null)}. Intake worker launches: ${JSON.stringify(launches)}.`, { cause });
+    }
+  }
   /**
    * Opens the brief of the affaire for `memberId` on a page the server rendered once what its payer notice depends on is
    * stored, with (`notice`) or without the automatic start. The server reads the notice once, when it renders the page,
@@ -56,7 +84,9 @@ export function createIntakePlanActions(getServer: () => Pick<ChatGptLocalServer
    * AUTO03 then AUTO01). The page is therefore loaded again after the stored state is read. The hub opens the brief's
    * section from the address once hydrated, and `next dev` hydrates only after the `load` a reload waits for.
    */
-  async function openBriefConfirmation(ui: ReturnType<typeof hydratedUi>, projectId: string, memberId: string, notice: boolean) {
+  async function openBriefConfirmation(ui: ReturnType<typeof hydratedUi>, projectId: string, memberId: string, notice: boolean,
+    launchState: "closed" | "running" = "closed") {
+    await waitForDossierAnalysis(ui, projectId, { launchRunning: launchState === "running" });
     await expect.poll(() => readOwnedPayerNoticeBasis(projectId, memberId), DEV_SERVER_WORK)
       .toEqual({ brief: "a_confirmer", active: notice, payer: true });
     const confirm = ui.screen.getByRole("button", "Confirmer le brief", { exact: true });
@@ -72,5 +102,5 @@ export function createIntakePlanActions(getServer: () => Pick<ChatGptLocalServer
   const forbiddenRequests = async () => (await readFile(getServer().transportLog, "utf8")).trim().split("\n").filter(Boolean).map(line => JSON.parse(line))
     .filter(entry => entry.provider === "forbidden").length;
 
-  return { signInAs, uploadDossierPlan, openBriefConfirmation, planCalls, planReads, forbiddenRequests };
+  return { signInAs, uploadDossierPlan, waitForDossierAnalysis, openBriefConfirmation, planCalls, planReads, forbiddenRequests };
 }
