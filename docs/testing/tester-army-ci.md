@@ -367,11 +367,71 @@ shards Critical utilisent 2 workers, ceux de Full et du métré en utilisent 1.
 Une sélection trop petite ou impossible à répartir conserve un seul job. Les
 durées ne choisissent pas la couverture.
 
-`secondsPerShard` est la charge de parcours mesurée qu'un job porte avant
-qu'un autre vaille sa pile et son build (environ trois minutes de runner par
-job). Le seuil Critical est de 715 s à 2 workers. Une sélection partielle
-applique ce même seuil, au lieu d'ouvrir un shard tous les 300 s. Pour le métré, le plan
-ouvre un deuxième job quand la charge estimée à 1 worker dépasse 400 s.
+Le sélecteur divise les secondes cumulées par `secondsPerShard` et arrondit
+au supérieur. Il réserve assez de shards pour les groupes `neverTogether`,
+dans la limite des jobs autorisés et du nombre de parcours authentifiés.
+Il place les fichiers authentifiés puis les anonymes, par durée décroissante,
+sur le shard admissible le moins chargé en secondes cumulées. En cas d'égalité,
+il choisit le premier shard. Une fois les fichiers répartis, le plan et le résumé
+indiquent le coût de chaque shard en secondes, `max(durée du plus long fichier,
+somme des durées / workers)`. Cette borne basse du temps de test exclut le
+login, le démarrage et la compilation.
+
+La liste `coldServers` recense les fichiers qui lancent leur propre serveur
+Next de développement. Si un shard en réunit plusieurs, la sélection et le
+résumé nomment chaque fichier concerné. Dans le
+[run Critical 45612899126](https://github.com/thannous/HEX_BC/actions/runs/45612899126/attempts/1),
+`takeoff-lab` compilait pendant INTFRESH02 sur le shard 2. La mémoire
+disponible est descendue à 947 Mio, le swap utilisé a atteint 512 Mio et la
+confirmation a reçu un HTTP 500. Un placement expérimental qui répartissait
+les serveurs en priorité a aussi donné un coût maximal de 445,5 s.
+RELANCE01 y a été intermittent et IO01 a échoué deux fois. Le placement
+par charge cumulée reste celui des campagnes vertes de main.
+[Campagne expérimentale](https://github.com/thannous/HEX_BC/actions/runs/45619096033) ·
+[Campagne de main](https://github.com/thannous/HEX_BC/actions/runs/45617465771).
+
+Au-delà de **400 s** par fichier, la sélection signale la mesure enregistrée,
+même pour un changement documentaire. L'agrégation signale aussi les mesures
+du run qui franchissent ce seuil. Le test de la configuration bloque au-delà
+de **600 s** (dix minutes de tests exécutés en série). Les 200 s de marge
+entre l'alerte et le plafond laissent le temps de découper un fichier qui
+s'allonge. La liste d'exceptions dans
+[file-durations.ts](../../scripts/tester-army/file-durations.ts) est vide.
+
+Chaque lundi à 08:35 UTC, [le workflow de mise à jour](../../.github/workflows/army-duration-refresh.yml)
+cherche pour Critical et Full leur dernière campagne verte de main (push ou
+planification) avec agrégat encore disponible. Le script vérifie le SHA du
+run et des rapports, somme les tests sélectionnés réussis en une tentative
+et arrondit chaque fichier à la seconde supérieure. Il ignore le login répété,
+les fichiers incomplets, ceux dont un test est en quarantaine et ceux modifiés
+depuis la mesure. Critical a priorité
+pour les fichiers communs. Un fichier nouveau, un passage de seuil dans un
+sens ou dans l'autre, ou un écart d'au moins **10 s et 20 %** met à jour la
+durée et son entrée `measured`. La branche `automation/army-duration-refresh`
+porte une seule PR pour ces écarts. Le résumé et l'artefact
+`army-duration-proposal` restent disponibles sept jours si la création de PR
+échoue. Le job de mesure utilise un jeton de lecture. Le job de publication
+démarre uniquement si une durée change. Il vérifie le schéma de l'artefact,
+les chemins et l'historique, puis refuse tout écart en dehors de `seconds`
+et `measured`. La campagne est réservée à la branche main de ce dépôt.
+
+Pour que les checks de la PR démarrent automatiquement, créer une GitHub App
+dans **Settings → Developer settings → GitHub Apps**, désactiver le webhook,
+accorder les permissions de dépôt **Contents** et **Pull requests** en
+lecture/écriture, puis installer l'App sur ce seul dépôt. Dans les réglages
+de l'App, copier le **Client ID** et générer une clé privée. Dans **Settings →
+Secrets and variables → Actions** du dépôt, enregistrer le Client ID dans la
+variable `ARMY_REFRESH_APP_CLIENT_ID` et le PEM entier dans le secret
+`ARMY_REFRESH_APP_PRIVATE_KEY`. Le job demande alors un jeton d'installation
+limité à ce dépôt et à ces deux permissions.
+
+Si un des deux réglages manque, le jeton intégré demande `contents: write` et `pull-requests: write` ;
+activer **Allow GitHub Actions to create and approve pull requests** dans
+Settings → Actions → General si le dépôt refuse cette création. À chaque ouverture ou mise à jour, un mainteneur sélectionne
+**Approve workflows to run** sur la PR. Si aucun run n'apparaît, fermer puis
+rouvrir la PR avec un compte ayant les droits d'écriture. Le résumé du job et
+le corps de la PR indiquent la procédure correspondant au jeton utilisé.
+[Déclenchement des workflows par GITHUB_TOKEN](https://docs.github.com/en/actions/concepts/security/github_token#when-github_token-triggers-workflow-runs).
 
 `neverTogether` liste les fichiers qui ne partagent jamais un shard, quelles que
 soient leurs durées : les cinq fichiers des

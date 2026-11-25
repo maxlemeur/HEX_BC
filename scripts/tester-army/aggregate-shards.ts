@@ -30,6 +30,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { calcV3Scope } from "./calc-v3-phases.ts";
+import { durationWarnings, measuredSeconds } from "./file-durations.ts";
 import { journeyOutcomes, quarantineProblems } from "./journey-outcomes.ts";
 
 export type AggregateSuite = "critical" | "takeoff" | "full" | "calc-v3";
@@ -60,6 +61,7 @@ export type AggregateResult = {
   notPassed: string[];
   /** Every journey marked `test.fail` that ran, as "<ticket> : <unit> : <file> : <title> (<reason>)". */
   quarantined: string[];
+  durationWarnings: string[];
   /** The aggregate evidence directory to retain, null when nothing was planned. */
   evidence: string | null;
 };
@@ -281,7 +283,7 @@ function expectedScope(input: AggregateInput, unit: Unit, plan: Plan | undefined
 }
 
 /** What the aggregate lists of the journeys, across its units. */
-type Journeys = { notPassed: string[]; quarantined: string[] };
+type Journeys = { notPassed: string[]; quarantined: string[]; durationWarnings: string[] };
 
 /**
  * Names the journeys of a report's run that did not pass, as "<unit> : <file> : <title> (<what happened>)", and
@@ -312,6 +314,7 @@ function checkReport(unitDirectory: string, phase: string, where: string, proble
     return undefined;
   }
   const results = (Array.isArray(run.results) ? run.results : []).map(record).filter((result) => result.selected === true);
+  journeys.durationWarnings.push(...durationWarnings(measuredSeconds(results)));
   const summary = record(run.summary);
   if (results.length === 0) problems.push(`${where} ${relative} has no selected result.`);
   // A journey that needed its retry is among them: the e2e CLI exits 0 on it, the aggregate does not.
@@ -520,13 +523,13 @@ function checkAcrossUnits(input: AggregateInput, plan: Plan | undefined, records
 export function aggregateEvidence(input: AggregateInput): AggregateResult {
   const startedAt = new Date().toISOString();
   const problems: string[] = [];
-  const journeys: Journeys = { notPassed: [], quarantined: [] };
+  const journeys: Journeys = { notPassed: [], quarantined: [], durationWarnings: [] };
   const { notPassed, quarantined } = journeys;
   const { units, plan, scope, wholeSuite } = plannedUnits(input, problems);
   checkJobs(input, units, plan, problems);
   if (units.length === 0) {
     // An explicit none: nothing ran, nothing is claimed.
-    return { status: problems.length ? "failed" : "not-run", problems, notPassed, quarantined, evidence: null };
+    return { status: problems.length ? "failed" : "not-run", problems, ...journeys, evidence: null };
   }
   const directories = unitDirectories(input, units, problems);
   const records = units.map((unit) => checkUnit(input, unit, directories.get(unit)!, plan, problems, journeys));
@@ -547,7 +550,7 @@ export function aggregateEvidence(input: AggregateInput): AggregateResult {
   };
   fs.mkdirSync(input.out, { recursive: true });
   fs.writeFileSync(path.join(input.out, "manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`);
-  return { status, problems, notPassed, quarantined, evidence: input.out };
+  return { status, problems, ...journeys, evidence: input.out };
 }
 
 function summary(input: AggregateInput, result: AggregateResult): string {
@@ -555,6 +558,7 @@ function summary(input: AggregateInput, result: AggregateResult): string {
   const lines = [`### ${title} : agrégation des jobs parallèles`, ""];
   if (result.status === "not-run") return `${[...lines, "Aucun parcours sélectionné : aucun job lancé, aucune preuve revendiquée.", ""].join("\n")}\n`;
   lines.push(result.status === "passed" ? "Tous les jobs prévus ont réussi, leurs preuves sont intègres et couvrent la sélection." : "Agrégation en échec :", "");
+  lines.push(...result.durationWarnings, "");
   for (const problem of result.problems.slice(0, 50)) lines.push(`- ${problem}`);
   if (result.notPassed.length) {
     // The names a reader needs first: without them, finding the red journeys means downloading the evidence.

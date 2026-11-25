@@ -19,6 +19,15 @@
     "39110052211 army-full (nuit, 5cfd4a94, 1 worker)",
     "39107160165 army-full (déclenchement, afee61bb, 1 worker)"
   ],
+  "coldServers": [
+    "e2e/army/local/chatgpt-local-decisions.e2e.ts",
+    "e2e/army/local/chatgpt-local-intake-confirmation.e2e.ts",
+    "e2e/army/local/chatgpt-local-intake-documents.e2e.ts",
+    "e2e/army/local/chatgpt-local-intake-recovery.e2e.ts",
+    "e2e/army/local/chatgpt-local-takeoff.e2e.ts",
+    "e2e/army/local/profile-polish.e2e.ts",
+    "e2e/army/local/takeoff-lab.e2e.ts"
+  ],
   "neverTogether": [
     [
       "e2e/army/local/chatgpt-local-decisions.e2e.ts",
