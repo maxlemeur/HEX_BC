@@ -1,10 +1,10 @@
 # MergeOne
 
-An analysis request ends with findings. For a requested change, deliver the
-verified result through a reviewed PR and confirm its merge into protected
-`main`. Repository delivery rules take precedence over a skill's defaults.
+An analysis request ends with findings. Deliver changes through a reviewed PR
+with all required checks green and confirm its merge into protected `main`.
+Repository delivery rules take precedence over a skill's defaults.
 This repository is public. Use fictional fixtures and keep customer documents,
-private feedback, local settings and unpublished evidence out of Git and PRs.
+local settings and unpublished evidence out of Git and PRs.
 
 ## Actions requiring the owner's go
 
@@ -20,13 +20,11 @@ what its SQL does against these same boundaries.
 Shared Supabase serves production. Run writing campaigns on owned stacks.
 A shared test requires an explicit request and the designated account and
 tenant « ARMY TesterArmy QA ». Shared ad hoc SQL writes require approval for
-the specific statement. Preserve other people's work and personal data.
+the specific statement.
 
 ## Verification
 
-Match local checks to the diff. Documentation needs content, link and diff
-checks. Use the project verification skill for application, journey or
-release work. Keep required CI checks enforced.
+Use the project verification skill for application, journey or release work.
 
 ## Review and delivery
 
