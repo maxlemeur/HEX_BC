@@ -24,7 +24,7 @@ import { LAB_VECTOR_PLAN } from "./lab-vector-plan-fixture";
 import { labSessionCookies, launchLabRun, rawLabRequest } from "./takeoff-lab-support";
 
 // Decisions proposals, the vectors lab, price reuse, material requests and the estimate assistant.
-// Dossier journeys use a separate server in chatgpt-local-intake.e2e.ts.
+// Each chatgpt-local-intake-* journey file starts its own server.
 const server = chatGptLocalServer();
 let localOrigin: string;
 let fixtureStore: string | undefined;

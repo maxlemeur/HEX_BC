@@ -13,7 +13,8 @@ import {
 } from "./chatgpt-server-support";
 import { buildLabVectorPlanPdf } from "./lab-vector-plan-fixture";
 
-// The takeoff, Decisions and dossier files each own a server, account, port, Next workspace and artifacts directory.
+// The takeoff, Decisions and three intake files each own a server, account, ephemeral port, Next workspace
+// and artifacts directory.
 // The neverTogether group in scripts/tester-army/army-shards.json keeps them on separate runners, so their
 // development servers do not compile together.
 
@@ -91,7 +92,7 @@ export async function writePlanFixture(email: string, liveProbe: ChatGptLiveProb
  * module: the state lives in the returned object, so a module the runner imports again starts from nothing.
  * `compileTakeoffRoutes` takes one more beforeAll per wave of TAKEOFF_JOURNEY_WAVES, after `start`: every hook has
  * its own time limit, and one hook cannot hold them all (compileChatGptRoutes). `compileIntakeRoutes` is the hook of the
- * "intake" wave, for the file whose tests use the affaire's intake desk.
+ * "intake" wave, for each file whose tests use the affaire's intake desk.
  */
 export function chatGptLocalServer() {
   let localServer: ChildProcess | undefined;
