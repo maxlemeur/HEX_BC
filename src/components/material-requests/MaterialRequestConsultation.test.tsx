@@ -1632,7 +1632,7 @@ describe("consultation of suppliers", () => {
     expect(within(card).queryAllByRole("button")).toEqual([]);
     expect(within(group).queryAllByRole("button")).toEqual([]);
     expect(within(section).queryAllByRole("button").map((button) => button.getAttribute("aria-label") || button.textContent?.trim()).sort()).toEqual([
-      "Consulter le devis Négoce Alpha du 12/11/2026 (Reçu)", "Retour aux lignes", "Voir les bons de commande",
+      "Consulter le devis Négoce Alpha du 12/11/2026 (Reçu)",
     ].sort());
     expect(section.querySelector('input[type="file"]')).toBeNull();
     expect(writes()).toEqual([]);

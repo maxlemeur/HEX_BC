@@ -188,7 +188,6 @@ export function MaterialRequestLines({
   toolbar,
   canEditCatalogue = false,
   canCreateSupplyType = false,
-  nextAction,
 }: Readonly<{
   editor: MaterialRequestEditorApi;
   materialListId: string;
@@ -203,7 +202,6 @@ export function MaterialRequestLines({
   canEditCatalogue?: boolean;
   /** May add a supply type while creating the article a line names (admins only). */
   canCreateSupplyType?: boolean;
-  nextAction?: ReactNode;
 }>) {
   const toast = useToast();
   const unitListId = useId();
@@ -661,31 +659,28 @@ export function MaterialRequestLines({
       ) : null}
       </div>
       </div>
-      <div className="flex flex-wrap items-start justify-between gap-2 border-t border-border py-3">
-        <div className="min-w-0 flex-1 space-y-1.5 empty:hidden">
-          {!!supplierNothing?.missing && chooseTypeSupplier ? (
-            <Button type="button" variant="link" size="sm" className="h-auto px-0" onClick={chooseTypeSupplier}>
-              Choisir les fournisseurs des types
-            </Button>
-          ) : null}
-          {linkNothing || (supplierNothing && (drafts.length > 0 || supplierNothing.missing > 0)) ? (
-            <details className="text-xs text-muted-foreground">
-              <summary role="button" className="w-fit cursor-pointer rounded-sm px-1 py-2 font-medium hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring">
-                Détails des propositions
-              </summary>
-              <div className="mt-2 space-y-1">
-                {linkNothing ? <p>{linkNothing}</p> : null}
-                {supplierNothing ? <p>{supplierNothing.text}</p> : null}
-              </div>
-            </details>
-          ) : null}
-          {canWrite && linkReport ? (
-            <div role="status" className="space-y-0.5 text-sm text-foreground">
-              {linkReport.map((sentence) => <p key={sentence}>{sentence}</p>)}
+      <div className="min-w-0 space-y-1.5 border-t border-border py-3 empty:hidden">
+        {!!supplierNothing?.missing && chooseTypeSupplier ? (
+          <Button type="button" variant="link" size="sm" className="h-auto px-0" onClick={chooseTypeSupplier}>
+            Choisir les fournisseurs des types
+          </Button>
+        ) : null}
+        {linkNothing || (supplierNothing && (drafts.length > 0 || supplierNothing.missing > 0)) ? (
+          <details className="text-xs text-muted-foreground">
+            <summary role="button" className="w-fit cursor-pointer rounded-sm px-1 py-2 font-medium hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring">
+              Détails des propositions
+            </summary>
+            <div className="mt-2 space-y-1">
+              {linkNothing ? <p>{linkNothing}</p> : null}
+              {supplierNothing ? <p>{supplierNothing.text}</p> : null}
             </div>
-          ) : null}
-        </div>
-        {nextAction ? <div className="ml-auto">{nextAction}</div> : null}
+          </details>
+        ) : null}
+        {canWrite && linkReport ? (
+          <div role="status" className="space-y-0.5 text-sm text-foreground">
+            {linkReport.map((sentence) => <p key={sentence}>{sentence}</p>)}
+          </div>
+        ) : null}
       </div>
       {chooseTypeSupplier ? (
         <SupplyTypeSuppliersDialog

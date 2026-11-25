@@ -7,10 +7,6 @@
   .material-request-page .typo-h1 { font-size: 1.5rem; }
 }
 
-@media (min-width: 768px) {
- .material-request-editor .mr-request-actions { position: absolute; right: 0; top: 2.5rem; z-index: 20; }
-}
-
 /* Match the selected light mockups without changing the application shell. */
 :root:not(.dark) .material-request-page { isolation: isolate; }
 :root:not(.dark) .material-request-page::before {
@@ -47,7 +43,7 @@
 :root:not(.dark) .material-request-editor .bg-brand-orange { background-color: #b95607; }
 :root:not(.dark) .material-request-editor .text-brand-orange { color: #a44806; }
 :root:not(.dark) .material-request-editor [role="tab"][data-active] { border-bottom-color: #c25a00; }
-:root:not(.dark) .material-request-editor .mr-supplier-workspace nav > button[aria-pressed="true"],
+:root:not(.dark) .material-request-editor .mr-workspace-choice[aria-pressed="true"],
 :root:not(.dark) .material-request-editor .mr-workbench li[data-inspected="true"] { background-color: #e9f0fc; }
 @media (min-width: 1280px) {
   .material-request-page { margin-top: -0.75rem; }

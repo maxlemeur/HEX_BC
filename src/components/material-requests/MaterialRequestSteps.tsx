@@ -1,30 +1,25 @@
 "use client";
 
 import { Tabs } from "@base-ui/react/tabs";
-import { ArrowRight, Check } from "lucide-react";
+import { Check } from "lucide-react";
 
-import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
-import { REQUEST_STEP_KEYS, type RequestStepKey, type RequestSteps } from "./request-steps";
+import type { RequestStep, RequestStepKey } from "./request-steps";
 
 export function requestStepPanelId(base: string, step: RequestStepKey): string {
   return `${base}-etape-${step}`;
 }
 
 /** Keep the current step distinct from its completion state, without a second large page header: one size on every step. */
-export function MaterialRequestSteps({ model, active, idBase, onGoTo }: Readonly<{
-  model: RequestSteps;
+export function MaterialRequestSteps({ steps, active, idBase }: Readonly<{
+  steps: readonly RequestStep[];
   active: RequestStepKey;
   idBase: string;
-  onGoTo: (step: RequestStepKey) => void;
 }>) {
-  const { next, steps } = model;
-  // Lignes and Bons de commande link to Devis in their footer. The Devis footer links to both other steps.
-  const nextInFooter = active === "devis" || next.step === "devis";
   return (
-    <section aria-label="Avancement de la demande" className="mb-4 flex flex-wrap items-end gap-x-3 border-b border-border">
-      <Tabs.List aria-label="Étapes de la demande" className="grid w-full grid-cols-3 gap-1.5 sm:gap-3 lg:w-auto lg:flex-1 lg:grid-cols-[repeat(3,minmax(0,15rem))]">
+    <section aria-label="Avancement de la demande" className="mb-4 border-b border-border">
+      <Tabs.List aria-label="Étapes de la demande" className="grid w-full grid-cols-3 gap-1.5 sm:gap-3 lg:max-w-[46.5rem]">
         {steps.map((step, index) => (
           <Tabs.Tab
             key={step.key}
@@ -50,11 +45,6 @@ export function MaterialRequestSteps({ model, active, idBase, onGoTo }: Readonly
           </Tabs.Tab>
         ))}
       </Tabs.List>
-      {!next.done && next.step !== active && !nextInFooter ? (
-        <Button type="button" size="sm" variant="link" className="ml-auto shrink-0" onClick={() => onGoTo(next.step)}>
-          {`Aller à l’étape ${steps[REQUEST_STEP_KEYS.indexOf(next.step)].label}`}<ArrowRight aria-hidden="true" />
-        </Button>
-      ) : null}
     </section>
   );
 }

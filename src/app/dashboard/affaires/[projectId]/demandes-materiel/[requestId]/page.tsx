@@ -1,6 +1,5 @@
 import { notFound } from "next/navigation";
 
-import { PageHeader } from "@/components/layout/page-header";
 import { MaterialRequestEditor } from "@/components/material-requests/MaterialRequestEditor";
 
 import { loadMaterialRequestAffaire } from "../_lib/affaire";
@@ -19,24 +18,21 @@ export default async function AffaireMaterialRequestPage({ params }: Props) {
 
   return (
     <div className="material-request-page">
-      <PageHeader
-        className="mb-2 sm:mb-2"
-        title="Demande de matériel"
-        breadcrumbs={[
-          { label: "Affaires", href: "/dashboard/affaires" },
-          { label: project.name, href: `/dashboard/affaires/${projectId}` },
-          { label: "Achats", href: listHref },
-          { label: "Demande" },
-        ]}
-        back={{ href: listHref, label: "Retour aux achats" }}
-      />
-
       <MaterialRequestEditor
         projectId={projectId}
         requestId={requestId}
         affaireName={project.name}
         canEditCatalogue={project.canEditCatalogue}
         canCreateSupplyType={project.canCreateSupplyType}
+        pageHeader={{
+          breadcrumbs: [
+            { label: "Affaires", href: "/dashboard/affaires" },
+            { label: project.name, href: `/dashboard/affaires/${projectId}` },
+            { label: "Achats", href: listHref },
+            { label: "Demande" },
+          ],
+          back: { href: listHref, label: "Retour aux achats" },
+        }}
       />
     </div>
   );
