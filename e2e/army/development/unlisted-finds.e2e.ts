@@ -1,9 +1,10 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { expect } from "e2e";
+import { AFFAIRE_INTAKE_BUCKET } from "../../../src/lib/affaires/intake";
 import { apiRequest, armyTest, recordEvidence } from "../critical/fixtures";
 import { waitForHydration } from "../critical/hydration-support";
 import { querySql } from "../local/calculation-gate-support";
-import { activateOwnedPlanDispatch, deactivateOwnedPlanDispatch, readOwnedPlanJobs, runOwnedPlanDispatch,
+import { activateOwnedPlanDispatch, deactivateOwnedPlanDispatch, fictionalPlanPdf, readOwnedPlanJobs, runOwnedPlanDispatch,
   runOwnedTakeoffCommand, seedPlanDossier } from "../takeoff/plan-dispatch-support";
 import { activateOwnedItemListOrder, deactivateOwnedItemListOrder, publishOwnedItemTemplate } from "../takeoff/poste-reading-support";
 import { ownedWorkerHostId, signUpWorkerOwner } from "../takeoff/worker-support";
@@ -61,16 +62,18 @@ armyTest("TKFIND01 les ouvrages hors liste sont décidés, mesurés sur le forfa
       await expect(block).toContainText("Camille Exemple");
       const directorProof = row(finds[0].designation).getByRole("link", /Voir le plan/);
       await expect(directorProof).toHaveAttribute("href", attestedPage);
-      const pdf = await ui.browser.evaluate(async url => {
+      const readPdf = (url: string) => ui.browser.evaluate(async url => {
         const response = await fetch(url);
         const digest = await crypto.subtle.digest("SHA-256", await response.arrayBuffer());
         return { status: response.status, hash: Array.from(new Uint8Array(digest), b => b.toString(16).padStart(2, "0")).join("") };
-      }, (await directorProof.getAttribute("href"))!);
+      }, url);
+      const pdf = await readPdf((await directorProof.getAttribute("href"))!);
       expect(pdf).toEqual({ status: 200, hash: plan.hash });
       await expect(block.getByRole("button","Ajouter à la liste",{ exact: true })).toHaveCount(0);
       await expect(block.getByRole("button","Annuler la mise à l’écart",{ exact: true })).toHaveCount(0);
       expect((await apiRequest(ui.browser,"POST",`/api/affaires/${project}/takeoff/items/finds`,{ kind: "dismiss",
         intentKey: randomUUID(),jobId: initial.id,index: 0,reason: "outside_scope" })).status).toBe(403);
+      const directorCookies = await ui.browser.cookies();
       await ui.browser.setCookies(ownerCookies);
       await open();
       for (const f of finds.slice(0,2)) await row(f.designation).getByRole("checkbox").check();
@@ -130,8 +133,49 @@ armyTest("TKFIND01 les ouvrages hors liste sont décidés, mesurés sur le forfa
       await button("Annuler la mise à l’écart").click();
       await expect(block).toContainText("Ouvrages vus sur le plan, hors liste (2)");
       await expect(block).toContainText(changed[2].designation);
+
+      const pieceDossier = await seedPlanDossier(ui, owner, [{ name: "piece-du-dossier.pdf", pages: 2, dossierPiece: true }]);
+      const [piecePlan] = pieceDossier.plans;
+      const piece = piecePlan.piece!;
+      const pieceProject = pieceDossier.projectId;
+      const pieceLaunch = await runOwnedTakeoffCommand(owner, ["launch", pieceProject, pieceDossier.planSetId, randomUUID(), "1", piecePlan.id]);
+      expect(pieceLaunch.result?.outcome).toBe("admitted");
+      const [pieceJob] = await readOwnedPlanJobs(pieceProject);
+      await runOwnedPlanDispatch(ui, owner, pieceProject, { itemAnswers: { [pieceJob.id]: { finds: [finds[2]] } } });
+      const pieceAddress = `/dashboard/affaires/${pieceProject}/takeoff?postes=liste`;
+      await ui.app.open(pieceAddress);
+      await waitForHydration(ui.browser);
+      await row(finds[2].designation).getByRole("button", "Écarter", { exact: true }).click();
+      await ui.screen.getByLabel("Motif", { exact: true }).selectOption({ value: "outside_scope" });
+      await button("Confirmer la mise à l’écart").click();
+      await expect(block).toContainText("1 écarté");
+      const deletion = await pieceDossier.setup.from("takeoff_jobs").delete().eq("id", pieceJob.id).select("id").single();
+      expect(deletion.error).toBeNull();
+      expect(deletion.data).toEqual({ id: pieceJob.id });
+
+      await ui.browser.setCookies(directorCookies);
+      await ui.app.open(pieceAddress);
+      await waitForHydration(ui.browser);
+      await block.getByText("1 écarté", { exact: true }).click();
+      await expect(row(finds[2].designation)).toContainText("Hors de mon lot");
+      const survivingProof = row(finds[2].designation).getByRole("link", /Voir le plan/);
+      await expect(survivingProof).toHaveAttribute("href", /#page=2$/);
+      const retainedHref = (await survivingProof.getAttribute("href"))!;
+      const currentPieceHref = `/api/affaires/${pieceProject}/intake/files/${piece.id}/preview`;
+      expect(await readPdf(currentPieceHref)).toEqual({ status: 200, hash: piecePlan.hash });
+      expect(await readPdf(retainedHref)).toEqual({ status: 200, hash: piecePlan.hash });
+      const replacement = await fictionalPlanPdf("Pièce du dossier modifiée", 2);
+      const replacementHash = createHash("sha256").update(replacement).digest("hex");
+      expect(replacementHash).not.toBe(piecePlan.hash);
+      const updated = await pieceDossier.setup.storage.from(AFFAIRE_INTAKE_BUCKET)
+        .update(piece.path, replacement, { contentType: "application/pdf" });
+      expect(updated.error).toBeNull();
+      expect(await readPdf(currentPieceHref)).toEqual({ status: 200, hash: replacementHash });
+      expect((await readPdf(retainedHref)).status).toBe(404);
+
       await recordEvidence(ui.army,"unlisted-finds",{ project, plan: plan.id, initial: initial.id, targeted: measured.id,
-        reread: next.id, widths: [1440,390], observedQuantity: 4, added: 2, availableAfterUndo: 2 });
+        reread: next.id, widths: [1440,390], observedQuantity: 4, added: 2, availableAfterUndo: 2,
+        survivingPiece: { document: piece.id, deletedJob: pieceJob.id, page: 2, unchangedStatus: 200, changedStatus: 404 } });
     } finally {
       await deactivateOwnedItemListOrder();
       await deactivateOwnedPlanDispatch();
@@ -149,13 +193,14 @@ armyTest("TKFIND02 relire une seule page conserve les ouvrages des autres pages 
       const [plan] = dossier.plans;
       await publishOwnedItemTemplate(dossier.setup, owner, ["Lavabo", "Vanne", "Robinet"].map((label, i) =>
         ({ id: `poste-${i}`, label, expectedUnit: "u" })));
-      const read = async (revision: number, finds: Array<{ designation: string; page: number; evidence: string }>, predecessor?: string) => {
+      const read = async (revision: number, finds: Array<{ designation: string; page: number; evidence: string }>,
+        predecessor?: string, unreadablePages?: number[]) => {
         const launch = await runOwnedTakeoffCommand(owner, ["launch", dossier.projectId, dossier.planSetId, randomUUID(),
           String(revision), predecessor ? "-" : plan.id, ...(predecessor ? [predecessor] : [])]);
         expect(launch.result?.outcome).toBe("admitted");
         const job = (await readOwnedPlanJobs(dossier.projectId)).find(job => job.launch_request_id === launch.result?.requestId)!;
-        await runOwnedPlanDispatch(ui, owner, dossier.projectId, { itemAnswers: { [job.id]: { finds,
-          items: { Lavabo: { quantity: 1, unit: "u", page: 1 } } } } });
+        await runOwnedPlanDispatch(ui, owner, dossier.projectId, { itemAnswers: { [job.id]: { finds, unreadablePages,
+          ...(!unreadablePages ? { items: { Lavabo: { quantity: 1, unit: "u", page: 1 } } } : {}) } } });
         return job.id;
       };
       const first = await read(1, [{ designation: "Ancienne bouche", page: 1, evidence: "B1" },
@@ -174,7 +219,20 @@ armyTest("TKFIND02 relire une seule page conserve les ouvrages des autres pages 
       await expect(block).toContainText("Clapet conservé");
       await expect(block).not.toContainText("Ancienne bouche");
       await expect(ui.screen.getByText(/cette liste ne correspond probablement pas à ce plan/)).toHaveCount(0);
-      await recordEvidence(ui.army, "finds-partial-plan", { first, second, retainedPages: [1], olderFindPage: 2, visibleFinds: 2 });
+      await dossier.confirm([{ ...plan, pages: [1, 2], inactive: false }], 3);
+      const third = await read(3, [{ designation: "Bouche rectangulaire", page: 1, evidence: "R1" }], second, [2]);
+      const publication = await dossier.setup.from("takeoff_item_answer_publications").select("pages,answer_count").eq("job_id", third).single();
+      expect(publication.data).toEqual({ pages: [1, 2], answer_count: 3 });
+      const answers = await dossier.setup.from("takeoff_item_answers").select("searched_pages,unreadable_pages,outcome").eq("job_id", third);
+      expect(answers.data).toEqual(Array.from({ length: 3 }, () => ({ searched_pages: [1], unreadable_pages: [2], outcome: "uncertain" })));
+      await ui.app.open(address);
+      await expect(block).toContainText("Bouche rectangulaire");
+      await expect(block).toContainText("Clapet conservé");
+      await expect(block).not.toContainText("Nouvelle bouche");
+      await expect(block).not.toContainText("Ancienne bouche");
+      await expect(ui.screen.getByText(/cette liste ne correspond probablement pas à ce plan/)).toHaveCount(0);
+      await recordEvidence(ui.army, "finds-partial-plan", { first, second, third, retainedPages: [1],
+        submittedPages: [1, 2], unreadablePages: [2], olderFindPage: 2, visibleFinds: 2 });
     } finally {
       await deactivateOwnedItemListOrder();
       await deactivateOwnedPlanDispatch();

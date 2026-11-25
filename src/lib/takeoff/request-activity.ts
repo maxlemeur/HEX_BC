@@ -91,7 +91,8 @@ export type TakeoffRequestUnitJobRow = {
   updated_at: string;
 };
 
-type ManifestPlan = { planFileId: string | null; logicalId: string | null; documentId: string | null; name: string; pages: number[]; pageCount: number | null };
+type ManifestPlan = { planFileId: string | null; logicalId: string | null; documentId: string | null; name: string;
+  pages: number[]; pageCount: number | null; contentSha256?: string };
 
 /** The part of a sealed manifest the activity reads: its units in order, the plans they name, the plans set aside. */
 export type TakeoffRequestManifest = {
@@ -141,6 +142,8 @@ export function parseTakeoffRequestManifest(raw: unknown): TakeoffRequestManifes
       name: plan.name,
       pages: toPages(plan.pages),
       pageCount: typeof plan.page_count === "number" && Number.isSafeInteger(plan.page_count) && plan.page_count > 0 ? plan.page_count : null,
+      ...(typeof plan.content_sha256 === "string" && /^[0-9a-f]{64}$/.test(plan.content_sha256)
+        ? { contentSha256: plan.content_sha256 } : {}),
     });
   }
   const coverage = isRecord(raw.coverage) ? raw.coverage : {};

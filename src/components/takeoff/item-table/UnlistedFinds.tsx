@@ -11,12 +11,13 @@ import { FIND_REASONS, type FindCommand, type FindsView, type UnlistedFind } fro
 
 const coord = (f: UnlistedFind) => `${f.jobId}/${f.index}`;
 
-export function FindSource({ find }: { find: UnlistedFind }) {
+export function FindSource({ find, decision }: { find: UnlistedFind; decision?: { projectId: string; id: string } }) {
+  const query = decision && find.documentId ? `?${new URLSearchParams({ projectId: decision.projectId, decisionId: decision.id })}` : "";
   return <div className="min-w-0 space-y-1 whitespace-normal text-sm font-normal">
     <p>{find.planName} · page {find.page}</p>
     <p className="break-words text-muted-foreground">{find.evidence}</p>
     <a className="underline" target="_blank" rel="noreferrer"
-      href={`/api/takeoff/jobs/${find.jobId}/vector-plans/${find.fileId}#page=${find.page}`}>Voir le plan — page {find.page}</a>
+      href={`/api/takeoff/jobs/${find.jobId}/vector-plans/${find.fileId}${query}#page=${find.page}`}>Voir le plan — page {find.page}</a>
   </div>;
 }
 
@@ -113,7 +114,7 @@ export function UnlistedFinds({ view, projectId, planKey, refresh, measure }: {
     </li>)}</ul>
     {dismissed.length > 0 && <details><summary className="cursor-pointer text-sm">{dismissed.length} écarté{dismissed.length > 1 ? "s" : ""}</summary>
       <ul className="divide-y">{dismissed.map(d => <li key={d.id} className="space-y-1 py-2"><strong>{d.designation}</strong>
-        <FindSource find={d} />
+        <FindSource find={d} decision={{ projectId, id: d.id }} />
         <p className="text-sm">{d.reason && FIND_REASONS[d.reason]}{d.detail && ` · ${d.detail}`} · {d.author} · {new Date(d.date).toLocaleString("fr-FR")}</p>
         {view.canWrite && <Button size="sm" variant="outline" disabled={busy} onClick={() => void save({ kind: "undo", decisionId: d.id })}>Annuler la mise à l’écart</Button>}
       </li>)}</ul></details>}

@@ -57,7 +57,7 @@ export async function readUnlistedFinds(projectId: string): Promise<FindsView> {
     return [{ jobId: row.job_id, planKey: plan.logicalId, fileId: plan.planFileId, documentId: plan.documentId,
       planName: plan.name, total: row.takeoff_list_revisions.item_count, pages,
       wholePlan: plan.pageCount !== null && pages.size === plan.pageCount,
-      wholeList: !Array.isArray(asRecord(asRecord(asRecord(raw)?.order)?.list)?.asked_item_ids)
+      wholeList: row.answer_count > 0 && !Array.isArray(asRecord(asRecord(asRecord(raw)?.order)?.list)?.asked_item_ids)
         && row.answer_count === row.takeoff_list_revisions.item_count }];
   });
   const documentIds = [...new Set([...candidates.map(p => p.documentId), ...decisions.map(d => d.intake_document_id)]
@@ -70,17 +70,34 @@ export async function readUnlistedFinds(projectId: string): Promise<FindsView> {
   if (documents.error) throw mapSupabaseError(documents.error, readFailure);
   const readableDocuments = new Set(documents.data.map(d => d.id));
   const documentLink = (id: string | null) => id && readableDocuments.has(id) ? id : null;
+  const visible = candidates.filter(plan => visibility === "all" || visibility.planFiles.has(plan.fileId)
+    || (plan.documentId === plan.planKey && visibility.documents.has(plan.documentId)));
+  // Publication requires every answer to account for each submitted page. Only uncertain answers can report
+  // unreadable pages, and an unreadable page does not count as inspected even if it was attempted.
+  const unreadableAnswers = await selectInChunks(visible.filter(plan => plan.wholeList).map(plan => plan.jobId), async ids => ({
+    data: await readOrdered<{ job_id: string; unreadable_pages: number[] }>((from, to) => service.from("takeoff_item_answers")
+      .select("job_id,unreadable_pages", { count: "exact" }).eq("tenant_id", scope.tenantId).eq("project_id", scope.projectId)
+      .eq("outcome", "uncertain").in("job_id", ids).order("id").range(from, to)),
+    error: null,
+  }));
+  const unreadableByJob = new Map<string, Set<number>>();
+  for (const { job_id, unreadable_pages } of unreadableAnswers.data) {
+    if (!unreadable_pages?.length) continue;
+    const pages = unreadableByJob.get(job_id) ?? new Set<number>();
+    for (const page of unreadable_pages) pages.add(page);
+    unreadableByJob.set(job_id, pages);
+  }
   // Only a later reading of the entire list replaces a page's findings. A targeted measurement adds its evidence.
   const supersededPages = new Map<string, Set<number>>();
-  const retained = candidates.flatMap(plan => {
-    if (visibility !== "all" && !visibility.planFiles.has(plan.fileId)
-      && !(plan.documentId === plan.planKey && visibility.documents.has(plan.documentId))) return [];
+  const retained = visible.flatMap(plan => {
     const superseded = supersededPages.get(plan.planKey);
     const visiblePages = new Set([...plan.pages].filter(page => !superseded?.has(page)));
-    const evaluateMismatch = !superseded && plan.wholeList && plan.wholePlan;
+    const unreadable = unreadableByJob.get(plan.jobId);
+    const evaluateMismatch = !superseded && plan.wholeList && plan.wholePlan
+      && ![...plan.pages].some(page => unreadable?.has(page));
     if (plan.wholeList) {
       const covered = superseded ?? new Set<number>();
-      for (const page of plan.pages) covered.add(page);
+      for (const page of plan.pages) if (!unreadable?.has(page)) covered.add(page);
       supersededPages.set(plan.planKey, covered);
     }
     return visiblePages.size ? [{ ...plan, visiblePages, evaluateMismatch }] : [];
