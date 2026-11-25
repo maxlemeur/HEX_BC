@@ -66,6 +66,7 @@ import {
   SetAsideDialog,
 } from "./ItemTableGestureDialogs";
 import { ItemTableLineDetail } from "./ItemTableLineDetail";
+import { ItemUncertainReadings } from "./ItemUncertainReadings";
 import { useCompletions, type Completion } from "@/components/takeoff/item-detail/useCompletions";
 
 const TakeoffItemSendDialog = dynamic(
@@ -687,7 +688,11 @@ export function TakeoffItemTable({ projectId, viewerKey, signature }: {
                             <td className={line.expectedUnit ? undefined : "bg-warning-subtle"} title={line.expectedUnit ? undefined : "Unité à préciser"}>
                               {line.expectedUnit ?? <span className="sr-only">Unité à préciser</span>}
                             </td>
-                            <td>{ITEM_STATE_LABELS[line.state]}</td>
+                            <td>
+                              {ITEM_STATE_LABELS[line.state]}
+                              <ItemUncertainReadings line={line} projectId={projectId} planKey={planScope?.planKey ?? null}
+                                query={searchParams} canReview={canReview} />
+                            </td>
                             <td className="tabular-nums">
                               {line.coverage.expected > 0 ? `${line.coverage.answered}/${line.coverage.expected}` : null}
                             </td>

@@ -3534,7 +3534,7 @@ describe("an attempt of the second measuring order", () => {
     expect(processItemListLevelC).toHaveBeenCalledTimes(1);
     expect(vi.mocked(processItemListLevelC).mock.calls[0][0]).toMatchObject({ order: ORDER, job: expect.objectContaining({ id: JOB_ID,
       status: "processing" }), sourceFile: expect.objectContaining({ mimeType: "application/pdf" }) });
-    expect(mock.state.job).toMatchObject({ prompt_version: "takeoff-c-postes-v1" });
+    expect(mock.state.job).toMatchObject({ prompt_version: "takeoff-c-postes-v2" });
     // The first order's reading and end are never used for it.
     expect(call).not.toHaveBeenCalled();
     expect(mock.state.takeoffResults).toEqual([]);

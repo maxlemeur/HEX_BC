@@ -78,6 +78,6 @@ export async function readOwnedItemReadings(owner: WorkerOwner, projectId: strin
       coverage: { expected: row.expected, answered: row.answered, inFlight: row.in_flight, ended: row.ended },
       readings: (row.readings ?? []).map(parseTakeoffItemPlanReading) }));
   } finally {
-    await member.auth.signOut();
+    await member.auth.signOut({ scope: "local" });
   }
 }

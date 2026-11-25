@@ -6,7 +6,11 @@ import { getAuthenticatedTenantContext, type AuthenticatedTenantContext } from "
 import { buildCatalogueAccess, canAddToCatalogue, canEditCatalogueRecord } from "@/lib/catalogue/access";
 import { readEngineersCanEditShared } from "@/lib/catalogue/access-server";
 import { readCostingWorkbookImportSheet } from "@/lib/catalogue/costing-workbook-server";
-import { workbookReferenceKey, type CostingWorkbookSupplierOccurrence } from "@/lib/catalogue/costing-workbook";
+import {
+  workbookReferenceKey,
+  workbookSupplierNameKey,
+  type CostingWorkbookSupplierOccurrence,
+} from "@/lib/catalogue/costing-workbook";
 import type {
   CostingWorkbookSupplierReferenceReport,
   CostingWorkbookSupplierReferencesInput,
@@ -14,7 +18,6 @@ import type {
 import { PRODUCT_WRITE_REFUSAL } from "@/lib/catalogue/product-writes";
 import { conflict, forbidden, mapSupabaseError } from "@/lib/http/api-response";
 import { readAllRows, readAllRowsInChunks } from "@/lib/supabase/read-all";
-import { foldText } from "@/lib/text/fold";
 
 type Occurrence = CostingWorkbookSupplierOccurrence;
 type Decision = CostingWorkbookSupplierReferenceReport["for_decision"][number];
@@ -27,10 +30,6 @@ type Candidate = {
 };
 
 const CATALOGUE_CHANGED = "Le catalogue a changé depuis l’aperçu. Actualisez l’aperçu avant de confirmer.";
-
-function supplierNameKey(name: string) {
-  return foldText(name).trim().replace(/\s+/g, " ");
-}
 
 function pairKey(productId: string, supplierId: string) {
   return productId + "/" + supplierId;
@@ -61,7 +60,7 @@ async function planReferences(context: AuthenticatedTenantContext, occurrences: 
 
   const access = buildCatalogueAccess({ userId, role: tenantRole, engineersCanEditShared });
   const articlesByReference = groupBy(products.data ?? [], (product) => workbookReferenceKey(product.reference ?? ""));
-  const suppliersByName = groupBy(suppliers.data ?? [], (supplier) => supplierNameKey(supplier.name));
+  const suppliersByName = groupBy(suppliers.data ?? [], (supplier) => workbookSupplierNameKey(supplier.name));
 
   const decisions: Decision[] = [];
   const refuse = (occurrence: Occurrence, reason: Decision["reason"]) => {
@@ -86,8 +85,12 @@ async function planReferences(context: AuthenticatedTenantContext, occurrences: 
       refuse(occurrence, "invalid_supplier_sku");
       continue;
     }
+    if (occurrence.price_source_kind) {
+      refuse(occurrence, "price_source_reference");
+      continue;
+    }
     const articles = articlesByReference.get(workbookReferenceKey(occurrence.article_reference)) ?? [];
-    const supplierMatches = suppliersByName.get(supplierNameKey(occurrence.supplier_name)) ?? [];
+    const supplierMatches = suppliersByName.get(workbookSupplierNameKey(occurrence.supplier_name)) ?? [];
     const [article] = articles;
     const [supplier] = supplierMatches;
     if (!article?.reference || articles.length !== 1) {

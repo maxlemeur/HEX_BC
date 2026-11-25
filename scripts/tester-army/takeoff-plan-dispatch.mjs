@@ -16,7 +16,7 @@ import { createClient } from "@supabase/supabase-js";
 // quantity, unit, page local to the copied PDF). A job that reads its plan against its request's sealed list (lot 4, the
 // second measuring order) is answered item by item from the manifest of each call, as the model would
 // (poste-reading.test-fixtures.ts): « not found » on every page the call owns unless ARMY_TAKEOFF_ITEM_ANSWERS gives the
-// job, by item label, a measure ({ quantity, unit, page } local to the copied PDF) or « omit » (no answer for the item);
+// job, by item label, a measure, an uncertain answer or « omit » (no answer for the item). Pages are local to the copied PDF;
 // its `truncate` cuts the answer in half, as a reading cut short.
 const [projectId, prefix] = process.argv.slice(2);
 assert(/^[0-9a-f-]{36}$/.test(projectId ?? ""));
@@ -41,8 +41,15 @@ const planItems = JSON.parse(process.env.ARMY_TAKEOFF_PLAN_ITEMS ?? "{}");
 assert(Object.values(planItems).every((items) => Array.isArray(items) && items.every((item) => typeof item.designation === "string"
   && Number.isFinite(item.quantity) && typeof item.unit === "string" && Number.isInteger(item.source_page))));
 const itemAnswers = JSON.parse(process.env.ARMY_TAKEOFF_ITEM_ANSWERS ?? "{}");
-assert(Object.values(itemAnswers).every((spec) => spec && typeof spec === "object" && Object.values(spec.items ?? {}).every((answer) =>
-  answer === "omit" || (Number.isFinite(answer.quantity) && typeof answer.unit === "string" && Number.isInteger(answer.page)))));
+const hasFigure = (answer) => Number.isFinite(answer?.quantity) && typeof answer.unit === "string";
+const isItemAnswer = (answer) => {
+  if (answer === "omit") return true;
+  if (!Number.isInteger(answer?.page)) return false;
+  if (!answer.uncertain) return hasFigure(answer);
+  return typeof answer.text === "string" && (answer.uncertain === "PARTIAL_QUANTITY" ? hasFigure(answer.figure)
+    : answer.uncertain === "QUALIFIER_UNREADABLE" && (answer.figure === undefined || hasFigure(answer.figure)));
+};
+assert(Object.values(itemAnswers).every((spec) => spec && typeof spec === "object" && Object.values(spec.items ?? {}).every(isItemAnswer)));
 const delayMs = Number(process.env.ARMY_TAKEOFF_PROVIDER_DELAY_MS ?? "0");
 assert(Number.isInteger(delayMs) && delayMs >= 0 && delayMs <= 5_000);
 
@@ -120,6 +127,10 @@ const resolveProvider = async (_supabase, job, hooks) => {
         const entry = { key: post.post_id, owned: manifest.page_scope.owned_pages };
         const answer = spec.items?.[post.label];
         if (answer === "omit") return [];
+        if (answer?.uncertain) return [{ ...posteNotFound(entry), outcome: "uncertain", reason_code: answer.uncertain, reason_text: answer.text,
+          observations: [{ page: answer.page, evidence: answer.text, method: answer.figure ? "symbol_count" : "annotation", confidence: 0.5,
+            quantity: answer.figure?.quantity ?? null, unit: answer.figure?.unit ?? null, measurement_basis: null,
+            counts_as: "distinct", basis_as_requested: false }] }];
         return [answer ? posteMeasured(entry, [{ page: answer.page, quantity: answer.quantity, unit: answer.unit }]) : posteNotFound(entry)];
       });
       const text = JSON.stringify({ schema_version: manifest.schema_version, prompt_version: manifest.prompt_version,

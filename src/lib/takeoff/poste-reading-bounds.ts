@@ -7,7 +7,7 @@ import {
   planPosteBatches, POSTE_EXCHANGE_LIMITS, POSTE_NOT_FOUND_REASONS, POSTE_OBSERVATION_METHODS, POSTE_UNCERTAIN_REASONS,
   posteExchangeOutputMaxBytes,
 } from "@/lib/takeoff/poste-exchange";
-import { POSTE_WORKER_REASON_MAX_BYTES, POSTE_WORKER_REASONS } from "@/lib/takeoff/poste-exchange-merge";
+import { POSTE_MERGE_REASONS, POSTE_WORKER_REASONS_RESERVED_BYTES } from "@/lib/takeoff/poste-exchange-merge";
 import type { Poste } from "@/lib/takeoff/poste-list";
 import type { PosteReadingBoundsFacts } from "@/lib/takeoff/poste-reading-bounds-text";
 import {
@@ -50,10 +50,10 @@ export const POSTE_READING_LIMITS = {
  * The fragments of one plan at most: what one answer of an item may hold once its fragments are merged, within what the
  * publication command stores of an answer (TAKEOFF_ITEM_ANSWER_LIMITS). Each fragment gives an item at most one reason
  * of the model and POSTE_EXCHANGE_LIMITS.observationsPerAnswer observations; the worker adds at most one reason of each
- * of its codes, and the vector reading one observation of each vector page of the dossier (more are left unattached,
+ * merge code or one publication reason to an otherwise measured answer. The vector reading gives one observation of each vector page (more are left unattached,
  * `VECTOR_READINGS_UNATTACHED`). 19 fragments: a plan of up to 154 pages with the tenant's default fragmenting.
  */
-export const POSTE_READING_MAX_FRAGMENTS = Math.min(TAKEOFF_ITEM_ANSWER_LIMITS.reasons - POSTE_WORKER_REASONS.length,
+export const POSTE_READING_MAX_FRAGMENTS = Math.min(TAKEOFF_ITEM_ANSWER_LIMITS.reasons - POSTE_MERGE_REASONS.length,
   Math.floor((TAKEOFF_ITEM_ANSWER_LIMITS.observations - TAKEOFF_LAUNCH_VECTOR_PAGES) / POSTE_EXCHANGE_LIMITS.observationsPerAnswer));
 
 const longest = <T extends string>(values: readonly T[]) => values.reduce((left, right) => right.length > left.length ? right : left);
@@ -91,7 +91,7 @@ export function posteAnswersMaxBytes(input: { batches: readonly number[]; fragme
   const items = input.batches.reduce((sum, size) => sum + size, 0);
   const observations = input.fragments * input.batches.reduce((sum, size) => sum + Math.min(POSTE_EXCHANGE_LIMITS.observationsPerCall,
     POSTE_EXCHANGE_LIMITS.observationsPerAnswer * size), 0);
-  const answer = listEntryBytes(PUBLISHED_ANSWER_FRAME_MAX_BYTES) + POSTE_WORKER_REASONS.length * listEntryBytes(POSTE_WORKER_REASON_MAX_BYTES)
+  const answer = listEntryBytes(PUBLISHED_ANSWER_FRAME_MAX_BYTES) + POSTE_WORKER_REASONS_RESERVED_BYTES
     + input.fragments * listEntryBytes(MODEL_REASON_MAX_BYTES) + 2 * input.pages * listEntryBytes(String(input.maxPage).length);
   return 2 + items * answer + observations * listEntryBytes(modelObservationMaxBytes(input.maxPage));
 }

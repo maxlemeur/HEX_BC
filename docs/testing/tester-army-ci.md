@@ -368,13 +368,12 @@ un seul job. Les durées ne choisissent pas la couverture.
 
 `secondsPerShard` est la charge de parcours mesurée qu'un job porte avant
 qu'un autre vaille sa pile et son build (environ trois minutes de runner par
-job). Elle vaut ce qu'un shard porte quand la suite entière tourne (715 s en
-critical, à 2 workers) : une sélection partielle remplit donc ses shards comme
-la suite complète, au lieu d'en ouvrir un tous les 300 s. Pour le métré, le plan
+job). Le seuil Critical est de 715 s à 2 workers. Une sélection partielle
+applique ce même seuil, au lieu d'ouvrir un shard tous les 300 s. Pour le métré, le plan
 ouvre un deuxième job quand la charge estimée à 1 worker dépasse 400 s.
 
 `neverTogether` liste les fichiers qui ne partagent jamais un shard, quelles que
-soient leurs durées : les trois fichiers des
+soient leurs durées : les cinq fichiers des
 [parcours ChatGPT local](chatgpt-local.md#vérification) démarrent chacun un
 serveur de développement. Deux de ces serveurs compileraient à froid en même
 temps sur un seul runner. Le plan réserve un shard à chacun des fichiers

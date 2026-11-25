@@ -155,8 +155,12 @@ function mapGlobs(): Array<{ where: string; glob: string }> {
 // The former chatgpt-local.e2e.ts, split so that no single file sets the duration of the Critical check.
 const CHATGPT_TAKEOFF = "e2e/army/local/chatgpt-local-takeoff.e2e.ts";
 const CHATGPT_DECISIONS = "e2e/army/local/chatgpt-local-decisions.e2e.ts";
-const CHATGPT_INTAKE = "e2e/army/local/chatgpt-local-intake.e2e.ts";
-const CHATGPT_JOURNEYS = [CHATGPT_DECISIONS, CHATGPT_INTAKE, CHATGPT_TAKEOFF];
+const CHATGPT_INTAKE = [
+  "e2e/army/local/chatgpt-local-intake-confirmation.e2e.ts",
+  "e2e/army/local/chatgpt-local-intake-documents.e2e.ts",
+  "e2e/army/local/chatgpt-local-intake-recovery.e2e.ts",
+];
+const CHATGPT_JOURNEYS = [CHATGPT_DECISIONS, ...CHATGPT_INTAKE, CHATGPT_TAKEOFF];
 
 // Owner request of 18/10/2026: the takeoff (métré) journeys join the map.
 const TAKEOFF_GLOB = "e2e/army/takeoff/**/*.e2e.ts";
@@ -347,10 +351,12 @@ describe("TesterArmy critical impact map", () => {
     expect(select(["src/components/takeoff/review/TakeoffVectorViewer.tsx"]).fullOnly.files).toContain(workerLifecycle);
     // The helpers of those folders stay non-runtime themselves: their importing journeys select them.
     expect(select(["e2e/army/local/takeoff-lab-support.ts"]).files).toEqual(expect.arrayContaining([CHATGPT_DECISIONS, takeoffLab]));
-    // The shared server lifecycle of the two files selects both, and so does everything the former single file was selected for.
+    // The shared server lifecycle selects all ChatGPT journeys.
     expect(select(["e2e/army/local/chatgpt-local-journey-support.ts"]).files).toEqual(expect.arrayContaining(CHATGPT_JOURNEYS));
-    expect(select(["src/app/api/affaires/[projectId]/intake/route.ts"]).files).toContain(CHATGPT_INTAKE);
-    expect(select(["e2e/fixtures/word/intake-word.docx"]).files).toContain(CHATGPT_INTAKE);
+    for (const intake of ["src/app/api/affaires/[projectId]/intake/route.ts",
+      "e2e/army/local/chatgpt-local-intake-support.ts", "e2e/fixtures/word/intake-word.docx"]) {
+      expect(select([intake]).files, intake).toEqual(expect.arrayContaining(CHATGPT_INTAKE));
+    }
     for (const shared of ["scripts/dev-chatgpt-local.mjs", "e2e/army/local/chatgpt-server-support.ts", "e2e/fixtures/sample-plan.pdf",
       "src/app/dashboard/estimates/new/page.tsx", "src/app/dashboard/affaires/page.tsx", "src/app/dashboard/affaires/[projectId]/page.tsx",
       "src/app/dashboard/affaires/[projectId]/plans/page.tsx", "src/components/takeoff/TakeoffPreparationPanel.tsx"]) {
@@ -646,6 +652,8 @@ describe("TesterArmy shard plans", () => {
     const fixture = selectFromRepository(root, { event: "pull_request", paths: ["e2e/army/local/chatgpt-provider-fixture.mjs"], repositoryFiles: files });
     expect(fixture.mode).toBe("files");
     expectApart(fixture.shards, "provider fixture selection");
+    const intake = selectFromRepository(root, { event: "pull_request", paths: ["src/app/api/affaires/[projectId]/intake/route.ts"], repositoryFiles: files });
+    expectApart(intake.shards, "intake route selection", CHATGPT_INTAKE);
     expectApart(planFullSuite(root, { repositoryFiles: files }), "nightly full suite");
 
     const setup = map.suite.setup;

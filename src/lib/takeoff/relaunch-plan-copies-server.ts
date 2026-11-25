@@ -5,6 +5,11 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { AuthenticatedTenantContext } from "@/lib/auth/tenant-context";
 import { mapSupabaseError } from "@/lib/http/api-response";
 import { readAllRows } from "@/lib/supabase/read-all";
+import { TakeoffError, TakeoffErrorCode } from "./errors";
+import { describePlansWithoutCopy } from "./launch-request";
+import type { TakeoffPreparationSnapshot } from "./preparation";
+import { isTakeoffSourceVisible } from "./request-activity";
+import { readTakeoffVisibleSources } from "./source-visibility-server";
 import type { Database } from "@/types/database";
 
 // The copies of a relaunched analysis's plans (lot 3, one analysis per plan): the source the database recorded for each
@@ -167,4 +172,20 @@ export async function currentPlanCopies(service: Service, context: Context, proj
       && piece.classification_status === "classified" && piece.document_kind === "plans").map((piece) => piece.id.toLowerCase()));
   return { scope: [...new Set(scope)].sort(),
     withoutCopy: gone.map(({ id, piece }) => ({ id, piece, removed: !piece || !stillPlans.has(piece) })) };
+}
+
+export async function checkCurrentCommandCopies(service: Service,
+  input: { context: Context; projectId: string; planSetId: string }, plans: readonly string[], snapshot: TakeoffPreparationSnapshot) {
+  const { context } = input;
+  const byId = new Map(snapshot.preparation.sources.map((source) => [source.document_id, source.document_name]));
+  const checked = await currentPlanCopies(service, context, input.projectId, input.planSetId, plans, "exact");
+  if (checked.withoutCopy.length > 0) {
+    const visible = await readTakeoffVisibleSources({ supabase: context.supabase, tenantId: context.tenantId,
+      projectId: input.projectId, ids: checked.withoutCopy.flatMap(({ id, piece }) => [id, piece]) });
+    throw new TakeoffError({ status: 422, code: TakeoffErrorCode.VALIDATION_ERROR, retryable: false,
+      message: `${describePlansWithoutCopy(checked.withoutCopy.map(({ id, piece, removed }, index) => ({
+        name: isTakeoffSourceVisible(visible, id, piece) ? byId.get(id) ?? `Plan ${index + 1}` : `Plan ${index + 1}`,
+        reason: removed ? "removed" : "copy_missing",
+      })))}. Actualisez les plans à relancer.` });
+  }
 }

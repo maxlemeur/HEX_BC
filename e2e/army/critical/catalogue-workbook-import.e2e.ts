@@ -266,6 +266,8 @@ armyTest(
     };
     const supplierId = await supplier(supplierName);
     const existingSupplierId = await supplier(existingSupplierName);
+    const competingSupplierName = prefix + " Quincaillerie Silex";
+    await supplier(competingSupplierName);
     const productRef = prefix + "-ATLAS-T32";
     const designation = prefix + " Tube Atlas";
     const created = await apiRequest<Envelope<{ item: Product }>>(browser, "POST", "/api/products", {
@@ -290,11 +292,17 @@ armyTest(
     const book = XLSX.utils.book_new();
     const sheetRows = [
       HEADERS,
-      row({ ...base, "F1_nom": supplierName, "F1_ref": "004205", "F2_nom": existingSupplierName, "F2_ref": "SKU-DIFFÉRENT" }),
-      row({ ...base, "F1_nom": supplierName, "F1_ref": "004205", "F2_nom": unknownSupplier, "F2_ref": "NS-32" }),
-      row({ ...base, "ID": newRef, "F1_nom": supplierName, "F1_ref": "NA-32" }),
+      row({ ...base, "F1_nom": supplierName, "F1_ref": 4205, "F2_nom": existingSupplierName, "F2_ref": "SKU-DIFFÉRENT",
+        "F3_nom": supplierName, "F3_ref": "Devis n° 70102" }),
+      row({ ...base, "F1_nom": supplierName, "F1_ref": "004205", "F2_nom": unknownSupplier, "F2_ref": "NS-32",
+        "F3_nom": competingSupplierName, "F3_ref": "SLX-320" }),
+      row({ ...base, "ID": newRef, "F1_nom": supplierName, "F1_ref": "NA-32",
+        "F2_nom": supplierName, "F2_ref": "Doc n° 50210" }),
+      row({ ...base, "F2_nom": competingSupplierName, "F2_ref": "SLX-321" }),
     ];
-    XLSX.utils.book_append_sheet(book, XLSX.utils.aoa_to_sheet(sheetRows), COSTING_WORKBOOK_SHEET);
+    const sheet = XLSX.utils.aoa_to_sheet(sheetRows);
+    sheet[XLSX.utils.encode_cell({ r: 1, c: HEADERS.indexOf("F1_ref") })].z = "000000";
+    XLSX.utils.book_append_sheet(book, sheet, COSTING_WORKBOOK_SHEET);
     const bytes = Buffer.from(XLSX.write(book, { bookType: "xlsx", type: "buffer" }) as Buffer);
     const directory = path.resolve(".e2e/army/critical/artifacts/fixtures", prefix);
     await mkdir(directory, { recursive: true });
@@ -311,6 +319,22 @@ armyTest(
 
     const dialog = await open();
     await expect(dialog.getByText("1 référence à importer", { exact: true })).toBeVisible({ timeout: 30_000 });
+    await expect(dialog.getByText("2 sources de prix écartées", { exact: true })).toBeVisible();
+    const values = dialog.getByRole("list", "Valeurs multiples dans le classeur", { exact: true });
+    const mixed = values.getByRole("listitem", { name: productRef + " · " + supplierName, exact: true });
+    await expect(mixed).toContainText("004205");
+    await expect(mixed).toContainText("Ligne 2 · F1_ref");
+    await expect(mixed).toContainText("Devis n° 70102");
+    await expect(mixed).toContainText("Ligne 2 · F3_ref");
+    await expect(mixed).toContainText("Source de prix · Devis");
+    const competitors = values.getByRole("listitem", { name: productRef + " · " + competingSupplierName, exact: true });
+    await expect(competitors).toContainText("SLX-320");
+    await expect(competitors).toContainText("Ligne 3 · F3_ref");
+    await expect(competitors).toContainText("SLX-321");
+    await expect(competitors).toContainText("Ligne 5 · F2_ref");
+    const unmatched = values.getByRole("listitem", { name: newRef + " · " + supplierName, exact: true });
+    await expect(unmatched).toContainText("NA-32");
+    await expect(unmatched).toContainText("Doc n° 50210");
     const rejected = dialog.getByRole("list", "Références pour décision", { exact: true });
     await expect(rejected).toContainText("Ligne 2 · " + productRef + " · " + existingSupplierName + " · SKU-DIFFÉRENT");
     await expect(rejected).toContainText("Ligne 3 · " + productRef + " · " + unknownSupplier + " · NS-32");
@@ -349,7 +373,8 @@ armyTest(
 
     await recordEvidence(army, "catalogue-workbook-supplier-references", {
       source: { sha256: createHash("sha256").update(bytes).digest("hex"), rows: sheetRows.length },
-      productId, supplierId, existingSupplierId, previewWrites: 0, imported: 1, forDecision: 3, retryWrites: 0,
+      productId, supplierId, existingSupplierId, previewWrites: 0, imported: 1, forDecision: 3,
+      comparisonGroups: 3, priceSources: 2, retryWrites: 0,
     });
   },
 );

@@ -51,9 +51,11 @@ describe("aggregatePosteAnswers", () => {
   });
 
   it("lets one uncertain plan make the item uncertain at full coverage, its candidate never added to the measure", () => {
-    expect(aggregatePosteAnswers([measured("plan:a", 3), uncertain("plan:b", { value: 2, unit: "u" }), notFound("plan:c")])).toMatchObject({
-      status: "uncertain", complete: true, observed: [{ unit: "u", value: 3 }], candidates: [{ unit: "u", value: 2 }],
-      plans: { expected: 3, answered: 3, measured: 1, uncertain: 1, notFound: 1 },
+    expect(aggregatePosteAnswers([measured("plan:a", 3), uncertain("plan:b", { value: 2, unit: "u" }),
+      uncertain("plan:c", { value: 4, unit: "u" }), notFound("plan:d")])).toMatchObject({
+      status: "uncertain", complete: true, observed: [{ unit: "u", value: 3 }],
+      candidates: [{ planKey: "plan:b", unit: "u", value: 2 }, { planKey: "plan:c", unit: "u", value: 4 }],
+      plans: { expected: 4, answered: 4, measured: 1, uncertain: 2, notFound: 1 },
     });
   });
 

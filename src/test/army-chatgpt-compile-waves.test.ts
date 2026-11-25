@@ -27,10 +27,12 @@ describe("ChatGPT local compile waves", () => {
     }
   });
 
-  it("runs the intake wave in its own hook of the intake file, before its tests", () => {
-    const source = fs.readFileSync(path.join(root, "e2e/army/local/chatgpt-local-intake.e2e.ts"), "utf8");
+  it.each(["confirmation", "documents", "recovery"])("warms the %s server before its first intake test", (family) => {
+    const source = fs.readFileSync(path.join(root, `e2e/army/local/chatgpt-local-intake-${family}.e2e.ts`), "utf8");
+    const start = source.indexOf("await server.start()");
     const hook = source.indexOf("beforeAll(() => server.compileIntakeRoutes());");
-    expect(hook).toBeGreaterThan(source.indexOf("await server.start()"));
+    expect(start).toBeGreaterThanOrEqual(0);
+    expect(hook).toBeGreaterThan(start);
     expect(hook).toBeLessThan(source.search(/^(?:if \([^\n]*\) )?test\(/m));
   });
 });
