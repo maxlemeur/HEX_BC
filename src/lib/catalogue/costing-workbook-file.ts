@@ -155,12 +155,18 @@ export async function readCostingWorkbookFile(input: ArrayBuffer): Promise<Costi
 /**
  * The JSON body of a preview (`confirm: false`) or of the import, refused before any request when too heavy.
  * `extra` carries what one of the two imports adds to the rows: the preview's fingerprint for the supplier
- * references, the supply types chosen in the screen for the drafts. A key left undefined is not sent.
+ * references, the supply types chosen in the screen for the drafts, the file's name. A key left undefined is
+ * not sent.
  */
 export function costingWorkbookImportBody(
   rows: CostingWorkbookRows,
   confirm: boolean,
-  extra: { preview_token?: string; supply_types?: Record<string, string> } = {},
+  extra: {
+    preview_token?: string;
+    supply_types?: Record<string, string>;
+    supply_type_rows?: Array<{ row: number; supply_type_id: string }>;
+    source_name?: string;
+  } = {},
 ): string {
   const body = JSON.stringify({ rows, confirm, ...extra });
   const size = new TextEncoder().encode(body).length;

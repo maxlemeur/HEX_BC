@@ -37,6 +37,8 @@ export const costingWorkbookImportSchema = z.object({
   rows: z.array(z.array(cellSchema).max(60)).min(1).max(COSTING_WORKBOOK_MAX_ROWS),
   /** false: preview, nothing written. */
   confirm: z.boolean(),
+  /** The file's name, kept with the import so that the office recognises it later. */
+  source_name: z.string().max(255).optional(),
 }).strict();
 
 export type CostingWorkbookImportInput = z.infer<typeof costingWorkbookImportSchema>;
@@ -47,10 +49,13 @@ export const COSTING_WORKBOOK_SUPPLY_TYPE_UNKNOWN = "COSTING_WORKBOOK_SUPPLY_TYP
 /**
  * The draft import (POST /api/catalogue/workbook-import). `supply_types` gives, for a code the reader proposes
  * (« tube », « calorifuge »…), the company's supply type the office chose in the screen: it replaces the type with
- * that code, or stands in when the company has none.
+ * that code, or stands in when the company has none. `supply_type_rows` gives it for the articles of given sheet
+ * rows (the articles the reader could not classify, grouped in the screen): a row's own choice comes first.
  */
 export const costingWorkbookArticlesSchema = costingWorkbookImportSchema.extend({
   supply_types: z.partialRecord(z.enum(COSTING_WORKBOOK_SUPPLY_KINDS), z.uuid()).optional(),
+  supply_type_rows: z.array(z.object({ row: z.number().int().positive(), supply_type_id: z.uuid() }).strict())
+    .max(COSTING_WORKBOOK_MAX_ROWS).optional(),
 });
 
 export type CostingWorkbookArticlesInput = z.infer<typeof costingWorkbookArticlesSchema>;
@@ -89,6 +94,8 @@ export type CostingWorkbookImportReport = {
   issue_count: number;
   /** Section title rows (« Rub ») of the sheet. */
   sections: number;
+  /** The import the created drafts belong to (confirmed, with at least one draft): what an undo removes. */
+  import_batch_id?: string | null;
 };
 
 /** `details` of a COSTING_WORKBOOK_IMPORT_INCOMPLETE error: the report of what was written before the stop. */
@@ -128,6 +135,8 @@ export const costingWorkbookSupplierReferenceReportSchema = z.object({
   already_registered: z.number().int().nonnegative(),
   duplicates: z.number().int().nonnegative(),
   preview_token: z.string().nullable(),
+  /** The import the references belong to (confirmed, with at least one reference). */
+  import_batch_id: z.string().nullable().optional(),
   /** The references to import (preview) or just imported (confirmed), one source cell each. */
   proposed: z.array(z.object({
     row: z.number().int().positive(),

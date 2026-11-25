@@ -30,7 +30,9 @@ type CatalogueItem = Product & {
 // - the catalogue cannot be shown on its drafts from the import page;
 // - importing the same workbook again creates anything;
 // - (TI-711) a price corrected in the screen is not the draft's price, or the Excel values are sent instead;
-// - (TI-711) an article already in the catalogue at another price is not shown as a gap, or is modified.
+// - (TI-711) an article already in the catalogue at another price is not shown as a gap, or is modified;
+// - (TI-711) the drafts of an import can only be validated one by one, an incomplete draft is validated with the
+//   others, or undoing the import removes an article somebody validated.
 const HEADERS = [
   "Fiabilité (/10)", "ID", "Matériau", "Dimension", "Caractéristique", "Précision", "norme", "Qté", "Unité",
   "PR. FO", "Type FO", "K FO", "h MO", "Type MO", "K MO", "Commentaire", "h / \"", "soudure (\")",
@@ -245,7 +247,10 @@ armyTest(
     const expectedConfirmed = { ...expectedPreview, confirmed: true };
     delete expectedConfirmed.proposed_articles;
     delete expectedConfirmed.catalogue_differences;
-    expect((await importResponse.json<Envelope<CostingWorkbookImportReport>>()).data).toEqual(expectedConfirmed);
+    // The drafts belong to one import: what the office validates together or undoes.
+    const { import_batch_id: importBatchId, ...confirmed } = (await importResponse.json<Envelope<CostingWorkbookImportReport>>()).data;
+    expect(confirmed).toEqual(expectedConfirmed);
+    expect(importBatchId).toMatch(/^[0-9a-f-]{36}$/);
     await expect(importPage.getByText("Import terminé : 3 brouillons créés.", { exact: true })).toBeVisible({ timeout: 30_000 });
     expect(sent).toEqual([false, false, true]);
 
@@ -292,11 +297,39 @@ armyTest(
     expect(sent).toEqual([false, false, true, false]);
     expect((await cataloguePage(browser, prefix, "draft")).map((item) => item.id).sort()).toEqual(drafts.map((item) => item.id).sort());
 
+    // The complete drafts of the import are validated together; one without a supply type stays a draft.
+    const complete = [tubeRef, elbowRef, valveRef].filter((reference) => draftOf(reference).supply_type_id !== null);
+    const imports = screen.getByRole("list", "Imports récents", { exact: true });
+    const thisImport = imports.getByRole("listitem").filter({ hasText: "3 articles, dont 3 encore en brouillon" });
+    await expect(thisImport).toContainText("bible-chiffrage.xlsm");
+    await thisImport.getByRole("button", "Valider les brouillons complets", { exact: true }).tap();
+    await expect(screen.getByText(new RegExp(`^${complete.length} brouillons? validés?\\.`))).toBeVisible({ timeout: 30_000 });
+    expect((await cataloguePage(browser, prefix, "validated")).map((item) => item.reference).filter((reference) => reference !== existingRef).sort())
+      .toEqual([...complete].sort());
+    expect((await cataloguePage(browser, prefix, "draft")).map((item) => item.reference).sort())
+      .toEqual([tubeRef, elbowRef, valveRef].filter((reference) => !complete.includes(reference)).sort());
+
+    // Undoing the import removes what nobody touched: the validated articles stay.
+    const remaining = screen.getByRole("list", "Imports récents", { exact: true }).getByRole("listitem").filter({ hasText: "bible-chiffrage.xlsm" });
+    if (complete.length < 3) {
+      await remaining.getByRole("button", "Annuler l’import", { exact: true }).tap();
+      await screen.getByRole("alertdialog", "Annuler cet import d’articles ?", { exact: true })
+        .getByRole("button", "Annuler l’import", { exact: true }).tap();
+      await expect(screen.getByText(/^Import annulé : 1 brouillon supprimé\./)).toBeVisible({ timeout: 30_000 });
+      expect(await cataloguePage(browser, prefix, "draft")).toEqual([]);
+    } else {
+      // Nothing left to undo once every draft is validated.
+      await expect(remaining.getByRole("button", "Annuler l’import", { exact: true })).toBeHidden();
+    }
+    expect((await cataloguePage(browser, prefix, "validated")).map((item) => item.reference).filter((reference) => reference !== existingRef).sort())
+      .toEqual([...complete].sort());
+
     await recordEvidence(army, "catalogue-workbook-import", {
       workbook: { file: path.basename(workbookPath), sha256: createHash("sha256").update(bytes).digest("hex"), rows: sheetRows.length },
       supplyTypes: Object.fromEntries(typeIdOf), existingId,
       draftIds: Object.fromEntries(drafts.map((item) => [item.reference, item.id])), requests: sent,
       correctedInScreen: { cell: priceAddress, unit_price_cents: 4510 }, catalogueDifferences: 1,
+      importBatchId, validatedTogether: complete, undone: complete.length < 3,
     });
   },
 );
@@ -646,6 +679,124 @@ armyTest(
       productId, supplierId, existingSupplierId, previewWrites: 0, imported: 3, forDecision: 33,
       comparisonGroups: 3, priceSources: 3, retryWrites: 0, keptWorkbookOnModeChange: true,
       draftFirst: { draftId: draft.id, reference: "DR-40" }, supplierCreatedInScreen: unknownSupplier,
+    });
+  },
+);
+
+
+// TI-711. Failure modes, written before the journey was first run against the product:
+// - a supplier the workbook abbreviates must be fixed in Excel, or the association is forgotten at the next preview;
+// - the link the workbook gives with a reference is lost;
+// - an imported reference can only be checked from its article's form, one by one;
+// - undoing an import removes a reference the office already checked, or leaves the untouched ones.
+armyTest(
+  "CAT04 a workbook name is remembered for its supplier, references are checked together and an import is undone",
+  { session: "army", tags: ["critical", "catalogue"], timeout: 240_000 },
+  async ({ app, screen, browser, army }) => {
+    await app.open("/dashboard/products");
+    const prefix = army.runPrefix;
+    const supplierName = prefix + " Négoce Lumen";
+    const createdSupplier = await apiRequest<Envelope<{ item: { id: string } }>>(browser, "POST", "/api/suppliers", {
+      action: "create", item: { name: supplierName, is_active: true },
+    });
+    expect(createdSupplier.status).toBe(201);
+    const supplierId = createdSupplier.body.data.item.id;
+    const productRef = prefix + "-LUMEN-T40";
+    const created = await apiRequest<Envelope<{ item: Product }>>(browser, "POST", "/api/products", {
+      action: "create", item: { reference: productRef, designation: prefix + " Tube Lumen", unit: "ml", unit_price_cents: 1500 },
+    });
+    expect(created.status).toBe(201);
+    const productId = created.body.data.item.id;
+    const draftRef = prefix + "-LUMEN-NOUVEAU";
+    const itemsOf = async (id: string) => {
+      const result = await apiRequest<Envelope<{ items: Record<string, unknown>[] }>>(browser, "GET", `/api/products/${id}/supplier-items`);
+      expect(result.status).toBe(200);
+      return result.body.data.items;
+    };
+
+    // The workbook abbreviates the supplier on the article the catalogue holds, and names it in full on a new one.
+    const workbookName = prefix + " Nég. Lumen";
+    const base = { "Type_ligne": "Art", "Unité": "ml", "Matériau": "Inox 304L" };
+    const sheetRows = [
+      HEADERS,
+      row({ ...base, "ID": productRef, "Caractéristique": "Tube", "F1_nom": workbookName, "F1_ref": "NL-40", "F1_URL": "https://lumen.example/nl-40" }),
+      row({ ...base, "ID": draftRef, "Caractéristique": "Manchon", "Dimension": "DN40", "F1_nom": supplierName, "F1_ref": "NL-41" }),
+    ];
+    const book = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(book, XLSX.utils.aoa_to_sheet(sheetRows), COSTING_WORKBOOK_SHEET);
+    const bytes = Buffer.from(XLSX.write(book, { bookType: "xlsx", type: "buffer" }) as Buffer);
+    const directory = path.resolve(".e2e/army/critical/artifacts/fixtures", prefix);
+    await mkdir(directory, { recursive: true });
+    const workbookPath = path.join(directory, "bible-lumen.xlsx");
+    await writeFile(workbookPath, bytes);
+
+    await screen.getByRole("button", "Ouvrir les actions du catalogue", { exact: true }).tap();
+    await screen.getByRole("menuitem", "Importer le classeur de chiffrage", { exact: true }).tap();
+    const importPage = screen.getByRole("region", "Importer le classeur de chiffrage", { exact: true });
+    await importPage.getByRole("tab", "Références fournisseur", { exact: true }).tap();
+    await importPage.getByRole("button", "Choisir un fichier Excel", { exact: true }).setInputFiles(workbookPath);
+
+    // The abbreviated name is one decision: the catalogue supplier it looks like is proposed, and remembered.
+    await importPage.getByRole("button", "Fournisseur actif introuvable", { exact: true }).tap({ timeout: 30_000 });
+    await importPage.getByRole("button", `Associer ${workbookName} à ${supplierName}`, { exact: true }).tap();
+    const importReference = importPage.getByRole("button", "Importer 1 référence", { exact: true });
+    await expect(importReference).toBeEnabled({ timeout: 30_000 });
+    await expect(importPage.getByRole("button", "Fournisseur actif introuvable", { exact: true })).toBeHidden();
+    await importPage.getByRole("button", "Noms associés", { exact: true }).tap();
+    await expect(importPage.getByRole("list", "Noms associés", { exact: true })).toContainText(`« ${workbookName} » est ${supplierName}`);
+    expect(await itemsOf(productId)).toEqual([]);
+
+    await importReference.tap();
+    await expect(importPage.getByText("1 référence importée, à vérifier.", { exact: true })).toBeVisible({ timeout: 30_000 });
+    expect(await itemsOf(productId)).toMatchObject([{
+      supplier_id: supplierId, supplier_sku: "NL-40", product_url: "https://lumen.example/nl-40", reference_needs_review: true, is_active: false,
+    }]);
+
+    // The reference is checked with the others of its import, from one list, not from the article's form.
+    await importPage.getByRole("link", "Les vérifier ensemble", { exact: true }).tap();
+    await expect(browser).toHaveURL(/\/dashboard\/products\/supplier-references\?import_batch_id=/);
+    const queue = screen.getByRole("table", "Références fournisseur à vérifier", { exact: true });
+    await expect(queue.getByRole("row")).toHaveCount(2, { timeout: 30_000 });
+    await expect(queue.getByRole("link", "Fiche fournisseur", { exact: false })).toHaveAttribute("href", "https://lumen.example/nl-40");
+    await queue.getByRole("checkbox", "Sélectionner les références de cette page", { exact: true }).tap();
+    await screen.getByRole("button", "Valider la sélection", { exact: true }).tap();
+    await expect(screen.getByText("1 référence validée.", { exact: true })).toBeVisible({ timeout: 30_000 });
+    expect(await itemsOf(productId)).toMatchObject([{
+      supplier_id: supplierId, supplier_sku: "NL-40", product_url: "https://lumen.example/nl-40", reference_needs_review: false, is_active: true,
+    }]);
+
+    // The new article, then its reference; the remembered name still holds for a new preview of the same workbook.
+    await browser.goto("/dashboard/products/import-workbook", { waitUntil: "domcontentloaded" });
+    const again = screen.getByRole("region", "Importer le classeur de chiffrage", { exact: true });
+    await again.getByRole("button", "Choisir un fichier Excel", { exact: true }).setInputFiles(workbookPath);
+    await again.getByRole("button", "Importer 1 brouillon", { exact: true }).tap({ timeout: 30_000 });
+    await expect(again.getByText("Import terminé : 1 brouillon créé.", { exact: true })).toBeVisible({ timeout: 30_000 });
+    const [draft] = await cataloguePage(browser, draftRef, "draft");
+    expect(draft).toMatchObject({ reference: draftRef, catalogue_status: "draft" });
+    await again.getByRole("button", "Reprendre leurs références fournisseur", { exact: true }).tap();
+    await expect(again.getByText("1 référence déjà enregistrée", { exact: true })).toBeVisible({ timeout: 30_000 });
+    await again.getByRole("button", "Importer 1 référence", { exact: true }).tap();
+    await expect(again.getByText("1 référence importée, à vérifier.", { exact: true })).toBeVisible({ timeout: 30_000 });
+    expect(await itemsOf(draft.id)).toMatchObject([{ supplier_id: supplierId, supplier_sku: "NL-41", reference_needs_review: true }]);
+
+    // Undo: the pending reference of the second import goes, then the untouched draft; the checked reference stays.
+    const imports = screen.getByRole("list", "Imports récents", { exact: true });
+    const undo = async (kind: "articles" | "références", text: string, outcome: RegExp) => {
+      const entry = imports.getByRole("listitem").filter({ hasText: "bible-lumen.xlsx" }).filter({ hasText: text });
+      await entry.getByRole("button", "Annuler l’import", { exact: true }).tap();
+      await screen.getByRole("alertdialog", kind === "articles" ? "Annuler cet import d’articles ?" : "Annuler cet import de références ?", { exact: true })
+        .getByRole("button", "Annuler l’import", { exact: true }).tap();
+      await expect(screen.getByText(outcome)).toBeVisible({ timeout: 30_000 });
+    };
+    await undo("références", "1 référence, dont 1 à vérifier", /^Import annulé : 1 référence supprimée\./);
+    expect(await itemsOf(draft.id)).toEqual([]);
+    await undo("articles", "1 article, dont 1 encore en brouillon", /^Import annulé : 1 brouillon supprimé\./);
+    expect(await cataloguePage(browser, draftRef, "draft")).toEqual([]);
+    expect(await itemsOf(productId)).toMatchObject([{ supplier_sku: "NL-40", reference_needs_review: false, is_active: true }]);
+
+    await recordEvidence(army, "catalogue-workbook-review-together", {
+      source: { sha256: createHash("sha256").update(bytes).digest("hex"), rows: sheetRows.length },
+      productId, supplierId, rememberedName: workbookName, checkedTogether: 1, undone: { references: 1, drafts: 1 },
     });
   },
 );

@@ -1,6 +1,7 @@
 import "server-only";
 
 import { createHash } from "node:crypto";
+import { z } from "zod";
 
 import { getAuthenticatedTenantContext, type AuthenticatedTenantContext } from "@/lib/auth/tenant-context";
 import { buildCatalogueAccess, canAddToCatalogue, canEditCatalogueRecord } from "@/lib/catalogue/access";
@@ -29,9 +30,14 @@ type Candidate = {
   supplier_id: string;
   supplier_name: string;
   supplier_sku: string;
+  /** The article's page at the supplier, imported with the reference and checked with it. */
+  product_url: string | null;
 };
 
 const CATALOGUE_CHANGED = "Le catalogue a changé depuis l’aperçu. Actualisez l’aperçu avant de confirmer.";
+
+/** What import_workbook_supplier_reference_batch answers. */
+const importAnswerSchema = z.object({ batch_id: z.string(), imported: z.number().int().nonnegative() });
 
 function pairKey(productId: string, supplierId: string) {
   return productId + "/" + supplierId;
@@ -53,16 +59,18 @@ const MAX_CANDIDATES = 20;
 
 async function planReferences(context: AuthenticatedTenantContext, { articles: readArticles, supplierReferenceOccurrences: occurrences }: CostingWorkbookReadResult) {
   const { supabase, tenantId, tenantRole, userId } = context;
-  const [products, suppliers, engineersCanEditShared] = await Promise.all([
+  const [products, suppliers, aliases, engineersCanEditShared] = await Promise.all([
     // Archived articles too: the draft import skips their reference, so it is not one « to create ».
     readAllRows(() => supabase.from("products").select("id, reference, designation, created_by, is_active", { count: "exact" })
       .eq("tenant_id", tenantId).not("reference", "is", null), { concurrency: 4 }),
     readAllRows(() => supabase.from("suppliers").select("id, name, city, email, siret, created_at", { count: "exact" })
       .eq("tenant_id", tenantId).eq("is_active", true)),
+    readAllRows(() => supabase.from("supplier_aliases").select("id, supplier_id, alias_key", { count: "exact" }).eq("tenant_id", tenantId)),
     tenantRole === "engineer" ? readEngineersCanEditShared(supabase, tenantId) : false,
   ]);
   if (products.error) throw mapSupabaseError(products.error, "Impossible de lire les articles du catalogue.");
   if (suppliers.error) throw mapSupabaseError(suppliers.error, "Impossible de lire les fournisseurs.");
+  if (aliases.error) throw mapSupabaseError(aliases.error, "Impossible de lire les noms associés aux fournisseurs.");
 
   const access = buildCatalogueAccess({ userId, role: tenantRole, engineersCanEditShared });
   const heldReferences = new Set((products.data ?? []).map((product) => workbookReferenceKey(product.reference ?? "")));
@@ -70,6 +78,16 @@ async function planReferences(context: AuthenticatedTenantContext, { articles: r
     (product) => workbookReferenceKey(product.reference ?? ""));
   const suppliersByName = groupBy(suppliers.data ?? [], (supplier) => workbookSupplierNameKey(supplier.name));
   const supplierLabels = supplierPickerLabels(suppliers.data ?? []);
+  // A name the office associated to a supplier in the screen (TI-711): read when no supplier bears the name
+  // itself, and to decide between suppliers that share it.
+  const activeSuppliers = new Map((suppliers.data ?? []).map((supplier) => [supplier.id, supplier]));
+  const supplierOfAlias = new Map((aliases.data ?? []).map((alias) => [alias.alias_key, activeSuppliers.get(alias.supplier_id)]));
+  const suppliersNamed = (name: string) => {
+    const key = workbookSupplierNameKey(name);
+    const named = suppliersByName.get(key) ?? [];
+    const aliased = supplierOfAlias.get(key);
+    return aliased && named.length !== 1 ? [aliased] : named;
+  };
   // What the draft import of the same sheet creates: the references of these articles wait for it.
   const toCreate = new Set(readArticles.map((article) => workbookReferenceKey(article.reference))
     .filter((key) => !heldReferences.has(key)));
@@ -103,7 +121,7 @@ async function planReferences(context: AuthenticatedTenantContext, { articles: r
       continue;
     }
     const articles = articlesByReference.get(workbookReferenceKey(occurrence.article_reference)) ?? [];
-    const supplierMatches = suppliersByName.get(workbookSupplierNameKey(occurrence.supplier_name)) ?? [];
+    const supplierMatches = suppliersNamed(occurrence.supplier_name);
     const [article] = articles;
     const [supplier] = supplierMatches;
     if (!article?.reference || articles.length !== 1) {
@@ -129,6 +147,7 @@ async function planReferences(context: AuthenticatedTenantContext, { articles: r
       matches.push({ occurrence, candidate: {
         product_id: article.id, product_reference: article.reference,
         supplier_id: supplier.id, supplier_name: supplier.name, supplier_sku: occurrence.supplier_sku,
+        product_url: occurrence.product_url,
       } });
     }
   }
@@ -162,7 +181,8 @@ async function planReferences(context: AuthenticatedTenantContext, { articles: r
       duplicates += entries.length - 1;
       if (item) alreadyRegistered += 1;
       else {
-        candidates.push(candidate);
+        // The same code on several rows: the first link the workbook gives for it.
+        candidates.push({ ...candidate, product_url: entries.find((entry) => entry.candidate.product_url)?.candidate.product_url ?? null });
         proposed.push({
           row: occurrence.row,
           slot: occurrence.slot,
@@ -188,19 +208,25 @@ export async function importCostingWorkbookSupplierReferences(
     .update(JSON.stringify([context.tenantId, context.userId, plan.candidates])).digest("hex");
 
   let imported = 0;
+  let batchId: string | null = null;
   if (input.confirm) {
     if (input.preview_token !== previewToken) throw conflict(CATALOGUE_CHANGED);
     if (plan.candidates.length > 0) {
-      const { data, error } = await context.supabase.rpc("import_workbook_supplier_references", {
+      // One batch: the references are written together or not at all, under the import they belong to.
+      const { data, error } = await context.supabase.rpc("import_workbook_supplier_reference_batch", {
         p_tenant_id: context.tenantId,
         p_rows: plan.candidates,
+        p_source_name: input.source_name ?? null,
       });
       if (error?.code === "42501") throw forbidden(PRODUCT_WRITE_REFUSAL);
       if (error?.message === "WORKBOOK_SUPPLIER_REFERENCES_CHANGED" || error?.code === "40P01") {
         throw conflict(CATALOGUE_CHANGED);
       }
       if (error) throw mapSupabaseError(error, "Impossible d’enregistrer les références du classeur.");
-      imported = data;
+      const answer = importAnswerSchema.safeParse(data);
+      if (!answer.success) throw mapSupabaseError({ code: "XX000", message: "Réponse inattendue de l’import." }, "Impossible d’enregistrer les références du classeur.");
+      imported = answer.data.imported;
+      batchId = answer.data.batch_id;
     }
   }
 
@@ -211,6 +237,7 @@ export async function importCostingWorkbookSupplierReferences(
     already_registered: plan.alreadyRegistered,
     duplicates: plan.duplicates,
     preview_token: input.confirm ? null : previewToken,
+    ...(input.confirm ? { import_batch_id: batchId } : {}),
     // After the confirmation, the same list is what was imported: the office checks these references next.
     proposed: plan.proposed,
     for_decision: plan.decisions,

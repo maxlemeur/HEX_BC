@@ -48,6 +48,8 @@ export type CostingWorkbookSupplierOccurrence = {
   article_dimension: string;
   supplier_name: string;
   supplier_sku: string;
+  /** The article's page at the supplier (« F1_URL »), when the cell holds a web address. */
+  product_url: string | null;
   article_reference_valid: boolean;
   supplier_name_valid: boolean;
   supplier_sku_valid: boolean;
@@ -401,6 +403,11 @@ function reliabilityOf(value: Cell): { score: number | null; invalid: boolean } 
   return Number.isInteger(score) && score >= 0 && score <= 10 ? { score, invalid: false } : { score: null, invalid: true };
 }
 
+/** A web address as the catalogue stores a supplier's link: http or https, no space, 2 000 characters at most. */
+function webAddress(value: string): string | null {
+  return /^https?:\/\/\S+$/i.test(value) && value.length <= 2000 ? value : null;
+}
+
 function supplierReferencesOf(cell: (column: Column) => Cell): CostingWorkbookSupplierReference[] {
   const references: CostingWorkbookSupplierReference[] = [];
   const seen = new Set<string>();
@@ -412,8 +419,7 @@ function supplierReferencesOf(cell: (column: Column) => Cell): CostingWorkbookSu
     const key = `${foldText(name)}|${sku.toLocaleLowerCase("fr-FR")}`;
     if (seen.has(key)) continue;
     seen.add(key);
-    const url = text(cell(`F${slot}_URL`));
-    references.push({ supplier_name: name.slice(0, 255), supplier_sku: sku.slice(0, 255), product_url: /^https?:\/\//i.test(url) ? url.slice(0, 2000) : null });
+    references.push({ supplier_name: name.slice(0, 255), supplier_sku: sku.slice(0, 255), product_url: webAddress(text(cell(`F${slot}_URL`))) });
   }
   return references;
 }
@@ -469,6 +475,7 @@ export function readCostingWorkbookRows(rows: readonly Cell[][]): CostingWorkboo
         article_dimension: isErrorToken(dimensionWording) ? "" : dimensionWording,
         supplier_name: name,
         supplier_sku: sku,
+        product_url: webAddress(text(cell(`F${slot}_URL`))),
         article_reference_valid: reference.length > 0 && reference.length <= MAX_REFERENCE_LENGTH && !isErrorToken(reference),
         supplier_name_valid: Boolean(name) && !/^\d+$/.test(name) && !isErrorToken(name),
         supplier_sku_valid: sku.length <= 255 && !isErrorToken(sku) && shape === "code",

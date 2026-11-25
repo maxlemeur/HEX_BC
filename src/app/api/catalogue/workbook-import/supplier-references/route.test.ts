@@ -21,6 +21,10 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
  *  3. The preview writes, or the confirmation writes without the preview's fingerprint.
  *  4. After the confirmation, the report no longer says which references were imported.
  *  5. Scope: an article, a supplier or a reference of another company is matched or named.
+ *  6. A name the office associated to a supplier is not read as that supplier, does not decide between suppliers
+ *     that share the name, takes the place of a supplier that bears the name itself, or is read from another
+ *     company or for an archived supplier.
+ *  7. The link the workbook gives with a reference is lost, or the references are not written under an import.
  */
 
 const TENANT = "10000000-0000-4000-8000-000000000001";
@@ -37,7 +41,9 @@ const DOUBLE_A = "90000000-0000-4000-8000-000000000003";
 const DOUBLE_B = "90000000-0000-4000-8000-000000000004";
 const EXISTING_ITEM = "50000000-0000-4000-8000-000000000001";
 
-const HEADERS = ["ID", "Matériau", "Caractéristique", "Unité", "F1_nom", "F1_ref", "F2_nom", "F2_ref", "Type_ligne"];
+const BATCH = "b0000000-0000-4000-8000-000000000002";
+
+const HEADERS = ["ID", "Matériau", "Caractéristique", "Unité", "F1_nom", "F1_ref", "F1_URL", "F2_nom", "F2_ref", "Type_ligne"];
 type Cell = string | number | null;
 const article = (values: Record<string, Cell>): Cell[] =>
   HEADERS.map((header) => ({ "Type_ligne": "Art", "Matériau": "Inox 304L", "Unité": "ml", ...values })[header] ?? null);
@@ -45,7 +51,10 @@ const article = (values: Record<string, Cell>): Cell[] =>
 const SHEET: Cell[][] = [
   HEADERS,
   // Row 2: importable at Atlas; another code than the catalogue's at Boréal.
-  article({ "ID": "TUBE-32", "Caractéristique": "Tube", "F1_nom": "Comptoir Atlas", "F1_ref": "AT-32", "F2_nom": "Dépôt Boréal", "F2_ref": "BO-NEW" }),
+  article({
+    "ID": "TUBE-32", "Caractéristique": "Tube", "F1_nom": "Comptoir Atlas", "F1_ref": "AT-32", "F1_URL": "https://atlas.example/at-32",
+    "F2_nom": "Dépôt Boréal", "F2_ref": "BO-NEW",
+  }),
   // Row 3: an article the draft import creates; its supplier is unknown too, but the article comes first.
   article({ "ID": "COUDE-32", "Caractéristique": "Coude 90°", "F1_nom": "Comptoir Atlas", "F1_ref": "AT-C32", "F2_nom": "Inconnu SARL", "F2_ref": "X-1" }),
   // Row 4: archived in the catalogue: the draft import skips it, so it is not « to create ».
@@ -63,12 +72,12 @@ function supplier(id: string, name: string, extra: FakeRow = {}): FakeRow {
   return { id, tenant_id: TENANT, name, city: null, email: null, siret: null, created_at: "2026-10-01T09:00:00.000Z", is_active: true, ...extra };
 }
 
-const importReferences: FakeRpcHandler = (args) => ({ data: (args.p_rows as unknown[]).length });
+const importReferences: FakeRpcHandler = (args) => ({ data: { batch_id: BATCH, imported: (args.p_rows as unknown[]).length } });
 
-function seed() {
+function seed(aliases: FakeRow[] = []) {
   const fake = createFakeSupabase({
     userId: ADMIN,
-    rpc: { import_workbook_supplier_references: importReferences },
+    rpc: { import_workbook_supplier_reference_batch: importReferences },
     tables: {
       tenant_memberships: [fakeMembership(ADMIN, TENANT, "admin")],
       products: [
@@ -90,6 +99,7 @@ function seed() {
         id: EXISTING_ITEM, tenant_id: TENANT, product_id: TUBE, supplier_id: BOREAL, supplier_sku: "BO-OLD",
         is_active: true, reference_needs_review: false,
       }],
+      supplier_aliases: aliases,
     },
   });
   vi.mocked(createSupabaseServerClient).mockResolvedValue(fake.supabase as never);
@@ -153,14 +163,44 @@ describe("POST /api/catalogue/workbook-import/supplier-references", () => {
 
     const answer = await send({ rows: SHEET, confirm: true, preview_token: preview.data?.preview_token });
     expect(answer.status).toBe(200);
-    expect(answer.data).toMatchObject({ confirmed: true, to_import: 0, imported: 1, preview_token: null });
+    // Written under one import, with the link the workbook gives (7).
+    expect(answer.data).toMatchObject({ confirmed: true, to_import: 0, imported: 1, preview_token: null, import_batch_id: BATCH });
     expect(answer.data?.proposed).toEqual(preview.data?.proposed);
     expect(fake.rpcArgs).toEqual([{
-      name: "import_workbook_supplier_references",
+      name: "import_workbook_supplier_reference_batch",
       args: {
         p_tenant_id: TENANT,
-        p_rows: [{ product_id: TUBE, product_reference: "TUBE-32", supplier_id: ATLAS, supplier_name: "Comptoir Atlas", supplier_sku: "AT-32" }],
+        p_source_name: null,
+        p_rows: [{
+          product_id: TUBE, product_reference: "TUBE-32", supplier_id: ATLAS, supplier_name: "Comptoir Atlas", supplier_sku: "AT-32",
+          product_url: "https://atlas.example/at-32",
+        }],
       },
     }]);
+  });
+
+  it("reads a name the office associated as its supplier, and lets it decide between homonyms (6)", async () => {
+    const alias = (id: string, supplierId: string, key: string, tenant = TENANT) =>
+      ({ id, tenant_id: tenant, supplier_id: supplierId, alias: key, alias_key: key });
+    seed([
+      alias("60000000-0000-4000-8000-000000000001", ATLAS, "inconnu sarl"),
+      alias("60000000-0000-4000-8000-000000000002", TWIN_B, "negoce jumeau"),
+      // A supplier that bears the name itself keeps it; another company's association is not read.
+      alias("60000000-0000-4000-8000-000000000003", ATLAS, "depot boreal"),
+      alias("60000000-0000-4000-8000-000000000009", FOREIGN_SUPPLIER, "comptoir atlas", OTHER_TENANT),
+    ]);
+
+    const answer = await send({ rows: SHEET, confirm: false });
+
+    // « Inconnu SARL » on row 6 is Comptoir Atlas, which row 2 already gives another code for this article.
+    expect(answer.data?.for_decision.filter((entry) => entry.row === 6 || entry.row === 2)).toEqual([
+      { row: 2, slot: 1, reason: "conflicting_workbook_references", product_id: TUBE, supplier_id: ATLAS },
+      { row: 2, slot: 2, reason: "different_existing_reference", product_id: TUBE, supplier_id: BOREAL, existing_supplier_sku: "BO-OLD" },
+      { row: 6, slot: 2, reason: "conflicting_workbook_references", product_id: TUBE, supplier_id: ATLAS },
+    ]);
+    // « négoce jumeau » is the supplier the office named, among the two that bear the name.
+    expect(answer.data?.proposed).toEqual([
+      { row: 6, slot: 1, article_reference: "TUBE-32", supplier_name: "Négoce jumeau", product_id: TUBE },
+    ]);
   });
 });

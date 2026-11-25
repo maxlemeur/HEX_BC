@@ -40,7 +40,9 @@ import {
 } from "@/lib/catalogue/costing-workbook-file";
 import { asRecord } from "@/lib/value-guards";
 
+import type { DuplicateSearch } from "./costing-workbook/ArticleDuplicates";
 import { ArticlePreview, type SupplyTypeChoices } from "./costing-workbook/ArticlePreview";
+import { AssistantProviderSelect, useWorkbookAssistantState, WorkbookAssistantProvider } from "./costing-workbook/assistant";
 import { ColumnsPanel } from "./costing-workbook/ColumnsPanel";
 import { CorrectionsJournal } from "./costing-workbook/CorrectionsJournal";
 import { formatCount, plural, WorkbookEditorProvider, type WorkbookReview } from "./costing-workbook/shared";
@@ -58,7 +60,10 @@ import { SupplierReferenceReview } from "./costing-workbook/SupplierReferenceRev
 export type CostingWorkbookImportProps = {
   catalogueHref: string;
   draftsHref: string;
+  /** Drafts were created: the catalogue's list no longer holds. */
   onImported: () => void | Promise<void>;
+  /** An import of either kind was confirmed: the list of imports has a new entry. */
+  onImportRecorded?: () => void;
 };
 
 const ENDPOINT = "/api/catalogue/workbook-import";
@@ -87,7 +92,9 @@ type Outcome =
   | { ok: false; aborted: true }
   | { ok: false; aborted: false; message: string; retry: boolean; stale: boolean; code: string | null };
 
-type RequestOptions = { previewToken?: string; supplyTypes?: SupplyTypeChoices };
+/** The supply type the office gave to the articles of given sheet rows: those the reader could not classify. */
+type SupplyTypeRows = Readonly<Record<number, string>>;
+type RequestOptions = { previewToken?: string; supplyTypes?: SupplyTypeChoices; supplyTypeRows?: SupplyTypeRows };
 
 function isReport(value: unknown): value is CostingWorkbookImportReport {
   const record = asRecord(value);
@@ -133,6 +140,7 @@ export function CostingWorkbookImport({
   catalogueHref,
   draftsHref,
   onImported,
+  onImportRecorded,
 }: Readonly<CostingWorkbookImportProps>) {
   const [mode, setMode] = useState<Mode>("articles");
   const [fileName, setFileName] = useState<string | null>(null);
@@ -140,7 +148,9 @@ export function CostingWorkbookImport({
   const [baseRows, setBaseRows] = useState<CostingWorkbookRows | null>(null);
   const [edits, setEdits] = useState<WorkbookEdit[]>([]);
   const [supplyTypeChoices, setSupplyTypeChoices] = useState<SupplyTypeChoices>({});
+  const [supplyTypeRows, setSupplyTypeRows] = useState<SupplyTypeRows>({});
   const [dismissed, setDismissed] = useState<ReadonlySet<string>>(new Set());
+  const [duplicateSearch, setDuplicateSearch] = useState<DuplicateSearch | null>(null);
   const [phase, setPhase] = useState<Phase>("idle");
   const [previews, setPreviews] = useState<Partial<Record<Mode, Report>>>({});
   const [results, setResults] = useState<Partial<Record<Mode, Report>>>({});
@@ -149,12 +159,14 @@ export function CostingWorkbookImport({
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [canRetry, setCanRetry] = useState(false);
+  const fileNameRef = useRef<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const correctionsInputRef = useRef<HTMLInputElement>(null);
   const aliveRef = useRef(true);
   const requestRef = useRef<AbortController | null>(null);
   const importingRef = useRef(false);
 
+  const assistant = useWorkbookAssistantState();
   const rows = useMemo(() => (baseRows ? applyWorkbookEdits(baseRows, edits) : null), [baseRows, edits]);
   const inspection = useMemo(() => (rows ? inspectCostingWorkbookColumns(rows) : null), [rows]);
   const journal = useMemo(
@@ -190,9 +202,18 @@ export function CostingWorkbookImport({
     const forSuppliers = targetMode === "supplier-references";
     let body: string;
     try {
-      body = costingWorkbookImportBody(currentRows, confirm, forSuppliers
-        ? { preview_token: options.previewToken }
-        : { supply_types: options.supplyTypes && Object.keys(options.supplyTypes).length > 0 ? options.supplyTypes : undefined });
+      body = costingWorkbookImportBody(currentRows, confirm, {
+        ...(forSuppliers
+          ? { preview_token: options.previewToken }
+          : {
+            supply_types: options.supplyTypes && Object.keys(options.supplyTypes).length > 0 ? options.supplyTypes : undefined,
+            supply_type_rows: options.supplyTypeRows && Object.keys(options.supplyTypeRows).length > 0
+              ? Object.entries(options.supplyTypeRows).map(([row, supply_type_id]) => ({ row: Number(row), supply_type_id }))
+              : undefined,
+          }),
+        // Kept with a confirmed import, so that the office recognises it among its imports.
+        source_name: confirm ? fileNameRef.current?.slice(0, 255) : undefined,
+      });
     } catch (bodyError) {
       const message = bodyError instanceof CostingWorkbookFileError ? bodyError.message : UNREADABLE_FILE;
       return { ok: false, aborted: false, message, retry: false, stale: false, code: null };
@@ -233,20 +254,46 @@ export function CostingWorkbookImport({
     }
   }
 
-  async function runPreview(targetMode: Mode, currentRows: CostingWorkbookRows, choices: SupplyTypeChoices = supplyTypeChoices) {
+  async function runPreview(
+    targetMode: Mode,
+    currentRows: CostingWorkbookRows,
+    choices: SupplyTypeChoices = supplyTypeChoices,
+    rowChoices: SupplyTypeRows = supplyTypeRows,
+  ) {
     setPhase("previewing");
     setError(null);
     setCanRetry(false);
-    const outcome = await send(targetMode, currentRows, false, { supplyTypes: choices });
+    const outcome = await send(targetMode, currentRows, false, { supplyTypes: choices, supplyTypeRows: rowChoices });
     if (!aliveRef.current || (!outcome.ok && outcome.aborted)) return;
     setPhase("idle");
     if (outcome.ok) {
       setPreviews((previous) => ({ ...previous, [targetMode]: outcome.report }));
     } else {
-      if (outcome.code === COSTING_WORKBOOK_SUPPLY_TYPE_UNKNOWN) setSupplyTypeChoices({});
+      // A preview left on screen while this one was computed no longer holds.
+      setPreviews((previous) => ({ ...previous, [targetMode]: undefined }));
+      if (outcome.code === COSTING_WORKBOOK_SUPPLY_TYPE_UNKNOWN) forgetSupplyTypes();
       setError(outcome.message);
       setCanRetry(outcome.retry);
     }
+  }
+
+  function forgetSupplyTypes() {
+    setSupplyTypeChoices({});
+    setSupplyTypeRows({});
+  }
+
+  /** One supply type for the articles of these rows, or none again: the preview counts the drafts left without. */
+  function chooseSupplyTypeRows(choices: ReadonlyArray<{ rows: readonly number[]; supplyTypeId: string | null }>) {
+    if (!rows || isBusy || choices.length === 0) return;
+    const next = { ...supplyTypeRows };
+    for (const { rows: sheetRows, supplyTypeId } of choices) {
+      for (const row of sheetRows) {
+        if (supplyTypeId) next[row] = supplyTypeId;
+        else delete next[row];
+      }
+    }
+    setSupplyTypeRows(next);
+    void runPreview("articles", rows, supplyTypeChoices, next);
   }
 
   function changeMode(choice: Mode) {
@@ -261,7 +308,8 @@ export function CostingWorkbookImport({
   /** The same sheet against the catalogue as it is now: after a fix made in the catalogue, or to see an import's rest. */
   function refresh() {
     if (!rows || isBusy) return;
-    setPreviews({});
+    // The preview on screen stays until the new one replaces it: the office keeps its place in the list.
+    setPreviews((previous) => ({ [mode]: previous[mode] }));
     setResults((previous) => ({ ...previous, [mode]: undefined }));
     void runPreview(mode, rows);
   }
@@ -270,7 +318,7 @@ export function CostingWorkbookImport({
   function commitEdits(nextEdits: WorkbookEdit[]) {
     if (!baseRows || isBusy) return;
     setEdits(nextEdits);
-    setPreviews({});
+    setPreviews((previous) => ({ [mode]: previous[mode] }));
     setResults({});
     void runPreview(mode, applyWorkbookEdits(baseRows, nextEdits));
   }
@@ -287,7 +335,6 @@ export function CostingWorkbookImport({
     if (supplyTypeId) next[kind] = supplyTypeId;
     else delete next[kind];
     setSupplyTypeChoices(next);
-    setPreviews((previous) => ({ ...previous, articles: undefined }));
     void runPreview("articles", rows, next);
   }
 
@@ -298,8 +345,9 @@ export function CostingWorkbookImport({
     setBaseRows(null);
     setFileName(null);
     setEdits([]);
-    setSupplyTypeChoices({});
+    forgetSupplyTypes();
     setDismissed(new Set());
+    setDuplicateSearch(null);
     setPreviews({});
     setResults({});
     setSupplierReview(INITIAL_SUPPLIER_REVIEW);
@@ -329,7 +377,8 @@ export function CostingWorkbookImport({
     if (!aliveRef.current) return;
     setBaseRows(nextRows);
     setFileName(file.name);
-    await runPreview(mode, nextRows, {});
+    fileNameRef.current = file.name;
+    await runPreview(mode, nextRows, {}, {});
   }
 
   /** A corrections file exported from this screen and filled by the office: each filled line corrects its cell. */
@@ -380,6 +429,7 @@ export function CostingWorkbookImport({
     const outcome = await send(mode, rows, true, {
       previewToken: supplierReport?.preview_token ?? undefined,
       supplyTypes: supplyTypeChoices,
+      supplyTypeRows,
     });
     importingRef.current = false;
     if (!outcome.ok && outcome.aborted) return;
@@ -393,10 +443,11 @@ export function CostingWorkbookImport({
       // New drafts are articles the references can now attach to: a result of the references shown before them
       // no longer says what is left to import.
       setResults((previous) => (supplierMode ? { ...previous, [mode]: outcome.report } : { [mode]: outcome.report }));
+      onImportRecorded?.();
       if (!supplierMode) await refreshCatalogue();
       return;
     }
-    if (outcome.code === COSTING_WORKBOOK_SUPPLY_TYPE_UNKNOWN) setSupplyTypeChoices({});
+    if (outcome.code === COSTING_WORKBOOK_SUPPLY_TYPE_UNKNOWN) forgetSupplyTypes();
     setError(outcome.message);
     if (outcome.stale || (supplierMode && outcome.retry)) {
       // The catalogue may have changed, or the response may have been lost after a successful write.
@@ -412,6 +463,7 @@ export function CostingWorkbookImport({
   const columnsToMap = inspection && !preview && !result && phase === "idle" && inspection.missingRequired.length > 0 ? inspection : null;
 
   return (
+    <WorkbookAssistantProvider value={assistant}>
     <section aria-labelledby="costing-workbook-title" className="w-full min-w-0">
       <PageHeader
         title={<span id="costing-workbook-title">Importer le classeur de chiffrage</span>}
@@ -514,9 +566,12 @@ export function CostingWorkbookImport({
           </div>
 
           {fileName && baseRows ? (
-            <p className="text-xs text-muted-foreground">
-              {`${fileName} · ${formatCount(baseRows.length)} ${plural(baseRows.length, "ligne lue", "lignes lues")} dans l’onglet « ${COSTING_WORKBOOK_SHEET} »`}
-            </p>
+            <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
+              <p className="text-xs text-muted-foreground">
+                {`${fileName} · ${formatCount(baseRows.length)} ${plural(baseRows.length, "ligne lue", "lignes lues")} dans l’onglet « ${COSTING_WORKBOOK_SHEET} »`}
+              </p>
+              <AssistantProviderSelect />
+            </div>
           ) : null}
 
           <div aria-live="polite" className="space-y-3 empty:hidden">
@@ -581,6 +636,10 @@ export function CostingWorkbookImport({
                   onReviewChange={setArticleReview}
                   supplyTypeChoices={supplyTypeChoices}
                   onSupplyTypeChoice={chooseSupplyType}
+                  supplyTypeRows={supplyTypeRows}
+                  onSupplyTypeRows={chooseSupplyTypeRows}
+                  duplicateSearch={duplicateSearch}
+                  onDuplicateSearch={setDuplicateSearch}
                   onShowSupplierReferences={() => changeMode("supplier-references")}
                 />
               ) : null}
@@ -610,5 +669,6 @@ export function CostingWorkbookImport({
         ) : null}
       </Tabs>
     </section>
+    </WorkbookAssistantProvider>
   );
 }

@@ -157,7 +157,11 @@ describe("CostingWorkbookImport", () => {
     expect(importButton).toBeDisabled();
     expect(fileInput()).toBeDisabled();
     expect(screen.getByRole("button", { name: "Changer de fichier Excel" })).toBeDisabled();
-    expect(sentBodies()).toEqual([{ rows: SHEET_ROWS, confirm: false }, { rows: SHEET_ROWS, confirm: true }]);
+    // The file's name travels with the confirmation only: the import is recorded under it.
+    expect(sentBodies()).toEqual([
+      { rows: SHEET_ROWS, confirm: false },
+      { rows: SHEET_ROWS, confirm: true, source_name: "bible-chiffrage.xlsm" },
+    ]);
     expect(props.onImported).not.toHaveBeenCalled();
 
     await act(async () => {

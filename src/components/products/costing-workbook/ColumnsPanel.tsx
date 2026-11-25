@@ -1,15 +1,25 @@
 "use client";
 
-import { useId } from "react";
+import { useId, useState } from "react";
 
 import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { NativeSelect } from "@/components/ui/native-select";
 import type { CostingWorkbookColumn, CostingWorkbookColumnInspection } from "@/lib/catalogue/costing-workbook";
-import { workbookCellAddress } from "@/lib/catalogue/costing-workbook-edits";
+import { workbookCellAddress, workbookCellText } from "@/lib/catalogue/costing-workbook-edits";
 import { missingColumnEffect } from "@/lib/catalogue/costing-workbook-review";
+import { requestWorkbookSuggestions } from "@/lib/catalogue/costing-workbook-suggestions-client";
+import {
+  COSTING_WORKBOOK_SUGGESTION_LIMITS,
+  type CostingWorkbookSuggestionsResponseOf,
+} from "@/lib/catalogue/costing-workbook-suggestions-contract";
+import { catalogueErrorMessage } from "@/lib/catalogue/supplier-items-client";
 
+import { confidenceLabel, SuggestButton, SuggestionStatus, useWorkbookAssistant } from "./assistant";
 import { useWorkbookEditor } from "./shared";
+
+type ColumnSuggestion = NonNullable<CostingWorkbookSuggestionsResponseOf<"columns">["items"][number]["suggestion"]>;
 
 /**
  * The columns the reader found in the sheet's header row, and those it did not (TI-711). A renamed header
@@ -19,15 +29,19 @@ import { useWorkbookEditor } from "./shared";
 
 const columnLetter = (row: number, index: number) => workbookCellAddress(row, index).replace(/\d+$/, "");
 
-function MissingColumn({ column, required, inspection }: Readonly<{
+function MissingColumn({ column, required, inspection, suggestion }: Readonly<{
   column: CostingWorkbookColumn;
   required: boolean;
   inspection: CostingWorkbookColumnInspection;
+  /** The header proposed for this column, by the rules or by the AI source. */
+  suggestion?: ColumnSuggestion;
 }>) {
   const selectId = useId();
   const { busy, applyEdits } = useWorkbookEditor();
   const headerRow = inspection.headerRow;
   const effect = required ? "sans elle, le classeur ne peut pas être lu" : missingColumnEffect(column);
+  const proposed = suggestion?.index === null || suggestion?.index === undefined
+    ? undefined : inspection.unrecognised.find((header) => header.index === suggestion.index);
   return (
     <li className="grid gap-2 py-2.5 sm:grid-cols-[minmax(0,1fr)_minmax(0,16rem)] sm:items-center sm:gap-4">
       <div className="min-w-0">
@@ -38,6 +52,23 @@ function MissingColumn({ column, required, inspection }: Readonly<{
           </Badge>
         </p>
         {effect ? <p className="text-xs text-muted-foreground">{`Sans cette colonne, ${effect}.`}</p> : null}
+        {headerRow !== null && proposed && suggestion ? (
+          <p className="mt-1 flex flex-wrap items-center gap-2 text-xs">
+            <span>
+              {`Proposition : ${columnLetter(headerRow, proposed.index)} · ${proposed.text}`}
+              {suggestion.source === "ai" ? ` (IA, ${confidenceLabel(suggestion.confidence)})` : ""}
+            </span>
+            <Button
+              variant="outline"
+              size="xs"
+              disabled={busy}
+              aria-label={`Lire ${proposed.text} comme ${column}`}
+              onClick={() => applyEdits([{ row: headerRow, column: proposed.index, value: column }])}
+            >
+              Utiliser
+            </Button>
+          </p>
+        ) : null}
       </div>
       {headerRow !== null && inspection.unrecognised.length > 0 ? (
         <div className="min-w-0">
@@ -67,6 +98,42 @@ function MissingColumn({ column, required, inspection }: Readonly<{
 
 export function ColumnsPanel({ inspection }: Readonly<{ inspection: CostingWorkbookColumnInspection }>) {
   const { headerRow, found, missingRequired, missingOptional, unrecognised } = inspection;
+  const { rows, busy } = useWorkbookEditor();
+  const { provider } = useWorkbookAssistant();
+  const [suggestions, setSuggestions] = useState<ReadonlyMap<string, ColumnSuggestion>>(new Map());
+  const [outcome, setOutcome] = useState<{ status: CostingWorkbookSuggestionsResponseOf<"columns">["status"]; message: string } | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const missing = [...missingRequired, ...missingOptional];
+
+  async function suggest() {
+    if (headerRow === null) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const answer = await requestWorkbookSuggestions({
+        task: "columns",
+        ...(provider ? { provider } : {}),
+        missing,
+        headers: unrecognised.slice(0, COSTING_WORKBOOK_SUGGESTION_LIMITS.headers).map(({ index, text }) => {
+          // The first values under the header say what the column holds.
+          const samples: string[] = [];
+          for (let row = headerRow + 1; row <= rows.length && samples.length < COSTING_WORKBOOK_SUGGESTION_LIMITS.samples; row += 1) {
+            const value = workbookCellText(rows, row, index);
+            if (value) samples.push(value.slice(0, 255));
+          }
+          return { index, text: text.slice(0, 255), samples };
+        }),
+      });
+      setSuggestions(new Map(answer.items.flatMap((item) => (item.suggestion ? [[item.column, item.suggestion] as const] : []))));
+      setOutcome({ status: answer.status, message: answer.message });
+    } catch (failure) {
+      setError(catalogueErrorMessage(failure, "Les propositions de colonnes n’ont pas pu être demandées."));
+    } finally {
+      setLoading(false);
+    }
+  }
+
   return (
     <section aria-labelledby="costing-workbook-columns-title" className="space-y-4">
       <div className="space-y-1">
@@ -84,10 +151,23 @@ export function ColumnsPanel({ inspection }: Readonly<{ inspection: CostingWorkb
         </Alert>
       ) : null}
 
-      {missingRequired.length + missingOptional.length > 0 ? (
+      {missing.length > 0 && unrecognised.length > 0 ? (
+        <div className="space-y-1">
+          <SuggestButton label="Proposer les colonnes" withAi loading={loading} disabled={busy} onClick={() => void suggest()} />
+          {error ? <p role="alert" className="text-xs font-medium text-danger">{error}</p> : null}
+          {outcome ? <SuggestionStatus status={outcome.status} message={outcome.message} /> : null}
+          {outcome && suggestions.size === 0 ? <p className="text-xs text-muted-foreground">Aucun en-tête du classeur ne correspond à une colonne absente.</p> : null}
+        </div>
+      ) : null}
+
+      {missing.length > 0 ? (
         <ul aria-label="Colonnes absentes du classeur" className="divide-y divide-border rounded-md border border-border px-3">
-          {missingRequired.map((column) => <MissingColumn key={column} column={column} required inspection={inspection} />)}
-          {missingOptional.map((column) => <MissingColumn key={column} column={column} required={false} inspection={inspection} />)}
+          {missingRequired.map((column) => (
+            <MissingColumn key={column} column={column} required inspection={inspection} suggestion={suggestions.get(column)} />
+          ))}
+          {missingOptional.map((column) => (
+            <MissingColumn key={column} column={column} required={false} inspection={inspection} suggestion={suggestions.get(column)} />
+          ))}
         </ul>
       ) : (
         <p className="text-sm text-success">Toutes les colonnes attendues sont présentes.</p>

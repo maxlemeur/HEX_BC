@@ -58,6 +58,8 @@ const REFERENCE_ADDED_MEANWHILE =
 
 type PlannedDraft = { article: CostingWorkbookArticle; supplyTypeId: string | null };
 
+const IMPORT_NOT_STARTED = "L’import n’a pas pu être ouvert. Réessayez dans un instant.";
+
 type CatalogueArticle = { id: string; unit_price_cents: number; unit: string | null; is_active: boolean };
 type SupplyType = { id: string; code: string; name: string };
 type Difference = NonNullable<Report["catalogue_differences"]>[number];
@@ -109,18 +111,26 @@ async function readCompany({ supabase, tenantId }: AuthenticatedTenantContext): 
 
 const unitKey = (unit: string | null) => (unit ?? "").trim().toLocaleLowerCase("fr-FR");
 
-function planImport(read: CostingWorkbookReadResult, company: Company, chosen: CostingWorkbookArticlesInput["supply_types"]): Plan {
+function planImport(
+  read: CostingWorkbookReadResult,
+  company: Company,
+  { supply_types: chosen, supply_type_rows: chosenRows = [] }: Pick<CostingWorkbookArticlesInput, "supply_types" | "supply_type_rows">,
+): Plan {
   const known = new Set(company.supplyTypes.map((supplyType) => supplyType.id));
-  if (Object.values(chosen ?? {}).some((id) => !known.has(id))) {
+  if ([...Object.values(chosen ?? {}), ...chosenRows.map((choice) => choice.supply_type_id)].some((id) => !known.has(id))) {
     throw unprocessableEntity(UNKNOWN_SUPPLY_TYPE, undefined, COSTING_WORKBOOK_SUPPLY_TYPE_UNKNOWN);
   }
+  const ofRow = new Map(chosenRows.map((choice) => [choice.row, choice.supply_type_id]));
   const ownByCode = new Map(company.supplyTypes.map((supplyType) => [supplyType.code, supplyType.id]));
   const drafts: PlannedDraft[] = [];
   const differences: Difference[] = [];
   for (const article of read.articles) {
     const existing = company.articles.get(workbookReferenceKey(article.reference));
     if (!existing) {
-      drafts.push({ article, supplyTypeId: chosen?.[article.supply_type_code] ?? ownByCode.get(article.supply_type_code) ?? null });
+      drafts.push({
+        article,
+        supplyTypeId: ofRow.get(article.row) ?? chosen?.[article.supply_type_code] ?? ownByCode.get(article.supply_type_code) ?? null,
+      });
       continue;
     }
     // An empty workbook price says nothing about the catalogue's; a defaulted unit neither.
@@ -136,9 +146,10 @@ function planImport(read: CostingWorkbookReadResult, company: Company, chosen: C
   return { read, drafts, supplyTypes: company.supplyTypes, differences };
 }
 
-function reportOf(plan: Plan, confirmed: boolean, drafts: readonly PlannedDraft[]): Report {
+function reportOf(plan: Plan, confirmed: boolean, drafts: readonly PlannedDraft[], batchId: string | null = null): Report {
   return {
     confirmed,
+    ...(confirmed ? { import_batch_id: drafts.length > 0 ? batchId : null } : {}),
     articles: plan.read.articles.length,
     new_articles: drafts.length,
     ...(!confirmed ? {
@@ -158,8 +169,9 @@ function reportOf(plan: Plan, confirmed: boolean, drafts: readonly PlannedDraft[
   };
 }
 
-function productRow({ article, supplyTypeId }: PlannedDraft): ProductInsert {
+function productRow({ article, supplyTypeId }: PlannedDraft, batchId: string): ProductInsert {
   return {
+    import_batch_id: batchId,
     reference: article.reference,
     designation: article.designation,
     category: article.category,
@@ -181,9 +193,18 @@ function productRow({ article, supplyTypeId }: PlannedDraft): ProductInsert {
  * Not one transaction (Supabase REST): drafts are written in chunks of WRITE_CHUNK, one statement each. A refused
  * chunk writes nothing and stops the import; the chunks before it stand, and the error says how many drafts they
  * created. Running the same workbook again completes the rest, since it skips what exists.
+ *
+ * Every draft carries the import it comes from (TI-711): the office validates the drafts of an import together,
+ * or undoes the import while its drafts are untouched.
  */
-async function writeDrafts({ supabase }: AuthenticatedTenantContext, plan: Plan): Promise<Report> {
+async function writeDrafts({ supabase }: AuthenticatedTenantContext, plan: Plan, sourceName: string | undefined): Promise<Report> {
   const created: PlannedDraft[] = [];
+  if (plan.drafts.length === 0) return reportOf(plan, true, created);
+
+  const batch = await supabase.rpc("start_workbook_article_import", { p_source_name: sourceName ?? null });
+  if (batch.error?.code === "42501") throw forbidden(PRODUCT_WRITE_REFUSAL);
+  if (batch.error || !batch.data) throw mapSupabaseError(batch.error ?? { code: "XX000", message: IMPORT_NOT_STARTED }, IMPORT_NOT_STARTED);
+  const batchId = batch.data;
 
   const stopped = (error: SupabaseErrorLike) => {
     const mapped = error.code === "42501"
@@ -192,7 +213,7 @@ async function writeDrafts({ supabase }: AuthenticatedTenantContext, plan: Plan)
       : error.code === "23505" ? conflict(REFERENCE_ADDED_MEANWHILE) : mapSupabaseError(error, "Impossible de créer les articles du classeur.");
     if (created.length === 0) return mapped;
     const count = (value: number) => value.toLocaleString("fr-FR");
-    const details: CostingWorkbookImportIncompleteDetails = { report: reportOf(plan, true, created) };
+    const details: CostingWorkbookImportIncompleteDetails = { report: reportOf(plan, true, created, batchId) };
     return new ApiError({
       status: mapped.status,
       code: COSTING_WORKBOOK_IMPORT_INCOMPLETE,
@@ -204,11 +225,11 @@ async function writeDrafts({ supabase }: AuthenticatedTenantContext, plan: Plan)
 
   for (let start = 0; start < plan.drafts.length; start += WRITE_CHUNK) {
     const chunk = plan.drafts.slice(start, start + WRITE_CHUNK);
-    const { error } = await supabase.from("products").insert(chunk.map(productRow));
+    const { error } = await supabase.from("products").insert(chunk.map((draft) => productRow(draft, batchId)));
     if (error) throw stopped(error);
     created.push(...chunk);
   }
-  return reportOf(plan, true, created);
+  return reportOf(plan, true, created, batchId);
 }
 
 export async function importCostingWorkbook(input: CostingWorkbookArticlesInput): Promise<Report> {
@@ -217,7 +238,7 @@ export async function importCostingWorkbook(input: CostingWorkbookArticlesInput)
 
   // The sheet first: a sheet of another shape is refused without reading the catalogue.
   const read = readCostingWorkbookImportSheet(input.rows);
-  const plan = planImport(read, await readCompany(context), input.supply_types);
+  const plan = planImport(read, await readCompany(context), input);
   if (!input.confirm) return reportOf(plan, false, plan.drafts);
-  return writeDrafts(context, plan);
+  return writeDrafts(context, plan, input.source_name);
 }

@@ -6,7 +6,6 @@ import {
   mergeWorkbookEdits,
   parseWorkbookCellAddress,
   supplierCodeEdits,
-  supplierNameEdits,
   workbookCellAddress,
   workbookEditEntries,
 } from "./costing-workbook-edits";
@@ -19,8 +18,7 @@ import {
  *  2. A correction lands in another cell than the one Excel shows under that address, or outside the sheet the
  *     import reads.
  *  3. The journal keeps two entries for one cell, or keeps a correction that gives the cell its own value back.
- *  4. Associating a supplier renames another supplier's cells, or misses a cell that differs by case or accents.
- *  5. Keeping one code among competing ones rewrites the cells that already hold it.
+ *  4. Keeping one code among competing ones rewrites the cells that already hold it.
  */
 
 const HEADERS = ["ID", "Caractéristique", "Matériau", "F1_nom", "F1_ref", "F2_nom", "F2_ref", "Type_ligne"];
@@ -86,16 +84,7 @@ describe("mergeWorkbookEdits", () => {
 describe("supplier corrections", () => {
   const { supplierReferenceOccurrences } = readCostingWorkbookRows(base);
 
-  it("renames every cell of a supplier name, whatever its case, and no other supplier (4)", () => {
-    expect(supplierNameEdits(supplierReferenceOccurrences, "PT.P", "Point P")).toEqual([
-      { row: 2, column: 3, value: "Point P" },
-      { row: 3, column: 3, value: "Point P" },
-      { row: 3, column: 5, value: "Point P" },
-    ]);
-    expect(supplierNameEdits(supplierReferenceOccurrences, "Inconnu", "Point P")).toEqual([]);
-  });
-
-  it("writes the code kept in the cells that hold another (5)", () => {
+  it("writes the code kept in the cells that hold another (4)", () => {
     const cells = supplierReferenceOccurrences.filter((occurrence) => occurrence.supplier_name.trim().toLowerCase() === "pt.p");
     expect(cells.map((cell) => cell.supplier_sku)).toEqual(["A-1", "4205", "A-2"]);
     expect(supplierCodeEdits(cells, "A-1")).toEqual([{ row: 3, column: 4, value: "A-1" }, { row: 3, column: 6, value: "A-1" }]);

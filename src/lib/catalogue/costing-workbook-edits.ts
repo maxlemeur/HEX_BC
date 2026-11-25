@@ -1,7 +1,4 @@
-import {
-  workbookSupplierNameKey,
-  type CostingWorkbookSupplierOccurrence,
-} from "@/lib/catalogue/costing-workbook";
+import type { CostingWorkbookSupplierOccurrence } from "@/lib/catalogue/costing-workbook";
 import type { CostingWorkbookImportInput } from "@/lib/catalogue/costing-workbook-contract";
 
 /**
@@ -96,22 +93,6 @@ export function mergeWorkbookEdits(base: Rows, current: readonly WorkbookEdit[],
     else byCell.set(key, { row: edit.row, column: edit.column, value });
   }
   return [...byCell.values()].sort((left, right) => left.row - right.row || left.column - right.column);
-}
-
-/** Every cell that names a supplier under this name (case, accents and spaces aside) gets the new name. */
-export function supplierNameEdits(
-  occurrences: readonly CostingWorkbookSupplierOccurrence[],
-  supplierName: string,
-  replacement: string,
-): WorkbookEdit[] {
-  const key = workbookSupplierNameKey(supplierName);
-  const edits = new Map<string, WorkbookEdit>();
-  for (const occurrence of occurrences) {
-    const column = occurrence.supplier_name_column;
-    if (column === undefined || workbookSupplierNameKey(occurrence.supplier_name) !== key) continue;
-    edits.set(workbookEditKey(occurrence.row, column), { row: occurrence.row, column, value: replacement });
-  }
-  return [...edits.values()];
 }
 
 /** Every cell of these occurrences that holds another code than the one kept gets it. */

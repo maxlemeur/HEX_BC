@@ -29,7 +29,9 @@ import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { IconButton } from "@/components/ui/icon-button";
+import { NativeSelect } from "@/components/ui/native-select";
 import { useOptionalUserContext } from "@/lib/auth/user-context";
+import { assignProductsSupplyType, validateDraftProducts } from "@/lib/catalogue/import-review-client";
 import { PRODUCT_VALIDATION_INCOMPLETE } from "@/lib/catalogue/product-validation";
 import { cn } from "@/lib/utils";
 
@@ -133,7 +135,12 @@ export default function ProductsPage() {
   const confirm = useConfirm();
   // The dashboard layout reads the member of the active tenant on the server. Only its administrators create a
   // supply type (`createSupplyType` checks it again): no « Nouveau type » the server would refuse.
-  const canCreateSupplyType = useOptionalUserContext()?.profile?.tenant_role === "admin";
+  const tenantRole = useOptionalUserContext()?.profile?.tenant_role;
+  const canCreateSupplyType = tenantRole === "admin";
+  /** Articles of the page chosen for an action on several at once (TI-711), and the supply type to give them. */
+  const [selectedIds, setSelectedIds] = useState<ReadonlySet<string>>(new Set());
+  const [bulkSupplyTypeId, setBulkSupplyTypeId] = useState("");
+  const [bulkAction, setBulkAction] = useState<"validate" | "assign" | null>(null);
   const [editingProduct, setEditingProduct] = useState<ProductRecord | null>(
     null,
   );
@@ -277,6 +284,41 @@ export default function ProductsPage() {
   });
 
   const products = data?.items ?? [];
+  // A selection names the rows on screen: another page or another filter starts an empty one.
+  useEffect(() => {
+    setSelectedIds(new Set());
+  }, [apiUrl]);
+  const selectedProducts = products.filter((product) => selectedIds.has(product.id));
+  const selectedDrafts = selectedProducts.filter((product) => product.catalogue_status === "draft");
+
+  async function runBulk(action: "validate" | "assign") {
+    setBulkAction(action);
+    setFormError(null);
+    setSuccessMessage(null);
+    const plural = (count: number, one: string, many: string) => `${count.toLocaleString("fr-FR")} ${count === 1 ? one : many}`;
+    try {
+      if (action === "validate") {
+        const { validated, incomplete } = await validateDraftProducts({ ids: selectedDrafts.map((product) => product.id) });
+        setSuccessMessage(
+          `${plural(validated, "article validé", "articles validés")}.`
+          + (incomplete > 0 ? ` ${plural(incomplete, "brouillon incomplet reste", "brouillons incomplets restent")} à compléter.` : ""),
+        );
+      } else {
+        const { updated } = await assignProductsSupplyType(selectedProducts.map((product) => product.id), bulkSupplyTypeId);
+        const left = selectedProducts.length - updated;
+        setSuccessMessage(
+          `Type de fourniture donné à ${plural(updated, "article", "articles")}.`
+          + (left > 0 ? ` ${plural(left, "article inchangé", "articles inchangés")} : il le portait déjà, ou vous ne pouvez pas le modifier.` : ""),
+        );
+      }
+      setSelectedIds(new Set());
+      await mutate();
+    } catch (error) {
+      setFormError(error instanceof Error ? error.message : "L’action n’a pas pu être appliquée aux articles sélectionnés.");
+    } finally {
+      setBulkAction(null);
+    }
+  }
   const totalItems = data?.pagination.totalItems ?? 0;
   const totalPages = Math.max(data?.pagination.totalPages ?? 0, 1);
   const globalTotal =
@@ -606,6 +648,50 @@ export default function ProductsPage() {
           </div>
         </div>
 
+        {selectedProducts.length > 0 ? (
+          <div
+            role="group"
+            aria-label="Actions sur les articles sélectionnés"
+            className="flex flex-wrap items-center gap-2 border-b border-border bg-surface-subtle px-3 py-2.5 sm:px-4"
+          >
+            <span className="text-sm font-medium">
+              {`${selectedProducts.length.toLocaleString("fr-FR")} ${selectedProducts.length === 1 ? "article sélectionné" : "articles sélectionnés"}`}
+            </span>
+            {tenantRole === "admin" && selectedDrafts.length > 0 ? (
+              <Button size="sm" loading={bulkAction === "validate"} disabled={bulkAction !== null} onClick={() => void runBulk("validate")}>
+                {`Valider ${selectedDrafts.length.toLocaleString("fr-FR")} ${selectedDrafts.length === 1 ? "brouillon" : "brouillons"}`}
+              </Button>
+            ) : null}
+            {(data?.supplyTypes ?? []).length > 0 ? (
+              <>
+                <NativeSelect
+                  size="sm"
+                  wrapperClassName="w-56"
+                  aria-label="Type de fourniture à donner aux articles sélectionnés"
+                  value={bulkSupplyTypeId}
+                  disabled={bulkAction !== null}
+                  onChange={(event) => setBulkSupplyTypeId(event.currentTarget.value)}
+                >
+                  <option value="">Type de fourniture…</option>
+                  {(data?.supplyTypes ?? []).map((type) => <option key={type.id} value={type.id}>{type.name}</option>)}
+                </NativeSelect>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  loading={bulkAction === "assign"}
+                  disabled={bulkAction !== null || !bulkSupplyTypeId}
+                  onClick={() => void runBulk("assign")}
+                >
+                  Donner ce type
+                </Button>
+              </>
+            ) : null}
+            <Button variant="ghost" size="sm" disabled={bulkAction !== null} onClick={() => setSelectedIds(new Set())}>
+              Désélectionner
+            </Button>
+          </div>
+        ) : null}
+
         {loadError ? (
           <div className="p-4">
             <Alert variant="danger">
@@ -628,6 +714,8 @@ export default function ProductsPage() {
           onReviewPrice={setReferenceProduct}
           onToggleArchive={(product) => void toggleArchive(product)}
           onValidate={(product) => void validateProduct(product)}
+          selectedIds={selectedIds}
+          onSelectionChange={tenantRole === "admin" || tenantRole === "engineer" ? setSelectedIds : undefined}
         />
 
         {totalItems > 0 ? (

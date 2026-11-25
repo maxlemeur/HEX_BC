@@ -22,7 +22,8 @@ import { CostingWorkbookImport } from "./CostingWorkbookImport";
  *     to choose it before the import; the choice is not sent with the confirmation.
  *  5. References of articles the draft import creates are listed as cells to fix in Excel.
  *  6. One misspelt supplier name is listed cell by cell; associating it to a catalogue supplier or creating it
- *     does not reach every cell, or does not compute the preview again.
+ *     is not remembered for every cell and the next imports, or does not compute the preview again. A name that
+ *     several suppliers bear cannot be decided, or a remembered name cannot be taken back.
  *  7. A corrections file filled in Excel cannot be read back.
  *  8. After the import of the references, the screen no longer says which ones to verify.
  *  9. A cell set aside stays in the list, or cannot be taken back.
@@ -98,12 +99,28 @@ const answers = {
     { id: "s1", name: "Point P Matériaux" },
     { id: "s2", name: "Rexel" },
   ],
+  /** The names remembered for suppliers, as the server lists them. */
+  aliases: [] as Array<{ id: string; supplier_id: string; supplier_name: string; alias: string; created_at: string }>,
 };
 const fetchMock = vi.fn<typeof fetch>((input, init) => {
   const url = String(input);
   const method = init?.method ?? "GET";
   const body = init?.body ? JSON.parse(String(init.body)) as Sent["body"] : null;
   sent.push({ url, method, body });
+  if (url.startsWith("/api/catalogue/supplier-aliases")) {
+    if (method === "GET") return respond(200, { ok: true, data: { items: answers.aliases } });
+    if (method === "DELETE") {
+      answers.aliases = answers.aliases.filter((alias) => !url.endsWith(alias.id));
+      return respond(200, { ok: true, data: { id: url.split("/").at(-1) } });
+    }
+    const { supplier_id, alias } = body as unknown as { supplier_id: string; alias: string };
+    const item = {
+      id: `alias-${answers.aliases.length + 1}`, supplier_id, alias,
+      supplier_name: answers.directory.find((supplier) => supplier.id === supplier_id)?.name ?? "", created_at: "2026-11-25T10:00:00.000Z",
+    };
+    answers.aliases = [...answers.aliases, item];
+    return respond(201, { ok: true, data: { item } });
+  }
   if (url === "/api/suppliers") {
     return method === "GET"
       ? respond(200, { ok: true, data: { items: answers.directory } })
@@ -140,6 +157,7 @@ describe("CostingWorkbookImport, corrections in the screen", () => {
     sent.length = 0;
     answers.articles = () => respond(200, { ok: true, data: articleReport() });
     answers.suppliers = () => respond(200, { ok: true, data: supplierReport() });
+    answers.aliases = [];
     fetchMock.mockClear();
     vi.stubGlobal("fetch", fetchMock);
   });
@@ -277,17 +295,42 @@ describe("CostingWorkbookImport, corrections in the screen", () => {
 
     await user.click(await screen.findByRole("button", { name: "Fournisseur actif introuvable" }));
     expect(screen.getByText("1 fournisseur distinct")).toBeVisible();
+    // The name is remembered for the supplier: the sheet is not touched, the preview reads it again.
     await user.click(await screen.findByRole("button", { name: "Associer Pt.P à Point P Matériaux" }));
     await waitFor(() => expect(supplierPreviews()).toHaveLength(2));
-    const corrected = supplierPreviews()[1].body?.rows;
-    expect([corrected?.[1]?.[6], corrected?.[2]?.[6]]).toEqual(["Point P Matériaux", "Point P Matériaux"]);
-    expect(await screen.findByText("2 corrections appliquées à l’aperçu.")).toBeVisible();
+    expect(sent.find((call) => call.url === "/api/catalogue/supplier-aliases" && call.method === "POST")?.body)
+      .toEqual({ supplier_id: "s1", alias: "Pt.P" });
+    expect(supplierPreviews()[1].body?.rows).toEqual(supplierPreviews()[0].body?.rows);
+    expect(screen.queryByRole("region", { name: "Corrections appliquées à l’aperçu" })).not.toBeInTheDocument();
 
-    await user.click(await screen.findByRole("button", { name: "Créer le fournisseur Point P Matériaux" }));
+    // A remembered name is listed, and taken back.
+    await user.click(await screen.findByRole("button", { name: "Noms associés" }));
+    expect(within(screen.getByRole("list", { name: "Noms associés" })).getByRole("listitem")).toHaveTextContent("« Pt.P » est Point P Matériaux");
+    await user.click(screen.getByRole("button", { name: "Retirer l’association de Pt.P" }));
     await waitFor(() => expect(supplierPreviews()).toHaveLength(3));
+    expect(sent.some((call) => call.url === "/api/catalogue/supplier-aliases/alias-1" && call.method === "DELETE")).toBe(true);
+
+    await user.click(await screen.findByRole("button", { name: "Fournisseur actif introuvable" }));
+    await user.click(await screen.findByRole("button", { name: "Créer le fournisseur Pt.P" }));
+    await waitFor(() => expect(supplierPreviews()).toHaveLength(4));
     expect(sent.find((call) => call.url === "/api/suppliers" && call.method === "POST")?.body)
-      .toEqual({ action: "create", item: { name: "Point P Matériaux", is_active: true } });
-    expect(supplierPreviews()[2].body?.rows).toEqual(corrected);
+      .toEqual({ action: "create", item: { name: "Pt.P", is_active: true } });
+  });
+
+  it("lets the office say which of the suppliers that share a name the workbook means (6)", async () => {
+    const user = userEvent.setup();
+    answers.suppliers = () => respond(200, { ok: true, data: supplierReport({ for_decision: [{
+      row: 2, slot: 1, reason: "ambiguous_supplier", product_id: "90000000-0000-4000-8000-000000000001",
+      candidates: [{ id: "s1", label: "Point P Matériaux · Lyon" }, { id: "s3", label: "Point P Matériaux · Nantes" }],
+    }] }) });
+    renderImport();
+    await openSupplierReferences(user);
+
+    await user.click(await screen.findByRole("button", { name: "Plusieurs fournisseurs correspondent" }));
+    await user.click(await screen.findByRole("button", { name: "Associer Pt.P à Point P Matériaux · Nantes" }));
+    await waitFor(() => expect(supplierPreviews()).toHaveLength(2));
+    expect(sent.find((call) => call.url === "/api/catalogue/supplier-aliases" && call.method === "POST")?.body)
+      .toEqual({ supplier_id: "s3", alias: "Pt.P" });
   });
 
   it("reads a filled corrections file back, and says what it left out (7)", async () => {

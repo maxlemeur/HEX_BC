@@ -29,7 +29,9 @@ import { exportToExcelWithSheets } from "@/lib/export";
 import { formatEUR } from "@/lib/money";
 import { foldText } from "@/lib/text/fold";
 
+import { ArticleDuplicates, type DuplicateSearch } from "./ArticleDuplicates";
 import { ColumnsPanel } from "./ColumnsPanel";
+import { SupplyTypeGroups } from "./SupplyTypeGroups";
 import {
   boundedPage,
   DECISIONS_PER_PAGE,
@@ -84,13 +86,21 @@ function ExportButton({ label, onExport }: Readonly<{ label: string; onExport: (
   );
 }
 
-export function ArticlePreview({ report, rows, review, onReviewChange, supplyTypeChoices, onSupplyTypeChoice, onShowSupplierReferences }: Readonly<{
+export function ArticlePreview({
+  report, rows, review, onReviewChange, supplyTypeChoices, onSupplyTypeChoice, supplyTypeRows, onSupplyTypeRows,
+  duplicateSearch, onDuplicateSearch, onShowSupplierReferences,
+}: Readonly<{
   report: CostingWorkbookImportReport;
   rows: CostingWorkbookRows;
   review: WorkbookReview;
   onReviewChange: (review: WorkbookReview) => void;
   supplyTypeChoices: SupplyTypeChoices;
   onSupplyTypeChoice: (kind: CostingWorkbookSupplyKind, supplyTypeId: string | null) => void;
+  /** The supply type the office gave to the drafts of given rows: it comes before the family's. */
+  supplyTypeRows: Readonly<Record<number, string>>;
+  onSupplyTypeRows: (choices: ReadonlyArray<{ rows: readonly number[]; supplyTypeId: string | null }>) => void;
+  duplicateSearch: DuplicateSearch | null;
+  onDuplicateSearch: (search: DuplicateSearch | null) => void;
   onShowSupplierReferences: () => void;
 }>) {
   const { busy } = useWorkbookEditor();
@@ -109,6 +119,8 @@ export function ArticlePreview({ report, rows, review, onReviewChange, supplyTyp
   const typeByCode = new Map(companyTypes.map((type) => [type.code, type]));
   const typeOfKind = (kind: CostingWorkbookSupplyKind) =>
     (supplyTypeChoices[kind] ? typeById.get(supplyTypeChoices[kind]) : undefined) ?? typeByCode.get(kind) ?? null;
+  const typeOfArticle = ({ row, supply_type_code: kind }: CostingWorkbookArticle) =>
+    (supplyTypeRows[row] ? typeById.get(supplyTypeRows[row]) : undefined) ?? typeOfKind(kind);
 
   const proposedAll: ProposedArticle[] = (report.proposed_articles ?? []).flatMap((proposal) => {
     const article = articleByRow.get(proposal.row);
@@ -123,7 +135,13 @@ export function ArticlePreview({ report, rows, review, onReviewChange, supplyTyp
   const kindCounts = new Map<CostingWorkbookSupplyKind, number>();
   for (const { article } of proposedAll) kindCounts.set(article.supply_type_code, (kindCounts.get(article.supply_type_code) ?? 0) + 1);
   const kinds = [...kindCounts.entries()].sort((left, right) => right[1] - left[1]);
-  const kindsWithoutType = kinds.filter(([kind]) => !typeOfKind(kind)).length;
+  // What the reader could not classify, or what has no supply type: the office classifies it by type of article.
+  const toClassify = proposedAll.filter(({ findings }) => findings.includes("without_supply_type") || findings.includes("supply_type_defaulted"));
+  const unclassified = toClassify.filter(({ row, findings }) => findings.includes("without_supply_type") || !supplyTypeRows[row]).length;
+  // The search holds rows of an earlier preview: a row corrected since is no longer a draft to compare.
+  const proposedRows = new Set(proposedAll.map(({ row }) => row));
+  const duplicates = duplicateSearch
+    ? { ...duplicateSearch, found: duplicateSearch.found.filter(({ row }) => proposedRows.has(row)) } : null;
 
   const columnWarnings = missingColumnWarnings(inspection);
   const differences = (report.catalogue_differences ?? []).flatMap((difference) => {
@@ -139,9 +157,10 @@ export function ArticlePreview({ report, rows, review, onReviewChange, supplyTyp
     && (!query || [article.reference, article.designation, article.material ?? ""].some((text) => foldText(text).includes(query))));
 
   const mainViews: ReviewChoice[] = [{ id: "proposed", label: "Articles proposés", count: newArticles }];
-  if (kinds.length > 0) mainViews.push({ id: "supply-types", label: "Types de fourniture", count: kindsWithoutType, tone: "warning" });
+  if (kinds.length > 0) mainViews.push({ id: "supply-types", label: "Types de fourniture", count: unclassified, tone: "warning" });
   mainViews.push({ id: "columns", label: "Colonnes du classeur", count: columnWarnings.length, tone: "warning" });
   const checkViews: ReviewChoice[] = [];
+  if (proposedAll.length > 0) checkViews.push({ id: "duplicates", label: "Doublons possibles", count: duplicates?.found.length ?? 0, tone: "warning" });
   if (differences.length > 0) checkViews.push({ id: "differences", label: "Écarts avec le catalogue", count: differences.length });
   if (report.issue_count > 0) checkViews.push({ id: "issues", label: "Remarques sur le classeur", count: report.issue_count });
   const active = [...mainViews, ...checkViews].some(({ id }) => id === review.view) ? review.view : "proposed";
@@ -267,7 +286,7 @@ export function ArticlePreview({ report, rows, review, onReviewChange, supplyTyp
                     </thead>
                     <tbody className="divide-y divide-border">
                       {proposed.slice(start, start + DECISIONS_PER_PAGE).map(({ row, article, findings }) => {
-                        const type = typeOfKind(article.supply_type_code);
+                        const type = typeOfArticle(article);
                         return (
                           <tr key={row} className="align-top wrap-anywhere [&>td]:px-3 [&>td]:py-2.5">
                             <td className="tabular-nums">{row}</td>
@@ -364,10 +383,15 @@ export function ArticlePreview({ report, rows, review, onReviewChange, supplyTyp
                 </tbody>
               </table>
             </div>
+            <SupplyTypeGroups articles={toClassify} companyTypes={companyTypes} chosenRows={supplyTypeRows} onChoose={onSupplyTypeRows} />
           </section>
         ) : null}
 
         {active === "columns" ? <ColumnsPanel inspection={inspection} /> : null}
+
+        {active === "duplicates" ? (
+          <ArticleDuplicates proposed={proposedAll} idColumn={column("ID")} search={duplicates} onSearch={onDuplicateSearch} />
+        ) : null}
 
         {active === "differences" ? (
           <section aria-labelledby="costing-workbook-differences-title" className="space-y-3">
