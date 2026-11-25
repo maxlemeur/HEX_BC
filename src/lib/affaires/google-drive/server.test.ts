@@ -521,6 +521,18 @@ describe("Drive accounts kept on the server and pieces linked without copies (Go
     expect(await rearmLotsFailedWithConnection(backend.access.context, connectionId)).toEqual([]);
     expect(lot.status).toBe("failed");
   });
+  it.each([false, true])("reclaims an abandoned individual reservation on OAuth reconnection (rule active: %s)", async active => {
+    const first = await link();
+    const [document] = [...backend.rows("affaire_intake_documents").values()];
+    const lot = backend.rows("affaire_intake_uploads").get(first.uploads[0])!;
+    lot.status = "failed";
+    Object.assign(document, { classification_status: "failed", issues: ["Analyse IA en cours.", "Lecture interrompue."],
+      updated_at: new Date(Date.now() - 24 * 60 * 60_000).toISOString() });
+    Object.assign(backend.intake, { active, state: "required" });
+    expect(await rearmLotsFailedWithConnection(backend.access.context, connectionId)).toEqual(active ? [] : first.uploads);
+    expect(document.issues).toEqual(["Lecture interrompue."]);
+    expect(lot.status).toBe(active ? "failed" : "queued");
+  });
   it("reattaches an enrolled link and closes an interrupted recording without scheduling a paid worker", async () => {
     const first = await link();
     const [document] = [...backend.rows("affaire_intake_documents").values()];

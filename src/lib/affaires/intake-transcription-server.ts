@@ -11,7 +11,8 @@ import {
   INTAKE_TRANSCRIPTION_PROMPT_VERSION, INTAKE_TRANSCRIPTION_REASONING_EFFORT, buildIntakeTranscriptionPrompt,
   intakeTranscriptionAnswerSchema, needsIntakeTranscription, summarizeIntakeTranscription,
 } from "@/lib/affaires/intake-transcription";
-import { getLocalChatGptCredential, isLocalChatGptEnabled } from "@/lib/ai/chatgpt-local-auth";
+import { AFFAIRE_INTAKE_ANALYSIS_STALE_MS } from "@/lib/affaires/intake";
+import { getLocalChatGptCredential } from "@/lib/ai/chatgpt-local-auth";
 import {
   assertLocalChatGptOverride, callLocalChatGptStructured, LocalChatGptOverrideUnavailableError,
 } from "@/lib/ai/chatgpt-local-inference";
@@ -139,6 +140,7 @@ export async function transcribeIntakeDocument(input: {
   if (!plan) {
     // A new content that needs no reading takes the previous reading away.
     if (existing) {
+      await input.renewLease();
       const { error } = await table().delete().eq("document_id", input.document.id).eq("tenant_id", input.document.tenantId);
       if (error) throw error;
     }
@@ -194,20 +196,14 @@ export async function transcribeIntakeDocument(input: {
   return { transcribed: true as const, status: outcome.status };
 }
 
-/**
- * The readings retries scheduled on this instance and that still run, one per
- * piece: a second click on the same content starts none, and a newer content's
- * reading supersedes an older one, which stops before its next page and before
- * its write (a Drive piece read at revision A, then B, keeps B's text).
- */
+/** Track deferred readings on this host for the preview. The database owns the reservation. */
 export class IntakeRetryReadings {
-  private readonly running = new Map<string, { sourceSha256: string; token: symbol }>();
+  private readonly running = new Map<string, { version: string; token: symbol }>();
 
-  /** The reading's token, or null when the same content is already being read. */
-  claim(documentId: string, sourceSha256: string) {
-    if (this.running.get(documentId)?.sourceSha256 === sourceSha256) return null;
+  claim(documentId: string, version: string) {
+    if (this.running.get(documentId)?.version === version) return null;
     const token = Symbol(documentId);
-    this.running.set(documentId, { sourceSha256, token });
+    this.running.set(documentId, { version, token });
     return token;
   }
 
@@ -245,41 +241,66 @@ export async function scheduleIntakeTranscriptionAfterRetry(input: {
   projectId: string;
   context: { supabase: ServiceClient; userId: string; tenantId: string };
   document: { id: string; fileName: string }; mimeType: string; bytes: ArrayBuffer; sourceSha256: string;
+  reservation: { updatedAt: string; finalIssues: string[] };
 }) {
   const { context, document } = input;
-  if (!isLocalChatGptEnabled() || !canTranscribeIntakeDocument(input.mimeType)) return false;
-  // Read with the member's rights: the piece's own policies decide, as for its preview.
-  const { data: existing, error } = await context.supabase.from("affaire_intake_document_transcriptions")
-    .select("source_sha256,error_code").eq("tenant_id", context.tenantId).eq("document_id", document.id).maybeSingle();
-  if (error) {
-    console.error("Affaire intake transcription state could not be read", { documentId: document.id });
-    return false;
-  }
-  if (!needsIntakeTranscription(existing, input.sourceSha256)) return false;
-  const token = retryReadings.claim(document.id, input.sourceSha256);
-  if (!token) return false;
   const owner = { userId: context.userId, tenantId: context.tenantId };
-  after(async () => {
-    const supabase = createServiceRoleClient();
-    // No lease covers a manual retry: the reading stops once the piece leaves the dossier or a newer retry supersedes
-    // it. It is checked before each page and before the write.
-    const stillActive = async () => {
-      if (!retryReadings.isCurrent(document.id, token)) throw new Error("A newer retry supersedes this reading.");
-      const { data, error: readError } = await supabase.from("affaire_intake_documents").select("id")
-        .eq("tenant_id", owner.tenantId).eq("project_id", input.projectId).eq("id", document.id).eq("upload_status", "uploaded")
-        .is("deleted_at", null).is("deletion_token", null).maybeSingle();
-      if (readError || !data) throw new Error("The piece left the dossier during its reading.");
-      await requireIntakePayerRight(owner, input.projectId, supabase);
-    };
-    try {
-      await stillActive();
-      await transcribeIntakeDocument({ supabase, owner, mimeType: input.mimeType, bytes: input.bytes, sourceSha256: input.sourceSha256,
-        renewLease: stillActive, document: { id: document.id, tenantId: owner.tenantId, fileName: document.fileName } });
-    } catch {
-      console.error("Affaire intake transcription after a retry could not be recorded", { documentId: document.id });
-    } finally {
-      retryReadings.release(document.id, token);
+  let version = input.reservation.updatedAt;
+  const reserved = (client: ServiceClient, update?: { issues: string[] } | { updated_at: string }) => {
+    const documents = client.from("affaire_intake_documents");
+    const query = update ? documents.update(update).select("updated_at") : documents.select("updated_at");
+    return query.eq("tenant_id", owner.tenantId).eq("project_id", input.projectId).eq("id", document.id)
+      .eq("updated_at", version).eq("upload_status", "uploaded").is("deletion_token", null).is("deleted_at", null);
+  };
+  const release = async (client: ServiceClient) => {
+    const { error } = await reserved(client, { issues: input.reservation.finalIssues });
+    if (error) throw error;
+  };
+  let token: symbol | null = null;
+  let releaseHere = true;
+  try {
+    const { data: existing, error } = await context.supabase.from("affaire_intake_document_transcriptions")
+      .select("source_sha256,error_code").eq("tenant_id", context.tenantId).eq("document_id", document.id).maybeSingle();
+    if (error) {
+      console.error("Affaire intake transcription state could not be read", { documentId: document.id });
+      return false;
     }
-  });
-  return true;
+    if (!needsIntakeTranscription(existing, input.sourceSha256)) return false;
+    token = retryReadings.claim(document.id, version);
+    if (!token) {
+      releaseHere = false; // The callback for this reservation already owns its release.
+      return false;
+    }
+    const reading = token;
+    after(async () => {
+      const supabase = createServiceRoleClient();
+      const stillActive = async () => {
+        if (!retryReadings.isCurrent(document.id, reading)) throw new Error("A newer retry supersedes this reading.");
+        // One paid page has a three-minute deadline. Extend the ten-minute reservation
+        // between pages so a long, healthy reading never becomes reclaimable.
+        const refresh = Date.now() - Date.parse(version) >= AFFAIRE_INTAKE_ANALYSIS_STALE_MS / 2;
+        const current = await reserved(supabase, refresh ? { updated_at: new Date().toISOString() } : undefined).maybeSingle();
+        if (current.error || !current.data) throw new Error("The piece changed during its reading.");
+        version = current.data.updated_at;
+        await requireIntakePayerRight(owner, input.projectId, supabase);
+      };
+      try {
+        await stillActive();
+        await transcribeIntakeDocument({ supabase, owner, mimeType: input.mimeType, bytes: input.bytes, sourceSha256: input.sourceSha256,
+          renewLease: stillActive, document: { id: document.id, tenantId: owner.tenantId, fileName: document.fileName } });
+      } catch {
+        console.error("Affaire intake transcription after a retry could not be recorded", { documentId: document.id });
+      } finally {
+        retryReadings.release(document.id, reading);
+        await release(supabase);
+      }
+    });
+    releaseHere = false;
+    return true;
+  } finally {
+    if (releaseHere) {
+      if (token) retryReadings.release(document.id, token);
+      await release(context.supabase);
+    }
+  }
 }

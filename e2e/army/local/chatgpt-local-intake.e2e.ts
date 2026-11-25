@@ -11,6 +11,7 @@ import { expect } from "e2e";
 import {
   apiRequest, createEstimateViaWizard, readEstimate, recordEvidence,
 } from "../critical/fixtures";
+import { localDriveStore } from "../critical/google-drive-local-store";
 import { hydratedUi, signIn, waitForHydration } from "../critical/hydration-support";
 import { takeoffZone } from "../critical/preparation-support";
 import { readPlanFiles, readPlanSets } from "../critical/plans-support";
@@ -294,6 +295,22 @@ test("INTMAN01 manual classification leaves the first dossier without paid sends
   }
 });
 
+/** A disconnected Drive piece in a closed release 0.9.0 lot, on the owned stack. */
+async function historicalDriveLink(projectId: string, lotId: string, abandoned: boolean) {
+  const { client, userId } = await localClient();
+  const project = (await client.from("estimate_projects").select("id,tenant_id,name,user_id,is_archived").eq("id", projectId).single()).data!;
+  const file = { id: randomUUID(), name: "Notice Drive.txt", mimeType: "text/plain", size: "24", version: "1" };
+  const [connectionId] = await querySql(`select public.save_google_drive_connection('${project.tenant_id}','${userId}',
+    'army-historical','army@example.invalid','ARMY Drive','v1.fixture.sealed.token')`);
+  await querySql(`insert into public.affaire_intake_documents
+    (upload_id,created_by,file_name,mime_type,source_provider,drive_file_id,classification_status,upload_status,issues,updated_at)
+    values ('${lotId}','${userId}','Notice Drive.txt','text/plain','google_drive','${file.id}','failed','uploaded',
+      ${abandoned ? "array['Analyse IA en cours.', 'Lecture interrompue.']" : "array[]::text[]"}, clock_timestamp() - interval '24 hours')`);
+  const store = await localDriveStore(file.id);
+  const access = { context: { supabase: client, tenantId: project.tenant_id, userId }, project } as Parameters<typeof store.linkDriveFiles>[0];
+  return { file, connectionId, attach: () => store.linkDriveFiles(access, { connectionId, files: [{ file }] }) };
+}
+
 for (const active of [false, true]) test(`INTFRESH${active ? "02" : "01"} a hand-classified second deposit, category correction and deletion with the current-brief rule ${active ? "on" : "off"}`, {
   tags: ["critical", "local", "chatgpt", "intake"], session: "army", timeout: 300_000,
 }, async ({ app, browser, screen }) => {
@@ -436,6 +453,15 @@ for (const active of [false, true]) test(`INTFRESH${active ? "02" : "01"} a hand
       expect(await sends()).toEqual(before);
       expect(await (await client.storage.from("affaire-intake").download(manualPath)).data?.text()).toBe(original);
     }
+    // A retry abandoned yesterday must not strand the disconnected original.
+    const orphan = await historicalDriveLink(projectId, uploadId, true);
+    const attached = await orphan.attach();
+    expect(attached.results.map(row => row.status)).toEqual(["linked"]);
+    expect(attached.resumed).toEqual(active ? [] : [uploadId]);
+    expect((await client.from("affaire_intake_documents").select("drive_connection_id,issues").eq("drive_file_id", orphan.file.id)
+      .single()).data).toEqual({ drive_connection_id: orphan.connectionId, issues: ["Lecture interrompue."] });
+    // The queue transition is the outcome under test. Retire this fixture before the next recovery sweep.
+    if (!active) await querySql(`update public.affaire_intake_uploads set status='failed',completed_at=clock_timestamp() where id='${uploadId}'`);
   } finally {
     if (active) await querySql("delete from private.intake_current_brief_activation where singleton");
     if (fixtureStore) await rm(fixtureStore, { force: true });
@@ -1061,6 +1087,68 @@ for (const unavailableAt of ["classification", "transcription", "lease expiry"] 
 // A reading stopped by a failure is read again by « Relancer l’analyse », after its response; a reading already done is
 // kept. The assistant then gets the text with the image it reads, labelled as unverified, and cites the piece's page.
 // Terra is not listed when the piece arrives (the reading stops on MODEL_UNAVAILABLE), then listed for the retry.
+test("INTOCR03 a historical Drive reconnection during an individual transcription sends the page only on the caller’s plan", {
+  tags: ["critical", "local", "chatgpt", "intake"], session: "army", timeout: 240_000,
+}, async ({ app, screen, browser }) => {
+  if (liveProbe || !await preparePlanFixture()) throw new Error("Two fictional ChatGPT accounts are required.");
+  const { client, userId: depositor } = await localClient();
+  const caller = await createLocalChatGptOwner();
+  await makeOwnedDirector(depositor, caller.userId);
+  await querySql(`update public.tenant_memberships set role='admin' where user_id='${caller.userId}' and is_default`);
+  const callerStore = await writePlanFixture(caller.email, null, false);
+  let recovery: Promise<Response> | undefined;
+  try {
+    const profile = JSON.parse(await readFile(callerStore, "utf8"));
+    profile.profiles[0].accessToken = "army-chatgpt-fixture-second";
+    await writeFile(callerStore, JSON.stringify(profile));
+    await signIn({ app, screen, browser }, localOrigin, fixtureEmail);
+    const name = `ARMY-historical-ocr-${Date.now()}`;
+    const ui = hydratedUi({ app, screen, browser }, localOrigin);
+    const { projectId } = await createEstimateViaWizard(ui, { projectName: name, title: name },
+      { runPrefix: name, projectName: name, ownedEstimates: [] });
+    const lot = randomUUID(), piece = randomUUID();
+    const tenant = (await client.from("estimate_projects").select("tenant_id").eq("id", projectId).single()).data!.tenant_id;
+    const path = `${tenant}/${projectId}/${lot}/${piece}/photo.png`;
+    const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgYGD4DwABBAEAW9JTswAAAABJRU5ErkJggg==", "base64");
+    const digest = createHash("sha256").update(png).digest("hex");
+    const pages = async () => (await readFile(transportLog, "utf8")).split("\n").filter(Boolean).map(line => JSON.parse(line))
+      .filter(row => row.task === "transcription" && row.digest === digest).map(({ page, fixtureProfile }) => ({ page, fixtureProfile }));
+    const before = (await pages()).length;
+    await querySql(`insert into public.affaire_intake_uploads(id,project_id,created_by,status,completed_at)
+      values ('${lot}','${projectId}','${depositor}','failed',clock_timestamp());
+      insert into public.affaire_intake_documents(id,upload_id,created_by,file_name,mime_type,storage_path,upload_status,classification_status)
+      values ('${piece}','${lot}','${depositor}','photo.png','image/png','${path}','uploaded','failed')`);
+    expect((await client.storage.from("affaire-intake").upload(path, png, { contentType: "image/png" })).error).toBeNull();
+    const sibling = await historicalDriveLink(projectId, lot, false);
+    await setDecisionsControl({ transcriptionModel: true, holdTranscription: true });
+    await signInAs({ app, screen, browser }, caller.email);
+    await ui.app.open(`/dashboard/affaires/${projectId}?intakeDocument=${piece}#intake`);
+    await screen.getByRole("button", "Relancer l’analyse de photo.png", { exact: true }).click();
+    const expected = [{ page: null, fixtureProfile: "second" }];
+    await expect.poll(async () => (await pages()).slice(before), DEV_SERVER_WORK).toEqual(expected);
+    expect((await sibling.attach()).resumed).toEqual([lot]);
+    recovery = fetch(new URL("/api/internal/workflows/recover", localOrigin), { headers: { authorization: `Bearer ${recoverySecret}` } });
+    await expect.poll(async () => {
+      const state = (await client.from("affaire_intake_uploads").select("status,attempt_count").eq("id", lot).single()).data!;
+      return (await pages()).length > before + 1 || (state.attempt_count > 0 && ["failed", "ready", "partial_failure"].includes(state.status));
+    }, DEV_SERVER_WORK).toBe(true);
+    expect((await pages()).slice(before)).toEqual(expected);
+    await setDecisionsControl({ transcriptionModel: true });
+    await expect.poll(async () => (await client.from("affaire_intake_document_transcriptions").select("source_sha256,status")
+      .eq("document_id", piece).maybeSingle()).data, DEV_SERVER_WORK).toEqual({ source_sha256: digest, status: "completed" });
+    await expect.poll(async () => (await client.from("affaire_intake_documents").select("issues").eq("id", piece).single()).data?.issues,
+      DEV_SERVER_WORK).not.toContain("Analyse IA en cours.");
+    expect((await pages()).slice(before)).toEqual(expected);
+  } finally {
+    await setDecisionsControl({ transcriptionModel: true });
+    await recovery;
+    await setDecisionsControl({});
+    await rm(callerStore, { force: true });
+    if (fixtureStore) await rm(fixtureStore, { force: true });
+    fixtureStore = undefined;
+  }
+});
+
 test("INTOCR02 the analysis retry reads a stopped transcription again after its response, and the assistant reads the text", {
   tags: ["critical", "local", "chatgpt", "intake"], session: "army", timeout: 420_000,
 }, async ({ app, screen, browser }) => {

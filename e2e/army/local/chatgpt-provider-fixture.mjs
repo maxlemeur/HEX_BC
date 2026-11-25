@@ -1,4 +1,5 @@
 // Test-only transport. Only the local browser tests (chatgpt-local, takeoff-lab) preload this file.
+import { createHash } from "node:crypto";
 import assert from "node:assert/strict";
 import { appendFileSync, readFileSync } from "node:fs";
 import path from "node:path";
@@ -342,6 +343,8 @@ globalThis.fetch = async (input, init) => {
     const image = parts.find(part => part.type === "input_image");
     const prompt = parts.find(part => part.type === "input_text")?.text ?? "";
     await appendFile(process.env.ARMY_CHATGPT_TRANSPORT_LOG, JSON.stringify({ provider: "chatgpt-fixture", task: "transcription", model: body.model,
+      fixtureProfile: secondIntakeProfile ? "second" : "first",
+      ...(image ? { digest: createHash("sha256").update(Buffer.from(image.image_url.split(",")[1], "base64")).digest("hex") } : {}),
       reasoningEffort: body.reasoning.effort, inputKind: image ? "image" : pdf ? "pdf" : "none", ...(image ? { detail: image.detail ?? null } : {}),
       page: /la page (\d+) de la pièce/.exec(prompt)?.[1] ?? null }) + "\n");
     assert(image || pdf, "A transcription sends the image or the scanned page.");

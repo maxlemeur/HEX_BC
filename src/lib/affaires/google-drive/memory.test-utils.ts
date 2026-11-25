@@ -136,6 +136,7 @@ export function memoryBackend() {
         table.set(id, {
           tenant_id: "tenant_demo",
           created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
           deleted_at: null,
           ...table.get(id),
           ...this.value,

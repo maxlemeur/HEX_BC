@@ -540,11 +540,14 @@ export async function retryAffaireDocumentAnalysis(input: { projectId: string; d
   if (document.upload_status !== "uploaded" || (!["classified", "ambiguous", "failed"].includes(document.classification_status) && !stale)) {
     throw conflict("Cette pièce n’est plus disponible pour une nouvelle analyse. Actualisez le dossier.");
   }
-  const { data: lot, error: lotError } = await context.supabase.from("affaire_intake_uploads")
+  const readLot = () => context.supabase.from("affaire_intake_uploads")
     .select("id,status").eq("tenant_id", context.tenantId).eq("project_id", project.id)
     .eq("id", document.analysis_launch_id ?? document.upload_id).maybeSingle();
+  const { data: lot, error: lotError } = await readLot();
+  const allowsRetry = (status: string) => (status === "deposited" && preserveManualClassification) ||
+    ["ready", "partial_failure", "failed"].includes(status);
   if (lotError || !lot) throw internalError("Impossible de préparer la relance de l’analyse.", lotError);
-  if (!(lot.status === "deposited" && preserveManualClassification) && !["ready", "partial_failure", "failed"].includes(lot.status)) {
+  if (!allowsRetry(lot.status)) {
     throw conflict("Une analyse de ce lot est déjà en cours. Réessayez après sa fin.");
   }
   // A lease marker leaves the validated classification and plan generation unchanged.
@@ -560,6 +563,16 @@ export async function retryAffaireDocumentAnalysis(input: { projectId: string; d
     .eq("tenant_id", context.tenantId).eq("project_id", project.id).eq("id", document.id)
     .eq("classification_status", document.classification_status).eq("updated_at", reserved.updated_at)
     .is("deleted_at", null).is("deletion_token", null);
+  // Conversely, a historical worker may have claimed this lot before the document reservation.
+  // Once both checks pass, any later worker sees the reservation before it can send a page.
+  if (!document.analysis_launch_id) {
+    const current = await readLot();
+    if (current.error || !current.data || !allowsRetry(current.data.status)) {
+      const released = await fence(table().update({ issues: document.issues.filter(issue => issue !== AFFAIRE_INTAKE_REANALYSIS_PENDING_ISSUE) }));
+      if (released.error || current.error) throw internalError("Impossible de préparer la relance de l’analyse.", released.error ?? current.error);
+      throw conflict("Une analyse de ce lot est déjà en cours. Réessayez après sa fin.");
+    }
+  }
   let proposalSaved = false;
   try {
     let linked: Awaited<ReturnType<typeof readLinkedDriveDocument>> | null = null;
@@ -596,16 +609,21 @@ export async function retryAffaireDocumentAnalysis(input: { projectId: string; d
       document, classification, preserveManualClassification, now: new Date().toISOString(),
     });
     const status = values.classification_status;
+    const mayRead = isLocalChatGptEnabled() && canTranscribeIntakeDocument(mimeType);
     const { data: updated, error: updateError } = await fence(table().update({
       ...values,
+      issues: mayRead ? [AFFAIRE_INTAKE_REANALYSIS_PENDING_ISSUE, ...values.issues] : values.issues,
       size_bytes: bytes.byteLength,
       ...(linked ? { drive_revision: linked.file.version ?? null, drive_modified_time: linked.file.modifiedTime ?? null } : {}),
-    })).select("id").maybeSingle();
+    })).select("updated_at").maybeSingle();
     if (updateError) throw internalError("Impossible d’enregistrer la nouvelle analyse.", updateError);
     if (!updated) throw conflict("La pièce a changé pendant l’analyse. Le nouveau résultat n’a pas remplacé son classement.");
     proposalSaved = true;
     // Read after the response (minutes per page), only once the proposal is saved: a refused retry spends nothing.
-    await scheduleIntakeTranscriptionAfterRetry({ context, projectId: project.id, document: { id: document.id, fileName: document.file_name }, mimeType, bytes, sourceSha256 });
+    if (mayRead) await scheduleIntakeTranscriptionAfterRetry({
+      context, projectId: project.id, document: { id: document.id, fileName: document.file_name }, mimeType, bytes, sourceSha256,
+      reservation: { updatedAt: updated.updated_at, finalIssues: values.issues },
+    });
     await insertAffaireIntakeEvent({ supabase: context.supabase, uploadId: lot.id, documentId: document.id,
       actorUserId: context.userId, eventType: "document.classified", reason: "Analyse relancée manuellement.",
       beforePayload: { document_kind: document.document_kind, classification_status: document.classification_status },

@@ -26,6 +26,9 @@ it.each([0, 1])("a deferred retry sends exactly %i pages when its caller loses t
   const owner = { userId: "retry-caller", tenantId: "tenant" };
   const sent: string[] = [];
   let writeAllowed = true;
+  const updatedAt = new Date(Date.now() - 6 * 60_000).toISOString();
+  let version = updatedAt;
+  let released = false;
   const service = createClient("http://127.0.0.1:54321", "fictional", { global: { fetch: async (input, init) => {
     const endpoint = new URL(String(input)).pathname.split("/").at(-1);
     if (endpoint === "intake_payer_can_write") {
@@ -33,7 +36,18 @@ it.each([0, 1])("a deferred retry sends exactly %i pages when its caller loses t
       return Response.json(writeAllowed);
     }
     if (endpoint === "affaire_intake_document_transcriptions") return Response.json(null);
-    if (endpoint === "affaire_intake_documents") return Response.json({ id: "piece" });
+    if (endpoint === "affaire_intake_documents") {
+      expect(new URL(String(input)).searchParams.get("updated_at")).toBe(`eq.${version}`);
+      if (init?.method === "PATCH") {
+        const update = JSON.parse(String(init.body));
+        if (update.updated_at) version = update.updated_at;
+        else {
+          expect(update).toEqual({ issues: ["Diagnostic conservé."] });
+          released = true;
+        }
+      }
+      return Response.json({ updated_at: version });
+    }
     throw new Error("Unexpected owned fixture request");
   } } });
   vi.mocked(createServiceRoleClient).mockReturnValue(service as ReturnType<typeof createServiceRoleClient>);
@@ -44,8 +58,10 @@ it.each([0, 1])("a deferred retry sends exactly %i pages when its caller loses t
     return { data: { texte: "Première page fictive" } } as never;
   });
   expect(await scheduleIntakeTranscriptionAfterRetry({ context: { ...owner, supabase: createServiceRoleClient() },
-    projectId: "affaire", document: { id: "piece", fileName: "scan.pdf" }, bytes, mimeType: "application/pdf", sourceSha256: "fixture" })).toBe(true);
+    projectId: "affaire", reservation: { updatedAt, finalIssues: ["Diagnostic conservé."] }, document: { id: "piece", fileName: "scan.pdf" }, bytes, mimeType: "application/pdf", sourceSha256: "fixture" })).toBe(true);
   writeAllowed = allowedPages === 1;
   await afterResponse.mock.lastCall![0]();
   expect(sent).toEqual(Array(allowedPages).fill("retry-caller"));
+  expect(version).not.toBe(updatedAt);
+  expect(released).toBe(true);
 });
