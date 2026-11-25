@@ -22,7 +22,7 @@ import { createIntakePlanActions, DEV_SERVER_WORK } from "./chatgpt-local-intake
 // Interrupted dossier launches and explicitly selected plan rereads.
 const server = chatGptLocalServer();
 let serverState: ChatGptLocalServer;
-const { signInAs, uploadDossierPlan, openBriefConfirmation, planCalls, planReads, forbiddenRequests } = createIntakePlanActions(() => serverState);
+const { signInAs, uploadDossierPlan, waitForDossierAnalysis, openBriefConfirmation, planCalls, planReads, forbiddenRequests } = createIntakePlanActions(() => serverState);
 let localOrigin: string;
 let fixtureStore: string | undefined;
 let liveProbe: ChatGptLiveProbe | null = null;
@@ -257,6 +257,7 @@ async function startTwoPlanRequest({ app, screen, browser }: Parameters<typeof h
     return pdf.save();
   };
   await uploadDossierPlan(ui, projectId, "N01.pdf", owner.email, "empty", "classified", undefined, await markedPlan("N01"));
+  await waitForDossierAnalysis(ui, projectId);
   await uploadDossierPlan(ui, projectId, "N02.pdf", owner.email, "opened", "classified", undefined, await markedPlan("N02"));
   await expect.poll(async () => (await readOwnedBrief(projectId))?.status, DEV_SERVER_WORK).toBe("a_confirmer");
   await expect.poll(async () => (await ownedPlanChoices(projectId)).length, DEV_SERVER_WORK).toBe(2);

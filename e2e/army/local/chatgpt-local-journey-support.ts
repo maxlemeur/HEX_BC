@@ -55,7 +55,7 @@ export async function localChatGptClient(email: string) {
 
 /** The fixture can list extra models for intake transcription (INTOCR01) or material request photos (MRIA01). */
 export async function writeDecisionsControl(decisionsControl: string,
-  input: { hold?: boolean; timeoutWriting?: boolean; holdPlanReading?: boolean; transcriptionModel?: boolean; holdTranscription?: boolean; holdClassification?: boolean; holdIntakeBrief?: boolean; materialPhotoModels?: boolean }) {
+  input: { hold?: boolean; timeoutWriting?: boolean; holdPlanReading?: boolean; transcriptionModel?: boolean; holdTranscription?: boolean; holdClassification?: boolean; holdIntakeBrief?: boolean; holdIntakeLaunchClosure?: string; materialPhotoModels?: boolean }) {
   const temporary = `${decisionsControl}.tmp`;
   await writeFile(temporary, JSON.stringify({ hold: false, timeoutWriting: false, transcriptionModel: false, holdTranscription: false,
     holdClassification: false, ...input }));

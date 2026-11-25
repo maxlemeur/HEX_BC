@@ -111,6 +111,23 @@ globalThis.fetch = async (input, init) => {
     await appendFile(process.env.ARMY_CHATGPT_TRANSPORT_LOG, JSON.stringify({ provider: "forbidden", host: url.hostname }) + "\n");
     throw new Error("ChatGPT probe forbids Gemini and Edge dispatch.");
   }
+  if (!liveProbe && url.pathname === "/rest/v1/rpc/finish_affaire_intake_upload_attempt"
+      && url.origin === process.env.NEXT_PUBLIC_SUPABASE_URL) {
+    const control = process.env.ARMY_DECISIONS_CONTROL;
+    const hold = control && JSON.parse(readFileSync(control, "utf8")).holdIntakeLaunchClosure;
+    const finish = hold && typeof init?.body === "string" ? JSON.parse(init.body) : null;
+    if (finish?.p_status === "ready") {
+      // The worker already published the brief. Hold its real close request at the transport boundary.
+      const { p_upload_id: uploadId } = finish;
+      const event = { provider: "intake-fixture", kind: "launch-closure-held", projectId: hold, uploadId };
+      await appendFile(process.env.ARMY_CHATGPT_TRANSPORT_LOG, JSON.stringify(event) + "\n");
+      const deadline = Date.now() + 90_000;
+      while (JSON.parse(readFileSync(control, "utf8")).holdIntakeLaunchClosure === hold) {
+        if (Date.now() >= deadline) throw new Error("The controlled intake launch closure was not released.");
+        await new Promise(resolve => setTimeout(resolve, 50));
+      }
+    }
+  }
   if (url.origin !== "https://api.openai.com") return originalFetch(input, init);
   if (!liveProbe && url.pathname === "/v1/decisions") {
     assert.equal(new Headers(init?.headers).get("authorization"), "Bearer army-decisions-fixture");

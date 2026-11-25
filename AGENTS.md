@@ -33,8 +33,9 @@ contract take precedence over historical reports and procedures.
     or Supabase collaborators, or of keys, or a policy or grant that widens who
     reads or writes existing data.
   - A destructive action is deleting or overwriting data in the shared database
-    or its storage, dropping a column or table, a force-push, or deleting a
-    branch, worktree or file that holds work not on `main`.
+    or its storage, dropping a column or table, a force-push outside the
+    stack exception below, or deleting a branch, worktree or file that holds
+    work not on `main`.
   - Removing your own temporary worktrees, scratch files, owned local stacks
     and merged branches needs no go. Where a session refuses `rm`, use
     `git worktree remove` for a worktree and `git clean -f -- <path>` for a
@@ -106,7 +107,7 @@ contract take precedence over historical reports and procedures.
 | Repeated E2E iteration | Use `e2e:army:dev-loop` per the [local guide](docs/testing/tester-army-local-development.md#boucle-ditération-réutilisable). Stop it before final qualification; its results remain `qualification: false`. |
 | Small visual-only change | Check the affected screen in a real browser (in-app browser or Playwright) at the affected viewport sizes, plus a scoped `git diff --check`. No `verify:pr`, E2E campaign, build, repository-wide lint or typecheck. |
 | Affected user journey | `npm run e2e:army:local -- --grep '<pattern>'` on final, stable sources. |
-| Pull request of code or journeys | `npm run e2e:army:reach` first: the checks of a pull request run the critical and takeoff journeys and the calc-v3 phases it reaches, but leave out the development phase and the extended journeys, which only run in the Full campaign after the merge. Run the commands it prints for those two; the takeoff journeys and calc-v3 phases it lists run in the pull request, unless the decision model leaves some out (its selection summary names them). |
+| Pull request of code or journeys | Run `npm run e2e:army:reach` first (in a stack layer, append `-- --base origin/<parent-branch>`). The PR checks cover the critical and takeoff journeys and calc-v3 phases the diff reaches, subject to decision filtering. Run the commands it prints for the development phase and extended journeys, which run in the Full campaign after merge. |
 | SQL/RLS/migration | `npm run db:ci:local` on an owned stack, plus affected journeys. Army's SQL/RLS checks do not replace it: parallel builds omit statement ceilings. |
 | Final code | `npm run verify:pr` once per push, as the last check on the tree you push: after the independent review's fixes and any merge of `main` (about 3 minutes cold, 1.5 warm). Fix rounds before that use `verify:fast` and the targeted tests. Its checks run in parallel and all of them always run; a green check prints one line, a red one its whole output (`npm run check:quality -- --verbose` prints everything). |
 | Performance | Follow [statement budgets](docs/testing/large-estimate-statement-budget.md) and [browser measurements](docs/testing/tester-army-performance.md) for real inputs and largest supported volumes; fix over-budget writes, never relax budgets. |
@@ -197,17 +198,13 @@ contract take precedence over historical reports and procedures.
   of work, stage only scoped files and run `git diff --cached --check`. Use
   Conventional Commits in English, with the Linear id when one exists (`TI-681`).
   Report any blocker instead of claiming completion.
-- Deliver each finished task as one pull request: open it ready for review,
+- Deliver a standalone change as one pull request: open it ready for review,
   never as a draft, with the template, so that its checks run during the
   independent review. Enable its automatic merge (`gh pr merge --auto --squash`)
   when that review says merge, or at once when the change needs none. It merges
   by itself once the required checks are green. Push once per finished task or
   review round, not per commit: a new push cancels the runs in progress and
   starts every check again.
-- Split a task too large for one reading into pull requests that each merge on
-  their own: the migration and its SQL tests first, then the code that uses it.
-  Two open pull requests never replace the same SQL function: the second starts
-  from `main` once the first is merged.
 - Read the checks of your pull request and find the cause of a red one before
   reacting to it: a new push starts every check again, a rerun only the failed
   jobs. See the [guide](docs/testing/tester-army-ci.md#check-rouge-sur-une-pull-request).
@@ -218,14 +215,13 @@ contract take precedence over historical reports and procedures.
     a new commit.
   - The same journey is red on `main`: a rerun cannot pick up its fix, because
     it replays the merge commit computed when you pushed. Say so in the pull
-    request with the evidence, wait for the fix to land on `main`, then merge
-    `origin/main` once.
-- Merge `origin/main` into the branch only for a conflict GitHub reports, a
+    request with the evidence and wait for the fix to land on `main`. Merge
+    `origin/main` once for a standalone PR or cascade-rebase the stack.
+- For a standalone PR, merge `origin/main` only for a conflict GitHub reports, a
   migration to restamp or code that landed on `main` and that the branch needs,
   such as the fix of a red it inherited. Never merge it as a reaction to a red
   you have not diagnosed, nor to bring the branch up to date: `main` does not
-  require an up-to-date branch, and « Update branch » is that same merge. Do not
-  stack pull requests.
+  require an up-to-date branch, and « Update branch » is that same merge.
 - The merge is a push to `main`: unless it is documentation-only, it starts a full
   Critical run of about 15 minutes and queues the Full and calc-v3
   [campaigns of main](docs/testing/tester-army-ci.md#campagnes-de-main-après-un-push),
@@ -239,6 +235,24 @@ contract take precedence over historical reports and procedures.
   exploitability proof.
 - Report outcomes, checks, limitations and blockers concisely. Discuss Figma only
   when requested; use visuals only when they clarify the subject.
+
+## Stacked pull requests
+
+- Use a GitHub stack for a dependent series that one or several agents can
+  write and review in parallel. Independent changes have separate PRs to `main`.
+- Start from current `origin/main` with `gh stack init --base main <first>`.
+  Commit each layer on its branch, use `gh stack add <next>`, and submit ready
+  PRs with `gh stack submit` and the PR template. Coordinate one publisher.
+- After review fixes or when `main` moves, use `gh stack rebase` and
+  `gh stack push`. The extension's atomic, lease-checked force-push is allowed
+  on coordinated stack branches after reconciling collaborators' work.
+- Review each immediate-base diff and resolve every thread. Merge from the top
+  only after every layer has been reviewed. GitHub enforces all six checks on
+  every layer. Follow the [CI guide](docs/testing/tester-army-ci.md#pull-requests-empilées)
+  for stack auto-merge and for rechecking layers after edits or removal.
+- Put each migration and its SQL tests in its own layer, before the application
+  code that uses it. Follow the same restamp rules. If two changes replace the
+  same SQL function, merge the first before starting the second from `main`.
 
 <!-- BEGIN:nextjs-agent-rules -->
 

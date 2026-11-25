@@ -30,6 +30,90 @@ Les commandes locales ne modifient ni les règles de protection de `main` ni
 les vérifications obligatoires. Un check agrégé réussi avec sélection `none`
 indique qu'aucun parcours n'était requis ; ce n'est pas une exécution E2E.
 
+## Pull requests empilées
+
+Empiler les changements dépendants à écrire et à relire en parallèle. Donner
+aux changements indépendants leur propre PR vers `main`. Dans une pile GitHub
+liée, la première branche cible `main` et chaque branche suivante cible celle
+du dessous.
+
+1. Partir de `origin/main` à jour. Avec `gh stack init --base main <première>`,
+   créer ou adopter la première branche. Commiter le premier étage, puis faire
+   `gh stack add <suivante>` et commiter cet étage. Avec plusieurs auteurs,
+   désigner la personne qui publie et lui transmettre les commits par branche.
+2. Faire `gh stack rebase`, puis `gh stack submit`. Utiliser le modèle de PR
+   pour chaque étage et les ouvrir prêts pour la revue. En mode non interactif,
+   `gh stack submit --auto --open` génère les titres et ouvre les PR. Renseigner
+   ensuite leurs descriptions. Vérifier le chaînage avec `gh stack view`.
+3. Corriger sur la branche qui porte le diff (`gh stack checkout <branche>`).
+   Après une correction ou une avancée de `main`, faire `gh stack rebase`
+   puis `gh stack push`. Le rebase réapplique les commits des étages supérieurs
+   sur leurs bases mises à jour. Le push atomique avec bail de l'extension est
+   l'exception autorisée sur ces branches après coordination avec les auteurs.
+   En cas de conflit, résoudre et indexer les fichiers puis utiliser
+   `gh stack rebase --continue`, ou `gh stack rebase --abort` pour revenir en arrière.
+4. Pour retirer un étage avec l'accord des auteurs, conserver ses commits,
+   puis utiliser `gh stack modify` et `gh stack submit`. Vérifier la nouvelle
+   base et la PR de chaque étage supérieur, fermer la PR retirée si elle est
+   encore ouverte, puis refaire les vérifications et la revue des diffs
+   modifiés. Si le bas a déjà fusionné, GitHub rebase les étages qui restent et
+   `gh stack sync --prune` synchronise les branches locales.
+5. Relire chaque diff contre sa base immédiate et résoudre tous les fils de
+   revue. Une fois tous les étages relus et les six checks verts sur chacun,
+   lancer `gh stack merge --yes --squash` depuis la pile active. GitHub fusionne
+   tous les étages en une opération, avec un commit squash par PR.
+
+Pour conserver la fusion automatique pendant l'attente de la CI, demander
+l'auto-merge sur la PR du sommet avec le mode pile (`includeStack: true`,
+`mergeMethod: SQUASH`), après la revue de chaque étage et la résolution de ses
+fils. Le ruleset exige la résolution des fils et les checks, et la revue de
+chaque étage relève aussi de notre procédure. Désactiver la demande de fusion
+avant toute nouvelle modification de la pile, puis refaire la revue nécessaire.
+`gh stack merge` lance la fusion immédiatement sur ce dépôt. La commande
+`gh pr merge --auto --squash` reste celle des PR autonomes.
+[API GitHub pour l'auto-merge](https://docs.github.com/en/graphql/reference/pulls#enablepullrequestautomergeinput).
+
+```sh
+# top contient le numéro de la PR du sommet.
+read -r pr_id head_oid <<EOF
+$(gh pr view "$top" --json id,headRefOid --jq '[.id, .headRefOid] | @tsv')
+EOF
+gh api graphql -f id="$pr_id" -f head="$head_oid" -f query='
+  mutation($id: ID!, $head: GitObjectID!) {
+    enablePullRequestAutoMerge(input: {
+      pullRequestId: $id, expectedHeadOid: $head, includeStack: true, mergeMethod: SQUASH
+    }) { pullRequest { number } }
+  }'
+```
+
+Mettre chaque migration et ses tests SQL dans un étage propre, sous le code qui
+l'utilise. Après un mouvement de la base, vérifier l'ordre de tous les
+horodatages et restamper uniquement les migrations non appliquées selon le
+[runbook Supabase](../../supabase/README.md). Deux remplacements de la même
+fonction SQL se livrent successivement à partir de `main`.
+
+GitHub applique le filtre `pull_request.branches: [main]` et les exigences du
+ruleset de `main` à toute la pile liée. Après la création de la pile, vérifier
+que les workflows ont démarré sur chaque étage. Si un étage reste sans les
+workflows requis, un push après le chaînage déclenche la CI. S'il n'y a aucun
+correctif à pousser, créer un commit vide sur le premier étage concerné
+(`git commit --allow-empty -m "ci: trigger linked stack checks"`), puis faire
+`gh stack rebase` et `gh stack push`. [Incident GitHub à l'ouverture](https://github.com/github/gh-stack/issues/425).
+
+Sur chaque PR, Critical et calc-v3 comparent le commit de fusion à son
+premier parent. GitHub peut y placer le commit de fusion de l'étage du dessous,
+qui inclut la base sur laquelle cet étage a été testé. Le filtre par modèle réutilise cette base
+via `--changed-since`. La garde des migrations et l'audit des dépendances
+reçoivent la SHA de la base immédiate de l'événement. La concurrence est
+isolée par PR via `github.ref`. Retrouver la base SHA et les chemins dans
+l'artefact `army-critical-selection`, et les chemins des phases dans
+`army-calc-v3-selection`.
+[CI des piles sur GitHub](https://docs.github.com/en/pull-requests/how-tos/merge-and-close-pull-requests/optimizing-ci-for-stacked-pull-requests).
+
+Pour les aperçus locaux d'un étage, passer `origin/<branche-du-dessous>`
+aux exemples `--base` et `--changed-since` ci-dessous. Le Full, les alertes de
+nuit et Release Please gardent leur déclenchement habituel sur `main`.
+
 ## Sélection par impact des parcours critical
 
 [`select-journeys.ts`](../../scripts/tester-army/select-journeys.ts) lit
@@ -165,15 +249,15 @@ reprend que les jobs en échec. Chercher la cause avant de réagir :
 | --- | --- | --- |
 | Le changement de la pull request | Le parcours échoue avec le diff et passe sans lui | Corriger, puis pousser une fois |
 | Panne d'infrastructure ou parcours instable | Échec d'installation, de téléversement d'artefact ou de démarrage ; parcours vert sur le même commit ailleurs | Le noter dans la pull request avec la preuve, puis `gh run rerun <run-id> --failed`, sans nouveau commit |
-| Rouge hérité de `main` | Le même parcours est rouge sur `main` ([ticket d'alerte](#alerte-des-campagnes-de-main) ou dernier run Critical de `main`) | Le noter dans la pull request, attendre le correctif sur `main`, puis fusionner `origin/main` une seule fois |
+| Rouge hérité de `main` | Le même parcours est rouge sur `main` ([ticket d'alerte](#alerte-des-campagnes-de-main) ou dernier run Critical de `main`) | Le noter dans la pull request et attendre le correctif. Sur une PR autonome, fusionner `origin/main` une fois. Pour une pile, faire `gh stack rebase` puis `gh stack push` |
 
 Une relance rejoue le commit de fusion calculé au moment du push : elle ne
 voit pas un correctif arrivé ensuite sur `main`. C'est le seul cas où une
-fusion de `origin/main` répond à un rouge.
+fusion de `origin/main` répond à un rouge sur une PR autonome.
 
-`main` n'exige pas une branche à jour pour fusionner. Fusionner `origin/main`
-sans conflit signalé par GitHub, ou cliquer « Update branch », relance tous les
-checks sans rien qualifier de plus.
+Pour une PR autonome, `main` n'exige pas une branche à jour pour fusionner.
+Pour une pile, un rebase en cascade rétablit l'historique linéaire exigé par
+GitHub après un changement de la base.
 
 ## Campagnes de main après un push
 

@@ -31,7 +31,7 @@ import { createIntakePlanActions, DEV_SERVER_WORK, PAYER_NOTICE } from "./chatgp
 // file's owner keeps no profile for them. The automatic start is activated for the journey only.
 const server = chatGptLocalServer();
 let serverState: ChatGptLocalServer;
-const { signInAs, uploadDossierPlan, openBriefConfirmation, planReads, forbiddenRequests } = createIntakePlanActions(() => serverState);
+const { signInAs, uploadDossierPlan, waitForDossierAnalysis, openBriefConfirmation, planReads, forbiddenRequests } = createIntakePlanActions(() => serverState);
 let localOrigin: string;
 let transportLog: string;
 let decisionsControl: string;
@@ -63,6 +63,7 @@ if (!existsSync(liveProbePath)) test("AUTO01 choosing one of two plans reads it 
     const ids = await createEstimateViaWizard(ui, { projectName: prefix, title: "Démarrage automatique" }, army);
     const before = await readEstimate(browser, ids.versionId);
     await uploadDossierPlan(ui, ids.projectId, `${prefix}-plan-rdc.pdf`, owner.email);
+    await waitForDossierAnalysis(ui, ids.projectId);
     await uploadDossierPlan(ui, ids.projectId, `${prefix}-plan-toiture.pdf`, owner.email, "opened");
     await expect.poll(async () => (await readOwnedBrief(ids.projectId))?.status ?? null, DEV_SERVER_WORK).toBe("a_confirmer");
     // Classification of the second PDF can finish while the first brief is still visible.
@@ -172,6 +173,7 @@ if (!existsSync(liveProbePath)) test("AUTO02 a director can confirm without anal
     const ids = await createEstimateViaWizard(ui, { projectName: prefix, title: "Confirmation par un directeur" }, army);
     await uploadDossierPlan(ui, ids.projectId, `${prefix}-plan.pdf`, owner.email);
     await expect.poll(async () => (await readOwnedBrief(ids.projectId))?.status ?? null, DEV_SERVER_WORK).toBe("a_confirmer");
+    await waitForDossierAnalysis(ui, ids.projectId);
     const readsBefore = await planReads();
     // The director's hub shows no confirmation button; the confirmation itself is open to every reader of the affaire.
     await signInAs({ app, screen, browser }, director.email);
@@ -274,6 +276,7 @@ if (!existsSync(liveProbePath)) test("AUTO04 a confirmation from a dialog shown 
       return pdf.save();
     };
     await uploadDossierPlan(ui, ids.projectId, `${prefix}-plan.pdf`, owner.email, "empty", "classified", undefined, await markedPdf("A"));
+    await waitForDossierAnalysis(ui, ids.projectId);
     await uploadDossierPlan(ui, ids.projectId, `${prefix}-plan-toiture.pdf`, owner.email, "opened", "classified", undefined, await markedPdf("B"));
     await expect.poll(async () => (await readOwnedBrief(ids.projectId))?.status ?? null, DEV_SERVER_WORK).toBe("a_confirmer");
     const readsBefore = await planReads();
@@ -373,6 +376,7 @@ if (!existsSync(liveProbePath)) test("AUTO08 unchecked 201-page PDF", {
     const ids = await createEstimateViaWizard(ui, { projectName: prefix, title: "Périmètre du métré" }, army);
     const name = `${prefix}-plan.pdf`;
     await uploadDossierPlan(ui, ids.projectId, name, owner.email);
+    await waitForDossierAnalysis(ui, ids.projectId);
     await expect.poll(async () => (await ownedPlanChoices(ids.projectId)).length, DEV_SERVER_WORK).toBe(1);
     const [set] = await readPlanSets(browser, ids.projectId);
     const [first] = await readPlanFiles(browser, set.id);
@@ -435,7 +439,24 @@ for (const scenario of copyScenarios) {
       const { projectId } = await createEstimateViaWizard(ui, { projectName: prefix, title: "Copies du dossier" }, army);
       const name = "Plan-original.pdf";
       const copy = "Plan-copie.pdf";
+      const exerciseClosureRace = scenario.startsWith("AUTO10");
+      if (exerciseClosureRace) await setDecisionsControl({ holdIntakeLaunchClosure: projectId });
       await uploadDossierPlan(ui, projectId, name, owner.email);
+      // Release only after a real dossier read sees the published brief while the worker's closure is still held.
+      let released = false;
+      await waitForDossierAnalysis(ui, projectId, {
+        onRead: exerciseClosureRace ? async (workspace) => {
+          if (released || workspace.launchRunning !== true || workspace.briefDraft?.status !== "a_confirmer") return;
+          const held = (await readFile(transportLog, "utf8")).split("\n").filter(Boolean).map(line => JSON.parse(line))
+            .some(row => row.kind === "launch-closure-held" && row.projectId === projectId
+              && workspace.pendingUploadIds?.includes(row.uploadId));
+          if (held) {
+            await setDecisionsControl({});
+            released = true;
+          }
+        } : undefined,
+      });
+      if (exerciseClosureRace) expect(released).toBe(true);
       await expect.poll(async () => (await ownedPlanChoices(projectId)).length, DEV_SERVER_WORK).toBe(1);
       const [set] = await readPlanSets(browser, projectId);
       const id = randomUUID();
@@ -547,6 +568,7 @@ for (const scenario of copyScenarios) {
       expect(await readOwnedAffaireJobs(projectId)).toEqual([]);
       expect(await planReads()).toBe(before);
     } finally {
+      if (scenario.startsWith("AUTO10")) await setDecisionsControl({});
       await browser.clearCookies({ domain: new URL(localOrigin).hostname });
       await deactivateOwnedPlanDispatch();
       await rm(store, { force: true });
@@ -568,11 +590,12 @@ if (!existsSync(liveProbePath)) test("AUTO05 a running dossier analysis refuses 
     const ids = await createEstimateViaWizard(ui, { projectName: prefix, title: "Classement après la confirmation" }, army);
     await uploadDossierPlan(ui, ids.projectId, `${prefix}-plan-rdc.pdf`, owner.email);
     await expect.poll(async () => (await readOwnedBrief(ids.projectId))?.status ?? null, DEV_SERVER_WORK).toBe("a_confirmer");
+    await waitForDossierAnalysis(ui, ids.projectId);
     // A second plan is still being classified when the member confirms: the dossier is not ready.
     await setDecisionsControl({ holdClassification: true });
     await uploadDossierPlan(ui, ids.projectId, `${prefix}-plan-etage.pdf`, owner.email, "opened", "classifying");
     const readsBefore = await planReads();
-    const confirm = await openBriefConfirmation(ui, ids.projectId, owner.userId, true);
+    const confirm = await openBriefConfirmation(ui, ids.projectId, owner.userId, true, "running");
     await confirm.click();
     const dialog = screen.getByRole("alertdialog", "Confirmer ce brief ?", { exact: true });
     await expect(dialog).not.toContainText(PAYER_NOTICE);
@@ -621,6 +644,7 @@ if (!existsSync(liveProbePath)) test("AUTO06 the affaire's zone: a reader sees w
     expect(await readOwnedVersionCount(ids.projectId)).toBe(0);
     await uploadDossierPlan(ui, ids.projectId, `${prefix}-plan.pdf`, owner.email);
     await expect.poll(async () => (await readOwnedBrief(ids.projectId))?.status ?? null, DEV_SERVER_WORK).toBe("a_confirmer");
+    await waitForDossierAnalysis(ui, ids.projectId);
     const readsBefore = await planReads();
     // A confirmation naming the plan without a payer digest reserves only that copy.
     const plans = await ownedPlanChoices(ids.projectId);
@@ -720,6 +744,7 @@ if (!existsSync(liveProbePath)) test("AUTO07 a member who stays on the affaire w
     await uploadDossierPlan(ui, ids.projectId, `${prefix}-plan-rdc.pdf`, owner.email, "empty", "classified", async () => {
       await browser.evaluate(() => { (window as unknown as { __auto07Page?: true }).__auto07Page = true; return true; });
     });
+    await waitForDossierAnalysis(ui, ids.projectId);
     await expect.poll(() => readOwnedPayerNoticeBasis(ids.projectId, owner.userId), DEV_SERVER_WORK)
       .toEqual({ brief: "a_confirmer", active: true, payer: true });
     expect(await readOwnedLaunchRequests(ids.projectId)).toEqual([]);
