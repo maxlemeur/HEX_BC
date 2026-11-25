@@ -168,7 +168,8 @@ async function exactTotals(ui: Ui, versionId: string, expected: number[]) {
 }
 
 for (const [code, fault] of [["BC01", "lost"], ["BC02", "malformed"]] as const) {
-  armyTest(`${code} ordinary CtrlS recovers ${fault} committed batch response with exact intent and no automatic replay`, options, async (ui) => {
+  armyTest(`${code} ordinary CtrlS recovers ${fault} committed batch response with exact intent and no automatic replay`, options, async ({ app, screen, browser, army }) => {
+    const ui = { app, screen, browser, army };
     const { versionId, items } = await prepare(ui, code, [{}]);
     const originalIds = (await readEstimate(ui.browser, versionId)).items.map((item) => item.id).sort();
     await ui.app.open(`/dashboard/estimates/${versionId}/edit`);
@@ -272,7 +273,8 @@ for (const [code, fault] of [["BC01", "lost"], ["BC02", "malformed"]] as const) 
   });
 }
 
-armyTest("BC03 delete and real UI undo preserve split labor fields and default majoration through the create client", options, async (ui) => {
+armyTest("BC03 delete and real UI undo preserve split labor fields and default majoration through the create client", options, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   const fixture = await owner();
   await ui.app.open("/dashboard/estimates");
   const flag = await apiRequest<Envelope<Json>>(ui.browser, "PATCH", "/api/feature-flags", { tenant_id: fixture.owner.tenantId, flag_key: "EST_031_LABOR_SPLIT", enabled: true });
@@ -317,7 +319,8 @@ armyTest("BC03 delete and real UI undo preserve split labor fields and default m
   } finally { await observed.close(); }
 });
 
-armyTest("BC04 partial paste retains the committed first 100 rows after a real second-chunk refusal without compensating DELETE", options, async (ui) => {
+armyTest("BC04 partial paste retains the committed first 100 rows after a real second-chunk refusal without compensating DELETE", options, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   const { versionId, section } = await prepare(ui, "BC04", []);
   await ui.app.open(`/dashboard/estimates/${versionId}/edit`);
   await expect(ui.screen.getByRole("grid", "Lignes de devis", { exact: true })).toBeVisible();

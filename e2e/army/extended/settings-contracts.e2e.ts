@@ -20,7 +20,8 @@ async function openSettings(ui: Ui) {
   return dialog;
 }
 
-armyTest("SET01 tenant admin can edit tiers while the old V0 deep link remains dormant", options, async (ui) => {
+armyTest("SET01 tenant admin can edit tiers while the old V0 deep link remains dormant", options, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   const ids = await createEstimateViaWizard(ui, { projectName: ui.army.projectName, title: `${ui.army.runPrefix} settings access` }, ui.army);
   const v0Requests: string[] = [];
   await ui.browser.route("**/api/estimates/**/version-zero-drafts**", async (route) => {
@@ -41,7 +42,8 @@ armyTest("SET01 tenant admin can edit tiers while the old V0 deep link remains d
   await recordEvidence(ui.army, "settings-admin-v0", { ids, v0Requests, tierInputsEnabled: true, tierWrites: 0 });
 });
 
-armyTest("SET02 a frozen read uses its captured coefficient without changing the persisted draft", options, async (ui) => {
+armyTest("SET02 a frozen read uses its captured coefficient without changing the persisted draft", options, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   const title = `${ui.army.runPrefix} frozen coefficient`;
   const ids = await createEstimateViaWizard(ui, { projectName: ui.army.projectName, title }, ui.army);
   const line = await createLineViaApi(ui.browser, ids.versionId, title);
@@ -107,7 +109,8 @@ async function summaryDraft(ui: Parameters<typeof prepareV3Draft>[0] & { army: P
 }
 
 // PR 337: the footer describes the whole version, even when its table has no matching rows.
-armyTest("SET03 version FO and MO totals remain unchanged by a search with no matches", options, async (ui) => {
+armyTest("SET03 version FO and MO totals remain unchanged by a search with no matches", options, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   const draft = await summaryDraft(ui, "SET03");
   const amounts = ui.browser.locator('[aria-label="Répartition du total HT"] dd');
   const readSplit = async () => Promise.all([0, 1].map(async (index) => normalized(await amounts.nth(index).textContent())));
@@ -126,7 +129,8 @@ armyTest("SET03 version FO and MO totals remain unchanged by a search with no ma
   });
 });
 
-armyTest("SET04 the mobile editor keeps its financial summary visible without pinning it", options, async (ui) => {
+armyTest("SET04 the mobile editor keeps its financial summary visible without pinning it", options, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   const draft = await summaryDraft(ui, "SET04");
   const footer = ui.screen.getByTestId("estimate-editor-totals-footer");
   for (const width of [375, 767, 768, 1440]) {
@@ -151,7 +155,8 @@ armyTest("SET04 the mobile editor keeps its financial summary visible without pi
 });
 
 
-armyTest("SET05 editor menus stay inside the viewport when the toolbar wraps", options, async (ui) => {
+armyTest("SET05 editor menus stay inside the viewport when the toolbar wraps", options, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   const draft = await summaryDraft(ui, "SET05");
   for (const width of [768, 900, 1024, 1280, 1440]) {
     await ui.browser.setViewport({ width, height: 900 });

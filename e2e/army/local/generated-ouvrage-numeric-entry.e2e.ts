@@ -25,7 +25,8 @@ const loss = (basisPoints: number, totals: number[]): NumericOracle => ({
   parent: { quantity: 1, dsCents: totals[0], effectiveUnitPriceHtCents: totals[0], totalHours: 0 }, totals,
 });
 
-if (selection === "numeric-price" || selection === "numeric-all") armyTest("NI01 euro unit cost preserves typed decimal and blocks invalid save", options, async (ui) => {
+if (selection === "numeric-price" || selection === "numeric-all") armyTest("NI01 euro unit cost preserves typed decimal and blocks invalid save", options, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   const p = await prepareComponents(ui, "GC01"), c: NumericContext = { ui, p, caseId: "NI01", oracle: price };
   try {
     await openComponents(ui, p); await retainNumeric(c);
@@ -109,7 +110,8 @@ if (selection === "numeric-price" || selection === "numeric-all") armyTest("NI01
   } finally { await p.close(); }
 });
 
-if (selection === "numeric-decimals" || selection === "numeric-all") armyTest("NI02 typed quantity and yield preserve decimals and retained zero labor hours", options, async (ui) => {
+if (selection === "numeric-decimals" || selection === "numeric-all") armyTest("NI02 typed quantity and yield preserve decimals and retained zero labor hours", options, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   const p = await prepareComponents(ui, "GC02"), c: NumericContext = { ui, p, caseId: "NI02", oracle: decimals };
   try {
     await openComponents(ui, p); await numericParent(c, "2"); await retainNumeric(c);
@@ -129,7 +131,8 @@ if (selection === "numeric-decimals" || selection === "numeric-all") armyTest("N
   } finally { await p.close(); }
 });
 
-if (selection === "numeric-loss" || selection === "numeric-all") armyTest("NI03 percentage loss preserves typed decimal through reuse and exports", options, async (ui) => {
+if (selection === "numeric-loss" || selection === "numeric-all") armyTest("NI03 percentage loss preserves typed decimal through reuse and exports", options, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   for (const phase of [
     { caseId: "NI03-A", fixture: "GC03", prefix: "5", tail: undefined, oracle: loss(500, [10500, 2100, 12600]) },
     { caseId: "NI03-B", fixture: "GC04", prefix: "2,", tail: "5", oracle: loss(250, [10250, 2050, 12300]) },

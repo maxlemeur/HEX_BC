@@ -7,7 +7,8 @@ import { VECTOR_PLAN } from "./vector-plan-fixture";
 
 const options = { session: "army", tags: ["critical", "takeoff", "local"], timeout: 180_000 };
 
-armyTest("TKQ01 targeted quantity review rounds whole priced lines once and exposes a missing floor", options, async ui => {
+armyTest("TKQ01 targeted quantity review rounds whole priced lines once and exposes a missing floor", options, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   const ids = await createEstimateViaWizard(ui, { projectName: ui.army.projectName, title: "ARMY TI681 quantités" }, ui.army);
   const target = await createLineViaApi(ui.browser, ids.versionId, `${ui.army.runPrefix} target`);
   const fixture = await localTakeoffFixture(ui.army, ids);
@@ -59,7 +60,8 @@ armyTest("TKQ01 targeted quantity review rounds whole priced lines once and expo
     screenshot: await ui.app.screenshot("ti681-coverage-rounding") });
 });
 
-armyTest("TKQ02 usable vector measurement takes priority with a visible gap and only one applied reading", options, async ui => {
+armyTest("TKQ02 usable vector measurement takes priority with a visible gap and only one applied reading", options, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   const { ids, jobId, owner, client } = await launchWorkerVectorUpload(ui);
   const network = VECTOR_PLAN.networks[0];
   const completed = await startOwnedWorker(ui, ids, jobId, "success", { vectors: true, owner,
@@ -112,7 +114,8 @@ armyTest("TKQ02 usable vector measurement takes priority with a visible gap and 
 // could not pair stays excluded, without a group: included by hand beside the length the model read on its page, both
 // readings reached the estimate. The application now refuses them by page, and takes the measure once the other
 // reading is left out.
-armyTest("TKQ03 a vector measure the worker did not pair is refused beside the vision reading of its page, then applied alone", options, async ui => {
+armyTest("TKQ03 a vector measure the worker did not pair is refused beside the vision reading of its page, then applied alone", options, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   const { ids, jobId, fileName, owner, client } = await launchWorkerVectorUpload(ui);
   const network = VECTOR_PLAN.networks[0];
   // The model reads the same run without its material or diameter: nothing pairs it with the measure.
@@ -169,7 +172,8 @@ armyTest("TKQ03 a vector measure the worker did not pair is refused beside the v
 // TI-701 (D13): the targeted review read by « Gros montants » and one network. Ways it fails: the filters live in the
 // page only, so a reload or a shared link shows every line again; a count ignores the other filters or comes back
 // different; a run no estimate line holds counts as a large amount; the filters cannot be reached on a phone.
-armyTest("TKQ04 the targeted review filters by large amounts and one network, kept with their counts after a reload", options, async ui => {
+armyTest("TKQ04 the targeted review filters by large amounts and one network, kept with their counts after a reload", options, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   const ids = await createEstimateViaWizard(ui, { projectName: ui.army.projectName, title: "ARMY TI701 filtres" }, ui.army);
   // Four runs priced on the estimate (quantity × unit price: 500 €, 20 €, 320 €, 15 € of 855 €): 500 € and 320 € make
   // 95 % of the amount, the large ones. The ECS run is on no estimate line (« Non chiffré ») and has no page: blocked.

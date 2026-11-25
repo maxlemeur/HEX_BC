@@ -51,7 +51,8 @@ async function afterLifetime(ui: Ui, milliseconds: number) {
   await expect.poll(() => ui.browser.evaluate(() => performance.now()), { timeout: milliseconds + 5000, interval: 100 }).toBeGreaterThanOrEqual(started + milliseconds);
 }
 
-armyTest("UI01 notifications keep FIFO and a queued toast receives its full visible lifetime", options, async (ui) => {
+armyTest("UI01 notifications keep FIFO and a queued toast receives its full visible lifetime", options, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   await polished(ui);
   await expect(ui.screen.getByTestId("estimate-editor-table")).toBeVisible();
   await ui.screen.getByRole("button", "Rafale", { exact: true }).click();
@@ -69,7 +70,8 @@ armyTest("UI01 notifications keep FIFO and a queued toast receives its full visi
   await recordEvidence(ui.army, "toast-fifo", { queuedWaitMs: 1700, promoted: "Notification 4", dismissedQueued: "Notification 5", remaining: await notifications.allTextContents() });
 });
 
-armyTest("UI02 hover pauses toast lifetime and F6 plus keyboard dismissal remain accessible", options, async (ui) => {
+armyTest("UI02 hover pauses toast lifetime and F6 plus keyboard dismissal remain accessible", options, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   await polished(ui);
   await expect(ui.screen.getByTestId("estimate-editor-table")).toBeVisible();
   await ui.screen.getByRole("button", "Erreur", { exact: true }).click();
@@ -91,7 +93,8 @@ armyTest("UI02 hover pauses toast lifetime and F6 plus keyboard dismissal remain
   await recordEvidence(ui.army, "toast-keyboard", { hoveredMs: 2200, violations, keyboardDismissed: true, briefExpired: true });
 });
 
-armyTest("UI03 supplier comparison uses API freshness threshold and historical fallback", options, async (ui) => {
+armyTest("UI03 supplier comparison uses API freshness threshold and historical fallback", options, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   const state = await polished(ui);
   await expect(ui.screen.getByTestId("estimate-editor-table")).toBeVisible();
   for (const days of [45, 120, null]) {
@@ -116,7 +119,8 @@ armyTest("UI03 supplier comparison uses API freshness threshold and historical f
   await recordEvidence(ui.army, "supplier-freshness-ui", { thresholdsRequested: state.thresholdsRequested });
 });
 
-armyTest("UI04 legacy utility styling and frozen FO MO header contrast remain accessible", options, async (ui) => {
+armyTest("UI04 legacy utility styling and frozen FO MO header contrast remain accessible", options, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   await polished(ui);
   await expect(ui.screen.getByTestId("estimate-editor-table")).toBeVisible();
   await expect.poll(() => ui.browser.evaluate(() => {

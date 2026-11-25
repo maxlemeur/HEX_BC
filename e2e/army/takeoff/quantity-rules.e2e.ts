@@ -103,7 +103,8 @@ async function seedZoneJobs(ui: WorkerUi, journey: string, tag: string, title: s
 }
 
 armyTest("TKR01 a run drawn on two zone plans warns with its reason and can be corrected to count once", options,
-  async (ui) => {
+  async ({ app, screen, browser, army }) => {
+    const ui = { app, screen, browser, army };
     // Z1 then Z2: two level C jobs of the version, each read by the real worker with the vector reading and the rules.
     const { ids, target, client, jobs } = await seedZoneJobs(ui, "TKR01", "RUL", "Règles fixes Z1 Z2");
 
@@ -204,7 +205,8 @@ armyTest("TKR01 a run drawn on two zone plans warns with its reason and can be c
 // the model read on the same page: the stub pipe names no network, nothing proves it is another run (TKQ03 asserts
 // the refusal). Z2's accepted pipe is therefore left out before the application; the valve count stays beside the run.
 armyTest("TKR02 the targeted review lists a Z1/Z2 duplicate with its reason, the user settles it by keyboard, kept after a reload, counted once", options,
-  async (ui) => {
+  async ({ app, screen, browser, army }) => {
+    const ui = { app, screen, browser, army };
     const { ids, target, jobs, client } = await seedZoneJobs(ui, "TKR02", "RUL2", "Revue ciblée Z1 Z2");
     // The drawings must reveal their overlap while both vector alternatives are still excluded. No setup
     // inclusion may be needed to find the duplicate, and finding it must not retain either quantity.
@@ -218,7 +220,6 @@ armyTest("TKR02 the targeted review lists a Z1/Z2 duplicate with its reason, the
     }
     // The editor's draft lock goes back: the application takes its own from the review.
     expect((await apiRequest<{ data: { released: boolean } }>(ui.browser, "DELETE", `/api/estimates/${ids.versionId}/lock`)).status).toBe(200);
-    const screen = ui.screen;
     const targeted = (jobId: string) => `/dashboard/affaires/${ids.projectId}/takeoff/${jobId}/review/targeted?versionId=${ids.versionId}`;
     for (const zone of ["Z2", "Z1"] as const) {
       await ui.app.open(`${targeted(jobs[zone])}&line=${alternatives[zone].id}`);
@@ -381,9 +382,9 @@ armyTest("TKR02 the targeted review lists a Z1/Z2 duplicate with its reason, the
   });
 
 armyTest("TKR03 corrects a weld unit without attesting its quantity and reopens a verified run on the revised zone plan", options,
-  async (ui) => {
+  async ({ app, screen, browser, army }) => {
+    const ui = { app, screen, browser, army };
     const { ids, jobs, addZone } = await seedZoneJobs(ui, "TKR03", "REV", "Revue détail unité", "A");
-    const { screen } = ui;
     const list = screen.getByRole("listbox", "Lignes à trancher", { exact: true });
     const panel = screen.getByRole("region", "Décision sur la ligne", { exact: true });
     const weld = (await readItems(ui, jobs.Z1)).find((item) => item.designation === "Soudures atelier")!;
@@ -474,7 +475,8 @@ armyTest("TKR03 corrects a weld unit without attesting its quantity and reopens 
   });
 
 armyTest("TKR04 complete review preserves an unchanged verification and never reattests on exclusion or inclusion", options,
-  async (ui) => {
+  async ({ app, screen, browser, army }) => {
+    const ui = { app, screen, browser, army };
     const { ids, jobs, owner, client } = await seedZoneJobs(ui, "TKR04", "VRF", "Auteurs de la revue");
     const job = jobs.Z1;
     const readPipe = async () => (await readItems(ui, job)).find((item) => item.designation === "ARMY worker pipe")!;
@@ -561,7 +563,8 @@ armyTest("TKR04 complete review preserves an unchanged verification and never re
   });
 
 // TI-685: a technical failure needs a coded reason and system reference; V cannot erase it silently.
-armyTest("TKR05 network material justification persists and blocked gas cannot be accepted", options, async (ui) => {
+armyTest("TKR05 network material justification persists and blocked gas cannot be accepted", options, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   const { ids, client, jobs } = await seedZoneJobs(ui, "TKR05", "MAT", "Justification réseau matériau");
   for (const job of Object.values(jobs)) {
     const items = await readItems(ui, job);
@@ -613,7 +616,8 @@ armyTest("TKR05 network material justification persists and blocked gas cannot b
 // pipe names no network (TKR01: its DN rule fails too), so the line here is a run of that page whose network, material
 // and DN agree: the scale is its only failure.
 armyTest("TKR06 a contradicted scale is accepted with a coded reason and what was checked, the quantity unchanged", options,
-  async (ui) => {
+  async ({ app, screen, browser, army }) => {
+    const ui = { app, screen, browser, army };
     const { ids, client, jobs } = await seedZoneJobs(ui, "TKR06", "SCL", "Échelle contredite", "C");
     // The worker read Z1 revision C with its cote: the page's scale is contradicted.
     const pages = await client.from("takeoff_vector_pages").select("source_file_name,source_page,reading").eq("job_id", jobs.Z1);
@@ -671,9 +675,9 @@ armyTest("TKR06 a contradicted scale is accepted with a coded reason and what wa
 // and what remains to confirm. The complete review never enters a quantity still to enter by a bare edit: it sends it
 // to the targeted review, unsaved, where it is justified.
 armyTest("TKR07 the complete review sends a weld count to the targeted review, where an hypothesis says what it assumes", options,
-  async (ui) => {
+  async ({ app, screen, browser, army }) => {
+    const ui = { app, screen, browser, army };
     const { ids, jobs } = await seedZoneJobs(ui, "TKR07", "HYP", "Saisie sur hypothèse", "A");
-    const { screen } = ui;
     const panel = screen.getByRole("region", "Décision sur la ligne", { exact: true });
     const weld = (await readItems(ui, jobs.Z1)).find((item) => item.designation === "Soudures atelier")!;
     expect(weld).toMatchObject({ quantity: 2, unit: "kg", quantity_entry_category: null, is_excluded: true,
@@ -725,8 +729,8 @@ armyTest("TKR07 the complete review sends a weld count to the targeted review, w
 // the line measured beside it stays measured; the printed estimate shows an ordinary priced line (H9). No worker: the
 // job is seeded as the worker writes it, and the insert trigger excludes the estimate.
 armyTest("TKR08 an estimate included with I, without entry, reaches the estimate as an hypothesis in its line truth and the CSV", options,
-  async (ui) => {
-    const { app, screen, browser, army } = ui;
+  async ({ app, screen, browser, army }) => {
+    const ui = { app, screen, browser, army };
     await browser.emulateMedia({ reducedMotion: "reduce" });
     const ids = await createEstimateViaWizard(ui, { projectName: `${army.runPrefix}-TKR08`, title: "Inclusion sans saisie" }, army);
     const target = await createLineViaApi(browser, ids.versionId, `${army.runPrefix} lot supports`);

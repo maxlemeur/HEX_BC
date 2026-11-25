@@ -37,7 +37,8 @@ async function prepareQuantityQuote(ui: QuantityUi, reference: number | null, me
   return { ids, owned, sectionId, lineId, job, route };
 }
 
-armyTest("TI681 invalidates old review evidence while quantity corrections remain non blocking", { session: "army", tags: ["critical"], timeout: 180_000 }, async ui => {
+armyTest("TI681 invalidates old review evidence while quantity corrections remain non blocking", { session: "army", tags: ["critical"], timeout: 180_000 }, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   const { ids, owned, sectionId, lineId, job, route } = await prepareQuantityQuote(ui, 3000, [3060]);
   await ui.app.open(route);
   await expect(ui.screen.getByText("Quantité proposée pour chiffrer", { exact: true })).toBeVisible();
@@ -68,7 +69,8 @@ armyTest("TI681 invalidates old review evidence while quantity corrections remai
     actualStatus: applied.status, preservedQuantity: target.data?.quantity ?? null });
 });
 
-armyTest("TI680 copying a printed quantity cannot validate an unknown or SHAB floor basis", { session: "army", tags: ["critical"], timeout: 180_000 }, async ui => {
+armyTest("TI680 copying a printed quantity cannot validate an unknown or SHAB floor basis", { session: "army", tags: ["critical"], timeout: 180_000 }, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   const { ids, owned } = await prepareQuantityQuote(ui, 3000, [3000]);
   const job = await owned.seed("A", [{ designation: "Revêtement de sol", quantity: 19.5, unit: "m2", confidence: 0.99 }], "surface-fictive.csv");
   const itemId = job.items[0].id;
@@ -97,7 +99,8 @@ armyTest("TI680 copying a printed quantity cannot validate an unknown or SHAB fl
 // TI-686 D9 with D17 (H3): accepting a printed-surface failure states the basis of the printed surface. Declared on
 // the price line's basis, both surfaces compare and the higher is retained, saved before V; declared on another basis,
 // nothing is compared and the line keeps its quantity.
-armyTest("TI680 accepts a printed surface with its declared basis, retaining the higher surface on the line's basis", { session: "army", tags: ["critical"], timeout: 180_000 }, async ui => {
+armyTest("TI680 accepts a printed surface with its declared basis, retaining the higher surface on the line's basis", { session: "army", tags: ["critical"], timeout: 180_000 }, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   const { ids, owned } = await prepareQuantityQuote(ui, 3000, [3000]);
   const job = await owned.seed("A", [
     { designation: "Revêtement de sol", quantity: 19.5, unit: "m2", confidence: 0.99 },
@@ -165,8 +168,8 @@ armyTest("TI680 accepts a printed surface with its declared basis, retaining the
 });
 
 for (const fixture of cases) {
-  armyTest(`TI680 applies the protected quantity and preserves ${fixture.name}`, { session: "army", tags: ["critical"], timeout: 180_000 }, async ui => {
-    const { app, screen, browser, army } = ui;
+  armyTest(`TI680 applies the protected quantity and preserves ${fixture.name}`, { session: "army", tags: ["critical"], timeout: 180_000 }, async ({ app, screen, browser, army }) => {
+    const ui = { app, screen, browser, army };
     const { ids, owned, sectionId, lineId, job, route } = await prepareQuantityQuote(ui, fixture.reference, fixture.measured);
     await app.open(route);
     await expect(screen.getByText("Quantité proposée pour chiffrer", { exact: true })).toBeVisible();

@@ -13,8 +13,8 @@ import { waitForHydration } from "./hydration-support";
 // existing links, or lets a selection exceed the API's 20-file limit.
 armyTest("DRV03 selects Drive folders across pages and preserves the 20-file limit", {
   session: "army", trace: "off", tags: ["critical", "google-drive", "local"], timeout: 120_000,
-}, async (ui) => {
-  const { army, app, screen, browser } = ui;
+}, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   const ids = await createEstimateViaWizard(ui, { projectName: `${army.runPrefix}-DRV03`, title: "Dossier complet" }, army);
   const source = await PDFDocument.create();
   source.addPage().drawText("CCTP fictif - Google Drive");
@@ -89,8 +89,8 @@ armyTest("DRV03 selects Drive folders across pages and preserves the 20-file lim
 
 armyTest("DRV01 Google Drive POC stays disabled until OAuth approval and links no documents", {
   session: "army", trace: "off", tags: ["critical", "google-drive", "local"], timeout: 120_000,
-}, async (ui) => {
-  const { army, app, screen, browser } = ui;
+}, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   const ids = await createEstimateViaWizard(ui, { projectName: `${army.runPrefix}-DRV01`, title: "Dossier fictif Drive" }, army);
   await app.open(`/dashboard/affaires/${ids.projectId}`);
   // A fresh affaire offers Drive beside the computer in its next step.
@@ -127,8 +127,8 @@ armyTest("DRV01 Google Drive POC stays disabled until OAuth approval and links n
 
 armyTest("DRV02 fictional Drive links persist under real RLS without any stored copy and stay listed across visits", {
   session: "army", trace: "off", tags: ["critical", "google-drive", "local"], timeout: 120_000,
-}, async (ui) => {
-  const { army, app, screen, browser } = ui;
+}, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   const ids = await createEstimateViaWizard(ui, { projectName: `${army.runPrefix}-DRV02`, title: "Liens Drive fictifs" }, army);
   const { client, userId } = await localClient();
   const project = await client.from("estimate_projects").select("id,tenant_id,name,user_id,is_archived")

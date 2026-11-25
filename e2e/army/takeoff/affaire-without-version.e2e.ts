@@ -16,7 +16,8 @@ import { ownedWorkerJobOwner, ownedWorkerSelection, readVectorViewerDrawing, sig
 
 armyTest("TKAW01 an affaire without a version reviews the controlled worker's measurements and keeps no estimate", {
   session: "army", trace: "off", tags: ["critical", "takeoff-worker", "local"], timeout: 180_000,
-}, async (ui) => {
+}, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   await ui.app.open("/dashboard/affaires");
   const owner = await signUpWorkerOwner(ui, "AWV");
   const { tenantId, userId } = owner;
@@ -229,7 +230,8 @@ armyTest("TKAW01 an affaire without a version reviews the controlled worker's me
 
 armyTest("TKAW02 the takeoff of an affaire without a version creates its first draft at the confirmation only, once", {
   session: "army", trace: "off", tags: ["critical", "takeoff-worker", "local"], timeout: 240_000,
-}, async (ui) => {
+}, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   await ui.app.open("/dashboard/affaires");
   const owner = await signUpWorkerOwner(ui, "AWS");
   const { tenantId, userId } = owner;

@@ -14,7 +14,8 @@ const saveSettled = (ui: Ui) =>
   expect(ui.screen.getByTestId("estimate-page-toolbar-autosave-status")).toHaveText(/^(Sauvegardé|À jour)$/, { timeout: 30_000 });
 
 armyTest("FO53401 catalogue families and transport are retained once before margin, then manual price clears the origin", options,
-  async (ui) => {
+  async ({ app, screen, browser, army }) => {
+    const ui = { app, screen, browser, army };
     const draft = await prepareV3Draft(ui, ui.army, "FO534");
     const product = (await connectedApi<{ item: { id: string } }>(ui, "POST", "/api/products", {
       action: "create", item: { designation: `${ui.army.runPrefix} tube PVC FO534`, product_type: "Tube", unit: "u", unit_price_cents: 10000 },
@@ -142,7 +143,8 @@ armyTest("FO53401 catalogue families and transport are retained once before marg
   });
 
 armyTest("FO53402 reference transport, exact insulation family, exports and section copies retain the saved price origin", options,
-  async (ui) => {
+  async ({ app, screen, browser, army }) => {
+    const ui = { app, screen, browser, army };
     const draft = await prepareV3Draft(ui, ui.army, "FO534REF");
     await querySql(`insert into public.supply_types(tenant_id,code,name,default_fo_provision) values
       ('${draft.owner.tenantId}','calorifuge','Calorifuge',1.020),

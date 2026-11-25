@@ -32,7 +32,8 @@ const options = {
 armyTest(
   "FO53410 one editable K FO includes supply losses transport and volume without compounding",
   options,
-  async (ui) => {
+  async ({ app, screen, browser, army }) => {
+    const ui = { app, screen, browser, army };
     const draft = await prepareV3Draft(ui, ui.army, "FO534UNIFIED");
     const typeId = await querySql(
       `insert into public.supply_types(tenant_id,code,name) values ('${draft.owner.tenantId}','tube','Tube') on conflict (tenant_id,code) do nothing returning id;`,
@@ -164,7 +165,8 @@ armyTest(
 armyTest(
   "FO53411 company and user defaults reprice automatic drafts while manual neutrality is preserved",
   options,
-  async (ui) => {
+  async ({ app, screen, browser, army }) => {
+    const ui = { app, screen, browser, army };
     const draft = await prepareV3Draft(ui, ui.army, "FO534PREF");
     await querySql(
       `insert into public.supply_types(tenant_id,code,name) values ('${draft.owner.tenantId}','tube','Tube') on conflict (tenant_id,code) do nothing;`,
@@ -332,7 +334,8 @@ armyTest(
 armyTest(
   "FO53412 kit components stay in calculation but remain hidden in the editor and downloaded PDF",
   options,
-  async (ui) => {
+  async ({ app, screen, browser, army }) => {
+    const ui = { app, screen, browser, army };
     const draft = await prepareV3Draft(ui, ui.army, "FO534KIT");
     await querySql(
       `insert into public.supply_types(tenant_id,code,name) values ('${draft.owner.tenantId}','tube','Tube'),('${draft.owner.tenantId}','raccord','Raccord') on conflict (tenant_id,code) do nothing;`,
@@ -455,7 +458,8 @@ armyTest(
 armyTest(
   "FO53413 flagless API coefficient edits remain manual including neutrality",
   options,
-  async (ui) => {
+  async ({ app, screen, browser, army }) => {
+    const ui = { app, screen, browser, army };
     const draft = await prepareV3Draft(ui, ui.army, "FO534API");
     const base = {
       quantity: 1,
@@ -512,7 +516,8 @@ armyTest(
   },
 );
 
-armyTest("FO53414 an unrelated draft edit preserves an unknown historical coefficient before an explicit K FO edit", options, async ui => {
+armyTest("FO53414 an unrelated draft edit preserves an unknown historical coefficient before an explicit K FO edit", options, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   const draft = await prepareV3Draft(ui, ui.army, "FO534LEGACY");
   const id = randomUUID();
   const title = `${ui.army.runPrefix} historical supply`;
@@ -541,7 +546,8 @@ armyTest("FO53414 an unrelated draft edit preserves an unknown historical coeffi
   await recordEvidence(ui.army, "fo534-legacy-draft", { item: (await readEstimate(ui.browser, draft.versionId)).items.find(row => row.id === id) });
 });
 
-armyTest("FO53416 POSE SEULE keeps a neutral editable K FO and its site source through a saved template", options, async (ui) => {
+armyTest("FO53416 POSE SEULE keeps a neutral editable K FO and its site source through a saved template", options, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   const draft = await prepareV3Draft(ui, ui.army, "FO534POSE");
   await querySql(`insert into public.supply_types(tenant_id,code,name) values ('${draft.owner.tenantId}','tube','Tube') on conflict (tenant_id,code) do nothing;`);
   const types = await connectedApi<{ supply_types: Array<{ id: string; code: string }> }>(ui, "GET", `/api/estimates/${draft.versionId}`);
@@ -592,7 +598,8 @@ armyTest("FO53416 POSE SEULE keeps a neutral editable K FO and its site source t
 // of a real library entry (supplies of two families and labour) to the amount of the inserted kit
 // on its row, in the footer, after a reload and in the downloaded PDF. The picker used to print the
 // missing target price of that entry as « 0,00 € »; it now reads « sans prix cible ».
-armyTest("FO53417 a library ouvrage inserted in a v3 draft keeps the amount its preview announced", { ...options, timeout: 300_000 }, async (ui) => {
+armyTest("FO53417 a library ouvrage inserted in a v3 draft keeps the amount its preview announced", { ...options, timeout: 300_000 }, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   const draft = await prepareV3Draft(ui, ui.army, "FO534LIB");
   await querySql(
     `insert into public.supply_types(tenant_id,code,name) values ('${draft.owner.tenantId}','tube','Tube'),('${draft.owner.tenantId}','raccord','Raccord') on conflict (tenant_id,code) do nothing;`,

@@ -17,7 +17,8 @@ import { signUpWorkerOwner } from "./worker-support";
 
 armyTest("TKPD01 a request of three plans gives three analyses read one at a time; one that fails stops nothing; one notice « 2 plans lus sur 3 »", {
   session: "army", trace: "off", tags: ["critical", "takeoff-worker", "local"], timeout: 300_000,
-}, async (ui) => {
+}, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   await ui.app.open("/dashboard/affaires");
   const owner = await signUpWorkerOwner(ui, "TKPD1");
   const mail = await startTakeoffEmailCollector();
@@ -132,7 +133,8 @@ armyTest("TKPD01 a request of three plans gives three analyses read one at a tim
 
 armyTest("TKPD02 a member stops the rest of a request after its first plan: the plan read stays, its requester is told; a full stop sends nothing", {
   session: "army", trace: "off", tags: ["critical", "takeoff-worker", "local"], timeout: 300_000,
-}, async (ui) => {
+}, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   await ui.app.open("/dashboard/affaires");
   const owner = await signUpWorkerOwner(ui, "TKPD2");
   const mail = await startTakeoffEmailCollector();
@@ -180,7 +182,8 @@ armyTest("TKPD02 a member stops the rest of a request after its first plan: the 
 
 armyTest("TKPD03 a plan whose bytes changed after its admission fails at once, alone, and the next plan is read in the same pass", {
   session: "army", trace: "off", tags: ["critical", "takeoff-worker", "local"], timeout: 300_000,
-}, async (ui) => {
+}, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   await ui.app.open("/dashboard/affaires");
   const owner = await signUpWorkerOwner(ui, "TKPD3");
   await activateOwnedPlanDispatch();
@@ -213,7 +216,8 @@ armyTest("TKPD03 a plan whose bytes changed after its admission fails at once, a
 
 armyTest("TKPD04 an old relaunch command without plan IDs rereads only its predecessor's plan after a provider timeout", {
   session: "army", trace: "off", tags: ["critical", "takeoff-worker", "local"], timeout: 300_000,
-}, async (ui) => {
+}, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   await ui.app.open("/dashboard/affaires");
   const owner = await signUpWorkerOwner(ui, "TKPD4");
   await activateOwnedPlanDispatch();
