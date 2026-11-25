@@ -95,9 +95,14 @@ export async function readRelaunchPlanChoice(context: AuthenticatedTenantContext
       ? "failed" : resolveTakeoffRequestUnitState(job);
     for (const plan of plans) {
       const id = plan.document_id.toLowerCase();
-      recordPlan(id, plan.document_name, state, job.id === predecessorJobId && (!singlePlan || plans.length === 1),
-        state === "queued" || state === "running", job.started_at);
-      if (plan.content_hash && (state === "succeeded" || state === "running" || state === "queued")) {
+      const hasReading = state === "succeeded" || state === "running" || state === "queued";
+      // A historical file can be replaced in place. Only the predecessor's
+      // retry choice is known before comparing the bytes its snapshot read.
+      if (job.id === predecessorJobId) {
+        recordPlan(id, plan.document_name, hasReading ? undefined : state, !singlePlan || plans.length === 1,
+          false, job.started_at);
+      }
+      if (plan.content_hash && hasReading) {
         const readings = history.get(plan.content_hash) ?? [];
         readings.push({ id, name: plan.document_name, documentId: null, state: state === "succeeded" ? "analysed" : "in_progress" });
         history.set(plan.content_hash, readings);
@@ -124,8 +129,13 @@ export async function readRelaunchPlanChoice(context: AuthenticatedTenantContext
     for (const file of files?.data ?? []) {
       if (!current.has(file.id) || states.get(file.id) === "analysed") continue;
       const digest = await readPlanCopyDigest(context, file);
-      const prior = digest && readingThroughOtherCopy(history.get(digest), file.id);
-      if (prior) {
+      if (!digest) continue;
+      const readings = history.get(digest);
+      for (const reading of readings ?? []) {
+        if (reading.id === file.id) remember(file.id, reading.state);
+      }
+      const prior = readingThroughOtherCopy(readings, file.id);
+      if (prior && priority[prior.state] >= priority[states.get(file.id) ?? "not_analysed"]) {
         remember(file.id, prior.state);
         twins.set(file.id, prior);
       }
