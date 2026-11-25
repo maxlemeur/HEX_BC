@@ -229,11 +229,41 @@ function verifiedCorrections(lines: readonly CorrectionLine[], rows: Rows): Work
   return { edits: [...edits.values()], skipped: skipped.sort((a, b) => a.line - b.line) };
 }
 
-export function reapplyWorkbookJournal(entries: readonly JournalRow[], rows: Rows): WorkbookCorrectionsRead {
-  return verifiedCorrections(entries.map((entry, index) => ({
+export type RejectedWorkbookEdit = WorkbookCorrectionsRead["skipped"][number] & {
+  value: string | null;
+};
+
+export const SKIPPED_CORRECTION_LABELS: Record<SkipReason, string> = {
+  changed: "la valeur d’origine a changé",
+  address: "l’adresse ne désigne pas une cellule de l’onglet",
+  article: "l’article de la ligne n’a pas pu être vérifié",
+  field: "le champ de la cellule a changé",
+};
+
+export function reapplyWorkbookJournal(entries: readonly JournalRow[], rows: Rows) {
+  const lines = entries.map((entry, index) => ({
     ...entry, line: index + 2, original: entry.before, field: entry.header,
     headerLine: entry.headerLine === "Oui", value: entry.clear === "Oui" ? null : entry.after,
-  })), rows);
+  }));
+  const replay = verifiedCorrections(lines, rows);
+  return {
+    edits: replay.edits,
+    skipped: replay.skipped.map((entry): RejectedWorkbookEdit => ({ ...entry, value: lines[entry.line - 2].value })),
+  };
+}
+
+export function exportRejectedWorkbookEdits(entries: readonly RejectedWorkbookEdit[]) {
+  const data = entries.map(({ address, value, reason }) => ({
+    address, value: value ?? "Effacer la cellule", reason: SKIPPED_CORRECTION_LABELS[reason],
+  }));
+  return exportToExcelWithSheets([{
+    name: "Corrections écartées", data,
+    columns: [
+      { key: "address", header: "Cellule" },
+      { key: "value", header: "Correction saisie", numberFormat: "@" },
+      { key: "reason", header: "Motif" },
+    ],
+  }], { filename: "corrections-ecartees" });
 }
 
 export class WorkbookCorrectionsFileError extends Error {

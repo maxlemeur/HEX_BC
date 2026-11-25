@@ -51,9 +51,9 @@ function supplierReport(overrides: Partial<CostingWorkbookSupplierReferenceRepor
   };
 }
 
-function workbook(rows: unknown[][] = SHEET_ROWS) {
+function workbook(rows: unknown[][] = SHEET_ROWS, sheetName = "All_data") {
   const book = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(book, XLSX.utils.aoa_to_sheet(rows), "All_data");
+  XLSX.utils.book_append_sheet(book, XLSX.utils.aoa_to_sheet(rows), sheetName);
   const bytes = XLSX.write(book, { bookType: "xlsx", type: "array" }) as ArrayBuffer;
   const file = new File([bytes], "bible-chiffrage.xlsx");
   Object.defineProperty(file, "arrayBuffer", { value: () => Promise.resolve(bytes) });
@@ -302,6 +302,32 @@ describe("CostingWorkbookImport, proposals", () => {
     expect(screen.queryByRole("button", { name: /c’est CAT-TUBE-20/ })).not.toBeInTheDocument();
     expect(previews()).toHaveLength(2);
     expect(previews()[1].body?.rows?.[1][0]).toBe("AUTRE-20");
+  });
+
+  it("hides the earlier all-code conclusion when imported corrections change the proposed values", async () => {
+    const user = userEvent.setup();
+    answers.suppliers = () => ok(supplierReport({ to_import: 1, for_decision: [], proposed: [
+      { row: 2, slot: 1, article_reference: "TUBE-20", supplier_name: "Point P Matériaux" },
+    ] }));
+    answers.suggest = () => ({
+      task: "supplier_codes", provider: "decisions", model: null, status: "available", message: "",
+      items: [{ value: "Réf interne", suggestion: { kind: "code", confidence: 1, source: "ai" } }],
+    });
+    await openImport(user);
+    await openSupplierReferences(user);
+    await chooseDecisions(user);
+    await user.click(screen.getByRole("button", { name: "Vérifier ces codes avec l’IA" }));
+    const conclusion = "L’IA lit chacun comme un code de produit.";
+    expect(await screen.findByText(conclusion)).toBeVisible();
+
+    const correction = workbook([
+      ["Cellule à vérifier", "Valeur d’origine", "Correction à renseigner", "Colonne", "Article"],
+      ["H2", "Réf interne", "Autre référence", "F1_ref", "TUBE-20"],
+    ], "Corrections");
+    await user.upload(screen.getByLabelText("Fichier de corrections"), correction);
+    await waitFor(() => expect(supplierPreviews()[1].body?.rows?.[1][7]).toBe("Autre référence"));
+    expect(screen.getByRole("button", { name: "Vérifier ces codes avec l’IA" })).toBeEnabled();
+    expect(screen.queryByText(conclusion)).not.toBeInTheDocument();
   });
 
   it("leaves an unanswered supplier code unreviewed", async () => {

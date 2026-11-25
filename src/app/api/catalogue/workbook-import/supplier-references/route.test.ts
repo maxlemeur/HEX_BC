@@ -5,6 +5,9 @@ vi.mock("@/lib/supabase/server", () => ({
 }));
 
 import { POST } from "@/app/api/catalogue/workbook-import/supplier-references/route";
+import { readCostingWorkbookRows } from "@/lib/catalogue/costing-workbook";
+import { reapplyWorkbookJournal, workbookJournalRows } from "@/lib/catalogue/costing-workbook-corrections";
+import { applyWorkbookEdits, supplierCodeEdits, workbookEditEntries } from "@/lib/catalogue/costing-workbook-edits";
 import type { CostingWorkbookSupplierReferenceReport } from "@/lib/catalogue/costing-workbook-contract";
 import { createFakeSupabase, fakeMembership, type FakeRow, type FakeRpcHandler } from "@/lib/material-requests/server.test-utils";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -74,12 +77,12 @@ function supplier(id: string, name: string, extra: FakeRow = {}): FakeRow {
 
 const importReferences: FakeRpcHandler = (args) => ({ data: { batch_id: BATCH, imported: (args.p_rows as unknown[]).length } });
 
-function seed(aliases: FakeRow[] = []) {
+function seed(aliases: FakeRow[] = [], role: "admin" | "engineer" = "admin") {
   const fake = createFakeSupabase({
     userId: ADMIN,
     rpc: { import_workbook_supplier_reference_batch: importReferences },
     tables: {
-      tenant_memberships: [fakeMembership(ADMIN, TENANT, "admin")],
+      tenant_memberships: [fakeMembership(ADMIN, TENANT, role)],
       products: [
         product(TUBE, "TUBE-32"),
         product(ARCHIVED, "Bride-50", { is_active: false }),
@@ -179,6 +182,37 @@ describe("POST /api/catalogue/workbook-import/supplier-references", () => {
     }]);
   });
 
+  it("imports a replayed code without a URL when its old URL clear could not be replayed", async () => {
+    const fake = seed();
+    const keptUrl = "https://atlas.example/part-b";
+    const original = [[...HEADERS, "F2_URL"], [...article({
+      ID: "TUBE-32", Caractéristique: "Tube",
+      F1_nom: "Comptoir Atlas", F1_ref: "AT-A", F1_URL: "https://atlas.example/part-a",
+      F2_nom: "Comptoir Atlas", F2_ref: "AT-B",
+    }), keptUrl]];
+    const { supplierReferenceOccurrences } = readCostingWorkbookRows(original);
+    const journal = workbookJournalRows(workbookEditEntries(original, supplierCodeEdits(supplierReferenceOccurrences, "AT-B"), 1), original);
+    const newWorkbook = original.map((row) => [...row]);
+    newWorkbook[1][HEADERS.indexOf("F1_URL")] = "https://atlas.example/product-a-new";
+    const reapplied = reapplyWorkbookJournal(journal, newWorkbook);
+    expect(reapplied.skipped).toMatchObject([{ address: "G2", reason: "changed" }]);
+    const replayed = applyWorkbookEdits(newWorkbook, reapplied.edits);
+    const preview = await send({ rows: replayed, confirm: false });
+    expect(preview.data?.proposed).toMatchObject([{ product_url_omitted: true }]);
+
+    const confirmed = await send({ rows: replayed, confirm: true, preview_token: preview.data?.preview_token });
+    expect(confirmed.data).toMatchObject({ imported: 1, proposed: [{ product_url_omitted: true }] });
+    expect(fake.rpcArgs.at(-1)?.args.p_rows).toMatchObject([{ supplier_sku: "AT-B", product_url: null }]);
+
+    for (const url of [keptUrl, null]) {
+      replayed[1][HEADERS.indexOf("F1_URL")] = url;
+      const consistent = await send({ rows: replayed, confirm: false });
+      expect(consistent.data?.proposed?.[0]).not.toHaveProperty("product_url_omitted");
+      await send({ rows: replayed, confirm: true, preview_token: consistent.data?.preview_token });
+      expect(fake.rpcArgs.at(-1)?.args.p_rows).toMatchObject([{ supplier_sku: "AT-B", product_url: keptUrl }]);
+    }
+  });
+
   it("honours an association over a later literal match and refuses an archived target", async () => {
     const alias = { id: "60000000-0000-4000-8000-000000000001", tenant_id: TENANT,
       supplier_id: ATLAS, alias: "Dépôt Boréal", alias_key: "depot boreal" };
@@ -187,7 +221,24 @@ describe("POST /api/catalogue/workbook-import/supplier-references", () => {
     expect(first.data?.for_decision).toContainEqual({ row: 2, slot: 2, reason: "conflicting_workbook_references", product_id: TUBE, supplier_id: ATLAS });
     fake.tables.suppliers.find((supplier) => supplier.id === ATLAS)!.is_active = false;
     const second = await send({ rows: SHEET, confirm: false });
-    expect(second.data?.for_decision).toContainEqual({ row: 2, slot: 2, reason: "supplier_not_found", product_id: TUBE });
+    expect(second.data?.for_decision).toContainEqual({
+      row: 2, slot: 2, reason: "supplier_not_found", product_id: TUBE,
+      archived_supplier_alias: { id: alias.id, supplier_name: "Comptoir Atlas", can_remove: true },
+    });
+  });
+
+  it.each([true, false])("marks archived aliases removable by the engineer only when they authored them (%s)", async (author) => {
+    const alias = {
+      id: "60000000-0000-4000-8000-000000000001", tenant_id: TENANT, supplier_id: ATLAS,
+      alias_key: "depot boreal", created_by: author ? ADMIN : "20000000-0000-4000-8000-000000000002",
+    };
+    const fake = seed([alias], "engineer");
+    fake.tables.suppliers.find((entry) => entry.id === ATLAS)!.is_active = false;
+    const answer = await send({ rows: SHEET, confirm: false });
+    expect(answer.data?.for_decision).toContainEqual({
+      row: 2, slot: 2, reason: "supplier_not_found", product_id: TUBE,
+      archived_supplier_alias: { id: alias.id, supplier_name: "Comptoir Atlas", can_remove: author },
+    });
   });
 
   it("reads a name the office associated as its supplier, and lets it decide between homonyms (6)", async () => {

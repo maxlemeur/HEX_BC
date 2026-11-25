@@ -8,6 +8,13 @@ import type {
   CostingWorkbookSupplierReferenceReport,
 } from "@/lib/catalogue/costing-workbook-contract";
 
+import { exportToExcelWithSheets } from "@/lib/export";
+
+vi.mock("@/lib/export", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/lib/export")>(),
+  exportToExcelWithSheets: vi.fn().mockResolvedValue(undefined),
+}));
+
 import { CostingWorkbookImport } from "./CostingWorkbookImport";
 
 /**
@@ -408,20 +415,23 @@ describe("CostingWorkbookImport, corrections in the screen", () => {
     answers.suppliers = () => respond(200, { ok: true, data: supplierReport({ for_decision: [
       { row: 2, slot: 1, reason, product_id, supplier_id },
       { row: 2, slot: 2, reason, product_id, supplier_id },
+      { row: 2, slot: 3, reason: "price_source_reference" },
     ] }) });
     renderImport();
     const rows = [
-      [...HEADERS, "F1_URL", "F2_nom", "F2_ref", "F2_URL"],
-      [...SHEET_ROWS[1], "https://example.test/products/A", "Négoce Nord", "B-2", "https://example.test/products/B"],
+      [...HEADERS, "F1_URL", "F2_nom", "F2_ref", "F2_URL", "F3_nom", "F3_ref"],
+      [...SHEET_ROWS[1], "https://example.test/products/A", "Négoce Nord", "B-2", "https://example.test/products/B", "Pt.P", "Devis n° 90210"],
       SHEET_ROWS[2],
     ];
     await user.upload(fileInput(), costingWorkbook(rows));
     await screen.findByRole("table", { name: "Articles proposés en brouillon" });
     await user.click(screen.getByRole("tab", { name: "Références fournisseur" }));
-    await user.click(await screen.findByRole("button", { name: /Garder le code B-2/ }));
+    const conflict = within(await screen.findByRole("list", { name: "Références produit à départager" }));
+    expect(conflict.getByText("Devis n° 90210")).toBeVisible();
+    await user.click(conflict.getByRole("button", { name: /Garder le code B-2/ }));
     await waitFor(() => expect(supplierPreviews()).toHaveLength(2));
     expect(supplierPreviews()[1].body?.rows?.[1]).toEqual([
-      ...SHEET_ROWS[1].slice(0, 7), "B-2", "Art", null, "Négoce Nord", "B-2", "https://example.test/products/B",
+      ...SHEET_ROWS[1].slice(0, 7), "B-2", "Art", null, "Négoce Nord", "B-2", "https://example.test/products/B", "Pt.P", "Devis n° 90210",
     ]);
   });
 
@@ -482,7 +492,7 @@ describe("CostingWorkbookImport, corrections in the screen", () => {
     expect(screen.getByText(/1 correction.*reprise/)).toBeVisible();
   });
 
-  it("ignores a supplier creation refresh after another workbook replaced its source", async () => {
+  it("locks workbook selection until supplier creation has refreshed the preview", async () => {
     const user = userEvent.setup();
     let finish!: (value: Response) => void;
     const pending = new Promise<Response>((resolve) => { finish = resolve; });
@@ -491,12 +501,67 @@ describe("CostingWorkbookImport, corrections in the screen", () => {
     renderImport();
     await openSupplierReferences(user);
     await user.click(await screen.findByRole("button", { name: "Fournisseur actif introuvable" }));
-    await user.click(await screen.findByRole("button", { name: "Créer le fournisseur Pt.P" }));
-    await user.upload(fileInput(), xlsxFile("autre.xlsx", { All_data: SHEET_ROWS.slice(0, 2) }));
-    await waitFor(() => expect(supplierPreviews()).toHaveLength(2));
+    await user.click(screen.getByRole("button", { name: "Créer le fournisseur Pt.P" }));
+    expect(fileInput()).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Changer de fichier Excel" })).toBeDisabled();
+    const invalid = new File([], "autre.xlsx");
+    const read = vi.fn().mockRejectedValue(new Error("invalid workbook"));
+    Object.defineProperty(invalid, "arrayBuffer", { value: read });
+    await user.upload(fileInput(), invalid);
+    expect(read).not.toHaveBeenCalled();
+    answers.suppliers = () => respond(200, { ok: true, data: supplierReport({ for_decision: [] }) });
     await act(async () => finish(await respond(201, { ok: true, data: { item: { id: "s9", name: "Pt.P" } } })));
-    expect(supplierPreviews()).toHaveLength(2);
-    expect(supplierPreviews()[1].body?.rows).toHaveLength(2);
+    await waitFor(() => expect(supplierPreviews()).toHaveLength(2));
+    expect(supplierPreviews()[1].body?.rows).toHaveLength(3);
+    expect(fileInput()).toBeEnabled();
+    expect(screen.queryByRole("button", { name: "Créer le fournisseur Pt.P" })).not.toBeInTheDocument();
+  });
+
+  it("shows rejected replay values before replacing and lets the office export them afterwards", async () => {
+    const user = userEvent.setup();
+    renderImport();
+    await user.upload(fileInput(), costingWorkbook());
+    const table = await screen.findByRole("table", { name: "Articles proposés en brouillon" });
+    await user.click(within(table).getByRole("button", { name: "Corriger la cellule E3" }));
+    await user.type(screen.getByLabelText("Nouvelle valeur de la cellule E3"), "9,90{Enter}");
+    await waitFor(() => expect(previews()).toHaveLength(2));
+
+    const changed = [...SHEET_ROWS[2]];
+    changed[4] = 13;
+    await user.upload(fileInput(), xlsxFile("nouveau.xlsx", { All_data: [HEADERS, SHEET_ROWS[1], changed] }));
+    const dialog = within(await screen.findByRole("alertdialog", { name: "Changer de classeur ?" }));
+    expect(dialog.getByText(/E3.*9,90.*la valeur d’origine a changé/)).toBeVisible();
+    expect(previews()).toHaveLength(2);
+    await user.click(dialog.getByRole("button", { name: "Reprendre les corrections" }));
+    await waitFor(() => expect(previews()[2].body?.rows?.[2][4]).toBe(13));
+    expect(screen.getByText(/E3.*9,90.*la valeur d’origine a changé/)).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Exporter les corrections écartées" }));
+    expect(exportToExcelWithSheets).toHaveBeenCalledWith([
+      expect.objectContaining({ data: [expect.objectContaining({ address: "E3", value: "9,90", reason: "la valeur d’origine a changé" })] }),
+    ], expect.anything());
+  });
+
+  it.each([true, false])("shows an archived association and its allowed action (can remove: %s)", async (canRemove) => {
+    const user = userEvent.setup();
+    const aliasId = "60000000-0000-4000-8000-000000000001";
+    answers.suppliers = () => respond(200, { ok: true, data: supplierReport({ for_decision: supplierPreviews().length > 1 ? [] : [
+      { row: 2, slot: 1, reason: "supplier_not_found",
+        archived_supplier_alias: { id: aliasId, supplier_name: "Négoce Nord", can_remove: canRemove } },
+    ] }) });
+    renderImport();
+    await openSupplierReferences(user);
+    await user.click(await screen.findByRole("button", { name: "Fournisseur actif introuvable" }));
+    expect(screen.getByText(/associé au fournisseur archivé « Négoce Nord »/)).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Créer le fournisseur Pt.P" })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Fournisseur du catalogue pour Pt.P")).not.toBeInTheDocument();
+    if (canRemove) {
+      await user.click(screen.getByRole("button", { name: "Retirer l’association de Pt.P" }));
+      await waitFor(() => expect(supplierPreviews()).toHaveLength(2));
+      expect(sent.some(({ method, url }) => method === "DELETE" && url.endsWith(aliasId))).toBe(true);
+    } else {
+      expect(screen.getByText(/Seul l’auteur ou un administrateur peut retirer cette association/)).toBeVisible();
+      expect(screen.queryByRole("button", { name: "Retirer l’association de Pt.P" })).not.toBeInTheDocument();
+    }
   });
 
   it("reads a filled corrections file back, and says what it left out (7)", async () => {
@@ -525,7 +590,7 @@ describe("CostingWorkbookImport, corrections in the screen", () => {
 
   it("keeps the list of the references it imported, to verify them (8)", async () => {
     const user = userEvent.setup();
-    const proposed = [{ row: 2, slot: 1, article_reference: "TUBE-20", supplier_name: "Point P Matériaux", product_id: "90000000-0000-4000-8000-000000000001" }];
+    const proposed = [{ row: 2, slot: 1, article_reference: "TUBE-20", supplier_name: "Point P Matériaux", product_url_omitted: true, product_id: "90000000-0000-4000-8000-000000000001" }];
     answers.suppliers = () => respond(200, { ok: true, data: supplierPreviews().at(-1)?.body?.confirm
       ? supplierReport({ confirmed: true, imported: 1, preview_token: null, proposed, for_decision: [] })
       : supplierReport({ to_import: 1, proposed, for_decision: [] }) });
@@ -537,6 +602,7 @@ describe("CostingWorkbookImport, corrections in the screen", () => {
     expect(supplierPreviews()[1].body).toMatchObject({ confirm: true, preview_token: "a".repeat(64) });
     const imported = within(await screen.findByRole("table", { name: "Références importées" }));
     expect(imported.getByText("TUBE-20")).toBeVisible();
+    expect(imported.getByText("Lien produit écarté : le classeur donne plusieurs adresses pour ce code.")).toBeVisible();
     expect(imported.getByRole("link", { name: "Vérifier sur la fiche" }))
       .toHaveAttribute("href", "/dashboard/products?product_id=90000000-0000-4000-8000-000000000001");
   });

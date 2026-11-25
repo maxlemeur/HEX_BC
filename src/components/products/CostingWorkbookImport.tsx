@@ -25,6 +25,8 @@ import {
 import {
   readWorkbookCorrectionsFile,
   reapplyWorkbookJournal,
+  SKIPPED_CORRECTION_LABELS,
+  type RejectedWorkbookEdit,
   workbookJournalRows,
   WorkbookCorrectionsFileError,
   type WorkbookCorrectionsRead,
@@ -50,6 +52,7 @@ import { ArticlePreview, type SupplyTypeChoices } from "./costing-workbook/Artic
 import { AssistantProviderSelect, useWorkbookAssistantState, WorkbookAssistantProvider } from "./costing-workbook/assistant";
 import { ColumnsPanel } from "./costing-workbook/ColumnsPanel";
 import { CorrectionsJournal } from "./costing-workbook/CorrectionsJournal";
+import { RejectedWorkbookEdits } from "./costing-workbook/RejectedWorkbookEdits";
 import { boundedPage, DECISIONS_PER_PAGE, formatCount, plural, ReviewPager, WorkbookEditorProvider, type WorkbookReview } from "./costing-workbook/shared";
 import { SupplierReferenceReview } from "./costing-workbook/SupplierReferenceReview";
 
@@ -78,16 +81,18 @@ const CORRECTIONS_INPUT_ID = "costing-workbook-corrections-file";
 const NETWORK_FAILURE = "Le serveur n’a pas répondu. Vérifiez la connexion, puis réessayez.";
 const UNREADABLE_FILE = "Ce fichier n’a pas pu être lu comme un classeur Excel.";
 
-type Phase = "idle" | "reading" | "previewing" | "importing";
+type Phase = "idle" | "reading" | "previewing" | "changing-catalogue" | "importing";
 
 type Mode = "articles" | "supplier-references";
 type Report = CostingWorkbookImportReport | CostingWorkbookSupplierReferenceReport;
+type Replacement = { rows: CostingWorkbookRows; name: string; replay?: ReturnType<typeof reapplyWorkbookJournal> };
 const INITIAL_SUPPLIER_REVIEW: WorkbookReview = { page: 0, view: "", search: "" };
 const INITIAL_ARTICLE_REVIEW: WorkbookReview = { page: 0, view: "proposed", search: "" };
 
 const PHASE_LABELS: Record<Exclude<Phase, "idle">, string> = {
   reading: "Lecture du classeur…",
   previewing: "Comparaison avec le catalogue…",
+  "changing-catalogue": "Mise à jour des fournisseurs…",
   importing: "Création des brouillons…",
 };
 
@@ -141,12 +146,6 @@ function refusal(status: number, payload: unknown): Extract<Outcome, { aborted: 
 }
 
 type SkippedCorrection = WorkbookCorrectionsRead["skipped"][number];
-const SKIPPED_CORRECTION_LABELS: Record<SkippedCorrection["reason"], string> = {
-  changed: "la valeur d’origine a changé",
-  address: "l’adresse ne désigne pas une cellule de l’onglet",
-  article: "l’article de la ligne n’a pas pu être vérifié",
-  field: "le champ de la cellule a changé",
-};
 
 function SkippedCorrections({ entries }: Readonly<{ entries: SkippedCorrection[] }>) {
   const [page, setPage] = useState(0);
@@ -187,7 +186,7 @@ export function CostingWorkbookImport({
   const [revision, setRevision] = useState(0);
   const revisionRef = useRef(0);
   const [dirtyEditors, setDirtyEditors] = useState<ReadonlySet<string>>(new Set());
-  const [replacement, setReplacement] = useState<{ rows: CostingWorkbookRows; name: string } | null>(null);
+  const [replacement, setReplacement] = useState<Replacement | null>(null);
   const [previews, setPreviews] = useState<Partial<Record<Mode, Report>>>({});
   const [results, setResults] = useState<Partial<Record<Mode, Report>>>({});
   const [supplierReview, setSupplierReview] = useState(INITIAL_SUPPLIER_REVIEW);
@@ -195,6 +194,7 @@ export function CostingWorkbookImport({
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [skippedCorrections, setSkippedCorrections] = useState<SkippedCorrection[]>([]);
+  const [rejectedWorkbookEdits, setRejectedWorkbookEdits] = useState<RejectedWorkbookEdit[]>([]);
   const [canRetry, setCanRetry] = useState(false);
   const fileNameRef = useRef<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -246,7 +246,7 @@ export function CostingWorkbookImport({
   }, []);
 
   // Leaving loses a running import's answer, and the corrections made here: they live in this page only.
-  const warnBeforeLeaving = phase === "importing" || edits.length > 0;
+  const warnBeforeLeaving = phase === "importing" || edits.length > 0 || rejectedWorkbookEdits.length > 0;
   useEffect(() => {
     if (!warnBeforeLeaving) return;
     const warn = (event: BeforeUnloadEvent) => event.preventDefault();
@@ -375,10 +375,27 @@ export function CostingWorkbookImport({
   /** The same sheet against the catalogue as it is now: after a fix made in the catalogue, or to see an import's rest. */
   function refresh() {
     if (!rows || isBusy || phaseRef.current !== "idle" || !isCurrentRevision(revision) || modeRef.current !== mode) return;
+    refreshPreview(rows);
+  }
+
+  function refreshPreview(currentRows: CostingWorkbookRows) {
     // The preview on screen stays until the new one replaces it: the office keeps its place in the list.
     setPreviews((previous) => ({ [mode]: previous[mode] }));
     setResults((previous) => ({ ...previous, [mode]: undefined }));
-    void runPreview(mode, rows);
+    void runPreview(mode, currentRows);
+  }
+
+  /** Hold the workbook in place until the catalogue write can be reflected in its preview. */
+  async function changeCatalogue(write: () => Promise<void>) {
+    if (!rows || phaseRef.current !== "idle" || !isCurrentRevision(revision) || modeRef.current !== mode) return;
+    setPhase("changing-catalogue");
+    try {
+      await write();
+    } catch (failure) {
+      if (isCurrentRevision(revision)) setPhase("idle");
+      throw failure;
+    }
+    if (isCurrentRevision(revision)) refreshPreview(rows);
   }
 
   /** The journal changed: every preview read the sheet without it, and a result is no longer what the screen shows. */
@@ -428,10 +445,13 @@ export function CostingWorkbookImport({
     const expected = revisionRef.current;
     setPhase("reading");
     try {
-      const next = { rows: await readCostingWorkbookFile(await file.arrayBuffer()), name: file.name };
+      const next: Replacement = { rows: await readCostingWorkbookFile(await file.arrayBuffer()), name: file.name };
       if (!isCurrentRevision(expected)) return;
-      if (edits.length > 0) setReplacement(next);
-      else replaceWorkbook(next, false);
+      if (edits.length > 0 && originalRows && rows) {
+        setReplacement({ ...next, replay: reapplyWorkbookJournal(workbookJournalRows(journal, originalRows, rows), next.rows) });
+      } else {
+        replaceWorkbook(next, false);
+      }
     } catch (readError) {
       if (!isCurrentRevision(expected)) return;
       setPhase("idle");
@@ -439,9 +459,8 @@ export function CostingWorkbookImport({
     }
   }
 
-  function replaceWorkbook(next: NonNullable<typeof replacement>, keep: boolean) {
-    const reapplied = keep && originalRows && rows
-      ? reapplyWorkbookJournal(workbookJournalRows(journal, originalRows, rows), next.rows) : null;
+  function replaceWorkbook(next: Replacement, keep: boolean) {
+    const reapplied = keep ? next.replay : undefined;
     const nextEdits = reapplied?.edits ?? [];
     advanceRevision();
     setReplacement(null);
@@ -456,7 +475,8 @@ export function CostingWorkbookImport({
     setResults({});
     setSupplierReview(INITIAL_SUPPLIER_REVIEW);
     setArticleReview(INITIAL_ARTICLE_REVIEW);
-    setSkippedCorrections(reapplied?.skipped ?? []);
+    setSkippedCorrections([]);
+    if (reapplied?.skipped.length) setRejectedWorkbookEdits((previous) => [...previous, ...reapplied.skipped]);
     setNotice(reapplied ? `${formatCount(nextEdits.length)} ${plural(nextEdits.length, "correction reprise", "corrections reprises")}, ${formatCount(reapplied.skipped.length)} écartées.` : null);
     void runPreview(mode, applyWorkbookFileEdits(next.rows, nextEdits), new Map(), {});
   }
@@ -684,6 +704,7 @@ export function CostingWorkbookImport({
           </div>
 
           <SkippedCorrections entries={skippedCorrections} />
+          <RejectedWorkbookEdits entries={rejectedWorkbookEdits} exportable />
 
           {canRetry && rows && !preview && phase === "idle" ? (
             <div>
@@ -756,7 +777,7 @@ export function CostingWorkbookImport({
                     return next;
                   })}
                   onShowDrafts={() => changeMode("articles")}
-                  onRefresh={refresh}
+                  onCatalogueChange={changeCatalogue}
                 />
               ) : null}
             </TabsContent>
@@ -774,6 +795,7 @@ export function CostingWorkbookImport({
           <AlertDialogDescription>
             Des corrections sont en cours. Vous pouvez les reprendre si l’article, la colonne et la valeur d’origine correspondent dans le nouveau classeur.
           </AlertDialogDescription>
+          <RejectedWorkbookEdits entries={replacement?.replay?.skipped ?? []} />
           <AlertDialogFooter className="sm:flex-wrap">
             <AlertDialogCancel>Annuler</AlertDialogCancel>
             <Button variant="outline" onClick={() => { if (replacement) replaceWorkbook(replacement, false); }}>Abandonner les corrections</Button>

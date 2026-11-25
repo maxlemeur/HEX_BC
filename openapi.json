@@ -10233,7 +10233,7 @@
           "Catalogue"
         ],
         "summary": "Reprendre les références fournisseur du classeur de chiffrage",
-        "description": "Aperçu en lecture seule avec confirm=false. La confirmation exige l’empreinte de cet aperçu. La reprise rattache les références aux articles actifs modifiables et aux fournisseurs actifs identifiés sans ambiguïté dans l’entreprise sélectionnée. Le lot crée des liaisons inactives, à vérifier. L’aperçu donne une cellule source par référence proposée ; après confirmation, la même liste est celle des références importées. Le rapport donne les lignes à examiner et leur motif, avec ce que le catalogue détient (code déjà enregistré, fiches homonymes), dont les sources de prix écartées des références à reprendre et les références d’articles que l’import des brouillons du même onglet crée (article_to_create). Les liaisons existantes et les prix sont conservés.",
+        "description": "Aperçu en lecture seule avec confirm=false. La confirmation exige l’empreinte de cet aperçu. La reprise rattache les références aux articles actifs modifiables et aux fournisseurs actifs identifiés sans ambiguïté dans l’entreprise sélectionnée. Le lot crée des liaisons inactives, à vérifier. L’aperçu donne une cellule source par référence proposée ; après confirmation, la même liste est celle des références importées. Le rapport donne les lignes à examiner et leur motif, avec ce que le catalogue détient (code déjà enregistré, fiches homonymes), dont les sources de prix écartées des références à reprendre et les références d’articles que l’import des brouillons du même onglet crée (article_to_create). Si plusieurs adresses produit accompagnent le même code, la référence est importée sans lien et le rapport signale product_url_omitted. Si un nom est associé à un fournisseur archivé, le rapport indique le fournisseur et le droit de retirer cette association dans archived_supplier_alias. Les liaisons existantes et les prix sont conservés.",
         "requestBody": {
           "description": "Lignes de l’onglet All_data et empreinte de l’aperçu à la confirmation.",
           "required": true,
@@ -59459,6 +59459,9 @@
                     },
                     "product_id": {
                       "type": "string"
+                    },
+                    "product_url_omitted": {
+                      "type": "boolean"
                     }
                   },
                   "required": [
@@ -59508,6 +59511,26 @@
                     },
                     "supplier_id": {
                       "type": "string"
+                    },
+                    "archived_supplier_alias": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "supplier_name": {
+                          "type": "string"
+                        },
+                        "can_remove": {
+                          "type": "boolean"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "supplier_name",
+                        "can_remove"
+                      ],
+                      "additionalProperties": false
                     },
                     "existing_supplier_sku": {
                       "type": [

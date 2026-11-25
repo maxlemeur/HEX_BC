@@ -142,17 +142,16 @@ export async function readCostingWorkbookFile(input: ArrayBuffer): Promise<Costi
     if (address.startsWith("!")) continue;
     const cell = sheet[address] as XlsxCell;
     const error = errorText(cell);
-    if (error === null && !holdsValue(cell)) continue;
+    const target = cell.l?.Target;
+    const url = target && /^https?:\/\//i.test(target) && target.length <= COSTING_WORKBOOK_MAX_TEXT ? target : null;
+    if (error === null && !url && !holdsValue(cell)) continue;
     const { r, c } = xlsx.utils.decode_cell(address);
     if (c >= COSTING_WORKBOOK_MAX_CELLS) continue;
     if (error !== null) errors.push({ r, c, text: error });
     if (cell.t === "n" && typeof cell.w === "string" && cell.w !== String(cell.v) && cell.w.length <= COSTING_WORKBOOK_MAX_TEXT) {
       display.push({ row: r + 1, column: c, text: cell.w, kind: "reference" });
     }
-    const target = cell.l?.Target;
-    if (target && /^https?:\/\//i.test(target) && target.length <= COSTING_WORKBOOK_MAX_TEXT) {
-      display.push({ row: r + 1, column: c, text: target, kind: "url" });
-    }
+    if (url) display.push({ row: r + 1, column: c, text: url, kind: "url" });
     lastRow = Math.max(lastRow, r);
     lastColumn = Math.max(lastColumn, c);
   }

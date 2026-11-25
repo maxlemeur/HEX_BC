@@ -147,6 +147,8 @@ export const costingWorkbookSupplierReferenceReportSchema = z.object({
     article_reference: z.string(),
     supplier_name: z.string(),
     product_id: z.string().optional(),
+    /** Several different non-empty product URLs were given for this reference. */
+    product_url_omitted: z.boolean().optional(),
   })).optional(),
   for_decision: z.array(z.object({
     row: z.number().int().positive(),
@@ -156,6 +158,8 @@ export const costingWorkbookSupplierReferenceReportSchema = z.object({
     /** The catalogue article and supplier the cell was matched to, when it was. */
     product_id: z.string().optional(),
     supplier_id: z.string().optional(),
+    /** `supplier_not_found` when the name is associated with an archived supplier. */
+    archived_supplier_alias: z.object({ id: z.string(), supplier_name: z.string(), can_remove: z.boolean() }).optional(),
     /** `different_existing_reference`: the code the catalogue holds for this article at this supplier. */
     existing_supplier_sku: z.string().nullable().optional(),
     /** `ambiguous_article`, `ambiguous_supplier`: the catalogue records that share the identifier or the name. */

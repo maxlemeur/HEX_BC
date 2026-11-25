@@ -97,6 +97,7 @@ function DoubtfulCodes({ proposed, sourceByCell }: Readonly<{ proposed: Proposed
   const [answers, setAnswers] = useState<Array<{ value: string; kind: keyof typeof CODE_KIND_LABELS; confidence: number | null }> | null>(null);
   const [unanswered, setUnanswered] = useState<number | null>(null);
   const [outcome, setOutcome] = useState<Outcome | null>(null);
+  const [checkedValues, setCheckedValues] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const cellsOf = new Map<string, Source[]>();
@@ -105,11 +106,14 @@ function DoubtfulCodes({ proposed, sourceByCell }: Readonly<{ proposed: Proposed
     if (source && looksDoubtful(source.supplier_sku)) cellsOf.set(source.supplier_sku, [...(cellsOf.get(source.supplier_sku) ?? []), source]);
   }
   const values = [...cellsOf.keys()].slice(0, COSTING_WORKBOOK_SUGGESTION_LIMITS.supplierCodes);
+  const valuesKey = JSON.stringify(values);
+  const currentAnswer = checkedValues === valuesKey;
   if (values.length === 0) return null;
 
   async function check() {
     if (!provider) return;
     setLoading(true);
+    setCheckedValues(valuesKey);
     setError(null);
     setAnswers(null);
     setOutcome(null);
@@ -141,13 +145,13 @@ function DoubtfulCodes({ proposed, sourceByCell }: Readonly<{ proposed: Proposed
       ) : (
         <p className="text-xs text-muted-foreground">Choisissez une source d’IA (« Propositions avec l’IA ») pour les faire vérifier, ou corrigez-les dans le tableau.</p>
       )}
-      {error ? <p role="alert" className="text-xs font-medium text-danger">{error}</p> : null}
-      {outcome ? <SuggestionStatus status={outcome.status} message={outcome.message} /> : null}
-      {unanswered ? <p className="text-xs text-muted-foreground">
+      {currentAnswer && error ? <p role="alert" className="text-xs font-medium text-danger">{error}</p> : null}
+      {currentAnswer && outcome ? <SuggestionStatus status={outcome.status} message={outcome.message} /> : null}
+      {currentAnswer && unanswered ? <p className="text-xs text-muted-foreground">
         {`${formatCount(unanswered)} ${plural(unanswered, "code reste", "codes restent")} à vérifier.`}
       </p> : null}
-      {answers?.length === 0 && unanswered === 0 ? <p className="text-xs text-muted-foreground">L’IA lit chacun comme un code de produit.</p> : null}
-      {answers && answers.length > 0 ? (
+      {currentAnswer && answers?.length === 0 && unanswered === 0 ? <p className="text-xs text-muted-foreground">L’IA lit chacun comme un code de produit.</p> : null}
+      {currentAnswer && answers && answers.length > 0 ? (
         <ul aria-label="Codes à écarter" className="divide-y divide-border">
           {answers.map(({ value, kind, confidence }) => {
             const cells = cellsOf.get(value) ?? [];
@@ -338,6 +342,10 @@ function WorkbookSupplierComparisons({ title, comparisons, onKeep }: Readonly<{
   );
 }
 
+const OMITTED_PRODUCT_URL = "Lien produit écarté : le classeur donne plusieurs adresses pour ce code.";
+
+type CatalogueChange = (write: () => Promise<void>) => Promise<void>;
+
 type Proposed = NonNullable<CostingWorkbookSupplierReferenceReport["proposed"]>;
 
 function ProposedSupplierReferences({ proposed, sourceByCell, confirmed }: Readonly<{
@@ -355,12 +363,17 @@ function ProposedSupplierReferences({ proposed, sourceByCell, confirmed }: Reado
     name: "Références",
     data: proposed.map((entry) => {
       const source = sourceByCell.get(decisionCellKey(entry));
-      return { row: entry.row, article: entry.article_reference, designation: source?.article_wording ?? "", supplier: entry.supplier_name, code: source?.supplier_sku ?? "" };
+      return {
+        row: entry.row, article: entry.article_reference, designation: source?.article_wording ?? "",
+        supplier: entry.supplier_name, code: source?.supplier_sku ?? "",
+        note: entry.product_url_omitted ? OMITTED_PRODUCT_URL : "",
+      };
     }),
     columns: [
       { key: "row", header: "Ligne Excel" }, { key: "article", header: "Article", numberFormat: "@" },
       { key: "designation", header: "Désignation" }, { key: "supplier", header: "Fournisseur" },
       { key: "code", header: "Référence fournisseur", numberFormat: "@" },
+      { key: "note", header: "Remarque" },
     ],
   }], { filename: confirmed ? "references-importees" : "references-a-importer" });
 
@@ -404,7 +417,10 @@ function ProposedSupplierReferences({ proposed, sourceByCell, confirmed }: Reado
                     {confirmed && entry.product_id ? <ProductLink productId={entry.product_id} label="Vérifier sur la fiche" /> : null}
                   </td>
                   <td>{entry.supplier_name}</td>
-                  <td>{source?.supplier_sku || "—"}</td>
+                  <td>
+                    <p>{source?.supplier_sku || "—"}</p>
+                    {entry.product_url_omitted ? <p className="text-xs text-warning">{OMITTED_PRODUCT_URL}</p> : null}
+                  </td>
                 </tr>
               );
             })}
@@ -420,32 +436,31 @@ function ProposedSupplierReferences({ proposed, sourceByCell, confirmed }: Reado
  * bears it. Associating it to a supplier is remembered: the next previews, of this workbook and of the following
  * ones, read the name as that supplier.
  */
-function SupplierGroup({ group, sourceByCell, directory, suggestion, dismissed, onDismiss, onChanged }: Readonly<{
+function SupplierGroup({ group, sourceByCell, directory, suggestion, dismissed, onDismiss, onCatalogueChange }: Readonly<{
   group: DecisionGroup;
   sourceByCell: SourceMap;
   directory: Directory;
   suggestion?: SupplierSuggestion;
   dismissed: boolean;
   onDismiss: () => void;
-  /** The catalogue changed (a supplier created, a name associated): the preview is computed again. */
-  onChanged: () => void;
+  onCatalogueChange: CatalogueChange;
 }>) {
   const selectId = useId();
   const { busy } = useWorkbookEditor();
-  const [working, setWorking] = useState<"create" | "associate" | null>(null);
+  const [working, setWorking] = useState<"create" | "associate" | "remove" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [first] = group.entries;
   const reasons = [...new Set(group.entries.map((entry) => entry.reason))];
-  const notFound = reasons.includes("supplier_not_found");
+  const archivedAlias = first.archived_supplier_alias;
+  const notFound = !archivedAlias && reasons.includes("supplier_not_found");
   const candidates = notFound && Array.isArray(directory) ? rankSupplierCandidates(group.label, directory) : [];
   const blocked = busy || working !== null;
 
-  async function change(kind: "create" | "associate", action: () => Promise<unknown>, fallback: string) {
+  async function change(kind: "create" | "associate" | "remove", action: () => Promise<unknown>, fallback: string) {
     setWorking(kind);
     setError(null);
     try {
-      await action();
-      onChanged();
+      await onCatalogueChange(async () => { await action(); });
     } catch (failure) {
       setError(catalogueErrorMessage(failure, fallback));
     } finally {
@@ -479,7 +494,24 @@ function SupplierGroup({ group, sourceByCell, directory, suggestion, dismissed, 
             </div>
             <IgnoreButton subject={`le fournisseur ${group.label}`} dismissed={dismissed} onClick={onDismiss} />
           </div>
-          {first.candidates?.length ? (
+          {archivedAlias ? (
+            <div className="space-y-1.5 text-xs text-muted-foreground">
+              <p>{`Ce nom est associé au fournisseur archivé « ${archivedAlias.supplier_name} ».`}</p>
+              {archivedAlias.can_remove ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={blocked}
+                  loading={working === "remove"}
+                  aria-label={`Retirer l’association de ${group.label}`}
+                  onClick={() => void change("remove", () => forgetSupplierAlias(archivedAlias.id), "Cette association n’a pas pu être retirée.")}
+                >
+                  Retirer l’association
+                </Button>
+              ) : <p>Seul l’auteur ou un administrateur peut retirer cette association.</p>}
+            </div>
+          ) : null}
+          {!archivedAlias && first.candidates?.length ? (
             <div className="space-y-1.5 text-xs text-muted-foreground">
               <p>Plusieurs fournisseurs actifs portent ce nom. Dites lequel le classeur désigne :</p>
               <div className="flex flex-wrap gap-2">
@@ -590,7 +622,7 @@ function SupplierGroup({ group, sourceByCell, directory, suggestion, dismissed, 
   );
 }
 
-export function SupplierReferenceReview({ report, rows, review, onReviewChange, dismissed, onDismiss, onShowDrafts, onRefresh }: Readonly<{
+export function SupplierReferenceReview({ report, rows, review, onReviewChange, dismissed, onDismiss, onShowDrafts, onCatalogueChange }: Readonly<{
   report: CostingWorkbookSupplierReferenceReport;
   rows: CostingWorkbookRows;
   review: WorkbookReview;
@@ -600,8 +632,7 @@ export function SupplierReferenceReview({ report, rows, review, onReviewChange, 
   onDismiss: (cells: string[], dismissed: boolean) => void;
   /** The articles these references wait for are created by the draft import: shows it. */
   onShowDrafts: () => void;
-  /** The catalogue changed (a supplier was created): computes the preview again. */
-  onRefresh: () => void;
+  onCatalogueChange: CatalogueChange;
 }>) {
   const { applyEdits, busy } = useWorkbookEditor();
   const { provider } = useWorkbookAssistant();
@@ -623,7 +654,7 @@ export function SupplierReferenceReview({ report, rows, review, onReviewChange, 
     };
   }, [rows]);
 
-  const needsDirectory = report.for_decision.some((entry) => entry.reason === "supplier_not_found");
+  const needsDirectory = report.for_decision.some((entry) => entry.reason === "supplier_not_found" && !entry.archived_supplier_alias);
   useEffect(() => {
     if (!needsDirectory || directory !== null) return;
     const abort = new AbortController();
@@ -647,9 +678,10 @@ export function SupplierReferenceReview({ report, rows, review, onReviewChange, 
   async function forgetAlias(alias: SupplierAlias) {
     setAliasError(null);
     try {
-      await forgetSupplierAlias(alias.id);
-      setAliases((previous) => previous.filter((entry) => entry.id !== alias.id));
-      onRefresh();
+      await onCatalogueChange(async () => {
+        await forgetSupplierAlias(alias.id);
+        setAliases((previous) => previous.filter((entry) => entry.id !== alias.id));
+      });
     } catch (failure) {
       setAliasError(catalogueErrorMessage(failure, "Cette association n’a pas pu être retirée."));
     }
@@ -727,7 +759,7 @@ export function SupplierReferenceReview({ report, rows, review, onReviewChange, 
   const groupNoun = groupKind === "supplier" ? ["fournisseur distinct", "fournisseurs distincts"] : ["article distinct", "articles distincts"];
 
   /** The workbook names no supplier bears, each once: what a proposal is asked for. */
-  const unknownSuppliers = groupSupplierDecisions(decisions.filter((entry) => entry.reason === "supplier_not_found"), sourceByCell, true)
+  const unknownSuppliers = groupSupplierDecisions(decisions.filter((entry) => entry.reason === "supplier_not_found" && !entry.archived_supplier_alias), sourceByCell, true)
     .filter((group) => group.kind === "supplier");
   const retained = unknownSuppliers.flatMap((group) => {
     const suggestion = supplierSuggestions.get(workbookSupplierNameKey(group.label));
@@ -762,12 +794,15 @@ export function SupplierReferenceReview({ report, rows, review, onReviewChange, 
     setSuggesting("retain");
     setSuggestionError(null);
     try {
-      for (const { name, supplierId } of retained) await rememberSupplierAlias(supplierId, name);
-    } catch (failure) {
-      setSuggestionError(catalogueErrorMessage(failure, "Une proposition n’a pas pu être retenue."));
+      await onCatalogueChange(async () => {
+        try {
+          for (const { name, supplierId } of retained) await rememberSupplierAlias(supplierId, name);
+        } catch (failure) {
+          setSuggestionError(catalogueErrorMessage(failure, "Une proposition n’a pas pu être retenue."));
+        }
+      });
     } finally {
       setSuggesting(null);
-      onRefresh();
     }
   }
 
@@ -1028,7 +1063,7 @@ export function SupplierReferenceReview({ report, rows, review, onReviewChange, 
                           suggestion={supplierSuggestions.get(workbookSupplierNameKey(group.label))}
                           dismissed={isDismissed}
                           onDismiss={toggleDismissed}
-                          onChanged={onRefresh}
+                          onCatalogueChange={onCatalogueChange}
                         />
                       );
                     }

@@ -63,9 +63,9 @@ async function planReferences(context: AuthenticatedTenantContext, { articles: r
     // Archived articles too: the draft import skips their reference, so it is not one « to create ».
     readAllRows(() => supabase.from("products").select("id, reference, designation, created_by, is_active", { count: "exact" })
       .eq("tenant_id", tenantId).not("reference", "is", null), { concurrency: 4 }),
-    readAllRows(() => supabase.from("suppliers").select("id, name, city, email, siret, created_at", { count: "exact" })
-      .eq("tenant_id", tenantId).eq("is_active", true)),
-    readAllRows(() => supabase.from("supplier_aliases").select("id, supplier_id, alias_key", { count: "exact" }).eq("tenant_id", tenantId)),
+    readAllRows(() => supabase.from("suppliers").select("id, name, city, email, siret, created_at, is_active", { count: "exact" })
+      .eq("tenant_id", tenantId)),
+    readAllRows(() => supabase.from("supplier_aliases").select("id, supplier_id, alias_key, created_by", { count: "exact" }).eq("tenant_id", tenantId)),
     tenantRole === "engineer" ? readEngineersCanEditShared(supabase, tenantId) : false,
   ]);
   if (products.error) throw mapSupabaseError(products.error, "Impossible de lire les articles du catalogue.");
@@ -76,17 +76,11 @@ async function planReferences(context: AuthenticatedTenantContext, { articles: r
   const heldReferences = new Set((products.data ?? []).map((product) => workbookReferenceKey(product.reference ?? "")));
   const articlesByReference = groupBy((products.data ?? []).filter((product) => product.is_active),
     (product) => workbookReferenceKey(product.reference ?? ""));
-  const suppliersByName = groupBy(suppliers.data ?? [], (supplier) => workbookSupplierNameKey(supplier.name));
-  const supplierLabels = supplierPickerLabels(suppliers.data ?? []);
-  // An explicit association wins. An archived target requires another decision.
-  const activeSuppliers = new Map((suppliers.data ?? []).map((supplier) => [supplier.id, supplier]));
-  const supplierOfAlias = new Map((aliases.data ?? []).map((alias) => [alias.alias_key, activeSuppliers.get(alias.supplier_id)]));
-  const suppliersNamed = (name: string) => {
-    const key = workbookSupplierNameKey(name);
-    if (!supplierOfAlias.has(key)) return suppliersByName.get(key) ?? [];
-    const aliased = supplierOfAlias.get(key);
-    return aliased ? [aliased] : [];
-  };
+  const supplierById = new Map((suppliers.data ?? []).map((supplier) => [supplier.id, supplier]));
+  const activeSuppliers = (suppliers.data ?? []).filter((supplier) => supplier.is_active);
+  const suppliersByName = groupBy(activeSuppliers, (supplier) => workbookSupplierNameKey(supplier.name));
+  const supplierLabels = supplierPickerLabels(activeSuppliers);
+  const aliasesByName = new Map((aliases.data ?? []).map((alias) => [alias.alias_key, alias]));
   // What the draft import of the same sheet creates: the references of these articles wait for it.
   const toCreate = new Set(readArticles.map((article) => workbookReferenceKey(article.reference))
     .filter((key) => !heldReferences.has(key)));
@@ -120,7 +114,11 @@ async function planReferences(context: AuthenticatedTenantContext, { articles: r
       continue;
     }
     const articles = articlesByReference.get(workbookReferenceKey(occurrence.article_reference)) ?? [];
-    const supplierMatches = suppliersNamed(occurrence.supplier_name);
+    const supplierKey = workbookSupplierNameKey(occurrence.supplier_name);
+    const alias = aliasesByName.get(supplierKey);
+    const aliasTarget = alias && supplierById.get(alias.supplier_id);
+    // Never fall back to a homonym while an explicit association exists.
+    const supplierMatches = alias ? aliasTarget?.is_active ? [aliasTarget] : [] : suppliersByName.get(supplierKey) ?? [];
     const [article] = articles;
     const [supplier] = supplierMatches;
     if (!article?.reference || articles.length !== 1) {
@@ -138,7 +136,14 @@ async function planReferences(context: AuthenticatedTenantContext, { articles: r
           candidates: supplierMatches.slice(0, MAX_CANDIDATES).map(({ id, name }) => ({ id, label: supplierLabels.get(id) ?? name })),
         });
       } else {
-        refuse(occurrence, "supplier_not_found", { product_id: article.id });
+        refuse(occurrence, "supplier_not_found", {
+          product_id: article.id,
+          ...(alias && aliasTarget ? { archived_supplier_alias: {
+            id: alias.id,
+            supplier_name: aliasTarget.name,
+            can_remove: tenantRole === "admin" || alias.created_by === userId,
+          } } : {}),
+        });
       }
     } else if (!canEditCatalogueRecord(access, article.created_by)) {
       refuse(occurrence, "article_locked", { product_id: article.id, supplier_id: supplier.id });
@@ -180,14 +185,17 @@ async function planReferences(context: AuthenticatedTenantContext, { articles: r
       duplicates += entries.length - 1;
       if (item) alreadyRegistered += 1;
       else {
-        // The same code on several rows: the first link the workbook gives for it.
-        candidates.push({ ...candidate, product_url: entries.find((entry) => entry.candidate.product_url)?.candidate.product_url ?? null });
+        // Even a replayed correction can leave different product pages on occurrences of the same code.
+        const urls = new Set(entries.flatMap(({ candidate: match }) => match.product_url ? [match.product_url] : []));
+        const productUrl = urls.size === 1 ? urls.values().next().value ?? null : null;
+        candidates.push({ ...candidate, product_url: productUrl });
         proposed.push({
           row: occurrence.row,
           slot: occurrence.slot,
           article_reference: candidate.product_reference,
           supplier_name: candidate.supplier_name,
           product_id: candidate.product_id,
+          ...(urls.size > 1 ? { product_url_omitted: true } : {}),
         });
       }
     }
