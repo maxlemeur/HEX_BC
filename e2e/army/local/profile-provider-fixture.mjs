@@ -3,10 +3,18 @@ import assert from "node:assert/strict";
 import { readFile, appendFile } from "node:fs/promises";
 
 const originalFetch = globalThis.fetch;
+const backendOrigin = new URL(process.env.NEXT_PUBLIC_SUPABASE_URL).origin;
 const knownEfforts = ["low", "medium", "high", "xhigh", "max"];
 globalThis.fetch = async (input, init) => {
   const url = new URL(typeof input === "string" || input instanceof URL ? input : input.url);
-  if (["localhost", "127.0.0.1", "::1", "[::1]"].includes(url.hostname)) return originalFetch(input, init);
+  if (["localhost", "127.0.0.1", "::1", "[::1]"].includes(url.hostname)) {
+    // On a parallel shard the profile and intake servers share the Mac's host id.
+    // The profile server simulates connections only. Leave queued analyses for the intake server.
+    if (url.origin === backendOrigin && url.pathname === "/rest/v1/rpc/claim_takeoff_launch_evaluations") {
+      return Response.json([]);
+    }
+    return originalFetch(input, init);
+  }
   const control = JSON.parse(await readFile(process.env.ARMY_PROFILE_PROVIDER_CONTROL, "utf8"));
   const log = async (operation, data = {}) => appendFile(process.env.ARMY_PROFILE_PROVIDER_LOG,
     JSON.stringify({ provider: "profile-fixture", operation, ...data }) + "\n");
