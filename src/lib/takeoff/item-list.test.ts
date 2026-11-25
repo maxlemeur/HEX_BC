@@ -11,6 +11,7 @@ import {
   proposeItemListRevision,
   storedItemListRevision,
   withAddedItem,
+  withAddedItems,
   type StoredItemListEntry,
 } from "./item-list";
 import { PLUMBING_TEMPLATE, templatePosteDrafts } from "./plumbing-template";
@@ -109,6 +110,21 @@ describe("stored revisions and proposals", () => {
     expect(proposal.candidate.items.map(({ id }) => id)).toEqual(first.items.map(({ id }) => id));
     expect(proposal.comparison.added).toEqual([]);
     expect(proposal.comparison.removed).toEqual([]);
+  });
+
+  it("inserts several finds after their section and preserves the order of every older item", () => {
+    const first = createPosteRevision(scope, templatePosteDrafts(PLUMBING_TEMPLATE));
+    const section = first.items[0].sections;
+    const last = first.items.findLastIndex(item => item.sections.at(-1)?.id === section.at(-1)?.id);
+    expect(last).toBeLessThan(first.items.length - 1);
+    const additions = ["Bouche A", "Bouche B"].map((label, index) => ({
+      label, intentId: String(index), sectionPath: section, addedBy: "member", addedAt: "2026-11-25T12:00:00Z",
+      expectedUnit: "u", measurementBasis: null, qualifiers: {},
+    }));
+    const next = withAddedItems(first, additions);
+    expect(next.items.map(item => item.label)).toEqual([...first.items.slice(0, last + 1).map(item => item.label),
+      "Bouche A", "Bouche B", ...first.items.slice(last + 1).map(item => item.label)]);
+    expect(next.revision).toBe(first.revision + 1);
   });
 
   it("carries the items added by hand into every proposal", () => {
@@ -246,7 +262,7 @@ describe("what a revision keeps of the decisions it relied on", () => {
       projection, drafts: projection.items,
     });
     expect(summary).toEqual({
-      kind: "dpgf", importId: "import", mappingId: "mapping", sourceFormat: "xlsx", decisions: "applied",
+      kind: "dpgf", importId: "import", mappingId: "mapping", filename: "dpgf.xlsx", sourceFormat: "xlsx", decisions: "applied",
       confirmationId: "confirmation",
       confirmedAt: "2026-11-21T10:00:00.000Z",
       structure: {

@@ -123,10 +123,14 @@ const resolveProvider = async (_supabase, job, hooks) => {
     if (options.context.promptVersion === POSTE_EXCHANGE_PROMPT_VERSION) {
       const manifest = readPosteManifest(options.prompt);
       const spec = itemAnswers[job.id] ?? {};
+      const unreadable = manifest.page_scope.owned_pages.filter(page => spec.unreadablePages?.includes(page));
+      const searched = manifest.page_scope.owned_pages.filter(page => !unreadable.includes(page));
       const responses = manifest.requested_posts.flatMap((post) => {
-        const entry = { key: post.post_id, owned: manifest.page_scope.owned_pages };
+        const entry = { key: post.post_id, owned: searched };
         const answer = spec.items?.[post.label];
         if (answer === "omit") return [];
+        if (unreadable.length && !answer) return [{ ...posteNotFound(entry), outcome: "uncertain",
+          reason_code: "QUALIFIER_UNREADABLE", reason_text: "Une page du plan fictif est illisible." }];
         if (answer?.uncertain) return [{ ...posteNotFound(entry), outcome: "uncertain", reason_code: answer.uncertain, reason_text: answer.text,
           observations: [{ page: answer.page, evidence: answer.text, method: answer.figure ? "symbol_count" : "annotation", confidence: 0.5,
             quantity: answer.figure?.quantity ?? null, unit: answer.figure?.unit ?? null, measurement_basis: null,
@@ -134,7 +138,8 @@ const resolveProvider = async (_supabase, job, hooks) => {
         return [answer ? posteMeasured(entry, [{ page: answer.page, quantity: answer.quantity, unit: answer.unit }]) : posteNotFound(entry)];
       });
       const text = JSON.stringify({ schema_version: manifest.schema_version, prompt_version: manifest.prompt_version,
-        chunk_id: manifest.chunk_id, responses, unreadable_pages: [], unlisted_findings: [], warnings: [] });
+        chunk_id: manifest.chunk_id, responses, unreadable_pages: unreadable, unlisted_findings: (spec.finds ?? []).filter(f => searched.includes(f.page)),
+        warnings: spec.findsTruncated ? [{ code: "POSTE_HORS_LISTE_TRONQUE", severity: "warning", message: "Liste fictive tronquée." }] : [] });
       // A truncated reading is no JSON: the local reader's parse refuses it, and the local provider names it as the job's
       // schema failure (src/lib/ai/chatgpt-takeoff.ts), definitive, as here.
       let data;

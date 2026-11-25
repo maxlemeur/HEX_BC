@@ -325,6 +325,7 @@ export const itemRemeasurePreviewRequestSchema = z.object({
   item_ids: z.array(uuid).min(1).max(ITEM_REVIEW_LIMITS.items),
   seen: itemRemeasureSeenSchema,
   detail: detailScope.optional(),
+  from_finds: z.literal(true).optional(),
 }).strict();
 
 export const itemRemeasurePreviewSchema = z.object({
@@ -359,6 +360,7 @@ export const itemRemeasureCommandSchema = z.object({
   item_ids: z.array(uuid).min(1).max(ITEM_REVIEW_LIMITS.items),
   plan_keys: z.array(planKey).min(1).max(200),
   detail: detailScope.optional(),
+  from_finds: z.literal(true).optional(),
   mark_schedule: countMarkScheduleSchema.optional(),
   host_proof: z.string().regex(/^[0-9a-f]{64}$/).optional(),
   setting: z.object({ model: z.string().trim().min(1).max(200).optional(), reasoning_effort: chatGptReasoningEffortSchema.nullable() }).strict().nullable()

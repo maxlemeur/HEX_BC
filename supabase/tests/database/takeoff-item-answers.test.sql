@@ -650,11 +650,29 @@ select ok(not has_function_privilege('authenticated', 'public.takeoff_find_desig
   'members read the stored key and only the service can call the normalizer among API roles');
 select table_privs_are('public', 'takeoff_find_decisions', 'authenticated', array['SELECT'],
   'members only read decisions directly');
+select ok(has_function_privilege('service_role', signature, 'execute')
+  and not has_function_privilege('authenticated', signature, 'execute')
+  and not has_function_privilege('anon', signature, 'execute'), signature || ' is service-only')
+from (values ('public.dismiss_takeoff_find(uuid,uuid,uuid,uuid,integer,uuid,text,text)'),
+  ('public.undo_takeoff_find_dismissal(uuid,uuid,uuid,uuid)'),
+  ('public.add_takeoff_finds_to_list(uuid,uuid,uuid,integer,uuid,text,jsonb,jsonb)')) commands(signature);
+
+select throws_ok(format('select public.add_takeoff_finds_to_list(%L,%L,%L,1,%L,%L,%L,%L)',
+  pg_temp.f(10), pg_temp.f(20), pg_temp.f(actor), pg_temp.f(955), repeat('d',64), '[]', '[]'),
+  '42501','TAKEOFF_ITEM_LIST_FORBIDDEN','add refused for actor ' || actor)
+from (values (2),(5)) actors(actor);
+select throws_ok(format('select public.undo_takeoff_find_dismissal(%L,%L,%L,%L)',
+  pg_temp.f(10), pg_temp.f(20), pg_temp.f(actor), pg_temp.f(951)),
+  '42501','TAKEOFF_ITEM_LIST_FORBIDDEN','undo refused for actor ' || actor)
+from (values (2),(5)) actors(actor);
+
 create function pg_temp.dismiss(actor integer, job_round integer, reason text, decision integer) returns uuid
 language sql as $$
   select public.dismiss_takeoff_find(pg_temp.f(10), pg_temp.f(20), pg_temp.f(actor), pg_temp.job(20, job_round),
     0, pg_temp.f(decision), reason, null)
 $$;
+select throws_ok($$select pg_temp.dismiss(5, 1, 'outside_scope', 951)$$, '42501', 'TAKEOFF_ITEM_LIST_FORBIDDEN',
+  'a foreign tenant actor cannot dismiss');
 select throws_ok($$select pg_temp.dismiss(2, 1, 'outside_scope', 951)$$, '42501', 'TAKEOFF_ITEM_LIST_FORBIDDEN',
   'a member who cannot edit the list cannot dismiss');
 select throws_ok($$select pg_temp.dismiss(1, 1, 'other', 951)$$, '22023', 'TAKEOFF_FIND_REASON_INVALID',
@@ -779,5 +797,11 @@ select results_eq($$select decided_by, decided_at, reason, evidence from public.
   'the director retains the original author, date, reason and evidence through the dossier piece');
 reset role;
 
+delete from public.affaire_intake_documents where id = pg_temp.f(70);
+set local role authenticated;
+select ok(exists(select 1 from public.takeoff_list_revisions where project_id = pg_temp.f(22))
+  and not exists(select 1 from public.takeoff_find_decisions where id = pg_temp.f(982)),
+  'the same director session loses the decision once the dossier piece is withdrawn');
+reset role;
 select * from finish();
 rollback;

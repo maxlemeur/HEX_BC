@@ -6,6 +6,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { requireAffaireAccess } from "@/lib/affaires/access-server";
 import { ApiError, conflict, forbidden, internalError, mapSupabaseError, unprocessableEntity } from "@/lib/http/api-response";
+import { selectInChunks } from "@/lib/supabase/in-chunks";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import type { Database, Json } from "@/types/database";
 import {
@@ -42,7 +43,7 @@ export type StoredItemList = {
 const PAGE = 1000;
 
 /** Every row of an ordered read, page by page, checked against its exact count (a write meanwhile refuses the read). */
-async function readOrdered<Row>(query: (from: number, to: number) => PromiseLike<{
+export async function readOrdered<Row>(query: (from: number, to: number) => PromiseLike<{
   data: Row[] | null; error: unknown; count: number | null;
 }>): Promise<Row[]> {
   const rows: Row[] = [];
@@ -126,7 +127,7 @@ export function sourcesSummary(sources: ItemListSourceState): Json {
   switch (sources.kind) {
     case "dpgf": {
       const applied = sources.decisions.status === "applied" ? sources.decisions : null;
-      return { kind: "dpgf", importId: sources.importId, mappingId: sources.mappingId, sourceFormat: sources.sourceFormat,
+      return { kind: "dpgf", filename: sources.filename, importId: sources.importId, mappingId: sources.mappingId, sourceFormat: sources.sourceFormat,
         decisions: sources.decisions.status,
         ...(applied ? { confirmationId: applied.confirmationId, confirmedAt: applied.confirmedAt } : {}),
         structure: {
@@ -140,7 +141,7 @@ export function sourcesSummary(sources: ItemListSourceState): Json {
         } };
     }
     case "template": return { kind: "template", templateKey: sources.template.key, version: sources.template.version,
-      publicationId: sources.template.publicationId };
+      publicationId: sources.template.publicationId, title: sources.template.definition.title };
     case "prepare": return { kind: "pending", reason: sources.reason };
     case "choose": return { kind: "pending", reason: "several_dpgf" };
   }
@@ -150,11 +151,11 @@ function sourceDrafts(sources: ItemListSourceState) {
   return sources.kind === "dpgf" || sources.kind === "template" ? sources.drafts : null;
 }
 
-async function memberNames(client: Client, ids: Iterable<string>) {
+export async function memberNames(client: Client, ids: Iterable<string>) {
   const people = [...new Set(ids)].filter(Boolean);
   const names: Record<string, string> = {};
   if (!people.length) return names;
-  const { data, error } = await client.from("profiles").select("id, full_name").in("id", people);
+  const { data, error } = await selectInChunks(people, ids => client.from("profiles").select("id, full_name").in("id", ids));
   if (error) throw mapSupabaseError(error, "Impossible de lire les auteurs de la liste des postes.");
   for (const profile of data ?? []) if (profile.full_name?.trim()) names[profile.id] = profile.full_name.trim();
   return names;
@@ -220,6 +221,7 @@ export type ItemListProposalView = {
 type ProjectionView = Pick<DpgfPosteProjection, "counts" | "issues">;
 
 export type AffaireItemListView = {
+  originLine?: string | null;
   projectId: string;
   canWrite: boolean;
   current: (Omit<StoredItemListRevisionRow, "sources" | "intent_key"> & { items: ItemListViewPoste[];
@@ -236,6 +238,32 @@ export type AffaireItemListView = {
   proposal: ItemListProposalView | null;
   names: Record<string, string>;
 };
+
+/** Describe the source of the stored list even when today's proposed source is different. */
+async function itemListOriginLine(service: Client, scope: PosteListScope, sources: Json,
+  template: { title?: string; count: number }, noDpgf?: boolean) {
+  const source = asRecord(sources);
+  if (source?.kind === "dpgf") {
+    if (typeof source.filename === "string") return `Liste issue du DPGF ${source.filename}.`;
+    const file = await service.from("dpgf_imports").select("filename").eq("tenant_id", scope.tenantId)
+      .eq("project_id", scope.projectId).eq("id", String(source.importId)).maybeSingle();
+    if (file.error) throw mapSupabaseError(file.error, "Impossible de lire la source DPGF.");
+    return file.data ? `Liste issue du DPGF ${file.data.filename}.` : "Liste issue d’un DPGF retiré du dossier.";
+  }
+  if (source?.kind !== "template") return null;
+  if (noDpgf === undefined) {
+    const [imports, docs] = await Promise.all([
+      service.from("dpgf_imports").select("id").eq("tenant_id", scope.tenantId).eq("project_id", scope.projectId).limit(1),
+      service.from("affaire_intake_documents").select("id").eq("tenant_id", scope.tenantId).eq("project_id", scope.projectId)
+        .eq("document_kind","dpgf").eq("classification_status","classified").eq("upload_status","uploaded")
+        .is("deleted_at",null).is("deletion_token",null).limit(1),
+    ]);
+    if (imports.error || docs.error) throw mapSupabaseError((imports.error ?? docs.error)!, "Impossible de lire la source des postes.");
+    noDpgf = !imports.data.length && !docs.data.length;
+  }
+  const title = source.title ?? template.title ?? source.templateKey;
+  return `${noDpgf ? "Aucun DPGF dans le dossier : liste" : "Liste"} issue du gabarit ${title}, version ${source.version} (${template.count} poste${template.count === 1 ? "" : "s"}).`;
+}
 
 /** A revision as its readers see it: never its sources' identifiers, but the rows it left out and why. */
 function revisionView(row: StoredItemListRevisionRow) {
@@ -293,8 +321,11 @@ export async function loadAffaireItemList(projectId: string): Promise<AffaireIte
         ? { ...sources, projection: sources.projection
           ? { counts: sources.projection.counts, issues: sources.projection.issues } : null }
         : sources;
+  const template = stored?.revision.items.filter(item => item.origin.kind === "template");
   return {
     projectId: project.id,
+    originLine: stored ? await itemListOriginLine(service, scope, stored.row.sources,
+      { title: template?.[0]?.sections[0]?.title, count: template?.length ?? 0 }, sources.kind === "template") : null,
     canWrite: mayWrite.data === true,
     current: stored ? { ...revisionView(stored.row), content_sha256: stored.row.content_sha256,
       items: stored.revision.items.map(forReaders) } : null,
@@ -312,15 +343,37 @@ export async function loadAffaireItemList(projectId: string): Promise<AffaireIte
  */
 export async function loadAffaireItemListSummary(projectId: string) {
   const { context, project } = await requireAffaireAccess(projectId, "read");
-  const { data, error } = await context.supabase.from("takeoff_list_revisions").select("revision, item_count")
-    .eq("tenant_id", context.tenantId).eq("project_id", project.id).order("revision", { ascending: false }).limit(1);
-  if (error) throw mapSupabaseError(error, "Impossible de lire la liste des postes.");
-  const [latest] = (data ?? []) as Array<{ revision: number; item_count: number }>;
-  return { projectId: project.id, revision: latest?.revision ?? null, itemCount: latest?.item_count ?? null };
+  return readItemListOverview(context.supabase as unknown as Client, createServiceRoleClient(),
+    { tenantId: context.tenantId, projectId: project.id });
+}
+
+/** The table and compact panel only need the revision, section choices and source, without definitions or history. */
+export async function readItemListOverview(member: Client, service: Client, scope: PosteListScope) {
+  const head = await member.from("takeoff_list_revisions").select("id,revision,item_count,sources")
+    .eq("tenant_id",scope.tenantId).eq("project_id",scope.projectId).order("revision",{ascending: false}).limit(1).maybeSingle();
+  if (head.error) throw mapSupabaseError(head.error, "Impossible de lire la liste des postes.");
+  const latest = head.data;
+  const entries = latest ? await readOrdered<{item_id: string; sections: Json; origin_kind: string}>((from,to) =>
+    member.from("takeoff_list_revision_entries").select("item_id,sections,origin_kind",{count:"exact"})
+      .eq("revision_id",latest.id).order("position").range(from,to)) : [];
+  const sections = new Map<string,{itemId: string; name: string}>();
+  let title: string | undefined;
+  let count = 0;
+  for (const item of entries) {
+    const path = Array.isArray(item.sections) ? item.sections.map(asRecord) : [];
+    if (item.origin_kind === "template") {
+      count++;
+      if (!title && typeof path[0]?.title === "string") title = path[0].title;
+    }
+    if (path.length) sections.set(JSON.stringify(path.map(s => s?.id)),
+      { itemId: item.item_id, name: path.map(s => s?.title).join(" › ") });
+  }
+  return { projectId: scope.projectId, revisionId: latest?.id ?? null, revision: latest?.revision ?? null, itemCount: latest?.item_count ?? null,
+    sections: [...sections.values()], originLine: latest ? await itemListOriginLine(service,scope,latest.sources,{title,count}) : null };
 }
 
 /** The refusals of the list's write function, by their own code: a fixed French answer, never the database's text. */
-function listWriteFailure(error: { message?: string }): never {
+export function listWriteFailure(error: { message?: string }): never {
   const message = error.message ?? "";
   if (message.includes("TAKEOFF_ITEM_LIST_INTENT_CONFLICT")) intentConflict();
   if (message.includes("TAKEOFF_ITEM_LIST_FORBIDDEN")) {
@@ -434,7 +487,7 @@ function intentConflict(): never {
 }
 
 /** The right to write, the database's rule, read before anything a gesture could learn or replay. */
-async function requireListWriter(service: Client, scope: PosteListScope, actor: string) {
+export async function requireListWriter(service: Client, scope: PosteListScope, actor: string) {
   const { data, error } = await service.rpc("takeoff_item_list_may_write", { p_tenant_id: scope.tenantId,
     p_project_id: scope.projectId, p_actor: actor });
   if (error) throw mapSupabaseError(error, "Impossible de vérifier les droits sur la liste des postes.");
@@ -442,7 +495,7 @@ async function requireListWriter(service: Client, scope: PosteListScope, actor: 
 }
 
 /** A stable key derived from a gesture's key, for the first list it records before its own change. */
-function derivedIntent(intentKey: string, purpose: string) {
+export function derivedIntent(intentKey: string, purpose: string) {
   const hex = createHash("sha256").update(`takeoff-item-list:${purpose}:${intentKey}`).digest("hex");
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}-8${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
 }
