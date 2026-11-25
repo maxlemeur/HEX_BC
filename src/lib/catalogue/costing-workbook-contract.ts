@@ -47,6 +47,8 @@ export type CostingWorkbookImportReport = {
   articles: number;
   /** Drafts to create (preview) or created (confirmed). */
   new_articles: number;
+  /** Workbook rows of the proposed drafts, available in the preview. */
+  proposed_articles?: Array<{ row: number; without_supply_type: boolean }>;
   /** Articles whose reference the catalogue already holds: skipped, unchanged. */
   already_in_catalogue: number;
   /** Among new_articles: the company has no supply type with the code the workbook proposes. */
@@ -97,10 +99,16 @@ export const costingWorkbookSupplierReferenceReportSchema = z.object({
   already_registered: z.number().int().nonnegative(),
   duplicates: z.number().int().nonnegative(),
   preview_token: z.string().nullable(),
+  proposed: z.array(z.object({
+    row: z.number().int().positive(),
+    slot: z.number().int().min(1).max(3),
+    article_reference: z.string(),
+    supplier_name: z.string(),
+  })).optional(),
   for_decision: z.array(z.object({
     row: z.number().int().positive(),
     slot: z.number().int().min(1).max(3),
-    // The dialog resolves these coordinates against the workbook it already holds.
+    // The preview resolves these coordinates against the workbook it already holds.
     reason: costingWorkbookSupplierReferenceDecision,
   })),
 });

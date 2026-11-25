@@ -9267,7 +9267,7 @@
           "Catalogue"
         ],
         "summary": "Reprendre les références fournisseur du classeur de chiffrage",
-        "description": "Aperçu en lecture seule avec confirm=false. La confirmation exige l’empreinte de cet aperçu. La reprise rattache les références aux articles actifs modifiables et aux fournisseurs actifs identifiés sans ambiguïté dans l’entreprise sélectionnée. Le lot crée des liaisons inactives, à vérifier. Le rapport donne les lignes à examiner et leur motif, dont les sources de prix écartées des références à reprendre. Les liaisons existantes et les prix sont conservés.",
+        "description": "Aperçu en lecture seule avec confirm=false. La confirmation exige l’empreinte de cet aperçu. La reprise rattache les références aux articles actifs modifiables et aux fournisseurs actifs identifiés sans ambiguïté dans l’entreprise sélectionnée. Le lot crée des liaisons inactives, à vérifier. L’aperçu donne une cellule source par référence proposée. Le rapport donne les lignes à examiner et leur motif, dont les sources de prix écartées des références à reprendre. Les liaisons existantes et les prix sont conservés.",
         "requestBody": {
           "description": "Lignes de l’onglet All_data et empreinte de l’aperçu à la confirmation.",
           "required": true,
@@ -56851,6 +56851,27 @@
                 "minimum": 0,
                 "maximum": 9007199254740991
               },
+              "proposed_articles": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "row": {
+                      "type": "integer",
+                      "exclusiveMinimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "without_supply_type": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "row",
+                    "without_supply_type"
+                  ],
+                  "additionalProperties": false
+                }
+              },
               "already_in_catalogue": {
                 "type": "integer",
                 "minimum": 0,
@@ -57006,6 +57027,37 @@
                   "string",
                   "null"
                 ]
+              },
+              "proposed": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "row": {
+                      "type": "integer",
+                      "exclusiveMinimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "slot": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 3
+                    },
+                    "article_reference": {
+                      "type": "string"
+                    },
+                    "supplier_name": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "row",
+                    "slot",
+                    "article_reference",
+                    "supplier_name"
+                  ],
+                  "additionalProperties": false
+                }
               },
               "for_decision": {
                 "type": "array",
