@@ -126,6 +126,20 @@ function entryOf(value: unknown): ItemEntryView | null {
   };
 }
 
+function uncertaintyOf(answer: TakeoffItemAnswer): ItemAnswerView["uncertainty"] {
+  const reasons = answer.reasons.map(({ code, by, text, chunkId }) => {
+    const observations = answer.observations.filter((entry) => chunkId === null || entry.chunkId === chunkId);
+    const located = observations.find((entry) => entry.quantity === null) ?? observations[0];
+    const page = code === "PAGES_UNREADABLE" ? answer.unreadablePages[0] : located?.page;
+    return { code, by, text: text ?? (located?.quantity === null ? located.evidence : null), page: page ?? null };
+  });
+  const partial = answer.unreadablePages.length > 0 || answer.observations.some(({ quantity }) => quantity === null)
+    || answer.reasons.some((reason) => reason.code === "PARTIAL_QUANTITY" || reason.code === "VECTOR_READINGS_UNATTACHED"
+      || (reason.by === "model" && !answer.observations.some(({ chunkId, quantity, role }) =>
+        chunkId === reason.chunkId && quantity !== null && role !== "alternative")));
+  return { partial, reasons };
+}
+
 function answerView(answer: TakeoffItemAnswer, rows: ReadonlyMap<string, ItemContributionRow>, context: {
   expectedUnit: string | null; lowConfidenceThreshold: number;
 }): ItemAnswerView {
@@ -157,6 +171,7 @@ function answerView(answer: TakeoffItemAnswer, rows: ReadonlyMap<string, ItemCon
     unreadablePages: answer.unreadablePages,
     observations,
     candidate: answer.candidate ? { quantity: answer.candidate.value, unit: answer.candidate.unit } : null,
+    ...(answer.outcome === "uncertain" ? { uncertainty: uncertaintyOf(answer) } : {}),
     readAt: answer.publishedAt,
   };
   return { ...view, anomalies: itemAnswerAnomalies({ ...view, observations }, rows, context) };

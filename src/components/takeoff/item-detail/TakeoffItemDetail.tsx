@@ -574,6 +574,7 @@ function ItemDetailView({ projectId, viewerKey, address, reader, tableQuery, onB
                 decide={{ offer, onGesture: (requested, quantityChoice) => gesture(requested, null, quantityChoice) }}
                 onObservation={(observation) => go({ page: observation.page, observationId: observation.observationId,
                   answerId: answer?.answerId ?? null })}
+                onPage={(page) => go({ page, observationId: null })}
                 onPlan={(planKey, jobId) => go({ planKey, jobId, receipt: planKey === view?.plan.key ? address.receipt : undefined, page: null, source: null, answerId: null, observationId: null })} />
             ) : null}
           </div>

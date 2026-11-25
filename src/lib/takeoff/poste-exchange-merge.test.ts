@@ -59,7 +59,7 @@ function read(script: Script, options: Options = {}): PosteFragmentReading[] {
   return calls.map((call) => {
     const local = { pages: call.manifest.page_scope.pages, owned: call.manifest.page_scope.owned_pages };
     const output = PosteExchangeOutputSchema.parse({
-      schema_version: "v2", prompt_version: "takeoff-c-postes-v1", chunk_id: call.manifest.chunk_id,
+      schema_version: "v3", prompt_version: "takeoff-c-postes-v2", chunk_id: call.manifest.chunk_id,
       responses: call.manifest.requested_posts.map((entry) => script(call, entry.post_id, local)),
       unreadable_pages: options.unreadable?.(call) ?? [], unlisted_findings: [], warnings: [],
     });
@@ -131,7 +131,26 @@ describe("mergePosteReadings", () => {
     expect(roles(answerOf(answers, WC))).toEqual([[25, 2, "alternative", "model"], [25, 1, "candidate", "model"]]);
     expect(answerOf(answers, WC).reasons).toContainEqual({ code: "READINGS_DISAGREE", by: "worker", text: null, chunkId: "f1-b1" });
     expect(answerOf(answers, LAVABO)).toMatchObject({ outcome: "uncertain", quantity: null, candidate: null });
-    expect(answerOf(answers, LAVABO).reasons.map((reason) => reason.code)).toContain("READINGS_DISAGREE");
+    expect(answerOf(answers, LAVABO).reasons).toContainEqual(expect.objectContaining({ code: "READINGS_DISAGREE",
+      text: "Indice chiffré sur un chevauchement sans confirmation." }));
+  });
+
+  it("keeps the model's obstacle and explains why its own figures cannot give one quantity", () => {
+    const items = [LAVABO, WC, BAIGNOIRE];
+    const fragments = read((call, key, local) => {
+      if (fragmentOf(call) !== 1) return notFound(key, local.pages);
+      const observations = key === "P0001" ? [observation(1, 3), observation(2, 2, "ml")]
+        : key === "P0002" ? [{ ...observation(2, 5, "ml"), method: "scaled_measure" as const }] : [];
+      return { post_id: key, outcome: "uncertain", searched_pages: local.pages, reason_code: "AMBIGUOUS_INDICATION",
+        reason_text: "Vérifier la légende du réseau.", observations };
+    }, { items });
+    const { answers } = mergePosteReadings({ items, planPages: PLAN_PAGES, fragments });
+
+    expect(answers.map(({ candidate, quantity, reasons }) => [candidate, quantity, reasons.map(({ code }) => code)])).toEqual([
+      [null, null, ["AMBIGUOUS_INDICATION", "UNIT_MISMATCH"]],
+      [null, null, ["AMBIGUOUS_INDICATION", "BASIS_UNSTATED"]],
+      [null, null, ["AMBIGUOUS_INDICATION"]],
+    ]);
   });
 
   it("lets one uncertain fragment make the plan's answer uncertain, its indications kept as candidates", () => {
@@ -265,6 +284,8 @@ describe("mergePosteReadings", () => {
     expect(answerOf(answers, first)).toMatchObject({ outcome: "measured", quantity: { value: 7, unit: "ml" } });
     expect(roles(answerOf(answers, first))).toEqual([[21, 7, "contribution", "model"], [21, 30, "candidate", "vector"]]);
     expect(answerOf(answers, second)).toMatchObject({ outcome: "uncertain", candidate: null });
+    expect(answerOf(answers, second).reasons).toContainEqual(expect.objectContaining({ code: "VECTOR_ONLY",
+      text: "Tracé vectoriel commun à plusieurs postes." }));
     expect(roles(answerOf(answers, second))).toEqual([[21, 30, "candidate", "vector"]]);
   });
 

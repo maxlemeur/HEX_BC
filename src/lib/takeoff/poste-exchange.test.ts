@@ -45,7 +45,7 @@ function oneCall(items = ITEMS, pageCount = 4): PosteExchangeCall {
 
 function output(call: PosteExchangeCall, responses: PosteExchangeOutput["responses"], extra: Partial<PosteExchangeOutput> = {}): PosteExchangeOutput {
   return PosteExchangeOutputSchema.parse({
-    schema_version: "v2", prompt_version: "takeoff-c-postes-v1", chunk_id: call.manifest.chunk_id, responses,
+    schema_version: "v3", prompt_version: "takeoff-c-postes-v2", chunk_id: call.manifest.chunk_id, responses,
     unreadable_pages: [], unlisted_findings: [], warnings: [], ...extra,
   });
 }
@@ -147,6 +147,24 @@ describe("PosteExchangeOutputSchema", () => {
     expect(() => output(call, [measured("P0001"), uncertain("P0002"), notFound("P0003")])).not.toThrow();
   });
 
+  it("accepts a located figure, a located obstacle and an obstacle whose location is unknown", () => {
+    const obstacle = uncertain("P0002");
+    const figure = { ...obstacle, observations: [{ ...obstacle.observations[0], quantity: 3, unit: "u" }] };
+    for (const answer of [figure, obstacle, { ...obstacle, observations: [] }]) {
+      expect(output(call, [answer]).responses[0]).toEqual(answer);
+    }
+  });
+
+  it("refuses either half of a figure, an empty reason and a partial quantity without a figure", () => {
+    const obstacle = uncertain("P0002");
+    for (const observation of [{ ...obstacle.observations[0], quantity: 3 }, { ...obstacle.observations[0], unit: "u" }]) {
+      expect(() => output(call, [{ ...obstacle, observations: [observation] }])).toThrow();
+    }
+    expect(() => output(call, [{ ...obstacle, reason_code: "" } as never])).toThrow();
+    expect(() => output(call, [{ ...obstacle, reason_text: " \n " }])).toThrow();
+    expect(() => output(call, [{ ...obstacle, reason_code: "PARTIAL_QUANTITY" }])).toThrow();
+  });
+
   it("refuses a measured answer without a positive quantity, a negative observation and a not found with an observation", () => {
     expect(() => output(call, [{ ...measured("P0001"), observations: [] }])).toThrow();
     expect(() => output(call, [measured("P0001", 2, -3)])).toThrow();
@@ -205,7 +223,7 @@ describe("PosteExchangeOutputSchema", () => {
     const pages = Array.from({ length: 15 }, (_, index) => L.pages - index);
     let left = L.observationsPerCall;
     const specimen = {
-      schema_version: "v2", prompt_version: "takeoff-c-postes-v1", chunk_id: "f999-b9999", unreadable_pages: pages,
+      schema_version: "v3", prompt_version: "takeoff-c-postes-v2", chunk_id: "f999-b9999", unreadable_pages: pages,
       responses: Array.from({ length: L.itemsPerCall }, () => {
         const count = Math.min(L.observationsPerAnswer, left);
         left -= count;
@@ -254,7 +272,7 @@ describe("PosteExchangeOutputSchema", () => {
     for (const quantity of [999_999_999.999, 0.0007509328246261776]) {
       let left = L.observationsPerCall;
       const specimen = PosteExchangeOutputSchema.parse({
-        schema_version: "v2", prompt_version: "takeoff-c-postes-v1", chunk_id: "f999-b9999", unreadable_pages: pages,
+        schema_version: "v3", prompt_version: "takeoff-c-postes-v2", chunk_id: "f999-b9999", unreadable_pages: pages,
         responses: Array.from({ length: L.itemsPerCall }, () => {
           const count = Math.min(L.observationsPerAnswer, left);
           left -= count;
@@ -282,7 +300,7 @@ describe("PosteExchangeOutputSchema", () => {
     const pages = full.manifest.page_scope.pages;
     let left = L.observationsPerCall;
     const answer = PosteExchangeOutputSchema.parse({
-      schema_version: "v2", prompt_version: "takeoff-c-postes-v1", chunk_id: full.manifest.chunk_id, unreadable_pages: pages,
+      schema_version: "v3", prompt_version: "takeoff-c-postes-v2", chunk_id: full.manifest.chunk_id, unreadable_pages: pages,
       responses: full.manifest.requested_posts.map((entry) => {
         const count = Math.min(L.observationsPerAnswer, left);
         left -= count;

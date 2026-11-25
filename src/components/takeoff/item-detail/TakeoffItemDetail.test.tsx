@@ -193,7 +193,7 @@ describe("TakeoffItemDetail, the states of an item", () => {
     await settle();
     expect(calls.plans).toEqual([{ itemId: ITEMS.scan, planKey: PLAN_SCAN, jobId: JOB_SCAN, source: null }]);
     expect(rendered.at(-1)).toEqual({ url: attested(JOB_SCAN, "53333333-3333-4333-8333-333333333333"), page: 2 });
-    expect(evidence().getByText("Valeur candidate (non mesurée) : 4 u")).toBeTruthy();
+    expect(evidence().getByText("Quantité provisoire · 4 u")).toBeTruthy();
     expect(fetches.filter((url) => url.includes("/vector-pages"))).toEqual([]);
   });
 

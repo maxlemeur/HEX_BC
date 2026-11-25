@@ -375,7 +375,7 @@ describe("buildTakeoffItemAnswersPublication", () => {
   it("gives the command the job, its lease, the exchange's versions and the unit's original pages", async () => {
     expect(await publication()).toMatchObject({ p_job_id: JOB, p_lease_token: LEASE, p_completed_at: "2026-11-22T09:00:00.000Z",
       p_model: "controlled", p_prompt_version: POSTE_EXCHANGE_PROMPT_VERSION,
-      p_exchange: { schema_version: "v2", prompt_version: POSTE_EXCHANGE_PROMPT_VERSION }, p_unit_pages: [3, 4, 5, 6] });
+      p_exchange: { schema_version: "v3", prompt_version: POSTE_EXCHANGE_PROMPT_VERSION }, p_unit_pages: [3, 4, 5, 6] });
   });
 
   it("gives exactly one answer per item, in the list's order, each in the addendum's shape", async () => {
@@ -394,6 +394,20 @@ describe("buildTakeoffItemAnswersPublication", () => {
       reasons: [{ code: "NO_INDICATION", by: "model", chunk_id: "f1-b1" }] });
   });
 
+  it("publishes a rejected candidate's obstacle and location without making a quantity or a contribution", async () => {
+    const call = controlledPosteCall((entry) => entry.label === VANNE.label ? {
+      ...posteNotFound(entry), outcome: "uncertain", reason_code: "SCALE_UNKNOWN", reason_text: "Vérifier la cote du tronçon.",
+      observations: [{ page: 2, quantity: 8, unit: "ml", method: "scaled_measure", evidence: "Tronçon sous le cartouche",
+        measurement_basis: null, basis_as_requested: false, counts_as: "distinct", confidence: 0.5 }],
+    } : posteNotFound(entry));
+    const built = await publication([], { call });
+
+    expect(built.p_items).toEqual([]);
+    expect(built.p_answers.find(({ item_id }) => item_id === VANNE.id)).toMatchObject({ outcome: "uncertain", quantity: null,
+      candidate: null, reasons: [expect.objectContaining({ code: "SCALE_UNKNOWN" }), expect.objectContaining({ code: "BASIS_UNSTATED" })],
+      observations: [expect.objectContaining({ page: 4, quantity: 8, role: "candidate", takeoff_item_id: null })] });
+  });
+
   it("makes a positive row of each contribution only, linked to it; candidates and alternatives make none", async () => {
     const built = await publication();
     const observations = built.p_answers.flatMap((answer) => answer.observations.map((entry) => ({ ...entry, item: answer.item_id })));
@@ -402,7 +416,7 @@ describe("buildTakeoffItemAnswersPublication", () => {
     expect(built.p_items.map((row) => row.id)).toEqual(contributions.map((entry) => entry.takeoff_item_id));
     expect(built.p_items[0]).toMatchObject({ designation: "Lavabo", quantity: 3, unit: "u", source_page: 4, source_file_name: "Plan RDC.pdf",
       is_excluded: false, exclusion_reason: null, metadata: { source_document: { kind: "plan_file", plan_file_id: PLAN },
-        poste: { item_id: LAVABO.id, list_revision_id: REVISION, exchange: "v2", chunk_id: "f1-b1", method: "symbol_count" } } });
+        poste: { item_id: LAVABO.id, list_revision_id: REVISION, exchange: "v3", chunk_id: "f1-b1", method: "symbol_count" } } });
     expect(observations.filter((entry) => entry.role !== "contribution").every((entry) => entry.takeoff_item_id === null)).toBe(true);
     // No row carries a reference quantity of the DPGF.
     expect(JSON.stringify(built)).not.toContain("9876");
@@ -424,7 +438,7 @@ describe("buildTakeoffItemAnswersPublication", () => {
     expect(built.p_result.warnings).toContainEqual({ code: "POSTE_HORS_LISTE", severity: "info",
       message: "Page 3 : Siphon de sol — symbole SdS" });
     expect(built.p_result).toMatchObject({ tables: [], confidence: null, token_count: 1_000, cost_cents: 0,
-      extracted_json: { format: "item_list", schema_version: "v2", prompt_version: POSTE_EXCHANGE_PROMPT_VERSION,
+      extracted_json: { format: "item_list", schema_version: "v3", prompt_version: POSTE_EXCHANGE_PROMPT_VERSION,
         list: { revision_id: REVISION, revision: 3, item_count: 4 }, plan_pages: [3, 4, 5, 6] } });
   });
 });

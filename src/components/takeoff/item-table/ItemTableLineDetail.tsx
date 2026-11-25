@@ -13,6 +13,7 @@ import {
 } from "@/lib/takeoff/item-table-labels";
 import { QUANTITY_ENTRY_CATEGORIES } from "@/lib/takeoff/quantity-entry";
 import { takeoffReviewHref } from "@/lib/takeoff/review-href";
+import { describeItemUncertainty } from "@/lib/takeoff/item-uncertainty";
 import { Button } from "@/components/ui/button";
 import { ItemTableHistory } from "./ItemTableHistory";
 
@@ -73,6 +74,7 @@ export function ItemTableLineDetail({ line, projectId, names, canReview, busy, o
         <ul className="space-y-3">
           {line.readings.map((reading) => {
             const answer = reading.answer;
+            const uncertainty = answer?.outcome === "uncertain" ? describeItemUncertainty(answer, line.expectedUnit, false) : null;
             return (
               <li key={reading.planKey} className="rounded-md border border-border p-3">
                 <p className="text-sm font-medium">
@@ -93,10 +95,9 @@ export function ItemTableLineDetail({ line, projectId, names, canReview, busy, o
                       Pages cherchées : {pages(answer.searchedPages)}
                       {answer.unreadablePages.length ? ` · pages illisibles : ${pages(answer.unreadablePages)}` : ""}
                     </p>
-                    {answer.reasonText ? <p>Motif de la lecture : {answer.reasonText}</p> : null}
-                    {answer.candidate ? (
-                      <p>Valeur candidate (non mesurée) : {formatItemQuantity(answer.candidate.quantity, answer.candidate.unit)}</p>
-                    ) : null}
+                    {uncertainty ? <p>{uncertainty.reasons.length ? uncertainty.reasons.join(" · ") : uncertainty.obstacle}</p>
+                      : answer.reasonText ? <p>Motif de la lecture : {answer.reasonText}</p> : null}
+                    {uncertainty?.candidate ? <p>{uncertainty.candidate}</p> : null}
                     {answer.anomalies.length ? (
                       <p>À vérifier : {answer.anomalies.map((anomaly) => ITEM_ANOMALY_LABELS[anomaly]).join(" · ")}</p>
                     ) : null}

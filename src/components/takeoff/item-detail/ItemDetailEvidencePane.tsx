@@ -3,12 +3,14 @@
 import { ItemQuantityChoiceButtons } from "@/components/takeoff/item-table/ItemQuantityChoice";
 import type { ItemQuantityChoice } from "@/lib/takeoff/item-table";
 import { forwardRef } from "react";
+import Link from "next/link";
 
 import type { ItemDetailDocumentState } from "@/components/takeoff/item-detail/ItemDetailPlanPane";
 import { ItemTableHistory } from "@/components/takeoff/item-table/ItemTableHistory";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import type { ItemDetailPlanView } from "@/lib/takeoff/item-detail-contracts";
+import { describeItemUncertainty, itemScalePreparationHref } from "@/lib/takeoff/item-uncertainty";
 import type {
   ItemDetailEntry,
   ItemDetailGestureOffer,
@@ -59,6 +61,7 @@ type Props = {
   /** The member and scope reading the journal (the detail's reader): a new reader reads its own. */
   historyScope?: string;
   onObservation: (observation: ItemDetailObservation) => void;
+  onPage: (page: number) => void;
   onPlan: (planKey: string, jobId: string | null) => void;
   /**
    * What is offered on what is shown (the detail's one rule, the keys' too): an operator of the affaire's takeoff is
@@ -157,12 +160,15 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 }
 
 export const ItemDetailEvidencePane = forwardRef<HTMLHeadingElement, Props>(function ItemDetailEvidencePane(
-  { projectId, line, choice, plan, documentState, names, planNames, outsideFilter, historyVersion, onRefused, historyScope, onObservation, onPlan,
+  { projectId, line, choice, plan, documentState, names, planNames, outsideFilter, historyVersion, onRefused, historyScope, onObservation, onPage, onPlan,
     decide, proof = null }, heading) {
   // An earlier reading (an old bookmark) shows nothing of the current one: its answer, decision and entry are not its own.
   const earlier = choice.kind === "reading" && !choice.current;
   const reading = !earlier && (choice.kind === "reading" || choice.kind === "dossier") ? choice.reading : null;
   const answer = choice.kind === "reading" && choice.current ? reading?.answer ?? null : null;
+  const canEnter = decide.offer("enter_quantity");
+  const uncertainty = answer?.outcome === "uncertain" ? describeItemUncertainty(answer, line.expectedUnit,
+    !reading?.sent && reading?.decision?.kind !== "set_aside" && (canEnter.offered || canEnter.reason !== "reader")) : null;
   const selectedObservation = choice.kind === "reading" ? choice.observationId : null;
   const unread = line.remeasurePlans.filter((key) => !line.readings.some((entry) => entry.planKey === key));
   const shownPlan = choice.kind === "reading" || choice.kind === "dossier" ? choice.planKey
@@ -209,11 +215,25 @@ export const ItemDetailEvidencePane = forwardRef<HTMLHeadingElement, Props>(func
           </p>
         ) : (
           <>
-            <p>{ITEM_DETAIL_OUTCOME_LABELS[answer.outcome]}{answer.quantity ? ` · ${formatItemQuantity(answer.quantity.quantity,
-              answer.quantity.unit)}` : ""}{answer.reasonText ? ` — ${answer.reasonText}` : ""}</p>
-            {answer.candidate ? (
-              <p>Valeur candidate (non mesurée) : {formatItemQuantity(answer.candidate.quantity, answer.candidate.unit)}</p>
-            ) : null}
+            {uncertainty ? (
+              <div className="space-y-1">
+                {uncertainty.candidate ? <p className="font-medium">{uncertainty.candidate}</p> : null}
+                <p>{uncertainty.reasons.length ? uncertainty.reasons.join(" · ") : uncertainty.obstacle}</p>
+                {uncertainty.action === "enter" && canEnter.offered ? (
+                  <Button size="xs" variant="outline" onClick={() => decide.onGesture("enter_quantity")}>{uncertainty.label}</Button>
+                ) : uncertainty.action === "prepare" ? (
+                  <p><Link className="underline" prefetch={false} href={itemScalePreparationHref(projectId)}>{uncertainty.label}</Link>
+                    {" dans la préparation, puis relire le poste sur ce plan."}</p>
+                ) : uncertainty.page !== null ? (
+                  <Button size="xs" variant="link" className="p-0" onClick={() => onPage(uncertainty.page!)}>
+                    {uncertainty.action === "count" ? `Ouvrir la page ${uncertainty.page} pour compter les repères` : uncertainty.label}
+                  </Button>
+                ) : null}
+              </div>
+            ) : (
+              <p>{ITEM_DETAIL_OUTCOME_LABELS[answer.outcome]}{answer.quantity ? ` · ${formatItemQuantity(answer.quantity.quantity,
+                answer.quantity.unit)}` : ""}{answer.reasonText ? ` — ${answer.reasonText}` : ""}</p>
+            )}
             {answer.observations.length ? (
               <div className="-mx-3 overflow-x-auto">
                 <table aria-label="Observations" className="sheet-table w-full border-collapse border-y border-border text-left text-xs

@@ -36,8 +36,8 @@ export type PosteAffaireAggregate = {
   plans: { expected: number; answered: number; measured: number; uncertain: number; notFound: number };
   /** The measured plans' quantities, added per unit (sorted by unit). */
   observed: Array<{ unit: string; value: number }>;
-  /** The uncertain plans' candidate values, per unit: never part of the measure. */
-  candidates: Array<{ unit: string; value: number }>;
+  /** Each uncertain plan's candidate value. */
+  candidates: Array<{ planKey: string; unit: string; value: number }>;
 };
 
 function totals(values: ReadonlyArray<{ value: number; unit: string } | null>) {
@@ -57,7 +57,7 @@ export function aggregatePosteAnswers(plans: readonly PostePlanWork[]): PosteAff
   const answered = plans.filter((plan): plan is Extract<PostePlanWork, { state: "answered" }> => plan.state === "answered");
   const count = (outcome: PosteAnswerOutcome) => answered.filter((plan) => plan.outcome === outcome).length;
   const observed = totals(answered.filter((plan) => plan.outcome === "measured").map((plan) => plan.quantity));
-  const candidates = totals(answered.filter((plan) => plan.outcome === "uncertain").map((plan) => plan.candidate));
+  const candidates = answered.flatMap(({ planKey, outcome, candidate }) => outcome === "uncertain" && candidate ? [{ planKey, ...candidate }] : []);
   const complete = plans.length > 0 && answered.length === plans.length;
   // The work still without a verdict, as the database says it: a plan still read keeps the item reading, then a plan
   // whose reading has not started keeps it to measure; once none is read or waits, no answer at all makes it failed and
@@ -125,4 +125,8 @@ const REASON_TEXTS: Record<PosteReasonCode, string> = {
 /** The reason of an answer, as the table and its detail show it. */
 export function describePosteReason(code: PosteReasonCode) {
   return REASON_TEXTS[code];
+}
+
+export function describeStoredPosteReason(code: string) {
+  return Object.hasOwn(REASON_TEXTS, code) ? REASON_TEXTS[code as PosteReasonCode] : null;
 }

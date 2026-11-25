@@ -21,7 +21,9 @@ import {
 } from "@/lib/takeoff/launch-request";
 import { TAKEOFF_ITEM_ANSWER_LIMITS } from "@/lib/takeoff/item-answer-limits";
 import { planPosteBatches, POSTE_EXCHANGE_LIMITS, posteExchangeOutputMaxBytes } from "@/lib/takeoff/poste-exchange";
-import { POSTE_WORKER_REASONS } from "@/lib/takeoff/poste-exchange-merge";
+import { POSTE_CANDIDATE_REASON_TEXT, POSTE_WORKER_REASONS, POSTE_WORKER_REASONS_RESERVED_BYTES } from "@/lib/takeoff/poste-exchange-merge";
+import { listEntryBytes, PUBLISHED_CHUNK_PLACEHOLDER, publishedReason } from "@/lib/takeoff/poste-publication-size";
+import { jsonbTextBytes } from "@/lib/takeoff/rules/jsonb-size";
 import type { Poste } from "@/lib/takeoff/poste-list";
 import {
   boundPosteReadingRequest,
@@ -229,6 +231,16 @@ describe("the command's limits", () => {
 // (octet_length(p_answers::text)). What a plan's reading can publish is bounded before any paid call from what the
 // admission knows: its items, its fragments, its pages, and the schema's maxima per answer and per observation.
 describe("the bytes of a plan's answers", () => {
+  it("covers all worker reasons, including the fixed explanations, in the existing reservation", () => {
+    const explanations: Partial<Record<(typeof POSTE_WORKER_REASONS)[number], string>> = POSTE_CANDIDATE_REASON_TEXT;
+    const reasonsBytes = POSTE_WORKER_REASONS.reduce((size, code) => size + listEntryBytes(jsonbTextBytes(publishedReason({ code,
+      by: "worker", text: explanations[code] ?? null, chunkId: PUBLISHED_CHUNK_PLACEHOLDER }))), 0);
+    expect(reasonsBytes).toBeLessThanOrEqual(POSTE_WORKER_REASONS_RESERVED_BYTES);
+    expect(POSTE_READING_MAX_FRAGMENTS).toBe(19);
+    expect(posteExchangeOutputMaxBytes(40, 15)).toBe(250_886);
+    expect(posteExchangeOutputMaxBytes(40, 200)).toBe(276_798);
+  });
+
   const onePlan = (items: number, pages: number) => boundPosteReadingRequest({ batches: batchesOf(postes(items)), chunking: CHUNKING,
     requestBudgetTokens: 1_000_000_000, estimateTokensPerCall: TAKEOFF_PAID_CALL_ESTIMATE_TOKENS,
     units: [{ key: "plan:p1", pieces: [{ id: "p1", name: "Plan 1" }], pages, budgetTokens: 1_000_000_000 }] });

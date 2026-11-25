@@ -11,7 +11,7 @@ import {
 import { TAKEOFF_ITEM_ANSWER_LIMITS } from "@/lib/takeoff/item-answer-limits";
 import type { PosteQualifiers } from "@/lib/takeoff/poste-list";
 import {
-  listEntryBytes, PUBLISHED_ANSWER_FRAME_MAX_BYTES, PUBLISHED_CHUNK_PLACEHOLDER, publishedObservationMaxBytes, publishedReason,
+  listEntryBytes, PUBLISHED_ANSWER_FRAME_MAX_BYTES, publishedObservationMaxBytes, publishedReason,
 } from "@/lib/takeoff/poste-publication-size";
 import { jsonbTextBytes } from "@/lib/takeoff/rules/jsonb-size";
 import { haveComparableQuantities } from "@/lib/takeoff/quantity-compatibility";
@@ -35,9 +35,13 @@ export const POSTE_WORKER_REASONS = ["UNIT_MISMATCH", "NON_INTEGER_COUNT", "READ
   "VECTOR_READINGS_UNATTACHED"] as const;
 export type PosteWorkerReason = (typeof POSTE_WORKER_REASONS)[number];
 
-/** The most bytes a reason of the worker takes in a publication (no text; a call's key at its longest). */
-export const POSTE_WORKER_REASON_MAX_BYTES = Math.max(...POSTE_WORKER_REASONS.map((code) =>
-  jsonbTextBytes(publishedReason({ code, by: "worker", text: null, chunkId: PUBLISHED_CHUNK_PLACEHOLDER }))));
+export const POSTE_CANDIDATE_REASON_TEXT = {
+  READINGS_DISAGREE: "Indice chiffré sur un chevauchement sans confirmation.",
+  VECTOR_ONLY: "Tracé vectoriel commun à plusieurs postes.",
+} as const;
+
+/** The existing reservation per answer: the bounded explanations fit in it without reducing admission or vector coverage. */
+export const POSTE_WORKER_REASONS_RESERVED_BYTES = 13 * listEntryBytes(94);
 export type PosteReasonCode = PosteModelReason | PosteWorkerReason;
 
 /** The key of the checks made on the merged plan, where no single call is at fault. */
@@ -236,6 +240,12 @@ function flag(draft: Draft, code: PosteWorkerReason, chunkId: string | null = nu
   if (!draft.workerReasons.some((reason) => reason.code === code)) draft.workerReasons.push({ code, by: "worker", text: null, chunkId });
 }
 
+function explainCandidate(draft: Draft, code: keyof typeof POSTE_CANDIDATE_REASON_TEXT, chunkId: string | null) {
+  const reason = draft.workerReasons.find((entry) => entry.code === code);
+  if (reason) Object.assign(reason, { text: POSTE_CANDIDATE_REASON_TEXT[code], chunkId });
+  else draft.workerReasons.push({ code, by: "worker", text: POSTE_CANDIDATE_REASON_TEXT[code], chunkId });
+}
+
 /**
  * A reason of the model, once per code and text on an answer: the fragments of a plan repeat the same reason (« nothing on
  * these pages »); the first fragment that gave it is kept. An answer then holds at most one reason per fragment and one
@@ -405,7 +415,7 @@ function attachVectorReadings(drafts: readonly Draft[], readings: readonly Poste
  */
 function publishedDraftMaxBytes(draft: Draft) {
   const total = (values: readonly number[]) => values.reduce((sum, value) => sum + value, 0);
-  return listEntryBytes(PUBLISHED_ANSWER_FRAME_MAX_BYTES) + POSTE_WORKER_REASONS.length * listEntryBytes(POSTE_WORKER_REASON_MAX_BYTES)
+  return listEntryBytes(PUBLISHED_ANSWER_FRAME_MAX_BYTES) + POSTE_WORKER_REASONS_RESERVED_BYTES
     + total(draft.modelReasons.map((reason) => listEntryBytes(jsonbTextBytes(publishedReason(reason)))))
     + total([...draft.searched, ...draft.unreadable].map((page) => listEntryBytes(String(page).length)))
     + total(draft.observations.map((entry) => listEntryBytes(publishedObservationMaxBytes(entry))));
@@ -461,6 +471,34 @@ function candidateTotal(observations: readonly PosteReadingObservation[]) {
   return oneUnitTotal([...once.values()]);
 }
 
+function findCandidate(draft: Draft, sharedVectorReadings: ReadonlySet<string>) {
+  const model = draft.observations.filter((entry) => entry.source === "model" && entry.quantity !== null);
+  const owned = model.filter((entry) => entry.role !== "alternative");
+  const vectors = draft.observations.filter((entry) => entry.source === "vector" && entry.role === "candidate");
+  const shared = (entry: PosteReadingObservation) => sharedVectorReadings.has(entry.vectorKey ?? "");
+  const distinct = owned.filter((entry) => entry.countsAs !== "same_object");
+  const eligible = owned.length ? candidateReadings(draft.item, owned).filter((entry) => entry.countsAs !== "same_object")
+    : vectors.filter((entry) => !shared(entry));
+  const candidate = candidateTotal(eligible);
+
+  if (beyondDomain(candidate)) {
+    flag(draft, "QUANTITY_OUT_OF_RANGE");
+    return null;
+  }
+  if (candidate) return candidate;
+  if (eligible.length) flag(draft, "UNIT_MISMATCH");
+  else if (distinct.length) flag(draft, basisReason(draft.item, distinct) ?? "BASIS_MISMATCH");
+  else if (owned.length) flag(draft, "SAME_OBJECT_UNCLEAR", owned[0].chunkId);
+  else {
+    const overlap = model.find((entry) => entry.countsAs !== "same_object");
+    const repeated = model[0];
+    if (overlap) explainCandidate(draft, "READINGS_DISAGREE", overlap.chunkId);
+    else if (repeated) flag(draft, "SAME_OBJECT_UNCLEAR", repeated.chunkId);
+    if (vectors.some(shared)) explainCandidate(draft, "VECTOR_ONLY", null);
+  }
+  return null;
+}
+
 /**
  * The answer of a draft: the unit, the basis and the coverage checked, its total or its candidate value (the model's
  * indications on one basis, else a vector reading only this item matches; a reading other items may claim suggests no
@@ -489,15 +527,7 @@ function finalize(draft: Draft, sharedVectorReadings: ReadonlySet<string>): Post
     draft.observations = draft.observations.map((entry) => entry.role === "contribution" ? { ...entry, role: "candidate" } : entry);
   }
   const measured = draft.outcome === "measured" ? oneUnitTotal(contributions) : null;
-  const modelIndications = draft.observations.filter((entry) => entry.source === "model" && entry.role !== "alternative");
-  const vectorIndications = draft.observations.filter((entry) => entry.source === "vector" && entry.role === "candidate"
-    && !sharedVectorReadings.has(entry.vectorKey ?? ""));
-  let candidate = draft.outcome !== "uncertain" ? null : candidateTotal(modelIndications.some((entry) => entry.quantity !== null)
-    ? candidateReadings(draft.item, modelIndications) : vectorIndications);
-  if (beyondDomain(candidate)) {
-    candidate = null;
-    flag(draft, "QUANTITY_OUT_OF_RANGE");
-  }
+  const candidate = draft.outcome === "uncertain" ? findCandidate(draft, sharedVectorReadings) : null;
   const reasons = draft.outcome === "not_found" ? draft.modelReasons
     : [...draft.modelReasons.filter((reason) => reason.code !== "NO_INDICATION"), ...draft.workerReasons];
   return {

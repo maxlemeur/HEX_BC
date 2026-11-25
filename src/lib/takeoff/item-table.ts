@@ -104,6 +104,10 @@ export type ItemAnswerView = {
   observations: ItemObservationView[];
   /** An uncertain answer's candidate value: never a measured quantity. */
   candidate: { quantity: number; unit: string } | null;
+  uncertainty?: {
+    partial: boolean;
+    reasons: Array<{ code: string; by: "model" | "worker"; text: string | null; page: number | null }>;
+  };
   anomalies: ItemAnswerAnomaly[];
   readAt: string;
 };
