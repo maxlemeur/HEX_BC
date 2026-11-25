@@ -637,22 +637,46 @@ describe("TesterArmy shard plans", () => {
     expect(unmapped.shards).toMatchObject(whole);
   });
 
-  it("uses the serial-file floor when buying shards and the projected cost when packing them", () => {
+  it("produces main's byte-identical Critical matrix on the repository's actual files and weights", () => {
+    // Replay the placement contract used by green main runs 45614367833 and 45617465771.
+    // Read today's weights so the weekly duration refresh can legitimately change the matrix.
+    const settings = durations.suites.critical;
     const setup = map.suite.setup;
-    const files = ["A", "B", "C", "D", "E"];
+    const weight = (file: string) => durations.seconds[file] ?? durations.defaultSeconds;
+    const anonymous = new Set(map.suite.anonymous);
+    const business = criticalSuite.filter((file) => file !== setup).sort();
+    const total = business.reduce((sum, file) => sum + weight(file), 0);
+    const groups = (durations.neverTogether ?? []).map((group) => group.filter((file) => business.includes(file)));
+    const count = Math.min(settings.maxShards, business.filter((file) => !anonymous.has(file)).length,
+      Math.max(1, Math.ceil(total / settings.secondsPerShard), ...groups.map((group) => group.length)));
+    const expected = Array.from({ length: count }, () => ({ files: [setup], seconds: 0 }));
+    for (const file of business.toSorted((a, b) => Number(anonymous.has(a)) - Number(anonymous.has(b)) || weight(b) - weight(a))) {
+      const group = groups.find((entries) => entries.includes(file));
+      const eligible = expected.filter((shard) => !group?.some((member) => shard.files.includes(member)));
+      const [lightest] = eligible.toSorted((a, b) => a.seconds - b.seconds);
+      lightest.files.push(file);
+      lightest.seconds += weight(file);
+    }
+    const matrix = expected.map((entry, index) => ({ shard: index + 1, total: count, files: count === 1 ? "" : entry.files.sort().join(",") }));
+    const actual = selectFromRepository(root, { event: "push", forceFull: "whole Critical suite", repositoryFiles: files }).shards;
+    expect(JSON.stringify(shardMatrix(actual))).toBe(JSON.stringify(matrix));
+  });
+
+  it("reports the longest serial file as a cost floor without affecting placement or shard count", () => {
+    const setup = map.suite.setup;
     const seconds = { A: 500, B: 300, C: 250, D: 180, E: 110 };
     const plan = (files: string[], workers: number) => planShards({
       suite: "critical", files: [setup, ...files], setup, anonymous: [], wholeSuite: false, accepts: /./,
-      durations: { ...durations, seconds, neverTogether: [],
+      durations: { ...durations, seconds, neverTogether: [], coldServers: ["A", "B"],
         suites: { ...durations.suites, critical: { workers, secondsPerShard: 600, maxShards: 5 } } },
     });
-    // A second runner cannot improve on A's 500 s for this selection.
-    expect(plan(["A", "B"], 2).shards).toMatchObject([{ seconds: 800, costSeconds: 500 }]);
-    // E goes beside B, C and D: its projected cost there is 420, below A's 500.
-    expect(plan(files, 2).shards).toMatchObject([
-      { seconds: 500, costSeconds: 500 }, { seconds: 840, costSeconds: 420 },
-    ]);
-    expect(plan(files, 1).shards).toHaveLength(3);
+    const all = Object.keys(seconds);
+    const packed = plan(all, 2);
+    expect(shardMatrix(packed)).toEqual(shardMatrix(plan(all, 1)));
+    expect(packed.shards.map(({ seconds, costSeconds }) => [seconds, costSeconds])).toEqual([[500, 500], [410, 300], [430, 250]]);
+    const single = plan(["B", "C"], 2);
+    expect(single.shards).toMatchObject([{ seconds: 550, costSeconds: 300 }]);
+    expect(plan(["C", "D", "E"], 2).shards).toMatchObject([{ seconds: 540, costSeconds: 270 }]);
   });
 
   it("registers each sharded journey that launches Next dev directly or through a helper", () => {
@@ -670,27 +694,17 @@ describe("TesterArmy shard plans", () => {
     expect([...(durations.coldServers ?? [])].sort()).toEqual(cold.sort());
   });
 
-  it("spreads cold servers first and gives unavoidable companions to the lightest existing cold servers", () => {
-    const seconds = { heavy: 100, medium: 80, light: 20, extra: 15, last: 10, warm: 500 };
+  it("reports cold-server collisions without moving files even when another shard is available", () => {
     const setup = map.suite.setup;
-    const coldServers = ["heavy", "medium", "light", "extra", "last"];
-    const plan = (maxShards: number, neverTogether = [["heavy", "medium", "light"]]) => planShards({
-      suite: "critical", setup, files: [setup, ...Object.keys(seconds)], anonymous: [], accepts: /./, wholeSuite: false,
-      durations: { ...durations, seconds, coldServers, neverTogether,
-        suites: { ...durations.suites, critical: { maxShards, secondsPerShard: 2000, workers: 2 } } },
-    });
-    const packed = plan(3);
-    expect(packed.shards.map((shard) => shard.files.filter((file) => coldServers.includes(file)))).toEqual([
-      ["heavy"], ["last", "medium"], ["extra", "light"],
-    ]);
-    expect(packed.warnings).toHaveLength(2);
-    expect(packed.warnings?.join("\n")).toContain("extra, light");
-    const excluded = plan(3, [["extra", "light"]]);
-    expect(excluded.shards.find((shard) => shard.files.includes("extra"))?.files).toContain("medium");
-    expect(excluded.shards.find((shard) => shard.files.includes("last"))?.files).toContain("light");
-    const apart = plan(5);
-    expect(apart.shards.map((shard) => shard.files.filter((file) => coldServers.includes(file)).length)).toEqual([1, 1, 1, 1, 1]);
-    expect(apart.warnings ?? []).toEqual([]);
+    const files = [setup, "A", "B", "C"];
+    const durationsForTest = { ...durations, seconds: { A: 500, B: 250, C: 150 }, neverTogether: [],
+      suites: { ...durations.suites, critical: { maxShards: 3, secondsPerShard: 500, workers: 2 } } };
+    const plan = (coldServers: string[]) => planShards({ suite: "critical", files, setup,
+      anonymous: [], accepts: /./, wholeSuite: false, durations: { ...durationsForTest, coldServers } });
+    const observed = plan(["B", "C"]);
+    expect(shardMatrix(observed)).toEqual(shardMatrix(plan([])));
+    expect(observed.warnings).toEqual(["⚠ critical shard 2/2 shares 2 cold Next dev servers: B, C."]);
+    expect(plan(["A", "B"]).warnings ?? []).toEqual([]);
   });
 
   it("rejects duplicate, malformed or unselected cold-server paths in the registry", () => {

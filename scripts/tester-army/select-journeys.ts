@@ -95,7 +95,7 @@ export type ShardDurations = {
    * development server, and the workers of one shard would compile two of them at once on one runner.
    */
   neverTogether?: string[][];
-  /** Journey files that compile a private Next dev server; spread them within the suite's shard limit. */
+  /** Journey files that compile a private Next dev server; report any that share a shard. */
   coldServers?: string[];
   suites: Record<ShardSuite, { maxShards: number; secondsPerShard: number; workers: number }>;
   seconds: Record<string, number>;
@@ -640,7 +640,8 @@ function usableShardDurations(root: string): { durations: ShardDurations | null;
 
 /**
  * Splits a selection into disjoint shards, each with login and an authenticated
- * journey. Cold servers are spread first, then other files by projected cost.
+ * journey. Place the longest files first on the least-loaded eligible shard,
+ * authenticated journeys before anonymous ones.
  * A file is never cut, so an SDK serial group stays whole. The files of a neverTogether
  * group go to different shards: there are at least as many shards as the
  * selection holds files of one group, and a file skips the shards that hold
@@ -689,59 +690,35 @@ export function planShards(input: {
     const group = groups.get(file);
     if (group !== undefined) groupSizes.set(group, (groupSizes.get(group) ?? 0) + 1);
   }
-  const coldServers = new Set(input.durations.coldServers);
-  const coldCount = business.filter((file) => coldServers.has(file)).length;
-  const apart = Math.max(1, coldCount, ...groupSizes.values());
-  const ordered = business.toSorted((a, b) =>
-    Number(coldServers.has(b)) - Number(coldServers.has(a)) ||
-    Number(anonymous.has(a)) - Number(anonymous.has(b)) ||
-    weight(b) - weight(a));
-  const cost = (sum: number, largest: number) => Math.max(largest, sum / settings.workers);
-  const largest = Math.max(0, ...business.map(weight));
-  // secondsPerShard is expressed in worker-seconds. Extra runners cannot shorten the largest serial file.
-  const target = Math.max(largest, settings.secondsPerShard / settings.workers);
-  const limit = Math.min(settings.maxShards, Math.max(1, authenticated.length));
-  for (let count = Math.min(apart, limit); count <= limit; count++) {
-    const bins = Array.from({ length: count }, () => ({
-      load: 0, largest: 0, files: [input.setup], groups: new Set<number>(),
-      cold: [] as string[], largestCold: 0, authenticated: false,
-    }));
-    for (const file of ordered) {
-      const group = groups.get(file);
-      const duration = weight(file);
-      const projected = (bin: typeof bins[number]) => cost(bin.load + duration, Math.max(bin.largest, duration));
-      const free = bins.filter((bin) => group === undefined || !bin.groups.has(group));
-      if (!free.length) throw new Error(`No shard can separate ${file} from its neverTogether group.`);
-      const cold = coldServers.has(file);
-      const auth = !anonymous.has(file);
-      // A second server goes beside the lightest existing one. Keep an authenticated
-      // journey in each bin even when an anonymous cold server was placed there first.
-      const [bin] = free.sort((a, b) =>
-        (cold ? a.cold.length - b.cold.length || a.largestCold - b.largestCold : 0) ||
-        (auth ? Number(a.authenticated) - Number(b.authenticated) : 0) ||
-        projected(a) - projected(b) || a.load - b.load);
-      if (cold) {
-        bin.cold.push(file);
-        bin.largestCold = Math.max(bin.largestCold, duration);
-      }
-      if (auth) bin.authenticated = true;
-      bin.files.push(file);
-      bin.load += duration;
-      bin.largest = Math.max(bin.largest, duration);
-      if (group !== undefined) bin.groups.add(group);
-    }
-    const costs = bins.map((bin) => cost(bin.load, bin.largest));
-    const peak = Math.max(...costs);
-    if (peak > target && count < limit) continue;
-    const reason = `${count} shard(s), peak cost ${peak} s = max(largest file, total / workers) per shard, target ${target} s, ${total} worker-seconds`;
-    const result = plan(reason, count === 1 && input.wholeSuite ? [[]] : bins.map((bin) => bin.files), bins.map((bin) => bin.load), costs);
-    const warnings = bins.flatMap((bin, index) => bin.cold.length < 2 ? [] : [
-      `⚠ ${input.suite} shard ${index + 1}/${count} shares ${bin.cold.length} cold Next dev servers: ${bin.cold.toSorted().join(", ")}.`,
-    ]);
-    if (warnings.length) result.warnings = warnings;
-    return result;
+  const apart = Math.max(1, ...groupSizes.values());
+  const measuredCount = Math.max(1, Math.ceil(total / settings.secondsPerShard));
+  const count = Math.min(settings.maxShards, Math.max(1, authenticated.length), Math.max(measuredCount, apart));
+  const longestFirst = (list: string[]) => [...list].sort((a, b) => weight(b) - weight(a) || (a < b ? -1 : a > b ? 1 : 0));
+  const bins = Array.from({ length: count }, () => ({ load: 0, files: [input.setup], groups: new Set<number>() }));
+  for (const file of [...longestFirst(authenticated), ...longestFirst(business.filter((entry) => anonymous.has(entry)))]) {
+    const group = groups.get(file);
+    const free = bins.filter((bin) => group === undefined || !bin.groups.has(group));
+    if (!free.length) throw new Error(`No shard can separate ${file} from its neverTogether group.`);
+    let target = free[0];
+    for (const bin of free) if (bin.load < target.load) target = bin;
+    target.load += weight(file);
+    target.files.push(file);
+    if (group !== undefined) target.groups.add(group);
   }
-  throw new Error("No usable shard count.");
+
+  // Describe the finished layout. Worker count and private servers do not drive placement.
+  const costs = bins.map((bin) => Math.max(bin.load / settings.workers, ...bin.files.filter((file) => file !== input.setup).map(weight)));
+  const reason = `${count} shard(s), ${total} worker-seconds, ${settings.secondsPerShard} s per shard, at most ${settings.maxShards}` +
+    (count > measuredCount ? `, ${apart} journeys that never share a shard` : "") +
+    `, peak cost ${Math.max(...costs)} s = max(largest file, total / workers) per shard`;
+  const result = plan(reason, count === 1 && input.wholeSuite ? [[]] : bins.map((bin) => bin.files), bins.map((bin) => bin.load), costs);
+  const coldServers = new Set(input.durations.coldServers);
+  const warnings = bins.flatMap((bin, index) => {
+    const cold = bin.files.filter((file) => coldServers.has(file)).sort();
+    return cold.length < 2 ? [] : [`⚠ ${input.suite} shard ${index + 1}/${count} shares ${cold.length} cold Next dev servers: ${cold.join(", ")}.`];
+  });
+  if (warnings.length) result.warnings = warnings;
+  return result;
 }
 
 /** One GitHub matrix entry per shard; the files comma-joined (the selector refuses a path with a comma). */
