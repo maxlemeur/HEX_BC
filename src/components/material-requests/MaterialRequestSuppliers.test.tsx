@@ -485,12 +485,12 @@ describe("suppliers of request lines", () => {
     expect(screen.getByRole("alert")).toHaveTextContent("Choix refusé pour cet essai.");
     await user.click(screen.getByRole("button", { name: "Ajouter une ligne" }));
     await screen.findByLabelText("Quantité, ligne 3");
-    // Among drafts the line asked for stays open (TI-690); its title closes it, and opens it again unchanged.
-    const title = screen.getByRole("button", { name: "Afficher les détails de la ligne 1" });
-    expect(title).toHaveAttribute("aria-pressed", "true");
-    await user.click(title);
+    // Among drafts, the same button closes the line and opens it again with the failed choice.
+    const toggle = screen.getByRole("button", { name: "Afficher les détails de la ligne 1" });
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    await user.click(toggle);
     expect(screen.queryByRole("complementary", { name: "Détails de la ligne 1" })).not.toBeInTheDocument();
-    await user.click(title);
+    await user.click(toggle);
     expect(screen.getByLabelText("Fournisseur, ligne 1")).toHaveValue("Comptoir Bêta");
     expect(screen.getByRole("alert")).toHaveTextContent("Choix refusé pour cet essai.");
     expect(writes().filter((call) => call.method === "PATCH")).toEqual([{ method: "PATCH", path: `${BASE}/lines/${LINE_A}`, body: { supplier_id: BETA } }]);

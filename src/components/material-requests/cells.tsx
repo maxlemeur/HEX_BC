@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
-import { ChevronDown, Info, TriangleAlert } from "lucide-react";
+import { ChevronRight, Info, TriangleAlert } from "lucide-react";
 
 import { DecimalDraftInput } from "@/components/estimates/components/estimate-editor-row/DecimalDraftInput";
 import { Button } from "@/components/ui/button";
@@ -35,12 +35,12 @@ export function alertCellClass(alerts: CellAlerts): string {
 /** The row of a list that is the one shown beside it (a line, a quote, a purchase order): the application's blue. */
 export const SELECTED_ROW = "bg-primary/5 shadow-[inset_3px_0_0_var(--color-primary)]";
 
-/** The arrow that unfolds a line of the sheet: it points at the line while folded, up once unfolded. */
-export function FoldArrow({ open, className }: Readonly<{ open: boolean; className?: string }>) {
+/** The arrow that unfolds a line points down at its details once open. */
+export function FoldArrow({ open }: Readonly<{ open: boolean }>) {
   return (
-    <ChevronDown
+    <ChevronRight
       aria-hidden="true"
-      className={cn("transition-transform duration-150 motion-reduce:transition-none", open ? "rotate-180" : "-rotate-90", className)}
+      className={cn("transition-transform duration-150 motion-reduce:transition-none", open && "rotate-90")}
     />
   );
 }

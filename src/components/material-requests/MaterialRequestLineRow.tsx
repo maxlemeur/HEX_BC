@@ -158,7 +158,7 @@ export function fromRequest(value: string): string {
 
 /** The columns of the lines sheet, shared by its header and by every line. The last one holds the actions. */
 export const LINE_GRID =
-  "sheet:grid sheet:grid-cols-[2.25rem_4.25rem_3.75rem_minmax(7rem,1.2fr)_minmax(4.5rem,0.7fr)_minmax(5.5rem,0.8fr)_minmax(10rem,1.8fr)_minmax(9rem,1.5fr)_7.25rem] xl:grid-cols-[2.25rem_5.5rem_3.75rem_minmax(8.5rem,1.2fr)_minmax(6rem,0.85fr)_minmax(7rem,0.8fr)_minmax(14rem,1.75fr)_minmax(12rem,1.5fr)_7.25rem]";
+  "sheet:grid sheet:grid-cols-[2.25rem_var(--mr-selection-width,0px)_4.25rem_3.75rem_minmax(7rem,1.2fr)_minmax(4.5rem,0.7fr)_minmax(5.5rem,0.8fr)_minmax(10rem,1.8fr)_minmax(9rem,1.5fr)_7.25rem] xl:grid-cols-[2.25rem_var(--mr-selection-width,0px)_5.5rem_3.75rem_minmax(8.5rem,1.2fr)_minmax(6rem,0.85fr)_minmax(7rem,0.8fr)_minmax(14rem,1.75fr)_minmax(12rem,1.5fr)_7.25rem]";
 
 /** The cells touch: no gap between the columns and no box around a field, the grid lines bound them (`sheet-cell`). */
 export const CELL_LINE = "sheet:border-l sheet:border-border";
@@ -171,40 +171,67 @@ export const LINE_BAND =
 /**
  * The columns of the lines sheet, in the order of `LINE_GRID`: what the header says over each (`short` where the
  * title does not hold in its column under 1280 px) and where its cell sits in a line (`at`). The first row of a line
- * is the line itself; the rows under it show once it is unfolded. The first and the last column carry no title.
+ * is the line itself; the rows under it show once it is unfolded.
  */
 export const LINE_COLUMNS = {
-  select: { title: "", short: null, at: "sheet:[grid-column:1] sheet:row-start-1" },
-  quantity: { title: "Quantité", short: "Qté", at: "sheet:[grid-column:2] sheet:row-start-1" },
-  unit: { title: "Unité", short: null, at: "sheet:[grid-column:3] sheet:row-start-1" },
-  type: { title: "Type", short: null, at: "sheet:[grid-column:4] sheet:row-start-1" },
-  dimension: { title: "DN / dim.", short: null, at: "sheet:[grid-column:5] sheet:row-start-1" },
-  material: { title: "Matière", short: null, at: "sheet:[grid-column:6] sheet:row-start-1" },
-  article: { title: "Article", short: null, at: "sheet:[grid-column:7] sheet:row-start-1" },
-  supplier: { title: "Fournisseur", short: null, at: "sheet:[grid-column:8] sheet:row-start-1" },
-  state: { title: "", short: null, at: "sheet:[grid-column:9] sheet:row-start-1" },
+  toggle: { title: "", short: null, at: "sheet:col-start-1 sheet:row-start-1" },
+  select: { title: "", short: null, at: "sheet:col-start-2 sheet:row-start-1" },
+  quantity: { title: "Quantité", short: "Qté", at: "sheet:col-start-3 sheet:row-start-1" },
+  unit: { title: "Unité", short: null, at: "sheet:col-start-4 sheet:row-start-1" },
+  type: { title: "Type", short: null, at: "sheet:col-start-5 sheet:row-start-1" },
+  dimension: { title: "DN / dim.", short: null, at: "sheet:col-start-6 sheet:row-start-1" },
+  material: { title: "Matière", short: null, at: "sheet:col-start-7 sheet:row-start-1" },
+  article: { title: "Article", short: null, at: "sheet:col-start-8 sheet:row-start-1" },
+  supplier: { title: "Fournisseur", short: null, at: "sheet:col-start-9 sheet:row-start-1" },
+  state: { title: "", short: null, at: "sheet:col-start-10 sheet:row-start-1" },
 } as const;
 export type LineColumn = keyof typeof LINE_COLUMNS;
 
 const COLUMN = LINE_COLUMNS;
 
 /*
- * Below the sheet's width a line is a card on a grid of its own: its head (the box, the technician's words, its
- * actions and its arrow) on one row, then what it asks, then its article and its supplier. `CARD` gives each part its
+ * Below the sheet's width a line is a card on a grid of its own: its head (the arrow, the box, the technician's words
+ * and its actions) on one row, then what it asks, then its article and its supplier. `CARD` gives each part its
  * place there. The sheet aligns its cells under `LINE_COLUMNS` and puts the details on their own row.
  */
 const LINE =
-  "grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto_auto] items-center gap-x-2 gap-y-2.5 rounded-lg border border-border bg-surface p-3 sm:px-4 sheet:items-start sheet:gap-0 sheet:rounded-none sheet:border-0 sheet:border-b sheet:p-0 sheet:last:rounded-b-lg sheet:last:border-b-0 sheet:hover:bg-surface-subtle/60";
+  "grid min-w-0 grid-cols-[auto_auto_minmax(0,1fr)_auto] items-center gap-x-2 gap-y-2.5 rounded-lg border border-border bg-surface p-3 sm:px-4 sheet:items-start sheet:gap-0 sheet:rounded-none sheet:border-0 sheet:border-b sheet:p-0 sheet:last:rounded-b-lg sheet:last:border-b-0 sheet:hover:bg-surface-subtle/60";
 const CARD = {
-  select: "max-sheet:order-1",
-  wording: "max-sheet:order-2",
-  state: "max-sheet:order-3",
-  toggle: "max-sheet:order-4",
+  toggle: "max-sheet:order-1",
+  select: "max-sheet:order-2",
+  wording: "max-sheet:order-3",
+  state: "max-sheet:order-4",
   asked: "col-span-full max-sheet:order-5",
   details: "col-span-full max-sheet:order-6",
   sourcing: "col-span-full max-sheet:order-7",
   failure: "col-span-full max-sheet:order-8",
 } as const;
+
+export function MaterialRequestLineToggle({ id, label, open, controls, onToggle, className }: Readonly<{
+  id?: string;
+  label: string;
+  open: boolean;
+  controls?: string;
+  onToggle: () => void;
+  className?: string;
+}>) {
+  return (
+    <Button
+      id={id}
+      type="button"
+      variant="ghost"
+      size="icon-xs"
+      className={cn("sheet:my-1 sheet:justify-self-center", COLUMN.toggle.at, className)}
+      aria-expanded={open}
+      aria-controls={controls}
+      aria-label={label}
+      title={open ? "Replier la ligne" : "Déplier la ligne"}
+      onClick={onToggle}
+    >
+      <FoldArrow open={open} />
+    </Button>
+  );
+}
 
 /** The original expands in the flow of the line, including when the next line is already open. */
 function OriginalWording({ text, shown }: Readonly<{ text: string | null; shown: boolean }>) {
@@ -491,8 +518,15 @@ export function MaterialRequestLineRow(props: LineRowProps) {
   return (
     <li id={`material-request-line-${line.id}`} tabIndex={-1} aria-label={`Ligne ${n}`}
       className={cn(LINE, LINE_GRID, moreOpen && "sheet:border-border-strong", selected && "border-primary/50 bg-primary/5 sheet:hover:bg-primary/5")}>
+      <MaterialRequestLineToggle
+        label={`Détails de la ligne ${n}`}
+        open={moreOpen}
+        controls={moreId}
+        onToggle={() => onUnfoldedChange(!moreOpen)}
+        className={CARD.toggle}
+      />
       {/* Keep the checkbox aligned with the editable cells, above the details. */}
-      <div className={cn("sheet:self-stretch sheet:border-r sheet:border-border", CARD.select, COLUMN.select.at)}>
+      <div className={cn("sheet:self-stretch", CELL_LINE, CARD.select, COLUMN.select.at)}>
         <div className="flex items-center sheet:h-9 sheet:justify-center">
           <input
             type="checkbox"
@@ -695,7 +729,7 @@ export function MaterialRequestLineRow(props: LineRowProps) {
         <Sourcing {...props} expanded={moreOpen} />
         <div className={cn("max-sheet:contents sheet:min-w-0 sheet:empty:hidden", moreOpen
           ? "sheet:col-span-full"
-          : "sheet:[grid-column:2/-1] sheet:row-start-2 sheet:px-2.5")}>
+          : "sheet:[grid-column:3/-1] sheet:row-start-2 sheet:px-2.5")}>
           <UsualPackaging
             line={line}
             article={props.article}
@@ -764,19 +798,6 @@ export function MaterialRequestLineRow(props: LineRowProps) {
             <Trash2 aria-hidden="true" />
           </ConfirmButton>
         </div>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon-xs"
-          className={CARD.toggle}
-          aria-expanded={moreOpen}
-          aria-controls={moreId}
-          aria-label={`Détails de la ligne ${n}`}
-          title={moreOpen ? "Replier la ligne" : "Déplier la ligne"}
-          onClick={() => onUnfoldedChange(!moreOpen)}
-        >
-          <FoldArrow open={moreOpen} />
-        </Button>
       </div>
     </li>
   );

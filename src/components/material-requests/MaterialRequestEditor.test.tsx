@@ -699,7 +699,7 @@ describe("MaterialRequestEditor", () => {
     expect(screen.queryByLabelText("Type, ligne 1")).not.toBeInTheDocument();
     expect(screen.queryByRole("checkbox", { name: "Sélectionner la ligne 1" })).not.toBeInTheDocument();
     // Its row names it by what it asks; its details are read on request, as among drafts.
-    expect(screen.getByRole("button", { name: "Afficher les détails de la ligne 1" })).toHaveTextContent("Raccord union");
+    expect(screen.getByText("Raccord union", { exact: true })).toBeVisible();
     expect(screen.queryByRole("complementary", { name: "Détails de la ligne 1" })).not.toBeInTheDocument();
 
     // Offered once the purchase orders are read: an ordered line is not reopened.
@@ -1966,17 +1966,17 @@ describe("a lighter lines table (TI-690)", () => {
   it("opens the details of a validated line among drafts only when asked, and closes them again (23)", async () => {
     const user = await openEditor({ [`GET ${BASE}`]: { data: detail({ lines: [line(), validated()] }) } });
 
-    const title = await screen.findByRole("button", { name: "Afficher les détails de la ligne 2" });
-    expect(title).toHaveAttribute("aria-pressed", "false");
+    const toggle = await screen.findByRole("button", { name: "Afficher les détails de la ligne 2" });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
     expect(screen.queryByRole("complementary", { name: "Détails de la ligne 2" })).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Réduction" })).not.toBeInTheDocument();
 
-    await user.click(title);
-    expect(title).toHaveAttribute("aria-pressed", "true");
+    await user.click(screen.getByText("Réduction", { exact: true }));
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
     expect(screen.getByRole("complementary", { name: "Détails de la ligne 2" })).toBeVisible();
 
-    await user.click(title);
-    expect(title).toHaveAttribute("aria-pressed", "false");
+    await user.click(toggle);
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
     expect(screen.queryByRole("complementary", { name: "Détails de la ligne 2" })).not.toBeInTheDocument();
   });
 
@@ -1988,7 +1988,7 @@ describe("a lighter lines table (TI-690)", () => {
     const first = await screen.findByRole("button", { name: "Afficher les détails de la ligne 1" });
     const second = screen.getByRole("button", { name: "Afficher les détails de la ligne 2" });
     expect(screen.queryByRole("complementary")).not.toBeInTheDocument();
-    expect(second).toHaveAttribute("aria-pressed", "false");
+    expect(second).toHaveAttribute("aria-expanded", "false");
 
     // The details open under the row asked for, inside it; asking for another line moves them.
     await user.click(first);
@@ -1997,7 +1997,7 @@ describe("a lighter lines table (TI-690)", () => {
     await user.click(second);
     expect(screen.queryByRole("complementary", { name: "Détails de la ligne 1" })).not.toBeInTheDocument();
     expect(screen.getByRole("complementary", { name: "Détails de la ligne 2" })).toBeVisible();
-    // The same title closes them again.
+    // The same button closes them again.
     await user.click(second);
     expect(screen.queryByRole("complementary")).not.toBeInTheDocument();
   });
