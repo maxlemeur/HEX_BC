@@ -27,8 +27,8 @@ import { activateOwnedTakeoffNotices, readOwnedTakeoffNotice } from "../takeoff/
 // The takeoff jobs of the ChatGPT local journeys, on this file's own development server: the local-only provider
 // rules (LOCAL01 to LOCAL06), the launch of a second plan set (LOCAL07), the plan set picked in the launch dialogue
 // (LOCAL08), the profile's OAuth start, the PDF takeoff on the plan, and V3C08.
-// The Decisions, lab, price reuse and intake journeys run in chatgpt-local-decisions.e2e.ts, on a second server
-// (chatgpt-local-journey-support.ts says why they are two files). The order matters: LOCAL01 and the OAuth start
+// Decisions, lab and price reuse run in chatgpt-local-decisions.e2e.ts. Dossier journeys run in
+// chatgpt-local-intake.e2e.ts. Each file owns its server. The order matters: LOCAL01 and the OAuth start
 // need an owner without a ChatGPT profile, and the PDF takeoff leaves the profile that the private business witness
 // and V3C08 reuse, which V3C08 removes. The owner is admitted ten analyses in 24 hours (enforce_takeoff_job_admission):
 // these journeys start nine, ten with the private business witness, so another launching journey needs its own owner.

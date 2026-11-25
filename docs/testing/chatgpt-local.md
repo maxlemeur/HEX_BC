@@ -314,7 +314,7 @@ npm run verify:pr
 ```
 
 Les parcours TesterArmy démarrent un serveur local dédié contre la base éphémère
-de la campagne. Ils sont répartis en deux fichiers, chacun avec son serveur, son
+de la campagne. Ils sont répartis en trois fichiers, chacun avec son serveur, son
 compte propriétaire, son port et son dossier d'artefacts
 ([`chatgpt-local-journey-support.ts`](../../e2e/army/local/chatgpt-local-journey-support.ts)) :
 
@@ -326,17 +326,16 @@ compte propriétaire, son port et son dossier d'artefacts
   assistance Decisions (DEC01, TRI01), écran Vecteurs du labo (VEC01), reprise
   des prix (PRX02), analyse IA de la photo d’une demande de matériel (MRIA01 :
   la photo lue devient des lignes en brouillon, ajoutées puis remplacées au
-  choix du bureau), réanalyse des pièces (INTRETRY01, INTWORD01) et démarrage
-  automatique du métré à la confirmation du dossier (AUTO01 à AUTO05) et sa zone
-  sur l’affaire (AUTO06 : motif lu par un directeur, prise en charge par un
-  opérateur, relance sans version ni brouillon, ancien lien de lancement), chacun
-  avec ses propres comptes et le démarrage automatique activé pour lui seul.
+  choix du bureau), comparaison d’un devis fournisseur et assistant de chiffrage
+  ou de revue du métré.
+- [`chatgpt-local-intake.e2e.ts`](../../e2e/army/local/chatgpt-local-intake.e2e.ts) :
+  lecture des pièces par l’assistant (ASSIST04), analyse, transcription et
+  réanalyse des pièces (INT), puis démarrage du métré à la confirmation du dossier
+  et depuis la zone de l’affaire (AUTO01 à AUTO07).
 
-Un seul fichier exécutait ces tests en série sur son serveur et fixait la durée
-du check Critical. Les deux serveurs ne compilent jamais en même temps sur une
-machine : les [jobs parallèles](tester-army-ci.md#jobs-parallèles) placent les
-deux fichiers dans deux shards, et une sélection filtrée qui les contient tous
-les deux est refusée avec plus d'un worker.
+Les [jobs parallèles](tester-army-ci.md#jobs-parallèles) placent ces fichiers dans
+des shards distincts. Une sélection filtrée qui contient plusieurs de ces fichiers
+est refusée avec plus d'un worker, pour éviter les compilations simultanées.
 
 Le premier parcours « ChatGPT local » vérifie le départ OAuth et injecte un refus de
 consentement. Le second téléverse un CSV fictif, lance le vrai worker local,
