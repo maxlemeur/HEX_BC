@@ -39,14 +39,6 @@ Tool access alone grants no approval.
   your own scratch files, temporary worktrees, owned stacks and merged branches
   is authorized after preserving unique work.
 
-**Standing authorization for shared migrations (owner, 2026-11-22).** Apply a
-migration to the shared database once it has reached `main` through a reviewed
-PR, activates nothing, removes nothing (including rows, columns or tables) and
-widens no access to existing data. Policies and grants on the objects it creates
-are covered. Follow the [shared application runbook](supabase/README.md#appliquer-sur-une-base-partagée)
-and publish the receipt. Quote this authorization when delegating application.
-Every other shared migration needs the owner's explicit go.
-
 ## Product and data contracts
 
 - **Estimates and lifecycle.** Use integer cents and basis points with
@@ -71,6 +63,10 @@ Every other shared migration needs the owner's explicit go.
   unapplied migrations. Preserve compatibility with the deployed application
   by adding first and switching consumers in a later release. Regenerate with
   `npm run supabase:types`; put explicit refinements in `database.ts`.
+- **Shared migrations.** Once a reviewed migration reaches `main`, apply it
+  without requesting a separate migration approval. The [owner approval rules](#actions-requiring-the-owners-go)
+  apply to the actions its SQL performs. Follow the [shared application runbook](supabase/README.md#appliquer-sur-une-base-partagée)
+  and publish the receipt.
 
 ## Verification
 

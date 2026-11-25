@@ -76,13 +76,14 @@ les nouvelles entrées avec `supabase:manifest:add`.
 
 ## Appliquer sur une base partagée
 
-L'application distante exige une autorisation propre, distincte du commit et
-du déploiement ; [AGENTS.md](../AGENTS.md) dit quelles migrations la reçoivent
-d'avance. Vérifier le projet cible sans afficher ses secrets, lire son
-historique de migrations et comparer aux fichiers du checkout à publier.
-Puis appliquer uniquement les migrations manquantes autorisées dans l'ordre,
-avec leur SQL exact ; contrôler ensuite l'historique, les objets ciblés et les
-advisors de sécurité. Une preuve locale ne prouve pas cette application.
+Une fois la migration relue et fusionnée dans `main`, l’appliquer sans demander
+de feu vert supplémentaire pour la migration. Si son SQL effectue une
+[opération soumise à accord](../AGENTS.md#actions-requiring-the-owners-go),
+vérifier que cet accord couvre l’opération avant l’exécution. Vérifier le projet
+cible sans afficher ses secrets et comparer son historique aux fichiers de
+`main`. Appliquer les migrations manquantes dans l’ordre, avec leur SQL exact.
+Contrôler ensuite l’historique, les objets ciblés et les advisors de sécurité,
+puis publier le reçu.
 La [préparation du lot 3.3](../docs/testing/lot-3-3-shared-consolidation-2026-10-25.md)
 conserve sa qualification locale ; le [reçu d'application](../docs/testing/shared-supabase-lot-3-3-2026-10-25.md)
 rapporte les contrôles réellement exécutés sur le partagé.
