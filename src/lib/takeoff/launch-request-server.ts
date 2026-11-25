@@ -733,14 +733,15 @@ export async function dispatchLaunchRequestJobs(input: { jobIds: string[]; host?
   if (input.host !== undefined) assertLocalChatGptHost(input.host);
   const correlationId = randomUUID();
   const run = () => runLocalTakeoffAttempts({ jobId: input.jobIds[0], correlationId, trigger: "create" });
+  // Each receipt updates the job row. The dispatcher skips locked rows, so finish these writes before waking it.
+  for (const jobId of input.jobIds) {
+    await persistTakeoffDispatchOutcome({ jobId, trigger: "create",
+      result: { triggered: true, correlationId, statusCode: 202, outcome: "accepted" } });
+  }
   try {
     after(run);
   } catch {
     void run();
-  }
-  for (const jobId of input.jobIds) {
-    await persistTakeoffDispatchOutcome({ jobId, trigger: "create",
-      result: { triggered: true, correlationId, statusCode: 202, outcome: "accepted" } });
   }
 }
 

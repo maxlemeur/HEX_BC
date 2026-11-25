@@ -18,11 +18,12 @@ import { assertLocalChatGptHost, isLocalChatGptEnabled } from "@/lib/ai/chatgpt-
 import { getConfirmedTakeoffExecutionOwner } from "@/lib/ai/chatgpt-takeoff";
 import { resolvePlanSetSourceFile } from "@/lib/takeoff/job-creation-repository";
 import {
-  assumeTakeoffLaunchRequest, confirmAffaireBriefWithTakeoff, describeDossierChangeSinceAnalysis, evaluateTakeoffLaunchRequests,
+  assumeTakeoffLaunchRequest, confirmAffaireBriefWithTakeoff, describeDossierChangeSinceAnalysis, dispatchLaunchRequestJobs, evaluateTakeoffLaunchRequests,
   launchTakeoffRelaunch, readAutomaticTakeoffPayerNotice, readBriefConfirmationPayerNotice, readDossierChangeSinceAnalysis,
 } from "@/lib/takeoff/launch-request-server";
 import { launchTakeoffItemRemeasure, planTakeoffItemRemeasure } from "@/lib/takeoff/item-remeasure-server";
 import { orderSensitivePosteList } from "@/lib/takeoff/poste-reading.test-fixtures";
+import { persistTakeoffDispatchOutcome } from "@/lib/takeoff/dispatch-state";
 import { runLocalTakeoffAttempts } from "@/lib/takeoff/local-dispatch";
 import type { AnyTakeoffLaunchManifest } from "@/lib/takeoff/launch-request";
 import { createSupabaseFake, filterValue, servedRows, type FakeQuery } from "@/lib/takeoff/metre-m3.test-utils";
@@ -214,6 +215,30 @@ beforeEach(() => {
   vi.mocked(assertLocalChatGptHost).mockImplementation((host) => host ?? "");
   vi.mocked(readChatGptStore).mockResolvedValue({ selectedId: "profil-fictif",
     profiles: [{ id: "profil-fictif", model: "modele-fictif", reasoningEffort: null, authorizationId: "autorisation-1" }] } as never);
+});
+
+describe("dispatchLaunchRequestJobs", () => {
+  it.each([1, 2])("starts the dispatcher after the receipt writes for %i plan jobs settle", async (planCount) => {
+    const jobIds = ["first-job", "second-job"].slice(0, planCount);
+    const committedReceipts: string[] = [];
+    const receiptsAtDispatch: string[][] = [];
+    for (const jobId of jobIds) {
+      vi.mocked(persistTakeoffDispatchOutcome).mockImplementationOnce(async () => {
+        // The real receipt RPC updates the job row in another transaction.
+        await Promise.resolve();
+        committedReceipts.push(jobId);
+        return true;
+      });
+    }
+    vi.mocked(runLocalTakeoffAttempts).mockImplementationOnce(async () => {
+      receiptsAtDispatch.push([...committedReceipts]);
+    });
+
+    await dispatchLaunchRequestJobs({ jobIds });
+
+    expect(vi.mocked(persistTakeoffDispatchOutcome).mock.calls.map(([input]) => input.jobId)).toEqual(jobIds);
+    expect(receiptsAtDispatch).toEqual([jobIds]);
+  });
 });
 
 describe("evaluateTakeoffLaunchRequests", () => {
