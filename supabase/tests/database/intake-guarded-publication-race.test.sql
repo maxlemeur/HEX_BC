@@ -114,13 +114,36 @@ select results_eq($$select b.summary,l.source_file_name from public.affaire_brie
   where b.project_id='ae570000-0000-4000-8000-000000000020'$$,$$values ('Premier'::text,'Exemple.pdf'::text)$$,
   'only the winning first brief and its source are visible');
 select * from dblink_get_result('publisher') as t(result text);
--- Enter the contract and publish this same dossier through the real launch RPC.
+-- A first deposit may add its upload and the waiting piece in one transaction.
+-- Let the competing confirmation actually block before the depositor adds the piece.
+select dblink_exec('publisher',$prepare$
+  create function pg_temp.confirm_legacy() returns text language plpgsql as $$
+  declare b public.affaire_briefs%rowtype; actor uuid:='ae570000-0000-4000-8000-000000000001';
+  begin
+    select * into strict b from public.affaire_briefs where project_id='ae570000-0000-4000-8000-000000000020';
+    return (select outcome from public.confirm_affaire_brief_takeoff(b.tenant_id,b.project_id,actor,b.updated_at,
+      null,p_blocked_reason=>'CHATGPT_NOT_CONNECTED',p_actor_claims=>jsonb_build_object('sub',actor,'role','authenticated')));
+  exception when others then return sqlstate||' '||sqlerrm;
+  end; $$;
+$prepare$);
+select dblink_exec('editor',$first$
+  begin;
+  set local deadlock_timeout='100ms';
+  set local statement_timeout='5s';
+  insert into public.affaire_intake_uploads(id,project_id,created_by,status) values(pg_temp.f(31),pg_temp.f(20),pg_temp.f(1),'deposited');
+$first$);
+select dblink_send_query('publisher','select pg_temp.confirm_legacy()');
+select ok(pg_temp.publisher_blocked(),'the confirmer waits for the open first deposit');
+select lives_ok($sql$select dblink_exec('editor',$piece$
+  insert into public.affaire_intake_documents(upload_id,file_name,upload_status,classification_status)
+    values(pg_temp.f(31),'Autre.pdf','uploaded','awaiting_launch');$piece$)$sql$,'the same depositor can finish without a deadlock');
+select dblink_exec('editor','commit');
+select is((select result from dblink_get_result('publisher') as t(result text)),'P0001 INTAKE_ANALYSIS_REQUIRED',
+  'confirmation sees the committed first piece and gives the business refusal');
+select * from dblink_get_result('publisher') as t(result text);
 select dblink_exec('editor',$prepare$
   begin;
   set local request.jwt.claim.sub='ae570000-0000-4000-8000-000000000001';
-  insert into public.affaire_intake_uploads(id,project_id,created_by,status) values(pg_temp.f(31),pg_temp.f(20),pg_temp.f(1),'deposited');
-  insert into public.affaire_intake_documents(upload_id,file_name,upload_status,classification_status)
-    values(pg_temp.f(31),'Autre.pdf','uploaded','awaiting_launch');
   do $$declare batch uuid; s jsonb;
   begin
     select launch_id into strict batch from public.start_affaire_intake_analysis(pg_temp.f(20),false) where outcome='launched';

@@ -26,10 +26,10 @@ create function pg_temp.add_plan(n integer,seq integer) returns void language pl
 declare tenant uuid:=(select tenant_id from fixture); ps uuid:=pg_temp.f(n*100+seq); f uuid:=pg_temp.f(n*1000+seq);
   filepath text:=concat_ws('/',tenant,ps,f,'plan.pdf');
 begin
-  insert into public.plan_sets(id,project_id,tenant_id,name) values(ps,pg_temp.f(n),tenant,'Plans');
+  insert into public.plan_sets(id,project_id,tenant_id,name) values(ps,pg_temp.f(n),tenant,case when seq=1 then 'Plans import' else 'Plans' end);
   insert into public.plan_files(id,plan_set_id,tenant_id,file_name,file_path,file_type,file_size_bytes)
     values(f,ps,tenant,'plan.pdf',filepath,'application/pdf',8);
-  insert into storage.objects(bucket_id,name,metadata) values('plan-files',filepath,'{"size":8}');
+  insert into storage.objects(bucket_id,name,metadata,version) values('plan-files',filepath,'{"size":8}',gen_random_uuid()::text);
 end;
 $$;
 create function pg_temp.prepare(n integer) returns text language plpgsql as $$
@@ -102,6 +102,20 @@ select is(pg_temp.confirm(22),'confirmed','the automatic confirmation accepts th
 select is(pg_temp.confirm(26,true),'confirmed','plan selection accepts the publication after the human decision');
 select is((select generation_metadata->'resolved_plan_gap_indexes' from public.affaire_briefs where project_id=pg_temp.f(26)),'[0]'::jsonb,
   'publishing the same missing list does not clear the decision or create another debt');
+
+-- The previously selected plan disappears while the confirmation dialog is open.
+-- With a pending brief publication, both confirmation APIs must give the same remedy.
+insert into private.takeoff_completion_activation(active_from) values(now()-interval '1 min');
+insert into private.takeoff_plan_dispatch_activation(active_from) values(now()-interval '1 min');
+create temp table chosen as select jsonb_object_agg(plan_file_id,jsonb_build_object('version',plan_version,'sha256',repeat('c',64))) plans
+  from public.takeoff_brief_plan_options((select tenant_id from fixture),pg_temp.f(25)) where plan_file_id=pg_temp.f(25001);
+select ok((select plans ? pg_temp.f(25001)::text from chosen),'a real standalone plan is selectable before it disappears');
+delete from public.plan_files where id=pg_temp.f(25001);
+select throws_ok($$select * from public.confirm_affaire_brief_plan_choice(
+  (select tenant_id from fixture),pg_temp.f(25),pg_temp.f(1),(select updated_at from public.affaire_briefs where project_id=pg_temp.f(25)),
+  (select plans from chosen),null,p_blocked_reason=>'CHATGPT_NOT_CONNECTED',
+  p_actor_claims=>jsonb_build_object('sub',pg_temp.f(1),'role','authenticated'))$$,
+  'P0001','INTAKE_ANALYSIS_REQUIRED','a removed selected plan requires updating the brief before reviewing a new plan selection');
 
 -- Even retaining the same brief row cannot make another lot inherit this receipt.
 insert into public.affaire_intake_uploads(id,project_id,created_by,status) values(pg_temp.f(490),pg_temp.f(22),pg_temp.f(1),'ready');

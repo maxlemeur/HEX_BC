@@ -16,6 +16,9 @@ create function private.enter_intake_launch_contract() returns trigger
 language plpgsql security definer set search_path='' as $$
 begin
   if not exists(select 1 from private.affaire_intake_contracts where project_id=new.project_id) then
+    -- The same transaction can next insert a waiting piece, which locks the brief.
+    -- Match the confirmer's order before taking the shared dossier advisory lock.
+    perform 1 from public.affaire_briefs where project_id=new.project_id for update;
     perform private.lock_affaire_intake_analysis(new.project_id);
     insert into private.affaire_intake_contracts(project_id) values(new.project_id) on conflict do nothing;
   end if;
@@ -162,6 +165,7 @@ declare
   saved_claim text := pg_catalog.current_setting('request.jwt.claim', true);
   saved_sub text := pg_catalog.current_setting('request.jwt.claim.sub', true);
   allowed boolean;
+  replay boolean;
 begin
   if p_actor is null or p_claims is null or jsonb_typeof(p_claims) <> 'object' or p_claims ->> 'sub' is distinct from p_actor::text then
     return false;
@@ -177,8 +181,19 @@ begin
   perform pg_catalog.set_config('request.jwt.claim', coalesce(saved_claim, ''), true);
   perform pg_catalog.set_config('request.jwt.claim.sub', coalesce(saved_sub, ''), true);
   if not coalesce(allowed,false) then return false; end if;
-  if exists(select 1 from public.affaire_briefs b where b.project_id=p_project_id and b.status='confirme')
-      and private.intake_brief_publication_due(p_project_id) then
+  if not exists(select 1 from private.affaire_intake_contracts where project_id=p_project_id) then return true; end if;
+  select b.status='confirme' into replay from public.affaire_briefs b where b.project_id=p_project_id;
+  -- A fresh confirmation next takes the takeoff-command locks, then its AFTER
+  -- triggers lock and recheck the inputs before commit. Preflight its business
+  -- answer without reversing that lock order. A replay has no subsequent write.
+  if replay then perform private.lock_affaire_intake_analysis(p_project_id); end if;
+  if exists(select 1 from public.affaire_intake_documents d where d.project_id=p_project_id and private.intake_piece_waits(d)) then
+    raise exception 'INTAKE_ANALYSIS_REQUIRED' using hint='Lancez l’analyse ou retirez les pièces en attente avant de confirmer.';
+  end if;
+  if exists(select 1 from public.affaire_intake_uploads u where u.project_id=p_project_id and u.status in ('launch_queued','launch_processing')) then
+    raise exception 'INTAKE_ANALYSIS_RUNNING' using hint='Attendez la fin de l’analyse du dossier avant de confirmer.';
+  end if;
+  if private.intake_brief_state(p_project_id,replay)='required' then
     raise exception 'INTAKE_ANALYSIS_REQUIRED' using hint='Lancez l’analyse pour actualiser le brief avant de confirmer.';
   end if;
   return true;
