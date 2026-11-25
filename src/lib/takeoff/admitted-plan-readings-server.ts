@@ -36,8 +36,12 @@ type Reading = { id: string; documentId: string | null; name: string; state: "an
 
 /** Only a successful or still active unit can prevent another copy of the same bytes from being read. */
 export async function readAdmittedContent(service: Service, tenantId: string, projectId: string) {
+  return admittedContent(await readAdmittedPlanRequests(service, tenantId, projectId));
+}
+
+export function admittedContent(requests: Awaited<ReturnType<typeof readAdmittedPlanRequests>>) {
   const byDigest = new Map<string, Reading[]>();
-  for (const { manifest, units, state } of await readAdmittedPlanRequests(service, tenantId, projectId)) {
+  for (const { manifest, units, state } of requests) {
     if (!units) continue;
     const byFile = new Map(units.units.map(unit => [unit.planFileId, unit.state]));
     for (const plan of manifest.plans) {

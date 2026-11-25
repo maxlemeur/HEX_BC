@@ -52,7 +52,7 @@ const relaunchPlans: RelaunchPlanChoice = {
   planSetId: PLAN_SET_ID, checkedPlanSetId: PLAN_SET_ID, eligiblePlanSetIds: [PLAN_SET_ID],
   currentIds: [SOURCE.document_id, SECOND_PLAN.document_id], defaultIds: [SOURCE.document_id, SECOND_PLAN.document_id],
   states: { [SOURCE.document_id]: "failed", [SECOND_PLAN.document_id]: "not_analysed" },
-  stops: {}, unavailable: {}, withoutCopy: [],
+  readThrough: {}, stops: {}, unavailable: {}, withoutCopy: [],
 };
 
 function completePreparation(): TakeoffPreparation {
