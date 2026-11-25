@@ -64,23 +64,27 @@ it("selects Critical, Takeoff and calc-v3 against the immediate parent of each P
     const merge = (base: string, head: string) => {
       git("switch", "--detach", base);
       git("merge", "--no-ff", "--no-edit", head);
+      return git("rev-parse", "HEAD");
     };
     const select = () => selectFromRepository(root, {
       event: "pull_request", base: git("rev-parse", "HEAD^1"), head: git("rev-parse", "HEAD"),
     });
     const plan = (head: string) => planCalcV3(root, { NODE_ENV: "test", EVENT_NAME: "pull_request", PR_HEAD_SHA: head });
 
-    merge(trunk, lower);
+    const lowerMerge = merge(trunk, lower);
     expect(select()).toMatchObject({
       base: trunk, mode: "full", fullOnly: { mode: "all" }, changedPaths: [{ path: sharedInput }],
     });
     expect(plan(lower)).toMatchObject({ phases: CALC_V3_PHASES, changedPaths: [sharedInput] });
 
-    merge(lower, upper);
-    expect(select()).toMatchObject({
-      base: lower, mode: "none", fullOnly: { mode: "none" }, changedPaths: [{ path: upperDoc }],
-    });
-    expect(plan(upper)).toMatchObject({ phases: [], changedPaths: [upperDoc] });
+    // GitHub may use either the lower branch or its synthetic PR merge commit.
+    for (const base of [lower, lowerMerge]) {
+      merge(base, upper);
+      expect(select()).toMatchObject({
+        base, mode: "none", fullOnly: { mode: "none" }, changedPaths: [{ path: upperDoc }],
+      });
+      expect(plan(upper)).toMatchObject({ phases: [], changedPaths: [upperDoc] });
+    }
 
     merge(trunk, upper);
     expect(select()).toMatchObject({ base: trunk, mode: "full", fullOnly: { mode: "all" } });

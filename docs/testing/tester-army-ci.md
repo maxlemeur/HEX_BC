@@ -93,9 +93,16 @@ horodatages et restamper uniquement les migrations non appliquées selon le
 fonction SQL se livrent successivement à partir de `main`.
 
 GitHub applique le filtre `pull_request.branches: [main]` et les exigences du
-ruleset de `main` à toute la pile liée. Sur chaque PR, le commit testé est le
-commit de fusion, dont le premier parent est la base immédiate. Critical et
-calc-v3 comparent ces deux arbres. Le filtre par modèle réutilise cette base
+ruleset de `main` à toute la pile liée. Après la création de la pile, vérifier
+que les workflows ont démarré sur chaque étage. Si un étage reste sans les
+workflows requis, un push après le chaînage déclenche la CI. S'il n'y a aucun
+correctif à pousser, créer un commit vide sur le premier étage concerné
+(`git commit --allow-empty -m "ci: trigger linked stack checks"`), puis faire
+`gh stack rebase` et `gh stack push`. [Incident GitHub à l'ouverture](https://github.com/github/gh-stack/issues/425).
+
+Sur chaque PR, Critical et calc-v3 comparent le commit de fusion à son
+premier parent. GitHub peut y placer le commit de fusion de l'étage du dessous,
+qui inclut la base sur laquelle cet étage a été testé. Le filtre par modèle réutilise cette base
 via `--changed-since`. La garde des migrations et l'audit des dépendances
 reçoivent la SHA de la base immédiate de l'événement. La concurrence est
 isolée par PR via `github.ref`. Retrouver la base SHA et les chemins dans
