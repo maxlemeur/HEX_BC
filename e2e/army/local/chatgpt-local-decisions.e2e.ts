@@ -1601,6 +1601,116 @@ test("INTOCR01 a recovered launch reads an image and a scanned PDF on the member
   }
 });
 
+for (const unavailableAt of ["classification", "transcription", "lease expiry"] as const) {
+  const scenario = unavailableAt === "lease expiry" ? "an expired lease stops before the next source or publication"
+    : `an unreadable second image at ${unavailableAt} leaves the third reading and brief available`;
+  test(`INTSOURCE01 ${scenario}`, {
+    tags: ["critical", "local", "chatgpt", "intake"], session: "army", timeout: 180_000,
+  }, async ({ app, screen, browser }) => {
+    if (liveProbe || !await preparePlanFixture()) throw new Error("Fictional source failure requires the local transport.");
+    try {
+      await signIn({ app, screen, browser }, localOrigin, fixtureEmail);
+      const prefix = `ARMY-brief-race-source-${unavailableAt}-${Date.now()}`;
+      const ui = hydratedUi({ app, screen, browser }, localOrigin);
+      const { projectId } = await createEstimateViaWizard(ui, { projectName: prefix, title: "Trois images" },
+        { runPrefix: prefix, projectName: prefix, ownedEstimates: [] });
+      const { client } = await localClient();
+      const directory = path.resolve(".e2e/army/critical/artifacts/fixtures", prefix);
+      await mkdir(directory, { recursive: true });
+      const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgYGD4DwABBAEAW9JTswAAAABJRU5ErkJggg==", "base64");
+      const files = [1, 2, 3].map(n => path.join(directory, `Photo ${n}.png`));
+      await Promise.all(files.map((file, index) => writeFile(file, Buffer.concat([png, Buffer.from([index])]))));
+      await ui.app.open(`/dashboard/affaires/${projectId}`);
+      await browser.locator('input[type="file"][aria-label="Ajouter des pièces à l\'affaire"]').first().setInputFiles(files);
+      await expect(screen.getByText("3 pièces en attente de lancement", { exact: true }).first()).toBeVisible();
+      const documents = async () => {
+        const { data, error } = await client.from("affaire_intake_documents")
+          .select("id,file_name,storage_path,classification_status,analysis_completed_at,issues")
+          .eq("project_id", projectId).order("created_at").order("id");
+        if (error) throw error;
+        return data;
+      };
+      const [first, second, third] = await documents();
+      const removeOriginal = async () => {
+        const { data, error } = await client.storage.from("affaire-intake").remove([second.storage_path!]);
+        expect(error).toBeNull();
+        expect(data).toHaveLength(1);
+      };
+      const reads = async () => (await readFile(transportLog, "utf8")).split("\n").filter(Boolean)
+        .map(line => JSON.parse(line)).filter(row => row.task === "transcription").length;
+      const before = await reads();
+      if (unavailableAt === "classification") await removeOriginal();
+      await setDecisionsControl({ transcriptionModel: true, holdTranscription: unavailableAt !== "classification" });
+      if (unavailableAt === "lease expiry") {
+        // Await the actual worker's return before checking the absence of later sends and writes.
+        const { data: launch } = await client.rpc("start_affaire_intake_analysis", { p_project_id: projectId, p_read_scans: true });
+        expect(launch?.[0]).toMatchObject({ outcome: "launched", piece_count: 3 });
+        const launchId = launch![0].launch_id;
+        const worker = expect.poll(async () => {
+          const response = await fetch(new URL("/api/internal/workflows/recover", localOrigin),
+            { headers: { authorization: `Bearer ${recoverySecret}` } });
+          expect(response.status).toBe(200);
+          return (await client.from("affaire_intake_uploads").select("attempt_count").eq("id", launchId).single()).data?.attempt_count;
+        }, DEV_SERVER_WORK).toBe(1);
+        try {
+          await expect.poll(reads, DEV_SERVER_WORK).toBe(before + 1);
+          await removeOriginal();
+          await querySql(`update public.affaire_intake_uploads set processing_lease_expires_at=clock_timestamp()-interval '1 second'
+            where id='${launchId}' and attempt_count=1 and status='launch_processing';`);
+        } finally {
+          await setDecisionsControl({ transcriptionModel: true });
+          await worker;
+        }
+        expect(await reads()).toBe(before + 1);
+        expect((await client.from("affaire_briefs").select("id").eq("project_id", projectId)).data).toEqual([]);
+        expect((await documents()).map(doc => doc.analysis_completed_at)).toEqual([null, null, null]);
+        expect((await client.from("affaire_intake_uploads").select("status,attempt_count,brief_published_revision")
+          .eq("id", launchId).single()).data).toEqual({ status: "launch_processing", attempt_count: 1, brief_published_revision: null });
+        // Retire this deliberately abandoned fixture before another journey runs its recovery sweep.
+        await querySql(`update public.affaire_intake_uploads set processing_lease_expires_at=clock_timestamp()-interval '31 minutes'
+          where id='${launchId}'; select public.stop_affaire_intake_analysis('${launchId}',null);`);
+        return;
+      }
+      await screen.getByRole("button", "Lancer l’analyse", { exact: true }).click();
+      if (unavailableAt === "transcription") {
+        await expect.poll(reads, DEV_SERVER_WORK).toBe(before + 1);
+        await removeOriginal();
+        await setDecisionsControl({ transcriptionModel: true });
+      }
+      const batch = async () => (await client.from("affaire_intake_uploads")
+        .select("status,attempt_count,brief_published_revision").eq("project_id", projectId).eq("launch_read_scans", true).single()).data;
+      await expect.poll(async () => {
+        const row = await batch();
+        return row?.attempt_count === 1 && row.status !== "launch_processing" ? row.status : null;
+      }, DEV_SERVER_WORK).toBe("partial_failure");
+      expect((await batch())?.brief_published_revision).toBeTruthy();
+      const brief = await client.from("affaire_briefs").select("received_pieces").eq("project_id", projectId).single();
+      expect(brief.data?.received_pieces).toEqual(expect.arrayContaining([
+        expect.stringContaining(first.file_name), expect.stringContaining(third.file_name),
+      ]));
+      const readings = await client.from("affaire_intake_document_transcriptions").select("document_id,status")
+        .in("document_id", [first.id, second.id, third.id]);
+      expect(readings.data).toHaveLength(2);
+      expect(readings.data).toEqual(expect.arrayContaining([first, third].map(doc => ({ document_id: doc.id, status: "completed" }))));
+      expect(await reads()).toBe(before + 2);
+      expect((await documents())[1]).toMatchObject({ classification_status: "failed", analysis_completed_at: expect.any(String),
+        issues: expect.arrayContaining([expect.stringMatching(/source/i)]) });
+      const restored = await client.storage.from("affaire-intake").upload(second.storage_path!,
+        await readFile(path.join(directory, second.file_name)), { contentType: "image/png" });
+      expect(restored.error).toBeNull();
+      const retry = await callServerAction(browser, await serverActionId("retryAffaireDocumentAnalysis", actionManifest()),
+        { projectId, documentId: second.id });
+      expect(retry).toMatchObject({ status: 200, digest: null });
+      await expect.poll(async () => (await client.from("affaire_intake_document_transcriptions").select("status")
+        .eq("document_id", second.id).maybeSingle()).data?.status, DEV_SERVER_WORK).toBe("completed");
+    } finally {
+      await setDecisionsControl({});
+      if (fixtureStore) await rm(fixtureStore, { force: true });
+      fixtureStore = undefined;
+    }
+  });
+}
+
 // A reading stopped by a failure is read again by « Relancer l’analyse », after its response; a reading already done is
 // kept. The assistant then gets the text with the image it reads, labelled as unverified, and cites the piece's page.
 // Terra is not listed when the piece arrives (the reading stops on MODEL_UNAVAILABLE), then listed for the retry.

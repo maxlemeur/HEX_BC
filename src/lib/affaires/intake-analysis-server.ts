@@ -109,6 +109,31 @@ async function processClaimedAffaireIntakeUpload(input: {
 
     return { linked, bytes: await blob.arrayBuffer() };
   };
+  // Only the source download is recoverable per piece. Losing the payer, the lease
+  // or the write of the failure still interrupts the launch.
+  const readLaunchSource = async (document: AffaireIntakeDocumentRow) => {
+    try {
+      return await readDocumentBytes(document);
+    } catch (cause) {
+      await checkPayer();
+      const reason = cause instanceof DriveError ? `Lecture de la source Google Drive impossible : ${cause.message}`
+        : "La source de cette pièce est illisible. Vérifiez son accès puis relancez l’analyse de la pièce.";
+      const completedAt = new Date().toISOString();
+      const { data, error } = await supabase.from("affaire_intake_documents")
+        .update({ classification_status: "failed", issues: [reason], analysis_completed_at: completedAt })
+        .eq("id", document.id).eq("analysis_launch_id", claim.uploadId).is("analysis_completed_at", null)
+        .is("deleted_at", null).is("deletion_token", null).is("manually_overridden_at", null)
+        .or("classification_source.is.null,classification_source.neq.manual")
+        .select("id").maybeSingle();
+      if (error) throw internalError("Impossible d’enregistrer l’échec de lecture de la pièce.", error);
+      if (data) {
+        document.analysis_completed_at = completedAt;
+        await insertAffaireIntakeEvent({ supabase, uploadId: claim.uploadId, documentId: document.id,
+          eventType: "document.classification_failed", reason });
+      }
+      return null;
+    }
+  };
   for (const document of documents) {
     if (document.upload_status !== "uploaded") {
       continue;
@@ -188,8 +213,10 @@ async function processClaimedAffaireIntakeUpload(input: {
       continue;
     }
 
+    const launchSource = claim.launch ? await readLaunchSource(document) : null;
+    if (claim.launch && !launchSource) continue;
     try {
-      const { linked, bytes } = await readDocumentBytes(document);
+      const { linked, bytes } = launchSource ?? await readDocumentBytes(document);
       const mimeType =
         document.mime_type ??
         inferAffaireIntakeMimeType(document.file_name) ??
@@ -334,7 +361,9 @@ async function processClaimedAffaireIntakeUpload(input: {
     };
     try {
       await checkReading();
-      const { bytes } = await readDocumentBytes(document);
+      const source = claim.launch ? await readLaunchSource(document) : await readDocumentBytes(document);
+      if (!source) continue;
+      const { bytes } = source;
       await transcribeIntakeDocument({ supabase, owner: aiOwner!, mimeType, bytes, renewLease: checkReading,
         sourceSha256: createHash("sha256").update(Buffer.from(bytes)).digest("hex"),
         document: { id: document.id, tenantId: upload.tenant_id, fileName: document.file_name } });
