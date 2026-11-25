@@ -1,6 +1,7 @@
 import "server-only";
 
 import { z } from "zod";
+import { attachChatGptAnswerUsage, decodeChatGptJson, parseChatGptAnswerSchema, parseChatGptAnswerText } from "@/lib/ai/chatgpt-answer-diagnostic";
 import { StructuredAiError } from "@/lib/ai/structured-ai-diagnostic";
 
 import { LocalChatGptConnectionWithdrawnError } from "@/lib/ai/chatgpt-sign-in-errors";
@@ -8,7 +9,8 @@ export { LocalChatGptConnectionWithdrawnError } from "@/lib/ai/chatgpt-sign-in-e
 
 import { getLocalChatGptCredential } from "@/lib/ai/chatgpt-local-auth";
 import { readChatGptStore, saveChatGptStore, withChatGptLock, type ChatGptOwner } from "@/lib/ai/chatgpt-local-store";
-import type { StructuredCallOptions, StructuredCallResult } from "@/lib/ai/structured-call";
+import type { StructuredCallOptions, StructuredCallResult, TokenUsage } from "@/lib/ai/structured-call";
+import { isRecord } from "@/lib/value-guards";
 import {
   chatGptDefaultPreferences, chatGptModelReasoningCapabilities, chatGptPreferencesSchema, RETIRED_OPENAI_MODEL,
   type ChatGptAvailableModel, type ChatGptPreferences, type ChatGptReasoningEffort,
@@ -154,7 +156,7 @@ export async function* chatGptStreamEvents(response: Response, observe?: (event:
         const data = event.split("\n").filter((line) => line.startsWith("data:"))
           .map((line) => line.slice(5).trimStart()).join("\n");
         if (!data || data === "[DONE]") continue;
-        const parsed = JSON.parse(data) as ChatGptStreamEvent;
+        const parsed = decodeChatGptJson(data, "stream_event_json") as ChatGptStreamEvent;
         // Seen first, a terminal failure included (it may carry the usage it consumed).
         observe?.(parsed);
         if (["response.failed", "response.incomplete", "error"].includes(parsed.type ?? "")) {
@@ -180,6 +182,16 @@ const chatGptUsageSchema = z.object({
   output_tokens_details: z.object({ reasoning_tokens: z.number().default(0) }).optional(),
 });
 type ChatGptUsage = z.infer<typeof chatGptUsageSchema>;
+
+function toTokenUsage(usage: Partial<ChatGptUsage>): TokenUsage {
+  const reasoningTokens = usage.output_tokens_details?.reasoning_tokens ?? 0;
+  return { inputTokens: usage.input_tokens ?? 0, outputTokens: Math.max(0, (usage.output_tokens ?? 0) - reasoningTokens),
+    reasoningTokens, totalTokens: usage.total_tokens ?? 0 };
+}
+
+const chatGptOutputSchema = z.array(z.object({
+  type: z.string(), content: z.array(z.object({ type: z.string(), text: z.string().optional() })).optional(),
+}));
 /**
  * Records a paid call's usage (a launch request's ledger); a failure to record stops the call's caller. `trusted`: the
  * provider stated its total (trustedChatGptUsageTotal); a reserved call is settled only by such a total.
@@ -210,13 +222,25 @@ export function trustedChatGptUsageTotal(raw: unknown): number | null {
 export async function readChatGptResponse(response: Response, onUsage?: ChatGptUsageRecorder) {
   let usage: ChatGptUsage | null = null;
   let trusted: number | null = null;
+  const diagnosticUsage: Partial<ChatGptUsage> = {};
   let read: { text: string } | { error: unknown };
   try {
     read = { text: await readChatGptText(response, (event) => {
-      const seen = chatGptUsageSchema.safeParse(event.response?.usage);
-      if (event.response?.usage !== undefined && seen.success) {
+      const rawUsage = event.response?.usage;
+      const seen = chatGptUsageSchema.safeParse(rawUsage);
+      if (seen.success && isRecord(rawUsage)) {
         usage = seen.data;
-        trusted = trustedChatGptUsageTotal(event.response?.usage);
+        trusted = trustedChatGptUsageTotal(rawUsage);
+        // Keep each reported counter for the diagnostic. A later partial sample must not zero earlier counters.
+        // The ledger still considers only the latest sample.
+        if (typeof rawUsage.input_tokens === "number") diagnosticUsage.input_tokens = seen.data.input_tokens;
+        if (typeof rawUsage.output_tokens === "number") diagnosticUsage.output_tokens = seen.data.output_tokens;
+        if (isRecord(rawUsage.output_tokens_details) && typeof rawUsage.output_tokens_details.reasoning_tokens === "number") {
+          diagnosticUsage.output_tokens_details = seen.data.output_tokens_details;
+        }
+        if (trusted !== null || (diagnosticUsage.total_tokens === undefined && typeof rawUsage.total_tokens === "number")) {
+          diagnosticUsage.total_tokens = seen.data.total_tokens;
+        }
       }
     }) };
   } catch (error) {
@@ -224,9 +248,13 @@ export async function readChatGptResponse(response: Response, onUsage?: ChatGptU
   }
   const paid = usage as ChatGptUsage | null;
   const total = trusted as number | null;
+  const answerFailureUsage = Object.keys(diagnosticUsage).length ? toTokenUsage(diagnosticUsage) : undefined;
   if (paid && onUsage) await onUsage({ totalTokens: total ?? paid.total_tokens, costCents: 0, trusted: total !== null });
-  if ("error" in read) throw read.error;
-  return { text: read.text, usage: paid ?? chatGptUsageSchema.parse({}) };
+  if ("error" in read) {
+    attachChatGptAnswerUsage(read.error, answerFailureUsage);
+    throw read.error;
+  }
+  return { text: read.text, usage: paid ?? chatGptUsageSchema.parse({}), answerFailureUsage };
 }
 
 async function readChatGptText(response: Response, observe: (event: ChatGptStreamEvent) => void) {
@@ -243,9 +271,7 @@ async function readChatGptText(response: Response, observe: (event: ChatGptStrea
     }
   }
   if (!completed || completed.status !== "completed") throw providerError();
-  const output = z.array(z.object({
-    type: z.string(), content: z.array(z.object({ type: z.string(), text: z.string().optional() })).optional(),
-  })).parse(completed.output ?? []);
+  const output = parseChatGptAnswerSchema(chatGptOutputSchema, completed.output ?? [], "response_envelope");
   const finalText = output.filter((item) => item.type === "message").flatMap((item) => item.content ?? [])
     .filter((item) => item.type === "output_text").map((item) => item.text ?? "").join("");
   // ChatGPT plan streams can leave output empty in the completed response.
@@ -410,9 +436,8 @@ export async function callLocalChatGptStructured<T>(owner: ChatGptOwner, options
   }
   const untold = await usageUnknown();
   if (untold) throw untold.error;
-  const { text, usage } = answer;
-  const reasoningTokens = usage.output_tokens_details?.reasoning_tokens ?? 0;
-  const tokenUsage = { inputTokens: usage.input_tokens, outputTokens: Math.max(0, usage.output_tokens - reasoningTokens), reasoningTokens, totalTokens: usage.total_tokens };
+  const { text, usage, answerFailureUsage } = answer;
+  const tokenUsage = toTokenUsage(usage);
   const answered = {
     tokenCount: usage.total_tokens, tokenUsage,
     // No API-priced charge: the request consumes the user's ChatGPT allowance.
@@ -421,7 +446,7 @@ export async function callLocalChatGptStructured<T>(owner: ChatGptOwner, options
   };
   let data: T;
   try {
-    data = options.schema.parse(JSON.parse(text));
+    data = parseChatGptAnswerText(options.schema, text, answerFailureUsage);
   } catch (error) {
     if (mode?.returnRawOnSchemaError && (error instanceof SyntaxError || error instanceof z.ZodError)) {
       return { ...answered, data: null, durationMs: Date.now() - startedAt, rawText: text, schemaError: error };

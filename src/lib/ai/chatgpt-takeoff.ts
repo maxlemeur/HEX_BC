@@ -17,6 +17,7 @@ import type { TakeoffPaidCall, TakeoffPaidCallBranch, TakeoffPaidCallLedger } fr
 import { takeoffExecutionSelectionSchema, type TakeoffExecutionSelection } from "@/lib/takeoff/preparation";
 import { assertTakeoffWorkerConfiguration } from "@/lib/takeoff/default-on-flags";
 import { DETAILED_TAKEOFF_PROCESSING } from "@/lib/takeoff/preparation-from-dossier";
+import { rejectedTakeoffProviderAnswer } from "@/lib/takeoff/rejected-provider-answer";
 
 export function parseTakeoffProvider(value: unknown): TakeoffProvider {
   const parsed = z.enum(["auto", "chatgpt", "gemini"]).safeParse(value ?? "auto");
@@ -294,6 +295,7 @@ export async function resolveLocalTakeoffProvider(supabase: ServerSupabaseClient
         };
         paid.onUnknownUsage = async (call) => { unknown = true; await onUnknown(call); };
       }
+      const startedAt = Date.now();
       try {
         const answer = setting ? await callLocalChatGptStructured(owner, options, paid, setting)
           : await callLocalChatGptStructured(owner, options, paid);
@@ -305,6 +307,9 @@ export async function resolveLocalTakeoffProvider(supabase: ServerSupabaseClient
         // The job's own refusals keep their name: its right to pay, a usage its ledger could not record.
         if (error instanceof TakeoffError) throw error;
         if (error instanceof LocalChatGptConnectionWithdrawnError) throw connectionWithdrawn(job.id);
+        const tileDetails = tile ? { paidUsage: settledTokens, truncated: error instanceof Error && "truncated" in error && error.truncated === true } : undefined;
+        const rejected = rejectedTakeoffProviderAnswer(error, job.id, Math.max(0, Date.now() - startedAt), tileDetails);
+        if (rejected) throw rejected;
         // Stop here: no automatic retry or raw provider data.
         throw new TakeoffError({
           code: error instanceof z.ZodError || error instanceof SyntaxError
@@ -313,7 +318,7 @@ export async function resolveLocalTakeoffProvider(supabase: ServerSupabaseClient
           message: error instanceof Error && error.message.startsWith("Limite du forfait ChatGPT")
             ? "Limite du forfait ChatGPT atteinte. Consultez Gérer ma consommation dans Mon profil."
             : "Le métré ChatGPT a échoué. Vérifiez le compte, le modèle, le niveau d’effort et la connexion dans Mon profil, puis relancez le métré.",
-          details: { provider: "chatgpt", ...(tile && { paidUsage: settledTokens, truncated: error instanceof Error && "truncated" in error && error.truncated === true }) },
+          details: { provider: "chatgpt", ...tileDetails },
         });
       }
     },

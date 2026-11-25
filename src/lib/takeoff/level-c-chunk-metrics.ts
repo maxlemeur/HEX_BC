@@ -5,6 +5,7 @@ import {
 } from "@/lib/takeoff/errors";
 import type { TakeoffJobProcessingRow } from "@/lib/takeoff/job-lifecycle";
 import { TAKEOFF_LEVEL_C, type Supabase } from "@/lib/takeoff/processing-context";
+import { rejectedTakeoffAnswerMetrics } from "@/lib/takeoff/rejected-provider-answer";
 
 export type LevelCChunkMetric = {
   provider: "chatgpt";
@@ -158,6 +159,7 @@ export function logLevelCChunkMetric(input: {
 }
 
 export function buildLevelCRunMetricRows(input: LevelCChunkMetricWriteInput) {
+  const answerRejected = rejectedTakeoffAnswerMetrics(input.hint.errorDetails) !== undefined;
   return input.metrics.map((metric) => ({
     tenant_id: input.job.tenant_id,
     job_id: input.job.id,
@@ -181,7 +183,7 @@ export function buildLevelCRunMetricRows(input: LevelCChunkMetricWriteInput) {
       source_file_name: input.hint.sourceFileName,
       error_code: metric.error_code ?? null,
       error_message: metric.error_message ?? null,
-      error_details: input.hint.errorDetails ?? null,
+      error_details: answerRejected && metric.status === "success" ? null : input.hint.errorDetails ?? null,
     },
   }));
 

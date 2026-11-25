@@ -109,7 +109,7 @@ function RequestUnits({ projectId, request, onLocate, onCommand, onSendItems, pe
         const job: TakeoffRequestActivityJob | null = jobs.get(unit.jobId) ?? null;
         const name = unit.name;
         const failure = unit.state === "failed" || ((unit.state === "canceled" || unit.state === "not_started") && unit.reasonCode)
-          ? describeTakeoffJobFailure(job?.errorCode ?? unit.reasonCode) : null;
+          ? job?.failureMessage ?? describeTakeoffJobFailure(job?.errorCode ?? unit.reasonCode) : null;
         const resume = job?.resume ? describeTakeoffResume(job.resume) : null;
         const reviewable = unit.reviewable && job !== null;
         const busy = pending?.jobId === unit.jobId;

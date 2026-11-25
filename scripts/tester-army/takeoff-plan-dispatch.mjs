@@ -70,6 +70,8 @@ const { processTakeoffJobAttempt } = load("../../src/lib/takeoff/async-worker.ts
 const { processLevelC } = load("../../src/lib/takeoff/processor.ts");
 const { runLocalTakeoffDispatcherPass } = load("../../src/lib/takeoff/local-dispatcher.ts");
 const { TakeoffError, TakeoffErrorCode } = load("../../src/lib/takeoff/errors.ts");
+const { parseChatGptAnswerText } = load("../../src/lib/ai/chatgpt-answer-diagnostic.ts");
+const { rejectedTakeoffProviderAnswer } = load("../../src/lib/takeoff/rejected-provider-answer.ts");
 const { POSTE_EXCHANGE_PROMPT_VERSION } = load("../../src/lib/takeoff/poste-exchange.ts");
 const { posteMeasured, posteNotFound, readPosteManifest } = load("../../src/lib/takeoff/poste-reading.test-fixtures.ts");
 const emit = (event) => process.stdout.write("ARMY_DISPATCH " + JSON.stringify(event) + "\n");
@@ -137,20 +139,20 @@ const resolveProvider = async (_supabase, job, hooks) => {
             counts_as: "distinct", basis_as_requested: false }] }];
         return [answer ? posteMeasured(entry, [{ page: answer.page, quantity: answer.quantity, unit: answer.unit }]) : posteNotFound(entry)];
       });
-      const text = JSON.stringify({ schema_version: manifest.schema_version, prompt_version: manifest.prompt_version,
+      if (spec.invalidQuantity) responses[0].observations[0].quantity = "FICTIONAL_PLAN_MARKER";
+      const text = JSON.stringify({ ...(spec.truncate && { annotation: "FICTIONAL_PLAN_MARKER" }),
+        schema_version: manifest.schema_version, prompt_version: manifest.prompt_version,
         chunk_id: manifest.chunk_id, responses, unreadable_pages: unreadable, unlisted_findings: (spec.finds ?? []).filter(f => searched.includes(f.page)),
         warnings: spec.findsTruncated ? [{ code: "POSTE_HORS_LISTE_TRONQUE", severity: "warning", message: "Liste fictive tronquée." }] : [] });
-      // A truncated reading is no JSON: the local reader's parse refuses it, and the local provider names it as the job's
-      // schema failure (src/lib/ai/chatgpt-takeoff.ts), definitive, as here.
+      const tokenUsage = { inputTokens: 900, reasoningTokens: 25, outputTokens: 75, totalTokens: 1_000 };
+      const durationMs = Math.max(1, Date.now() - startedAt);
       let data;
       try {
-        data = options.schema.parse(JSON.parse(spec.truncate ? text.slice(0, Math.floor(text.length / 2)) : text));
-      } catch {
-        throw new TakeoffError({ code: TakeoffErrorCode.AI_SCHEMA, retryable: false, jobId: job.id,
-          message: "ARMY controlled unreadable answer", details: { provider: "chatgpt" } });
+        data = parseChatGptAnswerText(options.schema, spec.truncate ? text.slice(0, Math.floor(text.length / 2)) : text, tokenUsage);
+      } catch (error) {
+        throw rejectedTakeoffProviderAnswer(error, job.id, durationMs) ?? error;
       }
-      return { data, tokenCount: 1_000, tokenUsage: { inputTokens: 900, reasoningTokens: 0, outputTokens: 100, totalTokens: 1_000 },
-        costCents: 0, durationMs: Math.max(1, Date.now() - startedAt), model: options.context.model, promptVersion: options.context.promptVersion };
+      return { data, tokenCount: 1_000, tokenUsage, costCents: 0, durationMs, model: options.context.model, promptVersion: options.context.promptVersion };
     }
     const plan = (current.preparation_snapshot?.preparation?.sources ?? []).find((source) => source.kind === "plan" && source.active);
     const data = options.schema.parse({

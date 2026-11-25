@@ -57,6 +57,13 @@ const IN_FLIGHT_VISIBLE_STATUS_SET = new Set<TakeoffVisibleJobStatus>(
   TAKEOFF_IN_FLIGHT_VISIBLE_JOB_STATUSES,
 );
 
+export const REJECTED_PROVIDER_ANSWER_MESSAGE = "La réponse de l’analyse n’est pas exploitable pour ce plan et le métré peut être relancé.";
+
+export function rejectedProviderAnswerMessage(code: string | null | undefined, storedMessage: string | null | undefined) {
+  return (code === "AI_SCHEMA" || code === "TAKEOFF_LEVEL_C_INVALID_SCHEMA") && storedMessage === REJECTED_PROVIDER_ANSWER_MESSAGE
+    ? REJECTED_PROVIDER_ANSWER_MESSAGE : undefined;
+}
+
 // What happened, wherever a stopped analysis is shown (the activity, the affaire's overview, the notifications): never
 // what to do, which only the resume decision says where it is known. A new analysis stays detailed: no text proposes
 // another level.
@@ -163,6 +170,8 @@ export function getTakeoffFailureReasonLabel(input: {
   errorCode?: string | null;
   fallbackMessage?: string | null;
 }): string | null {
+  const rejected = rejectedProviderAnswerMessage(input.errorCode, input.fallbackMessage);
+  if (rejected) return rejected;
   if (input.errorCode) {
     return FAILURE_FACTS[input.errorCode] ?? null;
   }

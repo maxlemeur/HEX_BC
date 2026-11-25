@@ -53,6 +53,7 @@ const jobSchema = z.object({
   errorCode: z.string().nullable().describe(
     "Code de diagnostic s’il a un motif public en français, sinon OTHER ; l’écran affiche le motif, jamais le code.",
   ),
+  failureMessage: z.string().optional().describe("Motif public fixe lorsque la réponse du fournisseur est inexploitable."),
   retryCount: count,
   resume: takeoffActivityResumeSchema.nullable().describe("Décision de reprise d’une analyse arrêtée, la même que son détail."),
   canCancel: z.boolean(),

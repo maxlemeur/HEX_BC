@@ -31,6 +31,7 @@ import type { Poste } from "@/lib/takeoff/poste-list";
 import type { TakeoffPreparationSnapshot } from "@/lib/takeoff/preparation";
 import { TAKEOFF_LEVEL_C } from "@/lib/takeoff/processing-context";
 import { getTakeoffItemReadingPrompt } from "@/lib/takeoff/prompts";
+import { rejectedTakeoffAnswerMetrics } from "@/lib/takeoff/rejected-provider-answer";
 import type { VectorPageOutcome } from "@/lib/takeoff/vectors/worker-server";
 
 /**
@@ -168,11 +169,14 @@ export async function readPlanAgainstItemList(input: {
       if (tracked) {
         Object.assign(tracked, { status: "failed", error_code: normalized.code, error_message: normalized.message });
       } else {
-        // An answer the provider's schema refused still consumed its tokens (chatgpt-local-inference.ts attaches them).
+        // A rejected answer still consumed its reported usage.
         const usage = (error as { usage?: Partial<TokenUsage> } | null)?.usage;
+        const metricsFromAnswer = rejectedTakeoffAnswerMetrics(normalized.details) ?? {
+          input_tokens: usage?.inputTokens ?? 0, reasoning_tokens: usage?.reasoningTokens ?? 0,
+          output_tokens: usage?.outputTokens ?? 0, token_count: usage?.totalTokens ?? 0,
+        };
         metrics.push({ ...emptyMetric(index, call.fragment, input.model), timed_out: normalized.code === TakeoffErrorCode.TAKEOFF_LEVEL_C_TIMEOUT,
-          input_tokens: usage?.inputTokens ?? 0, reasoning_tokens: usage?.reasoningTokens ?? 0, output_tokens: usage?.outputTokens ?? 0,
-          token_count: usage?.totalTokens ?? 0, error_code: normalized.code, error_message: normalized.message });
+          ...metricsFromAnswer, error_code: normalized.code, error_message: normalized.message });
       }
       (normalized as LevelCProcessingError).levelCChunkMetrics = cloneLevelCChunkMetrics(metrics);
       throw normalized;
