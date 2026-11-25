@@ -24,7 +24,8 @@ export function measuredSeconds(results: Record<string, unknown>[]): Record<stri
     if (result.selected !== true || typeof result.file !== "string") continue;
     const attempts = result.attempts;
     const attempt = Array.isArray(attempts) && attempts.length === 1 ? attempts[0] : undefined;
-    if (result.status !== "passed" || attempt?.status !== "passed" || !Number.isSafeInteger(attempt.durationMs) || attempt.durationMs < 0) {
+    if (result.expectedFailure != null || result.status !== "passed" || attempt?.status !== "passed" ||
+        attempt.expectedFailure != null || !Number.isSafeInteger(attempt.durationMs) || attempt.durationMs < 0) {
       incomplete.add(result.file);
       continue;
     }

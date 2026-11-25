@@ -4,11 +4,12 @@ import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { isDeepStrictEqual } from "node:util";
 
 import { durationCeiling, measuredSeconds, WARNING_SECONDS } from "./file-durations.ts";
 import { FULL_JOURNEY_FILE } from "./journey-files.mjs";
 import { LOGIN_SETUP } from "./journey-selections.mjs";
-import { SHARDS_PATH, type ShardDurations } from "./select-journeys.ts";
+import { listRepositoryFiles, SHARDS_PATH, type ShardDurations, validateShardDurations } from "./select-journeys.ts";
 
 type Source = { suite: string; run: string; revision: string; directory: string };
 
@@ -58,7 +59,28 @@ export function refreshDurations(config: ShardDurations, measurements: Measureme
       .concat(config.measured ?? []) };
 }
 
+/** The write-capable job accepts data only. Keep every setting, duration key and historical measurement. */
+export function validateProposal(base: ShardDurations, proposal: ShardDurations, files: string[]) {
+  const { seconds, measured, ...settings } = proposal;
+  const { seconds: previousSeconds, measured: history = [], ...originalSettings } = base;
+  if (!isDeepStrictEqual(settings, originalSettings)) throw new Error("Only seconds and measured may change.");
+  if (!seconds || Array.isArray(seconds) || typeof seconds !== "object" ||
+      Object.keys(previousSeconds).some((file) => !Object.hasOwn(seconds, file))) throw new Error("Missing file duration.");
+  const problems = validateShardDurations(proposal, files.filter((file) => FULL_JOURNEY_FILE.test(file)));
+  if (problems.length) throw new Error(problems.join("\n"));
+  if (!Array.isArray(measured) || measured.length <= history.length ||
+      !measured.every((note) => typeof note === "string" && note.trim()) ||
+      !isDeepStrictEqual(measured.slice(measured.length - history.length), history)) throw new Error("Invalid measurement history.");
+}
+
 function main(args: string[]) {
+  if (args[0] === "--apply-proposal" && args.length === 2) {
+    const base = JSON.parse(fs.readFileSync(SHARDS_PATH, "utf8"));
+    const proposal = JSON.parse(fs.readFileSync(args[1], "utf8"));
+    validateProposal(base, proposal, listRepositoryFiles(process.cwd()));
+    fs.writeFileSync(SHARDS_PATH, JSON.stringify(proposal, null, 2) + "\n");
+    return;
+  }
   if (!args.length || args.length % 4) throw new Error("Expected one or more groups of: suite run-id revision aggregate-directory.");
   const measurements = new Map<string, Measurement>();
   for (let i = 0; i < args.length; i += 4) {

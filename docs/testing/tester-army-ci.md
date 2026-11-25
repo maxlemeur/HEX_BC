@@ -395,13 +395,17 @@ cherche pour Critical et Full leur dernière campagne verte de main (push ou
 planification) avec agrégat encore disponible. Le script vérifie le SHA du
 run et des rapports, somme les tests sélectionnés réussis en une tentative
 et arrondit chaque fichier à la seconde supérieure. Il ignore le login répété,
-les fichiers incomplets et ceux modifiés depuis la mesure. Critical a priorité
+les fichiers incomplets, ceux dont un test est en quarantaine et ceux modifiés
+depuis la mesure. Critical a priorité
 pour les fichiers communs. Un fichier nouveau, un passage de seuil dans un
 sens ou dans l'autre, ou un écart d'au moins **10 s et 20 %** met à jour la
 durée et son entrée `measured`. La branche `automation/army-duration-refresh`
 porte une seule PR pour ces écarts. Le résumé et l'artefact
 `army-duration-proposal` restent disponibles sept jours si la création de PR
-échoue.
+échoue. Le job de mesure utilise un jeton de lecture. Le job de publication
+démarre uniquement si une durée change. Il vérifie le schéma de l'artefact,
+les chemins et l'historique, puis refuse tout écart en dehors de `seconds`
+et `measured`. La campagne est réservée à la branche main de ce dépôt.
 
 Pour que les checks de la PR démarrent automatiquement, créer une GitHub App
 dans **Settings → Developer settings → GitHub Apps**, désactiver le webhook,

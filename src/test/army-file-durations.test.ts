@@ -6,7 +6,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { durationCeiling, durationWarnings, measuredSeconds } from "../../scripts/tester-army/file-durations";
-import { readMeasurements, refreshDurations } from "../../scripts/tester-army/refresh-durations";
+import { readMeasurements, refreshDurations, validateProposal } from "../../scripts/tester-army/refresh-durations";
 import { loadShardDurations } from "../../scripts/tester-army/select-journeys";
 
 const { durations } = loadShardDurations(process.cwd());
@@ -24,6 +24,28 @@ describe("Army serial file durations", () => {
     expect(measuredSeconds([pass("a", 1050), pass("a", 1800), pass("b", 30), { ...pass("b", 5), attempts: [] },
       { ...pass("c", 100), selected: false }, { ...pass("d", 1), attempts: [pass("d", 1).attempts[0], pass("d", 2).attempts[0]] }]))
       .toEqual({ a: 3 });
+  });
+
+  it.each(["result", "attempt"])("preserves 450 s when a passing %s records an expected failure", (where) => {
+    const file = "e2e/army/local/quarantine.e2e.ts";
+    const sample = { file, status: "passed", selected: true, attempts: [{ status: "passed", durationMs: 500 }] };
+    const mark = { expectedFailure: { reason: "#123" } };
+    const marked = where === "result" ? { ...sample, ...mark } : { ...sample, attempts: [{ ...sample.attempts[0], ...mark }] };
+    const complete = measuredSeconds([sample, marked]);
+    const prior = { ...durations, seconds: { [file]: 450 } };
+    expect(complete).toEqual({});
+    expect(refreshDurations(prior, Object.entries(complete).map(([file, seconds]) =>
+      ({ file, seconds, suite: "critical", run: "123" })))).toBe(prior);
+  });
+
+  it("accepts only measured durations and appended evidence in the publication job", () => {
+    const files = Object.keys(durations.seconds);
+    const proposed = refreshDurations(durations, [{ file: files[0], seconds: 53, suite: "critical", run: "123" }]);
+    expect(() => validateProposal(durations, proposed, files)).not.toThrow();
+    expect(() => validateProposal(durations, { ...proposed, defaultSeconds: 100 }, files)).toThrow();
+    expect(() => validateProposal(durations, { ...proposed, seconds: {} }, files)).toThrow();
+    expect(() => validateProposal(durations, { ...proposed, measured: ["replacement"] }, files)).toThrow();
+    expect(() => validateProposal(durations, { ...proposed, seconds: { ...proposed.seconds, unknown: -1 } }, files)).toThrow();
   });
 
   it("reads the named suite from a green aggregate and refuses filtered or changed evidence", () => {
