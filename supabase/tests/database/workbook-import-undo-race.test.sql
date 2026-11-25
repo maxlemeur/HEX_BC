@@ -1,0 +1,244 @@
+-- TI-711: exercise undo lock ordering and deployed supplier reference writes against concurrent commits.
+begin;
+
+create extension if not exists pgtap with schema extensions;
+create extension if not exists dblink with schema extensions;
+set local search_path = extensions, public, pg_catalog;
+select no_plan();
+
+create temp table undo_race_connection as
+select format('host=%s port=%s dbname=%s user=postgres password=postgres',
+  trim(split_part(current_setting('unix_socket_directories'), ',', 1)), current_setting('port'), current_database()) as conn;
+select is(extensions.dblink_connect(session.name, (select conn from undo_race_connection)), 'OK',
+  format('%s connected', session.name))
+from (values ('workbook_writer'), ('workbook_undo')) as session(name);
+
+-- Fixtures are committed so independent sessions see them. The first draft gains a usual name,
+-- the second a pending reference. The last two hold the pending pairs that the deployed save and edit
+-- will find and their respective reference-batch undos will remove.
+select is(extensions.dblink_exec('workbook_writer', $setup$
+begin;
+insert into auth.users (instance_id, id, aud, role, email, encrypted_password, email_confirmed_at, raw_app_meta_data,
+  raw_user_meta_data, created_at, updated_at, confirmation_token, email_change, email_change_token_new, recovery_token)
+values ('00000000-0000-0000-0000-000000000000', 'a711ace0-0000-4000-8000-000000000001', 'authenticated', 'authenticated',
+  'workbook-undo-race@example.test', '', now(), '{}'::jsonb, '{}'::jsonb, now(), now(), '', '', '', '');
+select set_config('workbook_race.tenant_id', tenant_id::text, false)
+from public.tenant_memberships where user_id = 'a711ace0-0000-4000-8000-000000000001' and is_default;
+insert into public.catalogue_import_batches (id, tenant_id, kind, created_by)
+select batch.id, current_setting('workbook_race.tenant_id')::uuid, batch.kind, 'a711ace0-0000-4000-8000-000000000001'
+from (values ('a711ace0-0000-4000-8000-000000000010'::uuid, 'workbook_articles'),
+  ('a711ace0-0000-4000-8000-000000000011'::uuid, 'workbook_supplier_references'),
+  ('a711ace0-0000-4000-8000-000000000012'::uuid, 'workbook_supplier_references')) as batch(id, kind);
+insert into public.suppliers (id, tenant_id, name)
+values ('a711ace0-0000-4000-8000-000000000020', current_setting('workbook_race.tenant_id')::uuid, 'Fournisseur fictif');
+set local role authenticated;
+set local request.jwt.claim.sub = 'a711ace0-0000-4000-8000-000000000001';
+insert into public.products (id, designation, unit, unit_price_cents, catalogue_status, import_batch_id) values
+  ('a711ace0-0000-4000-8000-000000000031', 'Tube fictif', 'u', 0, 'draft', 'a711ace0-0000-4000-8000-000000000010'),
+  ('a711ace0-0000-4000-8000-000000000032', 'Coude fictif', 'u', 0, 'draft', 'a711ace0-0000-4000-8000-000000000010'),
+  ('a711ace0-0000-4000-8000-000000000033', 'Bride fictive', 'u', 0, 'draft', null),
+  ('a711ace0-0000-4000-8000-000000000034', 'Manchon fictif', 'u', 0, 'draft', null);
+reset role;
+insert into public.supplier_catalog_items (id, tenant_id, supplier_id, product_id, supplier_sku,
+  is_active, reference_needs_review, import_batch_id)
+values
+  ('a711ace0-0000-4000-8000-000000000040', current_setting('workbook_race.tenant_id')::uuid,
+    'a711ace0-0000-4000-8000-000000000020', 'a711ace0-0000-4000-8000-000000000033', 'FICTIF-40',
+    false, true, 'a711ace0-0000-4000-8000-000000000011'),
+  ('a711ace0-0000-4000-8000-000000000041', current_setting('workbook_race.tenant_id')::uuid,
+    'a711ace0-0000-4000-8000-000000000020', 'a711ace0-0000-4000-8000-000000000034', 'FICTIF-41',
+    false, true, 'a711ace0-0000-4000-8000-000000000012');
+
+-- Pause the deployed write after it has found the pair and before the UPDATE can lock it.
+create function private.pause_workbook_undo_race_update() returns trigger language plpgsql as $pause$
+begin
+  if current_setting('workbook_race.pause_update', true) = 'on' then
+    perform pg_catalog.pg_advisory_xact_lock(711, 186);
+  end if;
+  return null;
+end;
+$pause$;
+create trigger pause_workbook_undo_race_update before update on public.supplier_catalog_items
+for each statement execute function private.pause_workbook_undo_race_update();
+
+-- The late-reference case must keep the draft before DELETE reaches the restrictive foreign key.
+create function private.forbid_workbook_undo_race_product_delete() returns trigger language plpgsql as $guard$
+begin
+  if current_setting('workbook_race.forbid_product_delete', true) = 'on' then
+    raise exception 'Undo attempted to delete a draft protected by an unlocked reference.';
+  end if;
+  return null;
+end;
+$guard$;
+create trigger forbid_workbook_undo_race_product_delete before delete on public.products
+for each statement execute function private.forbid_workbook_undo_race_product_delete();
+commit;
+$setup$), 'COMMIT', 'race fixtures committed');
+
+select is(extensions.dblink_exec(session.name, $claims$
+set role authenticated;
+set request.jwt.claim.sub = 'a711ace0-0000-4000-8000-000000000001';
+set statement_timeout = '15s'
+$claims$), 'SET', format('%s acts as the fixture administrator', session.name))
+from (values ('workbook_writer'), ('workbook_undo')) as session(name);
+
+create temp table undo_race_pids as
+select session.name, remote.pid
+from (values ('workbook_writer'), ('workbook_undo')) as session(name)
+cross join lateral extensions.dblink(session.name, 'select pg_backend_pid()') as remote(pid integer);
+
+create function pg_temp.workbook_undo_waits_for_writer()
+returns boolean language plpgsql as $$
+declare
+  writer_pid integer := (select pid from undo_race_pids where name = 'workbook_writer');
+  other_pid integer := (select pid from undo_race_pids where name = 'workbook_undo');
+begin
+  for attempt in 1..200 loop
+    if writer_pid = any(pg_catalog.pg_blocking_pids(other_pid)) then
+      return true;
+    end if;
+    perform pg_catalog.pg_sleep(0.025);
+  end loop;
+  return false;
+end;
+$$;
+
+select is(extensions.dblink_exec('workbook_writer', $alias$
+begin;
+do $lock$
+begin
+  perform 1 from public.products where id = 'a711ace0-0000-4000-8000-000000000031' for update;
+end;
+$lock$;
+insert into public.product_aliases (product_id, alias, alias_key)
+values ('a711ace0-0000-4000-8000-000000000031', 'Tube atelier', 'tube atelier');
+$alias$), 'INSERT 0 1', 'the writer holds the draft and adds an uncommitted usual name');
+select is(extensions.dblink_send_query('workbook_undo',
+  $$select public.undo_catalogue_import_batch('a711ace0-0000-4000-8000-000000000010', 1)$$), 1, 'undo page one starts');
+select ok(pg_temp.workbook_undo_waits_for_writer(), 'undo waits for the first article lock');
+select is(extensions.dblink_exec('workbook_writer', 'commit'), 'COMMIT', 'the usual name commits');
+select is((select result from extensions.dblink_get_result('workbook_undo') as response(result jsonb)),
+  '{"deleted": 0, "kept": 1, "done": false}'::jsonb, 'a fresh snapshot sees the usual name and keeps its draft');
+select count(*) from extensions.dblink_get_result('workbook_undo') as response(result jsonb);
+select is((select product_id from public.product_aliases where alias_key = 'tube atelier'
+  and product_id = 'a711ace0-0000-4000-8000-000000000031'),
+  'a711ace0-0000-4000-8000-000000000031'::uuid, 'the concurrent usual name survives');
+
+select is(extensions.dblink_exec('workbook_writer', $reference$
+begin;
+do $lock$
+begin
+  perform 1 from public.products where id = 'a711ace0-0000-4000-8000-000000000032' for update;
+end;
+$lock$;
+select public.import_workbook_supplier_references(current_setting('workbook_race.tenant_id')::uuid,
+  jsonb_build_array(jsonb_build_object('product_id', product.id, 'product_reference', product.reference,
+    'supplier_id', 'a711ace0-0000-4000-8000-000000000020', 'supplier_name', 'Fournisseur fictif', 'supplier_sku', 'FICTIF-32')))
+from public.products product where product.id = 'a711ace0-0000-4000-8000-000000000032';
+set local statement_timeout = '15s';
+$reference$), 'SET', 'the writer holds the second draft and imports an uncommitted pending reference');
+select is(extensions.dblink_exec('workbook_undo', 'set workbook_race.forbid_product_delete = on'), 'SET',
+  'the second undo page must keep the draft before attempting a delete');
+select is(extensions.dblink_send_query('workbook_undo',
+  $$select public.undo_catalogue_import_batch('a711ace0-0000-4000-8000-000000000010', 1)$$), 1, 'undo page two starts');
+select ok(pg_temp.workbook_undo_waits_for_writer(), 'undo waits for the second article lock');
+select is(extensions.dblink_exec('workbook_writer', 'commit'), 'COMMIT', 'the pending reference commits');
+select is((select result from extensions.dblink_get_result('workbook_undo', false) as response(result jsonb)),
+  '{"deleted": 0, "kept": 1, "done": true}'::jsonb, 'a reference absent from the locked ids keeps its draft without attempting a delete');
+select count(*) from extensions.dblink_get_result('workbook_undo') as response(result jsonb);
+select ok((select survives from extensions.dblink('workbook_writer', $check$
+  select exists (select 1 from public.supplier_catalog_items
+    where product_id = 'a711ace0-0000-4000-8000-000000000032' and supplier_sku = 'FICTIF-32' and reference_needs_review)
+$check$) as response(survives boolean)),
+  'the concurrent pending reference survives');
+
+select is(extensions.dblink_exec('workbook_undo', 'set workbook_race.pause_update = on'), 'SET', 'the update pause is armed');
+select is(extensions.dblink_exec('workbook_writer', $barrier$
+begin;
+do $lock$ begin perform pg_catalog.pg_advisory_xact_lock(711, 186); end; $lock$;
+$barrier$), 'DO', 'the writer holds the save barrier');
+select is(extensions.dblink_send_query('workbook_undo', $save$
+  select public.save_supplier_catalog_item('a711ace0-0000-4000-8000-000000000033',
+    'a711ace0-0000-4000-8000-000000000020', 'FICTIF-SAVED', null)
+$save$), 1, 'the deployed save finds the existing pair and starts its update');
+select ok(pg_temp.workbook_undo_waits_for_writer(), 'the save pauses between the conflict and the row update');
+select is((select result from extensions.dblink('workbook_writer', $undo$
+  select public.undo_catalogue_import_batch('a711ace0-0000-4000-8000-000000000011')
+$undo$) as response(result jsonb)),
+  '{"deleted": 1, "kept": 0, "done": true}'::jsonb, 'the undo deletes the pair while the save is paused');
+select is(extensions.dblink_exec('workbook_writer', 'commit'), 'COMMIT', 'the undo commits and releases the save');
+create temp table undo_race_save_result as
+select id from extensions.dblink_get_result('workbook_undo') as response(id uuid);
+select count(*) from extensions.dblink_get_result('workbook_undo') as response(id uuid);
+select results_eq(
+  'select id from undo_race_save_result',
+  $expected$select id from extensions.dblink('workbook_writer', $check$
+    select item.id from public.supplier_catalog_items item
+    where item.product_id = 'a711ace0-0000-4000-8000-000000000033'
+      and item.id <> 'a711ace0-0000-4000-8000-000000000040'
+      and item.supplier_sku = 'FICTIF-SAVED' and item.is_active and not item.reference_needs_review
+  $check$) as response(id uuid)$expected$,
+  'the save retries and returns the id of the replacement pair it saved'
+);
+
+select is(extensions.dblink_exec('workbook_writer', $barrier$
+begin;
+do $lock$ begin perform pg_catalog.pg_advisory_xact_lock(711, 186); end; $lock$;
+$barrier$), 'DO', 'the writer holds the barrier for the edit by id');
+select is(extensions.dblink_send_query('workbook_undo', $edit$
+  select public.update_supplier_catalog_item('a711ace0-0000-4000-8000-000000000041', 'FICTIF-EDIT', null)
+$edit$), 1, 'the deployed edit starts with the existing id');
+select ok(pg_temp.workbook_undo_waits_for_writer(), 'the edit has read the row and pauses at its UPDATE');
+select is((select result from extensions.dblink('workbook_writer', $undo$
+  select public.undo_catalogue_import_batch('a711ace0-0000-4000-8000-000000000012')
+$undo$) as response(result jsonb)),
+  '{"deleted": 1, "kept": 0, "done": true}'::jsonb, 'the undo removes the row while the edit is paused');
+select is(extensions.dblink_exec('workbook_writer', 'commit'), 'COMMIT', 'the undo commits before the edit can write');
+select throws_ok(
+  $$select * from extensions.dblink_get_result('workbook_undo') as response(result jsonb)$$,
+  'P0002', 'Supplier catalogue item not found.', 'the edit by id reports the disappeared row'
+);
+select count(*) from extensions.dblink_get_result('workbook_undo', false) as response(result jsonb);
+select is((select items from extensions.dblink('workbook_writer', $check$
+  select count(*)::integer from public.supplier_catalog_items
+  where product_id = 'a711ace0-0000-4000-8000-000000000034'
+$check$) as response(items integer)), 0, 'the losing edit leaves no supplier reference behind');
+
+select extensions.dblink_exec(session.name, 'rollback', false)
+from (values ('workbook_writer'), ('workbook_undo')) as session(name);
+select is(extensions.dblink_exec('workbook_writer', $cleanup$
+begin;
+reset role;
+reset request.jwt.claim.sub;
+drop trigger pause_workbook_undo_race_update on public.supplier_catalog_items;
+drop function private.pause_workbook_undo_race_update();
+drop trigger forbid_workbook_undo_race_product_delete on public.products;
+drop function private.forbid_workbook_undo_race_product_delete();
+set local session_replication_role = replica;
+do $clean$
+declare
+  target uuid := current_setting('workbook_race.tenant_id')::uuid;
+  entry record;
+begin
+  for entry in
+    select table_schema, table_name
+    from information_schema.columns
+    join information_schema.tables using (table_schema, table_name)
+    where column_name = 'tenant_id' and table_schema in ('public', 'private')
+      and table_type = 'BASE TABLE' and not (table_schema = 'public' and table_name in ('tenants', 'audit_logs'))
+  loop
+    execute format('delete from %I.%I where tenant_id = $1', entry.table_schema, entry.table_name) using target;
+  end loop;
+  delete from public.audit_logs where tenant_id = target;
+  delete from public.tenants where id = target;
+end;
+$clean$;
+delete from public.profiles where id = 'a711ace0-0000-4000-8000-000000000001';
+delete from auth.users where id = 'a711ace0-0000-4000-8000-000000000001';
+commit;
+$cleanup$), 'COMMIT', 'committed fixtures and the test trigger are removed');
+select is(extensions.dblink_disconnect(session.name), 'OK', format('%s disconnected', session.name))
+from (values ('workbook_writer'), ('workbook_undo')) as session(name);
+
+select * from finish();
+rollback;

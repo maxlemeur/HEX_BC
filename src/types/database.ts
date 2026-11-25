@@ -25,6 +25,7 @@ type CheckedColumns = CheckedColumnSpec<{
   supplier_pricebook: { transport_mode: "included" | "excluded" | null; zero_price_kind: "included" | "free" | null; purchase_rounding: "none" | "ceil" | null };
   product_reference_price_validations: { mode: "average" | "manual" };
   products: { catalogue_status: "draft" | "validated" };
+  catalogue_import_batches: { kind: "workbook_articles" | "workbook_supplier_references" };
   estimate_version_zero_lots: { status: "generated" | "partial" | "missing" };
   estimate_version_zero_lines: { review_status: "pending" | "accepted" | "edited" | "rejected" };
   estimate_terms_templates: { policy: "optional" | "default" | "required" };
@@ -72,6 +73,8 @@ type NullableArguments = NullableArgumentSpec<{
   supplier_prices_summary: "p_product_id" | "p_supplier_id";
   update_supplier_catalog_item: "p_supplier_sku" | "p_product_url";
   save_supplier_catalog_item: "p_supplier_sku" | "p_product_url";
+  start_workbook_article_import: "p_source_name";
+  import_workbook_supplier_reference_batch: "p_source_name";
   commit_estimate_batch: "p_draft_lock_session_id";
   persist_generated_ouvrage_review: "p_expected_review_token";
   commit_generated_ouvrages: "p_draft_lock_session_id";
