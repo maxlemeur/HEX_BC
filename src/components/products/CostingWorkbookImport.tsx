@@ -405,12 +405,16 @@ export function CostingWorkbookImport({
   }
 
   function previewEdits(base: CostingWorkbookRows, nextEdits: WorkbookEdit[]) {
+    const nextRows = applyWorkbookFileEdits(base, nextEdits);
     advanceRevision();
     setDuplicateSearch(null);
     setEdits(nextEdits);
-    setPreviews((previous) => ({ [mode]: previous[mode] }));
+    // A preview is drawn from the rows: once they lose a required column (a header mapping undone), the one on
+    // screen can no longer be read against them, and the next answer is the format refusal.
+    const readable = inspectCostingWorkbookColumns(nextRows).missingRequired.length === 0;
+    setPreviews((previous) => (readable ? { [mode]: previous[mode] } : {}));
     setResults({});
-    void runPreview(mode, applyWorkbookFileEdits(base, nextEdits));
+    void runPreview(mode, nextRows);
   }
 
   function applyEdits(added: WorkbookEdit[]) {

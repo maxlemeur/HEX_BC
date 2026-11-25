@@ -260,6 +260,27 @@ describe("CostingWorkbookImport, corrections in the screen", () => {
     expect(screen.getByRole("list", { name: "Corrections" })).toHaveTextContent("A1 : Réf → ID");
   });
 
+  it("drops the preview it can no longer read when the mapping of a required column is undone", async () => {
+    const user = userEvent.setup();
+    const renamed = [["Réf", ...HEADERS.slice(1)], ...SHEET_ROWS.slice(1)];
+    const refusal = "Ce fichier n’a pas les colonnes du classeur de chiffrage (onglet « All_data ») : ID manquantes.";
+    answers.articles = () => (previews().length === 2
+      ? respond(200, { ok: true, data: articleReport() })
+      : respond(422, { ok: false, error: { code: "COSTING_WORKBOOK_FORMAT", message: refusal } }));
+    renderImport();
+    await user.upload(fileInput(), costingWorkbook(renamed));
+    await user.selectOptions(await screen.findByLabelText("En-tête du classeur à lire comme ID"), "A · Réf");
+    expect(await screen.findByRole("table", { name: "Articles proposés en brouillon" })).toBeVisible();
+
+    const journal = screen.getByRole("region", { name: "Corrections appliquées à l’aperçu" });
+    await user.click(within(journal).getByRole("button", { name: "Tout annuler" }));
+    await waitFor(() => expect(previews()).toHaveLength(3));
+    expect(previews()[2].body?.rows?.[0]?.[0]).toBe("Réf");
+    expect(await screen.findByText(/ID manquantes\./)).toBeVisible();
+    expect(screen.queryByRole("table", { name: "Articles proposés en brouillon" })).not.toBeInTheDocument();
+    expect(screen.getByLabelText("En-tête du classeur à lire comme ID")).toBeVisible();
+  });
+
   it("previews and confirms a formatted numeric ID after remapping its header", async () => {
     const user = userEvent.setup();
     answers.articles = () => previews().length === 1

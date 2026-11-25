@@ -222,16 +222,18 @@ export function EditableValue({ row, column, empty = "—", className, mono = fa
   return (
     <span className="inline-flex min-w-0 max-w-full items-start gap-1">
       <span className={`min-w-0 ${mono ? "font-mono text-xs" : ""} ${value || display ? "" : "text-muted-foreground"} ${className ?? ""}`}>{display ?? (value || empty)}</span>
-      <button
-        type="button"
+      {/* One per cell of the preview: a plain button with its name, not a tooltip trigger per cell. */}
+      <Button
+        variant="ghost"
+        size="icon-xs"
         disabled={busy}
         aria-label={`Corriger la cellule ${address}`}
         title={`Corriger ${address} dans l’aperçu`}
-        className="mt-0.5 inline-flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-primary focus-visible:outline-2 focus-visible:outline-ring disabled:opacity-40"
+        className="mt-0.5 size-5 rounded hover:text-primary"
         onClick={() => setDraft(value)}
       >
         <PencilIcon className="size-3" aria-hidden="true" />
-      </button>
+      </Button>
     </span>
   );
 }

@@ -242,9 +242,9 @@ export function ArticlePreview({
             {notImported > 0 ? (
               <p className="text-xs text-muted-foreground">
                 Les références fournisseur se reprennent après les brouillons, dans l’onglet{" "}
-                <button type="button" className="font-medium text-primary hover:underline focus-visible:outline-2 focus-visible:outline-ring" onClick={onShowSupplierReferences}>
+                <Button variant="link" size="xs" className="align-baseline font-medium" onClick={onShowSupplierReferences}>
                   Références fournisseur
-                </button>.
+                </Button>.
               </p>
             ) : null}
             {proposedAll.length > 0 ? (
