@@ -212,6 +212,10 @@ with expected_authenticated_grants(table_name, privilege_name) as (
     ('product_aliases', 'SELECT'),
     ('product_aliases', 'INSERT'),
     ('product_aliases', 'DELETE'),
+    ('supplier_aliases', 'SELECT'),
+    ('supplier_aliases', 'INSERT'),
+    ('supplier_aliases', 'DELETE'),
+    ('catalogue_import_batches', 'SELECT'),
     ('product_packagings', 'SELECT'),
     ('product_packagings', 'INSERT'),
     ('product_packagings', 'UPDATE'),
@@ -268,6 +272,8 @@ with authenticated_data_api_tables(table_name) as (
     ('material_request_quotes'),
     ('material_request_quote_lines'),
     ('product_aliases'),
+    ('supplier_aliases'),
+    ('catalogue_import_batches'),
     ('product_packagings'),
     ('assistant_threads'),
     ('assistant_messages'),
@@ -311,7 +317,11 @@ with forbidden_authenticated_dml(table_name, privilege_name) as (
     ('assistant_messages', 'DELETE'),
     ('material_request_quotes', 'DELETE'),
     ('material_request_quote_lines', 'DELETE'),
-    ('product_aliases', 'UPDATE')
+    ('product_aliases', 'UPDATE'),
+    ('supplier_aliases', 'UPDATE'),
+    ('catalogue_import_batches', 'INSERT'),
+    ('catalogue_import_batches', 'UPDATE'),
+    ('catalogue_import_batches', 'DELETE')
 )
 select ok(
   not has_table_privilege(
@@ -326,6 +336,22 @@ select ok(
   )
 )
 from forbidden_authenticated_dml as expected;
+
+-- Server writers retain explicit DML exceptions on the import tables, as on product aliases.
+with expected_server_privileges(table_name, privilege_name) as (
+  values
+    ('product_aliases', 'UPDATE'),
+    ('supplier_aliases', 'UPDATE'),
+    ('catalogue_import_batches', 'SELECT'),
+    ('catalogue_import_batches', 'INSERT'),
+    ('catalogue_import_batches', 'UPDATE'),
+    ('catalogue_import_batches', 'DELETE')
+)
+select ok(
+  has_table_privilege('service_role', format('public.%I', expected.table_name), expected.privilege_name),
+  format('service_role retains %s on public.%I', expected.privilege_name, expected.table_name)
+)
+from expected_server_privileges as expected;
 
 with expected_restrictive_policies(table_name, policy_name, command_name) as (
   values
