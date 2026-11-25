@@ -59,7 +59,7 @@ export function AffaireConfirmDialog({
       }}
     >
       {open ? (
-        <AlertDialogContent className={secondaryAction ? "max-h-[90dvh] overflow-y-auto sm:max-w-2xl" : undefined}>
+        <AlertDialogContent className={secondaryAction ? "max-h-[90dvh] overflow-y-auto data-[size=default]:sm:max-w-2xl" : undefined}>
           <AlertDialogHeader>
             <AlertDialogTitle>{title}</AlertDialogTitle>
             <AlertDialogDescription>{message}</AlertDialogDescription>
@@ -70,7 +70,7 @@ export function AffaireConfirmDialog({
               <AlertDescription className="text-danger">{errorMessage}</AlertDescription>
             </Alert>
           ) : null}
-          <AlertDialogFooter>
+          <AlertDialogFooter className={secondaryAction ? "sm:flex-wrap" : undefined}>
             <AlertDialogCancel disabled={cancelDisabled}>Annuler</AlertDialogCancel>
             {secondaryAction}
             <Button

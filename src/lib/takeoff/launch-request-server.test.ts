@@ -2050,13 +2050,16 @@ describe("the page limit of a request read plan by plan", () => {
       mime_type: "application/pdf" }));
     vi.mocked(loadPreparation).mockResolvedValue({ draft: buildDeducedTakeoffPreparation({ sources, planSetId: PLAN_SET }), revision: null,
       availableSources: sources } as never);
-    return { admitted, recorded, pieces: copies.map((copy, index) => ({ id: copy.id, name: planName(index) })) };
+    return { admitted, recorded, storageCalls: fake.storageCalls, pieces: copies.map((copy, index) => ({ id: copy.id, name: planName(index) })) };
   }
 
   it("admits only the checked copy even when an unchecked PDF exceeds the reading limit", async () => {
-    const { admitted } = await plansDossier([1, 201], { perPlan: true, checkedIndex: 0 });
+    const { admitted, storageCalls } = await plansDossier([1, 201], { perPlan: true, checkedIndex: 0 });
     expect(await evaluateTakeoffLaunchRequests()).toMatchObject([{ outcome: "admitted" }]);
-    expect(admitted).toMatchObject([{ p_job: [{ launch_unit_key: `plan:${planId(0)}` }], p_manifest: { plans: [{ plan_file_id: planId(0) }] } }]);
+    expect(storageCalls.some((call) => call.paths.some((path) => path.includes(planId(1))))).toBe(false);
+    expect(admitted).toMatchObject([{ p_job: [{ launch_unit_key: `plan:${planId(0)}` }], p_manifest: {
+      plans: [{ plan_file_id: planId(0) }], coverage: { plans_omitted: [{ id: planId(1), reason: "not_selected" }] },
+    } }]);
   });
 
   it("refuses a different PDF at the same checked copy before admission", async () => {

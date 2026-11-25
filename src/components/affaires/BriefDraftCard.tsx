@@ -53,7 +53,7 @@ const PLAN_READING_LABELS: Record<BriefPlanOption["state"], string> = {
   analysed: "Déjà analysé",
   in_progress: "Analyse en cours",
   not_analysed: "Non analysé",
-  unverified: "Lecture à vérifier. La copie actuelle sera comparée aux plans déjà lus avant de lancer une analyse.",
+  unverified: "Lecture à vérifier. L’empreinte de cette copie est inconnue. Son contenu sera comparé aux lectures précédentes avant tout lancement.",
 };
 
 const EDITABLE_BLOCKS = new Set<AffaireIntakeBriefBlockKey>([

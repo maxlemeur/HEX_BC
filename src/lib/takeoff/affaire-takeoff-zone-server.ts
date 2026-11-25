@@ -65,7 +65,7 @@ function omittedEntries<T extends string>(entries: unknown, reasons: readonly T[
   });
 }
 
-const PLAN_REASONS = ["alternate", "identical_copy", "unsupported_format", "not_requested"] as const;
+const PLAN_REASONS = ["alternate", "identical_copy", "unsupported_format", "not_requested", "not_selected"] as const;
 const REFERENCE_REASONS = ["unreadable", "unsupported_format", "limit"] as const;
 
 /**

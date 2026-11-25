@@ -64,7 +64,7 @@ export type AffaireTakeoffZoneRequest = {
    */
   coverage: null | {
     plansRetained: number;
-    plansOmitted: Array<{ name: string; reason: "alternate" | "identical_copy" | "unsupported_format" | "not_requested" }>;
+    plansOmitted: Array<{ name: string; reason: "alternate" | "identical_copy" | "unsupported_format" | "not_requested" | "not_selected" }>;
     referencesOmitted: Array<{ name: string; reason: "unreadable" | "unsupported_format" | "limit" }>;
   };
   /** The event of its end: the members' notification and its e-mail. */
@@ -279,7 +279,7 @@ export function buildAffaireTakeoffZone(zoneInput: AffaireTakeoffZoneInput): Aff
   }
   const { request, latestJob } = data;
   const hasDossier = input.dossier !== null && input.dossier !== "empty";
-  if (!request && !latestJob && input.planFileCount === 0 && !hasDossier) return null;
+  if (!request && !latestJob && input.planFileCount === 0 && !hasDossier && !data.confirmedWithoutRequest) return null;
 
   let state: RequestState;
   let pieces: TakeoffLaunchPiece[] = [];

@@ -1998,7 +1998,9 @@ if (!existsSync(liveProbePath)) test("AUTO01 choosing one of two plans reads it 
     await uploadDossierPlan(ui, ids.projectId, `${prefix}-plan-rdc.pdf`, owner.email);
     await uploadDossierPlan(ui, ids.projectId, `${prefix}-plan-toiture.pdf`, owner.email, "opened");
     await expect.poll(async () => (await readOwnedBrief(ids.projectId))?.status ?? null, DEV_SERVER_WORK).toBe("a_confirmer");
-    const briefBefore = (await readOwnedBrief(ids.projectId))!;
+    // Classification of the second PDF can finish while the first brief is still visible.
+    await expect.poll(async () => (await owner.client.from("affaire_intake_uploads").select("id").eq("project_id", ids.projectId)
+      .in("status", ["launch_queued", "launch_processing"])).data, DEV_SERVER_WORK).toEqual([]);
     expect(await readOwnedLaunchRequests(ids.projectId)).toEqual([]);
     const readsBefore = await planReads();
 
@@ -2010,6 +2012,7 @@ if (!existsSync(liveProbePath)) test("AUTO01 choosing one of two plans reads it 
     await expect(dialog).not.toContainText(PAYER_NOTICE);
     await dialog.getByRole("checkbox", /plan-rdc\.pdf/).check();
     await expect(dialog).toContainText(PAYER_NOTICE);
+    const briefBefore = (await readOwnedBrief(ids.projectId))!;
     await dialog.getByRole("button", "Confirmer et analyser 1 plan", { exact: true }).click();
 
     // One request, one detailed analysis of the dossier's plan without a version, on the confirmer's subscription.
@@ -2045,6 +2048,11 @@ if (!existsSync(liveProbePath)) test("AUTO01 choosing one of two plans reads it 
       return { status: response.status, sha256 };
     }, { job: jobs[0].id, file: sealedPlan });
     expect(original).toEqual({ status: 200, sha256: planHash });
+
+    await ui.app.open(`/dashboard/affaires/${ids.projectId}?view=overview`);
+    const zone = takeoffZone({ screen });
+    await expect(zone).toContainText(`${prefix}-plan-toiture.pdf (non analysé dans cette demande)`, DEV_SERVER_WORK);
+    await expect(zone).not.toContainText("Dossier modifié depuis l’analyse");
 
     // The member's identical submission of the revision they confirmed (a second tab, or an answer lost on the way)
     // gets the first one's answer and starts nothing more; a form of any other revision is refused.

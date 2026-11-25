@@ -430,6 +430,8 @@ async function sealAutomaticSnapshot(service: Service, input: {
   const intake = intakeDocumentsByPlanFile(input.planSet.files, await recordedPlanPieces(service, input.tenantId, input.planSet.id,
     input.planSet.files.map((file) => file.id)));
   const omittedPlans: TakeoffLaunchManifest["coverage"]["plans_omitted"] = [
+    ...input.planSet.files.filter((file) => selectedPlans && !Object.hasOwn(selectedPlans, file.id))
+      .map((file) => ({ id: file.id, name: getPlanFileDisplayName(file), reason: "not_selected" as const })),
     ...planSetCopiesSetAside(snapshot.preparation.sources, input.planSet.id),
     ...input.unsupportedPlans.map((plan) => ({ ...plan, reason: "unsupported_format" as const })),
   ];

@@ -40,6 +40,7 @@ const ACTION_CLASS = "min-h-11 max-sm:w-full sm:min-h-9";
 const OMITTED_PLAN: Record<string, string> = {
   alternate: "autre version retenue", identical_copy: "copie identique", unsupported_format: "format non lu",
   not_requested: "lu par une analyse précédente",
+  not_selected: "non analysé dans cette demande",
 };
 const OMITTED_REFERENCE: Record<string, string> = { unreadable: "illisible", unsupported_format: "format non lu", limit: "limite atteinte" };
 

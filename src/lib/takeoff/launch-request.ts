@@ -142,7 +142,7 @@ export type TakeoffLaunchManifest = {
      * a plan an earlier analysis of the affaire read that a member's command did not name (not_requested: that analysis
      * stays; the dossier piece and generation it sealed are kept, so that the dossier's change since is still told).
      */
-    plans_omitted: Array<{ id: string; name: string; reason: "alternate" | "identical_copy" | "unsupported_format" | "not_requested";
+    plans_omitted: Array<{ id: string; name: string; reason: "alternate" | "identical_copy" | "unsupported_format" | "not_requested" | "not_selected";
       intake_document_id?: string | null; generation?: string | null }>;
     /**
      * Retained in the dossier but not attached: no stored copy to read, a stored object that is not this piece's in this

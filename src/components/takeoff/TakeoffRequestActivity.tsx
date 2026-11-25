@@ -226,6 +226,7 @@ function RequestNotes({ projectId, request, onChanged }: { projectId: string; re
   const OMITTED: Record<Activity["plansOmitted"][number]["reason"], string> = {
     alternate: "autre indice retenu", identical_copy: "copie identique", unsupported_format: "format non lu",
     not_requested: "lu par une analyse précédente",
+    not_selected: "non analysé dans cette demande",
   };
 
   return (

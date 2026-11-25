@@ -99046,7 +99046,8 @@
                                 "alternate",
                                 "identical_copy",
                                 "unsupported_format",
-                                "not_requested"
+                                "not_requested",
+                                "not_selected"
                               ]
                             }
                           },
@@ -99727,7 +99728,8 @@
                               "alternate",
                               "identical_copy",
                               "unsupported_format",
-                              "not_requested"
+                              "not_requested",
+                              "not_selected"
                             ]
                           }
                         },

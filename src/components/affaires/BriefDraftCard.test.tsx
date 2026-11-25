@@ -61,7 +61,7 @@ describe("BriefDraftCard confirmation dialog", () => {
     expect(first).not.toBeChecked();
     expect(dialog.getByRole("checkbox", { name: /Niveau 1/ })).toBeDisabled();
     expect(dialog.getByRole("checkbox", { name: /Niveau 2/ })).toBeDisabled();
-    expect(dialog.getByRole("checkbox", { name: /Niveau 3/ })).toBeEnabled();
+    expect(dialog.getByRole("checkbox", { name: /Niveau 3.*empreinte.*inconnue/ })).toBeEnabled();
     expect(dialog.queryByText(NOTICE.message)).not.toBeInTheDocument();
     expect(dialog.getByRole("button", { name: "Confirmer et analyser 0 plan" })).toBeDisabled();
     await user.click(first);
