@@ -4,7 +4,7 @@ import { querySql } from "../local/calculation-gate-support";
 import { signUpDedicatedOwner } from "../local/dedicated-owner";
 import {
   acceptOnPlan, countOwnedReceipts, fictionalSendPlanPdf, holdDraftElsewhere, readOwnedLines, readOwnedParts, readOwnedVersions, releaseDraftElsewhere,
-  seedItemSendAffaire,
+  seedItemSendAffaire, deferEditorDepartureReleases, deliverEditorDepartureReleases,
 } from "./poste-send-support";
 import { describe, expect, nativeTest as test } from "./native-ui";
 
@@ -139,6 +139,26 @@ describe("Envoi d’un plan au devis, poste par poste", () => {
       expect([(await readOwnedLines(seeded.projectId)).find((line) => line.id === lavabo.id)!.quantity, await countOwnedReceipts(seeded.projectId)])
         .toEqual([3, 1]);
       await releaseDraftElsewhere(v1.id, other.userId);
+
+      // The same account has the editor open in another tab. The send must leave its lease and the estimate intact.
+      const takeoffTab = ui.browser.tabs().find((tab) => tab.isActive())!;
+      const editorTab = await ui.browser.newTab();
+      const ownerLease = () => querySql(`select id from public.draft_locks where version_id = '${v1.id}' and user_id = '${owner.userId}';`);
+      try {
+        await app.open(`/dashboard/estimates/${v1.id}/edit`);
+        await expect.poll(async () => (await ownerLease()).length).toBe(1);
+        const held = await ownerLease();
+        await takeoffTab.activate();
+        await sendB.click();
+        await expect(dialog().getByTestId("item-send-error")).toContainText("La version cible est verrouillée dans un autre de vos onglets.");
+        expect(await ownerLease()).toEqual(held);
+        expect(await countOwnedReceipts(seeded.projectId)).toBe(1);
+      } finally {
+        await editorTab.activate();
+        await app.open(`/dashboard/affaires/${seeded.projectId}/takeoff`);
+        await editorTab.close();
+      }
+      await expect.poll(async () => (await ownerLease()).length).toBe(0);
 
       // The line changed in the editor between the preview and the confirmation, its quantity unchanged (a description):
       // the plan shown is no longer the plan the server computes. Refused (409), nothing written, the preview read again,
@@ -296,6 +316,32 @@ describe("Envoi d’un plan au devis, poste par poste", () => {
     // The draft already holds this item by level: the same breakdown is proposed, never mixed.
     await expect(dialog().getByRole("radio", "Par niveau", { exact: true })).toBeChecked();
     await expect(dialog().getByRole("table", "Lignes du devis après l’envoi", { exact: true })).toContainText("R+1");
+    // Hold the editor's real acquisition until after full navigation. A release sent by
+    // the departing document then finds no lease; the delayed POST still carries its identity.
+    const lockUrl = `/api/estimates/${(await readOwnedVersions(seeded.projectId))[0].id}/lock`;
+    const lockPath = `**${lockUrl}`;
+    const forwardEditorPost = Promise.withResolvers<void>();
+    let editorSession: string | undefined;
+    let takeoffSession: string | undefined;
+    const handover: string[] = [];
+    let editorPostStatus = 0;
+    await ui.browser.route(lockPath, async (route) => {
+      const session = route.request.headers["x-estimate-draft-lock-session-id"];
+      if (editorPostStatus === 201) {
+        if (route.request.method === "PATCH") takeoffSession = session;
+        const page = session === editorSession ? "editor" : session && session === takeoffSession ? "takeoff" : "unknown";
+        handover.push(`${route.request.method} ${page}`);
+      }
+      if (route.request.method !== "POST" || !route.request.headers.referer?.includes("/edit?")) {
+        await route.fallback();
+        return;
+      }
+      editorSession = session;
+      await forwardEditorPost.promise;
+      const response = await route.fetch();
+      editorPostStatus = response.status;
+      await route.abort();
+    });
     await dialog().getByRole("button", /^Envoyer « plan-b\.pdf » dans /).click();
     await expect(ui.browser).toHaveURL(/\/dashboard\/estimates\/[0-9a-f-]{36}\/edit\?focusItemId=/, { timeout: 60_000 });
     // Each level has its section (positions count within a parent): 3 under the ground floor's, 2 under the first floor's.
@@ -310,13 +356,22 @@ describe("Envoi d’un plan au devis, poste par poste", () => {
     const parts = await readOwnedParts(seeded.projectId);
     expect(parts.map(({ job_id, quantity, state }) => [job_id, quantity, state]).sort())
       .toEqual([[planA.jobId, 3, "live"], [planB.jobId, 2, "live"]].sort());
+    await expect.poll(() => Boolean(editorSession)).toBe(true);
+    await deferEditorDepartureReleases(ui.browser, lockUrl);
     await app.open(`/dashboard/affaires/${seeded.projectId}/takeoff`);
     await waitForHydration(ui.browser);
     await screen.getByRole("button", "Redistribuer les apports de « plan-b.pdf »", { exact: true }).click();
     await dialog().getByRole("button", "Prévisualiser la redistribution").click();
     await expect(dialog().getByRole("region", "Déplacements des apports")).toContainText("Ensemble · 5 u");
+    const releases = await deliverEditorDepartureReleases(ui.browser, lockUrl, editorSession!);
+    expect(releases.length).toBeGreaterThan(0);
+    for (const release of releases) expect(release).toEqual({ status: 200, released: false });
+    forwardEditorPost.resolve();
+    await expect.poll(() => editorPostStatus).toBe(201);
     await dialog().getByRole("button", "Confirmer la redistribution").click();
     await expect(dialog()).toContainText("Redistribution enregistrée.");
+    await expect.poll(() => handover).toEqual(["PATCH takeoff", "DELETE editor", "POST takeoff", "DELETE takeoff"]);
+    await ui.browser.unroute(lockPath);
     // A correction after the send is authoritative. Neither PDF proposes a building.
     for (const [plan, bytes, level] of [[planA, pdfs.a, "RDC"], [planB, pdfs.b, "Combles"]] as const) {
       const saved = await apiRequest(ui.browser, "PUT", `/api/takeoff/plan-sets/${seeded.planSetId}/files/${plan.fileId}/location`, {
@@ -335,7 +390,7 @@ describe("Envoi d’un plan au devis, poste par poste", () => {
     const combined = (await readOwnedLines(seeded.projectId)).filter((line) => line.item_type === "line");
     expect(combined.map((line) => [line.title, line.quantity])).toEqual([["Lavabo", 5]]);
     expect(combined[0].inputs.unit_price_ht_cents).toBe(lines[0].inputs.unit_price_ht_cents);
-    await recordEvidence(army, "POSTE-ENVOI02", { projectId: seeded.projectId, lines, combined, screenshots: [shot, afterReload] });
+    await recordEvidence(army, "POSTE-ENVOI02", { projectId: seeded.projectId, lines, combined, handover, screenshots: [shot, afterReload] });
   });
 
   test("POSTE-ENVOI03 une liste tirée du DPGF sans ligne du DPGF au devis renvoie à l’import confirmé et n’importe rien", options,
