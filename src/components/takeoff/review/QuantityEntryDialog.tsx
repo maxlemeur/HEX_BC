@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
+import { NativeSelect } from "@/components/ui/native-select";
 import {
   HYPOTHESIS_NOTE,
   QUANTITY_ENTRY_CATEGORIES,
@@ -20,7 +21,6 @@ import { noteLength, noteText } from "@/lib/takeoff/rules/verification";
 // after F2 or a direct entry, or a guided reduction of such a line): one category, and a note an hypothesis requires.
 // Enter saves a complete entry, Escape cancels it: nothing is saved without its category.
 
-const SELECT_CLASS = "rounded-md border border-border bg-surface p-2 text-sm";
 export const quantityText = (value: number) => new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 3 }).format(value);
 
 export function QuantityEntryDialog({ quantity, unit, busy, onClose, onConfirm }: Readonly<{
@@ -58,10 +58,10 @@ export function QuantityEntryDialog({ quantity, unit, busy, onClose, onConfirm }
         }}>
           <Field>
             <FieldLabel htmlFor={categoryId}>Justification</FieldLabel>
-            <select id={categoryId} className={SELECT_CLASS} value={category} onChange={(event) => setCategory(event.target.value)}>
+            <NativeSelect id={categoryId} size="sm" value={category} onChange={(event) => setCategory(event.target.value)}>
               <option value="">Choisir une justification</option>
               {Object.entries(QUANTITY_ENTRY_CATEGORIES).map(([code, label]) => <option key={code} value={code}>{label}</option>)}
-            </select>
+            </NativeSelect>
           </Field>
           <Field>
             <FieldLabel htmlFor={noteId}>Ce qui fonde la quantité</FieldLabel>

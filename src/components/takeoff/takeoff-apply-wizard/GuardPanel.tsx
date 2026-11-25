@@ -24,10 +24,9 @@ import {
 } from "./forced-drafts";
 import { confidenceColor, formatConfidencePercent } from "./shared";
 import { buttonVariants } from "@/components/ui/button";
+import { NativeSelect } from "@/components/ui/native-select";
 import { cn } from "@/lib/utils";
 import { Textarea } from "@/components/ui/textarea";
-
-const SELECT_CLASS = "w-full rounded-md border border-border bg-surface p-2 text-sm";
 
 /** A justification counted as the server counts it (code points, without the blanks at its ends). */
 function JustificationCount({ id, value }: Readonly<{ id: string; value: string }>) {
@@ -75,11 +74,11 @@ function ForcedLine({ line, draft, onChange }: Readonly<{
       <div className="grid gap-2 sm:grid-cols-[minmax(0,14rem)_minmax(0,1fr)]">
         <div>
           <label htmlFor={`${id}-reason`} className="block text-xs font-medium text-foreground-secondary">Motif</label>
-          <select id={`${id}-reason`} aria-label={`Motif : ${line.designation}`} className={SELECT_CLASS} value={draft.reason}
+          <NativeSelect id={`${id}-reason`} size="sm" aria-label={`Motif : ${line.designation}`} value={draft.reason}
             onChange={(event) => onChange({ ...draft, reason: event.target.value as ForceReason | "", rules: [] })}>
             <option value="">Choisir un motif</option>
             {reasons.map((code) => <option key={code} value={code}>{FORCE_REASONS[code]}</option>)}
-          </select>
+          </NativeSelect>
           {draft.reason === "rule_false_positive" && rules.length > 1 ? (
             <fieldset className="mt-2">
               <legend className="text-xs font-medium text-foreground-secondary">Règle fautive</legend>
@@ -272,11 +271,11 @@ export function GuardPanel({
             <label htmlFor={`${bulkId}-reason`} className="block text-xs font-medium text-foreground-secondary">
               Motif de la sélection
             </label>
-            <select id={`${bulkId}-reason`} className={SELECT_CLASS} value={bulk.reason}
+            <NativeSelect id={`${bulkId}-reason`} size="sm" value={bulk.reason}
               onChange={(event) => setBulk({ ...bulk, reason: event.target.value as ForceReason | "" })}>
               <option value="">Choisir un motif</option>
               {bulkReasons.map((code) => <option key={code} value={code}>{FORCE_REASONS[code]}</option>)}
-            </select>
+            </NativeSelect>
             <label htmlFor={`${bulkId}-justification`} className="block text-xs font-medium text-foreground-secondary">
               Justification de la sélection
             </label>

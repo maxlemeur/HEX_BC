@@ -14,6 +14,7 @@ import {
 import { UploadIcon } from "lucide-react";
 import { buttonVariants } from "@/components/ui/button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { NativeSelect } from "@/components/ui/native-select";
 import { cn } from "@/lib/utils";
 import { getFileExtension } from "@/components/imports/importWizardFileScan";
 
@@ -275,9 +276,10 @@ export function UploadStep({ projectId, onImportReady, intakeDpgfCandidates = NO
           {intakeDpgfCandidates.length > 1 ? (
             <div className="mb-4">
               <label htmlFor="intake-dpgf-selection" className="text-sm font-medium">Choisir une DPGF du dossier</label>
-              <select
+              <NativeSelect
                 id="intake-dpgf-selection"
-                className="mt-2 w-full rounded-md border border-border bg-surface px-3 py-2 text-sm"
+                size="sm"
+                wrapperClassName="mt-2"
                 value={dossierDocumentId}
                 onChange={(event) => {
                   dossierRequestRef.current?.abort();
@@ -291,7 +293,7 @@ export function UploadStep({ projectId, onImportReady, intakeDpgfCandidates = NO
               >
                 <option value="">Sélectionner une pièce</option>
                 {intakeDpgfCandidates.map((candidate) => <option key={candidate.documentId} value={candidate.documentId}>{candidate.label}</option>)}
-              </select>
+              </NativeSelect>
             </div>
           ) : intakeDpgfCandidates.length === 1 && dossierDocumentId ? (
             <p className="mb-4 text-sm text-foreground-secondary">DPGF du dossier : {intakeDpgfCandidates[0].label}</p>

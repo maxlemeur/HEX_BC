@@ -9,6 +9,7 @@ import {
 
 import type { RegisterEntryFormState } from "./registerTypes";
 import { buttonVariants } from "@/components/ui/button";
+import { NativeSelect } from "@/components/ui/native-select";
 
 type RegisterEntryFormProps = {
   form: RegisterEntryFormState;
@@ -86,8 +87,9 @@ export function RegisterEntryForm({
       <div className="mt-3 grid gap-3 lg:grid-cols-6">
         <label className="flex flex-col gap-1 text-xs text-muted-foreground lg:col-span-1">
           Type
-          <select
-            className="min-h-[44px] rounded-lg border border-border bg-surface px-2.5 py-1.5 text-xs text-foreground-secondary sm:min-h-0"
+          <NativeSelect
+            size="sm"
+            className="min-h-[44px] text-xs sm:min-h-0"
             name="register-kind"
             autoComplete="off"
             value={form.kind}
@@ -100,12 +102,13 @@ export function RegisterEntryForm({
                 {label}
               </option>
             ))}
-          </select>
+          </NativeSelect>
         </label>
         <label className="flex flex-col gap-1 text-xs text-muted-foreground lg:col-span-1">
           Sévérité
-          <select
-            className="min-h-[44px] rounded-lg border border-border bg-surface px-2.5 py-1.5 text-xs text-foreground-secondary sm:min-h-0"
+          <NativeSelect
+            size="sm"
+            className="min-h-[44px] text-xs sm:min-h-0"
             name="register-severity"
             autoComplete="off"
             value={form.severity}
@@ -121,12 +124,13 @@ export function RegisterEntryForm({
                 {label}
               </option>
             ))}
-          </select>
+          </NativeSelect>
         </label>
         <label className="flex flex-col gap-1 text-xs text-muted-foreground lg:col-span-1">
           Scope
-          <select
-            className="min-h-[44px] rounded-lg border border-border bg-surface px-2.5 py-1.5 text-xs text-foreground-secondary sm:min-h-0"
+          <NativeSelect
+            size="sm"
+            className="min-h-[44px] text-xs sm:min-h-0"
             name="register-scope"
             autoComplete="off"
             value={form.scopeType}
@@ -145,14 +149,15 @@ export function RegisterEntryForm({
                 {label}
               </option>
             ))}
-          </select>
+          </NativeSelect>
         </label>
         {form.scopeType === "lot" || form.scopeType === "line" ? (
           <label className="flex flex-col gap-1 text-xs text-muted-foreground lg:col-span-3">
             {form.scopeType === "lot" ? "Lot cible" : "Ligne cible"}
-            <select
+            <NativeSelect
+              size="sm"
               aria-label={form.scopeType === "lot" ? "Lot cible" : "Ligne cible"}
-              className="min-h-[44px] rounded-lg border border-border bg-surface px-2.5 py-1.5 text-xs text-foreground-secondary sm:min-h-0"
+              className="min-h-[44px] text-xs sm:min-h-0"
               name={form.scopeType === "lot" ? "register-lot" : "register-line"}
               autoComplete="off"
               value={form.scopeId}
@@ -168,7 +173,7 @@ export function RegisterEntryForm({
                   {option.label}
                 </option>
               ))}
-            </select>
+            </NativeSelect>
           </label>
         ) : null}
         {form.scopeType === "exception" ? (

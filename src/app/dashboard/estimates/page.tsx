@@ -21,6 +21,8 @@ import { ResultCount } from "@/components/TableFilterBar/ResultCount";
 import { EstimateStatusChips } from "@/components/estimates/EstimateStatusChips";
 import { ColumnHeaderHelp } from "@/components/estimates/components/ColumnHeaderHelp";
 import type { SortOption } from "@/components/TableFilterBar/types";
+import { Button, buttonVariants } from "@/components/ui/button";
+import { NativeSelect } from "@/components/ui/native-select";
 
 const PAGE_SIZE_OPTIONS = [20, 50, 100] as const;
 type PageSizeOption = (typeof PAGE_SIZE_OPTIONS)[number];
@@ -420,7 +422,7 @@ export default function EstimatesPage() {
         </div>
         <div className="flex items-center gap-2">
           <details className="relative">
-            <summary className="btn btn-secondary btn-lg cursor-pointer list-none select-none gap-1.5">
+            <summary className={buttonVariants({ variant: "outline", size: "lg", className: "cursor-pointer list-none select-none gap-1.5" })}>
               Outils
               <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <polyline points="6 9 12 15 18 9" />
@@ -441,7 +443,7 @@ export default function EstimatesPage() {
               </Link>
             </div>
           </details>
-          <Link className="btn btn-primary btn-lg" href="/dashboard/estimates/new">
+          <Link className={buttonVariants({ variant: "primary", size: "lg" })} href="/dashboard/estimates/new">
             <svg
               xmlns="http://www.w3.org/2000/svg"
               width="20"
@@ -549,8 +551,10 @@ export default function EstimatesPage() {
                 />
               </div>
             </div>
-            <button
-              className="btn btn-ghost btn-sm px-2"
+            <Button
+              variant="ghost"
+              size="md"
+              className="px-2"
               disabled={isValidating}
               onClick={() => void mutate()}
               type="button"
@@ -569,7 +573,7 @@ export default function EstimatesPage() {
                 <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8" />
                 <path d="M21 3v5h-5" />
               </svg>
-            </button>
+            </Button>
           </div>
 
           <EstimateStatusChips
@@ -594,15 +598,17 @@ export default function EstimatesPage() {
                 onSortChange={setSort}
                 onDirectionToggle={toggleSortDirection}
               />
-              <select
-                className="btn btn-secondary btn-sm"
+              <NativeSelect
+                size="sm"
+                wrapperClassName="w-auto"
+                aria-label="Période"
                 value={dateRange}
                 onChange={(e) => setDateRange(e.target.value as DateRange)}
               >
                 {DATE_RANGE_OPTIONS.map((opt) => (
                   <option key={opt.value} value={opt.value}>{opt.label}</option>
                 ))}
-              </select>
+              </NativeSelect>
             </div>
             <ResultCount
               filteredCount={filteredCount}
@@ -777,19 +783,19 @@ export default function EstimatesPage() {
                           <div className="flex items-center gap-2">
                             <Link
                               href={`/dashboard/estimates/${estimate.versionId}`}
-                              className="btn btn-secondary btn-sm"
+                              className={buttonVariants({ variant: "outline", size: "md" })}
                             >
                               Voir
                             </Link>
                             <Link
                               href={`/dashboard/estimates/${estimate.versionId}/edit`}
-                              className="btn btn-primary btn-sm"
+                              className={buttonVariants({ variant: "primary", size: "md" })}
                             >
                               Éditer
                             </Link>
                             <details className="relative">
                               <summary
-                                className="btn btn-ghost btn-sm cursor-pointer list-none select-none px-2"
+                                className={buttonVariants({ variant: "ghost", size: "md", className: "cursor-pointer list-none select-none px-2" })}
                                 aria-label="Plus d'actions"
                               >
                                 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -799,8 +805,10 @@ export default function EstimatesPage() {
                                 </svg>
                               </summary>
                               <div className="absolute right-0 bottom-full z-20 mb-1 flex flex-col gap-1 rounded-xl border border-[var(--slate-200)] bg-surface p-2 shadow-xl" style={{ minWidth: "140px" }}>
-                                <button
-                                  className="btn btn-ghost btn-sm w-full justify-start"
+                                <Button
+                                  variant="ghost"
+                                  size="md"
+                                  className="w-full justify-start"
                                   type="button"
                                   onClick={() => runWithFeedback(() => handleDuplicate(estimate.versionId))}
                                   disabled={Boolean(duplicatingId)}
@@ -813,10 +821,10 @@ export default function EstimatesPage() {
                                   ) : (
                                     "Dupliquer"
                                   )}
-                                </button>
+                                </Button>
                                 <Link
                                   href={`/dashboard/estimates/${estimate.versionId}/print`}
-                                  className="btn btn-ghost btn-sm w-full justify-start"
+                                  className={buttonVariants({ variant: "ghost", size: "md", className: "w-full justify-start" })}
                                 >
                                   Imprimer
                                 </Link>
@@ -929,13 +937,13 @@ export default function EstimatesPage() {
                       <div className="flex items-center gap-2">
                         <Link
                           href={`/dashboard/estimates/${estimate.versionId}/edit`}
-                          className="btn btn-primary btn-sm"
+                          className={buttonVariants({ variant: "primary", size: "md" })}
                         >
                           Éditer
                         </Link>
                         <Link
                           href={`/dashboard/estimates/${estimate.versionId}`}
-                          className="btn btn-secondary btn-sm"
+                          className={buttonVariants({ variant: "outline", size: "md" })}
                         >
                           Voir
                         </Link>
@@ -951,32 +959,35 @@ export default function EstimatesPage() {
         {filteredCount > PAGE_SIZE_OPTIONS[0] ? (
           <div className="flex items-center justify-between border-t border-[var(--slate-200)] px-6 py-4">
             <div className="flex items-center gap-1">
-              <button
-                className="btn btn-secondary btn-sm"
+              <Button
+                variant="outline"
+                size="md"
                 type="button"
                 onClick={() => goToPage(1)}
                 disabled={currentPage === 1}
                 aria-label="Première page"
               >
                 &laquo;
-              </button>
-              <button
-                className="btn btn-secondary btn-sm"
+              </Button>
+              <Button
+                variant="outline"
+                size="md"
                 type="button"
                 onClick={() => goToPage(currentPage - 1)}
                 disabled={currentPage === 1}
                 aria-label="Page précédente"
               >
                 &lsaquo;
-              </button>
+              </Button>
             </div>
             <div className="flex items-center gap-3">
               <label className="text-xs font-semibold text-[var(--slate-500)]" htmlFor="estimates-page-size">
                 Par page
               </label>
-              <select
+              <NativeSelect
                 id="estimates-page-size"
-                className="form-input form-select form-input--sm h-9 min-w-[88px]"
+                size="sm"
+                wrapperClassName="w-auto min-w-[88px]"
                 value={pageSize}
                 onChange={(e) => {
                   const next = Number(e.target.value);
@@ -988,30 +999,32 @@ export default function EstimatesPage() {
                 {PAGE_SIZE_OPTIONS.map((v) => (
                   <option key={v} value={v}>{v}</option>
                 ))}
-              </select>
+              </NativeSelect>
               <span className="text-xs text-[var(--slate-500)]">
                 Page {currentPage} / {totalPages}
               </span>
             </div>
             <div className="flex items-center gap-1">
-              <button
-                className="btn btn-secondary btn-sm"
+              <Button
+                variant="outline"
+                size="md"
                 type="button"
                 onClick={() => goToPage(currentPage + 1)}
                 disabled={currentPage === totalPages}
                 aria-label="Page suivante"
               >
                 &rsaquo;
-              </button>
-              <button
-                className="btn btn-secondary btn-sm"
+              </Button>
+              <Button
+                variant="outline"
+                size="md"
                 type="button"
                 onClick={() => goToPage(totalPages)}
                 disabled={currentPage === totalPages}
                 aria-label="Dernière page"
               >
                 &raquo;
-              </button>
+              </Button>
             </div>
           </div>
         ) : null}

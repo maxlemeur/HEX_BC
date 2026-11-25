@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useId } from "react";
 
 import type { loadChatGptConnection } from "@/app/dashboard/_actions/chatgpt";
+import { NativeSelect } from "@/components/ui/native-select";
 import type { TakeoffProvider } from "@/lib/takeoff/types";
 
 export type ChatGptConnection = Awaited<ReturnType<typeof loadChatGptConnection>>;
@@ -24,14 +25,13 @@ export function TakeoffProviderSelect({ value, onChange, connection, disabled, p
   return (
     <div className="space-y-2">
       <label htmlFor={id} className="block text-sm font-medium text-foreground">Fournisseur IA</label>
-      <select id={id} value={value} disabled={disabled}
+      <NativeSelect id={id} size="sm" value={value} disabled={disabled}
         onChange={(event) => onChange(event.target.value as TakeoffProvider)}
-        className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-foreground"
         aria-describedby={`${id}-help`}>
         <option value="auto">{preserveAutomaticChoice ? "Automatique — fournisseur de la demande confirmée" : "Automatique — forfait ChatGPT local"}</option>
         <option value="chatgpt" disabled={!available}>ChatGPT — forfait local{connection?.model ? ` (${connection.model})` : " indisponible ou à connecter"}</option>
         {value === "gemini" && <option value="gemini" disabled>Ancien fournisseur indisponible — choisissez ChatGPT</option>}
-      </select>
+      </NativeSelect>
       {value === "gemini" && <p role="status" className="text-xs text-warning">Cet ancien fournisseur est indisponible. Choisissez ChatGPT et confirmez à nouveau la préparation.</p>}
       {!available && value !== "gemini" && <p role="status" className="text-xs text-warning">Connectez votre forfait ChatGPT et choisissez un modèle dans Mon profil pour lancer le métré.</p>}
       <p id={`${id}-help`} className="text-xs text-muted-foreground">

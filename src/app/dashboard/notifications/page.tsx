@@ -1,4 +1,5 @@
 import { NavigationLink as Link } from "@/components/navigation/NavigationFeedback";
+import { Button } from "@/components/ui/button";
 import { listTakeoffCompletionNotifications } from "@/lib/takeoff/completion-notifications";
 import { formatTakeoffCompletionDate, TAKEOFF_COMPLETION_LABELS } from "@/lib/takeoff/completion-outcome";
 import { takeoffReviewHref } from "@/lib/takeoff/review-href";
@@ -74,7 +75,7 @@ export default async function NotificationsPage({
                 {!notice.read_at && (
                   <form action={markTakeoffCompletionRead}>
                     <input type="hidden" name="notificationId" value={notice.id} />
-                    <button className="btn btn-secondary btn-sm" type="submit">Marquer comme lue</button>
+                    <Button variant="outline" size="md" type="submit">Marquer comme lue</Button>
                   </form>
                 )}
               </li>

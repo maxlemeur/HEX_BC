@@ -2,6 +2,7 @@
 
 import { useEffect, useId, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { NativeSelect } from "@/components/ui/native-select";
 import { Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { foCostDetail } from "@/lib/estimates/fo-cost-detail";
 import {
@@ -142,12 +143,12 @@ function SiteCostForm({ item, onClose, onPatchItem }: { item: EstimateItem; onCl
                 onChange={(event) => setDocument(event.target.value)} />
             </label>
             <label className={field} htmlFor={`${formId}-transport`}>Transport
-              <select id={`${formId}-transport`} className="estimate-input h-9 w-full py-0 font-normal" value={transport}
+              <NativeSelect id={`${formId}-transport`} size="sm" className="font-normal" value={transport}
                 onChange={(event) => setTransport(event.target.value as "" | "included" | "excluded")}>
                 <option value="">Non précisé</option>
                 <option value="included">Inclus dans l’offre</option>
                 <option value="excluded">Hors transport</option>
-              </select>
+              </NativeSelect>
             </label>
             {error ? <p role="alert" className="text-sm text-red-700 sm:col-span-2">{error}</p> : null}
           </DialogBody>

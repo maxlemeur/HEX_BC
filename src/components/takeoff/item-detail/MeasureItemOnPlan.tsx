@@ -6,6 +6,7 @@ import { CHATGPT_REASONING_EFFORT_LABELS, type ChatGptReasoningEffort } from "@/
 import { isTakeoffReadRefusal } from "@/components/takeoff/useTakeoffRequestActivity";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { NativeSelect } from "@/components/ui/native-select";
 import { isTakeoffApiError } from "@/lib/takeoff/client-http";
 import type { ItemDetailAddress } from "@/lib/takeoff/item-detail-address";
 import type { ItemDetailPlanView } from "@/lib/takeoff/item-detail-contracts";
@@ -193,9 +194,9 @@ export function MeasureItemOnPlan({ projectId, line, plan, page, listRevisionId,
     <Dialog open={open} onOpenChange={(value) => { if (!value && !submitting.current && !unsure) { operation.current++; setOpen(false); } }}>
       <DialogContent><DialogHeader><DialogTitle>Mesurer ce poste</DialogTitle>
         <DialogDescription>{line.label} · {line.expectedUnit ?? "Unité non renseignée"} · {plan.name}</DialogDescription></DialogHeader>
-        <label>Portée <select value={singlePage ? "page" : "plan"} disabled={busy || unsure} onChange={(e) => void show(e.target.value === "page", true)}>
+        <label className="grid gap-1 text-sm">Portée <NativeSelect size="sm" value={singlePage ? "page" : "plan"} disabled={busy || unsure} onChange={(e) => void show(e.target.value === "page", true)}>
           <option value="plan">Toutes les pages admises du plan</option><option value="page">Page affichée seule · {page}</option>
-        </select></label>
+        </NativeSelect></label>
         <label><input type="checkbox" checked={proposeMarks} disabled={busy || unsure}
           onChange={(e) => void show(singlePage, true, e.target.checked)} /> Proposer des repères à vérifier</label>
         {proposeMarks && preview?.detail?.markSchedule && <p>
@@ -213,13 +214,13 @@ export function MeasureItemOnPlan({ projectId, line, plan, page, listRevisionId,
             <p>{effects[preview.detail.effect]}</p></> : null}
           <p>Niveau · Détaillé</p><p>Forfait de {preview.payer.name ?? "la personne connectée"}</p>
           {preview.subscription.state === "unavailable" ? <p role="alert">{preview.subscription.reason}</p> : <>
-            <label>Modèle <select value={model} disabled={busy || unsure} onChange={(e) => { setModel(e.target.value); setEffort(null); }}>
+            <label className="grid gap-1 text-sm">Modèle <NativeSelect size="sm" value={model} disabled={busy || unsure} onChange={(e) => { setModel(e.target.value); setEffort(null); }}>
               {!selected ? <option value={model}>{model} (indisponible)</option> : null}
-              {preview.models?.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}</select></label>
-            <label>Niveau de raisonnement <select value={effort ?? ""} disabled={busy || unsure}
+              {preview.models?.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}</NativeSelect></label>
+            <label className="grid gap-1 text-sm">Niveau de raisonnement <NativeSelect size="sm" value={effort ?? ""} disabled={busy || unsure}
               onChange={(e) => setEffort(e.target.value as ChatGptReasoningEffort || null)}>
               <option value="">Automatique</option>{selected?.reasoningEfforts.map((f) => <option key={f} value={f}>{CHATGPT_REASONING_EFFORT_LABELS[f]}</option>)}
-            </select></label></>}
+            </NativeSelect></label></>}
           {preview.reading.state === "ready" ? <p>{preview.detail?.markSchedule && "Hors repérage · "}{preview.reading.summary} Budget réservé · {preview.reading.budgetTokens.toLocaleString("fr-FR")} jetons.</p>
             : <p role="alert">{preview.reading.reason}</p>}
           {preview.running ? <p>Une demande de métré est déjà active sur cette affaire. Votre sélection est conservée.</p> : null}

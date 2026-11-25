@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { NativeSelect } from "@/components/ui/native-select";
 import { releaseEstimateDraftLock } from "@/lib/estimates/client-locks";
 import { ensureTakeoffApplyDraftLock } from "@/lib/takeoff/apply-draft-lock";
 import { isTakeoffApiError, requestItemRedistribution } from "@/lib/takeoff/client";
@@ -114,21 +115,21 @@ export function ItemRedistributionPanel({ jobId, viewerKey, versionId, disabled 
   return <section className="space-y-3" aria-label="Redistribution après envoi">
     <h3 className="font-semibold">Redistribuer les apports déjà envoyés</h3>
     <label className="block">Poste et devis
-      <select className="form-input" disabled={disabled || busy} value={option.version_id + option.item_id} onChange={(event) => {
+      <NativeSelect disabled={disabled || busy} value={option.version_id + option.item_id} onChange={(event) => {
         setSelected(event.target.value); reset();
       }}>
         {options.map((row) => <option key={row.version_id + row.item_id} value={row.version_id + row.item_id}>
           V{row.version_number} · {row.title}
         </option>)}
-      </select>
+      </NativeSelect>
     </label>
     <label className="block">Nouveau découpage
-      <select className="form-input" value={mode} disabled={disabled || busy} onChange={(event) => {
+      <NativeSelect value={mode} disabled={disabled || busy} onChange={(event) => {
         setMode(event.target.value as ItemSendBreakdown); reset();
       }}>
         {(["together", "by_level", "by_building"] as const).map((value) =>
           <option key={value} value={value}>{ITEM_SEND_BREAKDOWN_LABELS[value]}</option>)}
-      </select>
+      </NativeSelect>
     </label>
     <Button variant="outline" disabled={disabled || busy} onClick={() => void run(false)}>Prévisualiser la redistribution</Button>
     {message ? <p role="status">{message}</p> : null}

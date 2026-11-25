@@ -6,6 +6,7 @@ import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Field, FieldLabel, FieldLegend, FieldSet } from "@/components/ui/field";
+import { NativeSelect } from "@/components/ui/native-select";
 import { Textarea } from "@/components/ui/textarea";
 import { TAKEOFF_RULE_LABELS } from "@/lib/takeoff/rules/labels";
 import type { TakeoffRuleResult } from "@/lib/takeoff/rules/types";
@@ -34,8 +35,6 @@ import {
 // are computed again with it, then the acceptance is offered again. A measured outline retained keeps the line's
 // quantity, on the price line's basis too (D21): nothing to retain then. That quantity is not always the measurement: a
 // vector room labelled « sol net » is stored at max(polygon, printed) when created (vectors/items.ts).
-
-const SELECT_CLASS = "rounded-md border border-border bg-surface p-2 text-sm";
 
 type Line = { rule_results?: TakeoffRuleResult[]; rules_stale?: boolean; quantity: number };
 
@@ -113,12 +112,12 @@ export function VerificationJustificationDialog({ item, busy, error, onClose, on
             <p className="text-xs text-muted-foreground">Indiquez la gamme, le fabricant, le certificat et les conditions d’emploi qui justifient cette ligne.</p>
             <Field>
               <FieldLabel htmlFor="verification-reason">Motif</FieldLabel>
-              <select id="verification-reason" className={SELECT_CLASS} value={network.reason}
+              <NativeSelect id="verification-reason" size="sm" value={network.reason}
                 onChange={(event) => setNetwork({ ...network, reason: event.target.value })}>
                 <option value="">Choisir un motif</option>
                 {Object.entries(VERIFICATION_REASONS).filter(([code]) => gasPe ? code !== "system_documented" : code === "system_documented")
                   .map(([code, label]) => <option key={code} value={code}>{label}</option>)}
-              </select>
+              </NativeSelect>
             </Field>
             <NoteField id="verification-system" label="Référence du système" value={network.reference}
               onChange={(reference) => setNetwork({ ...network, reference })} />
@@ -131,11 +130,11 @@ export function VerificationJustificationDialog({ item, busy, error, onClose, on
             <p className="text-xs text-muted-foreground">Calibrer la page règle cet échec pour toutes ses lignes, sans motif.</p>
             <Field>
               <FieldLabel htmlFor="verification-scale-reason">Motif d’échelle</FieldLabel>
-              <select id="verification-scale-reason" className={SELECT_CLASS} value={scale.reason}
+              <NativeSelect id="verification-scale-reason" size="sm" value={scale.reason}
                 onChange={(event) => setScale({ ...scale, reason: event.target.value })}>
                 <option value="">Choisir un motif</option>
                 {Object.entries(SCALE_DIMENSION_REASONS).map(([code, label]) => <option key={code} value={code}>{label}</option>)}
-              </select>
+              </NativeSelect>
             </Field>
             <NoteField id="verification-scale-note" label="Ce qui a été vérifié" value={scale.note}
               onChange={(note) => setScale({ ...scale, note })} />
@@ -153,11 +152,11 @@ export function VerificationJustificationDialog({ item, busy, error, onClose, on
             ) : null}
             <Field>
               <FieldLabel htmlFor="verification-area-reason">Motif de surface</FieldLabel>
-              <select id="verification-area-reason" className={SELECT_CLASS} value={area.reason}
+              <NativeSelect id="verification-area-reason" size="sm" value={area.reason}
                 onChange={(event) => setArea({ ...area, reason: event.target.value })}>
                 <option value="">Choisir un motif</option>
                 {Object.entries(AREA_PRINTED_REASONS).map(([code, label]) => <option key={code} value={code}>{label}</option>)}
-              </select>
+              </NativeSelect>
             </Field>
             <FieldSet className="gap-1.5">
               <FieldLegend variant="label">Base de la surface écrite</FieldLegend>
