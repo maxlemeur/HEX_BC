@@ -162,6 +162,7 @@
       "e2e/army/critical/stale-save.e2e.ts",
       "e2e/army/local/engine-v3-creators.e2e.ts",
       "e2e/army/local/chatgpt-local-decisions.e2e.ts",
+      "e2e/army/local/chatgpt-local-intake.e2e.ts",
       "e2e/army/local/chatgpt-local-takeoff.e2e.ts",
       "e2e/army/local/legacy-editor-parity.e2e.ts",
       "e2e/army/local/legacy-currency-parity.e2e.ts",
@@ -199,6 +200,7 @@
       "e2e/army/local/bulk-actions-v1-totals.e2e.ts",
       "e2e/army/local/engine-v3-creators.e2e.ts",
       "e2e/army/local/chatgpt-local-decisions.e2e.ts",
+      "e2e/army/local/chatgpt-local-intake.e2e.ts",
       "e2e/army/local/chatgpt-local-takeoff.e2e.ts",
       "e2e/army/local/engine-v3-default.e2e.ts",
       "e2e/army/local/engine-v3-editor-actions.e2e.ts",
@@ -227,6 +229,7 @@
       "e2e/army/local/bulk-actions-v1-totals.e2e.ts",
       "e2e/army/local/engine-v3-creators.e2e.ts",
       "e2e/army/local/chatgpt-local-decisions.e2e.ts",
+      "e2e/army/local/chatgpt-local-intake.e2e.ts",
       "e2e/army/local/chatgpt-local-takeoff.e2e.ts",
       "e2e/army/local/engine-v3-exports.e2e.ts",
       "e2e/army/local/engine-v3-import-optima.e2e.ts",
@@ -242,6 +245,7 @@
       "e2e/army/critical/plan-center.e2e.ts",
       "e2e/army/local/engine-v3-creators.e2e.ts",
       "e2e/army/local/chatgpt-local-decisions.e2e.ts",
+      "e2e/army/local/chatgpt-local-intake.e2e.ts",
       "e2e/army/local/chatgpt-local-takeoff.e2e.ts"
     ],
     "affaire-takeoff": [
@@ -820,6 +824,7 @@
         "e2e/army/critical/hub-plans-card.e2e.ts",
         "e2e/army/critical/hub-takeoff-auto-propose.e2e.ts",
         "e2e/army/local/chatgpt-local-decisions.e2e.ts",
+        "e2e/army/local/chatgpt-local-intake.e2e.ts",
         "e2e/army/local/chatgpt-local-takeoff.e2e.ts",
         "e2e/army/takeoff/contracts.e2e.ts",
         "e2e/army/takeoff/worker-lifecycle.e2e.ts"
@@ -981,7 +986,8 @@
         "e2e/army/critical/intake-content-identity.e2e.ts",
         "e2e/army/critical/dogfood-dpgf-plans.e2e.ts",
         "e2e/army/takeoff/intake-dossier.e2e.ts",
-        "e2e/army/local/intake-cad.e2e.ts"
+        "e2e/army/local/intake-cad.e2e.ts",
+        "e2e/army/local/chatgpt-local-intake.e2e.ts"
       ]
     },
     {
@@ -1231,6 +1237,7 @@
       ],
       "journeys": [
         "e2e/army/local/chatgpt-local-decisions.e2e.ts",
+        "e2e/army/local/chatgpt-local-intake.e2e.ts",
         "e2e/army/local/chatgpt-local-takeoff.e2e.ts",
         "e2e/army/local/profile-polish.e2e.ts",
         "e2e/army/local/takeoff-lab.e2e.ts"
@@ -1420,7 +1427,7 @@
       ],
       "journeys": [
         "e2e/army/critical/document-upload-feedback.e2e.ts",
-        "e2e/army/local/chatgpt-local-decisions.e2e.ts"
+        "e2e/army/local/chatgpt-local-intake.e2e.ts"
       ]
     },
     {
