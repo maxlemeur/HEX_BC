@@ -154,8 +154,9 @@ export async function prepareChatGptServerWorkspace() {
  * protected pages and the callback's missing-state rejection, before UI assertions. The "takeoff" waves are every
  * other page and API route the ChatGPT local journeys use, so that no test waits for a compile.
  * "intake" warms the affaire's intake desk in each of the three chatgpt-local-intake-* journey files.
+ * "takeoff-activity" warms the browser reads that start when the decisions journeys open the activity center.
  */
-export type ChatGptCompileWave = "profile" | "journeys" | "intake" | (typeof TAKEOFF_JOURNEY_WAVES)[number];
+export type ChatGptCompileWave = "profile" | "journeys" | "intake" | "takeoff-activity" | (typeof TAKEOFF_JOURNEY_WAVES)[number];
 
 /**
  * In the order Next compiles them when they are asked together (run 43073132489): the pages with the estimate
@@ -219,6 +220,11 @@ export function chatGptCompileRequests(wave: ChatGptCompileWave): CompileRequest
     // (run 43413882933). Its versionId keeps the page past notFound(); the reads below are the ones it makes on load.
     return [page(`/dashboard/affaires/${absent}/takeoff/${absent}/review?versionId=${absent}`),
       ...["compare", "dpgf-compare", "review-context"].map(name => route(`/api/takeoff/jobs/${absent}/${name}`))];
+  }
+  if (wave === "takeoff-activity") {
+    // ASSIST02 opens the preparation dialog over the activity center. Compiling its background reads can
+    // queue the preparation action behind webpack before it can populate the dialog (run 45689030934).
+    return ["/api/takeoff/activity-center/requests", `/api/affaires/${absent}/takeoff/items`].map(route);
   }
   return [`/api/affaires/${absent}/dpgf-source`, "/api/takeoff/plan-sets", "/api/takeoff/activity-center",
     "/api/takeoff/jobs", `/api/takeoff/jobs/${absent}`, `/api/takeoff/jobs/${absent}/resubmit`,

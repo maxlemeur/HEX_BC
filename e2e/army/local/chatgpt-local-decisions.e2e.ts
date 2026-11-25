@@ -17,7 +17,7 @@ import {
   chatGptLocalServer, isAbsorbedClientAbort, LAB_VECTOR_DOCUMENT, liveProbePath, localChatGptClient, writeDecisionsControl, writePlanFixture,
   type ChatGptLiveProbe,
 } from "./chatgpt-local-journey-support";
-import { createLocalChatGptOwner, TAKEOFF_JOURNEY_WAVES } from "./chatgpt-server-support";
+import { compileChatGptRoutes, createLocalChatGptOwner, TAKEOFF_JOURNEY_WAVES } from "./chatgpt-server-support";
 import { verifyPriceReuseArbitration } from "./engine-v3-price-reuse-support";
 import { querySql } from "./calculation-gate-support";
 import { LAB_VECTOR_PLAN } from "./lab-vector-plan-fixture";
@@ -49,6 +49,7 @@ beforeAll(async () => {
 });
 // ASSIST02 launches a job and reads its review. Warm the takeoff routes in bounded waves.
 for (const wave of TAKEOFF_JOURNEY_WAVES) beforeAll(() => server.compileTakeoffRoutes(wave));
+beforeAll(() => compileChatGptRoutes(localOrigin, fixtureEmail, "takeoff-activity"));
 
 afterAll(() => server.stop(fixtureStore));
 
