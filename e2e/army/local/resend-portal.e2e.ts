@@ -293,7 +293,8 @@ for (const [caseId, decision, portalLabel, expectedParent] of [
   ["RSA", "accept", "Accepté", "accepted"],
   ["RSR", "reject", "Refusé", "archived"],
 ] as const) {
-  offerTest(`${caseId} ${decision === "accept" ? "accepts" : "rejects"} the NEW collected resend portal and retains original PDF`, options, async (ui) => {
+  offerTest(`${caseId} ${decision === "accept" ? "accepts" : "rejects"} the NEW collected resend portal and retains original PDF`, options, async ({ app, screen, browser, army }) => {
+    const ui = { app, screen, browser, army };
     const prepared = await prepare(ui, caseId);
     const first = await send(ui, caseId, prepared.ids.versionId);
     await ui.app.open(`/dashboard/estimates/${prepared.ids.versionId}`);
@@ -457,7 +458,8 @@ for (const [caseId, faults, expectedCode, firstStatus] of [
   ["EIR", ["rejected"], "ESTIMATE_EMAIL_PROVIDER_REJECTED", "failed"],
   ["EIT", ["retryable", "retryable", "retryable"], "ESTIMATE_EMAIL_RETRYABLE", "queued"],
 ] as const) {
-  offerTest(`${caseId} retries the actual failed email with the correct persisted envelope and one receipt`, options, async (ui) => {
+  offerTest(`${caseId} retries the actual failed email with the correct persisted envelope and one receipt`, options, async ({ app, screen, browser, army }) => {
+    const ui = { app, screen, browser, army };
     const prepared = await prepare(ui, caseId);
     const recipient = `${ui.army.runPrefix}-${caseId}@offer.invalid`;
     const beforeReceipts = await receiptNames();
@@ -505,7 +507,8 @@ for (const [caseId, faults, expectedCode, firstStatus] of [
   });
 }
 
-offerTest("EIU reconciles an ambiguous collected delivery through the admin UI without sending again", options, async (ui) => {
+offerTest("EIU reconciles an ambiguous collected delivery through the admin UI without sending again", options, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   const prepared = await prepare(ui, "EIU");
   const recipient = `${ui.army.runPrefix}-EIU@offer.invalid`;
   const beforeReceipts = await receiptNames();
@@ -553,7 +556,8 @@ offerTest("EIU reconciles an ambiguous collected delivery through the admin UI w
   await recordOfferEvidence(ui.army, "EIU-reconciled", { refusedReplay, after, noProviderReplay: true, sameSeal: true });
 });
 
-offerTest("RSX refuses an expired real resend capability without exposing or deciding the offer", options, async (ui) => {
+offerTest("RSX refuses an expired real resend capability without exposing or deciding the offer", options, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   const prepared = await prepare(ui, "RSX");
   const first = await send(ui, "RSX", prepared.ids.versionId);
   await ui.app.open(`/dashboard/estimates/${prepared.ids.versionId}`);
@@ -582,7 +586,8 @@ offerTest("RSX refuses an expired real resend capability without exposing or dec
   await recordOfferEvidence(ui.army, "RSX-expired", { expiry, refused, persistedOffer: await observeOwnedOffer(ui.army, prepared.ids.versionId) });
 });
 
-offerTest("RSC commits only one of two competing anonymous decisions on the same collected resend", options, async (ui) => {
+offerTest("RSC commits only one of two competing anonymous decisions on the same collected resend", options, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   const prepared = await prepare(ui, "RSC");
   const first = await send(ui, "RSC", prepared.ids.versionId);
   await ui.app.open(`/dashboard/estimates/${prepared.ids.versionId}`);

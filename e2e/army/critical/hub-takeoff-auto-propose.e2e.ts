@@ -33,7 +33,8 @@ async function readAutoProposeKeys(ui: Ui) {
   return ui.browser.evaluate(() => Object.keys(localStorage).filter((key) => key.startsWith("takeoff-auto-propose")));
 }
 
-armyTest("HUB06 the takeoff's zone stays after a reload: no snooze, no dismissal, nothing launched by reading it", options, async (ui) => {
+armyTest("HUB06 the takeoff's zone stays after a reload: no snooze, no dismissal, nothing launched by reading it", options, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   const { estimate, set, zone } = await openHubZone(ui, "HUB06");
   const jobs = ownedTakeoffJobs(ui.browser, estimate);
   await expect(zone.getByText("Non démarré", { exact: true })).toBeVisible();
@@ -50,7 +51,8 @@ armyTest("HUB06 the takeoff's zone stays after a reload: no snooze, no dismissal
   await recordEvidence(ui.army, "HUB06-zone-persistent", { estimate, planSetId: set.id, snoozeKeys: [], jobsAfterReads: 0 });
 });
 
-armyTest("HUB07 every former launch of the affaire leads to its zone, by keyboard too, and launches nothing", options, async (ui) => {
+armyTest("HUB07 every former launch of the affaire leads to its zone, by keyboard too, and launches nothing", options, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   const { estimate, zone, plansSection } = await openHubZone(ui, "HUB07");
   const jobs = ownedTakeoffJobs(ui.browser, estimate);
   await expect(ui.screen.getByRole("button", "Préparer le métré", { exact: true })).toHaveCount(0);
@@ -77,7 +79,8 @@ armyTest("HUB07 every former launch of the affaire leads to its zone, by keyboar
   await recordEvidence(ui.army, "HUB07-zone-entries", { estimate, entries: ["menu", "plans-card", "anchor"], keyboard: true, jobs: 0 });
 });
 
-armyTest("HUB08 without a local plan the zone's options keep the preparation and create no request", options, async (ui) => {
+armyTest("HUB08 without a local plan the zone's options keep the preparation and create no request", options, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   if (process.env.E2E_ARMY_BLOCK_WORKERS !== "1") throw new Error("The takeoff's zone requires the campaign's worker-blocking server guard.");
   const { estimate, set, file } = await openHubZone(ui, "HUB08");
   const jobs = ownedTakeoffJobs(ui.browser, estimate);
@@ -91,7 +94,8 @@ armyTest("HUB08 without a local plan the zone's options keep the preparation and
     boundary: "Successful plan-set creation and persisted snapshot are covered by LOCAL02 on a dedicated local server." });
 });
 
-armyTest("HUB09 intake-synced plans retain provenance and analysis choices in the zone's options", options, async (ui) => {
+armyTest("HUB09 intake-synced plans retain provenance and analysis choices in the zone's options", options, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   const { estimate, set, plansSection } = await openHubZone(ui, "HUB09", true);
   const provenance = /synchronis|depuis le dossier|sans reupload|affaire-intake/i;
   await expect(plansSection.getByText(provenance).first()).toBeVisible();
@@ -105,7 +109,8 @@ armyTest("HUB09 intake-synced plans retain provenance and analysis choices in th
   await recordEvidence(ui.army, "HUB09-intake-provenance", { estimate, planSetId: set.id, hubProvenance: true, dialogProvenance: true, level: "C" });
 });
 
-armyTest("HUB10 before the automatic start, the zone's options still copy an older version into a new draft only at launch", options, async (ui) => {
+armyTest("HUB10 before the automatic start, the zone's options still copy an older version into a new draft only at launch", options, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   const { estimate } = await openHubZone(ui, "HUB10");
   const current = await duplicateHubVersion(ui.browser, ui.army, estimate);
   await ui.browser.reload();

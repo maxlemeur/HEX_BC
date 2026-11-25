@@ -130,8 +130,8 @@ async function expectNotStruckThrough(ui: Ui, text: string) {
   expect(decoration).not.toBe("line-through");
 }
 
-armyTest("DES01 canonical client name is displayed and the real search keeps only its estimate", options, async (ui) => {
-  const { screen, browser } = ui;
+armyTest("DES01 canonical client name is displayed and the real search keeps only its estimate", options, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   const state = await mount(ui, "client");
   const { apiRequests } = state;
   try {
@@ -152,8 +152,8 @@ armyTest("DES01 canonical client name is displayed and the real search keeps onl
   }
 });
 
-armyTest("DES02 supported currencies normalize and invalid or absent currency falls back to EUR", options, async (ui) => {
-  const { browser } = ui;
+armyTest("DES02 supported currencies normalize and invalid or absent currency falls back to EUR", options, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   const state = await mount(ui, "client");
   try {
     const rows = browser.locator("tbody tr");
@@ -171,8 +171,8 @@ armyTest("DES02 supported currencies normalize and invalid or absent currency fa
   }
 });
 
-armyTest("DES03 le dialogue vivant refuse une ligne vide puis transmet nom, quantité et coût à la sauvegarde", options, async (ui) => {
-  const { screen } = ui;
+armyTest("DES03 le dialogue vivant refuse une ligne vide puis transmet nom, quantité et coût à la sauvegarde", options, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   const state = await mount(ui, "assembly");
   const { events } = state;
   try {
@@ -207,8 +207,8 @@ armyTest("DES03 le dialogue vivant refuse une ligne vide puis transmet nom, quan
   }
 });
 
-armyTest("DES04 la revue assistée vivante confirme acceptation et rejet puis déclenche appliquer", options, async (ui) => {
-  const { screen } = ui;
+armyTest("DES04 la revue assistée vivante confirme acceptation et rejet puis déclenche appliquer", options, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   const state = await mount(ui, "review");
   const { events } = state;
   try {
@@ -233,8 +233,8 @@ armyTest("DES04 la revue assistée vivante confirme acceptation et rejet puis d�
   }
 });
 
-armyTest("DES05 tout accepter réintègre la ligne exclue et conserve le marquage à revoir", options, async (ui) => {
-  const { screen } = ui;
+armyTest("DES05 tout accepter réintègre la ligne exclue et conserve le marquage à revoir", options, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   const state = await mount(ui, "review");
   const { events } = state;
   try {

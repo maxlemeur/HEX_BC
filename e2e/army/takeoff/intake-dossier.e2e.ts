@@ -11,8 +11,8 @@ import { localClient } from "./native-ui";
 
 armyTest("INT01 real dossier upload survives unavailable AI and manual classification primary selection and brief confirmation persist", {
   session: "army", trace: "off", tags: ["critical", "intake-dossier", "local"], timeout: 240_000,
-}, async (ui) => {
-  const { army, app, screen, browser } = ui;
+}, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   const ids = await createEstimateViaWizard(ui, { projectName: `${army.runPrefix}-INT01`, title: "Dossier de consultation" }, army);
   const { client } = await localClient();
   const directory = path.resolve(".e2e/army/critical/artifacts/fixtures", army.runPrefix);

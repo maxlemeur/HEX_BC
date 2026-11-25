@@ -15,7 +15,8 @@ function financials(estimate: ArmyEstimate) {
 
 armyTest("COL01 personal column order and width survive reload and another estimate without changing money", {
   session: "army", tags: ["critical", "extended", "personal-columns"], trace: "off", timeout: 240_000,
-}, async (ui) => {
+}, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   await ui.browser.emulateMedia({ reducedMotion: "reduce" });
   const first = await createEstimateViaWizard(ui, { projectName: ui.army.projectName, title: `${ui.army.runPrefix} columns A` }, ui.army);
   const lineTitle = `${ui.army.runPrefix} priced line`;

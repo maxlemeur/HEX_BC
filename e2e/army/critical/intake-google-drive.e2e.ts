@@ -1,24 +1,38 @@
 import { randomUUID } from "node:crypto";
+import { readFile } from "node:fs/promises";
+import { PDFDocument } from "pdf-lib";
 import { createClient } from "@supabase/supabase-js";
 import { expect } from "e2e";
 import { localClient } from "../takeoff/native-ui";
 import { localDriveStore } from "./google-drive-local-store";
 import { relativeOutputPath } from "../local/sdk-results";
-import { armyTest, createEstimateViaWizard, readEstimate, recordEvidence } from "./fixtures";
+import { armyTest, createEstimateViaWizard, readEstimate, recordEvidence, resolveDownload } from "./fixtures";
 import { waitForHydration } from "./hydration-support";
 
 // Failure to cover: selecting a folder omits descendants or later pages, duplicates
 // existing links, or lets a selection exceed the API's 20-file limit.
 armyTest("DRV03 selects Drive folders across pages and preserves the 20-file limit", {
   session: "army", trace: "off", tags: ["critical", "google-drive", "local"], timeout: 120_000,
-}, async (ui) => {
-  const { army, app, screen, browser } = ui;
+}, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   const ids = await createEstimateViaWizard(ui, { projectName: `${army.runPrefix}-DRV03`, title: "Dossier complet" }, army);
+  const source = await PDFDocument.create();
+  source.addPage().drawText("CCTP fictif - Google Drive");
+  const exportedPdf = await source.save();
+  const openedFiles: Array<string | null> = [];
   const folder = (id: string, name: string) => ({ id, name, mimeType: "application/vnd.google-apps.folder" });
   const file = (index: number, parent: string) => ({ id: `file_${index}`, name: `plan-${index}.pdf`, mimeType: "application/pdf", size: "100", version: "1", parents: [parent] });
   const batches: Array<Array<{ id: string; folderId?: string }>> = [];
   const account = { id: "22222222-2222-4222-8222-222222222222", email: "fixture@example.invalid", displayName: "Compte fictif", status: "active", writeEnabled: false, grantVersion: "33333333-3333-4333-8333-333333333333", connectedAt: "2026-10-29T12:00:00Z" };
   const state = { enabled: true, projectName: "Dossier complet", connections: [account], folder: null, links: [] };
+  await browser.route(`**/api/affaires/${ids.projectId}/intake/google-drive/files/native?*`, async (route) => {
+    openedFiles.push(new URL(route.request.url).searchParams.get("connectionId"));
+    await route.fulfill({
+      body: exportedPdf,
+      contentType: "application/pdf",
+      headers: { "Content-Disposition": "attachment; filename*=UTF-8''Document%20Google.pdf" },
+    });
+  });
   await browser.route(`**/api/affaires/${ids.projectId}/intake/google-drive`, async (route) => {
     if (route.request.method === "GET") {
       await route.fulfill({ json: { ok: true, data: state } });
@@ -31,7 +45,7 @@ armyTest("DRV03 selects Drive folders across pages and preserves the 20-file lim
         : id === "parent" && !request.pageToken ? [folder("child", "Plans"), ...Array.from({ length: 10 }, (_, i) => file(i, "parent"))]
         : id === "parent" ? Array.from({ length: 10 }, (_, i) => file(i + 10, "parent"))
         : id === "other" ? [file(21, "other")]
-        : [file(20, "child"), { id: "native", name: "Document Google", mimeType: "application/vnd.google-apps.document" }];
+        : [file(20, "child"), { id: "native", name: "Document Google", mimeType: "application/vnd.google-apps.document", version: "1" }];
       await route.fulfill({ json: { ok: true, data: { listing: { location: request.location, folder: folder(id, id === "parent" ? "Projet" : id), files, ...(id === "parent" && !request.pageToken ? { nextPageToken: "next" } : {}) } } } });
       return;
     }
@@ -53,6 +67,16 @@ armyTest("DRV03 selects Drive folders across pages and preserves the 20-file lim
   await expect(screen.getByRole("button", "Lier à l’affaire", { exact: true })).toBeDisabled();
   await screen.getByRole("button", "Ouvrir le dossier Projet", { exact: true }).click();
   await screen.getByRole("button", "Ouvrir le dossier Plans", { exact: true }).click();
+  await screen.getByRole("button", "Lire Document Google", { exact: true }).click();
+  const preview = screen.getByRole("dialog", "Document Google", { exact: true });
+  await expect(preview.getByRole("img", "Document Google.pdf — page 1", { exact: true })).toBeVisible();
+  const download = await browser.waitForDownload(() => preview.getByRole("link", "Télécharger le PDF", { exact: true }).click());
+  expect(download.suggestedFilename).toBe("Document Google.pdf");
+  expect(await readFile(await resolveDownload(download))).toEqual(Buffer.from(exportedPdf));
+  expect(openedFiles).toEqual([account.id]);
+  expect(batches).toHaveLength(0);
+  await preview.getByRole("button", "Fermer", { exact: true }).click();
+  await expect(screen.getByText("21 fichier(s) sélectionné(s)", { exact: true })).toBeVisible();
   await screen.getByRole("checkbox", "Sélectionner plan-20.pdf", { exact: true }).click();
   await expect(screen.getByText("20 fichier(s) sélectionné(s)", { exact: true })).toBeVisible();
   await screen.getByRole("button", "Lier à l’affaire", { exact: true }).click();
@@ -60,13 +84,13 @@ armyTest("DRV03 selects Drive folders across pages and preserves the 20-file lim
   expect(batches.map((batch) => batch.length)).toEqual([20]);
   expect(new Set(batches.flat().map((item) => item.id)).size).toBe(20);
   expect(batches.flat().every((item) => item.folderId === "parent")).toBe(true);
-  await recordEvidence(army, "DRV03-folder-selection", { batches, scope: "Fictional Drive route; browser selection and pagination only." });
+  await recordEvidence(army, "DRV03-folder-selection", { batches, openedFiles, scope: "Fictional Drive route; selection, pagination and private PDF preview/download." });
 });
 
 armyTest("DRV01 Google Drive POC stays disabled until OAuth approval and links no documents", {
   session: "army", trace: "off", tags: ["critical", "google-drive", "local"], timeout: 120_000,
-}, async (ui) => {
-  const { army, app, screen, browser } = ui;
+}, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   const ids = await createEstimateViaWizard(ui, { projectName: `${army.runPrefix}-DRV01`, title: "Dossier fictif Drive" }, army);
   await app.open(`/dashboard/affaires/${ids.projectId}`);
   // A fresh affaire offers Drive beside the computer in its next step.
@@ -80,16 +104,19 @@ armyTest("DRV01 Google Drive POC stays disabled until OAuth approval and links n
       });
       return { status: response.status, code: (await response.json()).error?.code };
     };
+    const read = await fetch(`/api/affaires/${projectId}/intake/google-drive/files/plan_demo?connectionId=00000000-0000-4000-8000-000000000001`);
+    const readError = await read.json();
     // Adding an account goes back to the affaire with an outcome code only.
     const start = await fetch(`/api/google-drive/oauth/start?returnTo=${encodeURIComponent(`/dashboard/affaires/${projectId}`)}`);
     return {
+      read: { status: read.status, code: readError.error?.code },
       list: await call({ action: "list", connectionId: "00000000-0000-4000-8000-000000000001", location: { kind: "folder", folderId: "root" } }),
       // A browser-held Google token is no longer part of the contract.
       token: await call({ action: "list", folderId: "root", token: "fixture-disabled-no-credential" }),
       start: new URL(start.url).search,
     };
   }, ids.projectId);
-  expect(blocked).toEqual({ list: { status: 503, code: "DRIVE_DISABLED" }, token: { status: 400, code: "VALIDATION_ERROR" }, start: "?drive=disabled" });
+  expect(blocked).toEqual({ read: { status: 503, code: "DRIVE_DISABLED" }, list: { status: 503, code: "DRIVE_DISABLED" }, token: { status: 400, code: "VALIDATION_ERROR" }, start: "?drive=disabled" });
   await browser.reload();
   await screen.getByRole("button", "Choisir dans Drive", { exact: true }).click();
   await expect(screen.getByText("Fichiers Drive liés à l’affaire", { exact: true })).toHaveCount(0);
@@ -100,8 +127,8 @@ armyTest("DRV01 Google Drive POC stays disabled until OAuth approval and links n
 
 armyTest("DRV02 fictional Drive links persist under real RLS without any stored copy and stay listed across visits", {
   session: "army", trace: "off", tags: ["critical", "google-drive", "local"], timeout: 120_000,
-}, async (ui) => {
-  const { army, app, screen, browser } = ui;
+}, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   const ids = await createEstimateViaWizard(ui, { projectName: `${army.runPrefix}-DRV02`, title: "Liens Drive fictifs" }, army);
   const { client, userId } = await localClient();
   const project = await client.from("estimate_projects").select("id,tenant_id,name,user_id,is_archived")

@@ -65,7 +65,8 @@ async function createV3Fixture(ui: ConnectedUi, label: string) {
 }
 
 armyTest("LEGCAT01 owned prices retain real search, CSV collapse, accented history and dialogs without changing an offer", options,
-  async (ui) => {
+  async ({ app, screen, browser, army }) => {
+    const ui = { app, screen, browser, army };
     const identity = await owner(ui, "LGCAT1");
     const anchor = await createV3Fixture(ui, "ancre tarifs possédée");
     ui.army.ownedPriceLookupProjects = [...(ui.army.ownedPriceLookupProjects ?? []), anchor.project.id];
@@ -144,7 +145,8 @@ armyTest("LEGCAT01 owned prices retain real search, CSV collapse, accented histo
   });
 
 armyTest("LEGCAT02 the tracked BDC CSV is uploaded, decoded and previewed with exact counts and a canonical trace", options,
-  async (ui) => {
+  async ({ app, screen, browser, army }) => {
+    const ui = { app, screen, browser, army };
     const identity = await owner(ui, "LGCAT2");
     const anchor = await createV3Fixture(ui, "ancre import possédée");
     ui.army.ownedPriceLookupProjects = [...(ui.army.ownedPriceLookupProjects ?? []), anchor.project.id];
@@ -183,7 +185,8 @@ armyTest("LEGCAT02 the tracked BDC CSV is uploaded, decoded and previewed with e
   });
 
 armyTest("LEGCAT03 settings create a real labor role and suggestion rule; explicit application persists unit and exact resource IDs", options,
-  async (ui) => {
+  async ({ app, screen, browser, army }) => {
+    const ui = { app, screen, browser, army };
     const identity = await owner(ui, "LGCAT3");
     const createdEstimate = await createV3Fixture(ui, "règle UI");
     const ids = { projectId: createdEstimate.project.id, versionId: createdEstimate.version.id };
@@ -288,7 +291,8 @@ armyTest("LEGCAT03 settings create a real labor role and suggestion rule; explic
   });
 
 armyTest("LEGCAT04 real stale catalogue alternatives and the nonoptimal supplier warning retain exact selected offer identity", options,
-  async (ui) => {
+  async ({ app, screen, browser, army }) => {
+    const ui = { app, screen, browser, army };
     const identity = await owner(ui, "LGCAT4");
     await ui.app.open("/dashboard/products");
     const designation = `${ui.army.runPrefix} tube inox catalogue`;

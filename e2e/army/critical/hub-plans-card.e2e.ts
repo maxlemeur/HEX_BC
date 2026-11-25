@@ -9,7 +9,8 @@ import { openTakeoffOptionsDialog, takeoffZone } from "./preparation-support";
 
 const options = { session: "army", trace: "off" as const, tags: ["critical", "local", "hub-plans"], timeout: 180_000 };
 
-armyTest("HUB03 a fresh affaire without plans hides the plans section, the takeoff's zone and any launch", options, async (ui) => {
+armyTest("HUB03 a fresh affaire without plans hides the plans section, the takeoff's zone and any launch", options, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   requireLocalPlansBackend();
   const estimate = await createEstimateViaWizard(ui, { projectName: `${ui.army.runPrefix}-HUB03`, title: "ARMY hub sans plans" }, ui.army);
   await ui.app.open(`/dashboard/affaires/${estimate.projectId}`);
@@ -21,7 +22,8 @@ armyTest("HUB03 a fresh affaire without plans hides the plans section, the takeo
   await recordEvidence(ui.army, "HUB03-no-plans", { estimate, plansSection: false, launchButton: false, takeoffZone: false });
 });
 
-armyTest("HUB04 the takeoff's zone opens its options on the retained plan set, without an analysis yet", options, async (ui) => {
+armyTest("HUB04 the takeoff's zone opens its options on the retained plan set, without an analysis yet", options, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   requireLocalPlansBackend();
   const estimate = await createEstimateViaWizard(ui, { projectName: `${ui.army.runPrefix}-HUB04`, title: "ARMY hub avec plans" }, ui.army);
   const set = await createPlanSet(ui, ui.army, estimate, "Lot CVC");
@@ -39,7 +41,8 @@ armyTest("HUB04 the takeoff's zone opens its options on the retained plan set, w
   await recordEvidence(ui.army, "HUB04-hero", { estimate, planSetId: set.id, fileId: file.id, fileCount: 1, deducedPreparationReady: true });
 });
 
-armyTest("HUB05 carried-over exceptions target the currently linked estimate version", options, async (ui) => {
+armyTest("HUB05 carried-over exceptions target the currently linked estimate version", options, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   requireLocalPlansBackend();
   const source = await createEstimateViaWizard(ui, { projectName: `${ui.army.runPrefix}-HUB05`, title: "ARMY hub carry-over" }, ui.army);
   await createLineViaApi(ui.browser, source.versionId, `${ui.army.runPrefix}-BASE`);
@@ -62,9 +65,9 @@ armyTest("HUB05 carried-over exceptions target the currently linked estimate ver
   await recordEvidence(ui.army, "HUB05-carry-over", { source, target, planSetId: set.id, jobId: job.jobId, resultId: job.resultId, linkId, expectedPath });
 });
 
-armyTest("HUB12 plans and métrés each offer one next step, from the plan set to the review", options, async (ui) => {
+armyTest("HUB12 plans and métrés each offer one next step, from the plan set to the review", options, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   requireLocalPlansBackend();
-  const { app, browser, screen, army } = ui;
   const estimate = await createEstimateViaWizard(ui, { projectName: `${army.runPrefix}-HUB12`, title: "ARMY prochaine étape" }, army);
   const set = await createPlanSet(ui, army, estimate, "Plans architecte");
   await uploadSamplePlan(ui, army, set);

@@ -146,7 +146,10 @@ export function GoogleDriveConnectionCard() {
         : { action, ...own, fileId: file.id, name: newName },
       );
     } catch (cause) {
-      throw new Error(`${cause instanceof Error ? cause.message : "Réponse interrompue."} Vérifiez le fichier dans Google Drive avant de réessayer.`);
+      throw new Error(
+        `${cause instanceof Error ? cause.message : "Réponse interrompue."} Vérifiez le fichier dans Google Drive avant de réessayer.`,
+        { cause },
+      );
     }
     if (action === "rename") setFile({ ...file, name: newName.trim() });
     setNotice("Opération enregistrée dans Google Drive.");

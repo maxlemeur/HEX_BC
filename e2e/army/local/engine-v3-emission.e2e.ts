@@ -365,8 +365,8 @@ async function footerRows(ui: Ui, scope: { root: string; rows: string }) {
 
 if (process.env.E2E_ARMY_SUITE === "calc-v3" && process.env.E2E_CALC_V3_PHASE === "emission-v3") {
   offerTest("V3M01 a v3 issued in S2 then S5 under client contract 2 and payload 6 prints, seals, exports and is accepted with the oracle amounts",
-    { session: "army", trace: "off", tags: ["engine-v3", "offer-emission"], timeout: 900_000 }, async (ui) => {
-      const { app, browser, army } = ui;
+    { session: "army", trace: "off", tags: ["engine-v3", "offer-emission"], timeout: 900_000 }, async ({ app, screen, browser, army }) => {
+      const ui = { app, screen, browser, army };
       const fixture = emissionFixture();
       const record: Evidence = (label, data) => recordOfferEvidence(army, `v3m01-${label}`, data);
       await app.open("/dashboard/affaires");
@@ -474,8 +474,8 @@ if (process.env.E2E_ARMY_SUITE === "calc-v3" && process.env.E2E_CALC_V3_PHASE ==
   // V3M-10 : la règle d'approbation de l'affaire de la fixture (5 000 € HT, portée « client ») s'applique à S2
   // (69 472,53 € HT) ; l'administrateur de l'entreprise approuve, puis la v3 est émise sous le contrat 2.
   offerTest("V3M03 a v3 above its approval threshold is approved, then issued under client contract 2 and payload 6 with its approval intact",
-    { session: "army", trace: "off", tags: ["engine-v3", "offer-emission"], timeout: 600_000 }, async (ui) => {
-      const { app, browser, army } = ui;
+    { session: "army", trace: "off", tags: ["engine-v3", "offer-emission"], timeout: 600_000 }, async ({ app, screen, browser, army }) => {
+      const ui = { app, screen, browser, army };
       const fixture = emissionFixture();
       const { projectId, versionId, ruleId } = fixture.approvalProject;
       const record: Evidence = (label, data) => recordOfferEvidence(army, `v3m03-${label}`, data);
@@ -541,8 +541,7 @@ if (process.env.E2E_ARMY_SUITE === "calc-v3" && process.env.E2E_CALC_V3_PHASE ==
 
   // V3M-11 : E2E-03 de 2.1 avec un fournisseur configuré (le collecteur) ; V3FC02 n'en fait qu'un contrôle de configuration.
   offerTest("V3M04 sending a v3 that engine 3 cannot freeze is refused by name with a provider configured, leaving no document, receipt or status change",
-    { session: "army", trace: "off", tags: ["engine-v3", "offer-emission"], timeout: 300_000 }, async (ui) => {
-      const { app, browser, army } = ui;
+    { session: "army", trace: "off", tags: ["engine-v3", "offer-emission"], timeout: 300_000 }, async ({ app, browser, army }) => {
       emissionFixture();
       const record: Evidence = (label, data) => recordOfferEvidence(army, `v3m04-${label}`, data);
       await app.open("/dashboard/affaires");
@@ -576,8 +575,8 @@ if (process.env.E2E_ARMY_SUITE === "calc-v3" && process.env.E2E_CALC_V3_PHASE ==
 
   // V3M-12 à V3M-14 : par l'écran, dans cette phase (le garde de la campagne critique refuse toute écriture …/status).
   offerTest("V3M05 a v3 draft prepares its client PDF from its detail page and is issued from the editor; its issued detail page shows the valid seal, the original PDF and the status actions, offers the template, and its printout keeps the CGV its copy sealed",
-    { session: "army", trace: "off", tags: ["engine-v3", "offer-emission"], timeout: 600_000 }, async (ui) => {
-      const { app, screen, browser, army } = ui;
+    { session: "army", trace: "off", tags: ["engine-v3", "offer-emission"], timeout: 600_000 }, async ({ app, screen, browser, army }) => {
+      const ui = { app, screen, browser, army };
       emissionFixture();
       const record: Evidence = (label, data) => recordOfferEvidence(army, `v3m05-${label}`, data);
       await app.open("/dashboard/affaires");
@@ -723,8 +722,8 @@ if (process.env.E2E_ARMY_SUITE === "calc-v3" && process.env.E2E_CALC_V3_PHASE ==
   // V3M-16 : le pied de son portail porte l'emphase du pied v3, comme l'impression. V3M-17 : ses CGV sont celles de sa
   // copie scellée (aucune), quelle que soit la mise en page demandée.
   offerTest("V3M06 a sent v3 prints the identity of its issued copy, not the affaire changed after emission nor the profile of a second admin who opens it, with its valid seal, its portal footer emphasises the net HT and the TTC as the print does, and its printout adds no CGV to a copy sealed without them",
-    { session: "army", trace: "off", tags: ["engine-v3", "offer-emission"], timeout: 600_000 }, async (ui) => {
-      const { app, screen, browser, army } = ui;
+    { session: "army", trace: "off", tags: ["engine-v3", "offer-emission"], timeout: 600_000 }, async ({ app, screen, browser, army }) => {
+      const ui = { app, screen, browser, army };
       const fixture = emissionFixture();
       const record: Evidence = (label, data) => recordOfferEvidence(army, `v3m06-${label}`, data);
       await app.open("/dashboard/affaires");
@@ -837,8 +836,8 @@ if (process.env.E2E_ARMY_SUITE === "calc-v3" && process.env.E2E_CALC_V3_PHASE ==
   // ou ne montrent ni « Non chiffrée » ni le paragraphe des précisions ; l'événement d'envoi n'enregistre pas la
   // réserve ; une duplication recopie la réserve au lieu de ramener la ligne à classer.
   offerTest("V3M07 a « Non chiffrée » line leaves only as a written reserve an administrator declared, the limits written: the send is refused without override until then; the PDF received and the portal show « Non chiffrée » and the limits, never the basis or the reason; the sent event records the reserve; a duplicate brings the line back to classify",
-    { session: "army", trace: "off", tags: ["engine-v3", "offer-emission"], timeout: 900_000 }, async (ui) => {
-      const { app, screen, browser, army } = ui;
+    { session: "army", trace: "off", tags: ["engine-v3", "offer-emission"], timeout: 900_000 }, async ({ app, screen, browser, army }) => {
+      const ui = { app, screen, browser, army };
       const fixture = emissionFixture();
       const record: Evidence = (label, data) => recordOfferEvidence(army, `v3m07-${label}`, data);
       await app.open("/dashboard/affaires");
@@ -1002,8 +1001,8 @@ if (process.env.E2E_ARMY_SUITE === "calc-v3" && process.env.E2E_CALC_V3_PHASE ==
   // portail ne la montrent pas, montrent la base ou la note internes, ou ne montrent plus la ligne comme une ligne
   // chiffrée ordinaire ; l'événement d'envoi ne l'enregistre pas ; une duplication la recopie.
   offerTest("V3M08 a priced line resting on a takeoff hypothesis is listed for the issuer; declared provisional by an administrator, the offer leaves only once its limits carry the sentence written from the line, without override; the PDF received and the portal show the sentence and an ordinary priced line, never the basis or the note; the sent event records it; a duplicate drops it",
-    { session: "army", trace: "off", tags: ["engine-v3", "offer-emission"], timeout: 900_000 }, async (ui) => {
-      const { app, screen, browser, army } = ui;
+    { session: "army", trace: "off", tags: ["engine-v3", "offer-emission"], timeout: 900_000 }, async ({ app, screen, browser, army }) => {
+      const ui = { app, screen, browser, army };
       const fixture = emissionFixture();
       const record: Evidence = (label, data) => recordOfferEvidence(army, `v3m08-${label}`, data);
       await app.open("/dashboard/affaires");

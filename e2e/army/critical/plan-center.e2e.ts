@@ -5,9 +5,9 @@ import { createPlanSet, readPlanFiles, readPlanSets, requireLocalPlansBackend, u
 
 armyTest("PLAN01 plan center uploads, persists and deletes an owned PDF and plan set", {
   session: "army", trace: "off", tags: ["critical", "local", "plan-center"], timeout: 180_000,
-}, async (ui) => {
+}, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   requireLocalPlansBackend();
-  const { army, browser, screen } = ui;
   const projectName = `${army.runPrefix}-PLAN01`;
   const estimate = await createEstimateViaWizard(ui, { projectName, title: "ARMY Plan Center" }, army);
   const name = `${army.runPrefix} jeu de plans`;

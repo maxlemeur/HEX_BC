@@ -6,7 +6,8 @@ import { mountComponentFixture } from "./component-fixture";
 const options = { session: "army", tags: ["critical", "extended", "catalogue-specialist"], trace: "off" as const, timeout: 90_000 };
 
 for (const role of ["admin", "engineer"] as const) {
-  armyTest(`CAT-S01 ${role} saves one offer with exact cents and role-bound transport`, options, async (ui) => {
+  armyTest(`CAT-S01 ${role} saves one offer with exact cents and role-bound transport`, options, async ({ app, screen, browser, army }) => {
+    const ui = { app, screen, browser, army };
     const writes: Array<{ action: string; id: string; item: Record<string, unknown> }> = [];
     await mountComponentFixture(ui, {
       entry: "catalogue-offer", query: `?role=${role}`,

@@ -31,8 +31,6 @@ export async function pingDatabase(
   let status: "up" | "down" = "down";
 
   if (url && key) {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), DB_PING_TIMEOUT_MS);
     try {
       const response = await fetchImpl(
         `${url.replace(/\/+$/, "")}/rest/v1/tenants?select=id&limit=1`,
@@ -40,7 +38,7 @@ export async function pingDatabase(
           method: "GET",
           headers: { apikey: key, Authorization: `Bearer ${key}` },
           cache: "no-store",
-          signal: controller.signal,
+          signal: AbortSignal.timeout(DB_PING_TIMEOUT_MS),
         },
       );
       if (response.ok) {
@@ -56,8 +54,6 @@ export async function pingDatabase(
       }
     } catch {
       status = "down";
-    } finally {
-      clearTimeout(timeout);
     }
   }
 

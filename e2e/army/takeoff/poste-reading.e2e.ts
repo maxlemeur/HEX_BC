@@ -67,7 +67,8 @@ async function publications(jobId: string) {
 }
 
 armyTest("TKPR01 two plans read against three items: A read while B is read gives partial quantities and no « not found », then B all « not found »",
-  options, async (ui) => {
+  options, async ({ app, screen, browser, army }) => {
+    const ui = { app, screen, browser, army };
     await ui.app.open("/dashboard/affaires");
     const owner = await signUpWorkerOwner(ui, "TKPR1");
     await activateOwnedPlanDispatch();
@@ -127,7 +128,8 @@ armyTest("TKPR01 two plans read against three items: A read while B is read give
     }
   });
 
-armyTest("TKPR02 B failed, an answer omitted, a reading cut short: B publishes nothing and no item is « not found »", options, async (ui) => {
+armyTest("TKPR02 B failed, an answer omitted, a reading cut short: B publishes nothing and no item is « not found »", options, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   await ui.app.open("/dashboard/affaires");
   const owner = await signUpWorkerOwner(ui, "TKPR2");
   await activateOwnedPlanDispatch();
@@ -177,7 +179,8 @@ armyTest("TKPR02 B failed, an answer omitted, a reading cut short: B publishes n
   }
 });
 
-armyTest("TKPR04 les indices provisoires restent hors des totaux et le motif ouvre la page à vérifier", options, async (ui) => {
+armyTest("TKPR04 les indices provisoires restent hors des totaux et le motif ouvre la page à vérifier", options, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   await ui.app.open("/dashboard/affaires");
   const owner = await signUpWorkerOwner(ui, "TKPR4");
   await activateOwnedPlanDispatch();
@@ -260,7 +263,8 @@ async function ownedAnswers(projectId: string) {
 // both plans against the WC only (the controlled provider answers the items its prompt asks: two on A, none on B); the
 // table then shows the WC measured, its new readings to decide, and the lavabo and the tap as they were.
 armyTest("TKPR03 a new measure of one item reads it alone on its plans, and the table shows its new readings to decide", options,
-  async (ui) => {
+  async ({ app, screen, browser, army }) => {
+    const ui = { app, screen, browser, army };
     await ui.app.open("/dashboard/affaires");
     const owner = await signUpWorkerOwner(ui, "TKPR3");
     await activateOwnedPlanDispatch();

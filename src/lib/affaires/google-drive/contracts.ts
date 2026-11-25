@@ -214,6 +214,41 @@ export const driveFileUrl = (fileId: string) =>
 export const driveFolderUrl = (folderId: string) =>
   `https://drive.google.com/drive/folders/${folderId}`;
 
+const GOOGLE_PDF_EXPORT_TYPES = new Set([
+  "application/vnd.google-apps.document",
+  "application/vnd.google-apps.spreadsheet",
+  "application/vnd.google-apps.presentation",
+]);
+
+export function isDrivePdfExport(file: DriveFile) {
+  return GOOGLE_PDF_EXPORT_TYPES.has(file.mimeType);
+}
+
+export function driveFileReadRejection(file: DriveFile) {
+  if (!isDrivePdfExport(file)) return driveFileRejection(file);
+  if (file.trashed) return "Fichier supprimé de Drive.";
+  if (file.capabilities?.canDownload === false)
+    return "Lecture interdite par le propriétaire.";
+  if (!file.version) return "Révision source indisponible.";
+  return null;
+}
+
+export function driveFilePreviewMime(file: DriveFile) {
+  if (isDrivePdfExport(file)) return "application/pdf";
+  switch (file.mimeType) {
+    case "application/pdf":
+    case "image/png":
+    case "image/jpeg":
+    case "image/webp":
+      return file.mimeType;
+    case "text/csv":
+    case "text/plain":
+      return "text/plain; charset=utf-8";
+    default:
+      return null;
+  }
+}
+
 export function driveFileRejection(file: DriveFile): string | null {
   if (file.trashed) return "Fichier supprimé de Drive.";
   if (file.mimeType.startsWith("application/vnd.google-apps.")) {

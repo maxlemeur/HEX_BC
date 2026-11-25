@@ -1031,7 +1031,8 @@ export async function extractTabularPdfTablesFromFile(file: File) {
     const message =
       error instanceof Error ? error.message : "Extraction PDF tabulaire indisponible.";
     throw new Error(
-      `Impossible d'analyser le PDF tabulaire. ${message}`
+      `Impossible d'analyser le PDF tabulaire. ${message}`,
+      { cause: error },
     );
   }
 }

@@ -20,7 +20,8 @@ for (const specification of [
   { caseId: "AT02", fixture: "GC02", title: "AT02 assembly insertion preserves the fixed V2 euro discount and reallocates exact lines before any save", discountAmountCents: 200,
     old: [1800, 360, 2160], existingAfter: [1877, 375, 2252], oldRow: /18[,.]77\s*€/,
     added: [1173, 235, 1408], totals: [3050, 610, 3660], footer: /30[,.]50\s*€/ },
-]) armyTest(specification.title, options, async (ui) => {
+]) armyTest(specification.title, options, async ({ app, screen, browser, army }) => {
+  const ui = { app, screen, browser, army };
   const p = await prepareComponents(ui, specification.fixture), c: NumericContext = { ui, p, caseId: specification.caseId, oracle: sourceOracle };
   let targetVersionId: string | undefined;
   try {

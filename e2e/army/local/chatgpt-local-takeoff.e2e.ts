@@ -18,6 +18,7 @@ import {
   chatGptLocalServer, liveProbePath, localChatGptClient, writeDecisionsControl, writePlanFixture,
   type ChatGptLiveProbe,
 } from "./chatgpt-local-journey-support";
+import { createBlankEstimateFixture } from "./blank-estimate-fixture";
 import { TAKEOFF_JOURNEY_WAVES } from "./chatgpt-server-support";
 import { callServerAction, serverActionId } from "./engine-v3-creators-support";
 import { verifyV3TakeoffCreation } from "./engine-v3-takeoff-journey";
@@ -70,7 +71,7 @@ test("LOCAL01 no ChatGPT connection never launches or offers Gemini", {
   const prefix = `ARMY-local-only-${Date.now()}`;
   const army = { runPrefix: prefix, projectName: prefix, ownedEstimates: [] };
   const ui = hydratedUi({ app, screen, browser }, localOrigin);
-  const estimate = await createEstimateViaWizard(ui, { projectName: prefix, title: "Sans forfait connecté" }, army);
+  const estimate = await createBlankEstimateFixture(ui, army, "Sans forfait connecté");
   const planSet = await createPlanSet(ui, army, estimate, `${prefix} plans`);
   const file = await uploadSamplePlan(ui, army, planSet);
   const jobs = ownedTakeoffJobs(browser, estimate);
@@ -105,7 +106,7 @@ if (!existsSync(liveProbePath)) test("LOCAL02 a legacy drafting choice converts 
     const prefix = `ARMY-local-legacy-${Date.now()}`;
     const army = { runPrefix: prefix, projectName: prefix, ownedEstimates: [] };
     const ui = hydratedUi({ app, screen, browser }, localOrigin);
-    const estimate = await createEstimateViaWizard(ui, { projectName: prefix, title: "Ancienne préparation" }, army);
+    const estimate = await createBlankEstimateFixture(ui, army, "Ancienne préparation");
     const planSet = await createPlanSet(ui, army, estimate, `${prefix} plans`);
     const file = await uploadSamplePlan(ui, army, planSet);
     await ui.app.open(`/dashboard/affaires/${estimate.projectId}?view=estimate`);
@@ -176,7 +177,7 @@ if (!existsSync(liveProbePath)) test("LOCAL07 another plan set launches after th
     const prefix = `ARMY-local-plan-sets-${Date.now()}`;
     const army: ArmyState = { runPrefix: prefix, projectName: prefix, ownedEstimates: [] };
     const ui = hydratedUi({ app, screen, browser }, localOrigin);
-    const estimate = await createEstimateViaWizard(ui, { projectName: prefix, title: "Deux jeux de plans" }, army);
+    const estimate = await createBlankEstimateFixture(ui, army, "Deux jeux de plans");
     const first = await createPlanSet(ui, army, estimate, `${prefix} plans A`);
     await screen.getByRole("heading", first.name, { exact: true }).click();
     const identical = await uploadPlansUnderNames(ui, army, first, ["Réseau RDC.pdf", "Réseau RDC copie.pdf"]);
@@ -265,7 +266,7 @@ for (const [testId, failure] of [["LOCAL04", "disconnected"], ["LOCAL06", "expir
     const prefix = `ARMY-local-disconnected-${Date.now()}`;
     const army = { runPrefix: prefix, projectName: prefix, ownedEstimates: [] };
     const ui = hydratedUi({ app, screen, browser }, localOrigin);
-    const estimate = await createEstimateViaWizard(ui, { projectName: prefix, title: "Compte déconnecté" }, army);
+    const estimate = await createBlankEstimateFixture(ui, army, "Compte déconnecté");
     const planSet = await createPlanSet(ui, army, estimate, `${prefix} plans`);
     const file = await uploadSamplePlan(ui, army, planSet);
     await ui.app.open(`/dashboard/affaires/${estimate.projectId}?view=estimate`);
@@ -296,7 +297,7 @@ test("LOCAL03 historical Gemini jobs remain readable but cannot be restarted", {
   const prefix = `ARMY-local-history-${Date.now()}`;
   const army = { runPrefix: prefix, projectName: prefix, ownedEstimates: [] };
   const ui = hydratedUi({ app, screen, browser }, localOrigin);
-  const estimate = await createEstimateViaWizard(ui, { projectName: prefix, title: "Historique fournisseur" }, army);
+  const estimate = await createBlankEstimateFixture(ui, army, "Historique fournisseur");
   const beforeEstimate = await readEstimate(browser, estimate.versionId);
   const { userId } = await localClient();
   const { client, tenantId } = await localTakeoffWorkerClient(army, estimate.versionId, fixtureEmail);
@@ -360,7 +361,7 @@ if (!existsSync(liveProbePath)) test("LOCAL05 a definitively ended ChatGPT job r
     const prefix = `ARMY-local-retry-${Date.now()}`;
     const army = { runPrefix: prefix, projectName: prefix, ownedEstimates: [] };
     const ui = hydratedUi({ app, screen, browser }, localOrigin);
-    const estimate = await createEstimateViaWizard(ui, { projectName: prefix, title: "Reprise ChatGPT locale" }, army);
+    const estimate = await createBlankEstimateFixture(ui, army, "Reprise ChatGPT locale");
     const before = await readEstimate(browser, estimate.versionId);
     await setDecisionsControl({ timeoutWriting: true });
     const { jobId } = await launchPreparedPlanSet(ui, army, estimate);
@@ -406,7 +407,7 @@ if (!existsSync(liveProbePath)) test("LOCAL08 the plan set picked in the launch 
     const prefix = `ARMY-local-plan-set-choice-${Date.now()}`;
     const army: ArmyState = { runPrefix: prefix, projectName: prefix, ownedEstimates: [] };
     const ui = hydratedUi({ app, screen, browser }, localOrigin);
-    const estimate = await createEstimateViaWizard(ui, { projectName: prefix, title: "Choix du jeu de plans" }, army);
+    const estimate = await createBlankEstimateFixture(ui, army, "Choix du jeu de plans");
     const linked = await createPlanSet(ui, army, estimate, `${prefix} plans A`);
     const linkedFile = await uploadSamplePlan(ui, army, linked);
     const created = await apiRequest<{ data: { plan_set: { id: string; tenant_id: string } } }>(browser, "POST", "/api/takeoff/plan-sets",

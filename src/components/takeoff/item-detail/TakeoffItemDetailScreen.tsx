@@ -92,7 +92,16 @@ function EntryValueDialog({ line, initial, onClose, onConfirm }: {
           <DialogTitle>Saisir une quantité</DialogTitle>
           <DialogDescription>« {line.label} » : la valeur saisie est écrite à part de la lecture, qui reste consultable.</DialogDescription>
         </DialogHeader>
-        <div className="flex gap-3" onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); confirm(); } }}>
+        <div
+          className="flex gap-3"
+          onKeyDown={(event) => {
+            if (event.nativeEvent.isComposing || event.keyCode === 229) return;
+            if (event.key === "Enter") {
+              event.preventDefault();
+              confirm();
+            }
+          }}
+        >
           <Field className="flex-1">
             <FieldLabel htmlFor={quantityId}>Quantité</FieldLabel>
             <Input id={quantityId} inputMode="decimal" autoFocus value={quantity} onChange={(event) => setQuantity(event.target.value)} />

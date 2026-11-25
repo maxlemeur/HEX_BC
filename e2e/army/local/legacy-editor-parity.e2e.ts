@@ -4,6 +4,7 @@ import {
   apiRequest, armyTest, createEstimateViaWizard, createLineViaApi, readEstimate, recordEvidence, saveLineEditsWithShortcut, waitForAutoSave,
   type ArmyEstimate, type ArmyItem, type ArmyState, type OwnedEstimate,
 } from "../critical/fixtures";
+import { createBlankEstimateFixture } from "./blank-estimate-fixture";
 import { signUpDedicatedOwner } from "./dedicated-owner";
 
 type Ui = Parameters<typeof createEstimateViaWizard>[0];
@@ -23,16 +24,18 @@ const options = { session: "army", tags: ["critical", "legacy-editor-parity"], t
 // Existing bulk-move and bulk-edit-sync journeys retain their undo/totals oracles.
 // These new cases do not replace any legacy journey before executed proof exists.
 async function prepare(ui: Ui, army: ArmyState, tag: string, count: number,
-  onStage?: (stage: "fixture" | "wizard" | "api-seed") => Promise<void>) {
+  observeWizard?: (stage: "fixture" | "wizard" | "api-seed") => Promise<void>) {
   await ui.app.open("/dashboard/affaires");
-  await onStage?.("fixture");
+  await observeWizard?.("fixture");
   const owner = await signUpDedicatedOwner(ui.browser, ui.app.baseUrl!, army.runPrefix, { tag, uiMode: "expert" });
   await ui.browser.emulateMedia({ reducedMotion: "reduce" });
-  await onStage?.("wizard");
-  const ids = await createEstimateViaWizard(ui, {
-    projectName: army.projectName, title: `${army.runPrefix} ${tag}`,
-  }, army);
-  await onStage?.("api-seed");
+  await observeWizard?.("wizard");
+  const title = `${army.runPrefix} ${tag}`;
+  // LEP01 observes errors from the wizard through the final editor reload.
+  const ids = observeWizard
+    ? await createEstimateViaWizard(ui, { projectName: army.projectName, title }, army)
+    : await createBlankEstimateFixture(ui, army, title);
+  await observeWizard?.("api-seed");
   const lines: ArmyItem[] = [];
   for (let index = 0; index < count; index++) {
     lines.push(await createLineViaApi(ui.browser, ids.versionId, `${army.runPrefix} ${tag} ${index + 1}`, {
@@ -56,7 +59,7 @@ const select = (ui: Ui, line: ArmyItem) => ui.screen.getByLabel(`Sélectionner l
 async function openSeededEditor(ui: Ui, ids: OwnedEstimate) {
   const release = await apiRequest(ui.browser, "DELETE", `/api/estimates/${ids.versionId}/lock`);
   expect(release.status).toBe(200);
-  await ui.browser.reload();
+  await ui.app.open(`/dashboard/estimates/${ids.versionId}/edit`);
   await expect(grid(ui)).toBeVisible();
   await expect(ui.screen.getByTestId("estimate-page-toolbar-autosave-status"))
     .not.toHaveText("Connexion…", { timeout: 30_000 });
@@ -1164,7 +1167,7 @@ armyTest("LEP09 a line menu opened while the draft lease is pending keeps its fo
     const status = screen.getByTestId("estimate-page-toolbar-autosave-status");
     let afterLease: unknown = null;
     try {
-      await browser.reload();
+      await app.open(`/dashboard/estimates/${ids.versionId}/edit`);
       await expect(grid(ui)).toBeVisible();
       await lease.held;
       await expect(status).toHaveText("Connexion…");
