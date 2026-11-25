@@ -13,12 +13,9 @@ import {
 } from "./chatgpt-server-support";
 import { buildLabVectorPlanPdf } from "./lab-vector-plan-fixture";
 
-// The development server of the ChatGPT local journeys, shared by chatgpt-local-takeoff.e2e.ts and
-// chatgpt-local-decisions.e2e.ts. They were one file until its tests, run one after another on that server, made
-// their shard twice as long as the others (15 minutes, run 42913532135): each file now starts its own server, owner
-// account, port, Next workspace and artifacts directory, so the shard plan can run them in two jobs.
-// Two of these servers must not compile at once on one machine: scripts/tester-army/army-shards.json (neverTogether)
-// keeps the two files in different shards and refuses them together in a run of several workers.
+// The takeoff, Decisions and dossier files each own a server, account, port, Next workspace and artifacts directory.
+// The neverTogether group in scripts/tester-army/army-shards.json keeps them on separate runners, so their
+// development servers do not compile together.
 
 // Explicit opt-in for an owner-authorized live probe on the disposable backend.
 // The private file contains only a short-lived access token, never refresh/ID tokens.

@@ -374,11 +374,11 @@ la suite complète, au lieu d'en ouvrir un tous les 300 s. Pour le métré, le p
 ouvre un deuxième job quand la charge estimée à 1 worker dépasse 400 s.
 
 `neverTogether` liste les fichiers qui ne partagent jamais un shard, quelles que
-soient leurs durées : les deux fichiers des
+soient leurs durées : les trois fichiers des
 [parcours ChatGPT local](chatgpt-local.md#vérification) démarrent chacun un
-serveur de développement, et les deux workers d'un shard compileraient les deux
-serveurs à froid en même temps sur un seul runner. Une sélection qui contient
-les deux fichiers compte donc au moins deux shards. Le lanceur applique la même
+serveur de développement. Deux de ces serveurs compileraient à froid en même
+temps sur un seul runner. Le plan réserve un shard à chacun des fichiers
+sélectionnés de ce groupe. Le lanceur applique la même
 règle à une exécution filtrée (`--files`, `--grep`) : avec plus d'un worker, il
 la refuse avant de créer la pile. Sans durées utilisables, le plan n'a qu'un
 shard et la règle ne s'applique pas ; l'exécution de la suite entière dans un
