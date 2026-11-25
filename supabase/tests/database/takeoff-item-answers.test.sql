@@ -82,10 +82,17 @@ select pg_temp.f(60 + n), pg_temp.f(20 + n), pg_temp.f(30 + n), 'confirme', 'Ré
 from generate_series(0, 2) as n;
 insert into public.plan_sets (id, tenant_id, project_id, name)
 select pg_temp.f(40 + n), pg_temp.f(10), pg_temp.f(20 + n), 'Plans du dossier' from generate_series(0, 2) as n;
+-- Affaire 22 uses a registered plan copy from its dossier.
+insert into public.affaire_intake_documents (id, upload_id, file_name, upload_status, storage_path, classification_status,
+  document_kind, size_bytes) values
+  (pg_temp.f(70), pg_temp.f(32), 'plan-1.pdf', 'uploaded', 'fixture/plan-22.pdf', 'classified', 'plans', 8);
+insert into storage.objects (bucket_id, name, metadata) values ('affaire-intake', 'fixture/plan-22.pdf', '{"size":8}');
 -- One plan per affaire (100 + n), read on its pages 2 and 7.
-insert into public.plan_files (id, tenant_id, plan_set_id, file_name, file_path, file_type, file_size_bytes, page_count)
+insert into public.plan_files (id, tenant_id, plan_set_id, file_name, file_path, file_type, file_size_bytes, page_count, metadata)
 select pg_temp.f(100 + n), pg_temp.f(10), pg_temp.f(40 + n), 'plan-1.pdf',
-  concat_ws('/', pg_temp.f(10), pg_temp.f(40 + n), pg_temp.f(100 + n), 'plan-1.pdf'), 'application/pdf', 8, 9
+  concat_ws('/', pg_temp.f(10), pg_temp.f(40 + n), pg_temp.f(100 + n), 'plan-1.pdf'), 'application/pdf', 8, 9,
+  case when n = 2 then jsonb_build_object('source', 'affaire-intake', 'intake_document_id', pg_temp.f(70),
+    'intake_storage_path', 'fixture/plan-22.pdf') else '{}'::jsonb end
 from generate_series(0, 2) as n;
 
 -- The lists: affaire 20 has three items (lavabo 300, vanne 301, baignoire 302) in its revision 310; affaire 22 one item
@@ -135,8 +142,8 @@ create function pg_temp.manifest(project integer, order_ jsonb) returns jsonb la
     'units', (select jsonb_agg(jsonb_build_object('key', 'plan:' || f.id, 'ordinal', 1, 'plans', jsonb_build_array(f.id),
       'pages', '[2, 7]'::jsonb, 'page_count', 9, 'vector_pages', 0, 'budget', jsonb_build_object('tokens', 400000, 'cost_cents', 2500)))
       from public.plan_files f where f.plan_set_id = pg_temp.f(project + 20)),
-    'plans', (select jsonb_agg(jsonb_build_object('entry_key', f.id, 'plan_file_id', f.id, 'name', f.file_name, 'logical_id', f.id,
-      'intake_document_id', null, 'generation', 'generation-fictive-1', 'content_sha256', pg_temp.digest(f.id),
+    'plans', (select jsonb_agg(jsonb_build_object('entry_key', f.id, 'plan_file_id', f.id, 'name', f.file_name,
+      'logical_id', coalesce(f.metadata ->> 'intake_document_id', f.id::text), 'intake_document_id', f.metadata ->> 'intake_document_id', 'generation', 'generation-fictive-1', 'content_sha256', pg_temp.digest(f.id),
       'pages', '[2, 7]'::jsonb, 'page_count', 9)) from public.plan_files f where f.plan_set_id = pg_temp.f(project + 20)),
     'coverage', jsonb_build_object('plans_retained', 1, 'plans_omitted', '[]'::jsonb), 'references', '[]'::jsonb,
     'budget', jsonb_build_object('tokens', 400000, 'cost_cents', 2500))
@@ -638,6 +645,9 @@ select is(public.takeoff_find_designation_key(U&'  R\00C9seau\0009  d''eau  '), 
   'accents, case and runs of whitespace compare equal');
 select isnt(public.takeoff_find_designation_key('CE-01'), public.takeoff_find_designation_key('CE 01'),
   'punctuation and digits keep distinct designations distinct');
+select ok(not has_function_privilege('authenticated', 'public.takeoff_find_designation_key(text)', 'execute')
+  and has_function_privilege('service_role', 'public.takeoff_find_designation_key(text)', 'execute'),
+  'members read the stored key and only the service can call the normalizer among API roles');
 select table_privs_are('public', 'takeoff_find_decisions', 'authenticated', array['SELECT'],
   'members only read decisions directly');
 create function pg_temp.dismiss(actor integer, job_round integer, reason text, decision integer) returns uuid
@@ -742,6 +752,32 @@ select lives_ok($$select pg_temp.delete_and_check(format('delete from public.est
   'an affaire with published answers is deleted with them');
 select is((select count(*)::integer from public.takeoff_item_answer_observations where project_id = pg_temp.f(20)), 0,
   'nothing of its answers is left');
+
+-- A dossier plan stays readable through its original piece after its only attesting job disappears.
+select results_eq($$select outcome from pg_temp.launch(22, 1)$$, $$values ('admitted'::text)$$, 'a dossier plan is admitted');
+select is((select job_id from public.dispatch_next_takeoff_host_job(pg_temp.host())), pg_temp.job(22, 1), 'its copy is dispatched');
+select is(pg_temp.claim(pg_temp.job(22, 1), 981), 1, 'its copy is claimed');
+select is((select answer_count from pg_temp.publish(pg_temp.job(22, 1), 981,
+  jsonb_build_array(jsonb_set(pg_temp.valid() -> 2, '{item_id}', to_jsonb(pg_temp.f(320)))), '[]', null)), 1,
+  'the publication records a finding on the dossier plan');
+set local role service_role;
+select is(public.dismiss_takeoff_find(pg_temp.f(10), pg_temp.f(22), pg_temp.f(1), pg_temp.job(22, 1), 0,
+  pg_temp.f(982), 'outside_scope'), pg_temp.f(982), 'the owner dismisses the dossier finding');
+reset role;
+select pg_temp.sign_in(3);
+set local role authenticated;
+select decided_at as original_decision_time from public.takeoff_find_decisions where id = pg_temp.f(982) \gset
+reset role;
+delete from public.takeoff_jobs where id = pg_temp.job(22, 1);
+set local role authenticated;
+select ok(exists(select 1 from public.affaire_intake_documents where project_id = pg_temp.f(22) and id = pg_temp.f(70))
+  and not exists(select 1 from public.plan_files where id = pg_temp.f(102)),
+  'the director still reads the original dossier piece after losing access to the copy');
+select results_eq($$select decided_by, decided_at, reason, evidence from public.takeoff_find_decisions
+  where id = pg_temp.f(982)$$, format('values (%L::uuid, %L::timestamptz, %L::text, %L::text)',
+    pg_temp.f(1), :'original_decision_time', 'outside_scope', 'Symbole CE fictif'),
+  'the director retains the original author, date, reason and evidence through the dossier piece');
+reset role;
 
 select * from finish();
 rollback;

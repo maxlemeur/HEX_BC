@@ -7,8 +7,8 @@ returns text language sql immutable strict parallel safe set search_path = '' as
     lower(regexp_replace(normalize(p_designation, NFD), U&'[\0300-\036f]', '', 'g') collate "und-x-icu"),
     U&'[\0009-\000d\0020\0085\00a0\1680\2000-\200a\2028\2029\202f\205f\3000]+', ' ', 'g')), NFC), ''), p_designation)
 $$;
-revoke all on function public.takeoff_find_designation_key(text) from public, anon;
-grant execute on function public.takeoff_find_designation_key(text) to authenticated, service_role;
+revoke all on function public.takeoff_find_designation_key(text) from public, anon, authenticated;
+grant execute on function public.takeoff_find_designation_key(text) to service_role;
 
 create table public.takeoff_find_decisions (
   id uuid primary key default gen_random_uuid(),
@@ -16,6 +16,7 @@ create table public.takeoff_find_decisions (
   project_id uuid not null,
   plan_logical_id uuid not null,
   plan_file_id uuid not null,
+  intake_document_id uuid check (intake_document_id = plan_logical_id),
   plan_name text not null,
   job_id uuid not null,
   finding_index integer not null check (finding_index >= 0),
@@ -52,7 +53,9 @@ create policy takeoff_find_decisions_read on public.takeoff_find_decisions for s
   (select private.can_access_takeoff_scope(tenant_id, project_id, null, false))
   and ((select public.can_access_takeoff_project(project_id, tenant_id)) or exists (
     select 1 from public.plan_files f where f.id = takeoff_find_decisions.plan_file_id
-      and f.tenant_id = takeoff_find_decisions.tenant_id))
+      and f.tenant_id = takeoff_find_decisions.tenant_id)
+    or exists (select 1 from public.affaire_intake_documents d where d.id = takeoff_find_decisions.intake_document_id
+      and d.tenant_id = takeoff_find_decisions.tenant_id and d.project_id = takeoff_find_decisions.project_id))
 );
 
 -- Separate occurrences in one publication stay actionable. Across publications
@@ -76,13 +79,17 @@ create trigger takeoff_find_rereading before insert on public.takeoff_find_decis
 
 -- Resolve one coordinate against the sealed publication, never against a client copy of its evidence.
 create function private.takeoff_find_source(p_tenant uuid, p_project uuid, p_job uuid, p_index integer)
-returns table(plan_logical_id uuid, plan_file_id uuid, plan_name text, page integer, designation text, evidence text)
+returns table(plan_logical_id uuid, plan_file_id uuid, intake_document_id uuid, plan_name text, page integer, designation text, evidence text)
 language sql stable set search_path = '' as $$
-  select plan.logical_id, plan.plan_file_id, coalesce(plan.name, plan.plan_file_id::text), (f.value ->> 'page')::int,
+  select plan.logical_id, plan.plan_file_id, source.source_id, coalesce(plan.name, plan.plan_file_id::text), (f.value ->> 'page')::int,
     f.value ->> 'designation', f.value ->> 'evidence'
   from public.takeoff_item_answer_publications pub
   join public.takeoff_launch_requests r on r.id = pub.launch_request_id
   cross join lateral private.takeoff_item_answer_plans(r.manifest, private.takeoff_launch_unit(r.manifest, pub.launch_unit_key)) plan
+  -- Freeze the dossier origin only when the sealed file and logical id agree with its registered copy.
+  left join public.takeoff_plan_location_sources source on source.plan_file_id = plan.plan_file_id
+    and source.source_id = plan.logical_id and source.source_kind = 'intake_document'
+    and source.tenant_id = pub.tenant_id and source.project_id = pub.project_id
   cross join lateral (select pub.unlisted_findings -> p_index) f(value)
   where pub.tenant_id = p_tenant and pub.project_id = p_project and pub.job_id = p_job
     and p_index >= 0 and f.value is not null
@@ -123,7 +130,7 @@ begin
     return prior.id;
   end if;
   insert into public.takeoff_find_decisions(id, tenant_id, project_id, job_id, finding_index,
-    decided_by, reason, detail, plan_logical_id, plan_file_id, plan_name, page, designation, evidence)
+    decided_by, reason, detail, plan_logical_id, plan_file_id, intake_document_id, plan_name, page, designation, evidence)
   select p_intent_key, p_tenant_id, p_project_id, p_job_id, p_finding_index, p_actor, p_reason, detail_text, f.*
   from private.takeoff_find_source(p_tenant_id,p_project_id,p_job_id,p_finding_index) f
   on conflict (job_id, finding_index) where undone_at is null do nothing;
@@ -182,7 +189,7 @@ begin
       raise exception 'TAKEOFF_FIND_INVALID' using errcode = '22023';
     end if;
     insert into public.takeoff_find_decisions(tenant_id, project_id, job_id, finding_index, decided_by, item_id,
-      plan_logical_id, plan_file_id, plan_name, page, designation, evidence)
+      plan_logical_id, plan_file_id, intake_document_id, plan_name, page, designation, evidence)
     select p_tenant_id, p_project_id, ref.job_id, ref.finding_index, p_actor, i.id, f.*
     from jsonb_to_recordset(p_finds) ref(job_id uuid, finding_index integer, item_id uuid)
     join public.takeoff_list_items i on i.id = ref.item_id and i.tenant_id = p_tenant_id and i.project_id = p_project_id
