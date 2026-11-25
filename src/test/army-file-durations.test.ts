@@ -15,7 +15,7 @@ describe("Army serial file durations", () => {
   it("keeps every checked-in measurement inside its documented ceiling", () => {
     expect(Object.entries(durations.seconds).filter(([file, seconds]) => seconds > durationCeiling(file))).toEqual([]);
     expect(durationCeiling("e2e/army/local/another-intake.e2e.ts")).toBe(600);
-    expect(durationCeiling("e2e/army/local/chatgpt-local-intake.e2e.ts")).toBe(1000);
+    expect(durationCeiling("e2e/army/local/chatgpt-local-intake.e2e.ts")).toBe(600);
     expect(durationWarnings({ a: 400, b: 401 })).toEqual([expect.stringContaining("b — 401 s")]);
   });
 

@@ -2,9 +2,7 @@
 // from schema validation: a slow journey must still be planned with neverTogether.
 export const WARNING_SECONDS = 400;
 const HARD_SECONDS = 600;
-const exceptions = new Map([
-  ["e2e/army/local/chatgpt-local-intake.e2e.ts", 1000],
-]);
+const exceptions = new Map<string, number>();
 
 export function durationCeiling(file: string) {
   return exceptions.get(file) ?? HARD_SECONDS;

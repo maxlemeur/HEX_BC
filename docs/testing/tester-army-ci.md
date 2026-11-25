@@ -383,12 +383,10 @@ terminé le précédent.
 Au-delà de **400 s** par fichier, la sélection signale la mesure enregistrée,
 même pour un changement documentaire. L'agrégation signale aussi les mesures
 du run qui franchissent ce seuil. Le test de la configuration bloque au-delà
-de **600 s** (dix minutes de tests exécutés en série). Cette marge laisse
-passer les variations usuelles du takeoff mesuré autour de 450 s. La liste
-d'exceptions dans [file-durations.ts](../../scripts/tester-army/file-durations.ts)
-accorde **1 000 s** uniquement à `e2e/army/local/chatgpt-local-intake.e2e.ts`,
-mesuré jusqu'à environ 950 s avant sa découpe. Retirer cette exception quand
-une mesure après découpe confirme une durée sous 600 s.
+de **600 s** (dix minutes de tests exécutés en série). Les 200 s de marge
+entre l'alerte et le plafond laissent le temps de découper un fichier qui
+s'allonge. La liste d'exceptions dans
+[file-durations.ts](../../scripts/tester-army/file-durations.ts) est vide.
 
 Chaque lundi à 08:35 UTC, [le workflow de mise à jour](../../.github/workflows/army-duration-refresh.yml)
 cherche pour Critical et Full leur dernière campagne verte de main (push ou
