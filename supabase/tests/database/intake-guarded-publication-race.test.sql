@@ -228,6 +228,66 @@ select dblink_exec('editor','update private.intake_current_brief_activation set 
 select is((select result from dblink_get_result('publisher') as t(result text)),'P0001 INTAKE_ANALYSIS_REQUIRED',
   'confirmation observes the cut-over that occurred after its statement began but before it acquired the brief');
 select * from dblink_get_result('publisher') as t(result text);
+-- Both deletion reservations are already committed, as when Storage returns
+-- an error to the member. Exercise both orders on the actual close RPC.
+select dblink_exec('editor',$fixture$
+  begin;
+  insert into public.affaire_intake_uploads(id,project_id,created_by,status,processing_lease_token,processing_lease_expires_at)
+    select pg_temp.f(n),pg_temp.f(20),pg_temp.f(1),'processing',pg_temp.f(90),now()+interval '10 minutes' from generate_series(80,81) n;
+  insert into public.affaire_intake_documents(id,upload_id,file_name,upload_status,classification_status)
+    select pg_temp.f(n+2),pg_temp.f(n),'Reserved.pdf','uploaded','queued' from generate_series(80,81) n;
+  update public.affaire_intake_documents set deletion_token=pg_temp.f(91),deletion_started_at=now() where id in (pg_temp.f(82),pg_temp.f(83));
+  commit;
+  begin;
+  do $$begin if not public.finish_affaire_intake_upload_attempt(pg_temp.f(80),pg_temp.f(90),'failed',now()) then raise exception 'close failed'; end if; end$$;
+$fixture$);
+select dblink_send_query('publisher',$cancel$
+  update public.affaire_intake_documents set deletion_token=null,deletion_started_at=null
+    where id='ae570000-0000-4000-8000-000000000082' returning classification_status
+$cancel$);
+select ok(pg_temp.publisher_blocked(),'cancellation waits for the historical close although the last visible completed_at is null');
+select dblink_exec('editor','commit');
+select is((select status from dblink_get_result('publisher') as t(status text)),'failed','after the close commits the cancelled piece is immediately retryable');
+select * from dblink_get_result('publisher') as t(status text);
+select dblink_exec('editor',$cancel$
+  begin;
+  update public.affaire_intake_documents set deletion_token=null,deletion_started_at=null where id=pg_temp.f(83);
+$cancel$);
+select dblink_send_query('publisher',$close$select public.finish_affaire_intake_upload_attempt(
+  'ae570000-0000-4000-8000-000000000081','ae570000-0000-4000-8000-000000000090','failed',now())$close$);
+select ok(pg_temp.publisher_blocked(),'in the other order the close waits for the member cancelling the reservation');
+select dblink_exec('editor','commit');
+select ok((select closed from dblink_get_result('publisher') as t(closed boolean)),'the waiting close finishes');
+select is((select classification_status from public.affaire_intake_documents where id='ae570000-0000-4000-8000-000000000083'),
+  'failed','closing after cancellation also releases the visible piece for its own retry');
+select * from dblink_get_result('publisher') as t(closed boolean);
+-- Like an old pre-cutover failure: still queued when the member presses.
+select dblink_exec('editor',$lock$
+  begin;
+  insert into public.affaire_intake_uploads(id,project_id,created_by,status,completed_at)
+    values(pg_temp.f(84),pg_temp.f(20),pg_temp.f(1),'failed',now());
+  insert into public.affaire_intake_documents(id,upload_id,file_name,upload_status,classification_status)
+    values(pg_temp.f(85),pg_temp.f(84),'Ancien.pdf','uploaded','queued');
+  commit;
+  begin;
+  do $$begin perform 1 from public.affaire_intake_uploads where id=pg_temp.f(84) for update; end$$;
+$lock$);
+select dblink_exec('publisher',$actor$
+  set role authenticated;
+  set request.jwt.claim.sub='ae570000-0000-4000-8000-000000000001';
+$actor$);
+select dblink_send_query('publisher',$retry$select public.prepare_historical_intake_document_retry(
+  'ae570000-0000-4000-8000-000000000020','ae570000-0000-4000-8000-000000000085')$retry$);
+select ok(pg_temp.publisher_blocked(),'the member preparing a historical retry waits on its lot');
+select dblink_exec('editor',$revoke$
+  update public.tenants set is_active=false where id=(select tenant_id from public.estimate_projects where id=pg_temp.f(20));
+  commit;
+$revoke$);
+select is((select prepared from dblink_get_result('publisher') as t(prepared boolean)),false,'suspension during that wait refuses the retry');
+select * from dblink_get_result('publisher') as t(prepared boolean);
+select ok((select classification_status='queued' and issues='{}' from public.affaire_intake_documents
+  where id='ae570000-0000-4000-8000-000000000085'),'the refused gesture leaves the piece and its diagnostics intact');
+select dblink_exec('editor','update public.tenants set is_active=true where id=(select tenant_id from public.estimate_projects where id=pg_temp.f(20))');
 select dblink_disconnect('publisher');
 select dblink_exec('editor',$cleanup$
   begin;

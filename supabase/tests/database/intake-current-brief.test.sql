@@ -194,6 +194,52 @@ select results_eq($$select u.status,d.classification_status,d.issues from public
   $$values ('queued'::text,'queued'::text,'{}'::text[]),('failed','queued','{}')$$,
   'ordinary recording and interrupted, re-armable Drive deposits expose no premature retry or diagnostic');
 
+-- Old terminal pieces are left untouched at installation and at cut-over. The
+-- member's individual retry may make only that piece actionable.
+insert into public.affaire_intake_uploads(id,project_id,created_by,status,completed_at)
+  values(pg_temp.f(750),pg_temp.f(27),pg_temp.f(1),'failed',now());
+insert into public.affaire_intake_documents(id,upload_id,file_name,upload_status,classification_status)
+  select pg_temp.f(i),pg_temp.f(750),'Old.pdf','uploaded','queued' from generate_series(751,753) i;
+insert into auth.users(id,email,email_confirmed_at) values(pg_temp.f(2),'historical-retry-outsider@example.test',now());
+
+delete from private.intake_current_brief_activation;
+select ok(not has_function_privilege('anon','public.prepare_historical_intake_document_retry(uuid,uuid)','execute')
+  and not has_function_privilege('service_role','public.prepare_historical_intake_document_retry(uuid,uuid)','execute'),
+  'preparing a historical retry is a member gesture');
+set local role authenticated;
+select is(public.intake_current_brief_active(),false,'the deployed client sees the compatibility mode before cut-over');
+select is(public.prepare_historical_intake_document_retry(pg_temp.f(27),pg_temp.f(751)),false,'before activation a press cannot repair an old row');
+reset role;
+insert into private.intake_current_brief_activation(active_from) values(now()+interval '1 hour');
+-- Close and cancel through the same operations a released worker uses.
+insert into public.affaire_intake_uploads(id,project_id,created_by,status,processing_lease_token,processing_lease_expires_at)
+  values(pg_temp.f(760),pg_temp.f(27),pg_temp.f(1),'processing',pg_temp.f(761),now()+interval '10 minutes');
+insert into public.affaire_intake_documents(id,upload_id,file_name,upload_status,classification_status)
+  select pg_temp.f(i),pg_temp.f(760),'Old.pdf','uploaded','queued' from generate_series(762,763) i;
+update public.affaire_intake_documents set deletion_token=pg_temp.f(3),deletion_started_at=now() where id=pg_temp.f(763);
+select ok(public.finish_affaire_intake_upload_attempt(pg_temp.f(760),pg_temp.f(761),'failed',now()),'a pre-cutover worker can close its historical lot');
+update public.affaire_intake_documents set deletion_token=null,deletion_started_at=null where id=pg_temp.f(763);
+select ok((select bool_and(classification_status='queued' and issues='{}') from public.affaire_intake_documents where upload_id=pg_temp.f(760)),
+  'while activation is in the future neither a close nor cancellation adds a failure');
+select is(public.prepare_historical_intake_document_retry(pg_temp.f(27),pg_temp.f(751)),false,'a scheduled activation cannot change the selected historical piece yet');
+update private.intake_current_brief_activation set active_from=now();
+select ok((select bool_and(classification_status='queued' and issues='{}') from public.affaire_intake_documents where upload_id=pg_temp.f(750)),
+  'activation itself does not sweep existing pieces');
+set local role authenticated;
+select is(public.intake_current_brief_active(),true,'the deployed client can offer a retry for an uploaded piece under a terminal historical lot');
+select set_config('request.jwt.claim.sub',pg_temp.f(2)::text,true);
+select is(public.prepare_historical_intake_document_retry(pg_temp.f(27),pg_temp.f(751)),false,'a user outside the tenant cannot change that piece');
+select set_config('request.jwt.claim.sub',pg_temp.f(1)::text,true);
+select is(public.prepare_historical_intake_document_retry(pg_temp.f(27),(select id from public.affaire_intake_documents where upload_id=pg_temp.f(741))),false,
+  'the gesture does not release an interrupted Drive registration');
+select is(public.prepare_historical_intake_document_retry(pg_temp.f(27),pg_temp.f(751)),true,'the member can explicitly prepare just the old failed reading for a retry');
+select is(public.prepare_historical_intake_document_retry(pg_temp.f(27),pg_temp.f(751)),false,'replaying preparation does not append a duplicate diagnosis');
+reset role;
+select results_eq($$select classification_status,cardinality(issues) from public.affaire_intake_documents where upload_id=pg_temp.f(750) order by id$$,
+  $$values ('failed'::text,1),('queued',0),('queued',0)$$,'only the selected piece is now eligible for the existing per-piece command');
+update public.estimate_projects set is_archived=true where id=pg_temp.f(27);
+select is(public.prepare_historical_intake_document_retry(pg_temp.f(27),pg_temp.f(752)),false,'an archived dossier cannot change a historical piece');
+update public.estimate_projects set is_archived=false where id=pg_temp.f(27);
 -- A historical lot can end before its first piece starts, too.
 insert into public.affaire_intake_uploads(id,project_id,created_by,status,attempt_count,processing_lease_token,processing_lease_expires_at)
   values(pg_temp.f(500),pg_temp.f(27),pg_temp.f(1),'processing',3,pg_temp.f(501),now()-interval '1 min');

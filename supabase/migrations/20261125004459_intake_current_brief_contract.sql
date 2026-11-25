@@ -20,6 +20,15 @@ create table private.affaire_intake_contracts (
 );
 revoke all on private.affaire_intake_contracts from public,anon,authenticated,service_role;
 
+-- This single deployment flag also applies to pieces of purely historical
+-- dossiers. It discloses no member, document, receipt or activation timestamp.
+create function public.intake_current_brief_active() returns boolean
+language sql stable security definer set search_path='' as $$
+  select exists(select 1 from private.intake_current_brief_activation where active_from<=clock_timestamp())
+$$;
+revoke all on function public.intake_current_brief_active() from public,anon,authenticated,service_role;
+grant execute on function public.intake_current_brief_active() to authenticated,service_role;
+
 create function private.intake_current_brief_enforced(p_project_id uuid,p_at timestamptz default clock_timestamp()) returns boolean
 language sql stable security definer set search_path='' as $$
   select exists(select 1 from private.intake_current_brief_activation where active_from<=p_at)
@@ -398,6 +407,7 @@ grant execute on function public.read_affaire_intake_launch_selection(uuid) to s
 create function private.finish_historical_intake_pieces() returns trigger
 language plpgsql security invoker set search_path='' as $$
 begin
+  if not public.intake_current_brief_active() then return null; end if;
   update public.affaire_intake_documents set classification_status='failed',
     issues=array_append(issues,'Analyse interrompue. Vous pouvez relancer cette pièce.')
     where upload_id=new.id and analysis_launch_id is null and upload_status='uploaded'
@@ -415,8 +425,14 @@ create trigger finish_historical_intake_pieces after update of status on public.
 -- inspect its upload under a share lock before the piece becomes visible again.
 create function private.restore_historical_intake_retry() returns trigger
 language plpgsql security invoker set search_path='' as $$
+declare batch public.affaire_intake_uploads%rowtype;
 begin
-  if (select u.status from public.affaire_intake_uploads u where u.id=new.upload_id and u.launch_read_scans is null and u.completed_at is not null for share)='failed' then
+  if not public.intake_current_brief_active() then return new; end if;
+  -- The committed reservation excludes the piece from the closer's UPDATE.
+  -- Lock by immutable identity even when the last visible state is processing.
+  select u.* into batch from public.affaire_intake_uploads u where u.id=old.upload_id for share;
+  if batch.launch_read_scans is null and batch.status='failed' and batch.completed_at is not null
+    and public.intake_current_brief_active() then
     new.classification_status:='failed';
     new.issues:=array_append(new.issues,'Analyse interrompue. Vous pouvez relancer cette pièce.');
   end if;
@@ -430,9 +446,39 @@ create trigger restore_historical_intake_retry before update of deletion_token o
     and new.classification_source is distinct from 'manual' and new.manually_overridden_at is null)
   execute function private.restore_historical_intake_retry();
 
-update public.affaire_intake_documents d set classification_status='failed',
-  issues=array_append(d.issues,'Analyse interrompue. Vous pouvez relancer cette pièce.')
-from public.affaire_intake_uploads u where d.upload_id=u.id and u.status='failed' and u.completed_at is not null and u.launch_read_scans is null
-  and d.analysis_launch_id is null and d.upload_status='uploaded' and d.classification_status in ('queued','processing')
-  and d.deleted_at is null and d.deletion_token is null and d.classification_source is distinct from 'manual' and d.manually_overridden_at is null;
+-- A member explicitly retries one pre-cutover piece. A new client first
+-- checks the deployment switch and the closed historical lot to offer that
+-- gesture. It invokes this command before its existing version-fenced retry.
+-- No upload is rearmed and preparing a retry never calls a provider.
+create function public.prepare_historical_intake_document_retry(p_project_id uuid,p_document_id uuid) returns boolean
+language plpgsql security definer set search_path='' as $$
+declare
+  actor uuid:=auth.uid();
+  tenant uuid:=public.current_tenant_id();
+  batch public.affaire_intake_uploads%rowtype;
+begin
+  if not public.intake_current_brief_active() or not public.intake_payer_can_write(actor,tenant,p_project_id) then return false; end if;
+  perform 1 from public.estimate_projects where id=p_project_id and tenant_id=tenant for share;
+  select u.* into batch from public.affaire_intake_documents d
+    join public.affaire_intake_uploads u on u.id=d.upload_id and u.project_id=d.project_id and u.tenant_id=d.tenant_id
+    where d.id=p_document_id and d.project_id=p_project_id and d.tenant_id=tenant for share of u;
+  if not found or batch.launch_read_scans is not null or batch.status<>'failed' or batch.completed_at is null then return false; end if;
+  -- Let a deletion already holding the piece finish without a parent/child
+  -- lock cycle. Its cancellation runs the same terminal-state decision.
+  perform 1 from public.affaire_intake_documents where id=p_document_id for update skip locked;
+  if not found then return false; end if;
+  perform 1 from public.tenant_memberships m join public.tenants t on t.id=m.tenant_id
+    where m.user_id=actor for share of m,t;
+  update public.affaire_intake_documents d set classification_status='failed',
+    issues=array_append(d.issues,'Analyse interrompue. Vous pouvez relancer cette pièce.')
+    where d.id=p_document_id and d.project_id=p_project_id and d.tenant_id=tenant and d.upload_id=batch.id
+      and d.analysis_launch_id is null and d.upload_status='uploaded' and d.classification_status in ('queued','processing')
+      and d.deleted_at is null and d.deletion_token is null and d.classification_source is distinct from 'manual'
+      and d.manually_overridden_at is null and public.intake_current_brief_active()
+      and tenant=public.current_tenant_id() and public.intake_payer_can_write(actor,tenant,p_project_id);
+  return found;
+end;
+$$;
+revoke all on function public.prepare_historical_intake_document_retry(uuid,uuid) from public,anon,authenticated,service_role;
+grant execute on function public.prepare_historical_intake_document_retry(uuid,uuid) to authenticated;
 commit;
