@@ -50,57 +50,53 @@ export function workbookCorrection(decision: SupplierDecision, source?: CostingW
   }
 }
 
-type ExportRow = {
-  sheet: string;
-  address: string;
-  field: string;
-  value: string;
-  article: string;
-  designation: string;
-  material: string;
-  dimension: string;
-  suppliers: string;
-  codes: string;
-  sourceCells: string;
-  reason: string;
-  advice: string;
-  correction: string;
-};
-
 type SourceMap = ReadonlyMap<string, CostingWorkbookSupplierOccurrence>;
 
-export function workbookCorrectionRows(decisions: readonly SupplierDecision[], sources: SourceMap): ExportRow[] {
-  const groups = new Map<string, { row: ExportRow; occurrences: CostingWorkbookSupplierOccurrence[] }>();
+export function workbookCorrectionRows(decisions: readonly SupplierDecision[], sources: SourceMap) {
+  const groups = new Map<string, {
+    address: string;
+    reason: Reason;
+    correction: ReturnType<typeof workbookCorrection>;
+    occurrences: CostingWorkbookSupplierOccurrence[];
+  }>();
   for (const decision of decisions) {
-    const key = `${decision.row}-${decision.slot}`;
+    const { row, slot, reason } = decision;
+    const key = `${row}-${slot}`;
     const source = sources.get(key);
     const correction = workbookCorrection(decision, source);
-    const address = correction.column === undefined ? "" : workbookCellAddress(decision.row, correction.column);
+    const address = correction.column === undefined ? "" : workbookCellAddress(row, correction.column);
     // One task per physical cell and reason. Catalogue actions and missing columns keep each source distinct.
-    const groupKey = `${decision.reason}:${address || key}`;
+    const groupKey = `${reason}:${address || key}`;
     const group = groups.get(groupKey);
     if (group) {
       if (source) group.occurrences.push(source);
       continue;
     }
-    groups.set(groupKey, {
-      row: {
-        sheet: COSTING_WORKBOOK_SHEET, address, field: correction.field, value: correction.value,
-        article: source?.article_reference ?? "", designation: source?.article_wording ?? "",
-        material: source?.article_material ?? "", dimension: source?.article_dimension ?? "",
-        suppliers: "", codes: "", sourceCells: "", reason: WORKBOOK_CORRECTION_RULES[decision.reason].label,
-        advice: correction.advice, correction: "",
-      },
-      occurrences: source ? [source] : [],
-    });
+    groups.set(groupKey, { address, reason, correction, occurrences: source ? [source] : [] });
   }
-  return [...groups.values()].map(({ row, occurrences }) => ({
-    ...row,
-    suppliers: occurrences.map(({ supplier_name }) => supplier_name).join("\n"),
-    codes: occurrences.map(({ supplier_sku }) => supplier_sku).join("\n"),
-    sourceCells: occurrences.map(({ row, column }) => workbookCellAddress(row, column)).join("\n"),
-  }));
+
+  return Array.from(groups.values(), ({ address, reason, correction, occurrences }) => {
+    const [source] = occurrences;
+    return {
+      sheet: COSTING_WORKBOOK_SHEET,
+      address,
+      field: correction.field,
+      value: correction.value,
+      article: source?.article_reference ?? "",
+      designation: source?.article_wording ?? "",
+      material: source?.article_material ?? "",
+      dimension: source?.article_dimension ?? "",
+      suppliers: occurrences.map(({ supplier_name }) => supplier_name).join("\n"),
+      codes: occurrences.map(({ supplier_sku }) => supplier_sku).join("\n"),
+      sourceCells: occurrences.map(({ row, column }) => workbookCellAddress(row, column)).join("\n"),
+      reason: WORKBOOK_CORRECTION_RULES[reason].label,
+      advice: correction.advice,
+      correction: "",
+    };
+  });
 }
+
+type ExportRow = ReturnType<typeof workbookCorrectionRows>[number];
 
 const COLUMNS: ExportColumn<ExportRow>[] = [
   { key: "reason", header: "Motif" },
