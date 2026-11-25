@@ -115,10 +115,11 @@ async function planReferences(context: AuthenticatedTenantContext, occurrences: 
   const existingByPair = new Map((existing.data ?? []).map((item) => [pairKey(item.product_id, item.supplier_id), item]));
 
   const candidates: Candidate[] = [];
+  const proposed: NonNullable<CostingWorkbookSupplierReferenceReport["proposed"]> = [];
   let alreadyRegistered = 0;
   let duplicates = 0;
   for (const [pair, entries] of groupBy(matches, ({ candidate }) => pairKey(candidate.product_id, candidate.supplier_id))) {
-    const { candidate } = entries[0];
+    const { candidate, occurrence } = entries[0];
     const item = existingByPair.get(pair);
 
     // The catalogue holds a single reference per pair. Never choose between competing SKUs or reactivate a withdrawn item.
@@ -131,11 +132,19 @@ async function planReferences(context: AuthenticatedTenantContext, occurrences: 
     } else {
       duplicates += entries.length - 1;
       if (item) alreadyRegistered += 1;
-      else candidates.push(candidate);
+      else {
+        candidates.push(candidate);
+        proposed.push({
+          row: occurrence.row,
+          slot: occurrence.slot,
+          article_reference: candidate.product_reference,
+          supplier_name: candidate.supplier_name,
+        });
+      }
     }
   }
   decisions.sort((left, right) => left.row - right.row || left.slot - right.slot);
-  return { candidates, alreadyRegistered, duplicates, decisions };
+  return { candidates, proposed, alreadyRegistered, duplicates, decisions };
 }
 
 export async function importCostingWorkbookSupplierReferences(
@@ -173,6 +182,7 @@ export async function importCostingWorkbookSupplierReferences(
     already_registered: plan.alreadyRegistered,
     duplicates: plan.duplicates,
     preview_token: input.confirm ? null : previewToken,
+    proposed: input.confirm ? [] : plan.proposed,
     for_decision: plan.decisions,
   };
 }

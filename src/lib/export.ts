@@ -5,6 +5,7 @@ export type ExportColumn<T> = {
   key: keyof T | string;
   header: string;
   formatter?: (value: unknown, row: T) => string | number;
+  numberFormat?: string;
 };
 
 export type ExportOptions = {
@@ -57,6 +58,13 @@ function buildWorksheet<T extends Record<string, unknown>>(
 ) {
   const exportData = prepareExportData(data, columns);
   const worksheet = xlsx.utils.aoa_to_sheet(exportData);
+  columns.forEach(({ numberFormat }, column) => {
+    if (!numberFormat) return;
+    for (let row = 1; row < exportData.length; row += 1) {
+      const cell = worksheet[xlsx.utils.encode_cell({ r: row, c: column })];
+      if (cell) cell.z = numberFormat;
+    }
+  });
 
   const colWidths = columns.map((_, index) => {
     const maxLength = Math.max(

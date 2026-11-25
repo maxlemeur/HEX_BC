@@ -34,14 +34,13 @@ export function ProductCatalogueMenu({
   stats,
   onTemplateImport,
   onCsvImport,
-  onCostingWorkbookImport,
+  workbookImportHref,
   onSupplyTypes,
 }: {
   stats: ProductCatalogueCounters;
   onTemplateImport: () => void;
   onCsvImport: () => void;
-  /** The office's costing workbook (« bible de chiffrage »), imported as drafts (TI-690). */
-  onCostingWorkbookImport: () => void;
+  workbookImportHref: string;
   /** Opens the preferred supplier of each supply type (TI-691). */
   onSupplyTypes?: () => void;
 }) {
@@ -106,7 +105,7 @@ export function ProductCatalogueMenu({
             <FileSpreadsheetIcon aria-hidden="true" />
             Importer un CSV produits
           </DropdownMenuItem>
-          <DropdownMenuItem className="min-h-10 px-2" onClick={onCostingWorkbookImport}>
+          <DropdownMenuItem className="min-h-10 px-2" render={<Link href={workbookImportHref} />}>
             <BookOpenIcon aria-hidden="true" />
             Importer le classeur de chiffrage
           </DropdownMenuItem>

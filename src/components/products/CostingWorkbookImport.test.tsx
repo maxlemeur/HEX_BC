@@ -16,12 +16,12 @@ import { CostingWorkbookImport } from "./CostingWorkbookImport";
  *     started again while a request is running.
  *  3. With nothing new to import, the import button stays enabled (an empty import that says « terminé »).
  *  4. A file without the « All_data » sheet is posted anyway, or the refusal does not name the sheet.
- *  5. A refusal (422 format, 403 rights) or a network failure is lost, shown outside the dialog, or clears the
+ *  5. A refusal (422 format, 403 rights) or a network failure is lost, shown outside the page, or clears the
  *     chosen file so that the office must choose it again to retry.
- *  6. Re-opening the dialog shows the previous file, preview or result; an answer that arrives after the
- *     dialog was closed fills the new one.
+ *  6. Returning to the import page shows the previous file, preview or result; an answer that arrives after the
+ *     page was left fills the new one.
  *  7. After the import the catalogue list is not refreshed, or there is no way to reach the drafts.
- *  8. (added with the route's contract, after the first version of the dialog) An import that stopped half-way
+ *  8. (added with the route's contract, after the first version of the workflow) An import that stopped half-way
  *     (COSTING_WORKBOOK_IMPORT_INCOMPLETE) keeps offering the stale preview's count, does not refresh the list
  *     although drafts were created, or gives no way to import what is left.
  *  9. (found by review) A refusal that carries a sentence of the server (a 409 « un article vient d’être
@@ -88,14 +88,18 @@ function sentBodies() {
   });
 }
 
-function renderDialog(overrides: Partial<React.ComponentProps<typeof CostingWorkbookImport>> = {}) {
-  const props = { open: true, onClose: vi.fn(), onImported: vi.fn(), onShowDrafts: vi.fn(), ...overrides };
+function renderImport() {
+  const props = {
+    catalogueHref: "/dashboard/products?size=100",
+    draftsHref: "/dashboard/products?catalogue_status=draft&size=100",
+    onImported: vi.fn(),
+  };
   const view = render(<CostingWorkbookImport {...props} />);
   return { ...view, props };
 }
 
-const fileInput = () => screen.getByLabelText("Classeur de chiffrage") as HTMLInputElement;
-const dialog = () => screen.getByRole("dialog", { name: "Importer le classeur de chiffrage" });
+const fileInput = () => screen.getByLabelText("Fichier Excel") as HTMLInputElement;
+const importPage = () => screen.getByRole("region", { name: "Importer le classeur de chiffrage" });
 
 describe("CostingWorkbookImport", () => {
   beforeEach(() => {
@@ -110,17 +114,22 @@ describe("CostingWorkbookImport", () => {
   it("previews the import before any write and says its counts in words (1)", async () => {
     const user = userEvent.setup();
     fetchMock.mockImplementationOnce(() => success(report()));
-    renderDialog();
+    renderImport();
 
     await user.upload(fileInput(), costingWorkbook());
 
-    const preview = await within(dialog()).findByRole("region", { name: "Ce que l’import va faire" });
+    const preview = await within(importPage()).findByRole("region", { name: "Aperçu de l’import" });
     expect(sentBodies()).toEqual([{ rows: SHEET_ROWS, confirm: false }]);
     for (const sentence of [
       "1 842 nouveaux articles en brouillon",
       "779 déjà au catalogue (inchangés)",
       "31 sans type de fourniture",
-      "613 références fournisseur figurent sur les nouveaux brouillons du classeur.",
+      "613 références fournisseur à traiter séparément.",
+    ]) {
+      expect(within(preview).getByText(sentence)).toBeInTheDocument();
+    }
+    await user.click(within(preview).getByRole("button", { name: "Remarques sur le classeur" }));
+    for (const sentence of [
       "57 remarques sur le classeur",
       "Ligne 7 · Rob.V.15 : Unité absente : « u » retenue.",
       "Ligne 9 : Ligne sans référence (colonne ID) : ignorée.",
@@ -137,16 +146,17 @@ describe("CostingWorkbookImport", () => {
     fetchMock
       .mockImplementationOnce(() => success(report()))
       .mockImplementationOnce(() => confirmation.promise);
-    const { props } = renderDialog();
+    const { props } = renderImport();
 
     await user.upload(fileInput(), costingWorkbook());
     const importButton = await screen.findByRole("button", { name: IMPORT_1842 });
     await user.click(importButton);
     await user.click(importButton);
 
-    expect(within(dialog()).getByText("Création des brouillons…")).toBeInTheDocument();
+    expect(within(importPage()).getByText("Création des brouillons…")).toBeInTheDocument();
     expect(importButton).toBeDisabled();
     expect(fileInput()).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Changer de fichier Excel" })).toBeDisabled();
     expect(sentBodies()).toEqual([{ rows: SHEET_ROWS, confirm: false }, { rows: SHEET_ROWS, confirm: true }]);
     expect(props.onImported).not.toHaveBeenCalled();
 
@@ -154,13 +164,12 @@ describe("CostingWorkbookImport", () => {
       confirmation.resolve(new Response(JSON.stringify({ ok: true, data: report({ confirmed: true }) }), { status: 200 }));
     });
 
-    expect(await within(dialog()).findByText("Import terminé : 1 842 brouillons créés.")).toBeInTheDocument();
+    expect(await within(importPage()).findByText("Import terminé : 1 842 brouillons créés.")).toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(props.onImported).toHaveBeenCalledTimes(1);
     expect(screen.queryByRole("button", { name: IMPORT_1842 })).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "Voir les brouillons" }));
-    expect(props.onShowDrafts).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("link", { name: "Voir les brouillons" })).toHaveAttribute("href", props.draftsHref);
   });
 
   it("keeps the import button disabled when nothing is new, and says so (3)", async () => {
@@ -169,14 +178,13 @@ describe("CostingWorkbookImport", () => {
       new_articles: 0, already_in_catalogue: 2621, without_supply_type: 0, supplier_references_not_imported: 0,
       issues: [], issue_count: 0,
     })));
-    renderDialog();
+    renderImport();
 
     await user.upload(fileInput(), costingWorkbook());
 
-    expect(await within(dialog()).findByText("Aucun nouvel article en brouillon")).toBeInTheDocument();
-    expect(within(dialog()).getByText("2 621 déjà au catalogue (inchangés)")).toBeInTheDocument();
-    expect(within(dialog()).getByText("Rien de nouveau à importer.")).toBeInTheDocument();
-    expect(within(dialog()).queryByText(/pas reprises? : elles? le sera/)).not.toBeInTheDocument();
+    expect(await within(importPage()).findByText("Aucun nouvel article en brouillon")).toBeInTheDocument();
+    expect(within(importPage()).getByText("2 621 déjà au catalogue (inchangés)")).toBeInTheDocument();
+    expect(within(importPage()).queryByText(/pas reprises? : elles? le sera/)).not.toBeInTheDocument();
     const importButton = screen.getByRole("button", { name: "Importer 0 brouillon" });
     expect(importButton).toBeDisabled();
     await user.click(importButton);
@@ -185,15 +193,15 @@ describe("CostingWorkbookImport", () => {
 
   it("refuses a workbook without the All_data sheet before any request, naming the sheet (4)", async () => {
     const user = userEvent.setup();
-    renderDialog();
+    renderImport();
 
     await user.upload(fileInput(), workbookFile("autre-classeur.xlsx", { Feuil1: SHEET_ROWS }));
 
-    expect(await within(dialog()).findByRole("alert")).toHaveTextContent(
+    expect(await within(importPage()).findByRole("alert")).toHaveTextContent(
       "Ce classeur n’a pas d’onglet « All_data ». Choisissez le classeur de chiffrage.",
     );
     expect(fetchMock).not.toHaveBeenCalled();
-    expect(within(dialog()).queryByRole("region", { name: "Ce que l’import va faire" })).not.toBeInTheDocument();
+    expect(within(importPage()).queryByRole("region", { name: "Aperçu de l’import" })).not.toBeInTheDocument();
   });
 
   it.each([
@@ -208,16 +216,15 @@ describe("CostingWorkbookImport", () => {
     // The schema's « Payload invalide. » says nothing to the office: the dialog's own sentence instead.
     [400, { ok: false, error: { code: "VALIDATION_ERROR", message: "Payload invalide." } },
       "Le serveur a refusé le contenu de l’onglet « All_data »."],
-  ])("shows the %i refusal's sentence in the dialog and keeps the chosen file (5, 9)", async (status, body, sentence) => {
+  ])("shows the %i refusal's sentence on the import page and keeps the chosen file (5, 9)", async (status, body, sentence) => {
     const user = userEvent.setup();
     fetchMock.mockImplementationOnce(() => respond(status, body));
-    renderDialog();
+    renderImport();
 
     await user.upload(fileInput(), costingWorkbook());
 
-    expect(await within(dialog()).findByRole("alert")).toHaveTextContent(sentence);
+    expect(await within(importPage()).findByRole("alert")).toHaveTextContent(sentence);
     expect(fileInput().files?.[0]?.name).toBe("bible-chiffrage.xlsm");
-    expect(within(dialog()).getByText("Fichier : bible-chiffrage.xlsm")).toBeInTheDocument();
   });
 
   it("says when the server did not answer, and retries with the same file without choosing it again (5)", async () => {
@@ -225,17 +232,17 @@ describe("CostingWorkbookImport", () => {
     fetchMock
       .mockImplementationOnce(() => Promise.reject(new TypeError("Failed to fetch")))
       .mockImplementationOnce(() => success(report()));
-    renderDialog();
+    renderImport();
 
     await user.upload(fileInput(), costingWorkbook());
-    expect(await within(dialog()).findByRole("alert")).toHaveTextContent(
+    expect(await within(importPage()).findByRole("alert")).toHaveTextContent(
       "Le serveur n’a pas répondu. Vérifiez la connexion, puis réessayez.",
     );
 
-    await user.click(within(dialog()).getByRole("button", { name: "Réessayer" }));
+    await user.click(within(importPage()).getByRole("button", { name: "Réessayer" }));
 
-    expect(await within(dialog()).findByText("1 842 nouveaux articles en brouillon")).toBeInTheDocument();
-    expect(within(dialog()).queryByRole("alert")).not.toBeInTheDocument();
+    expect(await within(importPage()).findByText("1 842 nouveaux articles en brouillon")).toBeInTheDocument();
+    expect(within(importPage()).queryByRole("alert")).not.toBeInTheDocument();
     expect(sentBodies()).toEqual([{ rows: SHEET_ROWS, confirm: false }, { rows: SHEET_ROWS, confirm: false }]);
   });
 
@@ -244,13 +251,13 @@ describe("CostingWorkbookImport", () => {
     fetchMock
       .mockImplementationOnce(() => success(report()))
       .mockImplementationOnce(() => respond(403, { ok: false, error: { message: "La gestion du catalogue est réservée aux administrateurs." } }));
-    const { props } = renderDialog();
+    const { props } = renderImport();
 
     await user.upload(fileInput(), costingWorkbook());
     await user.click(await screen.findByRole("button", { name: IMPORT_1842 }));
 
-    expect(await within(dialog()).findByRole("alert")).toHaveTextContent("La gestion du catalogue est réservée aux administrateurs.");
-    expect(within(dialog()).getByText("1 842 nouveaux articles en brouillon")).toBeInTheDocument();
+    expect(await within(importPage()).findByRole("alert")).toHaveTextContent("La gestion du catalogue est réservée aux administrateurs.");
+    expect(within(importPage()).getByText("1 842 nouveaux articles en brouillon")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: IMPORT_1842 })).toBeEnabled();
     expect(props.onImported).not.toHaveBeenCalled();
   });
@@ -266,19 +273,19 @@ describe("CostingWorkbookImport", () => {
         error: { code: "COSTING_WORKBOOK_IMPORT_INCOMPLETE", message: stopped, details: { report: report({ confirmed: true, new_articles: 500 }) } },
       }))
       .mockImplementationOnce(() => success(report({ new_articles: 1342, already_in_catalogue: 1279 })));
-    const { props } = renderDialog();
+    const { props } = renderImport();
 
     await user.upload(fileInput(), costingWorkbook());
     await user.click(await screen.findByRole("button", { name: IMPORT_1842 }));
 
-    expect(await within(dialog()).findByRole("alert")).toHaveTextContent(stopped);
+    expect(await within(importPage()).findByRole("alert")).toHaveTextContent(stopped);
     expect(props.onImported).toHaveBeenCalledTimes(1);
-    expect(within(dialog()).queryByText("1 842 nouveaux articles en brouillon")).not.toBeInTheDocument();
+    expect(within(importPage()).queryByText("1 842 nouveaux articles en brouillon")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: IMPORT_1842 })).not.toBeInTheDocument();
 
-    await user.click(within(dialog()).getByRole("button", { name: "Réessayer" }));
+    await user.click(within(importPage()).getByRole("button", { name: "Réessayer" }));
 
-    expect(await within(dialog()).findByText("1 342 nouveaux articles en brouillon")).toBeInTheDocument();
+    expect(await within(importPage()).findByText("1 342 nouveaux articles en brouillon")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: `Importer ${(1342).toLocaleString("fr-FR")} brouillons` })).toBeEnabled();
     expect(sentBodies().map((body) => body.confirm)).toEqual([false, true, false]);
   });
@@ -290,45 +297,44 @@ describe("CostingWorkbookImport", () => {
       .mockImplementationOnce(() => success(report()))
       .mockImplementationOnce(() => respond(409, { ok: false, error: { code: "CONFLICT", message: conflict } }))
       .mockImplementationOnce(() => success(report({ new_articles: 1841, already_in_catalogue: 780 })));
-    const { props } = renderDialog();
+    const { props } = renderImport();
 
     await user.upload(fileInput(), costingWorkbook());
     await user.click(await screen.findByRole("button", { name: IMPORT_1842 }));
 
-    expect(await within(dialog()).findByRole("alert")).toHaveTextContent(conflict);
-    expect(within(dialog()).queryByText(/erreur 409/)).not.toBeInTheDocument();
+    expect(await within(importPage()).findByRole("alert")).toHaveTextContent(conflict);
+    expect(within(importPage()).queryByText(/erreur 409/)).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: IMPORT_1842 })).not.toBeInTheDocument();
     expect(props.onImported).toHaveBeenCalledTimes(1);
 
-    await user.click(within(dialog()).getByRole("button", { name: "Réessayer" }));
+    await user.click(within(importPage()).getByRole("button", { name: "Réessayer" }));
     expect(await screen.findByRole("button", { name: `Importer ${(1841).toLocaleString("fr-FR")} brouillons` })).toBeEnabled();
     expect(sentBodies().map((body) => body.confirm)).toEqual([false, true, false]);
   });
 
-  it("starts clean when re-opened, and ignores an answer to the closed dialog (6)", async () => {
+  it("starts clean when reopened and ignores a late preview after leaving (6)", async () => {
     const user = userEvent.setup();
     fetchMock.mockImplementationOnce(() => success(report()));
-    const { rerender, props } = renderDialog();
+    const { rerender, props } = renderImport();
 
     await user.upload(fileInput(), costingWorkbook());
-    expect(await within(dialog()).findByText("1 842 nouveaux articles en brouillon")).toBeInTheDocument();
+    expect(await within(importPage()).findByText("1 842 nouveaux articles en brouillon")).toBeInTheDocument();
 
-    rerender(<CostingWorkbookImport {...props} open={false} />);
-    rerender(<CostingWorkbookImport {...props} open />);
-    expect(within(dialog()).queryByText("1 842 nouveaux articles en brouillon")).not.toBeInTheDocument();
-    expect(within(dialog()).queryByText("Fichier : bible-chiffrage.xlsm")).not.toBeInTheDocument();
+    rerender(<></>);
+    rerender(<CostingWorkbookImport {...props} />);
+    expect(within(importPage()).queryByText("1 842 nouveaux articles en brouillon")).not.toBeInTheDocument();
     expect(fileInput().value).toBe("");
 
     const late = deferred<Response>();
     fetchMock.mockImplementationOnce(() => late.promise);
     await user.upload(fileInput(), costingWorkbook());
-    expect(await within(dialog()).findByText("Comparaison avec le catalogue…")).toBeInTheDocument();
-    rerender(<CostingWorkbookImport {...props} open={false} />);
-    rerender(<CostingWorkbookImport {...props} open />);
+    expect(await within(importPage()).findByText("Comparaison avec le catalogue…")).toBeInTheDocument();
+    rerender(<></>);
+    rerender(<CostingWorkbookImport {...props} />);
     await act(async () => {
       late.resolve(new Response(JSON.stringify({ ok: true, data: report() }), { status: 200 }));
     });
-    expect(within(dialog()).queryByText("1 842 nouveaux articles en brouillon")).not.toBeInTheDocument();
-    expect(within(dialog()).queryByText("Comparaison avec le catalogue…")).not.toBeInTheDocument();
+    expect(within(importPage()).queryByText("1 842 nouveaux articles en brouillon")).not.toBeInTheDocument();
+    expect(within(importPage()).queryByText("Comparaison avec le catalogue…")).not.toBeInTheDocument();
   });
 });

@@ -99,6 +99,12 @@ function reportOf(plan: Plan, confirmed: boolean, drafts: readonly PlannedDraft[
     confirmed,
     articles: plan.read.articles.length,
     new_articles: drafts.length,
+    ...(!confirmed ? {
+      proposed_articles: drafts.map(({ article, supplyTypeId }) => ({
+        row: article.row,
+        without_supply_type: supplyTypeId === null,
+      })),
+    } : {}),
     already_in_catalogue: plan.read.articles.length - plan.drafts.length,
     without_supply_type: drafts.filter((draft) => draft.supplyTypeId === null).length,
     supplier_references_not_imported: drafts.reduce((sum, draft) => sum + draft.article.supplier_references.length, 0),
