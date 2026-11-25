@@ -352,7 +352,7 @@ export type TakeoffRelaunchChoice = {
 };
 
 /** Each plan of the analysis without a working copy, named, with why, in French. */
-function describePlansWithoutCopy(plans: TakeoffRelaunchChoice["withoutCopy"]) {
+export function describePlansWithoutCopy(plans: TakeoffRelaunchChoice["withoutCopy"]) {
   const removed = plans.filter(({ reason }) => reason === "removed").map(({ name }) => `« ${name} »`);
   const missing = plans.filter(({ reason }) => reason === "copy_missing").map(({ name }) => `« ${name} »`);
   return [

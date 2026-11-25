@@ -187,12 +187,13 @@ const relaunchTakeoffSchema = z.object({
   planFileIds: z.array(uuidSchema).min(1).max(20).nullish(),
 });
 const stopTakeoffSchema = z.object({ projectId: uuidSchema, requestId: uuidSchema });
-const relaunchPlanChoiceSchema = z.object({ projectId: uuidSchema, predecessorJobId: uuidSchema, singlePlan: z.boolean() });
+const relaunchPlanChoiceSchema = z.object({ projectId: uuidSchema, predecessorJobId: uuidSchema, singlePlan: z.boolean(),
+  planSetId: uuidSchema.optional() });
 
 export async function readRelaunchPlanChoiceAction(input: z.input<typeof relaunchPlanChoiceSchema>) {
   return runSafeTakeoffAction(async () => {
-    const { projectId, predecessorJobId, singlePlan } = relaunchPlanChoiceSchema.parse(input);
-    return readRelaunchPlanChoice(await getAuthenticatedContext(), projectId, predecessorJobId, singlePlan);
+    const { projectId, predecessorJobId, singlePlan, planSetId } = relaunchPlanChoiceSchema.parse(input);
+    return readRelaunchPlanChoice(await getAuthenticatedContext(), projectId, predecessorJobId, singlePlan, planSetId);
   }, "Impossible de lire les plans à relancer.");
 }
 

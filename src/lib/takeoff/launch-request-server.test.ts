@@ -1022,6 +1022,11 @@ describe("launchTakeoffRelaunch", () => {
       rpc: {
         replay_manual_takeoff_plan_request: () => ({ data: [], error: null }),
         takeoff_plan_dispatch_is_active: () => ({ data: true, error: null }),
+        read_takeoff_plan_location_source: (args) => {
+          const id = (args as { p_plan_file_id: string }).p_plan_file_id;
+          return { data: rows.some((row) => row.id === id)
+            ? [{ source_kind: "plan_file", source_id: id, plan_file_id: id, current_copy: true }] : [], error: null };
+        },
         // Lot 4: the second measuring order is not activated: the free extraction.
         takeoff_item_list_order_is_active: () => ({ data: false, error: null }),
         launch_manual_takeoff_plan_request: (args) => {
@@ -1508,6 +1513,17 @@ describe("launchTakeoffRelaunch", () => {
   const FIRST_REQUEST = "aaaaaaaa-0000-4000-8000-0000000000e1";
   const SECOND_REQUEST = "aaaaaaaa-0000-4000-8000-0000000000e2";
   const JOB_OF_A = "aaaaaaaa-0000-4000-8000-0000000000b1";
+
+  it("refuses an explicitly selected obsolete copy even when a replacement exists", async () => {
+    const history = affaireHistory({ copies: [A_BEFORE, A_AFTER, B_COPY], confirmed: [A_BEFORE.id, B_COPY.id], stale: [A_BEFORE.id],
+      requests: [{ id: FIRST_REQUEST, plans: [A_BEFORE, B_COPY] }],
+      predecessor: { id: JOB_OF_A, requestId: FIRST_REQUEST, unitKey: `plan:${A_BEFORE.id}` } });
+
+    await expect(history.run([A_BEFORE.id, B_COPY.id])).rejects.toMatchObject({
+      status: 422, message: expect.stringContaining("plan-a.pdf"),
+    });
+    expect(history.launched).toEqual([]);
+  });
 
   // The dossier replaced plan A after its analysis: its piece has a new working copy (a new generation, a new identifier) and
   // the member confirmed the options with it. The dialogue's relaunch of A's analysis reads A at its current copy.

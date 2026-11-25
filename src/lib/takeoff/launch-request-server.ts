@@ -28,7 +28,7 @@ import { describeTakeoffLaunchAction, viewerLaunchAction, type TakeoffLaunchActi
 import { deriveDeterministicJobId } from "@/lib/takeoff/job-creation-input";
 import { resolvePlanSetSourceFile } from "@/lib/takeoff/job-creation-repository";
 import {
-  buildTakeoffLaunchManifest, decideTakeoffLaunch, describeTakeoffLaunchReason, isTakeoffLaunchReason, splitTakeoffLaunchManifest,
+  buildTakeoffLaunchManifest, decideTakeoffLaunch, describePlansWithoutCopy, describeTakeoffLaunchReason, isTakeoffLaunchReason, splitTakeoffLaunchManifest,
   TAKEOFF_AUTOMATIC_PAYER_NOTICE, TAKEOFF_GROUPED_UNIT_KEY,
   type AnyTakeoffLaunchManifest, type TakeoffLaunchManifest, type TakeoffLaunchOrder, type TakeoffLaunchPiece, type TakeoffLaunchReason,
   type TakeoffRelaunchChoice, describeTakeoffRelaunchWithoutPlans,
@@ -1037,6 +1037,21 @@ async function launchTakeoffPlanCommand(service: Service, input: RelaunchInput,
     hostId: owner.execution_host_id, manifest: split });
   const admission = { ...command, p_host: owner.execution_host_id, p_selection: snapshot.execution_selection as unknown as Json,
     p_manifest: units.manifest as unknown as Json, p_snapshot: snapshot as unknown as Json, p_module_default: takeoffModuleDefault() };
+  // A new named relaunch can only spend on the exact copies the member selected.
+  // Replay was resolved first and an older unnamed command can still resolve its replacement copies.
+  if (input.predecessorJobId && input.planFileIds?.length) {
+    const checked = await currentPlanCopies(service, context, input.projectId, input.planSetId, scope, "exact");
+    if (checked.withoutCopy.length > 0) {
+      const visible = await readTakeoffVisibleSources({ supabase: context.supabase, tenantId: context.tenantId,
+        projectId: input.projectId, ids: checked.withoutCopy.flatMap(({ id, piece }) => [id, piece]) });
+      const byId = new Map(confirmed.preparation.sources.map((source) => [source.document_id, source.document_name]));
+      throw new TakeoffError({ status: 422, code: TakeoffErrorCode.VALIDATION_ERROR, retryable: false,
+        message: `${describePlansWithoutCopy(checked.withoutCopy.map(({ id, piece, removed }, index) => ({
+          name: isTakeoffSourceVisible(visible, id, piece) ? byId.get(id) ?? `Plan ${index + 1}` : `Plan ${index + 1}`,
+          reason: removed ? "removed" : "copy_missing",
+        })))}. Actualisez les plans à relancer.` });
+    }
+  }
   // A first analysis that names no plan keeps M4's identity (every plan of the preparation), its units as its jobs; a
   // command naming plans, its own.
   const { data, error } = named

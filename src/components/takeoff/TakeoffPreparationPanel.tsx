@@ -37,6 +37,7 @@ export type TakeoffPreparationPanelProps = {
   destinationControls?: ReactNode;
   planChoice?: "required";
   relaunchPlans?: RelaunchPlanChoice;
+  onRefreshRelaunchPlans?: () => Promise<RelaunchPlanChoice>;
   onLaunch: (revision: number, planFileCount: number, planIds?: string[]) => Promise<void>;
   onBusyChange?: (busy: boolean) => void;
   onRegisterSave?: (save: () => Promise<number | null>) => void;
@@ -53,7 +54,7 @@ export function TakeoffPreparationPanel(props: TakeoffPreparationPanelProps) {
   return <TakeoffPreparationPanelContent key={`${user?.tenantId ?? "unknown"}:${user?.profile?.id ?? "unknown"}:${props.projectId}`} {...props} />;
 }
 
-function TakeoffPreparationPanelContent({ projectId, planSetId, estimateVersionId, documentControls, destinationControls, onLaunch, onBusyChange, onRegisterSave, planChoice, relaunchPlans, launchDisabled = false, launchNotice = null, analysisOnly = false, disabled = false }: TakeoffPreparationPanelProps) {
+function TakeoffPreparationPanelContent({ projectId, planSetId, estimateVersionId, documentControls, destinationControls, onLaunch, onBusyChange, onRegisterSave, planChoice, relaunchPlans, onRefreshRelaunchPlans, launchDisabled = false, launchNotice = null, analysisOnly = false, disabled = false }: TakeoffPreparationPanelProps) {
   const { record, support, draft, updateDraft, saveState, error, save, saveOptions, renew, reload, confirm, adopt, addProfile } = useTakeoffPreparation(projectId, planSetId);
   const [planChoices, setPlanChoices] = useState<Record<string, boolean>>({});
   const [triaging, setTriaging] = useState(false);
@@ -64,6 +65,7 @@ function TakeoffPreparationPanelContent({ projectId, planSetId, estimateVersionI
   const [renewing, setRenewing] = useState(false);
   const [renewedRevision, setRenewedRevision] = useState<number | null>(null);
   const [launchError, setLaunchError] = useState<string | null>(null);
+  const [selectionNotice, setSelectionNotice] = useState<string | null>(null);
   const availableSources = useMemo(() => record?.availableSources ?? [], [record?.availableSources]);
   const isRelaunch = relaunchPlans !== undefined;
   const effective = useMemo(() => {
@@ -89,6 +91,7 @@ function TakeoffPreparationPanelContent({ projectId, planSetId, estimateVersionI
   const choosePlans = planChoice === "required";
   const availablePlans = useMemo(() => effective?.sources.filter((source) => source.active && source.kind === "plan") ?? [], [effective]);
   const chosen = useMemo(() => availablePlans.map((plan) => plan.document_id)
+    .filter((id) => !relaunchPlans || relaunchPlans.currentIds.includes(id))
     .filter((id) => planChoices[id] ?? relaunchPlans?.defaultIds.includes(id) ?? false), [availablePlans, planChoices, relaunchPlans]);
   const emptyChoice = choosePlans && !chosen.length;
   const launchSources = useMemo(() => {
@@ -104,7 +107,27 @@ function TakeoffPreparationPanelContent({ projectId, planSetId, estimateVersionI
     setConfirming(true);
     onBusyChange?.(true);
     setLaunchError(null);
+    setSelectionNotice(null);
     try {
+      if (relaunchPlans && onRefreshRelaunchPlans) {
+        const latest = await onRefreshRelaunchPlans();
+        const missing = chosen.filter((id) => !latest.currentIds.includes(id));
+        const readSince = chosen.filter((id) => {
+          const state = latest.states[id];
+          return planChoices[id] !== true && state !== relaunchPlans.states[id] && (state === "analysed" || state === "in_progress");
+        });
+        const removed = [...missing, ...readSince];
+        const addedByRefresh = latest.defaultIds.filter((id) => !relaunchPlans.defaultIds.includes(id) && !chosen.includes(id));
+        if (removed.length || addedByRefresh.length) {
+          setPlanChoices((current) => ({ ...current, ...Object.fromEntries([...removed, ...addedByRefresh].map((id) => [id, false])) }));
+        }
+        if (removed.length) {
+          setSelectionNotice(readSince.length
+            ? "La sélection a été actualisée. Les plans lus ou en cours de lecture depuis l’ouverture ont été décochés. Vérifiez les plans avant de relancer."
+            : "La sélection a été actualisée. Les plans devenus indisponibles ont été décochés. Vérifiez les plans avant de relancer.");
+          return;
+        }
+      }
       const confirmed = await confirm(choosePlans ? chosen : undefined);
       if (confirmed === null) {
         setShowOptions(true);
@@ -149,23 +172,36 @@ function TakeoffPreparationPanelContent({ projectId, planSetId, estimateVersionI
       {support.chatGpt ? `${support.chatGpt.model} · Effort ${support.chatGpt.reasoningEffort ? CHATGPT_REASONING_EFFORT_LABELS[support.chatGpt.reasoningEffort].toLocaleLowerCase("fr") : "par défaut"}.` : "Connectez votre forfait ChatGPT et choisissez un modèle dans Mon profil pour lancer le métré."}{" "}
       <Link href="/dashboard/profile" className="underline">Gérer mon forfait ChatGPT</Link>
     </p>
-    {relaunchPlans?.planSetId === planSetId && relaunchPlans?.withoutCopy.length ? (
+    {relaunchPlans?.withoutCopy.length && (relaunchPlans.planSetId === planSetId || relaunchPlans.planSetId === null) ? (
       <Alert variant="warning"><AlertDescription>
         {describeTakeoffRelaunchChoice({ withoutCopy: relaunchPlans.withoutCopy, remaining: [] })}
       </AlertDescription></Alert>
     ) : null}
     {choosePlans && <fieldset disabled={locked} className="space-y-2">
       <legend className="text-sm font-medium">{isRelaunch ? "Plans à relancer" : "Plans à lancer avec mon forfait"}</legend>
-      {availablePlans.map((plan) => <label key={plan.document_id} className="flex flex-wrap items-center gap-x-2 py-1 text-sm">
-        <span className="flex min-w-0 items-start gap-2">
-          <input type="checkbox" className="mt-1 shrink-0" checked={chosen.includes(plan.document_id)} onChange={(event) => {
-            const checked = event.target.checked;
-            setPlanChoices((current) => ({ ...current, [plan.document_id]: checked }));
-          }} />
-          <span className="wrap-anywhere">{plan.document_name}</span>
-        </span>
-        {relaunchPlans && <span className="text-xs text-muted-foreground">{PLAN_STATE_LABELS[relaunchPlans.states[plan.document_id] ?? "not_analysed"]}</span>}
-      </label>)}
+      {availablePlans.map((plan) => {
+        const id = plan.document_id;
+        const state = relaunchPlans?.states[id] ?? "not_analysed";
+        const stop = relaunchPlans?.stops[id];
+        const unavailable = Boolean(relaunchPlans && !relaunchPlans.currentIds.includes(id));
+        return (
+          <label key={id} className="flex flex-wrap items-center gap-x-2 py-1 text-sm">
+            <span className="flex min-w-0 items-start gap-2">
+              <input type="checkbox" className="mt-1 shrink-0" checked={chosen.includes(id)} disabled={unavailable} onChange={(event) => {
+                const checked = event.target.checked;
+                setPlanChoices((current) => ({ ...current, [id]: checked }));
+              }} />
+              <span className="wrap-anywhere">{plan.document_name}</span>
+            </span>
+            {relaunchPlans && <span className="text-xs text-muted-foreground">
+              {PLAN_STATE_LABELS[state]}
+              {unavailable ? (relaunchPlans.unavailable[id] === "removed" ? " · Retiré du dossier" : " · Copie de travail manquante")
+                : stop === "before_start" && state === "not_analysed" ? " · Arrêté avant le démarrage"
+                : stop === "interrupted" && state === "failed" ? " · Lecture arrêtée" : ""}
+            </span>}
+          </label>
+        );
+      })}
     </fieldset>}
     {draft.provenance?.converted_from_legacy && <p className="text-sm text-muted-foreground">Préparation précédente adaptée à l’analyse détaillée. Vérifiez les sources et le périmètre avant le lancement.</p>}
     {showOptions && <nav aria-label="Étapes de préparation du métré" className="grid grid-cols-2 gap-1 sm:grid-cols-4">
@@ -200,6 +236,7 @@ function TakeoffPreparationPanelContent({ projectId, planSetId, estimateVersionI
       {readiness.reservations.length > 0 && <div className="text-sm"><p className="font-medium">Réserves conservées</p><ul className="mt-1 list-disc pl-4">{readiness.reservations.map((issue, index) => <li key={`${issue.code}-${index}`}>{issue.message}</li>)}</ul></div>}
     </div>}
     {launchNotice && <p role="status" className="text-sm text-muted-foreground">{launchNotice}</p>}
+    {selectionNotice && <p role="status" className="text-sm text-muted-foreground">{selectionNotice}</p>}
     {isRelaunch && emptyChoice && <p role="status" className="text-sm text-muted-foreground">
       {availablePlans.length ? "Cochez au moins un plan à relancer." : "Aucun plan actif dans ce jeu de plans."}
     </p>}

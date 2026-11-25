@@ -204,12 +204,19 @@ function LaunchMetreDialogContent({
   const user = useOptionalUserContext();
   const predecessorJobId = launchMode.kind === "request" && launchMode.planDispatch ? launchMode.predecessorJobId : null;
   const singlePlan = launchMode.kind === "request" && launchMode.singlePlan === true;
+  const [selectedPlanSetId, setSelectedPlanSetId] = useState<string | null>(
+    initialPlanSetId ?? plansContext?.defaultPlanSetId ?? null,
+  );
+  const readRelaunchPlans = async () => unwrapTakeoffActionResult(await readRelaunchPlanChoiceAction({
+    projectId, predecessorJobId: predecessorJobId!, singlePlan, planSetId: selectedPlanSetId ?? undefined,
+  }));
   const { data: relaunchPlans, error: relaunchPlansError, isValidating: readingRelaunchPlans, mutate: reloadRelaunchPlans } = useSWR(
-    predecessorJobId ? ["takeoff-relaunch-plans", user?.tenantId, user?.profile?.id, projectId, predecessorJobId, singlePlan] : null,
-    async () => unwrapTakeoffActionResult(await readRelaunchPlanChoiceAction({ projectId, predecessorJobId: predecessorJobId!, singlePlan })),
+    predecessorJobId ? ["takeoff-relaunch-plans", user?.tenantId, user?.profile?.id, projectId, predecessorJobId, singlePlan, selectedPlanSetId] : null,
+    readRelaunchPlans,
     { revalidateOnMount: true, revalidateOnFocus: false, shouldRetryOnError: false },
   );
-  const linkedPlanSetId = initialPlanSetId ?? relaunchPlans?.planSetId ?? null;
+  const linkedPlanSetId = initialPlanSetId && (!relaunchPlans || relaunchPlans.eligiblePlanSetIds.includes(initialPlanSetId))
+    ? initialPlanSetId : relaunchPlans?.planSetId ?? null;
   const [isSubmitting, setIsSubmitting] = useState(false);
   const savePreparationRef = useRef<(() => Promise<number | null>) | null>(null);
   const registerPreparationSave = useCallback((save: () => Promise<number | null>) => { savePreparationRef.current = save; }, []);
@@ -227,9 +234,6 @@ function LaunchMetreDialogContent({
   // An unanswered command of this member on the affaire (another tab's) whose content is not the plans now ticked.
   const [otherTabCommand, setOtherTabCommand] = useState<TakeoffLaunchCommand | null>(null);
   const [selectedVersionId, setSelectedVersionId] = useState(initialVersionId);
-  const [selectedPlanSetId, setSelectedPlanSetId] = useState<string | null>(
-    initialPlanSetId ?? plansContext?.defaultPlanSetId ?? null,
-  );
   // The set and the version the link names are applied when the dialogue opens, and again when the link names another
   // one. Once the member picks in a select, that choice stands while the set still has files or the version is still
   // offered, however often the caller renders with new arrays. Each choice records the link it was made under and the
@@ -278,8 +282,8 @@ function LaunchMetreDialogContent({
       byId.set(fallbackPlanSet.id, fallbackPlanSet);
     }
 
-    return [...byId.values()];
-  }, [availablePlanSets, fallbackPlanSet, fetchedPlanSets]);
+    return [...byId.values()].filter((option) => !relaunchPlans || relaunchPlans.eligiblePlanSetIds.includes(option.id));
+  }, [availablePlanSets, fallbackPlanSet, fetchedPlanSets, relaunchPlans]);
   const selectedPlanSet = useMemo(
     () =>
       planSetOptions.find((option) => option.id === selectedPlanSetId) ??
@@ -308,6 +312,7 @@ function LaunchMetreDialogContent({
     : null;
 
   useEffect(() => {
+    if (predecessorJobId && !relaunchPlans) return;
     const memberChoice = memberPlanSetChoiceRef.current;
     const memberChoiceId = memberChoice?.linkPlanSetId === linkedPlanSetId ? memberChoice.planSetId : null;
     setSelectedPlanSetId((currentId) => {
@@ -328,7 +333,7 @@ function LaunchMetreDialogContent({
       if (currentId && byId.has(currentId)) return currentId;
       return planSetOptions[0]?.id ?? null;
     });
-  }, [linkedPlanSetId, planSetOptions, plansContext?.defaultPlanSetId]);
+  }, [linkedPlanSetId, planSetOptions, plansContext?.defaultPlanSetId, predecessorJobId, relaunchPlans]);
 
 
   useEffect(() => {
@@ -585,7 +590,8 @@ function LaunchMetreDialogContent({
                   Impossible de lire les plans à relancer. <button type="button" className="underline"
                     onClick={() => void reloadRelaunchPlans()}>Réessayer</button>
                 </AlertDescription></Alert>
-              ) : predecessorJobId && (!relaunchPlans || readingRelaunchPlans) ? (
+              ) : predecessorJobId && (!relaunchPlans || readingRelaunchPlans
+                || (selectedPlanSet && relaunchPlans.checkedPlanSetId !== selectedPlanSet.id)) ? (
                 <p role="status" className="text-sm text-muted-foreground">Chargement des plans à relancer…</p>
               ) : isLoadingPlanSets && !hasUsablePlanSet ? <p role="status" className="text-sm text-muted-foreground">Chargement des jeux de plans…</p> : selectedPlanSet && hasPlanFiles ? (
                 <LazyTakeoffPreparationPanel
@@ -599,6 +605,11 @@ function LaunchMetreDialogContent({
                   launchNotice={launchMode.kind === "save_only" ? launchMode.reason : null}
                   planChoice={launchMode.kind === "request" && launchMode.planDispatch ? "required" : undefined}
                   relaunchPlans={predecessorJobId ? relaunchPlans : undefined}
+                  onRefreshRelaunchPlans={predecessorJobId ? async () => {
+                    const latest = await readRelaunchPlans();
+                    await reloadRelaunchPlans(latest, { revalidate: false });
+                    return latest;
+                  } : undefined}
                   onLaunch={handleLaunch}
                   onBusyChange={setIsSubmitting}
                   onRegisterSave={registerPreparationSave}
