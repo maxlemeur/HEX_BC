@@ -22,6 +22,18 @@ A shared test requires an explicit request and the designated account and
 tenant « ARMY TesterArmy QA ». Shared ad hoc SQL writes require approval for
 the specific statement.
 
+## UI components and web standards
+
+Prefer `src/components/ui` (shadcn on Base UI) over raw HTML primitives or
+`src/components/ui-legacy` whenever a matching component exists (dialogs,
+sheets, popovers, tooltips, menus, comboboxes, tabs, buttons, form controls,
+`NativeSelect`). Do not add new `src/components/ui-legacy` imports or legacy
+`.btn-*`/`.form-*` classes. For patterns outside `src/components/ui` (such as
+`<details>` disclosures, layout, CSS animations, scrollbars, performance and
+platform APIs), follow Modern Web Guidance. Keep `src/styles/tokens.css` as
+the color token source (`shadcn-bridge.css` is alias-only) and keep
+`src/styles/estimate-frozen.css` outside `@layer`.
+
 ## Verification
 
 Use the project verification skill for application, journey or release work.
