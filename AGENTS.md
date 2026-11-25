@@ -1,258 +1,186 @@
-# Repository guidelines
+# MergeOne repository guidelines
 
-Shared contract for Codex and Claude Code. The owner's current request and product
-contract take precedence over historical reports and procedures.
+Codex and Claude Code follow the owner's current request and the current product
+contract. Use historical reports for context. This file governs delivery when a
+skill describes a different workflow.
 
 ## Scope and autonomy
 
-- Start with Git status and affected code, tests and configuration. Read history,
-  skills and installed API docs when relevant; reuse unchanged references.
-- When a skill says to start a subagent, treat it as permission, not as an
-  order: do lookups yourself, and delegate only independent parallel work and
-  the review described below. Where a skill's delivery steps differ from this
-  file, this file wins.
-- `main` is protected: it only moves through a pull request whose required
-  checks (`quality-gate`, `army-critical`, `army-takeoff`, `army-calc-v3`,
-  `smoke`, `rls-matrix`) are green, and a direct push is refused. Work on a
-  branch created from `origin/main`, from the canonical checkout or a cloud
-  session alike. Use a detached verification worktree when credentials or
-  concurrent work require isolation; an uncommitted task diff alone does not
-  require one.
-- Preserve unrelated changes, untracked files and personal data. Never stage
-  `.env`, `CLAUDE.local.md`, `settings.local.json`, `design-qa.md` or `outputs/`.
-- Complete requested changes through verification, review, commit, push, pull
-  request and its automatic merge without repeated approval. Keep implementation
-  focused. Analysis-only requests end with findings. Ask only for a missing
-  decision or an action outside the authorized scope.
-- Deployment, activation in production or the shared database (a flag, a row in
-  an activation table), access changes and destructive actions require the
-  explicit go of the owner, the person who gave the current request. So does
-  merging a pull request you were not asked to deliver (someone else's,
-  Dependabot, a release). Tool permissions alone do not provide it.
-  - An access change is a change of tenant membership or roles, of repository
-    or Supabase collaborators, or of keys, or a policy or grant that widens who
-    reads or writes existing data.
-  - A destructive action is deleting or overwriting data in the shared database
-    or its storage, dropping a column or table, a force-push outside the
-    stack exception below, or deleting a branch, worktree or file that holds
-    work not on `main`.
-  - Removing your own temporary worktrees, scratch files, owned local stacks
-    and merged branches needs no go. Where a session refuses `rm`, use
-    `git worktree remove` for a worktree and `git clean -f -- <path>` for a
-    file in a checkout.
-- Shared migrations carry a standing go (owner, 2026-11-22): once a migration is
-  on `main` through a reviewed pull request, activates nothing, removes nothing
-  (no deleted row, dropped column or table) and widens no access to existing
-  data, apply it to the shared database without asking, by the
-  [Supabase runbook](supabase/README.md), and publish its receipt. The policies
-  and grants it sets on objects it creates are covered. If another agent
-  applies it, quote this rule in its brief. Any other migration waits for an
-  explicit go.
+- Start with Git status and the affected implementation, tests and configuration.
+  For an analysis request, deliver findings with the evidence and material
+  uncertainty. For a change, identify the outcome the owner can verify, then
+  carry the scoped change through verification, review where required, and merge.
+  Ask when a decision is missing or the next action exceeds authorized scope.
+- Match investigation to the failure. For a regression, identify the affected
+  journey and reproduce the observable failure when practical. When several
+  causes fit, use a check that distinguishes them. Handle routine lookups
+  directly. Delegate when parts can progress independently or the diff needs
+  the independent review below.
+- Work on a branch from `origin/main`. Preserve unrelated WIP, untracked files
+  and personal data. Stage only task files. Keep `.env`, `CLAUDE.local.md`,
+  `settings.local.json`, `design-qa.md` and `outputs/` out of the index.
+  The repository is public. Use fictional fixtures and keep secrets, private
+  originals, customer documents and formative feedback out of commits, PRs and
+  published evidence.
+
+### Actions requiring the owner's go
+
+The person who requested the work must explicitly authorize these actions.
+Tool access alone grants no approval.
+
+- Deploying, activating a feature in production or the shared database
+  (including flags and activation rows), or merging a PR outside the request
+  (including Dependabot and release PRs).
+- Changing membership, tenant roles, repository or Supabase collaborators,
+  keys, or a policy or grant that widens access to existing data.
+- Deleting or overwriting shared data or storage, dropping a column or table,
+  deleting a branch, worktree or file holding work outside `main`, or
+  force-pushing outside the coordinated stack exception below. Cleanup of
+  your own scratch files, temporary worktrees, owned stacks and merged branches
+  is authorized after preserving unique work.
+
+**Standing authorization for shared migrations (owner, 2026-11-22).** Apply a
+migration to the shared database once it has reached `main` through a reviewed
+PR, activates nothing, removes nothing (including rows, columns or tables) and
+widens no access to existing data. Policies and grants on the objects it creates
+are covered. Follow the [shared application runbook](supabase/README.md#appliquer-sur-une-base-partagée)
+and publish the receipt. Quote this authorization when delegating application.
+Every other shared migration needs the owner's explicit go.
 
 ## Product and data contracts
 
-- HEX/MergeOne covers affaires, DPGF/plans/CCTP, import/takeoff, estimates,
-  approval, PDF/sending, client portal and purchase orders. Domain logic lives in
-  `src/lib/`, thin API routes in `src/app/api/`, journeys in `e2e/`.
-- Money stays in integer cents and rates in basis points; reuse `src/lib/money.ts`.
-  For calculation or lifecycle changes, read [calculation rules](docs/metier/regles-de-calcul.md),
-  [lifecycle](docs/metier/cycle-de-vie.md) and the affected implementation.
-  Preserve pinned engines, fresh snapshots and issued/sealed amounts. New versions
-  use engine 3 unless tenant policy explicitly selects 2; historical versions keep
-  their engine. Never roll an application with v3 data back below compatible
-  creation/snapshot code.
-- Preserve tenant membership, active-tenant authorization and RLS at server
-  boundaries; redirects are not authorization. Service-role credentials never
-  enter browser code. Storage paths, portal tokens, email side effects and takeoff
-  workers are sensitive boundaries.
-- Preserve `dpgf_rows_raw -> mappings -> confirmUnifiedImportFlow`, CSV/XLS/XLSX/PDF
-  compatibility and provenance. The repository is public: commits, pull request
-  text and evidence are readable by anyone. Fixtures are fictional; secrets,
-  private originals, customer documents and formative feedback must not be
-  published.
-- Use strict TypeScript, two spaces, semicolons, double quotes, `@/` imports from
-  `src/` and existing naming conventions. Synchronize OpenAPI source and artifact
-  when its contract changes.
-- Ordered `supabase/migrations/` are schema truth; `supabase/schema.sql` is a pointer.
-  Never rewrite applied migrations. For schema changes, follow the
-  [Supabase runbook](supabase/README.md): timestamped migrations, manifest and Git
-  guards, restamping only unapplied changes when needed. Write a migration the
-  version in production keeps working on (add first, switch in a later release),
-  so that it never waits for a deployment. Regenerate types with
-  `npm run supabase:types`; `database.generated.ts` is generated and `database.ts`
-  holds explicit refinements.
+- **Estimates and lifecycle.** Use integer cents and basis points with
+  `src/lib/money.ts`. Read the [calculation rules](docs/metier/regles-de-calcul.md),
+  [lifecycle](docs/metier/cycle-de-vie.md) and affected implementation. New
+  versions use engine 3 unless tenant policy explicitly selects 2. Preserve
+  historical engine pins, fresh snapshots and issued or sealed amounts. With v3
+  data, any rollback must support v3 creation and snapshots.
+- **Authorization.** Enforce tenant membership, active-tenant authorization
+  and RLS at server boundaries, including routes behind redirects. Keep service
+  credentials server-side. Check storage paths, portal tokens, email side
+  effects and takeoff workers when the diff reaches them.
+- **Imports.** Preserve `dpgf_rows_raw -> mappings -> confirmUnifiedImportFlow`,
+  CSV/XLS/XLSX/PDF compatibility and provenance.
+- **Implementation.** Keep domain logic in `src/lib/` and API routes in
+  `src/app/api/` thin. Use strict TypeScript, two spaces, semicolons, double
+  quotes, `@/` imports from `src/` and existing naming conventions. Update the
+  OpenAPI source and generated artifact together when the contract changes.
+- **Schema.** Ordered migrations are authoritative. Follow the
+  [migration and types runbook](supabase/README.md#ajouter-une-migration-et-régénérer-les-types)
+  for timestamps, manifest, Git guards and type generation. Restamp only
+  unapplied migrations. Preserve compatibility with the deployed application
+  by adding first and switching consumers in a later release. Regenerate with
+  `npm run supabase:types`; put explicit refinements in `database.ts`.
 
 ## Verification
 
-- Small visual-only changes (spacing, typography, colors, wording and layout,
-  including responsive adjustments) follow the "Small visual-only change" row
-  below and nothing else. A change is not visual-only when it renames, moves,
-  hides or removes a control, label, role or test id that a journey selects
-  (search `e2e/` for it), or touches business logic, calculations, persistence,
-  authorization, APIs or the database: the other rows then apply.
-- Define the observable failure and affected journey before changing behavior;
-  reproduce regressions first when practical. Prefer TesterArmy (`e2e`,
-  `@e2e-dev/web`) as the sole test mechanism where it covers the risk. Deterministic
-  journeys need no model; assert business values, persistence, rights and downloads.
-- Use isolated tests only for real failures E2E cannot expose reliably (SQL/RLS,
-  parsers, races, recovery, calculations). Identify relevant failure modes and
-  write new isolated tests before the implementation change they cover.
-  Avoid source-text tests and mocks that mirror implementation. Preserve useful
-  existing coverage; do not remove it to get green.
+Choose local checks from the diff. Documentation-only and small visual-only
+changes each use just their row. For code, combine all applicable rows. GitHub's
+required checks apply to every PR.
 
-| Scope | Required checks |
+| Scope | Required local verification |
 | --- | --- |
-| Documentation only | Content consistency, links and `git diff --check`; no application suites. |
-| Iteration on code | `npm run verify:fast`: incremental typecheck, cached lint and the Vitest files the diff reaches (seconds to about a minute). It does not replace the final check. |
-| Repeated E2E iteration | Use `e2e:army:dev-loop` per the [local guide](docs/testing/tester-army-local-development.md#boucle-ditération-réutilisable). Stop it before final qualification; its results remain `qualification: false`. |
-| Small visual-only change | Check the affected screen in a real browser (in-app browser or Playwright) at the affected viewport sizes, plus a scoped `git diff --check`. No `verify:pr`, E2E campaign, build, repository-wide lint or typecheck. |
-| Affected user journey | `npm run e2e:army:local -- --grep '<pattern>'` on final, stable sources. |
-| Pull request of code or journeys | Run `npm run e2e:army:reach` first (in a stack layer, append `-- --base origin/<parent-branch>`). The PR checks cover the critical and takeoff journeys and calc-v3 phases the diff reaches, subject to decision filtering. Run the commands it prints for the development phase and extended journeys, which run in the Full campaign after merge. |
-| SQL/RLS/migration | `npm run db:ci:local` on an owned stack, plus affected journeys. Army's SQL/RLS checks do not replace it: parallel builds omit statement ceilings. |
-| Final code | `npm run verify:pr` once per push, as the last check on the tree you push: after the independent review's fixes and any merge of `main` (about 3 minutes cold, 1.5 warm). Fix rounds before that use `verify:fast` and the targeted tests. Its checks run in parallel and all of them always run; a green check prints one line, a red one its whole output (`npm run check:quality -- --verbose` prints everything). |
-| Performance | Follow [statement budgets](docs/testing/large-estimate-statement-budget.md) and [browser measurements](docs/testing/tester-army-performance.md) for real inputs and largest supported volumes; fix over-budget writes, never relax budgets. |
-| Release preparation | `npm run check:release`, run on your own initiative: it builds and serves the application on this machine only, with blank shared credentials. The deployment itself needs the owner's go, and a build is not deployment evidence. |
+| Documentation only | Check content against the owning sources, verify links and run `git diff --check`. |
+| Small visual-only change | For spacing, typography, color, wording or layout, inspect the affected screen in a real browser at the actual viewport sizes. Compare against the supplied visual reference when available. Run a scoped `git diff --check`. If the change renames, moves, hides or removes a control, label, role or test ID selected in `e2e/`, or changes logic, persistence, authorization, an API or the database, use the code rows. |
+| Code iteration | Run `npm run verify:fast`. For repeated journey iterations use the [development loop](docs/testing/tester-army-local-development.md#boucle-ditération-réutilisable). Stop it before qualification. |
+| Code or journey PR | Run `npm run e2e:army:reach` first (add `-- --base origin/<parent-branch>` for a stack layer). Run the commands it prints for the development phase and extended journeys. |
+| Affected user journey | Run `npm run e2e:army:local -- --grep '<pattern>'` on stable final sources. Assert the affected business values, persistence, rights or downloads. Run deterministic journeys without a model. |
+| SQL, RLS or migration | Run `npm run db:ci:local` on an owned stack and qualify affected journeys. The dedicated database check enforces statement ceilings omitted in parallel Army builds. |
+| Performance | Measure real inputs and the largest supported volumes against the [SQL budgets](docs/testing/large-estimate-statement-budget.md) and [browser measurements](docs/testing/tester-army-performance.md). Fix over-budget writes. |
+| Final code | Run `npm run verify:pr` once per push as the last local code check, including after review fixes or a merge of `main`. |
+| Release preparation | Run `npm run check:release` locally with blank shared credentials. Before an authorized deployment, confirm the required shared migrations are applied. |
 
-- Diagnose failures before rerunning affected checks; never mask them with retries
-  or higher timeouts. A timeout the diagnosis ties to machine load (the failing
-  files pass alone) is rerun once, when the load drops. CI retries a failed
-  journey once, only to classify it: one that then passes is named
-  « intermittent », its check stays red, and the label is not evidence that your
-  change is innocent. `test.fail` is only a quarantine for a journey red on
-  `main`: its reason cites an open ticket (`TI-681`, `#123`) and the campaign
-  summary lists it
-  ([rule](docs/testing/tester-army-ci.md#tentative-unique-et-quarantaine)).
-  Broaden only for a failure or material risk. Once required checks pass, stop
-  testing unchanged inputs; do not duplicate full CI suites.
-- Never weaken, skip or remove the CI quality, smoke, critical, takeoff, SQL/RLS
-  and calc-v3 checks to get green. Selection and schedules belong to workflows
-  and the [CI guide](docs/testing/tester-army-ci.md). On a pull request a decision
-  model leaves out critical and takeoff journeys it rates unaffected by the diff
-  ([rule](docs/testing/tester-army-ci.md#filtre-par-modèle-de-décision)): a green
-  check proves the journeys its selection summary lists, `main` runs them all, and
-  the label `army-full` runs them all on the pull request.
-- Record command, source/build and fixture identities, environment, expected/actual
-  results and primary evidence paths. Preserve failures and skips; setup failure,
-  skips or changing sources cannot qualify a journey. Never put secrets in evidence.
+Prefer TesterArmy (`@e2e-dev/web`) wherever it covers the risk. For failures a
+journey cannot expose reliably (SQL/RLS, parsers, races, recovery, calculations),
+write the isolated regression test before the fix. Assert behavior and preserve
+useful existing coverage. Broaden testing only for an actual failure or material
+risk. Stop once the required checks pass on unchanged inputs.
+
+Record the command, source/build and fixture identities, environment, expected
+and actual results, and primary evidence paths. Setup failures, skips, development
+loops and changing sources do not qualify a journey. Keep failures and skips
+visible. A green PR check covers only the journeys in its
+[selection summary](docs/testing/tester-army-ci.md#filtre-par-modèle-de-décision).
 
 ## Runtime and workspaces
 
-- Use `.nvmrc` and [package.json](package.json) for runtime and commands. Reuse
-  conforming dependencies. A new worktree whose `package-lock.json` is identical
-  to the canonical checkout's clones that checkout's `node_modules` with the
-  machine's copy-on-write tool when it has one, instead of installing a second
-  copy. Run `npm ci`, inside the checkout root, when the lockfiles differ or
-  there is nothing conforming to reuse. See the [test guide](e2e/README.md) for
-  setup and suite contents.
-- Start the local server someone browses with `npm run dev` or `npm run dev:chatgpt`
-  as written, on Next's default compiler (Turbopack). `--webpack` belongs to the
-  scripts that already pass it (builds, Army development): in `next dev` it took
-  20 s instead of 7 s to compile the estimate editor and its API routes on a first
-  visit, twice the memory, and seconds more for each file changed in the checkout.
-- A worktree has no `.env.local` of its own, and without one the application
-  reads no data. For the server someone browses, link the canonical checkout's
-  file (`ln -s <canonical>/.env.local .env.local`) rather than starting on
-  placeholder values; it stays ignored and is never staged. That file points at
-  the shared Supabase: browse and read with it, and keep writing campaigns,
-  migrations and seeds on owned stacks as below.
-- Browser campaigns require no ambient `.env` files or inherited DB/Supabase
-  credentials, matching dependencies and sources frozen during qualification;
-  task changes may be uncommitted. Isolate when needed without moving personal
-  secrets. The runner owns and destroys its ephemeral stack; never bypass guards
-  or point it at shared credentials.
-- The shared Supabase is also production's. Run writing campaigns on owned stacks.
-  `execute_sql` on the shared project only reads, unless the owner's go names
-  the statement to run. A shared check the owner asked for in the current
-  request uses only the designated E2E account and tenant
-  « ARMY TesterArmy QA »; never create another account/tenant. Use existing authorized
-  credentials or ask the owner if missing. Before a shared run, read the
-  [write acknowledgement](e2e/README.md#démarrer-un-parcours-local) and
-  [retention/exemptions](supabase/README.md#données-de-test); journeys do not delete
-  their affaires, but shared test drafts have scheduled retention.
-- Keep persistent workspaces under `~/Projects/.workspaces/mergeone/`; a worktree
-  T3 Code or Claude Code created stays where that tool put it. Reuse compatible
-  caches and keep project artifacts in the canonical checkout's `outputs/`
-  (`~/Projects/mergeone/outputs/`), from a worktree too, referencing native
-  evidence without copying media. Before cleanup, check active use, preserve unique
-  work/evidence and write a compact recovery receipt. Clean up temporary verification
-  workspaces on success or failure.
-- An orchestration that spans sessions keeps two files under `outputs/<task>/`:
-  `STATE.md`, rewritten in place (merged, applied, running, waiting for the
-  owner, and the owner's standing decisions with their date), and an append-only
-  log. A new session reads `STATE.md` first.
+- Use [the pinned Node version](.nvmrc) and [package scripts](package.json).
+  Reuse conforming dependencies by copy-on-write where available. Run `npm ci`
+  in the checkout root when no installation matching its lockfile is available.
+- **Interactive browsing.** Run `npm run dev` or `npm run dev:chatgpt` as
+  written with Turbopack. In a worktree, link the canonical checkout's ignored
+  `.env.local` and use that server only for browsing and reads. Run seeds and
+  ordinary writing campaigns on owned stacks.
+- **Local qualification.** The [browser runner](e2e/README.md#démarrer-un-parcours-local)
+  owns and destroys its ephemeral stack. Use matching dependencies, stable
+  sources, no ambient env files and no inherited DB/Supabase credentials.
+  Uncommitted changes can qualify. Use a detached verification worktree when
+  credentials or concurrent work require isolation. Keep personal secrets in place.
+- **Shared checks.** Shared Supabase serves production. Shared `execute_sql` is
+  read-only unless the owner authorizes the specific statement. A shared check
+  explicitly requested for this task uses only the existing designated account
+  and tenant « ARMY TesterArmy QA ». Ask if authorized credentials are missing.
+  Follow the [write acknowledgement](e2e/README.md#démarrer-un-parcours-local)
+  and [retention rules](supabase/README.md#données-de-test). Journeys leave their
+  affaires for scheduled retention.
+- **Workspace ownership.** Keep persistent worktrees under
+  `~/Projects/.workspaces/mergeone/`. Leave tool-created T3 Code and Claude Code
+  worktrees in place. Keep evidence in `~/Projects/mergeone/outputs/` and link
+  native media. Stop jobs you started. Before cleanup, check active use,
+  preserve unique work and evidence, and write a compact recovery receipt.
+  Remove temporary verification workspaces on success or failure.
+- **Multi-session work.** Keep current status and dated owner decisions in
+  `outputs/<task>/STATE.md` and append events to a separate log. Read
+  `STATE.md` first when resuming.
 
 ## Review and delivery
 
-- Use an independent read-only reviewer when the diff touches money,
-  authorization, migrations, concurrency or a public contract, or spans modules.
-  Documentation, visual-only, test-only and single-module fixes need none.
-  Give it a stable diff, the contract, consumers and actual check results.
-  Two rounds at most: one full reading, then one check of the fixes. A finding
-  blocks when it loses or corrupts data, widens a right, changes an amount or
-  stops the requested outcome from working; every other finding goes to a
-  follow-up pull request named in the description. After the second round the
-  agent delivering the task decides and records why.
-- A change is complete when the requested outcome works, required checks pass,
-  the scoped diff is reviewed and task-owned files are committed and pushed.
-  Before committing, fetch and reconcile with `origin/main` without force or loss
-  of work, stage only scoped files and run `git diff --cached --check`. Use
-  Conventional Commits in English, with the Linear id when one exists (`TI-681`).
-  Report any blocker instead of claiming completion.
-- Deliver a standalone change as one pull request: open it ready for review,
-  never as a draft, with the template, so that its checks run during the
-  independent review. Enable its automatic merge (`gh pr merge --auto --squash`)
-  when that review says merge, or at once when the change needs none. It merges
-  by itself once the required checks are green. Push once per finished task or
-  review round, not per commit: a new push cancels the runs in progress and
-  starts every check again.
-- Read the checks of your pull request and find the cause of a red one before
-  reacting to it: a new push starts every check again, a rerun only the failed
-  jobs. See the [guide](docs/testing/tester-army-ci.md#check-rouge-sur-une-pull-request).
-  - Your change made it red: fix it before other work.
-  - An infrastructure failure or a flaky journey (red without your diff, green
-    on the same commit elsewhere): say so in the pull request with the evidence,
-    then rerun the failed jobs only (`gh run rerun <run-id> --failed`), without
-    a new commit.
-  - The same journey is red on `main`: a rerun cannot pick up its fix, because
-    it replays the merge commit computed when you pushed. Say so in the pull
-    request with the evidence and wait for the fix to land on `main`. Merge
-    `origin/main` once for a standalone PR or cascade-rebase the stack.
-- For a standalone PR, merge `origin/main` only for a conflict GitHub reports, a
-  migration to restamp or code that landed on `main` and that the branch needs,
-  such as the fix of a red it inherited. Never merge it as a reaction to a red
-  you have not diagnosed, nor to bring the branch up to date: `main` does not
-  require an up-to-date branch, and « Update branch » is that same merge.
-- The merge is a push to `main`: unless it is documentation-only, it starts a full
-  Critical run of about 15 minutes and queues the Full and calc-v3
-  [campaigns of main](docs/testing/tester-army-ci.md#campagnes-de-main-après-un-push),
-  one at a time. An open issue « CI rouge sur main » names their red journeys,
-  and one your change caused is yours to fix.
-- Pushes do not deploy: Vercel Git deployment is disabled in `vercel.json`.
-  Before a separately authorized deployment, confirm required shared migrations
-  are applied.
-- For security-scan work, update [dispositions](docs/security-remediation-91386191.md),
-  preserve canonical evidence and never treat provisional reports as current
-  exploitability proof.
-- Report outcomes, checks, limitations and blockers concisely. Discuss Figma only
-  when requested; use visuals only when they clarify the subject.
+1. **Decide whether independent review is required.** Use a read-only reviewer
+   for changes to money, authorization, migrations, concurrency or public
+   contracts, even within one module, and for implementation changes spanning
+   modules. When none of these triggers applies, documentation-only, visual-only,
+   test-only and single-module changes can proceed without independent review.
+2. **Prepare one ready PR per standalone change.** Fetch and reconcile with
+   `origin/main` before committing. Integrate it into a standalone branch only
+   for a GitHub-reported conflict, a migration restamp or a landed change the
+   branch needs. Stage scoped files, run `git diff --cached --check` and use an
+   English Conventional Commit with the Linear ID when available. Push once per
+   finished task or review round. Open the PR with the
+   [template](.github/pull_request_template.md) so CI can run during review.
+3. **Resolve the review.** Give the reviewer the stable diff, contract,
+   consumers and actual checks. Allow one full reading and one recheck of
+   fixes. Block for data loss or corruption, wider rights, a changed amount
+   or failure of the requested outcome. Name a follow-up PR for other
+   findings. After round two, the delivering agent records the decision and reason.
+4. **Merge and verify delivery.** Enable `gh pr merge --auto --squash` once
+   review clears, or immediately when independent review is optional. Protected
+   `main` requires `quality-gate`, `army-critical`, `army-takeoff`,
+   `army-calc-v3`, `smoke` and `rls-matrix`. Preserve all six. Confirm the
+   merge and report the outcome, checks and any remaining limitations. A push
+   does not deploy the application.
+
+For a red check, diagnose the cause before retrying or changing timeouts.
+For a local timeout attributed to load, verify the files pass alone and rerun
+once after load drops. For CI, follow the [PR failure procedure](docs/testing/tester-army-ci.md#check-rouge-sur-une-pull-request)
+for regressions, infrastructure failures and failures inherited from `main`.
+Follow the [retry and quarantine rules](docs/testing/tester-army-ci.md#tentative-unique-et-quarantaine)
+for intermittent journeys and `test.fail`. Fix any regression your merge causes
+in the [post-merge campaigns](docs/testing/tester-army-ci.md#campagnes-de-main-après-un-push).
+
+For security scans, update [dispositions](docs/security-remediation-91386191.md)
+and preserve canonical evidence. Distinguish a provisional report from verified
+impact. Discuss Figma only on request.
 
 ## Stacked pull requests
 
-- Use a GitHub stack for a dependent series that one or several agents can
-  write and review in parallel. Independent changes have separate PRs to `main`.
-- Start from current `origin/main` with `gh stack init --base main <first>`.
-  Commit each layer on its branch, use `gh stack add <next>`, and submit ready
-  PRs with `gh stack submit` and the PR template. Coordinate one publisher.
-- After review fixes or when `main` moves, use `gh stack rebase` and
-  `gh stack push`. The extension's atomic, lease-checked force-push is allowed
-  on coordinated stack branches after reconciling collaborators' work.
-- Review each immediate-base diff and resolve every thread. Merge from the top
-  only after every layer has been reviewed. GitHub enforces all six checks on
-  every layer. Follow the [CI guide](docs/testing/tester-army-ci.md#pull-requests-empilées)
-  for stack auto-merge and for rechecking layers after edits or removal.
-- Put each migration and its SQL tests in its own layer, before the application
-  code that uses it. Follow the same restamp rules. If two changes replace the
-  same SQL function, merge the first before starting the second from `main`.
+Give independent changes separate PRs to `main`. For a dependent series that
+can be written and reviewed in parallel, follow the [stack procedure](docs/testing/tester-army-ci.md#pull-requests-empilées)
+for creation, one coordinated publisher, review against each immediate base,
+rechecks and auto-merge from the top. Resolve all review threads and require
+all six checks on every layer. Only the extension's atomic, lease-checked push
+on coordinated stack branches is authorized after reconciling collaborators'
+work. Keep each migration and its SQL tests below their consumers in a separate
+layer. Merge replacements of the same SQL function sequentially from `main`.
 
 <!-- BEGIN:nextjs-agent-rules -->
 
