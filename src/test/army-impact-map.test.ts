@@ -795,7 +795,7 @@ describe("TesterArmy critical workflow wiring", () => {
     // An empty or missing selector output must run the journeys: only an
     // explicit none skips the shards (an empty matrix then fails, never passes).
     const shard = jobs["army-critical-shard"];
-    expect(shard).toMatch(/^ {4}if: \$\{\{ !cancelled\(\) && needs\.army-select\.result == 'success' && needs\.army-select\.outputs\.mode != 'none' \}\}$/mu);
+    expect(shard).toMatch(/^ {4}if: \$\{\{ !cancelled\(\) && needs\.army-select\.result == 'success' && needs\.army-select\.outputs\.mode != 'none' && github\.event_name != 'pull_request' \}\}$/mu);
     expect(shard).not.toMatch(/mode == /u);
     expect(shard).toContain("\n        include: ${{ fromJSON(needs.army-select.outputs.critical_shards) }}\n");
     const journeys = steps(shard).find((step) => step.trimStart().startsWith("Run native database and TesterArmy critical journeys"));
@@ -823,7 +823,7 @@ describe("TesterArmy critical workflow wiring", () => {
   it("runs the takeoff journeys a change reaches in parallel shard jobs, at one worker, skipping only an explicit none", () => {
     const workflow = read(".github/workflows/e2e-army-critical.yml");
     const jobs = jobBlocks(workflow);
-    expect(Object.keys(jobs)).toEqual(["army-select", "army-build", "army-critical-shard", "army-takeoff-shard", "army-critical", "army-takeoff"]);
+    expect(Object.keys(jobs)).toEqual(["army-select", "army-build", "army-critical-shard", "army-critical-pr-shard", "army-takeoff-shard", "army-critical", "army-takeoff"]);
     const shard = jobs["army-takeoff-shard"];
     // Same decision as the critical shards: army-select's, read once, never recomputed; army-build's result never skips it.
     expect(shard).toMatch(/^ {4}needs: \[army-select, army-build\]$/mu);

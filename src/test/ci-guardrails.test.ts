@@ -494,9 +494,12 @@ describe("CI and local quality guardrails", () => {
     const guards = new Set<string>();
     let jobs = 0;
     for (const { file } of ARMY_WORKFLOWS) {
-      for (const [id, job] of Object.entries(workflowJobs(read(file)))) {
+      const definitions = workflowJobs(read(file));
+      for (const [id, job] of Object.entries(definitions)) {
         jobs += 1;
-        const first = workflowSteps(job)[0] ?? "";
+        const alias = /^ {4}steps: \*([\w-]+)$/mu.exec(job)?.[1];
+        const steps = alias ? Object.values(definitions).find((definition) => definition.includes(`\n    steps: &${alias}\n`)) : job;
+        const first = workflowSteps(steps ?? "")[0] ?? "";
         expect(first, `${file} job ${id}`).toMatch(/^\s+id: target_guard$/mu);
         expect(first, `${file} job ${id}`).toContain("NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54321");
         guards.add(runScript(first));
@@ -565,12 +568,14 @@ describe("CI and local quality guardrails", () => {
       const jobs = workflowJobs(workflow);
       const { plan, units, development } = AGGREGATE_JOBS[suite];
       const needed = [plan, units, ...(development ? [development] : [])];
+      const prUnits = suite === "critical" ? ["army-critical-pr-shard"] : [];
       // A workflow holds exactly the jobs of the suites it aggregates (critical and takeoff share one), and its build.
       const fileJobs = suites.filter((other) => other.file === file).flatMap((other) => {
         const jobsOf = AGGREGATE_JOBS[other.suite];
         return [jobsOf.plan, jobsOf.units, ...(jobsOf.development ? [jobsOf.development] : []), other.aggregate];
       });
-      expect(Object.keys(jobs).sort(), file).toEqual([...new Set([...fileJobs, builds[file]])].sort());
+      const extraUnits = file === ".github/workflows/e2e-army-critical.yml" ? ["army-critical-pr-shard"] : [];
+      expect(Object.keys(jobs).sort(), file).toEqual([...new Set([...fileJobs, builds[file], ...extraUnits])].sort());
 
       // The matrix is the plan job's output, and a red shard never cancels the others. A unit also waits for the
       // run's build, whose failure never skips it: only the plan's result and output decide whether it runs.
@@ -579,17 +584,31 @@ describe("CI and local quality guardrails", () => {
       expect(jobs[units], file).toMatch(/^ {6}fail-fast: false$/mu);
       expect(jobs[units], file).toContain(`: \${{ fromJSON(needs.${plan}.outputs.${output}) }}\n`);
       expect(jobs[units], file).toContain(`\n          name: ${unit}\n`);
+      if (suite === "critical") {
+        const pr = jobs[prUnits[0]];
+        expect(pr).toContain("\n    needs: [army-select]\n");
+        expect(pr).toContain("if: ${{ !cancelled() && needs.army-select.result == 'success' && needs.army-select.outputs.mode != 'none' && github.event_name == 'pull_request' }}");
+        expect(pr).toContain("\n    strategy: *critical-shard-strategy\n");
+        expect(pr).toContain("\n    steps: *critical-shard-steps\n");
+        expect(pr).not.toContain("ARMY_SHARED_BUILD_AVAILABLE");
+      }
 
       // The aggregate needs every job it vouches for and runs after their
       // failure, never after a cancelled run; its name is the stable check.
       const job = jobs[aggregate];
       expect(job, file).toContain(`\n    name: ${name}\n`);
-      expect(job, file).toContain(`\n    needs: [${needed.join(", ")}]\n`);
+      expect(job, file).toContain(`\n    needs: [${[...needed, ...prUnits].join(", ")}]\n`);
       expect(job, file).toContain("\n    if: ${{ !cancelled() }}\n");
       const step = stepNamed(job, "Aggregate the");
       const results = [...step.matchAll(/^\s+([A-Z_]+_RESULT): \$\{\{ needs\.([a-z0-9-]+)\.result \}\}$/gmu)];
-      expect(results.map((match) => match[2]).sort(), file).toEqual([...needed].sort());
       const script = runValues(step).map((value) => value.script).join("\n");
+      if (suite === "critical") {
+        expect(results.map((match) => match[2]), file).toEqual([plan]);
+        expect(step).toContain("SHARDS_RESULT: ${{ github.event_name == 'pull_request' && needs.army-critical-pr-shard.result || needs.army-critical-shard.result }}");
+        expect(script).toContain("army-critical-shard=$SHARDS_RESULT");
+      } else {
+        expect(results.map((match) => match[2]).sort(), file).toEqual([...needed].sort());
+      }
       expect(script, file).toContain(`scripts/tester-army/aggregate-shards.ts ${suite}`);
       for (const [, variable, need] of results) expect(script, file).toContain(`${need}=$${variable}`);
       expect(script, file).toContain('--revision "$GITHUB_SHA"');
