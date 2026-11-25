@@ -2,6 +2,11 @@
 -- CTE 2,031 times. Seven checks/locks also rebuilt the full JSON array just
 -- to read columns other than fo_price_origin. Patch the installed writer
 -- in place so its permissions, locks, effects and calculation stay together.
+-- Neither complete current body is stored in a migration file. For subsequent
+-- changes to public.persist_estimate_creation_atomic or
+-- public.estimate_creation_replay_item_effects_for_writer, read the installed
+-- definition with pg_get_functiondef. Copying an older definition would
+-- silently undo these hierarchy and replay changes.
 begin;
 do $migration$
 declare
@@ -28,15 +33,15 @@ declare
     group by payload_item.id
     having count(*) > 1$old$;
   formatter text := 'public.estimate_fo_price_origin_write_input(p_items)';
-  insert_input text := 'from jsonb_to_recordset(p_items) as item(
-      id uuid,';
+  origin_columns text := 'item.selected_supplier_price_id,item.fo_price_origin,';
 begin
   if cardinality(string_to_array(body, old_hierarchy)) <> 2
+    -- Eight formatter call sites: seven reads and the insert.
     or cardinality(string_to_array(body, formatter)) <> 9 then
     raise exception 'Unexpected estimate creation writer';
   end if;
 
-  body := replace(body, old_hierarchy, $new$    -- Index both definitions and requirements by UUID in one aggregate.
+  body := replace(body, old_hierarchy, $new$    -- defined_at is where an ID is declared; needed_at is where a child names it as parent.
     -- The earliest child is sufficient: every child must follow the section.
     select 1
     from (
@@ -51,15 +56,20 @@ begin
     group by id
     having id is null or count(defined_at) <> 1 or bool_or(invalid)
       or (min(needed_at) is not null
-        and (max(item_type) <> 'section' or max(defined_at) >= min(needed_at)))$new$);
+        and (bool_or(item_type <> 'section') or max(defined_at) >= min(needed_at)))$new$);
 
-  -- The BEFORE INSERT trigger distinguishes an absent origin from an explicit
-  -- JSON null. Keep the existing conversion on that recordset alone.
-  body := replace(body, formatter, 'p_items');
-  if cardinality(string_to_array(body, insert_input)) <> 2 then
+  -- Keep the typed recordset: the entire lot is converted before any row
+  -- reaches insert constraints. Only explicit JSON null needs the clear marker.
+  if cardinality(string_to_array(body, origin_columns)) <> 2 then
     raise exception 'Unexpected estimate item insert';
   end if;
-  execute replace(body, insert_input, replace(insert_input, 'p_items', formatter));
+  body := replace(body, formatter, 'p_items');
+  execute replace(body, origin_columns, $projection$item.selected_supplier_price_id,
+      case when item.fo_price_origin is null and item.id in (
+        select (entry.value->>'id')::uuid
+        from jsonb_array_elements(p_items) as entry(value)
+        where entry.value->'fo_price_origin' = 'null'::jsonb
+      ) then '{}'::jsonb else item.fo_price_origin end,$projection$);
 end
 $migration$;
 
