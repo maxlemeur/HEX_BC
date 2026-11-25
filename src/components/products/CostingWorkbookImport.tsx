@@ -16,7 +16,12 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { controlSurface } from "@/components/ui/input";
-import { COSTING_WORKBOOK_SHEET, readCostingWorkbookRows } from "@/lib/catalogue/costing-workbook";
+import {
+  compareCostingWorkbookSupplierValues,
+  COSTING_WORKBOOK_SHEET,
+  readCostingWorkbookRows,
+  type CostingWorkbookPriceSourceKind,
+} from "@/lib/catalogue/costing-workbook";
 import {
   COSTING_WORKBOOK_FORMAT,
   COSTING_WORKBOOK_IMPORT_INCOMPLETE,
@@ -495,19 +500,72 @@ const DECISION_LABELS: Record<CostingWorkbookSupplierReferenceReport["for_decisi
   supplier_not_found: "Fournisseur actif introuvable",
   ambiguous_supplier: "Plusieurs fournisseurs correspondent",
   invalid_supplier_sku: "Référence fournisseur illisible ou trop longue",
+  price_source_reference: "Source de prix",
   article_locked: "Droits de modification requis sur cet article",
   different_existing_reference: "Une autre référence ou liaison existe déjà",
   withdrawn_reference: "Fournisseur déjà retiré de l’article",
   conflicting_workbook_references: "Plusieurs références dans le classeur pour cet article et ce fournisseur",
 };
 
+const PRICE_SOURCE_LABELS: Record<CostingWorkbookPriceSourceKind, string> = {
+  quote: "Devis",
+  document: "Document",
+  order: "Commande",
+  regression: "Estimation par régression",
+};
+
+function workbookLocation({ row, slot }: { row: number; slot: number }) {
+  return `Ligne ${row} · F${slot}_ref`;
+}
+
+function WorkbookSupplierComparisons({ comparisons }: Readonly<{
+  comparisons: ReturnType<typeof compareCostingWorkbookSupplierValues>;
+}>) {
+  return (
+    <div className="space-y-2">
+      <h4 className="text-sm font-semibold">Valeurs multiples dans le classeur</h4>
+      <ul aria-label="Valeurs multiples dans le classeur" tabIndex={0} className="max-h-64 space-y-2 overflow-y-auto">
+        {comparisons.map(({ key, articleReference, supplierName, values }) => {
+          const pair = `${articleReference} · ${supplierName}`;
+          return (
+            <li key={key} aria-label={pair} className="space-y-2 rounded-md border border-border bg-surface p-3">
+              <p className="break-all text-sm font-medium">{pair}</p>
+              {values.filter((value) => !value.price_source_kind).length > 1 ? (
+                <p className="text-xs text-muted-foreground">Références produit à départager</p>
+              ) : null}
+              <div className="grid gap-2 sm:grid-cols-2">
+                {values.map((value) => (
+                  <div key={value.supplier_sku} className="min-w-0 rounded border border-border px-2 py-1.5 text-xs">
+                    <p className="text-muted-foreground">
+                      {value.price_source_kind ? `Source de prix · ${PRICE_SOURCE_LABELS[value.price_source_kind]}` : "Référence produit"}
+                    </p>
+                    <p className="break-all font-medium">{value.supplier_sku}</p>
+                    <p className="break-words text-muted-foreground">{value.locations.map(workbookLocation).join(", ")}</p>
+                  </div>
+                ))}
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
+
 function SupplierReferenceReport({ report, rows }: Readonly<{
   report: CostingWorkbookSupplierReferenceReport;
   rows: CostingWorkbookRows;
 }>) {
-  const sourceByCell = useMemo(() => new Map(
-    readCostingWorkbookRows(rows).supplierReferenceOccurrences.map((source) => [source.row + "-" + source.slot, source]),
-  ), [rows]);
+  const { sourceByCell, comparisons } = useMemo(() => {
+    const { supplierReferenceOccurrences } = readCostingWorkbookRows(rows);
+    return {
+      sourceByCell: new Map(supplierReferenceOccurrences.map((source) => [source.row + "-" + source.slot, source])),
+      comparisons: compareCostingWorkbookSupplierValues(supplierReferenceOccurrences),
+    };
+  }, [rows]);
+  const priceSources = report.for_decision.filter((entry) => entry.reason === "price_source_reference");
+  const decisions = report.for_decision.filter((entry) =>
+    entry.reason !== "price_source_reference" && entry.reason !== "conflicting_workbook_references");
   const planned = report.to_import;
   const imported = report.imported;
   const existing = report.already_registered;
@@ -535,15 +593,37 @@ function SupplierReferenceReport({ report, rows }: Readonly<{
           {formatCount(report.duplicates) + " " + plural(report.duplicates, "doublon identique regroupé", "doublons identiques regroupés")}
         </p>
       ) : null}
-      {report.for_decision.length > 0 ? (
+      {comparisons.length > 0 ? <WorkbookSupplierComparisons comparisons={comparisons} /> : null}
+      {priceSources.length > 0 ? (
+        <details className="space-y-2 rounded-md border border-border bg-surface px-3 py-2">
+          <summary className="cursor-pointer text-sm font-semibold">
+            {formatCount(priceSources.length) + " " + plural(priceSources.length, "source de prix écartée", "sources de prix écartées")}
+          </summary>
+          <ul aria-label="Sources de prix du classeur" tabIndex={0} className="max-h-48 divide-y divide-border overflow-y-auto text-xs">
+            {priceSources.map((entry) => {
+              const key = entry.row + "-" + entry.slot;
+              const source = sourceByCell.get(key);
+              return (
+                <li key={key} className="break-all py-2">
+                  <p>{source?.supplier_sku}</p>
+                  <p className="text-muted-foreground">
+                    {workbookLocation(entry)}{source?.price_source_kind ? ` · ${PRICE_SOURCE_LABELS[source.price_source_kind]}` : ""}
+                  </p>
+                </li>
+              );
+            })}
+          </ul>
+        </details>
+      ) : null}
+      {decisions.length > 0 ? (
         <>
-          <h4 className="text-sm font-semibold">{formatCount(report.for_decision.length) + " à examiner"}</h4>
+          <h4 className="text-sm font-semibold">{formatCount(decisions.length) + " à examiner"}</h4>
           <ul
             aria-label="Références pour décision"
             tabIndex={0}
             className="max-h-48 divide-y divide-border overflow-y-auto rounded-md border border-border bg-surface px-3 text-xs"
           >
-            {report.for_decision.map((entry) => {
+            {decisions.map((entry) => {
               const key = entry.row + "-" + entry.slot;
               const source = sourceByCell.get(key);
               const details = [

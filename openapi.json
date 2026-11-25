@@ -9074,7 +9074,7 @@
           "Catalogue"
         ],
         "summary": "Reprendre les références fournisseur du classeur de chiffrage",
-        "description": "Aperçu en lecture seule avec confirm=false. La confirmation exige l’empreinte de cet aperçu. La reprise rattache les références aux articles actifs modifiables et aux fournisseurs actifs identifiés sans ambiguïté dans l’entreprise sélectionnée. Le lot crée des liaisons inactives, à vérifier. Le rapport donne les lignes à examiner et leur motif. Les liaisons existantes et les prix sont conservés.",
+        "description": "Aperçu en lecture seule avec confirm=false. La confirmation exige l’empreinte de cet aperçu. La reprise rattache les références aux articles actifs modifiables et aux fournisseurs actifs identifiés sans ambiguïté dans l’entreprise sélectionnée. Le lot crée des liaisons inactives, à vérifier. Le rapport donne les lignes à examiner et leur motif, dont les sources de prix écartées des références à reprendre. Les liaisons existantes et les prix sont conservés.",
         "requestBody": {
           "description": "Lignes de l’onglet All_data et empreinte de l’aperçu à la confirmation.",
           "required": true,
@@ -56181,6 +56181,7 @@
                         "supplier_not_found",
                         "ambiguous_supplier",
                         "invalid_supplier_sku",
+                        "price_source_reference",
                         "article_locked",
                         "different_existing_reference",
                         "withdrawn_reference",
