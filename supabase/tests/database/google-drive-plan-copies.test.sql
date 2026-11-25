@@ -90,6 +90,15 @@ select is(public.affaire_has_stored_plan('6d000000-0000-4000-8000-000000000002')
 update storage.objects set metadata='{"size":9}' where bucket_id='plan-files' and name in (select file_path from drive_copy);
 select is(public.affaire_has_stored_plan('6d000000-0000-4000-8000-000000000002'),true,'a complete working copy makes the Drive plan count');
 
+-- The two complete Drive working copies are independent revision inputs.
+insert into private.intake_current_brief_activation(active_from) values(now());
+insert into private.affaire_intake_contracts(project_id) values('6d000000-0000-4000-8000-000000000002');
+create temp table before_drive_replacement as select public.read_affaire_intake_brief_inputs('6d000000-0000-4000-8000-000000000002')->>'revision' revision;
+update storage.objects set metadata=metadata||'{"eTag":"changed"}'::jsonb where bucket_id='plan-files'
+  and name=(select file_path from drive_copy where file_id='6d000000-0000-4000-8000-000000000008');
+select isnt(public.read_affaire_intake_brief_inputs('6d000000-0000-4000-8000-000000000002')->>'revision',
+  (select revision from before_drive_replacement),'replacing one complete Drive working copy changes the revision while both remain available');
+
 set local role authenticated;
 select set_config('request.jwt.claim.sub','6d000000-0000-4000-8000-000000000001',true);
 select throws_ok($$delete from public.plan_files where id='6d000000-0000-4000-8000-000000000007'$$,

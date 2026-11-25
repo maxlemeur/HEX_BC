@@ -214,6 +214,28 @@ create function pg_temp.admit_sql(p_token uuid, p_job integer) returns text lang
     (select page_count from public.plan_files where id = pg_temp.fx(50)), pg_temp.selection())
 $$;
 create temp table admit_sql as select pg_temp.admit_sql(pg_temp.fx(91), 60) as body;
+-- Admission owns its request before it checks the intake snapshot. A confirmer
+-- already holding the brief must not have to give it up to unblock that check.
+select extensions.dblink_exec('race_setup',format($setup$
+  begin;
+  insert into private.intake_current_brief_activation(active_from) values(now());
+  insert into private.affaire_intake_contracts(project_id,published_brief_id,published_upload_id)
+    select project_id,id,upload_id from public.affaire_briefs where project_id=%1$L;
+  update private.affaire_intake_contracts set published_revision=public.read_affaire_intake_brief_inputs(%1$L)->>'revision' where project_id=%1$L;
+  commit;$setup$,pg_temp.fx(10)));
+select extensions.dblink_exec('race_writer',format('begin; do $$begin perform 1 from public.affaire_briefs where project_id=%L for update; end$$',pg_temp.fx(10)));
+select extensions.dblink_exec('race_a',$session$begin; set local lock_timeout='750ms'$session$);
+select is((select answer from extensions.dblink('race_a',(select body from admit_sql)) x(answer text)),'stale:',
+  'a concurrent confirmation owns the brief: admission under its final lock returns stale without waiting');
+select is((select n from extensions.dblink('race_a',format('select count(*) from public.takeoff_jobs where project_id=%L',pg_temp.fx(10))) x(n bigint)),0::bigint,
+  'the losing admission rolled its job back');
+select extensions.dblink_exec('race_a','rollback');
+select is((select outcome from extensions.dblink('race_writer',pg_temp.mandate_sql()) x(outcome text,id text,state text,reason text)),
+  'replayed','the concurrent confirmer can finish the original gesture');
+select extensions.dblink_exec('race_writer','commit');
+select extensions.dblink_exec('race_setup',format('begin; delete from private.intake_current_brief_activation;
+  delete from private.affaire_intake_contracts where project_id=%L; commit',pg_temp.fx(10)));
+
 select is(extensions.dblink_exec('race_writer', 'begin'), 'BEGIN', 'a member changes a plan of the dossier');
 select is(extensions.dblink_exec('race_writer', format('update public.plan_files set page_count = 2 where id = %L', pg_temp.fx(50))),
   'UPDATE 1', 'the change is written, not yet committed');
