@@ -7,6 +7,9 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { RevisionQuantities } from "@/components/takeoff/contribution-revision/RevisionQuantities";
 import { useContributionRevisions } from "@/components/takeoff/contribution-revision/useContributionRevisions";
 import useSWR from "swr";
+import { FindSource, UnlistedFinds } from "./UnlistedFinds";
+import { FindMeasureDialog, type FindMeasureSelection } from "./FindMeasureDialog";
+import { listMismatchesPlan } from "@/lib/takeoff/unlisted-finds";
 import { ChevronDown } from "lucide-react";
 
 import { isTakeoffApiError } from "@/lib/takeoff/client-http";
@@ -17,6 +20,7 @@ import { ITEM_LINE_DECISIONS, type ItemSetAsideReason, type ItemTableScope } fro
 import {
   fetchFrozenItemSelection,
   fetchItemTable,
+  fetchUnlistedFinds,
   itemReviewStaleLines,
   previewItemRemeasure,
   sendItemRemeasure,
@@ -201,6 +205,24 @@ export function TakeoffItemTable({ projectId, viewerKey, signature }: {
   const { data, error, isLoading, mutate } = useSWR(key, fetchTable, {
     keepPreviousData: true, revalidateOnFocus: true, shouldRetryOnError: false,
   });
+
+  const findRead = useSWR(data?.list ? ["unlisted-finds",viewerKey,projectId] : null,
+    () => fetchUnlistedFinds(projectId), { shouldRetryOnError: false });
+  const findVersion = `${data?.list?.revisionId ?? ""}|${signature ?? ""}`;
+  const previousFindVersion = useRef(data?.list ? findVersion : null);
+  const refreshFinds = findRead.mutate;
+  useEffect(() => {
+    if (!data?.list) return;
+    const previous = previousFindVersion.current;
+    previousFindVersion.current = findVersion;
+    if (previous !== null && previous !== findVersion) void refreshFinds();
+  }, [findVersion,refreshFinds,data?.list]);
+  const finds = findRead.error ? undefined : findRead.data;
+  const sourceByItem = useMemo(() => new Map(finds?.decisions.filter(d => d.itemId).map(d => [d.itemId,d])),[finds]);
+  const [measureFinds,setMeasureFinds] = useState<FindMeasureSelection | null>(null);
+  function measureAdded(plan: string, name: string, items: string[]) {
+    if (finds?.revisionId) setMeasureFinds({ plan, name, items, intent: newIntent(), revisionId: finds.revisionId });
+  }
 
   // Each read of the table this component asks for reads the open history again with it (its version).
   const [historyVersion, setHistoryVersion] = useState(0);
@@ -520,6 +542,13 @@ export function TakeoffItemTable({ projectId, viewerKey, signature }: {
           </p>
         ) : (
           <>
+            {findRead.error && <p role="alert" className="text-sm">Impossible de lire les ouvrages hors liste.{" "}
+              <button className="underline" onClick={() => void findRead.mutate()}>Réessayer</button></p>}
+            {finds?.originLine && <p className="text-sm">{finds.originLine}{" "}
+              <Link className="underline" href={`${pathname}?${new URLSearchParams({ ...Object.fromEntries(searchParams), postes: "liste" })}#postes-a-mesurer`}>Voir la liste des postes</Link></p>}
+            {finds?.notices.filter(n => listMismatchesPlan(n) && (address.scope.kind !== "plan" || address.scope.planKey === n.planKey)).map(n =>
+              <p className="rounded border p-2 text-sm" key={n.planKey}>{n.planName} · {n.missing} postes sur {n.total} non trouvés et {n.outside} ouvrages vus hors liste : cette liste ne correspond probablement pas à ce plan.{" "}
+                <a href="#ouvrages-hors-liste" className="underline">Voir les ouvrages hors liste</a></p>)}
             <div className="journey-filters" role="group" aria-label="Filtres des postes">
               {filterSelect("poste-filtre-plan", "Plan", address.scope.kind === "plan" ? address.scope.planKey : "all",
                 [{ value: "all", label: "Tous les plans" }, ...data.facets.plans.map(({ key: planKey, name, count }) =>
@@ -653,6 +682,7 @@ export function TakeoffItemTable({ projectId, viewerKey, signature }: {
                   <tbody>
                     {pageLines.map((line) => {
                       const draft = drafts[line.itemId];
+                      const sourceFind = sourceByItem.get(line.itemId);
                       const focused = line.itemId === focusId;
                       const open = expanded[line.itemId] === true;
                       const entryOpen = canReview && line.eligibility.enter_quantity.eligible;
@@ -679,6 +709,10 @@ export function TakeoffItemTable({ projectId, viewerKey, signature }: {
                                 onClick={() => navigate({ focusItemId: line.itemId })}>
                                 {line.label}
                               </button>
+                              {sourceFind && <details className="mt-1 max-w-56 text-sm"><summary className="cursor-pointer">Vu sur le plan</summary>
+                                <FindSource projectId={projectId} find={sourceFind} />
+                                {canReview && <Button size="sm" variant="outline" onClick={() => measureAdded(sourceFind.planKey,sourceFind.planName,[line.itemId])}>
+                                  Mesurer ce poste sur le plan</Button>}</details>}
                             </th>
                             <td className="text-muted-foreground">
                               {/* The item's own section; its whole path (the filter's family) on hover. */}
@@ -791,6 +825,11 @@ export function TakeoffItemTable({ projectId, viewerKey, signature }: {
               </div>
             )}
 
+            {finds && <UnlistedFinds key={screenKey} view={finds} projectId={projectId}
+              planKey={address.scope.kind === "plan" ? address.scope.planKey : null}
+              refresh={async () => { await Promise.all([findRead.mutate(),refresh()]); }} measure={measureAdded} />}
+            {measureFinds && finds?.canWrite && <FindMeasureDialog key={measureFinds.intent} projectId={projectId} selection={measureFinds}
+              onClose={() => setMeasureFinds(null)} onSent={() => { setMeasureFinds(null); void refresh(); }} />}
             {data.page.total > 0 ? (
               <nav aria-label="Pagination des postes" className="flex flex-wrap items-center gap-4 text-sm">
                 <span>

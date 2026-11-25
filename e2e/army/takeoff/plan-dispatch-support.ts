@@ -178,7 +178,7 @@ export async function runOwnedPlanDispatch(ui: WorkerUi, owner: WorkerOwner, pro
   options: { modes?: Record<string, "success" | "terminal" | "timeout" | "hold" | "release">; delayMs?: number; mailCollector?: string;
     items?: Record<string, OwnedPlanLine[]>; releaseFile?: string;
     /** A job reading against its list: by item label, a measure (page local to the copied PDF) or « omit »; `truncate`. */
-    itemAnswers?: Record<string, { items?: Record<string, { quantity: number; unit: string; page: number } | "omit">; truncate?: boolean }> } = {}) {
+    itemAnswers?: Record<string, { items?: Record<string, { quantity: number; unit: string; page: number } | "omit">; finds?: Array<{ designation: string; page: number; evidence: string }>; findsTruncated?: boolean; truncate?: boolean }> } = {}) {
   if (!UUID.test(projectId) || !ui.army.ownedTakeoffAffaires?.includes(projectId)) throw new Error("An owned affaire is required.");
   const { stdout, stderr } = await run(process.execPath, ["--conditions=react-server", "--import", "tsx",
     "scripts/tester-army/takeoff-plan-dispatch.mjs", projectId, ui.army.runPrefix], { timeout: 120_000, env: childEnv(owner, {

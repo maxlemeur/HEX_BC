@@ -350,6 +350,7 @@ describe("Aperçu des postes à mesurer", () => {
       await waitForHydration(browser);
       await screen.getByRole("button", "Enregistrer la liste proposée", { exact: true }).click();
       await expect(screen.getByText("Liste enregistrée · révision 1", { exact: false })).toBeVisible();
+      await expect(screen.getByText(`Liste issue du DPGF ${filename}.`, { exact: true })).toBeVisible();
       expect([await homonyms.nth(0).getAttribute("id"), await homonyms.nth(1).getAttribute("id")]).toEqual(ids);
       const versions = await client.from("estimate_versions").select("id").eq("project_id", projectId);
       expect(versions.data).toEqual([]);

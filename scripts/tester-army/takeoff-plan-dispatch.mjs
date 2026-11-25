@@ -123,7 +123,8 @@ const resolveProvider = async (_supabase, job, hooks) => {
         return [answer ? posteMeasured(entry, [{ page: answer.page, quantity: answer.quantity, unit: answer.unit }]) : posteNotFound(entry)];
       });
       const text = JSON.stringify({ schema_version: manifest.schema_version, prompt_version: manifest.prompt_version,
-        chunk_id: manifest.chunk_id, responses, unreadable_pages: [], unlisted_findings: [], warnings: [] });
+        chunk_id: manifest.chunk_id, responses, unreadable_pages: [], unlisted_findings: (spec.finds ?? []).filter(f => manifest.page_scope.owned_pages.includes(f.page)),
+        warnings: spec.findsTruncated ? [{ code: "POSTE_HORS_LISTE_TRONQUE", severity: "warning", message: "Liste fictive tronquée." }] : [] });
       // A truncated reading is no JSON: the local reader's parse refuses it, and the local provider names it as the job's
       // schema failure (src/lib/ai/chatgpt-takeoff.ts), definitive, as here.
       let data;

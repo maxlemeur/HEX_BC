@@ -1,3 +1,4 @@
+import { findCommandSchema, findReceiptSchema, findsViewSchema } from "@/lib/takeoff/unlisted-finds";
 import { AFFAIRE_ANALYSIS_PROGRESS_PATH, analysisProgressCursorSchema, analysisProgressResponseSchema } from "@/lib/affaires/analysis-progress-contract";
 import { affaireLinkedDpgfSourceResponseSchema } from "@/lib/estimates/linked-dpgf-contracts";
 import {
@@ -563,6 +564,22 @@ const administrationContracts: RouteContract[] = [
     pathParameters: [projectIdParameter],
     success: [{ status: "200", description: "Source DPGF validée, ou absence explicite.",
       schema: { schemaName: "AffaireLinkedDpgfSourceResponse", schema: z.object({ ok: z.literal(true), data: affaireLinkedDpgfSourceResponseSchema }), io: "output" } }],
+  },
+  {
+    id: "get-takeoff-unlisted-finds", method: "get", path: "/api/affaires/{projectId}/takeoff/items/finds",
+    summary: "Consulter les ouvrages vus hors liste", description: "Sources lisibles par le membre, décisions et faits de la lecture.",
+    tags: ["Takeoff"], pathParameters: [projectIdParameter],
+    success: [{ status: "200", description: "Ouvrages et décisions visibles.",
+      schema: { schemaName: "TakeoffUnlistedFinds", schema: z.object({ ok: z.literal(true), data: findsViewSchema }), io: "output" } }],
+  },
+  {
+    id: "decide-takeoff-unlisted-finds", method: "post", path: "/api/affaires/{projectId}/takeoff/items/finds",
+    summary: "Ajouter ou écarter des ouvrages hors liste, ou annuler une mise à l’écart",
+    description: "Le membre et l’entreprise viennent de la session. Écriture réservée aux éditeurs de la liste.",
+    tags: ["Takeoff"], pathParameters: [projectIdParameter],
+    body: { schema: findCommandSchema, description: "Ouvrage publié et décision du membre." },
+    success: [{ status: "200", description: "Décision enregistrée.",
+      schema: { schemaName: "TakeoffFindReceipt", schema: z.object({ ok: z.literal(true), data: findReceiptSchema }), io: "output" } }],
   },
   {
     id: "get-affaire-takeoff-item-list", method: "get", path: "/api/affaires/{projectId}/takeoff/item-list",

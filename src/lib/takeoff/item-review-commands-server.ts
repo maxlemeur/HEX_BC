@@ -1,4 +1,5 @@
 import "server-only";
+import { selectInChunks } from "@/lib/supabase/in-chunks";
 
 import { createHash } from "node:crypto";
 
@@ -230,9 +231,17 @@ async function payerName(access: AffaireAccess) {
  * plans, the items, the list's revision and each item's current readings on those plans, the calls and the budget, and
  * the preparation it was planned on (its revision, each plan's sealed copy, identity, bytes and pages).
  */
-async function remeasurePreview(input: { scope: ItemTableScope; itemIds: string[]; seen: ItemRemeasureSeen; detail?: ItemMeasureScope }, access: AffaireAccess) {
-  const key = input.detail && input.scope.kind === "plan" ? input.scope.planKey : null;
+async function remeasurePreview(input: { scope: ItemTableScope; itemIds: string[]; seen: ItemRemeasureSeen; detail?: ItemMeasureScope; fromFinds?: true }, access: AffaireAccess) {
+  const key = (input.detail || input.fromFinds) && input.scope.kind === "plan" ? input.scope.planKey : null;
   if (input.detail && (!key || input.itemIds.length !== 1)) invalid("Choisissez un seul poste sur son plan.");
+  if (input.fromFinds) {
+    if (!key || input.detail) invalid("Choisissez les postes ajoutés depuis le même plan.");
+    const origins = await selectInChunks(input.itemIds, ids => access.context.supabase.from("takeoff_find_decisions")
+      .select("item_id").eq("tenant_id", access.context.tenantId).eq("project_id", access.project.id)
+      .eq("plan_logical_id",key).in("item_id",ids));
+    if (origins.error) throw mapSupabaseError(origins.error,"Impossible de vérifier la source des postes.");
+    if (origins.data.length !== new Set(input.itemIds).size) invalid("Ces postes ne proviennent plus du plan choisi.");
+  }
   const { lines, plans: affairePlans, list } = await loadItemLines(access, { scope: key ? { kind: "affaire" } : input.scope, itemIds: input.itemIds, withPlans: true });
   const byId = new Map(lines.map((line) => [line.itemId, line]));
   const missing = input.itemIds.filter((id) => !byId.has(id));
@@ -247,7 +256,7 @@ async function remeasurePreview(input: { scope: ItemTableScope; itemIds: string[
   const listMoved = (input.seen.list_revision_id ?? "").toLowerCase() !== (list?.revisionId ?? "").toLowerCase();
   const previous = key ? selected[0]?.readings.find((r) => r.planKey === key)?.answer : null;
   const changed = selected.filter((line) => listMoved || seenOnLines.get(line.itemId.toLowerCase())?.join()
-    !== (key ? previous?.answerId.toLowerCase() ?? "" : line.targets.answers.map(({ answerId }) => answerId.toLowerCase()).sort().join()));
+    !== (key ? line.readings.find(r => r.planKey === key)?.answer?.answerId.toLowerCase() ?? "" : line.targets.answers.map(({ answerId }) => answerId.toLowerCase()).sort().join()));
   if (changed.length) staleRefusal(changed.map(({ itemId, label }) => ({ itemId, label })));
   const eligible = key ? selected : selected.filter(({ eligibility }) => eligibility.remeasure.eligible);
   const planKeys = new Set(key ? [key] : eligible.flatMap(({ remeasurePlans }) => remeasurePlans));
@@ -261,7 +270,7 @@ async function remeasurePreview(input: { scope: ItemTableScope; itemIds: string[
       (await headers()).get("host")),
     readAffaireTakeoffLaunchState(access.context, access.project.id),
   ]);
-  const catalogue = key && !subscription.issue ? await readMeasureCatalogue({ userId: access.context.userId, tenantId: access.context.tenantId }, subscription.selection) : null;
+  const catalogue = input.detail && key && !subscription.issue ? await readMeasureCatalogue({ userId: access.context.userId, tenantId: access.context.tenantId }, subscription.selection) : null;
   const shown: ItemRemeasurePreview["subscription"] = subscription.issue
     ? { state: "unavailable", reason: SUBSCRIPTION_REASONS[subscription.issue] }
     : catalogue?.reason !== undefined ? { state: "unavailable", reason: catalogue.reason }
@@ -359,7 +368,7 @@ function sealedSelection(selection: TakeoffExecutionSelection, setting: ItemReme
 }
 
 /** What a remeasure of the selection would ask, and who would pay: shown before its explicit confirmation. Reads only. */
-export async function previewItemRemeasure(projectId: string, input: { scope: ItemTableScope; itemIds: string[]; seen: ItemRemeasureSeen; detail?: ItemMeasureScope }) {
+export async function previewItemRemeasure(projectId: string, input: { scope: ItemTableScope; itemIds: string[]; seen: ItemRemeasureSeen; detail?: ItemMeasureScope; fromFinds?: true }) {
   const access = await requireReviewer(projectId);
   return (await remeasurePreview(input, access)).preview;
 }
@@ -392,7 +401,7 @@ export async function runItemRemeasure(projectId: string, command: ItemRemeasure
     if (replayed) return receipt(replayed);
   }
   const { preview, targets, selection, labels, planned: confirmed } = await remeasurePreview({ scope: command.scope,
-    itemIds: command.item_ids, seen: command.seen, detail: command.detail }, access);
+    itemIds: command.item_ids, seen: command.seen, detail: command.detail, fromFinds: command.from_finds }, access);
   const shownPlans = preview.plans.map(({ key }) => key);
   if (preview.subscription.state === "unavailable" || !selection) {
     throw unprocessableEntity(preview.subscription.state === "unavailable" ? preview.subscription.reason

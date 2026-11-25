@@ -182,6 +182,7 @@ export async function TakeoffItemListPanel({ projectId, query, compact = false }
     const summary = await loadAffaireItemListSummary(projectId).catch(() => null);
     return (
       <p className="text-sm">
+        {summary?.originLine && <span>{summary.originLine} </span>}
         Liste des postes · {summary?.revision ? `révision ${summary.revision} · ${summary.itemCount} postes` : "non enregistrée"}{" "}
         <Link href={{ pathname: href, query: { ...query, postes: "liste" }, hash: "postes-a-mesurer" }} className="underline">
           Voir la liste des postes
@@ -227,6 +228,7 @@ export async function TakeoffItemListPanel({ projectId, query, compact = false }
   return (
     <JourneyPanel headingId="postes-a-mesurer" title="Postes à mesurer">
       <div className="journey-panel-body space-y-3">
+        {list.originLine && <p className="text-sm">{list.originLine}</p>}
         <SourceLine list={list} />
         {list.current ? (
           <p className="text-sm">
