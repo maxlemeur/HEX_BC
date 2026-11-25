@@ -401,10 +401,25 @@ sens ou dans l'autre, ou un écart d'au moins **10 s et 20 %** met à jour la
 durée et son entrée `measured`. La branche `automation/army-duration-refresh`
 porte une seule PR pour ces écarts. Le résumé et l'artefact
 `army-duration-proposal` restent disponibles sept jours si la création de PR
-échoue. Le jeton intégré demande `contents: write` et `pull-requests: write` ;
+échoue.
+
+Pour que les checks de la PR démarrent automatiquement, créer une GitHub App
+dans **Settings → Developer settings → GitHub Apps**, désactiver le webhook,
+accorder les permissions de dépôt **Contents** et **Pull requests** en
+lecture/écriture, puis installer l'App sur ce seul dépôt. Dans les réglages
+de l'App, copier le **Client ID** et générer une clé privée. Dans **Settings →
+Secrets and variables → Actions** du dépôt, enregistrer le Client ID dans la
+variable `ARMY_REFRESH_APP_CLIENT_ID` et le PEM entier dans le secret
+`ARMY_REFRESH_APP_PRIVATE_KEY`. Le job demande alors un jeton d'installation
+limité à ce dépôt et à ces deux permissions.
+
+Si un des deux réglages manque, le jeton intégré demande `contents: write` et `pull-requests: write` ;
 activer **Allow GitHub Actions to create and approve pull requests** dans
-Settings → Actions → General si le dépôt refuse cette création. Approuver les
-workflows de la PR si GitHub en demande l'autorisation.
+Settings → Actions → General si le dépôt refuse cette création. À chaque ouverture ou mise à jour, un mainteneur sélectionne
+**Approve workflows to run** sur la PR. Si aucun run n'apparaît, fermer puis
+rouvrir la PR avec un compte ayant les droits d'écriture. Le résumé du job et
+le corps de la PR indiquent la procédure correspondant au jeton utilisé.
+[Déclenchement des workflows par GITHUB_TOKEN](https://docs.github.com/en/actions/concepts/security/github_token#when-github_token-triggers-workflow-runs).
 
 `neverTogether` liste les fichiers qui ne partagent jamais un shard, quelles que
 soient leurs durées : les cinq fichiers des
