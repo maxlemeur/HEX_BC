@@ -57,12 +57,15 @@ export function SupplierReferenceQueue({ initialImportBatchId }: Readonly<{ init
   const [directory, setDirectory] = useState<SupplierDirectoryEntry[]>([]);
 
   useEffect(() => {
+    const next = searchInput.trim();
+    // Nothing typed since the last search: the page the office is on stays.
+    if (next === search) return;
     const timeout = window.setTimeout(() => {
-      setSearch(searchInput.trim());
+      setSearch(next);
       setPage(1);
     }, 300);
     return () => window.clearTimeout(timeout);
-  }, [searchInput]);
+  }, [search, searchInput]);
 
   useEffect(() => {
     const abort = new AbortController();
@@ -80,6 +83,9 @@ export function SupplierReferenceQueue({ initialImportBatchId }: Readonly<{ init
     () => fetchPendingSupplierReferences({ page, size, ...filter }),
     { revalidateOnFocus: true },
   );
+  // A review can empty the last page: the list goes back to the last page that still holds references.
+  const lastPage = Math.max(data?.pagination.totalPages ?? page, 1);
+  if (data && !isLoading && page > lastPage) setPage(lastPage);
   const ready = Boolean(data) && !isLoading && !error && searchInput.trim() === search;
   const items = data?.items ?? [];
   const total = data?.pagination.totalItems ?? 0;

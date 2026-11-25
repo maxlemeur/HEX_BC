@@ -50,8 +50,14 @@ const fetchMock = vi.fn<typeof fetch>((input, init) => {
     pending = pending.filter((item) => !ids.includes(item.id));
     return answer({ reviewed: ids.length, skipped: body?.ids ? 0 : matching.length - ids.length });
   }
-  const items = matches(Object.fromEntries(new URL(url, "http://localhost").searchParams));
-  return answer({ items, pagination: { page: 1, size: 50, totalItems: items.length, totalPages: 1 } });
+  const params = new URL(url, "http://localhost").searchParams;
+  const items = matches(Object.fromEntries(params));
+  const page = Number(params.get("page") ?? 1);
+  const size = Number(params.get("size") ?? 50);
+  return answer({
+    items: items.slice((page - 1) * size, page * size),
+    pagination: { page, size, totalItems: items.length, totalPages: Math.ceil(items.length / size) },
+  });
 });
 
 const reviews = () => sent.filter((call) => call.method === "POST").map((call) => call.body);
@@ -158,6 +164,23 @@ describe("SupplierReferenceQueue", () => {
     expect(await screen.findByRole("button", { name: "Valider les 4 références" })).toBeEnabled();
     expect(reviews()).toEqual([{ action: "validate", filter: {}, expected_count: 3 }]);
     expect(pending).toHaveLength(4);
+  });
+
+  it("goes back to the last page that holds references once a review has emptied the one on screen", async () => {
+    const user = userEvent.setup();
+    pending = Array.from({ length: 51 }, (_, index) => reference(1, {
+      id: `50000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`, product_reference: `TUBE-${index + 1}`, supplier_sku: `AT-${index + 1}`,
+    }));
+    renderQueue();
+    await screen.findByRole("table", { name: "Références fournisseur à vérifier" });
+    await user.click(screen.getByRole("button", { name: "Suivant" }));
+    const table = within(await screen.findByRole("table", { name: "Références fournisseur à vérifier" }));
+    await user.click(await table.findByRole("checkbox", { name: "Sélectionner AT-51 de Comptoir Atlas pour TUBE-51" }));
+    await user.click(screen.getByRole("button", { name: "Valider la sélection" }));
+
+    expect(await screen.findByText("1 référence validée.")).toBeVisible();
+    expect(await screen.findByText("1 / 1")).toBeVisible();
+    expect(await screen.findByRole("checkbox", { name: "Sélectionner AT-50 de Comptoir Atlas pour TUBE-50" })).toBeVisible();
   });
 
   it("opens on the references of one import, and widens to all on request (5)", async () => {
