@@ -144,7 +144,7 @@ export function AffaireTakeoffZone(props: AffaireTakeoffZoneProps) {
   if (!model) return null;
   const options = model.options;
   const dialogMode: LaunchMetreDialogMode | null = !options ? null : options.mode === "version" ? { kind: "version" }
-    : options.mode === "request" ? { kind: "request", predecessorJobId: options.predecessorJobId }
+    : options.mode === "request" ? { kind: "request", predecessorJobId: options.predecessorJobId, planDispatch: shown?.planDispatch }
     : { kind: "save_only", reason: options.reason };
   const coverage = shown?.request?.coverage ?? null;
   const omitted = coverage ? [

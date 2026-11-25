@@ -31,7 +31,7 @@ const DIRECTOR = { tenantId: TENANT, userId: "55555555-5555-4555-8555-5555555555
 
 function blocked(overrides: Partial<NonNullable<AffaireTakeoffZoneData["request"]>> = {}): AffaireTakeoffZoneData {
   return {
-    active: true, canOperate: true, confirmedBeforeActivation: false, dossierChangedSinceAnalysis: null, latestJob: null, latestReview: null, latestEnd: null,
+    active: true, canOperate: true, confirmedWithoutRequest: false, dossierChangedSinceAnalysis: null, latestJob: null, latestReview: null, latestEnd: null,
     unrequestedRunning: false, viewer: OPERATOR,
     request: { id: requestId, origin: "automatic", state: "blocked", mandateRevision: 4, reason: "MANDATE_REQUIRED", pieces: [],
       hasPayer: false, payerIsViewer: false, createdAt: "2026-11-21T08:00:00.000Z", admittedAt: null, closedAt: null, outcome: null,

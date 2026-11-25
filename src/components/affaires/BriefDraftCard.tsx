@@ -21,7 +21,7 @@ import {
 import {
   updateAffaireBrief,
   confirmAffaireBrief,
-  readAffaireBriefPayerNotice,
+  readAffaireBriefChoices,
   resolveAffaireBriefPlanGap,
 } from "@/app/dashboard/affaires/_actions/intake";
 import {
@@ -30,6 +30,7 @@ import {
 } from "@/lib/cockpit/events";
 import { ArrowRightIcon, FileIcon, InfoIcon, SquarePenIcon, XIcon } from "lucide-react";
 
+import type { BriefPlanOption } from "@/lib/takeoff/brief-plan-choice";
 import "./BriefDraftCard.css";
 
 type BriefDraftCardProps = {
@@ -44,15 +45,16 @@ type BriefDraftCardProps = {
 
 type BadgeVariant = "neutral" | "info" | "success" | "warning" | "danger";
 
-/**
- * Who pays for the automatic takeoff, read when the confirmation dialog opens (never from what the page rendered before
- * the brief reached it): pending, the notice or none, or a read that failed. The confirmation sends the digest of the
- * notice this dialog showed, and none otherwise, which engages nobody.
- */
-type PayerNoticeRead =
-  | { state: "pending" }
-  | { state: "ready"; notice: { message: string; digest: string } | null }
-  | { state: "failed" };
+type BriefChoicesRead =
+  | { state: "pending" | "failed" }
+  | ({ state: "ready" } & Awaited<ReturnType<typeof readAffaireBriefChoices>>);
+
+const PLAN_READING_LABELS: Record<BriefPlanOption["state"], string> = {
+  analysed: "Déjà analysé",
+  in_progress: "Analyse en cours",
+  not_analysed: "Non analysé",
+  unverified: "Lecture à vérifier. La copie actuelle sera comparée aux plans déjà lus avant de lancer une analyse.",
+};
 
 const EDITABLE_BLOCKS = new Set<AffaireIntakeBriefBlockKey>([
   "summary",
@@ -334,23 +336,26 @@ export function BriefDraftCard({
   const [error, setError] = useState<string | null>(null);
   const [announcement, setAnnouncement] = useState("");
   const [showConfirmDialog, setShowConfirmDialog] = useState(false);
-  const [payerNotice, setPayerNotice] = useState<PayerNoticeRead>({ state: "pending" });
+  const [checked, setChecked] = useState<string[]>([]);
+  const [choices, setChoices] = useState<BriefChoicesRead>({ state: "pending" });
   // Each opening and each new try reads again; an answer meant for an earlier one is never shown.
-  const payerNoticeRead = useRef(0);
-  const readPayerNotice = useCallback(() => {
-    const read = ++payerNoticeRead.current;
-    setPayerNotice({ state: "pending" });
-    readAffaireBriefPayerNotice({ projectId }).then(
-      (notice) => { if (payerNoticeRead.current === read) setPayerNotice({ state: "ready", notice: notice ?? null }); },
-      () => { if (payerNoticeRead.current === read) setPayerNotice({ state: "failed" }); },
+  const choicesRead = useRef(0);
+  const loadChoices = useCallback(() => {
+    const read = ++choicesRead.current;
+    setChecked([]);
+    setChoices({ state: "pending" });
+    readAffaireBriefChoices({ projectId }).then(
+      (result) => { if (choicesRead.current === read) setChoices({ state: "ready", ...result }); },
+      () => { if (choicesRead.current === read) setChoices({ state: "failed" }); },
     );
   }, [projectId]);
   const openConfirmDialog = useCallback(() => {
+    setError(null);
     setShowConfirmDialog(true);
-    readPayerNotice();
-  }, [readPayerNotice]);
+    loadChoices();
+  }, [loadChoices]);
   const closeConfirmDialog = useCallback(() => {
-    payerNoticeRead.current += 1;
+    choicesRead.current += 1;
     setShowConfirmDialog(false);
   }, []);
   const sectionRef = useRef<HTMLElement>(null);
@@ -457,20 +462,26 @@ export function BriefDraftCard({
   ]);
 
   // `payerNoticeDigest`: the notice this dialog showed, read at its opening; none engages nobody.
-  const handleConfirm = useCallback((payerNoticeDigest: string | null) => {
+  const handleConfirm = useCallback((withAnalysis: boolean) => {
+    const plans = withAnalysis && choices.state === "ready" ? choices.plans.filter(({ id }) => checked.includes(id)).map(({ id, version }) => ({ id, version })) : [];
+    if (withAnalysis && !plans.length) return;
+    const payerNoticeDigest = plans.length && choices.state === "ready" ? choices.notice?.digest ?? null : null;
+    setError(null);
     if (!briefDraft?.updatedAt) {
       toast.error({ title: "Impossible de confirmer le brief", description: "Actualisez le dossier et réessayez." });
       return;
     }
     startTransition(async () => {
       try {
-        const result = await confirmAffaireBrief({ projectId, expectedUpdatedAt: briefDraft.updatedAt!, payerNotice: payerNoticeDigest });
+        const result = await confirmAffaireBrief({ projectId, expectedUpdatedAt: briefDraft.updatedAt!, plans, payerNotice: payerNoticeDigest });
         // What the confirmation did with the affaire's takeoff: why it waits, and the gesture it now offers this member.
         if (result?.ok === false) {
           setError(result.message);
+          loadChoices();
           toast.error({ title: "Confirmation en attente", description: result.message });
           return;
         }
+        closeConfirmDialog();
         const takeoff = result?.takeoff;
         const takeoffNotice = takeoff?.message
           ? [takeoff.message, takeoff.actionLabel ? `Action possible dans les options du métré : « ${takeoff.actionLabel} ».` : null]
@@ -486,7 +497,7 @@ export function BriefDraftCard({
         });
       }
     });
-  }, [briefDraft, projectId, router, toast]);
+  }, [briefDraft, projectId, router, toast, choices, checked, closeConfirmDialog, loadChoices]);
 
   const handleResolvePlanGap = useCallback((entryIndex: number) => {
     if (!briefDraft?.updatedAt) return;
@@ -656,24 +667,46 @@ export function BriefDraftCard({
 
       <AffaireConfirmDialog open={showConfirmDialog && Boolean(briefDraft) && !isReadOnly && !isEditing}
         title="Confirmer ce brief ?"
-        message={`Il deviendra la référence de travail pour la suite du chiffrage. Hypothèses ouvertes : ${briefDraft?.assumptions.length ?? 0}. Éléments manquants : ${unresolvedMissingCount}. Points de vigilance : ${briefDraft?.vigilancePoints.length ?? 0}. Confirmer ne transforme pas une inférence en preuve et ne résout pas les manques.${payerNotice.state === "ready" && payerNotice.notice ? ` ${payerNotice.notice.message}` : ""}`}
-        confirmLabel="Oui, confirmer" confirmDisabled={isPending || payerNotice.state === "pending"} cancelDisabled={isPending}
-        onConfirm={() => {
-          const digest = payerNotice.state === "ready" ? payerNotice.notice?.digest ?? null : null;
-          closeConfirmDialog();
-          handleConfirm(digest);
-        }} onCancel={closeConfirmDialog}>
-        {payerNotice.state === "pending" ? (
-          <Alert variant="info" role="status"><AlertDescription>Vérification du forfait ChatGPT que le métré utilisera…</AlertDescription></Alert>
-        ) : payerNotice.state === "failed" ? (
-          <Alert variant="warning" role="alert">
-            <AlertDescription>
-              <p>Impossible de vérifier quel forfait ChatGPT le métré utilisera.</p>
-              <p>Si vous confirmez maintenant, la confirmation ne démarre aucune analyse d’elle-même.</p>
-              <Button type="button" variant="outline" size="sm" className="mt-2" onClick={readPayerNotice}>Réessayer</Button>
-            </AlertDescription>
-          </Alert>
-        ) : null}
+        message="Il deviendra la référence de travail pour la suite du chiffrage."
+        confirmLabel={`Confirmer et analyser ${checked.length} plan${checked.length > 1 ? "s" : ""}`}
+        confirmDisabled={isPending || !checked.length || choices.state !== "ready"}
+        cancelDisabled={isPending} errorMessage={error}
+        secondaryAction={<Button size="lg" variant="outline" disabled={isPending} onClick={() => handleConfirm(false)}>Confirmer sans analyser</Button>}
+        onConfirm={() => handleConfirm(true)} onCancel={closeConfirmDialog}>
+        <div className="space-y-3 text-sm text-foreground-secondary">
+          <ul className="divide-y divide-border rounded-lg border border-border">
+            {[
+              ["Hypothèses ouvertes", briefDraft?.assumptions.length ?? 0],
+              ["Éléments manquants", unresolvedMissingCount],
+              ["Points de vigilance", briefDraft?.vigilancePoints.length ?? 0],
+            ].map(([label, count]) => (
+              <li key={label} className="flex items-center justify-between gap-4 px-3 py-2">
+                <span>{label}</span><strong className="tabular-nums text-foreground">{count}</strong>
+              </li>
+            ))}
+          </ul>
+          <p>Confirmer ne transforme pas une inférence en preuve et ne résout pas les manques.</p>
+        </div>
+        {choices.state === "ready" && (
+          <fieldset disabled={isPending} className="space-y-2">
+            <legend className="text-sm font-medium">Plans à analyser</legend>
+            {choices.plans.length === 0 && <p className="text-sm">Aucun plan disponible pour une analyse.</p>}
+            {choices.plans.map((plan) => (
+              <label key={plan.id} className="flex items-start gap-3 rounded-md border px-3 py-2 text-sm">
+                <input className="mt-1" type="checkbox" checked={checked.includes(plan.id)}
+                  disabled={plan.state === "analysed" || plan.state === "in_progress" || (checked.length >= 20 && !checked.includes(plan.id))}
+                  onChange={(event) => setChecked(event.target.checked ? [...checked, plan.id] : checked.filter((id) => id !== plan.id))} />
+                <span className="min-w-0 break-words">{plan.name}<small className="block text-foreground-secondary">{PLAN_READING_LABELS[plan.state]}</small></span>
+              </label>
+            ))}
+            {checked.length > 0 && <p className="text-sm">{choices.notice?.message ?? "Une personne habilitée pourra lancer les plans cochés avec son forfait."}</p>}
+          </fieldset>
+        )}
+        {choices.state === "pending" && <p role="status">Lecture des plans du dossier…</p>}
+        {choices.state === "failed" && <Alert variant="warning" role="alert"><AlertDescription>
+          <p>Impossible de charger les plans et le forfait. Vous pouvez confirmer sans analyser.</p>
+          <Button type="button" variant="outline" size="sm" className="mt-2" onClick={loadChoices}>Réessayer</Button>
+        </AlertDescription></Alert>}
       </AffaireConfirmDialog>
 
       {error && (

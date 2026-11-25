@@ -26,7 +26,8 @@ export type TakeoffPreparationPanelProps = {
   estimateVersionId: string | null;
   documentControls?: ReactNode;
   destinationControls?: ReactNode;
-  onLaunch: (revision: number, planFileCount: number) => Promise<void>;
+  planChoice?: "optional" | "required";
+  onLaunch: (revision: number, planFileCount: number, planIds?: string[]) => Promise<void>;
   onBusyChange?: (busy: boolean) => void;
   onRegisterSave?: (save: () => Promise<number | null>) => void;
   disabled?: boolean;
@@ -42,8 +43,10 @@ export function TakeoffPreparationPanel(props: TakeoffPreparationPanelProps) {
   return <TakeoffPreparationPanelContent key={`${user?.tenantId ?? "unknown"}:${user?.profile?.id ?? "unknown"}:${props.projectId}`} {...props} />;
 }
 
-function TakeoffPreparationPanelContent({ projectId, planSetId, estimateVersionId, documentControls, destinationControls, onLaunch, onBusyChange, onRegisterSave, launchDisabled = false, launchNotice = null, analysisOnly = false, disabled = false }: TakeoffPreparationPanelProps) {
+function TakeoffPreparationPanelContent({ projectId, planSetId, estimateVersionId, documentControls, destinationControls, onLaunch, onBusyChange, onRegisterSave, planChoice, launchDisabled = false, launchNotice = null, analysisOnly = false, disabled = false }: TakeoffPreparationPanelProps) {
   const { record, support, draft, updateDraft, saveState, error, save, saveOptions, renew, reload, confirm, adopt, addProfile } = useTakeoffPreparation(projectId, planSetId);
+  const [namedSelection, setNamedSelection] = useState(false);
+  const [planIds, setPlanIds] = useState<string[]>([]);
   const [triaging, setTriaging] = useState(false);
   const [step, setStep] = useState(3);
   const [showOptions, setShowOptions] = useState(false);
@@ -70,8 +73,12 @@ function TakeoffPreparationPanelContent({ projectId, planSetId, estimateVersionI
   const locked = disabled || confirming || renewing || triaging || Boolean(draft?.provenance && draft.provenance.plan_set_id !== planSetId);
   useEffect(() => { onRegisterSave?.(save); }, [onRegisterSave, save]);
 
+  const choosePlans = planChoice === "required" || (planChoice === "optional" && namedSelection);
+  const availablePlans = effective?.sources.filter((source) => source.active && source.kind === "plan") ?? [];
+  const chosen = availablePlans.map((plan) => plan.document_id).filter((id) => planIds.includes(id));
+  const emptyChoice = choosePlans && !chosen.length;
   async function launch() {
-    if (!readiness?.can_launch || locked || launchDisabled) return;
+    if (!readiness?.can_launch || locked || launchDisabled || emptyChoice) return;
     setConfirming(true);
     onBusyChange?.(true);
     setLaunchError(null);
@@ -82,7 +89,8 @@ function TakeoffPreparationPanelContent({ projectId, planSetId, estimateVersionI
         setStep(0);
         return;
       }
-      await onLaunch(confirmed.revision, confirmed.planFileCount);
+      if (choosePlans) await onLaunch(confirmed.revision, chosen.length, chosen);
+      else await onLaunch(confirmed.revision, confirmed.planFileCount);
     } catch (cause) {
       setLaunchError(cause instanceof TakeoffActionError ? cause.message : "Impossible de confirmer le lancement. Vos réponses sont conservées.");
     } finally { setConfirming(false); onBusyChange?.(false); }
@@ -115,6 +123,18 @@ function TakeoffPreparationPanelContent({ projectId, planSetId, estimateVersionI
       {support.chatGpt ? `${support.chatGpt.model} · Effort ${support.chatGpt.reasoningEffort ? CHATGPT_REASONING_EFFORT_LABELS[support.chatGpt.reasoningEffort].toLocaleLowerCase("fr") : "par défaut"}.` : "Connectez votre forfait ChatGPT et choisissez un modèle dans Mon profil pour lancer le métré."}{" "}
       <Link href="/dashboard/profile" className="underline">Gérer mon forfait ChatGPT</Link>
     </p>
+    {planChoice === "optional" && <label className="flex gap-2 text-sm">
+      <input type="checkbox" disabled={locked} checked={namedSelection} onChange={(event) => setNamedSelection(event.target.checked)} />
+      Choisir les plans de cette analyse
+    </label>}
+    {choosePlans && <fieldset disabled={locked} className="space-y-2">
+      <legend className="text-sm font-medium">Plans à lancer avec mon forfait</legend>
+      {availablePlans.map((plan) => <label key={plan.document_id} className="flex items-start gap-2 text-sm">
+        <input type="checkbox" checked={chosen.includes(plan.document_id)} onChange={(event) =>
+          setPlanIds(event.target.checked ? [...chosen, plan.document_id] : chosen.filter((id) => id !== plan.document_id))} />
+        {plan.document_name}
+      </label>)}
+    </fieldset>}
     {draft.provenance?.converted_from_legacy && <p className="text-sm text-muted-foreground">Préparation précédente adaptée à l’analyse détaillée. Vérifiez les sources et le périmètre avant le lancement.</p>}
     {showOptions && <nav aria-label="Étapes de préparation du métré" className="grid grid-cols-2 gap-1 sm:grid-cols-4">
       {STEPS.map((label, index) => <button key={label} type="button" disabled={locked} aria-current={step === index ? "step" : undefined} className={`rounded-lg px-2 py-2 text-left text-xs ${step === index ? "bg-primary/10 font-semibold text-primary" : "text-muted-foreground hover:bg-surface-subtle"}`} onClick={() => setStep(index)}><span className="mr-1">{index + 1}.</span>{label}</button>)}
@@ -149,7 +169,7 @@ function TakeoffPreparationPanelContent({ projectId, planSetId, estimateVersionI
     {launchNotice && <p role="status" className="text-sm text-muted-foreground">{launchNotice}</p>}
     <div className="flex items-center justify-between gap-3 border-t border-border pt-4">
       {showOptions && <button type="button" className={buttonVariants({ variant: "outline", size: "md" })} disabled={locked || step === 0} onClick={() => setStep((value) => value - 1)}>Retour</button>}
-      {step < 3 ? <button type="button" className={buttonVariants({ variant: "primary", size: "md" })} disabled={locked} onClick={() => setStep((value) => value + 1)}>Continuer</button> : <button type="button" className={buttonVariants({ variant: "primary", size: "md" })} disabled={locked || launchDisabled || !readiness?.can_launch || saveState === "error"} onClick={() => void launch()}>{renewing ? "Nouvelle préparation…" : confirming ? "Confirmation et lancement…" : "Confirmer et lancer le métré"}</button>}
+      {step < 3 ? <button type="button" className={buttonVariants({ variant: "primary", size: "md" })} disabled={locked} onClick={() => setStep((value) => value + 1)}>Continuer</button> : <button type="button" className={buttonVariants({ variant: "primary", size: "md" })} disabled={locked || launchDisabled || emptyChoice || !readiness?.can_launch || saveState === "error"} onClick={() => void launch()}>{renewing ? "Nouvelle préparation…" : confirming ? "Confirmation et lancement…" : "Confirmer et lancer le métré"}</button>}
     </div>
   </div>;
 }

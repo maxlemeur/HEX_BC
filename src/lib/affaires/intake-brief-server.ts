@@ -1,3 +1,4 @@
+import type { BriefPlanSelection } from "@/lib/takeoff/brief-plan-choice";
 import { conflict, internalError, mapSupabaseError, notFound } from "@/lib/http/api-response";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import {
@@ -220,15 +221,18 @@ export async function updateAffaireBrief(input: {
  * Who pays for the affaire's automatic takeoff, read when the brief's confirmation dialog opens, for this member and the
  * brief as it is now (readBriefConfirmationPayerNotice). Throws when it cannot be read: the dialog then says so.
  */
-export async function readAffaireBriefPayerNotice(input: { projectId: string }) {
+export async function readAffaireBriefChoices(input: { projectId: string }) {
   const { context, project } = await requireAffaireAccess(input.projectId, "read");
   const [{ readBriefConfirmationPayerNotice }, { headers }] = await Promise.all([
     import("@/lib/takeoff/launch-request-server"), import("next/headers"),
   ]);
-  return readBriefConfirmationPayerNotice(context, project, (await headers()).get("host"));
+  const { readBriefPlanOptions } = await import("@/lib/takeoff/brief-plan-choice-server");
+  const plans = await readBriefPlanOptions(context, project.id);
+  const notice = plans.length ? await readBriefConfirmationPayerNotice(context, project, (await headers()).get("host")) : null;
+  return { plans, notice };
 }
 
-export async function confirmAffaireBrief(input: { projectId: string; expectedUpdatedAt: string; payerNotice?: string | null }) {
+export async function confirmAffaireBrief(input: { projectId: string; expectedUpdatedAt: string; plans: BriefPlanSelection; payerNotice?: string | null }) {
   // The brief is completed by every reader of the affaire, a director included: read access is enough.
   const { context, project } = await requireAffaireAccess(input.projectId, "read");
   // One commit for the brief's compare-and-set, its event and the reservation of the affaire's automatic takeoff, which
@@ -237,8 +241,8 @@ export async function confirmAffaireBrief(input: { projectId: string; expectedUp
     import("@/lib/takeoff/launch-request-server"), import("next/headers"),
   ]);
   const confirmed = await confirmAffaireBriefWithTakeoff({ context, projectId: project.id, expectedUpdatedAt: input.expectedUpdatedAt,
-    notice: input.payerNotice ?? null, host: (await headers()).get("host") });
-  if (confirmed.outcome === "analysis_pending") return { ok: false, message: confirmed.message, takeoff: null } as const;
+    plans: input.plans, notice: input.payerNotice ?? null, host: (await headers()).get("host") });
+  if (confirmed.outcome === "analysis_pending" || confirmed.outcome === "choice_refused") return { ok: false, message: confirmed.message, takeoff: null } as const;
   if (confirmed.outcome === "not_found") {
     throw notFound("Brief affaire introuvable.");
   }

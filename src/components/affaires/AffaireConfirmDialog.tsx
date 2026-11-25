@@ -25,6 +25,7 @@ export type AffaireConfirmDialogProps = {
   errorMessage?: string | null;
   /** What the dialog shows under its message, before its buttons. */
   children?: ReactNode;
+  secondaryAction?: ReactNode;
   onConfirm: () => void;
   onCancel: () => void;
 };
@@ -44,6 +45,7 @@ export function AffaireConfirmDialog({
   cancelDisabled = false,
   errorMessage,
   children,
+  secondaryAction,
   onConfirm,
   onCancel,
 }: Readonly<AffaireConfirmDialogProps>) {
@@ -57,7 +59,7 @@ export function AffaireConfirmDialog({
       }}
     >
       {open ? (
-        <AlertDialogContent>
+        <AlertDialogContent className={secondaryAction ? "max-h-[90dvh] overflow-y-auto sm:max-w-2xl" : undefined}>
           <AlertDialogHeader>
             <AlertDialogTitle>{title}</AlertDialogTitle>
             <AlertDialogDescription>{message}</AlertDialogDescription>
@@ -70,6 +72,7 @@ export function AffaireConfirmDialog({
           ) : null}
           <AlertDialogFooter>
             <AlertDialogCancel disabled={cancelDisabled}>Annuler</AlertDialogCancel>
+            {secondaryAction}
             <Button
               size="lg"
               variant={variant === "danger" ? "danger-solid" : "primary"}

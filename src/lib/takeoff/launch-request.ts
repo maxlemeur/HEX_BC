@@ -391,10 +391,10 @@ export function describeTakeoffLaunchReason(reason: TakeoffLaunchReason, pieces:
       + `la liste des postes. ${describePosteReadingBounds(readingBounds)}`;
   }
   switch (reason) {
-    case "DOSSIER_EMPTY": return "Ajoutez le dossier de consultation : le métré démarrera quand il sera confirmé.";
-    case "DOSSIER_PROCESSING": return "Classement des documents en cours : le métré démarrera quand le dossier sera confirmé.";
-    case "DOSSIER_TO_REVIEW": return "Des pièces du dossier sont à vérifier : le métré démarrera quand le dossier sera confirmé.";
-    case "BRIEF_NOT_CONFIRMED": return "Confirmez le brief de l’affaire : le métré démarrera quand le dossier sera confirmé.";
+    case "DOSSIER_EMPTY": return "Ajoutez le dossier de consultation pour pouvoir choisir les plans à analyser.";
+    case "DOSSIER_PROCESSING": return "Le classement des documents est en cours. Vous pourrez choisir les plans en confirmant le brief.";
+    case "DOSSIER_TO_REVIEW": return "Vérifiez les pièces du dossier avant de confirmer le brief et de choisir les plans.";
+    case "BRIEF_NOT_CONFIRMED": return "Confirmez le brief de l’affaire. Vous pourrez choisir les plans à analyser.";
     case "NO_EXPLOITABLE_PLAN": return "Dossier confirmé sans plan exploitable : ajoutez un plan PDF pour que le métré démarre.";
     case "PLAN_COPY_MISSING": return `Métré non démarré — copie de travail manquante ou illisible pour ${names || "un plan du dossier"}. Rendez la pièce accessible ou retirez-la du dossier.`;
     case "PREPARATION_NEEDS_REVIEW": return "Métré non démarré — choisissez dans les options du métré la version à retenir des plans concernés.";

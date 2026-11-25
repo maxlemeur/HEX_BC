@@ -436,6 +436,10 @@ export function describeTakeoffRequestActivityCoverage(request: Pick<TakeoffRequ
     const states = units.units.map((unit) => GROUPED_STATE[unit.state]);
     return `${count > 1 ? `Analyse groupée de ${count} plans` : "Analyse groupée"} · ${states.join(", ")}`;
   }
+  if (units.units.length === 1) {
+    const [plan] = units.units;
+    return `${plan.name} · ${describeTakeoffRequestUnitState(plan, null)}`;
+  }
   return describeTakeoffCoverage(units.coverage);
 }
 

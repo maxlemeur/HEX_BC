@@ -67,7 +67,7 @@ function toLaunchPlanSetOption(planSet: PlanSetListItem): LaunchMetrePlanSetOpti
  */
 export type LaunchMetreDialogMode =
   | { kind: "version" }
-  | { kind: "request"; predecessorJobId: string | null }
+  | { kind: "request"; predecessorJobId: string | null; planDispatch?: boolean }
   | { kind: "save_only"; reason: string };
 
 type LaunchMetreDialogProps = {
@@ -217,7 +217,7 @@ function LaunchMetreDialogContent({
   const [planChoice, setPlanChoice] = useState<{ preparationRevision: number; choice: TakeoffRelaunchChoice } | null>(null);
   const [chosenPlans, setChosenPlans] = useState<Set<string>>(new Set());
   // An unanswered command of this member on the affaire (another tab's) whose content is not the plans now ticked.
-  const [otherTabCommand, setOtherTabCommand] = useState<TakeoffLaunchCommand | null>(null);
+  const [otherTabCommand, setOtherTabCommand] = useState<{ outstanding: TakeoffLaunchCommand; revision: number; plans: string[] } | null>(null);
   const [selectedVersionId, setSelectedVersionId] = useState(initialVersionId);
   const [selectedPlanSetId, setSelectedPlanSetId] = useState<string | null>(
     initialPlanSetId ?? plansContext?.defaultPlanSetId ?? null,
@@ -407,15 +407,15 @@ function LaunchMetreDialogContent({
     // their place; the member sends it again or sets it aside first.
     const outstanding = readOutstandingTakeoffLaunch(launchScope);
     if (planFileIds?.length && outstanding && !isSameTakeoffLaunch(outstanding, content)) {
-      setOtherTabCommand(outstanding);
+      setOtherTabCommand({ outstanding, revision: preparationRevision, plans: planFileIds });
       return;
     }
     await sendRequestCommand(outstanding ?? beginTakeoffLaunch(launchScope, content), planFileCount);
   }, [hasPlanFiles, launchMode, launchScope, selectedPlanSet, sendRequestCommand]);
 
-  const handleLaunch = useCallback(async (preparationRevision: number, planFileCount: number) => {
+  const handleLaunch = useCallback(async (preparationRevision: number, planFileCount: number, planIds?: string[]) => {
     if (!selectedPlanSet || !hasPlanFiles) return;
-    if (launchMode.kind === "request") return handleRequestLaunch(preparationRevision, planFileCount);
+    if (launchMode.kind === "request") return handleRequestLaunch(preparationRevision, planFileCount, planIds);
     if (launchMode.kind !== "version") return;
 
     setIsSubmitting(true);
@@ -580,6 +580,8 @@ function LaunchMetreDialogContent({
                   disabled={isSubmitting}
                   launchDisabled={!hasTargetVersion || launchMode.kind === "save_only"}
                   launchNotice={launchMode.kind === "save_only" ? launchMode.reason : null}
+                  planChoice={launchMode.kind === "request" && launchMode.planDispatch
+                    ? (launchMode.predecessorJobId ? "optional" : "required") : undefined}
                   onLaunch={handleLaunch}
                   onBusyChange={setIsSubmitting}
                   onRegisterSave={registerPreparationSave}
@@ -631,32 +633,32 @@ function LaunchMetreDialogContent({
                       </label>
                     ))}
                   </fieldset>
-                  {otherTabCommand && (
-                    <Alert variant="warning">
-                      <AlertDescription>
-                        Un lancement envoyé depuis un autre onglet attend encore sa réponse : renvoyez-le d’abord, ou mettez-le
-                        de côté pour relancer les plans cochés.
-                        <span className="mt-2 flex flex-wrap gap-2">
-                          <Button type="button" variant="outline" size="sm" disabled={isSubmitting}
-                            onClick={() => void sendRequestCommand(otherTabCommand, otherTabCommand.planFileIds?.length ?? 1)}>
-                            Renvoyer ce lancement
-                          </Button>
-                          <Button type="button" variant="ghost" size="sm" disabled={isSubmitting} onClick={() => {
-                            settleTakeoffLaunch(launchScope, otherTabCommand.intentKey);
-                            setOtherTabCommand(null);
-                            void handleRequestLaunch(planChoice.preparationRevision, chosenPlans.size, [...chosenPlans].sort());
-                          }}>
-                            Le mettre de côté
-                          </Button>
-                        </span>
-                      </AlertDescription>
-                    </Alert>
-                  )}
                   <Button type="button" disabled={isSubmitting || chosenPlans.size === 0}
                     onClick={() => void handleRequestLaunch(planChoice.preparationRevision, chosenPlans.size, [...chosenPlans].sort())}>
                     Relancer les plans choisis
                   </Button>
                 </section>
+              )}
+              {otherTabCommand && (
+                <Alert variant="warning">
+                  <AlertDescription>
+                    Un lancement envoyé depuis un autre onglet attend encore sa réponse : renvoyez-le d’abord, ou mettez-le
+                    de côté pour relancer les plans cochés.
+                    <span className="mt-2 flex flex-wrap gap-2">
+                      <Button type="button" variant="outline" size="sm" disabled={isSubmitting}
+                        onClick={() => void sendRequestCommand(otherTabCommand.outstanding, otherTabCommand.outstanding.planFileIds?.length ?? 1)}>
+                        Renvoyer ce lancement
+                      </Button>
+                      <Button type="button" variant="ghost" size="sm" disabled={isSubmitting} onClick={() => {
+                        settleTakeoffLaunch(launchScope, otherTabCommand.outstanding.intentKey);
+                        setOtherTabCommand(null);
+                        void handleRequestLaunch(otherTabCommand.revision, otherTabCommand.plans.length, otherTabCommand.plans);
+                      }}>
+                        Le mettre de côté
+                      </Button>
+                    </span>
+                  </AlertDescription>
+                </Alert>
               )}
               {errorMessage && <Alert variant="danger"><AlertDescription>{errorMessage}</AlertDescription></Alert>}
               {!hasTargetVersion && <Alert variant="warning"><AlertDescription>Créez d&apos;abord une première version pour lancer l&apos;analyse sur une cible de chiffrage.<div className="mt-3"><Link href={`/dashboard/estimates/new?projectId=${projectId}`} className={buttonVariants({ variant: "outline" })}>Créer une première version</Link></div></AlertDescription></Alert>}

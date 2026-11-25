@@ -7,6 +7,7 @@ import type { AffaireTakeoffZoneData, AffaireTakeoffZoneJob, AffaireTakeoffZoneR
 import { toTakeoffAnalysisOutcome } from "@/lib/takeoff/completion-outcome";
 import type { TakeoffLaunchManifest } from "@/lib/takeoff/launch-request";
 import { readAffaireTakeoffLaunchState } from "@/lib/takeoff/launch-request-server";
+import { isTakeoffPlanDispatchActive } from "@/lib/takeoff/local-dispatcher";
 import { assertPreparationProjectAccess } from "@/lib/takeoff/preparation-repository";
 import { isTakeoffSourceVisible, type TakeoffVisibleSources } from "@/lib/takeoff/request-activity";
 import { takeoffReviewHref } from "@/lib/takeoff/review-href";
@@ -117,7 +118,7 @@ export async function readAffaireTakeoffZone(context: AuthenticatedTenantContext
   const requestId = launch.request?.id ?? null;
   const jobs = () => context.supabase.from("takeoff_jobs").select(JOB_SELECT)
     .eq("tenant_id", context.tenantId).eq("project_id", projectId);
-  const [canOperate, requestRow, sealed, requestJobs, latest, latestReadable, ends, unrequested] = await Promise.all([
+  const [canOperate, requestRow, sealed, requestJobs, latest, latestReadable, ends, unrequested, planDispatch] = await Promise.all([
     // The preparation's write rule (an administrator, or an engineer who may write the affaire): who sees its options.
     assertPreparationProjectAccess(context, projectId, true).then(() => true, () => false),
     requestId ? context.supabase.from("takeoff_launch_requests").select("completion_event_id")
@@ -135,6 +136,7 @@ export async function readAffaireTakeoffZone(context: AuthenticatedTenantContext
     // An analysis outside any request that something will still move: the database's own rule, the one it applies before
     // admitting a launch (read by the server after the access check; only whether one runs reaches the member).
     createServiceRoleClient().rpc("takeoff_running_analysis_outside_request", { p_tenant_id: context.tenantId, p_project_id: projectId }),
+    launch.active && isTakeoffPlanDispatchActive(),
   ]);
   for (const result of [requestRow, sealed, requestJobs, latest, latestReadable, ends, unrequested]) {
     if (result.error) readError(result.error);
@@ -163,9 +165,9 @@ export async function readAffaireTakeoffZone(context: AuthenticatedTenantContext
   if (canStart.error) readError(canStart.error);
   const toJob = (row: unknown) => toZoneJob(projectId, row as JobRow, visible);
   return {
-    active: launch.active,
+    active: launch.active, planDispatch,
     canOperate,
-    confirmedBeforeActivation: launch.confirmedBeforeActivation,
+    confirmedWithoutRequest: launch.confirmedWithoutRequest,
     request: request ? {
       id: request.id, origin: request.origin, state: request.state, mandateRevision: request.mandateRevision,
       reason: request.reason, pieces: request.pieces, readingBounds: request.readingBounds ?? null, hasPayer: request.hasPayer,

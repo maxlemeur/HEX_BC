@@ -5,28 +5,6 @@ import { querySql } from "./calculation-gate-support";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
-function assertOwnedCampaign() {
-  if (process.env.E2E_ARMY_TAKEOFF_WORKER !== "1" || process.env.E2E_ARMY_BLOCK_WORKERS !== "1") {
-    throw new Error("The automatic start fixture requires a dedicated owned worker campaign.");
-  }
-}
-
-/**
- * Sets both cut-offs: the automatic start's and the end-of-analysis notices' (an admission needs both). The automatic
- * start is removed again by `deactivateOwnedAutomaticStart` once the journey ends, so that no other journey of the
- * stack confirms a brief under it; the notices' cut-off stays, as the other local journeys set it.
- */
-export async function activateOwnedAutomaticStart() {
-  assertOwnedCampaign();
-  await querySql(`insert into private.takeoff_completion_activation (active_from) values (clock_timestamp()) on conflict do nothing;
-insert into private.takeoff_launch_activation (active_from) values (clock_timestamp()) on conflict do nothing;`);
-}
-
-export async function deactivateOwnedAutomaticStart() {
-  assertOwnedCampaign();
-  await querySql("delete from private.takeoff_launch_activation;");
-}
-
 async function readJson<T>(sql: string): Promise<T> {
   const output = await querySql(sql);
   return JSON.parse([...output].reverse().find((line) => line.trim().startsWith("[") || line.trim().startsWith("{")) ?? "[]") as T;
@@ -37,6 +15,15 @@ export type OwnedLaunchRequest = {
   mandate_kind: string | null; execution_host_id: string | null; outcome: string | null;
   units_expected: number | null; manifest_plans: string[] | null;
 };
+
+/** Displayed copy identities on this fictional dossier, for a second tab replaying its gesture. */
+export async function ownedPlanChoices(projectId: string) {
+  if (!UUID.test(projectId)) throw new Error("Invalid fixture affaire.");
+  return readJson<Array<{ id: string; version: string }>>(`select coalesce(json_agg(json_build_object(
+    'id',o.plan_file_id,'version',o.plan_version) order by o.plan_name),'[]'::json)
+    from public.estimate_projects p cross join lateral public.takeoff_brief_plan_options(p.tenant_id,p.id) o
+    where p.id='${projectId}';`);
+}
 
 export async function readOwnedLaunchRequests(projectId: string) {
   if (!UUID.test(projectId)) throw new Error("Invalid fixture affaire.");
