@@ -67,10 +67,45 @@ armyTest("TI718 ouvrage insertion from line menu preserves editable quantity and
   await expect(quantity).toBeEnabled();
   await screen.getByTestId("estimate-editor-undo-button", { visible: true }).click();
   await expect.poll(async () => (await readEstimate(browser, target.versionId)).version.total_ht_cents).toBe(20200);
-  await browser.reload();
-  await expect(quantity).toHaveValue("3");
-  await ouvrage.getByRole("button", `Déplier le détail de ${name}`, { exact: true }).click();
-  await expect(componentQuantity).toHaveValue("6");
+  // Release the real send check while a mouse press is in progress. Its warning moves the grid.
+  const gatingPath = `**/api/estimates/${target.versionId}/gating`;
+  const gating = Promise.withResolvers<void>();
+  await browser.route(gatingPath, async (route) => {
+    await gating.promise;
+    await route.fallback();
+  });
+  try {
+    await browser.reload();
+    await expect(quantity).toHaveValue("3");
+    const warning = screen.getByTestId("estimate-editor-alert-send-blocked");
+    await expect(warning).not.toBeVisible();
+    const point = await browser.evaluate(() => {
+      const toggle = document.querySelector('[data-testid="estimate-ouvrage-row"] button[aria-expanded]');
+      if (!toggle) throw new Error("The ouvrage toggle is missing.");
+      const { x, y, width, height } = toggle.getBoundingClientRect();
+      return { x: x + width / 2, y: y + height / 2 };
+    });
+    const expand = ouvrage.getByRole("button", `Déplier le détail de ${name}`, { exact: true });
+
+    await browser.mouse.move(point.x, point.y);
+    await browser.mouse.down();
+    await browser.mouse.move(point.x, point.y - 36);
+    await browser.mouse.up();
+    await expect(expand).toHaveAttribute("aria-expanded", "false");
+
+    await browser.mouse.move(point.x, point.y);
+    await browser.mouse.down();
+    try {
+      gating.resolve();
+      await expect(warning).toBeVisible();
+    } finally {
+      await browser.mouse.up();
+    }
+    await expect(componentQuantity).toHaveValue("6");
+  } finally {
+    gating.resolve();
+    await browser.unroute(gatingPath);
+  }
   snapshot = await readEstimate(browser, target.versionId);
   const component = snapshot.items.find(item => item.title === "Composant modifiable")!;
   expect(component.unit_price_ht_cents).toBe(1200);
