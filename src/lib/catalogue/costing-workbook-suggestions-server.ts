@@ -158,6 +158,7 @@ async function suggestSuppliers(context: AuthenticatedTenantContext, input: Requ
   if (error) throw mapSupabaseError(error, "Impossible de lire les fournisseurs.");
   const suppliers = data ?? [];
   const labels = supplierPickerLabels(suppliers);
+  const descriptions = new Map(suppliers.map(({ id, name, city }) => [id, labels.get(id) !== name && city?.trim() ? `${name} · ${city.trim()}` : name]));
   const directory = suppliers.map((supplier) => ({ id: supplier.id, name: supplier.name, label: labels.get(supplier.id) ?? supplier.name }));
 
   const ranked = new Map(input.names.map((name) => [name, rankSupplierCandidates(name, directory, { limit: 5, minimum: 0.45 })]));
@@ -169,7 +170,7 @@ async function suggestSuppliers(context: AuthenticatedTenantContext, input: Requ
   const questions: ChoiceQuestion[] = [...ranked].flatMap(([name, candidates]) => (sameName(name) || candidates.length === 0 ? [] : [{
     id: name,
     subject: { nom_dans_le_classeur: name },
-    choices: [...candidates.map((candidate) => ({ value: candidate.id, description: candidate.label })), { value: NONE, description: NO_SUPPLIER }],
+    choices: [...candidates.map((candidate) => ({ value: candidate.id, description: descriptions.get(candidate.id) ?? candidate.name })), { value: NONE, description: NO_SUPPLIER }],
   }]));
   const arbitration = await arbitrate(context, input.provider, "suppliers", questions);
 

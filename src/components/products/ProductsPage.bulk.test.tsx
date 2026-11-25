@@ -96,7 +96,7 @@ describe("catalogue page, actions on several articles", () => {
     // Two drafts among the three selected: the validated article is not sent.
     await user.click(screen.getByRole("button", { name: "Valider 2 brouillons" }));
     await waitFor(() => expect(bulkWrites()).toEqual([{ action: "validate", ids: [ITEMS[0].id, ITEMS[1].id] }]));
-    expect(await screen.findByText("1 article validé. 1 brouillon incomplet reste à compléter.")).toBeVisible();
+    expect(await screen.findByText("1 brouillon validé. 1 brouillon incomplet à compléter. 0 articles ignorés.")).toBeVisible();
     await waitFor(() => expect(catalogueReads().length).toBeGreaterThan(reads));
     expect(screen.queryByRole("group", { name: "Actions sur les articles sélectionnés" })).not.toBeInTheDocument();
   });

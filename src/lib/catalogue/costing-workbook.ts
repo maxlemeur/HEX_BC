@@ -42,6 +42,7 @@ export type CostingWorkbookSupplierOccurrence = {
   column: number;
   article_column?: number;
   supplier_name_column?: number;
+  url_column?: number;
   article_reference: string;
   article_wording: string;
   article_material: string;
@@ -228,11 +229,15 @@ function supplierCodeShape(value: string): "code" | "placeholder" | "word" {
 }
 
 type WorkbookSupplierValue = Pick<CostingWorkbookSupplierOccurrence, "supplier_sku" | "price_source_kind"> & {
-  locations: Array<Pick<CostingWorkbookSupplierOccurrence, "row" | "slot" | "column">>;
+  locations: Array<Pick<CostingWorkbookSupplierOccurrence, "row" | "slot" | "column" | "url_column">>;
 };
 
 /** Keeps the workbook comparison available even when the article or supplier is absent from the catalogue. */
-export function compareCostingWorkbookSupplierValues(occurrences: readonly CostingWorkbookSupplierOccurrence[]) {
+export function compareCostingWorkbookSupplierValues(
+  occurrences: readonly CostingWorkbookSupplierOccurrence[],
+  pairOf = (entry: CostingWorkbookSupplierOccurrence) =>
+    JSON.stringify([workbookReferenceKey(entry.article_reference), workbookSupplierNameKey(entry.supplier_name)]),
+) {
   const pairs = new Map<string, {
     articleReference: string;
     supplierName: string;
@@ -240,7 +245,7 @@ export function compareCostingWorkbookSupplierValues(occurrences: readonly Costi
   }>();
   for (const entry of occurrences) {
     if (!entry.article_reference_valid || !entry.supplier_name_valid || !entry.supplier_sku_valid) continue;
-    const key = JSON.stringify([workbookReferenceKey(entry.article_reference), workbookSupplierNameKey(entry.supplier_name)]);
+    const key = pairOf(entry);
     let pair = pairs.get(key);
     if (!pair) {
       pair = { articleReference: entry.article_reference, supplierName: entry.supplier_name, values: new Map() };
@@ -251,7 +256,8 @@ export function compareCostingWorkbookSupplierValues(occurrences: readonly Costi
       value = { supplier_sku: entry.supplier_sku, price_source_kind: entry.price_source_kind, locations: [] };
       pair.values.set(entry.supplier_sku, value);
     }
-    value.locations.push({ row: entry.row, slot: entry.slot, column: entry.column });
+    const { row, slot, column, url_column } = entry;
+    value.locations.push({ row, slot, column, ...(url_column === undefined ? {} : { url_column }) });
   }
   return [...pairs.entries()]
     .filter(([, pair]) => pair.values.size > 1)
@@ -308,21 +314,6 @@ export function inspectCostingWorkbookColumns(rows: readonly Cell[][]): CostingW
       return label && !known.has(index) && !isErrorToken(label) ? [{ index, text: label }] : [];
     }),
   };
-}
-
-/** Reference cells are identifiers. Excel's number formatting can give them leading zeros. */
-export function costingWorkbookReferenceColumns(rows: readonly Cell[][]): { headerRow: number; columns: number[] } | null {
-  try {
-    const header = findHeader(rows);
-    return {
-      headerRow: header.index,
-      columns: (["ID", "F1_ref", "F2_ref", "F3_ref"] as const)
-        .flatMap((column) => header.columns.get(column) ?? []),
-    };
-  } catch (error) {
-    if (!(error instanceof CostingWorkbookFormatError)) throw error;
-    return null;
-  }
 }
 
 /**
@@ -469,6 +460,7 @@ export function readCostingWorkbookRows(rows: readonly Cell[][]): CostingWorkboo
         column,
         article_column: columns.get("ID"),
         supplier_name_column: columns.get(`F${slot}_nom`),
+        url_column: columns.get(`F${slot}_URL`),
         article_reference: reference,
         article_wording: isErrorToken(wording) ? "" : wording,
         article_material: isErrorToken(materialWording) ? "" : materialWording,

@@ -1,4 +1,5 @@
-import { COSTING_WORKBOOK_SHEET, costingWorkbookReferenceColumns } from "@/lib/catalogue/costing-workbook";
+import { COSTING_WORKBOOK_SHEET, inspectCostingWorkbookColumns } from "@/lib/catalogue/costing-workbook";
+import { applyWorkbookEdits, workbookEditKey, type WorkbookEdit } from "@/lib/catalogue/costing-workbook-edits";
 import {
   COSTING_WORKBOOK_MAX_BODY_BYTES,
   COSTING_WORKBOOK_MAX_ROWS,
@@ -34,7 +35,38 @@ export class CostingWorkbookFileError extends Error {
   }
 }
 
-type XlsxCell = { t?: string; v?: unknown; w?: unknown; f?: unknown; F?: unknown };
+type XlsxCell = { t?: string; v?: unknown; w?: unknown; f?: unknown; F?: unknown; l?: { Target?: string } };
+
+export const COSTING_WORKBOOK_MAX_FILE_BYTES = 20 * 1024 * 1024;
+
+type DisplayCell = { row: number; column: number; text: string; kind: "reference" | "url" };
+const fileCells = new WeakMap<CostingWorkbookRows, { raw: CostingWorkbookRows; display: DisplayCell[] }>();
+
+/** Keep Excel display values until the office has mapped the columns. Explicit cell edits take precedence. */
+export function applyWorkbookFileEdits(base: CostingWorkbookRows, edits: readonly WorkbookEdit[]): CostingWorkbookRows {
+  const file = fileCells.get(base);
+  const rows = applyWorkbookEdits(file?.raw ?? base, edits);
+  if (!file) return rows;
+  const { headerRow, found } = inspectCostingWorkbookColumns(rows);
+  if (headerRow === null) return rows;
+  const fields = new Map(found.map(({ column, index }) => [index, column]));
+  const edited = new Set(edits.map(({ row, column }) => workbookEditKey(row, column)));
+  return applyWorkbookEdits(rows, file.display.flatMap(({ row, column, text, kind }) => {
+    const field = fields.get(column);
+    if (row <= headerRow || !field || edited.has(workbookEditKey(row, column))) return [];
+    const matches = kind === "reference" ? field === "ID" || /^F[1-3]_ref$/.test(field) : /^F[1-3]_URL$/.test(field);
+    return matches ? [{ row, column, value: text }] : [];
+  }));
+}
+
+/** Original data cells as shown under the current mapping, with the original header cells intact. */
+export function workbookFileOriginalRows(base: CostingWorkbookRows, edits: readonly WorkbookEdit[], headerRow: number | null) {
+  if (headerRow === null) return base;
+  const headerEdits = edits.filter((edit) => edit.row === headerRow);
+  if (headerEdits.length === 0) return base;
+  const mapped = applyWorkbookFileEdits(base, headerEdits);
+  return mapped.map((row, index) => index === headerRow - 1 ? base[index] : row);
+}
 
 /** What an error cell, or a formula without its cached value, says in the spreadsheet. */
 const UNREADABLE_CELL = "#ERREUR";
@@ -104,6 +136,7 @@ export async function readCostingWorkbookFile(input: ArrayBuffer): Promise<Costi
 
   let lastRow = -1;
   let lastColumn = -1;
+  const display: DisplayCell[] = [];
   const errors: Array<{ r: number; c: number; text: string }> = [];
   for (const address of Object.keys(sheet)) {
     if (address.startsWith("!")) continue;
@@ -113,6 +146,13 @@ export async function readCostingWorkbookFile(input: ArrayBuffer): Promise<Costi
     const { r, c } = xlsx.utils.decode_cell(address);
     if (c >= COSTING_WORKBOOK_MAX_CELLS) continue;
     if (error !== null) errors.push({ r, c, text: error });
+    if (cell.t === "n" && typeof cell.w === "string" && cell.w !== String(cell.v) && cell.w.length <= COSTING_WORKBOOK_MAX_TEXT) {
+      display.push({ row: r + 1, column: c, text: cell.w, kind: "reference" });
+    }
+    const target = cell.l?.Target;
+    if (target && /^https?:\/\//i.test(target) && target.length <= COSTING_WORKBOOK_MAX_TEXT) {
+      display.push({ row: r + 1, column: c, text: target, kind: "url" });
+    }
     lastRow = Math.max(lastRow, r);
     lastColumn = Math.max(lastColumn, c);
   }
@@ -137,19 +177,11 @@ export async function readCostingWorkbookFile(input: ArrayBuffer): Promise<Costi
     while (values.length < c) values.push(null);
     values[c] = text;
   }
-  const references = costingWorkbookReferenceColumns(contractRows);
-  if (references) {
-    for (let r = references.headerRow + 1; r < contractRows.length; r += 1) {
-      for (const c of references.columns) {
-        const cell = sheet[xlsx.utils.encode_cell({ r, c })] as XlsxCell | undefined;
-        const shown = cell?.w;
-        if (cell?.t === "n" && typeof shown === "string" && /^0[0-9]+$/.test(shown) && shown.length <= COSTING_WORKBOOK_MAX_TEXT) {
-          contractRows[r][c] = shown;
-        }
-      }
-    }
-  }
-  return contractRows;
+  const file = { raw: contractRows, display };
+  fileCells.set(contractRows, file);
+  const projected = applyWorkbookFileEdits(contractRows, []);
+  fileCells.set(projected, file);
+  return projected;
 }
 
 /**
@@ -163,6 +195,7 @@ export function costingWorkbookImportBody(
   confirm: boolean,
   extra: {
     preview_token?: string;
+    supply_type_families?: Array<{ family_code: string; supply_type_id: string }>;
     supply_types?: Record<string, string>;
     supply_type_rows?: Array<{ row: number; supply_type_id: string }>;
     source_name?: string;

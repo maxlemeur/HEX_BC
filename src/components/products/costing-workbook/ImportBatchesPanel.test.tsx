@@ -34,7 +34,7 @@ const fetchMock = vi.fn<typeof fetch>((input, init) => {
   const method = init?.method ?? "GET";
   sent.push({ url, method, body: init?.body ? JSON.parse(String(init.body)) : null });
   const answer = (data: unknown) => Promise.resolve(new Response(JSON.stringify({ ok: true, data }), { status: 200, headers: { "content-type": "application/json" } }));
-  if (url === "/api/products/bulk") return answer({ action: "validate", validated: 8, incomplete: 2, skipped: 0 });
+  if (url === "/api/products/bulk") return answer({ action: "validate", validated: 8, incomplete: 2, skipped: 1 });
   if (url.endsWith("/undo")) return answer({ deleted: 9, kept: 1 });
   return answer({ items: batches });
 });
@@ -76,7 +76,7 @@ describe("ImportBatchesPanel", () => {
 
     await user.click(within(articles).getByRole("button", { name: "Valider les brouillons complets" }));
     await waitFor(() => expect(posts()).toEqual([{ url: "/api/products/bulk", method: "POST", body: { action: "validate", import_batch_id: batch({}).id } }]));
-    expect(await screen.findByText(/^8 brouillons validés\. 2 brouillons incomplets restent à compléter/)).toBeVisible();
+    expect(await screen.findByText("8 brouillons validés. 2 brouillons incomplets à compléter. 1 article ignoré.")).toBeVisible();
     expect(onChanged).toHaveBeenCalledTimes(1);
     // The list is read again: the counts on screen are the server's.
     await waitFor(() => expect(sent.filter((call) => call.url === "/api/catalogue/import-batches")).toHaveLength(2));
@@ -105,6 +105,14 @@ describe("ImportBatchesPanel", () => {
     expect(within(articles).getByRole("link", { name: "Voir les brouillons" })).toBeVisible();
     expect(within(articles).queryByRole("button")).not.toBeInTheDocument();
     expect(screen.getByText("La validation des brouillons est réservée aux administrateurs.")).toBeVisible();
+  });
+
+  it("hides a batch whose first draft chunk was refused", async () => {
+    batches.push(batch({ id: "b0000000-0000-4000-8000-000000000004", source_name: "lot-refuse.xlsx", total: 0, open: 0 }));
+    renderPanel();
+    const list = await screen.findByRole("list", { name: "Imports récents" });
+    expect(within(list).getAllByRole("listitem")).toHaveLength(3);
+    expect(within(list).queryByText(/lot-refuse/)).not.toBeInTheDocument();
   });
 
   it("reads the list again after an import, and shows nothing without imports (4)", async () => {

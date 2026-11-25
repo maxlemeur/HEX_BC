@@ -6,6 +6,7 @@ import { DownloadIcon, Undo2Icon } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { exportWorkbookEdits } from "@/lib/catalogue/costing-workbook-corrections";
+import type { CostingWorkbookRows } from "@/lib/catalogue/costing-workbook-file";
 import type { WorkbookEditEntry } from "@/lib/catalogue/costing-workbook-edits";
 
 import { formatCount, plural } from "./shared";
@@ -15,8 +16,10 @@ import { formatCount, plural } from "./shared";
  * and the import read the sheet with these corrections; the Excel file keeps its values, so the export is what
  * to copy back into it, or to read back here at the next import of the same workbook.
  */
-export function CorrectionsJournal({ entries, busy, onUndo, onUndoAll }: Readonly<{
+export function CorrectionsJournal({ entries, rows, mapped, busy, onUndo, onUndoAll }: Readonly<{
   entries: readonly WorkbookEditEntry[];
+  rows: CostingWorkbookRows;
+  mapped: CostingWorkbookRows;
   busy: boolean;
   onUndo: (entry: WorkbookEditEntry) => void;
   onUndoAll: () => void;
@@ -44,7 +47,7 @@ export function CorrectionsJournal({ entries, busy, onUndo, onUndoAll }: Readonl
             leftIcon={<DownloadIcon aria-hidden="true" />}
             onClick={() => {
               setExportFailed(false);
-              exportWorkbookEdits(entries).catch(() => setExportFailed(true));
+              exportWorkbookEdits(entries, rows, mapped).catch(() => setExportFailed(true));
             }}
           >
             Exporter

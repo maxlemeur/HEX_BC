@@ -9494,7 +9494,7 @@
         "summary": "Vérifier des références fournisseur ensemble",
         "description": "Valide (elles servent alors aux achats telles qu’importées) ou retire les références nommées, ou toutes celles à vérifier que le filtre désigne. Ce que l’appelant ne peut pas vérifier (article d’un autre pour un ingénieur sans la base partagée, article ou fournisseur archivé) est laissé en attente et compté dans skipped. Réservé aux administrateurs et aux ingénieurs.",
         "requestBody": {
-          "description": "Action, et les références nommées ou le filtre qui les désigne.",
+          "description": "Action et références nommées, ou filtre accompagné du nombre confirmé.",
           "required": true,
           "content": {
             "application/json": {
@@ -9556,11 +9556,11 @@
             }
           },
           "409": {
-            "description": "Conflit metier ou de concurrence.",
+            "description": "Le nombre de références a changé depuis la confirmation. Actualisez la liste.",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ApiFailureResponse"
+                  "$ref": "#/components/schemas/ApiGenericErrorResponse"
                 }
               }
             }
@@ -9950,9 +9950,9 @@
           "Catalogue"
         ],
         "summary": "Importer le classeur de chiffrage en articles brouillons",
-        "description": "Lit l’onglet All_data du classeur de chiffrage (lignes telles que SheetJS les lit, 6000 au plus, corps de 4 Mio au plus) et crée en brouillon les seuls articles dont la référence manque au catalogue de l’entreprise active (préfixe « DB_<onglet>__ » ignoré) ; un article présent n’est jamais modifié. Chaque brouillon porte le prix de revient du classeur (unit_price_cents, arrondi au centime) ; son type de fourniture est celui choisi à l’écran pour le code proposé (supply_types), sinon celui de l’entreprise qui a ce code, jamais créé. L’aperçu donne les types de fourniture de l’entreprise et les articles déjà présents dont le prix de référence ou l’unité diffère du classeur (catalogue_differences), sans les modifier. Les références fournisseur des nouveaux articles sont comptées. La reprise des références a sa propre action. confirm=false : aperçu, rien n’est écrit. Réservé à qui ajoute des articles (administrateurs, ingénieurs). Écrit par lots de 500, sans transaction d’ensemble : un lot refusé n’écrit rien et arrête l’import ; quand des lots précédents ont créé des brouillons, la réponse porte le statut du lot refusé (400, 403 ou 409), le code COSTING_WORKBOOK_IMPORT_INCOMPLETE et details.report (ce qui a été créé). Relancer le même classeur crée le reste.",
+        "description": "Lit l’onglet All_data du classeur de chiffrage (lignes telles que SheetJS les lit, 6000 au plus, corps de 4 Mio au plus) et crée en brouillon les seuls articles dont la référence manque au catalogue de l’entreprise active (préfixe « DB_<onglet>__ » ignoré) ; un article présent n’est jamais modifié. Chaque brouillon porte le prix de revient du classeur (unit_price_cents, arrondi au centime) ; son type de fourniture peut être choisi par ligne (supply_type_rows), par famille du classeur (supply_type_families), ou par code inféré (supply_types), dans cet ordre. Par défaut, il reçoit le type de l’entreprise qui porte le code inféré. L’aperçu donne les types de fourniture de l’entreprise et les articles déjà présents dont le prix de référence ou l’unité diffère du classeur (catalogue_differences), sans les modifier. Les références fournisseur des nouveaux articles sont comptées. La reprise des références a sa propre action. confirm=false : aperçu, rien n’est écrit. Réservé à qui ajoute des articles (administrateurs, ingénieurs). Écrit par lots de 500, sans transaction d’ensemble : un lot refusé n’écrit rien et arrête l’import ; quand des lots précédents ont créé des brouillons, la réponse porte le statut du lot refusé (400, 403 ou 409), le code COSTING_WORKBOOK_IMPORT_INCOMPLETE et details.report (ce qui a été créé). Relancer le même classeur crée le reste.",
         "requestBody": {
-          "description": "Lignes de l’onglet All_data, confirmation et, par code de type proposé, le type de fourniture de l’entreprise choisi à l’écran.",
+          "description": "Lignes de l’onglet All_data, confirmation et types de fourniture choisis à l’écran.",
           "required": true,
           "content": {
             "application/json": {
@@ -10065,11 +10065,11 @@
         "description": "Dit lesquelles des sources (forfait ChatGPT, clé API OpenAI personnelle, API Decisions) ce membre peut interroger ici. Aucun fournisseur d’IA n’est appelé.",
         "responses": {
           "200": {
-            "description": "Operation executee avec succes.",
+            "description": "Disponibilité des sources de propositions.",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ApiGenericSuccessResponse"
+                  "$ref": "#/components/schemas/ApiCostingWorkbookSuggestionProviders"
                 }
               }
             }
@@ -10155,11 +10155,11 @@
         },
         "responses": {
           "200": {
-            "description": "Operation executee avec succes.",
+            "description": "Propositions pour la tâche demandée.",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ApiGenericSuccessResponse"
+                  "$ref": "#/components/schemas/ApiCostingWorkbookSuggestions"
                 }
               }
             }
@@ -28328,6 +28328,15 @@
             "required": false,
             "schema": {
               "$ref": "#/components/schemas/ListSuppliersViewParameter"
+            }
+          },
+          {
+            "name": "scope",
+            "in": "query",
+            "description": "Restreint la liste aux fournisseurs de l’entreprise active.",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/ListSuppliersScopeParameter"
             }
           },
           {
@@ -57613,50 +57622,78 @@
         "maxLength": 100
       },
       "ReviewSupplierReferencesRequest": {
-        "type": "object",
-        "properties": {
-          "action": {
-            "type": "string",
-            "enum": [
-              "validate",
-              "withdraw"
-            ]
-          },
-          "ids": {
-            "minItems": 1,
-            "maxItems": 5000,
-            "type": "array",
-            "items": {
-              "type": "string",
-              "format": "uuid",
-              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-            }
-          },
-          "filter": {
+        "anyOf": [
+          {
             "type": "object",
             "properties": {
-              "supplier_id": {
+              "action": {
                 "type": "string",
-                "format": "uuid",
-                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                "enum": [
+                  "validate",
+                  "withdraw"
+                ]
               },
-              "import_batch_id": {
-                "type": "string",
-                "format": "uuid",
-                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-              },
-              "q": {
-                "type": "string",
-                "maxLength": 100
+              "ids": {
+                "minItems": 1,
+                "maxItems": 5000,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                }
               }
             },
+            "required": [
+              "action",
+              "ids"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "action": {
+                "type": "string",
+                "enum": [
+                  "validate",
+                  "withdraw"
+                ]
+              },
+              "filter": {
+                "type": "object",
+                "properties": {
+                  "supplier_id": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "import_batch_id": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  "q": {
+                    "type": "string",
+                    "maxLength": 100
+                  }
+                },
+                "additionalProperties": false
+              },
+              "expected_count": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              }
+            },
+            "required": [
+              "action",
+              "filter",
+              "expected_count"
+            ],
             "additionalProperties": false
           }
-        },
-        "required": [
-          "action"
-        ],
-        "additionalProperties": false
+        ]
       },
       "CreateSupplyTypeRequest": {
         "type": "object",
@@ -58028,6 +58065,30 @@
               "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
             }
           },
+          "supply_type_families": {
+            "maxItems": 6000,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "family_code": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 4000
+                },
+                "supply_type_id": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                }
+              },
+              "required": [
+                "family_code",
+                "supply_type_id"
+              ],
+              "additionalProperties": false
+            }
+          },
           "supply_type_rows": {
             "maxItems": 6000,
             "type": "array",
@@ -58081,6 +58142,18 @@
                 "type": "integer",
                 "minimum": 0,
                 "maximum": 9007199254740991
+              },
+              "import_batch_id": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
               },
               "proposed_articles": {
                 "type": "array",
@@ -58228,6 +58301,88 @@
               "issues",
               "issue_count",
               "sections"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "ok",
+          "data"
+        ],
+        "additionalProperties": false
+      },
+      "ApiCostingWorkbookSuggestionProviders": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "providers": {
+                "type": "object",
+                "properties": {
+                  "chatgpt_plan": {
+                    "type": "object",
+                    "properties": {
+                      "available": {
+                        "type": "boolean"
+                      },
+                      "message": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "available",
+                      "message"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "personal_api_key": {
+                    "type": "object",
+                    "properties": {
+                      "available": {
+                        "type": "boolean"
+                      },
+                      "message": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "available",
+                      "message"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "decisions": {
+                    "type": "object",
+                    "properties": {
+                      "available": {
+                        "type": "boolean"
+                      },
+                      "message": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "available",
+                      "message"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "required": [
+                  "chatgpt_plan",
+                  "personal_api_key",
+                  "decisions"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "providers"
             ],
             "additionalProperties": false
           }
@@ -58541,6 +58696,653 @@
             "additionalProperties": false
           }
         ]
+      },
+      "ApiCostingWorkbookSuggestions": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          },
+          "data": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "task": {
+                    "type": "string",
+                    "const": "suppliers"
+                  },
+                  "provider": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "chatgpt_plan",
+                          "personal_api_key",
+                          "decisions"
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "model": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "deterministic",
+                      "available",
+                      "partial",
+                      "unavailable",
+                      "failed"
+                    ]
+                  },
+                  "message": {
+                    "type": "string"
+                  },
+                  "items": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "name": {
+                          "type": "string"
+                        },
+                        "candidates": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "supplier_id": {
+                                "type": "string"
+                              },
+                              "label": {
+                                "type": "string"
+                              },
+                              "score": {
+                                "type": "number"
+                              }
+                            },
+                            "required": [
+                              "supplier_id",
+                              "label",
+                              "score"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "suggestion": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "supplier_id": {
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                },
+                                "confidence": {
+                                  "anyOf": [
+                                    {
+                                      "type": "number",
+                                      "minimum": 0,
+                                      "maximum": 1
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "source": {
+                                  "type": "string",
+                                  "enum": [
+                                    "match",
+                                    "ai"
+                                  ]
+                                }
+                              },
+                              "required": [
+                                "supplier_id",
+                                "confidence",
+                                "source"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      },
+                      "required": [
+                        "name",
+                        "candidates",
+                        "suggestion"
+                      ],
+                      "additionalProperties": false
+                    }
+                  }
+                },
+                "required": [
+                  "task",
+                  "provider",
+                  "model",
+                  "status",
+                  "message",
+                  "items"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "task": {
+                    "type": "string",
+                    "const": "articles"
+                  },
+                  "provider": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "chatgpt_plan",
+                          "personal_api_key",
+                          "decisions"
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "model": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "deterministic",
+                      "available",
+                      "partial",
+                      "unavailable",
+                      "failed"
+                    ]
+                  },
+                  "message": {
+                    "type": "string"
+                  },
+                  "items": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "key": {
+                          "type": "string"
+                        },
+                        "candidates": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "product_id": {
+                                "type": "string"
+                              },
+                              "reference": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "designation": {
+                                "type": "string"
+                              },
+                              "score": {
+                                "type": "number"
+                              },
+                              "reasons": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string"
+                                }
+                              },
+                              "warnings": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string"
+                                }
+                              }
+                            },
+                            "required": [
+                              "product_id",
+                              "reference",
+                              "designation",
+                              "score",
+                              "reasons",
+                              "warnings"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "suggestion": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "product_id": {
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                },
+                                "confidence": {
+                                  "anyOf": [
+                                    {
+                                      "type": "number",
+                                      "minimum": 0,
+                                      "maximum": 1
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "source": {
+                                  "type": "string",
+                                  "enum": [
+                                    "match",
+                                    "ai"
+                                  ]
+                                }
+                              },
+                              "required": [
+                                "product_id",
+                                "confidence",
+                                "source"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      },
+                      "required": [
+                        "key",
+                        "candidates",
+                        "suggestion"
+                      ],
+                      "additionalProperties": false
+                    }
+                  }
+                },
+                "required": [
+                  "task",
+                  "provider",
+                  "model",
+                  "status",
+                  "message",
+                  "items"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "task": {
+                    "type": "string",
+                    "const": "supply_types"
+                  },
+                  "provider": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "chatgpt_plan",
+                          "personal_api_key",
+                          "decisions"
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "model": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "deterministic",
+                      "available",
+                      "partial",
+                      "unavailable",
+                      "failed"
+                    ]
+                  },
+                  "message": {
+                    "type": "string"
+                  },
+                  "items": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "key": {
+                          "type": "string"
+                        },
+                        "suggestion": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "supply_type_id": {
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                },
+                                "confidence": {
+                                  "anyOf": [
+                                    {
+                                      "type": "number",
+                                      "minimum": 0,
+                                      "maximum": 1
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "source": {
+                                  "type": "string",
+                                  "enum": [
+                                    "catalogue",
+                                    "ai"
+                                  ]
+                                }
+                              },
+                              "required": [
+                                "supply_type_id",
+                                "confidence",
+                                "source"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      },
+                      "required": [
+                        "key",
+                        "suggestion"
+                      ],
+                      "additionalProperties": false
+                    }
+                  }
+                },
+                "required": [
+                  "task",
+                  "provider",
+                  "model",
+                  "status",
+                  "message",
+                  "items"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "task": {
+                    "type": "string",
+                    "const": "columns"
+                  },
+                  "provider": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "chatgpt_plan",
+                          "personal_api_key",
+                          "decisions"
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "model": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "deterministic",
+                      "available",
+                      "partial",
+                      "unavailable",
+                      "failed"
+                    ]
+                  },
+                  "message": {
+                    "type": "string"
+                  },
+                  "items": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "column": {
+                          "type": "string"
+                        },
+                        "suggestion": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "index": {
+                                  "anyOf": [
+                                    {
+                                      "type": "integer",
+                                      "minimum": -9007199254740991,
+                                      "maximum": 9007199254740991
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "confidence": {
+                                  "anyOf": [
+                                    {
+                                      "type": "number",
+                                      "minimum": 0,
+                                      "maximum": 1
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "source": {
+                                  "type": "string",
+                                  "enum": [
+                                    "match",
+                                    "ai"
+                                  ]
+                                }
+                              },
+                              "required": [
+                                "index",
+                                "confidence",
+                                "source"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      },
+                      "required": [
+                        "column",
+                        "suggestion"
+                      ],
+                      "additionalProperties": false
+                    }
+                  }
+                },
+                "required": [
+                  "task",
+                  "provider",
+                  "model",
+                  "status",
+                  "message",
+                  "items"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "task": {
+                    "type": "string",
+                    "const": "supplier_codes"
+                  },
+                  "provider": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "chatgpt_plan",
+                          "personal_api_key",
+                          "decisions"
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "model": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "deterministic",
+                      "available",
+                      "partial",
+                      "unavailable",
+                      "failed"
+                    ]
+                  },
+                  "message": {
+                    "type": "string"
+                  },
+                  "items": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "value": {
+                          "type": "string"
+                        },
+                        "suggestion": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "kind": {
+                                  "type": "string",
+                                  "enum": [
+                                    "code",
+                                    "price_source",
+                                    "none"
+                                  ]
+                                },
+                                "confidence": {
+                                  "anyOf": [
+                                    {
+                                      "type": "number",
+                                      "minimum": 0,
+                                      "maximum": 1
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "source": {
+                                  "type": "string",
+                                  "const": "ai"
+                                }
+                              },
+                              "required": [
+                                "kind",
+                                "confidence",
+                                "source"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      },
+                      "required": [
+                        "value",
+                        "suggestion"
+                      ],
+                      "additionalProperties": false
+                    }
+                  }
+                },
+                "required": [
+                  "task",
+                  "provider",
+                  "model",
+                  "status",
+                  "message",
+                  "items"
+                ],
+                "additionalProperties": false
+              }
+            ]
+          }
+        },
+        "required": [
+          "ok",
+          "data"
+        ],
+        "additionalProperties": false
       },
       "CostingWorkbookSupplierReferences": {
         "type": "object",
@@ -99356,7 +100158,7 @@
         "additionalProperties": false
       },
       "BulkUpdateProductsRequest": {
-        "oneOf": [
+        "anyOf": [
           {
             "type": "object",
             "properties": {
@@ -99373,6 +100175,20 @@
                   "format": "uuid",
                   "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
                 }
+              }
+            },
+            "required": [
+              "action",
+              "ids"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "action": {
+                "type": "string",
+                "const": "validate"
               },
               "import_batch_id": {
                 "type": "string",
@@ -99381,7 +100197,8 @@
               }
             },
             "required": [
-              "action"
+              "action",
+              "import_batch_id"
             ],
             "additionalProperties": false
           },
@@ -100349,6 +101166,10 @@
           "list",
           "usage"
         ]
+      },
+      "ListSuppliersScopeParameter": {
+        "type": "string",
+        "const": "active"
       },
       "ListSuppliersIdParameter": {
         "type": "string",

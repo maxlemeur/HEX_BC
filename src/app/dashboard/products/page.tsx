@@ -31,6 +31,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { IconButton } from "@/components/ui/icon-button";
 import { NativeSelect } from "@/components/ui/native-select";
 import { useOptionalUserContext } from "@/lib/auth/user-context";
+import { bulkValidationSummary, CATALOGUE_BULK_INCOMPLETE } from "@/lib/catalogue/import-review-contract";
+import { isEstimateApiError } from "@/lib/estimates/client-errors";
 import { assignProductsSupplyType, validateDraftProducts } from "@/lib/catalogue/import-review-client";
 import { PRODUCT_VALIDATION_INCOMPLETE } from "@/lib/catalogue/product-validation";
 import { cn } from "@/lib/utils";
@@ -298,11 +300,8 @@ export default function ProductsPage() {
     const plural = (count: number, one: string, many: string) => `${count.toLocaleString("fr-FR")} ${count === 1 ? one : many}`;
     try {
       if (action === "validate") {
-        const { validated, incomplete } = await validateDraftProducts({ ids: selectedDrafts.map((product) => product.id) });
-        setSuccessMessage(
-          `${plural(validated, "article validé", "articles validés")}.`
-          + (incomplete > 0 ? ` ${plural(incomplete, "brouillon incomplet reste", "brouillons incomplets restent")} à compléter.` : ""),
-        );
+        const result = await validateDraftProducts({ ids: selectedDrafts.map((product) => product.id) });
+        setSuccessMessage(bulkValidationSummary(result));
       } else {
         const { updated } = await assignProductsSupplyType(selectedProducts.map((product) => product.id), bulkSupplyTypeId);
         const left = selectedProducts.length - updated;
@@ -315,6 +314,10 @@ export default function ProductsPage() {
       await mutate();
     } catch (error) {
       setFormError(error instanceof Error ? error.message : "L’action n’a pas pu être appliquée aux articles sélectionnés.");
+      if (isEstimateApiError(error) && error.code === CATALOGUE_BULK_INCOMPLETE) {
+        setSelectedIds(new Set());
+        await mutate().catch(() => undefined);
+      }
     } finally {
       setBulkAction(null);
     }

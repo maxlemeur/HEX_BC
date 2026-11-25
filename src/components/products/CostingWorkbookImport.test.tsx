@@ -93,6 +93,7 @@ function renderImport() {
     catalogueHref: "/dashboard/products?size=100",
     draftsHref: "/dashboard/products?catalogue_status=draft&size=100",
     onImported: vi.fn(),
+    onImportRecorded: vi.fn(),
   };
   const view = render(<CostingWorkbookImport {...props} />);
   return { ...view, props };
@@ -284,6 +285,7 @@ describe("CostingWorkbookImport", () => {
 
     expect(await within(importPage()).findByRole("alert")).toHaveTextContent(stopped);
     expect(props.onImported).toHaveBeenCalledTimes(1);
+    expect(props.onImportRecorded).toHaveBeenCalledTimes(1);
     expect(within(importPage()).queryByText("1 842 nouveaux articles en brouillon")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: IMPORT_1842 })).not.toBeInTheDocument();
 

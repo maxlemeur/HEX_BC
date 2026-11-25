@@ -50,10 +50,13 @@ export const COSTING_WORKBOOK_SUPPLY_TYPE_UNKNOWN = "COSTING_WORKBOOK_SUPPLY_TYP
  * The draft import (POST /api/catalogue/workbook-import). `supply_types` gives, for a code the reader proposes
  * (« tube », « calorifuge »…), the company's supply type the office chose in the screen: it replaces the type with
  * that code, or stands in when the company has none. `supply_type_rows` gives it for the articles of given sheet
- * rows (the articles the reader could not classify, grouped in the screen): a row's own choice comes first.
+ * rows. The workbook's family (supply_type_families) overrides the inferred kind, and a row's own choice
+ * comes first.
  */
 export const costingWorkbookArticlesSchema = costingWorkbookImportSchema.extend({
   supply_types: z.partialRecord(z.enum(COSTING_WORKBOOK_SUPPLY_KINDS), z.uuid()).optional(),
+  supply_type_families: z.array(z.object({ family_code: z.string().min(1).max(4000), supply_type_id: z.uuid() }).strict())
+    .max(COSTING_WORKBOOK_MAX_ROWS).optional(),
   supply_type_rows: z.array(z.object({ row: z.number().int().positive(), supply_type_id: z.uuid() }).strict())
     .max(COSTING_WORKBOOK_MAX_ROWS).optional(),
 });

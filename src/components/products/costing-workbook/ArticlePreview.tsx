@@ -51,7 +51,7 @@ import {
  * the gaps with articles the catalogue already holds, and every remark of the reading.
  */
 
-export type SupplyTypeChoices = Partial<Record<CostingWorkbookSupplyKind, string>>;
+export type SupplyTypeChoices = ReadonlyMap<string, string>;
 
 export const SUPPLY_KIND_LABELS: Record<CostingWorkbookSupplyKind, string> = {
   tube: "Tube",
@@ -95,7 +95,7 @@ export function ArticlePreview({
   review: WorkbookReview;
   onReviewChange: (review: WorkbookReview) => void;
   supplyTypeChoices: SupplyTypeChoices;
-  onSupplyTypeChoice: (kind: CostingWorkbookSupplyKind, supplyTypeId: string | null) => void;
+  onSupplyTypeChoice: (family: string, supplyTypeId: string | null) => void;
   /** The supply type the office gave to the drafts of given rows: it comes before the family's. */
   supplyTypeRows: Readonly<Record<number, string>>;
   onSupplyTypeRows: (choices: ReadonlyArray<{ rows: readonly number[]; supplyTypeId: string | null }>) => void;
@@ -117,10 +117,10 @@ export function ArticlePreview({
   const companyTypes = report.supply_types ?? [];
   const typeById = new Map(companyTypes.map((type) => [type.id, type]));
   const typeByCode = new Map(companyTypes.map((type) => [type.code, type]));
-  const typeOfKind = (kind: CostingWorkbookSupplyKind) =>
-    (supplyTypeChoices[kind] ? typeById.get(supplyTypeChoices[kind]) : undefined) ?? typeByCode.get(kind) ?? null;
-  const typeOfArticle = ({ row, supply_type_code: kind }: CostingWorkbookArticle) =>
-    (supplyTypeRows[row] ? typeById.get(supplyTypeRows[row]) : undefined) ?? typeOfKind(kind);
+  const typeOfArticle = ({ row, family_code: family, supply_type_code: kind }: CostingWorkbookArticle) => {
+    const chosen = supplyTypeRows[row] ?? supplyTypeChoices.get(family ?? "");
+    return (chosen ? typeById.get(chosen) : undefined) ?? typeByCode.get(kind);
+  };
 
   const proposedAll: ProposedArticle[] = (report.proposed_articles ?? []).flatMap((proposal) => {
     const article = articleByRow.get(proposal.row);
@@ -132,16 +132,22 @@ export function ArticlePreview({
   const activeFinding = availableFindings.find((finding) => finding === review.filter) ?? null;
   const toCheck = proposedAll.filter(({ findings }) => findings.length > 0).length;
 
-  const kindCounts = new Map<CostingWorkbookSupplyKind, number>();
-  for (const { article } of proposedAll) kindCounts.set(article.supply_type_code, (kindCounts.get(article.supply_type_code) ?? 0) + 1);
-  const kinds = [...kindCounts.entries()].sort((left, right) => right[1] - left[1]);
+  const familyGroups = new Map<string, { family: string | null; kinds: Set<CostingWorkbookSupplyKind>; rows: number[] }>();
+  for (const { row, article: { family_code: family, supply_type_code: kind } } of proposedAll) {
+    const key = family ? `family:${family}` : `kind:${kind}`;
+    const group = familyGroups.get(key) ?? { family, kinds: new Set(), rows: [] };
+    group.rows.push(row);
+    group.kinds.add(kind);
+    familyGroups.set(key, group);
+  }
+  const families = [...familyGroups.entries()].sort(([, left], [, right]) => right.rows.length - left.rows.length);
   // What the reader could not classify, or what has no supply type: the office classifies it by type of article.
   const toClassify = proposedAll.filter(({ findings }) => findings.includes("without_supply_type") || findings.includes("supply_type_defaulted"));
   const unclassified = toClassify.filter(({ row, findings }) => findings.includes("without_supply_type") || !supplyTypeRows[row]).length;
   // The search holds rows of an earlier preview: a row corrected since is no longer a draft to compare.
-  const proposedRows = new Set(proposedAll.map(({ row }) => row));
+  const proposedRows = new Map(proposedAll.map(({ row, article }) => [row, article]));
   const duplicates = duplicateSearch
-    ? { ...duplicateSearch, found: duplicateSearch.found.filter(({ row }) => proposedRows.has(row)) } : null;
+    ? { ...duplicateSearch, found: duplicateSearch.found.filter(({ row, article }) => proposedRows.get(row) === article) } : null;
 
   const columnWarnings = missingColumnWarnings(inspection);
   const differences = (report.catalogue_differences ?? []).flatMap((difference) => {
@@ -157,7 +163,7 @@ export function ArticlePreview({
     && (!query || [article.reference, article.designation, article.material ?? ""].some((text) => foldText(text).includes(query))));
 
   const mainViews: ReviewChoice[] = [{ id: "proposed", label: "Articles proposés", count: newArticles }];
-  if (kinds.length > 0) mainViews.push({ id: "supply-types", label: "Types de fourniture", count: unclassified, tone: "warning" });
+  if (families.length > 0) mainViews.push({ id: "supply-types", label: "Types de fourniture", count: unclassified, tone: "warning" });
   mainViews.push({ id: "columns", label: "Colonnes du classeur", count: columnWarnings.length, tone: "warning" });
   const checkViews: ReviewChoice[] = [];
   if (proposedAll.length > 0) checkViews.push({ id: "duplicates", label: "Doublons possibles", count: duplicates?.found.length ?? 0, tone: "warning" });
@@ -335,8 +341,7 @@ export function ArticlePreview({
               <h3 id="costing-workbook-supply-types-title" className="typo-h3">Types de fourniture des brouillons</h3>
               <p className="text-sm text-muted-foreground">
                 Le type de fourniture fixe le coefficient FO automatique d’une ligne de devis une fois l’article validé.
-                Chaque famille du classeur reçoit le type de l’entreprise qui porte son code ; choisissez-en un autre ici,
-                ou celui à donner aux familles restées sans type.
+                Le type proposé dépend de chaque article. Vous pouvez choisir ici un même type pour toute une famille.
               </p>
             </div>
             {companyTypes.length === 0 ? (
@@ -355,23 +360,31 @@ export function ArticlePreview({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
-                  {kinds.map(([kind, count]) => {
-                    const own = typeByCode.get(kind);
-                    const selectId = `${supplyTypeSelectId}-${kind}`;
+                  {families.map(([key, { family, kinds, rows: familyRows }], index) => {
+                    const [kind] = kinds;
+                    const own = kinds.size === 1 ? typeByCode.get(kind) : undefined;
+                    const selectId = `${supplyTypeSelectId}-${index}`;
+                    const assigned = supplyTypeRows[familyRows[0]];
+                    const groupChoice = familyRows.every((row) => supplyTypeRows[row] === assigned) ? assigned : undefined;
+                    const selected = (family ? supplyTypeChoices.get(family) : groupChoice) ?? "";
+                    function choose(value: string) {
+                      if (family) onSupplyTypeChoice(family, value || null);
+                      else onSupplyTypeRows([{ rows: familyRows, supplyTypeId: value || null }]);
+                    }
                     return (
-                      <tr key={kind} className="align-middle [&>td]:px-3 [&>td]:py-2">
-                        <td><label htmlFor={selectId}>{SUPPLY_KIND_LABELS[kind]}</label></td>
-                        <td className="text-right tabular-nums">{formatCount(count)}</td>
+                      <tr key={key} className="align-middle [&>td]:px-3 [&>td]:py-2">
+                        <td><label htmlFor={selectId}>{family ?? SUPPLY_KIND_LABELS[kind]}</label></td>
+                        <td className="text-right tabular-nums">{formatCount(familyRows.length)}</td>
                         <td>
                           <NativeSelect
                             id={selectId}
                             size="sm"
                             wrapperClassName="max-w-72"
                             disabled={busy || companyTypes.length === 0}
-                            value={supplyTypeChoices[kind] ?? ""}
-                            onChange={(event) => onSupplyTypeChoice(kind, event.currentTarget.value || null)}
+                            value={selected}
+                            onChange={(event) => choose(event.currentTarget.value)}
                           >
-                            <option value="">{own ? `${own.name} (même code)` : "Aucun : à préciser sur chaque brouillon"}</option>
+                            <option value="">{own ? `${own.name} (type proposé)` : kinds.size === 1 ? "Aucun : à préciser sur chaque brouillon" : "Types proposés par article"}</option>
                             {companyTypes.filter((type) => type.id !== own?.id).map((type) => (
                               <option key={type.id} value={type.id}>{type.name}</option>
                             ))}

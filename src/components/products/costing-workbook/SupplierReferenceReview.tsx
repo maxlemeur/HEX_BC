@@ -95,6 +95,7 @@ function DoubtfulCodes({ proposed, sourceByCell }: Readonly<{ proposed: Proposed
   const { busy, applyEdits } = useWorkbookEditor();
   const { provider } = useWorkbookAssistant();
   const [answers, setAnswers] = useState<Array<{ value: string; kind: keyof typeof CODE_KIND_LABELS; confidence: number | null }> | null>(null);
+  const [unanswered, setUnanswered] = useState<number | null>(null);
   const [outcome, setOutcome] = useState<Outcome | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -110,12 +111,20 @@ function DoubtfulCodes({ proposed, sourceByCell }: Readonly<{ proposed: Proposed
     if (!provider) return;
     setLoading(true);
     setError(null);
+    setAnswers(null);
+    setOutcome(null);
+    setUnanswered(null);
     try {
-      const answer = await requestWorkbookSuggestions({ task: "supplier_codes", provider, values: values.map((value) => value.slice(0, 255)) });
-      setAnswers(answer.items.flatMap(({ value, suggestion }) =>
-        (suggestion && suggestion.kind !== "code" ? [{ value, kind: suggestion.kind, confidence: suggestion.confidence }] : [])));
+      const answer = await requestWorkbookSuggestions({ task: "supplier_codes", provider, values });
+      const byValue = new Map(answer.items.map(({ value, suggestion }) => [value, suggestion]));
+      setUnanswered(values.filter((value) => !byValue.get(value)).length);
+      setAnswers(values.flatMap((value) => {
+        const suggestion = byValue.get(value);
+        return suggestion && suggestion.kind !== "code" ? [{ value, kind: suggestion.kind, confidence: suggestion.confidence }] : [];
+      }));
       setOutcome({ status: answer.status, message: answer.message });
     } catch (failure) {
+      setUnanswered(values.length);
       setError(catalogueErrorMessage(failure, "Les codes n’ont pas pu être vérifiés."));
     } finally {
       setLoading(false);
@@ -134,7 +143,10 @@ function DoubtfulCodes({ proposed, sourceByCell }: Readonly<{ proposed: Proposed
       )}
       {error ? <p role="alert" className="text-xs font-medium text-danger">{error}</p> : null}
       {outcome ? <SuggestionStatus status={outcome.status} message={outcome.message} /> : null}
-      {answers?.length === 0 ? <p className="text-xs text-muted-foreground">L’IA lit chacun comme un code de produit.</p> : null}
+      {unanswered ? <p className="text-xs text-muted-foreground">
+        {`${formatCount(unanswered)} ${plural(unanswered, "code reste", "codes restent")} à vérifier.`}
+      </p> : null}
+      {answers?.length === 0 && unanswered === 0 ? <p className="text-xs text-muted-foreground">L’IA lit chacun comme un code de produit.</p> : null}
       {answers && answers.length > 0 ? (
         <ul aria-label="Codes à écarter" className="divide-y divide-border">
           {answers.map(({ value, kind, confidence }) => {
@@ -442,8 +454,14 @@ function SupplierGroup({ group, sourceByCell, directory, suggestion, dismissed, 
   }
   const associate = (supplierId: string) =>
     change("associate", () => rememberSupplierAlias(supplierId, group.label), "Ce nom n’a pas pu être associé au fournisseur.");
-  const create = () =>
-    change("create", () => createCatalogueSupplier(group.label.trim().slice(0, 255)), "Le fournisseur n’a pas pu être créé.");
+  function create() {
+    const name = group.label.trim();
+    if (name.length > 255) {
+      setError("Le nom du fournisseur ne peut pas dépasser 255 caractères. Corrigez-le avant de créer le fournisseur.");
+      return;
+    }
+    return change("create", () => createCatalogueSupplier(name), "Le fournisseur n’a pas pu être créé.");
+  }
 
   return (
     <tr>
@@ -609,7 +627,7 @@ export function SupplierReferenceReview({ report, rows, review, onReviewChange, 
   useEffect(() => {
     if (!needsDirectory || directory !== null) return;
     const abort = new AbortController();
-    fetchSupplierDirectory(abort.signal).then(
+    fetchSupplierDirectory(abort.signal, "active").then(
       (entries) => { if (!abort.signal.aborted) setDirectory(entries); },
       () => { if (!abort.signal.aborted) setDirectory("error"); },
     );
@@ -637,11 +655,22 @@ export function SupplierReferenceReview({ report, rows, review, onReviewChange, 
     }
   }
 
-  const conflicts = comparisons.filter(({ values }) => values.filter((value) => !value.price_source_kind).length > 1);
+  const conflictPairs = new Map<string, string>();
+  const conflictSources = report.for_decision.flatMap((decision) => {
+    if (decision.reason !== "conflicting_workbook_references" || !decision.product_id || !decision.supplier_id) return [];
+    const key = decisionCellKey(decision);
+    const source = sourceByCell.get(key);
+    if (!source) return [];
+    conflictPairs.set(key, JSON.stringify([decision.product_id, decision.supplier_id]));
+    return [source];
+  });
+  const conflicts = compareCostingWorkbookSupplierValues(conflictSources, (source) => conflictPairs.get(decisionCellKey(source))!);
   const priceComparisons = comparisons.filter(({ values }) => values.filter((value) => !value.price_source_kind).length < 2);
   const priceSources = report.for_decision.filter((entry) => entry.reason === "price_source_reference");
   const toCreate = report.for_decision.filter((entry) => entry.reason === "article_to_create");
   const articlesToCreate = groupSupplierDecisions(toCreate, sourceByCell, true);
+  const toCreatePage = boundedPage(review.page, articlesToCreate.length);
+  const toCreateStart = toCreatePage * DECISIONS_PER_PAGE;
   const examinable = report.for_decision.filter((entry) => !OWN_VIEW_REASONS.has(entry.reason));
   const dismissedCount = examinable.filter((entry) => dismissed.has(decisionCellKey(entry))).length;
   const decisions = showDismissed ? examinable : examinable.filter((entry) => !dismissed.has(decisionCellKey(entry)));
@@ -799,8 +828,9 @@ export function SupplierReferenceReview({ report, rows, review, onReviewChange, 
               leurs références seront proposées ici ensuite. Rien n’est à corriger dans le classeur.
             </p>
             <Button variant="secondary" size="sm" onClick={onShowDrafts}>Voir les articles à importer</Button>
+            <ReviewPager page={toCreatePage} total={articlesToCreate.length} onSelect={(page) => onReviewChange({ ...review, page })} />
             <ul aria-label="Articles à créer d’abord" className="divide-y divide-border rounded-md border border-border px-3 text-sm">
-              {articlesToCreate.slice(0, DECISIONS_PER_PAGE).map((group) => {
+              {articlesToCreate.slice(toCreateStart, toCreateStart + DECISIONS_PER_PAGE).map((group) => {
                 const source = sourceByCell.get(decisionCellKey(group.entries[0]));
                 const context = articleContext(source);
                 return (
@@ -816,11 +846,6 @@ export function SupplierReferenceReview({ report, rows, review, onReviewChange, 
                 );
               })}
             </ul>
-            {articlesToCreate.length > DECISIONS_PER_PAGE ? (
-              <p className="text-xs text-muted-foreground">
-                {`Les ${formatCount(DECISIONS_PER_PAGE)} premiers sur ${formatCount(articlesToCreate.length)}.`}
-              </p>
-            ) : null}
           </section>
         ) : null}
         {active === "proposed" ? (

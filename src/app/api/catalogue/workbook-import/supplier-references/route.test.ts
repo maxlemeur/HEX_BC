@@ -179,14 +179,24 @@ describe("POST /api/catalogue/workbook-import/supplier-references", () => {
     }]);
   });
 
+  it("honours an association over a later literal match and refuses an archived target", async () => {
+    const alias = { id: "60000000-0000-4000-8000-000000000001", tenant_id: TENANT,
+      supplier_id: ATLAS, alias: "Dépôt Boréal", alias_key: "depot boreal" };
+    const fake = seed([alias]);
+    const first = await send({ rows: SHEET, confirm: false });
+    expect(first.data?.for_decision).toContainEqual({ row: 2, slot: 2, reason: "conflicting_workbook_references", product_id: TUBE, supplier_id: ATLAS });
+    fake.tables.suppliers.find((supplier) => supplier.id === ATLAS)!.is_active = false;
+    const second = await send({ rows: SHEET, confirm: false });
+    expect(second.data?.for_decision).toContainEqual({ row: 2, slot: 2, reason: "supplier_not_found", product_id: TUBE });
+  });
+
   it("reads a name the office associated as its supplier, and lets it decide between homonyms (6)", async () => {
     const alias = (id: string, supplierId: string, key: string, tenant = TENANT) =>
       ({ id, tenant_id: tenant, supplier_id: supplierId, alias: key, alias_key: key });
     seed([
       alias("60000000-0000-4000-8000-000000000001", ATLAS, "inconnu sarl"),
       alias("60000000-0000-4000-8000-000000000002", TWIN_B, "negoce jumeau"),
-      // A supplier that bears the name itself keeps it; another company's association is not read.
-      alias("60000000-0000-4000-8000-000000000003", ATLAS, "depot boreal"),
+      // Another company’s association is not read.
       alias("60000000-0000-4000-8000-000000000009", FOREIGN_SUPPLIER, "comptoir atlas", OTHER_TENANT),
     ]);
 

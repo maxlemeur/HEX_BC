@@ -10,7 +10,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { useOptionalUserContext } from "@/lib/auth/user-context";
 import { fetchCatalogueImportBatches, undoCatalogueImport, validateDraftProducts } from "@/lib/catalogue/import-review-client";
-import type { CatalogueImportBatch } from "@/lib/catalogue/import-review-contract";
+import { bulkValidationSummary, CATALOGUE_BULK_INCOMPLETE, type CatalogueImportBatch } from "@/lib/catalogue/import-review-contract";
+import { isEstimateApiError } from "@/lib/estimates/client-errors";
 import { catalogueErrorMessage } from "@/lib/catalogue/supplier-items-client";
 
 import { formatCount, plural } from "./shared";
@@ -26,6 +27,8 @@ const MOMENT = new Intl.DateTimeFormat("fr-FR", {
 });
 
 type Message = { tone: "success" | "danger"; text: string };
+const visibleBatches = (items: CatalogueImportBatch[]) =>
+  items.filter((batch) => batch.kind !== "workbook_articles" || batch.total > 0 || batch.undone_at);
 
 export function ImportBatchesPanel({ refreshKey, draftsHref, onChanged }: Readonly<{
   /** Changes after each confirmed import: the list is read again. */
@@ -47,7 +50,7 @@ export function ImportBatchesPanel({ refreshKey, draftsHref, onChanged }: Readon
     fetchCatalogueImportBatches(abort.signal).then(
       (items) => {
         if (abort.signal.aborted) return;
-        setBatches(items);
+        setBatches(visibleBatches(items));
         setFailed(false);
       },
       () => { if (!abort.signal.aborted) setFailed(true); },
@@ -70,11 +73,17 @@ export function ImportBatchesPanel({ refreshKey, draftsHref, onChanged }: Readon
   }
 
   const validate = (batch: CatalogueImportBatch) => run(batch, async () => {
-    const { validated, incomplete } = await validateDraftProducts({ import_batch_id: batch.id });
-    const left = incomplete > 0
-      ? ` ${formatCount(incomplete)} ${plural(incomplete, "brouillon incomplet reste", "brouillons incomplets restent")} à compléter : type d’article, matière, unité ou type de fourniture.`
-      : "";
-    return `${formatCount(validated)} ${plural(validated, "brouillon validé", "brouillons validés")}.${left}`;
+    try {
+      return bulkValidationSummary(await validateDraftProducts({ import_batch_id: batch.id }));
+    } catch (failure) {
+      if (isEstimateApiError(failure) && failure.code === CATALOGUE_BULK_INCOMPLETE) {
+        await Promise.allSettled([
+          Promise.resolve().then(onChanged),
+          fetchCatalogueImportBatches().then((items) => setBatches(visibleBatches(items))),
+        ]);
+      }
+      throw failure;
+    }
   }, "Ces brouillons n’ont pas pu être validés.");
 
   async function undo(batch: CatalogueImportBatch) {

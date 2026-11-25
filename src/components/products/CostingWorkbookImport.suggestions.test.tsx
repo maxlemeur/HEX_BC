@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import * as XLSX from "xlsx";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -51,9 +51,9 @@ function supplierReport(overrides: Partial<CostingWorkbookSupplierReferenceRepor
   };
 }
 
-function workbook() {
+function workbook(rows: unknown[][] = SHEET_ROWS) {
   const book = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(book, XLSX.utils.aoa_to_sheet(SHEET_ROWS), "All_data");
+  XLSX.utils.book_append_sheet(book, XLSX.utils.aoa_to_sheet(rows), "All_data");
   const bytes = XLSX.write(book, { bookType: "xlsx", type: "array" }) as ArrayBuffer;
   const file = new File([bytes], "bible-chiffrage.xlsx");
   Object.defineProperty(file, "arrayBuffer", { value: () => Promise.resolve(bytes) });
@@ -91,7 +91,7 @@ const fetchMock = vi.fn<typeof fetch>((input, init) => {
   if (url.startsWith("/api/catalogue/supplier-aliases")) {
     return method === "GET" ? ok({ items: [] }) : ok({ item: { id: "alias-1", ...body, supplier_name: "Point P Matériaux", created_at: "2026-11-25T10:00:00.000Z" } }, 201);
   }
-  if (url === "/api/suppliers") return ok({ items: [{ id: "s1", name: "Point P Matériaux" }] });
+  if (url === "/api/suppliers?scope=active") return ok({ items: [{ id: "s1", name: "Point P Matériaux" }] });
   return url.endsWith("/supplier-references") ? answers.suppliers() : ok(articleReport());
 });
 
@@ -271,6 +271,54 @@ describe("CostingWorkbookImport, proposals", () => {
     expect(previews()[1].body?.rows?.[1]?.[0]).toBe("CAT-TUBE-20");
     // One search serves the whole review: it is not asked again after a correction.
     expect(suggestions()).toHaveLength(1);
+  });
+
+  it("aborts a duplicate search on workbook replacement and discards the late answer", async () => {
+    const user = userEvent.setup();
+    let finish!: (value: Response) => void;
+    const pending = new Promise<Response>((resolve) => { finish = resolve; });
+    let signal: AbortSignal | null | undefined;
+    vi.stubGlobal("fetch", vi.fn<typeof fetch>((input, init) => {
+      if (String(input) === SUGGESTIONS && init?.method === "POST") {
+        signal = init.signal;
+        return pending;
+      }
+      return fetchMock(input, init);
+    }));
+    await openImport(user);
+    await user.click(screen.getByRole("button", { name: "Doublons possibles" }));
+    await user.click(screen.getByRole("button", { name: "Chercher les doublons" }));
+    await user.click(screen.getByRole("button", { name: "Changer de fichier Excel" }));
+    await user.upload(screen.getByLabelText("Fichier Excel"), workbook([HEADERS, ["AUTRE-20", ...SHEET_ROWS[1].slice(1)], SHEET_ROWS[2]]));
+    await waitFor(() => expect(signal?.aborted).toBe(true));
+    await act(async () => finish(await ok({
+      task: "articles", provider: null, model: null, status: "deterministic", message: "",
+      items: [{ key: "2", candidates: [{
+        product_id: CATALOGUE_TUBE, reference: "CAT-TUBE-20", designation: "Tube inox 304L DN20",
+        score: 82, reasons: [], warnings: [],
+      }], suggestion: null }],
+    })));
+    await user.click(await screen.findByRole("button", { name: "Doublons possibles" }));
+    expect(screen.queryByRole("button", { name: /c’est CAT-TUBE-20/ })).not.toBeInTheDocument();
+    expect(previews()).toHaveLength(2);
+    expect(previews()[1].body?.rows?.[1][0]).toBe("AUTRE-20");
+  });
+
+  it("leaves an unanswered supplier code unreviewed", async () => {
+    const user = userEvent.setup();
+    answers.suppliers = () => ok(supplierReport({ to_import: 1, for_decision: [], proposed: [
+      { row: 2, slot: 1, article_reference: "TUBE-20", supplier_name: "Point P Matériaux" },
+    ] }));
+    answers.suggest = () => ({
+      task: "supplier_codes", provider: "decisions", model: null, status: "partial", message: "Réponse partielle.",
+      items: [{ value: "Réf interne", suggestion: null }],
+    });
+    await openImport(user);
+    await openSupplierReferences(user);
+    await chooseDecisions(user);
+    await user.click(screen.getByRole("button", { name: "Vérifier ces codes avec l’IA" }));
+    expect(await screen.findByText(/1 code reste à vérifier/)).toBeVisible();
+    expect(screen.queryByText("L’IA lit chacun comme un code de produit.")).not.toBeInTheDocument();
   });
 
   it("has doubtful codes read by the source chosen, and sets one aside when the office says so (1, 2, 4)", async () => {

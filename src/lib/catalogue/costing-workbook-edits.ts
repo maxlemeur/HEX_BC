@@ -95,25 +95,30 @@ export function mergeWorkbookEdits(base: Rows, current: readonly WorkbookEdit[],
   return [...byCell.values()].sort((left, right) => left.row - right.row || left.column - right.column);
 }
 
-/** Every cell of these occurrences that holds another code than the one kept gets it. */
+/** Replace competing codes and clear links that were supplied for those codes. */
 export function supplierCodeEdits(
-  occurrences: readonly Pick<CostingWorkbookSupplierOccurrence, "row" | "column" | "supplier_sku">[],
+  occurrences: readonly Pick<CostingWorkbookSupplierOccurrence, "row" | "column" | "supplier_sku" | "url_column">[],
   kept: string,
 ): WorkbookEdit[] {
   return occurrences
     .filter((occurrence) => occurrence.supplier_sku !== kept)
-    .map((occurrence) => ({ row: occurrence.row, column: occurrence.column, value: kept }));
+    .flatMap(({ row, column, url_column }) => [
+      { row, column, value: kept },
+      ...(url_column === undefined ? [] : [{ row, column: url_column, value: null }]),
+    ]);
 }
 
 /** The journal as the office reads and exports it: where, what the sheet holds, what the import reads instead. */
 export type WorkbookEditEntry = { address: string; row: number; column: number; header: string; before: string; after: string };
 
-export function workbookEditEntries(base: Rows, edits: readonly WorkbookEdit[], headerRow: number | null): WorkbookEditEntry[] {
+export function workbookEditEntries(
+  base: Rows, edits: readonly WorkbookEdit[], headerRow: number | null, mapped: Rows = base,
+): WorkbookEditEntry[] {
   return edits.map((edit) => ({
     address: workbookCellAddress(edit.row, edit.column),
     row: edit.row,
     column: edit.column,
-    header: headerRow === null || edit.row === headerRow ? "" : workbookCellText(base, headerRow, edit.column),
+    header: headerRow === null || edit.row === headerRow ? "" : workbookCellText(mapped, headerRow, edit.column),
     before: workbookCellText(base, edit.row, edit.column),
     after: edit.value ?? "",
   }));

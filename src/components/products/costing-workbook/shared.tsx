@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useId, useState } from "react";
+import { createContext, useContext, useEffect, useId, useState } from "react";
 
 import { CheckIcon, CopyIcon, PencilIcon, XIcon } from "lucide-react";
 
@@ -33,6 +33,9 @@ export type ReviewChoice = { id: string; label: string; count: number; tone?: "w
 export type WorkbookEditor = {
   rows: CostingWorkbookRows;
   busy: boolean;
+  revision: number;
+  isCurrentRevision: (revision: number) => boolean;
+  setEditorDirty: (id: string, dirty: boolean) => void;
   applyEdits: (edits: WorkbookEdit[]) => void;
 };
 
@@ -162,15 +165,21 @@ export function EditableValue({ row, column, empty = "—", className, mono = fa
   /** What to show instead of the cell's own text (a formatted price); the correction still edits the cell. */
   display?: React.ReactNode;
 }>) {
-  const { rows, busy, applyEdits } = useWorkbookEditor();
+  const { rows, busy, applyEdits, setEditorDirty } = useWorkbookEditor();
   const inputId = useId();
   const [draft, setDraft] = useState<string | null>(null);
   const value = column === undefined ? "" : workbookCellText(rows, row, column);
+  const dirty = draft !== null && draft.trim() !== value;
+  useEffect(() => {
+    if (!dirty) return;
+    setEditorDirty(inputId, true);
+    return () => setEditorDirty(inputId, false);
+  }, [dirty, inputId, setEditorDirty]);
   if (column === undefined) return <span className={className}>{display ?? empty}</span>;
   const address = workbookCellAddress(row, column);
 
   function submit() {
-    if (draft === null) return;
+    if (draft === null || busy) return;
     const next = draft.trim();
     setDraft(null);
     if (next !== value) applyEdits([{ row, column: column!, value: next || null }]);
@@ -187,6 +196,7 @@ export function EditableValue({ row, column, empty = "—", className, mono = fa
           autoComplete="off"
           className={`h-8 min-w-24 px-2 ${mono ? "font-mono text-xs" : ""}`}
           value={draft}
+          disabled={busy}
           maxLength={4000}
           onChange={(event) => setDraft(event.currentTarget.value)}
           onKeyDown={(event) => {
@@ -199,7 +209,7 @@ export function EditableValue({ row, column, empty = "—", className, mono = fa
             }
           }}
         />
-        <Button variant="outline" size="icon-xs" aria-label={`Appliquer la correction de ${address}`} onClick={submit}>
+        <Button variant="outline" size="icon-xs" aria-label={`Appliquer la correction de ${address}`} disabled={busy} onClick={submit}>
           <CheckIcon aria-hidden="true" />
         </Button>
         <Button variant="ghost" size="icon-xs" aria-label={`Annuler la correction de ${address}`} onClick={() => setDraft(null)}>

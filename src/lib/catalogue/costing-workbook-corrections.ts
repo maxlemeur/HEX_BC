@@ -1,4 +1,4 @@
-import { COSTING_WORKBOOK_SHEET, type CostingWorkbookSupplierOccurrence } from "@/lib/catalogue/costing-workbook";
+import { COSTING_WORKBOOK_SHEET, inspectCostingWorkbookColumns, type CostingWorkbookSupplierOccurrence } from "@/lib/catalogue/costing-workbook";
 import type { CostingWorkbookImportInput, CostingWorkbookSupplierReferenceReport } from "@/lib/catalogue/costing-workbook-contract";
 import {
   parseWorkbookCellAddress,
@@ -8,8 +8,9 @@ import {
   type WorkbookEdit,
   type WorkbookEditEntry,
 } from "@/lib/catalogue/costing-workbook-edits";
+import { applyWorkbookFileEdits, COSTING_WORKBOOK_MAX_FILE_BYTES } from "@/lib/catalogue/costing-workbook-file";
 import { exportToExcelWithSheets, type ExportColumn } from "@/lib/export";
-import { foldWords } from "@/lib/text/fold";
+import { foldText, foldWords } from "@/lib/text/fold";
 
 export { workbookCellAddress };
 
@@ -107,15 +108,19 @@ export const CORRECTION_HEADERS = {
   address: "Cellule à vérifier",
   original: "Valeur d’origine",
   correction: "Correction à renseigner",
+  field: "Colonne",
+  article: "Article",
+  clear: "Effacer la cellule",
+  header: "Ligne d’en-tête",
 } as const;
 
 const COLUMNS: ExportColumn<ExportRow>[] = [
   { key: "reason", header: "Motif" },
   { key: "sheet", header: "Onglet" },
   { key: "address", header: CORRECTION_HEADERS.address },
-  { key: "field", header: "Colonne" },
+  { key: "field", header: CORRECTION_HEADERS.field },
   { key: "value", header: CORRECTION_HEADERS.original, numberFormat: "@" },
-  { key: "article", header: "Article" },
+  { key: "article", header: CORRECTION_HEADERS.article },
   { key: "designation", header: "Désignation" },
   { key: "material", header: "Matière" },
   { key: "dimension", header: "Dimensions" },
@@ -136,28 +141,100 @@ export function exportWorkbookCorrections(reason: Reason | null, decisions: read
   });
 }
 
-const JOURNAL_COLUMNS: ExportColumn<WorkbookEditEntry & { sheet: string }>[] = [
+type JournalRow = WorkbookEditEntry & { sheet: string; article: string; clear: string; headerLine: string };
+
+const JOURNAL_COLUMNS: ExportColumn<JournalRow>[] = [
   { key: "sheet", header: "Onglet" },
   { key: "address", header: CORRECTION_HEADERS.address },
-  { key: "header", header: "Colonne" },
+  { key: "header", header: CORRECTION_HEADERS.field },
   { key: "before", header: CORRECTION_HEADERS.original, numberFormat: "@" },
   { key: "after", header: CORRECTION_HEADERS.correction, numberFormat: "@" },
+  { key: "article", header: CORRECTION_HEADERS.article, numberFormat: "@" },
+  { key: "clear", header: CORRECTION_HEADERS.clear },
+  { key: "headerLine", header: CORRECTION_HEADERS.header },
 ];
 
 /**
  * The corrections made in the screen, in the shape of the corrections file: the office copies them into its
  * workbook, or reads the file back at the next import of the same workbook.
  */
-export function exportWorkbookEdits(entries: readonly WorkbookEditEntry[]) {
-  const data = entries.map((entry) => ({ ...entry, sheet: COSTING_WORKBOOK_SHEET }));
-  return exportToExcelWithSheets([{ name: CORRECTIONS_SHEET, data, columns: JOURNAL_COLUMNS }], { filename: "corrections-appliquees" });
+type Rows = CostingWorkbookImportInput["rows"];
+
+export function workbookJournalRows(entries: readonly WorkbookEditEntry[], rows: Rows, mapped: Rows = rows): JournalRow[] {
+  const { headerRow, found } = inspectCostingWorkbookColumns(mapped);
+  const id = found.find(({ column }) => column === "ID")?.index;
+  return entries.map((entry) => ({
+    ...entry,
+    sheet: COSTING_WORKBOOK_SHEET,
+    header: entry.row === headerRow ? entry.before : entry.header,
+    article: id === undefined || entry.row === headerRow ? "" : workbookCellText(rows, entry.row, id),
+    clear: entry.after === "" ? "Oui" : "",
+    headerLine: entry.row === headerRow ? "Oui" : "",
+  }));
 }
+
+export function exportWorkbookEdits(entries: readonly WorkbookEditEntry[], rows: Rows, mapped: Rows) {
+  return exportToExcelWithSheets(
+    [{ name: CORRECTIONS_SHEET, data: workbookJournalRows(entries, rows, mapped), columns: JOURNAL_COLUMNS }],
+    { filename: "corrections-appliquees" },
+  );
+}
+
+type CorrectionLine = { line: number; address: string; original: string; field: string; article: string; headerLine: boolean; value: string | null };
+type SkipReason = "address" | "changed" | "article" | "field";
 
 export type WorkbookCorrectionsRead = {
   edits: WorkbookEdit[];
-  /** Filled lines left out, each with the reason the office reads. */
-  skipped: Array<{ line: number; address: string; reason: "address" | "changed" }>;
+  skipped: Array<{ line: number; address: string; reason: SkipReason }>;
 };
+
+const fieldKey = (value: string) => foldText(value).replace(/\s+/g, " ").trim();
+
+function verifiedCorrections(lines: readonly CorrectionLine[], rows: Rows): WorkbookCorrectionsRead {
+  const edits = new Map<string, WorkbookEdit>();
+  const skipped: WorkbookCorrectionsRead["skipped"] = [];
+  const initialHeader = inspectCostingWorkbookColumns(rows).headerRow;
+  function verify(line: CorrectionLine, sheet: Rows, headerRow: number | null, identity?: {
+    column: number;
+    counts: Map<string, number>;
+    fields: Map<number, string>;
+  }) {
+    const cell = parseWorkbookCellAddress(line.address);
+    let reason: SkipReason | undefined;
+    if (!cell || cell.row > sheet.length || headerRow === null || cell.row < headerRow) reason = "address";
+    else if (line.headerLine !== (cell.row === headerRow)) reason = "field";
+    else if (!line.headerLine && (!identity || !line.article || identity.counts.get(line.article) !== 1
+      || workbookCellText(sheet, cell.row, identity.column) !== line.article)) reason = "article";
+    else if (!line.field || fieldKey(line.field) !== fieldKey(
+      line.headerLine ? workbookCellText(sheet, headerRow, cell.column) : identity?.fields.get(cell.column) ?? "",
+    )) reason = "field";
+    else if (line.original !== workbookCellText(sheet, cell.row, cell.column)) reason = "changed";
+    if (reason) skipped.push({ line: line.line, address: line.address, reason });
+    else if (cell) edits.set(workbookEditKey(cell.row, cell.column), { ...cell, value: line.value });
+  }
+  for (const line of lines) if (line.headerLine) verify(line, rows, initialHeader);
+  const mapped = edits.size ? applyWorkbookFileEdits(rows, [...edits.values()]) : rows;
+  const { headerRow, found } = inspectCostingWorkbookColumns(mapped);
+  const column = found.find((field) => field.column === "ID")?.index;
+  const counts = new Map<string, number>();
+  if (column !== undefined && headerRow !== null) {
+    for (let row = headerRow + 1; row <= mapped.length; row += 1) {
+      const article = workbookCellText(mapped, row, column);
+      if (article) counts.set(article, (counts.get(article) ?? 0) + 1);
+    }
+  }
+  const fields = new Map<number, string>(found.map(({ column: field, index }) => [index, field]));
+  const identity = column === undefined ? undefined : { column, counts, fields };
+  for (const line of lines) if (!line.headerLine) verify(line, mapped, headerRow, identity);
+  return { edits: [...edits.values()], skipped: skipped.sort((a, b) => a.line - b.line) };
+}
+
+export function reapplyWorkbookJournal(entries: readonly JournalRow[], rows: Rows): WorkbookCorrectionsRead {
+  return verifiedCorrections(entries.map((entry, index) => ({
+    ...entry, line: index + 2, original: entry.before, field: entry.header,
+    headerLine: entry.headerLine === "Oui", value: entry.clear === "Oui" ? null : entry.after,
+  })), rows);
+}
 
 export class WorkbookCorrectionsFileError extends Error {
   constructor(message: string) {
@@ -176,46 +253,58 @@ export async function readWorkbookCorrectionsFile(
   input: ArrayBuffer,
   rows: CostingWorkbookImportInput["rows"],
 ): Promise<WorkbookCorrectionsRead> {
+  if (input.byteLength > COSTING_WORKBOOK_MAX_FILE_BYTES) {
+    throw new WorkbookCorrectionsFileError("Ce fichier de corrections dépasse 20 Mo.");
+  }
   const xlsx = await import("xlsx");
-  let lines: unknown[][];
+  const lines = new Map<number, Map<number, string>>();
   try {
-    const book = xlsx.read(new Uint8Array(input), { type: "array" });
-    const name = book.SheetNames.find((sheet) => foldWords(sheet) === foldWords(CORRECTIONS_SHEET)) ?? book.SheetNames[0];
-    const sheet = name ? book.Sheets[name] : undefined;
+    const bytes = new Uint8Array(input);
+    const names = xlsx.read(bytes, { type: "array", bookSheets: true }).SheetNames;
+    const name = names.find((sheet) => foldWords(sheet) === foldWords(CORRECTIONS_SHEET)) ?? names[0];
+    const sheet = name ? xlsx.read(bytes, { type: "array", sheets: name }).Sheets[name] : undefined;
     if (!sheet) throw new Error("no sheet");
-    lines = xlsx.utils.sheet_to_json<unknown[]>(sheet, { header: 1, raw: false, defval: "" });
+    for (const address of Object.keys(sheet)) {
+      if (address.startsWith("!")) continue;
+      const cell = sheet[address] as import("xlsx").CellObject;
+      if (cell.v === undefined || cell.v === null) continue;
+      const { r, c } = xlsx.utils.decode_cell(address);
+      const value = xlsx.utils.format_cell(cell).trim();
+      if (!value) continue;
+      const line = lines.get(r) ?? new Map<number, string>();
+      line.set(c, value);
+      lines.set(r, line);
+    }
   } catch {
     throw new WorkbookCorrectionsFileError("Ce fichier n’a pas pu être lu comme un fichier de corrections Excel.");
   }
-  const shown = (value: unknown) => (value === null || value === undefined ? "" : String(value).trim());
-  const headerIndex = lines.findIndex((line) => line.some((value) => foldWords(shown(value)) === foldWords(CORRECTION_HEADERS.address)));
-  const header = headerIndex < 0 ? [] : lines[headerIndex].map((value) => foldWords(shown(value)));
-  const addressColumn = header.indexOf(foldWords(CORRECTION_HEADERS.address));
-  const correctionColumn = header.indexOf(foldWords(CORRECTION_HEADERS.correction));
-  const originalColumn = header.indexOf(foldWords(CORRECTION_HEADERS.original));
-  if (addressColumn < 0 || correctionColumn < 0) {
+
+  const headers = Object.values(CORRECTION_HEADERS);
+  const ordered = [...lines].sort(([left], [right]) => left - right);
+  const header = ordered.find(([, line]) => [...line.values()].some((value) => foldWords(value) === foldWords(CORRECTION_HEADERS.address)));
+  const columns = new Map([...(header?.[1] ?? [])].map(([column, value]) => [foldWords(value), column]));
+  const [addressColumn, originalColumn, correctionColumn, fieldColumn, articleColumn, clearColumn, headerColumn] =
+    headers.map((name) => columns.get(foldWords(name)) ?? -1);
+  if (!header || [addressColumn, originalColumn, correctionColumn, fieldColumn, articleColumn].some((column) => column < 0)) {
     throw new WorkbookCorrectionsFileError(
-      `Ce fichier n’a pas les colonnes « ${CORRECTION_HEADERS.address} » et « ${CORRECTION_HEADERS.correction} » d’un fichier de corrections.`,
+      "Ce fichier doit contenir les colonnes « Cellule à vérifier », « Valeur d’origine », « Correction à renseigner », « Colonne » et « Article ».",
     );
   }
 
-  const edits = new Map<string, WorkbookEdit>();
-  const skipped: WorkbookCorrectionsRead["skipped"] = [];
-  for (let index = headerIndex + 1; index < lines.length; index += 1) {
-    const line = lines[index];
-    const correction = shown(line[correctionColumn]);
-    if (!correction) continue;
-    const address = shown(line[addressColumn]);
-    const cell = parseWorkbookCellAddress(address);
-    if (!cell) {
-      skipped.push({ line: index + 1, address, reason: "address" });
-      continue;
-    }
-    if (originalColumn >= 0 && shown(line[originalColumn]) !== workbookCellText(rows, cell.row, cell.column)) {
-      skipped.push({ line: index + 1, address, reason: "changed" });
-      continue;
-    }
-    edits.set(workbookEditKey(cell.row, cell.column), { ...cell, value: correction });
-  }
-  return { edits: [...edits.values()], skipped };
+  const corrections = ordered.flatMap(([r, line]) => {
+    if (r <= header[0]) return [];
+    const clear = foldWords(line.get(clearColumn) ?? "") === "oui";
+    const correction = line.get(correctionColumn);
+    if (!clear && !correction) return [];
+    return [{
+      line: r + 1,
+      address: line.get(addressColumn) ?? "",
+      original: line.get(originalColumn) ?? "",
+      field: line.get(fieldColumn) ?? "",
+      article: line.get(articleColumn) ?? "",
+      headerLine: foldWords(line.get(headerColumn) ?? "") === "oui",
+      value: clear ? null : correction!,
+    }];
+  });
+  return verifiedCorrections(corrections, rows);
 }

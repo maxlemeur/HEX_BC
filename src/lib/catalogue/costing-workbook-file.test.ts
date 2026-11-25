@@ -89,6 +89,18 @@ describe("readCostingWorkbookFile", () => {
     }]);
   });
 
+  it("keeps a linked product page rather than its Excel label", async () => {
+    const source = sheet([HEADERS, row({
+      ID: "TUBE-1", Type_ligne: "Art", Caractéristique: "Tube", Matériau: "Inox",
+      F1_nom: "Atlas", F1_ref: "A-1", F1_URL: "Fiche produit",
+    })]);
+    source[XLSX.utils.encode_cell({ r: 1, c: HEADERS.indexOf("F1_URL") })].l = {
+      Target: "https://example.test/products/A-1",
+    };
+    const read = readCostingWorkbookRows(await readCostingWorkbookFile(workbook({ All_data: source })));
+    expect(read.supplierReferenceOccurrences[0].product_url).toBe("https://example.test/products/A-1");
+  });
+
   it("refuses in one sentence naming the sheet a workbook without it (1)", async () => {
     const read = readCostingWorkbookFile(workbook({ Feuil1: sheet([HEADERS, TUBE]) }));
     await expect(read).rejects.toBeInstanceOf(CostingWorkbookFileError);

@@ -222,6 +222,22 @@ describe("suppliers", () => {
     expect(fake.writes).toEqual([]);
   });
 
+  it("keeps contact details of homonymous suppliers out of the model choices", async () => {
+    const fake = seed(ENGINEER, "engineer");
+    Object.assign(fake.tables.suppliers.find((supplier) => supplier.id === DURAND_LYON)!, { city: "Lyon", email: "contact@example.test" });
+    Object.assign(fake.tables.suppliers.find((supplier) => supplier.id === DURAND_NANTES)!, { city: "Lyon", siret: "00000000000001" });
+    arbiter(() => ({ choice: "aucun", confidence: 0.3 }));
+    const result = await suggest({ task: "suppliers", provider: "chatgpt_plan", names: ["Durand Robinetterie"] });
+    const [question] = asked()[0].questions;
+    if (result.task !== "suppliers") throw new Error("Unexpected suggestion task");
+    expect(question.choices.slice(0, 2).map(({ description }) => description)).toEqual([
+      "Durand Robinetterie · Lyon", "Durand Robinetterie · Lyon",
+    ]);
+    expect(result.items[0].candidates.map(({ label }) => label)).toEqual(expect.arrayContaining([
+      "Durand Robinetterie · contact@example.test", "Durand Robinetterie · SIRET 00000000000001",
+    ]));
+  });
+
   it("asks the arbiter only for the names left undecided that have candidates, and reports its answers as its own (2, 3, 5)", async () => {
     const fake = seed(ENGINEER, "engineer");
     arbiter((question) => (question.id === "Pt.P" ? { choice: POINT_P, confidence: 0.82 } : { choice: "aucun", confidence: 0.6 }));

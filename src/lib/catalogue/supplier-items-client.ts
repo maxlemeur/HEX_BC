@@ -103,9 +103,9 @@ export async function saveSupplyTypePreferredSupplier(
 }
 
 /** The tenant's active suppliers, by name, as the suppliers page lists them. */
-export async function fetchSupplierDirectory(signal?: AbortSignal): Promise<SupplierDirectoryEntry[]> {
+export async function fetchSupplierDirectory(signal?: AbortSignal, scope?: "active"): Promise<SupplierDirectoryEntry[]> {
   const { items } = await read<{ items: SupplierIdentity[] }>(
-    "/api/suppliers",
+    scope === "active" ? "/api/suppliers?scope=active" : "/api/suppliers",
     "La liste des fournisseurs n’a pas pu être chargée.",
     signal,
   );

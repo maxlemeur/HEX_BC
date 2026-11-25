@@ -114,12 +114,13 @@ const unitKey = (unit: string | null) => (unit ?? "").trim().toLocaleLowerCase("
 function planImport(
   read: CostingWorkbookReadResult,
   company: Company,
-  { supply_types: chosen, supply_type_rows: chosenRows = [] }: Pick<CostingWorkbookArticlesInput, "supply_types" | "supply_type_rows">,
+  { supply_types: chosen, supply_type_families: families = [], supply_type_rows: chosenRows = [] }: Pick<CostingWorkbookArticlesInput, "supply_types" | "supply_type_families" | "supply_type_rows">,
 ): Plan {
   const known = new Set(company.supplyTypes.map((supplyType) => supplyType.id));
-  if ([...Object.values(chosen ?? {}), ...chosenRows.map((choice) => choice.supply_type_id)].some((id) => !known.has(id))) {
+  if ([...Object.values(chosen ?? {}), ...families.map((choice) => choice.supply_type_id), ...chosenRows.map((choice) => choice.supply_type_id)].some((id) => !known.has(id))) {
     throw unprocessableEntity(UNKNOWN_SUPPLY_TYPE, undefined, COSTING_WORKBOOK_SUPPLY_TYPE_UNKNOWN);
   }
+  const ofFamily = new Map(families.map((choice) => [choice.family_code, choice.supply_type_id]));
   const ofRow = new Map(chosenRows.map((choice) => [choice.row, choice.supply_type_id]));
   const ownByCode = new Map(company.supplyTypes.map((supplyType) => [supplyType.code, supplyType.id]));
   const drafts: PlannedDraft[] = [];
@@ -129,7 +130,10 @@ function planImport(
     if (!existing) {
       drafts.push({
         article,
-        supplyTypeId: ofRow.get(article.row) ?? chosen?.[article.supply_type_code] ?? ownByCode.get(article.supply_type_code) ?? null,
+        supplyTypeId: ofRow.get(article.row)
+          ?? (article.family_code ? ofFamily.get(article.family_code) : undefined)
+          ?? chosen?.[article.supply_type_code]
+          ?? ownByCode.get(article.supply_type_code) ?? null,
       });
       continue;
     }

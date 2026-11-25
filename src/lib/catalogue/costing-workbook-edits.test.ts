@@ -84,6 +84,13 @@ describe("mergeWorkbookEdits", () => {
 describe("supplier corrections", () => {
   const { supplierReferenceOccurrences } = readCostingWorkbookRows(base);
 
+  it("clears the old product URL only on the occurrence whose code changes", () => {
+    expect(supplierCodeEdits([
+      { row: 2, column: 4, url_column: 8, supplier_sku: "A-1" },
+      { row: 2, column: 6, url_column: 9, supplier_sku: "B-1" },
+    ], "B-1")).toEqual([{ row: 2, column: 4, value: "B-1" }, { row: 2, column: 8, value: null }]);
+  });
+
   it("writes the code kept in the cells that hold another (4)", () => {
     const cells = supplierReferenceOccurrences.filter((occurrence) => occurrence.supplier_name.trim().toLowerCase() === "pt.p");
     expect(cells.map((cell) => cell.supplier_sku)).toEqual(["A-1", "4205", "A-2"]);

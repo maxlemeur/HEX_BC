@@ -51,7 +51,7 @@ const product = (index: number, extra: FakeRow = {}): FakeRow => ({
   id: uuid("9", index), tenant_id: TENANT, reference: `REF-${index}`, catalogue_status: "draft", import_batch_id: BATCH, ...extra,
 });
 
-function seed(role: "admin" | "viewer", options: { rpc?: Record<string, FakeRpcHandler>; refuseInsert?: boolean; aliases?: FakeRow[] } = {}) {
+function seed(role: "admin" | "viewer" | "engineer", options: { rpc?: Record<string, FakeRpcHandler>; refuseInsert?: boolean; aliases?: FakeRow[] } = {}) {
   const actor = role === "admin" ? ADMIN : VIEWER;
   const fake = createFakeSupabase({
     userId: actor,
@@ -116,19 +116,38 @@ describe("reviewSupplierReferences", () => {
     expect(fake.rpcArgs.at(-1)).toEqual({ name: "review_supplier_references", args: { p_item_ids: [uuid("5", 1), uuid("5", 3)], p_validate: false } });
 
     // Atlas only: neither Boréal's, nor the one already checked, nor the other company's.
-    await reviewSupplierReferences({ action: "validate", filter: { supplier_id: ATLAS } });
+    await reviewSupplierReferences({ action: "validate", filter: { supplier_id: ATLAS }, expected_count: 2 });
     expect(fake.rpcArgs.at(-1)?.args).toEqual({ p_item_ids: [uuid("5", 1), uuid("5", 2)], p_validate: true });
     // The whole queue with an empty filter; nothing to review asks nothing of the database.
-    await reviewSupplierReferences({ action: "validate", filter: {} });
+    await reviewSupplierReferences({ action: "validate", filter: {}, expected_count: 3 });
     expect(fake.rpcArgs.at(-1)?.args.p_item_ids).toEqual([uuid("5", 1), uuid("5", 2), uuid("5", 3)]);
     const calls = fake.rpcCalls.length;
-    expect(await reviewSupplierReferences({ action: "validate", filter: { import_batch_id: OTHER_BATCH } })).toEqual({ reviewed: 0, skipped: 0 });
+    expect(await reviewSupplierReferences({ action: "validate", filter: { import_batch_id: OTHER_BATCH }, expected_count: 0 })).toEqual({ reviewed: 0, skipped: 0 });
     expect(fake.rpcCalls).toHaveLength(calls);
+  });
+
+  it("rejects a filter whose pending count changed since confirmation", async () => {
+    const fake = seed("admin", { rpc: { review_supplier_references: review } });
+    const confirmed = { action: "validate" as const, filter: {}, expected_count: 2 };
+    await expect(reviewSupplierReferences(confirmed)).rejects.toMatchObject({ status: 409 });
+    expect(fake.rpcCalls).toEqual([]);
+  });
+
+  it("returns committed reference counts if the next chunk is refused", async () => {
+    let calls = 0;
+    const fake = seed("admin", { rpc: { review_supplier_references: () => ++calls === 1
+      ? { data: { reviewed: 4999, skipped: 1 } }
+      : { data: null, error: { code: "42501", message: "SUPPLIER_CATALOG_ITEM_EDITORS_ONLY" } } } });
+    fake.tables.supplier_catalog_items = Array.from({ length: 5001 }, (_, index) => item(index + 1, ATLAS));
+    await expect(reviewSupplierReferences({ action: "validate", filter: {}, expected_count: 5001 })).rejects.toMatchObject({
+      status: 403, details: { committed: { reviewed: 4999, skipped: 1 } },
+    });
+    expect(fake.rpcCalls).toHaveLength(2);
   });
 
   it("refuses a viewer before any read, and words the database's refusal (1, 3)", async () => {
     const viewer = seed("viewer", { rpc: { review_supplier_references: review } });
-    await expect(reviewSupplierReferences({ action: "validate", filter: {} })).rejects.toMatchObject({ status: 403 });
+    await expect(reviewSupplierReferences({ action: "validate", filter: {}, expected_count: 3 })).rejects.toMatchObject({ status: 403 });
     expect([viewer.rpcCalls, viewer.reads.filter((table) => table !== "tenant_memberships")]).toEqual([[], []]);
 
     seed("admin", { rpc: { review_supplier_references: () => ({ data: null, error: { code: "42501", message: "SUPPLIER_CATALOG_ITEM_EDITORS_ONLY" } }) } });
@@ -161,6 +180,23 @@ describe("bulkUpdateProducts", () => {
       ["validate_draft_products", 1000], ["validate_draft_products", 1000], ["validate_draft_products", 1],
       ["assign_products_supply_type", 1000], ["assign_products_supply_type", 1000], ["assign_products_supply_type", 1],
     ]);
+  });
+
+  it("rejects an engineer before reading even an empty batch", async () => {
+    const fake = seed("engineer");
+    await expect(bulkUpdateProducts({ action: "validate", import_batch_id: BATCH })).rejects.toMatchObject({ status: 403 });
+    expect(fake.reads).not.toContain("products");
+  });
+
+  it("returns the committed validation counts with a later refusal", async () => {
+    let calls = 0;
+    seed("admin", { rpc: { validate_draft_products: () => ++calls === 1
+      ? { data: { validated: 980, incomplete: 15, skipped: 5 } }
+      : { data: null, error: { code: "42501", message: "PRODUCT_VALIDATION_ADMIN_ONLY" } } } });
+    const ids = Array.from({ length: 1001 }, (_, index) => uuid("9", index + 1));
+    await expect(bulkUpdateProducts({ action: "validate", ids })).rejects.toMatchObject({
+      status: 403, details: { committed: { action: "validate", validated: 980, incomplete: 15, skipped: 5 } },
+    });
   });
 
   it("says in words that validating is an administrator's act, and that a supply type is not the company's (4)", async () => {

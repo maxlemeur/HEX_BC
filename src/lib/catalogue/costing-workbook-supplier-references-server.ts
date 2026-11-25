@@ -78,15 +78,14 @@ async function planReferences(context: AuthenticatedTenantContext, { articles: r
     (product) => workbookReferenceKey(product.reference ?? ""));
   const suppliersByName = groupBy(suppliers.data ?? [], (supplier) => workbookSupplierNameKey(supplier.name));
   const supplierLabels = supplierPickerLabels(suppliers.data ?? []);
-  // A name the office associated to a supplier in the screen (TI-711): read when no supplier bears the name
-  // itself, and to decide between suppliers that share it.
+  // An explicit association wins. An archived target requires another decision.
   const activeSuppliers = new Map((suppliers.data ?? []).map((supplier) => [supplier.id, supplier]));
   const supplierOfAlias = new Map((aliases.data ?? []).map((alias) => [alias.alias_key, activeSuppliers.get(alias.supplier_id)]));
   const suppliersNamed = (name: string) => {
     const key = workbookSupplierNameKey(name);
-    const named = suppliersByName.get(key) ?? [];
+    if (!supplierOfAlias.has(key)) return suppliersByName.get(key) ?? [];
     const aliased = supplierOfAlias.get(key);
-    return aliased && named.length !== 1 ? [aliased] : named;
+    return aliased ? [aliased] : [];
   };
   // What the draft import of the same sheet creates: the references of these articles wait for it.
   const toCreate = new Set(readArticles.map((article) => workbookReferenceKey(article.reference))

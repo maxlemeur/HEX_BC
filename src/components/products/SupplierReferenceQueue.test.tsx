@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { SWRConfig } from "swr";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -28,6 +28,10 @@ const reference = (index: number, extra: Partial<PendingSupplierReference> = {})
 type Sent = { url: string; method: string; body: Record<string, unknown> | null };
 const sent: Sent[] = [];
 let pending: PendingSupplierReference[] = [];
+const matches = (filter: { supplier_id?: string; import_batch_id?: string; q?: string }) => pending.filter((item) =>
+  (!filter.supplier_id || item.supplier_id === filter.supplier_id)
+  && (!filter.import_batch_id || item.import_batch_id === filter.import_batch_id)
+  && (!filter.q || item.supplier_sku?.toLowerCase().includes(filter.q.toLowerCase())));
 const fetchMock = vi.fn<typeof fetch>((input, init) => {
   const url = String(input);
   const method = init?.method ?? "GET";
@@ -36,11 +40,18 @@ const fetchMock = vi.fn<typeof fetch>((input, init) => {
   const answer = (data: unknown) => Promise.resolve(new Response(JSON.stringify({ ok: true, data }), { status: 200, headers: { "content-type": "application/json" } }));
   if (url === "/api/suppliers") return answer({ items: [{ id: "s1", name: "Comptoir Atlas" }, { id: "s2", name: "Dépôt Boréal" }] });
   if (method === "POST") {
-    const ids = (body?.ids as string[] | undefined) ?? pending.filter((item) => item.can_review).map((item) => item.id);
+    const matching = matches((body?.filter ?? {}) as Parameters<typeof matches>[0]);
+    if (body?.filter && body.expected_count !== matching.length) {
+      return Promise.resolve(Response.json({ ok: false, error: {
+        code: "CONFLICT", message: "La liste des références à vérifier a changé. Actualisez-la avant de confirmer à nouveau.",
+      } }, { status: 409 }));
+    }
+    const ids = (body?.ids as string[] | undefined) ?? matching.filter((item) => item.can_review).map((item) => item.id);
     pending = pending.filter((item) => !ids.includes(item.id));
-    return answer({ reviewed: ids.length, skipped: body?.ids ? 0 : 1 });
+    return answer({ reviewed: ids.length, skipped: body?.ids ? 0 : matching.length - ids.length });
   }
-  return answer({ items: pending, pagination: { page: 1, size: 50, totalItems: pending.length, totalPages: 1 } });
+  const items = matches(Object.fromEntries(new URL(url, "http://localhost").searchParams));
+  return answer({ items, pagination: { page: 1, size: 50, totalItems: items.length, totalPages: 1 } });
 });
 
 const reviews = () => sent.filter((call) => call.method === "POST").map((call) => call.body);
@@ -87,6 +98,7 @@ describe("SupplierReferenceQueue", () => {
     const confirm = vi.spyOn(window, "confirm").mockReturnValueOnce(false).mockReturnValue(true);
     renderQueue();
     await screen.findByRole("table", { name: "Références fournisseur à vérifier" });
+    pending = pending.map((item) => item.can_review ? item : { ...item, supplier_id: "s1" });
     await user.selectOptions(screen.getByLabelText("Fournisseur"), "Comptoir Atlas");
     await waitFor(() => expect(lists().at(-1)?.url).toContain("supplier_id=s1"));
 
@@ -95,7 +107,7 @@ describe("SupplierReferenceQueue", () => {
     expect(reviews()).toEqual([]);
 
     await user.click(screen.getByRole("button", { name: "Valider les 3 références" }));
-    await waitFor(() => expect(reviews()).toEqual([{ action: "validate", filter: { supplier_id: "s1" } }]));
+    await waitFor(() => expect(reviews()).toEqual([{ action: "validate", filter: { supplier_id: "s1" }, expected_count: 3 }]));
     expect(await screen.findByText(/^2 références validées\. 1 sur 3 laissée en attente/)).toBeVisible();
   });
 
@@ -110,6 +122,42 @@ describe("SupplierReferenceQueue", () => {
     expect(window.confirm).toHaveBeenCalledWith("Retirer 1 référence ?");
     await waitFor(() => expect(reviews()).toEqual([{ action: "withdraw", ids: [reference(2).id] }]));
     expect(await screen.findByText("1 référence retirée.")).toBeVisible();
+  });
+
+  it("cannot confirm the old count during a wider filter fetch or before typed search resolves", async () => {
+    const user = userEvent.setup();
+    pending.push(reference(4, { import_batch_id: null }));
+    let resume!: () => void;
+    const waiting = new Promise<void>((resolve) => { resume = resolve; });
+    vi.stubGlobal("fetch", vi.fn<typeof fetch>(async (input, init) => {
+      const url = String(input);
+      if (url.startsWith("/api/catalogue/supplier-references?") && !url.includes("import_batch_id")) await waiting;
+      return fetchMock(input, init);
+    }));
+    renderQueue(BATCH);
+    await screen.findByRole("button", { name: "Valider les 3 références" });
+    await user.click(screen.getByRole("button", { name: "Voir tous les imports" }));
+    const stale = screen.queryByRole("button", { name: "Valider les 3 références" });
+    if (stale) expect(stale).toBeDisabled();
+    await act(async () => resume());
+    expect(await screen.findByRole("button", { name: "Valider les 4 références" })).toBeEnabled();
+    await user.type(screen.getByLabelText("Référence fournisseur"), "AT-1");
+    expect(screen.getByRole("button", { name: "Valider les 4 références" })).toBeDisabled();
+    expect(reviews()).toEqual([]);
+  });
+
+  it("refreshes when a new reference arrives during confirmation", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(window, "confirm").mockImplementation(() => {
+      pending.push(reference(4));
+      return true;
+    });
+    renderQueue();
+    await user.click(await screen.findByRole("button", { name: "Valider les 3 références" }));
+    expect(await screen.findByText(/La liste des références à vérifier a changé/)).toBeVisible();
+    expect(await screen.findByRole("button", { name: "Valider les 4 références" })).toBeEnabled();
+    expect(reviews()).toEqual([{ action: "validate", filter: {}, expected_count: 3 }]);
+    expect(pending).toHaveLength(4);
   });
 
   it("opens on the references of one import, and widens to all on request (5)", async () => {

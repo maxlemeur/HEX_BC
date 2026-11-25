@@ -254,14 +254,15 @@ describe.each(CHOICE_PROVIDERS)("askChoiceQuestions with %s", (provider) => {
 
     const result = await ask(provider, asked);
 
-    expect(sent.requests.map((chunk) => chunk.length)).toEqual([limit, limit, 1]);
-    expect(sent.requests.flat().map((entry) => entry.question)).toEqual(asked.map((_, index) => `q${index + 1}`));
-    expect(result.status).toBe("available");
+    const sentCount = provider === "decisions" ? limit : asked.length;
+    expect(sent.requests.map((chunk) => chunk.length)).toEqual(provider === "decisions" ? [limit] : [limit, limit, 1]);
+    expect(sent.requests.flat().map((entry) => entry.question)).toEqual(asked.slice(0, sentCount).map((_, index) => `q${index + 1}`));
+    expect(result.status).toBe(provider === "decisions" ? "partial" : "available");
     expect(result.answers.map((answer) => answer.id)).toEqual(asked.map((entry) => entry.id));
-    expect(result.answers.map((answer) => answer.choice)).toEqual(asked.map((_, index) => (index % 2 ? "beta" : "alpha")));
+    expect(result.answers.map((answer) => answer.choice)).toEqual(asked.map((_, index) => index >= sentCount ? null : index % 2 ? "beta" : "alpha"));
   });
 
-  it("stops at the first failure: no further request, the earlier answers kept, no other provider (2, 3)", async () => {
+  if (provider !== "decisions") it("stops at the first failure: no further request, the earlier answers kept, no other provider (2, 3)", async () => {
     provide(provider, { failAt: 2 });
     const asked = questions(2 * limit + 1);
 
@@ -456,7 +457,8 @@ describe("askChoiceQuestions on the personal API key (6)", () => {
     // Sent as a strict JSON schema: the answer cannot leave a property out.
     expect(strictOpenAiSchema(input.schema)).not.toBeNull();
     expect(api.execute.mock.calls[0][0]).toEqual(OWNER);
-    expect(api.execute.mock.calls[0][2]).toEqual({ timeoutMs: 100_000 });
+    expect(api.execute.mock.calls[0][2]).toMatchObject({ signal: input.signal });
+    expect(api.execute.mock.calls[0][2].timeoutMs).toBeLessThanOrEqual(100_000);
   });
 
   it.each([
@@ -474,6 +476,40 @@ describe("askChoiceQuestions on the personal API key (6)", () => {
     expect(api.prepare).toHaveBeenCalledTimes(1);
     expect(api.execute).toHaveBeenCalledTimes(1);
     expectOnly("personal_api_key");
+  });
+
+  it("subtracts billed chunks from the allowance before preparing the next chunk", async () => {
+    provide("personal_api_key");
+    const prepare = api.prepare.getMockImplementation()!;
+    const execute = api.execute.getMockImplementation()!;
+    api.prepare.mockImplementation(async (owner, input) => {
+      if (input.allotmentNanoUsd < 20_000_000) throw new ApiKeyError("AI_KEY_CEILING");
+      return prepare(owner, input);
+    });
+    api.execute.mockImplementation(async (...args) => ({ ...await execute(...args), costNanoUsd: 90_000_000 }));
+    const result = await ask("personal_api_key", questions(60));
+    expect(api.prepare.mock.calls.map(([, input]) => input.allotmentNanoUsd)).toEqual([100_000_000, 10_000_000]);
+    expect(api.execute).toHaveBeenCalledTimes(1);
+    expect(result.status).toBe("partial");
+    expect(result.answers.filter((entry) => entry.choice !== null)).toHaveLength(50);
+  });
+
+  it("subtracts preparation time from generation and shares the same signal", async () => {
+    provide("personal_api_key");
+    const now = vi.spyOn(Date, "now").mockReturnValue(0);
+    api.prepare.mockImplementation(async (_owner, input) => {
+      now.mockReturnValue(60_000);
+      return { prompt: input.prompt };
+    });
+    try {
+      await ask("personal_api_key", questions(3));
+      expect(api.execute.mock.calls[0][2]).toEqual({
+        timeoutMs: 40_000, signal: api.prepare.mock.calls[0][1].signal,
+      });
+      expect(api.prepare.mock.calls[0][1].signal).toBeInstanceOf(AbortSignal);
+    } finally {
+      now.mockRestore();
+    }
   });
 
   it("generates nothing when the request may pass the ceiling", async () => {
@@ -586,7 +622,7 @@ describe("availability", () => {
     expect(await readChoiceProviderAvailability(OWNER)).toEqual({
       chatgpt_plan: { available: true, message: "Connexion ChatGPT configurée." },
       personal_api_key: { available: true, message: "Clé API OpenAI enregistrée : appels facturés à votre compte OpenAI, 0,10 $ US au plus par demande." },
-      decisions: { available: true, message: "Decisions configuré." },
+      decisions: { available: true, message: "Decisions configuré. Un appel par demande, jusqu’à 100 questions et 200 Kio de données." },
     });
     expect(getStructuredAiAvailability).toHaveBeenCalledWith(OWNER);
     expect(api.state).toHaveBeenCalledWith(OWNER);

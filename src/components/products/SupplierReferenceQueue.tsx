@@ -16,10 +16,13 @@ import { Input } from "@/components/ui/input";
 import { NativeSelect } from "@/components/ui/native-select";
 import { fetchPendingSupplierReferences, reviewSupplierReferences } from "@/lib/catalogue/import-review-client";
 import {
+  CATALOGUE_BULK_INCOMPLETE,
   PENDING_REFERENCE_PAGE_SIZES,
   type PendingSupplierReferencePage,
+  type PendingReferencesQuery,
   type ReviewReferencesInput,
 } from "@/lib/catalogue/import-review-contract";
+import { isEstimateApiError } from "@/lib/estimates/client-errors";
 import {
   catalogueErrorMessage,
   fetchSupplierDirectory,
@@ -34,7 +37,7 @@ import {
  */
 
 type PageSize = (typeof PENDING_REFERENCE_PAGE_SIZES)[number];
-type Filter = NonNullable<ReviewReferencesInput["filter"]>;
+type Filter = Pick<PendingReferencesQuery, "supplier_id" | "import_batch_id" | "q">;
 
 const count = (value: number) => value.toLocaleString("fr-FR");
 const plural = (value: number, one: string, many: string) => (value === 1 ? one : many);
@@ -75,8 +78,9 @@ export function SupplierReferenceQueue({ initialImportBatchId }: Readonly<{ init
   const { data, error, isLoading, mutate } = useSWR<PendingSupplierReferencePage>(
     ["pending-supplier-references", page, size, filter],
     () => fetchPendingSupplierReferences({ page, size, ...filter }),
-    { keepPreviousData: true, revalidateOnFocus: true },
+    { revalidateOnFocus: true },
   );
+  const ready = Boolean(data) && !isLoading && !error && searchInput.trim() === search;
   const items = data?.items ?? [];
   const total = data?.pagination.totalItems ?? 0;
   const reviewable = items.filter((item) => item.can_review);
@@ -106,18 +110,23 @@ export function SupplierReferenceQueue({ initialImportBatchId }: Readonly<{ init
       await mutate();
     } catch (failure) {
       setMessage({ tone: "danger", text: catalogueErrorMessage(failure, "Ces références n’ont pas pu être vérifiées.") });
+      if (isEstimateApiError(failure) && (failure.status === 409 || failure.code === CATALOGUE_BULK_INCOMPLETE)) {
+        setSelected(new Set());
+        await mutate().catch(() => undefined);
+      }
     } finally {
       setBusy(false);
     }
   }
 
   async function validateAll() {
+    if (!ready || busy || total === 0) return;
     const confirmed = await confirm({
       title: `Valider ${count(total)} ${plural(total, "référence", "références")} ?`,
       description: "Elles serviront aux achats telles que le classeur les donne. Une référence validée se corrige ensuite depuis la fiche de son article.",
       confirmLabel: "Valider",
     });
-    if (confirmed) await review({ action: "validate", filter }, total);
+    if (confirmed) await review({ action: "validate", filter, expected_count: total }, total);
   }
 
   async function withdrawSelection() {
@@ -192,15 +201,15 @@ export function SupplierReferenceQueue({ initialImportBatchId }: Readonly<{ init
           <div className="flex flex-wrap items-center gap-2">
             <Button
               size="sm"
-              disabled={busy || selectedOnPage.length === 0}
+              disabled={busy || !ready || selectedOnPage.length === 0}
               onClick={() => void review({ action: "validate", ids: selectedOnPage.map((item) => item.id) }, selectedOnPage.length)}
             >
               Valider la sélection
             </Button>
-            <Button variant="danger" size="sm" disabled={busy || selectedOnPage.length === 0} onClick={() => void withdrawSelection()}>
+            <Button variant="danger" size="sm" disabled={busy || !ready || selectedOnPage.length === 0} onClick={() => void withdrawSelection()}>
               Retirer la sélection
             </Button>
-            <Button variant="secondary" size="sm" loading={busy} disabled={busy || total === 0} onClick={() => void validateAll()}>
+            <Button variant="secondary" size="sm" loading={busy} disabled={busy || !ready || total === 0} onClick={() => void validateAll()}>
               {`Valider les ${count(total)} ${plural(total, "référence", "références")}`}
             </Button>
           </div>

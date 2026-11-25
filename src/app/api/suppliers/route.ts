@@ -17,6 +17,7 @@ export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
     const query = supplierListQuerySchema.parse({
       view: searchParams.get("view") ?? "list",
+      scope: searchParams.get("scope") ?? undefined,
       id: searchParams.get("id") ?? undefined,
     });
 
@@ -27,7 +28,7 @@ export async function GET(request: Request) {
       return ok(await getSupplierUsage(query.id));
     }
 
-    return ok(await listSuppliers());
+    return ok(await listSuppliers(query.scope));
   } catch (error) {
     return toErrorResponse(error);
   }

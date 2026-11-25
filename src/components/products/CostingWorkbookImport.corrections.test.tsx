@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import * as XLSX from "xlsx";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -73,10 +73,12 @@ function supplierReport(overrides: Partial<CostingWorkbookSupplierReferenceRepor
   };
 }
 
-function xlsxFile(name: string, sheets: Record<string, unknown[][]>) {
+function xlsxFile(name: string, sheets: Record<string, unknown[][]>, formats: Record<string, string> = {}) {
   const book = XLSX.utils.book_new();
   for (const [sheetName, rows] of Object.entries(sheets)) {
-    XLSX.utils.book_append_sheet(book, XLSX.utils.aoa_to_sheet(rows), sheetName);
+    const worksheet = XLSX.utils.aoa_to_sheet(rows);
+    for (const [cell, format] of Object.entries(formats)) if (worksheet[cell]) worksheet[cell].z = format;
+    XLSX.utils.book_append_sheet(book, worksheet, sheetName);
   }
   const bytes = XLSX.write(book, { bookType: name.endsWith(".xlsm") ? "xlsm" : "xlsx", type: "array" }) as ArrayBuffer;
   const file = new File([bytes], name);
@@ -121,7 +123,7 @@ const fetchMock = vi.fn<typeof fetch>((input, init) => {
     answers.aliases = [...answers.aliases, item];
     return respond(201, { ok: true, data: { item } });
   }
-  if (url === "/api/suppliers") {
+  if (url === "/api/suppliers?scope=active" || url === "/api/suppliers") {
     return method === "GET"
       ? respond(200, { ok: true, data: { items: answers.directory } })
       : respond(201, { ok: true, data: { item: { id: "s9", name: (body as { item: { name: string } }).item.name } } });
@@ -251,6 +253,48 @@ describe("CostingWorkbookImport, corrections in the screen", () => {
     expect(screen.getByRole("list", { name: "Corrections" })).toHaveTextContent("A1 : Réf → ID");
   });
 
+  it("previews and confirms a formatted numeric ID after remapping its header", async () => {
+    const user = userEvent.setup();
+    answers.articles = () => previews().length === 1
+      ? respond(422, { ok: false, error: { code: "COSTING_WORKBOOK_FORMAT", message: "ID manquant" } })
+      : respond(200, { ok: true, data: articleReport() });
+    const rows = SHEET_ROWS.map((row, index) => index === 0 ? ["Réf", ...row.slice(1)] : index === 1 ? [42, ...row.slice(1)] : row);
+    renderImport();
+    await user.upload(fileInput(), xlsxFile("classeur.xlsx", { All_data: rows }, { A2: "000000" }));
+    await user.selectOptions(await screen.findByLabelText("En-tête du classeur à lire comme ID"), "A · Réf");
+    await user.click(await screen.findByRole("button", { name: "Importer 2 brouillons" }));
+    await waitFor(() => expect(previews()).toHaveLength(3));
+    expect(previews().slice(1).map((entry) => [entry.body?.confirm, entry.body?.rows?.[1][0]])).toEqual([[false, "000042"], [true, "000042"]]);
+  });
+
+  it("refuses an oversized corrections file before reading it", async () => {
+    const user = userEvent.setup();
+    renderImport();
+    await user.upload(fileInput(), costingWorkbook());
+    await screen.findByRole("table", { name: "Articles proposés en brouillon" });
+    const file = new File([], "corrections.xlsx");
+    Object.defineProperty(file, "size", { value: 20 * 1024 * 1024 + 1 });
+    const read = vi.fn().mockResolvedValue(new ArrayBuffer(0));
+    Object.defineProperty(file, "arrayBuffer", { value: read });
+    await user.upload(screen.getByLabelText("Fichier de corrections"), file);
+    expect(read).not.toHaveBeenCalled();
+    expect(await screen.findByText("Ce fichier de corrections dépasse 20 Mo.")).toBeVisible();
+  });
+
+  it("refuses to create a truncated supplier name", async () => {
+    const user = userEvent.setup();
+    const name = "F".repeat(256);
+    renderImport();
+    const rows = SHEET_ROWS.map((row, index) => index === 1 ? row.map((cell, column) => column === 6 ? name : cell) : row);
+    await user.upload(fileInput(), costingWorkbook(rows));
+    await screen.findByRole("table", { name: "Articles proposés en brouillon" });
+    await user.click(screen.getByRole("tab", { name: "Références fournisseur" }));
+    await user.click(await screen.findByRole("button", { name: "Fournisseur actif introuvable" }));
+    await user.click(screen.getByRole("button", { name: `Créer le fournisseur ${name}` }));
+    expect(sent.some(({ url, method }) => url === "/api/suppliers" && method === "POST")).toBe(false);
+    expect(await screen.findByText(/ne peut pas dépasser 255 caractères/)).toBeVisible();
+  });
+
   it("gives a family the supply type chosen in the screen, in the preview and in the import (4)", async () => {
     const user = userEvent.setup();
     renderImport();
@@ -260,15 +304,15 @@ describe("CostingWorkbookImport, corrections in the screen", () => {
 
     await user.click(view("Types de fourniture"));
     const types = within(screen.getByRole("table", { name: "Types de fourniture proposés" }));
-    expect(types.getByLabelText("Tube")).toHaveDisplayValue("Tube (même code)");
-    await user.selectOptions(types.getByLabelText("Calorifuge"), "Support");
+    expect(types.getByLabelText("I4L")).toHaveDisplayValue("Tube (type proposé)");
+    await user.selectOptions(types.getByLabelText("CAL"), "Support");
     await waitFor(() => expect(previews()).toHaveLength(2));
-    expect(previews()[1].body).toMatchObject({ confirm: false, supply_types: { calorifuge: SUPPORT_TYPE } });
+    expect(previews()[1].body).toMatchObject({ confirm: false, supply_type_families: [{ family_code: "CAL", supply_type_id: SUPPORT_TYPE }] });
     expect(previews()[0].body).not.toHaveProperty("supply_types");
 
     await user.click(await screen.findByRole("button", { name: "Importer 2 brouillons" }));
     await waitFor(() => expect(previews()).toHaveLength(3));
-    expect(previews()[2].body).toMatchObject({ confirm: true, supply_types: { calorifuge: SUPPORT_TYPE } });
+    expect(previews()[2].body).toMatchObject({ confirm: true, supply_type_families: [{ family_code: "CAL", supply_type_id: SUPPORT_TYPE }] });
   });
 
   it("sends the references of articles to create to the draft import, not to Excel (5)", async () => {
@@ -333,6 +377,128 @@ describe("CostingWorkbookImport, corrections in the screen", () => {
       .toEqual({ supplier_id: "s3", alias: "Pt.P" });
   });
 
+  it("keeps the current preview when a corrections file is picked as a workbook", async () => {
+    const user = userEvent.setup();
+    renderImport();
+    await user.upload(fileInput(), costingWorkbook());
+    await screen.findByRole("table", { name: "Articles proposés en brouillon" });
+    await user.upload(fileInput(), xlsxFile("corrections.xlsx", { Corrections: [["Cellule à vérifier"]] }));
+    await screen.findByText(/Ce classeur n’a pas d’onglet/);
+    expect(screen.getByRole("table", { name: "Articles proposés en brouillon" })).toBeVisible();
+  });
+
+  it("disables confirmation while a typed cell correction is pending", async () => {
+    const user = userEvent.setup();
+    renderImport();
+    await user.upload(fileInput(), costingWorkbook());
+    const table = await screen.findByRole("table", { name: "Articles proposés en brouillon" });
+    await user.click(within(table).getByRole("button", { name: "Corriger la cellule E3" }));
+    await user.type(screen.getByLabelText("Nouvelle valeur de la cellule E3"), "9,90");
+    const confirm = screen.getByRole("button", { name: "Importer 2 brouillons" });
+    expect(confirm).toBeDisabled();
+    await user.click(confirm);
+    expect(previews()).toHaveLength(1);
+  });
+
+  it("shows conflicts between associated names and removes mismatched product URLs", async () => {
+    const user = userEvent.setup();
+    const product_id = "90000000-0000-4000-8000-000000000001";
+    const supplier_id = "90000000-0000-4000-8000-000000000002";
+    const reason = "conflicting_workbook_references" as const;
+    answers.suppliers = () => respond(200, { ok: true, data: supplierReport({ for_decision: [
+      { row: 2, slot: 1, reason, product_id, supplier_id },
+      { row: 2, slot: 2, reason, product_id, supplier_id },
+    ] }) });
+    renderImport();
+    const rows = [
+      [...HEADERS, "F1_URL", "F2_nom", "F2_ref", "F2_URL"],
+      [...SHEET_ROWS[1], "https://example.test/products/A", "Négoce Nord", "B-2", "https://example.test/products/B"],
+      SHEET_ROWS[2],
+    ];
+    await user.upload(fileInput(), costingWorkbook(rows));
+    await screen.findByRole("table", { name: "Articles proposés en brouillon" });
+    await user.click(screen.getByRole("tab", { name: "Références fournisseur" }));
+    await user.click(await screen.findByRole("button", { name: /Garder le code B-2/ }));
+    await waitFor(() => expect(supplierPreviews()).toHaveLength(2));
+    expect(supplierPreviews()[1].body?.rows?.[1]).toEqual([
+      ...SHEET_ROWS[1].slice(0, 7), "B-2", "Art", null, "Négoce Nord", "B-2", "https://example.test/products/B",
+    ]);
+  });
+
+  it("lets the office reach the thirty-first article waiting for draft creation", async () => {
+    const user = userEvent.setup();
+    const data = Array.from({ length: 31 }, (_, index) => [`TUBE-${index + 1}`, ...SHEET_ROWS[1].slice(1)]);
+    answers.suppliers = () => respond(200, { ok: true, data: supplierReport({ for_decision: data.map((_, index) =>
+      ({ row: index + 2, slot: 1, reason: "article_to_create" })) }) });
+    renderImport();
+    await user.upload(fileInput(), costingWorkbook([HEADERS, ...data]));
+    await screen.findByRole("table", { name: "Articles proposés en brouillon" });
+    await user.click(screen.getByRole("tab", { name: "Références fournisseur" }));
+    const list = within(await screen.findByRole("list", { name: "Articles à créer d’abord" }));
+    expect(list.queryByText("TUBE-31")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Suivante" }));
+    expect(list.getByText("TUBE-31")).toBeVisible();
+  });
+
+  it("locks conflicting actions while a corrections file is being read", async () => {
+    const user = userEvent.setup();
+    renderImport();
+    await user.upload(fileInput(), costingWorkbook());
+    const table = await screen.findByRole("table", { name: "Articles proposés en brouillon" });
+    const corrections = xlsxFile("corrections.xlsx", { Corrections: [
+      ["Cellule à vérifier", "Valeur d’origine", "Correction à renseigner", "Colonne", "Article"],
+      ["G2", "Pt.P", "Point P Matériaux", "F1_nom", "TUBE-20"],
+    ] });
+    const bytes = await corrections.arrayBuffer();
+    let finish!: (value: ArrayBuffer) => void;
+    const pending = new Promise<ArrayBuffer>((resolve) => { finish = resolve; });
+    const file = new File([bytes], "corrections.xlsx");
+    Object.defineProperty(file, "arrayBuffer", { value: () => pending });
+    const picker = screen.getByLabelText("Fichier de corrections");
+    await user.upload(picker, file);
+    expect(picker).toBeDisabled();
+    expect(fileInput()).toBeDisabled();
+    expect(within(table).getByRole("button", { name: "Corriger la cellule E3" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Importer 2 brouillons" })).toBeDisabled();
+    await act(async () => finish(bytes));
+    await waitFor(() => expect(previews()).toHaveLength(2));
+    expect(previews()[1].body?.rows?.[1][6]).toBe("Point P Matériaux");
+  });
+
+  it("asks before replacing a corrected workbook and reapplies only matching cells", async () => {
+    const user = userEvent.setup();
+    renderImport();
+    await user.upload(fileInput(), costingWorkbook());
+    const table = await screen.findByRole("table", { name: "Articles proposés en brouillon" });
+    await user.click(within(table).getByRole("button", { name: "Corriger la cellule E3" }));
+    await user.type(screen.getByLabelText("Nouvelle valeur de la cellule E3"), "9,90{Enter}");
+    await waitFor(() => expect(previews()).toHaveLength(2));
+    await user.upload(fileInput(), xlsxFile("nouveau.xlsx", { All_data: SHEET_ROWS }));
+    const dialog = await screen.findByRole("alertdialog", { name: "Changer de classeur ?" });
+    expect(previews()).toHaveLength(2);
+    await user.click(within(dialog).getByRole("button", { name: "Reprendre les corrections" }));
+    await waitFor(() => expect(previews()).toHaveLength(3));
+    expect(previews()[2].body?.rows?.[2][4]).toBe("9,90");
+    expect(screen.getByText(/1 correction.*reprise/)).toBeVisible();
+  });
+
+  it("ignores a supplier creation refresh after another workbook replaced its source", async () => {
+    const user = userEvent.setup();
+    let finish!: (value: Response) => void;
+    const pending = new Promise<Response>((resolve) => { finish = resolve; });
+    vi.stubGlobal("fetch", vi.fn<typeof fetch>((input, init) =>
+      String(input) === "/api/suppliers" && init?.method === "POST" ? pending : fetchMock(input, init)));
+    renderImport();
+    await openSupplierReferences(user);
+    await user.click(await screen.findByRole("button", { name: "Fournisseur actif introuvable" }));
+    await user.click(await screen.findByRole("button", { name: "Créer le fournisseur Pt.P" }));
+    await user.upload(fileInput(), xlsxFile("autre.xlsx", { All_data: SHEET_ROWS.slice(0, 2) }));
+    await waitFor(() => expect(supplierPreviews()).toHaveLength(2));
+    await act(async () => finish(await respond(201, { ok: true, data: { item: { id: "s9", name: "Pt.P" } } })));
+    expect(supplierPreviews()).toHaveLength(2);
+    expect(supplierPreviews()[1].body?.rows).toHaveLength(2);
+  });
+
   it("reads a filled corrections file back, and says what it left out (7)", async () => {
     const user = userEvent.setup();
     renderImport();
@@ -340,9 +506,9 @@ describe("CostingWorkbookImport, corrections in the screen", () => {
     await screen.findByRole("table", { name: "Articles proposés en brouillon" });
 
     const corrections = xlsxFile("corrections.xlsx", { Corrections: [
-      ["Motif", "Cellule à vérifier", "Valeur d’origine", "Correction à renseigner"],
-      ["Fournisseur actif introuvable", "G2", "Pt.P", "Point P Matériaux"],
-      ["Fournisseur actif introuvable", "G3", "Autre nom", "Point P Matériaux"],
+      ["Motif", "Cellule à vérifier", "Valeur d’origine", "Correction à renseigner", "Colonne", "Article"],
+      ["Fournisseur actif introuvable", "G2", "Pt.P", "Point P Matériaux", "F1_nom", "TUBE-20"],
+      ["Fournisseur actif introuvable", "G3", "Autre nom", "Point P Matériaux", "F1_nom", "COQ-25"],
       ["Article actif introuvable", "A2", "TUBE-20", ""],
     ] });
     await user.upload(screen.getByLabelText("Fichier de corrections"), corrections);
@@ -351,8 +517,10 @@ describe("CostingWorkbookImport, corrections in the screen", () => {
     expect(previews()[1].body?.rows?.[1]?.[6]).toBe("Point P Matériaux");
     expect(previews()[1].body?.rows?.[2]?.[6]).toBe("pt.p");
     expect(await screen.findByText(
-      "1 correction lue dans corrections.xlsx ; 1 écartée : sa cellule ne contient plus la valeur d’origine.",
+      "1 correction lue dans corrections.xlsx ; 1 écartée : la valeur d’origine a changé.",
     )).toBeVisible();
+    await user.click(screen.getByText("Voir les corrections écartées"));
+    expect(screen.getByText("Ligne 3 · G3 · la valeur d’origine a changé")).toBeVisible();
   });
 
   it("keeps the list of the references it imported, to verify them (8)", async () => {

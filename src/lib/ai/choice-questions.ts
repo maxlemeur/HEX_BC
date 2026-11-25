@@ -34,13 +34,13 @@ import { StructuredAiError } from "@/lib/ai/structured-ai-diagnostic";
  * The three providers:
  *  - `chatgpt_plan`: the member's ChatGPT plan (`callStructuredAi`), in local MergeOne only;
  *  - `personal_api_key`: the member's own OpenAI API key (`openAiApiKeyAccess`), in local MergeOne only. Each
- *    request is counted by OpenAI before it is generated and may cost CHOICE_API_KEY_CEILING_NANO_USD at most; an
- *    unknown cost or a cost above the ceiling refuses the answer and stops, as the photo analysis does.
+ *    call is counted by OpenAI before generation. All calls share CHOICE_API_KEY_CEILING_NANO_USD per HTTP request.
+ *    An unknown cost or a cost above the remaining allowance refuses the answer and stops.
  *    The model and the effort are the member's default API choice of « Mon profil ». The contracts only resolve a
  *    choice for a usage (`resolveApiAnalysisPreferences(settings, models, usage)`, photos or takeoff lab), which
  *    applies that usage's override first: it is called here on the settings without their overrides, so that the
  *    photo-specific model is never used for these text questions and the usage named has no effect;
- *  - `decisions`: the Decisions API billed to the server (`callOpenAiDecisions`), `choice` questions.
+ *  - `decisions`: one bounded call to the Decisions API billed to the server. The adapter supplies no cost bound.
  *
  * A provider sees neither the caller's question identifiers nor its choice values: questions are sent as « q1 »,
  * « q2 »… and choices as « c1 », « c2 »…, and an answer is translated back only when it names a choice of its
@@ -116,6 +116,8 @@ const MESSAGES = {
   available: "Propositions de l’IA à confirmer : elles ne prouvent rien et n’appliquent rien.",
   partial: "Réponse partielle de l’IA : les éléments sans proposition restent à choisir.",
   outOfTime: "Le temps imparti est écoulé : les questions restantes n’ont pas été envoyées. Relancez la demande pour les suivantes.",
+  decisionsLimit: "Decisions traite au plus un lot par demande. Les questions restantes restent à vérifier.",
+  outOfBudget: "Le budget de cette demande ne permet pas d’envoyer les questions restantes. Les réponses reçues sont conservées.",
   decisionsFailed: "La demande Decisions a échoué. Continuez manuellement.",
 } as const;
 
@@ -182,7 +184,13 @@ async function apiKeySetup(owner: ChoiceOwner): Promise<ApiKeySetup> {
 
 function decisionsAvailability(): Availability {
   const capability = getOpenAiDecisionsCapability();
-  return { available: capability.status === "available", message: capability.message };
+  const available = capability.status === "available";
+  return {
+    available,
+    message: available
+      ? `${capability.message} Un appel par demande, jusqu’à 100 questions et 200 Kio de données.`
+      : capability.message,
+  };
 }
 
 /** Whether each provider can be asked by this member, here: no inference, no provider request. */
@@ -207,7 +215,7 @@ type Entry = {
 type Picked = { choice: string; confidence: number | null };
 type Outcome =
   | { status: "answered"; model: string | null; picks: Map<string, Picked> }
-  | { status: "failed" | "unavailable"; model: string | null; message: string };
+  | { status: "failed" | "unavailable" | "partial"; model: string | null; message: string };
 type Sender = (chunk: readonly Entry[], timeoutMs: number) => Promise<Outcome>;
 type Task = { task: string; promptVersion: string; instructions: string };
 
@@ -323,23 +331,33 @@ function planSender(owner: ChoiceOwner, task: Task): Sender {
 
 function apiKeySender(owner: ChoiceOwner, task: Task, call: NonNullable<ApiKeySetup["call"]>): Sender {
   const api = openAiApiKeyAccess();
-  const ceiling = CHOICE_API_KEY_CEILING_NANO_USD;
+  let remaining = CHOICE_API_KEY_CEILING_NANO_USD;
   return async (chunk, timeoutMs) => {
+    if (remaining <= 0) return { status: "partial", model: null, message: MESSAGES.outOfBudget };
+    const deadline = Date.now() + timeoutMs;
+    const signal = AbortSignal.timeout(timeoutMs);
     try {
       // Text only: OpenAI counts this exact request, and the output budget is what the ceiling leaves.
       const prepared = await api.prepare(owner, {
         model: call.model, reasoningEffort: call.reasoningEffort, expectedVersion: call.expectedVersion,
-        prompt: promptOf(task, chunk), schema: strictAnswerSchema, files: [], allotmentNanoUsd: ceiling,
+        prompt: promptOf(task, chunk), schema: strictAnswerSchema, files: [], allotmentNanoUsd: remaining, signal,
         outputCap: API_KEY_OUTPUT_CAP, minOutputTokens: apiKeyMinOutputTokens(chunk.length),
       });
-      const answer = await api.execute<Replies>(owner, prepared, { timeoutMs });
+      const left = deadline - Date.now();
+      if (left <= 0 || signal.aborted) return { status: "partial", model: null, message: MESSAGES.outOfTime };
+      const answer = await api.execute<Replies>(owner, prepared, { timeoutMs: left, signal });
       if (answer.costNanoUsd === null) throw new ApiKeyError("AI_KEY_COST_UNKNOWN");
-      if (answer.costNanoUsd > ceiling) {
-        throw new ApiKeyError("AI_KEY_CEILING_EXCEEDED", { detail: { ceiling: formatUsdCeiling(ceiling), cost: formatUsdCeiling(answer.costNanoUsd) } });
+      if (answer.costNanoUsd > remaining) {
+        throw new ApiKeyError("AI_KEY_CEILING_EXCEEDED", { detail: { ceiling: formatUsdCeiling(remaining), cost: formatUsdCeiling(answer.costNanoUsd) } });
       }
+      remaining -= answer.costNanoUsd;
       if (answer.data === null) throw new StructuredAiError("INVALID_ANSWER", FAILURE_MESSAGES.INVALID_ANSWER);
       return { status: "answered", model: answer.model, picks: picksOf(chunk, answer.data) };
     } catch (error) {
+      if (signal.aborted || reasonOf(error) === "TIMEOUT") return { status: "partial", model: null, message: FAILURE_MESSAGES.TIMEOUT };
+      if (remaining < CHOICE_API_KEY_CEILING_NANO_USD && isApiKeyError(error) && error.code === "AI_KEY_CEILING") {
+        return { status: "partial", model: null, message: MESSAGES.outOfBudget };
+      }
       // A key failure is its closed code and its fixed sentence; anything else is worded here.
       const message = isApiKeyError(error) ? error.message
         : reasonOf(error) === "INVALID_ANSWER" ? FAILURE_MESSAGES.INVALID_ANSWER : apiKeyErrorMessage("AI_KEY_UNEXPECTED");
@@ -428,15 +446,17 @@ export async function askChoiceQuestions(input: {
   const unanswered = (): ChoiceAnswer[] => input.questions.map((question) => ({ id: question.id, choice: null, confidence: null }));
   if (entries.length === 0) return { provider, status: "available", message: MESSAGES.nothing, model: null, answers: [] };
 
+  const deadline = Date.now() + TIME_BUDGET_MS;
   const send = await openSender(provider, owner, task);
   if (typeof send === "string") return { provider, status: "unavailable", message: send, model: null, answers: unanswered() };
 
   const picked = new Map<string, Picked>();
   let model: string | null = null;
-  let stopped: { status: "failed" | "unavailable"; message: string } | null = null;
+  let stopped: { status: "failed" | "unavailable" | "partial"; message: string } | null = null;
   let outOfTime = false;
-  const deadline = Date.now() + TIME_BUDGET_MS;
-  for (const chunk of chunksOf(entries, CHOICE_REQUEST_LIMITS[provider])) {
+  const chunks = chunksOf(entries, CHOICE_REQUEST_LIMITS[provider]);
+  const decisionsLimited = provider === "decisions" && chunks.length > 1;
+  for (const chunk of decisionsLimited ? chunks.slice(0, 1) : chunks) {
     const left = deadline - Date.now();
     if (left < MIN_REQUEST_MS) {
       outOfTime = true;
@@ -461,6 +481,6 @@ export async function askChoiceQuestions(input: {
   return {
     provider, model, answers,
     status: complete ? "available" : "partial",
-    message: complete ? MESSAGES.available : outOfTime ? MESSAGES.outOfTime : MESSAGES.partial,
+    message: complete ? MESSAGES.available : outOfTime ? MESSAGES.outOfTime : decisionsLimited ? MESSAGES.decisionsLimit : MESSAGES.partial,
   };
 }

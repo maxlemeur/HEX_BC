@@ -145,6 +145,7 @@ export const supplierActionSchema = z.discriminatedUnion("action", [
 
 export const supplierListQuerySchema = z.object({
   view: z.enum(["list", "usage"]).optional().default("list"),
+  scope: z.literal("active").optional(),
   id: z.string().uuid(UUID_ERROR_MESSAGE).optional(),
 });
 

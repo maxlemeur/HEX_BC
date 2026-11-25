@@ -7,6 +7,8 @@ import { buildCatalogueAccess, canAddToCatalogue, canEditCatalogueRecord } from 
 import { readEngineersCanEditShared } from "@/lib/catalogue/access-server";
 import { workbookSupplierNameKey } from "@/lib/catalogue/costing-workbook";
 import {
+  bulkValidationSummary,
+  CATALOGUE_BULK_INCOMPLETE,
   REVIEW_REFERENCES_MAX,
   type BulkProductsInput,
   type BulkProductsResult,
@@ -20,7 +22,7 @@ import {
   type UndoImportResult,
 } from "@/lib/catalogue/import-review-contract";
 import { catalogueStatusError, PRODUCT_WRITE_REFUSAL } from "@/lib/catalogue/product-writes";
-import { badRequest, conflict, forbidden, mapSupabaseError, notFound, type SupabaseErrorLike } from "@/lib/http/api-response";
+import { ApiError, badRequest, conflict, forbidden, mapSupabaseError, notFound, type SupabaseErrorLike } from "@/lib/http/api-response";
 import { readAllRows } from "@/lib/supabase/read-all";
 
 /**
@@ -163,15 +165,21 @@ const reviewAnswerSchema = z.object({ reviewed: z.number().int().nonnegative(), 
  */
 export async function reviewSupplierReferences(input: ReviewReferencesInput): Promise<ReviewReferencesResult> {
   const context = await editorContext();
-  const ids = input.ids ?? await pendingReferenceIds(context, input.filter ?? {});
+  const ids = "ids" in input ? input.ids : await pendingReferenceIds(context, input.filter);
+  if ("expected_count" in input && input.expected_count !== ids.length) {
+    throw conflict("La liste des références à vérifier a changé. Actualisez-la avant de confirmer à nouveau.");
+  }
   const result = { reviewed: 0, skipped: 0 };
   for (let start = 0; start < ids.length; start += REVIEW_REFERENCES_MAX) {
     const { data, error } = await context.supabase.rpc("review_supplier_references", {
       p_item_ids: ids.slice(start, start + REVIEW_REFERENCES_MAX),
       p_validate: input.action === "validate",
     });
-    if (error?.code === "42501") throw forbidden(PRODUCT_WRITE_REFUSAL);
-    if (error) throw mapSupabaseError(error, "Impossible de vérifier ces références.");
+    if (error) {
+      const refusal = error.code === "42501" ? forbidden(PRODUCT_WRITE_REFUSAL) : mapSupabaseError(error, "Impossible de vérifier ces références.");
+      const verb = input.action === "validate" ? "validées" : "retirées";
+      throw bulkRefusal(start, refusal, result, `${result.reviewed.toLocaleString("fr-FR")} références ${verb}. ${result.skipped.toLocaleString("fr-FR")} laissées en attente.`);
+    }
     const answer = reviewAnswerSchema.parse(data);
     result.reviewed += answer.reviewed;
     result.skipped += answer.skipped;
@@ -185,6 +193,16 @@ const validateAnswerSchema = z.object({
 
 function productBulkError(error: SupabaseErrorLike, fallback: string) {
   return catalogueStatusError(error) ?? (error.code === "42501" ? forbidden(PRODUCT_WRITE_REFUSAL) : mapSupabaseError(error, fallback));
+}
+
+function bulkRefusal(start: number, refusal: ApiError, committed: BulkProductsResult | ReviewReferencesResult, summary: string) {
+  if (start === 0) return refusal;
+  return new ApiError({
+    status: refusal.status,
+    code: CATALOGUE_BULK_INCOMPLETE,
+    message: `${summary} ${refusal.message} Actualisez la liste avant de réessayer.`,
+    details: { committed },
+  });
 }
 
 async function draftIdsOfBatch({ supabase, tenantId }: Context, batchId: string): Promise<string[]> {
@@ -210,19 +228,25 @@ export async function bulkUpdateProducts(input: BulkProductsInput): Promise<Bulk
       const { data, error } = await context.supabase.rpc("assign_products_supply_type", {
         p_product_ids: input.ids.slice(start, start + PRODUCTS_PER_STATEMENT), p_supply_type_id: input.supply_type_id,
       });
-      if (error) throw productBulkError(error, "Impossible de donner ce type de fourniture aux articles.");
+      if (error) {
+        throw bulkRefusal(start, productBulkError(error, "Impossible de donner ce type de fourniture aux articles."),
+          { action: "assign-supply-type", updated }, `Type de fourniture appliqué à ${updated.toLocaleString("fr-FR")} articles.`);
+      }
       updated += data ?? 0;
     }
     return { action: "assign-supply-type", updated };
   }
 
-  const ids = input.ids ?? await draftIdsOfBatch(context, input.import_batch_id!);
+  if (context.tenantRole !== "admin") throw forbidden("La validation d’un article en brouillon est réservée aux administrateurs.");
+  const ids = "ids" in input ? input.ids : await draftIdsOfBatch(context, input.import_batch_id);
   const result = { action: "validate" as const, validated: 0, incomplete: 0, skipped: 0 };
   for (let start = 0; start < ids.length; start += PRODUCTS_PER_STATEMENT) {
     const { data, error } = await context.supabase.rpc("validate_draft_products", {
       p_product_ids: ids.slice(start, start + PRODUCTS_PER_STATEMENT),
     });
-    if (error) throw productBulkError(error, "Impossible de valider ces articles.");
+    if (error) {
+      throw bulkRefusal(start, productBulkError(error, "Impossible de valider ces articles."), result, bulkValidationSummary(result));
+    }
     const answer = validateAnswerSchema.parse(data);
     result.validated += answer.validated;
     result.incomplete += answer.incomplete;

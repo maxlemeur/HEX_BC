@@ -1,3 +1,6 @@
+import Ajv from "ajv";
+
+import published from "../../../openapi.json";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { GET } from "@/app/api/docs/route";
@@ -71,5 +74,31 @@ describe("GET /api/docs/swagger-ui/[asset]", () => {
     });
 
     expect(response.status).toBe(404);
+  });
+});
+
+
+describe("published catalogue review contracts", () => {
+  const id = "90000000-0000-4000-8000-000000000001";
+
+  it("publishes mutually exclusive review and validation targets", () => {
+    const ajv = new Ajv();
+    const review = ajv.compile(published.components.schemas.ReviewSupplierReferencesRequest);
+    expect(review({ action: "validate", filter: {}, expected_count: 2 })).toBe(true);
+    expect(review({ action: "validate", filter: {} })).toBe(false);
+    expect(review({ action: "validate", filter: {}, expected_count: 2, ids: [id] })).toBe(false);
+    const products = ajv.compile(published.components.schemas.BulkUpdateProductsRequest);
+    expect(products({ action: "validate", import_batch_id: id })).toBe(true);
+    expect(products({ action: "validate", ids: [id] })).toBe(true);
+    expect(products({ action: "validate", ids: [id], import_batch_id: id })).toBe(false);
+    expect(products({ action: "validate" })).toBe(false);
+  });
+
+  it("publishes typed suggestion and availability envelopes", () => {
+    const operations = published.paths["/api/catalogue/workbook-import/suggestions"];
+    expect(operations.get.responses["200"].content["application/json"].schema.$ref)
+      .toBe("#/components/schemas/ApiCostingWorkbookSuggestionProviders");
+    expect(operations.post.responses["200"].content["application/json"].schema.$ref)
+      .toBe("#/components/schemas/ApiCostingWorkbookSuggestions");
   });
 });

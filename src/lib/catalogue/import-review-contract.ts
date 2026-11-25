@@ -63,13 +63,15 @@ export const REVIEW_REFERENCES_MAX = 5000;
  * purchasing as they are; `withdraw` discards them. Either the references named, or every pending reference the
  * filter matches (the whole queue with an empty filter).
  */
-export const reviewReferencesSchema = z.object({
-  action: z.enum(["validate", "withdraw"]),
-  ids: z.array(id).min(1).max(REVIEW_REFERENCES_MAX).optional(),
-  filter: z.object(referenceFilterShape).strict().optional(),
-}).strict().refine((input) => (input.ids === undefined) !== (input.filter === undefined), {
-  message: "Donnez les références à vérifier, ou le filtre qui les désigne.",
-});
+const referenceReviewAction = z.enum(["validate", "withdraw"]);
+export const reviewReferencesSchema = z.union([
+  z.object({ action: referenceReviewAction, ids: z.array(id).min(1).max(REVIEW_REFERENCES_MAX) }).strict(),
+  z.object({
+    action: referenceReviewAction,
+    filter: z.object(referenceFilterShape).strict(),
+    expected_count: z.number().int().nonnegative(),
+  }).strict(),
+]);
 export type ReviewReferencesInput = z.infer<typeof reviewReferencesSchema>;
 export type ReviewReferencesResult = { reviewed: number; skipped: number };
 
@@ -80,24 +82,24 @@ export const BULK_PRODUCTS_MAX = 5000;
  * import; an incomplete draft stays a draft and is counted. `assign-supply-type`: one supply type for the
  * articles named that the member may edit.
  */
-export const bulkProductsSchema = z.discriminatedUnion("action", [
-  z.object({
-    action: z.literal("validate"),
-    ids: z.array(id).min(1).max(BULK_PRODUCTS_MAX).optional(),
-    import_batch_id: id.optional(),
-  }).strict(),
-  z.object({
-    action: z.literal("assign-supply-type"),
-    ids: z.array(id).min(1).max(BULK_PRODUCTS_MAX),
-    supply_type_id: id,
-  }).strict(),
-]).refine((input) => input.action !== "validate" || (input.ids === undefined) !== (input.import_batch_id === undefined), {
-  message: "Donnez les articles à valider, ou l’import dont ils viennent.",
-});
+const bulkProductIds = z.array(id).min(1).max(BULK_PRODUCTS_MAX);
+export const bulkProductsSchema = z.union([
+  z.object({ action: z.literal("validate"), ids: bulkProductIds }).strict(),
+  z.object({ action: z.literal("validate"), import_batch_id: id }).strict(),
+  z.object({ action: z.literal("assign-supply-type"), ids: bulkProductIds, supply_type_id: id }).strict(),
+]);
 export type BulkProductsInput = z.infer<typeof bulkProductsSchema>;
 export type BulkValidateResult = { action: "validate"; validated: number; incomplete: number; skipped: number };
 export type BulkAssignResult = { action: "assign-supply-type"; updated: number };
 export type BulkProductsResult = BulkValidateResult | BulkAssignResult;
+
+export const CATALOGUE_BULK_INCOMPLETE = "CATALOGUE_BULK_INCOMPLETE";
+
+export function bulkValidationSummary({ validated, incomplete, skipped }: BulkValidateResult) {
+  return `${validated.toLocaleString("fr-FR")} ${validated === 1 ? "brouillon validé" : "brouillons validés"}. `
+    + `${incomplete.toLocaleString("fr-FR")} ${incomplete === 1 ? "brouillon incomplet à compléter" : "brouillons incomplets à compléter"}. `
+    + `${skipped.toLocaleString("fr-FR")} ${skipped === 1 ? "article ignoré" : "articles ignorés"}.`;
+}
 
 export type CatalogueImportBatchKind = "workbook_articles" | "workbook_supplier_references";
 

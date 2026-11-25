@@ -1,15 +1,17 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { formatUsdCeiling, MODEL_TEST_CEILING_NANO_USD } from "@/lib/ai/access/openai-pricing";
 import type { CostingWorkbookArticle } from "@/lib/catalogue/costing-workbook";
 import { requestWorkbookSuggestions } from "@/lib/catalogue/costing-workbook-suggestions-client";
 import {
   COSTING_WORKBOOK_SUGGESTION_LIMITS,
   type CostingWorkbookSuggestionsResponseOf,
 } from "@/lib/catalogue/costing-workbook-suggestions-contract";
+import { workbookCellText } from "@/lib/catalogue/costing-workbook-edits";
 import { catalogueErrorMessage } from "@/lib/catalogue/supplier-items-client";
 
 import { confidenceLabel, RETAINED_CONFIDENCE, SuggestButton, SuggestionStatus, useWorkbookAssistant } from "./assistant";
@@ -41,12 +43,14 @@ export function ArticleDuplicates({ proposed, idColumn, search, onSearch }: Read
   search: DuplicateSearch | null;
   onSearch: (search: DuplicateSearch | null) => void;
 }>) {
-  const { busy, applyEdits } = useWorkbookEditor();
+  const { busy, applyEdits, rows, revision, isCurrentRevision } = useWorkbookEditor();
   const { provider } = useWorkbookAssistant();
   const [progress, setProgress] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [page, setPage] = useState(0);
   const abortRef = useRef<AbortController | null>(null);
+
+  useEffect(() => () => abortRef.current?.abort(), [revision]);
 
   async function run() {
     const abort = new AbortController();
@@ -72,6 +76,7 @@ export function ArticleDuplicates({ proposed, idColumn, search, onSearch }: Read
             unit: article.unit.slice(0, 40),
           })),
         }, abort.signal);
+        if (abort.signal.aborted || !isCurrentRevision(revision)) return;
         const byRow = new Map(chunk.map((entry) => [String(entry.row), entry]));
         for (const item of answer.items) {
           const entry = byRow.get(item.key);
@@ -88,8 +93,10 @@ export function ArticleDuplicates({ proposed, idColumn, search, onSearch }: Read
     } catch (failure) {
       if (!abort.signal.aborted) setError(catalogueErrorMessage(failure, "La recherche de doublons n’a pas abouti."));
     } finally {
-      if (abortRef.current === abort) abortRef.current = null;
-      setProgress(null);
+      if (abortRef.current === abort) {
+        abortRef.current = null;
+        setProgress(null);
+      }
     }
   }
 
@@ -97,6 +104,7 @@ export function ArticleDuplicates({ proposed, idColumn, search, onSearch }: Read
   const current = boundedPage(page, found.length);
   const start = current * DECISIONS_PER_PAGE;
   const running = progress !== null;
+  const requestCount = Math.ceil(proposed.length / COSTING_WORKBOOK_SUGGESTION_LIMITS.articles);
 
   return (
     <section aria-labelledby="costing-workbook-duplicates-title" className="space-y-3">
@@ -129,6 +137,14 @@ export function ArticleDuplicates({ proposed, idColumn, search, onSearch }: Read
           </>
         ) : null}
       </div>
+      {provider === "personal_api_key" && requestCount > 1 ? (
+        <p className="text-xs text-muted-foreground">
+          {`Cette recherche peut envoyer ${requestCount} demandes et coûter jusqu’à ${formatUsdCeiling(requestCount * MODEL_TEST_CEILING_NANO_USD)} au total.`}
+        </p>
+      ) : null}
+      {provider === "decisions" && requestCount > 1 ? (
+        <p className="text-xs text-muted-foreground">{`Cette recherche peut envoyer jusqu’à ${requestCount} appels Decisions.`}</p>
+      ) : null}
       {error ? <p role="alert" className="text-xs font-medium text-danger">{error}</p> : null}
       {search ? <SuggestionStatus status={search.status} message={search.message} /> : null}
       {search && found.length === 0 && !running ? (
@@ -176,7 +192,8 @@ export function ArticleDuplicates({ proposed, idColumn, search, onSearch }: Read
                           title={candidate.reference ? "Écrit la référence du catalogue dans cette ligne : l’import ne crée pas l’article" : "Cet article du catalogue n’a pas de référence"}
                           aria-label={`Ne pas créer ${article.reference} : c’est ${candidate.reference ?? candidate.designation}`}
                           onClick={() => {
-                            if (idColumn !== undefined && candidate.reference) applyEdits([{ row, column: idColumn, value: candidate.reference }]);
+                            if (isCurrentRevision(revision) && idColumn !== undefined && candidate.reference
+                              && workbookCellText(rows, row, idColumn) === article.reference) applyEdits([{ row, column: idColumn, value: candidate.reference }]);
                           }}
                         >
                           C’est cet article

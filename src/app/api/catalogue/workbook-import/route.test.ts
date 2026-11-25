@@ -1,3 +1,6 @@
+import Ajv from "ajv";
+
+import openapi from "../../../../../openapi.json";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/supabase/server", () => ({
@@ -206,6 +209,16 @@ describe("POST /api/catalogue/workbook-import", () => {
     vi.clearAllMocks();
   });
 
+  it("conforms to the published report schema in preview, confirmation and an empty confirmation", async () => {
+    seed(ADMIN, "admin");
+    const validate = new Ajv().compile(openapi.components.schemas.ApiCostingWorkbookImportReport);
+    for (const confirm of [false, true, true]) {
+      const answer = await importSheet(SHEET, confirm);
+      expect(answer.status).toBe(200);
+      expect(validate({ ok: true, data: answer.data }), JSON.stringify(validate.errors)).toBe(true);
+    }
+  });
+
   it("previews the import with its counts and writes nothing (2, 7, 8)", async () => {
     const fake = seed(ADMIN, "admin");
 
@@ -222,6 +235,22 @@ describe("POST /api/catalogue/workbook-import", () => {
       catalogue_differences: [],
     });
     expect(fake.writes).toEqual([]);
+  });
+
+  it("keeps two tube families independent through preview and confirmation", async () => {
+    const fake = seed(ADMIN, "admin");
+    const rows = [
+      ["ID", "Caractéristique", "Matériau", "Type FO", "Type_ligne"],
+      ["TUBE-4", "Tube", "Inox", "I4L", "Art"],
+      ["TUBE-6", "Tube", "Inox", "I6L", "Art"],
+    ];
+    const supply_type_families = [{ family_code: "I4L", supply_type_id: supplyTypeId(TENANT, "support") }];
+    const preview = await send({ rows, confirm: false, supply_type_families });
+    expect(preview.data).toMatchObject({ new_articles: 2, without_supply_type: 0 });
+    expect(fake.writes).toEqual([]);
+    expect((await send({ rows, confirm: true, supply_type_families })).status).toBe(200);
+    expect(draftsOf(fake).get("TUBE-4")?.supply_type_id).toBe(supplyTypeId(TENANT, "support"));
+    expect(draftsOf(fake).get("TUBE-6")?.supply_type_id).toBe(supplyTypeId(TENANT, "tube"));
   });
 
   it("gives a code the supply type chosen in the screen, and refuses one of another company (13)", async () => {
