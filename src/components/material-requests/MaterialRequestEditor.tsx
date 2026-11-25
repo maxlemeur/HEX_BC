@@ -18,7 +18,7 @@ import type { MaterialRequestTechnician } from "@/lib/material-requests/contract
 import { ClarificationMessageDialog } from "./ClarificationMessageDialog";
 import { materialRequestsHref } from "./format";
 import { MaterialRequestConsultation } from "./MaterialRequestConsultation";
-import { MaterialRequestHeader, requestFieldsOpenAtStart } from "./MaterialRequestHeader";
+import { MaterialRequestHeader, MaterialRequestSummary, requestFieldsOpenAtStart } from "./MaterialRequestHeader";
 import { MaterialRequestLines } from "./MaterialRequestLines";
 import { MaterialRequestOptions } from "./MaterialRequestOptions";
 import { MaterialRequestOrders } from "./MaterialRequestOrders";
@@ -159,7 +159,26 @@ function ReadyEditor({
           <AlertDescription>Vous consultez cette demande en lecture seule.</AlertDescription>
         </Alert>
       )}
-      <MaterialRequestSteps model={model} active={step} canWrite={canWrite} idBase={ids} onGoTo={goToStep} />
+      <div className="mb-3 flex items-start justify-between gap-3">
+        <MaterialRequestSummary editor={editor} technicianName={technician?.name ?? null} />
+        <MaterialRequestOptions
+          canWrite={canWrite}
+          technicianName={technician?.name ?? null}
+          hasOrderedLines={(orders.summary?.ordered.length ?? 0) > 0}
+          onEdit={editRequest}
+          onHistory={() => setHistoryOpen(true)}
+          onDelete={async () => {
+            try {
+              await deleteMaterialRequest(projectId, requestId);
+              router.push(materialRequestsHref(projectId));
+              return null;
+            } catch (error) {
+              return materialRequestErrorMessage(error, "La demande n’a pas pu être supprimée.");
+            }
+          }}
+        />
+      </div>
+      <MaterialRequestSteps model={model} active={step} idBase={ids} onGoTo={goToStep} />
       {/* Each step has the whole width of the page: the lines are a table, as in the estimate editor. */}
       <div className="min-w-0">
         <div className="min-w-0">
@@ -170,7 +189,6 @@ function ReadyEditor({
           </datalist>
           <Tabs.Panel {...panel("lignes")}>
             <MaterialRequestHeader
-              compact
               editor={editor}
               technicians={known}
               materialListId={materialListId}
@@ -227,22 +245,6 @@ function ReadyEditor({
           </Tabs.Panel>
         </div>
       </div>
-      <MaterialRequestOptions
-        canWrite={canWrite}
-        technicianName={technician?.name ?? null}
-        hasOrderedLines={(orders.summary?.ordered.length ?? 0) > 0}
-        onEdit={editRequest}
-        onHistory={() => setHistoryOpen(true)}
-        onDelete={async () => {
-          try {
-            await deleteMaterialRequest(projectId, requestId);
-            router.push(materialRequestsHref(projectId));
-            return null;
-          } catch (error) {
-            return materialRequestErrorMessage(error, "La demande n’a pas pu être supprimée.");
-          }
-        }}
-      />
       <ClarificationMessageDialog
         open={messageOpen}
         onOpenChange={setMessageOpen}

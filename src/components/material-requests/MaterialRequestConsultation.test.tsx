@@ -436,7 +436,7 @@ describe("consultation of suppliers", () => {
     // The line without supplier is said apart, with what to do, and is in no message.
     expect(screen.getByText("Sans fournisseur : choisissez-le sur la ligne, à l’étape Lignes.")).toBeVisible();
     expect(screen.getByText("Bride plate DN 50")).toBeVisible();
-    expect(screen.getByText("Aucune consultation envoyée pour le moment.")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Préparer une consultation pour Négoce Alpha" })).toHaveTextContent("À consulter");
 
     await user.click(screen.getByRole("button", { name: "Copier le message pour Négoce Alpha" }));
     expect(await screen.findByText("Message copié.")).toBeVisible();
@@ -483,7 +483,7 @@ describe("consultation of suppliers", () => {
     const original = await screen.findByRole("button", { name: "Consulter le devis Négoce Alpha du 12/11/2026 (Clos)" });
     expect(original).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByRole("button", { name: "Consulter le devis Négoce Alpha du 13/11/2026 (Demandé)" })).toHaveAttribute("aria-pressed", "false");
-    expect(within(quoteCard("Négoce Alpha")).getByText("Devis clos : il reste lisible, rien n’y change.")).toBeVisible();
+    expect(within(quoteCard("Négoce Alpha")).getByText("Clos", { exact: true })).toBeVisible();
   });
 
   it("offers the message only once the references at the supplier are read (1)", async () => {
@@ -1439,7 +1439,7 @@ describe("consultation of suppliers", () => {
     expect(screen.queryByLabelText("Fournisseur, ligne 1")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Fournisseur, ligne 2")).not.toBeInTheDocument();
     await openStep(user, 2);
-    expect(screen.getByText("Devis retenu : ses prix unitaires sont ceux des lignes.")).toBeVisible();
+    expect(within(quoteCard("Comptoir Bêta")).getByText("Retenu", { exact: true })).toBeVisible();
     // Bought lines are not asked again.
     expect(within(screen.getByRole("group", { name: "Comptoir Bêta" })).getByText("Toutes ses lignes ont leur prix retenu.")).toBeVisible();
     expect(screen.queryByRole("group", { name: "Négoce Alpha" })).not.toBeInTheDocument();
@@ -1448,7 +1448,6 @@ describe("consultation of suppliers", () => {
     await selectQuote(user, "Négoce Alpha");
     const closed = quoteCard("Négoce Alpha");
     expect(within(closed).getByText("Clos")).toBeVisible();
-    expect(within(closed).getByText("Devis clos : il reste lisible, rien n’y change.")).toBeVisible();
     expect(within(closed).getByText(euros(1250))).toBeVisible();
     expect(within(closed).queryByRole("textbox")).not.toBeInTheDocument();
     expect(within(closed).queryByRole("button", { name: /Retenir|Clore|Marquer|Joindre/ })).not.toBeInTheDocument();
@@ -1476,10 +1475,6 @@ describe("consultation of suppliers", () => {
     expect(within(card).getByText(
       `Écart de ${euros(300)} entre le montant du devis (${euros(26900)} HT) et le total des lignes (${euros(26600)} HT).`,
     )).toBeVisible();
-    expect(within(card).getByText(
-      "Le port et la remise s’ajoutent au bon de commande, en lignes « Port » et « Remise ».",
-    )).toBeVisible();
-
     await user.click(within(card).getByRole("button", { name: "Retenir ce devis (Négoce Alpha)" }));
     expect(writes()).toEqual([]);
     await user.click(within(card).getByRole("button", { name: "Retenir avec cet écart (Négoce Alpha)" }));

@@ -160,13 +160,12 @@ armyTest(
     await browser.goto(page, { waitUntil: "domcontentloaded" });
     const create = screen.getByRole("button", "Créer les brouillons de commande (3)", { exact: true });
     await expect(create).toBeEnabled({ timeout: 60_000 });
-    await expect(screen.getByText("3 lignes prêtes à commander.", { exact: true })).toBeVisible();
+    const creationButton = screen.getByRole("button", /^Créer les brouillons de commande/);
     const creations = await observeCreations(browser);
     await create.doubleTap();
     const list = screen.getByRole("list", "Bons de commande de la demande", { exact: true });
     await expect(list).toBeVisible({ timeout: 30_000 });
-    await screen.getByRole("button", "Création de brouillons · 0 ligne éligible", { exact: true }).tap();
-    await expect(screen.getByText("Aucune ligne prête à commander.", { exact: true })).toBeVisible({ timeout: 30_000 });
+    await expect(creationButton).toHaveCount(0);
     const bodies = await creations();
     expect(bodies).toHaveLength(1);
     const key = (JSON.parse(bodies[0]) as { idempotency_key: string }).idempotency_key;
@@ -190,7 +189,7 @@ armyTest(
     await expect(screen.getByRole("link", `Ouvrir le bon ${alphaOrder.reference}`, { exact: true })).toHaveAttribute("href", `/dashboard/orders/${alphaOrder.id}`);
     await list.getByRole("button", `Afficher le bon ${betaOrder.reference}`, { exact: true }).tap();
     await expect(screen.getByRole("link", `Ouvrir le bon ${betaOrder.reference}`, { exact: true })).toHaveAttribute("href", `/dashboard/orders/${betaOrder.id}`);
-    await screen.getByRole("button", "Création de brouillons · 0 ligne éligible", { exact: true }).tap();
+    const ordersScreenshot = await app.screenshot("material-request-orders-hierarchy");
     // A draft is not an order yet (TI-691): the line says where its order stands.
     // Each line says its purchase order at the lines step; the page shows one step at a time.
     const openStep = (step: 1 | 2 | 3) => screen.getByRole("tab", new RegExp(`^Étape ${step} :`)).tap();
@@ -198,9 +197,22 @@ armyTest(
     await expect(screen.getByRole("link", `Brouillon de bon : ${alphaOrder.reference}`, { exact: true })).toHaveCount(2);
     await expect(screen.getByRole("link", `Brouillon de bon : ${betaOrder.reference}`, { exact: true })).toBeVisible();
     await expect(screen.getByText(/^Commandé : /)).toHaveCount(0);
+    const requestInfo = browser.locator('dl[aria-label="Informations de la demande"]');
+    await expect(requestInfo).toBeVisible();
+    await expect(screen.getByRole("button", "Détails des propositions", { exact: true })).toHaveCount(0);
+    const linesScreenshot = await app.screenshot("material-request-lines-hierarchy");
+    await openStep(2);
+    await expect(requestInfo).toBeVisible();
+    await expect(screen.getByRole("region", "Dossier fournisseur", { exact: true })).toBeVisible();
+    const quotesScreenshot = await app.screenshot("material-request-quotes-hierarchy");
+    const viewport = await browser.evaluate(() => ({ width: window.innerWidth, height: window.innerHeight }));
+    await browser.setViewport({ width: 390, height: 844 });
+    await expect(requestInfo).toBeVisible();
+    const mobileScreenshot = await app.screenshot("material-request-quote-mobile-hierarchy");
+    await browser.setViewport(viewport);
     await openStep(3);
-    await screen.getByRole("button", "Création de brouillons · 0 ligne éligible", { exact: true }).tap();
-    await expect(screen.getByRole("button", "Créer les brouillons de commande (0)", { exact: true })).toBeDisabled();
+    await expect(requestInfo).toBeVisible();
+    await expect(creationButton).toHaveCount(0);
 
     // The same creation sent again answers what it made; a new one finds nothing left to order.
     const replay = await apiRequest<Envelope<Created>>(browser, "POST", `${one}/orders`, { idempotency_key: key });
@@ -276,6 +288,7 @@ armyTest(
     await recordEvidence(army, "material-request-orders", {
       ...ids, requestId, suppliers: { alpha, beta }, lines: { elbows, screws, gloves },
       creations: bodies.length,
+      layoutScreenshots: [linesScreenshot, quotesScreenshot, ordersScreenshot, mobileScreenshot],
       orders: (await summary()).orders.map((order) => ({
         id: order.id, supplier_name: order.supplier_name, status: order.status, total_ht_cents: order.total_ht_cents, line_count: order.line_count,
       })),

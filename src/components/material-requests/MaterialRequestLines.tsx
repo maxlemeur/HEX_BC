@@ -136,7 +136,6 @@ function linkHint(
   proposalsOf: MaterialRequestEditorApi["proposalsOf"],
 ): string | null {
   const unlinked = drafts.filter((line) => !line.product_id);
-  if (drafts.length === 0) return "Rien à rattacher d’un coup : aucune ligne n’est en brouillon.";
   if (unlinked.length === 0) return "Rien à rattacher d’un coup : toutes les lignes en brouillon ont un article.";
   if (unlinked.some((line) => proposalsOf(line.id).status !== "ready")) return null;
   return "Rien à rattacher d’un coup : aucune ligne ne porte une référence ou un nom usuel connus, sans réserve. Rattachez les articles ligne par ligne (« Rattacher », « Chercher ou créer ») ; un nom usuel mémorisé au rattachement sera reconnu ensuite.";
@@ -311,7 +310,7 @@ export function MaterialRequestLines({
   );
   const articleLine = articleLineId ? (lines.find((line) => line.id === articleLineId) ?? null) : null;
   // A button at zero says why, and what to do, instead of staying grey without a word (the owner's walk, 2026-11-14).
-  const linkNothing = canWrite && lines.length > 0 && sureLinks.length === 0 ? linkHint(drafts, proposalsOf) : null;
+  const linkNothing = canWrite && drafts.length > 0 && sureLinks.length === 0 ? linkHint(drafts, proposalsOf) : null;
   const supplierNothing =
     canWrite && lines.length > 0 && proposedSuppliers.length === 0 && editor.supplierProposalsStatus === "ready"
       ? supplierHint(lines, editor.supplierReferenceKnown)
@@ -443,18 +442,20 @@ export function MaterialRequestLines({
   return (
     // The mark a decided replacement looks for: a field under it that holds the cursor is being typed in.
     <section ref={section} aria-labelledby={headingId} className="min-w-0" data-material-request-lines="">
-      <div className="mr-workbench min-w-0 py-5">
-      <div className="min-w-0 space-y-4">
+      <div className="mr-workbench min-w-0 pb-3">
+      <div className="min-w-0 space-y-3">
       {/*
         One line says where the lines stand, and its last words lead to the first value to fix: what there is to fix
         is said by the tint of its cell, not by a banner above the sheet.
       */}
       <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
         <div className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1">
-          <h2 id={headingId} className="typo-h3 text-foreground">Lignes</h2>
+          <h2 id={headingId} className="sr-only">Lignes</h2>
           {lines.length > 0 ? (
             <p className="text-sm text-muted-foreground">
-              <span>{`${plural(lines.length, "ligne", "lignes")} · ${plural(validatedCount, "validée", "validées")}`}</span>
+              <span className="font-medium text-foreground">{validatedCount === lines.length
+                ? plural(validatedCount, "ligne validée", "lignes validées")
+                : `${plural(lines.length, "ligne", "lignes")} · ${plural(validatedCount, "validée", "validées")}`}</span>
               {canWrite && attentionLine && attentionAlert ? (
                 <>
                   {" · "}
@@ -674,19 +675,18 @@ export function MaterialRequestLines({
           </p>
         </div>
       ) : null}
-      {/* The two bulk gestures sit in the header of their column; what says why one has nothing to do is read here. */}
-      {canWrite && lines.length > 0 && (linkNothing || supplierNothing || linkReport) ? (
-        <div className="space-y-2">
-          <div className="flex flex-wrap items-center gap-2 empty:hidden">
-            {supplierNothing && supplierNothing.missing > 0 && chooseTypeSupplier ? (
-              <Button type="button" variant="link" size="sm" className="h-auto px-0" onClick={chooseTypeSupplier}>
-                Choisir les fournisseurs des types
-              </Button>
-            ) : null}
-          </div>
-          {linkNothing || supplierNothing ? (
-            <details className="text-sm text-muted-foreground">
-              <summary role="button" className="w-fit cursor-pointer rounded-sm font-medium focus-visible:outline-2 focus-visible:outline-ring">
+      </div>
+      </div>
+      <div className="flex flex-wrap items-start justify-between gap-2 border-t border-border py-3">
+        <div className="min-w-0 flex-1 space-y-1.5 empty:hidden">
+          {!!supplierNothing?.missing && chooseTypeSupplier ? (
+            <Button type="button" variant="link" size="sm" className="h-auto px-0" onClick={chooseTypeSupplier}>
+              Choisir les fournisseurs des types
+            </Button>
+          ) : null}
+          {linkNothing || (supplierNothing && (drafts.length > 0 || supplierNothing.missing > 0)) ? (
+            <details className="text-xs text-muted-foreground">
+              <summary role="button" className="w-fit cursor-pointer rounded-sm px-1 py-2 font-medium hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring">
                 Détails des propositions
               </summary>
               <div className="mt-2 space-y-1">
@@ -695,16 +695,14 @@ export function MaterialRequestLines({
               </div>
             </details>
           ) : null}
-          {linkReport ? (
+          {canWrite && linkReport ? (
             <div role="status" className="space-y-0.5 text-sm text-foreground">
               {linkReport.map((sentence) => <p key={sentence}>{sentence}</p>)}
             </div>
           ) : null}
         </div>
-      ) : null}
+        {nextAction ? <div className="ml-auto">{nextAction}</div> : null}
       </div>
-      </div>
-      {nextAction ? <div className="flex justify-end border-t border-border py-5">{nextAction}</div> : null}
       {chooseTypeSupplier ? (
         <SupplyTypeSuppliersDialog
           open={typeSuppliersOpen}

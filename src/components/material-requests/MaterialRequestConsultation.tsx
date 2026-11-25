@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useId, useRef, useState } from "react";
-import { ArrowLeft, ArrowRight, Check, CheckCheck, FileText, Info, Paperclip, TriangleAlert, X } from "lucide-react";
+import { ArrowLeft, ArrowRight, Check, CheckCheck, FileText, Paperclip, TriangleAlert, X } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -689,7 +689,7 @@ function QuoteCard({
     <article
       aria-labelledby={titleId}
       className={cn(
-        "mr-quote-card min-w-0 space-y-5 bg-surface p-5 sm:p-6",
+        "mr-quote-card min-w-0 bg-surface p-3 sm:p-4",
         quote.status === "closed" && "bg-surface-subtle",
       )}
     >
@@ -701,9 +701,8 @@ function QuoteCard({
           {MATERIAL_REQUEST_QUOTE_STATUS_LABELS[quote.status]}
         </Badge>
         <span className="text-xs text-muted-foreground">{quote.with_references ? "avec références" : "mise en concurrence"}</span>
-        {quote.status === "retained" ? <span className="ml-auto hidden rounded-full bg-success-light px-3 py-1 text-xs font-medium text-success lg:block">Consultation terminée — prix conservés</span> : null}
       </div>
-      <p className="text-sm text-muted-foreground">{quoteDates(quote)}</p>
+      <p className="text-xs text-muted-foreground">{quoteDates(quote)}</p>
 
       <div>
       <div aria-hidden="true" className="hidden grid-cols-[minmax(0,1fr)_5rem_minmax(0,0.8fr)_minmax(8rem,1fr)_8rem] rounded-t-lg border border-border bg-surface-subtle text-xs font-medium text-muted-foreground md:grid [&>*]:px-3 [&>*]:py-1.5 [&>*+*]:border-l [&>*+*]:border-border">
@@ -815,12 +814,6 @@ function QuoteCard({
           ) : null}
         </div>
       ) : null}
-      {editable || hasCharges ? (
-        <p className="text-xs text-muted-foreground">
-          Le port et la remise s’ajoutent au bon de commande, en lignes « Port » et « Remise ».
-        </p>
-      ) : null}
-
       <div className="mr-quote-files"><QuoteFiles editor={editor} quotes={quotes} quote={quote} editable={editable} visible={visible} /></div>
 
       {editable ? (
@@ -899,10 +892,6 @@ function QuoteCard({
             </div>
           ) : null}
         </div>
-      ) : quote.status === "retained" ? (
-        <p className="text-sm text-foreground">Devis retenu : ses prix unitaires sont ceux des lignes.</p>
-      ) : quote.status === "closed" ? (
-        <p className="text-sm text-muted-foreground">Devis clos : il reste lisible, rien n’y change.</p>
       ) : null}
       {error ? (
         <p role="alert" className="text-sm font-medium text-danger">
@@ -910,7 +899,7 @@ function QuoteCard({
         </p>
       ) : null}
 
-      <details className="border-t border-border pt-4 text-sm">
+      <details className="border-t border-border pt-2 text-xs">
         <summary className="cursor-pointer font-medium text-foreground-secondary focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-ring">
           Message envoyé
         </summary>
@@ -968,31 +957,34 @@ export function MaterialRequestConsultation({ editor, quotes, affaireName, headi
     return withCharges(quote, amounts.every((amount) => amount !== null) ? amounts.reduce<number>((sum, amount) => sum + (amount ?? 0), 0) : null);
   };
   return (
-    <section aria-labelledby={headingId} className="min-w-0 space-y-5">
-      {/* The same head as the lines step: its title, and what it is about on the same line. */}
-      <div className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1 pt-5">
-        <h2 id={headingId} className="typo-h3 text-foreground">Dossier fournisseur</h2>
-        <p className="text-sm text-muted-foreground">Consultation et suivi des devis de la demande.</p>
-      </div>
+    <section aria-labelledby={headingId} className="min-w-0 space-y-3">
+      <h2 id={headingId} className="sr-only">Dossier fournisseur</h2>
       {quotes.status === "loading" ? <p role="status" className="text-sm text-muted-foreground">Chargement des devis…</p> : null}
       {quotes.status === "error" ? <div className="flex flex-wrap items-center gap-2 text-sm"><p>Les devis n’ont pas pu être chargés.</p><Button type="button" variant="outline" size="sm" aria-label="Recharger les devis" onClick={quotes.retry}>Réessayer</Button></div> : null}
-      {data.lines.length === 0 ? <p className="rounded-lg border border-dashed border-border p-6 text-sm text-muted-foreground">Aucune ligne à faire chiffrer : la demande n’a pas encore de ligne.</p> : null}
-      <div className="mr-supplier-workspace grid min-w-0 overflow-hidden rounded-lg border border-border bg-surface xl:grid-cols-[22rem_minmax(0,1fr)]">
+      {quotes.status === "ready" && choices.length === 0 && without.length === 0 ? (
+        <p className="rounded-lg border border-dashed border-border p-4 text-sm text-muted-foreground">
+          {data.lines.length === 0 ? "Aucune ligne à faire chiffrer." : "Aucune consultation envoyée."}
+        </p>
+      ) : null}
+      {choices.length > 0 ? <div className="mr-supplier-workspace grid min-w-0 overflow-hidden rounded-lg border border-border bg-surface xl:grid-cols-[20rem_minmax(0,1fr)]">
         <nav aria-label="Dossiers fournisseurs" className="min-w-0 border-b border-border xl:border-r xl:border-b-0">
-          <h3 className="sr-only">Devis demandés et fournisseurs à consulter</h3>
           {ordered.map((quote) => {
             const total = totalOf(quote);
             const gap = total !== null && quote.amount_ht_cents !== null ? quote.amount_ht_cents - total : null;
+            const scope = quote.lines.map((entry) => editor.linesById.get(entry.line_id)?.product_type || "Ligne retirée").join(", ");
             return <button key={quote.id} type="button" aria-pressed={active === `quote:${quote.id}`} aria-label={`Consulter le devis ${quote.supplier_name} du ${formatDay(quote.requested_at)} (${MATERIAL_REQUEST_QUOTE_STATUS_LABELS[quote.status]})`} onClick={() => setSelected(`quote:${quote.id}`)}
-              className={cn("block w-full min-w-0 border-b border-border px-4 py-3 text-left hover:bg-surface-subtle focus-visible:outline-2 focus-visible:outline-offset-[-3px] focus-visible:outline-ring", active === `quote:${quote.id}` && SELECTED_ROW)}>
-              <span className="flex flex-wrap items-center justify-between gap-2"><span className="break-words text-sm font-semibold">{quote.supplier_name}</span><Badge variant={STATUS_VARIANT[quote.status]}>{MATERIAL_REQUEST_QUOTE_STATUS_LABELS[quote.status]}</Badge></span>
-              <span className="mt-1 block text-xs text-muted-foreground">{plural(quote.lines.length, "ligne", "lignes")} · {quote.lines.map((entry) => editor.linesById.get(entry.line_id)?.product_type || "Ligne retirée").join(", ")}</span>
-              <span className="mt-1 block text-sm font-medium tabular-nums">{total === null ? quote.status === "closed" ? "—" : "Prix à renseigner" : `${formatEUR(total)} HT`}</span>
-              {gap !== null && gap !== 0 ? <span className="mt-2 flex items-center gap-1 text-xs font-medium text-warning"><TriangleAlert aria-hidden="true" className="size-4" />Écart {gap > 0 ? "+" : ""}{formatEUR(gap)}</span> : null}
+              className={cn("block w-full min-w-0 border-b border-border px-3 py-2 text-left last:border-b-0 hover:bg-surface-subtle focus-visible:outline-2 focus-visible:outline-offset-[-3px] focus-visible:outline-ring", active === `quote:${quote.id}` && SELECTED_ROW)}>
+              <span className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1"><span className="min-w-0 break-words text-sm font-semibold">{quote.supplier_name}</span><Badge variant={STATUS_VARIANT[quote.status]}>{MATERIAL_REQUEST_QUOTE_STATUS_LABELS[quote.status]}</Badge></span>
+              <span className="mt-1 flex flex-wrap items-baseline justify-between gap-x-2 text-xs">
+                <span className="min-w-0 flex-1 truncate text-muted-foreground" title={scope || undefined}>
+                  {plural(quote.lines.length, "ligne", "lignes")}{scope && ` · ${scope}`}
+                </span>
+                {total === null && quote.status === "closed" ? null : <span className="font-medium tabular-nums">{total === null ? "Prix à renseigner" : `${formatEUR(total)} HT`}</span>}
+              </span>
+              {gap !== null && gap !== 0 ? <span className="mt-1 flex items-center gap-1 text-xs font-medium text-warning"><TriangleAlert aria-hidden="true" className="size-3.5" />Écart {gap > 0 ? "+" : ""}{formatEUR(gap)}</span> : null}
             </button>;
           })}
-          {freshGroups.map((group) => <button key={group.supplierId} type="button" aria-label={canWrite ? `Préparer une consultation pour ${group.supplierName}` : `Consulter les lignes de ${group.supplierName}`} aria-pressed={active === `supplier:${group.supplierId}`} onClick={() => setSelected(`supplier:${group.supplierId}`)} className={cn("block w-full border-b border-border px-4 py-3 text-left hover:bg-surface-subtle focus-visible:outline-2 focus-visible:outline-ring", active === `supplier:${group.supplierId}` && SELECTED_ROW)}><span className="block font-semibold">{group.supplierName}</span><span className="mt-1 block text-sm text-muted-foreground">{canWrite ? "À consulter" : "Lignes sans devis"} · {plural(group.lines.filter((line) => !line.price_quote_id).length, "ligne", "lignes")}</span></button>)}
-          {ordered.length === 0 ? <p className="p-5 text-sm text-muted-foreground">Aucune consultation envoyée pour le moment.</p> : null}
+          {freshGroups.map((group) => <button key={group.supplierId} type="button" aria-label={canWrite ? `Préparer une consultation pour ${group.supplierName}` : `Consulter les lignes de ${group.supplierName}`} aria-pressed={active === `supplier:${group.supplierId}`} onClick={() => setSelected(`supplier:${group.supplierId}`)} className={cn("block w-full border-b border-border px-3 py-2 text-left last:border-b-0 hover:bg-surface-subtle focus-visible:outline-2 focus-visible:outline-ring", active === `supplier:${group.supplierId}` && SELECTED_ROW)}><span className="block break-words text-sm font-semibold">{group.supplierName}</span><span className="mt-1 block text-xs text-muted-foreground">{canWrite ? "À consulter" : "Lignes sans devis"} · {plural(group.lines.filter((line) => !line.price_quote_id).length, "ligne", "lignes")}</span></button>)}
         </nav>
         <div className="min-w-0">
           {pendingGroups.map((group) => <div key={group.supplierId} hidden={activeSupplierId !== group.supplierId} className="border-b border-border p-4"><SupplierGroupCard editor={editor} quotes={workspaceQuotes} group={group} affaireName={affaireName} template={template} canCreateSupplier={canWrite && canCreateSupplier} /></div>)}
@@ -1005,13 +997,12 @@ export function MaterialRequestConsultation({ editor, quotes, affaireName, headi
             );
           })}
           {groups.filter((group) => group.lines.length > 0 && group.lines.every((line) => line.price_quote_id)).map((group) => <div key={`priced:${group.supplierId}`} hidden={activeSupplierId !== group.supplierId} role="group" aria-label={group.supplierName} className="border-t border-border px-6 py-3 text-sm text-muted-foreground">Toutes ses lignes ont leur prix retenu.</div>)}
-          {!active ? <p className="p-6 text-sm text-muted-foreground">Les devis apparaîtront ici après la consultation d’un fournisseur.</p> : null}
         </div>
-      </div>
+      </div> : null}
       {without.length > 0 ? <div className="rounded-lg border border-dashed border-border p-4"><p className="text-sm font-medium">{canWrite ? "Sans fournisseur : choisissez-le sur la ligne, à l’étape Lignes." : "Sans fournisseur :"}</p><ul className="mt-2 list-disc pl-5 text-sm">{without.map((line) => <li key={line.id}>{lineTitle(line)}</li>)}</ul>{canWrite && onGoToLines ? <Button type="button" variant="link" size="sm" onClick={onGoToLines}>Choisir les fournisseurs, à l’étape Lignes</Button> : null}</div> : null}
-      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border py-4">
-        <p className="flex items-center gap-2 text-sm text-muted-foreground"><Info aria-hidden="true" className="size-4 shrink-0" />Les consultations se copient dans WhatsApp. Aucun envoi automatique.</p>
-        <div className="flex flex-wrap gap-2">{onGoToLines ? <Button type="button" variant="outline" onClick={onGoToLines}><ArrowLeft aria-hidden="true" />Retour aux lignes</Button> : null}{onGoToOrders ? <Button type="button" onClick={onGoToOrders}>Voir les bons de commande<ArrowRight aria-hidden="true" /></Button> : null}</div>
+      <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border py-3">
+        {onGoToLines ? <Button type="button" size="sm" variant="ghost" onClick={onGoToLines}><ArrowLeft aria-hidden="true" />Retour aux lignes</Button> : null}
+        {onGoToOrders ? <Button type="button" size="sm" variant="outline" className="ml-auto" onClick={onGoToOrders}>Voir les bons de commande<ArrowRight aria-hidden="true" /></Button> : null}
       </div>
     </section>
   );
