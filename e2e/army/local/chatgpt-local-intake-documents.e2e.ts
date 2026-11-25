@@ -265,9 +265,11 @@ test("INTMAN01 manual classification leaves the first dossier without paid sends
     await ui.app.open(`/dashboard/affaires/${ids.projectId}`);
     await browser.locator('input[type="file"][aria-label="Ajouter des pièces à l\'affaire"]').first()
       .setInputFiles(path.resolve("e2e/fixtures/sample-plan.pdf"));
-    const doc = () => client.from("affaire_intake_documents").select("id,classification_status,classification_source")
-      .eq("project_id",ids.projectId).single();
-    await expect.poll(async () => (await doc()).data?.classification_status).toBe("awaiting_launch");
+    // The row already awaits classification while the browser is sending the PDF.
+    const doc = () => client.from("affaire_intake_documents").select("id,upload_status,classification_status,classification_source")
+      .eq("project_id", ids.projectId).single();
+    await expect.poll(async () => (await doc()).data)
+      .toMatchObject({ upload_status: "uploaded", classification_status: "awaiting_launch" });
     await ui.app.open(`/dashboard/affaires/${ids.projectId}?view=dossier`);
     const table = screen.getByRole("table", "Documents reçus", { exact: true });
     await table.getByRole("combobox", "Catégorie de sample-plan.pdf", { exact: true }).selectOption({ value: "plans" });
