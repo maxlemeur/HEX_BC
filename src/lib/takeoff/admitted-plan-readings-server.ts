@@ -46,10 +46,11 @@ export function admittedContent(requests: Awaited<ReturnType<typeof readAdmitted
     const byFile = new Map(units.units.map(unit => [unit.planFileId, unit.state]));
     for (const plan of manifest.plans) {
       if (!plan.content_sha256) continue;
-      const unit = units.format === "grouped" ? units.units[0]?.state : byFile.get(plan.plan_file_id);
+      const id = plan.plan_file_id.toLowerCase();
+      const unit = units.format === "grouped" ? units.units[0]?.state : byFile.get(id);
       if (unit !== "succeeded" && !(state === "admitted" && (unit === "queued" || unit === "running"))) continue;
       const readings = byDigest.get(plan.content_sha256) ?? [];
-      readings.push({ id: plan.plan_file_id, documentId: plan.intake_document_id, name: plan.name,
+      readings.push({ id, documentId: plan.intake_document_id, name: plan.name,
         state: unit === "succeeded" ? "analysed" : "in_progress" });
       byDigest.set(plan.content_sha256, readings);
     }

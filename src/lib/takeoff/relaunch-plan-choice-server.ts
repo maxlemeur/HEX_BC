@@ -53,26 +53,27 @@ export async function readRelaunchPlanChoice(context: AuthenticatedTenantContext
 
   if (olderJobs.error) throw mapSupabaseError(olderJobs.error, "Impossible de lire les anciennes analyses de l’affaire.");
   const history = admittedContent(requests);
+  const olderReadings: typeof history = new Map();
   const states = new Map<string, RelaunchPlanState>();
   const defaults = new Map<string, string>();
   const stops = new Map<string, RelaunchPlanChoice["stops"][string]>();
   const remember = (id: string, state: RelaunchPlanState) => {
     if (priority[state] > priority[states.get(id) ?? "not_analysed"]) states.set(id, state);
   };
-  const recordPlan = (id: string, name: string, state: ReturnType<typeof resolveTakeoffRequestUnitState> | undefined,
-    belongsToPredecessor: boolean, isLive: boolean, startedAt: string | null | undefined) => {
+  const recordRetry = (id: string, name: string, state: ReturnType<typeof resolveTakeoffRequestUnitState> | undefined,
+    belongsToPredecessor: boolean, startedAt: string | null | undefined) => {
     if (state === "canceled") {
       if (belongsToPredecessor) stops.set(id, startedAt ? "interrupted" : "before_start");
       state = startedAt ? "failed" : "not_started";
     }
-    if (state === "succeeded") remember(id, "analysed");
     if (state === "failed") remember(id, "failed");
-    if (isLive && (state === "queued" || state === "running")) remember(id, "in_progress");
     if (belongsToPredecessor && (singlePlan || state === "failed" || state === "not_started")) defaults.set(id, name);
   };
 
   const predecessorRequest = requests.find(({ units }) => units?.requestId === predecessor.launch_request_id);
-  for (const { manifest, units, state, jobs } of requests) {
+  const predecessorDigests = new Map(predecessorRequest?.manifest.plans.map(plan =>
+    [plan.plan_file_id.toLowerCase(), plan.content_sha256]));
+  for (const { manifest, units, jobs } of requests) {
     if (!units) continue;
     const perPlan = new Map(units.units.map((unit) => [unit.planFileId, unit]));
     const startedAtByJob = new Map(jobs.map((job) => [job.id, job.started_at]));
@@ -81,7 +82,7 @@ export async function readRelaunchPlanChoice(context: AuthenticatedTenantContext
       const unit = units.format === "grouped" ? units.units[0] : perPlan.get(id);
       const replaces = units.requestId === predecessor.launch_request_id
         && (!singlePlan || (unit?.jobId === predecessorJobId && (units.format === "per_plan" || manifest.plans.length === 1)));
-      recordPlan(id, plan.name, unit?.state, replaces, state === "admitted", unit && startedAtByJob.get(unit.jobId));
+      recordRetry(id, plan.name, unit?.state, replaces, unit && startedAtByJob.get(unit.jobId));
     }
   }
   const historical = (olderJobs.data ?? []).filter(job => job.id !== predecessorJobId);
@@ -99,13 +100,12 @@ export async function readRelaunchPlanChoice(context: AuthenticatedTenantContext
       // A historical file can be replaced in place. Only the predecessor's
       // retry choice is known before comparing the bytes its snapshot read.
       if (job.id === predecessorJobId) {
-        recordPlan(id, plan.document_name, hasReading ? undefined : state, !singlePlan || plans.length === 1,
-          false, job.started_at);
+        recordRetry(id, plan.document_name, state, !singlePlan || plans.length === 1, job.started_at);
       }
       if (plan.content_hash && hasReading) {
-        const readings = history.get(plan.content_hash) ?? [];
+        const readings = olderReadings.get(plan.content_hash) ?? [];
         readings.push({ id, name: plan.document_name, documentId: null, state: state === "succeeded" ? "analysed" : "in_progress" });
-        history.set(plan.content_hash, readings);
+        olderReadings.set(plan.content_hash, readings);
       }
     }
   }
@@ -125,16 +125,22 @@ export async function readRelaunchPlanChoice(context: AuthenticatedTenantContext
     ? [...defaults.keys()].map((id) => ({ id, piece: null, removed: false })) : []);
   const twins = new Map<string, NonNullable<ReturnType<typeof readingThroughOtherCopy>>>();
   const current = new Set(checked?.scope);
-  if (history.size) {
+  if (history.size || olderReadings.size) {
     for (const file of files?.data ?? []) {
-      if (!current.has(file.id) || states.get(file.id) === "analysed") continue;
-      const digest = await readPlanCopyDigest(context, file);
+      if (!current.has(file.id)) continue;
+      // Two sealed requests can compare the bytes they read without fetching the PDF.
+      // Unsealed targets and older jobs still need the member's current copy as evidence.
+      const sealedDigest = predecessorDigests.get(file.id);
+      const currentDigest = !sealedDigest || olderReadings.has(sealedDigest)
+        ? await readPlanCopyDigest(context, file) : null;
+      const digest = sealedDigest || currentDigest;
       if (!digest) continue;
-      const readings = history.get(digest);
-      for (const reading of readings ?? []) {
+      const readings = history.get(digest) ?? [];
+      const matches = digest === currentDigest ? readings.concat(olderReadings.get(digest) ?? []) : readings;
+      for (const reading of matches) {
         if (reading.id === file.id) remember(file.id, reading.state);
       }
-      const prior = readingThroughOtherCopy(readings, file.id);
+      const prior = readingThroughOtherCopy(matches, file.id);
       if (prior && priority[prior.state] >= priority[states.get(file.id) ?? "not_analysed"]) {
         remember(file.id, prior.state);
         twins.set(file.id, prior);
