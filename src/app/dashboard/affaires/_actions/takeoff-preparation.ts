@@ -36,7 +36,7 @@ export async function loadTakeoffExecutionPreviewAction() {
 }
 
 export async function confirmTakeoffPreparationAction(input: {
-  projectId: string; expectedRevision: number; expectedExecutionFingerprint?: string;
+  projectId: string; expectedRevision: number; expectedExecutionFingerprint?: string; planFileIds?: string[];
 }) {
   return runSafeTakeoffAction(() => confirmTakeoffPreparation(input));
 }

@@ -15,7 +15,7 @@ import {
 } from "@/lib/takeoff/preparation";
 import {
   buildDeducedTakeoffPreparation, DETAILED_TAKEOFF_PROCESSING, getDeducedPlanCandidates, isDossierDefaultSource, reopenDeducedPlanCandidates,
-  resolveDeducedPlanVersions,
+  resolveDeducedPlanVersions, restorePlanSetOptions,
 } from "@/lib/takeoff/preparation-from-dossier";
 import { hasCyclicPlanRevisionDecisions, readPlanTitleBlock } from "@/lib/takeoff/plan-revision-identity";
 import { getPreparationSourcesFingerprint, reconcilePreparationSources } from "@/lib/takeoff/preparation-sources";
@@ -91,7 +91,7 @@ export async function loadPreparation(context: Pick<AuthenticatedTenantContext, 
   const [record, availableSources] = await Promise.all([
     readPreparationRecord(context, projectId), readPreparationSources(context, projectId),
   ]);
-  const saved = record ? takeoffPreparationSchema.parse(record.draft) : createEmptyTakeoffPreparation();
+  const saved = record ? restorePlanSetOptions(takeoffPreparationSchema.parse(record.draft)) : createEmptyTakeoffPreparation();
   const { draft: reconciled, changedSourceIds } = reconcilePreparationSources(saved, availableSources);
   let draft = reconciled;
   if (planSetId) {
@@ -462,11 +462,14 @@ export async function saveTakeoffPreparation(input: {
 }
 
 export async function confirmTakeoffPreparation(input: {
-  projectId: string; expectedRevision: number; expectedExecutionFingerprint?: string;
+  projectId: string; expectedRevision: number; expectedExecutionFingerprint?: string; planFileIds?: string[];
 }) {
   projectIdSchema.parse(input.projectId);
   revisionSchema.parse(input.expectedRevision);
   z.string().regex(/^[a-f0-9]{64}$/).optional().parse(input.expectedExecutionFingerprint);
+  const chosen = z.array(z.string().uuid()).min(1).max(20).optional().parse(input.planFileIds);
+  const ids = chosen && new Set(chosen);
+  if (chosen && ids?.size !== chosen.length) preparationConflict("Chaque plan ne peut être choisi qu’une fois.");
   const context = await getAuthenticatedContext();
   await assertPreparationProjectAccess(context, input.projectId, true);
   const [record, { sources, documents }] = await Promise.all([
@@ -489,13 +492,32 @@ export async function confirmTakeoffPreparation(input: {
     if (reconcilePreparationSources(confirmed, sources).changedSourceIds.length) {
       preparationConflict("Les sources ont changé. Vérifiez la préparation avant une nouvelle confirmation.");
     }
-    return readPreparationRevision(context, input.projectId, record.revision, true);
+    const retainedPlanFileIds = confirmed.sources.filter((source) => source.kind === "plan" && source.active).map((source) => source.document_id);
+    const candidates = getDeducedPlanCandidates(confirmed.sources);
+    const matches = ids ? candidates.length === ids.size && candidates.every((source) => ids.has(source.document_id))
+      : !confirmed.sources.some((source) => source.plan_set_id === confirmed.provenance?.plan_set_id && source.selected_in_plan_set !== undefined);
+    if (matches) return { ...await readPreparationRevision(context, input.projectId, record.revision, true), retainedPlanFileIds };
+    // A different scope must be sealed from the very revision the member saw.
   }
   if (!record || record.revision !== input.expectedRevision) {
     preparationConflict("La préparation a changé. Rechargez-la avant de confirmer.");
   }
-  let draft = takeoffPreparationSchema.parse(record.draft);
+  let draft = restorePlanSetOptions(takeoffPreparationSchema.parse(record.draft));
   assertTakeoffPreparationProcessing(draft);
+  if (ids) {
+    const available = new Set(draft.sources.filter((source) => source.active && source.kind === "plan"
+      && source.plan_set_id === draft.provenance?.plan_set_id).map((source) => source.document_id));
+    if (!draft.provenance || [...ids].some(id => !available.has(id))) {
+      preparationConflict("Un plan choisi ne fait plus partie de la préparation. Vérifiez les options du métré.");
+    }
+    // Keep the member’s plan-set options on the rows. Only active sources are opened, attested and admitted.
+    for (const source of draft.sources) {
+      if (source.kind === "plan" && source.plan_set_id === draft.provenance.plan_set_id && !ids.has(source.document_id)) {
+        source.selected_in_plan_set = source.active;
+        source.active = false;
+      }
+    }
+  }
   if (draft.provenance) {
     assertTakeoffPreparationProcessing(draft, DETAILED_TAKEOFF_PROCESSING);
     // A previously resolved alternative is still part of the attestable choice.
@@ -514,11 +536,14 @@ export async function confirmTakeoffPreparation(input: {
     preparationConflict("Les pièces du dossier ont changé pendant la vérification. Rechargez la préparation.");
   }
   if (draft.provenance) {
+    const otherDecisions = ids ? (draft.plan_revision_decisions ?? []).filter(({ left, right }) =>
+      !ids.has(left.document_id) || !ids.has(right.document_id)) : [];
     draft = resolveDeducedPlanVersions(draft);
+    draft.plan_revision_decisions?.push(...otherDecisions);
     if (evaluateTakeoffPreparation(draft).blockers.some((blocker) => blocker.code === "source_revision_conflict" || blocker.code === "source_revision_mismatch")) {
       await persistPreparationRecord({ context, projectId: input.projectId, expectedRevision: record.revision, revision,
         draft: draft as unknown as Json, snapshot: null, confirmedAt: null });
-      return readPreparationRevision(context, input.projectId, revision, false);
+      return { ...await readPreparationRevision(context, input.projectId, revision, false), retainedPlanFileIds: [] as string[] };
     }
   }
   // The plans the analysis reads, as the worker reads them at this level. Past the page limit only together, they are read
@@ -540,7 +565,8 @@ export async function confirmTakeoffPreparation(input: {
     context, projectId: input.projectId, expectedRevision: record.revision, revision,
     draft: snapshot.preparation as unknown as Json, snapshot: snapshot as unknown as Json, confirmedAt,
   });
-  return readPreparationRevision(context, input.projectId, revision, true);
+  return { ...await readPreparationRevision(context, input.projectId, revision, true),
+    retainedPlanFileIds: snapshot.preparation.sources.filter((source) => source.kind === "plan" && source.active).map((source) => source.document_id) };
 }
 
 export async function assistTakeoffPreparation(input: { projectId: string; expectedRevision: number | null; instruction?: string }) {
@@ -757,7 +783,9 @@ export async function assertConfirmedTakeoffPreparation(input: {
     const prepared = new Map(preparation.sources.map((source) => [source.document_id, source]));
     const available = new Map(sources.map((source) => [source.document_id, source]));
     const participants = [
-      ...(preparation.plan_revision_decisions ?? []).flatMap((decision) => [decision.left, decision.right]),
+      ...(preparation.plan_revision_decisions ?? []).filter(({ left, right }) =>
+        [left, right].every(({ document_id }) => prepared.get(document_id)?.selected_in_plan_set === undefined))
+        .flatMap((decision) => [decision.left, decision.right]),
       ...getDeducedPlanCandidates(preparation.sources).filter((source) => !source.active)
         .map((source) => ({ document_id: source.document_id, content_hash: source.content_hash })),
     ];

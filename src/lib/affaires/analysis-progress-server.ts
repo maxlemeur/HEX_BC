@@ -140,6 +140,7 @@ export async function readAffaireAnalysisProgress(cursor: string | undefined): P
     const query = supabase.from("takeoff_launch_requests").select(
       `id, origin, intent, state, reason_code, payer_id, confirmed_by, created_at, updated_at, admitted_at, closed_at, outcome, completion_event_id, units_expected, units_succeeded, units_failed, units_canceled, jobs:takeoff_jobs!takeoff_jobs_launch_request_fkey(${JOB_COLUMNS}), project:estimate_projects!takeoff_launch_requests_project_fkey!inner(id,name)`,
     ).eq("tenant_id", tenantId).eq("project.tenant_id", tenantId).eq("project.is_archived", false)
+      .or("reason_code.is.null,reason_code.neq.ANALYSIS_NOT_REQUESTED")
       // The dispatcher admits at most 20 jobs per request. Each review needs only an existence witness.
       .limit(20, { referencedTable: "jobs" }).limit(1, { referencedTable: "jobs.exceptions" })
       .or(live ? "state.in.(evaluating,not_eligible,blocked,admitted)"
@@ -200,8 +201,8 @@ export async function readAffaireAnalysisProgress(cursor: string | undefined): P
   ]);
   const [liveRequests, endedRequests, standaloneJobs] = takeoff ?? [[], [], { live: [], ended: [] }];
   const requests = latestRows(liveRequests, endedRequests);
-  const manualSingleUnit = requests.filter((row) => row.origin === "manual" && row.units_expected === 1);
-  const groupedJobs = manualSingleUnit.flatMap(({ jobs }) => jobs[0]?.launch_unit_key === "grouped" ? [jobs[0].id] : []);
+  const singleUnit = requests.filter((row) => row.units_expected === 1);
+  const groupedJobs = singleUnit.flatMap(({ jobs }) => jobs[0]?.launch_unit_key === "grouped" ? [jobs[0].id] : []);
   const groupedPlans = new Map<string, string | null>();
   if (groupedJobs.length) {
     const { data, error } = await supabase.from("takeoff_jobs").select("id, sources:preparation_snapshot->preparation->sources")
@@ -209,7 +210,7 @@ export async function readAffaireAnalysisProgress(cursor: string | undefined): P
     if (error) throw mapSupabaseError(error, "Impossible de lire le périmètre de la relance.");
     for (const job of data ?? []) groupedPlans.set(job.id, singlePreparedPlan(job.sources));
   }
-  const targeted = manualSingleUnit.flatMap((row) => {
+  const targeted = singleUnit.flatMap((row) => {
     const job = row.jobs[0];
     const id = job && (unitPlanId(job) ?? groupedPlans.get(job.id));
     return id && job ? [[row.id, { id, setId: job.plan_set_id }] as const] : [];
@@ -303,9 +304,9 @@ export async function readAffaireAnalysisProgress(cursor: string | undefined): P
       jobs.find((job) => job.status === "review_required");
     const plan = planIdByRequest.get(row.id);
     const name = plan && planNames.get(plan.id);
-    const scope = row.origin !== "manual" ? null : plan
+    const scope = plan
       ? `${describeTakeoffRequestOrigin(row)} — ${name?.setId === plan.setId && name ? name.name : "plan sélectionné"}`
-      : describeTakeoffRequestOrigin(row);
+      : row.origin === "manual" ? describeTakeoffRequestOrigin(row) : null;
     const planProgress = describeAffaireTakeoffPlanProgress(units);
     const updatedAt = new Date(row.closed_at ?? row.updated_at).toISOString();
     add(project, {

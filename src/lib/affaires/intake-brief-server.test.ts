@@ -287,7 +287,7 @@ describe("affaire intake server brief regressions", () => {
   it("rejects confirmation of a stale brief version", async () => {
     const { context, updatedBriefPayloads } = createSupabaseContext();
     vi.mocked(getAuthenticatedContext).mockResolvedValue(context as never);
-    await expect(confirmAffaireBrief({ projectId: PROJECT_ID, expectedUpdatedAt: "2026-01-01T00:00:00.000Z" }))
+    await expect(confirmAffaireBrief({ plans: [], projectId: PROJECT_ID, expectedUpdatedAt: "2026-01-01T00:00:00.000Z" }))
       .rejects.toMatchObject({ status: 409 });
     expect(updatedBriefPayloads).toEqual([]);
     const { confirmAffaireBriefWithTakeoff } = await import("@/lib/takeoff/launch-request-server");

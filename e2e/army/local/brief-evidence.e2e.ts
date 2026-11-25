@@ -97,7 +97,7 @@ test("brief document associations remain distinct from proof after edit and relo
   await confirmation.getByRole("button", "Annuler", { exact: true }).tap();
   await expect(brief.getByText("À confirmer", { exact: true })).toBeVisible();
   await brief.getByRole("button", "Confirmer le brief", { exact: true }).tap();
-  await confirmation.getByRole("button", "Oui, confirmer", { exact: true }).tap();
+  await confirmation.getByRole("button", "Confirmer sans analyser", { exact: true }).tap();
   await expect(brief.getByText("Brief de référence", { exact: true })).toBeVisible();
   await browser.reload();
   await expect(brief.getByText("Brief de référence", { exact: true })).toBeVisible();

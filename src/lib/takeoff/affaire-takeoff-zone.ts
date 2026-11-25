@@ -64,7 +64,7 @@ export type AffaireTakeoffZoneRequest = {
    */
   coverage: null | {
     plansRetained: number;
-    plansOmitted: Array<{ name: string; reason: "alternate" | "identical_copy" | "unsupported_format" | "not_requested" }>;
+    plansOmitted: Array<{ name: string; reason: "alternate" | "identical_copy" | "unsupported_format" | "not_requested" | "not_selected" }>;
     referencesOmitted: Array<{ name: string; reason: "unreadable" | "unsupported_format" | "limit" }>;
   };
   /** The event of its end: the members' notification and its e-mail. */
@@ -77,7 +77,8 @@ export type AffaireTakeoffZoneData = {
   /** The member may prepare and launch a takeoff on this affaire (the preparation's write rule, read by the server). */
   canOperate: boolean;
   /** Active, and a dossier confirmed before it with no request. */
-  confirmedBeforeActivation: boolean;
+  confirmedWithoutRequest: boolean;
+  planDispatch?: boolean;
   /** The affaire's latest execution, never hidden by an automatic start set aside for it. */
   request: AffaireTakeoffZoneRequest | null;
   dossierChangedSinceAnalysis: null | { added: TakeoffLaunchPiece[]; replaced: TakeoffLaunchPiece[]; removed: TakeoffLaunchPiece[] };
@@ -261,8 +262,8 @@ function decideOptions(input: AffaireTakeoffZoneInput, data: AffaireTakeoffZoneD
   }
   // No request yet and a dossier still on its way to « confirmé »: its confirmation starts the analysis.
   const dossierWait = input.dossier ? DOSSIER_WAIT[input.dossier] : undefined;
-  if (!request && !data.latestJob && dossierWait && !data.confirmedBeforeActivation) {
-    return { mode: "save_only", reason: "Le métré démarrera quand le dossier sera confirmé : il reprendra vos options." };
+  if (!request && !data.latestJob && dossierWait && !data.confirmedWithoutRequest) {
+    return { mode: "save_only", reason: "Vous pourrez choisir les plans à analyser en confirmant le brief." };
   }
   return { mode: "request", predecessorJobId: request?.jobs[0]?.id ?? data.latestJob?.id ?? null };
 }
@@ -278,21 +279,25 @@ export function buildAffaireTakeoffZone(zoneInput: AffaireTakeoffZoneInput): Aff
   }
   const { request, latestJob } = data;
   const hasDossier = input.dossier !== null && input.dossier !== "empty";
-  if (!request && !latestJob && input.planFileCount === 0 && !hasDossier) return null;
+  if (!request && !latestJob && !data.unrequestedRunning && input.planFileCount === 0 && !hasDossier && !data.confirmedWithoutRequest) return null;
 
   let state: RequestState;
   let pieces: TakeoffLaunchPiece[] = [];
   const links: AffaireTakeoffZoneLink[] = [];
-  if (request) {
+  if (data.unrequestedRunning) {
+    state = latestJob && isTakeoffVisibleJobInFlight(latestJob.status)
+      ? { ...describeAffaireTakeoffJob(latestJob), message: jobMessage(latestJob), facts: [] }
+      : { tone: "progress", status: "En cours", message: "Une analyse de l’affaire est en cours.", facts: [] };
+  } else if (request) {
     state = describeAffaireTakeoffRequest(request);
     pieces = request.pieces;
     links.push(...reasonLinks(request.state === "superseded" ? null : request.reason, input.canOperate));
   } else if (latestJob) {
     state = { ...describeAffaireTakeoffJob(latestJob), message: jobMessage(latestJob), facts: [] };
-  } else if (data.active && data.confirmedBeforeActivation) {
-    state = { tone: "warning", status: "Non démarré", facts: [], message: input.canOperate
-      ? "Dossier confirmé avant l’activation — options disponibles"
-      : "Dossier confirmé avant l’activation du démarrage automatique : aucune analyse n’a démarré." };
+  } else if (data.confirmedWithoutRequest) {
+    state = { tone: "neutral", status: "Métré non demandé", facts: [], message: input.canOperate && input.planFileCount > 0
+      ? "Choisissez les plans à analyser dans les options du métré."
+      : "Le brief est confirmé. Aucune analyse de plan n’a été demandée." };
   } else if (data.active && input.dossier && DOSSIER_WAIT[input.dossier]) {
     const reason = DOSSIER_WAIT[input.dossier]!;
     state = { tone: "info", status: "En attente du dossier", message: describeTakeoffLaunchReason(reason), facts: [] };

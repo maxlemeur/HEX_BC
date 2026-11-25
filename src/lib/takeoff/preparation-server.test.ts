@@ -677,7 +677,7 @@ describe("the sealing of a member's confirmation", () => {
     // Two versions to choose between: the member is asked, nothing is confirmed, both are read and digested.
     const unresolved = await confirmTakeoffPreparation(confirmation);
     expect(unresolved.confirmedAt).toBeNull();
-    const choose = async (keep: string, from: typeof unresolved) => {
+    const choose = async (keep: string, from: Pick<typeof unresolved, "draft" | "revision">) => {
       const left = from.draft.sources.find((source) => source.document_id === f.file.id)!;
       const right = from.draft.sources.find((source) => source.document_id === broken.id)!;
       from.draft.plan_revision_decisions = [{ left: { document_id: left.document_id, content_hash: left.content_hash! },
@@ -774,6 +774,28 @@ describe("the sealing of a member's confirmation", () => {
     await expect(confirmPlanSet(M3_PLAN_SET_ID)).rejects.toMatchObject({ status: 422, code: "TAKEOFF_FILE_TOO_LARGE",
       message: "Le plan « Plan fictif.pdf » dépasse les limites d’une analyse. Retirez-le des pièces retenues ou réduisez-le avant de confirmer." });
     expect(g.getRecord()?.confirmed_snapshot).toBeNull();
+  });
+
+  it("seals only the named manual plan while keeping an unselected 201-page plan available in the options", async () => {
+    const f = fixture();
+    const extra = { ...f.file, id: "88888888-8888-4888-8888-888888888888", file_name: "Plan long.pdf",
+      file_path: `${M3_TENANT_ID}/plan-long.pdf`, page_count: null };
+    const bytes = await pdfOfPages(201);
+    extra.file_size_bytes = bytes.byteLength;
+    f.files.push(extra);
+    f.contents.set(extra.file_path, bytes);
+    const opened = await loadTakeoffPreparation(M3_PROJECT_ID, M3_PLAN_SET_ID);
+    const saved = await saveTakeoffPreparation({ projectId: M3_PROJECT_ID, draft: opened.draft, expectedRevision: opened.revision });
+    const choose = (id: string, revision: number) => confirmTakeoffPreparation({
+      ...confirmation, expectedRevision: revision, planFileIds: [id],
+    });
+    const confirmed = await choose(f.file.id, saved.revision!);
+    const snapshot = await launchPlanSet(f, M3_PLAN_SET_ID, confirmed.revision);
+    expect(snapshot.preparation.sources.filter(s => s.kind === "plan" && s.active).map(s => s.document_id)).toEqual([f.file.id]);
+    expect(f.user.storageCalls.some(call => call.paths.includes(extra.file_path))).toBe(false);
+    const options = await loadTakeoffPreparation(M3_PROJECT_ID, M3_PLAN_SET_ID);
+    expect(options.draft.sources.filter(s => s.active).map(s => s.document_id)).toContain(extra.id);
+    await expect(choose(extra.id, confirmed.revision!)).rejects.toMatchObject({ code: "TAKEOFF_FILE_TOO_LARGE" });
   });
 
   // Budget closing round: the activation is read only when it can change the outcome (plans past the limit together),

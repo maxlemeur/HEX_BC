@@ -190,7 +190,7 @@ export function resolveTakeoffRequestStep({
       }
       // Read plans whose analyses this member does not read: said as such, never as plans that could not be read.
       if ((request.units?.coverage.succeeded ?? 0) > 0) {
-        return { title: "Plans lus", description: `${lead}Leur revue n’est pas accessible avec votre profil.`, action: null };
+        return { title: "Plans lus", description: `${lead}La revue n’est pas accessible avec votre profil.`, action: null };
       }
       // Nothing read: each plan says why, and a new analysis is offered only when a plan's decision offers it to this member.
       const offersNew = request.jobs.some((job) => job.resume?.action === "new_analysis");

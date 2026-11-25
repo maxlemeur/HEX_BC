@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+vi.mock("@/lib/takeoff/local-dispatcher", () => ({ isTakeoffPlanDispatchActive: async () => true }));
 vi.mock("@/lib/supabase/service-role", () => ({ createServiceRoleClient: vi.fn() }));
 vi.mock("@/lib/takeoff/launch-request-server", () => ({ readAffaireTakeoffLaunchState: vi.fn() }));
 vi.mock("@/lib/takeoff/preparation-repository", () => ({ assertPreparationProjectAccess: vi.fn() }));
@@ -57,7 +58,7 @@ describe("readAffaireTakeoffZone", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(assertPreparationProjectAccess).mockResolvedValue(undefined as never);
-    vi.mocked(readAffaireTakeoffLaunchState).mockResolvedValue({ active: true, confirmedBeforeActivation: false,
+    vi.mocked(readAffaireTakeoffLaunchState).mockResolvedValue({ active: true, confirmedWithoutRequest: false,
       request: { id: REQUEST, origin: "automatic", state: "closed", mandateRevision: 1, reason: null, message: null, pieces: [],
         hasPayer: true, payerIsViewer: false, createdAt: "2026-11-21T08:00:00Z", admittedAt: "2026-11-21T08:05:00Z",
         closedAt: "2026-11-21T08:30:00Z", outcome: "success", jobId: null,
