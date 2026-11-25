@@ -10,19 +10,26 @@ import type { Database, Json } from "@/types/database";
 import { itemListEntries, withAddedItems } from "./item-list";
 import { derivedIntent, itemListGestureDigest, readItemListOverview, listWriteFailure, memberNames, readOrdered,
   readStoredItemList, requireListWriter } from "./item-list-server";
+import { assertTakeoffEnabled } from "./feature-flags";
 import { posteSourceId } from "./poste-list";
 import { parseTakeoffRequestManifest } from "./request-activity";
 import { readTakeoffVisibleSources } from "./source-visibility-server";
 import { designationKey, type FindCommand, type FindsView } from "./unlisted-finds";
 
 type Client = SupabaseClient<Database>;
-type Publication = { job_id: string; launch_unit_key: string; answer_count: number;
+type Publication = { job_id: string; launch_unit_key: string; answer_count: number; pages: number[];
   takeoff_launch_requests: { manifest: Json }; takeoff_list_revisions: { item_count: number } };
 type Decision = Database["public"]["Tables"]["takeoff_find_decisions"]["Row"];
 const readFailure = "Impossible de lire les ouvrages hors liste.";
 
+async function requireFindsAccess(projectId: string) {
+  const access = await requireAffaireAccess(projectId, "read");
+  await assertTakeoffEnabled(access.context.tenantId, { supabase: access.context.supabase });
+  return access;
+}
+
 export async function readUnlistedFinds(projectId: string): Promise<FindsView> {
-  const { context, project } = await requireAffaireAccess(projectId, "read");
+  const { context, project } = await requireFindsAccess(projectId);
   const scope = { tenantId: context.tenantId, projectId: project.id };
   const member = context.supabase as unknown as Client;
   const service = createServiceRoleClient();
@@ -32,7 +39,7 @@ export async function readUnlistedFinds(projectId: string): Promise<FindsView> {
     readOrdered<Decision>((from, to) => member.from("takeoff_find_decisions").select("*",{ count: "exact" })
       .eq("tenant_id", context.tenantId).eq("project_id", project.id).is("undone_at",null).order("decided_at").order("id").range(from,to)),
     readOrdered<Publication>((from,to) => service.from("takeoff_item_answer_publications")
-      .select("job_id,launch_unit_key,answer_count,takeoff_launch_requests!inner(manifest),takeoff_list_revisions!inner(item_count)", { count: "exact" })
+      .select("job_id,launch_unit_key,answer_count,pages,takeoff_launch_requests!inner(manifest),takeoff_list_revisions!inner(item_count)", { count: "exact" })
       .eq("tenant_id", context.tenantId).eq("project_id", project.id).order("published_at",{ ascending: false })
       .order("job_id").range(from,to)),
   ]);
@@ -43,9 +50,15 @@ export async function readUnlistedFinds(projectId: string): Promise<FindsView> {
     const unit = manifest?.units.find(unit => unit.key === row.launch_unit_key);
     const plan = unit?.plans.length === 1 && manifest?.plans.get(unit.plans[0]);
     if (!plan || !plan.planFileId || !plan.logicalId) return [];
+    const retainedPages = new Set(plan.pages);
+    const unitPages = new Set(unit.pages ?? []);
+    const pages = new Set(row.pages.filter(page => (!retainedPages.size || retainedPages.has(page))
+      && (!unitPages.size || unitPages.has(page)) && (plan.pageCount === null || page <= plan.pageCount)));
     return [{ jobId: row.job_id, planKey: plan.logicalId, fileId: plan.planFileId, documentId: plan.documentId,
-      planName: plan.name, total: row.takeoff_list_revisions.item_count,
-      full: !Array.isArray(asRecord(asRecord(asRecord(raw)?.order)?.list)?.asked_item_ids) && row.answer_count === row.takeoff_list_revisions.item_count }];
+      planName: plan.name, total: row.takeoff_list_revisions.item_count, pages,
+      wholePlan: plan.pageCount !== null && pages.size === plan.pageCount,
+      wholeList: !Array.isArray(asRecord(asRecord(asRecord(raw)?.order)?.list)?.asked_item_ids)
+        && row.answer_count === row.takeoff_list_revisions.item_count }];
   });
   const documentIds = [...new Set([...candidates.map(p => p.documentId), ...decisions.map(d => d.intake_document_id)]
     .filter((id): id is string => !!id))];
@@ -57,14 +70,20 @@ export async function readUnlistedFinds(projectId: string): Promise<FindsView> {
   if (documents.error) throw mapSupabaseError(documents.error, readFailure);
   const readableDocuments = new Set(documents.data.map(d => d.id));
   const documentLink = (id: string | null) => id && readableDocuments.has(id) ? id : null;
-  // Keep the latest complete reading and any subsequent targeted readings. A targeted read cannot erase the other finds.
-  const complete = new Set<string>();
-  const retained = candidates.filter(plan => {
+  // Only a later reading of the entire list replaces a page's findings. A targeted measurement adds its evidence.
+  const supersededPages = new Map<string, Set<number>>();
+  const retained = candidates.flatMap(plan => {
     if (visibility !== "all" && !visibility.planFiles.has(plan.fileId)
-      && !(plan.documentId === plan.planKey && visibility.documents.has(plan.documentId))) return false;
-    if (complete.has(plan.planKey)) return false;
-    if (plan.full) complete.add(plan.planKey);
-    return true;
+      && !(plan.documentId === plan.planKey && visibility.documents.has(plan.documentId))) return [];
+    const superseded = supersededPages.get(plan.planKey);
+    const visiblePages = new Set([...plan.pages].filter(page => !superseded?.has(page)));
+    const evaluateMismatch = !superseded && plan.wholeList && plan.wholePlan;
+    if (plan.wholeList) {
+      const covered = superseded ?? new Set<number>();
+      for (const page of plan.pages) covered.add(page);
+      supersededPages.set(plan.planKey, covered);
+    }
+    return visiblePages.size ? [{ ...plan, visiblePages, evaluateMismatch }] : [];
   });
   const jobs = await selectInChunks(retained.map(plan => plan.jobId), ids => service.from("takeoff_item_answer_publications")
     .select("job_id,unlisted_findings,takeoff_results!inner(warnings)").eq("tenant_id",context.tenantId)
@@ -88,7 +107,7 @@ export async function readUnlistedFinds(projectId: string): Promise<FindsView> {
     const entries = Array.isArray(row.unlisted_findings) ? row.unlisted_findings : [];
     for (const [index, entry] of entries.entries()) {
       const f = asRecord(entry);
-      if (!f || typeof f.page !== "number" || typeof f.evidence !== "string" || typeof f.designation !== "string") continue;
+      if (!f || typeof f.page !== "number" || !plan.visiblePages.has(f.page) || typeof f.evidence !== "string" || typeof f.designation !== "string") continue;
       const key = JSON.stringify([plan.planKey,designationKey(f.designation)]);
       const decisionJob = decisionJobs.get(key);
       if (coordinate.has(`${plan.jobId}:${index}`) || (decisionJob && decisionJob !== plan.jobId)) continue;
@@ -98,7 +117,7 @@ export async function readUnlistedFinds(projectId: string): Promise<FindsView> {
     const warnings = row.takeoff_results.warnings;
     const truncated = Array.isArray(warnings) && warnings.some(w => asRecord(w)?.code === "POSTE_HORS_LISTE_TRONQUE");
     if (!entries.length && !truncated) continue;
-    const count = plan.full ? await member.from("takeoff_item_answers").select("id",{ count: "exact",head: true })
+    const count = plan.evaluateMismatch ? await member.from("takeoff_item_answers").select("id",{ count: "exact",head: true })
       .eq("job_id",plan.jobId).eq("outcome","not_found") : null;
     if (count?.error) throw mapSupabaseError(count.error, readFailure);
     notices.push({ planKey: plan.planKey, planName: plan.planName, total: plan.total, outside: entries.length,
@@ -115,7 +134,7 @@ function writeFailure(error: {message: string}): never {
 }
 
 export async function decideUnlistedFinds(projectId: string, command: FindCommand) {
-  const { context, project } = await requireAffaireAccess(projectId, "read");
+  const { context, project } = await requireFindsAccess(projectId);
   const scope = { tenantId: context.tenantId, projectId: project.id };
   const service = createServiceRoleClient();
   const actor = context.userId;

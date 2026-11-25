@@ -8,17 +8,15 @@ import { NativeSelect } from "@/components/ui/native-select";
 import { sendFindDecision } from "@/lib/takeoff/item-table-client";
 import { ITEM_REVIEW_LIMITS } from "@/lib/takeoff/item-table";
 import { FIND_REASONS, type FindCommand, type FindsView, type UnlistedFind } from "@/lib/takeoff/unlisted-finds";
-import { TakeoffPreparationSourcePreview } from "../TakeoffPreparationSourcePreview";
 
 const coord = (f: UnlistedFind) => `${f.jobId}/${f.index}`;
 
-export function FindSource({ projectId, find }: { projectId: string; find: UnlistedFind }) {
+export function FindSource({ find }: { find: UnlistedFind }) {
   return <div className="min-w-0 space-y-1 whitespace-normal text-sm font-normal">
     <p>{find.planName} · page {find.page}</p>
     <p className="break-words text-muted-foreground">{find.evidence}</p>
-    {find.documentId ? <a className="underline" target="_blank" rel="noreferrer"
-      href={`/api/affaires/${projectId}/intake/files/${find.documentId}/preview#page=${find.page}`}>Voir le plan — page {find.page}</a>
-      : <TakeoffPreparationSourcePreview projectId={projectId} documentId={find.fileId} name={find.planName} page={find.page} />}
+    <a className="underline" target="_blank" rel="noreferrer"
+      href={`/api/takeoff/jobs/${find.jobId}/vector-plans/${find.fileId}#page=${find.page}`}>Voir le plan — page {find.page}</a>
   </div>;
 }
 
@@ -43,7 +41,7 @@ function AdditionFields({ find, sections, index }: { find: UnlistedFind; section
 }
 
 export function UnlistedFinds({ view, projectId, planKey, refresh, measure }: {
-  view: FindsView; projectId: string; planKey: string | null; refresh: () => Promise<unknown>;
+  view: FindsView; projectId: string; planKey: string | null; refresh: (kind: FindCommand["kind"]) => Promise<unknown>;
   measure: (plan: string, name: string, items: string[]) => void;
 }) {
   const inScope = (entry: { planKey: string }) => !planKey || planKey === entry.planKey;
@@ -75,7 +73,7 @@ export function UnlistedFinds({ view, projectId, planKey, refresh, measure }: {
           : `${result.itemIds.length} postes ajoutés à la liste. Aucune mesure lancée.`);
       } else setMessage(command.kind === "undo" ? "Mise à l’écart annulée." : "Ouvrage écarté.");
       setEditor(null);
-      await refresh();
+      await refresh(command.kind);
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Impossible d’enregistrer la décision."); }
     finally { setBusy(false); }
   }
@@ -108,14 +106,14 @@ export function UnlistedFinds({ view, projectId, planKey, refresh, measure }: {
       <div className="flex min-w-0 gap-2">
         {view.canWrite && <input type="checkbox" className="mt-1" aria-label={`Sélectionner l’ouvrage « ${f.designation} »`}
           checked={selected.includes(coord(f))} onChange={e => setSelected(e.target.checked ? [...selected,coord(f)] : selected.filter(id => id !== coord(f)))} />}
-        <div className="min-w-0"><strong className="break-words text-sm">{f.designation}</strong><FindSource projectId={projectId} find={f} /></div>
+        <div className="min-w-0"><strong className="break-words text-sm">{f.designation}</strong><FindSource find={f} /></div>
       </div>
       {view.canWrite && <div className="flex flex-wrap gap-2"><Button size="sm" variant="outline" onClick={() => edit("add",[f])}>Ajouter à la liste</Button>
         <Button size="sm" variant="ghost" onClick={() => edit("dismiss",[f])}>Écarter</Button></div>}
     </li>)}</ul>
     {dismissed.length > 0 && <details><summary className="cursor-pointer text-sm">{dismissed.length} écarté{dismissed.length > 1 ? "s" : ""}</summary>
       <ul className="divide-y">{dismissed.map(d => <li key={d.id} className="space-y-1 py-2"><strong>{d.designation}</strong>
-        <FindSource projectId={projectId} find={d} />
+        <FindSource find={d} />
         <p className="text-sm">{d.reason && FIND_REASONS[d.reason]}{d.detail && ` · ${d.detail}`} · {d.author} · {new Date(d.date).toLocaleString("fr-FR")}</p>
         {view.canWrite && <Button size="sm" variant="outline" disabled={busy} onClick={() => void save({ kind: "undo", decisionId: d.id })}>Annuler la mise à l’écart</Button>}
       </li>)}</ul></details>}

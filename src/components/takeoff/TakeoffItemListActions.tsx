@@ -1,6 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
+import { useSWRConfig } from "swr";
 import { useId, useRef, useState } from "react";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -40,6 +41,17 @@ async function post(url: string, body: unknown, unanswered: string): Promise<Pos
   return { kind: "refused", message: payload?.error?.message ?? "La liste des postes n’a pas pu être enregistrée." };
 }
 
+/** A new list revision updates both the open item table and the server-rendered list panel. */
+function useRefreshItemList(projectId: string) {
+  const router = useRouter();
+  const { mutate } = useSWRConfig();
+  return async () => {
+    await mutate(key => Array.isArray(key) && key[2] === projectId
+      && (key[0] === "item-table" || key[0] === "unlisted-finds"));
+    router.refresh();
+  };
+}
+
 /**
  * Accept the revision the sources propose, as shown: the server recomputes it and refuses one that changed. A
  * continuity is never preselected: each is a choice of the operator.
@@ -47,7 +59,7 @@ async function post(url: string, body: unknown, unanswered: string): Promise<Pos
 export function TakeoffItemListProposalForm({ projectId, expectedRevision, digest, cause, continuities }: {
   projectId: string; expectedRevision: number; digest: string; cause: "initial" | "proposal"; continuities: Continuity[];
 }) {
-  const router = useRouter();
+  const refreshList = useRefreshItemList(projectId);
   const intent = useRef<string>(crypto.randomUUID());
   const [accepted, setAccepted] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
@@ -69,7 +81,7 @@ export function TakeoffItemListProposalForm({ projectId, expectedRevision, diges
         if (failure.kind === "refused") intent.current = crypto.randomUUID();
         return;
       }
-      router.refresh();
+      await refreshList();
     } finally {
       setPending(false);
     }
@@ -107,7 +119,7 @@ export function TakeoffItemListProposalForm({ projectId, expectedRevision, diges
 export function TakeoffItemListAddForm({ projectId, expectedRevision, sections }: {
   projectId: string; expectedRevision: number; sections: Array<{ itemId: string; label: string }>;
 }) {
-  const router = useRouter();
+  const refreshList = useRefreshItemList(projectId);
   const id = useId();
   const intent = useRef<string>(crypto.randomUUID());
   const [error, setError] = useState<string | null>(null);
@@ -132,7 +144,7 @@ export function TakeoffItemListAddForm({ projectId, expectedRevision, sections }
       }
       intent.current = crypto.randomUUID();
       form.reset();
-      router.refresh();
+      await refreshList();
     } finally {
       setPending(false);
     }

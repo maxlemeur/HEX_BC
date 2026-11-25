@@ -44,9 +44,8 @@ armyTest("TKFIND01 les ouvrages hors liste sont décidés, mesurés sur le forfa
         await expect(ui.screen.getByText(/2 postes sur 3 non trouvés et 3 ouvrages vus hors liste/)).toBeVisible();
         await expect(ui.screen.getByText(/Aucun DPGF dans le dossier : liste issue du gabarit Plomberie, version 2 \(3 postes\)/)).toHaveCount(2);
       }
-      await row(finds[0].designation).getByRole("button",/Voir le plan/).click();
-      await expect(row(finds[0].designation).getByRole("link",/Ouvrir ventilation.pdf/)).toHaveAttribute("href",/#page=2$/);
-      await row(finds[0].designation).getByRole("button","Fermer l'aperçu",{ exact: true }).click();
+      const attestedPage = `/api/takeoff/jobs/${initial.id}/vector-plans/${plan.id}#page=2`;
+      await expect(row(finds[0].designation).getByRole("link", /Voir le plan/)).toHaveAttribute("href", attestedPage);
       await row(finds[2].designation).getByRole("button","Écarter",{ exact: true }).click();
       await ui.screen.getByLabel("Motif",{ exact: true }).selectOption({ value: "other" });
       await ui.screen.getByLabel("Précisez le motif").fill("Lot entretien fictif");
@@ -60,6 +59,14 @@ armyTest("TKFIND01 les ouvrages hors liste sont décidés, mesurés sur le forfa
       await block.getByText("1 écarté",{ exact: true }).click();
       await expect(block).toContainText("Lot entretien fictif");
       await expect(block).toContainText("Camille Exemple");
+      const directorProof = row(finds[0].designation).getByRole("link", /Voir le plan/);
+      await expect(directorProof).toHaveAttribute("href", attestedPage);
+      const pdf = await ui.browser.evaluate(async url => {
+        const response = await fetch(url);
+        const digest = await crypto.subtle.digest("SHA-256", await response.arrayBuffer());
+        return { status: response.status, hash: Array.from(new Uint8Array(digest), b => b.toString(16).padStart(2, "0")).join("") };
+      }, (await directorProof.getAttribute("href"))!);
+      expect(pdf).toEqual({ status: 200, hash: plan.hash });
       await expect(block.getByRole("button","Ajouter à la liste",{ exact: true })).toHaveCount(0);
       await expect(block.getByRole("button","Annuler la mise à l’écart",{ exact: true })).toHaveCount(0);
       expect((await apiRequest(ui.browser,"POST",`/api/affaires/${project}/takeoff/items/finds`,{ kind: "dismiss",
@@ -78,6 +85,13 @@ armyTest("TKFIND01 les ouvrages hors liste sont décidés, mesurés sur le forfa
       await button("Confirmer l’ajout").click();
       await expect.poll(async () => (await dossier.setup.from("takeoff_find_decisions").select("item_id")
         .eq("project_id",project).not("item_id","is",null)).data?.length).toBe(2);
+      await expect(ui.screen.getByText("Liste enregistrée · révision 2 · 5 postes", { exact: false })).toBeVisible();
+      await ui.screen.getByText("Ajouter un poste", { exact: true }).click();
+      const manual = ui.screen.getByRole("form", "Ajouter un poste", { exact: true });
+      await manual.getByRole("textbox", "Désignation", { exact: true }).fill("Poste manuel témoin");
+      await manual.getByLabel("Section", { exact: true }).selectOption({ label: "Ventilation" });
+      await manual.getByRole("button", "Ajouter le poste", { exact: true }).click();
+      await expect(ui.screen.getByText("Liste enregistrée · révision 3 · 6 postes", { exact: false })).toBeVisible();
       expect(await readOwnedPlanJobs(project)).toHaveLength(1);
       await button("Mesurer les postes ajoutés sur ventilation.pdf (2)").click();
       await expect(ui.screen.getByTestId("poste-remeasure-reading")).toContainText("Lecture de 2 postes sur 1 plan");
@@ -118,6 +132,49 @@ armyTest("TKFIND01 les ouvrages hors liste sont décidés, mesurés sur le forfa
       await expect(block).toContainText(changed[2].designation);
       await recordEvidence(ui.army,"unlisted-finds",{ project, plan: plan.id, initial: initial.id, targeted: measured.id,
         reread: next.id, widths: [1440,390], observedQuantity: 4, added: 2, availableAfterUndo: 2 });
+    } finally {
+      await deactivateOwnedItemListOrder();
+      await deactivateOwnedPlanDispatch();
+    }
+  });
+
+armyTest("TKFIND02 relire une seule page conserve les ouvrages des autres pages et ne conclut pas sur le plan entier",
+  { session: "army", trace: "off", tags: ["critical", "development", "takeoff-worker", "local"], timeout: 300000 }, async ui => {
+    await ui.app.open("/dashboard/affaires");
+    const owner = await signUpWorkerOwner(ui, "TFP");
+    await activateOwnedPlanDispatch();
+    await activateOwnedItemListOrder();
+    try {
+      const dossier = await seedPlanDossier(ui, owner, [{ name: "deux-pages.pdf", pages: 2 }]);
+      const [plan] = dossier.plans;
+      await publishOwnedItemTemplate(dossier.setup, owner, ["Lavabo", "Vanne", "Robinet"].map((label, i) =>
+        ({ id: `poste-${i}`, label, expectedUnit: "u" })));
+      const read = async (revision: number, finds: Array<{ designation: string; page: number; evidence: string }>, predecessor?: string) => {
+        const launch = await runOwnedTakeoffCommand(owner, ["launch", dossier.projectId, dossier.planSetId, randomUUID(),
+          String(revision), predecessor ? "-" : plan.id, ...(predecessor ? [predecessor] : [])]);
+        expect(launch.result?.outcome).toBe("admitted");
+        const job = (await readOwnedPlanJobs(dossier.projectId)).find(job => job.launch_request_id === launch.result?.requestId)!;
+        await runOwnedPlanDispatch(ui, owner, dossier.projectId, { itemAnswers: { [job.id]: { finds,
+          items: { Lavabo: { quantity: 1, unit: "u", page: 1 } } } } });
+        return job.id;
+      };
+      const first = await read(1, [{ designation: "Ancienne bouche", page: 1, evidence: "B1" },
+        { designation: "Clapet conservé", page: 2, evidence: "C2" }]);
+      const address = `/dashboard/affaires/${dossier.projectId}/takeoff?postes=liste`;
+      await ui.app.open(address);
+      const block = ui.browser.locator("#ouvrages-hors-liste");
+      await expect(block).toContainText("Ancienne bouche");
+      await expect(ui.screen.getByText(/2 postes sur 3 non trouvés et 2 ouvrages vus hors liste/)).toBeVisible();
+      await dossier.confirm([{ ...plan, pages: [1], inactive: false }], 2);
+      const second = await read(2, [{ designation: "Nouvelle bouche", page: 1, evidence: "N1" }], first);
+      const pages = await dossier.setup.from("takeoff_item_answer_publications").select("pages,answer_count").eq("job_id", second).single();
+      expect(pages.data).toEqual({ pages: [1], answer_count: 3 });
+      await ui.app.open(address);
+      await expect(block).toContainText("Nouvelle bouche");
+      await expect(block).toContainText("Clapet conservé");
+      await expect(block).not.toContainText("Ancienne bouche");
+      await expect(ui.screen.getByText(/cette liste ne correspond probablement pas à ce plan/)).toHaveCount(0);
+      await recordEvidence(ui.army, "finds-partial-plan", { first, second, retainedPages: [1], olderFindPage: 2, visibleFinds: 2 });
     } finally {
       await deactivateOwnedItemListOrder();
       await deactivateOwnedPlanDispatch();

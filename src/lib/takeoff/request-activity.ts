@@ -91,7 +91,7 @@ export type TakeoffRequestUnitJobRow = {
   updated_at: string;
 };
 
-type ManifestPlan = { planFileId: string | null; logicalId: string | null; documentId: string | null; name: string; pages: number[] };
+type ManifestPlan = { planFileId: string | null; logicalId: string | null; documentId: string | null; name: string; pages: number[]; pageCount: number | null };
 
 /** The part of a sealed manifest the activity reads: its units in order, the plans they name, the plans set aside. */
 export type TakeoffRequestManifest = {
@@ -140,6 +140,7 @@ export function parseTakeoffRequestManifest(raw: unknown): TakeoffRequestManifes
       documentId: typeof plan.intake_document_id === "string" ? plan.intake_document_id : null,
       name: plan.name,
       pages: toPages(plan.pages),
+      pageCount: typeof plan.page_count === "number" && Number.isSafeInteger(plan.page_count) && plan.page_count > 0 ? plan.page_count : null,
     });
   }
   const coverage = isRecord(raw.coverage) ? raw.coverage : {};

@@ -711,7 +711,7 @@ export function TakeoffItemTable({ projectId, viewerKey, signature }: {
                                 {line.label}
                               </button>
                               {sourceFind && <details className="mt-1 max-w-56 text-sm"><summary className="cursor-pointer">Vu sur le plan</summary>
-                                <FindSource projectId={projectId} find={sourceFind} />
+                                <FindSource find={sourceFind} />
                                 {canReview && <Button size="sm" variant="outline" onClick={() => measureAdded(sourceFind.planKey,sourceFind.planName,[line.itemId])}>
                                   Mesurer ce poste sur le plan</Button>}</details>}
                             </th>
@@ -832,7 +832,10 @@ export function TakeoffItemTable({ projectId, viewerKey, signature }: {
 
             {finds && <UnlistedFinds key={screenKey} view={finds} projectId={projectId}
               planKey={address.scope.kind === "plan" ? address.scope.planKey : null}
-              refresh={async () => { await Promise.all([findRead.mutate(),refresh()]); }} measure={measureAdded} />}
+              refresh={async kind => {
+                if (kind === "add") router.refresh();
+                await Promise.all([findRead.mutate(), refresh()]);
+              }} measure={measureAdded} />}
             {measureFinds && finds?.canWrite && <FindMeasureDialog key={measureFinds.intent} projectId={projectId} selection={measureFinds}
               onClose={() => setMeasureFinds(null)} onSent={() => { setMeasureFinds(null); void refresh(); }} />}
             {data.page.total > 0 ? (
