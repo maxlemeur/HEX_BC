@@ -1,19 +1,17 @@
 import "server-only";
 
-import type { Database } from "@/types/database";
 import type { AuthenticatedTenantContext } from "@/lib/auth/tenant-context";
-import { PLAN_FILES_BUCKET } from "@/lib/storage/buckets";
 import { readAllRows } from "@/lib/supabase/read-all";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
-import { buildPlanFileStoragePath, sanitizePlanPdfFilename } from "@/lib/takeoff/plan-file-display-name";
-import { inspectPlanSetResourceBudget, PLAN_FILE_MAX_SIZE_BYTES } from "@/lib/takeoff/plans";
+import { inspectPlanSetResourceBudget } from "@/lib/takeoff/plans";
 import { isTakeoffEnabled } from "@/lib/takeoff/feature-flags";
 import { isTakeoffPlanDispatchActive } from "@/lib/takeoff/local-dispatcher";
 import { readAdmittedContent, readingThroughOtherCopy } from "./admitted-plan-readings-server";
 import { readTakeoffVisibleSources } from "./source-visibility-server";
 import { isTakeoffSourceVisible } from "./request-activity";
-import { sha256Hex } from "./sha256";
 import { BRIEF_PLAN_CHANGED, briefPlanReadingState, type BriefPlanOption, type BriefPlanSelection, type SealedBriefPlans } from "./brief-plan-choice";
+
+import { readPlanCopyDigest } from "./plan-copy-digest-server";
 
 type Context = AuthenticatedTenantContext;
 
@@ -38,17 +36,7 @@ async function planOptions(context: Context, projectId: string, visible: Readonl
   }));
 }
 
-type VisibleFile = Pick<Database["public"]["Tables"]["plan_files"]["Row"], "id" | "plan_set_id" | "file_path" | "file_name" | "file_size_bytes">;
 const changed = { code: "TAKEOFF_BRIEF_PLAN_CHANGED", message: BRIEF_PLAN_CHANGED } as const;
-
-async function copyDigest(context: Context, file: VisibleFile) {
-  if (file.file_size_bytes <= 0 || file.file_size_bytes > PLAN_FILE_MAX_SIZE_BYTES ||
-      file.file_path !== buildPlanFileStoragePath({ tenantId: context.tenantId, setId: file.plan_set_id,
-        fileId: file.id, fileName: sanitizePlanPdfFilename(file.file_name) })) return null;
-  const { data, error } = await context.supabase.storage.from(PLAN_FILES_BUCKET).download(file.file_path);
-  if (error || !data || data.size !== file.file_size_bytes) return null;
-  return sha256Hex(new Uint8Array(await data.arrayBuffer()));
-}
 
 export async function readBriefPlanOptions(context: Context, projectId: string) {
   const service = createServiceRoleClient();
@@ -61,7 +49,7 @@ export async function readBriefPlanOptions(context: Context, projectId: string) 
   // The version token includes the copy UUID. Compare actual bytes to recognise a different copy.
   for (const option of options) {
     if (option.state === "analysed") continue;
-    const digest = await copyDigest(context, files.get(option.id)!);
+    const digest = await readPlanCopyDigest(context, files.get(option.id)!);
     if (!digest) {
       if (option.state !== "in_progress") option.state = "unverified";
       continue;
@@ -85,7 +73,7 @@ export async function attestBriefPlanChoice(context: Context, projectId: string,
     return { code: "TAKEOFF_BRIEF_PLAN_LIMIT", message: "Les plans choisis dépassent la taille autorisée. Réduisez votre sélection." };
   }
   for (const { id, version } of selected) {
-    const digest = await copyDigest(context, files.get(id)!);
+    const digest = await readPlanCopyDigest(context, files.get(id)!);
     if (!digest) return changed;
     plans[id] = { version, sha256: digest };
   }

@@ -173,7 +173,7 @@ function TakeoffPreparationPanelContent({ projectId, planSetId, estimateVersionI
       {support.chatGpt ? `${support.chatGpt.model} · Effort ${support.chatGpt.reasoningEffort ? CHATGPT_REASONING_EFFORT_LABELS[support.chatGpt.reasoningEffort].toLocaleLowerCase("fr") : "par défaut"}.` : "Connectez votre forfait ChatGPT et choisissez un modèle dans Mon profil pour lancer le métré."}{" "}
       <Link href="/dashboard/profile" className="underline">Gérer mon forfait ChatGPT</Link>
     </p>
-    {relaunchPlans?.withoutCopy.length && (relaunchPlans.planSetId === planSetId || relaunchPlans.planSetId === null) ? (
+    {relaunchPlans?.withoutCopy.length ? (
       <Alert variant="warning"><AlertDescription>
         {describeTakeoffRelaunchChoice({ withoutCopy: relaunchPlans.withoutCopy, remaining: [] })}
       </AlertDescription></Alert>
@@ -196,6 +196,7 @@ function TakeoffPreparationPanelContent({ projectId, planSetId, estimateVersionI
             </span>
             {relaunchPlans && <span className="text-xs text-muted-foreground">
               {PLAN_STATE_LABELS[state]}
+              {relaunchPlans.readThrough[id] && ` · sous le nom « ${relaunchPlans.readThrough[id]} »`}
               {unavailable ? (relaunchPlans.unavailable[id] === "removed" ? " · Retiré du dossier" : " · Copie de travail manquante")
                 : stop === "before_start" && state === "not_analysed" ? " · Arrêté avant le démarrage"
                 : stop === "interrupted" && state === "failed" ? " · Lecture arrêtée" : ""}

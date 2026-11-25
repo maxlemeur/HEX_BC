@@ -36,16 +36,21 @@ type Reading = { id: string; documentId: string | null; name: string; state: "an
 
 /** Only a successful or still active unit can prevent another copy of the same bytes from being read. */
 export async function readAdmittedContent(service: Service, tenantId: string, projectId: string) {
+  return admittedContent(await readAdmittedPlanRequests(service, tenantId, projectId));
+}
+
+export function admittedContent(requests: Awaited<ReturnType<typeof readAdmittedPlanRequests>>) {
   const byDigest = new Map<string, Reading[]>();
-  for (const { manifest, units, state } of await readAdmittedPlanRequests(service, tenantId, projectId)) {
+  for (const { manifest, units, state } of requests) {
     if (!units) continue;
     const byFile = new Map(units.units.map(unit => [unit.planFileId, unit.state]));
     for (const plan of manifest.plans) {
       if (!plan.content_sha256) continue;
-      const unit = units.format === "grouped" ? units.units[0]?.state : byFile.get(plan.plan_file_id);
+      const id = plan.plan_file_id.toLowerCase();
+      const unit = units.format === "grouped" ? units.units[0]?.state : byFile.get(id);
       if (unit !== "succeeded" && !(state === "admitted" && (unit === "queued" || unit === "running"))) continue;
       const readings = byDigest.get(plan.content_sha256) ?? [];
-      readings.push({ id: plan.plan_file_id, documentId: plan.intake_document_id, name: plan.name,
+      readings.push({ id, documentId: plan.intake_document_id, name: plan.name,
         state: unit === "succeeded" ? "analysed" : "in_progress" });
       byDigest.set(plan.content_sha256, readings);
     }

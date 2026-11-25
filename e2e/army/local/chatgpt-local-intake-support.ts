@@ -66,10 +66,11 @@ export function createIntakePlanActions(getServer: () => Pick<ChatGptLocalServer
     await expect(confirm).toBeVisible(DEV_SERVER_WORK);
     return confirm;
   }
-  const planReads = async () => (await readFile(getServer().transportLog, "utf8")).trim().split("\n").filter(Boolean).map(line => JSON.parse(line))
-    .filter(entry => entry.provider === "chatgpt-fixture" && entry.inputKind === "pdf").length;
+  const planCalls = async () => (await readFile(getServer().transportLog, "utf8")).trim().split("\n").filter(Boolean).map(line => JSON.parse(line))
+    .filter(entry => entry.provider === "chatgpt-fixture" && entry.inputKind === "pdf");
+  const planReads = async () => (await planCalls()).length;
   const forbiddenRequests = async () => (await readFile(getServer().transportLog, "utf8")).trim().split("\n").filter(Boolean).map(line => JSON.parse(line))
     .filter(entry => entry.provider === "forbidden").length;
 
-  return { signInAs, uploadDossierPlan, openBriefConfirmation, planReads, forbiddenRequests };
+  return { signInAs, uploadDossierPlan, openBriefConfirmation, planCalls, planReads, forbiddenRequests };
 }

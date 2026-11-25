@@ -1,12 +1,13 @@
 import { activateOwnedPlanDispatch, deactivateOwnedPlanDispatch, readOwnedPlanJobs } from "../takeoff/plan-dispatch-support";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { PDFDocument, PDFName } from "pdf-lib";
 import { afterAll, beforeAll, test } from "@e2e-dev/web";
 import { expect } from "e2e";
 
-import { createEstimateViaWizard, recordEvidence } from "../critical/fixtures";
+import { apiRequest, createEstimateViaWizard, recordEvidence } from "../critical/fixtures";
 import { hydratedUi, signIn } from "../critical/hydration-support";
 import { takeoffZone } from "../critical/preparation-support";
 import {
@@ -21,7 +22,7 @@ import { createIntakePlanActions, DEV_SERVER_WORK } from "./chatgpt-local-intake
 // Interrupted dossier launches and explicitly selected plan rereads.
 const server = chatGptLocalServer();
 let serverState: ChatGptLocalServer;
-const { signInAs, uploadDossierPlan, openBriefConfirmation, planReads, forbiddenRequests } = createIntakePlanActions(() => serverState);
+const { signInAs, uploadDossierPlan, openBriefConfirmation, planCalls, planReads, forbiddenRequests } = createIntakePlanActions(() => serverState);
 let localOrigin: string;
 let fixtureStore: string | undefined;
 let liveProbe: ChatGptLiveProbe | null = null;
@@ -351,6 +352,15 @@ async function relaunchAfterProviderTimeout({ app, screen, browser }: Parameters
     expect(jobs.map((job) => [job.plans, job.status])).toEqual(selected.map((id) => [[id], "completed"]));
     expect(await planReads() - readsBefore).toBe(selected.length);
     expect(await forbiddenRequests()).toBe(0);
+    if (untickSecond) {
+      await screen.getByTestId(`takeoff-tracking-job-${failedJobs[1].id}`)
+        .getByRole("button", "Relancer ce plan", { exact: true }).click();
+      await expect(n02).toBeChecked(DEV_SERVER_WORK);
+      await launchButton(1).click();
+      await expect.poll(async () => (await readOwnedLaunchRequests(projectId))[2], DEV_SERVER_WORK)
+        .toMatchObject({ outcome: "success", manifest_plans: [second.id] });
+      expect((await planCalls()).slice(readsBefore).map(call => call.planChoice)).toEqual(["N01", "N02"]);
+    }
     await recordEvidence(army, untickSecond ? "RELANCE02-selection-reduite" : "RELANCE01-deux-plans", {
       projectId, requests, failedJobs, jobs, screenshots, reads: selected.length,
       boundary: "Fictional PDFs, owned backend and simulated ChatGPT transport.",
@@ -412,7 +422,10 @@ if (!existsSync(liveProbePath)) test("RELANCE03 stopping a request offers its in
   }
 });
 
-if (!existsSync(liveProbePath)) test("RELANCE04 a stale default is cleared before paying again and a deliberate reread can proceed", {
+for (const throughTwin of [false, true]) {
+if (!existsSync(liveProbePath)) test(throughTwin
+  ? "RELANCE06 a successful reading through identical bytes clears the default and permits an explicit reread"
+  : "RELANCE04 a stale default is cleared before paying again and a deliberate reread can proceed", {
   tags: ["critical", "local", "chatgpt", "intake", "premetre"], session: "army", trace: "off", timeout: 360_000,
 }, async ({ app, screen, browser }) => {
   const owner = await createLocalChatGptOwner();
@@ -424,6 +437,21 @@ if (!existsSync(liveProbePath)) test("RELANCE04 a stale default is cleared befor
       .toMatchObject({ state: "closed", units_failed: 1, units_not_started: 1 });
     await setDecisionsControl({});
     const readsBefore = await planReads();
+    let twin: { id: string; setId: string } | null = null;
+    if (throughTwin) {
+      const created = await apiRequest<{ data: { plan_set: { id: string; tenant_id: string } } }>(browser, "POST",
+        "/api/takeoff/plan-sets", { project_id: projectId, name: "Copies de lecture" });
+      expect(created.status).toBe(201);
+      const set = created.body.data.plan_set;
+      const id = randomUUID();
+      const name = "Copie-N01.pdf";
+      const filePath = `${set.tenant_id}/${set.id}/${id}/${name}`;
+      const bytes = await readFile(path.resolve(".e2e/army/critical/artifacts/fixtures", projectId, "N01.pdf"));
+      expect((await owner.client.from("plan_files").insert({ id, tenant_id: set.tenant_id, plan_set_id: set.id,
+        file_name: name, file_path: filePath, file_type: "application/pdf", file_size_bytes: bytes.length })).error).toBeNull();
+      expect((await owner.client.storage.from("plan-files").upload(filePath, bytes, { contentType: "application/pdf" })).error).toBeNull();
+      twin = { id, setId: set.id };
+    }
     const openRelaunch = async () => {
       await ui.app.open(`/dashboard/affaires/${projectId}?view=overview`);
       await takeoffZone({ screen }).getByRole("button", "Options du métré", { exact: true }).click();
@@ -439,13 +467,17 @@ if (!existsSync(liveProbePath)) test("RELANCE04 a stale default is cleared befor
     try {
       await other.activate();
       await openRelaunch();
+      if (twin) {
+        await dialog.getByLabel("Jeu de plans à analyser", { exact: true }).selectOption({ value: twin.setId });
+        await dialog.getByRole("checkbox", /Copie-N01\.pdf.*Non lu/).check(DEV_SERVER_WORK);
+      }
       await launch.click();
       await expect.poll(async () => (await readOwnedLaunchRequests(projectId))[1], DEV_SERVER_WORK)
-        .toMatchObject({ state: "closed", outcome: "success", manifest_plans: [first.id] });
+        .toMatchObject({ state: "closed", outcome: "success", manifest_plans: [twin?.id ?? first.id] });
       await firstTab.activate();
       await expect(dialog.getByRole("checkbox", "N01.pdf Échec", { exact: true })).toBeChecked();
       await launch.click();
-      const read = dialog.getByRole("checkbox", "N01.pdf Lu", { exact: true });
+      const read = dialog.getByRole("checkbox", twin ? /N01\.pdf Lu.*Copie-N01\.pdf/ : "N01.pdf Lu", { exact: true });
       await expect(read).toBeVisible(DEV_SERVER_WORK);
       await expect(read).not.toBeChecked();
       await expect(dialog).toContainText("La sélection a été actualisée");
@@ -456,7 +488,7 @@ if (!existsSync(liveProbePath)) test("RELANCE04 a stale default is cleared befor
       await launch.click();
       await expect.poll(async () => (await readOwnedLaunchRequests(projectId))[2], DEV_SERVER_WORK)
         .toMatchObject({ state: "closed", outcome: "success", manifest_plans: [first.id] });
-      expect(await planReads() - readsBefore).toBe(2);
+      expect((await planCalls()).slice(readsBefore).map(call => call.planChoice)).toEqual(["N01", "N01"]);
     } finally {
       await other.close();
     }
@@ -467,6 +499,8 @@ if (!existsSync(liveProbePath)) test("RELANCE04 a stale default is cleared befor
     await rm(store, { force: true });
   }
 });
+
+}
 
 if (!existsSync(liveProbePath)) test("RELANCE05 a new document generation disables the old copy before another reading", {
   tags: ["critical", "local", "chatgpt", "intake", "premetre"], session: "army", trace: "off", timeout: 360_000,
