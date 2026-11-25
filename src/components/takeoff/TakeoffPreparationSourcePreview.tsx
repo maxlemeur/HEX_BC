@@ -6,12 +6,15 @@ import { useState } from "react";
 import { getTakeoffPreparationSourcePreviewAction } from "@/app/dashboard/affaires/_actions/takeoff-preparation";
 import { buttonVariants } from "@/components/ui/button";
 
-export function TakeoffPreparationSourcePreview({ projectId, documentId, name, page }: {
+export function TakeoffPreparationSourcePreview({ projectId, documentId, name, page, kind = "plan" }: {
   projectId: string;
   documentId: string;
   name: string;
   page?: number | null;
+  /** What the piece is: only a plan is called one (a CCTP or a DPGF listed as a source is a « document »). */
+  kind?: string;
 }) {
+  const noun = kind === "plan" ? "le plan" : "le document";
   const [preview, setPreview] = useState<{ url: string; name: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -25,7 +28,7 @@ export function TakeoffPreparationSourcePreview({ projectId, documentId, name, p
   }
   if (documentId.startsWith("upload:")) return null;
   return <div className="space-y-2">
-    <button type="button" className={buttonVariants({ variant: "ghost", size: "sm" })} disabled={busy} aria-label={`Voir le plan ${name}${page ? ` — page ${page}` : ""}`} onClick={() => void openPreview()}>{busy ? "Ouverture de la source…" : `Voir le plan${page ? ` — page ${page}` : ""}`}</button>
+    <button type="button" className={buttonVariants({ variant: "ghost", size: "sm" })} disabled={busy} aria-label={`Voir ${noun} ${name}${page ? ` — page ${page}` : ""}`} onClick={() => void openPreview()}>{busy ? "Ouverture de la source…" : `Voir ${noun}${page ? ` — page ${page}` : ""}`}</button>
     {error && <p role="status" className="text-xs text-warning">{error}</p>}
     {preview && <div className="space-y-2 rounded-lg border border-border bg-surface p-2">
       <div className="flex items-center justify-between gap-2 text-xs"><a href={preview.url} target="_blank" rel="noreferrer" className="text-primary underline">Ouvrir {preview.name}{page ? ` — page ${page}` : ""} dans un onglet</a><button type="button" className="text-muted-foreground underline" onClick={() => setPreview(null)}>Fermer l&apos;aperçu</button></div>
