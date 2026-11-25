@@ -314,7 +314,7 @@ npm run verify:pr
 ```
 
 Les parcours TesterArmy démarrent un serveur local dédié contre la base éphémère
-de la campagne. Ils sont répartis en trois fichiers, chacun avec son serveur, son
+de la campagne. Ils sont répartis en cinq fichiers, chacun avec son serveur, son
 compte propriétaire, son port et son dossier d'artefacts
 ([`chatgpt-local-journey-support.ts`](../../e2e/army/local/chatgpt-local-journey-support.ts)) :
 
@@ -328,10 +328,15 @@ compte propriétaire, son port et son dossier d'artefacts
   la photo lue devient des lignes en brouillon, ajoutées puis remplacées au
   choix du bureau), comparaison d’un devis fournisseur et assistant de chiffrage
   ou de revue du métré.
-- [`chatgpt-local-intake.e2e.ts`](../../e2e/army/local/chatgpt-local-intake.e2e.ts) :
-  lecture des pièces par l’assistant (ASSIST04), analyse, transcription et
-  réanalyse des pièces (INT), puis démarrage du métré à la confirmation du dossier
-  et depuis la zone de l’affaire (AUTO01 à AUTO07).
+- [`chatgpt-local-intake-documents.e2e.ts`](../../e2e/army/local/chatgpt-local-intake-documents.e2e.ts)
+  couvre la lecture des pièces par l’assistant (ASSIST04), leur classement et leur transcription,
+  ainsi que la mise à jour du brief.
+- [`chatgpt-local-intake-confirmation.e2e.ts`](../../e2e/army/local/chatgpt-local-intake-confirmation.e2e.ts)
+  couvre le choix des plans et le démarrage du métré après confirmation du brief (AUTO01 à AUTO11).
+  AUTO12 exerce l’activation du brief courant avec un seul worker.
+- [`chatgpt-local-intake-recovery.e2e.ts`](../../e2e/army/local/chatgpt-local-intake-recovery.e2e.ts)
+  couvre les interruptions liées aux droits, au poste ou au profil (INTRIGHT01, INTHOST01, INTPROFILE01)
+  et la relance des plans cochés (RELANCE01 à RELANCE05).
 
 Les [jobs parallèles](tester-army-ci.md#jobs-parallèles) placent ces fichiers dans
 des shards distincts. Une sélection filtrée qui contient plusieurs de ces fichiers

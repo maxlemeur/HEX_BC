@@ -153,7 +153,7 @@ export async function prepareChatGptServerWorkspace() {
  * The compile waves of a ChatGPT development server. "profile" and "journeys" are the readiness of a server: the real
  * protected pages and the callback's missing-state rejection, before UI assertions. The "takeoff" waves are every
  * other page and API route the ChatGPT local journeys use, so that no test waits for a compile.
- * "intake" warms the affaire's intake desk in chatgpt-local-intake.e2e.ts.
+ * "intake" warms the affaire's intake desk in each of the three chatgpt-local-intake-* journey files.
  */
 export type ChatGptCompileWave = "profile" | "journeys" | "intake" | (typeof TAKEOFF_JOURNEY_WAVES)[number];
 
