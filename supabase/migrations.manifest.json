@@ -396,6 +396,7 @@
     "20261124202259_takeoff_progress_poll_indexes.sql": "63578c186d234355dec8f2ec3c1f6528cd9ae54dba7e63fe77902ad218a3650d",
     "20261124210748_intake_guarded_brief_and_recovery.sql": "2d560880fdf310add6ca38484f6c6196a0fdca204b791a9cda2be9b138c8dc63",
     "20261124211251_takeoff_brief_plan_choice.sql": "83b5a179d198941a978e2d63b103828b3d4a6aaae12394f3aee43605f0b77a0d",
-    "20261125004459_intake_current_brief_contract.sql": "9e79bbe4e7867a87a3ebbcb67479850e0a8689166c9a8e4f51ea03e1740dd476"
+    "20261125004459_intake_current_brief_contract.sql": "9e79bbe4e7867a87a3ebbcb67479850e0a8689166c9a8e4f51ea03e1740dd476",
+    "20261125101310_takeoff_unlisted_find_decisions.sql": "45909a39719146ddbbfbb298f82ca79f44984da70172ed782bebb6e0291af123"
   }
 }
