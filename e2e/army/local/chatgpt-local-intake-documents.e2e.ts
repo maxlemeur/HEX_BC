@@ -49,6 +49,7 @@ beforeAll(async () => {
 for (const wave of TAKEOFF_JOURNEY_WAVES) beforeAll(() => server.compileTakeoffRoutes(wave));
 // The intake tests' own routes: in the body of the first of them, their compiles held its reclassification (INTRETRY01).
 beforeAll(() => server.compileIntakeRoutes());
+beforeAll(() => server.compileIntakeRoutes("intake-dpgf"));
 
 afterAll(() => server.stop(fixtureStore));
 
