@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import { getAffaireIntakeDpgfDownload, readAffaireIntakeDpgfFile } from "@/lib/affaires/intake-dpgf-server";
 import { badRequest, conflict, ok, toErrorResponse } from "@/lib/http/api-response";
+import { isSameOriginRequest } from "@/lib/http/same-origin";
 import { withPrivateNoStore } from "@/lib/http/response";
 import { ImportsApiError, toErrorResponse as toImportsErrorResponse, createImportFromMultipartFormData, reviewTabularPdfImportFile, validateTabularPdfReviewFile } from "@/lib/imports/server";
 
@@ -15,7 +16,7 @@ const bodySchema = z.discriminatedUnion("action", [
 ]);
 
 async function readAction(request: Request) {
-  if (request.headers.get("origin") !== new URL(request.url).origin) throw badRequest("Origine de requête refusée.");
+  if (!isSameOriginRequest(request)) throw badRequest("Origine de requête refusée.");
   if (!request.headers.get("content-type")?.startsWith("application/json")) throw badRequest("Payload JSON requis.");
   const reader = request.body?.getReader();
   if (!reader) throw badRequest("Payload manquant.");

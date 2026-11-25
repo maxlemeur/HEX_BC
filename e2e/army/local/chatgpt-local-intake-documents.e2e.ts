@@ -52,6 +52,49 @@ beforeAll(() => server.compileIntakeRoutes());
 
 afterAll(() => server.stop(fixtureStore));
 
+test("INTDPGF01 imports the dossier spreadsheet from the IPv4 loopback page", {
+  tags: ["critical", "local", "chatgpt", "intake", "dpgf"], session: "army", timeout: 240_000,
+}, async ({ app, screen, browser }) => {
+  if (liveProbe) throw new Error("This import uses the owned backend and fictional providers only.");
+  await signIn({ app, screen, browser }, localOrigin, fixtureEmail);
+  const ui = hydratedUi({ app, screen, browser }, localOrigin);
+  const { client } = await localClient();
+  const prefix = `ARMY-dossier-dpgf-${Date.now()}`;
+  const army = { runPrefix: prefix, projectName: prefix, ownedEstimates: [] };
+  const { projectId } = await createEstimateViaWizard(ui, { projectName: prefix, title: "DPGF du dossier" }, army);
+  const fileName = "exemple-dpgf.xlsx";
+  const transportBefore = await readFile(transportLog, "utf8");
+  await ui.app.open(`/dashboard/affaires/${projectId}?view=dossier`);
+  await browser.locator('input[type="file"][aria-label="Ajouter des pièces à l\'affaire"]').first()
+    .setInputFiles(path.resolve("public", fileName));
+  const document = () => client.from("affaire_intake_documents").select("id,upload_status,document_kind,classification_status")
+    .eq("project_id", projectId).single();
+  await expect.poll(async () => (await document()).data, DEV_SERVER_WORK).toMatchObject({ upload_status: "uploaded" });
+  await ui.app.open(`/dashboard/affaires/${projectId}?view=dossier`);
+  const table = screen.getByRole("table", "Documents reçus", { exact: true });
+  await table.getByRole("combobox", `Catégorie de ${fileName}`, { exact: true }).selectOption({ value: "dpgf" });
+  await table.getByRole("button", `Valider la classification de ${fileName}`, { exact: true }).click();
+  await expect.poll(async () => (await document()).data, DEV_SERVER_WORK)
+    .toMatchObject({ document_kind: "dpgf", classification_status: "classified" });
+  const documentId = (await document()).data!.id;
+  await ui.app.open(`/dashboard/affaires/${projectId}?intakeDocument=${documentId}#intake`);
+  await screen.getByRole("button", "Importer cette DPGF", { exact: true }).click();
+  const launch = screen.getByRole("button", "Lancer l'import", { exact: true });
+  await expect(launch).toBeEnabled();
+  const pageOrigin = await browser.evaluate(() => location.origin);
+  expect(pageOrigin).toMatch(/^http:\/\/127\.0\.0\.1:\d+$/);
+  const [response] = await Promise.all([
+    browser.waitForResponse(`${pageOrigin}/api/affaires/${projectId}/intake/files/${documentId}`),
+    launch.click(),
+  ]);
+  expect(response.status).toBe(201);
+  const imported = await client.from("dpgf_imports").select("id,filename,status,row_count").eq("project_id", projectId).single();
+  expect(imported.error).toBeNull();
+  expect(imported.data).toMatchObject({ filename: fileName, status: "completed", row_count: 8 });
+  expect(await readFile(transportLog, "utf8")).toBe(transportBefore);
+  await recordEvidence(army, "dossier-dpgf-loopback", { pageOrigin, status: response.status, documentId, import: imported.data });
+});
+
 if (!existsSync(liveProbePath)) test("ASSIST04 the assistant reads a dossier PDF by pages, cites its page and refuses another affaire's document", {
   tags: ["critical", "local", "chatgpt", "intake"], session: "army", timeout: 420_000,
 }, async ({ app, screen, browser }) => {
